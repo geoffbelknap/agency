@@ -7,6 +7,12 @@ import (
 	"testing"
 )
 
+func mockResolver(keys map[string]string) KeyResolver {
+	return func(name string) string {
+		return keys[name]
+	}
+}
+
 func TestBlockedHeaders(t *testing.T) {
 	// All hop-by-hop and dangerous headers must be blocked.
 	expected := []string{
@@ -62,13 +68,12 @@ func TestServiceRegistryRejectsBlockedHeader(t *testing.T) {
 		grantsYAML := "agent: test\ngrants:\n  - service: blocked-" + safeName + "\n    granted_at: \"2026-01-01\"\n    granted_by: test\n"
 		os.WriteFile(filepath.Join(agentDir, "services.yaml"), []byte(grantsYAML), 0o644)
 
-		// Write keys
-		keysContent := "KEY_" + strings.ToUpper(safeName) + "=secret-value\n"
-		keysFile := filepath.Join(dir, "keys-"+safeName+".env")
-		os.WriteFile(keysFile, []byte(keysContent), 0o644)
+		// Mock key resolver
+		envVar := "KEY_" + strings.ToUpper(safeName)
+		resolver := mockResolver(map[string]string{envVar: "secret-value"})
 
 		sr := NewServiceRegistry()
-		err := sr.LoadFromFiles(servicesDir, agentDir, keysFile)
+		err := sr.LoadFromFiles(servicesDir, agentDir, resolver)
 		if err != nil {
 			t.Fatalf("LoadFromFiles failed for header %q: %v", header, err)
 		}
@@ -97,11 +102,10 @@ func TestServiceRegistryAllowsNonBlockedHeader(t *testing.T) {
 	grantsYAML := "agent: test\ngrants:\n  - service: allowed-svc\n    granted_at: \"2026-01-01\"\n    granted_by: test\n"
 	os.WriteFile(filepath.Join(agentDir, "services.yaml"), []byte(grantsYAML), 0o644)
 
-	keysFile := filepath.Join(dir, "keys.env")
-	os.WriteFile(keysFile, []byte("API_KEY=my-secret-key\n"), 0o644)
+	resolver := mockResolver(map[string]string{"API_KEY": "my-secret-key"})
 
 	sr := NewServiceRegistry()
-	err := sr.LoadFromFiles(servicesDir, agentDir, keysFile)
+	err := sr.LoadFromFiles(servicesDir, agentDir, resolver)
 	if err != nil {
 		t.Fatalf("LoadFromFiles failed: %v", err)
 	}

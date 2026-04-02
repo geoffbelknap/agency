@@ -47,8 +47,6 @@ settings:
 	os.MkdirAll(servicesDir, 0755)
 	agentDir := filepath.Join(dir, "agent")
 	os.MkdirAll(agentDir, 0755)
-	keysFile := filepath.Join(dir, "service-keys.env")
-	os.WriteFile(keysFile, []byte(""), 0644)
 
 	auditDir := filepath.Join(dir, "audit")
 	os.MkdirAll(auditDir, 0755)
@@ -58,7 +56,6 @@ settings:
 	t.Setenv("EGRESS_DOMAINS_FILE", domainsFile)
 	t.Setenv("SERVICES_DIR", servicesDir)
 	t.Setenv("AGENT_DIR", agentDir)
-	t.Setenv("SERVICE_KEYS_FILE", keysFile)
 	t.Setenv("ENFORCER_LOG_DIR", auditDir)
 	t.Setenv("AGENT_NAME", "test-agent")
 
@@ -163,8 +160,6 @@ models:
 	os.MkdirAll(servicesDir, 0755)
 	agentDir := filepath.Join(dir, "agent")
 	os.MkdirAll(agentDir, 0755)
-	keysFile := filepath.Join(dir, "service-keys.env")
-	os.WriteFile(keysFile, []byte(""), 0644)
 	auditDir := filepath.Join(dir, "audit")
 	os.MkdirAll(auditDir, 0755)
 
@@ -173,7 +168,6 @@ models:
 	t.Setenv("EGRESS_DOMAINS_FILE", domainsFile)
 	t.Setenv("SERVICES_DIR", servicesDir)
 	t.Setenv("AGENT_DIR", agentDir)
-	t.Setenv("SERVICE_KEYS_FILE", keysFile)
 	t.Setenv("ENFORCER_LOG_DIR", auditDir)
 	t.Setenv("AGENT_NAME", "test-agent")
 	t.Setenv("EGRESS_PROXY", provider.URL)
@@ -220,8 +214,6 @@ models: {}
 	os.MkdirAll(servicesDir, 0755)
 	agentDir := filepath.Join(dir, "agent")
 	os.MkdirAll(agentDir, 0755)
-	keysFile := filepath.Join(dir, "service-keys.env")
-	os.WriteFile(keysFile, []byte(""), 0644)
 	auditDir := filepath.Join(dir, "audit")
 	os.MkdirAll(auditDir, 0755)
 
@@ -230,7 +222,6 @@ models: {}
 	t.Setenv("EGRESS_DOMAINS_FILE", domainsFile)
 	t.Setenv("SERVICES_DIR", servicesDir)
 	t.Setenv("AGENT_DIR", agentDir)
-	t.Setenv("SERVICE_KEYS_FILE", keysFile)
 	t.Setenv("ENFORCER_LOG_DIR", auditDir)
 	t.Setenv("AGENT_NAME", "test-agent")
 

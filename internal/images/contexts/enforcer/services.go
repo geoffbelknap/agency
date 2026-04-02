@@ -1,15 +1,46 @@
 package main
 
 import (
-	"bufio"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+// KeyResolver resolves a credential value by name.
+type KeyResolver func(name string) string
+
+// GatewayKeyResolver returns a KeyResolver that calls the gateway credential API.
+func GatewayKeyResolver(gatewayURL string) KeyResolver {
+	client := &http.Client{Timeout: 5 * time.Second}
+	return func(name string) string {
+		if gatewayURL == "" || name == "" {
+			return ""
+		}
+		resp, err := client.Get(gatewayURL + "/api/v1/internal/credentials/resolve?name=" + url.QueryEscape(name))
+		if err != nil {
+			return ""
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			return ""
+		}
+		var result struct {
+			Value string `json:"value"`
+		}
+		if json.NewDecoder(resp.Body).Decode(&result) != nil {
+			return ""
+		}
+		return result.Value
+	}
+}
 
 // ServiceCredential holds the resolved credential for a service.
 type ServiceCredential struct {
@@ -85,8 +116,8 @@ func (sr *ServiceRegistry) Lookup(name string) *ServiceCredential {
 	return sr.services[name]
 }
 
-// LoadFromFiles loads service definitions, grants, and keys to build the registry.
-func (sr *ServiceRegistry) LoadFromFiles(servicesDir, agentDir, keysFile string) error {
+// LoadFromFiles loads service definitions, grants, and resolves keys to build the registry.
+func (sr *ServiceRegistry) LoadFromFiles(servicesDir, agentDir string, resolveKey KeyResolver) error {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
 
@@ -127,9 +158,6 @@ func (sr *ServiceRegistry) LoadFromFiles(servicesDir, agentDir, keysFile string)
 		}
 	}
 
-	// Load keys from env file
-	keys := loadEnvFile(keysFile)
-
 	// Build service credentials
 	sr.services = make(map[string]*ServiceCredential, len(grants))
 	for _, grant := range grants {
@@ -138,10 +166,10 @@ func (sr *ServiceRegistry) LoadFromFiles(servicesDir, agentDir, keysFile string)
 			continue
 		}
 
-		// Look up the actual key value
+		// Resolve the actual key value via gateway API
 		keyVal := ""
-		if def.Credential.EnvVar != "" {
-			keyVal = keys[def.Credential.EnvVar]
+		if def.Credential.EnvVar != "" && resolveKey != nil {
+			keyVal = resolveKey(def.Credential.EnvVar)
 		}
 		if keyVal == "" {
 			continue
@@ -173,26 +201,3 @@ func (sr *ServiceRegistry) LoadFromFiles(servicesDir, agentDir, keysFile string)
 	return nil
 }
 
-// loadEnvFile reads a KEY=VALUE env file.
-func loadEnvFile(path string) map[string]string {
-	result := make(map[string]string)
-	f, err := os.Open(path)
-	if err != nil {
-		return result
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		if idx := strings.Index(line, "="); idx > 0 {
-			key := strings.TrimSpace(line[:idx])
-			val := strings.TrimSpace(line[idx+1:])
-			result[key] = val
-		}
-	}
-	return result
-}

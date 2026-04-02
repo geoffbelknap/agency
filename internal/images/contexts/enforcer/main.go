@@ -24,7 +24,6 @@ const (
 	defaultAuditDir        = "/agency/enforcer/audit"
 	defaultServicesDir     = "/agency/enforcer/services"
 	defaultAgentDir        = "/agency/agent"
-	defaultKeysFile        = "/agency/enforcer/service-keys.env"
 	defaultDomainsFile     = "/agency/agent/egress-domains.yaml"
 	defaultBodyNotifyURL   = "http://workspace:8090/hooks/constraint-change"
 )
@@ -94,8 +93,9 @@ func NewEnforcer() *Enforcer {
 	services := NewServiceRegistry()
 	servicesDir := envOr("SERVICES_DIR", defaultServicesDir)
 	agentDir := envOr("AGENT_DIR", defaultAgentDir)
-	keysFile := envOr("SERVICE_KEYS_FILE", defaultKeysFile)
-	if err := services.LoadFromFiles(servicesDir, agentDir, keysFile); err != nil {
+	gatewayURL := os.Getenv("GATEWAY_URL")
+	resolver := GatewayKeyResolver(gatewayURL)
+	if err := services.LoadFromFiles(servicesDir, agentDir, resolver); err != nil {
 		log.Printf("warning: could not load services: %v", err)
 	}
 
@@ -158,8 +158,9 @@ func (e *Enforcer) Reload() {
 	// Reload service registry
 	servicesDir := envOr("SERVICES_DIR", defaultServicesDir)
 	agentDir := envOr("AGENT_DIR", defaultAgentDir)
-	keysFile := envOr("SERVICE_KEYS_FILE", defaultKeysFile)
-	if err := e.services.LoadFromFiles(servicesDir, agentDir, keysFile); err != nil {
+	gwURL := os.Getenv("GATEWAY_URL")
+	keyResolver := GatewayKeyResolver(gwURL)
+	if err := e.services.LoadFromFiles(servicesDir, agentDir, keyResolver); err != nil {
 		log.Printf("warning: failed to reload services: %v", err)
 	} else {
 		log.Println("reloaded services")
