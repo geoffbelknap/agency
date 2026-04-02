@@ -23,20 +23,19 @@ jobs:
         with:
           app-id: ${{ secrets.HOMEBREW_APP_ID }}
           private-key: ${{ secrets.HOMEBREW_APP_PRIVATE_KEY }}
-          repositories: homebrew-agency
+          repositories: homebrew-tap
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: "1.26"
-          cache-dependency-path: agency-gateway/go.sum
+          cache-dependency-path: go.sum
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
           args: release --clean
-          workdir: agency-gateway
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ steps.app-token.outputs.token }}
