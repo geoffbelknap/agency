@@ -1,0 +1,24 @@
+agent: test-agent
+identity:
+  role: researcher
+  purpose: research tasks
+hard_limits:
+  - rule: never expose credentials
+    reason: security policy
+escalation:
+  always_escalate:
+    - auth-changes
+  flag_before_proceeding:
+    - modify-permissions
+budget:
+  mode: hard
+  soft_limit: 5.0
+  hard_limit: 10.0
+  max_daily_usd: 20.0
+  warning_threshold_pct: 80
+mcp:
+  mode: allowlist
+  allowed_servers:
+    - brave-search
+network:
+  egress_mode: denylist

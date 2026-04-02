@@ -1,0 +1,22 @@
+humans:
+  - id: admin
+    name: Admin
+    roles:
+      - op
+    created: "2026-03-20T00:00:00Z"
+    status: active
+agents:
+  - id: agent-1
+    name: Researcher
+    type: standard
+    status: active
+teams:
+  - id: team-1
+    name: Engineering
+    members:
+      - agent-1
+exception_routes:
+  - domain: security
+    approvers:
+      - admin
+    requires_dual_approval: false

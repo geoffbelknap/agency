@@ -1,0 +1,109 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Agency",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#0D9373",
+    "light": "#07C983",
+    "dark": "#0D9373"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/geoffbelknap/agency"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Quick Start",
+      "href": "/quickstart"
+    }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting started",
+            "pages": [
+              "index",
+              "what-is-agency",
+              "quickstart",
+              "getting-api-keys",
+              "concepts",
+              "glossary"
+            ]
+          },
+          {
+            "group": "Working with agents",
+            "pages": [
+              "agents",
+              "missions",
+              "meeseeks",
+              "presets",
+              "capabilities",
+              "credentials"
+            ]
+          },
+          {
+            "group": "Communication & coordination",
+            "pages": [
+              "channels-and-messaging",
+              "teams"
+            ]
+          },
+          {
+            "group": "Governance",
+            "pages": [
+              "policies-and-governance",
+              "security",
+              "threat-model"
+            ]
+          },
+          {
+            "group": "Deployment & integration",
+            "pages": [
+              "packs",
+              "connectors-and-intake",
+              "events",
+              "hub"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "model-routing",
+              "infrastructure",
+              "architecture-diagram",
+              "cli-reference",
+              "troubleshooting"
+            ]
+          },
+          {
+            "group": "Project",
+            "pages": [
+              "ROADMAP"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "icon": "square-terminal",
+        "openapi": "https://raw.githubusercontent.com/geoffbelknap/agency/main/agency-gateway/internal/api/openapi.yaml"
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/geoffbelknap/agency"
+    }
+  }
+}

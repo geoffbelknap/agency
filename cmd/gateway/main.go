@@ -1,0 +1,837 @@
+package main
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/charmbracelet/log"
+	"github.com/go-chi/chi/v5"
+	chiMiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+
+	"github.com/geoffbelknap/agency/internal/api"
+	"github.com/geoffbelknap/agency/internal/apiclient"
+	"github.com/geoffbelknap/agency/internal/update"
+	auditpkg "github.com/geoffbelknap/agency/internal/audit"
+	agencyCLI "github.com/geoffbelknap/agency/internal/cli"
+	"github.com/geoffbelknap/agency/internal/config"
+	"github.com/geoffbelknap/agency/internal/daemon"
+	"github.com/geoffbelknap/agency/internal/docker"
+	"github.com/geoffbelknap/agency/internal/events"
+	"github.com/geoffbelknap/agency/internal/logs"
+	"github.com/geoffbelknap/agency/internal/models"
+	"github.com/geoffbelknap/agency/internal/orchestrate"
+	"github.com/geoffbelknap/agency/internal/ws"
+)
+
+var (
+	version   = "dev"
+	commit    = "none"
+	date      = "unknown"
+	buildID   = "unknown"
+	sourceDir = "" // stamped by Makefile ldflags for dev builds
+)
+
+// isLocalhostOrigin checks whether the given Origin URL refers to a localhost
+// address (127.0.0.1, ::1, or "localhost") on any port. Returns false for
+// anything else, including malformed URLs.
+func isLocalhostOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || u.Scheme == "" {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// corsMiddleware allows browser-based clients (web UI, dev servers) on
+// localhost to call the gateway API. Non-localhost origins are rejected —
+// the Access-Control-Allow-Origin header is simply not set, so the browser
+// blocks the response.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" && isLocalhostOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Requested-With")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func pad(s string, n int) string {
+	for len(s) < n {
+		s += " "
+	}
+	return s
+}
+
+func customHelp(cmd *cobra.Command, _ []string) {
+	// If this is a subcommand (not root), render contextual help
+	if cmd.HasParent() {
+		subcommandHelp(cmd)
+		return
+	}
+
+	// Root help — grouped sections
+	groups := []struct{ id, title string }{
+		{"daily", "Daily Operations"},
+		{"agent", "Agent Lifecycle"},
+		{"manage", "Management"},
+		{"platform", "Platform"},
+	}
+	grouped := map[string][]*cobra.Command{}
+	for _, c := range cmd.Commands() {
+		if c.Hidden || c.Name() == "help" || c.Name() == "completion" {
+			continue
+		}
+		grouped[c.GroupID] = append(grouped[c.GroupID], c)
+	}
+
+	fmt.Println("Agency — An operating system for AI agents")
+	fmt.Println()
+	fmt.Println("Usage: agency <command> [options]")
+
+	for _, g := range groups {
+		cmds := grouped[g.id]
+		if len(cmds) == 0 {
+			continue
+		}
+		fmt.Printf("\n  %s\n", g.title)
+		for _, c := range cmds {
+			if c.HasSubCommands() {
+				fmt.Printf("    %s  %s\n", pad(c.Name()+" ...", 28), c.Short)
+			} else {
+				use := c.Use
+				if i := len(c.Name()); i < len(use) {
+					use = c.Name() + use[i:]
+				}
+				fmt.Printf("    %s  %s\n", pad(use, 28), c.Short)
+			}
+		}
+	}
+
+	fmt.Println()
+	fmt.Println("Run 'agency <command> --help' for details.")
+}
+
+func subcommandHelp(cmd *cobra.Command) {
+	// Build the full command path: "agency hub", "agency channel", etc.
+	path := cmd.CommandPath()
+
+	fmt.Printf("%s — %s\n", path, cmd.Short)
+	fmt.Println()
+
+	if cmd.HasSubCommands() {
+		fmt.Printf("Usage: %s <command> [options]\n", path)
+		fmt.Println()
+		for _, c := range cmd.Commands() {
+			if c.Hidden || c.Name() == "help" {
+				continue
+			}
+			use := c.Use
+			if i := len(c.Name()); i < len(use) {
+				use = c.Name() + use[i:]
+			}
+			fmt.Printf("  %s  %s\n", pad(use, 28), c.Short)
+		}
+	} else {
+		fmt.Printf("Usage: %s\n", cmd.UseLine())
+	}
+
+	if cmd.HasLocalFlags() {
+		fmt.Println()
+		fmt.Println("Options:")
+		cmd.LocalFlags().VisitAll(func(f *pflag.Flag) {
+			if f.Hidden {
+				return
+			}
+			name := "--" + f.Name
+			if f.Shorthand != "" {
+				name = "-" + f.Shorthand + ", " + name
+			}
+			def := ""
+			if f.DefValue != "" && f.DefValue != "false" {
+				def = fmt.Sprintf(" (default: %s)", f.DefValue)
+			}
+			fmt.Printf("  %s  %s%s\n", pad(name, 28), f.Usage, def)
+		})
+	}
+
+	if cmd.Example != "" {
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println(cmd.Example)
+	}
+
+	fmt.Println()
+}
+
+func main() {
+	root := &cobra.Command{
+		Use:          "agency",
+		Short:        "Agency — An operating system for AI agents",
+		Version:      fmt.Sprintf("%s (%s, %s)", version, buildID, date),
+		SilenceUsage: true,
+		CompletionOptions: cobra.CompletionOptions{HiddenDefaultCmd: true},
+	}
+	root.SetHelpFunc(customHelp)
+	root.SetUsageFunc(func(cmd *cobra.Command) error { customHelp(cmd, nil); return nil })
+
+	// RegisterCommands sets up groups — must be called first
+	agencyCLI.RegisterCommands(root)
+
+	// Platform commands go in their own group
+	root.AddGroup(&cobra.Group{ID: "platform", Title: "Platform:"})
+
+	serve := serveCmd()
+	serve.GroupID = "platform"
+	serve.AddCommand(daemonStopCmd())
+	serve.AddCommand(daemonRestartCmd())
+	serve.AddCommand(daemonStatusCmd())
+	root.AddCommand(serve)
+
+	setupC := setupCmd()
+	setupC.GroupID = "platform"
+	root.AddCommand(setupC)
+
+	// Hidden alias: "init" → "setup" for backwards compatibility
+	initAlias := *setupC
+	initAlias.Use = "init"
+	initAlias.Hidden = true
+	root.AddCommand(&initAlias)
+
+	// Start background update check (non-blocking, cached 24h, fail-silent)
+	agencyHome := filepath.Join(os.Getenv("HOME"), ".agency")
+	waitForUpdate := update.Check(version, agencyHome)
+
+	if err := root.Execute(); err != nil {
+		os.Exit(1)
+	}
+
+	// Print update hint if a newer version was found (stderr so it doesn't
+	// pollute piped output)
+	if r := waitForUpdate(); r.Newer() {
+		fmt.Fprintf(os.Stderr, "\nA new version of agency is available: %s → %s\n", r.Current, r.Latest)
+		fmt.Fprintf(os.Stderr, "Update with: brew upgrade agency\n")
+	}
+}
+
+func serveCmd() *cobra.Command {
+	var (
+		httpAddr string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Start the gateway daemon (REST API)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// CLI flag overrides config; if neither set, use default.
+			if !cmd.Flags().Changed("http") {
+				cfg := config.Load()
+				if cfg.GatewayAddr != "" {
+					httpAddr = cfg.GatewayAddr
+				}
+			}
+			return runServe(httpAddr)
+		},
+	}
+
+	// Default to 127.0.0.1 for security (ASK Tenet 4: least privilege).
+	// Operators on Linux Docker Engine should set gateway_addr: "0.0.0.0:8200"
+	// in ~/.agency/config.yaml so containers can reach the gateway via
+	// host.docker.internal. Docker Desktop (Mac/Windows) tunnels through a VM
+	// so 127.0.0.1 is reachable and no override is needed.
+	cmd.Flags().StringVar(&httpAddr, "http", "127.0.0.1:8200", "HTTP API listen address")
+
+	return cmd
+}
+
+func setupCmd() *cobra.Command {
+	var (
+		name      string
+		preset    string
+		provider  string
+		apiKey    string
+		notifyURL string
+		noInfra   bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "setup",
+		Short: "Set up the Agency platform (config, daemon, infrastructure)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Check Docker first — fail fast with clear guidance
+			if !noInfra {
+				if err := checkDocker(); err != nil {
+					return err
+				}
+			}
+
+			// Quick setup: if --name or --preset flags are set, skip prompts
+			if name != "" || preset != "" {
+				return runSetup(provider, apiKey, notifyURL, noInfra)
+			}
+
+			// Interactive: prompt for provider/key if not set via flags
+			if provider == "" && !cmd.Flags().Changed("provider") {
+				scanner := bufio.NewScanner(os.Stdin)
+
+				fmt.Println("Agency Setup")
+				fmt.Println()
+				fmt.Println("LLM Provider:")
+				fmt.Println("  1. Anthropic (recommended)")
+				fmt.Println("  2. OpenAI")
+				fmt.Println("  3. Google")
+				fmt.Println("  4. Skip (configure later)")
+				fmt.Println()
+				fmt.Print("Select [1-4, default 1]: ")
+
+				choice := "1"
+				if scanner.Scan() {
+					if t := scanner.Text(); t != "" {
+						choice = t
+					}
+				}
+
+				switch choice {
+				case "1":
+					provider = "anthropic"
+				case "2":
+					provider = "openai"
+				case "3":
+					provider = "google"
+				case "4":
+					provider = ""
+				default:
+					provider = "anthropic"
+				}
+
+				if provider != "" && apiKey == "" {
+					fmt.Printf("\n%s API key: ", provider)
+					if scanner.Scan() {
+						apiKey = scanner.Text()
+					}
+				}
+			}
+
+			return runSetup(provider, apiKey, notifyURL, noInfra)
+		},
+	}
+
+	cmd.Flags().StringVar(&name, "name", "", "Agent name (quick setup)")
+	cmd.Flags().StringVar(&preset, "preset", "", "Agent preset (quick setup)")
+	cmd.Flags().StringVar(&provider, "provider", "", "LLM provider (anthropic, openai, google)")
+	cmd.Flags().StringVar(&apiKey, "api-key", "", "LLM provider API key")
+	cmd.Flags().StringVar(&notifyURL, "notify-url", "", "Notification URL (ntfy or webhook) for operator alerts")
+	cmd.Flags().BoolVar(&noInfra, "no-infra", false, "Skip Docker check and infrastructure startup")
+
+	return cmd
+}
+
+func daemonStopCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "stop",
+		Short: "Stop the gateway daemon",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !daemon.IsRunning(8200) {
+				fmt.Println("Daemon is not running.")
+				return nil
+			}
+			if err := daemon.Stop(); err != nil {
+				return err
+			}
+			fmt.Println("Daemon stopped.")
+			return nil
+		},
+	}
+}
+
+func daemonRestartCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "restart",
+		Short: "Restart the gateway daemon",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if daemon.IsRunning(8200) {
+				fmt.Println("Stopping daemon...")
+				if err := daemon.Stop(); err != nil {
+					return fmt.Errorf("stop: %w", err)
+				}
+				// Wait for process to exit
+				for i := 0; i < 20; i++ {
+					time.Sleep(250 * time.Millisecond)
+					if !daemon.IsRunning(8200) {
+						break
+					}
+				}
+			}
+			fmt.Println("Starting daemon...")
+			if err := daemon.Start(8200); err != nil {
+				return fmt.Errorf("start: %w", err)
+			}
+			fmt.Println("Daemon restarted.")
+			return nil
+		},
+	}
+}
+
+func daemonStatusCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "Check if the gateway daemon is running",
+		Run: func(cmd *cobra.Command, args []string) {
+			if daemon.IsRunning(8200) {
+				fmt.Println("Daemon is running.")
+			} else {
+				fmt.Println("Daemon is not running.")
+			}
+		},
+	}
+}
+
+func isWSL() bool {
+	data, err := os.ReadFile("/proc/version")
+	if err != nil {
+		return false
+	}
+	s := string(data)
+	return strings.Contains(s, "microsoft") || strings.Contains(s, "WSL")
+}
+
+func checkDocker() error {
+	wsl := isWSL()
+
+	if _, err := exec.LookPath("docker"); err != nil {
+		fmt.Fprintln(os.Stderr, "Docker is not installed.")
+		fmt.Fprintln(os.Stderr, "")
+		switch {
+		case runtime.GOOS == "darwin":
+			fmt.Fprintln(os.Stderr, "  Install Docker Desktop: https://docs.docker.com/desktop/install/mac-install/")
+		case wsl:
+			fmt.Fprintln(os.Stderr, "  Install Docker Desktop for Windows and enable WSL integration:")
+			fmt.Fprintln(os.Stderr, "    1. Install: https://docs.docker.com/desktop/install/windows-install/")
+			fmt.Fprintln(os.Stderr, "    2. Open Docker Desktop → Settings → Resources → WSL Integration")
+			fmt.Fprintln(os.Stderr, "    3. Enable integration for your WSL distro")
+		case runtime.GOOS == "linux":
+			fmt.Fprintln(os.Stderr, "  Install Docker: curl -fsSL https://get.docker.com | sh")
+		default:
+			fmt.Fprintln(os.Stderr, "  Install Docker: https://docs.docker.com/get-docker/")
+		}
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Then re-run: agency setup")
+		return fmt.Errorf("Docker is required but not installed")
+	}
+
+	// Check if Docker daemon is responsive
+	cmd := exec.Command("docker", "info")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "Docker is installed but not running.")
+		fmt.Fprintln(os.Stderr, "")
+		switch {
+		case runtime.GOOS == "darwin":
+			fmt.Fprintln(os.Stderr, "  Open Docker Desktop and wait for it to start.")
+		case wsl:
+			fmt.Fprintln(os.Stderr, "  Open Docker Desktop on Windows and ensure WSL integration is enabled:")
+			fmt.Fprintln(os.Stderr, "    Docker Desktop → Settings → Resources → WSL Integration")
+		case runtime.GOOS == "linux":
+			fmt.Fprintln(os.Stderr, "  Start Docker: sudo systemctl start docker")
+		}
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Then re-run: agency setup")
+		return fmt.Errorf("Docker is not running")
+	}
+
+	return nil
+}
+
+func runSetup(provider, apiKey, notifyURL string, noInfra bool) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot determine home directory: %w", err)
+	}
+	agencyHome := filepath.Join(home, ".agency")
+
+	if err := config.RunInit(config.InitOptions{
+		Provider:  provider,
+		APIKey:    apiKey,
+		NotifyURL: notifyURL,
+	}); err != nil {
+		return err
+	}
+
+	fmt.Println("Agency platform initialized at", agencyHome)
+	fmt.Println()
+
+	// Start the daemon
+	fmt.Println("Starting daemon...")
+	if err := daemon.Start(8200); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: daemon did not start: %v\n", err)
+		fmt.Println()
+		fmt.Println("Next steps:")
+		fmt.Println("  agency serve     # Start the daemon manually")
+		return nil
+	}
+
+	fmt.Println("Daemon started successfully.")
+
+	// Start infrastructure unless --no-infra was passed
+	if !noInfra {
+		fmt.Println()
+		fmt.Println("Starting infrastructure...")
+		cfg := config.Load()
+		c := apiclient.NewClient("http://" + cfg.GatewayAddr)
+		if err := c.InfraUp(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: infrastructure did not start: %v\n", err)
+			fmt.Println("  Run 'agency infra up' to start manually.")
+		} else {
+			fmt.Println("Infrastructure running.")
+		}
+	}
+
+	fmt.Println()
+	fmt.Println("Next steps:")
+	fmt.Println("  agency create my-agent  # Create an agent")
+	fmt.Println("  agency start my-agent   # Start an agent")
+	fmt.Println("  agency status           # Check platform status")
+
+	return nil
+}
+
+func runServe(httpAddr string) error {
+	logger := log.NewWithOptions(os.Stderr, log.Options{
+		ReportTimestamp: true,
+		Prefix:         "agency",
+	})
+
+	cfg := config.Load()
+	cfg.Version = version
+	cfg.BuildID = buildID
+	// Dev build: use source_dir stamped at build time if config doesn't override
+	if cfg.SourceDir == "" && sourceDir != "" {
+		cfg.SourceDir = sourceDir
+	}
+	logger.Info("agency home", "path", cfg.Home)
+
+	// Ensure audit directory has correct permissions (0700) — retroactively fix
+	// dirs created before this hardening was in place.
+	auditDir := filepath.Join(cfg.Home, "audit")
+	if info, err := os.Stat(auditDir); err == nil && info.IsDir() {
+		os.Chmod(auditDir, 0700)
+	}
+
+	// Write PID file
+	pidFile := daemon.PIDFile()
+	if pidFile != "" {
+		if err := os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0644); err != nil {
+			logger.Warn("could not write PID file", "err", err)
+		}
+	}
+
+	// Docker client
+	dc, err := docker.NewClient()
+	if err != nil {
+		return fmt.Errorf("docker: %w", err)
+	}
+	logger.Info("docker connected")
+
+	// Startup reconciliation — clean up orphaned containers/networks from
+	// previous gateway runs. Runs before the HTTP server starts; errors are
+	// logged but never fatal (reconcile is best-effort).
+	{
+		knownAgents := listAgentNames(cfg.Home)
+		reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		orchestrate.Reconcile(reconcileCtx, dc.RawClient(), knownAgents, logger)
+		reconcileCancel()
+	}
+
+	// WebSocket hub
+	wsHub := ws.NewHub(logger)
+	ws.StartCommsRelay(wsHub, logger)
+
+	// Event bus
+	audit := logs.NewWriter(cfg.Home)
+	auditFn := func(eventType string, data map[string]interface{}) {
+		audit.Write("_system", eventType, data)
+	}
+	eventBus := events.NewBus(logger, auditFn)
+
+	// Register delivery handlers
+	agentDelivery := events.NewAgentDelivery("http://localhost:8202")
+	outboundDelivery := events.NewOutboundDelivery()
+	ntfyDelivery := events.NewNtfyDelivery()
+	eventBus.RegisterDelivery(events.DestAgent, agentDelivery.Deliver)
+	eventBus.RegisterDelivery(events.DestWebhook, outboundDelivery.Deliver)
+	eventBus.RegisterDelivery(events.DestNtfy, ntfyDelivery.Deliver)
+
+	// Scheduler
+	scheduler := events.NewScheduler(eventBus)
+	scheduler.Start()
+	defer scheduler.Stop()
+
+	// Webhook manager
+	webhookMgr := events.NewWebhookManager(cfg.Home)
+
+	// Notification store — file-backed persistence for notification destinations
+	notifStore := events.NewNotificationStore(cfg.Home)
+
+	// Load notification subscriptions from store (with migration from config.yaml)
+	notifConfigs, _ := notifStore.Load()
+	if len(notifConfigs) == 0 && len(cfg.Notifications) > 0 {
+		// Migration: copy from config.yaml to notifications.yaml
+		for _, nc := range cfg.Notifications {
+			notifStore.Add(nc) //nolint:errcheck
+		}
+		notifConfigs = notifStore.List()
+		logger.Info("migrated notification configs from config.yaml to notifications.yaml", "count", len(notifConfigs))
+	}
+	notifSubs := events.BuildNotificationSubscriptions(notifConfigs)
+	for _, sub := range notifSubs {
+		eventBus.Subscriptions().Add(sub)
+	}
+
+	// Wire channel events from comms relay to event bus
+	wsHub.SetEventPublisher(func(channel, messageID, content, author string) {
+		event := models.NewChannelEvent(channel, messageID,
+			map[string]interface{}{"content": content},
+			map[string]interface{}{"author": author, "channel": channel},
+		)
+		eventBus.Publish(event)
+	})
+
+	// Wire operator-alertable agent signals to event bus as platform events.
+	// Signals like "error" (budget/enforcer), "escalation" (XPIA), "self_halt"
+	// become operator_alert events, routed to ntfy/webhook via subscriptions.
+	wsHub.SetAgentSignalPublisher(func(agent, signalType string, data map[string]interface{}) {
+		if data == nil {
+			data = make(map[string]interface{})
+		}
+		data["signal_type"] = signalType
+		events.EmitAgentEvent(eventBus, "operator_alert", agent, data)
+	})
+
+	// Rebuild subscriptions from active missions
+	missionMgr := orchestrate.NewMissionManager(cfg.Home)
+	missions, _ := missionMgr.List()
+	for _, m := range missions {
+		if m.Status == "active" {
+			events.OnMissionAssigned(eventBus, m)
+			for _, t := range m.Triggers {
+				if t.Source == "schedule" && t.Cron != "" {
+					scheduler.Register(t.Name, t.Cron, "") //nolint:errcheck
+				}
+			}
+		}
+	}
+
+	// Mission health monitor — checks active missions every 60 seconds.
+	// Alerts are emitted as platform events (mission_health_alert) which
+	// flow through the event bus to any configured notification subscribers.
+	healthCtx, healthCancel := context.WithCancel(context.Background())
+	defer healthCancel()
+	healthMgr, healthErr := orchestrate.NewMissionHealthMonitorWithClient(
+		missionMgr,
+		func(missionName, reason string) {
+			events.EmitMissionEvent(eventBus, "mission_health_alert", missionName, map[string]interface{}{
+				"reason": reason,
+			})
+		},
+		func(name, reason string) error {
+			return missionMgr.Pause(name, reason)
+		},
+		logger,
+		dc.RawClient(),
+	)
+	if healthErr != nil {
+		logger.Warn("mission health monitor unavailable", "error", healthErr)
+	} else {
+		healthMgr.Start(healthCtx)
+	}
+
+	// Shared suppression tracker — marks agents undergoing intentional
+	// stop/restart so container watchers don't fire spurious alerts.
+	stopSuppress := orchestrate.NewStopSuppression(30 * time.Second)
+
+	// Enforcer watcher — listens to Docker event stream for enforcer container
+	// exits. Fires a platform event so the operator knows an agent has lost
+	// API mediation (ASK Tenet 3: mediation is complete).
+	enforcerWatcher, enfWatchErr := orchestrate.NewEnforcerWatcherWithClient(
+		func(agentName, reason string) {
+			events.EmitAgentEvent(eventBus, "enforcer_exited", agentName, map[string]interface{}{
+				"reason": reason,
+			})
+		},
+		logger,
+		stopSuppress,
+		dc.RawClient(),
+	)
+	if enfWatchErr != nil {
+		logger.Warn("enforcer watcher unavailable", "error", enfWatchErr)
+	} else {
+		enforcerWatcher.Start(healthCtx)
+	}
+
+	// Workspace watcher — listens for workspace container crashes and
+	// auto-restarts. Emits platform events for operator alerting.
+	// Comms and knowledge now route through the enforcer mediation proxy,
+	// so no infra reconnect is needed on restart.
+	workspaceWatcher, wsWatchErr := orchestrate.NewWorkspaceWatcherWithClient(
+		func(agentName, reason string) {
+			events.EmitAgentEvent(eventBus, "workspace_crashed", agentName, map[string]interface{}{
+				"reason": reason,
+			})
+		},
+		logger,
+		stopSuppress,
+		dc.RawClient(),
+	)
+	if wsWatchErr != nil {
+		logger.Warn("workspace watcher unavailable", "error", wsWatchErr)
+	} else {
+		workspaceWatcher.Start(healthCtx)
+	}
+
+	// Audit summarizer — aggregates enforcer JSONL logs into per-mission metrics.
+	// Runs every 15 minutes; also available on-demand via POST /api/v1/audit/summarize.
+	knowledgeURL := "http://localhost:8201"
+	auditSummarizer := auditpkg.NewAuditSummarizer(cfg.Home, knowledgeURL, logger)
+	auditSummarizer.Start(healthCtx)
+
+	// REST API
+	r := chi.NewRouter()
+	r.Use(chiMiddleware.Recoverer)
+	r.Use(chiMiddleware.RealIP)
+	r.Use(corsMiddleware)
+	r.Use(api.BearerAuth(cfg.Token))
+	routeOpts := api.RouteOptions{
+		Hub:          wsHub,
+		EventBus:     eventBus,
+		Scheduler:    scheduler,
+		WebhookMgr:   webhookMgr,
+		NotifStore:   notifStore,
+		StopSuppress:    stopSuppress,
+		AuditSummarizer: auditSummarizer,
+	}
+	if healthMgr != nil {
+		routeOpts.HealthMonitor = healthMgr
+	}
+	api.RegisterRoutesWithOptions(r, cfg, dc, logger, routeOpts)
+
+	httpServer := &http.Server{
+		Addr:         httpAddr,
+		Handler:      r,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 5 * time.Minute,
+	}
+
+	// Start servers
+	errCh := make(chan error, 1)
+
+	go func() {
+		logger.Info("HTTP API listening", "addr", httpAddr)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- fmt.Errorf("http: %w", err)
+		}
+	}()
+
+	// Unix socket listener for container-to-gateway communication.
+	// Socket lives in ~/.agency/run/ so infra containers can mount the
+	// directory (not the file) and survive gateway restarts.
+	sockDir := filepath.Join(cfg.Home, "run")
+	os.MkdirAll(sockDir, 0755)
+	sockPath := filepath.Join(sockDir, "gateway.sock")
+	os.Remove(sockPath)                              // clean up stale socket
+	os.Remove(filepath.Join(cfg.Home, "gateway.sock")) // clean up legacy location
+	unixListener, err := net.Listen("unix", sockPath)
+	if err != nil {
+		logger.Warn("could not create Unix socket", "err", err)
+	} else {
+		os.Chmod(sockPath, 0666) // world-accessible — access controlled by bind mount, not file perms
+		// Restricted router: only the endpoints infra containers need.
+		// No BearerAuth — containers don't hold the operator token.
+		sockRouter := chi.NewRouter()
+		sockRouter.Use(chiMiddleware.Recoverer)
+		api.RegisterSocketRoutes(sockRouter, cfg, dc, logger, routeOpts)
+		unixServer := &http.Server{
+			Handler:      sockRouter,
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 5 * time.Minute,
+		}
+		go func() {
+			logger.Info("Unix socket listening", "path", sockPath)
+			if err := unixServer.Serve(unixListener); err != nil && err != http.ErrServerClosed {
+				logger.Warn("unix socket error", "err", err)
+			}
+		}()
+		defer func() {
+			unixServer.Close()
+			os.Remove(sockPath)
+		}()
+	}
+
+	// Graceful shutdown
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case sig := <-sigCh:
+		logger.Info("shutting down", "signal", sig)
+	case err := <-errCh:
+		logger.Error("server error", "err", err)
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_ = httpServer.Shutdown(ctx)
+
+	// Clean up PID file
+	if pidFile != "" {
+		os.Remove(pidFile)
+	}
+
+	logger.Info("shutdown complete")
+	return nil
+}
+
+// listAgentNames returns the names of all agent directories under ~/.agency/agents/.
+// Used by startup reconciliation to identify which agents are still configured.
+func listAgentNames(home string) []string {
+	agentsDir := filepath.Join(home, "agents")
+	entries, err := os.ReadDir(agentsDir)
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	return names
+}

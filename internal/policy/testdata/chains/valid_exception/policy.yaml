@@ -1,0 +1,6 @@
+delegation_grants:
+  - grant_id: GRANT-001
+    parameter: risk_tolerance
+    max_value: high
+    constraints:
+      max_expiry: "2030-01-01T00:00:00Z"

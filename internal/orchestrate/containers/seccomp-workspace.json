@@ -1,0 +1,162 @@
+{
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "defaultErrnoRet": 1,
+  "comment": "Agency workspace seccomp profile — minimal syscalls for Python 3.12 body runtime with subprocess execution. Blocks kernel attack surface while allowing normal agent operations.",
+  "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_AARCH64"],
+  "syscalls": [
+    {
+      "comment": "Process lifecycle — fork, exec, exit, wait",
+      "names": [
+        "clone", "clone3", "fork", "vfork",
+        "execve", "execveat",
+        "exit", "exit_group",
+        "wait4", "waitid",
+        "getpid", "getppid", "gettid",
+        "set_tid_address", "set_robust_list",
+        "setsid", "setpgid", "getpgid", "getpgrp",
+        "prctl", "arch_prctl",
+        "sched_getaffinity", "sched_yield",
+        "rseq"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+    {
+      "comment": "Memory management — mmap, brk, mprotect",
+      "names": [
+        "brk",
+        "mmap", "mmap2", "munmap", "mremap", "mprotect", "madvise",
+        "msync", "mincore", "mlock", "mlock2", "munlock",
+        "membarrier"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+    {
+      "comment": "File operations — open, read, write, close, stat",
+      "names": [
+        "open", "openat", "openat2",
+        "close", "close_range",
+        "read", "readv", "pread64", "preadv", "preadv2",
+        "write", "writev", "pwrite64", "pwritev", "pwritev2",
+        "lseek",
+        "stat", "fstat", "lstat", "newfstatat", "statx", "statfs", "fstatfs",
+        "access", "faccessat", "faccessat2",
+        "readlink", "readlinkat",
+        "getcwd",
+        "rename", "renameat", "renameat2",
+        "unlink", "unlinkat",
+        "mkdir", "mkdirat",
+        "rmdir",
+        "symlink", "symlinkat",
+        "link", "linkat",
+        "chmod", "fchmod", "fchmodat",
+        "chown", "fchown", "fchownat", "lchown",
+        "truncate", "ftruncate",
+        "fallocate",
+        "utimensat", "futimesat",
+        "getdents", "getdents64"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+    {
+      "comment": "File descriptors — dup, pipe, select, poll, fcntl",
+      "names": [
+        "dup", "dup2", "dup3",
+        "pipe", "pipe2",
+        "fcntl",
+        "ioctl",
+        "select", "pselect6",
+        "poll", "ppoll",
+        "epoll_create", "epoll_create1", "epoll_ctl", "epoll_wait", "epoll_pwait", "epoll_pwait2",
+        "eventfd", "eventfd2",
+        "timerfd_create", "timerfd_settime", "timerfd_gettime",
+        "signalfd", "signalfd4",
+        "splice", "tee", "sendfile",
+        "copy_file_range"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+    {
+      "comment": "Network — socket, connect, send, recv (needed for HTTP clients)",
+      "names": [
+        "socket", "socketpair",
+        "bind", "listen", "accept", "accept4",
+        "connect",
+        "sendto", "sendmsg", "sendmmsg",
+        "recvfrom", "recvmsg", "recvmmsg",
+        "shutdown",
+        "getsockname", "getpeername",
+        "getsockopt", "setsockopt"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+    {
+      "comment": "Signals — kill, signal handling",
+      "names": [
+        "kill", "tgkill", "tkill",
+        "rt_sigaction", "rt_sigprocmask", "rt_sigreturn",
+        "rt_sigpending", "rt_sigtimedwait", "rt_sigsuspend",
+        "sigaltstack"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+    {
+      "comment": "Time — clock, nanosleep, timers",
+      "names": [
+        "clock_gettime", "clock_getres", "clock_nanosleep",
+        "gettimeofday",
+        "nanosleep",
+        "timer_create", "timer_settime", "timer_gettime", "timer_getoverrun", "timer_delete",
+        "alarm"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+    {
+      "comment": "Thread synchronization — futex",
+      "names": [
+        "futex", "futex_waitv",
+        "get_robust_list"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+    {
+      "comment": "User/group identity (read-only)",
+      "names": [
+        "getuid", "geteuid", "getgid", "getegid",
+        "getgroups", "getresuid", "getresgid"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+    {
+      "comment": "System info — uname, sysinfo, resource limits",
+      "names": [
+        "uname",
+        "sysinfo",
+        "getrlimit", "setrlimit", "prlimit64",
+        "getrusage",
+        "getrandom"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+    {
+      "comment": "Temporary file and directory operations",
+      "names": [
+        "umask"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+    {
+      "comment": "Container init — required by runc/Docker during container startup",
+      "names": [
+        "capget", "capset",
+        "setuid", "setgid", "setgroups", "setresgid", "setresuid",
+        "chdir", "fchdir",
+        "pivot_root", "mount", "umount2",
+        "chroot",
+        "sethostname", "setdomainname",
+        "seccomp",
+        "unshare"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    }
+  ]
+}

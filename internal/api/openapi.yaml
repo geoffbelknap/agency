@@ -1,0 +1,5326 @@
+openapi: 3.1.0
+info:
+  title: Agency Gateway API
+  version: 0.1.0
+  description: |
+    REST API for the Agency AI agent operating platform. Deploys agents in
+    enforced isolation containers with credential scoping, network mediation,
+    read-only constraints, and continuous audit.
+
+    All endpoints except /health require API token authentication via the
+    X-Agency-Token header. Streaming endpoints accept `Accept: application/x-ndjson`.
+  license:
+    name: Proprietary
+
+servers:
+  - url: http://localhost:8200/api/v1
+    description: Local gateway daemon
+
+security:
+  - apiToken: []
+
+tags:
+  - name: Health
+    description: Health check and platform initialization
+  - name: Agents
+    description: Agent lifecycle — create, start, stop, halt, resume, restart, delete
+  - name: Budget
+    description: Per-agent LLM budget tracking and enforcement
+  - name: Context
+    description: Mid-session constraint push and policy delivery
+  - name: Presets
+    description: Agent preset CRUD (user presets shadow built-in)
+  - name: Deploy
+    description: Pack deployment and teardown
+  - name: Policy
+    description: Hierarchical policy engine — show and validate
+  - name: Hub
+    description: Component registry — search, install, configure, activate
+  - name: Capabilities
+    description: Platform capability registry — enable, disable, grant
+  - name: Knowledge
+    description: Knowledge graph queries, export, ontology, curation
+  - name: Infrastructure
+    description: Shared infrastructure lifecycle — up, down, rebuild, reload, status
+  - name: Channels
+    description: Inter-agent communication channels and messages
+  - name: Routing
+    description: LLM model routing metrics and configuration
+  - name: Admin
+    description: Administrative operations — doctor, destroy, trust, audit, egress
+  - name: Teams
+    description: Agent team management
+  - name: Intake
+    description: Connector intake pipeline — items, stats, webhook
+  - name: Missions
+    description: Mission lifecycle — create, assign, pause, resume, complete
+  - name: Memory
+    description: Agent procedural and episodic memory — procedures, episodes, trajectory
+  - name: Meeseeks
+    description: Ephemeral sub-agent spawning for delegated tasks
+  - name: Events
+    description: Platform event bus — list events and subscriptions
+  - name: Webhooks
+    description: Inbound webhook registration and event delivery
+  - name: MCP
+    description: MCP tool registry — list and call tools
+  - name: Internal
+    description: Internal infrastructure LLM proxy
+  - name: WebSocket
+    description: Real-time WebSocket endpoint (outside /api/v1)
+
+paths:
+  # ── Health ──────────────────────────────────────────────────────────────────
+  /health:
+    get:
+      operationId: health
+      summary: Health check
+      tags: [Health]
+      security: []
+      responses:
+        "200":
+          description: Gateway is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  version:
+                    type: string
+                  build_id:
+                    type: string
+
+  /init:
+    post:
+      operationId: initPlatform
+      summary: Bootstrap the Agency platform
+      tags: [Health]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                operator:
+                  type: string
+                force:
+                  type: boolean
+                anthropic_api_key:
+                  type: string
+                openai_api_key:
+                  type: string
+      responses:
+        "200":
+          description: Platform initialized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  # ── Agents ──────────────────────────────────────────────────────────────────
+  /agents:
+    get:
+      operationId: listAgents
+      summary: List all agents
+      tags: [Agents]
+      responses:
+        "200":
+          description: Array of agent summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentSummary"
+    post:
+      operationId: createAgent
+      summary: Create a new agent
+      tags: [Agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                preset:
+                  type: string
+                  default: generalist
+      responses:
+        "201":
+          description: Agent created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /agents/{name}:
+    get:
+      operationId: showAgent
+      summary: Show agent detail
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      responses:
+        "200":
+          description: Agent detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteAgent
+      summary: Delete an agent and its containers
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      responses:
+        "200":
+          description: Agent deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /agents/{name}/start:
+    post:
+      operationId: startAgent
+      summary: Start an agent (seven-phase sequence)
+      description: |
+        Runs the seven-phase start sequence: verify, enforcement, constraints,
+        workspace, identity, body, session. Supports NDJSON streaming when
+        Accept: application/x-ndjson is set.
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      responses:
+        "200":
+          description: Agent started (JSON or NDJSON stream)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartResult"
+            application/x-ndjson:
+              schema:
+                description: Stream of phase progress events ending with a complete event
+
+  /agents/{name}/restart:
+    post:
+      operationId: restartAgent
+      summary: Restart an agent with key rotation
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      responses:
+        "200":
+          description: Agent restarted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartResult"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /agents/{name}/stop:
+    post:
+      operationId: stopAgent
+      summary: Stop (halt) an agent
+      description: |
+        Three-tier halt: supervised (graceful), immediate (SIGTERM), emergency
+        (SIGKILL + silent). Emergency halt requires a reason (ASK Tenet 2).
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum: [supervised, immediate, emergency]
+                  default: supervised
+                reason:
+                  type: string
+                initiator:
+                  type: string
+      responses:
+        "200":
+          description: Halt record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HaltRecord"
+
+  /agents/{name}/halt:
+    post:
+      operationId: haltAgent
+      summary: Halt an agent (alias for stop)
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum: [supervised, immediate, emergency]
+                  default: supervised
+                reason:
+                  type: string
+                initiator:
+                  type: string
+      responses:
+        "200":
+          description: Halt record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HaltRecord"
+
+  /agents/{name}/resume:
+    post:
+      operationId: resumeAgent
+      summary: Resume a halted agent
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                initiator:
+                  type: string
+      responses:
+        "200":
+          description: Agent resumed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /agents/{name}/grant:
+    post:
+      operationId: grantAgent
+      summary: Grant a capability to an agent
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [capability]
+              properties:
+                capability:
+                  type: string
+      responses:
+        "200":
+          description: Capability granted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  agent:
+                    type: string
+                  capability:
+                    type: string
+
+  /agents/{name}/revoke:
+    post:
+      operationId: revokeAgent
+      summary: Revoke a capability from an agent
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [capability]
+              properties:
+                capability:
+                  type: string
+      responses:
+        "200":
+          description: Capability revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  agent:
+                    type: string
+                  capability:
+                    type: string
+
+  /agents/{name}/signal:
+    post:
+      operationId: relaySignal
+      summary: Relay a body-originated signal via WebSocket
+      description: |
+        Mediated path: body -> enforcer -> gateway -> WebSocket hub.
+        ASK tenet 2: every action leaves a trace.
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [signal_type]
+              properties:
+                signal_type:
+                  type: string
+                data:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          description: Signal relayed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /agents/{name}/channels:
+    get:
+      operationId: agentChannels
+      summary: List channels an agent is a member of
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      responses:
+        "200":
+          description: Array of channels
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /agents/{name}/results:
+    get:
+      operationId: listResults
+      summary: List task results in agent workspace
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      responses:
+        "200":
+          description: Array of result identifiers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    task_id:
+                      type: string
+
+  /agents/{name}/results/{taskId}:
+    get:
+      operationId: getResult
+      summary: Get a task result document
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: download
+          in: query
+          schema:
+            type: string
+            enum: ["true", "false"]
+      responses:
+        "200":
+          description: Markdown result document
+          content:
+            text/markdown:
+              schema:
+                type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /agents/{name}/config:
+    get:
+      operationId: getAgentConfig
+      summary: Get full agent config bundle
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      responses:
+        "200":
+          description: Agent configuration bundle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentConfigBundle"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      operationId: updateAgentConfig
+      summary: Partially update agent config
+      description: |
+        Accepts partial updates — only fields present in the request body are
+        updated. ASK tenet 6: constraint changes trigger enforcer reload so the
+        agent sees old or new, never a mix.
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                agent_yaml:
+                  type: object
+                  additionalProperties: true
+                identity:
+                  type: string
+                  nullable: true
+                constraints:
+                  type: object
+                  additionalProperties: true
+                workspace:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          description: Updated config bundle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentConfigBundle"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /agents/{name}/logs:
+    get:
+      operationId: agentLogs
+      summary: Get agent audit logs
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: until
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Array of audit log entries (max 500)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  # ── Budget ──────────────────────────────────────────────────────────────────
+  /agents/{name}/budget:
+    get:
+      operationId: getBudget
+      summary: Get agent budget usage (computed from audit logs)
+      description: |
+        Returns daily and monthly usage with limits and remaining budget.
+        Usage is computed from enforcer audit logs (same source as routing metrics).
+        No separate budget recording needed — costs are derived from LLM call logs.
+      tags: [Budget]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      responses:
+        "200":
+          description: Budget state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_name:
+                    type: string
+                  daily_used:
+                    type: number
+                    format: double
+                  daily_limit:
+                    type: number
+                    format: double
+                  daily_remaining:
+                    type: number
+                    format: double
+                  monthly_used:
+                    type: number
+                    format: double
+                  monthly_limit:
+                    type: number
+                    format: double
+                  monthly_remaining:
+                    type: number
+                    format: double
+                  per_task_limit:
+                    type: number
+                    format: double
+                  today_llm_calls:
+                    type: integer
+                  today_input_tokens:
+                    type: integer
+                    format: int64
+                  today_output_tokens:
+                    type: integer
+                    format: int64
+
+  /agents/{name}/budget/remaining:
+    get:
+      operationId: getBudgetRemaining
+      summary: Get remaining budget (lightweight)
+      tags: [Budget]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      responses:
+        "200":
+          description: Remaining budget
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  daily_used:
+                    type: number
+                    format: double
+                  daily_limit:
+                    type: number
+                    format: double
+                  daily_remaining:
+                    type: number
+                    format: double
+                  monthly_used:
+                    type: number
+                    format: double
+                  monthly_limit:
+                    type: number
+                    format: double
+                  monthly_remaining:
+                    type: number
+                    format: double
+
+  # ── Context ─────────────────────────────────────────────────────────────────
+  /agents/{name}/context/constraints:
+    get:
+      operationId: getConstraints
+      summary: Get current acknowledged constraints for an agent
+      tags: [Context]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      responses:
+        "200":
+          description: Current constraints
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /agents/{name}/context/policy:
+    get:
+      operationId: getContextPolicy
+      summary: Get agent name and current constraints
+      tags: [Context]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      responses:
+        "200":
+          description: Agent policy view
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent:
+                    type: string
+                  constraints:
+                    type: object
+                    additionalProperties: true
+
+  /agents/{name}/context/exceptions:
+    get:
+      operationId: getExceptions
+      summary: Get exceptions (currently returns empty list)
+      tags: [Context]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      responses:
+        "200":
+          description: Empty exception list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /agents/{name}/context/changes:
+    get:
+      operationId: getChanges
+      summary: Get full constraint change history
+      tags: [Context]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      responses:
+        "200":
+          description: Array of constraint changes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConstraintChange"
+
+  /agents/{name}/context/push:
+    post:
+      operationId: pushConstraints
+      summary: Push new constraints to a running agent
+      description: |
+        Validates the request, calls Manager.Push, triggers async delivery to
+        the agent's enforcer via WebSocket. Two-stage timeout handles alerting
+        and auto-halt for unacknowledged changes.
+      tags: [Context]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [constraints, reason]
+              properties:
+                constraints:
+                  type: object
+                  additionalProperties: true
+                severity_override:
+                  type: string
+                reason:
+                  type: string
+                initiator:
+                  type: string
+                  default: operator
+      responses:
+        "202":
+          description: Constraint push accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  change_id:
+                    type: string
+                  version:
+                    type: integer
+                  severity:
+                    type: string
+                  status:
+                    type: string
+                  ack_timeout_seconds:
+                    type: integer
+
+  /agents/{name}/context/status:
+    get:
+      operationId: getContextStatus
+      summary: Get latest constraint change status
+      tags: [Context]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      responses:
+        "200":
+          description: Latest change status or no_changes
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ConstraintChange"
+                  - type: object
+                    properties:
+                      status:
+                        type: string
+                        example: no_changes
+
+  # ── Presets ─────────────────────────────────────────────────────────────────
+  /presets:
+    get:
+      operationId: listPresets
+      summary: List all presets (user presets shadow built-in)
+      tags: [Presets]
+      responses:
+        "200":
+          description: Merged list of presets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PresetInfo"
+    post:
+      operationId: createPreset
+      summary: Create a new user preset
+      tags: [Presets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PresetFull"
+      responses:
+        "201":
+          description: Preset created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "409":
+          description: Preset already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /presets/{name}:
+    get:
+      operationId: getPreset
+      summary: Get full preset content
+      tags: [Presets]
+      parameters:
+        - $ref: "#/components/parameters/presetName"
+      responses:
+        "200":
+          description: Full preset document with source
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PresetFull"
+                  - type: object
+                    properties:
+                      source:
+                        type: string
+                        enum: [built-in, user]
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      operationId: updatePreset
+      summary: Update a user preset (built-in are read-only)
+      tags: [Presets]
+      parameters:
+        - $ref: "#/components/parameters/presetName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PresetFull"
+      responses:
+        "200":
+          description: Preset updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "403":
+          description: Built-in presets are read-only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deletePreset
+      summary: Delete a user preset
+      tags: [Presets]
+      parameters:
+        - $ref: "#/components/parameters/presetName"
+      responses:
+        "200":
+          description: Preset deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "403":
+          description: Built-in presets are read-only
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Deploy ──────────────────────────────────────────────────────────────────
+  /deploy:
+    post:
+      operationId: deployPack
+      summary: Deploy an agent pack
+      tags: [Deploy]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pack_path:
+                  type: string
+                pack:
+                  type: object
+                  description: Inline pack definition
+                dry_run:
+                  type: boolean
+                credentials:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        "200":
+          description: Deploy result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /teardown/{pack}:
+    post:
+      operationId: teardownPack
+      summary: Tear down a deployed pack
+      tags: [Deploy]
+      parameters:
+        - name: pack
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                delete:
+                  type: boolean
+      responses:
+        "200":
+          description: Pack torn down
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  # ── Policy ──────────────────────────────────────────────────────────────────
+  /policy/{agent}:
+    get:
+      operationId: showPolicy
+      summary: Show effective policy for an agent
+      tags: [Policy]
+      parameters:
+        - name: agent
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Effective policy
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /policy/{agent}/validate:
+    post:
+      operationId: validatePolicy
+      summary: Validate policy for an agent including hard floor enforcement
+      tags: [Policy]
+      parameters:
+        - name: agent
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Policy is valid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PolicyValidation"
+        "400":
+          description: Policy has violations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PolicyValidation"
+
+  # ── Hub ─────────────────────────────────────────────────────────────────────
+  /hub/update:
+    post:
+      operationId: hubUpdate
+      summary: Refresh hub sources (does not upgrade)
+      description: |
+        Git-pulls all configured hub sources into hub-cache.
+        Returns source diffs and available upgrades. Does NOT sync
+        managed files or upgrade components — use /hub/upgrade for that.
+      tags: [Hub]
+      responses:
+        "200":
+          description: Update report with source diffs and available upgrades
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateReport"
+
+  /hub/outdated:
+    get:
+      operationId: hubOutdated
+      summary: Show available upgrades from current cache
+      description: |
+        Compares installed component versions and managed file hashes
+        against the hub cache. No network access, no writes.
+      tags: [Hub]
+      responses:
+        "200":
+          description: List of available upgrades
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AvailableUpgrade"
+
+  /hub/upgrade:
+    post:
+      operationId: hubUpgrade
+      summary: Apply available upgrades
+      description: |
+        Syncs managed files and upgrades installed components.
+        With no body or empty components list, upgrades everything.
+        With specific component names, upgrades only those (no managed file sync).
+      tags: [Hub]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                components:
+                  type: array
+                  items:
+                    type: string
+                  description: Specific components to upgrade (omit to upgrade all)
+      responses:
+        "200":
+          description: Upgrade report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpgradeReport"
+
+  /hub/search:
+    get:
+      operationId: hubSearch
+      summary: Search hub components
+      tags: [Hub]
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: kind
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HubComponent"
+
+  /hub/install:
+    post:
+      operationId: hubInstall
+      summary: Install a hub component
+      tags: [Hub]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [component, kind]
+              properties:
+                component:
+                  type: string
+                kind:
+                  type: string
+                as:
+                  type: string
+                name:
+                  type: string
+                  description: Legacy field (use component instead)
+                source:
+                  type: string
+      responses:
+        "200":
+          description: Component installed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  id:
+                    type: string
+                  status:
+                    type: string
+
+  /hub/installed:
+    get:
+      operationId: hubInstalled
+      summary: List installed hub components
+      tags: [Hub]
+      responses:
+        "200":
+          description: Installed components
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    kind:
+                      type: string
+                    source:
+                      type: string
+                    installed_at:
+                      type: string
+
+  /hub/instances:
+    get:
+      operationId: hubInstances
+      summary: List hub instances (optionally filtered by kind)
+      tags: [Hub]
+      parameters:
+        - name: kind
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Instance list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HubInstance"
+
+  /hub/{nameOrID}:
+    get:
+      operationId: hubShow
+      summary: Show hub instance detail
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+      responses:
+        "200":
+          description: Instance detail with config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HubInstanceDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: hubRemove
+      summary: Remove a hub instance
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+      responses:
+        "200":
+          description: Instance removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /hub/{nameOrID}/activate:
+    post:
+      operationId: hubActivate
+      summary: Activate a hub instance (may require config)
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                config:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        "200":
+          description: Activated or config_required
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [active, config_required]
+                  name:
+                    type: string
+                  id:
+                    type: string
+                  missing:
+                    type: array
+                    items:
+                      type: string
+
+  /hub/{nameOrID}/deactivate:
+    post:
+      operationId: hubDeactivate
+      summary: Deactivate a hub instance
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+      responses:
+        "200":
+          description: Instance deactivated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /hub/{nameOrID}/config:
+    put:
+      operationId: hubConfigure
+      summary: Update configuration for a hub instance
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                config:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        "200":
+          description: Configured or config_required
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  name:
+                    type: string
+                  id:
+                    type: string
+                  missing:
+                    type: array
+                    items:
+                      type: string
+
+  /hub/{name}/info:
+    get:
+      operationId: hubInfo
+      summary: Get hub component info (legacy route)
+      tags: [Hub]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: kind
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Component info
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /hub/doctor:
+    get:
+      operationId: hubDoctor
+      summary: System-wide hub health check
+      description: |
+        Evaluates health for all installed hub components. Returns per-component
+        health status with checks for state, credentials, deployment, and service sync.
+      tags: [Hub]
+      responses:
+        "200":
+          description: Health reports for all components
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  components:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/HubHealthResponse"
+
+  /hub/{nameOrID}/check:
+    get:
+      operationId: hubCheck
+      summary: Health check for a single hub component
+      description: |
+        Evaluates health for a specific installed component. Checks state,
+        credentials, deployment status, and service configuration.
+      tags: [Hub]
+      parameters:
+        - name: nameOrID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Component health report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HubHealthResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /hub/{nameOrID}:
+    delete:
+      operationId: hubRemove
+      summary: Remove an installed hub component
+      tags: [Hub]
+      parameters:
+        - name: nameOrID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Component removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /connectors/{name}/requirements:
+    get:
+      operationId: getConnectorRequirements
+      summary: Get connector credential requirements and current status
+      tags: [Hub]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Connector credential requirements and status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connector:
+                    type: string
+                  version:
+                    type: string
+                  ready:
+                    type: boolean
+                  credentials:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  auth:
+                    type: object
+                    additionalProperties: true
+                  egress_domains:
+                    type: array
+                    items:
+                      type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /connectors/{name}/configure:
+    post:
+      operationId: configureConnector
+      summary: Configure connector credentials and auth (localhost or TLS only)
+      tags: [Hub]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                credentials:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        "200":
+          description: Connector configured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configured:
+                    type: array
+                    items:
+                      type: string
+                  auth_configured:
+                    type: boolean
+                  egress_domains_added:
+                    type: array
+                    items:
+                      type: string
+                  ready:
+                    type: boolean
+        "403":
+          description: Forbidden — request not from localhost and no TLS
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Capabilities ────────────────────────────────────────────────────────────
+  /capabilities:
+    get:
+      operationId: listCapabilities
+      summary: List all registered capabilities
+      tags: [Capabilities]
+      responses:
+        "200":
+          description: Capability list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Capability"
+    post:
+      operationId: addCapability
+      summary: Register a new capability
+      tags: [Capabilities]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, name]
+              properties:
+                kind:
+                  type: string
+                name:
+                  type: string
+                spec:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "201":
+          description: Capability added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /capabilities/{name}:
+    get:
+      operationId: showCapability
+      summary: Show capability detail
+      tags: [Capabilities]
+      parameters:
+        - $ref: "#/components/parameters/capabilityName"
+      responses:
+        "200":
+          description: Capability detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Capability"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteCapability
+      summary: Delete a capability
+      tags: [Capabilities]
+      parameters:
+        - $ref: "#/components/parameters/capabilityName"
+      responses:
+        "200":
+          description: Capability deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /capabilities/{name}/enable:
+    post:
+      operationId: enableCapability
+      summary: Enable a capability (triggers hot-reload for running agents)
+      tags: [Capabilities]
+      parameters:
+        - $ref: "#/components/parameters/capabilityName"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key:
+                  type: string
+                agents:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Capability enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /capabilities/{name}/disable:
+    post:
+      operationId: disableCapability
+      summary: Disable a capability
+      tags: [Capabilities]
+      parameters:
+        - $ref: "#/components/parameters/capabilityName"
+      responses:
+        "200":
+          description: Capability disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  # ── Knowledge ───────────────────────────────────────────────────────────────
+  /knowledge/query:
+    post:
+      operationId: knowledgeQuery
+      summary: Query the knowledge graph
+      tags: [Knowledge]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                text:
+                  type: string
+                  description: Alias for query
+      responses:
+        "200":
+          description: Query results
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /knowledge/who-knows:
+    get:
+      operationId: knowledgeWhoKnows
+      summary: Find agents who know about a topic
+      tags: [Knowledge]
+      parameters:
+        - name: topic
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agents with knowledge on topic
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /knowledge/stats:
+    get:
+      operationId: knowledgeStats
+      summary: Get knowledge graph statistics
+      tags: [Knowledge]
+      responses:
+        "200":
+          description: Graph statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /knowledge/export:
+    get:
+      operationId: knowledgeExport
+      summary: Export knowledge graph
+      tags: [Knowledge]
+      parameters:
+        - name: format
+          in: query
+          schema:
+            type: string
+            default: json
+      responses:
+        "200":
+          description: Exported graph data
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /knowledge/changes:
+    get:
+      operationId: knowledgeChanges
+      summary: Get knowledge graph change history
+      tags: [Knowledge]
+      parameters:
+        - name: since
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Change entries
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /knowledge/context:
+    get:
+      operationId: knowledgeContext
+      summary: Get contextual knowledge about a subject
+      tags: [Knowledge]
+      parameters:
+        - name: subject
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Contextual knowledge
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /knowledge/neighbors:
+    get:
+      operationId: knowledgeNeighbors
+      summary: Get neighboring nodes in the knowledge graph
+      tags: [Knowledge]
+      parameters:
+        - name: node_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Neighbor nodes
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /knowledge/path:
+    get:
+      operationId: knowledgePath
+      summary: Find path between two nodes in the knowledge graph
+      tags: [Knowledge]
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Path between nodes
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /knowledge/flags:
+    get:
+      operationId: knowledgeFlags
+      summary: Get flagged knowledge nodes
+      tags: [Knowledge]
+      responses:
+        "200":
+          description: Flagged nodes
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /knowledge/restore:
+    post:
+      operationId: knowledgeRestore
+      summary: Restore a flagged knowledge node
+      tags: [Knowledge]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [node_id]
+              properties:
+                node_id:
+                  type: string
+      responses:
+        "200":
+          description: Node restored
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /knowledge/curation-log:
+    get:
+      operationId: knowledgeCurationLog
+      summary: Get knowledge curation audit log
+      tags: [Knowledge]
+      responses:
+        "200":
+          description: Curation log entries
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /knowledge/ontology:
+    get:
+      operationId: knowledgeOntology
+      summary: Get full knowledge ontology configuration
+      tags: [Knowledge]
+      responses:
+        "200":
+          description: Ontology config
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /knowledge/ontology/types:
+    get:
+      operationId: knowledgeOntologyTypes
+      summary: Get ontology entity types
+      tags: [Knowledge]
+      responses:
+        "200":
+          description: Entity types with count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entity_types:
+                    type: array
+                    items:
+                      type: object
+                  count:
+                    type: integer
+
+  /knowledge/ontology/relationships:
+    get:
+      operationId: knowledgeOntologyRelationships
+      summary: Get ontology relationship types
+      tags: [Knowledge]
+      responses:
+        "200":
+          description: Relationship types with count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  relationship_types:
+                    type: array
+                    items:
+                      type: object
+                  count:
+                    type: integer
+
+  /knowledge/ontology/validate:
+    post:
+      operationId: knowledgeOntologyValidate
+      summary: Validate knowledge graph nodes against ontology
+      tags: [Knowledge]
+      responses:
+        "200":
+          description: Validation results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid_nodes:
+                    type: integer
+                  invalid_nodes:
+                    type: integer
+                  issues:
+                    type: array
+                    items:
+                      type: object
+                  ontology_version:
+                    type: string
+
+  /knowledge/ontology/migrate:
+    post:
+      operationId: knowledgeOntologyMigrate
+      summary: Migrate knowledge graph nodes to match ontology
+      tags: [Knowledge]
+      responses:
+        "200":
+          description: Migration results
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /ontology/candidates:
+    get:
+      operationId: listOntologyCandidates
+      summary: List ontology emergence candidates
+      tags: [Knowledge]
+      responses:
+        "200":
+          description: Ontology emergence candidates
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  candidates:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+
+  /ontology/promote:
+    post:
+      operationId: promoteOntologyCandidate
+      summary: Promote an ontology candidate to the base ontology
+      tags: [Knowledge]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  type: string
+      responses:
+        "200":
+          description: Candidate promoted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  promoted:
+                    type: boolean
+                  value:
+                    type: string
+
+  /ontology/reject:
+    post:
+      operationId: rejectOntologyCandidate
+      summary: Reject an ontology candidate
+      tags: [Knowledge]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  type: string
+      responses:
+        "200":
+          description: Candidate rejected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rejected:
+                    type: boolean
+                  value:
+                    type: string
+
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+  /infra/status:
+    get:
+      operationId: infraStatus
+      summary: Get infrastructure component status
+      tags: [Infrastructure]
+      responses:
+        "200":
+          description: Infrastructure status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                  build_id:
+                    type: string
+                  components:
+                    type: object
+                    additionalProperties: true
+                  infra_llm_daily_used:
+                    type: number
+                  infra_llm_daily_limit:
+                    type: number
+
+  /infra/up:
+    post:
+      operationId: infraUp
+      summary: Start shared infrastructure
+      description: Supports NDJSON streaming when Accept header is application/x-ndjson.
+      tags: [Infrastructure]
+      responses:
+        "200":
+          description: Infrastructure started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+            application/x-ndjson:
+              schema:
+                description: Stream of progress events
+
+  /infra/down:
+    post:
+      operationId: infraDown
+      summary: Stop shared infrastructure
+      description: Supports NDJSON streaming.
+      tags: [Infrastructure]
+      responses:
+        "200":
+          description: Infrastructure stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+            application/x-ndjson:
+              schema:
+                description: Stream of progress events
+
+  /infra/rebuild/{component}:
+    post:
+      operationId: infraRebuild
+      summary: Rebuild (restart) a specific infrastructure component
+      description: Supports NDJSON streaming.
+      tags: [Infrastructure]
+      parameters:
+        - name: component
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [egress, comms, knowledge, intake]
+      responses:
+        "200":
+          description: Component restarted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+            application/x-ndjson:
+              schema:
+                description: Stream of progress events
+
+  /infra/reload:
+    post:
+      operationId: infraReload
+      summary: Reload all infrastructure components
+      tags: [Infrastructure]
+      responses:
+        "200":
+          description: Components reloaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  components:
+                    type: array
+                    items:
+                      type: string
+
+  # ── Channels ────────────────────────────────────────────────────────────────
+  /channels:
+    get:
+      operationId: listChannels
+      summary: List channels the operator is a member of
+      tags: [Channels]
+      responses:
+        "200":
+          description: Channel list (proxied from comms container)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+    post:
+      operationId: createChannel
+      summary: Create a new channel
+      tags: [Channels]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                topic:
+                  type: string
+      responses:
+        "201":
+          description: Channel created
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /channels/{name}/messages:
+    get:
+      operationId: readMessages
+      summary: Read messages in a channel
+      tags: [Channels]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+    post:
+      operationId: sendMessage
+      summary: Send a message to a channel
+      tags: [Channels]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+                author:
+                  type: string
+                  default: _operator
+      responses:
+        "200":
+          description: Message sent
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /channels/{name}/messages/{id}:
+    put:
+      operationId: editMessage
+      summary: Edit a message
+      tags: [Channels]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+                author:
+                  type: string
+      responses:
+        "200":
+          description: Message edited
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+    delete:
+      operationId: deleteMessage
+      summary: Delete a message
+      tags: [Channels]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Message deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /channels/{name}/messages/{id}/reactions:
+    post:
+      operationId: addReaction
+      summary: Add a reaction to a message
+      tags: [Channels]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                emoji:
+                  type: string
+                author:
+                  type: string
+      responses:
+        "200":
+          description: Reaction added
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /channels/{name}/messages/{id}/reactions/{emoji}:
+    delete:
+      operationId: removeReaction
+      summary: Remove a reaction from a message
+      tags: [Channels]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: emoji
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: author
+          in: query
+          schema:
+            type: string
+            default: _operator
+      responses:
+        "200":
+          description: Reaction removed
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /channels/search:
+    get:
+      operationId: searchMessages
+      summary: Search messages across channels
+      tags: [Channels]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: channel
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /channels/{name}/archive:
+    post:
+      operationId: archiveChannel
+      summary: Archive a channel
+      tags: [Channels]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Channel archived
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /unreads:
+    get:
+      operationId: getUnreads
+      summary: Get unread message counts for the operator
+      tags: [Channels]
+      responses:
+        "200":
+          description: Unread counts
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /channels/{name}/mark-read:
+    post:
+      operationId: markRead
+      summary: Mark a channel as read for the operator
+      tags: [Channels]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Channel marked as read
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  # ── Routing ─────────────────────────────────────────────────────────────────
+  /routing/metrics:
+    get:
+      operationId: routingMetrics
+      summary: Get aggregated LLM usage metrics
+      tags: [Routing]
+      parameters:
+        - name: agent
+          in: query
+          description: Filter to a single agent
+          schema:
+            type: string
+        - name: since
+          in: query
+          description: Start of time window (RFC3339 or YYYY-MM-DD, default last 24h)
+          schema:
+            type: string
+        - name: until
+          in: query
+          description: End of time window (RFC3339 or YYYY-MM-DD, default now)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Usage metrics summary
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /routing/config:
+    get:
+      operationId: routingConfig
+      summary: Get model routing configuration (sanitized, no credentials)
+      tags: [Routing]
+      responses:
+        "200":
+          description: Routing configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configured:
+                    type: boolean
+                  version:
+                    type: string
+                  providers:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        api_base:
+                          type: string
+                        auth_env:
+                          type: string
+                        caching:
+                          type: boolean
+                  models:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        provider:
+                          type: string
+                        provider_model:
+                          type: string
+                        cost_per_mtok_in:
+                          type: number
+                        cost_per_mtok_out:
+                          type: number
+                        cost_per_mtok_cached:
+                          type: number
+                  tiers:
+                    type: object
+                    additionalProperties: true
+                  settings:
+                    type: object
+                    additionalProperties: true
+
+  # ── Admin ───────────────────────────────────────────────────────────────────
+  /admin/doctor:
+    get:
+      operationId: adminDoctor
+      summary: Run security guarantee checks on all running agents
+      description: |
+        Runs 7 checks per agent: credentials isolated, network mediation,
+        constraints read-only, enforcer audit active, audit not writable,
+        halt functional, operator override available.
+      tags: [Admin]
+      responses:
+        "200":
+          description: Doctor report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorReport"
+
+  /admin/destroy:
+    post:
+      operationId: adminDestroy
+      summary: Destroy all agents and infrastructure
+      tags: [Admin]
+      responses:
+        "200":
+          description: Everything destroyed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /admin/trust:
+    post:
+      operationId: adminTrust
+      summary: Manage agent trust levels
+      description: |
+        Actions: list (no agent required), show, elevate, demote, record.
+        Trust levels: 1=minimal, 2=low, 3=standard, 4=high, 5=elevated.
+        ASK tenet 15: elevation always requires human approval.
+      tags: [Admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [list, show, elevate, demote, record]
+                agent:
+                  type: string
+                level:
+                  type: string
+                signal_type:
+                  type: string
+                description:
+                  type: string
+                args:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        "200":
+          description: Trust operation result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /admin/audit:
+    get:
+      operationId: adminAudit
+      summary: Query audit logs
+      description: |
+        With action=stats returns aggregate statistics. Otherwise returns log
+        entries filtered by agent, since, and until.
+      tags: [Admin]
+      parameters:
+        - name: action
+          in: query
+          schema:
+            type: string
+            enum: [stats]
+        - name: agent
+          in: query
+          schema:
+            type: string
+        - name: since
+          in: query
+          schema:
+            type: string
+        - name: until
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Audit log entries or stats
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /admin/egress:
+    get:
+      operationId: adminEgress
+      summary: Get egress configuration for an agent
+      tags: [Admin]
+      parameters:
+        - name: agent
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Egress configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /admin/knowledge:
+    post:
+      operationId: adminKnowledge
+      summary: Administrative knowledge graph operations
+      description: |
+        Actions: stats, health, flags, log, query, neighbors, path, changes,
+        export, graph, reset, restore, unflag, ontology_candidates,
+        ontology_promote, ontology_reject.
+      tags: [Admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                args:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        "200":
+          description: Operation result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /admin/department:
+    post:
+      operationId: adminDepartment
+      summary: Manage departments
+      description: "Actions: list, show."
+      tags: [Admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [list, show]
+                args:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        "200":
+          description: Department operation result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /admin/model:
+    post:
+      operationId: adminModel
+      summary: Manage model configuration
+      description: "Actions: show, set."
+      tags: [Admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [show, set]
+                args:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        "200":
+          description: Model configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /egress/domains:
+    get:
+      operationId: listEgressDomains
+      summary: List egress domains with provenance
+      tags: [Admin]
+      responses:
+        "200":
+          description: Egress domains with provenance
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    domain:
+                      type: string
+                    sources:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          type:
+                            type: string
+                          name:
+                            type: string
+                          added_at:
+                            type: string
+                            format: date-time
+                    auto_managed:
+                      type: boolean
+
+  /egress/domains/{domain}/provenance:
+    get:
+      operationId: getEgressDomainProvenance
+      summary: Show why a domain is in the egress allowlist
+      tags: [Admin]
+      parameters:
+        - name: domain
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Domain provenance detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  domain:
+                    type: string
+                  sources:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        type:
+                          type: string
+                        name:
+                          type: string
+                        added_at:
+                          type: string
+                          format: date-time
+                  auto_managed:
+                    type: boolean
+                  active_dependents:
+                    type: array
+                    items:
+                      type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /audit/summarize:
+    post:
+      operationId: auditSummarize
+      summary: Trigger audit summarization and return MissionMetrics
+      tags: [Admin]
+      responses:
+        "200":
+          description: Audit summarization results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metrics:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  count:
+                    type: integer
+
+  # ── Teams ───────────────────────────────────────────────────────────────────
+  /teams:
+    get:
+      operationId: listTeams
+      summary: List all teams
+      tags: [Teams]
+      responses:
+        "200":
+          description: Team list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    member_count:
+                      type: integer
+    post:
+      operationId: createTeam
+      summary: Create a new team
+      tags: [Teams]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                agents:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "201":
+          description: Team created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /teams/{name}:
+    get:
+      operationId: showTeam
+      summary: Show team detail
+      tags: [Teams]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Team detail
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /teams/{name}/activity:
+    get:
+      operationId: teamActivity
+      summary: Get recent activity for all team members
+      tags: [Teams]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Activity entries (last 20 per member)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  # ── Intake ──────────────────────────────────────────────────────────────────
+  /intake/items:
+    get:
+      operationId: intakeItems
+      summary: List intake items
+      tags: [Intake]
+      parameters:
+        - name: connector
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Intake items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /intake/stats:
+    get:
+      operationId: intakeStats
+      summary: Get intake pipeline statistics
+      tags: [Intake]
+      responses:
+        "200":
+          description: Intake stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  pending:
+                    type: integer
+                  completed:
+                    type: integer
+
+  /intake/webhook:
+    post:
+      operationId: intakeWebhook
+      summary: Forward a webhook payload to the intake service
+      tags: [Intake]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Webhook processed
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  # ── MCP ─────────────────────────────────────────────────────────────────────
+  /mcp/tools:
+    get:
+      operationId: mcpTools
+      summary: List registered MCP tools
+      tags: [MCP]
+      responses:
+        "200":
+          description: Tool list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /mcp/call:
+    post:
+      operationId: mcpCall
+      summary: Call an MCP tool
+      tags: [MCP]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tool:
+                  type: string
+                arguments:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          description: Tool call result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  # ── Missions ────────────────────────────────────────────────────────────────
+  /missions:
+    post:
+      operationId: createMission
+      summary: Create a new mission
+      tags: [Missions]
+      requestBody:
+        required: true
+        content:
+          application/x-yaml:
+            schema:
+              type: object
+              description: Mission definition in YAML
+      responses:
+        "201":
+          description: Mission created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Mission"
+    get:
+      operationId: listMissions
+      summary: List all missions
+      tags: [Missions]
+      responses:
+        "200":
+          description: Mission list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Mission"
+
+  /missions/{name}:
+    get:
+      operationId: showMission
+      summary: Show mission detail
+      tags: [Missions]
+      parameters:
+        - $ref: "#/components/parameters/missionName"
+      responses:
+        "200":
+          description: Mission detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Mission"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      operationId: updateMission
+      summary: Update a mission
+      tags: [Missions]
+      parameters:
+        - $ref: "#/components/parameters/missionName"
+      requestBody:
+        required: true
+        content:
+          application/x-yaml:
+            schema:
+              type: object
+              description: Updated mission definition in YAML
+      responses:
+        "200":
+          description: Mission updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Mission"
+    delete:
+      operationId: deleteMission
+      summary: Delete a mission
+      tags: [Missions]
+      parameters:
+        - $ref: "#/components/parameters/missionName"
+      responses:
+        "200":
+          description: Mission deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /missions/{name}/assign:
+    post:
+      operationId: assignMission
+      summary: Assign a mission to an agent or team
+      description: |
+        Returns 422 with structured pre-flight result when checks fail.
+        ASK tenet 11: delegation cannot exceed delegator scope.
+      tags: [Missions]
+      parameters:
+        - $ref: "#/components/parameters/missionName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target]
+              properties:
+                target:
+                  type: string
+                type:
+                  type: string
+                  enum: [agent, team]
+                  default: agent
+      responses:
+        "200":
+          description: Mission assigned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "422":
+          description: Pre-flight checks failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  preflight:
+                    type: object
+
+  /missions/{name}/pause:
+    post:
+      operationId: pauseMission
+      summary: Pause a mission
+      tags: [Missions]
+      parameters:
+        - $ref: "#/components/parameters/missionName"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        "200":
+          description: Mission paused
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /missions/{name}/resume:
+    post:
+      operationId: resumeMission
+      summary: Resume a paused mission
+      tags: [Missions]
+      parameters:
+        - $ref: "#/components/parameters/missionName"
+      responses:
+        "200":
+          description: Mission resumed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /missions/{name}/complete:
+    post:
+      operationId: completeMission
+      summary: Mark a mission as completed
+      tags: [Missions]
+      parameters:
+        - $ref: "#/components/parameters/missionName"
+      responses:
+        "200":
+          description: Mission completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /missions/{name}/history:
+    get:
+      operationId: missionHistory
+      summary: Get mission history entries
+      tags: [Missions]
+      parameters:
+        - $ref: "#/components/parameters/missionName"
+      responses:
+        "200":
+          description: History entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /missions/health:
+    get:
+      operationId: allMissionsHealth
+      summary: Health check for all active missions
+      description: |
+        Returns health status for all active/paused missions. Each mission
+        is checked for connector state, credential presence, agent deployment,
+        and schedule configuration.
+      tags: [Missions]
+      responses:
+        "200":
+          description: Health reports for all active missions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  missions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MissionHealthResponse"
+
+  /missions/{name}/health:
+    get:
+      operationId: missionHealth
+      summary: Health check for a single mission
+      description: |
+        Evaluates mission health by checking trigger sources (connector
+        state, credentials, egress access), agent deployment, and schedule
+        configuration. Returns per-check results with fix suggestions.
+      tags: [Missions]
+      parameters:
+        - $ref: "#/components/parameters/missionName"
+      responses:
+        "200":
+          description: Mission health report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MissionHealthResponse"
+
+  /missions/{name}/knowledge:
+    post:
+      operationId: missionKnowledge
+      summary: Query knowledge graph scoped to a mission
+      description: ASK tenet 24 — knowledge access bounded by authorization scope.
+      tags: [Missions]
+      parameters:
+        - $ref: "#/components/parameters/missionName"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+      responses:
+        "200":
+          description: Scoped knowledge results
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /missions/{name}/claim:
+    post:
+      operationId: claimMissionEvent
+      summary: Claim an event for deconfliction (no-coordinator teams)
+      tags: [Missions]
+      parameters:
+        - $ref: "#/components/parameters/missionName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event_key]
+              properties:
+                event_key:
+                  type: string
+                agent_name:
+                  type: string
+      responses:
+        "200":
+          description: Claim result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  claimed:
+                    type: boolean
+                  holder:
+                    type: string
+    delete:
+      operationId: releaseMissionClaim
+      summary: Release a previously claimed event
+      tags: [Missions]
+      parameters:
+        - $ref: "#/components/parameters/missionName"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event_key:
+                  type: string
+      responses:
+        "200":
+          description: Claim released
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  # ── Memory ─────────────────────────────────────────────────────────────────
+  /agents/{name}/procedures:
+    get:
+      operationId: listAgentProcedures
+      summary: List procedure records for an agent
+      tags: [Memory]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+        - name: mission
+          in: query
+          schema:
+            type: string
+          description: Filter by mission ID
+        - name: outcome
+          in: query
+          schema:
+            type: string
+            enum: [success, partial, failed]
+          description: Filter by outcome
+      responses:
+        "200":
+          description: Procedure records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  procedures:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ProcedureRecord"
+
+  /agents/{name}/episodes:
+    get:
+      operationId: listAgentEpisodes
+      summary: List episode records for an agent
+      tags: [Memory]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+        - name: mission
+          in: query
+          schema:
+            type: string
+          description: Filter by mission name
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Start date (ISO 8601)
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+          description: End date (ISO 8601)
+        - name: outcome
+          in: query
+          schema:
+            type: string
+            enum: [success, partial, failed, escalated]
+        - name: tag
+          in: query
+          schema:
+            type: string
+          description: Filter by tag
+      responses:
+        "200":
+          description: Episode records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  episodes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EpisodeRecord"
+                  total:
+                    type: integer
+
+  /agents/{name}/trajectory:
+    get:
+      operationId: getAgentTrajectory
+      summary: Current trajectory monitor state for an agent
+      tags: [Memory]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      responses:
+        "200":
+          description: Trajectory state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrajectoryState"
+
+  /missions/{name}/procedures:
+    get:
+      operationId: listMissionProcedures
+      summary: List procedure records for a mission (across all agents)
+      tags: [Memory]
+      parameters:
+        - $ref: "#/components/parameters/missionName"
+        - name: agent
+          in: query
+          schema:
+            type: string
+          description: Filter by agent name
+      responses:
+        "200":
+          description: Procedure records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  procedures:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ProcedureRecord"
+
+  /missions/{name}/episodes:
+    get:
+      operationId: listMissionEpisodes
+      summary: List episode records for a mission (across all agents)
+      tags: [Memory]
+      parameters:
+        - $ref: "#/components/parameters/missionName"
+      responses:
+        "200":
+          description: Episode records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  episodes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EpisodeRecord"
+                  total:
+                    type: integer
+
+  /missions/{name}/evaluations:
+    get:
+      operationId: listMissionEvaluations
+      summary: List recent success criteria evaluation results for a mission
+      tags: [Memory]
+      parameters:
+        - $ref: "#/components/parameters/missionName"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+          description: Max results (default 20, max 100)
+      responses:
+        "200":
+          description: Evaluation results with summary stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mission:
+                    type: string
+                  evaluations:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EvaluationResult"
+                  summary:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      passed:
+                        type: integer
+                      failed:
+                        type: integer
+                      pass_rate:
+                        type: number
+
+  # ── Meeseeks ────────────────────────────────────────────────────────────────
+  /meeseeks:
+    post:
+      operationId: spawnMeeseeks
+      summary: Spawn an ephemeral Meeseeks sub-agent
+      tags: [Meeseeks]
+      parameters:
+        - name: parent
+          in: query
+          description: Parent agent name
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MeeseeksSpawnRequest"
+      responses:
+        "201":
+          description: Meeseeks spawned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  meeseeks_id:
+                    type: string
+                  status:
+                    type: string
+        "429":
+          description: Spawn rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    get:
+      operationId: listMeeseeks
+      summary: List Meeseeks (optionally filtered by parent)
+      tags: [Meeseeks]
+      parameters:
+        - name: parent
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Meeseeks list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Meeseeks"
+    delete:
+      operationId: killMeeseeksByParent
+      summary: Kill all Meeseeks for a parent agent
+      tags: [Meeseeks]
+      parameters:
+        - name: parent
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Meeseeks terminated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  killed:
+                    type: array
+                    items:
+                      type: string
+
+  /meeseeks/{id}:
+    get:
+      operationId: showMeeseeks
+      summary: Show Meeseeks detail
+      tags: [Meeseeks]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Meeseeks detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Meeseeks"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: killMeeseeks
+      summary: Terminate a Meeseeks
+      tags: [Meeseeks]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Meeseeks terminated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /meeseeks/{id}/complete:
+    post:
+      operationId: completeMeeseeks
+      summary: Mark a Meeseeks as completed (called by body runtime)
+      tags: [Meeseeks]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Meeseeks completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  # ── Events ──────────────────────────────────────────────────────────────────
+  /events:
+    get:
+      operationId: listEvents
+      summary: List recent events from the event bus
+      tags: [Events]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: source_type
+          in: query
+          schema:
+            type: string
+        - name: source_name
+          in: query
+          schema:
+            type: string
+        - name: event_type
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Event list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Event"
+
+  /events/{id}:
+    get:
+      operationId: showEvent
+      summary: Show event detail
+      tags: [Events]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Event detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /subscriptions:
+    get:
+      operationId: listSubscriptions
+      summary: List active event subscriptions
+      tags: [Events]
+      responses:
+        "200":
+          description: Subscription list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  # ── Webhooks ────────────────────────────────────────────────────────────────
+  /webhooks:
+    post:
+      operationId: createWebhook
+      summary: Register a new inbound webhook
+      tags: [Webhooks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, event_type]
+              properties:
+                name:
+                  type: string
+                event_type:
+                  type: string
+      responses:
+        "201":
+          description: Webhook created (includes secret and URL)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+    get:
+      operationId: listWebhooks
+      summary: List registered webhooks (secrets redacted)
+      tags: [Webhooks]
+      responses:
+        "200":
+          description: Webhook list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    event_type:
+                      type: string
+                    created_at:
+                      type: string
+                    url:
+                      type: string
+
+  /webhooks/{name}:
+    get:
+      operationId: showWebhook
+      summary: Show webhook detail (includes secret)
+      tags: [Webhooks]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Webhook detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteWebhook
+      summary: Delete a webhook
+      tags: [Webhooks]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Webhook deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /webhooks/{name}/rotate-secret:
+    post:
+      operationId: rotateWebhookSecret
+      summary: Rotate webhook secret
+      tags: [Webhooks]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Webhook with new secret
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+
+  /events/webhook/{name}:
+    post:
+      operationId: receiveWebhook
+      summary: Inbound webhook receiver
+      description: |
+        Validates X-Webhook-Secret header (constant-time comparison),
+        rate limited to 60 req/min per webhook.
+      tags: [Webhooks]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - webhookSecret: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "202":
+          description: Event accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event_id:
+                    type: string
+                  status:
+                    type: string
+        "401":
+          description: Invalid secret
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Notifications ──────────────────────────────────────────────────────────
+  /notifications:
+    get:
+      operationId: listNotifications
+      summary: List notification destinations
+      description: Returns all configured notification destinations. Headers are redacted from responses.
+      tags: [Notifications]
+      responses:
+        "200":
+          description: List of notification destinations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NotificationDestination"
+    post:
+      operationId: addNotification
+      summary: Add a notification destination
+      description: |
+        Add a new notification destination. Type is auto-detected from URL if omitted
+        (ntfy.sh URLs → ntfy, others → webhook). Events default to
+        operator_alert, enforcer_exited, mission_health_alert.
+      tags: [Notifications]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, url]
+              properties:
+                name:
+                  type: string
+                  description: Unique name for this destination
+                type:
+                  type: string
+                  enum: [ntfy, webhook]
+                  description: Auto-detected from URL if omitted
+                url:
+                  type: string
+                  description: Notification URL (ntfy or webhook)
+                events:
+                  type: array
+                  items:
+                    type: string
+                  description: Event types to subscribe to
+                headers:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: Custom headers for webhook requests
+      responses:
+        "201":
+          description: Destination created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationConfig"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Name already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /notifications/{name}:
+    get:
+      operationId: showNotification
+      summary: Show notification destination
+      description: Returns a single notification destination by name. Headers are redacted.
+      tags: [Notifications]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Notification destination
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationDestination"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteNotification
+      summary: Remove a notification destination
+      description: Removes the destination and its event bus subscriptions.
+      tags: [Notifications]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Destination removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  name:
+                    type: string
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /notifications/{name}/test:
+    post:
+      operationId: testNotification
+      summary: Send a test notification
+      description: |
+        Publishes a synthetic operator_alert event with category=test and
+        severity=info through the full delivery pipeline.
+      tags: [Notifications]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Test event sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event_id:
+                    type: string
+                  status:
+                    type: string
+        "404":
+          description: Destination not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Internal ────────────────────────────────────────────────────────────────
+  /internal/llm:
+    post:
+      operationId: internalLLM
+      summary: Internal LLM proxy for infrastructure components
+      description: |
+        Proxies LLM calls with model resolution, format translation (Anthropic
+        <-> OpenAI), cost tracking under _infrastructure budget, and audit.
+        Only authorized callers (X-Agency-Caller header): knowledge-synthesizer,
+        analysis-xpia, knowledge-curator.
+      tags: [Internal]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, messages]
+              properties:
+                model:
+                  type: string
+                messages:
+                  type: array
+                  items:
+                    type: object
+                max_tokens:
+                  type: integer
+                temperature:
+                  type: number
+      responses:
+        "200":
+          description: LLM response (OpenAI chat/completions format)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "403":
+          description: Unknown infrastructure caller
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Infrastructure LLM budget exhausted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Knowledge Review (operator-only) ────────────────────────────────────────
+  /knowledge/pending:
+    get:
+      operationId: knowledgePending
+      summary: List pending knowledge contributions
+      description: Returns org-structural knowledge contributions awaiting operator review. Operator-only (ASK tenet 5).
+      tags: [Knowledge]
+      responses:
+        "200":
+          description: Pending contributions
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "502":
+          description: Knowledge service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /knowledge/review/{id}:
+    post:
+      operationId: knowledgeReview
+      summary: Approve or reject a knowledge contribution
+      description: Approves or rejects a pending org-structural contribution by ID. Operator-only (ASK tenet 5).
+      tags: [Knowledge]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contribution ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [approve, reject]
+                  description: Review action
+                reason:
+                  type: string
+                  description: Optional reason for the review decision
+      responses:
+        "200":
+          description: Review result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          description: Invalid request (missing ID, invalid action, or malformed body)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Knowledge service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Intake Polling ────────────────────────────────────────────────────────────
+  /intake/poll-health:
+    get:
+      operationId: intakePollHealth
+      summary: Check connector polling health status
+      description: Proxies to the intake service to retrieve polling health status for all connectors.
+      tags: [Intake]
+      responses:
+        "200":
+          description: Polling health status
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "502":
+          description: Intake service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /intake/poll/{connector}:
+    post:
+      operationId: intakePollTrigger
+      summary: Manually trigger a connector poll
+      description: Triggers an immediate poll for the specified connector via the intake service.
+      tags: [Intake]
+      parameters:
+        - name: connector
+          in: path
+          required: true
+          description: Connector name
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Poll triggered
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "502":
+          description: Intake service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Credentials ─────────────────────────────────────────────────────────────
+
+  /credentials:
+    post:
+      operationId: createOrUpdateCredential
+      summary: Store or update a credential
+      description: Stores a credential in the encrypted credential store. Idempotent — same name+value is a no-op, different value updates.
+      tags: [Credentials]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, value, kind, scope, protocol]
+              properties:
+                name: { type: string, description: Credential name (e.g. LC_API_KEY_DETECTION_TUNER) }
+                value: { type: string, description: Credential value (encrypted at rest) }
+                kind: { type: string, enum: [provider, service, gateway, internal, group] }
+                scope: { type: string, description: "platform, agent:{name}, or team:{name}" }
+                protocol: { type: string, enum: [api-key, jwt-exchange, github-app, oauth2, bearer] }
+                service: { type: string, description: Service definition name }
+                group: { type: string, description: Credential group name }
+                external_scopes: { type: array, items: { type: string } }
+                requires: { type: array, items: { type: string } }
+                expires_at: { type: string, format: date-time }
+                protocol_config: { type: object, additionalProperties: true }
+      responses:
+        "200":
+          description: Credential stored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  name: { type: string }
+    get:
+      operationId: listCredentials
+      summary: List credentials (values redacted)
+      tags: [Credentials]
+      parameters:
+        - name: kind
+          in: query
+          schema: { type: string }
+        - name: scope
+          in: query
+          schema: { type: string }
+        - name: service
+          in: query
+          schema: { type: string }
+        - name: group
+          in: query
+          schema: { type: string }
+        - name: expiring
+          in: query
+          schema: { type: string }
+          description: Duration string (e.g. 7d) — list credentials expiring within
+      responses:
+        "200":
+          description: List of credentials with redacted values
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CredentialEntry"
+
+  /credentials/{name}:
+    get:
+      operationId: showCredential
+      summary: Show credential metadata (value redacted unless ?show_value=true)
+      tags: [Credentials]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+        - name: show_value
+          in: query
+          schema: { type: boolean, default: false }
+          description: Include plaintext value (high-severity audit event)
+      responses:
+        "200":
+          description: Credential details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CredentialEntry"
+        "404":
+          description: Credential not found
+    delete:
+      operationId: deleteCredential
+      summary: Delete a credential
+      tags: [Credentials]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Credential deleted
+
+  /credentials/{name}/rotate:
+    post:
+      operationId: rotateCredential
+      summary: Rotate credential value (preserves metadata)
+      tags: [Credentials]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value: { type: string }
+      responses:
+        "200":
+          description: Credential rotated
+
+  /credentials/{name}/test:
+    post:
+      operationId: testCredential
+      summary: Test credential against external API
+      tags: [Credentials]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Test result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  status: { type: integer }
+                  message: { type: string }
+                  latency_ms: { type: integer }
+
+  /credentials/groups:
+    post:
+      operationId: createCredentialGroup
+      summary: Create a credential group (shared protocol config)
+      tags: [Credentials]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, protocol]
+              properties:
+                name: { type: string }
+                protocol: { type: string }
+                token_url: { type: string }
+                token_params: { type: object, additionalProperties: { type: string } }
+                requires: { type: array, items: { type: string } }
+      responses:
+        "200":
+          description: Group created
+
+  /internal/credentials/resolve:
+    get:
+      operationId: resolveCredential
+      summary: Resolve credential for egress (internal, via Unix socket)
+      description: |
+        Returns decrypted credential value + protocol metadata. Used by the
+        egress proxy via the gateway Unix socket. No Bearer auth required on
+        the socket path (socket access = authorization). Auth-gated on HTTP.
+      tags: [Internal]
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Resolved credential
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string }
+                  value: { type: string }
+                  protocol: { type: string }
+                  protocol_config: { type: object }
+        "404":
+          description: Credential not found
+
+  # ── Agent Rebuild ──────────────────────────────────────────────────────────
+
+  /agents/{name}/rebuild:
+    post:
+      operationId: rebuildAgent
+      summary: Regenerate all derived files for an agent
+      description: |
+        Regenerates services-manifest.json, services.yaml, PLATFORM.md,
+        FRAMEWORK.md, and AGENTS.md without restarting the agent.
+      tags: [Agents]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Rebuild result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [rebuilt, partial, failed] }
+                  regenerated: { type: array, items: { type: string } }
+                  errors: { type: array, items: { type: string } }
+        "404":
+          description: Agent not found
+
+# ── WebSocket (outside /api/v1) ─────────────────────────────────────────────
+# Note: OpenAPI 3.1 does not natively support WebSocket. Documented as a
+# separate server path for completeness.
+
+components:
+  securitySchemes:
+    apiToken:
+      type: apiKey
+      in: header
+      name: X-Agency-Token
+      description: API token generated during `agency init`
+    webhookSecret:
+      type: apiKey
+      in: header
+      name: X-Webhook-Secret
+      description: Per-webhook secret for inbound webhook authentication
+
+  parameters:
+    agentName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Agent name
+    presetName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[a-z0-9][a-z0-9\\-]{0,63}$"
+      description: Preset name (lowercase alphanumeric + hyphens, 1-64 chars)
+    nameOrID:
+      name: nameOrID
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Hub instance name or ID
+    capabilityName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Capability name
+    missionName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Mission name or ID
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    StatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        name:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+
+    CredentialEntry:
+      type: object
+      properties:
+        name: { type: string }
+        value: { type: string, description: "[redacted] unless show_value=true" }
+        kind: { type: string, enum: [provider, service, gateway, internal, group] }
+        scope: { type: string }
+        protocol: { type: string }
+        service: { type: string }
+        group: { type: string }
+        external_scopes: { type: array, items: { type: string } }
+        requires: { type: array, items: { type: string } }
+        expires_at: { type: string, format: date-time }
+        protocol_config: { type: object, additionalProperties: true }
+        source: { type: string }
+        created_at: { type: string, format: date-time }
+        rotated_at: { type: string, format: date-time }
+
+    AgentSummary:
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+        preset:
+          type: string
+
+    AgentDetail:
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+        preset:
+          type: string
+        lifecycle_id:
+          type: string
+        mission:
+          type: string
+        granted_caps:
+          type: array
+          items:
+            type: string
+
+    AgentConfigBundle:
+      type: object
+      properties:
+        agent_yaml:
+          type: object
+          additionalProperties: true
+        identity:
+          type: string
+        constraints:
+          type: object
+          additionalProperties: true
+        workspace:
+          type: object
+          additionalProperties: true
+
+    StartResult:
+      type: object
+      properties:
+        agent:
+          type: string
+        model:
+          type: string
+        phases:
+          type: integer
+
+    HaltRecord:
+      type: object
+      properties:
+        agent:
+          type: string
+        type:
+          type: string
+        reason:
+          type: string
+        initiator:
+          type: string
+        timestamp:
+          type: string
+
+    BudgetState:
+      type: object
+      properties:
+        agent_name:
+          type: string
+        daily_used:
+          type: number
+        daily_limit:
+          type: number
+        daily_remaining:
+          type: number
+        monthly_used:
+          type: number
+        monthly_limit:
+          type: number
+        monthly_remaining:
+          type: number
+        per_task_limit:
+          type: number
+        today_llm_calls:
+          type: integer
+        today_input_tokens:
+          type: integer
+          format: int64
+        today_output_tokens:
+          type: integer
+          format: int64
+        task_usage:
+          type: array
+          items:
+            type: object
+
+    BudgetRemaining:
+      type: object
+      properties:
+        daily_remaining:
+          type: number
+        monthly_remaining:
+          type: number
+        daily_used:
+          type: number
+        monthly_used:
+          type: number
+
+    ConstraintChange:
+      type: object
+      properties:
+        change_id:
+          type: string
+        version:
+          type: integer
+        severity:
+          type: string
+        status:
+          type: string
+        constraints:
+          type: object
+          additionalProperties: true
+        reason:
+          type: string
+        initiator:
+          type: string
+
+    PresetInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+        source:
+          type: string
+          enum: [built-in, user]
+
+    PresetFull:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9\\-]{0,63}$"
+        description:
+          type: string
+        type:
+          type: string
+        model_tier:
+          type: string
+        tools:
+          type: array
+          items:
+            type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        hard_limits:
+          type: array
+          items:
+            type: object
+            properties:
+              rule:
+                type: string
+              reason:
+                type: string
+        escalation:
+          type: object
+          properties:
+            always_escalate:
+              type: array
+              items:
+                type: string
+            flag_before_proceeding:
+              type: array
+              items:
+                type: string
+        identity:
+          type: object
+          properties:
+            purpose:
+              type: string
+            body:
+              type: string
+
+    PolicyValidation:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        violations:
+          type: array
+          items:
+            type: string
+
+    HubComponent:
+      type: object
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+        version:
+          type: string
+        description:
+          type: string
+
+    UpdateReport:
+      type: object
+      properties:
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceUpdate"
+        available:
+          type: array
+          items:
+            $ref: "#/components/schemas/AvailableUpgrade"
+        warnings:
+          type: array
+          items:
+            type: string
+
+    SourceUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        old_commit:
+          type: string
+        new_commit:
+          type: string
+        commit_count:
+          type: integer
+
+    AvailableUpgrade:
+      type: object
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          description: '"connector", "pack", "managed"'
+        category:
+          type: string
+          description: 'For managed files: "ontology", "routing", "services"'
+        installed_version:
+          type: string
+        available_version:
+          type: string
+        summary:
+          type: string
+
+    UpgradeReport:
+      type: object
+      properties:
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileUpgrade"
+        components:
+          type: array
+          items:
+            $ref: "#/components/schemas/ComponentUpgrade"
+        warnings:
+          type: array
+          items:
+            type: string
+
+    FileUpgrade:
+      type: object
+      properties:
+        category:
+          type: string
+          description: '"ontology", "routing", "services"'
+        path:
+          type: string
+        status:
+          type: string
+          description: '"upgraded", "unchanged", "added", "error"'
+        summary:
+          type: string
+
+    ComponentUpgrade:
+      type: object
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+        old_version:
+          type: string
+        new_version:
+          type: string
+        status:
+          type: string
+          description: '"upgraded", "unchanged", "error"'
+        error:
+          type: string
+
+    HubInstance:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+        version:
+          type: string
+        source:
+          type: string
+        state:
+          type: string
+        created:
+          type: string
+
+    HubInstanceDetail:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+        source:
+          type: string
+        state:
+          type: string
+        created:
+          type: string
+        config:
+          type: object
+          additionalProperties:
+            type: string
+        configured_at:
+          type: string
+
+    Capability:
+      type: object
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+        state:
+          type: string
+        agents:
+          type: array
+          items:
+            type: string
+
+    Mission:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        version:
+          type: integer
+        status:
+          type: string
+        assigned_to:
+          type: string
+        assigned_type:
+          type: string
+        meeseeks:
+          type: boolean
+        meeseeks_limit:
+          type: integer
+        meeseeks_model:
+          type: string
+        meeseeks_budget:
+          type: number
+        triggers:
+          type: array
+          items:
+            type: object
+        reflection:
+          $ref: "#/components/schemas/MissionReflection"
+        success_criteria:
+          $ref: "#/components/schemas/MissionSuccessCriteria"
+        fallback:
+          $ref: "#/components/schemas/MissionFallback"
+        cost_mode:
+          type: string
+          enum: [frugal, balanced, thorough]
+        min_task_tier:
+          type: string
+          enum: [minimal, standard, full]
+        procedural_memory:
+          type: object
+          properties:
+            capture:
+              type: boolean
+            retrieve:
+              type: boolean
+            max_retrieved:
+              type: integer
+            include_failures:
+              type: boolean
+        episodic_memory:
+          type: object
+          properties:
+            capture:
+              type: boolean
+            retrieve:
+              type: boolean
+            max_retrieved:
+              type: integer
+            retention_days:
+              type: integer
+            tool_enabled:
+              type: boolean
+
+    MissionHealthResponse:
+      type: object
+      properties:
+        mission:
+          type: string
+        status:
+          type: string
+          description: '"healthy", "degraded", "unhealthy", "unknown"'
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/MissionHealthCheck"
+        summary:
+          type: string
+
+    MissionHealthCheck:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Check name (e.g. "connector_active", "credential_health", "agent_running")
+        status:
+          type: string
+          description: '"pass", "warn", "fail"'
+        detail:
+          type: string
+          description: Human-readable check result
+        fix:
+          type: string
+          description: Suggested remediation command (only present on failures)
+
+    HubHealthResponse:
+      type: object
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+        status:
+          type: string
+          description: '"healthy", "degraded", "unhealthy", "unknown"'
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/MissionHealthCheck"
+        summary:
+          type: string
+
+    MeeseeksSpawnRequest:
+      type: object
+      required: [task]
+      properties:
+        task:
+          type: string
+        model:
+          type: string
+        budget:
+          type: number
+        tools:
+          type: array
+          items:
+            type: string
+
+    Meeseeks:
+      type: object
+      properties:
+        id:
+          type: string
+        task:
+          type: string
+        status:
+          type: string
+        parent_agent:
+          type: string
+        model:
+          type: string
+        budget:
+          type: number
+        budget_used:
+          type: number
+        mission_id:
+          type: string
+        created_at:
+          type: string
+
+    Event:
+      type: object
+      properties:
+        id:
+          type: string
+        source_type:
+          type: string
+        source_name:
+          type: string
+        event_type:
+          type: string
+        data:
+          type: object
+          additionalProperties: true
+        timestamp:
+          type: string
+          format: date-time
+
+    Webhook:
+      type: object
+      properties:
+        name:
+          type: string
+        event_type:
+          type: string
+        secret:
+          type: string
+        url:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    NotificationDestination:
+      type: object
+      description: Notification destination (headers redacted)
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [ntfy, webhook]
+        url:
+          type: string
+        events:
+          type: array
+          items:
+            type: string
+
+    NotificationConfig:
+      type: object
+      description: Full notification config (returned on create)
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [ntfy, webhook]
+        url:
+          type: string
+        events:
+          type: array
+          items:
+            type: string
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+
+    DoctorReport:
+      type: object
+      properties:
+        all_passed:
+          type: boolean
+        tested_agents:
+          type: array
+          items:
+            type: string
+        checks:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              agent:
+                type: string
+              status:
+                type: string
+                enum: [pass, fail]
+              detail:
+                type: string
+
+    ProcedureRecord:
+      type: object
+      properties:
+        task_id:
+          type: string
+        agent:
+          type: string
+        mission_id:
+          type: string
+        mission_name:
+          type: string
+        task_type:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        approach:
+          type: string
+        tools_used:
+          type: array
+          items:
+            type: string
+        outcome:
+          type: string
+          enum: [success, partial, failed]
+        duration_minutes:
+          type: integer
+        lessons:
+          type: array
+          items:
+            type: string
+
+    EpisodeRecord:
+      type: object
+      properties:
+        task_id:
+          type: string
+        agent:
+          type: string
+        mission_name:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        duration_minutes:
+          type: integer
+        outcome:
+          type: string
+          enum: [success, partial, failed, escalated]
+        summary:
+          type: string
+        notable_events:
+          type: array
+          items:
+            type: string
+        entities_mentioned:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              name:
+                type: string
+        operational_tone:
+          type: string
+          enum: [routine, notable, problematic]
+        tags:
+          type: array
+          items:
+            type: string
+
+    TrajectoryState:
+      type: object
+      properties:
+        agent:
+          type: string
+        enabled:
+          type: boolean
+        window_size:
+          type: integer
+        current_entries:
+          type: integer
+        active_anomalies:
+          type: array
+          items:
+            type: object
+            properties:
+              detector:
+                type: string
+              detail:
+                type: string
+              severity:
+                type: string
+                enum: [warning, critical]
+              first_detected:
+                type: string
+                format: date-time
+        detectors:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              status:
+                type: string
+              last_fired:
+                type: string
+                format: date-time
+                nullable: true
+
+    EvaluationResult:
+      type: object
+      properties:
+        task_id:
+          type: string
+        passed:
+          type: boolean
+        evaluation_mode:
+          type: string
+          enum: [checklist_only, llm, checklist_only_fallback]
+        model_used:
+          type: string
+        criteria_results:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              passed:
+                type: boolean
+              required:
+                type: boolean
+              reasoning:
+                type: string
+        evaluated_at:
+          type: string
+          format: date-time
+
+    MissionReflection:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          default: false
+        max_rounds:
+          type: integer
+          default: 3
+          minimum: 1
+          maximum: 10
+        criteria:
+          type: array
+          items:
+            type: string
+
+    MissionSuccessCriteria:
+      type: object
+      properties:
+        checklist:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              description:
+                type: string
+              required:
+                type: boolean
+        evaluation:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+              default: false
+            mode:
+              type: string
+              enum: [llm, checklist_only]
+            model:
+              type: string
+              default: default
+            on_failure:
+              type: string
+              enum: [flag, retry, block]
+              default: flag
+            max_retries:
+              type: integer
+              default: 1
+
+    MissionFallback:
+      type: object
+      properties:
+        policies:
+          type: array
+          items:
+            type: object
+            properties:
+              trigger:
+                type: string
+                enum: [tool_error, capability_unavailable, budget_warning, consecutive_errors, timeout, no_progress]
+              tool:
+                type: string
+              capability:
+                type: string
+              threshold:
+                type: integer
+              count:
+                type: integer
+              strategy:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    action:
+                      type: string
+                      enum: [retry, alternative_tool, degrade, simplify, complete_partial, pause_and_assess, escalate]
+                    max_attempts:
+                      type: integer
+                    backoff:
+                      type: string
+                      enum: [exponential, fixed, none]
+                    tool:
+                      type: string
+                    hint:
+                      type: string
+                    severity:
+                      type: string
+                    message:
+                      type: string
+        default_policy:
+          type: object
+          properties:
+            strategy:
+              type: array
+              items:
+                type: object

@@ -1,0 +1,17 @@
+name: minimal
+base:
+  image: agency-workspace:latest
+  user: agent
+  filesystem: readonly-root
+provides:
+  tools:
+    - bash
+  network: mediated
+resources:
+  memory: 2GB
+  cpu: "1.0"
+  tmpfs: 512MB
+security:
+  capabilities: none
+  seccomp: default-strict
+  no_new_privileges: true

@@ -1,0 +1,11 @@
+{
+  "name": "agency",
+  "description": "Agency platform — manage AI agent teams with enforced isolation, credential scoping, and continuous audit",
+  "version": "0.1.0",
+  "mcpServers": {
+    "agency": {
+      "command": "agency",
+      "args": ["mcp-server"]
+    }
+  }
+}

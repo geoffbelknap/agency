@@ -1,0 +1,5 @@
+inherits_from: departments/engineering
+additions:
+  - extra-permission
+restrictions:
+  - restricted-action

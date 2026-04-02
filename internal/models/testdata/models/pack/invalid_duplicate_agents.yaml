@@ -1,0 +1,9 @@
+kind: pack
+name: bad-pack
+team:
+  name: my-team
+  agents:
+    - name: agent-1
+      preset: researcher
+    - name: agent-1
+      preset: analyst

@@ -1,0 +1,10 @@
+providers:
+  aws:
+    api_base: http://169.254.169.254/api
+models:
+  test:
+    provider: aws
+    provider_model: test-model
+settings:
+  default_tier: standard
+  default_timeout: 300

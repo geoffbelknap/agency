@@ -1,0 +1,9 @@
+kind: connector
+name: test-webhook
+source:
+  type: webhook
+routes:
+  - match:
+      type: message
+    target:
+      agent: atlas

@@ -1,0 +1,7 @@
+kind: pack
+name: my-pack
+team:
+  name: my-team
+  agents:
+    - name: agent-1
+      preset: researcher

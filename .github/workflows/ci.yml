@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  go-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+
+      - name: Go tests
+        run: go test ./...
+
+  python-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: pip install pytest pytest-asyncio pytest-aiohttp pytest-timeout pydantic pyyaml httpx aiohttp docker jinja2 croniter
+
+      - name: Python tests
+        run: >-
+          pytest images/tests/ -x -q --timeout=30
+          --ignore=images/tests/test_realtime_comms_e2e.py
+          --ignore=images/tests/test_comms_e2e.py
+        timeout-minutes: 5

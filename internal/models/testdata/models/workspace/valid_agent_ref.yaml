@@ -1,0 +1,6 @@
+agent: my-agent
+workspace_ref: minimal
+project_dir: /home/user/project
+extra_mounts:
+  - source: /host/data
+    target: /workspace/data

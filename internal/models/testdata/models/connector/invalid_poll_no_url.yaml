@@ -1,0 +1,10 @@
+kind: connector
+name: test-poll-bad
+source:
+  type: poll
+  interval: 5m
+routes:
+  - match:
+      type: item
+    target:
+      agent: processor

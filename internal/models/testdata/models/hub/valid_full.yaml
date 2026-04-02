@@ -1,0 +1,6 @@
+hub:
+  sources:
+    - name: official
+      type: git
+      url: https://github.com/agency-hub/registry
+      branch: main

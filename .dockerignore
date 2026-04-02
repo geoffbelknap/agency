@@ -1,0 +1,12 @@
+# Exclude everything except what container builds need
+agency-gateway/
+tests/
+docs/
+.git/
+.github/
+.claude-plugin/
+*.md
+*.txt
+.pytest_cache/
+__pycache__/
+.mypy_cache/

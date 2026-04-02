@@ -1,0 +1,58 @@
+version: 2
+
+project_name: agency
+
+builds:
+  - id: agency
+    main: ./cmd/gateway/
+    binary: agency
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+      - -X main.buildID={{.ShortCommit}}
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: "agency_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+brews:
+  - repository:
+      owner: geoffbelknap
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    name: agency
+    homepage: "https://github.com/geoffbelknap/agency"
+    description: "Agency — An operating system for AI agents"
+    install: |
+      bin.install "agency"
+    test: |
+      system "#{bin}/agency", "--version"
+
+release:
+  github:
+    owner: geoffbelknap
+    name: agency
+  prerelease: auto
+  name_template: "Agency v{{.Version}}"

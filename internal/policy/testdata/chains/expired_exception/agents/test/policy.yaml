@@ -1,0 +1,7 @@
+exceptions:
+  - exception_id: EXC-001
+    grant_ref: GRANT-001
+    parameter: risk_tolerance
+    granted_value: high
+    approved_by: admin
+    expires: "2020-01-01T00:00:00Z"

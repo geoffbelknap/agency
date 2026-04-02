@@ -1,0 +1,15 @@
+bundle: default
+additions:
+  - custom-permission
+restrictions:
+  - restricted-action
+communication:
+  scanning:
+    enabled: true
+    rules:
+      - no_credentials
+      - no_pii
+  bridging:
+    enabled: false
+    allowed_platforms:
+      - slack

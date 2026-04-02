@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420" font-family="'DM Sans', sans-serif">
+
+  <!-- Background -->
+  <rect width="720" height="420" fill="#FDFAF5" rx="8"/>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- ROW 1: OPERATORS + EXTERNAL                               -->
+  <!-- boxes: y=12 h=36 → center=30 → text y=33                 -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <rect x="12" y="12" width="126" height="36" rx="6" fill="#F3EFFA" stroke="#C5B8DB" stroke-width="1"/>
+  <text x="75" y="33" text-anchor="middle" font-family="Space Mono, monospace" font-size="9" fill="#5E35B1" letter-spacing="0.06em">CLI</text>
+
+  <rect x="146" y="12" width="126" height="36" rx="6" fill="#F3EFFA" stroke="#C5B8DB" stroke-width="1"/>
+  <text x="209" y="33" text-anchor="middle" font-family="Space Mono, monospace" font-size="9" fill="#5E35B1" letter-spacing="0.06em">WEB</text>
+
+  <rect x="280" y="12" width="126" height="36" rx="6" fill="#F3EFFA" stroke="#C5B8DB" stroke-width="1"/>
+  <text x="343" y="33" text-anchor="middle" font-family="Space Mono, monospace" font-size="9" fill="#5E35B1" letter-spacing="0.06em">MCP</text>
+
+  <rect x="414" y="12" width="126" height="36" rx="6" fill="#F3EFFA" stroke="#C5B8DB" stroke-width="1"/>
+  <text x="477" y="33" text-anchor="middle" font-family="Space Mono, monospace" font-size="9" fill="#5E35B1" letter-spacing="0.06em">HUB</text>
+
+  <!-- LLM Providers: two lines → top line y=26, bottom y=38 -->
+  <rect x="556" y="12" width="152" height="36" rx="6" fill="#ECEAE7" stroke="#D4CEC8" stroke-width="1"/>
+  <text x="632" y="26" text-anchor="middle" font-family="Space Mono, monospace" font-size="8" fill="#8B8580" letter-spacing="0.06em">LLM PROVIDERS</text>
+  <text x="632" y="38" text-anchor="middle" font-size="8" fill="#B8B2AC">Anthropic · OpenAI · Google</text>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- ROW 2: GATEWAY + EXTERNAL                                 -->
+  <!-- boxes: y=56 h=36 → center=74 → text y=77                 -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <rect x="12" y="56" width="528" height="36" rx="6" fill="#E8F4FD" stroke="#5B9BD5" stroke-width="1"/>
+  <text x="270" y="77" text-anchor="middle" font-family="Space Mono, monospace" font-size="9" fill="#2B6CB0" letter-spacing="0.06em">GATEWAY</text>
+
+  <rect x="556" y="56" width="74" height="36" rx="6" fill="#ECEAE7" stroke="#D4CEC8" stroke-width="1"/>
+  <text x="593" y="77" text-anchor="middle" font-family="Space Mono, monospace" font-size="8" fill="#8B8580" letter-spacing="0.06em">APIS</text>
+
+  <rect x="638" y="56" width="70" height="36" rx="6" fill="#ECEAE7" stroke="#D4CEC8" stroke-width="1"/>
+  <text x="673" y="77" text-anchor="middle" font-family="Space Mono, monospace" font-size="8" fill="#8B8580" letter-spacing="0.06em">WEBHOOKS</text>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- ROW 3: MEDIATION NETWORK                                  -->
+  <!-- container: y=100 h=64 → label y=116                      -->
+  <!-- inner boxes: y=124 h=30 → center=139 → text y=142        -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <rect x="12" y="100" width="696" height="64" rx="8" stroke="#007A62" stroke-width="1" fill="#E1F5EE"/>
+  <text x="360" y="116" text-anchor="middle" font-family="Space Mono, monospace" font-size="8" fill="#007A62" letter-spacing="0.08em">MEDIATION NETWORK</text>
+
+  <rect x="24" y="124" width="160" height="30" rx="4" fill="#FDFAF5" stroke="#B8E8D8" stroke-width="1"/>
+  <text x="104" y="142" text-anchor="middle" font-family="Space Mono, monospace" font-size="9" fill="#007A62" letter-spacing="0.06em">COMMS</text>
+
+  <rect x="192" y="124" width="160" height="30" rx="4" fill="#FDFAF5" stroke="#B8E8D8" stroke-width="1"/>
+  <text x="272" y="142" text-anchor="middle" font-family="Space Mono, monospace" font-size="9" fill="#007A62" letter-spacing="0.06em">KNOWLEDGE</text>
+
+  <rect x="360" y="124" width="160" height="30" rx="4" fill="#FDFAF5" stroke="#B8E8D8" stroke-width="1"/>
+  <text x="440" y="142" text-anchor="middle" font-family="Space Mono, monospace" font-size="9" fill="#007A62" letter-spacing="0.06em">INTAKE</text>
+
+  <rect x="528" y="124" width="168" height="30" rx="4" fill="#FDFAF5" stroke="#B8E8D8" stroke-width="1"/>
+  <text x="612" y="142" text-anchor="middle" font-family="Space Mono, monospace" font-size="9" fill="#007A62" letter-spacing="0.06em">EGRESS</text>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- ROW 4: ENFORCER                                           -->
+  <!-- box: y=172 h=36 → center=190 → text y=193                -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <rect x="12" y="172" width="696" height="36" rx="8" stroke="#C67A00" stroke-width="1" fill="#FFF3E0"/>
+  <text x="360" y="193" text-anchor="middle" font-family="Space Mono, monospace" font-size="9" fill="#C67A00" letter-spacing="0.06em">ENFORCER</text>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- ROW 5: WORKSPACE / ASK cognitive model                    -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <rect x="12" y="216" width="696" height="192" rx="10" stroke="#D4CEC8" stroke-width="1" fill="#FDFAF5"/>
+  <text x="28" y="234" font-family="Space Mono, monospace" font-size="9" fill="#007A62" letter-spacing="0.08em">WORKSPACE</text>
+
+  <rect x="24" y="244" width="672" height="152" rx="8" stroke="#D4CEC8" stroke-width="1" fill="#F8F5EF"/>
+  <text x="40" y="262" font-family="Space Mono, monospace" font-size="9" fill="#007A62" letter-spacing="0.08em">BODY</text>
+
+  <rect x="36" y="272" width="648" height="112" rx="6" stroke="#007A62" stroke-width="1.5" fill="white"/>
+  <text x="52" y="290" font-family="Space Mono, monospace" font-size="9" fill="#007A62" letter-spacing="0.08em">MIND</text>
+
+  <!-- Constraints: box y=300 -->
+  <rect x="52" y="300" width="192" height="72" rx="6" fill="#E1F5EE" stroke="#B8E8D8" stroke-width="1"/>
+  <text x="68" y="316" font-family="Space Mono, monospace" font-size="8" fill="#007A62" letter-spacing="0.06em">CONSTRAINTS</text>
+  <text x="68" y="330" font-size="9" fill="#6B6560">Operator-owned</text>
+  <text x="68" y="344" font-size="9" fill="#6B6560">Read-only to agent</text>
+  <text x="68" y="362" font-size="9" fill="#007A62" font-weight="500">Rules, permissions, tier</text>
+
+  <!-- Security boundary -->
+  <line x1="252" y1="304" x2="252" y2="368" stroke="#007A62" stroke-width="2" stroke-dasharray="4 3"/>
+
+  <!-- Identity -->
+  <rect x="260" y="300" width="192" height="72" rx="6" fill="#FFF8F0" stroke="#E8DDD0" stroke-width="1"/>
+  <text x="276" y="316" font-family="Space Mono, monospace" font-size="8" fill="#8B7355" letter-spacing="0.06em">IDENTITY</text>
+  <text x="276" y="330" font-size="9" fill="#6B6560">Agent-owned</text>
+  <text x="276" y="344" font-size="9" fill="#6B6560">Writable, audited</text>
+  <text x="276" y="362" font-size="9" fill="#8B7355" font-weight="500">Memory, personality</text>
+
+  <!-- Session -->
+  <rect x="460" y="300" width="212" height="72" rx="6" fill="#F3EFFA" stroke="#DDD0E8" stroke-width="1"/>
+  <text x="476" y="316" font-family="Space Mono, monospace" font-size="8" fill="#7355A0" letter-spacing="0.06em">SESSION</text>
+  <text x="476" y="330" font-size="9" fill="#6B6560">Ephemeral</text>
+  <text x="476" y="344" font-size="9" fill="#6B6560">Resets each session</text>
+  <text x="476" y="362" font-size="9" fill="#7355A0" font-weight="500">Active context, attack surface</text>
+
+</svg>

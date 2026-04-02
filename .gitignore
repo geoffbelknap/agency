@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.pytest_cache/
+.venv/
+venv/
+
+# Go build artifacts
+agency-gateway/agency
+agency-gateway/gateway
+agency-gateway/enforcer
+images/web-fetch/web-fetch
+
+# macOS
+.DS_Store
+
+# Local overrides
+docker-compose.override.yml
+.mcp.json
+routing.local.yaml
+.env
+.env.*
+
+# IDE & Editor
+.claude/
+.vscode/
+.worktrees/
+*.swp
+*.swo
+*~
+
+# Benchmark artifacts
+benchmark_results_*.json

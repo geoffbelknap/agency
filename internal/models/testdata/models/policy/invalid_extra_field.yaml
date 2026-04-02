@@ -1,0 +1,2 @@
+bundle: default
+bogus_field: should_fail

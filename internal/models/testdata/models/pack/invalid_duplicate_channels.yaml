@@ -1,0 +1,10 @@
+kind: pack
+name: bad-pack
+team:
+  name: my-team
+  agents:
+    - name: agent-1
+      preset: researcher
+  channels:
+    - name: general
+    - name: general

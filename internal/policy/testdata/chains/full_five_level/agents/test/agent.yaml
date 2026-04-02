@@ -1,0 +1,10 @@
+version: "0.1"
+name: test
+role: researcher
+body:
+  runtime: body
+  version: "0.1"
+workspace:
+  ref: minimal
+policy:
+  inherits_from: "departments/eng/teams/backend"

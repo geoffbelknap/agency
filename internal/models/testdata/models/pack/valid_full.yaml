@@ -1,0 +1,30 @@
+kind: pack
+name: security-pack
+version: 2.0.0
+description: A full security analysis pack
+author: agency-team
+license: MIT
+requires:
+  services:
+    - brave-search
+  presets:
+    - researcher
+team:
+  name: security-team
+  agents:
+    - name: analyst
+      preset: researcher
+      role: standard
+    - name: coordinator
+      preset: researcher
+      role: coordinator
+  channels:
+    - name: general
+      topic: General discussion
+    - name: reports
+      topic: Analysis reports
+      private: true
+credentials:
+  - name: API_KEY
+    description: External API key
+    required: true

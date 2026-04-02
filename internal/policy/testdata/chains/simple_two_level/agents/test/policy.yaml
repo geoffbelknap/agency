@@ -1,0 +1,2 @@
+parameters:
+  max_concurrent_tasks: 3

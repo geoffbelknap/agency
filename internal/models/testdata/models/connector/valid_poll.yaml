@@ -1,0 +1,11 @@
+kind: connector
+name: test-poll
+source:
+  type: poll
+  url: https://api.example.com/items
+  interval: 5m
+routes:
+  - match:
+      type: item
+    target:
+      agent: processor

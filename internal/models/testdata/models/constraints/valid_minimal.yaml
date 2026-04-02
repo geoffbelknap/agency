@@ -1,0 +1,4 @@
+agent: test-agent
+identity:
+  role: researcher
+  purpose: research tasks
