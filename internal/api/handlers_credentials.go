@@ -14,7 +14,6 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/hub"
-	"github.com/geoffbelknap/agency/internal/pkg/envfile"
 )
 
 // ── Credential REST handlers ────────────────────────────────────────────────
@@ -400,20 +399,6 @@ func (h *handler) resolveCredential(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 200, result)
 			return
 		}
-	}
-
-	// Fallback: read from .service-keys.env
-	keys := envfile.Load(filepath.Join(h.cfg.Home, "infrastructure", ".service-keys.env"))
-	if val, ok := keys[name]; ok {
-		if h.audit != nil {
-			h.audit.Write("platform", "credential_resolved", map[string]interface{}{
-				"credential": name,
-				"source":     "envfile",
-				"caller":     "egress",
-			})
-		}
-		writeJSON(w, 200, map[string]string{"name": name, "value": val})
-		return
 	}
 
 	writeJSON(w, 404, map[string]string{"error": "credential not found"})
