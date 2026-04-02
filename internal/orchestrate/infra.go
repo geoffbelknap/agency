@@ -89,7 +89,7 @@ var defaultHealthChecks = map[string]*container.HealthConfig{
 		Retries:     3,
 	},
 	"embeddings": {
-		Test:        []string{"CMD", "wget", "-q", "-O-", "http://127.0.0.1:11434/"},
+		Test:        []string{"CMD-SHELL", `bash -c "echo > /dev/tcp/127.0.0.1/11434"`},
 		Interval:    5 * time.Second,
 		Timeout:     3 * time.Second,
 		StartPeriod: 5 * time.Second,
@@ -914,7 +914,8 @@ func (inf *Infra) ensureEmbeddings(ctx context.Context) error {
 
 	// Model weights persist across restarts
 	dataDir := filepath.Join(inf.Home, "infrastructure", "embeddings")
-	os.MkdirAll(dataDir, 0755)
+	os.MkdirAll(dataDir, 0777)
+	os.Chmod(dataDir, 0777)
 
 	binds := []string{
 		dataDir + ":/root/.ollama:rw",
@@ -947,7 +948,8 @@ func (inf *Infra) ensureEmbeddings(ctx context.Context) error {
 	if err := inf.waitRunning(ctx, name, 10*time.Second); err != nil {
 		return err
 	}
-	return inf.waitHealthy(ctx, name, 30*time.Second)
+	// Ollama needs longer to initialize than our Python services
+	return inf.waitHealthy(ctx, name, 60*time.Second)
 }
 
 // -- System channels --
