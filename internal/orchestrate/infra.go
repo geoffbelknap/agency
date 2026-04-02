@@ -259,7 +259,36 @@ func (inf *Infra) TeardownWithProgress(ctx context.Context, onProgress ProgressF
 		}()
 	}
 	wg.Wait()
+
+	// Clean up agency-managed networks after all containers are stopped
+	inf.cleanNetworks(ctx)
+
 	return nil
+}
+
+// cleanNetworks removes agency-managed Docker networks that have no connected endpoints.
+func (inf *Infra) cleanNetworks(ctx context.Context) {
+	networks, err := inf.cli.NetworkList(ctx, network.ListOptions{})
+	if err != nil {
+		return
+	}
+	for _, n := range networks {
+		if n.Labels["agency.managed"] != "true" {
+			continue
+		}
+		// Inspect to check for connected endpoints
+		detail, err := inf.cli.NetworkInspect(ctx, n.ID, network.InspectOptions{})
+		if err != nil {
+			continue
+		}
+		if len(detail.Containers) == 0 {
+			if err := inf.cli.NetworkRemove(ctx, n.ID); err != nil {
+				inf.log.Debug("clean network skip", "network", n.Name, "err", err)
+			} else {
+				inf.log.Info("cleaned orphan network", "network", n.Name)
+			}
+		}
+	}
 }
 
 // RestartComponent stops, removes, and recreates a single component.
