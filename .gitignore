@@ -27,6 +27,10 @@ routing.local.yaml
 .env
 .env.*
 
+# Node artifacts
+package-lock.json
+node_modules/
+
 # IDE & Editor
 .claude/
 .vscode/
