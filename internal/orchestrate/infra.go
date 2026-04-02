@@ -41,7 +41,8 @@ var defaultImages = map[string]string{
 	"knowledge": "agency-knowledge:latest",
 	"intake":    "agency-intake:latest",
 	"web-fetch": "agency-web-fetch:latest",
-	"web":       "agency-web:latest",
+	"web":        "agency-web:latest",
+	"embeddings": "agency-embeddings:latest",
 }
 
 var defaultHealthChecks = map[string]*container.HealthConfig{
@@ -85,6 +86,13 @@ var defaultHealthChecks = map[string]*container.HealthConfig{
 		Interval:    5 * time.Second,
 		Timeout:     2 * time.Second,
 		StartPeriod: 2 * time.Second,
+		Retries:     3,
+	},
+	"embeddings": {
+		Test:        []string{"CMD", "wget", "-q", "-O-", "http://127.0.0.1:11434/"},
+		Interval:    5 * time.Second,
+		Timeout:     3 * time.Second,
+		StartPeriod: 5 * time.Second,
 		Retries:     3,
 	},
 }
@@ -195,6 +203,7 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 		{"intake", "Starting intake service", inf.ensureIntake},
 		{"web-fetch", "Starting web-fetch service (content extraction, security scanning)", inf.ensureWebFetch},
 		{"web", "Starting web UI", inf.ensureWeb},
+		{"embeddings", "Starting embeddings service (local vector embeddings)", inf.ensureEmbeddings},
 	}
 
 	// Start all components in parallel — they're independent.
@@ -241,7 +250,7 @@ func (inf *Infra) TeardownWithProgress(ctx context.Context, onProgress ProgressF
 	if onProgress != nil {
 		onProgress("infra", "Stopping all services")
 	}
-	roles := []string{"web", "web-fetch", "intake", "knowledge", "comms", "egress"}
+	roles := []string{"web", "web-fetch", "intake", "knowledge", "comms", "egress", "embeddings"}
 
 	var wg sync.WaitGroup
 	for _, role := range roles {
@@ -305,7 +314,8 @@ func (inf *Infra) RestartComponentWithProgress(ctx context.Context, component st
 		"knowledge": inf.ensureKnowledge,
 		"intake":    inf.ensureIntake,
 		"web-fetch": inf.ensureWebFetch,
-		"web":       inf.ensureWeb,
+		"web":        inf.ensureWeb,
+		"embeddings": inf.ensureEmbeddings,
 	}
 
 	ensure, ok := valid[component]
@@ -872,6 +882,62 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 			},
 			Healthcheck:  defaultHealthChecks["web"],
 			ExposedPorts: nat.PortSet{"80/tcp": struct{}{}},
+		},
+		hc, nil,
+	); err != nil {
+		return err
+	}
+
+	if err := inf.waitRunning(ctx, name, 10*time.Second); err != nil {
+		return err
+	}
+	return inf.waitHealthy(ctx, name, 30*time.Second)
+}
+
+func (inf *Infra) ensureEmbeddings(ctx context.Context) error {
+	// Conditional: only start if embedding provider is ollama (the default)
+	provider := os.Getenv("KNOWLEDGE_EMBED_PROVIDER")
+	if provider != "" && provider != "ollama" {
+		inf.log.Info("embeddings container skipped", "provider", provider)
+		return nil
+	}
+
+	upstreamRef := fmt.Sprintf("%s:%s", images.OllamaUpstream, images.OllamaVersion)
+	if err := images.ResolveUpstream(ctx, inf.cli, "embeddings", inf.Version, upstreamRef, inf.BuildID, inf.log); err != nil {
+		return fmt.Errorf("resolve embeddings image: %w", err)
+	}
+	name := containerName("embeddings")
+	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) {
+		return nil
+	}
+	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("embeddings"))
+
+	// Model weights persist across restarts
+	dataDir := filepath.Join(inf.Home, "infrastructure", "embeddings")
+	os.MkdirAll(dataDir, 0755)
+
+	binds := []string{
+		dataDir + ":/root/.ollama:rw",
+	}
+
+	hc := containers.HostConfigDefaults(containers.RoleInfra)
+	hc.Binds = binds
+	hc.NetworkMode = container.NetworkMode(mediationNet)
+	// Override memory: 3GB for model inference
+	hc.Resources.Memory = 3 * 1024 * 1024 * 1024
+
+	labels := map[string]string{
+		"agency.managed":       "true",
+		"agency.build.gateway": inf.BuildID,
+	}
+
+	if _, err := containers.CreateAndStart(ctx, inf.cli,
+		name,
+		&container.Config{
+			Image:       defaultImages["embeddings"],
+			Hostname:    "embeddings",
+			Labels:      labels,
+			Healthcheck: defaultHealthChecks["embeddings"],
 		},
 		hc, nil,
 	); err != nil {
