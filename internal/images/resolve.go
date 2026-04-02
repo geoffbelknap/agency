@@ -19,6 +19,11 @@ import (
 
 const registry = "ghcr.io/geoffbelknap"
 
+const (
+	OllamaUpstream = "ollama/ollama"
+	OllamaVersion  = "0.9.3"
+)
+
 // Resolve ensures the Docker image for the named service is available locally.
 //
 // Resolution order:
@@ -82,6 +87,65 @@ func Resolve(ctx context.Context, cli *client.Client, name, version, sourceDir, 
 	}
 
 	return fmt.Errorf("image %s: no resolution method available (source_dir=%q, version=%q)", localTag, sourceDir, version)
+}
+
+// ResolveUpstream ensures the Docker image for an upstream service (not built from source) is
+// available locally. Unlike Resolve(), there is no dev-mode source build path — the image is
+// always pulled.
+//
+// Resolution order:
+//  1. Local tag agency-<name>:latest exists and is current (buildID matches) — skip.
+//  2. Pull from GHCR: ghcr.io/geoffbelknap/agency-<name>:v<version>, retag to agency-<name>:latest.
+//  3. Fallback: pull directly from upstreamRef (e.g. "ollama/ollama:0.9.3"), retag to agency-<name>:latest.
+//  4. Return error if all methods fail.
+func ResolveUpstream(ctx context.Context, cli *client.Client, name, version, upstreamRef, buildID string, logger *log.Logger) error {
+	localTag := fmt.Sprintf("agency-%s:latest", name)
+
+	// Check if existing local image is current — skip pull if buildID matches.
+	exists, err := imageExists(ctx, cli, localTag)
+	if err != nil {
+		return fmt.Errorf("check local image %s: %w", localTag, err)
+	}
+	if exists && buildID != "" {
+		imgBuildID := ImageBuildLabel(ctx, cli, localTag)
+		if imgBuildID != "" && imgBuildID == buildID {
+			return nil // Image is current — skip pull
+		}
+		if imgBuildID != "" && logger != nil {
+			logger.Info("image stale, re-pulling", "image", localTag, "current", imgBuildID, "want", buildID)
+		}
+	} else if exists && buildID == "" {
+		return nil // No buildID to compare — assume current
+	}
+
+	// Try GHCR first (our published mirror of the upstream image).
+	if version != "" {
+		ghcrTag := fmt.Sprintf("%s/agency-%s:v%s", registry, name, version)
+		if logger != nil {
+			logger.Info("pulling image from GHCR", "image", ghcrTag)
+		}
+		if err := pullAndTag(ctx, cli, ghcrTag, localTag); err == nil {
+			pruneOldImages(ctx, cli, name, buildID, logger)
+			return nil
+		} else if logger != nil {
+			logger.Warn("GHCR pull failed, falling back to upstream", "image", ghcrTag, "err", err)
+		}
+	}
+
+	// Fallback: pull directly from upstream source.
+	if upstreamRef != "" {
+		if logger != nil {
+			logger.Info("pulling image from upstream", "image", upstreamRef)
+		}
+		if err := pullAndTag(ctx, cli, upstreamRef, localTag); err == nil {
+			pruneOldImages(ctx, cli, name, buildID, logger)
+			return nil
+		} else if logger != nil {
+			logger.Warn("upstream pull failed", "image", upstreamRef, "err", err)
+		}
+	}
+
+	return fmt.Errorf("image %s: upstream resolution failed (ghcr version=%q, upstream=%q)", localTag, version, upstreamRef)
 }
 
 // buildFromSource builds an image directly from the source tree.

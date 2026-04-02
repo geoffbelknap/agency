@@ -7,6 +7,17 @@ import (
 	"github.com/docker/docker/client"
 )
 
+func TestResolveUpstream_SkipsIfCurrent(t *testing.T) {
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		t.Skip("Docker not available:", err)
+	}
+	err = ResolveUpstream(context.Background(), cli, "nonexistent-test-xyz", "0.0.0", "test:0.0.0", "bid", nil)
+	if err == nil {
+		t.Error("expected error for nonexistent upstream image")
+	}
+}
+
 func TestImageExists_False(t *testing.T) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
