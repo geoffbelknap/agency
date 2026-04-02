@@ -895,10 +895,15 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 }
 
 func (inf *Infra) ensureEmbeddings(ctx context.Context) error {
-	// Conditional: only start if embedding provider is ollama (the default)
+	// Conditional: only start if embedding provider is ollama (the default).
+	// If provider changed away from ollama, clean up any running container.
 	provider := os.Getenv("KNOWLEDGE_EMBED_PROVIDER")
 	if provider != "" && provider != "ollama" {
-		inf.log.Info("embeddings container skipped", "provider", provider)
+		name := containerName("embeddings")
+		if inf.isRunning(ctx, name) {
+			inf.log.Info("embeddings provider changed, stopping container", "provider", provider)
+			_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("embeddings"))
+		}
 		return nil
 	}
 
