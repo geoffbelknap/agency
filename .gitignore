@@ -37,3 +37,4 @@ routing.local.yaml
 
 # Benchmark artifacts
 benchmark_results_*.json
+gateway
