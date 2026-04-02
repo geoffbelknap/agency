@@ -178,12 +178,6 @@ func (ms *MeeseeksStartSequence) phase2Enforcement(ctx context.Context) error {
 		env = append(env, "SSL_CERT_FILE=/etc/ssl/certs/agency-egress-ca.pem")
 	}
 
-	// Service keys
-	keysFile := filepath.Join(ms.Home, "infrastructure", ".service-keys.env")
-	if fileExists(keysFile) {
-		binds = append(binds, keysFile+":/agency/enforcer/service-keys.env:ro")
-	}
-
 	meEnforcerHC := containers.HostConfigDefaults(containers.RoleEnforcer)
 	meEnforcerHC.Binds = binds
 	meEnforcerHC.NetworkMode = container.NetworkMode(netName)

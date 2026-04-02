@@ -478,12 +478,6 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 		env[k] = v
 	}
 
-	// Service keys
-	serviceKeys := filepath.Join(infraDir, ".service-keys.env")
-	if fileExists(serviceKeys) {
-		binds = append(binds, serviceKeys+":/app/secrets/.service-keys.env:ro")
-	}
-
 	// Routing config
 	routingFile := filepath.Join(infraDir, "routing.yaml")
 	if fileExists(routingFile) {
@@ -724,14 +718,6 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 	intakeCfg := config.Load()
 	for k, v := range intakeCfg.ConfigVars {
 		env[k] = v
-	}
-
-	// Load service keys
-	serviceKeys := filepath.Join(inf.Home, "infrastructure", ".service-keys.env")
-	if fileExists(serviceKeys) {
-		for k, v := range envfile.Load(serviceKeys) {
-			env[k] = v
-		}
 	}
 
 	// Egress CA cert
