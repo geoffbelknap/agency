@@ -525,7 +525,19 @@ func runSetup(provider, apiKey, notifyURL string, noInfra bool) error {
 	fmt.Println("  agency start my-agent   # Start an agent")
 	fmt.Println("  agency status           # Check platform status")
 	fmt.Println()
-	fmt.Println("  Open http://localhost:8280 for the web UI")
+	// Derive web UI host from gateway address (same host, port 8280)
+	webHost := "localhost"
+	if !noInfra {
+		cfg := config.Load()
+		if host, _, err := net.SplitHostPort(cfg.GatewayAddr); err == nil && host != "" {
+			if host == "0.0.0.0" {
+				webHost = "localhost"
+			} else {
+				webHost = host
+			}
+		}
+	}
+	fmt.Printf("  Open http://%s:8280 for the web UI\n", webHost)
 
 	return nil
 }
