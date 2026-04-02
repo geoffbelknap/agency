@@ -15,7 +15,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/geoffbelknap/agency/internal/models"
-	"github.com/geoffbelknap/agency/internal/pkg/envfile"
 )
 
 // validInfraCallers lists infrastructure components allowed to call the internal LLM endpoint.
@@ -239,21 +238,22 @@ func extractUsageFromResponse(body []byte) (inputTokens, outputTokens int) {
 }
 
 // loadProviderKey reads the API key for a provider. Checks in order:
-// 1. Process environment
-// 2. ~/.agency/.env (operator config)
-// Service keys (.service-keys.env) are for the enforcer/egress, not gateway internal LLM calls.
+// 1. Process environment (for dev/CI overrides)
+// 2. Credential store
 func (h *handler) loadProviderKey(provider *models.ProviderConfig) string {
 	if provider.AuthEnv == "" {
 		return ""
 	}
-	// Check process environment first
+	// Check process environment first (for dev/CI overrides)
 	if v := os.Getenv(provider.AuthEnv); v != "" {
 		return v
 	}
-	// Check operator env file only — provider keys live here
-	env := envfile.Load(filepath.Join(h.cfg.Home, ".env"))
-	if v, ok := env[provider.AuthEnv]; ok && v != "" {
-		return v
+	// Check credential store
+	if h.credStore != nil {
+		entry, err := h.credStore.Get(provider.AuthEnv)
+		if err == nil && entry.Value != "" {
+			return entry.Value
+		}
 	}
 	return ""
 }
