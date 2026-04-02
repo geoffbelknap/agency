@@ -132,7 +132,7 @@ func (h *handler) missionHealth(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 500, map[string]string{"error": err.Error()})
 			return
 		}
-		checker := &orchestrate.MissionHealthChecker{Home: h.cfg.Home}
+		checker := &orchestrate.MissionHealthChecker{Home: h.cfg.Home, CredStore: h.credStore}
 		var results []orchestrate.MissionHealthResponse
 		for _, m := range missions {
 			if m.Status == "active" || m.Status == "paused" {
@@ -149,7 +149,7 @@ func (h *handler) missionHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	checker := &orchestrate.MissionHealthChecker{Home: h.cfg.Home}
+	checker := &orchestrate.MissionHealthChecker{Home: h.cfg.Home, CredStore: h.credStore}
 	resp := checker.CheckHealth(m)
 	writeJSON(w, 200, resp)
 }

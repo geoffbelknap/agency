@@ -322,14 +322,14 @@ func (h *handler) hubCheck(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": fmt.Sprintf("component %q not found", nameOrID)})
 		return
 	}
-	checker := &orchestrate.HubHealthChecker{Home: h.cfg.Home}
+	checker := &orchestrate.HubHealthChecker{Home: h.cfg.Home, CredStore: h.credStore}
 	resp := checker.Check(inst)
 	writeJSON(w, 200, resp)
 }
 
 func (h *handler) hubDoctor(w http.ResponseWriter, r *http.Request) {
 	mgr := hub.NewManager(h.cfg.Home)
-	checker := &orchestrate.HubHealthChecker{Home: h.cfg.Home}
+	checker := &orchestrate.HubHealthChecker{Home: h.cfg.Home, CredStore: h.credStore}
 	results := checker.CheckAll(mgr.Registry)
 	writeJSON(w, 200, map[string]interface{}{"components": results})
 }

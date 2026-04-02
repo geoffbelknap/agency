@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/models"
 )
 
@@ -27,7 +28,8 @@ type MissionHealthResponse struct {
 
 // MissionHealthChecker evaluates mission health from existing data sources.
 type MissionHealthChecker struct {
-	Home string
+	Home      string
+	CredStore *credstore.Store
 }
 
 // CheckHealth evaluates all health checks for a mission.
@@ -169,9 +171,16 @@ func (hc *MissionHealthChecker) checkConnectorCredentials(connectorName string) 
 		return checks
 	}
 
-	keysPath := filepath.Join(hc.Home, "infrastructure", ".service-keys.env")
-	keysData, _ := os.ReadFile(keysPath)
-	keys := string(keysData)
+	credentialExists := func(name string) (exists bool, nonEmpty bool) {
+		if hc.CredStore == nil {
+			return false, false
+		}
+		entry, err := hc.CredStore.Get(name)
+		if err != nil {
+			return false, false
+		}
+		return true, entry.Value != ""
+	}
 
 	// Find grant_name references in the connector YAML
 	for _, line := range strings.Split(string(data), "\n") {
@@ -185,32 +194,24 @@ func (hc *MissionHealthChecker) checkConnectorCredentials(connectorName string) 
 			continue
 		}
 
-		if !strings.Contains(keys, grantName+"=") {
+		exists, nonEmpty := credentialExists(grantName)
+		if !exists {
 			checks = append(checks, HealthCheck{
 				Name: "credential_health", Status: "fail",
 				Detail: fmt.Sprintf("%s: service key not found in credential store", grantName),
-				Fix:    fmt.Sprintf("echo '%s=YOUR_KEY' >> ~/.agency/infrastructure/.service-keys.env && agency infra rebuild egress", grantName),
+				Fix:    fmt.Sprintf("agency creds set %s <YOUR_KEY> --kind service --scope platform --protocol api-key", grantName),
+			})
+		} else if !nonEmpty {
+			checks = append(checks, HealthCheck{
+				Name: "credential_health", Status: "fail",
+				Detail: fmt.Sprintf("%s: credential value is empty", grantName),
+				Fix:    fmt.Sprintf("agency creds set %s <YOUR_KEY> --kind service --scope platform --protocol api-key", grantName),
 			})
 		} else {
-			// Check if value is non-empty
-			for _, kline := range strings.Split(keys, "\n") {
-				if strings.HasPrefix(kline, grantName+"=") {
-					val := strings.TrimPrefix(kline, grantName+"=")
-					if strings.TrimSpace(val) == "" {
-						checks = append(checks, HealthCheck{
-							Name: "credential_health", Status: "fail",
-							Detail: fmt.Sprintf("%s: service key is empty", grantName),
-							Fix:    fmt.Sprintf("Set the value for %s in ~/.agency/infrastructure/.service-keys.env", grantName),
-						})
-					} else {
-						checks = append(checks, HealthCheck{
-							Name: "credential_health", Status: "pass",
-							Detail: fmt.Sprintf("%s: configured", grantName),
-						})
-					}
-					break
-				}
-			}
+			checks = append(checks, HealthCheck{
+				Name: "credential_health", Status: "pass",
+				Detail: fmt.Sprintf("%s: configured", grantName),
+			})
 		}
 	}
 

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/hub"
 )
 
@@ -23,7 +24,8 @@ type HubHealthResponse struct {
 
 // HubHealthChecker evaluates health for any installed hub component.
 type HubHealthChecker struct {
-	Home string
+	Home      string
+	CredStore *credstore.Store
 }
 
 // Check evaluates health for a named component.
@@ -179,18 +181,23 @@ func (hc *HubHealthChecker) checkService(inst *hub.Instance) []HealthCheck {
 		})
 	}
 
-	// Check if service key exists
-	keysPath := filepath.Join(hc.Home, "infrastructure", ".service-keys.env")
-	keysData, _ := os.ReadFile(keysPath)
-	if strings.Contains(string(keysData), inst.Name+"=") {
-		checks = append(checks, HealthCheck{
-			Name: "service_key", Status: "pass",
-			Detail: "service key configured",
-		})
+	// Check if service key exists in credential store
+	if hc.CredStore != nil {
+		if _, err := hc.CredStore.Get(inst.Name); err == nil {
+			checks = append(checks, HealthCheck{
+				Name: "service_key", Status: "pass",
+				Detail: "service key configured",
+			})
+		} else {
+			checks = append(checks, HealthCheck{
+				Name: "service_key", Status: "warn",
+				Detail: "service key not found (may not be required)",
+			})
+		}
 	} else {
 		checks = append(checks, HealthCheck{
 			Name: "service_key", Status: "warn",
-			Detail: "service key not found (may not be required)",
+			Detail: "credential store unavailable",
 		})
 	}
 
@@ -222,9 +229,16 @@ func (hc *HubHealthChecker) checkCredentials(connectorName string) []HealthCheck
 		return checks
 	}
 
-	keysPath := filepath.Join(hc.Home, "infrastructure", ".service-keys.env")
-	keysData, _ := os.ReadFile(keysPath)
-	keys := string(keysData)
+	credentialExists := func(name string) (exists bool, nonEmpty bool) {
+		if hc.CredStore == nil {
+			return false, false
+		}
+		entry, err := hc.CredStore.Get(name)
+		if err != nil {
+			return false, false
+		}
+		return true, entry.Value != ""
+	}
 
 	for _, line := range strings.Split(string(data), "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -237,30 +251,23 @@ func (hc *HubHealthChecker) checkCredentials(connectorName string) []HealthCheck
 			continue
 		}
 
-		if strings.Contains(keys, grantName+"=") {
-			// Check non-empty
-			for _, kline := range strings.Split(keys, "\n") {
-				if strings.HasPrefix(kline, grantName+"=") {
-					val := strings.TrimPrefix(kline, grantName+"=")
-					if strings.TrimSpace(val) == "" {
-						checks = append(checks, HealthCheck{
-							Name: "credential", Status: "fail",
-							Detail: fmt.Sprintf("%s: empty", grantName),
-						})
-					} else {
-						checks = append(checks, HealthCheck{
-							Name: "credential", Status: "pass",
-							Detail: fmt.Sprintf("%s: configured", grantName),
-						})
-					}
-					break
-				}
-			}
-		} else {
+		exists, nonEmpty := credentialExists(grantName)
+		if !exists {
 			checks = append(checks, HealthCheck{
 				Name: "credential", Status: "fail",
-				Detail: fmt.Sprintf("%s: not found", grantName),
-				Fix:    fmt.Sprintf("Add %s to ~/.agency/infrastructure/.service-keys.env", grantName),
+				Detail: fmt.Sprintf("%s: not found in credential store", grantName),
+				Fix:    fmt.Sprintf("agency creds set %s <YOUR_KEY> --kind service --scope platform --protocol api-key", grantName),
+			})
+		} else if !nonEmpty {
+			checks = append(checks, HealthCheck{
+				Name: "credential", Status: "fail",
+				Detail: fmt.Sprintf("%s: credential value is empty", grantName),
+				Fix:    fmt.Sprintf("agency creds set %s <YOUR_KEY> --kind service --scope platform --protocol api-key", grantName),
+			})
+		} else {
+			checks = append(checks, HealthCheck{
+				Name: "credential", Status: "pass",
+				Detail: fmt.Sprintf("%s: configured", grantName),
 			})
 		}
 	}
