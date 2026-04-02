@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"gopkg.in/yaml.v3"
 
+	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/hub"
 	"github.com/geoffbelknap/agency/internal/models"
 )
@@ -257,7 +258,11 @@ func (h *handler) isCredentialConfigured(cred models.ConnectorCredential) bool {
 		if grantName == "" {
 			grantName = cred.Name
 		}
-		return h.envFileHasKey(filepath.Join(h.cfg.Home, "infrastructure", ".service-keys.env"), grantName)
+		if h.credStore != nil {
+			_, err := h.credStore.Get(grantName)
+			return err == nil
+		}
+		return false
 	case "env-var":
 		if os.Getenv(cred.Name) != "" {
 			return true
@@ -331,8 +336,26 @@ func (h *handler) writeCredential(cred models.ConnectorCredential, value string)
 		if grantName == "" {
 			grantName = cred.Name
 		}
-		path := filepath.Join(h.cfg.Home, "infrastructure", ".service-keys.env")
-		return h.upsertEnvEntry(path, grantName, value, 0600)
+		if h.credStore == nil {
+			return fmt.Errorf("credential store not initialized")
+		}
+		now := time.Now().UTC().Format(time.RFC3339)
+		if err := h.credStore.Put(credstore.Entry{
+			Name:  grantName,
+			Value: value,
+			Metadata: credstore.Metadata{
+				Kind:      credstore.KindService,
+				Scope:     "platform",
+				Protocol:  credstore.ProtocolAPIKey,
+				Source:    "connector",
+				CreatedAt: now,
+				RotatedAt: now,
+			},
+		}); err != nil {
+			return err
+		}
+		h.regenerateSwapConfig()
+		return nil
 	case "env-var":
 		path := filepath.Join(h.cfg.Home, ".env")
 		return h.upsertEnvEntry(path, cred.Name, value, 0644)
