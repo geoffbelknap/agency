@@ -1,5 +1,7 @@
 # Agency-Web Container Spec
 
+**Status:** Partially implemented — Dockerfile and nginx.conf exist in agency-web. Integration with `agency infra up` and Makefile target still needed.
+
 ## Goal
 
 Containerize agency-web so `agency infra up` starts the web UI automatically. Users don't need Node/npm installed.

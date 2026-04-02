@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** 7/8 complete. Section 8 (Egress domain merge) requires backend API changes.
+
 **Goal:** Redesign 8 agency-web UI components to improve usability as the platform scales.
 
 **Architecture:** Each task modifies agency-web React components. Admin.tsx (939 lines) will be split — Doctor, Audit, and Egress become separate sub-screen components following the existing delegation pattern. All styling uses the existing Mission Control theme (DM Sans, JetBrains Mono, deep slate-blue, cyan accents). No new dependencies.

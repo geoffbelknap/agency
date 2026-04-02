@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** Complete (2026-03-31) — merged via PR #1.
+
 **Goal:** Break apart the 5 largest screens in agency-web (Channels, KnowledgeExplorer, AgentDetail, Admin, Hub) into focused, maintainable modules without changing any user-facing behavior.
 
 **Architecture:** Pure refactor — extract hooks, sub-components, and lazy imports from monolithic screen files. Each task produces a working build with passing tests. No new features, no API changes, no routing changes.

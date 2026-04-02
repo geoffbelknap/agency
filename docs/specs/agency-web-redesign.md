@@ -1,12 +1,12 @@
 ---
 description: "Comprehensive UI improvements across channel sidebar, Admin tabs, and knowledge graph. All designs follow the existin..."
-status: "Approved"
+status: "Implemented"
 ---
 
 # Agency Web UI Redesign
 
 **Date:** 2026-03-29
-**Status:** Approved
+**Status:** 7/8 Implemented — Section 8 (Egress domain merge) pending backend API support
 
 Comprehensive UI improvements across channel sidebar, Admin tabs, and knowledge graph. All designs follow the existing "Mission Control" theme: deep slate-blue backgrounds, cyan primary accents, DM Sans + JetBrains Mono typography, instrument-panel label patterns.
 
