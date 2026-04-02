@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/term"
+
 	"github.com/charmbracelet/log"
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
@@ -332,8 +334,9 @@ func setupCmd() *cobra.Command {
 
 				if provider != "" && apiKey == "" {
 					fmt.Printf("\n%s API key: ", provider)
-					if scanner.Scan() {
-						apiKey = scanner.Text()
+					if keyBytes, err := readPassword(); err == nil {
+						apiKey = strings.TrimSpace(string(keyBytes))
+						fmt.Println() // newline after masked input
 					}
 				}
 			}
@@ -834,4 +837,10 @@ func listAgentNames(home string) []string {
 		}
 	}
 	return names
+}
+
+// readPassword reads a line from stdin with echo disabled (masked input).
+func readPassword() ([]byte, error) {
+	fd := int(syscall.Stdin)
+	return term.ReadPassword(fd)
 }
