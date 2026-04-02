@@ -16,6 +16,7 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/apiclient"
 	"github.com/geoffbelknap/agency/internal/daemon"
+	"github.com/geoffbelknap/agency/internal/update"
 )
 
 var (
@@ -174,6 +175,28 @@ func RegisterCommands(root *cobra.Command) {
 			cliVersion = v
 		}
 	}
+
+	// Background update check — starts immediately, result printed after command runs
+	agencyHome := os.Getenv("AGENCY_HOME")
+	if agencyHome == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			agencyHome = home + "/.agency"
+		}
+	}
+	var waitForUpdate func() *update.Result
+	if cliVersion != "" && cliVersion != "dev" {
+		waitForUpdate = update.Check(cliVersion, agencyHome)
+	}
+	root.PersistentPostRun = func(cmd *cobra.Command, args []string) {
+		if waitForUpdate == nil {
+			return
+		}
+		if r := waitForUpdate(); r != nil && r.Newer() {
+			fmt.Fprintf(os.Stderr, "\nA new version of agency is available: %s → %s\n", r.Current, r.Latest)
+			fmt.Fprintf(os.Stderr, "  brew upgrade agency\n\n")
+		}
+	}
+
 	// Define command groups for organized help output
 	root.AddGroup(
 		&cobra.Group{ID: "daily", Title: "Daily Operations:"},

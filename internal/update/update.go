@@ -17,7 +17,7 @@ import (
 
 const (
 	releaseURL  = "https://api.github.com/repos/geoffbelknap/agency/releases/latest"
-	cacheTTL    = 24 * time.Hour
+	cacheTTL    = 12 * time.Hour
 	httpTimeout = 3 * time.Second
 	waitTimeout = 4 * time.Second // longer than httpTimeout to avoid racing it
 )
