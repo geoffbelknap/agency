@@ -130,8 +130,9 @@ func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Service scope enforcement — validate the agent is granted this service
 	// and the tool has the required scope. The enforcer does NOT inject real
 	// credentials (ASK Tenet 4: least privilege). X-Agency-Service passes
-	// through to the egress proxy, which resolves credentials from
-	// .service-keys.env. Real API keys never enter the enforcer boundary.
+	// through to the egress proxy, which resolves credentials from the
+	// gateway credential store via Unix socket. Real API keys never enter
+	// the enforcer boundary.
 	if svcName := r.Header.Get("X-Agency-Service"); svcName != "" {
 		if ph.services != nil {
 			cred := ph.services.Lookup(svcName)

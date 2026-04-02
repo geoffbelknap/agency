@@ -165,7 +165,8 @@ func (r *Registry) Show(name string) *Entry {
 	return nil
 }
 
-// Enable sets a capability to available or restricted state and optionally stores a key.
+// Enable sets a capability to available or restricted state.
+// Key storage is handled by the API handler via the credential store.
 func (r *Registry) Enable(name, key string, agents []string) error {
 	states := r.loadStates()
 
@@ -176,15 +177,7 @@ func (r *Registry) Enable(name, key string, agents []string) error {
 	cs := capState{State: state, Agents: agents}
 	states[name] = cs
 
-	if err := r.saveStates(states); err != nil {
-		return err
-	}
-
-	// Store key if provided
-	if key != "" {
-		return r.storeKey(name, key)
-	}
-	return nil
+	return r.saveStates(states)
 }
 
 // Disable sets a capability to disabled state.
@@ -251,10 +244,6 @@ func (r *Registry) configPath() string {
 	return filepath.Join(r.Home, "capabilities.yaml")
 }
 
-func (r *Registry) keysPath() string {
-	return filepath.Join(r.Home, ".capability-keys.env")
-}
-
 func (r *Registry) loadStates() map[string]capState {
 	result := make(map[string]capState)
 	data, err := os.ReadFile(r.configPath())
@@ -278,31 +267,3 @@ func (r *Registry) saveStates(states map[string]capState) error {
 	return os.WriteFile(r.configPath(), data, 0644)
 }
 
-func (r *Registry) storeKey(name, key string) error {
-	keysFile := r.keysPath()
-
-	// Read existing keys
-	var lines []string
-	if data, err := os.ReadFile(keysFile); err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "#") {
-				lines = append(lines, line)
-				continue
-			}
-			// Skip existing entry for this name
-			envKey := strings.ToUpper(strings.ReplaceAll(name, "-", "_")) + "_KEY="
-			if strings.HasPrefix(line, envKey) {
-				continue
-			}
-			lines = append(lines, line)
-		}
-	}
-
-	// Add new key
-	envKey := strings.ToUpper(strings.ReplaceAll(name, "-", "_")) + "_KEY"
-	lines = append(lines, envKey+"="+key)
-
-	content := strings.Join(lines, "\n") + "\n"
-	return os.WriteFile(keysFile, []byte(content), 0600)
-}

@@ -8,12 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/geoffbelknap/agency/internal/capabilities"
+	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/events"
-	"github.com/geoffbelknap/agency/internal/pkg/envfile"
 )
 
 // -- Capabilities --
@@ -46,9 +47,31 @@ func (h *handler) enableCapability(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewDecoder(r.Body).Decode(&body)
 	reg := capabilities.NewRegistry(h.cfg.Home)
-	if err := reg.Enable(name, body.Key, body.Agents); err != nil {
+	// Pass empty key — credential storage is handled via the credential store below.
+	if err := reg.Enable(name, "", body.Agents); err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
+	}
+	// Store capability key in credential store
+	if body.Key != "" && h.credStore != nil {
+		capKeyName := strings.ToUpper(strings.ReplaceAll(name, "-", "_")) + "_KEY"
+		now := time.Now().UTC().Format(time.RFC3339)
+		if err := h.credStore.Put(credstore.Entry{
+			Name:  capKeyName,
+			Value: body.Key,
+			Metadata: credstore.Metadata{
+				Kind:      "service",
+				Scope:     "platform",
+				Service:   name,
+				Protocol:  "api-key",
+				Source:    "capability",
+				CreatedAt: now,
+				RotatedAt: now,
+			},
+		}); err != nil {
+			h.log.Warn("capability: failed to store key in credential store", "name", name, "err", err)
+		}
+		h.regenerateSwapConfig()
 	}
 	// Hot-reload: notify running agents about the capability change
 	go h.reloadCapabilitiesForRunningAgents(name)
@@ -101,26 +124,6 @@ func (h *handler) deleteCapability(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": "deleted", "capability": name})
 }
 
-// loadCapabilityKeys reads ~/.agency/.capability-keys.env into a map.
-func loadCapabilityKeys(home string) map[string]string {
-	result := make(map[string]string)
-	data, err := os.ReadFile(filepath.Join(home, ".capability-keys.env"))
-	if err != nil {
-		return result
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) == 2 {
-			result[parts[0]] = parts[1]
-		}
-	}
-	return result
-}
-
 // nestedStr extracts a string from a nested map: m[key1][key2].
 func nestedStr(m map[string]interface{}, keys ...string) (string, bool) {
 	cur := m
@@ -142,8 +145,9 @@ func nestedStr(m map[string]interface{}, keys ...string) (string, bool) {
 	return "", false
 }
 
-// reloadCapabilitiesForRunningAgents regenerates service manifests and signals
-// running enforcers to reload after a capability is enabled, disabled, or granted.
+// reloadCapabilitiesForRunningAgents regenerates service manifests, stores
+// credential mappings in the credential store, and signals running enforcers
+// to reload after a capability is enabled, disabled, or granted.
 // Runs in a goroutine so it doesn't block the HTTP response.
 func (h *handler) reloadCapabilitiesForRunningAgents(capName string) {
 	ctx := context.Background()
@@ -187,10 +191,9 @@ func (h *handler) reloadCapabilitiesForRunningAgents(capName string) {
 			json.Unmarshal(mdata, &manifest)
 		}
 
-		// Update the enforcer's service-keys.env so credential swap works.
-		// Maps scoped tokens to real API keys from .capability-keys.env.
-		capKeys := loadCapabilityKeys(h.cfg.Home)
-		var keyLines []string
+		// Store credential mappings in the credential store. The egress proxy
+		// resolves credentials via the gateway socket — no flat files needed.
+		entries := map[string]string{}
 		for _, svcMap := range manifest.Services {
 			svcName, _ := svcMap["service"].(string)
 			scopedToken, _ := svcMap["scoped_token"].(string)
@@ -198,33 +201,40 @@ func (h *handler) reloadCapabilitiesForRunningAgents(capName string) {
 			if scopedToken == "" || envVar == "" {
 				continue
 			}
-			// Look up the real key from capability keys
+			// Look up the real key from credential store
 			capKeyName := strings.ToUpper(strings.ReplaceAll(svcName, "-", "_")) + "_KEY"
-			realKey := capKeys[capKeyName]
+			var realKey string
+			if h.credStore != nil {
+				if entry, err := h.credStore.Get(capKeyName); err == nil {
+					realKey = entry.Value
+				}
+			}
 			if realKey == "" {
 				continue
 			}
-			// Format: SCOPED_TOKEN=REAL_KEY (enforcer reads this for credential swap)
-			keyLines = append(keyLines, scopedToken+"="+realKey)
-			// Also write the env var mapping
-			keyLines = append(keyLines, envVar+"="+realKey)
+			entries[scopedToken] = realKey
+			entries[envVar] = realKey
 		}
-		svcKeysPath := filepath.Join(h.cfg.Home, "infrastructure", ".service-keys.env")
-		os.MkdirAll(filepath.Dir(svcKeysPath), 0700)
-		// Use envfile.Upsert — merges with existing keys, backs up before write.
-		// Preserves provider keys (ANTHROPIC_API_KEY, etc.) and manually-added keys.
-		entries := map[string]string{}
-		for _, line := range keyLines {
-			if idx := strings.Index(line, "="); idx > 0 {
-				entries[line[:idx]] = line[idx+1:]
-			}
-		}
-		envfile.Upsert(svcKeysPath, entries)
 
-		// Also write per-agent service keys to the agent's enforcer auth dir
-		agentKeysPath := filepath.Join(agentDir, "state", "enforcer-auth", "service-keys.env")
-		os.MkdirAll(filepath.Dir(agentKeysPath), 0755)
-		envfile.Upsert(agentKeysPath, entries)
+		// Write service credential mappings to credential store
+		if h.credStore != nil && len(entries) > 0 {
+			now := time.Now().UTC().Format(time.RFC3339)
+			for k, v := range entries {
+				_ = h.credStore.Put(credstore.Entry{
+					Name:  k,
+					Value: v,
+					Metadata: credstore.Metadata{
+						Kind:      "service",
+						Scope:     "platform",
+						Protocol:  "api-key",
+						Source:    "capability-reload",
+						CreatedAt: now,
+						RotatedAt: now,
+					},
+				})
+			}
+			h.regenerateSwapConfig()
+		}
 
 		// Copy service definitions to ~/.agency/services/ so the enforcer
 		// (which mounts that directory) can read them for credential swap.
