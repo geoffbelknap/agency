@@ -1028,53 +1028,6 @@ func registerAdminTools(reg *MCPToolRegistry) {
 		},
 	)
 
-	// 8. agency_admin_model
-	reg.Register(
-		"agency_admin_model",
-		"Admin model container management. Actions: status (container health, model info, download state), pull (download or update the configured model).",
-		map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"action": map[string]interface{}{
-					"type":        "string",
-					"enum":        []string{"status", "pull"},
-					"description": "Action to perform.",
-				},
-			},
-			"required": []string{"action"},
-		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			action := mapStr(args, "action")
-
-			configPath := filepath.Join(h.cfg.Home, "config.yaml")
-			var cfg map[string]interface{}
-			if data, err := os.ReadFile(configPath); err == nil {
-				yaml.Unmarshal(data, &cfg)
-			}
-			if cfg == nil {
-				cfg = map[string]interface{}{}
-			}
-
-			switch action {
-			case "status":
-				models, _ := cfg["models"].(map[string]interface{})
-				if models == nil || len(models) == 0 {
-					return "Admin model status:\n  No models configured.", false
-				}
-				lines := []string{"Admin model status:"}
-				for key, val := range models {
-					lines = append(lines, fmt.Sprintf("  %s: %v", key, val))
-				}
-				return strings.Join(lines, "\n"), false
-
-			case "pull":
-				return "Model pull initiated.", false
-
-			default:
-				return "Error: unknown action: " + action, true
-			}
-		},
-	)
 }
 
 // ── Capabilities (6 tools) ──────────────────────────────────────────────────
@@ -1812,7 +1765,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				{"Teams", []string{"agency_team_create", "agency_team_list", "agency_team_show", "agency_team_activity"}},
 				{"Deploy", []string{"agency_deploy", "agency_teardown"}},
 				{"Intake", []string{"agency_intake_items", "agency_intake_stats"}},
-				{"Admin", []string{"agency_admin_doctor", "agency_admin_destroy", "agency_admin_rebuild", "agency_admin_trust", "agency_admin_egress", "agency_admin_audit", "agency_admin_knowledge", "agency_admin_model", "agency_admin_department"}},
+				{"Admin", []string{"agency_admin_doctor", "agency_admin_destroy", "agency_admin_rebuild", "agency_admin_trust", "agency_admin_egress", "agency_admin_audit", "agency_admin_knowledge", "agency_admin_department"}},
 				{"Hub", []string{"agency_hub_search", "agency_hub_install", "agency_hub_remove", "agency_hub_list", "agency_hub_update", "agency_hub_info"}},
 			}
 

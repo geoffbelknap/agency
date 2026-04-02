@@ -164,8 +164,8 @@ This section maps the strategy to concrete subsystems in Agency's codebase and i
 - Enforcer-based LLM routing (Anthropic + OpenAI)
 
 **Spec status:**
-- **Knowledge graph curator** — ✅ Done. Infrastructure service that maintains graph quality by merging duplicates, pruning low-signal nodes, and monitoring information density. Mediated, audited, atomic mutations. Runs on local admin model. Spec: `knowledge-graph-curator.md`.
-- **Local model integration** — ✅ Done. Managed Ollama container (`agency-infra-admin-model`) on mediation network. OpenAI-compatible API. Local-first synthesizer with Haiku fallback. Graduated trust validation. Lazy model pull. Spec: `local-model-integration.md`.
+- **Knowledge graph curator** — ✅ Done. Infrastructure service that maintains graph quality by merging duplicates, pruning low-signal nodes, and monitoring information density. Mediated, audited, atomic mutations. Spec: `knowledge-graph-curator.md`.
+- **Embeddings container** — Managed Ollama container (`agency-infra-embeddings`) on mediation network for knowledge graph vector embeddings. Synthesizer routes LLM calls through the gateway's internal LLM endpoint (model resolved via `routing.yaml`).
 - **Dynamic routing optimizer** — Not started. An infrastructure service (not an agent) that observes LLM call metadata and progressively learns optimal model routing per task type. Produces routing policy drafts that require operator approval before the enforcer applies them. Must address: success signal definition, exploration rate, local minima recovery.
 - **Graph ACL model** — Not started. Enforcement of authorization-scoped graph traversal. Query-time filtering that prevents cross-authorization synthesis (ASK Tenet 12). Must handle: edge traversal across authorization boundaries, metadata-only responses for restricted nodes.
 - **GraphRAG security** — Not started. Pre-call XPIA scanning of graph-injected briefing content. Attack surface documentation. Provenance-based quarantine of poisoned subgraphs.

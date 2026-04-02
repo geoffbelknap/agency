@@ -788,13 +788,6 @@ func (c *Client) AdminDepartment(action string, args map[string]string) (map[str
 	return result, err
 }
 
-func (c *Client) AdminModel(action string, args map[string]string) (map[string]interface{}, error) {
-	body := map[string]interface{}{"action": action, "args": args}
-	var result map[string]interface{}
-	err := c.PostJSON("/api/v1/admin/model", body, &result)
-	return result, err
-}
-
 // ── Deploy ──────────────────────────────────────────────────────────────────
 
 func (c *Client) Deploy(packPath string, credentials map[string]string) (map[string]interface{}, error) {

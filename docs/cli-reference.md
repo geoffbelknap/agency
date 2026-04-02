@@ -171,7 +171,6 @@ agency admin knowledge stats             # Knowledge graph statistics
 agency admin department list             # List departments
 agency admin department show <name>      # Department details
 agency admin egress show <name>          # Egress rules for agent
-agency admin model list                  # List configured models
 agency admin destroy --yes               # Remove everything (preserves knowledge)
 ```
 

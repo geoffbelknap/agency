@@ -602,7 +602,7 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 
 	env := map[string]string{
 		"HTTPS_PROXY":          "http://egress:3128",
-		"NO_PROXY":             "admin-model,agency-infra-admin-model,localhost,127.0.0.1,host.docker.internal",
+		"NO_PROXY":             "agency-infra-embeddings,localhost,127.0.0.1,host.docker.internal",
 		"AGENCY_GATEWAY_TOKEN": inf.GatewayToken,
 	}
 

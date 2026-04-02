@@ -2,7 +2,7 @@
 
 Providers:
   - NoOpProvider: no-op, returns empty vectors (default/fallback)
-  - OllamaProvider: local model via agency-infra-admin-model
+  - OllamaProvider: local model via agency-infra-embeddings
   - OpenAIProvider: text-embedding-3-small/large via egress proxy
   - VoyageProvider: voyage-3-lite/voyage-3 via egress proxy
 
@@ -70,7 +70,7 @@ class NoOpProvider(EmbeddingProvider):
 
 
 class OllamaProvider(EmbeddingProvider):
-    """Embedding via local Ollama instance (agency-infra-admin-model).
+    """Embedding via local Ollama instance (agency-infra-embeddings).
 
     Uses /api/embed (not /v1/embeddings). Batch input is an array;
     response["embeddings"] is a list of vectors.
@@ -79,7 +79,7 @@ class OllamaProvider(EmbeddingProvider):
     def __init__(
         self,
         model: str,
-        endpoint: str = "http://agency-infra-admin-model:11434",
+        endpoint: str = "http://agency-infra-embeddings:11434",
         dimensions: Optional[int] = None,
     ) -> None:
         self._model = model
@@ -258,7 +258,7 @@ def create_provider(provider_name: Optional[str] = None) -> EmbeddingProvider:
             model = os.environ.get("KNOWLEDGE_EMBED_OLLAMA_MODEL", "all-minilm")
             endpoint = os.environ.get(
                 "KNOWLEDGE_EMBED_OLLAMA_ENDPOINT",
-                "http://agency-infra-admin-model:11434",
+                "http://agency-infra-embeddings:11434",
             )
             return OllamaProvider(model=model, endpoint=endpoint)
 

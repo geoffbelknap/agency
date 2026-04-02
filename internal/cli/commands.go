@@ -3329,26 +3329,6 @@ Also available as top-level: agency knowledge {query|who-knows|stats}`,
 	})
 	cmd.AddCommand(knowledgeAdminCmd)
 
-	cmd.AddCommand(&cobra.Command{
-		Use: "model [action]", Short: "Model configuration", Args: cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := requireGateway()
-			if err != nil {
-				return err
-			}
-			modelArgs := map[string]string{}
-			if len(args) > 1 {
-				modelArgs["name"] = args[1]
-			}
-			result, err := c.AdminModel(args[0], modelArgs)
-			if err != nil {
-				return err
-			}
-			prettyPrint(result)
-			return nil
-		},
-	})
-
 	return cmd
 }
 

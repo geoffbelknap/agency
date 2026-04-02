@@ -4,41 +4,6 @@
 
 ---
 
-## Admin Model
-
-**Purpose:** Local model container management.
-
-### Step 1 — Check model status
-
-```
-agency_admin_model(action="status")
-```
-
-**Expected:** Shows:
-- `enabled`: true or false
-- Container state (running/stopped/not found)
-- Model name (if configured)
-
-If disabled, mark PASS and skip remaining steps.
-
-### Step 2 — Pull model (if enabled)
-
-```
-agency_admin_model(action="pull")
-```
-
-**Expected:** Model pull result. May take time if downloading.
-
-### Step 3 — Verify status after pull
-
-```
-agency_admin_model(action="status")
-```
-
-**Expected:** Status unchanged or `download_state: complete`.
-
----
-
 ## Knowledge Curation
 
 **Purpose:** Knowledge graph admin — health, flagging, curation log.

@@ -160,7 +160,7 @@ class NoOpProvider(EmbeddingProvider):
 
 class OllamaProvider(EmbeddingProvider):
     """Local Ollama embeddings via /api/embed endpoint."""
-    # Endpoint: POST http://agency-infra-admin-model:11434/api/embed
+    # Endpoint: POST http://agency-infra-embeddings:11434/api/embed
     # Uses /api/embed (NOT /v1/embeddings — unreliable across versions)
     # Batch: pass input as array, response["embeddings"] is array of vectors
     # Vectors are L2-normalized by Ollama — cosine = dot product
@@ -519,5 +519,5 @@ communicates_with:
 - **Best-effort embeddings.** Failures never block node writes.
 - **Graceful sqlite-vec degradation.** Missing sqlite-vec degrades to FTS5-only, never crashes.
 - **OntologyCandidate exclusion.** Never in agent-facing `find_nodes()` results.
-- **No new infrastructure containers.** Embeddings go through existing egress proxy or existing Ollama admin model.
+- **Embeddings container.** Embeddings go through the `agency-infra-embeddings` Ollama container on the mediation network, or remote providers via the egress proxy.
 - **Eval harness is manual.** Not part of the automated test suite or build.

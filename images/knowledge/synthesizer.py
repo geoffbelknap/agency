@@ -1,8 +1,11 @@
 """LLM-based knowledge synthesis pipeline.
 
 Periodically batches unprocessed messages, sends them to the LLM
-via the Anthropic Messages API for entity/relationship extraction,
-and writes results to the knowledge graph.
+via the gateway's internal LLM endpoint for entity/relationship
+extraction, and writes results to the knowledge graph.
+
+The gateway resolves models via routing.yaml — operators configure
+which provider and model to use for synthesis there.
 
 Trigger conditions (whichever comes first):
   - 10 new messages since last synthesis
@@ -143,30 +146,16 @@ class LLMSynthesizer:
 
         # Config
         synth_timeout = int(os.environ.get("KNOWLEDGE_SYNTH_TIMEOUT", "120"))
-        self._local_model_enabled = os.environ.get(
-            "KNOWLEDGE_LOCAL_MODEL_ENABLED", "false"
-        ).lower() == "true"
-        self._model_name = os.environ.get("KNOWLEDGE_LOCAL_MODEL", "qwen2.5:3b")
-        self._fallback_enabled = os.environ.get(
-            "KNOWLEDGE_SYNTH_FALLBACK", "true"
-        ).lower() != "false"
         # Model alias — resolved by the gateway via routing.yaml
-        self._fallback_model = os.environ.get(
-            "KNOWLEDGE_SYNTH_MODEL", "claude-haiku"
-        )
-        # Gateway endpoint for LLM calls (replaces direct provider access)
+        self._model = os.environ.get("KNOWLEDGE_SYNTH_MODEL", "claude-haiku")
+        # Gateway endpoint for LLM calls
         raw_gateway_url = os.environ.get(
             "AGENCY_GATEWAY_URL", "http://host.docker.internal:8200"
         )
         self._gateway_token = os.environ.get("AGENCY_GATEWAY_TOKEN", "")
-        self._admin_model_url = (
-            "http://agency-infra-admin-model:11434/v1/chat/completions"
-        )
 
         # Gateway HTTP client: Unix socket (Linux containers) or TCP (Docker Desktop)
-        self._http_admin = httpx.Client(timeout=synth_timeout)
         if raw_gateway_url.startswith("http+unix://"):
-            # Unix socket: extract path, use localhost as base URL
             sock_path = raw_gateway_url.replace("http+unix://", "")
             self._gateway_url = "http://localhost:8200"
             self._http_gateway = httpx.Client(
@@ -176,21 +165,6 @@ class LLMSynthesizer:
         else:
             self._gateway_url = raw_gateway_url
             self._http_gateway = httpx.Client(timeout=synth_timeout)
-
-        # Graduated trust — load persisted state or defaults
-        self._validation_threshold = float(os.environ.get(
-            "KNOWLEDGE_LOCAL_MODEL_VALIDATION_THRESHOLD", "0.70"
-        ))
-        self._validation_batch_count = int(os.environ.get(
-            "KNOWLEDGE_LOCAL_MODEL_VALIDATION_BATCHES", "3"
-        ))
-        self._validation_state_file = Path(store.data_dir) / "validation_state.json"
-        self._local_model_validated, self._validation_recalls, self._validation_batches_remaining = \
-            self._load_validation_state()
-
-        # Env override: operator can bypass validation entirely
-        if os.environ.get("KNOWLEDGE_LOCAL_MODEL_VALIDATED", "false").lower() == "true":
-            self._local_model_validated = True
 
         # Load ontology for typed extraction
         self._ontology = self._load_ontology()
@@ -230,139 +204,33 @@ class LLMSynthesizer:
             self._pending_messages = messages[MAX_SYNTHESIS_BATCH:]
             # Don't clear pending_ids — they'll be cleared when remaining are processed
         prompt = self._build_extraction_prompt(batch)
-        source_type = "local"
-        fallback_triggered = False
-        fallback_reason = None
-        model_used = self._model_name
         t0 = time.monotonic()
 
-        response = None
-        extraction = None
-
-        if self._local_model_enabled:
-            response = self._call_admin_model(prompt)
-            if response:
-                extraction = self._parse_response(response)
-                if not extraction or not extraction.get("entities"):
-                    fallback_reason = "empty_extraction" if extraction is not None else "parse_error"
-                    response = None
-                    extraction = None
-            else:
-                fallback_reason = "connection_refused"
-
-            # Graduated trust: dual-run when not yet validated
-            if (
-                extraction is not None
-                and not self._local_model_validated
-                and self._validation_batches_remaining > 0
-            ):
-                reference_response = self._call_llm(prompt)
-                if reference_response:
-                    reference_extraction = self._parse_response(reference_response)
-                    if reference_extraction:
-                        local_entities = extraction.get("entities", [])
-                        reference_entities = reference_extraction.get("entities", [])
-                        recall = self._compute_recall(local_entities, reference_entities)
-                        self._validation_recalls.append(recall)
-                        self._validation_batches_remaining -= 1
-                        logger.info(
-                            "Graduated trust batch: recall=%.2f, remaining=%d",
-                            recall, self._validation_batches_remaining,
-                        )
-                        if self._validation_batches_remaining <= 0:
-                            avg_recall = (
-                                sum(self._validation_recalls) / len(self._validation_recalls)
-                                if self._validation_recalls else 0.0
-                            )
-                            if avg_recall >= self._validation_threshold:
-                                self._local_model_validated = True
-                                logger.info(
-                                    "Local model validated: avg_recall=%.2f >= %.2f",
-                                    avg_recall, self._validation_threshold,
-                                )
-                            else:
-                                logger.warning(
-                                    "Local model validation failed: avg_recall=%.2f < %.2f",
-                                    avg_recall, self._validation_threshold,
-                                )
-                        self._save_validation_state()
-
-        if extraction is None and (self._fallback_enabled or not self._local_model_enabled):
-            fallback_triggered = self._local_model_enabled  # only a "fallback" if local was tried
-            response = self._call_llm(prompt)
-            if response:
-                extraction = self._parse_response(response)
-                source_type = "llm"
-                model_used = self._fallback_model
+        response = self._call_llm(prompt)
+        extraction = self._parse_response(response) if response else None
 
         duration_ms = int((time.monotonic() - t0) * 1000)
 
         if extraction:
-            self._apply_extraction(extraction, source_channels, source_type=source_type)
+            self._apply_extraction(extraction, source_channels, source_type="llm")
             logger.info(
-                "Synthesis complete: %d entities, %d relationships (model=%s, fallback=%s)",
+                "Synthesis complete: %d entities, %d relationships (model=%s)",
                 len(extraction.get("entities", [])),
                 len(extraction.get("relationships", [])),
-                model_used,
-                fallback_triggered,
+                self._model,
             )
 
         self._log_synthesis({
-            "model_attempted": self._model_name if self._local_model_enabled else self._fallback_model,
-            "model_used": model_used,
-            "fallback_triggered": fallback_triggered,
-            "fallback_reason": fallback_reason,
+            "model": self._model,
             "entities_extracted": len(extraction.get("entities", [])) if extraction else 0,
             "relationships_extracted": len(extraction.get("relationships", [])) if extraction else 0,
-            "source_type": source_type,
-            "batch_size": len(messages),
+            "batch_size": len(batch),
             "duration_ms": duration_ms,
         })
 
         self._last_synthesis = time.monotonic()
         self._pending_messages.clear()
         self._pending_ids.clear()
-
-    def _load_validation_state(self) -> tuple[bool, list[float], int]:
-        """Load graduated trust state from disk. Reset if model changed."""
-        try:
-            if self._validation_state_file.exists():
-                state = json.loads(self._validation_state_file.read_text())
-                if state.get("model_name") != self._model_name:
-                    logger.warning(
-                        "Model changed from %s to %s, resetting validation",
-                        state.get("model_name"), self._model_name,
-                    )
-                    return False, [], self._validation_batch_count
-                return (
-                    state.get("validated", False),
-                    state.get("recalls", []),
-                    max(0, self._validation_batch_count - len(state.get("recalls", []))),
-                )
-        except Exception as e:
-            logger.warning("Failed to load validation state: %s", e)
-        return False, [], self._validation_batch_count
-
-    def _save_validation_state(self) -> None:
-        """Persist graduated trust state to disk."""
-        try:
-            state = {
-                "validated": self._local_model_validated,
-                "model_name": self._model_name,
-                "recalls": self._validation_recalls,
-            }
-            self._validation_state_file.write_text(json.dumps(state))
-        except Exception as e:
-            logger.warning("Failed to save validation state: %s", e)
-
-    def _compute_recall(self, local_entities: list[dict], reference_entities: list[dict]) -> float:
-        """Compute entity recall: fraction of Haiku entities found by local model."""
-        if not reference_entities:
-            return 1.0
-        reference_labels = {e.get("label", "").lower() for e in reference_entities}
-        local_labels = {e.get("label", "").lower() for e in local_entities}
-        found = reference_labels & local_labels
-        return len(found) / len(reference_labels)
 
     def _load_ontology(self) -> Optional[dict]:
         """Load ontology from mounted file. Re-reads on each synthesis cycle if mtime changed."""
@@ -449,69 +317,17 @@ class LLMSynthesizer:
             messages=msg_text,
         )
 
-    def _pull_model(self) -> bool:
-        """Trigger lazy model pull on admin model container."""
-        pull_timeout = int(os.environ.get("KNOWLEDGE_SYNTH_PULL_TIMEOUT", "600"))
-        pull_url = "http://agency-infra-admin-model:11434/api/pull"
-        try:
-            logger.info("Pulling model %s (this may take several minutes)...", self._model_name)
-            with httpx.Client(timeout=pull_timeout) as client:
-                resp = client.post(
-                    pull_url,
-                    json={"name": self._model_name},
-                )
-                resp.raise_for_status()
-                logger.info("Model %s pull complete.", self._model_name)
-                return True
-        except Exception as e:
-            logger.error("Model pull failed: %s", e)
-            return False
-
-    def _send_admin_request(self, prompt: str) -> str:
-        """Send a request to the admin model and return the content string."""
-        resp = self._http_admin.post(
-            self._admin_model_url,
-            json={
-                "model": self._model_name,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 4096,
-                "temperature": 0.1,
-            },
-            headers={"content-type": "application/json"},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
-
-    def _call_admin_model(self, prompt: str) -> Optional[str]:
-        """Call the admin model on the mediation network (OpenAI-compatible)."""
-        try:
-            return self._send_admin_request(prompt)
-        except Exception as e:
-            error_str = str(e).lower()
-            if "not found" in error_str or "404" in error_str:
-                logger.info("Model not found, attempting lazy pull...")
-                if self._pull_model():
-                    try:
-                        return self._send_admin_request(prompt)
-                    except Exception as retry_e:
-                        logger.warning("Admin model retry after pull failed: %s", retry_e)
-            else:
-                logger.warning("Admin model call failed: %s", e)
-            return None
-
     def _call_llm(self, prompt: str) -> Optional[str]:
         """Call LLM via gateway internal endpoint.
 
         The gateway handles model resolution, format translation,
-        cost tracking, and provider proxying. We always send and
-        receive OpenAI-compatible format.
+        cost tracking, and provider proxying via routing.yaml.
         """
         try:
             resp = self._http_gateway.post(
                 f"{self._gateway_url}/api/v1/internal/llm",
                 json={
-                    "model": self._fallback_model,
+                    "model": self._model,
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 4096,
                 },
@@ -528,7 +344,7 @@ class LLMSynthesizer:
             data = resp.json()
             return data["choices"][0]["message"]["content"]
         except Exception as e:
-            logger.error("Synthesis LLM call failed (model=%s): %s", self._fallback_model, e)
+            logger.error("Synthesis LLM call failed (model=%s): %s", self._model, e)
             return None
 
     def _log_synthesis(self, entry: dict) -> None:

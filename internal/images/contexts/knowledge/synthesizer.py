@@ -1,8 +1,11 @@
 """LLM-based knowledge synthesis pipeline.
 
 Periodically batches unprocessed messages, sends them to the LLM
-via the Anthropic Messages API for entity/relationship extraction,
-and writes results to the knowledge graph.
+via the gateway's internal LLM endpoint for entity/relationship
+extraction, and writes results to the knowledge graph.
+
+The gateway resolves models via routing.yaml — operators configure
+which provider and model to use for synthesis there.
 
 Trigger conditions (whichever comes first):
   - 10 new messages since last synthesis
@@ -19,6 +22,7 @@ from pathlib import Path
 import httpx
 import yaml
 
+from typing import Optional
 from agency_core.images.knowledge.store import KnowledgeStore
 
 logger = logging.getLogger("agency.knowledge.synthesizer")
@@ -27,31 +31,49 @@ DEFAULT_MESSAGE_THRESHOLD = 10
 DEFAULT_TIME_THRESHOLD_HOURS = 1
 DEFAULT_MIN_INTERVAL_SECONDS = 300
 
+MAX_SYNTHESIS_BATCH = 25
+
 EXTRACTION_PROMPT = """\
-You are extracting knowledge from team conversations. Given the messages below, identify:
+You are extracting durable organizational knowledge from team conversations.
 
-1. **Entities** -- things, concepts, components, people, decisions, problems, strategies, \
-vulnerabilities, features, or anything meaningful to understanding the team's work.
-2. **Relationships** -- how entities relate to each other and to the message authors.
-3. **Summaries** -- what the team now understands about each entity.
+## What to extract
+- People, teams, systems, decisions, incidents, risks, processes, documents — \
+anything meaningful to understanding the team's work a week from now.
+- Relationships between entities, with correct direction.
+- Concise summaries capturing what the team now knows about each entity.
 
-Be consistent with existing entities listed below -- merge into them rather than creating duplicates.
+## What to skip
+- Greetings, small talk, one-off questions ("what's the weather", "solve 2+2").
+- Transient requests that won't matter in a week (ad-hoc lookups, ephemeral tasks).
+- If a message is purely conversational with no durable knowledge, skip it entirely.
 
-## Entity Types
+## Entity type guidance
 Use ONLY these entity types for the "kind" field:
 {entity_types}
 
-## Relationship Types
+When choosing a type, note these distinctions:
+- **decision** = a choice already made (with rationale). **project** = ongoing work. Don't use project for decisions.
+- **assumption** = believed true but NOT confirmed. **fact** = verified. **cause** = confirmed root cause.
+- **incident** = something that went wrong. **risk** = something that MIGHT go wrong.
+
+## Relationship type guidance
 Use ONLY these relationship types for the "relation" field:
 {relationship_types}
 
+**Relationship direction matters.** The "source" acts on the "target":
+- "Sarah manages the SRE team" → source: "Sarah Kim", target: "SRE team", relation: "manages"
+- "The outage was caused by a missing index" → source: "missing index", target: "outage", relation: "caused"
+- "Alex reports to Sarah" → source: "Alex Chen", target: "Sarah Kim", relation: "escalate_to"
+- "The project depends on the audit" → source: "project", target: "audit", relation: "depends_on"
+
 ## Existing Entities
+Merge into these rather than creating duplicates:
 {existing_labels}
 
 ## Messages
 {messages}
 
-Output valid JSON with this structure:
+Output valid JSON:
 {{
   "entities": [
     {{"label": "...", "kind": "...", "summary": "..."}}
@@ -61,9 +83,8 @@ Output valid JSON with this structure:
   ]
 }}
 
-Use only defined entity types for "kind" and defined relationship types for "relation". \
-If something doesn't fit any defined type, use the closest match and note it in the summary. \
-Do not invent new types.
+Every entity should have at least one relationship. \
+Use only defined types. If something doesn't fit, use the closest match and note it in the summary.
 """
 
 EXTRACTION_PROMPT_FREEFORM = """\
@@ -102,9 +123,9 @@ class LLMSynthesizer:
     def __init__(
         self,
         store: KnowledgeStore,
-        message_threshold: int | None = None,
-        time_threshold_hours: int | None = None,
-        min_interval_seconds: int | None = None,
+        message_threshold: Optional[int] = None,
+        time_threshold_hours: Optional[int] = None,
+        min_interval_seconds: Optional[int] = None,
         curator=None,
     ):
         self.store = store
@@ -125,44 +146,25 @@ class LLMSynthesizer:
 
         # Config
         synth_timeout = int(os.environ.get("KNOWLEDGE_SYNTH_TIMEOUT", "120"))
-        self._local_model_enabled = os.environ.get(
-            "KNOWLEDGE_LOCAL_MODEL_ENABLED", "false"
-        ).lower() == "true"
-        self._model_name = os.environ.get("KNOWLEDGE_LOCAL_MODEL", "qwen2.5:3b")
-        self._fallback_enabled = os.environ.get(
-            "KNOWLEDGE_SYNTH_FALLBACK", "true"
-        ).lower() != "false"
         # Model alias — resolved by the gateway via routing.yaml
-        self._fallback_model = os.environ.get(
-            "KNOWLEDGE_SYNTH_MODEL", "claude-haiku"
-        )
-        # Gateway endpoint for LLM calls (replaces direct provider access)
-        self._gateway_url = os.environ.get(
+        self._model = os.environ.get("KNOWLEDGE_SYNTH_MODEL", "claude-haiku")
+        # Gateway endpoint for LLM calls
+        raw_gateway_url = os.environ.get(
             "AGENCY_GATEWAY_URL", "http://host.docker.internal:8200"
         )
         self._gateway_token = os.environ.get("AGENCY_GATEWAY_TOKEN", "")
-        self._admin_model_url = (
-            "http://agency-infra-admin-model:11434/v1/chat/completions"
-        )
 
-        # HTTP clients: admin model (no proxy) and gateway (no proxy — reachable via host.docker.internal)
-        self._http_admin = httpx.Client(timeout=synth_timeout)
-        self._http_gateway = httpx.Client(timeout=synth_timeout)
-
-        # Graduated trust — load persisted state or defaults
-        self._validation_threshold = float(os.environ.get(
-            "KNOWLEDGE_LOCAL_MODEL_VALIDATION_THRESHOLD", "0.70"
-        ))
-        self._validation_batch_count = int(os.environ.get(
-            "KNOWLEDGE_LOCAL_MODEL_VALIDATION_BATCHES", "3"
-        ))
-        self._validation_state_file = Path(store.data_dir) / "validation_state.json"
-        self._local_model_validated, self._validation_recalls, self._validation_batches_remaining = \
-            self._load_validation_state()
-
-        # Env override: operator can bypass validation entirely
-        if os.environ.get("KNOWLEDGE_LOCAL_MODEL_VALIDATED", "false").lower() == "true":
-            self._local_model_validated = True
+        # Gateway HTTP client: Unix socket (Linux containers) or TCP (Docker Desktop)
+        if raw_gateway_url.startswith("http+unix://"):
+            sock_path = raw_gateway_url.replace("http+unix://", "")
+            self._gateway_url = "http://localhost:8200"
+            self._http_gateway = httpx.Client(
+                timeout=synth_timeout,
+                transport=httpx.HTTPTransport(uds=sock_path),
+            )
+        else:
+            self._gateway_url = raw_gateway_url
+            self._http_gateway = httpx.Client(timeout=synth_timeout)
 
         # Load ontology for typed extraction
         self._ontology = self._load_ontology()
@@ -171,7 +173,7 @@ class LLMSynthesizer:
         if ontology_path.exists():
             self._ontology_mtime = ontology_path.stat().st_mtime
 
-    def record_message(self, msg_id: str, msg: dict | None = None) -> None:
+    def record_message(self, msg_id: str, msg: Optional[dict] = None) -> None:
         if msg_id not in self._pending_ids:
             self._pending_ids.add(msg_id)
             if msg:
@@ -190,93 +192,39 @@ class LLMSynthesizer:
     def synthesize(self, messages: list[dict], source_channels: list[str]) -> None:
         if not messages:
             return
-        prompt = self._build_extraction_prompt(messages)
-        source_type = "local"
-        fallback_triggered = False
-        fallback_reason = None
-        model_used = self._model_name
+        # Cap batch size to avoid diluting LLM attention on large backlogs.
+        # Remaining messages stay in _pending for the next cycle.
+        batch = messages[:MAX_SYNTHESIS_BATCH]
+        if len(messages) > MAX_SYNTHESIS_BATCH:
+            logger.info(
+                "Batch capped at %d messages (%d remaining for next cycle)",
+                MAX_SYNTHESIS_BATCH, len(messages) - MAX_SYNTHESIS_BATCH,
+            )
+            # Keep overflow in pending for next synthesis
+            self._pending_messages = messages[MAX_SYNTHESIS_BATCH:]
+            # Don't clear pending_ids — they'll be cleared when remaining are processed
+        prompt = self._build_extraction_prompt(batch)
         t0 = time.monotonic()
 
-        response = None
-        extraction = None
-
-        if self._local_model_enabled:
-            response = self._call_admin_model(prompt)
-            if response:
-                extraction = self._parse_response(response)
-                if not extraction or not extraction.get("entities"):
-                    fallback_reason = "empty_extraction" if extraction is not None else "parse_error"
-                    response = None
-                    extraction = None
-            else:
-                fallback_reason = "connection_refused"
-
-            # Graduated trust: dual-run when not yet validated
-            if (
-                extraction is not None
-                and not self._local_model_validated
-                and self._validation_batches_remaining > 0
-            ):
-                reference_response = self._call_llm(prompt)
-                if reference_response:
-                    reference_extraction = self._parse_response(reference_response)
-                    if reference_extraction:
-                        local_entities = extraction.get("entities", [])
-                        reference_entities = reference_extraction.get("entities", [])
-                        recall = self._compute_recall(local_entities, reference_entities)
-                        self._validation_recalls.append(recall)
-                        self._validation_batches_remaining -= 1
-                        logger.info(
-                            "Graduated trust batch: recall=%.2f, remaining=%d",
-                            recall, self._validation_batches_remaining,
-                        )
-                        if self._validation_batches_remaining <= 0:
-                            avg_recall = (
-                                sum(self._validation_recalls) / len(self._validation_recalls)
-                                if self._validation_recalls else 0.0
-                            )
-                            if avg_recall >= self._validation_threshold:
-                                self._local_model_validated = True
-                                logger.info(
-                                    "Local model validated: avg_recall=%.2f >= %.2f",
-                                    avg_recall, self._validation_threshold,
-                                )
-                            else:
-                                logger.warning(
-                                    "Local model validation failed: avg_recall=%.2f < %.2f",
-                                    avg_recall, self._validation_threshold,
-                                )
-                        self._save_validation_state()
-
-        if extraction is None and (self._fallback_enabled or not self._local_model_enabled):
-            fallback_triggered = self._local_model_enabled  # only a "fallback" if local was tried
-            response = self._call_llm(prompt)
-            if response:
-                extraction = self._parse_response(response)
-                source_type = "llm"
-                model_used = self._fallback_model
+        response = self._call_llm(prompt)
+        extraction = self._parse_response(response) if response else None
 
         duration_ms = int((time.monotonic() - t0) * 1000)
 
         if extraction:
-            self._apply_extraction(extraction, source_channels, source_type=source_type)
+            self._apply_extraction(extraction, source_channels, source_type="llm")
             logger.info(
-                "Synthesis complete: %d entities, %d relationships (model=%s, fallback=%s)",
+                "Synthesis complete: %d entities, %d relationships (model=%s)",
                 len(extraction.get("entities", [])),
                 len(extraction.get("relationships", [])),
-                model_used,
-                fallback_triggered,
+                self._model,
             )
 
         self._log_synthesis({
-            "model_attempted": self._model_name if self._local_model_enabled else self._fallback_model,
-            "model_used": model_used,
-            "fallback_triggered": fallback_triggered,
-            "fallback_reason": fallback_reason,
+            "model": self._model,
             "entities_extracted": len(extraction.get("entities", [])) if extraction else 0,
             "relationships_extracted": len(extraction.get("relationships", [])) if extraction else 0,
-            "source_type": source_type,
-            "batch_size": len(messages),
+            "batch_size": len(batch),
             "duration_ms": duration_ms,
         })
 
@@ -284,48 +232,7 @@ class LLMSynthesizer:
         self._pending_messages.clear()
         self._pending_ids.clear()
 
-    def _load_validation_state(self) -> tuple[bool, list[float], int]:
-        """Load graduated trust state from disk. Reset if model changed."""
-        try:
-            if self._validation_state_file.exists():
-                state = json.loads(self._validation_state_file.read_text())
-                if state.get("model_name") != self._model_name:
-                    logger.warning(
-                        "Model changed from %s to %s, resetting validation",
-                        state.get("model_name"), self._model_name,
-                    )
-                    return False, [], self._validation_batch_count
-                return (
-                    state.get("validated", False),
-                    state.get("recalls", []),
-                    max(0, self._validation_batch_count - len(state.get("recalls", []))),
-                )
-        except Exception as e:
-            logger.warning("Failed to load validation state: %s", e)
-        return False, [], self._validation_batch_count
-
-    def _save_validation_state(self) -> None:
-        """Persist graduated trust state to disk."""
-        try:
-            state = {
-                "validated": self._local_model_validated,
-                "model_name": self._model_name,
-                "recalls": self._validation_recalls,
-            }
-            self._validation_state_file.write_text(json.dumps(state))
-        except Exception as e:
-            logger.warning("Failed to save validation state: %s", e)
-
-    def _compute_recall(self, local_entities: list[dict], reference_entities: list[dict]) -> float:
-        """Compute entity recall: fraction of Haiku entities found by local model."""
-        if not reference_entities:
-            return 1.0
-        reference_labels = {e.get("label", "").lower() for e in reference_entities}
-        local_labels = {e.get("label", "").lower() for e in local_entities}
-        found = reference_labels & local_labels
-        return len(found) / len(reference_labels)
-
-    def _load_ontology(self) -> dict | None:
+    def _load_ontology(self) -> Optional[dict]:
         """Load ontology from mounted file. Re-reads on each synthesis cycle if mtime changed."""
         ontology_path = Path(os.environ.get("AGENCY_ONTOLOGY_PATH", "/app/ontology.yaml"))
         if not ontology_path.exists():
@@ -410,69 +317,17 @@ class LLMSynthesizer:
             messages=msg_text,
         )
 
-    def _pull_model(self) -> bool:
-        """Trigger lazy model pull on admin model container."""
-        pull_timeout = int(os.environ.get("KNOWLEDGE_SYNTH_PULL_TIMEOUT", "600"))
-        pull_url = "http://agency-infra-admin-model:11434/api/pull"
-        try:
-            logger.info("Pulling model %s (this may take several minutes)...", self._model_name)
-            with httpx.Client(timeout=pull_timeout) as client:
-                resp = client.post(
-                    pull_url,
-                    json={"name": self._model_name},
-                )
-                resp.raise_for_status()
-                logger.info("Model %s pull complete.", self._model_name)
-                return True
-        except Exception as e:
-            logger.error("Model pull failed: %s", e)
-            return False
-
-    def _send_admin_request(self, prompt: str) -> str:
-        """Send a request to the admin model and return the content string."""
-        resp = self._http_admin.post(
-            self._admin_model_url,
-            json={
-                "model": self._model_name,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 4096,
-                "temperature": 0.1,
-            },
-            headers={"content-type": "application/json"},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
-
-    def _call_admin_model(self, prompt: str) -> str | None:
-        """Call the admin model on the mediation network (OpenAI-compatible)."""
-        try:
-            return self._send_admin_request(prompt)
-        except Exception as e:
-            error_str = str(e).lower()
-            if "not found" in error_str or "404" in error_str:
-                logger.info("Model not found, attempting lazy pull...")
-                if self._pull_model():
-                    try:
-                        return self._send_admin_request(prompt)
-                    except Exception as retry_e:
-                        logger.warning("Admin model retry after pull failed: %s", retry_e)
-            else:
-                logger.warning("Admin model call failed: %s", e)
-            return None
-
-    def _call_llm(self, prompt: str) -> str | None:
+    def _call_llm(self, prompt: str) -> Optional[str]:
         """Call LLM via gateway internal endpoint.
 
         The gateway handles model resolution, format translation,
-        cost tracking, and provider proxying. We always send and
-        receive OpenAI-compatible format.
+        cost tracking, and provider proxying via routing.yaml.
         """
         try:
             resp = self._http_gateway.post(
                 f"{self._gateway_url}/api/v1/internal/llm",
                 json={
-                    "model": self._fallback_model,
+                    "model": self._model,
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 4096,
                 },
@@ -489,14 +344,14 @@ class LLMSynthesizer:
             data = resp.json()
             return data["choices"][0]["message"]["content"]
         except Exception as e:
-            logger.error("Synthesis LLM call failed (model=%s): %s", self._fallback_model, e)
+            logger.error("Synthesis LLM call failed (model=%s): %s", self._model, e)
             return None
 
     def _log_synthesis(self, entry: dict) -> None:
         """Log a structured synthesis audit record."""
         logger.info("synthesis_audit: %s", json.dumps(entry))
 
-    def _parse_response(self, response: str) -> dict | None:
+    def _parse_response(self, response: str) -> Optional[dict]:
         text = response.strip()
         if "```json" in text:
             text = text.split("```json")[1].split("```")[0].strip()
@@ -517,19 +372,130 @@ class LLMSynthesizer:
         except Exception as e:
             logger.warning("Curator post-ingestion check failed for %s: %s", node_id, e)
 
+    def _validate_kind(self, kind: str) -> str:
+        """Validate an entity kind against the ontology. Returns the validated kind."""
+        if not self._ontology or not kind:
+            return kind or "fact"
+
+        entity_types = self._ontology.get("entity_types", {})
+        lower = kind.lower()
+
+        # Exact match
+        if lower in entity_types:
+            return lower
+
+        # Common aliases (mirrors Go ValidateNode)
+        aliases = {
+            "agent": "system", "application": "system", "app": "software",
+            "platform": "system", "database": "system", "repository": "system",
+            "repo": "system", "topic": "concept", "idea": "concept",
+            "notion": "concept", "observation": "finding", "discovery": "finding",
+            "insight": "finding", "issue": "incident", "bug": "incident",
+            "problem": "incident", "choice": "decision",
+            "resolution_decision": "decision", "company": "organization",
+            "org": "organization", "vendor": "organization",
+            "department": "organization", "member": "person", "user": "person",
+            "operator": "person", "customer": "person", "workflow": "process",
+            "runbook": "process", "sop": "process", "ticket": "task",
+            "pr": "task", "pull_request": "task", "meeting": "event",
+            "deadline": "event", "release": "event", "milestone": "event",
+            "fix": "resolution", "patch": "resolution", "hotfix": "resolution",
+            "hack": "workaround", "temp_fix": "workaround", "doc": "document",
+            "spec": "document", "report": "document", "wiki": "document",
+            "policy": "rule", "kpi": "metric", "sla": "metric",
+            "link": "url", "reference": "url", "file": "artifact",
+            "dashboard": "artifact", "api": "service", "endpoint": "service",
+            "term": "terminology", "jargon": "terminology", "concern": "risk",
+            "threat": "risk", "note": "fact", "info": "fact",
+            "information": "fact", "data": "fact", "component": "system",
+            # Asset inventory types
+            "package": "software", "library": "software",
+            "firmware": "software", "binary": "software",
+            "config": "config_item", "setting": "config_item", "parameter": "config_item",
+            "behavior": "behavior_pattern", "pattern": "behavior_pattern",
+        }
+        if lower in aliases:
+            mapped = aliases[lower]
+            logger.info("Mapped entity kind '%s' to '%s'", kind, mapped)
+            return mapped
+
+        # Substring match against defined types
+        for type_name in entity_types:
+            if lower in type_name or type_name in lower:
+                logger.info("Fuzzy-matched entity kind '%s' to '%s'", kind, type_name)
+                return type_name
+
+        # Fallback
+        logger.warning("Unknown entity kind '%s', falling back to 'fact'", kind)
+        return "fact"
+
+    def _validate_relation(self, relation: str) -> str:
+        """Validate a relationship type against the ontology. Returns the validated relation."""
+        if not self._ontology or not relation:
+            return relation or "relates_to"
+
+        rel_types = self._ontology.get("relationship_types", {})
+        lower = relation.lower()
+
+        # Exact match
+        if lower in rel_types:
+            return lower
+
+        # Check inverses
+        for name, info in rel_types.items():
+            if isinstance(info, dict) and info.get("inverse", "").lower() == lower:
+                return lower  # Inverse is a valid label
+
+        # Common aliases
+        aliases = {
+            "related": "relates_to", "related_to": "relates_to",
+            "has": "owns", "belongs_to": "part_of", "includes": "contains",
+            "member_of": "part_of", "led_by": "managed_by",
+            "affects": "relates_to", "impacts": "relates_to",
+            "requires": "depends_on", "needed_by": "depended_on_by",
+            "fixed_by": "resolved_by", "reports_to": "escalate_to",
+            # Asset inventory relations
+            "runs": "has_software", "installed": "has_software",
+            "configured_with": "has_config", "shows": "exhibited",
+            "resembles": "similar_to", "before": "preceded",
+            "talks_to": "communicates_with", "connects_to": "communicates_with",
+        }
+        if lower in aliases:
+            mapped = aliases[lower]
+            logger.info("Mapped relationship '%s' to '%s'", relation, mapped)
+            return mapped
+
+        # Substring match
+        for type_name in rel_types:
+            if lower in type_name or type_name in lower:
+                logger.info("Fuzzy-matched relationship '%s' to '%s'", relation, type_name)
+                return type_name
+
+        # Fallback
+        logger.warning("Unknown relationship type '%s', falling back to 'relates_to'", relation)
+        return "relates_to"
+
     def _apply_extraction(
         self, extraction: dict, source_channels: list[str], source_type: str = "llm"
     ) -> None:
         entities = extraction.get("entities", [])
         relationships = extraction.get("relationships", [])
 
+        # Ontology version for forensics
+        ontology_version = self._ontology.get("version") if self._ontology else None
+
         node_map: dict[str, str] = {}
         for entity in entities:
             label = entity.get("label", "")
             if not label:
                 continue
-            kind = entity.get("kind", "concept")
+            kind = self._validate_kind(entity.get("kind", "concept"))
             summary = entity.get("summary", "")
+
+            # Build properties with ontology version stamp
+            properties = {}
+            if ontology_version is not None:
+                properties["_ontology_version"] = ontology_version
 
             existing = self.store.find_nodes(label)
             matched = None
@@ -540,7 +506,7 @@ class LLMSynthesizer:
 
             if matched:
                 if summary and len(summary) > len(matched.get("summary", "")):
-                    self.store.update_node(matched["id"], summary=summary)
+                    self.store.update_node(matched["id"], summary=summary, properties=properties)
                     self._check_curation(matched["id"])
                 node_map[label] = matched["id"]
             else:
@@ -548,6 +514,7 @@ class LLMSynthesizer:
                     label=label,
                     kind=kind,
                     summary=summary,
+                    properties=properties,
                     source_type=source_type,
                     source_channels=source_channels,
                 )
@@ -557,7 +524,7 @@ class LLMSynthesizer:
         for rel in relationships:
             source_label = rel.get("source", "")
             target_label = rel.get("target", "")
-            relation = rel.get("relation", "related")
+            relation = self._validate_relation(rel.get("relation", "related"))
 
             source_id = node_map.get(source_label)
             target_id = node_map.get(target_label)
@@ -582,3 +549,49 @@ class LLMSynthesizer:
                     relation=relation,
                     source_channel=source_channels[0] if source_channels else "",
                 )
+
+    def migrate_freeform_kinds(self) -> dict:
+        """One-time migration of freeform kind values to ontology types.
+
+        Returns a summary dict with counts of remapped and unchanged nodes.
+        """
+        if not self._ontology:
+            logger.info("No ontology loaded, skipping freeform migration")
+            return {"remapped": 0, "unchanged": 0, "total": 0}
+
+        marker_path = Path(self.store.data_dir) / ".ontology-migrated"
+        if marker_path.exists():
+            logger.info("Ontology migration already completed, skipping")
+            return {"remapped": 0, "unchanged": 0, "total": 0, "skipped": True}
+
+        stats = self.store.stats()
+        remapped = 0
+        unchanged = 0
+        total = 0
+
+        for kind, count in stats.get("kinds", {}).items():
+            nodes = self.store.find_nodes_by_kind(kind, limit=10000)
+            for node in nodes:
+                total += 1
+                validated = self._validate_kind(kind)
+                if validated != kind:
+                    # Merge migration metadata into existing properties
+                    existing_props = json.loads(node.get("properties", "{}"))
+                    existing_props["_migrated"] = True
+                    existing_props["_original_kind"] = kind
+                    self.store.update_node(
+                        node["id"],
+                        kind=validated,
+                        properties=existing_props,
+                    )
+                    remapped += 1
+                else:
+                    unchanged += 1
+
+        logger.info(
+            "Ontology migration complete: %d total, %d remapped, %d unchanged",
+            total, remapped, unchanged,
+        )
+        marker_path.write_text(f"migrated={total} remapped={remapped} unchanged={unchanged}\n")
+
+        return {"remapped": remapped, "unchanged": unchanged, "total": total}

@@ -831,50 +831,6 @@ func (h *handler) adminDepartment(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *handler) adminModel(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Action string            `json:"action"`
-		Args   map[string]string `json:"args"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
-		return
-	}
-
-	configPath := filepath.Join(h.cfg.Home, "config.yaml")
-	var cfg map[string]interface{}
-	if data, err := os.ReadFile(configPath); err == nil {
-		yaml.Unmarshal(data, &cfg)
-	}
-	if cfg == nil {
-		cfg = map[string]interface{}{}
-	}
-
-	switch body.Action {
-	case "show":
-		models, _ := cfg["models"].(map[string]interface{})
-		writeJSON(w, 200, map[string]interface{}{"models": models})
-	case "set":
-		if models, ok := cfg["models"].(map[string]interface{}); ok {
-			for k, v := range body.Args {
-				models[k] = v
-			}
-			cfg["models"] = models
-		} else {
-			m := map[string]interface{}{}
-			for k, v := range body.Args {
-				m[k] = v
-			}
-			cfg["models"] = m
-		}
-		data, _ := yaml.Marshal(cfg)
-		os.WriteFile(configPath, data, 0644)
-		writeJSON(w, 200, map[string]interface{}{"status": "updated", "models": cfg["models"]})
-	default:
-		writeJSON(w, 200, map[string]interface{}{"status": "ok", "action": body.Action})
-	}
-}
-
 func (h *handler) rebuildAgent(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 

@@ -2649,36 +2649,6 @@ paths:
                 type: object
                 additionalProperties: true
 
-  /admin/model:
-    post:
-      operationId: adminModel
-      summary: Manage model configuration
-      description: "Actions: show, set."
-      tags: [Admin]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [action]
-              properties:
-                action:
-                  type: string
-                  enum: [show, set]
-                args:
-                  type: object
-                  additionalProperties:
-                    type: string
-      responses:
-        "200":
-          description: Model configuration
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: true
-
   /egress/domains:
     get:
       operationId: listEgressDomains

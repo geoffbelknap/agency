@@ -305,7 +305,6 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Get("/admin/egress", h.adminEgress)
 		r.Post("/admin/knowledge", h.adminKnowledge)
 		r.Post("/admin/department", h.adminDepartment)
-		r.Post("/admin/model", h.adminModel)
 
 		// Teams
 		r.Get("/teams", h.listTeams)

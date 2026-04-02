@@ -132,7 +132,6 @@ Record results for each run. Copy this table and fill in.
 | Intake | | |
 | Hub Operations | | |
 | **Group 8 — Admin & Maintenance** | | |
-| Admin Model | | |
 | Knowledge Curation | | |
 | Departments | | |
 | Audit Export & Retention | | |
