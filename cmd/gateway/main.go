@@ -31,6 +31,7 @@ import (
 	agencyCLI "github.com/geoffbelknap/agency/internal/cli"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/daemon"
+	"github.com/geoffbelknap/agency/internal/pkg/envfile"
 	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/events"
 	"github.com/geoffbelknap/agency/internal/logs"
@@ -479,11 +480,12 @@ func runSetup(provider, apiKey, notifyURL string, noInfra bool) error {
 	}
 	agencyHome := filepath.Join(home, ".agency")
 
-	if err := config.RunInit(config.InitOptions{
+	pendingKeys, err := config.RunInit(config.InitOptions{
 		Provider:  provider,
 		APIKey:    apiKey,
 		NotifyURL: notifyURL,
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 
@@ -501,6 +503,61 @@ func runSetup(provider, apiKey, notifyURL string, noInfra bool) error {
 	}
 
 	fmt.Println("Daemon started successfully.")
+
+	// Store LLM credentials in the encrypted credential store
+	if len(pendingKeys) > 0 {
+		cfg := config.Load()
+		c := apiclient.NewClient("http://" + cfg.GatewayAddr)
+		for _, key := range pendingKeys {
+			fmt.Printf("  Storing %s credential...\n", key.Provider)
+			_, err := c.CredentialSet(map[string]interface{}{
+				"name":     key.EnvVar,
+				"value":    key.Key,
+				"kind":     "provider",
+				"scope":    "platform",
+				"protocol": "api-key",
+			})
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to store %s credential: %v\n", key.Provider, err)
+				fmt.Fprintf(os.Stderr, "  Run manually: agency creds set %s <key> --kind provider --scope platform --protocol api-key\n", key.EnvVar)
+			}
+		}
+	}
+
+	// Migrate existing .env API keys to credential store (one-time)
+	if len(pendingKeys) == 0 {
+		existingProviders := config.ReadExistingKeys(agencyHome)
+		if len(existingProviders) > 0 {
+			envVars := envfile.Load(filepath.Join(agencyHome, ".env"))
+			providerEnvMap := map[string]string{
+				"anthropic": "ANTHROPIC_API_KEY",
+				"openai":    "OPENAI_API_KEY",
+				"google":    "GOOGLE_API_KEY",
+			}
+			cfg := config.Load()
+			c := apiclient.NewClient("http://" + cfg.GatewayAddr)
+			for _, provider := range existingProviders {
+				envVar := providerEnvMap[provider]
+				if val, ok := envVars[envVar]; ok && val != "" {
+					// Check if already in credential store
+					existing, _ := c.CredentialShow(envVar, false)
+					if existing == nil || existing["name"] == nil {
+						fmt.Printf("  Migrating %s credential to secure store...\n", provider)
+						_, err := c.CredentialSet(map[string]interface{}{
+							"name":     envVar,
+							"value":    val,
+							"kind":     "provider",
+							"scope":    "platform",
+							"protocol": "api-key",
+						})
+						if err != nil {
+							fmt.Fprintf(os.Stderr, "Warning: failed to migrate %s: %v\n", provider, err)
+						}
+					}
+				}
+			}
+		}
+	}
 
 	// Start infrastructure unless --no-infra was passed
 	if !noInfra {

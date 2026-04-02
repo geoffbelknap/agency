@@ -14,7 +14,7 @@ func TestRunInit_NotificationConfig(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", origHome)
 
-	err := RunInit(InitOptions{
+	_, err := RunInit(InitOptions{
 		NotifyURL: "https://ntfy.sh/my-agency-alerts",
 	})
 	if err != nil {
@@ -65,7 +65,7 @@ func TestRunInit_NoNotificationURL(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", origHome)
 
-	err := RunInit(InitOptions{})
+	_, err := RunInit(InitOptions{})
 	if err != nil {
 		t.Fatalf("RunInit failed: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestRunInit_InvalidOperatorName(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", origHome)
 
-	err := RunInit(InitOptions{
+	_, err := RunInit(InitOptions{
 		Operator: "bad:name",
 	})
 	if err == nil {
@@ -168,7 +168,7 @@ func TestRunInit_OperatorWrittenToConfig(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", origHome)
 
-	err := RunInit(InitOptions{
+	_, err := RunInit(InitOptions{
 		Operator: "alice",
 	})
 	if err != nil {

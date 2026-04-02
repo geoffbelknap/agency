@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/geoffbelknap/agency/internal/config"
+	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 	"github.com/geoffbelknap/agency/internal/routing"
@@ -188,8 +189,28 @@ func registerInfraTools(reg *MCPToolRegistry) {
 			agencyHome := filepath.Join(home, ".agency")
 			existingProviders := config.ReadExistingKeys(agencyHome)
 
-			if err := config.RunInit(opts); err != nil {
+			pendingKeys, err := config.RunInit(opts)
+			if err != nil {
 				return "Error: " + err.Error(), true
+			}
+
+			// Store any new API keys in the credential store
+			for _, key := range pendingKeys {
+				if h.credStore != nil {
+					now := time.Now().UTC().Format(time.RFC3339)
+					h.credStore.Put(credstore.Entry{ //nolint:errcheck
+						Name:  key.EnvVar,
+						Value: key.Key,
+						Metadata: credstore.Metadata{
+							Kind:      "provider",
+							Scope:     "platform",
+							Protocol:  "api-key",
+							Source:    "setup",
+							CreatedAt: now,
+							RotatedAt: now,
+						},
+					})
+				}
 			}
 
 			msg := "Agency initialized successfully."

@@ -45,6 +45,19 @@ type InitOptions struct {
 	NotifyURL       string // optional ntfy or webhook URL for operator alerts
 }
 
+// KeyEntry holds a provider API key to be stored in the credential store
+// after the daemon is running.
+type KeyEntry struct {
+	Provider string
+	EnvVar   string
+	Key      string
+}
+
+// providerEnvVar returns the environment variable name for a given provider.
+func providerEnvVar(provider string) string {
+	return strings.ToUpper(provider) + "_API_KEY"
+}
+
 // detectNotificationType infers "ntfy" or "webhook" from a URL.
 func detectNotificationType(url string) string {
 	lower := strings.ToLower(url)
@@ -57,17 +70,17 @@ func detectNotificationType(url string) string {
 // RunInit creates the ~/.agency/ directory structure and config files.
 // It is idempotent: existing values (token, existing keys) are preserved
 // unless Force is set.
-func RunInit(opts InitOptions) error {
+func RunInit(opts InitOptions) ([]KeyEntry, error) {
 	// Validate operator name before any writes — prevents YAML injection and path traversal.
 	if opts.Operator != "" {
 		if err := ValidateOperatorName(opts.Operator); err != nil {
-			return fmt.Errorf("invalid operator name: %w", err)
+			return nil, fmt.Errorf("invalid operator name: %w", err)
 		}
 	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return fmt.Errorf("cannot determine home directory: %w", err)
+		return nil, fmt.Errorf("cannot determine home directory: %w", err)
 	}
 
 	agencyHome := filepath.Join(home, ".agency")
@@ -86,13 +99,13 @@ func RunInit(opts InitOptions) error {
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0755); err != nil {
-			return fmt.Errorf("create directory %s: %w", d, err)
+			return nil, fmt.Errorf("create directory %s: %w", d, err)
 		}
 	}
 	// Audit directory is sensitive — restrict to owner only
 	auditDir := filepath.Join(agencyHome, "audit")
 	if err := os.MkdirAll(auditDir, 0700); err != nil {
-		return fmt.Errorf("create directory %s: %w", auditDir, err)
+		return nil, fmt.Errorf("create directory %s: %w", auditDir, err)
 	}
 
 	// Create knowledge directory structure
@@ -132,41 +145,37 @@ func RunInit(opts InitOptions) error {
 	if _, ok := cfg["token"]; !ok {
 		tokenBytes := make([]byte, 32)
 		if _, err := rand.Read(tokenBytes); err != nil {
-			return fmt.Errorf("generate token: %w", err)
+			return nil, fmt.Errorf("generate token: %w", err)
 		}
 		cfg["token"] = hex.EncodeToString(tokenBytes)
 	}
 
 	// Apply provider / key settings from options
 	// Explicit per-provider keys take precedence over the generic APIKey field.
-	type keyEntry struct {
-		provider string
-		key      string
-	}
-	entries := []keyEntry{}
+	var pendingKeys []KeyEntry
 	if opts.AnthropicAPIKey != "" {
-		entries = append(entries, keyEntry{"anthropic", opts.AnthropicAPIKey})
+		pendingKeys = append(pendingKeys, KeyEntry{"anthropic", providerEnvVar("anthropic"), opts.AnthropicAPIKey})
 	}
 	if opts.OpenAIAPIKey != "" {
-		entries = append(entries, keyEntry{"openai", opts.OpenAIAPIKey})
+		pendingKeys = append(pendingKeys, KeyEntry{"openai", providerEnvVar("openai"), opts.OpenAIAPIKey})
 	}
 	// Generic provider+key (CLI path)
 	if opts.Provider != "" && opts.APIKey != "" {
 		// Only add if not already covered by an explicit key above
 		alreadyCovered := false
-		for _, e := range entries {
-			if e.provider == opts.Provider {
+		for _, e := range pendingKeys {
+			if e.Provider == opts.Provider {
 				alreadyCovered = true
 				break
 			}
 		}
 		if !alreadyCovered {
-			entries = append(entries, keyEntry{opts.Provider, opts.APIKey})
+			pendingKeys = append(pendingKeys, KeyEntry{opts.Provider, providerEnvVar(opts.Provider), opts.APIKey})
 		}
 	}
 
 	// If no new keys provided, check existing .env for configured providers
-	if len(entries) == 0 {
+	if len(pendingKeys) == 0 {
 		existingKeys := ReadExistingKeys(agencyHome)
 		if len(existingKeys) > 0 && opts.Provider == "" {
 			// Preserve existing provider from config or infer from .env
@@ -213,28 +222,21 @@ func RunInit(opts InitOptions) error {
 		}
 		notifData, err := yaml.Marshal(notifConfigs)
 		if err != nil {
-			return fmt.Errorf("marshal notifications: %w", err)
+			return nil, fmt.Errorf("marshal notifications: %w", err)
 		}
 		notifPath := filepath.Join(agencyHome, "notifications.yaml")
 		if err := os.WriteFile(notifPath, notifData, 0600); err != nil {
-			return fmt.Errorf("write notifications: %w", err)
+			return nil, fmt.Errorf("write notifications: %w", err)
 		}
 	}
 
 	// Write config.yaml (mode 0600 — contains token)
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
-		return fmt.Errorf("marshal config: %w", err)
+		return nil, fmt.Errorf("marshal config: %w", err)
 	}
 	if err := os.WriteFile(configPath, data, 0600); err != nil {
-		return fmt.Errorf("write config: %w", err)
-	}
-
-	// Write .env with API keys (used by infra containers)
-	for _, e := range entries {
-		if err := upsertEnvFile(agencyHome, e.provider, e.key); err != nil {
-			return err
-		}
+		return nil, fmt.Errorf("write config: %w", err)
 	}
 
 	// Sync hub catalog (best-effort — don't fail init if hub is unreachable).
@@ -244,7 +246,7 @@ func RunInit(opts InitOptions) error {
 	// Generate credential-swaps.yaml (best-effort).
 	hub.WriteSwapConfig(agencyHome) //nolint:errcheck
 
-	return nil
+	return pendingKeys, nil
 }
 
 // syncHubCatalog pulls the latest hub source catalog so hub search works

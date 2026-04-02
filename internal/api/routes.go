@@ -483,9 +483,29 @@ func (h *handler) initPlatform(w http.ResponseWriter, r *http.Request) {
 		AnthropicAPIKey: body.AnthropicAPIKey,
 		OpenAIAPIKey:    body.OpenAIAPIKey,
 	}
-	if err := config.RunInit(opts); err != nil {
+	pendingKeys, err := config.RunInit(opts)
+	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
+	}
+
+	// Store any new API keys in the credential store
+	for _, key := range pendingKeys {
+		if h.credStore != nil {
+			now := time.Now().UTC().Format(time.RFC3339)
+			h.credStore.Put(credstore.Entry{ //nolint:errcheck
+				Name:  key.EnvVar,
+				Value: key.Key,
+				Metadata: credstore.Metadata{
+					Kind:      "provider",
+					Scope:     "platform",
+					Protocol:  "api-key",
+					Source:    "setup",
+					CreatedAt: now,
+					RotatedAt: now,
+				},
+			})
+		}
 	}
 
 	writeJSON(w, 200, map[string]string{"status": "initialized", "home": h.cfg.Home})
