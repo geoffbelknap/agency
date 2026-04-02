@@ -44,9 +44,9 @@ class _HealthFilterAccessLogger(AbstractAccessLogger):
         )
 
 from typing import Optional
-from .ingester import RuleIngester
-from .store import KnowledgeStore
-from .synthesizer import LLMSynthesizer
+from images.knowledge.ingester import RuleIngester
+from images.knowledge.store import KnowledgeStore
+from images.knowledge.synthesizer import LLMSynthesizer
 
 logger = logging.getLogger("agency.knowledge")
 

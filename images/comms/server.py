@@ -48,10 +48,10 @@ class _HealthFilterAccessLogger(AbstractAccessLogger):
             request.remote, request.method, request.path_qs,
             response.status, time,
         )
-from .matcher import Matcher
-from .store import MessageStore
-from .subscriptions import SubscriptionManager
-from .websocket import fan_out_message, push_to_agent, setup_websocket
+from images.comms.matcher import Matcher
+from images.comms.store import MessageStore
+from images.comms.subscriptions import SubscriptionManager
+from images.comms.websocket import fan_out_message, push_to_agent, setup_websocket
 from images.models.comms import ChannelState, ChannelType
 from images.models.subscriptions import InterestDeclaration
 

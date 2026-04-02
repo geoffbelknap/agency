@@ -12,9 +12,9 @@ from typing import Optional, Any
 
 from aiohttp import WSMsgType, web
 
-from .matcher import Matcher
-from .store import MessageStore
-from .subscriptions import SubscriptionManager
+from images.comms.matcher import Matcher
+from images.comms.store import MessageStore
+from images.comms.subscriptions import SubscriptionManager
 
 logger = logging.getLogger("agency.comms.ws")
 

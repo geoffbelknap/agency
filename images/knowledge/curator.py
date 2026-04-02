@@ -16,7 +16,7 @@ from difflib import SequenceMatcher
 logger = logging.getLogger("agency.knowledge.curator")
 
 from typing import Optional, Union
-from .store import KnowledgeStore, STRUCTURAL_KINDS, _SOURCE_PRIORITY
+from images.knowledge.store import KnowledgeStore, STRUCTURAL_KINDS, _SOURCE_PRIORITY
 
 
 def _normalize_label(label: str) -> str:

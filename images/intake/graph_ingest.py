@@ -10,7 +10,7 @@ import httpx
 from jinja2.sandbox import SandboxedEnvironment, Undefined
 
 from typing import Optional
-from .router import match_route
+from images.intake.router import match_route
 from images.models.connector import GraphIngestRule
 
 logger = logging.getLogger(__name__)
