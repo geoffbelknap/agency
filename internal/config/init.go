@@ -198,7 +198,7 @@ func RunInit(opts InitOptions) ([]KeyEntry, error) {
 		cfg["llm_provider"] = "openai"
 	}
 
-	// API keys go ONLY in .env (least privilege — config.yaml stores provider name only).
+	// API keys are stored in the encrypted credential store (not config.yaml).
 	// Strip any legacy keys from config.yaml (may exist from older init).
 	for _, suffix := range []string{"anthropic_api_key", "openai_api_key", "google_api_key"} {
 		delete(cfg, suffix)
@@ -280,30 +280,3 @@ func ReadExistingKeys(agencyHome string) []string {
 	return providers
 }
 
-// seedBundledServices copies embedded service definitions into the registry.
-// Only writes files that don't already exist — never overwrites operator edits.
-// upsertEnvFile adds or replaces PROVIDER_API_KEY=value in ~/.agency/.env.
-func upsertEnvFile(agencyHome, provider, apiKey string) error {
-	envFile := filepath.Join(agencyHome, ".env")
-	envVarName := strings.ToUpper(provider) + "_API_KEY"
-
-	var envLines []string
-	if existing, err := os.ReadFile(envFile); err == nil {
-		for _, line := range strings.Split(string(existing), "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			// Skip the key we're updating
-			if strings.HasPrefix(line, envVarName+"=") {
-				continue
-			}
-			envLines = append(envLines, line)
-		}
-	}
-	envLines = append(envLines, envVarName+"="+apiKey)
-	if err := os.WriteFile(envFile, []byte(strings.Join(envLines, "\n")+"\n"), 0600); err != nil {
-		return fmt.Errorf("write .env: %w", err)
-	}
-	return nil
-}
