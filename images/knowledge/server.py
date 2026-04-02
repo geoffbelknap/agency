@@ -125,7 +125,7 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     # Curator: create before ingester/synthesizer so they can use it
     curator_mode = os.environ.get("KNOWLEDGE_CURATOR_MODE", "auto")
     if curator_mode != "disabled":
-        from .curator import Curator, CurationLoop
+        from images.knowledge.curator import Curator, CurationLoop
         curator = Curator(store, mode=curator_mode)
         app["curator"] = curator
         app.on_startup.append(_start_curation_loop)
@@ -934,7 +934,7 @@ async def _start_curation_loop(app: web.Application) -> None:
     curator = app.get("curator")
     if curator:
         interval = int(os.environ.get("KNOWLEDGE_CURATOR_INTERVAL", "600"))
-        from .curator import CurationLoop
+        from images.knowledge.curator import CurationLoop
         loop = CurationLoop(curator, interval_seconds=interval)
         app["_curation_task"] = asyncio.ensure_future(loop.run())
 

@@ -20,8 +20,8 @@ except ImportError:
     pass
 
 try:
-    from .key_resolver import FileKeyResolver, SocketKeyResolver
-    from .swap_handlers import HANDLER_DISPATCH
+    from images.egress.key_resolver import FileKeyResolver, SocketKeyResolver
+    from images.egress.swap_handlers import HANDLER_DISPATCH
 except ImportError:
     # In container: modules are at /app/ without package structure
     from key_resolver import FileKeyResolver, SocketKeyResolver

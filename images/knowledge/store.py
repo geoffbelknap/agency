@@ -52,7 +52,7 @@ class KnowledgeStore:
             logger.warning("sqlite-vec not available: %s — vector search disabled", e)
 
         # --- Embedding provider ---
-        from .embedding import create_provider, get_embeddable_kinds
+        from images.knowledge.embedding import create_provider, get_embeddable_kinds
         self._embedding_provider = create_provider()
         self._embeddable_kinds = get_embeddable_kinds()
 

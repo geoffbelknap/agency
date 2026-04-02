@@ -773,7 +773,7 @@ async def handle_stats(request: web.Request) -> web.Response:
 
 async def handle_poll_health(request: web.Request) -> web.Response:
     """GET /poll-health — per-connector poll success/failure status."""
-    from .poller import PollStateStore
+    from images.intake.poller import PollStateStore
     poll_state = PollStateStore(request.app["store"].data_dir)
     connectors = request.app.get("connectors", {})
 
@@ -794,7 +794,7 @@ async def handle_poll_health(request: web.Request) -> web.Response:
 
 async def handle_poll_trigger(request: web.Request) -> web.Response:
     """POST /poll/{connector_name} — trigger an immediate poll for a connector."""
-    from .poller import PollStateStore
+    from images.intake.poller import PollStateStore
     connector_name = request.match_info["connector_name"]
     connectors = request.app.get("connectors", {})
     connector = connectors.get(connector_name)
