@@ -97,7 +97,7 @@ type InfraComponent struct {
 }
 
 func (c *Client) InfraStatus(ctx context.Context) ([]InfraComponent, error) {
-	components := []string{"egress", "comms", "knowledge", "intake", "web-fetch"}
+	components := []string{"egress", "comms", "knowledge", "intake", "web-fetch", "web"}
 
 	// Single ContainerList call is ~50ms vs seconds for individual inspects on WSL2
 	containers, err := c.cli.ContainerList(ctx, container.ListOptions{
