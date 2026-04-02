@@ -14,8 +14,8 @@ import (
 	dockerclient "github.com/docker/docker/client"
 
 	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
+	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/orchestrate/containers"
-	"github.com/geoffbelknap/agency/internal/pkg/envfile"
 )
 
 // StartSequence orchestrates the seven-phase agent start.
@@ -28,6 +28,7 @@ type StartSequence struct {
 	Docker      *agencyDocker.Client
 	Log         *log.Logger
 	KeyRotation bool // Force scoped key rotation (used on restart)
+	CredStore   *credstore.Store
 
 	// Resolved state
 	agentConfig      map[string]interface{}
@@ -465,8 +466,21 @@ func (ss *StartSequence) resolveModelTier(tier string) string {
 		return ""
 	}
 
-	// Load env for credential checks
-	envVars := envfile.Load(filepath.Join(ss.Home, ".env"))
+	// Credential check helper
+	hasCredential := func(authEnv string) bool {
+		if authEnv == "" {
+			return true
+		}
+		if os.Getenv(authEnv) != "" {
+			return true
+		}
+		if ss.CredStore != nil {
+			if entry, err := ss.CredStore.Get(authEnv); err == nil && entry.Value != "" {
+				return true
+			}
+		}
+		return false
+	}
 
 	// Simple tier resolution: look for tier in providers
 	providers, _ := rc["providers"].([]interface{})
@@ -486,7 +500,7 @@ func (ss *StartSequence) resolveModelTier(tier string) string {
 				alias, _ := mm["alias"].(string)
 				// Check if provider has credentials
 				authEnv, _ := pm["auth_env"].(string)
-				if authEnv == "" || envVars[authEnv] != "" || os.Getenv(authEnv) != "" {
+				if hasCredential(authEnv) {
 					return alias
 				}
 			}

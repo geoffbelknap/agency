@@ -907,6 +907,7 @@ func (h *handler) startAgent(w http.ResponseWriter, r *http.Request) {
 		BuildID:     h.cfg.BuildID,
 		Docker:      h.dc,
 		Log:         h.log,
+		CredStore:   h.credStore,
 	}
 
 	// Stream progress as NDJSON if client requests it
@@ -1016,6 +1017,7 @@ func (h *handler) restartAgent(w http.ResponseWriter, r *http.Request) {
 		Docker:      h.dc,
 		Log:         h.log,
 		KeyRotation: true,
+		CredStore:   h.credStore,
 	}
 
 	result, err := ss.Run(r.Context(), func(phase int, phaseName, desc string) {

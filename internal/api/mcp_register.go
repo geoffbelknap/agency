@@ -391,6 +391,7 @@ func registerAgentTools(reg *MCPToolRegistry) {
 			SourceDir:   h.cfg.SourceDir,
 				Docker:      h.dc,
 				Log:         h.log,
+				CredStore:   h.credStore,
 			}
 
 			result, err := ss.Run(context.Background(), func(phase int, phaseName, desc string) {
@@ -492,6 +493,7 @@ func registerAgentTools(reg *MCPToolRegistry) {
 				Docker:      h.dc,
 				Log:         h.log,
 				KeyRotation: true,
+				CredStore:   h.credStore,
 			}
 
 			result, err := ss.Run(context.Background(), func(phase int, phaseName, desc string) {
