@@ -103,11 +103,17 @@ func newClient() *Client {
 	return NewClient(gatewayURL())
 }
 
+// cliVersion is set by RegisterCommands from the root cobra command's version.
+var cliVersion string
+
 // requireGateway creates a client and checks connectivity.
 // If the gateway is not reachable, it attempts to auto-start the daemon.
+// If the daemon is running an older version, it auto-restarts.
 func requireGateway() (*Client, error) {
 	c := newClient()
 	if err := c.CheckGateway(); err == nil {
+		// Connected — check for version mismatch
+		checkDaemonVersion(c)
 		return c, nil
 	}
 
@@ -124,8 +130,50 @@ func requireGateway() (*Client, error) {
 	return c, nil
 }
 
+// checkDaemonVersion compares the CLI version with the running daemon's version.
+// If they differ, it auto-restarts the daemon so upgrades take effect immediately.
+func checkDaemonVersion(c *Client) {
+	if cliVersion == "" || cliVersion == "dev" {
+		return
+	}
+	health, err := c.Health()
+	if err != nil {
+		return
+	}
+	daemonVersion, _ := health["version"].(string)
+	if daemonVersion == "" || daemonVersion == cliVersion {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "Daemon version mismatch (daemon: %s, cli: %s). Restarting daemon...\n", daemonVersion, cliVersion)
+	if err := daemon.Stop(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not stop old daemon: %v\n", err)
+		return
+	}
+	time.Sleep(500 * time.Millisecond)
+	if err := daemon.Start(8200); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not restart daemon: %v\n", err)
+		return
+	}
+	// Wait for new daemon to be ready
+	for i := 0; i < 10; i++ {
+		time.Sleep(300 * time.Millisecond)
+		if err := c.CheckGateway(); err == nil {
+			fmt.Fprintf(os.Stderr, "Daemon restarted.\n")
+			return
+		}
+	}
+}
+
 // RegisterCommands adds all CLI subcommands to the root cobra command.
 func RegisterCommands(root *cobra.Command) {
+	// Extract semver from root version string ("0.1.1 (abc1234, ...)" → "0.1.1")
+	if v := root.Version; v != "" {
+		if idx := strings.IndexByte(v, ' '); idx > 0 {
+			cliVersion = v[:idx]
+		} else {
+			cliVersion = v
+		}
+	}
 	// Define command groups for organized help output
 	root.AddGroup(
 		&cobra.Group{ID: "daily", Title: "Daily Operations:"},
