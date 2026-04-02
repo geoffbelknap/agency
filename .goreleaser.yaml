@@ -49,6 +49,14 @@ brews:
       bin.install "agency"
     test: |
       system "#{bin}/agency", "--version"
+    caveats: |
+      To get started:
+
+        1. Make sure Docker is running
+        2. Get an API key from Anthropic, OpenAI, or Google
+        3. Run: agency setup
+
+      Full documentation: https://github.com/geoffbelknap/agency
 
 release:
   github:
