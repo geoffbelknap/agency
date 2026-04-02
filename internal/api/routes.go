@@ -110,6 +110,18 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		})
 	}
 
+	// Web UI config endpoint — serves the auth token so the containerized web UI
+	// can authenticate API and WebSocket requests. Excluded from BearerAuth
+	// middleware (the web UI needs this to get the token in the first place).
+	// Only reachable on localhost (gateway binds to 127.0.0.1 by default).
+	r.Get("/__agency/config", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"token":   cfg.Token,
+			"gateway": "",
+		})
+	})
+
 	r.Route("/api/v1", func(r chi.Router) {
 		// OpenAPI spec
 		r.Get("/openapi.yaml", h.openapiSpec)

@@ -15,8 +15,8 @@ import (
 func BearerAuth(token string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Allow health checks without auth.
-			if strings.HasSuffix(r.URL.Path, "/health") {
+			// Allow health checks and web UI config without auth.
+			if strings.HasSuffix(r.URL.Path, "/health") || r.URL.Path == "/__agency/config" {
 				next.ServeHTTP(w, r)
 				return
 			}
