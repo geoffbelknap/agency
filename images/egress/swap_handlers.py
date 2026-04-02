@@ -38,7 +38,7 @@ class JWTSwapState:
     def get_token(self) -> Optional[str]:
         """Exchange an API key for a JWT.
 
-        Always resolves the raw API key from key_ref in .service-keys.env.
+        Always resolves the raw API key from key_ref via the credential store.
         The enforcer no longer injects credentials — real API keys stay in
         the egress boundary only (ASK Tenet 4: least privilege).
         """
@@ -88,7 +88,7 @@ def handle_jwt_exchange(flow: Any, config: dict, resolver: Any,
                         _state_cache: Optional[dict] = None) -> None:
     """Exchange a credential for a JWT and inject it.
 
-    Resolves the raw API key from key_ref in .service-keys.env, exchanges
+    Resolves the raw API key from key_ref via the credential store, exchanges
     it for a JWT, and injects the token into the request. The enforcer
     passes X-Agency-Service through for dispatch — real credentials are
     resolved here in the egress boundary only (ASK Tenet 4).
@@ -187,7 +187,7 @@ def handle_body_key_swap(flow: Any, config: dict, resolver: Any) -> None:
     before forwarding.
 
     Config fields:
-      key_ref: name in .service-keys.env holding the real key
+      key_ref: credential name in the gateway credential store
       body_field: POST form field name containing the key (default: "secret")
     """
     real_key = resolver.resolve(config["key_ref"])

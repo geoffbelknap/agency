@@ -1,6 +1,7 @@
+import os
 import pytest
 import yaml
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import sys
 mock_http = MagicMock()
@@ -18,21 +19,39 @@ def _make_flow(host: str, headers: dict = None) -> MagicMock:
     return flow
 
 
+class _FakeResolver:
+    """In-memory resolver for tests, replacing the real SocketKeyResolver."""
+
+    def __init__(self, keys: dict):
+        self._keys = keys
+
+    def resolve(self, key_ref: str):
+        return self._keys.get(key_ref)
+
+    def reload(self):
+        pass
+
+
 class TestUnifiedSwapAddon:
-    def _setup_addon(self, tmp_path, swaps: dict) -> CredentialSwapAddon:
+    def _setup_addon(self, tmp_path, swaps: dict, keys: dict = None) -> CredentialSwapAddon:
         swap_file = tmp_path / "credential-swaps.yaml"
         swap_file.write_text(yaml.dump({"swaps": swaps}))
-        keys_file = tmp_path / ".service-keys.env"
-        keys_file.write_text(
-            "nextdns-api=abc123\n"
-            "ANTHROPIC_API_KEY=sk-ant-xyz\n"
-            "BRAVE_API_KEY=brave-key\n"
-        )
-        return CredentialSwapAddon(
-            swap_config_path=str(swap_file),
-            swap_local_path=str(tmp_path / "credential-swaps.local.yaml"),
-            service_keys_path=str(keys_file),
-        )
+        # Create a fake socket file so the existence check passes
+        socket_file = tmp_path / "gateway.sock"
+        socket_file.write_text("")
+        with patch.dict(os.environ, {"GATEWAY_SOCKET": str(socket_file)}):
+            addon = CredentialSwapAddon(
+                swap_config_path=str(swap_file),
+                swap_local_path=str(tmp_path / "credential-swaps.local.yaml"),
+            )
+        if keys is None:
+            keys = {
+                "nextdns-api": "abc123",
+                "ANTHROPIC_API_KEY": "sk-ant-xyz",
+                "BRAVE_API_KEY": "brave-key",
+            }
+        addon._resolver = _FakeResolver(keys)
+        return addon
 
     def test_api_key_injected_by_domain(self, tmp_path):
         addon = self._setup_addon(tmp_path, {
@@ -92,13 +111,17 @@ class TestUnifiedSwapAddon:
                 "key_ref": "BRAVE_API_KEY",
             }
         }}))
-        keys_file = tmp_path / ".service-keys.env"
-        keys_file.write_text("nextdns-api=abc123\nBRAVE_API_KEY=brave-key\n")
-        addon = CredentialSwapAddon(
-            swap_config_path=str(swap_file),
-            swap_local_path=str(local_file),
-            service_keys_path=str(keys_file),
-        )
+        socket_file = tmp_path / "gateway.sock"
+        socket_file.write_text("")
+        with patch.dict(os.environ, {"GATEWAY_SOCKET": str(socket_file)}):
+            addon = CredentialSwapAddon(
+                swap_config_path=str(swap_file),
+                swap_local_path=str(local_file),
+            )
+        addon._resolver = _FakeResolver({
+            "nextdns-api": "abc123",
+            "BRAVE_API_KEY": "brave-key",
+        })
         flow = _make_flow("api.nextdns.io")
         addon.request(flow)
         assert flow.request.headers["X-Api-Key"] == "brave-key"
@@ -120,13 +143,14 @@ class TestUnifiedSwapAddon:
     def test_reload_picks_up_changes(self, tmp_path):
         swap_file = tmp_path / "credential-swaps.yaml"
         swap_file.write_text(yaml.dump({"swaps": {}}))
-        keys_file = tmp_path / ".service-keys.env"
-        keys_file.write_text("nextdns-api=abc123\n")
-        addon = CredentialSwapAddon(
-            swap_config_path=str(swap_file),
-            swap_local_path=str(tmp_path / "credential-swaps.local.yaml"),
-            service_keys_path=str(keys_file),
-        )
+        socket_file = tmp_path / "gateway.sock"
+        socket_file.write_text("")
+        with patch.dict(os.environ, {"GATEWAY_SOCKET": str(socket_file)}):
+            addon = CredentialSwapAddon(
+                swap_config_path=str(swap_file),
+                swap_local_path=str(tmp_path / "credential-swaps.local.yaml"),
+            )
+        addon._resolver = _FakeResolver({"nextdns-api": "abc123"})
 
         flow = _make_flow("api.nextdns.io")
         addon.request(flow)
@@ -144,3 +168,17 @@ class TestUnifiedSwapAddon:
         flow2 = _make_flow("api.nextdns.io")
         addon.request(flow2)
         assert flow2.request.headers["X-Api-Key"] == "abc123"
+
+    def test_missing_gateway_socket_raises(self, tmp_path):
+        swap_file = tmp_path / "credential-swaps.yaml"
+        swap_file.write_text(yaml.dump({"swaps": {}}))
+        with patch.dict(os.environ, {"GATEWAY_SOCKET": ""}, clear=False):
+            with pytest.raises(RuntimeError, match="GATEWAY_SOCKET not set"):
+                CredentialSwapAddon(swap_config_path=str(swap_file))
+
+    def test_nonexistent_gateway_socket_raises(self, tmp_path):
+        swap_file = tmp_path / "credential-swaps.yaml"
+        swap_file.write_text(yaml.dump({"swaps": {}}))
+        with patch.dict(os.environ, {"GATEWAY_SOCKET": "/nonexistent/path"}, clear=False):
+            with pytest.raises(RuntimeError, match="GATEWAY_SOCKET not set"):
+                CredentialSwapAddon(swap_config_path=str(swap_file))

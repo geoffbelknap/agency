@@ -1,44 +1,21 @@
-import os
-import tempfile
 import pytest
-from images.egress.key_resolver import FileKeyResolver
+from images.egress.key_resolver import SocketKeyResolver
 
 
-class TestFileKeyResolver:
-    def test_resolve_existing_key(self, tmp_path):
-        keys_file = tmp_path / ".service-keys.env"
-        keys_file.write_text("ANTHROPIC_API_KEY=sk-ant-123\nnextdns-api=abc456\n")
-        resolver = FileKeyResolver(str(keys_file))
-        assert resolver.resolve("ANTHROPIC_API_KEY") == "sk-ant-123"
-        assert resolver.resolve("nextdns-api") == "abc456"
+class TestSocketKeyResolver:
+    def test_resolve_caches_result(self):
+        resolver = SocketKeyResolver("/nonexistent/socket")
+        # Pre-populate cache to test cache hit path
+        resolver._cache["MY_KEY"] = "cached-value"
+        assert resolver.resolve("MY_KEY") == "cached-value"
 
-    def test_resolve_missing_key_returns_none(self, tmp_path):
-        keys_file = tmp_path / ".service-keys.env"
-        keys_file.write_text("ANTHROPIC_API_KEY=sk-ant-123\n")
-        resolver = FileKeyResolver(str(keys_file))
-        assert resolver.resolve("NONEXISTENT") is None
+    def test_resolve_missing_socket_returns_none(self):
+        resolver = SocketKeyResolver("/nonexistent/socket")
+        # No socket exists, so resolve should fail gracefully
+        assert resolver.resolve("MY_KEY") is None
 
-    def test_resolve_skips_comments_and_blanks(self, tmp_path):
-        keys_file = tmp_path / ".service-keys.env"
-        keys_file.write_text("# comment\n\nKEY=val\n")
-        resolver = FileKeyResolver(str(keys_file))
-        assert resolver.resolve("KEY") == "val"
-
-    def test_resolve_handles_equals_in_value(self, tmp_path):
-        keys_file = tmp_path / ".service-keys.env"
-        keys_file.write_text("TOKEN=abc=def=ghi\n")
-        resolver = FileKeyResolver(str(keys_file))
-        assert resolver.resolve("TOKEN") == "abc=def=ghi"
-
-    def test_reload(self, tmp_path):
-        keys_file = tmp_path / ".service-keys.env"
-        keys_file.write_text("KEY=old\n")
-        resolver = FileKeyResolver(str(keys_file))
-        assert resolver.resolve("KEY") == "old"
-        keys_file.write_text("KEY=new\n")
+    def test_reload_clears_cache(self):
+        resolver = SocketKeyResolver("/nonexistent/socket")
+        resolver._cache["KEY"] = "value"
         resolver.reload()
-        assert resolver.resolve("KEY") == "new"
-
-    def test_missing_file_returns_none(self, tmp_path):
-        resolver = FileKeyResolver(str(tmp_path / "nonexistent"))
-        assert resolver.resolve("KEY") is None
+        assert resolver._cache == {}

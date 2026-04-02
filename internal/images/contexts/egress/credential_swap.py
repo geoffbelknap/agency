@@ -4,7 +4,8 @@ Replaces four independent credential injection mechanisms with a single
 typed handler dispatch system. Configuration from credential-swaps.yaml
 (generated) and credential-swaps.local.yaml (operator overrides).
 
-Keys resolved via KeyResolver abstraction (file-based today, Vault-ready).
+Keys resolved via SocketKeyResolver (gateway Unix socket). Vault-ready
+via the KeyResolver protocol.
 """
 
 import logging
@@ -20,11 +21,11 @@ except ImportError:
     pass
 
 try:
-    from agency_core.images.egress.key_resolver import FileKeyResolver
+    from agency_core.images.egress.key_resolver import SocketKeyResolver
     from agency_core.images.egress.swap_handlers import HANDLER_DISPATCH
 except ImportError:
     # In container: modules are at /app/ without package structure
-    from key_resolver import FileKeyResolver
+    from key_resolver import SocketKeyResolver
     from swap_handlers import HANDLER_DISPATCH
 
 logger = logging.getLogger(__name__)
@@ -52,11 +53,19 @@ class CredentialSwapAddon:
         self,
         swap_config_path: str = "/app/secrets/credential-swaps.yaml",
         swap_local_path: str = "/app/secrets/credential-swaps.local.yaml",
-        service_keys_path: str = "/app/secrets/.service-keys.env",
     ):
         self._swap_config_path = swap_config_path
         self._swap_local_path = swap_local_path
-        self._resolver = FileKeyResolver(service_keys_path)
+
+        # Gateway socket is required for credential resolution.
+        gateway_socket = os.environ.get("GATEWAY_SOCKET", "")
+        if not gateway_socket or not os.path.exists(gateway_socket):
+            raise RuntimeError(
+                "GATEWAY_SOCKET not set or socket not found. "
+                "The egress proxy requires the gateway socket for credential resolution."
+            )
+        self._resolver = SocketKeyResolver(gateway_socket)
+        logger.info("Using SocketKeyResolver (socket: %s)", gateway_socket)
 
         # domain -> swap config dict
         self._domain_swaps: dict[str, dict] = {}
