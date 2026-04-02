@@ -12,9 +12,45 @@ import (
 	"github.com/charmbracelet/log"
 	"gopkg.in/yaml.v3"
 
+	"github.com/geoffbelknap/agency/internal/credstore"
 	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/hub"
 )
+
+// deploySecretPutter returns a hub.SecretPutter that writes service credentials
+// to the encrypted credential store with hub-specific metadata.
+func (d *Deployer) deploySecretPutter(instanceName string) hub.SecretPutter {
+	return func(name, value string) error {
+		if d.CredStore == nil {
+			return fmt.Errorf("credential store not initialized")
+		}
+		now := time.Now().UTC().Format(time.RFC3339)
+		return d.CredStore.Put(credstore.Entry{
+			Name:  name,
+			Value: value,
+			Metadata: credstore.Metadata{
+				Kind:      credstore.KindService,
+				Scope:     "platform",
+				Service:   instanceName,
+				Protocol:  credstore.ProtocolAPIKey,
+				Source:    "hub",
+				CreatedAt: now,
+				RotatedAt: now,
+			},
+		})
+	}
+}
+
+// deploySecretDeleter returns a hub.SecretDeleter that removes credentials
+// from the encrypted credential store.
+func (d *Deployer) deploySecretDeleter() hub.SecretDeleter {
+	return func(name string) error {
+		if d.CredStore == nil {
+			return fmt.Errorf("credential store not initialized")
+		}
+		return d.CredStore.Delete(name)
+	}
+}
 
 // PackConnectorDef declares a connector instance used by the pack.
 type PackConnectorDef struct {
@@ -81,6 +117,7 @@ type Deployer struct {
 	Docker      *agencyDocker.Client
 	Log         *log.Logger
 	Credentials map[string]string
+	CredStore   *credstore.Store
 }
 
 func NewDeployer(home, version string, dc *agencyDocker.Client, logger *log.Logger) *Deployer {
@@ -298,7 +335,7 @@ func (d *Deployer) Deploy(ctx context.Context, pack *PackDef, onStatus func(stri
 					Values:          configValues,
 				})
 				if len(secrets) > 0 {
-					hub.WriteSecrets(d.Home, inst.Name, secrets)
+					hub.WriteSecrets(d.Home, inst.Name, secrets, d.deploySecretPutter(inst.Name))
 				}
 				resolved, _ := hubMgr.Registry.ResolvedYAML(conn.Name)
 				if resolved != nil {
@@ -401,7 +438,7 @@ func (d *Deployer) Teardown(ctx context.Context, packName string, deleteResource
 
 			// Clean up credentials
 			if len(secretFields) > 0 {
-				hub.RemoveSecrets(d.Home, connName, secretFields)
+				hub.RemoveSecrets(d.Home, connName, secretFields, d.deploySecretDeleter())
 			}
 
 			// Remove instance

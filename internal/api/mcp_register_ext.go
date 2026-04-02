@@ -284,6 +284,7 @@ func registerDeployTools(reg *MCPToolRegistry) {
 
 			deployer := orchestrate.NewDeployer(h.cfg.Home, h.cfg.Version, h.dc, h.log)
 			deployer.Credentials = creds
+			deployer.CredStore = h.credStore
 
 			if mapBool(args, "dry_run") {
 				result, err := deployer.DryRunDeploy(context.Background(), pack, func(s string) {
@@ -329,6 +330,7 @@ func registerDeployTools(reg *MCPToolRegistry) {
 			del := mapBool(args, "delete")
 
 			deployer := orchestrate.NewDeployer(h.cfg.Home, h.cfg.Version, h.dc, h.log)
+			deployer.CredStore = h.credStore
 			if err := deployer.Teardown(context.Background(), packName, del); err != nil {
 				return "Error: " + err.Error(), true
 			}

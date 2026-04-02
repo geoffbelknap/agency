@@ -285,58 +285,55 @@ func TestSplitSecrets(t *testing.T) {
 }
 
 func TestWriteSecrets(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "infrastructure"), 0755)
-
-	err := WriteSecrets(dir, "slack-incidents", map[string]string{
-		"slack_bot_token": "xoxb-real-key-123",
+	store := map[string]string{}
+	putter := SecretPutter(func(name, value string) error {
+		store[name] = value
+		return nil
 	})
+
+	err := WriteSecrets("", "slack-incidents", map[string]string{
+		"slack_bot_token": "xoxb-real-key-123",
+	}, putter)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Check service keys — key is stored directly by field name
-	svcData, _ := os.ReadFile(filepath.Join(dir, "infrastructure", ".service-keys.env"))
-	if !strings.Contains(string(svcData), "slack_bot_token=xoxb-real-key-123") {
-		t.Errorf("secret not in service keys; got:\n%s", string(svcData))
+	if store["slack_bot_token"] != "xoxb-real-key-123" {
+		t.Errorf("expected slack_bot_token in store, got %v", store)
 	}
+}
 
-	// capability-keys.env should not exist
-	if _, err := os.Stat(filepath.Join(dir, ".capability-keys.env")); err == nil {
-		t.Errorf("capability-keys.env should not be written")
+func TestWriteSecrets_NilPutter(t *testing.T) {
+	err := WriteSecrets("", "test", map[string]string{"k": "v"}, nil)
+	if err == nil {
+		t.Fatal("expected error for nil putter")
 	}
 }
 
 func TestRemoveSecrets(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "infrastructure"), 0755)
+	store := map[string]string{"token": "abc", "other": "keep"}
+	deleter := SecretDeleter(func(name string) error {
+		delete(store, name)
+		return nil
+	})
 
-	// Write then remove
-	WriteSecrets(dir, "slack-incidents", map[string]string{"token": "abc"})
-	RemoveSecrets(dir, "slack-incidents", []string{"token"})
+	err := RemoveSecrets("", "slack-incidents", []string{"token"}, deleter)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	svcData, _ := os.ReadFile(filepath.Join(dir, "infrastructure", ".service-keys.env"))
-	if strings.Contains(string(svcData), "token=abc") {
-		t.Errorf("secret not cleaned up from service keys; got:\n%s", string(svcData))
+	if _, ok := store["token"]; ok {
+		t.Error("token should have been removed")
+	}
+	if _, ok := store["other"]; !ok {
+		t.Error("other should still exist")
 	}
 }
 
-func TestWriteSecretsPreservesOtherEntries(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "infrastructure"), 0755)
-
-	// Pre-existing entry in service keys
-	os.WriteFile(filepath.Join(dir, "infrastructure", ".service-keys.env"), []byte("existing_key=existing\n"), 0600)
-
-	WriteSecrets(dir, "slack-test", map[string]string{"token": "new"})
-
-	svcData, _ := os.ReadFile(filepath.Join(dir, "infrastructure", ".service-keys.env"))
-	content := string(svcData)
-	if !strings.Contains(content, "existing_key=existing") {
-		t.Errorf("pre-existing entry was removed; got:\n%s", content)
-	}
-	if !strings.Contains(content, "token=new") {
-		t.Errorf("new entry not added; got:\n%s", content)
+func TestRemoveSecrets_NilDeleter(t *testing.T) {
+	err := RemoveSecrets("", "test", []string{"k"}, nil)
+	if err == nil {
+		t.Fatal("expected error for nil deleter")
 	}
 }
 

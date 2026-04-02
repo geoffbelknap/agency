@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"gopkg.in/yaml.v3"
 
+	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/hub"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
@@ -549,7 +550,7 @@ func (h *handler) hubActivate(w http.ResponseWriter, r *http.Request) {
 
 	// Write secrets to credential store
 	if len(secrets) > 0 {
-		hub.WriteSecrets(h.cfg.Home, inst.Name, secrets)
+		hub.WriteSecrets(h.cfg.Home, inst.Name, secrets, h.hubSecretPutter(inst.Name))
 	}
 
 	// Regenerate credential-swaps.yaml
@@ -662,7 +663,7 @@ func (h *handler) hubConfigure(w http.ResponseWriter, r *http.Request) {
 
 	// Write secrets to credential store
 	if len(secrets) > 0 {
-		hub.WriteSecrets(h.cfg.Home, inst.Name, secrets)
+		hub.WriteSecrets(h.cfg.Home, inst.Name, secrets, h.hubSecretPutter(inst.Name))
 	}
 
 	// If instance is active, SIGHUP intake to pick up new config
@@ -710,6 +711,41 @@ func (h *handler) hubDeactivate(w http.ResponseWriter, r *http.Request) {
 		name = inst.Name
 	}
 	writeJSON(w, 200, map[string]string{"status": "inactive", "name": name})
+}
+
+// hubSecretPutter returns a hub.SecretPutter that writes service credentials
+// to the encrypted credential store with hub-specific metadata.
+func (h *handler) hubSecretPutter(instanceName string) hub.SecretPutter {
+	return func(name, value string) error {
+		if h.credStore == nil {
+			return fmt.Errorf("credential store not initialized")
+		}
+		now := time.Now().UTC().Format(time.RFC3339)
+		return h.credStore.Put(credstore.Entry{
+			Name:  name,
+			Value: value,
+			Metadata: credstore.Metadata{
+				Kind:      credstore.KindService,
+				Scope:     "platform",
+				Service:   instanceName,
+				Protocol:  credstore.ProtocolAPIKey,
+				Source:    "hub",
+				CreatedAt: now,
+				RotatedAt: now,
+			},
+		})
+	}
+}
+
+// hubSecretDeleter returns a hub.SecretDeleter that removes credentials
+// from the encrypted credential store.
+func (h *handler) hubSecretDeleter() hub.SecretDeleter {
+	return func(name string) error {
+		if h.credStore == nil {
+			return fmt.Errorf("credential store not initialized")
+		}
+		return h.credStore.Delete(name)
+	}
 }
 
 // -- Agent Logs --

@@ -1096,6 +1096,7 @@ func (h *handler) deployPack(w http.ResponseWriter, r *http.Request) {
 	deployer.SourceDir = h.cfg.SourceDir
 	deployer.BuildID = h.cfg.BuildID
 	deployer.Credentials = body.Credentials
+	deployer.CredStore = h.credStore
 
 	if body.DryRun {
 		result, err := deployer.DryRunDeploy(r.Context(), pack, func(s string) {
@@ -1129,6 +1130,7 @@ func (h *handler) teardownPack(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&body)
 
 	deployer := orchestrate.NewDeployer(h.cfg.Home, h.cfg.Version, h.dc, h.log)
+	deployer.CredStore = h.credStore
 	if err := deployer.Teardown(r.Context(), packName, body.Delete); err != nil {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return

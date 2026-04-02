@@ -8,9 +8,15 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
-
-	"github.com/geoffbelknap/agency/internal/pkg/envfile"
 )
+
+// SecretPutter writes a single secret to the credential store.
+// Callers provide this as a closure wrapping credstore.Store.Put().
+type SecretPutter func(name, value string) error
+
+// SecretDeleter removes a single secret from the credential store.
+// Callers provide this as a closure wrapping credstore.Store.Delete().
+type SecretDeleter func(name string) error
 
 // ConfigField describes a single configuration field in a hub component's config schema.
 type ConfigField struct {
@@ -125,100 +131,31 @@ func ReadConfig(instDir string) (*ConfigValues, error) {
 	return &cv, nil
 }
 
-// WriteSecrets writes secret values to the single key store for egress swap.
-// Each secret is stored as key=realvalue in infrastructure/.service-keys.env.
-func WriteSecrets(home, instanceName string, secrets map[string]string) error {
-	svcFile := filepath.Join(home, "infrastructure", ".service-keys.env")
-	os.MkdirAll(filepath.Dir(svcFile), 0755)
-
-	entries := make(map[string]string, len(secrets))
-	for k, v := range secrets {
-		entries[k] = v
+// WriteSecrets writes secret values to the encrypted credential store.
+// The put function is typically a closure wrapping credstore.Store.Put().
+func WriteSecrets(home, instanceName string, secrets map[string]string, put SecretPutter) error {
+	if put == nil {
+		return fmt.Errorf("credential store required")
 	}
-
-	if err := envfile.Upsert(svcFile, entries); err != nil {
-		return fmt.Errorf("writing service keys: %w", err)
+	for name, value := range secrets {
+		if err := put(name, value); err != nil {
+			return fmt.Errorf("store secret %q: %w", name, err)
+		}
 	}
 	return nil
 }
 
 // RemoveSecrets cleans up credential store entries for an instance.
-// Removes entries by key name from infrastructure/.service-keys.env.
+// The del function is typically a closure wrapping credstore.Store.Delete().
 // Called by teardown/remove.
-func RemoveSecrets(home, instanceName string, fieldNames []string) error {
-	svcFile := filepath.Join(home, "infrastructure", ".service-keys.env")
-
-	if err := removeEnvFileKeys(svcFile, fieldNames); err != nil {
-		return fmt.Errorf("removing service keys: %w", err)
+func RemoveSecrets(home, instanceName string, fieldNames []string, del SecretDeleter) error {
+	if del == nil {
+		return fmt.Errorf("credential store required")
+	}
+	for _, name := range fieldNames {
+		del(name) // ignore errors — may not exist
 	}
 	return nil
-}
-
-
-// removeEnvFilePrefix reads path (if it exists) and removes all lines whose KEY
-// starts with prefix. If the file does not exist the call is a no-op. Writes 0600.
-func removeEnvFilePrefix(path, prefix string) error {
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-
-	var lines []string
-	for _, line := range strings.Split(string(data), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			lines = append(lines, trimmed)
-			continue
-		}
-		eqIdx := strings.IndexByte(trimmed, '=')
-		if eqIdx >= 0 && strings.HasPrefix(trimmed[:eqIdx], prefix) {
-			continue
-		}
-		lines = append(lines, trimmed)
-	}
-
-	content := strings.Join(lines, "\n") + "\n"
-	return os.WriteFile(path, []byte(content), 0600)
-}
-
-// removeEnvFileKeys reads path (if it exists) and removes all lines whose KEY
-// matches one of the provided keys. If the file does not exist the call is a no-op. Writes 0600.
-func removeEnvFileKeys(path string, keys []string) error {
-	if len(keys) == 0 {
-		return nil
-	}
-	keySet := make(map[string]bool, len(keys))
-	for _, k := range keys {
-		keySet[k] = true
-	}
-
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-
-	var lines []string
-	for _, line := range strings.Split(string(data), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			lines = append(lines, trimmed)
-			continue
-		}
-		eqIdx := strings.IndexByte(trimmed, '=')
-		if eqIdx >= 0 && keySet[trimmed[:eqIdx]] {
-			continue
-		}
-		lines = append(lines, trimmed)
-	}
-
-	content := strings.Join(lines, "\n") + "\n"
-	return os.WriteFile(path, []byte(content), 0600)
 }
 
 // SplitSecrets separates values into non-secret config and secrets.
