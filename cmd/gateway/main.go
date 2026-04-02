@@ -508,7 +508,9 @@ func runSetup(provider, apiKey, notifyURL string, noInfra bool) error {
 		fmt.Println("Starting infrastructure...")
 		cfg := config.Load()
 		c := apiclient.NewClient("http://" + cfg.GatewayAddr)
-		if err := c.InfraUp(); err != nil {
+		if err := c.InfraUpStream(func(component, status string) {
+			fmt.Printf("  ✓ %s\n", component)
+		}); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: infrastructure did not start: %v\n", err)
 			fmt.Println("  Run 'agency infra up' to start manually.")
 		} else {
@@ -517,10 +519,13 @@ func runSetup(provider, apiKey, notifyURL string, noInfra bool) error {
 	}
 
 	fmt.Println()
-	fmt.Println("Next steps:")
+	fmt.Println("You're ready to go:")
+	fmt.Println()
 	fmt.Println("  agency create my-agent  # Create an agent")
 	fmt.Println("  agency start my-agent   # Start an agent")
 	fmt.Println("  agency status           # Check platform status")
+	fmt.Println()
+	fmt.Println("  Open http://localhost:8280 for the web UI")
 
 	return nil
 }
