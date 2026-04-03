@@ -29,7 +29,10 @@ func (h *handler) listCapabilities(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) showCapability(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 	reg := capabilities.NewRegistry(h.cfg.Home)
 	entry := reg.Show(name)
 	if entry == nil {
@@ -40,7 +43,10 @@ func (h *handler) showCapability(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) enableCapability(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 	var body struct {
 		Key    string   `json:"key"`
 		Agents []string `json:"agents"`
@@ -80,7 +86,10 @@ func (h *handler) enableCapability(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) disableCapability(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 	reg := capabilities.NewRegistry(h.cfg.Home)
 	if err := reg.Disable(name); err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
@@ -115,7 +124,10 @@ func (h *handler) addCapability(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) deleteCapability(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 	reg := capabilities.NewRegistry(h.cfg.Home)
 	if err := reg.Delete(name); err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})

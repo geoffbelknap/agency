@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -96,8 +97,11 @@ func (h *handler) createWebhook(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
 		return
 	}
-	if body.Name == "" || body.EventType == "" {
-		writeJSON(w, 400, map[string]string{"error": "name and event_type are required"})
+	if _, ok := requireName(w, body.Name); !ok {
+		return
+	}
+	if body.EventType == "" {
+		writeJSON(w, 400, map[string]string{"error": "event_type required"})
 		return
 	}
 
@@ -157,7 +161,10 @@ func (h *handler) showWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 	wh, err := h.webhookMgr.Get(name)
 	if err != nil {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
@@ -173,7 +180,10 @@ func (h *handler) deleteWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 	if err := h.webhookMgr.Delete(name); err != nil {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
 		return
@@ -193,7 +203,10 @@ func (h *handler) rotateWebhookSecret(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 	wh, err := h.webhookMgr.RotateSecret(name)
 	if err != nil {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
@@ -255,7 +268,10 @@ func (h *handler) receiveWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 
 	// Look up registered webhook
 	wh, err := h.webhookMgr.Get(name)
@@ -330,7 +346,10 @@ func (h *handler) showNotification(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 	nc, err := h.notifStore.Get(name)
 	if err != nil {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
@@ -366,6 +385,10 @@ func (h *handler) addNotification(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Name == "" || body.URL == "" {
 		writeJSON(w, 400, map[string]string{"error": "name and url are required"})
+		return
+	}
+	if err := validateOutboundURL(body.URL); err != nil {
+		writeJSON(w, 400, map[string]string{"error": fmt.Sprintf("invalid notification URL: %s", err)})
 		return
 	}
 
@@ -412,7 +435,10 @@ func (h *handler) deleteNotification(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 	if err := h.notifStore.Remove(name); err != nil {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
 		return
@@ -433,7 +459,10 @@ func (h *handler) testNotification(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 	if _, err := h.notifStore.Get(name); err != nil {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
 		return

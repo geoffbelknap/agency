@@ -1,0 +1,11 @@
+name: agency-codeql-config
+
+queries:
+  - uses: security-and-quality
+
+paths-ignore:
+  - images/tests
+  - vendor
+
+extensions:
+  - .github/codeql/extensions/agency-sanitizers.yml

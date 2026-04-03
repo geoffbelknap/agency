@@ -132,6 +132,28 @@ func TestAddNotification_AutoDetectType(t *testing.T) {
 	}
 }
 
+func TestAddNotification_RejectsPrivateIP(t *testing.T) {
+	h, _, _ := notifTestHandler(t)
+	body := `{"name":"evil","type":"webhook","url":"https://169.254.169.254/latest/meta-data/","events":["operator_alert"]}`
+	req := httptest.NewRequest("POST", "/api/v1/notifications", bytes.NewBufferString(body))
+	w := httptest.NewRecorder()
+	h.addNotification(w, req)
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for private IP, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAddNotification_RejectsHTTP(t *testing.T) {
+	h, _, _ := notifTestHandler(t)
+	body := `{"name":"evil","type":"webhook","url":"http://external.com/hook","events":["operator_alert"]}`
+	req := httptest.NewRequest("POST", "/api/v1/notifications", bytes.NewBufferString(body))
+	w := httptest.NewRecorder()
+	h.addNotification(w, req)
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for http to non-localhost, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestShowNotification(t *testing.T) {
 	h, _, _ := notifTestHandler(t)
 

@@ -18,6 +18,9 @@ import (
 // (cap enable/disable) and the grant/revoke path call this single function so
 // the resulting files are always identical in structure.
 func (h *handler) generateAgentManifest(agentName string) error {
+	if !requireNameStr(agentName) {
+		return fmt.Errorf("invalid agent name")
+	}
 	agentDir := filepath.Join(h.cfg.Home, "agents", agentName)
 
 	// --- Read granted capabilities from constraints.yaml ---
@@ -219,6 +222,9 @@ func (h *handler) generateAgentManifest(agentName string) error {
 // Returns a map of service grant_name -> set of allowed scope strings.
 // If no scopes are declared for a service, the map entry is nil (allow all).
 func (h *handler) loadPresetScopes(agentName string) map[string]map[string]bool {
+	if !requireNameStr(agentName) {
+		return nil
+	}
 	agentDir := filepath.Join(h.cfg.Home, "agents", agentName)
 
 	// Read agent.yaml to get preset name

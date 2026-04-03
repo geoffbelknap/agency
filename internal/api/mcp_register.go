@@ -714,6 +714,9 @@ func registerCommsTools(reg *MCPToolRegistry) {
 			if name == "" {
 				return "Error: name is required", true
 			}
+			if !requireNameStr(name) {
+				return `{"error":"invalid name"}`, false
+			}
 			body := map[string]interface{}{
 				"name":       name,
 				"type":       "team",
@@ -865,6 +868,9 @@ func registerCommsTools(reg *MCPToolRegistry) {
 			if name == "" {
 				return "Error: name is required", true
 			}
+			if !requireNameStr(name) {
+				return `{"error":"invalid name"}`, false
+			}
 			_, err := h.dc.CommsRequest(context.Background(), "POST", "/channels/"+name+"/archive", nil)
 			if err != nil {
 				return "Error: " + err.Error(), true
@@ -890,6 +896,9 @@ func registerCommsTools(reg *MCPToolRegistry) {
 			agent := mapStr(args, "agent")
 			if channel == "" || agent == "" {
 				return "Error: channel and agent are required", true
+			}
+			if !requireNameStr(agent) {
+				return `{"error":"invalid agent name"}`, false
 			}
 			body := map[string]interface{}{"agent": agent}
 			_, err := h.dc.CommsRequest(context.Background(), "POST", "/channels/"+channel+"/grant-access", body)

@@ -227,6 +227,9 @@ func (h *handler) egressDomainProvenance(w http.ResponseWriter, r *http.Request)
 // It first checks the hub instance registry, then falls back to
 // ~/.agency/connectors/{name}/connector.yaml.
 func (h *handler) loadConnectorConfig(name string) (*models.ConnectorConfig, error) {
+	if !requireNameStr(name) {
+		return nil, fmt.Errorf("invalid connector name")
+	}
 	mgr := hub.NewManager(h.cfg.Home)
 	inst := mgr.Registry.Resolve(name)
 

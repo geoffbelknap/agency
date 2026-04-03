@@ -28,7 +28,10 @@ func (h *handler) agentConfigDir(name string) string {
 // agentConfig handles GET /api/v1/agents/{name}/config.
 // Returns the full agent config bundle (agent.yaml, identity.md, constraints.yaml, workspace.yaml).
 func (h *handler) agentConfig(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 	dir := h.agentConfigDir(name)
 
 	// Check agent directory exists.
@@ -63,7 +66,10 @@ func (h *handler) agentConfig(w http.ResponseWriter, r *http.Request) {
 // ASK tenet 2: every config change is audit-logged.
 // ASK tenet 6: constraint changes trigger enforcer reload so the agent sees old or new — never a mix.
 func (h *handler) updateAgentConfig(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 	dir := h.agentConfigDir(name)
 
 	// Check agent directory exists.

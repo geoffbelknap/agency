@@ -389,6 +389,9 @@ func registerAdminTools(reg *MCPToolRegistry) {
 			if agent == "" {
 				return "Error: agent is required for action " + action, true
 			}
+			if !requireNameStr(agent) {
+				return `{"error":"invalid agent name"}`, false
+			}
 
 			trustPath := filepath.Join(h.cfg.Home, "agents", agent, "trust.yaml")
 			var trust map[string]interface{}
@@ -570,6 +573,9 @@ func registerAdminTools(reg *MCPToolRegistry) {
 		func(h *handler, args map[string]interface{}) (string, bool) {
 			action := mapStr(args, "action")
 			agent := mapStr(args, "agent")
+			if !requireNameStr(agent) {
+				return `{"error":"invalid agent name"}`, false
+			}
 
 			egressPath := filepath.Join(h.cfg.Home, "agents", agent, "egress.yaml")
 			var egress map[string]interface{}
@@ -728,6 +734,9 @@ func registerAdminTools(reg *MCPToolRegistry) {
 				agent := mapStr(args, "agent")
 				since := mapStr(args, "since")
 				until := mapStr(args, "until")
+				if agent != "" && !requireNameStr(agent) {
+					return `{"error":"invalid agent name"}`, false
+				}
 				reader := logs.NewReader(h.cfg.Home)
 				var events []logs.Event
 				var err error
@@ -978,6 +987,9 @@ func registerAdminTools(reg *MCPToolRegistry) {
 				if name == "" {
 					return "Error: name is required for create", true
 				}
+				if !requireNameStr(name) {
+					return `{"error":"invalid name"}`, false
+				}
 				dir := filepath.Join(deptDir, name)
 				os.MkdirAll(dir, 0755)
 
@@ -1004,6 +1016,9 @@ func registerAdminTools(reg *MCPToolRegistry) {
 				name := mapStr(args, "name")
 				if name == "" {
 					return "Error: name is required for show", true
+				}
+				if !requireNameStr(name) {
+					return `{"error":"invalid name"}`, false
 				}
 				policyPath := filepath.Join(deptDir, name, "policy.yaml")
 				var pol map[string]interface{}
@@ -1078,6 +1093,9 @@ func registerCapabilityTools(reg *MCPToolRegistry) {
 		},
 		func(h *handler, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "name")
+			if !requireNameStr(name) {
+				return `{"error":"invalid name"}`, false
+			}
 			capReg := capabilities.NewRegistry(h.cfg.Home)
 
 			// Check if it's an agent name first
@@ -1144,6 +1162,9 @@ func registerCapabilityTools(reg *MCPToolRegistry) {
 		},
 		func(h *handler, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "name")
+			if !requireNameStr(name) {
+				return `{"error":"invalid name"}`, false
+			}
 			key := mapStr(args, "key")
 			agentsRaw := mapSlice(args, "agents")
 			var agents []string
@@ -1174,6 +1195,9 @@ func registerCapabilityTools(reg *MCPToolRegistry) {
 		},
 		func(h *handler, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "name")
+			if !requireNameStr(name) {
+				return `{"error":"invalid name"}`, false
+			}
 			capReg := capabilities.NewRegistry(h.cfg.Home)
 			if err := capReg.Disable(name); err != nil {
 				return "Error: " + err.Error(), true
@@ -1202,6 +1226,9 @@ func registerCapabilityTools(reg *MCPToolRegistry) {
 		func(h *handler, args map[string]interface{}) (string, bool) {
 			kind := mapStr(args, "kind")
 			name := mapStr(args, "name")
+			if !requireNameStr(name) {
+				return `{"error":"invalid name"}`, false
+			}
 			spec := map[string]interface{}{}
 			if cmd := mapStr(args, "command"); cmd != "" {
 				spec["command"] = cmd
@@ -1237,6 +1264,9 @@ func registerCapabilityTools(reg *MCPToolRegistry) {
 		},
 		func(h *handler, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "name")
+			if !requireNameStr(name) {
+				return `{"error":"invalid name"}`, false
+			}
 			capReg := capabilities.NewRegistry(h.cfg.Home)
 			if err := capReg.Delete(name); err != nil {
 				return "Error: " + err.Error(), true
@@ -1452,6 +1482,9 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				if name == "" {
 					return "Error: name is required for create", true
 				}
+				if !requireNameStr(name) {
+					return `{"error":"invalid name"}`, false
+				}
 				desc := mapStr(args, "description")
 				params := map[string]interface{}{}
 				if rt := mapStr(args, "risk_tolerance"); rt != "" {
@@ -1475,6 +1508,9 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				if name == "" {
 					return "Error: name is required for show", true
 				}
+				if !requireNameStr(name) {
+					return `{"error":"invalid name"}`, false
+				}
 				raw, err := pReg.GetPolicy(name)
 				if err != nil {
 					return "Error: " + err.Error(), true
@@ -1495,6 +1531,9 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				name := mapStr(args, "name")
 				if name == "" {
 					return "Error: name is required for delete", true
+				}
+				if !requireNameStr(name) {
+					return `{"error":"invalid name"}`, false
 				}
 				if err := pReg.DeletePolicy(name); err != nil {
 					return "Error: " + err.Error(), true
@@ -1541,6 +1580,9 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				domain := mapStr(args, "domain")
 				if agent == "" || param == "" {
 					return "Error: agent and parameter are required for exception request", true
+				}
+				if !requireNameStr(agent) {
+					return `{"error":"invalid agent name"}`, false
 				}
 
 				reqID := fmt.Sprintf("exc-%d", time.Now().UnixNano()/1e6)
@@ -1667,6 +1709,9 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 			name := mapStr(args, "name")
 			if name == "" {
 				return "Error: agent name is required", true
+			}
+			if !requireNameStr(name) {
+				return `{"error":"invalid name"}`, false
 			}
 
 			agentDir := filepath.Join(h.cfg.Home, "agents", name)
