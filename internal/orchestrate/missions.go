@@ -530,7 +530,7 @@ func (mm *MissionManager) History(name string) ([]map[string]interface{}, error)
 // -- internal helpers --
 
 // appendHistory writes a JSONL entry for the current mission state.
-func (mm *MissionManager) appendHistory(m *models.Mission) error {
+func (mm *MissionManager) appendHistory(m *models.Mission) (err error) {
 	if err := os.MkdirAll(mm.historyDir(), 0755); err != nil {
 		return err
 	}
@@ -554,7 +554,11 @@ func (mm *MissionManager) appendHistory(m *models.Mission) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	_, err = fmt.Fprintf(f, "%s\n", line)
 	return err

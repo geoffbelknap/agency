@@ -117,7 +117,9 @@ func (al *AuditLogger) run() {
 				}
 				al.mu.Lock()
 				if al.file != nil {
-					al.file.Close()
+					if err := al.file.Close(); err != nil {
+						log.Printf("audit: close error: %v", err)
+					}
 				}
 				al.mu.Unlock()
 				return
@@ -144,7 +146,9 @@ func (al *AuditLogger) flush(entries []AuditEntry) {
 	today := time.Now().UTC().Format("2006-01-02")
 	if al.file == nil || al.fileDate != today {
 		if al.file != nil {
-			al.file.Close()
+			if err := al.file.Close(); err != nil {
+				log.Printf("audit: close error: %v", err)
+			}
 		}
 		if err := os.MkdirAll(al.dir, 0755); err != nil {
 			log.Printf("audit: mkdir error: %v", err)

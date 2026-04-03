@@ -35,7 +35,7 @@ func (w *Writer) SetLifecycleID(agent, id string) {
 }
 
 // Write appends an audit event to the agent's gateway.jsonl file.
-func (w *Writer) Write(agent, event string, detail map[string]interface{}) error {
+func (w *Writer) Write(agent, event string, detail map[string]interface{}) (err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -70,14 +70,18 @@ func (w *Writer) Write(agent, event string, detail map[string]interface{}) error
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	_, err = f.Write(data)
 	return err
 }
 
 // WriteSystem appends an audit event to the system-level log (not agent-specific).
-func (w *Writer) WriteSystem(event string, detail map[string]interface{}) error {
+func (w *Writer) WriteSystem(event string, detail map[string]interface{}) (err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -108,7 +112,11 @@ func (w *Writer) WriteSystem(event string, detail map[string]interface{}) error 
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	_, err = f.Write(data)
 	return err

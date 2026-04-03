@@ -368,7 +368,7 @@ func (h *handler) writeCredential(cred models.ConnectorCredential, value string)
 }
 
 // upsertEnvEntry appends KEY=VALUE to a file if the key is not already present.
-func (h *handler) upsertEnvEntry(path, key, value string, perm os.FileMode) error {
+func (h *handler) upsertEnvEntry(path, key, value string, perm os.FileMode) (err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
@@ -383,7 +383,11 @@ func (h *handler) upsertEnvEntry(path, key, value string, perm os.FileMode) erro
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 	_, err = fmt.Fprintf(f, "%s=%s\n", key, value)
 	if err != nil {
 		return err
