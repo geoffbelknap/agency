@@ -48,6 +48,8 @@ This is a whitelist regex — `..`, `/`, `\`, `%2F`, spaces, and any non-alphanu
 
 **Where it is applied:** Every API handler and MCP tool handler that takes a resource name from URL params (`chi.URLParam`), query params (`r.URL.Query().Get`), or JSON body fields and uses it in filesystem paths. Approximately 25 entry points.
 
+**MCP tools are operator-only.** The MCP server (`agency mcp-server`) is used by operators via Claude Code / IDE integrations, not by agents. Agents interact via the body runtime inside their container, not via MCP. Path traversal in MCP tool handlers is therefore an operator-API issue (input validation), not an agent-exploitable enforcement boundary violation (ASK Tenet 1 is not implicated).
+
 **Where it is NOT applied:** Internal functions (`MissionManager.Get`, `policy.Engine.Compute`, `logs.Reader.ReadAgentLog`, etc.) receive already-validated input from the handler boundary. No changes to internal code.
 
 **Alignment with existing patterns:** The existing creation-time validators use equivalent regexes:
@@ -74,7 +76,7 @@ Checks:
    - `169.254.*` (link-local / IMDS)
    - `metadata.google.internal`, `*.internal`
    - `10.*`, `172.16-31.*`, `192.168.*` (RFC 1918)
-3. **DNS resolution check**: resolve hostname, verify all returned IPs are public. Defends against DNS rebinding where a public hostname resolves to a private IP.
+3. **TOCTOU-safe DNS validation**: a custom `net.Dialer` that validates resolved IPs at connect time, not just at URL parse time. The dialer wraps `net.Dialer.DialContext`, resolves the hostname, checks all returned IPs against the private range blocklist, and only then connects. This defends against DNS rebinding where a hostname resolves to a public IP at validation time but a private IP when the HTTP client actually connects. The custom dialer is set on the `http.Transport` used by `validateOutboundURL`'s callers.
 
 Applied at:
 - `addNotification` in `handlers_events.go` — before persisting the webhook URL
@@ -136,6 +138,17 @@ Additionally, the CI workflow (`.github/workflows/ci.yml`) gets top-level `permi
 - LLM proxy URL handling — host is operator-controlled, traffic goes through egress proxy
 - Trajectory proxy — agent name is registry-gated
 - Knowledge proxy — base URL is a hard-coded constant
+
+## ASK Review Notes
+
+Reviewed against the ASK framework tenets. Findings:
+
+- **Tenet 1 (Enforcement external):** Not implicated. MCP tools are operator-only; agents cannot reach these API endpoints. Path traversal is an input validation issue, not an enforcement boundary violation.
+- **Tenet 3 (Mediation complete):** The gateway's `testJWTExchange`, `testAPIKey`, and webhook delivery make direct outbound HTTP from the host network, bypassing the egress proxy. The URL validation in this spec mitigates SSRF but does not address the structural mediation gap. **Follow-up tracked:** route gateway outbound requests through egress proxy or a dedicated gateway-side outbound proxy. Not blocking for this work — the URL validation + TOCTOU-safe dialer is a sufficient immediate fix.
+- **Tenet 22 (Credentials via controlled mechanisms):** `testJWTExchange` sends the real credential secret to the `token_url`. The URL validation prevents exfiltration to attacker-controlled endpoints. The follow-up mediation work (above) would add a second layer.
+- **XPIA:** Web-fetch redirect fix improves exfiltration defense. Redirect response content passes through the enforcer's XPIA scanning on the return path (enforcer mediates `/mediation/web-fetch`).
+
+Overall verdict: **PARTIAL — ASK-compliant with tracked follow-up** for gateway outbound mediation.
 
 ## Relationship to PR #2
 
