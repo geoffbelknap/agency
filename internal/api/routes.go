@@ -1206,7 +1206,7 @@ func (h *handler) validatePolicy(w http.ResponseWriter, r *http.Request) {
 
 	// Additionally enforce hard floors on the agent's constraints.yaml
 	// to prevent saving policies that violate immutable safety guarantees.
-	constraintsPath := filepath.Join(h.cfg.Home, "agents", agent, "constraints.yaml")
+	constraintsPath := filepath.Join(h.cfg.Home, "agents", filepath.Base(agent), "constraints.yaml")
 	if data, err := os.ReadFile(constraintsPath); err == nil {
 		var constraints map[string]interface{}
 		if yaml.Unmarshal(data, &constraints) == nil {

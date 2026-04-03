@@ -36,7 +36,7 @@ func (mm *MissionManager) historyDir() string {
 }
 
 func (mm *MissionManager) missionPath(name string) string {
-	return filepath.Join(mm.missionsDir(), name+".yaml")
+	return filepath.Join(mm.missionsDir(), filepath.Base(name)+".yaml")
 }
 
 func (mm *MissionManager) historyPath(id string) string {

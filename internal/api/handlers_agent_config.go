@@ -22,7 +22,7 @@ type agentConfigBundle struct {
 
 // agentConfigDir returns the path to the agent's config directory.
 func (h *handler) agentConfigDir(name string) string {
-	return filepath.Join(h.cfg.Home, "agents", name)
+	return filepath.Join(h.cfg.Home, "agents", filepath.Base(name))
 }
 
 // agentConfig handles GET /api/v1/agents/{name}/config.

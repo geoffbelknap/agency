@@ -139,7 +139,7 @@ var hierarchyNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 // segment keyword ("departments" or "teams") and returns the following name component.
 func (e *Engine) extractHierarchyName(agentName, segment string) string {
 	agentName = filepath.Base(agentName)
-	agentYAML := filepath.Join(e.Home, "agents", agentName, "agent.yaml")
+	agentYAML := filepath.Join(e.Home, "agents", filepath.Base(agentName), "agent.yaml")
 	data, err := os.ReadFile(agentYAML)
 	if err != nil {
 		return ""
