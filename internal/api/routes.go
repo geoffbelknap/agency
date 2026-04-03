@@ -291,6 +291,10 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Get("/routing/metrics", h.routingMetrics)
 		r.Get("/routing/config", h.routingConfig)
 
+		// Providers and setup wizard
+		r.Get("/providers", h.listProviders)
+		r.Get("/setup/config", h.setupConfig)
+
 		// Credentials
 		r.Post("/credentials", h.createOrUpdateCredential)
 		r.Get("/credentials", h.listCredentials)
