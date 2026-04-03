@@ -220,12 +220,16 @@ func (fb *FileBackend) readWithSharedLock() ([]fileEntry, error) {
 // withWriteLock reads, mutates, and atomically writes the store under an
 // exclusive file lock. The lock is held on a separate .lock file so that
 // atomic renames of the store file do not invalidate the lock.
-func (fb *FileBackend) withWriteLock(fn func([]fileEntry) ([]fileEntry, error)) error {
+func (fb *FileBackend) withWriteLock(fn func([]fileEntry) ([]fileEntry, error)) (err error) {
 	lf, err := os.OpenFile(fb.lockPath, os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
 		return fmt.Errorf("open lock: %w", err)
 	}
-	defer lf.Close()
+	defer func() {
+		if cerr := lf.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	if err := syscall.Flock(int(lf.Fd()), syscall.LOCK_EX); err != nil {
 		return fmt.Errorf("exclusive lock: %w", err)
@@ -289,7 +293,13 @@ func (fb *FileBackend) atomicWrite(entries []fileEntry) error {
 		os.Remove(tmpPath)
 		return fmt.Errorf("sync tmp: %w", err)
 	}
-	tmp.Close()
+
+	// Close before rename to ensure all data is flushed to the filesystem.
+	// Sync() has already been called, so data loss on close is not a concern.
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("close tmp: %w", err)
+	}
 
 	if err := os.Rename(tmpPath, fb.storePath); err != nil {
 		os.Remove(tmpPath)

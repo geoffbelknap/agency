@@ -521,7 +521,7 @@ def _verify_webhook_auth(request: web.Request, body_bytes: bytes, connector) -> 
 
     secret = os.environ.get(auth.secret_env, "")
     if not secret:
-        logger.warning(f"Webhook auth configured but env var '{auth.secret_env}' is not set")
+        logger.warning("Webhook auth configured but required secret env var is not set")
         return web.json_response({"error": "Webhook auth misconfigured"}, status=500)
 
     sig_header = request.headers.get(auth.header, "")

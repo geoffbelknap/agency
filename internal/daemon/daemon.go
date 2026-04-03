@@ -100,20 +100,26 @@ func Start(port int) error {
 	setDetached(cmd)
 
 	if err := cmd.Start(); err != nil {
-		logFile.Close()
+		if cerr := logFile.Close(); cerr != nil {
+			fmt.Fprintf(os.Stderr, "close log file: %v\n", cerr)
+		}
 		return fmt.Errorf("start daemon: %w", err)
 	}
 
 	// Write PID file
 	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)), 0644); err != nil {
-		logFile.Close()
+		if cerr := logFile.Close(); cerr != nil {
+			fmt.Fprintf(os.Stderr, "close log file: %v\n", cerr)
+		}
 		return fmt.Errorf("write PID file: %w", err)
 	}
 
 	// Don't wait for the child — it's detached
 	go func() {
 		cmd.Wait()
-		logFile.Close()
+		if err := logFile.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "close log file: %v\n", err)
+		}
 	}()
 
 	// Wait for health endpoint with exponential backoff
