@@ -236,6 +236,10 @@ func (h *handler) installDependencies(mgr *hub.Manager, comp *hub.Component) {
 
 // autoActivate provisions egress domains, JWT swap, and publishes resolved YAML.
 func (h *handler) autoActivate(mgr *hub.Manager, inst *hub.Instance) {
+	if !requireNameStr(inst.Name) || !requireNameStr(inst.Kind) {
+		h.log.Warn("invalid hub instance name or kind", "name", inst.Name, "kind", inst.Kind)
+		return
+	}
 	instDir := mgr.Registry.InstanceDir(inst.Name)
 	templatePath := instDir + "/" + inst.Kind + ".yaml"
 	templateData, err := os.ReadFile(templatePath)

@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -47,9 +46,6 @@ type identityConfig struct {
 	Purpose string `yaml:"purpose" json:"purpose,omitempty"`
 	Body    string `yaml:"body"    json:"body,omitempty"`
 }
-
-// validPresetName accepts lowercase alphanumeric + hyphens, 1–64 chars.
-var validPresetName = regexp.MustCompile(`^[a-z0-9][a-z0-9\-]{0,63}$`)
 
 // builtinPresetsDir returns the built-in presets directory, or "" if not set.
 func (h *handler) builtinPresetsDir() string {
@@ -151,9 +147,8 @@ func (h *handler) listPresets(w http.ResponseWriter, r *http.Request) {
 
 // getPreset returns the full content of a single preset (user has priority over built-in).
 func (h *handler) getPreset(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	if !validPresetName.MatchString(name) {
-		writeJSON(w, 400, map[string]string{"error": "invalid preset name"})
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
 		return
 	}
 
@@ -184,12 +179,7 @@ func (h *handler) createPreset(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
 		return
 	}
-	if body.Name == "" {
-		writeJSON(w, 400, map[string]string{"error": "name required"})
-		return
-	}
-	if !validPresetName.MatchString(body.Name) {
-		writeJSON(w, 400, map[string]string{"error": "invalid preset name: use lowercase alphanumeric and hyphens only"})
+	if _, ok := requireName(w, body.Name); !ok {
 		return
 	}
 
@@ -221,9 +211,8 @@ func (h *handler) createPreset(w http.ResponseWriter, r *http.Request) {
 
 // updatePreset replaces an existing user preset. Built-in presets are read-only.
 func (h *handler) updatePreset(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	if !validPresetName.MatchString(name) {
-		writeJSON(w, 400, map[string]string{"error": "invalid preset name"})
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
 		return
 	}
 
@@ -263,9 +252,8 @@ func (h *handler) updatePreset(w http.ResponseWriter, r *http.Request) {
 
 // deletePreset removes a user preset. Built-in presets cannot be deleted.
 func (h *handler) deletePreset(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	if !validPresetName.MatchString(name) {
-		writeJSON(w, 400, map[string]string{"error": "invalid preset name"})
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
 		return
 	}
 

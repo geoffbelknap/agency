@@ -1173,14 +1173,20 @@ func (h *handler) teardownPack(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) showPolicy(w http.ResponseWriter, r *http.Request) {
-	agent := chi.URLParam(r, "agent")
+	agent, ok := requireName(w, chi.URLParam(r, "agent"))
+	if !ok {
+		return
+	}
 	eng := policy.NewEngine(h.cfg.Home)
 	ep := eng.Show(agent)
 	writeJSON(w, 200, ep)
 }
 
 func (h *handler) validatePolicy(w http.ResponseWriter, r *http.Request) {
-	agent := chi.URLParam(r, "agent")
+	agent, ok := requireName(w, chi.URLParam(r, "agent"))
+	if !ok {
+		return
+	}
 	eng := policy.NewEngine(h.cfg.Home)
 	ep := eng.Validate(agent)
 

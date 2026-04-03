@@ -437,6 +437,13 @@ func (h *handler) adminTrust(w http.ResponseWriter, r *http.Request) {
 		agent = body.Args["agent"]
 	}
 
+	if agent != "" {
+		if !requireNameStr(agent) {
+			writeJSON(w, 400, map[string]string{"error": "invalid agent name"})
+			return
+		}
+	}
+
 	// list action does not require agent
 	if body.Action == "list" {
 		agentsDir := filepath.Join(h.cfg.Home, "agents")
@@ -549,6 +556,10 @@ func (h *handler) adminAudit(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	action := q.Get("action")
 	agent := q.Get("agent")
+	if agent != "" && !requireNameStr(agent) {
+		writeJSON(w, 400, map[string]string{"error": "invalid agent name"})
+		return
+	}
 	since := q.Get("since")
 	until := q.Get("until")
 
@@ -624,8 +635,7 @@ func (h *handler) adminAudit(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) adminEgress(w http.ResponseWriter, r *http.Request) {
 	agent := r.URL.Query().Get("agent")
-	if agent == "" {
-		writeJSON(w, 400, map[string]string{"error": "agent query parameter required"})
+	if _, ok := requireName(w, agent); !ok {
 		return
 	}
 
@@ -812,9 +822,8 @@ func (h *handler) adminDepartment(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, 200, map[string]interface{}{"departments": depts})
 	case "show":
-		name := body.Args["name"]
-		if name == "" {
-			writeJSON(w, 400, map[string]string{"error": "name required"})
+		name, ok := requireName(w, body.Args["name"])
+		if !ok {
 			return
 		}
 		policyPath := filepath.Join(deptDir, name, "policy.yaml")
@@ -832,7 +841,10 @@ func (h *handler) adminDepartment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) rebuildAgent(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 
 	agentDir := filepath.Join(h.cfg.Home, "agents", name)
 	if _, err := os.Stat(filepath.Join(agentDir, "agent.yaml")); err != nil {
