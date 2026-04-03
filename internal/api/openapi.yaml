@@ -66,6 +66,8 @@ tags:
     description: MCP tool registry — list and call tools
   - name: Internal
     description: Internal infrastructure LLM proxy
+  - name: Profiles
+    description: User and agent profiles — display names, avatars, contact info
   - name: WebSocket
     description: Real-time WebSocket endpoint (outside /api/v1)
 
@@ -3958,6 +3960,113 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  # ── Profiles ────────────────────────────────────────────────────────────────
+  /profiles:
+    get:
+      operationId: listProfiles
+      summary: List all profiles
+      description: Returns all profiles, optionally filtered by type.
+      tags: [Profiles]
+      parameters:
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [operator, agent]
+          description: Filter by profile type
+      responses:
+        "200":
+          description: List of profiles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Profile"
+
+  /profiles/{id}:
+    get:
+      operationId: getProfile
+      summary: Get a profile by ID
+      tags: [Profiles]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Profile details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "404":
+          description: Profile not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: createOrUpdateProfile
+      summary: Create or update a profile
+      tags: [Profiles]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Profile"
+      responses:
+        "200":
+          description: Profile saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteProfile
+      summary: Delete a profile
+      tags: [Profiles]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Profile deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  id:
+                    type: string
+        "404":
+          description: Profile not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   # ── Internal ────────────────────────────────────────────────────────────────
   /internal/llm:
     post:
@@ -5013,6 +5122,48 @@ components:
           type: array
           items:
             type: string
+
+    Profile:
+      type: object
+      description: User or agent profile with display information
+      required: [id, type, display_name]
+      properties:
+        id:
+          type: string
+          description: Unique profile ID (matches principal ID or agent name)
+        type:
+          type: string
+          enum: [operator, agent]
+          description: Profile type
+        display_name:
+          type: string
+          description: Human-friendly display name
+        avatar_url:
+          type: string
+          description: URL or path to avatar image
+        email:
+          type: string
+          description: Contact email address
+        department:
+          type: string
+          description: Department name
+        title:
+          type: string
+          description: Job title or role
+        bio:
+          type: string
+          description: Short biography or description
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: Arbitrary key-value metadata
+        created:
+          type: string
+          format: date-time
+        updated:
+          type: string
+          format: date-time
 
     NotificationConfig:
       type: object
