@@ -4,7 +4,7 @@
 
 **Goal:** Gateway starts and serves the REST API even when Docker is unavailable, degrading container operations gracefully.
 
-**Architecture:** Add a `DockerMonitor` that wraps the Docker client with an availability flag and a background reconnect loop. All Docker-dependent code paths check the flag before proceeding. Config gains `auto_restore_infra` for optional automatic infra restoration on reconnect.
+**Architecture:** Reactive detection — no polling. A `DockerStatus` wrapper catches Docker client errors as they occur and flips an availability flag. Success after failure flips it back. All Docker-dependent API handlers check the flag and return 503 when unavailable. Config gains `auto_restore_infra` for optional automatic infra restoration on reconnect.
 
 **Tech Stack:** Go, Docker client SDK, chi router
 
@@ -15,8 +15,7 @@
 ### Task 1: Add `auto_restore_infra` config field
 
 **Files:**
-- Modify: `internal/config/config.go` — add field to Config and configFile structs
-- Test: existing `internal/config/` tests cover Load()
+- Modify: `internal/config/config.go`
 
 - [ ] **Step 1: Add the field to Config and configFile**
 
@@ -49,12 +48,184 @@ git commit -m "feat: add auto_restore_infra config field"
 
 ---
 
-### Task 2: Make Docker client optional at startup
+### Task 2: Add DockerStatus reactive wrapper
 
 **Files:**
-- Modify: `internal/docker/client.go` — add `TryNewClient()` that returns nil on failure
-- Modify: `cmd/gateway/main.go` — use TryNewClient, continue on nil
-- Test: manual (Docker dependency)
+- Create: `internal/docker/status.go`
+- Create: `internal/docker/status_test.go`
+
+- [ ] **Step 1: Write tests**
+
+Create `internal/docker/status_test.go`:
+```go
+package docker
+
+import (
+	"errors"
+	"testing"
+)
+
+func TestStatus_InitiallyAvailable(t *testing.T) {
+	s := NewStatus(&Client{})
+	if !s.Available() {
+		t.Error("should be available with non-nil client")
+	}
+}
+
+func TestStatus_InitiallyUnavailable(t *testing.T) {
+	s := NewStatus(nil)
+	if s.Available() {
+		t.Error("should be unavailable with nil client")
+	}
+}
+
+func TestStatus_DetectsFailure(t *testing.T) {
+	s := NewStatus(&Client{})
+	s.RecordError(errors.New("connection refused"))
+	if s.Available() {
+		t.Error("should be unavailable after Docker error")
+	}
+}
+
+func TestStatus_NonDockerErrorDoesNotFlip(t *testing.T) {
+	s := NewStatus(&Client{})
+	s.RecordError(errors.New("container not found"))
+	if !s.Available() {
+		t.Error("non-Docker errors should not flip availability")
+	}
+}
+
+func TestStatus_RecoveryOnSuccess(t *testing.T) {
+	s := NewStatus(nil) // starts unavailable
+	s.RecordSuccess()
+	if !s.Available() {
+		t.Error("should recover on success")
+	}
+}
+
+func TestStatus_ReconnectCallbackFires(t *testing.T) {
+	fired := false
+	s := NewStatus(nil)
+	s.OnReconnect = func() { fired = true }
+	s.RecordSuccess() // transition: unavailable -> available
+	if !fired {
+		t.Error("OnReconnect should fire on recovery")
+	}
+}
+
+func TestStatus_ReconnectCallbackDoesNotFireWhenAlreadyAvailable(t *testing.T) {
+	fired := false
+	s := NewStatus(&Client{})
+	s.OnReconnect = func() { fired = true }
+	s.RecordSuccess() // already available -> no transition
+	if fired {
+		t.Error("OnReconnect should not fire when already available")
+	}
+}
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `go test ./internal/docker/ -run TestStatus -v`
+Expected: FAIL — NewStatus not defined
+
+- [ ] **Step 3: Implement DockerStatus**
+
+Create `internal/docker/status.go`:
+```go
+package docker
+
+import (
+	"strings"
+	"sync/atomic"
+)
+
+// Status tracks Docker availability reactively. No polling — availability
+// is determined by observing successes and failures on Docker API calls.
+type Status struct {
+	available   atomic.Bool
+	OnReconnect func() // called once when Docker transitions from unavailable to available
+}
+
+// NewStatus creates a Docker status tracker. If dc is nil, starts unavailable.
+func NewStatus(dc *Client) *Status {
+	s := &Status{}
+	s.available.Store(dc != nil)
+	return s
+}
+
+// Available returns whether Docker is currently considered reachable.
+func (s *Status) Available() bool {
+	return s.available.Load()
+}
+
+// RecordSuccess marks Docker as available. If transitioning from unavailable,
+// fires the OnReconnect callback (if set).
+func (s *Status) RecordSuccess() {
+	was := s.available.Swap(true)
+	if !was && s.OnReconnect != nil {
+		s.OnReconnect()
+	}
+}
+
+// RecordError checks if the error indicates Docker itself is unavailable
+// (connection refused, not responding, etc.) vs a normal operational error
+// (container not found, image pull failed). Only Docker-level failures
+// flip the availability flag.
+func (s *Status) RecordError(err error) {
+	if err == nil {
+		return
+	}
+	if isDockerUnavailable(err) {
+		s.available.Store(false)
+	}
+}
+
+// isDockerUnavailable returns true if the error indicates the Docker daemon
+// itself is unreachable, as opposed to a normal API error.
+func isDockerUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	patterns := []string{
+		"Cannot connect to the Docker daemon",
+		"connection refused",
+		"no such host",
+		"i/o timeout",
+		"context deadline exceeded",
+		"Docker not responding",
+		"dial unix",
+		"docker: ",
+	}
+	for _, p := range patterns {
+		if strings.Contains(msg, p) {
+			return true
+		}
+	}
+	return false
+}
+```
+
+- [ ] **Step 4: Run tests**
+
+Run: `go test ./internal/docker/ -run TestStatus -v`
+Expected: PASS (all 7 tests)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/docker/status.go internal/docker/status_test.go
+git commit -m "feat: reactive DockerStatus tracker — no polling"
+```
+
+---
+
+### Task 3: Make Docker client optional at startup
+
+**Files:**
+- Modify: `internal/docker/client.go` — add TryNewClient
+- Modify: `cmd/gateway/main.go` — use TryNewClient, create Status, guard Docker-dependent startup
 
 - [ ] **Step 1: Add TryNewClient to docker/client.go**
 
@@ -78,23 +249,9 @@ func TryNewClient(logger interface{ Warn(msg string, keyvals ...interface{}) }) 
 }
 ```
 
-- [ ] **Step 2: Add Ping method to Client**
+- [ ] **Step 2: Update main.go — replace fatal Docker init with TryNewClient**
 
-Add to `internal/docker/client.go`:
-```go
-// Ping checks if Docker is responsive. Returns nil if healthy.
-func (c *Client) Ping(ctx context.Context) error {
-	if c == nil || c.cli == nil {
-		return fmt.Errorf("Docker client not initialized")
-	}
-	_, err := c.cli.Ping(ctx)
-	return err
-}
-```
-
-- [ ] **Step 3: Update main.go to use TryNewClient**
-
-In `cmd/gateway/main.go`, replace:
+Replace:
 ```go
 dc, err := docker.NewClient()
 if err != nil {
@@ -111,30 +268,55 @@ if dc != nil {
 } else {
     logger.Warn("docker unavailable — gateway starting in degraded mode")
 }
+dockerStatus := docker.NewStatus(dc)
 ```
 
-- [ ] **Step 4: Guard reconciliation**
+- [ ] **Step 3: Guard reconciliation and other Docker-dependent startup code**
 
-Wrap the reconciliation block:
+Wrap with `if dc != nil { ... }`:
+- Reconciliation block
+- Workspace watcher
+- Any other `dc.` usage before the HTTP server starts
+
+- [ ] **Step 4: Wire auto-restore callback**
+
+After route registration:
 ```go
-if dc != nil {
-    knownAgents := listAgentNames(cfg.Home)
-    reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 30*time.Second)
-    orchestrate.Reconcile(reconcileCtx, dc.RawClient(), knownAgents, logger)
-    reconcileCancel()
+if cfg.AutoRestoreInfra {
+    dockerStatus.OnReconnect = func() {
+        logger.Info("Docker reconnected — auto-restoring infrastructure")
+        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+        defer cancel()
+        newDC := docker.TryNewClient(logger)
+        if newDC == nil {
+            logger.Warn("auto-restore: Docker reconnect succeeded but client creation failed")
+            return
+        }
+        infra, err := orchestrate.NewInfra(cfg.Home, cfg.Version, newDC.RawClient(), logger, cfg.HMACKey)
+        if err != nil {
+            logger.Warn("auto-restore: failed to create infra manager", "err", err)
+            return
+        }
+        infra.SourceDir = cfg.SourceDir
+        infra.BuildID = cfg.BuildID
+        infra.GatewayAddr = cfg.GatewayAddr
+        infra.GatewayToken = cfg.Token
+        infra.EgressToken = cfg.EgressToken
+        if err := infra.EnsureRunning(ctx); err != nil {
+            logger.Warn("auto-restore: infra up failed", "err", err)
+        } else {
+            logger.Info("auto-restore: infrastructure restored")
+        }
+    }
 }
 ```
 
-- [ ] **Step 5: Guard workspace watcher and other Docker-dependent startup code**
-
-Any other code between Docker init and HTTP server start that uses `dc` must be guarded with `if dc != nil`. Scan for `dc.` references and wrap them.
-
-- [ ] **Step 6: Build and verify**
+- [ ] **Step 5: Build and verify**
 
 Run: `go build ./cmd/gateway/`
 Expected: compiles clean
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add internal/docker/client.go cmd/gateway/main.go
@@ -143,327 +325,36 @@ git commit -m "feat: gateway starts in degraded mode when Docker unavailable"
 
 ---
 
-### Task 3: Add DockerMonitor for health checking and reconnect
+### Task 4: Guard API handlers with Docker availability checks
 
 **Files:**
-- Create: `internal/docker/monitor.go`
-- Test: `internal/docker/monitor_test.go`
+- Modify: `internal/api/routes.go` — add DockerStatus to handler, guard endpoints
+- Modify: `internal/orchestrate/agent.go` — handle nil Docker client
 
-- [ ] **Step 1: Write test for DockerMonitor**
-
-Create `internal/docker/monitor_test.go`:
-```go
-package docker
-
-import (
-	"testing"
-	"time"
-)
-
-func TestMonitor_InitiallyAvailable(t *testing.T) {
-	m := NewMonitor(nil, false, nil) // nil client = unavailable
-	if m.Available() {
-		t.Error("should be unavailable with nil client")
-	}
-}
-
-func TestMonitor_SetClient(t *testing.T) {
-	m := NewMonitor(nil, false, nil)
-	if m.Available() {
-		t.Error("should start unavailable")
-	}
-	// Simulate reconnect by setting a non-nil client
-	m.SetClient(&Client{})
-	if !m.Available() {
-		t.Error("should be available after SetClient")
-	}
-}
-
-func TestMonitor_SetUnavailable(t *testing.T) {
-	m := NewMonitor(&Client{}, false, nil)
-	if !m.Available() {
-		t.Error("should start available")
-	}
-	m.SetUnavailable()
-	if m.Available() {
-		t.Error("should be unavailable after SetUnavailable")
-	}
-}
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `go test ./internal/docker/ -run TestMonitor -v`
-Expected: FAIL — NewMonitor not defined
-
-- [ ] **Step 3: Implement DockerMonitor**
-
-Create `internal/docker/monitor.go`:
-```go
-package docker
-
-import (
-	"context"
-	"sync"
-	"time"
-
-	"github.com/docker/docker/client"
-)
-
-// Monitor tracks Docker availability and reconnects in the background.
-type Monitor struct {
-	mu               sync.RWMutex
-	dc               *Client
-	available        bool
-	autoRestore      bool
-	onReconnect      func() // called when Docker comes back (infra restore)
-	logger           interface{ Info(msg string, keyvals ...interface{}); Warn(msg string, keyvals ...interface{}) }
-	stopCh           chan struct{}
-}
-
-// NewMonitor creates a Docker availability monitor. If dc is nil, starts
-// in degraded mode. The onReconnect callback is called when Docker returns
-// (only if autoRestore is true).
-func NewMonitor(dc *Client, autoRestore bool, logger interface{ Info(msg string, keyvals ...interface{}); Warn(msg string, keyvals ...interface{}) }) *Monitor {
-	return &Monitor{
-		dc:          dc,
-		available:   dc != nil,
-		autoRestore: autoRestore,
-		logger:      logger,
-		stopCh:      make(chan struct{}),
-	}
-}
-
-// Available returns whether Docker is currently reachable.
-func (m *Monitor) Available() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.available
-}
-
-// Client returns the current Docker client (may be nil).
-func (m *Monitor) Client() *Client {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.dc
-}
-
-// SetClient sets a new Docker client and marks Docker as available.
-func (m *Monitor) SetClient(dc *Client) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.dc = dc
-	m.available = true
-}
-
-// SetUnavailable marks Docker as unavailable.
-func (m *Monitor) SetUnavailable() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.available = false
-}
-
-// SetOnReconnect sets the callback for Docker reconnection.
-func (m *Monitor) SetOnReconnect(fn func()) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.onReconnect = fn
-}
-
-// Start begins the background health check loop. Call Stop() to terminate.
-func (m *Monitor) Start() {
-	go m.loop()
-}
-
-// Stop terminates the background health check loop.
-func (m *Monitor) Stop() {
-	close(m.stopCh)
-}
-
-func (m *Monitor) loop() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-m.stopCh:
-			return
-		case <-ticker.C:
-			m.check()
-		}
-	}
-}
-
-func (m *Monitor) check() {
-	wasAvailable := m.Available()
-
-	// Try to ping Docker
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		if wasAvailable {
-			if m.logger != nil {
-				m.logger.Warn("Docker connection lost")
-			}
-			m.SetUnavailable()
-		}
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if _, err := cli.Ping(ctx); err != nil {
-		if wasAvailable {
-			if m.logger != nil {
-				m.logger.Warn("Docker not responding", "err", err)
-			}
-			m.SetUnavailable()
-		}
-		return
-	}
-
-	// Docker is available
-	if !wasAvailable {
-		if m.logger != nil {
-			m.logger.Info("Docker reconnected")
-		}
-		m.SetClient(&Client{cli: cli})
-
-		m.mu.RLock()
-		autoRestore := m.autoRestore
-		onReconnect := m.onReconnect
-		m.mu.RUnlock()
-
-		if autoRestore && onReconnect != nil {
-			if m.logger != nil {
-				m.logger.Info("auto-restoring infrastructure (auto_restore_infra=true)")
-			}
-			onReconnect()
-		}
-	}
-}
-```
-
-- [ ] **Step 4: Run tests**
-
-Run: `go test ./internal/docker/ -run TestMonitor -v`
-Expected: PASS
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add internal/docker/monitor.go internal/docker/monitor_test.go
-git commit -m "feat: DockerMonitor for health checking and reconnect"
-```
-
----
-
-### Task 4: Wire DockerMonitor into gateway startup
-
-**Files:**
-- Modify: `cmd/gateway/main.go` — create Monitor, start loop, pass to handlers
-
-- [ ] **Step 1: Create and start the monitor**
-
-In `cmd/gateway/main.go`, after the `TryNewClient` block, add:
-```go
-dockerMon := docker.NewMonitor(dc, cfg.AutoRestoreInfra, logger)
-dockerMon.Start()
-defer dockerMon.Stop()
-```
-
-- [ ] **Step 2: Wire reconnect callback for auto-restore**
-
-After the monitor is created, before the HTTP server:
-```go
-// Wire auto-restore: when Docker reconnects and auto_restore_infra is set,
-// bring up infrastructure automatically.
-if cfg.AutoRestoreInfra {
-    // The onReconnect callback will be set after the infra handler is created.
-    // For now, just note it — we'll wire it in the route options.
-}
-```
-
-The actual wiring happens after `api.RegisterRoutesWithOptions` since we need the infra handler. Add after route registration:
-```go
-dockerMon.SetOnReconnect(func() {
-    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-    defer cancel()
-    // Re-create infra manager with the reconnected client
-    newDC := dockerMon.Client()
-    if newDC == nil {
-        return
-    }
-    infra, err := orchestrate.NewInfra(cfg.Home, cfg.Version, newDC.RawClient(), logger, cfg.HMACKey)
-    if err != nil {
-        logger.Warn("auto-restore: failed to create infra manager", "err", err)
-        return
-    }
-    infra.SourceDir = cfg.SourceDir
-    infra.BuildID = cfg.BuildID
-    infra.GatewayAddr = cfg.GatewayAddr
-    infra.GatewayToken = cfg.Token
-    infra.EgressToken = cfg.EgressToken
-    if err := infra.EnsureRunning(ctx); err != nil {
-        logger.Warn("auto-restore: infra up failed", "err", err)
-    } else {
-        logger.Info("auto-restore: infrastructure restored")
-    }
-})
-```
-
-- [ ] **Step 3: Pass monitor to route options**
-
-Add `DockerMonitor` to `api.RouteOptions`:
-```go
-routeOpts.DockerMonitor = dockerMon
-```
-
-- [ ] **Step 4: Build and verify**
-
-Run: `go build ./cmd/gateway/`
-Expected: compiles (RouteOptions field added in Task 5)
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add cmd/gateway/main.go
-git commit -m "feat: wire DockerMonitor into gateway startup"
-```
-
----
-
-### Task 5: Guard API handlers with Docker availability checks
-
-**Files:**
-- Modify: `internal/api/routes.go` — add DockerMonitor to RouteOptions and handler, guard Docker-dependent endpoints
-- Modify: `internal/orchestrate/agent.go` — handle nil Docker client in List/Show
-
-- [ ] **Step 1: Add DockerMonitor to RouteOptions and handler**
+- [ ] **Step 1: Add DockerStatus to RouteOptions and handler**
 
 In `internal/api/routes.go`, add to `RouteOptions`:
 ```go
-DockerMonitor *docker.Monitor
+DockerStatus *docker.Status
 ```
 
 In `handler` struct:
 ```go
-dockerMon *docker.Monitor
+dockerStatus *docker.Status
 ```
 
 In `RegisterRoutesWithOptions`, wire it:
 ```go
-if opts.DockerMonitor != nil {
-    h.dockerMon = opts.DockerMonitor
+if opts.DockerStatus != nil {
+    h.dockerStatus = opts.DockerStatus
 }
 ```
 
 - [ ] **Step 2: Add dockerRequired helper**
 
-Add to `routes.go`:
 ```go
-// dockerRequired returns true if Docker is available. If not, writes a 503
-// response with a human-readable error and returns false.
 func (h *handler) dockerRequired(w http.ResponseWriter) bool {
-	if h.dockerMon != nil && !h.dockerMon.Available() {
+	if h.dockerStatus != nil && !h.dockerStatus.Available() {
 		writeJSON(w, 503, map[string]string{
 			"error": "Docker is not available. Container operations are unavailable.",
 		})
@@ -475,31 +366,25 @@ func (h *handler) dockerRequired(w http.ResponseWriter) bool {
 
 - [ ] **Step 3: Guard Docker-dependent handlers**
 
-Add `if !h.dockerRequired(w) { return }` as the first line in:
-- `infraUp`
-- `infraDown`
-- `infraRebuild`
-- `infraReload`
-- `startAgent`
-- `stopAgent` / `haltAgent`
-- `restartAgent`
-- `resumeAgent`
+Add `if !h.dockerRequired(w) { return }` as first line in:
+- `infraUp`, `infraDown`, `infraRebuild`, `infraReload`
+- `startAgent`, `haltAgent`, `restartAgent`, `resumeAgent`
 
 - [ ] **Step 4: Add Docker status to infraStatus response**
 
 In `infraStatus`, add to the response map:
 ```go
 "docker": func() string {
-    if h.dockerMon != nil && !h.dockerMon.Available() {
+    if h.dockerStatus != nil && !h.dockerStatus.Available() {
         return "unavailable"
     }
     return "available"
 }(),
 ```
 
-- [ ] **Step 5: Handle nil Docker client in agent List/Show**
+- [ ] **Step 5: Handle nil Docker client in AgentManager**
 
-In `internal/orchestrate/agent.go`, update `getRunningContainers` to return empty map if the Docker client is nil:
+In `internal/orchestrate/agent.go`, update `getRunningContainers` to return empty map if cli is nil:
 ```go
 func (am *AgentManager) getRunningContainers(ctx context.Context) map[string]containerInfo {
 	if am.cli == nil {
@@ -509,27 +394,44 @@ func (am *AgentManager) getRunningContainers(ctx context.Context) map[string]con
 }
 ```
 
-This makes workspace/enforcer status default to `"stopped"` when Docker is unavailable. Update the status display logic to show `"unknown"` when Docker is down — this requires passing Docker availability into `loadAgentDetail` or checking it at the API layer.
+- [ ] **Step 6: Wire RecordError/RecordSuccess into Docker-dependent handlers**
 
-- [ ] **Step 6: Build and verify**
+Where handlers call Docker and get errors back, record the outcome:
+```go
+err := h.infra.EnsureRunning(ctx)
+if err != nil {
+    if h.dockerStatus != nil {
+        h.dockerStatus.RecordError(err)
+    }
+    writeJSON(w, 500, map[string]string{"error": err.Error()})
+    return
+}
+if h.dockerStatus != nil {
+    h.dockerStatus.RecordSuccess()
+}
+```
+
+Apply this pattern to `infraUp`, `infraDown`, `startAgent`, `restartAgent`, and `infraStatus` (the most frequently called Docker-touching endpoints).
+
+- [ ] **Step 7: Build and verify**
 
 Run: `go build ./cmd/gateway/`
 Expected: compiles clean
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add internal/api/routes.go internal/orchestrate/agent.go
-git commit -m "feat: guard Docker-dependent handlers with availability check"
+git commit -m "feat: guard Docker-dependent handlers, reactive status tracking"
 ```
 
 ---
 
-### Task 6: Update CLI status display for degraded mode
+### Task 5: Update CLI status display for degraded mode
 
 **Files:**
-- Modify: `internal/cli/commands.go` — show Docker status in status output
-- Modify: `internal/apiclient/client.go` — add Docker field to InfraStatusResponse
+- Modify: `internal/apiclient/client.go` — add Docker field
+- Modify: `internal/cli/commands.go` — show Docker status
 
 - [ ] **Step 1: Add Docker field to InfraStatusResponse**
 
@@ -538,16 +440,16 @@ In `internal/apiclient/client.go`:
 Docker string `json:"docker,omitempty"`
 ```
 
-- [ ] **Step 2: Update status display in CLI**
+- [ ] **Step 2: Update CLI status display**
 
 In `internal/cli/commands.go` `statusCmd`, after the web URL line:
 ```go
 if infraResp.Docker == "unavailable" {
-    fmt.Printf("  Docker:  %s\n", red.Render("unavailable ⚠"))
-} 
+    fmt.Printf("  Docker:  %s\n", red.Render("unavailable"))
+}
 ```
 
-When Docker is unavailable, update the infrastructure display to show `?` instead of colored dots:
+Update infrastructure component display:
 ```go
 for _, ic := range infraResp.Components {
     icon := green.Render("●")
@@ -556,7 +458,7 @@ for _, ic := range infraResp.Components {
     } else if ic["health"] != "healthy" && ic["state"] != "running" {
         icon = red.Render("○")
     }
-    // ... rest of display logic
+    // ... rest of display logic unchanged
 }
 ```
 
@@ -574,10 +476,7 @@ git commit -m "feat: CLI shows Docker availability in status display"
 
 ---
 
-### Task 7: Integration test and final commit
-
-**Files:**
-- All modified files
+### Task 6: Tests and smoke test
 
 - [ ] **Step 1: Run full Go test suite**
 
@@ -597,28 +496,24 @@ Expected: all pass
 - [ ] **Step 4: Manual smoke test (Docker available)**
 
 Run: `make install && agency status`
-Expected: normal output with gateway/web URLs, no Docker warning
+Expected: normal output, no Docker warning
 
 - [ ] **Step 5: Manual smoke test (Docker unavailable)**
 
-Stop Docker Desktop, then:
-Run: `agency serve restart && agency status`
-Expected: gateway starts, status shows `Docker: unavailable ⚠`, infra shows `?` markers
+Quit Docker Desktop, then:
+Run: `agency serve stop && agency serve restart && agency status`
+Expected: gateway starts, status shows `Docker: unavailable`, infra shows `?` markers
 
 - [ ] **Step 6: Manual smoke test (Docker reconnect)**
 
-Start Docker Desktop, wait 30s, then:
-Run: `agency status`
-Expected: Docker status clears, infra shows normal state (or auto-restores if configured)
+Start Docker Desktop, then run `agency infra up && agency status`
+Expected: Docker status clears on successful infra operation, infra shows normal state
 
-- [ ] **Step 7: Update spec status**
-
-Change `docs/specs/graceful-docker-degradation.md` status from "Approved" to "Implemented".
-
-- [ ] **Step 8: Final commit**
+- [ ] **Step 7: Update spec status and commit**
 
 ```bash
-git add -A
+# Update spec status to Implemented
+git add docs/specs/graceful-docker-degradation.md docs/plans/2026-04-03-graceful-docker-degradation.md
 git commit -m "feat: graceful Docker degradation — gateway survives Docker outages"
 git push origin main
 ```
