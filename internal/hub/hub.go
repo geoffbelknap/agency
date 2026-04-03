@@ -972,7 +972,10 @@ func (m *Manager) discover() []Component {
 				}
 				name, _ := doc["name"].(string)
 				if name == "" {
-					name = strings.TrimSuffix(info.Name(), ".yaml")
+					name, _ = doc["service"].(string)
+				}
+				if name == "" {
+					return nil
 				}
 				desc, _ := doc["description"].(string)
 				version, _ := doc["version"].(string)
