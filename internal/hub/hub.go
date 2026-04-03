@@ -327,6 +327,13 @@ func (m *Manager) Install(componentName, kind, source, instanceName string) (*In
 		return nil, fmt.Errorf("write component: %w", err)
 	}
 
+	// Provider-specific: merge routing config
+	if kind == "provider" {
+		if err := MergeProviderRouting(m.Home, componentName, data); err != nil {
+			log.Printf("[hub] WARNING: failed to merge provider routing: %v", err)
+		}
+	}
+
 	return inst, nil
 }
 
@@ -344,6 +351,13 @@ func (m *Manager) Remove(name, kind string) error {
 	}
 	if _, err := os.Stat(destPath); err != nil {
 		return fmt.Errorf("component %q (kind=%s) not installed", name, kind)
+	}
+
+	// Provider-specific: remove routing entries
+	if kind == "provider" {
+		if err := RemoveProviderRouting(m.Home, name); err != nil {
+			log.Printf("[hub] WARNING: failed to remove provider routing: %v", err)
+		}
 	}
 
 	if err := os.Remove(destPath); err != nil {
