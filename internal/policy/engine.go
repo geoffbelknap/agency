@@ -52,7 +52,9 @@ func NewEngine(home string) *Engine {
 
 // Compute walks the policy chain and returns the effective policy.
 func (e *Engine) Compute(agentName string) *EffectivePolicy {
-	agentName = filepath.Base(agentName)
+	if strings.Contains(agentName, "..") || strings.Contains(agentName, "/") || strings.Contains(agentName, "\\") {
+		return &EffectivePolicy{Agent: agentName, Valid: false, Violations: []string{"invalid agent name"}}
+	}
 	ep := &EffectivePolicy{
 		Agent:      agentName,
 		Parameters: e.defaultParameters(),
@@ -138,8 +140,10 @@ var hierarchyNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 // extractHierarchyName parses the inherits_from field in agent.yaml for a given
 // segment keyword ("departments" or "teams") and returns the following name component.
 func (e *Engine) extractHierarchyName(agentName, segment string) string {
-	agentName = filepath.Base(agentName)
-	agentYAML := filepath.Join(e.Home, "agents", filepath.Base(agentName), "agent.yaml")
+	if strings.Contains(agentName, "..") || strings.Contains(agentName, "/") || strings.Contains(agentName, "\\") {
+		return ""
+	}
+	agentYAML := filepath.Join(e.Home, "agents", agentName, "agent.yaml")
 	data, err := os.ReadFile(agentYAML)
 	if err != nil {
 		return ""
@@ -253,7 +257,9 @@ func (e *Engine) loadAndMerge(file, level string, parentParams map[string]interf
 
 // validateExceptions validates all exceptions declared in the agent's policy.yaml.
 func (e *Engine) validateExceptions(agentName string, ep *EffectivePolicy) {
-	agentName = filepath.Base(agentName)
+	if strings.Contains(agentName, "..") || strings.Contains(agentName, "/") || strings.Contains(agentName, "\\") {
+		return
+	}
 	agentFile := filepath.Join(e.Home, "agents", agentName, "policy.yaml")
 	data, err := os.ReadFile(agentFile)
 	if err != nil {

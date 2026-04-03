@@ -86,7 +86,9 @@ func (mm *MissionManager) Create(m *models.Mission) error {
 
 // Get reads and returns the named mission.
 func (mm *MissionManager) Get(name string) (*models.Mission, error) {
-	name = filepath.Base(name)
+	if strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
+		return nil, fmt.Errorf("mission %q: invalid name", name)
+	}
 	path := mm.missionPath(name)
 	data, err := os.ReadFile(path)
 	if err != nil {

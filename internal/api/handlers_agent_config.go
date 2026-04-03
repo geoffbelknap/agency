@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"gopkg.in/yaml.v3"
@@ -28,8 +29,8 @@ func (h *handler) agentConfigDir(name string) string {
 // agentConfig handles GET /api/v1/agents/{name}/config.
 // Returns the full agent config bundle (agent.yaml, identity.md, constraints.yaml, workspace.yaml).
 func (h *handler) agentConfig(w http.ResponseWriter, r *http.Request) {
-	name := filepath.Base(chi.URLParam(r, "name"))
-	if name == "" || name == "." || name == ".." {
+	name := chi.URLParam(r, "name")
+	if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
 		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
@@ -67,8 +68,8 @@ func (h *handler) agentConfig(w http.ResponseWriter, r *http.Request) {
 // ASK tenet 2: every config change is audit-logged.
 // ASK tenet 6: constraint changes trigger enforcer reload so the agent sees old or new — never a mix.
 func (h *handler) updateAgentConfig(w http.ResponseWriter, r *http.Request) {
-	name := filepath.Base(chi.URLParam(r, "name"))
-	if name == "" || name == "." || name == ".." {
+	name := chi.URLParam(r, "name")
+	if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
 		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}

@@ -1185,8 +1185,8 @@ func (h *handler) teardownPack(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) showPolicy(w http.ResponseWriter, r *http.Request) {
-	agent := filepath.Base(chi.URLParam(r, "agent"))
-	if agent == "" || agent == "." || agent == ".." {
+	agent := chi.URLParam(r, "agent")
+	if agent == "" || strings.Contains(agent, "..") || strings.Contains(agent, "/") || strings.Contains(agent, "\\") {
 		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
@@ -1196,8 +1196,8 @@ func (h *handler) showPolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) validatePolicy(w http.ResponseWriter, r *http.Request) {
-	agent := filepath.Base(chi.URLParam(r, "agent"))
-	if agent == "" || agent == "." || agent == ".." {
+	agent := chi.URLParam(r, "agent")
+	if agent == "" || strings.Contains(agent, "..") || strings.Contains(agent, "/") || strings.Contains(agent, "\\") {
 		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
@@ -1206,7 +1206,7 @@ func (h *handler) validatePolicy(w http.ResponseWriter, r *http.Request) {
 
 	// Additionally enforce hard floors on the agent's constraints.yaml
 	// to prevent saving policies that violate immutable safety guarantees.
-	constraintsPath := filepath.Join(h.cfg.Home, "agents", filepath.Base(agent), "constraints.yaml")
+	constraintsPath := filepath.Join(h.cfg.Home, "agents", agent, "constraints.yaml")
 	if data, err := os.ReadFile(constraintsPath); err == nil {
 		var constraints map[string]interface{}
 		if yaml.Unmarshal(data, &constraints) == nil {

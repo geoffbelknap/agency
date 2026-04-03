@@ -6,18 +6,19 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
 
 // getCanvas handles GET /api/v1/missions/{name}/canvas
 func (h *handler) getCanvas(w http.ResponseWriter, r *http.Request) {
-	name := filepath.Base(chi.URLParam(r, "name"))
-	if name == "" || name == "." || name == ".." {
+	name := chi.URLParam(r, "name")
+	if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
 		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
-	canvasPath := filepath.Join(h.cfg.Home, "missions", filepath.Base(name)+".canvas.json")
+	canvasPath := filepath.Join(h.cfg.Home, "missions", name+".canvas.json")
 
 	data, err := os.ReadFile(canvasPath)
 	if err != nil {
@@ -36,14 +37,14 @@ func (h *handler) getCanvas(w http.ResponseWriter, r *http.Request) {
 
 // putCanvas handles PUT /api/v1/missions/{name}/canvas
 func (h *handler) putCanvas(w http.ResponseWriter, r *http.Request) {
-	name := filepath.Base(chi.URLParam(r, "name"))
-	if name == "" || name == "." || name == ".." {
+	name := chi.URLParam(r, "name")
+	if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
 		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
 
 	// Verify mission exists
-	missionPath := filepath.Join(h.cfg.Home, "missions", filepath.Base(name)+".yaml")
+	missionPath := filepath.Join(h.cfg.Home, "missions", name+".yaml")
 	if _, err := os.Stat(missionPath); os.IsNotExist(err) {
 		writeJSON(w, 404, map[string]string{"error": "mission not found"})
 		return
@@ -62,7 +63,7 @@ func (h *handler) putCanvas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	canvasPath := filepath.Join(h.cfg.Home, "missions", filepath.Base(name)+".canvas.json")
+	canvasPath := filepath.Join(h.cfg.Home, "missions", name+".canvas.json")
 	if err := os.WriteFile(canvasPath, body, 0644); err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
@@ -73,12 +74,12 @@ func (h *handler) putCanvas(w http.ResponseWriter, r *http.Request) {
 
 // deleteCanvas handles DELETE /api/v1/missions/{name}/canvas
 func (h *handler) deleteCanvas(w http.ResponseWriter, r *http.Request) {
-	name := filepath.Base(chi.URLParam(r, "name"))
-	if name == "" || name == "." || name == ".." {
+	name := chi.URLParam(r, "name")
+	if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
 		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
-	canvasPath := filepath.Join(h.cfg.Home, "missions", filepath.Base(name)+".canvas.json")
+	canvasPath := filepath.Join(h.cfg.Home, "missions", name+".canvas.json")
 	os.Remove(canvasPath) // ignore errors — may not exist
 	writeJSON(w, 200, map[string]string{"status": "deleted"})
 }
