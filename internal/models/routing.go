@@ -5,7 +5,7 @@ import "fmt"
 
 // VALID_TIERS is the ordered list of valid model routing tier names.
 // Referenced by preset.go (Task 16) and agent.go (Task 17).
-var VALID_TIERS = []string{"frontier", "standard", "fast", "mini", "nano"}
+var VALID_TIERS = []string{"frontier", "standard", "fast", "mini", "nano", "batch"}
 
 // ProviderConfig holds connection details for a single LLM provider.
 type ProviderConfig struct {
@@ -49,6 +49,7 @@ type TierConfig struct {
 	Fast     []TierEntry `yaml:"fast"`
 	Mini     []TierEntry `yaml:"mini"`
 	Nano     []TierEntry `yaml:"nano"`
+	Batch    []TierEntry `yaml:"batch"`
 }
 
 // RoutingSettings holds global routing behaviour settings.
@@ -56,6 +57,7 @@ type RoutingSettings struct {
 	XPIAScan       bool   `yaml:"xpia_scan" default:"true"`
 	DefaultTimeout int    `yaml:"default_timeout" default:"300"`
 	DefaultTier    string `yaml:"default_tier" default:"standard"`
+	TierStrategy   string `yaml:"tier_strategy" default:"best_effort"`
 }
 
 // Validate checks that DefaultTier is a recognised tier name and that
@@ -80,6 +82,20 @@ func (s *RoutingSettings) Validate() error {
 	if s.DefaultTimeout < 1 || s.DefaultTimeout > 3600 {
 		return fmt.Errorf("default_timeout must be between 1 and 3600, got %d", s.DefaultTimeout)
 	}
+	if s.TierStrategy == "" {
+		s.TierStrategy = "best_effort"
+	}
+	validStrategies := []string{"strict", "best_effort", "catch_all"}
+	validStrategy := false
+	for _, st := range validStrategies {
+		if s.TierStrategy == st {
+			validStrategy = true
+			break
+		}
+	}
+	if !validStrategy {
+		return fmt.Errorf("tier_strategy must be one of %v, got %q", validStrategies, s.TierStrategy)
+	}
 	return nil
 }
 
@@ -102,6 +118,9 @@ func (r *RoutingConfig) Validate() error {
 	}
 	if r.Settings.DefaultTimeout == 0 {
 		r.Settings.DefaultTimeout = 300
+	}
+	if r.Settings.TierStrategy == "" {
+		r.Settings.TierStrategy = "best_effort"
 	}
 
 	for name, p := range r.Providers {
@@ -145,6 +164,8 @@ func (r *RoutingConfig) ResolveTier(tier string, extraEnv map[string]string) (*P
 		entries = r.Tiers.Mini
 	case "nano":
 		entries = r.Tiers.Nano
+	case "batch":
+		entries = r.Tiers.Batch
 	default:
 		return nil, nil
 	}
@@ -163,4 +184,61 @@ func (r *RoutingConfig) ResolveTier(tier string, extraEnv map[string]string) (*P
 		return nil, nil
 	}
 	return r.ResolveModel(best.Model)
+}
+
+// tierOrder defines the hierarchy from most capable to least.
+var tierOrder = []string{"frontier", "standard", "fast", "mini", "nano", "batch"}
+
+// ResolveTierWithStrategy resolves a tier using the configured tier_strategy.
+func (r *RoutingConfig) ResolveTierWithStrategy(tier string, extraEnv map[string]string) (*ProviderConfig, *ModelConfig) {
+	strategy := r.Settings.TierStrategy
+	if strategy == "" {
+		strategy = "best_effort"
+	}
+
+	pc, mc := r.ResolveTier(tier, extraEnv)
+	if pc != nil && mc != nil {
+		return pc, mc
+	}
+
+	switch strategy {
+	case "strict":
+		return nil, nil
+
+	case "best_effort":
+		pos := -1
+		for i, t := range tierOrder {
+			if t == tier {
+				pos = i
+				break
+			}
+		}
+		if pos < 0 {
+			return nil, nil
+		}
+		for delta := 1; delta < len(tierOrder); delta++ {
+			if pos+delta < len(tierOrder) {
+				if pc, mc := r.ResolveTier(tierOrder[pos+delta], extraEnv); pc != nil && mc != nil {
+					return pc, mc
+				}
+			}
+			if pos-delta >= 0 {
+				if pc, mc := r.ResolveTier(tierOrder[pos-delta], extraEnv); pc != nil && mc != nil {
+					return pc, mc
+				}
+			}
+		}
+		return nil, nil
+
+	case "catch_all":
+		for _, t := range tierOrder {
+			if pc, mc := r.ResolveTier(t, extraEnv); pc != nil && mc != nil {
+				return pc, mc
+			}
+		}
+		return nil, nil
+
+	default:
+		return nil, nil
+	}
 }

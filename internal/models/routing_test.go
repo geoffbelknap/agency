@@ -250,7 +250,7 @@ func TestRoutingConfig_ResolveTier(t *testing.T) {
 // --- VALID_TIERS ---
 
 func TestVALID_TIERS(t *testing.T) {
-	expected := []string{"frontier", "standard", "fast", "mini", "nano"}
+	expected := []string{"frontier", "standard", "fast", "mini", "nano", "batch"}
 	if len(VALID_TIERS) != len(expected) {
 		t.Fatalf("expected %d tiers, got %d", len(expected), len(VALID_TIERS))
 	}
@@ -258,5 +258,125 @@ func TestVALID_TIERS(t *testing.T) {
 		if VALID_TIERS[i] != tier {
 			t.Errorf("VALID_TIERS[%d] = %q, want %q", i, VALID_TIERS[i], tier)
 		}
+	}
+}
+
+// --- Batch tier and tier_strategy ---
+
+func TestResolveTierBatch(t *testing.T) {
+	cfg := RoutingConfig{
+		Providers: map[string]ProviderConfig{
+			"test": {APIBase: "https://api.test.com"},
+		},
+		Models: map[string]ModelConfig{
+			"test-batch": {Provider: "test", ProviderModel: "test-batch-v1"},
+		},
+		Tiers: TierConfig{
+			Batch: []TierEntry{{Model: "test-batch", Preference: 0}},
+		},
+	}
+	pc, mc := cfg.ResolveTier("batch", nil)
+	if pc == nil || mc == nil {
+		t.Fatal("expected to resolve batch tier")
+	}
+	if mc.ProviderModel != "test-batch-v1" {
+		t.Errorf("expected provider_model 'test-batch-v1', got %q", mc.ProviderModel)
+	}
+}
+
+func TestTierStrategyValidation(t *testing.T) {
+	tests := []struct {
+		strategy string
+		wantErr  bool
+	}{
+		{"strict", false},
+		{"best_effort", false},
+		{"catch_all", false},
+		{"", false},      // defaults to best_effort
+		{"invalid", true},
+	}
+	for _, tt := range tests {
+		cfg := RoutingConfig{
+			Settings: RoutingSettings{
+				DefaultTier:  "standard",
+				TierStrategy: tt.strategy,
+			},
+		}
+		err := cfg.Validate()
+		if (err != nil) != tt.wantErr {
+			t.Errorf("strategy=%q: got err=%v, wantErr=%v", tt.strategy, err, tt.wantErr)
+		}
+	}
+}
+
+func TestResolveTierBestEffortFallback(t *testing.T) {
+	cfg := RoutingConfig{
+		Providers: map[string]ProviderConfig{
+			"test": {APIBase: "https://api.test.com"},
+		},
+		Models: map[string]ModelConfig{
+			"test-fast": {Provider: "test", ProviderModel: "fast-v1"},
+		},
+		Tiers: TierConfig{
+			Fast: []TierEntry{{Model: "test-fast", Preference: 0}},
+		},
+		Settings: RoutingSettings{
+			TierStrategy: "best_effort",
+			DefaultTier:  "standard",
+		},
+	}
+	pc, mc := cfg.ResolveTierWithStrategy("nano", nil)
+	if pc == nil || mc == nil {
+		t.Fatal("best_effort should fall back to nearest tier")
+	}
+	if mc.ProviderModel != "fast-v1" {
+		t.Errorf("expected fallback to fast-v1, got %q", mc.ProviderModel)
+	}
+}
+
+func TestResolveTierStrictNoFallback(t *testing.T) {
+	cfg := RoutingConfig{
+		Providers: map[string]ProviderConfig{
+			"test": {APIBase: "https://api.test.com"},
+		},
+		Models: map[string]ModelConfig{
+			"test-fast": {Provider: "test", ProviderModel: "fast-v1"},
+		},
+		Tiers: TierConfig{
+			Fast: []TierEntry{{Model: "test-fast", Preference: 0}},
+		},
+		Settings: RoutingSettings{
+			TierStrategy: "strict",
+			DefaultTier:  "standard",
+		},
+	}
+	pc, mc := cfg.ResolveTierWithStrategy("nano", nil)
+	if pc != nil || mc != nil {
+		t.Fatal("strict should not fall back")
+	}
+}
+
+func TestResolveTierCatchAll(t *testing.T) {
+	cfg := RoutingConfig{
+		Providers: map[string]ProviderConfig{
+			"test": {APIBase: "https://api.test.com"},
+		},
+		Models: map[string]ModelConfig{
+			"test-standard": {Provider: "test", ProviderModel: "std-v1"},
+		},
+		Tiers: TierConfig{
+			Standard: []TierEntry{{Model: "test-standard", Preference: 0}},
+		},
+		Settings: RoutingSettings{
+			TierStrategy: "catch_all",
+			DefaultTier:  "standard",
+		},
+	}
+	pc, mc := cfg.ResolveTierWithStrategy("nano", nil)
+	if pc == nil || mc == nil {
+		t.Fatal("catch_all should return any available model")
+	}
+	if mc.ProviderModel != "std-v1" {
+		t.Errorf("expected catch_all to return std-v1, got %q", mc.ProviderModel)
 	}
 }
