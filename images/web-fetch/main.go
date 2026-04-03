@@ -56,7 +56,7 @@ func main() {
 	)
 
 	// Create HTTP client.
-	client := buildHTTPClient(cfg)
+	client := buildHTTPClient(cfg, bl)
 
 	// Build service.
 	svc := &Service{
@@ -131,7 +131,7 @@ func buildBlocklists(configDir string) *Blocklist {
 }
 
 // buildHTTPClient creates an http.Client with proxy, redirect policy, and user agent.
-func buildHTTPClient(cfg Config) *http.Client {
+func buildHTTPClient(cfg Config, blocklist *Blocklist) *http.Client {
 	transport := &http.Transport{}
 
 	proxyURL := os.Getenv("HTTP_PROXY")
@@ -169,6 +169,9 @@ func buildHTTPClient(cfg Config) *http.Client {
 	} else {
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 			if len(via) >= maxRedirects {
+				return http.ErrUseLastResponse
+			}
+			if blocklist != nil && blocklist.IsBlocked(req.URL.Hostname()) {
 				return http.ErrUseLastResponse
 			}
 			return nil
