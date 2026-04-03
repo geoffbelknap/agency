@@ -157,3 +157,5 @@ Agency defends against:
 - **MCP tool abuse** — Allowlist/denylist, binary pinning, output scanning
 - **Lateral movement** — Per-agent networks prevent inter-agent communication outside channels
 - **Privilege escalation** — Policy hierarchy only restricts, never expands
+
+See `docs/threat-model.md` for the full threat model, known limitations, and accepted risks (including container escape).

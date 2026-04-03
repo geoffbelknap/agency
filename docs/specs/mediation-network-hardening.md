@@ -14,7 +14,9 @@ This spec addresses hardening at three threat tiers:
 | 2 | Enforcer compromise (→ mediation network) | All infra services, gateway via host.docker.internal | Plausible if enforcer HTTP proxy has a vulnerability |
 | 3 | Kernel-level escape (→ host) | Everything: credentials store + key, Docker socket, all files | Rare — Docker/kernel CVE required |
 
-Tier 1 is already well-contained (ASK Tenet 3). This spec focuses on tier 2 hardening. Tier 3 mitigations are noted as future work.
+Tier 1 is already well-contained (ASK Tenet 3). This spec focuses on tier 2 hardening.
+
+**Tier 3 is an accepted risk.** A kernel-level Docker escape gives the attacker full host access — at that point no application-level mitigation is meaningful. Credential key separation, filesystem hardening, and similar measures provide negligible value when the attacker owns the kernel. This is a container runtime vulnerability, not an application architecture gap. We apply defense-in-depth at the container boundary (seccomp profiles, no-new-privileges, CAP_DROP ALL, user namespaces where supported) to reduce the probability of tier 3, but we do not attempt to survive it.
 
 ## Current Architecture
 
@@ -88,18 +90,6 @@ Note: enforcers use TCP via `host.docker.internal`, not the socket. The socket i
 No agent or infra container should have access to the Docker socket (`/var/run/docker.sock`). This is already the case — verify with a startup check.
 
 **Implementation:** Add a reconciliation check at gateway startup that inspects all `agency.managed=true` containers and flags any with `/var/run/docker.sock` in their bind mounts. Emit a platform alert if found.
-
-### 4. Future Work: Credential Key Separation (Tier 3)
-
-The credential store encryption key (`~/.agency/credentials/.key`) is colocated with the encrypted store (`store.enc`). This is only exploitable via a kernel-level escape (tier 3) — no container has this directory mounted.
-
-Future options:
-- macOS Keychain via `security` CLI
-- Linux `secret-tool` / `libsecret`
-- Environment variable from a secrets manager at daemon startup
-- Separate filesystem path with `0400` permissions owned by a dedicated user
-
-Not prioritized — tier 3 escapes are rare and grant full host access regardless.
 
 ## Implementation Sequence
 
