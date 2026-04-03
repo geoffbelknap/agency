@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/geoffbelknap/agency/internal/evaluation"
@@ -371,7 +372,7 @@ func (h *handler) evaluateTaskCompletion(agentName string, signalData map[string
 		if onFailure == "" {
 			onFailure = "flag"
 		}
-		log.Printf("Task evaluation failed for %s/%s (on_failure=%s)", agentName, taskID, onFailure)
+		log.Printf("Task evaluation failed for %s/%s (on_failure=%s)", strings.ReplaceAll(agentName, "\n", "\\n"), strings.ReplaceAll(taskID, "\n", "\\n"), onFailure)
 
 		if h.eventBus != nil {
 			h.eventBus.Publish(&models.Event{

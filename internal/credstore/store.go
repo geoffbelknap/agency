@@ -60,7 +60,7 @@ func (s *Store) Put(entry Entry) error {
 		return fmt.Errorf("backend put %q: %w", entry.Name, err)
 	}
 
-	log.Printf("credstore: stored credential %q (kind=%s scope=%s)", entry.Name, entry.Metadata.Kind, entry.Metadata.Scope)
+	log.Printf("credstore: stored credential %q (kind=%s scope=%s)", strings.ReplaceAll(entry.Name, "\n", "\\n"), entry.Metadata.Kind, entry.Metadata.Scope)
 	return nil
 }
 
