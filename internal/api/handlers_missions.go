@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -74,7 +76,16 @@ func (h *handler) showMission(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, 200, m)
+
+	canvasPath := filepath.Join(h.cfg.Home, "missions", name+".canvas.json")
+	_, canvasErr := os.Stat(canvasPath)
+	hasCanvas := canvasErr == nil
+
+	type missionResponse struct {
+		*models.Mission
+		HasCanvas bool `json:"has_canvas"`
+	}
+	writeJSON(w, 200, missionResponse{Mission: m, HasCanvas: hasCanvas})
 }
 
 // updateMission handles PUT /api/v1/missions/{name}
@@ -168,6 +179,8 @@ func (h *handler) deleteMission(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
 	}
+
+	os.Remove(filepath.Join(h.cfg.Home, "missions", name+".canvas.json"))
 
 	h.audit.Write("_system", "mission_deleted", map[string]interface{}{
 		"mission_id":   m.ID,

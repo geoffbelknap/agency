@@ -349,6 +349,9 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 			r.Get("/{name}/procedures", h.listMissionProcedures)
 			r.Get("/{name}/episodes", h.listMissionEpisodes)
 			r.Get("/{name}/evaluations", h.listMissionEvaluations)
+			r.Get("/{name}/canvas", h.getCanvas)
+			r.Put("/{name}/canvas", h.putCanvas)
+			r.Delete("/{name}/canvas", h.deleteCanvas)
 		})
 
 		// Meeseeks
