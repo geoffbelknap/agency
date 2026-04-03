@@ -452,6 +452,19 @@ func openBrowser(url string) error {
 	return exec.Command(cmd, args...).Start()
 }
 
+// webHost derives the web UI hostname from the gateway address config.
+// Returns "localhost" if the gateway binds to 0.0.0.0 or if the address
+// cannot be parsed.
+func webHost() string {
+	cfg := config.Load()
+	if host, _, err := net.SplitHostPort(cfg.GatewayAddr); err == nil && host != "" {
+		if host != "0.0.0.0" {
+			return host
+		}
+	}
+	return "localhost"
+}
+
 func checkDocker() error {
 	wsl := isWSL()
 
@@ -609,19 +622,7 @@ func runSetup(provider, apiKey, notifyURL string, noInfra bool) error {
 	fmt.Println("  agency start my-agent   # Start an agent")
 	fmt.Println("  agency status           # Check platform status")
 	fmt.Println()
-	// Derive web UI host from gateway address (same host, port 8280)
-	webHost := "localhost"
-	if !noInfra {
-		cfg := config.Load()
-		if host, _, err := net.SplitHostPort(cfg.GatewayAddr); err == nil && host != "" {
-			if host == "0.0.0.0" {
-				webHost = "localhost"
-			} else {
-				webHost = host
-			}
-		}
-	}
-	fmt.Printf("  Open http://%s:8280 for the web UI\n", webHost)
+	fmt.Printf("  Open http://%s:8280 for the web UI\n", webHost())
 
 	return nil
 }
