@@ -456,7 +456,7 @@ func (d *Deployer) Teardown(ctx context.Context, packName string, deleteResource
 			}
 		}
 		teamName, _ := manifest["team_name"].(string)
-		if teamName != "" {
+		if teamName != "" && namePattern.MatchString(teamName) {
 			os.RemoveAll(filepath.Join(d.Home, "teams", teamName))
 		}
 	}
@@ -466,6 +466,10 @@ func (d *Deployer) Teardown(ctx context.Context, packName string, deleteResource
 }
 
 func (d *Deployer) saveManifest(pack *PackDef, result *DeployResult) {
+	if !namePattern.MatchString(pack.Name) {
+		d.Log.Warn("invalid pack name, skipping manifest save", "pack", pack.Name)
+		return
+	}
 	packDir := filepath.Join(d.Home, "packs", pack.Name)
 	os.MkdirAll(packDir, 0755)
 

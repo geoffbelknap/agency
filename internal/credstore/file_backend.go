@@ -283,7 +283,10 @@ func (fb *FileBackend) atomicWrite(entries []fileEntry) error {
 	enc := json.NewEncoder(tmp)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(entries); err != nil {
-		tmp.Close()
+		if cerr := tmp.Close(); cerr != nil {
+			os.Remove(tmpPath)
+			return fmt.Errorf("encode store: %w (close: %v)", err, cerr)
+		}
 		os.Remove(tmpPath)
 		return fmt.Errorf("encode store: %w", err)
 	}
