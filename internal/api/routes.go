@@ -616,6 +616,8 @@ func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]interface{}{
 		"version":              h.cfg.Version,
 		"build_id":             h.cfg.BuildID,
+		"gateway_url":          "http://" + h.cfg.GatewayAddr,
+		"web_url":              "http://127.0.0.1:8280",
 		"components":           status,
 		"infra_llm_daily_used":  infraState.DailyUsed,
 		"infra_llm_daily_limit": limits.InfraDaily,

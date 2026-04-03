@@ -317,6 +317,8 @@ func (c *Client) ArchiveChannel(name string) error {
 type InfraStatusResponse struct {
 	Version             string              `json:"version"`
 	BuildID             string              `json:"build_id"`
+	GatewayURL          string              `json:"gateway_url"`
+	WebURL              string              `json:"web_url"`
 	Components          []map[string]string `json:"components"`
 	InfraLLMDailyUsed   float64             `json:"infra_llm_daily_used"`
 	InfraLLMDailyLimit  float64             `json:"infra_llm_daily_limit"`

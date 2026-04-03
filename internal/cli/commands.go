@@ -387,7 +387,14 @@ func statusCmd() *cobra.Command {
 			infraResp, _ := c.InfraStatus()
 			if infraResp != nil && infraResp.Version != "" {
 				buildDate := time.Now().Format("2006-01-02")
-				fmt.Printf("Agency v%s (%s, %s)\n\n", infraResp.Version, infraResp.BuildID, buildDate)
+				fmt.Printf("Agency v%s (%s, %s)\n", infraResp.Version, infraResp.BuildID, buildDate)
+				if infraResp.GatewayURL != "" {
+					fmt.Printf("  Gateway: %s\n", infraResp.GatewayURL)
+				}
+				if infraResp.WebURL != "" {
+					fmt.Printf("  Web UI:  %s\n", infraResp.WebURL)
+				}
+				fmt.Println()
 			}
 			if infraResp != nil && infraResp.InfraLLMDailyUsed > 0 {
 				fmt.Printf("Infrastructure LLM: $%.2f / $%.2f today\n\n", infraResp.InfraLLMDailyUsed, infraResp.InfraLLMDailyLimit)
