@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -384,6 +385,10 @@ func (h *handler) addNotification(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Name == "" || body.URL == "" {
 		writeJSON(w, 400, map[string]string{"error": "name and url are required"})
+		return
+	}
+	if err := validateOutboundURL(body.URL); err != nil {
+		writeJSON(w, 400, map[string]string{"error": fmt.Sprintf("invalid notification URL: %s", err)})
 		return
 	}
 
