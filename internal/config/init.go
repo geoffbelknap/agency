@@ -93,6 +93,7 @@ func RunInit(opts InitOptions) ([]KeyEntry, error) {
 		filepath.Join(agencyHome, "departments"),
 		filepath.Join(agencyHome, "connectors"),
 		filepath.Join(agencyHome, "hub"),
+		filepath.Join(agencyHome, "profiles"),
 		filepath.Join(agencyHome, "registry", "services"),
 		filepath.Join(agencyHome, "registry", "mcp-servers"),
 		filepath.Join(agencyHome, "registry", "skills"),

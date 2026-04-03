@@ -45,6 +45,7 @@ func registerMCPTools(reg *MCPToolRegistry) {
 	registerEventTools(reg)
 	registerNotificationTools(reg)
 	registerCredentialTools(reg)
+	registerProfileTools(reg)
 }
 
 // ── Infrastructure (6 tools) ────────────────────────────────────────────────

@@ -19,6 +19,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/docker"
+	"github.com/geoffbelknap/agency/internal/profiles"
 	"github.com/geoffbelknap/agency/internal/events"
 	"github.com/geoffbelknap/agency/internal/hub"
 	"github.com/geoffbelknap/agency/internal/knowledge"
@@ -384,6 +385,12 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Delete("/notifications/{name}", h.deleteNotification)
 		r.Post("/notifications/{name}/test", h.testNotification)
 
+		// Profiles
+		r.Get("/profiles", h.listProfiles)
+		r.Get("/profiles/{id}", h.getProfile)
+		r.Put("/profiles/{id}", h.createOrUpdateProfile)
+		r.Delete("/profiles/{id}", h.deleteProfile)
+
 		// Audit summarization
 		if opts.AuditSummarizer != nil {
 			summarizer := opts.AuditSummarizer
@@ -425,6 +432,7 @@ type handler struct {
 	healthMonitor *orchestrate.MissionHealthMonitor
 	notifStore    *events.NotificationStore
 	credStore     *credstore.Store
+	profileStore  *profiles.Store
 	dockerStatus  *docker.Status
 }
 
@@ -460,7 +468,10 @@ func newHandler(cfg *config.Config, dc *docker.Client, logger *log.Logger) *hand
 		cs = credstore.NewStore(fb, cfg.Home)
 	}
 
-	h := &handler{cfg: cfg, dc: dc, log: logger, infra: infra, agents: agents, halt: halt, audit: audit, ctxMgr: ctxMgr, mcpReg: NewMCPToolRegistry(), knowledge: knowledge.NewProxy(), missions: orchestrate.NewMissionManager(cfg.Home), meeseeks: orchestrate.NewMeeseeksManager(), claims: orchestrate.NewMissionClaimRegistry(), credStore: cs}
+	// Initialize profile store.
+	ps := profiles.NewStore(filepath.Join(cfg.Home, "profiles"))
+
+	h := &handler{cfg: cfg, dc: dc, log: logger, infra: infra, agents: agents, halt: halt, audit: audit, ctxMgr: ctxMgr, mcpReg: NewMCPToolRegistry(), knowledge: knowledge.NewProxy(), missions: orchestrate.NewMissionManager(cfg.Home), meeseeks: orchestrate.NewMeeseeksManager(), claims: orchestrate.NewMissionClaimRegistry(), credStore: cs, profileStore: ps}
 	registerMCPTools(h.mcpReg)
 
 	// Migrate flat-file hub installations to the instance-directory model on startup.
