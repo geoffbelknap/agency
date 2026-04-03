@@ -14,7 +14,11 @@ import (
 // getCanvas handles GET /api/v1/missions/{name}/canvas
 func (h *handler) getCanvas(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
+	if strings.Contains(name, "..") {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
+		return
+	}
+	if name == "" || strings.ContainsAny(name, `/\`) {
 		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
@@ -38,7 +42,11 @@ func (h *handler) getCanvas(w http.ResponseWriter, r *http.Request) {
 // putCanvas handles PUT /api/v1/missions/{name}/canvas
 func (h *handler) putCanvas(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
+	if strings.Contains(name, "..") {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
+		return
+	}
+	if name == "" || strings.ContainsAny(name, `/\`) {
 		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
@@ -75,7 +83,11 @@ func (h *handler) putCanvas(w http.ResponseWriter, r *http.Request) {
 // deleteCanvas handles DELETE /api/v1/missions/{name}/canvas
 func (h *handler) deleteCanvas(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
+	if strings.Contains(name, "..") {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
+		return
+	}
+	if name == "" || strings.ContainsAny(name, `/\`) {
 		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}

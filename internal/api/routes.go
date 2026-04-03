@@ -1186,7 +1186,11 @@ func (h *handler) teardownPack(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) showPolicy(w http.ResponseWriter, r *http.Request) {
 	agent := chi.URLParam(r, "agent")
-	if agent == "" || strings.Contains(agent, "..") || strings.Contains(agent, "/") || strings.Contains(agent, "\\") {
+	if strings.Contains(agent, "..") {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
+		return
+	}
+	if agent == "" || strings.ContainsAny(agent, `/\`) {
 		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
@@ -1197,7 +1201,11 @@ func (h *handler) showPolicy(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) validatePolicy(w http.ResponseWriter, r *http.Request) {
 	agent := chi.URLParam(r, "agent")
-	if agent == "" || strings.Contains(agent, "..") || strings.Contains(agent, "/") || strings.Contains(agent, "\\") {
+	if strings.Contains(agent, "..") {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
+		return
+	}
+	if agent == "" || strings.ContainsAny(agent, `/\`) {
 		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}

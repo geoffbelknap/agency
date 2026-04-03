@@ -30,7 +30,11 @@ func (h *handler) agentConfigDir(name string) string {
 // Returns the full agent config bundle (agent.yaml, identity.md, constraints.yaml, workspace.yaml).
 func (h *handler) agentConfig(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
+	if strings.Contains(name, "..") {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
+		return
+	}
+	if name == "" || strings.ContainsAny(name, `/\`) {
 		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
@@ -69,7 +73,11 @@ func (h *handler) agentConfig(w http.ResponseWriter, r *http.Request) {
 // ASK tenet 6: constraint changes trigger enforcer reload so the agent sees old or new — never a mix.
 func (h *handler) updateAgentConfig(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
+	if strings.Contains(name, "..") {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
+		return
+	}
+	if name == "" || strings.ContainsAny(name, `/\`) {
 		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
