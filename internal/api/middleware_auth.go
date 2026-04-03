@@ -12,7 +12,11 @@ import (
 //
 // If token is empty, all requests are allowed (dev/local mode).
 // Paths ending in "/health" are always allowed without authentication.
-func BearerAuth(token string) func(http.Handler) http.Handler {
+//
+// The egressToken parameter is a scoped token that only grants access to
+// the credential resolve endpoint (/api/v1/internal/credentials/resolve).
+// This limits blast radius if the egress container is compromised (ASK Tenet 4).
+func BearerAuth(token, egressToken string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Allow health checks, web UI config, and WebSocket without auth.
@@ -28,16 +32,30 @@ func BearerAuth(token string) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Extract token from Authorization: Bearer <token> or X-Agency-Token.
 			incoming := extractToken(r)
-			if !constantTimeEqual(token, incoming) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusUnauthorized)
-				json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+
+			// Full token: access to all endpoints.
+			if constantTimeEqual(token, incoming) {
+				next.ServeHTTP(w, r)
 				return
 			}
 
-			next.ServeHTTP(w, r)
+			// Scoped egress token: only credential resolve endpoint.
+			if egressToken != "" && constantTimeEqual(egressToken, incoming) {
+				if r.URL.Path == "/api/v1/internal/credentials/resolve" && r.Method == http.MethodGet {
+					next.ServeHTTP(w, r)
+					return
+				}
+				// Valid egress token but wrong endpoint — forbidden, not unauthorized.
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				json.NewEncoder(w).Encode(map[string]string{"error": "token scope insufficient"})
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 		})
 	}
 }

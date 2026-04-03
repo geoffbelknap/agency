@@ -150,6 +150,16 @@ func RunInit(opts InitOptions) ([]KeyEntry, error) {
 		cfg["token"] = hex.EncodeToString(tokenBytes)
 	}
 
+	// Generate scoped egress token if not already present.
+	// This token only authorizes credential resolution — not full API access.
+	if _, ok := cfg["egress_token"]; !ok {
+		tokenBytes := make([]byte, 32)
+		if _, err := rand.Read(tokenBytes); err != nil {
+			return nil, fmt.Errorf("generate egress token: %w", err)
+		}
+		cfg["egress_token"] = hex.EncodeToString(tokenBytes)
+	}
+
 	// Apply provider / key settings from options
 	// Explicit per-provider keys take precedence over the generic APIKey field.
 	var pendingKeys []KeyEntry

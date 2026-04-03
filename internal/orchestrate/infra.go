@@ -107,8 +107,9 @@ type Infra struct {
 	Version      string
 	SourceDir    string
 	BuildID      string
-	GatewayAddr  string // e.g. "127.0.0.1:8200"
-	GatewayToken string // auth token from config.yaml
+	GatewayAddr   string // e.g. "127.0.0.1:8200"
+	GatewayToken  string // full auth token from config.yaml
+	EgressToken   string // scoped token for egress credential resolution
 	Docker       *agencyDocker.Client
 	cli        *client.Client
 	log        *log.Logger
@@ -450,7 +451,7 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 		return fmt.Errorf("resolve egress image: %w", err)
 	}
 	name := containerName("egress")
-	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) {
+	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
 		return nil
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("egress"))
@@ -494,14 +495,18 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 		binds = append(binds, swapLocal+":/app/secrets/credential-swaps.local.yaml:ro")
 	}
 
-	// Mount the gateway Unix socket so egress can resolve credentials
-	// from the credential store API. The socket is on the restricted
-	// router (no auth needed — only infra endpoints exposed).
+	// Credential resolution: try Unix socket first (Linux), fall back to
+	// HTTP via host.docker.internal (macOS Docker Desktop can't forward
+	// Unix sockets across the VM boundary).
 	runDir := filepath.Join(inf.Home, "run")
 	if fileExists(filepath.Join(runDir, "gateway.sock")) {
 		binds = append(binds, runDir+":/app/gateway-run:rw")
 		env["GATEWAY_SOCKET"] = "/app/gateway-run/gateway.sock"
 	}
+	// Always provide HTTP fallback — the Python resolver probes the socket
+	// at startup and uses HTTP when the socket isn't connectable.
+	env["GATEWAY_URL"] = "http://host.docker.internal:" + inf.gatewayPort()
+	env["GATEWAY_TOKEN"] = inf.EgressToken
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
@@ -539,7 +544,7 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 		return fmt.Errorf("resolve comms image: %w", err)
 	}
 	name := containerName("comms")
-	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) {
+	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
 		inf.ensureSystemChannels(ctx)
 		return nil
 	}
@@ -595,7 +600,7 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 		return fmt.Errorf("resolve knowledge image: %w", err)
 	}
 	name := containerName("knowledge")
-	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) {
+	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
 		return nil
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("knowledge"))
@@ -683,7 +688,7 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 		return fmt.Errorf("resolve intake image: %w", err)
 	}
 	name := containerName("intake")
-	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) {
+	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
 		return nil
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("intake"))
@@ -762,7 +767,7 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 		return fmt.Errorf("resolve web-fetch image: %w", err)
 	}
 	name := containerName("web-fetch")
-	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) {
+	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
 		return nil
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("web-fetch"))
@@ -832,7 +837,7 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 		return nil // non-fatal — web UI is optional
 	}
 	name := containerName("web")
-	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) {
+	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
 		return nil
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("web"))
@@ -898,7 +903,7 @@ func (inf *Infra) ensureEmbeddings(ctx context.Context) error {
 		return fmt.Errorf("resolve embeddings image: %w", err)
 	}
 	name := containerName("embeddings")
-	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) {
+	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
 		return nil
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("embeddings"))
@@ -982,6 +987,20 @@ func (inf *Infra) isRunning(ctx context.Context, name string) bool {
 		return false
 	}
 	return info.State.Running
+}
+
+// isHealthyOrNoCheck returns true if the container has no healthcheck
+// or if its healthcheck is passing. Returns false for unhealthy or
+// restarting containers — those should be replaced, not skipped.
+func (inf *Infra) isHealthyOrNoCheck(ctx context.Context, name string) bool {
+	info, err := inf.cli.ContainerInspect(ctx, name)
+	if err != nil {
+		return false
+	}
+	if info.State.Health == nil {
+		return true // no healthcheck configured
+	}
+	return info.State.Health.Status == "healthy"
 }
 
 func (inf *Infra) isCurrentBuild(ctx context.Context, containerName string) bool {

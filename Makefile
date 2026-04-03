@@ -1,7 +1,7 @@
 .PHONY: all build install deploy test clean images \
        body enforcer comms knowledge intake egress workspace web-fetch web
 
-VERSION  ?= 0.1.0
+VERSION  ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo 0.0.0)
 COMMIT   := $(shell git rev-parse --short HEAD)
 DATE     := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 DIRTY    := $(shell git diff --quiet && git diff --cached --quiet || echo "-dirty")
@@ -17,28 +17,45 @@ CORE_IMAGES = body enforcer comms knowledge intake egress workspace web-fetch
 # (they COPY images/models/ for shared Pydantic schemas).
 REPO_CONTEXT_IMAGES = comms knowledge intake
 
-# Build and install the gateway binary + all container images
-all: install images
+# Build and install the gateway binary + all container images (including web UI)
+all: install images web
 	@echo "Gateway installed, images built. Run 'agency serve' to start."
 
 # Build the gateway binary
 build:
 	go build -ldflags "$(LDFLAGS)" -o agency ./cmd/gateway/
 
-# Install the gateway binary to ~/.agency/bin/
+# Install the gateway binary where `agency` currently lives.
+# Falls back to ~/.agency/bin/ for fresh installs.
+# Refuses to overwrite Homebrew-managed binaries (use FORCE=1 to override).
+AGENCY_BIN := $(shell which agency 2>/dev/null)
+ifeq ($(AGENCY_BIN),)
+  AGENCY_BIN := $(HOME)/.agency/bin/agency
+endif
+
 install: build
-	mkdir -p ~/.agency/bin
-	@-~/.agency/bin/agency serve stop 2>/dev/null
-	@sleep 1
-	cp agency ~/.agency/bin/agency.new && mv ~/.agency/bin/agency.new ~/.agency/bin/agency
-	-codesign -s - -f ~/.agency/bin/agency 2>/dev/null
-	@~/.agency/bin/agency serve restart 2>/dev/null || true
-	@echo "Installed and restarted gateway"
+	@DEST="$(AGENCY_BIN)"; \
+	case "$$DEST" in \
+		*/homebrew/*|*/Homebrew/*|*/Cellar/*) \
+			if [ "$(FORCE)" != "1" ]; then \
+				echo "Error: agency is managed by Homebrew at $$DEST"; \
+				echo "  To overwrite: make install FORCE=1"; \
+				echo "  Or upgrade via: brew upgrade agency"; \
+				exit 1; \
+			fi ;; \
+	esac; \
+	mkdir -p "$$(dirname $$DEST)"; \
+	agency serve stop 2>/dev/null || true; \
+	sleep 1; \
+	cp agency "$$DEST.new" && mv "$$DEST.new" "$$DEST"; \
+	codesign -s - -f "$$DEST" 2>/dev/null || true; \
+	"$$DEST" serve restart 2>/dev/null || true; \
+	echo "Installed to $$DEST and restarted gateway"
 
 # Build, install, and bring up infrastructure
 deploy: install
 	@echo "Starting infrastructure..."
-	@~/.agency/bin/agency infra up
+	@agency infra up
 	@echo "Deploy complete."
 
 test:

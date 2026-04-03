@@ -803,7 +803,7 @@ func runServe(httpAddr string) error {
 	r.Use(chiMiddleware.Recoverer)
 	r.Use(chiMiddleware.RealIP)
 	r.Use(corsMiddleware)
-	r.Use(api.BearerAuth(cfg.Token))
+	r.Use(api.BearerAuth(cfg.Token, cfg.EgressToken))
 	routeOpts := api.RouteOptions{
 		Hub:          wsHub,
 		EventBus:     eventBus,

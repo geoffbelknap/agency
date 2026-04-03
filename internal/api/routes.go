@@ -423,6 +423,7 @@ func newHandler(cfg *config.Config, dc *docker.Client, logger *log.Logger) *hand
 		infra.BuildID = cfg.BuildID
 		infra.GatewayAddr = cfg.GatewayAddr
 		infra.GatewayToken = cfg.Token
+		infra.EgressToken = cfg.EgressToken
 	}
 	agents, _ := orchestrate.NewAgentManager(cfg.Home, dc, logger)
 	halt, _ := orchestrate.NewHaltController(cfg.Home, cfg.Version, dc, logger)
