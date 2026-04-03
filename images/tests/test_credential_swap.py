@@ -36,10 +36,10 @@ class TestUnifiedSwapAddon:
     def _setup_addon(self, tmp_path, swaps: dict, keys: dict = None) -> CredentialSwapAddon:
         swap_file = tmp_path / "credential-swaps.yaml"
         swap_file.write_text(yaml.dump({"swaps": swaps}))
-        # Create a fake socket file so the existence check passes
         socket_file = tmp_path / "gateway.sock"
         socket_file.write_text("")
-        with patch.dict(os.environ, {"GATEWAY_SOCKET": str(socket_file)}):
+        with patch.dict(os.environ, {"GATEWAY_SOCKET": str(socket_file)}), \
+             patch.object(CredentialSwapAddon, "_socket_usable", return_value=True):
             addon = CredentialSwapAddon(
                 swap_config_path=str(swap_file),
                 swap_local_path=str(tmp_path / "credential-swaps.local.yaml"),
@@ -113,7 +113,8 @@ class TestUnifiedSwapAddon:
         }}))
         socket_file = tmp_path / "gateway.sock"
         socket_file.write_text("")
-        with patch.dict(os.environ, {"GATEWAY_SOCKET": str(socket_file)}):
+        with patch.dict(os.environ, {"GATEWAY_SOCKET": str(socket_file)}), \
+             patch.object(CredentialSwapAddon, "_socket_usable", return_value=True):
             addon = CredentialSwapAddon(
                 swap_config_path=str(swap_file),
                 swap_local_path=str(local_file),
@@ -145,7 +146,8 @@ class TestUnifiedSwapAddon:
         swap_file.write_text(yaml.dump({"swaps": {}}))
         socket_file = tmp_path / "gateway.sock"
         socket_file.write_text("")
-        with patch.dict(os.environ, {"GATEWAY_SOCKET": str(socket_file)}):
+        with patch.dict(os.environ, {"GATEWAY_SOCKET": str(socket_file)}), \
+             patch.object(CredentialSwapAddon, "_socket_usable", return_value=True):
             addon = CredentialSwapAddon(
                 swap_config_path=str(swap_file),
                 swap_local_path=str(tmp_path / "credential-swaps.local.yaml"),
@@ -169,16 +171,16 @@ class TestUnifiedSwapAddon:
         addon.request(flow2)
         assert flow2.request.headers["X-Api-Key"] == "abc123"
 
-    def test_missing_gateway_socket_raises(self, tmp_path):
+    def test_no_resolver_available_raises(self, tmp_path):
         swap_file = tmp_path / "credential-swaps.yaml"
         swap_file.write_text(yaml.dump({"swaps": {}}))
-        with patch.dict(os.environ, {"GATEWAY_SOCKET": ""}, clear=False):
-            with pytest.raises(RuntimeError, match="GATEWAY_SOCKET not set"):
+        with patch.dict(os.environ, {"GATEWAY_SOCKET": "", "GATEWAY_URL": "", "GATEWAY_TOKEN": ""}, clear=False):
+            with pytest.raises(RuntimeError, match="No credential resolver available"):
                 CredentialSwapAddon(swap_config_path=str(swap_file))
 
-    def test_nonexistent_gateway_socket_raises(self, tmp_path):
+    def test_unusable_socket_without_http_fallback_raises(self, tmp_path):
         swap_file = tmp_path / "credential-swaps.yaml"
         swap_file.write_text(yaml.dump({"swaps": {}}))
-        with patch.dict(os.environ, {"GATEWAY_SOCKET": "/nonexistent/path"}, clear=False):
-            with pytest.raises(RuntimeError, match="GATEWAY_SOCKET not set"):
+        with patch.dict(os.environ, {"GATEWAY_SOCKET": "/nonexistent/path", "GATEWAY_URL": "", "GATEWAY_TOKEN": ""}, clear=False):
+            with pytest.raises(RuntimeError, match="No credential resolver available"):
                 CredentialSwapAddon(swap_config_path=str(swap_file))
