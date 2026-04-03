@@ -70,8 +70,9 @@ func (h *handler) listMissions(w http.ResponseWriter, r *http.Request) {
 
 // showMission handles GET /api/v1/missions/{name}
 func (h *handler) showMission(w http.ResponseWriter, r *http.Request) {
-	name := safeName(w, chi.URLParam(r, "name"))
-	if name == "" {
+	name := filepath.Base(chi.URLParam(r, "name"))
+	if name == "" || name == "." || name == ".." {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
 	m, err := h.missions.Get(name)
@@ -170,8 +171,9 @@ func (h *handler) missionHealth(w http.ResponseWriter, r *http.Request) {
 
 // deleteMission handles DELETE /api/v1/missions/{name}
 func (h *handler) deleteMission(w http.ResponseWriter, r *http.Request) {
-	name := safeName(w, chi.URLParam(r, "name"))
-	if name == "" {
+	name := filepath.Base(chi.URLParam(r, "name"))
+	if name == "" || name == "." || name == ".." {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
 

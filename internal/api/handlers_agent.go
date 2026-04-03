@@ -183,8 +183,9 @@ func (h *handler) createTeam(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) showTeam(w http.ResponseWriter, r *http.Request) {
-	name := safeName(w, chi.URLParam(r, "name"))
-	if name == "" {
+	name := filepath.Base(chi.URLParam(r, "name"))
+	if name == "" || name == "." || name == ".." {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
 	teamPath := filepath.Join(h.cfg.Home, "teams", name, "team.yaml")
@@ -202,8 +203,9 @@ func (h *handler) showTeam(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) teamActivity(w http.ResponseWriter, r *http.Request) {
-	name := safeName(w, chi.URLParam(r, "name"))
-	if name == "" {
+	name := filepath.Base(chi.URLParam(r, "name"))
+	if name == "" || name == "." || name == ".." {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
 

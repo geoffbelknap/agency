@@ -13,8 +13,9 @@ import (
 // ── Agent Grant / Revoke ────────────────────────────────────────────────────
 
 func (h *handler) grantAgent(w http.ResponseWriter, r *http.Request) {
-	name := safeName(w, chi.URLParam(r, "name"))
-	if name == "" {
+	name := filepath.Base(chi.URLParam(r, "name"))
+	if name == "" || name == "." || name == ".." {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
 	var body struct {
@@ -63,8 +64,9 @@ func (h *handler) grantAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) revokeAgent(w http.ResponseWriter, r *http.Request) {
-	name := safeName(w, chi.URLParam(r, "name"))
-	if name == "" {
+	name := filepath.Base(chi.URLParam(r, "name"))
+	if name == "" || name == "." || name == ".." {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
 	var body struct {

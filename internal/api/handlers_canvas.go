@@ -12,8 +12,9 @@ import (
 
 // getCanvas handles GET /api/v1/missions/{name}/canvas
 func (h *handler) getCanvas(w http.ResponseWriter, r *http.Request) {
-	name := safeName(w, chi.URLParam(r, "name"))
-	if name == "" {
+	name := filepath.Base(chi.URLParam(r, "name"))
+	if name == "" || name == "." || name == ".." {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
 	canvasPath := filepath.Join(h.cfg.Home, "missions", name+".canvas.json")
@@ -35,8 +36,9 @@ func (h *handler) getCanvas(w http.ResponseWriter, r *http.Request) {
 
 // putCanvas handles PUT /api/v1/missions/{name}/canvas
 func (h *handler) putCanvas(w http.ResponseWriter, r *http.Request) {
-	name := safeName(w, chi.URLParam(r, "name"))
-	if name == "" {
+	name := filepath.Base(chi.URLParam(r, "name"))
+	if name == "" || name == "." || name == ".." {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
 
@@ -71,8 +73,9 @@ func (h *handler) putCanvas(w http.ResponseWriter, r *http.Request) {
 
 // deleteCanvas handles DELETE /api/v1/missions/{name}/canvas
 func (h *handler) deleteCanvas(w http.ResponseWriter, r *http.Request) {
-	name := safeName(w, chi.URLParam(r, "name"))
-	if name == "" {
+	name := filepath.Base(chi.URLParam(r, "name"))
+	if name == "" || name == "." || name == ".." {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
 	canvasPath := filepath.Join(h.cfg.Home, "missions", name+".canvas.json")

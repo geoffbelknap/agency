@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -16,8 +17,9 @@ import (
 // The enforcer tracks trajectory state in-memory (sliding window of tool calls,
 // active anomalies, detector config). No data is persisted — this is a live view.
 func (h *handler) getAgentTrajectory(w http.ResponseWriter, r *http.Request) {
-	name := safeName(w, chi.URLParam(r, "name"))
-	if name == "" {
+	name := filepath.Base(chi.URLParam(r, "name"))
+	if name == "" || name == "." || name == ".." {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
 

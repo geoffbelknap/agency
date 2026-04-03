@@ -1185,8 +1185,9 @@ func (h *handler) teardownPack(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) showPolicy(w http.ResponseWriter, r *http.Request) {
-	agent := safeName(w, chi.URLParam(r, "agent"))
-	if agent == "" {
+	agent := filepath.Base(chi.URLParam(r, "agent"))
+	if agent == "" || agent == "." || agent == ".." {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
 	eng := policy.NewEngine(h.cfg.Home)
@@ -1195,8 +1196,9 @@ func (h *handler) showPolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) validatePolicy(w http.ResponseWriter, r *http.Request) {
-	agent := safeName(w, chi.URLParam(r, "agent"))
-	if agent == "" {
+	agent := filepath.Base(chi.URLParam(r, "agent"))
+	if agent == "" || agent == "." || agent == ".." {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
 	eng := policy.NewEngine(h.cfg.Home)
