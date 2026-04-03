@@ -57,6 +57,7 @@ type AgentDetail struct {
 	BuildID         string              `json:"build_id,omitempty"`
 	Mission         string              `json:"mission,omitempty"`
 	MissionStatus   string              `json:"mission_status,omitempty"`
+	LastActive      string              `json:"last_active,omitempty"`
 }
 
 type ConstraintsSummary struct {
@@ -535,6 +536,10 @@ func (am *AgentManager) loadAgentDetail(name, agentsDir string, running map[stri
 		d.Status = "unhealthy"
 	}
 
+	// Last active: most recent signal timestamp
+	signalsPath := filepath.Join(agentDir, "state", "agent-signals.jsonl")
+	d.LastActive = lastSignalTimestamp(signalsPath)
+
 	return d
 }
 
@@ -600,6 +605,45 @@ func taskIsComplete(signalsPath, taskID string) bool {
 		}
 	}
 	return false
+}
+
+// lastSignalTimestamp returns the ISO timestamp of the most recent signal entry,
+// or empty string if no signals exist. Reads only the tail of the file.
+func lastSignalTimestamp(signalsPath string) string {
+	f, err := os.Open(signalsPath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	stat, err := f.Stat()
+	if err != nil || stat.Size() == 0 {
+		return ""
+	}
+
+	const tailSize = int64(4096)
+	readSize := tailSize
+	if stat.Size() < readSize {
+		readSize = stat.Size()
+	}
+	buf := make([]byte, readSize)
+	f.ReadAt(buf, stat.Size()-readSize)
+
+	lines := strings.Split(string(buf), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		var sig map[string]interface{}
+		if json.Unmarshal([]byte(line), &sig) != nil {
+			continue
+		}
+		if ts, ok := sig["timestamp"].(string); ok && ts != "" {
+			return ts
+		}
+	}
+	return ""
 }
 
 // buildTeamIndex builds a reverse map of agentName → teamName by reading all
