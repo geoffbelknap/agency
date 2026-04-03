@@ -826,7 +826,7 @@ func runServe(httpAddr string) error {
 	if healthMgr != nil {
 		routeOpts.HealthMonitor = healthMgr
 	}
-	// TODO(task4): routeOpts.DockerStatus = dockerStatus
+	routeOpts.DockerStatus = dockerStatus
 	api.RegisterRoutesWithOptions(r, cfg, dc, logger, routeOpts)
 
 	// Wire auto-restore: when Docker reconnects, automatically bring up infra.

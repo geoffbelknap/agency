@@ -689,6 +689,9 @@ type containerInfo struct {
 }
 
 func (am *AgentManager) getRunningContainers(ctx context.Context) map[string]containerInfo {
+	if am.cli == nil {
+		return make(map[string]containerInfo)
+	}
 	result := make(map[string]containerInfo)
 	containers, err := am.cli.ContainerList(ctx, container.ListOptions{
 		All:     true,

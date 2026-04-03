@@ -7,6 +7,9 @@ import (
 // ── Infrastructure Reload ───────────────────────────────────────────────────
 
 func (h *handler) infraReload(w http.ResponseWriter, r *http.Request) {
+	if !h.dockerRequired(w) {
+		return
+	}
 	if h.infra == nil {
 		writeJSON(w, 500, map[string]string{"error": "infrastructure manager not initialized"})
 		return

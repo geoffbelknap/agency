@@ -36,8 +36,9 @@ type RouteOptions struct {
 	WebhookMgr    *events.WebhookManager
 	HealthMonitor *orchestrate.MissionHealthMonitor
 	NotifStore    *events.NotificationStore
-	StopSuppress  *orchestrate.StopSuppression
+	StopSuppress    *orchestrate.StopSuppression
 	AuditSummarizer *audit.AuditSummarizer
+	DockerStatus    *docker.Status
 }
 
 // RegisterSocketRoutes sets up the restricted API surface for the Unix socket.
@@ -96,6 +97,9 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 	}
 	if opts.StopSuppress != nil && h.agents != nil {
 		h.agents.StopSuppress = opts.StopSuppress
+	}
+	if opts.DockerStatus != nil {
+		h.dockerStatus = opts.DockerStatus
 	}
 
 	// WebSocket endpoint (outside /api/v1 — at root /ws per spec)
@@ -414,6 +418,7 @@ type handler struct {
 	healthMonitor *orchestrate.MissionHealthMonitor
 	notifStore    *events.NotificationStore
 	credStore     *credstore.Store
+	dockerStatus  *docker.Status
 }
 
 func newHandler(cfg *config.Config, dc *docker.Client, logger *log.Logger) *handler {
@@ -607,8 +612,14 @@ func (h *handler) relaySignal(w http.ResponseWriter, r *http.Request) {
 func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 	status, err := h.dc.InfraStatus(r.Context())
 	if err != nil {
+		if h.dockerStatus != nil {
+			h.dockerStatus.RecordError(err)
+		}
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
+	}
+	if h.dockerStatus != nil {
+		h.dockerStatus.RecordSuccess()
 	}
 	limits := h.budgetConfig()
 	store := h.budgetStore()
@@ -621,6 +632,12 @@ func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 		"components":           status,
 		"infra_llm_daily_used":  infraState.DailyUsed,
 		"infra_llm_daily_limit": limits.InfraDaily,
+		"docker": func() string {
+			if h.dockerStatus != nil && !h.dockerStatus.Available() {
+				return "unavailable"
+			}
+			return "available"
+		}(),
 	})
 }
 
@@ -890,6 +907,9 @@ func (h *handler) containerInstanceID(ctx context.Context, agentName, component 
 }
 
 func (h *handler) startAgent(w http.ResponseWriter, r *http.Request) {
+	if !h.dockerRequired(w) {
+		return
+	}
 	name := chi.URLParam(r, "name")
 
 	// Ensure agent exists and load detail for lifecycle_id wiring
@@ -993,6 +1013,9 @@ func (h *handler) unregisterEnforcerWSClient(agentName string) {
 }
 
 func (h *handler) restartAgent(w http.ResponseWriter, r *http.Request) {
+	if !h.dockerRequired(w) {
+		return
+	}
 	name := chi.URLParam(r, "name")
 
 	// Ensure agent exists and load detail for lifecycle_id wiring
@@ -1175,6 +1198,9 @@ func (h *handler) validatePolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) haltAgent(w http.ResponseWriter, r *http.Request) {
+	if !h.dockerRequired(w) {
+		return
+	}
 	name := chi.URLParam(r, "name")
 	var body struct {
 		Type      string `json:"type"`
@@ -1241,6 +1267,9 @@ func (h *handler) haltAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) resumeAgent(w http.ResponseWriter, r *http.Request) {
+	if !h.dockerRequired(w) {
+		return
+	}
 	name := chi.URLParam(r, "name")
 	var body struct {
 		Initiator string `json:"initiator"`
@@ -1256,6 +1285,9 @@ func (h *handler) resumeAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) infraUp(w http.ResponseWriter, r *http.Request) {
+	if !h.dockerRequired(w) {
+		return
+	}
 	if h.infra == nil {
 		writeJSON(w, 500, map[string]string{"error": "infrastructure manager not initialized"})
 		return
@@ -1271,8 +1303,14 @@ func (h *handler) infraUp(w http.ResponseWriter, r *http.Request) {
 
 	if !stream {
 		if err := h.infra.EnsureRunning(ctx); err != nil {
+			if h.dockerStatus != nil {
+				h.dockerStatus.RecordError(err)
+			}
 			writeJSON(w, 500, map[string]string{"error": err.Error()})
 			return
+		}
+		if h.dockerStatus != nil {
+			h.dockerStatus.RecordSuccess()
 		}
 		events.EmitInfraEvent(h.eventBus, "infra_up", nil)
 		writeJSON(w, 200, map[string]string{"status": "running"})
@@ -1300,9 +1338,15 @@ func (h *handler) infraUp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.infra.EnsureRunningWithProgress(ctx, onProgress); err != nil {
+		if h.dockerStatus != nil {
+			h.dockerStatus.RecordError(err)
+		}
 		enc.Encode(map[string]string{"type": "error", "error": err.Error()})
 		flusher.Flush()
 		return
+	}
+	if h.dockerStatus != nil {
+		h.dockerStatus.RecordSuccess()
 	}
 
 	events.EmitInfraEvent(h.eventBus, "infra_up", nil)
@@ -1311,6 +1355,9 @@ func (h *handler) infraUp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) infraDown(w http.ResponseWriter, r *http.Request) {
+	if !h.dockerRequired(w) {
+		return
+	}
 	if h.infra == nil {
 		writeJSON(w, 500, map[string]string{"error": "infrastructure manager not initialized"})
 		return
@@ -1350,6 +1397,9 @@ func (h *handler) infraDown(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) infraRebuild(w http.ResponseWriter, r *http.Request) {
+	if !h.dockerRequired(w) {
+		return
+	}
 	component := chi.URLParam(r, "component")
 	if h.infra == nil {
 		writeJSON(w, 500, map[string]string{"error": "infrastructure manager not initialized"})
@@ -1397,6 +1447,18 @@ func (h *handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.wsHub.HandleWebSocket(w, r)
+}
+
+// dockerRequired returns true if Docker is available. If not, writes a 503
+// response with a human-readable error and returns false.
+func (h *handler) dockerRequired(w http.ResponseWriter) bool {
+	if h.dockerStatus != nil && !h.dockerStatus.Available() {
+		writeJSON(w, 503, map[string]string{
+			"error": "Docker is not available. Container operations are unavailable.",
+		})
+		return false
+	}
+	return true
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
