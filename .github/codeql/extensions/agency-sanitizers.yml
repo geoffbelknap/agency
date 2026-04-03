@@ -15,10 +15,11 @@ extensions:
       pack: codeql/go-all
       extensible: neutralModel
     data:
+      # neutralModel(package, type, name, signature, kind, provenance)
       # requireName is a sanitizer for path injection — validates input against
       # a whitelist regex that categorically prevents path traversal characters.
-      - ["github.com/geoffbelknap/agency/internal/api", "requireName", "PathInjection"]
-      - ["github.com/geoffbelknap/agency/internal/api", "requireNameStr", "PathInjection"]
+      - ["github.com/geoffbelknap/agency/internal/api", "", "requireName", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/api", "", "requireNameStr", "", "PathInjection", "manual"]
       # validateOutboundURL is a sanitizer for SSRF — validates URL scheme and host.
-      - ["github.com/geoffbelknap/agency/internal/api", "validateOutboundURL", "RequestForgery"]
-      - ["github.com/geoffbelknap/agency/internal/pkg/urlsafety", "Validate", "RequestForgery"]
+      - ["github.com/geoffbelknap/agency/internal/api", "", "validateOutboundURL", "", "RequestForgery", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/pkg/urlsafety", "", "Validate", "", "RequestForgery", "manual"]
