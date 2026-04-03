@@ -164,3 +164,33 @@ func TestOutdatedNoChangeWhenVersionsMatch(t *testing.T) {
 		t.Fatalf("expected no upgrades, got: %+v", upgrades)
 	}
 }
+
+func TestDiscoverFindsProviderComponent(t *testing.T) {
+	home := t.TempDir()
+	mgr := NewManager(home)
+
+	// Write hub config defining a source
+	os.WriteFile(filepath.Join(home, "config.yaml"), []byte("hub:\n  sources:\n    - name: default\n      url: https://example.com\n"), 0644)
+
+	// Create provider cache dir and YAML using provider: as the identifier key
+	providerDir := filepath.Join(home, "hub-cache", "default", "providers", "anthropic")
+	os.MkdirAll(providerDir, 0755)
+	os.WriteFile(filepath.Join(providerDir, "provider.yaml"),
+		[]byte("provider: anthropic\nversion: \"1.0.0\"\ndescription: Anthropic Claude provider\n"), 0644)
+
+	components := mgr.discover()
+
+	var found *Component
+	for i := range components {
+		if components[i].Kind == "provider" && components[i].Name == "anthropic" {
+			found = &components[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected to find provider component 'anthropic', got: %+v", components)
+	}
+	if found.Version != "1.0.0" {
+		t.Errorf("expected version 1.0.0, got %s", found.Version)
+	}
+}

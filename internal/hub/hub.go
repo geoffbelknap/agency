@@ -44,7 +44,7 @@ var allowedAuthEnvVars = map[string]bool{
 }
 
 // Component kinds supported by the hub.
-var KnownKinds = []string{"pack", "preset", "connector", "service", "mission", "skill", "workspace", "policy", "ontology"}
+var KnownKinds = []string{"pack", "preset", "connector", "service", "mission", "skill", "workspace", "policy", "ontology", "provider", "setup"}
 
 // Source represents a git-based hub registry source.
 type Source struct {
@@ -973,6 +973,9 @@ func (m *Manager) discover() []Component {
 				name, _ := doc["name"].(string)
 				if name == "" {
 					name, _ = doc["service"].(string)
+				}
+				if name == "" {
+					name, _ = doc["provider"].(string)
 				}
 				if name == "" {
 					return nil
