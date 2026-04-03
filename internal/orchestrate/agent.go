@@ -319,6 +319,9 @@ func (am *AgentManager) readPreset(preset string) map[string]interface{} {
 // Delete removes an agent and cleans up all resources.
 // Audit logs are archived, never destroyed (ASK tenet 2).
 func (am *AgentManager) Delete(ctx context.Context, name string) error {
+	if err := validateAgentName(name); err != nil {
+		return err
+	}
 	agentDir := filepath.Join(am.Home, "agents", name)
 	if _, err := os.Stat(agentDir); err != nil {
 		return fmt.Errorf("agent %q not found", name)
