@@ -50,6 +50,7 @@ func (mm *MissionManager) agentMissionPath(agentName string) string {
 // Create validates and persists a new mission.
 // If ID is empty a UUID is generated. Version is set to 1 and status to unassigned.
 func (mm *MissionManager) Create(m *models.Mission) error {
+	m.Name = filepath.Base(m.Name)
 	if m.ID == "" {
 		m.ID = uuid.New().String()
 	}
@@ -85,6 +86,7 @@ func (mm *MissionManager) Create(m *models.Mission) error {
 
 // Get reads and returns the named mission.
 func (mm *MissionManager) Get(name string) (*models.Mission, error) {
+	name = filepath.Base(name)
 	path := mm.missionPath(name)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -172,6 +174,7 @@ func (mm *MissionManager) Update(name string, updated *models.Mission) error {
 
 // Delete removes the named mission. Only unassigned missions can be deleted.
 func (mm *MissionManager) Delete(name string) error {
+	name = filepath.Base(name)
 	m, err := mm.Get(name)
 	if err != nil {
 		return err
@@ -191,6 +194,7 @@ type PreFlightResult struct {
 // PreFlight validates that the target exists, required capabilities are available,
 // and the agent does not already have an active mission.
 func (mm *MissionManager) PreFlight(mission *models.Mission, target, targetType string) *PreFlightResult {
+	target = filepath.Base(target)
 	result := &PreFlightResult{OK: true}
 
 	// Check if agent/team exists.
@@ -337,6 +341,7 @@ func (mm *MissionManager) AssignToTeam(name, teamName string, teamCfg *models.Te
 
 // LoadTeamConfig reads team.yaml from ~/.agency/teams/{teamName}/team.yaml.
 func (mm *MissionManager) LoadTeamConfig(teamName string) (*models.TeamConfig, error) {
+	teamName = filepath.Base(teamName)
 	teamPath := filepath.Join(mm.Home, "teams", teamName, "team.yaml")
 	data, err := os.ReadFile(teamPath)
 	if err != nil {
@@ -531,6 +536,7 @@ func (mm *MissionManager) History(name string) ([]map[string]interface{}, error)
 
 // appendHistory writes a JSONL entry for the current mission state.
 func (mm *MissionManager) appendHistory(m *models.Mission) error {
+	m.ID = filepath.Base(m.ID)
 	if err := os.MkdirAll(mm.historyDir(), 0755); err != nil {
 		return err
 	}
@@ -562,6 +568,7 @@ func (mm *MissionManager) appendHistory(m *models.Mission) error {
 
 // writeAgentCopy writes the mission YAML to the agent's directory.
 func (mm *MissionManager) writeAgentCopy(agentName string, m *models.Mission) error {
+	agentName = filepath.Base(agentName)
 	agentDir := filepath.Join(mm.Home, "agents", agentName)
 	if err := os.MkdirAll(agentDir, 0755); err != nil {
 		return err

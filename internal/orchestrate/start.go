@@ -55,6 +55,9 @@ func (ss *StartSequence) Run(ctx context.Context, onPhase PhaseCallback) (*Start
 		onPhase = func(int, string, string) {}
 	}
 
+	// Sanitize agent name to prevent path traversal (CodeQL: uncontrolled data in path expression).
+	ss.AgentName = filepath.Base(ss.AgentName)
+
 	var err error
 
 	// Phase 1: Verify

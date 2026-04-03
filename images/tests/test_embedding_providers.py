@@ -197,7 +197,8 @@ class TestVoyageProvider:
 
         assert result == [0.9, 0.8]
         url = mock_client.post.call_args[0][0]
-        assert "voyageai.com" in url
+        from urllib.parse import urlparse
+        assert urlparse(url).hostname is not None and urlparse(url).hostname.endswith(".voyageai.com") or urlparse(url).hostname == "voyageai.com"
 
     @patch("images.knowledge.embedding.httpx")
     def test_dimensions_lite(self, mock_httpx):

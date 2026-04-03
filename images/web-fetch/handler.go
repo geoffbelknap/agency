@@ -87,6 +87,8 @@ func (s *Service) handleFetch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, FetchResponse{URL: req.URL, Error: "invalid url: must be http or https"})
 		return
 	}
+	// Use the parsed URL to ensure scheme validation is applied downstream.
+	req.URL = parsed.String()
 	host := parsed.Hostname()
 
 	// Agent header (optional, for audit).
@@ -375,6 +377,10 @@ func (s *Service) handleMetrics(w http.ResponseWriter, r *http.Request) {
 // probeContentType performs a HEAD request to check content-type before fetching.
 // Returns the content-type and true if the HEAD succeeded; returns "", false otherwise.
 func probeContentType(client *http.Client, rawURL string) (string, bool) {
+	// Validate URL scheme before making network request.
+	if parsed, err := url.Parse(rawURL); err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return "", false
+	}
 	resp, err := client.Head(rawURL)
 	if err != nil {
 		return "", false

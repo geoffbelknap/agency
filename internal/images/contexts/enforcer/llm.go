@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -230,6 +231,12 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			base := strings.TrimRight(lh.routing.Providers[lh.routing.Models[modelAlias].Provider].APIBase, "/")
 			targetURL = base + endpoint
 		}
+	}
+
+	// Validate target URL uses HTTPS (except localhost for dev)
+	if parsedURL, err := url.Parse(targetURL); err != nil || (parsedURL.Scheme != "https" && parsedURL.Hostname() != "localhost" && parsedURL.Hostname() != "127.0.0.1") {
+		http.Error(w, `{"error":"invalid upstream URL scheme"}`, http.StatusBadGateway)
+		return
 	}
 
 	// Rewrite model in request body

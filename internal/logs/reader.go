@@ -24,6 +24,7 @@ func NewReader(home string) *Reader {
 
 // ReadAgentLog reads all JSONL files for a specific agent, filtering by time range.
 func (r *Reader) ReadAgentLog(name, since, until string) ([]Event, error) {
+	name = filepath.Base(name)
 	auditDir := filepath.Join(r.Home, "audit", name)
 	if _, err := os.Stat(auditDir); err != nil {
 		return nil, err

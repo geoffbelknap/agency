@@ -39,6 +39,7 @@ func (w *Writer) Write(agent, event string, detail map[string]interface{}) error
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	agent = filepath.Base(agent)
 	auditDir := filepath.Join(w.Home, "audit", agent)
 	if err := os.MkdirAll(auditDir, 0700); err != nil {
 		return fmt.Errorf("create audit dir: %w", err)

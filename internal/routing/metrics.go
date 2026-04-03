@@ -268,6 +268,7 @@ func resolveWindow(since, until string) (time.Time, time.Time) {
 
 // readAuditRecords reads enforcer JSONL files for the given agent (or all agents).
 func readAuditRecords(homeDir, agent string, since, until time.Time) ([]auditRecord, error) {
+	agent = filepath.Base(agent)
 	auditDir := filepath.Join(homeDir, "audit")
 	if _, err := os.Stat(auditDir); err != nil {
 		return nil, nil // no audit dir yet — not an error

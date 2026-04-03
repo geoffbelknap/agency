@@ -156,8 +156,9 @@ func (h *handler) createTeam(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
 		return
 	}
-	if body.Name == "" {
-		writeJSON(w, 400, map[string]string{"error": "name required"})
+	body.Name = filepath.Base(body.Name)
+	if body.Name == "" || body.Name == "." || body.Name == ".." {
+		writeJSON(w, 400, map[string]string{"error": "invalid name"})
 		return
 	}
 
@@ -182,7 +183,10 @@ func (h *handler) createTeam(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) showTeam(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name := safeName(w, chi.URLParam(r, "name"))
+	if name == "" {
+		return
+	}
 	teamPath := filepath.Join(h.cfg.Home, "teams", name, "team.yaml")
 	data, err := os.ReadFile(teamPath)
 	if err != nil {
@@ -198,7 +202,10 @@ func (h *handler) showTeam(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) teamActivity(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name := safeName(w, chi.URLParam(r, "name"))
+	if name == "" {
+		return
+	}
 
 	// Read team config to find members
 	teamPath := filepath.Join(h.cfg.Home, "teams", name, "team.yaml")

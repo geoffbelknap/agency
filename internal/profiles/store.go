@@ -73,6 +73,7 @@ func (s *Store) Put(p models.Profile) error {
 
 // Get retrieves a profile by ID.
 func (s *Store) Get(id string) (models.Profile, error) {
+	id = filepath.Base(id)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -94,6 +95,7 @@ func (s *Store) Get(id string) (models.Profile, error) {
 
 // Delete removes a profile by ID.
 func (s *Store) Delete(id string) error {
+	id = filepath.Base(id)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

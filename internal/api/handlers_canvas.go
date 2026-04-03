@@ -12,7 +12,10 @@ import (
 
 // getCanvas handles GET /api/v1/missions/{name}/canvas
 func (h *handler) getCanvas(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name := safeName(w, chi.URLParam(r, "name"))
+	if name == "" {
+		return
+	}
 	canvasPath := filepath.Join(h.cfg.Home, "missions", name+".canvas.json")
 
 	data, err := os.ReadFile(canvasPath)
@@ -32,7 +35,10 @@ func (h *handler) getCanvas(w http.ResponseWriter, r *http.Request) {
 
 // putCanvas handles PUT /api/v1/missions/{name}/canvas
 func (h *handler) putCanvas(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name := safeName(w, chi.URLParam(r, "name"))
+	if name == "" {
+		return
+	}
 
 	// Verify mission exists
 	missionPath := filepath.Join(h.cfg.Home, "missions", name+".yaml")
@@ -65,7 +71,10 @@ func (h *handler) putCanvas(w http.ResponseWriter, r *http.Request) {
 
 // deleteCanvas handles DELETE /api/v1/missions/{name}/canvas
 func (h *handler) deleteCanvas(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name := safeName(w, chi.URLParam(r, "name"))
+	if name == "" {
+		return
+	}
 	canvasPath := filepath.Join(h.cfg.Home, "missions", name+".canvas.json")
 	os.Remove(canvasPath) // ignore errors — may not exist
 	writeJSON(w, 200, map[string]string{"status": "deleted"})

@@ -81,6 +81,7 @@ type StartOptions struct {
 
 // Start creates and starts the workspace container inside the enforcement boundary.
 func (w *Workspace) Start(ctx context.Context, opts StartOptions) error {
+	w.AgentName = filepath.Base(w.AgentName)
 	// Resolve body image (local → GHCR pull → embedded build)
 	if err := images.Resolve(ctx, w.cli, "body", w.Version, w.SourceDir, w.BuildID, w.log); err != nil {
 		return fmt.Errorf("resolve body image: %w", err)

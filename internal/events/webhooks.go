@@ -46,6 +46,7 @@ func (wm *WebhookManager) Create(name, eventType string) (*models.Webhook, error
 		return nil, fmt.Errorf("create webhooks dir: %w", err)
 	}
 
+	name = filepath.Base(name)
 	// Check for existing
 	path := filepath.Join(dir, name+".yaml")
 	if _, err := os.Stat(path); err == nil {
@@ -65,6 +66,7 @@ func (wm *WebhookManager) Create(name, eventType string) (*models.Webhook, error
 
 // Get retrieves a webhook by name.
 func (wm *WebhookManager) Get(name string) (*models.Webhook, error) {
+	name = filepath.Base(name)
 	path := filepath.Join(wm.webhooksDir(), name+".yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -105,6 +107,7 @@ func (wm *WebhookManager) List() ([]*models.Webhook, error) {
 
 // Delete removes a webhook by name.
 func (wm *WebhookManager) Delete(name string) error {
+	name = filepath.Base(name)
 	path := filepath.Join(wm.webhooksDir(), name+".yaml")
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("webhook %q not found", name)
@@ -126,7 +129,7 @@ func (wm *WebhookManager) RotateSecret(name string) (*models.Webhook, error) {
 		return nil, err
 	}
 
-	path := filepath.Join(wm.webhooksDir(), name+".yaml")
+	path := filepath.Join(wm.webhooksDir(), filepath.Base(name)+".yaml")
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		return nil, err
 	}

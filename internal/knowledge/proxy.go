@@ -134,7 +134,7 @@ func (p *Proxy) Review(ctx context.Context, id string, action string, reason str
 		"action": action,
 		"reason": reason,
 	}
-	return p.post(ctx, "/review/"+id, body)
+	return p.post(ctx, "/review/"+urlEncode(id), body)
 }
 
 // URLEncode is an exported helper for URL-encoding query parameter values.

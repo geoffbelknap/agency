@@ -236,6 +236,8 @@ func (h *handler) installDependencies(mgr *hub.Manager, comp *hub.Component) {
 
 // autoActivate provisions egress domains, JWT swap, and publishes resolved YAML.
 func (h *handler) autoActivate(mgr *hub.Manager, inst *hub.Instance) {
+	inst.Name = filepath.Base(inst.Name)
+	inst.Kind = filepath.Base(inst.Kind)
 	instDir := mgr.Registry.InstanceDir(inst.Name)
 	templatePath := instDir + "/" + inst.Kind + ".yaml"
 	templateData, err := os.ReadFile(templatePath)

@@ -60,6 +60,7 @@ func NewHaltController(home, version string, dc *agencyDocker.Client, logger *lo
 // Tenet 9: Every halt is auditable and reversible.
 // Tenet 10: Halt authority is asymmetric — resumption >= halt authority.
 func (hc *HaltController) Halt(ctx context.Context, agentName, haltType, reason, initiator string) (*HaltRecord, error) {
+	agentName = filepath.Base(agentName)
 	if !validHaltTypes[haltType] {
 		return nil, fmt.Errorf("unknown halt type %q (valid: supervised, immediate, graceful, emergency)", haltType)
 	}
@@ -185,6 +186,7 @@ func (hc *HaltController) HaltForUnackedConstraint(ctx context.Context, agentNam
 }
 
 func (hc *HaltController) saveRecord(agentName string, record *HaltRecord) {
+	agentName = filepath.Base(agentName)
 	haltsDir := filepath.Join(hc.Home, "agents", agentName, "halts")
 	os.MkdirAll(haltsDir, 0755)
 	data, _ := json.MarshalIndent(record, "", "  ")

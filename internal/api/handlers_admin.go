@@ -486,6 +486,11 @@ func (h *handler) adminTrust(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "agent required"})
 		return
 	}
+	agent = filepath.Base(agent)
+	if agent == "." || agent == ".." {
+		writeJSON(w, 400, map[string]string{"error": "invalid agent name"})
+		return
+	}
 
 	// Read current trust state from agent config
 	trustPath := filepath.Join(h.cfg.Home, "agents", agent, "trust.yaml")
@@ -626,6 +631,11 @@ func (h *handler) adminEgress(w http.ResponseWriter, r *http.Request) {
 	agent := r.URL.Query().Get("agent")
 	if agent == "" {
 		writeJSON(w, 400, map[string]string{"error": "agent query parameter required"})
+		return
+	}
+	agent = filepath.Base(agent)
+	if agent == "." || agent == ".." {
+		writeJSON(w, 400, map[string]string{"error": "invalid agent name"})
 		return
 	}
 
@@ -812,9 +822,9 @@ func (h *handler) adminDepartment(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, 200, map[string]interface{}{"departments": depts})
 	case "show":
-		name := body.Args["name"]
-		if name == "" {
-			writeJSON(w, 400, map[string]string{"error": "name required"})
+		name := filepath.Base(body.Args["name"])
+		if name == "" || name == "." || name == ".." {
+			writeJSON(w, 400, map[string]string{"error": "invalid name"})
 			return
 		}
 		policyPath := filepath.Join(deptDir, name, "policy.yaml")
@@ -832,7 +842,10 @@ func (h *handler) adminDepartment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) rebuildAgent(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name := safeName(w, chi.URLParam(r, "name"))
+	if name == "" {
+		return
+	}
 
 	agentDir := filepath.Join(h.cfg.Home, "agents", name)
 	if _, err := os.Stat(filepath.Join(agentDir, "agent.yaml")); err != nil {

@@ -80,6 +80,7 @@ func (e *Enforcer) StartWithKeyRotation(ctx context.Context) (scopedKey string, 
 }
 
 func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string, err error) {
+	e.AgentName = filepath.Base(e.AgentName)
 	if err := images.Resolve(ctx, e.cli, "enforcer", e.Version, e.SourceDir, e.BuildID, e.log); err != nil {
 		return "", fmt.Errorf("resolve enforcer image: %w", err)
 	}

@@ -127,6 +127,7 @@ func (am *AgentManager) List(ctx context.Context) ([]AgentDetail, error) {
 
 // Show returns details for a single agent.
 func (am *AgentManager) Show(ctx context.Context, name string) (*AgentDetail, error) {
+	name = filepath.Base(name)
 	agentsDir := filepath.Join(am.Home, "agents")
 	agentDir := filepath.Join(agentsDir, name)
 	if _, err := os.Stat(filepath.Join(agentDir, "agent.yaml")); err != nil {
@@ -141,6 +142,8 @@ func (am *AgentManager) Show(ctx context.Context, name string) (*AgentDetail, er
 
 // Create creates a new agent from a preset.
 func (am *AgentManager) Create(ctx context.Context, name, preset string) error {
+	name = filepath.Base(name)
+	preset = filepath.Base(preset)
 	if err := validateAgentName(name); err != nil {
 		return err
 	}
@@ -299,6 +302,7 @@ func (am *AgentManager) readPreset(preset string) map[string]interface{} {
 	if preset == "" {
 		return nil
 	}
+	preset = filepath.Base(preset)
 	// Check hub-cache for the preset
 	paths := []string{
 		filepath.Join(am.Home, "hub-cache", "default", "presets", preset, "preset.yaml"),
@@ -319,6 +323,7 @@ func (am *AgentManager) readPreset(preset string) map[string]interface{} {
 // Delete removes an agent and cleans up all resources.
 // Audit logs are archived, never destroyed (ASK tenet 2).
 func (am *AgentManager) Delete(ctx context.Context, name string) error {
+	name = filepath.Base(name)
 	agentDir := filepath.Join(am.Home, "agents", name)
 	if _, err := os.Stat(agentDir); err != nil {
 		return fmt.Errorf("agent %q not found", name)
@@ -356,6 +361,7 @@ func (am *AgentManager) JoinChannel(ctx context.Context, agentName, channel stri
 // StopContainers stops and removes all containers for an agent.
 // Marks the agent as suppressed so watchers don't fire spurious alerts.
 func (am *AgentManager) StopContainers(ctx context.Context, name string) {
+	name = filepath.Base(name)
 	if am.StopSuppress != nil {
 		am.StopSuppress.Suppress(name)
 	}
@@ -365,6 +371,7 @@ func (am *AgentManager) StopContainers(ctx context.Context, name string) {
 // -- Internal helpers --
 
 func (am *AgentManager) loadAgentDetail(name, agentsDir string, running map[string]containerInfo, teamIndex map[string]string) AgentDetail {
+	name = filepath.Base(name)
 	agentDir := filepath.Join(agentsDir, name)
 	d := AgentDetail{
 		Name:     name,
@@ -733,6 +740,7 @@ func (am *AgentManager) stopAgentContainers(ctx context.Context, name string) {
 }
 
 func (am *AgentManager) archiveAuditLogs(name string) {
+	name = filepath.Base(name)
 	auditDir := filepath.Join(am.Home, "audit", name)
 	if _, err := os.Stat(auditDir); err != nil {
 		return

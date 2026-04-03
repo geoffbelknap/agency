@@ -126,6 +126,7 @@ func NewDeployer(home, version string, dc *agencyDocker.Client, logger *log.Logg
 
 // LoadPack reads and parses a pack YAML file.
 func LoadPack(path string) (*PackDef, error) {
+	path = filepath.Clean(path)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read pack: %w", err)
@@ -151,6 +152,7 @@ func (d *Deployer) DryRunDeploy(ctx context.Context, pack *PackDef, onStatus fun
 
 	// Check for agent conflicts — same validation as real deploy.
 	for _, agent := range pack.Team.Agents {
+		agent.Name = filepath.Base(agent.Name)
 		agentDir := filepath.Join(d.Home, "agents", agent.Name)
 		if _, err := os.Stat(agentDir); err == nil {
 			return nil, fmt.Errorf("agent %q already exists", agent.Name)
@@ -195,6 +197,13 @@ func (d *Deployer) Deploy(ctx context.Context, pack *PackDef, onStatus func(stri
 
 	if len(pack.Team.Agents) == 0 {
 		return nil, fmt.Errorf("pack %q has no agents defined", pack.Name)
+	}
+
+	// Sanitize names used in file paths to prevent path traversal.
+	pack.Name = filepath.Base(pack.Name)
+	pack.Team.Name = filepath.Base(pack.Team.Name)
+	for i := range pack.Team.Agents {
+		pack.Team.Agents[i].Name = filepath.Base(pack.Team.Agents[i].Name)
 	}
 
 	deployID := fmt.Sprintf("%s-%s", pack.Name, time.Now().UTC().Format("20060102-150405"))
@@ -376,6 +385,7 @@ func (d *Deployer) Deploy(ctx context.Context, pack *PackDef, onStatus func(stri
 
 // Teardown stops agents, archives channels, and optionally deletes resources.
 func (d *Deployer) Teardown(ctx context.Context, packName string, deleteResources bool) error {
+	packName = filepath.Base(packName)
 	manifestPath := filepath.Join(d.Home, "packs", packName, "manifest.json")
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
@@ -466,6 +476,7 @@ func (d *Deployer) Teardown(ctx context.Context, packName string, deleteResource
 }
 
 func (d *Deployer) saveManifest(pack *PackDef, result *DeployResult) {
+	pack.Name = filepath.Base(pack.Name)
 	packDir := filepath.Join(d.Home, "packs", pack.Name)
 	os.MkdirAll(packDir, 0755)
 

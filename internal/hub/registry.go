@@ -97,6 +97,8 @@ func generateID() (string, error) {
 // at {home}/{kind}s/{id}/, and persists the entry to registry.yaml.
 // Returns an error if name is already taken.
 func (r *Registry) Create(name, kind, source string) (*Instance, error) {
+	name = filepath.Base(name)
+	kind = filepath.Base(kind)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

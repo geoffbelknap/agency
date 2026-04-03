@@ -320,7 +320,7 @@ func (m *Manager) Install(componentName, kind, source, instanceName string) (*In
 
 	// Write template YAML into the instance directory
 	instDir := m.Registry.InstanceDir(inst.ID)
-	destPath := filepath.Join(instDir, kind+".yaml")
+	destPath := filepath.Join(instDir, filepath.Base(kind)+".yaml")
 	if err := os.WriteFile(destPath, data, 0644); err != nil {
 		// Best-effort cleanup
 		m.Registry.Remove(inst.Name)

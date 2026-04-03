@@ -194,6 +194,7 @@ func (r *Registry) Disable(name string) error {
 
 // Add writes a new registry entry YAML file.
 func (r *Registry) Add(kind, name string, spec map[string]interface{}) error {
+	name = filepath.Base(name)
 	dirName := ""
 	switch kind {
 	case "mcp-server":
@@ -224,6 +225,7 @@ func (r *Registry) Add(kind, name string, spec map[string]interface{}) error {
 
 // Delete removes a capability from the registry and capabilities.yaml.
 func (r *Registry) Delete(name string) error {
+	name = filepath.Base(name)
 	// Remove from registry directories
 	kinds := []string{"mcp-servers", "services", "skills"}
 	registryDir := filepath.Join(r.Home, "registry")

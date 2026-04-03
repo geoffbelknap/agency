@@ -1014,6 +1014,7 @@ func (h *handler) startAgent(w http.ResponseWriter, r *http.Request) {
 // and registers it with the ContextManager for constraint delivery.
 // Called after the start sequence completes successfully (enforcer is healthy).
 func (h *handler) registerEnforcerWSClient(agentName string) {
+	agentName = filepath.Base(agentName)
 	enforcerWSURL := fmt.Sprintf("ws://agency-%s-enforcer:8081/ws", agentName)
 	wsClient := agencyctx.NewWSClient(agentName, enforcerWSURL, h.log)
 	wsClient.SetCallbacks(
@@ -1184,14 +1185,20 @@ func (h *handler) teardownPack(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) showPolicy(w http.ResponseWriter, r *http.Request) {
-	agent := chi.URLParam(r, "agent")
+	agent := safeName(w, chi.URLParam(r, "agent"))
+	if agent == "" {
+		return
+	}
 	eng := policy.NewEngine(h.cfg.Home)
 	ep := eng.Show(agent)
 	writeJSON(w, 200, ep)
 }
 
 func (h *handler) validatePolicy(w http.ResponseWriter, r *http.Request) {
-	agent := chi.URLParam(r, "agent")
+	agent := safeName(w, chi.URLParam(r, "agent"))
+	if agent == "" {
+		return
+	}
 	eng := policy.NewEngine(h.cfg.Home)
 	ep := eng.Validate(agent)
 
