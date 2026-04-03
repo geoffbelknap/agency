@@ -41,6 +41,23 @@ func NewClient() (*Client, error) {
 	return &Client{cli: cli}, nil
 }
 
+// TryNewClient attempts to create a Docker client. Returns nil (not an error)
+// if Docker is unavailable — the gateway can start in degraded mode.
+func TryNewClient(logger interface{ Warn(msg any, keyvals ...any) }) *Client {
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		logger.Warn("Docker client unavailable, starting in degraded mode", "err", err)
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := cli.Ping(ctx); err != nil {
+		logger.Warn("Docker not responding, starting in degraded mode", "err", err)
+		return nil
+	}
+	return &Client{cli: cli}
+}
+
 // AgentStatus describes a running agent's container state.
 type AgentStatus struct {
 	Name      string `json:"name"`
@@ -412,7 +429,11 @@ func (c *Client) WaitHealthy(ctx context.Context, name string, timeout time.Dura
 }
 
 // RawClient returns the underlying Docker API client.
+// Nil-safe: returns nil if the receiver is nil.
 func (c *Client) RawClient() *client.Client {
+	if c == nil {
+		return nil
+	}
 	return c.cli
 }
 

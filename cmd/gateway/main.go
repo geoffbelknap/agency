@@ -629,17 +629,19 @@ func runServe(httpAddr string) error {
 		}
 	}
 
-	// Docker client
-	dc, err := docker.NewClient()
-	if err != nil {
-		return fmt.Errorf("docker: %w", err)
+	// Docker client — optional, gateway starts in degraded mode if unavailable
+	dc := docker.TryNewClient(logger)
+	if dc != nil {
+		logger.Info("docker connected")
+	} else {
+		logger.Warn("docker unavailable — gateway starting in degraded mode")
 	}
-	logger.Info("docker connected")
+	dockerStatus := docker.NewStatus(dc)
 
 	// Startup reconciliation — clean up orphaned containers/networks from
 	// previous gateway runs. Runs before the HTTP server starts; errors are
 	// logged but never fatal (reconcile is best-effort).
-	{
+	if dc != nil {
 		knownAgents := listAgentNames(cfg.Home)
 		reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		orchestrate.Reconcile(reconcileCtx, dc.RawClient(), knownAgents, logger)
@@ -730,23 +732,27 @@ func runServe(httpAddr string) error {
 	// flow through the event bus to any configured notification subscribers.
 	healthCtx, healthCancel := context.WithCancel(context.Background())
 	defer healthCancel()
-	healthMgr, healthErr := orchestrate.NewMissionHealthMonitorWithClient(
-		missionMgr,
-		func(missionName, reason string) {
-			events.EmitMissionEvent(eventBus, "mission_health_alert", missionName, map[string]interface{}{
-				"reason": reason,
-			})
-		},
-		func(name, reason string) error {
-			return missionMgr.Pause(name, reason)
-		},
-		logger,
-		dc.RawClient(),
-	)
-	if healthErr != nil {
-		logger.Warn("mission health monitor unavailable", "error", healthErr)
-	} else {
-		healthMgr.Start(healthCtx)
+	var healthMgr *orchestrate.MissionHealthMonitor
+	if dc != nil {
+		var healthErr error
+		healthMgr, healthErr = orchestrate.NewMissionHealthMonitorWithClient(
+			missionMgr,
+			func(missionName, reason string) {
+				events.EmitMissionEvent(eventBus, "mission_health_alert", missionName, map[string]interface{}{
+					"reason": reason,
+				})
+			},
+			func(name, reason string) error {
+				return missionMgr.Pause(name, reason)
+			},
+			logger,
+			dc.RawClient(),
+		)
+		if healthErr != nil {
+			logger.Warn("mission health monitor unavailable", "error", healthErr)
+		} else {
+			healthMgr.Start(healthCtx)
+		}
 	}
 
 	// Shared suppression tracker — marks agents undergoing intentional
@@ -756,40 +762,44 @@ func runServe(httpAddr string) error {
 	// Enforcer watcher — listens to Docker event stream for enforcer container
 	// exits. Fires a platform event so the operator knows an agent has lost
 	// API mediation (ASK Tenet 3: mediation is complete).
-	enforcerWatcher, enfWatchErr := orchestrate.NewEnforcerWatcherWithClient(
-		func(agentName, reason string) {
-			events.EmitAgentEvent(eventBus, "enforcer_exited", agentName, map[string]interface{}{
-				"reason": reason,
-			})
-		},
-		logger,
-		stopSuppress,
-		dc.RawClient(),
-	)
-	if enfWatchErr != nil {
-		logger.Warn("enforcer watcher unavailable", "error", enfWatchErr)
-	} else {
-		enforcerWatcher.Start(healthCtx)
+	if dc != nil {
+		enforcerWatcher, enfWatchErr := orchestrate.NewEnforcerWatcherWithClient(
+			func(agentName, reason string) {
+				events.EmitAgentEvent(eventBus, "enforcer_exited", agentName, map[string]interface{}{
+					"reason": reason,
+				})
+			},
+			logger,
+			stopSuppress,
+			dc.RawClient(),
+		)
+		if enfWatchErr != nil {
+			logger.Warn("enforcer watcher unavailable", "error", enfWatchErr)
+		} else {
+			enforcerWatcher.Start(healthCtx)
+		}
 	}
 
 	// Workspace watcher — listens for workspace container crashes and
 	// auto-restarts. Emits platform events for operator alerting.
 	// Comms and knowledge now route through the enforcer mediation proxy,
 	// so no infra reconnect is needed on restart.
-	workspaceWatcher, wsWatchErr := orchestrate.NewWorkspaceWatcherWithClient(
-		func(agentName, reason string) {
-			events.EmitAgentEvent(eventBus, "workspace_crashed", agentName, map[string]interface{}{
-				"reason": reason,
-			})
-		},
-		logger,
-		stopSuppress,
-		dc.RawClient(),
-	)
-	if wsWatchErr != nil {
-		logger.Warn("workspace watcher unavailable", "error", wsWatchErr)
-	} else {
-		workspaceWatcher.Start(healthCtx)
+	if dc != nil {
+		workspaceWatcher, wsWatchErr := orchestrate.NewWorkspaceWatcherWithClient(
+			func(agentName, reason string) {
+				events.EmitAgentEvent(eventBus, "workspace_crashed", agentName, map[string]interface{}{
+					"reason": reason,
+				})
+			},
+			logger,
+			stopSuppress,
+			dc.RawClient(),
+		)
+		if wsWatchErr != nil {
+			logger.Warn("workspace watcher unavailable", "error", wsWatchErr)
+		} else {
+			workspaceWatcher.Start(healthCtx)
+		}
 	}
 
 	// Audit summarizer — aggregates enforcer JSONL logs into per-mission metrics.
@@ -816,7 +826,39 @@ func runServe(httpAddr string) error {
 	if healthMgr != nil {
 		routeOpts.HealthMonitor = healthMgr
 	}
+	// TODO(task4): routeOpts.DockerStatus = dockerStatus
 	api.RegisterRoutesWithOptions(r, cfg, dc, logger, routeOpts)
+
+	// Wire auto-restore: when Docker reconnects, automatically bring up infra.
+	if cfg.AutoRestoreInfra {
+		dockerStatus.OnReconnect = func() {
+			logger.Info("Docker reconnected — auto-restoring infrastructure")
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				defer cancel()
+				newDC := docker.TryNewClient(logger)
+				if newDC == nil {
+					logger.Warn("auto-restore: Docker reconnect detected but client creation failed")
+					return
+				}
+				infra, err := orchestrate.NewInfra(cfg.Home, cfg.Version, newDC, logger, cfg.HMACKey)
+				if err != nil {
+					logger.Warn("auto-restore: failed to create infra manager", "err", err)
+					return
+				}
+				infra.SourceDir = cfg.SourceDir
+				infra.BuildID = cfg.BuildID
+				infra.GatewayAddr = cfg.GatewayAddr
+				infra.GatewayToken = cfg.Token
+				infra.EgressToken = cfg.EgressToken
+				if err := infra.EnsureRunning(ctx); err != nil {
+					logger.Warn("auto-restore: infra up failed", "err", err)
+				} else {
+					logger.Info("auto-restore: infrastructure restored")
+				}
+			}()
+		}
+	}
 
 	httpServer := &http.Server{
 		Addr:         httpAddr,
