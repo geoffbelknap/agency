@@ -1,6 +1,6 @@
 # Graceful Docker Degradation
 
-## Status: Proposed
+## Status: Approved
 
 ## Problem
 
@@ -29,8 +29,9 @@ When Docker goes away after startup:
 
 1. **Detect disconnection** — Docker client calls start failing. Set an internal `dockerAvailable` flag to false.
 2. **API responses** — Include `"docker": "unavailable"` in status responses. Container-dependent fields (workspace/enforcer state) show `"unknown"` instead of `"stopped"`.
-3. **Auto-reconnect** — Background goroutine polls Docker availability every 10 seconds. On reconnect, reconcile container state and flip the flag back.
-4. **No crash** — No panic, no fatal log, no process exit. The gateway stays up.
+3. **Auto-reconnect** — Background goroutine polls Docker availability every 30 seconds. On reconnect, flip the flag back. Infrastructure restoration is manual by default (operator runs `agency infra up`).
+4. **Optional auto-restore** — `auto_restore_infra: true` in config.yaml causes the gateway to automatically run `infra up` when Docker reconnects. Default: false (operator must be explicit).
+5. **No crash** — No panic, no fatal log, no process exit. The gateway stays up.
 
 ### Status Display
 
@@ -46,6 +47,15 @@ Infrastructure:
   ...
 ```
 
+## Configuration
+
+```yaml
+# config.yaml
+auto_restore_infra: false  # default: operator runs `agency infra up` after Docker reconnects
+```
+
+When `auto_restore_infra: true`, the gateway automatically runs the equivalent of `agency infra up` when Docker connectivity is restored. A log entry and platform event are emitted so the operator knows it happened.
+
 ## Implementation
 
 ### 1. Make Docker client optional in gateway startup
@@ -58,9 +68,10 @@ Infrastructure:
 ### 2. Add Docker health monitor
 
 Background goroutine that:
-- Pings Docker every 10 seconds when disconnected
+- Pings Docker every 30 seconds when disconnected
 - On reconnect: creates new client, runs reconciliation, updates handler references
-- On disconnect: sets flag, logs warning
+- If `auto_restore_infra` is set, runs `EnsureRunning` after reconnect
+- On disconnect: sets flag, logs warning, emits platform event
 
 ### 3. Guard Docker-dependent operations
 
