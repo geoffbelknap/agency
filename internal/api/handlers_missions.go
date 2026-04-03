@@ -70,7 +70,10 @@ func (h *handler) listMissions(w http.ResponseWriter, r *http.Request) {
 
 // showMission handles GET /api/v1/missions/{name}
 func (h *handler) showMission(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 	m, err := h.missions.Get(name)
 	if err != nil {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
@@ -91,7 +94,10 @@ func (h *handler) showMission(w http.ResponseWriter, r *http.Request) {
 // updateMission handles PUT /api/v1/missions/{name}
 // Accepts a YAML body with updated mission fields.
 func (h *handler) updateMission(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 
 	existing, err := h.missions.Get(name)
 	if err != nil {
@@ -134,7 +140,10 @@ func (h *handler) updateMission(w http.ResponseWriter, r *http.Request) {
 
 // missionHealth handles GET /api/v1/missions/{name}/health
 func (h *handler) missionHealth(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 
 	if name == "" || name == "health" {
 		// GET /missions/health — all missions
@@ -167,7 +176,10 @@ func (h *handler) missionHealth(w http.ResponseWriter, r *http.Request) {
 
 // deleteMission handles DELETE /api/v1/missions/{name}
 func (h *handler) deleteMission(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 
 	m, err := h.missions.Get(name)
 	if err != nil {
@@ -194,7 +206,10 @@ func (h *handler) deleteMission(w http.ResponseWriter, r *http.Request) {
 // Accepts JSON body: {"target": "...", "type": "agent|team"}
 // Returns 422 with a structured pre-flight result when pre-flight checks fail.
 func (h *handler) assignMission(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 
 	var body struct {
 		Target string `json:"target"`
@@ -298,7 +313,10 @@ func (h *handler) assignMission(w http.ResponseWriter, r *http.Request) {
 
 // pauseMission handles POST /api/v1/missions/{name}/pause
 func (h *handler) pauseMission(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 
 	// Capture assigned agent before pause for audit.
 	m, err := h.missions.Get(name)
@@ -350,7 +368,10 @@ func (h *handler) pauseMission(w http.ResponseWriter, r *http.Request) {
 
 // resumeMission handles POST /api/v1/missions/{name}/resume
 func (h *handler) resumeMission(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 
 	m, err := h.missions.Get(name)
 	if err != nil {
@@ -394,7 +415,10 @@ func (h *handler) resumeMission(w http.ResponseWriter, r *http.Request) {
 
 // completeMission handles POST /api/v1/missions/{name}/complete
 func (h *handler) completeMission(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 
 	m, err := h.missions.Get(name)
 	if err != nil {
@@ -434,7 +458,10 @@ func (h *handler) completeMission(w http.ResponseWriter, r *http.Request) {
 
 // missionHistory handles GET /api/v1/missions/{name}/history
 func (h *handler) missionHistory(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 	entries, err := h.missions.History(name)
 	if err != nil {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
@@ -447,7 +474,10 @@ func (h *handler) missionHistory(w http.ResponseWriter, r *http.Request) {
 // Queries knowledge graph scoped to the mission ID. ASK tenet 24: knowledge
 // access is bounded by authorization scope.
 func (h *handler) missionKnowledge(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 	mission, err := h.missions.Get(name)
 	if err != nil {
 		writeJSON(w, 404, map[string]string{"error": "mission not found"})
@@ -478,7 +508,10 @@ func (h *handler) missionKnowledge(w http.ResponseWriter, r *http.Request) {
 // claimMissionEvent handles POST /api/v1/missions/{name}/claim
 // Used by no-coordinator team missions for event deconfliction.
 func (h *handler) claimMissionEvent(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 	mission, err := h.missions.Get(name)
 	if err != nil {
 		writeJSON(w, 404, map[string]string{"error": "mission not found"})
@@ -505,7 +538,10 @@ func (h *handler) claimMissionEvent(w http.ResponseWriter, r *http.Request) {
 
 // releaseMissionClaim handles DELETE /api/v1/missions/{name}/claim
 func (h *handler) releaseMissionClaim(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 	mission, err := h.missions.Get(name)
 	if err != nil {
 		writeJSON(w, 404, map[string]string{"error": "mission not found"})

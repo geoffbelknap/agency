@@ -16,7 +16,10 @@ import (
 // The enforcer tracks trajectory state in-memory (sliding window of tool calls,
 // active anomalies, detector config). No data is persisted — this is a live view.
 func (h *handler) getAgentTrajectory(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 
 	// Verify the agent exists
 	_, err := h.agents.Show(r.Context(), name)

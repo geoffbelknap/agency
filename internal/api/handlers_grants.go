@@ -13,7 +13,10 @@ import (
 // ── Agent Grant / Revoke ────────────────────────────────────────────────────
 
 func (h *handler) grantAgent(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 	var body struct {
 		Capability string `json:"capability"`
 	}
@@ -60,7 +63,10 @@ func (h *handler) grantAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) revokeAgent(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
 	var body struct {
 		Capability string `json:"capability"`
 	}
