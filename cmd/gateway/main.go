@@ -425,6 +425,33 @@ func isWSL() bool {
 	return strings.Contains(s, "microsoft") || strings.Contains(s, "WSL")
 }
 
+// openBrowser attempts to open url in the system default browser.
+// Best-effort — returns an error but callers should ignore it.
+func openBrowser(url string) error {
+	var cmd string
+	var args []string
+
+	switch {
+	case runtime.GOOS == "darwin":
+		cmd = "open"
+		args = []string{url}
+	case isWSL():
+		// Try wslview first (wslu package), fall back to cmd.exe
+		if _, err := exec.LookPath("wslview"); err == nil {
+			cmd = "wslview"
+			args = []string{url}
+		} else {
+			cmd = "cmd.exe"
+			args = []string{"/c", "start", url}
+		}
+	default: // linux, freebsd, etc.
+		cmd = "xdg-open"
+		args = []string{url}
+	}
+
+	return exec.Command(cmd, args...).Start()
+}
+
 func checkDocker() error {
 	wsl := isWSL()
 
