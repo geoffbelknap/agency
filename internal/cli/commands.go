@@ -394,6 +394,9 @@ func statusCmd() *cobra.Command {
 				if infraResp.WebURL != "" {
 					fmt.Printf("  Web UI:  %s\n", infraResp.WebURL)
 				}
+				if infraResp.Docker == "unavailable" {
+					fmt.Printf("  Docker:  %s\n", red.Render("unavailable"))
+				}
 				fmt.Println()
 			}
 			if infraResp != nil && infraResp.InfraLLMDailyUsed > 0 {
@@ -404,7 +407,9 @@ func statusCmd() *cobra.Command {
 				gatewayBuild := infraResp.BuildID
 				for _, ic := range infraResp.Components {
 					icon := green.Render("●")
-					if ic["health"] != "healthy" && ic["state"] != "running" {
+					if infraResp.Docker == "unavailable" {
+						icon = dim.Render("?")
+					} else if ic["health"] != "healthy" && ic["state"] != "running" {
 						icon = red.Render("○")
 					}
 					buildCol := ""
