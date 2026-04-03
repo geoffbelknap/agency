@@ -1,0 +1,24 @@
+extensions:
+  - addsTo:
+      pack: codeql/go-all
+      extensible: sinkModel
+    data: []
+  - addsTo:
+      pack: codeql/go-all
+      extensible: sourceModel
+    data: []
+  - addsTo:
+      pack: codeql/go-all
+      extensible: summaryModel
+    data: []
+  - addsTo:
+      pack: codeql/go-all
+      extensible: neutralModel
+    data:
+      # requireName is a sanitizer for path injection — validates input against
+      # a whitelist regex that categorically prevents path traversal characters.
+      - ["github.com/geoffbelknap/agency/internal/api", "requireName", "PathInjection"]
+      - ["github.com/geoffbelknap/agency/internal/api", "requireNameStr", "PathInjection"]
+      # validateOutboundURL is a sanitizer for SSRF — validates URL scheme and host.
+      - ["github.com/geoffbelknap/agency/internal/api", "validateOutboundURL", "RequestForgery"]
+      - ["github.com/geoffbelknap/agency/internal/pkg/urlsafety", "Validate", "RequestForgery"]
