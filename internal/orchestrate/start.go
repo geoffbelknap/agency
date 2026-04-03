@@ -265,8 +265,10 @@ func (ss *StartSequence) phase3Constraints() error {
 	frameworkMD := GenerateFrameworkMD(agentType, "standard")
 	os.WriteFile(filepath.Join(agentDir, "FRAMEWORK.md"), []byte(frameworkMD), 0644)
 
-	// Generate PLATFORM.md — platform awareness scaled by agent type
-	platformMD := GeneratePlatformMD(agentType)
+	// Generate PLATFORM.md — platform awareness scaled by agent type.
+	// Include granted capabilities so the agent knows what it can and cannot do.
+	grantedCaps := ss.resolveGrantedCaps()
+	platformMD := GeneratePlatformMD(agentType, grantedCaps)
 	if err := os.WriteFile(filepath.Join(agentDir, "PLATFORM.md"), []byte(platformMD), 0644); err != nil {
 		return fmt.Errorf("write PLATFORM.md: %w", err)
 	}
@@ -707,4 +709,40 @@ func GenerateFrameworkMD(agentType, agentTier string) string {
 	)
 
 	return strings.Join(sections, "\n\n") + "\n"
+}
+
+// resolveGrantedCaps returns the set of capability names granted to this agent.
+func (ss *StartSequence) resolveGrantedCaps() map[string]bool {
+	result := make(map[string]bool)
+	capPath := filepath.Join(ss.Home, "capabilities.yaml")
+	data, err := os.ReadFile(capPath)
+	if err != nil {
+		return result
+	}
+	var cfg struct {
+		Capabilities map[string]struct {
+			State  string   `yaml:"state"`
+			Agents []string `yaml:"agents,omitempty"`
+		} `yaml:"capabilities"`
+	}
+	if yaml.Unmarshal(data, &cfg) != nil {
+		return result
+	}
+	for name, cap := range cfg.Capabilities {
+		if cap.State == "disabled" {
+			continue
+		}
+		// "available" = all agents; "restricted" = only listed agents
+		if cap.State == "available" {
+			result[name] = true
+		} else if cap.State == "restricted" {
+			for _, a := range cap.Agents {
+				if a == ss.AgentName {
+					result[name] = true
+					break
+				}
+			}
+		}
+	}
+	return result
 }

@@ -887,7 +887,7 @@ func (h *handler) rebuildAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 6. Regenerate PLATFORM.md
-	platformMD := orchestrate.GeneratePlatformMD(agentType)
+	platformMD := orchestrate.GeneratePlatformMD(agentType, nil)
 	if err := os.WriteFile(filepath.Join(agentDir, "PLATFORM.md"), []byte(platformMD), 0644); err != nil {
 		errors = append(errors, "PLATFORM.md: "+err.Error())
 	} else {

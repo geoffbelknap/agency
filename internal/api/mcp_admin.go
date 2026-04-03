@@ -1718,7 +1718,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				regenerated = append(regenerated, "FRAMEWORK.md")
 			}
 
-			platformMD := orchestrate.GeneratePlatformMD(agentType)
+			platformMD := orchestrate.GeneratePlatformMD(agentType, nil)
 			if err := os.WriteFile(filepath.Join(agentDir, "PLATFORM.md"), []byte(platformMD), 0644); err != nil {
 				errors = append(errors, "PLATFORM.md: "+err.Error())
 			} else {

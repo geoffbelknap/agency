@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"sync"
 	"time"
@@ -38,11 +39,14 @@ type TrajectoryConfig struct {
 	CooldownMinutes int                       `yaml:"cooldown_minutes" json:"cooldown_minutes"`
 }
 
+const maxResponseHashes = 20
+
 type TrajectoryMonitor struct {
-	mu        sync.Mutex
-	window    []ToolEntry
-	config    TrajectoryConfig
-	cooldowns map[string]time.Time
+	mu             sync.Mutex
+	window         []ToolEntry
+	responseHashes []string // recent LLM response content hashes
+	config         TrajectoryConfig
+	cooldowns      map[string]time.Time
 }
 
 func DefaultTrajectoryConfig() TrajectoryConfig {
@@ -61,6 +65,10 @@ func DefaultTrajectoryConfig() TrajectoryConfig {
 				Threshold:     5,
 				WindowMinutes: 2,
 				Severity:      "warning",
+			},
+			"response_repetition": {
+				Threshold: 3,
+				Severity:  "warning",
 			},
 		},
 		OnCritical:      "alert",
@@ -201,10 +209,60 @@ func (tm *TrajectoryMonitor) RunDetectors() []Anomaly {
 		}
 	}
 
+	// Response-level detector (separate data source — LLM response hashes)
+	if cfg, ok := tm.config.Detectors["response_repetition"]; ok {
+		detName := "response_repetition"
+		if coolUntil, inCooldown := tm.cooldowns[detName]; !inCooldown || !now.Before(coolUntil) {
+			delete(tm.cooldowns, detName)
+			if a := detectResponseRepetition(tm.responseHashes, cfg); a != nil {
+				anomalies = append(anomalies, *a)
+				tm.cooldowns[detName] = now.Add(time.Duration(tm.config.CooldownMinutes) * time.Minute)
+			}
+		}
+	}
+
 	if len(anomalies) == 0 {
 		return nil
 	}
 	return anomalies
+}
+
+// RecordResponse hashes the LLM response text and appends to the ring buffer.
+func (tm *TrajectoryMonitor) RecordResponse(text string) {
+	if len(text) < 20 {
+		return // skip trivial responses
+	}
+	h := fmt.Sprintf("%x", sha256.Sum256([]byte(text)))
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	tm.responseHashes = append(tm.responseHashes, h)
+	if len(tm.responseHashes) > maxResponseHashes {
+		tm.responseHashes = tm.responseHashes[len(tm.responseHashes)-maxResponseHashes:]
+	}
+}
+
+func detectResponseRepetition(hashes []string, cfg DetectorConfig) *Anomaly {
+	if len(hashes) < cfg.Threshold {
+		return nil
+	}
+	// Check if the last N hashes are identical
+	last := hashes[len(hashes)-1]
+	count := 0
+	for i := len(hashes) - 1; i >= 0; i-- {
+		if hashes[i] == last {
+			count++
+		} else {
+			break
+		}
+	}
+	if count >= cfg.Threshold {
+		return &Anomaly{
+			Detector: "response_repetition",
+			Detail:   fmt.Sprintf("identical LLM response repeated %d times consecutively (threshold %d)", count, cfg.Threshold),
+			Severity: cfg.Severity,
+		}
+	}
+	return nil
 }
 
 func detectToolRepetition(window []ToolEntry, cfg DetectorConfig) *Anomaly {

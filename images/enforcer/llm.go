@@ -368,11 +368,12 @@ func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, 
 		}
 	}
 
-	// Extract tool calls for trajectory monitoring
+	// Trajectory monitoring: record tool calls and response content
 	if lh.trajectory != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		if choices, ok := respBody["choices"].([]interface{}); ok && len(choices) > 0 {
 			if choice, ok := choices[0].(map[string]interface{}); ok {
 				if message, ok := choice["message"].(map[string]interface{}); ok {
+					// Record tool calls
 					if toolCalls, ok := message["tool_calls"].([]interface{}); ok {
 						for _, tc := range toolCalls {
 							if tcMap, ok := tc.(map[string]interface{}); ok {
@@ -389,9 +390,14 @@ func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, 
 								}
 							}
 						}
-						for _, anomaly := range lh.trajectory.RunDetectors() {
-							lh.emitTrajectoryAnomaly(anomaly)
-						}
+					}
+					// Record response text for repetition detection
+					if content, ok := message["content"].(string); ok && content != "" {
+						lh.trajectory.RecordResponse(content)
+					}
+					// Run all detectors (tool + response)
+					for _, anomaly := range lh.trajectory.RunDetectors() {
+						lh.emitTrajectoryAnomaly(anomaly)
 					}
 				}
 			}

@@ -57,8 +57,15 @@ Your teammates may have different constraints, capabilities, and budget limits t
 Combined outputs from multiple agents cannot exceed what any individual contributing agent was authorized to produce.
 `
 
+// allCapabilities lists capabilities that can be granted.
+// Used to generate the "not available" section in PLATFORM.md.
+var allCapabilities = map[string]string{
+	"web-fetch": "fetch and read web pages",
+}
+
 // GeneratePlatformMD assembles platform awareness content scaled by agent type.
-func GeneratePlatformMD(agentType string) string {
+// grantedCaps is the set of capability names the agent has been granted.
+func GeneratePlatformMD(agentType string, grantedCaps map[string]bool) string {
 	var parts []string
 	parts = append(parts, strings.TrimSpace(platformCore))
 
@@ -76,6 +83,17 @@ func GeneratePlatformMD(agentType string) string {
 		parts = append(parts, strings.TrimSpace(platformOperational))
 		parts = append(parts, strings.TrimSpace(platformComms))
 		parts = append(parts, strings.TrimSpace(platformKnowledge))
+	}
+
+	// Tell the agent what it cannot do — prevents hallucinating capabilities.
+	var notGranted []string
+	for cap, desc := range allCapabilities {
+		if grantedCaps == nil || !grantedCaps[cap] {
+			notGranted = append(notGranted, "- You cannot "+desc+" (the `"+cap+"` capability is not granted)")
+		}
+	}
+	if len(notGranted) > 0 {
+		parts = append(parts, "## Capabilities Not Available\n\nThe following capabilities have NOT been granted to you. Do not promise or attempt actions that require them — be honest about what you cannot do.\n\n"+strings.Join(notGranted, "\n"))
 	}
 
 	return strings.Join(parts, "\n\n") + "\n"
