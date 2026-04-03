@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/geoffbelknap/agency/internal/hub"
+	"github.com/geoffbelknap/agency/internal/pkg/urlsafety"
 	"gopkg.in/yaml.v3"
 )
 
@@ -355,6 +356,10 @@ func (s *Store) testJWTExchange(entry Entry) *TestResult {
 		return &TestResult{OK: false, Message: "no token_url in protocol_config"}
 	}
 
+	if err := urlsafety.Validate(tokenURL); err != nil {
+		return &TestResult{OK: false, Message: fmt.Sprintf("unsafe token URL: %s", err)}
+	}
+
 	params := url.Values{}
 	if tp, ok := entry.Metadata.ProtocolConfig["token_params"].(map[string]any); ok {
 		for k, v := range tp {
@@ -365,7 +370,7 @@ func (s *Store) testJWTExchange(entry Entry) *TestResult {
 		}
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := urlsafety.SafeClient()
 	resp, err := client.PostForm(tokenURL, params)
 	if err != nil {
 		return &TestResult{OK: false, Message: fmt.Sprintf("token exchange: %s", err)}
@@ -394,6 +399,10 @@ func (s *Store) testAPIKey(entry Entry) *TestResult {
 
 	testURL := "https://" + domains[0] + testEndpoint
 
+	if err := urlsafety.Validate(testURL); err != nil {
+		return &TestResult{OK: false, Message: fmt.Sprintf("unsafe test URL: %s", err)}
+	}
+
 	req, err := http.NewRequest("GET", testURL, nil)
 	if err != nil {
 		return &TestResult{OK: false, Message: fmt.Sprintf("create request: %s", err)}
@@ -409,7 +418,7 @@ func (s *Store) testAPIKey(entry Entry) *TestResult {
 		req.Header.Set(header, val)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := urlsafety.SafeClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return &TestResult{OK: false, Message: fmt.Sprintf("test request: %s", err)}
