@@ -15,7 +15,8 @@ type Config struct {
 	HMACKey       []byte               // 32-byte HMAC signing key
 	GatewayAddr   string               // listen address, default 127.0.0.1:8200
 	Token         string               // auth token for gateway API (full access)
-	EgressToken   string               // scoped token for egress proxy (credential resolve only)
+	EgressToken        string               // scoped token for egress proxy (credential resolve only)
+	AutoRestoreInfra   bool                 // auto-run infra up when Docker reconnects (default false)
 	Version       string               // build version (set by ldflags, e.g. "0.1.0")
 	BuildID       string               // content-aware build ID: {short_commit} or {short_commit}-dirty
 	SourceDir     string               // repo source tree root (agency_core/), empty for release installs
@@ -35,7 +36,8 @@ type NotificationConfig struct {
 // configFile mirrors the fields we care about in config.yaml.
 type configFile struct {
 	Token         string               `yaml:"token"`
-	EgressToken   string               `yaml:"egress_token,omitempty"`
+	EgressToken        string               `yaml:"egress_token,omitempty"`
+	AutoRestoreInfra   bool                 `yaml:"auto_restore_infra,omitempty"`
 	HMACKey       string               `yaml:"hmac_key,omitempty"`
 	GatewayAddr   string               `yaml:"gateway_addr,omitempty"`
 	SourceDir     string               `yaml:"source_dir,omitempty"`
@@ -78,6 +80,7 @@ func Load() *Config {
 	cfg.Notifications = cf.Notifications
 	cfg.Token = cf.Token
 	cfg.EgressToken = cf.EgressToken
+	cfg.AutoRestoreInfra = cf.AutoRestoreInfra
 	cfg.ConfigVars = cf.ConfigVars
 
 	if cf.HMACKey != "" {
