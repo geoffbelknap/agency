@@ -8,11 +8,12 @@ Containerize agency-web so `agency infra up` starts the web UI automatically. Us
 
 ## Container Design
 
-- **Image**: Multi-stage build. Stage 1: `node:22-alpine` builds the React app. Stage 2: `nginx:alpine` serves `dist/`.
-- **Networking**: Not on any agency-managed network (mediation, egress, internal). Published on host port 8280. The browser makes API calls to `localhost:8200` — the container just serves static files.
-- **API proxying**: nginx reverse-proxies `/api/` and `/ws` to `host.docker.internal:8200` so the browser doesn't need CORS for a different port. Single origin.
-- **Resource limits**: Uses `HostConfigDefaults(RoleInfra)` baseline — 256MB memory, 1 CPU, 1024 PIDs, log rotation (10m x 3), `unless-stopped` restart policy. Readonly rootfs with tmpfs for nginx pid/cache.
-- **Health check**: `curl -f http://localhost:80/ || exit 1`
+- **Image**: Multi-stage build. Stage 1: `node:22-alpine` builds the React app. Stage 2: `alpine:3.21` with nginx + openssl serves `dist/` over HTTPS.
+- **Networking**: Host networking mode. No agency-managed Docker networks. Serves HTTPS on port 8280. The browser makes API calls to the same origin — nginx proxies them to the gateway.
+- **API proxying**: nginx reverse-proxies `/api/` and `/ws` to `127.0.0.1:8200` (gateway on localhost, reachable via host networking). Single origin, no CORS needed.
+- **TLS**: Self-signed certificate auto-generated at container startup via openssl. Certs written to `/tmp/certs/` (writable on read-only rootfs). Users can mount trusted certs at `/etc/nginx/certs/`.
+- **Resource limits**: 64MB memory, 0.5 CPU, 64 PIDs. Readonly rootfs with tmpfs for nginx cache and cert generation.
+- **Health check**: `wget --no-check-certificate -q -O /dev/null https://127.0.0.1:8280/health || exit 1`
 - **Container name**: `agency-infra-web` (follows existing `agency-infra-{role}` convention)
 - **Image name**: `agency-web:latest` (added to `defaultImages` map)
 - **Build**: Added to Makefile as `make web` target. Built from `agency-web/` source tree in the workspace (not inside the agency repo).

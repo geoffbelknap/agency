@@ -200,8 +200,10 @@ Python orchestration code in `agency/core/infrastructure.py` still creates conta
 #### Gateway Port Configuration
 
 The gateway listen address defaults to `127.0.0.1:8200`, configurable via:
-- CLI flag: `agency serve --http 0.0.0.0:8200`
+- CLI flag: `agency serve --http 127.0.0.1:8200`
 - Config: `~/.agency/config.yaml` → `gateway_addr: "127.0.0.1:8200"`
+
+Containers do not connect to the gateway TCP port directly. Instead, a gateway socket proxy (`agency-infra-gateway-proxy`) bridges the gateway's Unix socket to `gateway:8200` on the Docker mediation network. See `docs/specs/gateway-socket-proxy.md`.
 
 #### Backward Compatibility
 
@@ -221,12 +223,15 @@ Port 8200 is also HashiCorp Vault's default port. If an operator runs HashiCorp 
 Host:
   agency (gateway binary)
     REST API:  127.0.0.1:8200
+    Sockets:   ~/.agency/run/gateway.sock (proxy-safe)
+               ~/.agency/run/gateway-cred.sock (credential resolution)
 
 Docker (agency-mediation network):
-  agency-infra-comms       :8080  → 127.0.0.1:8202
-  agency-infra-knowledge   :8080  → 127.0.0.1:8204
-  agency-infra-intake      :8080  → 127.0.0.1:8205
-  agency-infra-egress      :3128
+  agency-infra-gateway-proxy :8200  (socat → gateway.sock, alias "gateway")
+  agency-infra-comms         :8080  → 127.0.0.1:8202
+  agency-infra-knowledge     :8080  → 127.0.0.1:8204
+  agency-infra-intake        :8080  → 127.0.0.1:8205
+  agency-infra-egress        :3128  (also mounts gateway-cred.sock)
 
 Docker (agency-{name}-internal network, per agent):
   agency-{name}-enforcer   :3128

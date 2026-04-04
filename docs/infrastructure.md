@@ -16,7 +16,7 @@ The egress proxy is the only component that holds real API keys. It sits between
 - **Domain filtering** — Controls which external domains agents can reach
 - **Audit logging** — Records all outbound requests
 
-Built on mitmproxy. Credentials are resolved from the gateway's encrypted credential store via a Unix socket (`~/.agency/run/gateway.sock`), not from environment files. The `SocketKeyResolver` handles credential lookups at request time, so real API keys never touch any container except egress. See [Credentials](credentials.md) for the operator guide.
+Built on mitmproxy. Credentials are resolved from the gateway's encrypted credential store via a dedicated Unix socket (`~/.agency/run/gateway-cred.sock`), mounted only into the egress container. The `SocketKeyResolver` handles credential lookups at request time, so real API keys never touch any container except egress and never traverse a Docker network. See [Credentials](credentials.md) for the operator guide.
 
 ### Web-Fetch Service
 

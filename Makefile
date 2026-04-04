@@ -11,7 +11,7 @@ LDFLAGS  := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(D
 IMAGE_DIR = images
 
 # Core images built by `make images`.
-CORE_IMAGES = body enforcer comms knowledge intake egress workspace web-fetch
+CORE_IMAGES = body enforcer comms knowledge intake egress workspace web-fetch gateway-proxy
 
 # Services whose Dockerfile needs the repo root as build context
 # (they COPY images/models/ for shared Pydantic schemas).
@@ -62,7 +62,7 @@ test:
 	go test ./...
 
 clean:
-	rm -f agency
+	rm -f agency gateway
 
 # Build all container images
 images: $(CORE_IMAGES)

@@ -31,7 +31,8 @@ POST /api/v1/internal/llm
 
 Flow:
 ```
-infra container → http://host.docker.internal:8200/api/v1/internal/llm
+infra container → http://gateway:8200/api/v1/internal/llm
+                  → gateway socket proxy → gateway.sock
                   → gateway resolves model alias from routing.yaml
                   → gateway translates format (OpenAI ↔ Anthropic)
                   → gateway proxies to provider via egress
@@ -40,7 +41,7 @@ infra container → http://host.docker.internal:8200/api/v1/internal/llm
                   → response returned in OpenAI format
 ```
 
-Infrastructure containers reach the gateway via `host.docker.internal:8200`, which is accessible from Docker containers without network changes.
+Infrastructure containers reach the gateway via `http://gateway:8200` on the Docker mediation network (gateway socket proxy). See `docs/specs/gateway-socket-proxy.md`.
 
 ### Request Format
 
@@ -104,7 +105,7 @@ The gateway rejects calls without a recognized caller header.
 The internal endpoint uses the same `X-Agency-Token` authentication as all gateway endpoints. Infrastructure containers receive the token via environment variable at startup:
 
 ```
-AGENCY_GATEWAY_URL=http://host.docker.internal:8200
+AGENCY_GATEWAY_URL=http://gateway:8200
 AGENCY_GATEWAY_TOKEN={token}
 ```
 
@@ -230,7 +231,7 @@ r.Post("/api/v1/internal/llm", h.internalLLM)
 The gateway passes these env vars to infrastructure containers at creation time (in `orchestrate/infra.go`):
 
 ```go
-env["AGENCY_GATEWAY_URL"] = "http://host.docker.internal:" + gatewayPort
+env["AGENCY_GATEWAY_URL"] = "http://gateway:8200"
 env["AGENCY_GATEWAY_TOKEN"] = cfg.Token
 ```
 

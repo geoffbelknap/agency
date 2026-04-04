@@ -107,7 +107,7 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 		"HOME":               "/agency/enforcer/data",
 		"AGENT_NAME":         e.AgentName,
 		"CONSTRAINT_WS_PORT": "8081",
-		"GATEWAY_URL":        "http://host.docker.internal:8200",
+		"GATEWAY_URL":        "http://gateway:8200",
 	}
 	if e.LifecycleID != "" {
 		env["AGENCY_LIFECYCLE_ID"] = e.LifecycleID
@@ -123,9 +123,7 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 				env["GATEWAY_TOKEN"] = cf.Token
 			}
 			if cf.GatewayAddr != "" {
-				if idx := strings.LastIndex(cf.GatewayAddr, ":"); idx >= 0 {
-					env["GATEWAY_URL"] = "http://host.docker.internal:" + cf.GatewayAddr[idx+1:]
-				}
+				env["GATEWAY_URL"] = "http://gateway:8200"
 			}
 		}
 	}
@@ -170,7 +168,6 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 	enforcerHostConfig.Binds = binds
 	enforcerHostConfig.NetworkMode = container.NetworkMode(internalNet)
 	enforcerHostConfig.Tmpfs = map[string]string{"/tmp": "size=64M", "/run": "size=32M"}
-	enforcerHostConfig.ExtraHosts = []string{"host.docker.internal:host-gateway"}
 
 	containerID, err := containers.CreateAndStart(ctx, e.cli,
 		e.ContainerName,

@@ -11,7 +11,7 @@ This spec addresses hardening at three threat tiers:
 | Tier | Escape Type | Current Exposure | Realistic? |
 |------|-------------|-----------------|------------|
 | 1 | Container escape (workspace → agent-internal network) | Enforcer only. Correct by design. | Yes — sandbox escapes happen |
-| 2 | Enforcer compromise (→ mediation network) | All infra services, gateway via host.docker.internal | Plausible if enforcer HTTP proxy has a vulnerability |
+| 2 | Enforcer compromise (→ mediation network) | All infra services, gateway via socket proxy (`gateway:8200`) | Plausible if enforcer HTTP proxy has a vulnerability |
 | 3 | Kernel-level escape (→ host) | Everything: credentials store + key, Docker socket, all files | Rare — Docker/kernel CVE required |
 
 Tier 1 is already well-contained (ASK Tenet 3). This spec focuses on tier 2 hardening.
@@ -59,31 +59,39 @@ Connect the enforcer to only the networks for services the agent has granted cap
 
 ### 2. Gateway Socket Access Tightening
 
-The gateway Unix socket (`~/.agency/run/gateway.sock`) serves a restricted router with no BearerAuth:
+The gateway exposes two Unix sockets (see `docs/specs/gateway-socket-proxy.md`):
+
+**`~/.agency/run/gateway.sock`** — proxy-safe endpoints, bridged to TCP `gateway:8200` by the gateway socket proxy container:
 - `GET /api/v1/health`
 - `POST /api/v1/agents/{name}/signal`
 - `POST /api/v1/internal/llm`
-- `GET /api/v1/internal/credentials/resolve`
 - `GET /api/v1/infra/status`
 - `GET /api/v1/channels`
 - `GET /api/v1/channels/{name}/messages`
 - `POST /api/v1/channels/{name}/messages`
 
-Currently, only the egress container has this socket bind-mounted (for credential resolution). No agent or workspace container has access. This is correct.
+**`~/.agency/run/gateway-cred.sock`** — credential resolution only, mounted into egress:
+- `GET /api/v1/internal/credentials/resolve`
 
-**Hardening:** Add `X-Agency-Caller` header validation to the socket router. Each infra container that uses the socket declares its identity; the socket router validates the caller against an allowlist per endpoint. This prevents a compromised egress container from using the socket to relay signals, post to comms, or call the internal LLM.
+The proxy-safe socket is mounted only by the gateway-proxy container. The credential socket is mounted only by egress. No agent or workspace container has access to either socket.
 
-**Allowlist:**
+**Hardening:** Add `X-Agency-Caller` header validation to both socket routers. Each container that uses the socket declares its identity; the router validates the caller against an allowlist per endpoint.
+
+**Allowlist (proxy-safe socket, via gateway-proxy TCP):**
 | Endpoint | Allowed Callers |
 |----------|----------------|
 | `/api/v1/health` | any |
-| `/api/v1/internal/credentials/resolve` | egress |
-| `/api/v1/internal/llm` | enforcer (via TCP, not socket) |
-| `/api/v1/agents/{name}/signal` | enforcer (via TCP, not socket) |
+| `/api/v1/internal/llm` | enforcer, knowledge |
+| `/api/v1/agents/{name}/signal` | enforcer |
 | `/api/v1/channels/*` | comms |
 | `/api/v1/infra/status` | any |
 
-Note: enforcers use TCP via `host.docker.internal`, not the socket. The socket is currently only used by egress.
+**Allowlist (credential socket, direct mount):**
+| Endpoint | Allowed Callers |
+|----------|----------------|
+| `/api/v1/internal/credentials/resolve` | egress |
+
+All containers reach the gateway via `http://gateway:8200` (Docker DNS) through the socket proxy. No `host.docker.internal` or `ExtraHosts` are used.
 
 ### 3. Docker Socket Exposure Audit
 
