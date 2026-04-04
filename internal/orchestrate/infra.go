@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -557,23 +556,21 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 		binds = append(binds, swapLocal+":/app/secrets/credential-swaps.local.yaml:ro")
 	}
 
-	// Credential resolution: try Unix socket first (Linux), fall back to
-	// HTTP via host.docker.internal (macOS Docker Desktop can't forward
-	// Unix sockets across the VM boundary).
+	// Credential resolution: mount the credential-only socket (read-only)
+	// so the egress resolver can authenticate with the gateway. The proxy
+	// container exposes the gateway as gateway:8200 on the mediation network.
 	runDir := filepath.Join(inf.Home, "run")
-	if fileExists(filepath.Join(runDir, "gateway.sock")) {
-		binds = append(binds, runDir+":/app/gateway-run:rw")
-		env["GATEWAY_SOCKET"] = "/app/gateway-run/gateway.sock"
+	credSockPath := filepath.Join(runDir, "gateway-cred.sock")
+	if fileExists(credSockPath) {
+		binds = append(binds, credSockPath+":/app/gateway-cred.sock:ro")
+		env["GATEWAY_SOCKET"] = "/app/gateway-cred.sock"
 	}
-	// Always provide HTTP fallback — the Python resolver probes the socket
-	// at startup and uses HTTP when the socket isn't connectable.
-	env["GATEWAY_URL"] = "http://host.docker.internal:" + inf.gatewayPort()
+	env["GATEWAY_URL"] = "http://gateway:8200"
 	env["GATEWAY_TOKEN"] = inf.EgressToken
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
 	hc.NetworkMode = container.NetworkMode(mediationNet)
-	hc.ExtraHosts = []string{"host.docker.internal:host-gateway"}
 
 	id, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
@@ -624,7 +621,6 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 		agentsDir + ":/app/agents:rw",
 	}
 	hc.NetworkMode = container.NetworkMode(mediationNet)
-	hc.ExtraHosts = []string{"host.docker.internal:host-gateway"}
 	hc.PortBindings = nat.PortMap{
 		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8202"}},
 	}
@@ -673,29 +669,13 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 
 	env := map[string]string{
 		"HTTPS_PROXY":          "http://egress:3128",
-		"NO_PROXY":             "agency-infra-embeddings,localhost,127.0.0.1,host.docker.internal",
+		"NO_PROXY":             "agency-infra-embeddings,localhost,127.0.0.1,gateway",
 		"AGENCY_GATEWAY_TOKEN": inf.GatewayToken,
+		"AGENCY_GATEWAY_URL":   "http://gateway:8200",
 	}
 
 	binds := []string{
 		knowledgeDir + ":/data:rw",
-	}
-
-	// Gateway access: on Linux, mount the socket directory so containers
-	// can reach the gateway via Unix socket (survives gateway restarts).
-	// On macOS/Windows (Docker Desktop), Unix sockets can't be shared via
-	// directory mounts (VirtioFS limitation), so use host.docker.internal TCP.
-	if runtime.GOOS == "linux" {
-		sockDir := filepath.Join(inf.Home, "run")
-		sockPath := filepath.Join(sockDir, "gateway.sock")
-		if fileExists(sockPath) {
-			env["AGENCY_GATEWAY_URL"] = "http+unix:///run/agency/gateway.sock"
-			binds = append(binds, sockDir+":/run/agency:ro")
-		} else {
-			env["AGENCY_GATEWAY_URL"] = "http://host.docker.internal:" + inf.gatewayPort()
-		}
-	} else {
-		env["AGENCY_GATEWAY_URL"] = "http://host.docker.internal:" + inf.gatewayPort()
 	}
 
 	// Mount merged ontology into knowledge container (read-only)
@@ -713,7 +693,6 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
 	hc.NetworkMode = container.NetworkMode(mediationNet)
-	hc.ExtraHosts = []string{"host.docker.internal:host-gateway"}
 	hc.PortBindings = nat.PortMap{
 		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8204"}},
 	}
@@ -797,7 +776,6 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
 	hc.NetworkMode = container.NetworkMode(mediationNet)
-	hc.ExtraHosts = []string{"host.docker.internal:host-gateway"}
 	hc.Resources.Memory = 128 * 1024 * 1024 // 128MB — intake is lightweight
 	hc.PortBindings = nat.PortMap{
 		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8205"}},
