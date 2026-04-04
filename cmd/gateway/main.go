@@ -964,7 +964,7 @@ func runServe(httpAddr string) error {
 	if err != nil {
 		logger.Warn("could not create credential socket", "err", err)
 	} else {
-		os.Chmod(credSockPath, 0600)
+		os.Chmod(credSockPath, 0666) // world-connectable — egress runs as root; access controlled by bind mount scope
 		credRouter := chi.NewRouter()
 		credRouter.Use(chiMiddleware.Recoverer)
 		api.RegisterCredentialSocketRoutes(credRouter, cfg, dc, logger, routeOpts)

@@ -566,7 +566,7 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 	runDir := filepath.Join(inf.Home, "run")
 	credSockPath := filepath.Join(runDir, "gateway-cred.sock")
 	if fileExists(credSockPath) {
-		binds = append(binds, credSockPath+":/app/gateway-cred.sock:ro")
+		binds = append(binds, credSockPath+":/app/gateway-cred.sock:rw")
 		env["GATEWAY_SOCKET"] = "/app/gateway-cred.sock"
 	}
 	env["GATEWAY_URL"] = "http://gateway:8200"

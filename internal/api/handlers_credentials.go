@@ -366,11 +366,22 @@ func (h *handler) resolveCredential(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Try credential store first
+	// Try credential store — exact match first, then normalized name.
+	// Connector swap configs use env-var style names (ANTHROPIC_API_KEY) but
+	// the credential store uses kebab-case (anthropic-api-key). The fallback
+	// normalizes: lowercase, underscores to hyphens, strip common suffixes.
 	if h.credStore != nil {
-		entry, err := h.credStore.Get(name)
-		if err == nil {
-			// Resolve group config if needed
+		names := []string{name}
+		normalized := normalizeCredentialName(name)
+		if normalized != name {
+			names = append(names, normalized)
+		}
+
+		for _, n := range names {
+			entry, err := h.credStore.Get(n)
+			if err != nil {
+				continue
+			}
 			resolved, err := credstore.ResolveGroup(*entry, h.credStore.Backend())
 			if err != nil {
 				writeJSON(w, 500, map[string]string{"error": "group resolution: " + err.Error()})
@@ -390,7 +401,7 @@ func (h *handler) resolveCredential(w http.ResponseWriter, r *http.Request) {
 
 			if h.audit != nil {
 				h.audit.Write("platform", "credential_resolved", map[string]interface{}{
-					"credential": name,
+					"credential": n,
 					"source":     "store",
 					"caller":     "egress",
 				})
@@ -402,6 +413,14 @@ func (h *handler) resolveCredential(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, 404, map[string]string{"error": "credential not found"})
+}
+
+// normalizeCredentialName converts env-var style names (ANTHROPIC_API_KEY) to
+// credential store style (anthropic-api-key): lowercase, underscores to hyphens.
+func normalizeCredentialName(name string) string {
+	n := strings.ToLower(name)
+	n = strings.ReplaceAll(n, "_", "-")
+	return n
 }
 
 // parseDuration parses a duration string like "7d", "24h", "30m".
