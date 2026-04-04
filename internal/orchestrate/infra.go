@@ -41,8 +41,9 @@ var defaultImages = map[string]string{
 	"knowledge": "agency-knowledge:latest",
 	"intake":    "agency-intake:latest",
 	"web-fetch": "agency-web-fetch:latest",
-	"web":        "agency-web:latest",
-	"embeddings": "agency-embeddings:latest",
+	"web":            "agency-web:latest",
+	"embeddings":     "agency-embeddings:latest",
+	"gateway-proxy":  "agency-gateway-proxy:latest",
 }
 
 var defaultHealthChecks = map[string]*container.HealthConfig{
@@ -93,6 +94,13 @@ var defaultHealthChecks = map[string]*container.HealthConfig{
 		Interval:    5 * time.Second,
 		Timeout:     3 * time.Second,
 		StartPeriod: 5 * time.Second,
+		Retries:     3,
+	},
+	"gateway-proxy": {
+		Test:        []string{"CMD-SHELL", "socat -T1 TCP:127.0.0.1:8200 UNIX-CONNECT:/run/gateway.sock"},
+		Interval:    5 * time.Second,
+		Timeout:     3 * time.Second,
+		StartPeriod: 3 * time.Second,
 		Retries:     3,
 	},
 }
@@ -198,6 +206,7 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 		desc string
 		ensure func(ctx context.Context) error
 	}{
+		{"gateway-proxy", "Starting gateway proxy", inf.ensureGatewayProxy},
 		{"egress", "Starting egress proxy (credential swap, network mediation)", inf.ensureEgress},
 		{"comms", "Starting comms server (channels, messaging)", inf.ensureComms},
 		{"knowledge", "Starting knowledge graph", inf.ensureKnowledge},
@@ -251,7 +260,7 @@ func (inf *Infra) TeardownWithProgress(ctx context.Context, onProgress ProgressF
 	if onProgress != nil {
 		onProgress("infra", "Stopping all services")
 	}
-	roles := []string{"web", "web-fetch", "intake", "knowledge", "comms", "egress", "embeddings"}
+	roles := []string{"web", "web-fetch", "intake", "knowledge", "comms", "egress", "embeddings", "gateway-proxy"}
 
 	var wg sync.WaitGroup
 	for _, role := range roles {
@@ -310,13 +319,14 @@ func (inf *Infra) RestartComponent(ctx context.Context, component string) error 
 // calling onProgress for each step.
 func (inf *Infra) RestartComponentWithProgress(ctx context.Context, component string, onProgress ProgressFunc) error {
 	valid := map[string]func(ctx context.Context) error{
-		"egress":    inf.ensureEgress,
-		"comms":     inf.ensureComms,
-		"knowledge": inf.ensureKnowledge,
-		"intake":    inf.ensureIntake,
-		"web-fetch": inf.ensureWebFetch,
-		"web":        inf.ensureWeb,
-		"embeddings": inf.ensureEmbeddings,
+		"gateway-proxy": inf.ensureGatewayProxy,
+		"egress":        inf.ensureEgress,
+		"comms":         inf.ensureComms,
+		"knowledge":     inf.ensureKnowledge,
+		"intake":        inf.ensureIntake,
+		"web-fetch":     inf.ensureWebFetch,
+		"web":           inf.ensureWeb,
+		"embeddings":    inf.ensureEmbeddings,
 	}
 
 	ensure, ok := valid[component]
@@ -445,6 +455,58 @@ func (inf *Infra) ensureNetworks(ctx context.Context) error {
 }
 
 // -- Individual containers --
+
+func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
+	if err := images.Resolve(ctx, inf.cli, "gateway-proxy", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
+		return fmt.Errorf("resolve gateway-proxy image: %w", err)
+	}
+	name := containerName("gateway-proxy")
+	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
+		return nil
+	}
+	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("gateway-proxy"))
+
+	runDir := filepath.Join(inf.Home, "run")
+
+	hc := containers.HostConfigDefaults(containers.RoleInfra)
+	hc.Binds = []string{
+		runDir + ":/run:ro",
+	}
+	hc.NetworkMode = container.NetworkMode(mediationNet)
+	hc.ReadonlyRootfs = true
+	hc.Resources.Memory = 16 * 1024 * 1024
+	hc.Resources.NanoCPUs = 250_000_000
+	pidsLimit := int64(32)
+	hc.Resources.PidsLimit = &pidsLimit
+
+	id, err := containers.CreateAndStart(ctx, inf.cli,
+		name,
+		&container.Config{
+			Image:    defaultImages["gateway-proxy"],
+			Hostname: "gateway-proxy",
+			Labels: map[string]string{
+				"agency.managed":       "true",
+				"agency.role":          "infra",
+				"agency.component":     "gateway-proxy",
+				"agency.build.id":      images.ImageBuildLabel(ctx, inf.cli, defaultImages["gateway-proxy"]),
+				"agency.build.gateway": inf.BuildID,
+			},
+			Healthcheck: defaultHealthChecks["gateway-proxy"],
+		},
+		hc, nil,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Set DNS alias so other containers can reach it as "gateway"
+	inf.connectIfNeeded(ctx, id, mediationNet, []string{"gateway"})
+
+	if err := inf.waitRunning(ctx, name, 10*time.Second); err != nil {
+		return err
+	}
+	return inf.waitHealthy(ctx, name, 15*time.Second)
+}
 
 func (inf *Infra) ensureEgress(ctx context.Context) error {
 	if err := images.Resolve(ctx, inf.cli, "egress", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
@@ -843,8 +905,7 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("web"))
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
-	hc.NetworkMode = "bridge"
-	hc.ExtraHosts = []string{"host.docker.internal:host-gateway"}
+	hc.NetworkMode = "host"
 	hc.ReadonlyRootfs = true
 	hc.Tmpfs = map[string]string{
 		"/var/cache/nginx": "rw,noexec,nosuid,size=16m",
@@ -855,9 +916,6 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 	hc.Resources.NanoCPUs = 500_000_000         // 0.5 CPU
 	pidsLimit := int64(64)
 	hc.Resources.PidsLimit = &pidsLimit
-	hc.PortBindings = nat.PortMap{
-		"8280/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8280"}},
-	}
 
 	if _, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
