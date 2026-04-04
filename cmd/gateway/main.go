@@ -932,7 +932,7 @@ func runServe(httpAddr string) error {
 	if err != nil {
 		logger.Warn("could not create Unix socket", "err", err)
 	} else {
-		os.Chmod(sockPath, 0600) // gateway-user only — container isolation via bind mount scope
+		os.Chmod(sockPath, 0666) // world-readable — proxy container runs as nobody; access controlled by bind mount scope
 		// Restricted router: only the endpoints infra containers need.
 		// No BearerAuth — containers don't hold the operator token.
 		sockRouter := chi.NewRouter()

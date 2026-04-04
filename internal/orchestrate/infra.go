@@ -478,7 +478,15 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	pidsLimit := int64(32)
 	hc.Resources.PidsLimit = &pidsLimit
 
-	id, err := containers.CreateAndStart(ctx, inf.cli,
+	netCfg := &network.NetworkingConfig{
+		EndpointsConfig: map[string]*network.EndpointSettings{
+			mediationNet: {
+				Aliases: []string{"gateway"},
+			},
+		},
+	}
+
+	if _, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
 		&container.Config{
 			Image:    defaultImages["gateway-proxy"],
@@ -492,14 +500,10 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 			},
 			Healthcheck: defaultHealthChecks["gateway-proxy"],
 		},
-		hc, nil,
-	)
-	if err != nil {
+		hc, netCfg,
+	); err != nil {
 		return err
 	}
-
-	// Set DNS alias so other containers can reach it as "gateway"
-	inf.connectIfNeeded(ctx, id, mediationNet, []string{"gateway"})
 
 	if err := inf.waitRunning(ctx, name, 10*time.Second); err != nil {
 		return err
