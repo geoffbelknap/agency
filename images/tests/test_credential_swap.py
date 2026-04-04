@@ -1,5 +1,4 @@
 import os
-import pytest
 import yaml
 from unittest.mock import MagicMock, patch
 
@@ -38,8 +37,7 @@ class TestUnifiedSwapAddon:
         swap_file.write_text(yaml.dump({"swaps": swaps}))
         socket_file = tmp_path / "gateway.sock"
         socket_file.write_text("")
-        with patch.dict(os.environ, {"GATEWAY_SOCKET": str(socket_file)}), \
-             patch.object(CredentialSwapAddon, "_socket_usable", return_value=True):
+        with patch.dict(os.environ, {"GATEWAY_SOCKET": str(socket_file)}):
             addon = CredentialSwapAddon(
                 swap_config_path=str(swap_file),
                 swap_local_path=str(tmp_path / "credential-swaps.local.yaml"),
@@ -113,8 +111,7 @@ class TestUnifiedSwapAddon:
         }}))
         socket_file = tmp_path / "gateway.sock"
         socket_file.write_text("")
-        with patch.dict(os.environ, {"GATEWAY_SOCKET": str(socket_file)}), \
-             patch.object(CredentialSwapAddon, "_socket_usable", return_value=True):
+        with patch.dict(os.environ, {"GATEWAY_SOCKET": str(socket_file)}):
             addon = CredentialSwapAddon(
                 swap_config_path=str(swap_file),
                 swap_local_path=str(local_file),
@@ -146,8 +143,7 @@ class TestUnifiedSwapAddon:
         swap_file.write_text(yaml.dump({"swaps": {}}))
         socket_file = tmp_path / "gateway.sock"
         socket_file.write_text("")
-        with patch.dict(os.environ, {"GATEWAY_SOCKET": str(socket_file)}), \
-             patch.object(CredentialSwapAddon, "_socket_usable", return_value=True):
+        with patch.dict(os.environ, {"GATEWAY_SOCKET": str(socket_file)}):
             addon = CredentialSwapAddon(
                 swap_config_path=str(swap_file),
                 swap_local_path=str(tmp_path / "credential-swaps.local.yaml"),
@@ -171,16 +167,11 @@ class TestUnifiedSwapAddon:
         addon.request(flow2)
         assert flow2.request.headers["X-Api-Key"] == "abc123"
 
-    def test_no_resolver_available_raises(self, tmp_path):
+    def test_constructor_with_missing_socket(self, tmp_path):
+        """Constructor succeeds even with a nonexistent socket path —
+        resolution failures happen lazily at request time."""
         swap_file = tmp_path / "credential-swaps.yaml"
         swap_file.write_text(yaml.dump({"swaps": {}}))
-        with patch.dict(os.environ, {"GATEWAY_SOCKET": "", "GATEWAY_URL": "", "GATEWAY_TOKEN": ""}, clear=False):
-            with pytest.raises(RuntimeError, match="No credential resolver available"):
-                CredentialSwapAddon(swap_config_path=str(swap_file))
-
-    def test_unusable_socket_without_http_fallback_raises(self, tmp_path):
-        swap_file = tmp_path / "credential-swaps.yaml"
-        swap_file.write_text(yaml.dump({"swaps": {}}))
-        with patch.dict(os.environ, {"GATEWAY_SOCKET": "/nonexistent/path", "GATEWAY_URL": "", "GATEWAY_TOKEN": ""}, clear=False):
-            with pytest.raises(RuntimeError, match="No credential resolver available"):
-                CredentialSwapAddon(swap_config_path=str(swap_file))
+        with patch.dict(os.environ, {"GATEWAY_SOCKET": "/nonexistent/path"}):
+            addon = CredentialSwapAddon(swap_config_path=str(swap_file))
+        assert addon is not None
