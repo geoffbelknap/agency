@@ -82,7 +82,7 @@ var defaultHealthChecks = map[string]*container.HealthConfig{
 		Retries:  3,
 	},
 	"web": {
-		Test:        []string{"CMD", "wget", "-q", "-O-", "http://127.0.0.1:80/health"},
+		Test:        []string{"CMD", "wget", "--no-check-certificate", "-q", "-O-", "https://127.0.0.1:8280/health"},
 		Interval:    5 * time.Second,
 		Timeout:     2 * time.Second,
 		StartPeriod: 2 * time.Second,
@@ -856,7 +856,7 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 	pidsLimit := int64(64)
 	hc.Resources.PidsLimit = &pidsLimit
 	hc.PortBindings = nat.PortMap{
-		"80/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8280"}},
+		"8280/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8280"}},
 	}
 
 	if _, err := containers.CreateAndStart(ctx, inf.cli,
@@ -872,7 +872,7 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 				"agency.build.gateway": inf.BuildID,
 			},
 			Healthcheck:  defaultHealthChecks["web"],
-			ExposedPorts: nat.PortSet{"80/tcp": struct{}{}},
+			ExposedPorts: nat.PortSet{"8280/tcp": struct{}{}},
 		},
 		hc, nil,
 	); err != nil {

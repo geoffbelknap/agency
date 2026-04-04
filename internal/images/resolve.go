@@ -53,6 +53,14 @@ func Resolve(ctx context.Context, cli *client.Client, name, version, sourceDir, 
 		return nil // No buildID to compare — assume current
 	}
 
+	// No source dir means we can't rebuild — if the image already exists locally,
+	// use it as-is rather than pulling from GHCR (which may be a different version).
+	// This covers images like agency-web that are built out-of-tree via `make web`.
+	if sourceDir == "" && exists {
+		logger.Info("image exists locally, no source dir to rebuild — using as-is", "image", localTag)
+		return nil
+	}
+
 	// Dev mode: rebuild from source tree. Failure is fatal — no silent fallback.
 	if sourceDir != "" {
 		if err := buildFromSource(ctx, cli, name, sourceDir, localTag, buildID, logger); err != nil {
