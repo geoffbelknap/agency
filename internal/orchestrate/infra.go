@@ -887,13 +887,22 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("web"))
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
-	hc.NetworkMode = "host"
+	hc.NetworkMode = "bridge"
 	hc.ReadonlyRootfs = true
 	hc.Tmpfs = map[string]string{
-		"/var/cache/nginx": "rw,noexec,nosuid,size=16m",
-		"/var/run":         "rw,noexec,nosuid,size=1m",
-		"/tmp":             "rw,noexec,nosuid,size=1m",
+		"/var/cache/nginx":    "rw,noexec,nosuid,size=16m",
+		"/var/lib/nginx/logs": "rw,noexec,nosuid,size=1m",
+		"/var/lib/nginx/tmp":  "rw,noexec,nosuid,size=1m",
+		"/run/nginx":          "rw,noexec,nosuid,size=1m",
+		"/var/run":            "rw,noexec,nosuid,size=1m",
+		"/tmp":                "rw,noexec,nosuid,size=1m",
 	}
+	hc.PortBindings = nat.PortMap{
+		"8280/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8280"}},
+	}
+	// Web container needs the full gateway API (not the restricted socket proxy),
+	// so route to the host's TCP listener instead of the mediation-net gateway-proxy.
+	hc.ExtraHosts = []string{"gateway:host-gateway"}
 	hc.Resources.Memory = 64 * 1024 * 1024     // 64MB — nginx serving static files
 	hc.Resources.NanoCPUs = 500_000_000         // 0.5 CPU
 	pidsLimit := int64(64)
