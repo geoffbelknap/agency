@@ -18,7 +18,7 @@ CORE_IMAGES = body enforcer comms knowledge intake egress workspace web-fetch ga
 REPO_CONTEXT_IMAGES = comms knowledge intake
 
 # Build and install the gateway binary + all container images (including web UI)
-all: install images web
+all: install images-all
 	@echo "Gateway installed, images built. Run 'agency serve' to start."
 
 # Build the gateway binary
@@ -53,9 +53,9 @@ install: build
 	echo "Installed to $$DEST and restarted gateway"
 
 # Build, install, and bring up infrastructure
-deploy: install
+deploy: all
 	@echo "Starting infrastructure..."
-	@agency infra up
+	@$(HOME)/.agency/bin/agency infra up
 	@echo "Deploy complete."
 
 test:
@@ -64,8 +64,11 @@ test:
 clean:
 	rm -f agency gateway
 
-# Build all container images
+# Build all container images (core only; use `make images-all` to include web)
 images: $(CORE_IMAGES)
+
+# Build all container images including web UI
+images-all: images web
 
 # Per-image targets. Repo-context images use repo root as context;
 # self-contained images use their own directory.

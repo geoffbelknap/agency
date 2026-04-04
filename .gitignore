@@ -42,4 +42,5 @@ node_modules/
 # Benchmark artifacts
 benchmark_results_*.json
 /gateway
+/agency
 .worktrees/

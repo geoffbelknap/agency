@@ -58,6 +58,22 @@ func providerEnvVar(provider string) string {
 	return strings.ToUpper(provider) + "_API_KEY"
 }
 
+// ProviderDomains returns the API domains for well-known LLM providers.
+// Used by credential storage to populate protocol_config.domains so the
+// egress proxy knows which requests to inject credentials into.
+func ProviderDomains(provider string) []string {
+	switch strings.ToLower(provider) {
+	case "anthropic":
+		return []string{"api.anthropic.com"}
+	case "openai":
+		return []string{"api.openai.com"}
+	case "google":
+		return []string{"generativelanguage.googleapis.com"}
+	default:
+		return nil
+	}
+}
+
 // detectNotificationType infers "ntfy" or "webhook" from a URL.
 func detectNotificationType(url string) string {
 	lower := strings.ToLower(url)
