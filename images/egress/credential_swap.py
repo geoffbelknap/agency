@@ -57,24 +57,9 @@ class CredentialSwapAddon:
         self._swap_config_path = swap_config_path
         self._swap_local_path = swap_local_path
 
-        # Try Unix socket first (works on Linux), fall back to HTTP
-        # (required on macOS Docker Desktop where sockets can't cross the VM).
-        gateway_socket = os.environ.get("GATEWAY_SOCKET", "")
-        gateway_url = os.environ.get("GATEWAY_URL", "")
-        gateway_token = os.environ.get("GATEWAY_TOKEN", "")
-
-        if gateway_socket and self._socket_usable(gateway_socket):
-            self._resolver = SocketKeyResolver(gateway_socket)
-            logger.info("Using SocketKeyResolver (socket: %s)", gateway_socket)
-        elif gateway_url and gateway_token:
-            from key_resolver import HTTPKeyResolver
-            self._resolver = HTTPKeyResolver(gateway_url, gateway_token)
-            logger.info("Using HTTPKeyResolver (url: %s)", gateway_url)
-        else:
-            raise RuntimeError(
-                "No credential resolver available. "
-                "Set GATEWAY_SOCKET (Unix socket) or GATEWAY_URL + GATEWAY_TOKEN (HTTP)."
-            )
+        socket_path = os.environ.get("GATEWAY_SOCKET", "/app/gateway-cred.sock")
+        self._resolver = SocketKeyResolver(socket_path)
+        logger.info("Using SocketKeyResolver (socket: %s)", socket_path)
 
         # domain -> swap config dict
         self._domain_swaps: dict[str, dict] = {}
@@ -82,19 +67,6 @@ class CredentialSwapAddon:
         self._named_swaps: dict[str, dict] = {}
 
         self._load()
-
-    @staticmethod
-    def _socket_usable(path: str) -> bool:
-        """Test if a Unix socket is actually connectable (not just a file)."""
-        import socket as _socket
-        try:
-            s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
-            s.settimeout(2)
-            s.connect(path)
-            s.close()
-            return True
-        except Exception:
-            return False
 
         # Register SIGHUP handler for hot-reload
         try:
