@@ -281,6 +281,7 @@ func setupCmd() *cobra.Command {
 		apiKey    string
 		notifyURL string
 		noInfra   bool
+		cliMode   bool
 	)
 
 	cmd := &cobra.Command{
@@ -294,55 +295,60 @@ func setupCmd() *cobra.Command {
 				}
 			}
 
-			// Quick setup: if --name or --preset flags are set, skip prompts
-			if name != "" || preset != "" {
-				return runSetup(provider, apiKey, notifyURL, noInfra)
-			}
+			if cliMode {
+				// Quick setup: if --name or --preset flags are set, skip prompts
+				if name != "" || preset != "" {
+					return runSetup(provider, apiKey, notifyURL, noInfra, true)
+				}
 
-			// Interactive: prompt for provider/key if not set via flags
-			if provider == "" && !cmd.Flags().Changed("provider") {
-				scanner := bufio.NewScanner(os.Stdin)
+				// Interactive: prompt for provider/key if not set via flags
+				if provider == "" && !cmd.Flags().Changed("provider") {
+					scanner := bufio.NewScanner(os.Stdin)
 
-				fmt.Println("Agency Setup")
-				fmt.Println()
-				fmt.Println("LLM Provider:")
-				fmt.Println("  1. Anthropic (recommended)")
-				fmt.Println("  2. OpenAI")
-				fmt.Println("  3. Google")
-				fmt.Println("  4. Skip (configure later)")
-				fmt.Println()
-				fmt.Print("Select [1-4, default 1]: ")
+					fmt.Println("Agency Setup")
+					fmt.Println()
+					fmt.Println("LLM Provider:")
+					fmt.Println("  1. Anthropic (recommended)")
+					fmt.Println("  2. OpenAI")
+					fmt.Println("  3. Google")
+					fmt.Println("  4. Skip (configure later)")
+					fmt.Println()
+					fmt.Print("Select [1-4, default 1]: ")
 
-				choice := "1"
-				if scanner.Scan() {
-					if t := scanner.Text(); t != "" {
-						choice = t
+					choice := "1"
+					if scanner.Scan() {
+						if t := scanner.Text(); t != "" {
+							choice = t
+						}
+					}
+
+					switch choice {
+					case "1":
+						provider = "anthropic"
+					case "2":
+						provider = "openai"
+					case "3":
+						provider = "google"
+					case "4":
+						provider = ""
+					default:
+						provider = "anthropic"
+					}
+
+					if provider != "" && apiKey == "" {
+						fmt.Printf("\n%s API key: ", provider)
+						if keyBytes, err := readPassword(); err == nil {
+							apiKey = strings.TrimSpace(string(keyBytes))
+							fmt.Println() // newline after masked input
+						}
 					}
 				}
 
-				switch choice {
-				case "1":
-					provider = "anthropic"
-				case "2":
-					provider = "openai"
-				case "3":
-					provider = "google"
-				case "4":
-					provider = ""
-				default:
-					provider = "anthropic"
-				}
-
-				if provider != "" && apiKey == "" {
-					fmt.Printf("\n%s API key: ", provider)
-					if keyBytes, err := readPassword(); err == nil {
-						apiKey = strings.TrimSpace(string(keyBytes))
-						fmt.Println() // newline after masked input
-					}
-				}
+				return runSetup(provider, apiKey, notifyURL, noInfra, true)
 			}
 
-			return runSetup(provider, apiKey, notifyURL, noInfra)
+			// Default: web-assisted setup — no prompts
+			return runSetup("", "", notifyURL, noInfra, false)
 		},
 	}
 
@@ -352,6 +358,7 @@ func setupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "LLM provider API key")
 	cmd.Flags().StringVar(&notifyURL, "notify-url", "", "Notification URL (ntfy or webhook) for operator alerts")
 	cmd.Flags().BoolVar(&noInfra, "no-infra", false, "Skip Docker check and infrastructure startup")
+	cmd.Flags().BoolVar(&cliMode, "cli", false, "Run full interactive setup in the terminal")
 
 	return cmd
 }
@@ -425,6 +432,46 @@ func isWSL() bool {
 	return strings.Contains(s, "microsoft") || strings.Contains(s, "WSL")
 }
 
+// openBrowser attempts to open url in the system default browser.
+// Best-effort — returns an error but callers should ignore it.
+func openBrowser(url string) error {
+	var cmd string
+	var args []string
+
+	switch {
+	case runtime.GOOS == "darwin":
+		cmd = "open"
+		args = []string{url}
+	case isWSL():
+		// Try wslview first (wslu package), fall back to cmd.exe
+		if _, err := exec.LookPath("wslview"); err == nil {
+			cmd = "wslview"
+			args = []string{url}
+		} else {
+			cmd = "cmd.exe"
+			args = []string{"/c", "start", url}
+		}
+	default: // linux, freebsd, etc.
+		cmd = "xdg-open"
+		args = []string{url}
+	}
+
+	return exec.Command(cmd, args...).Start()
+}
+
+// webHost derives the web UI hostname from the gateway address config.
+// Returns "localhost" if the gateway binds to 0.0.0.0 or if the address
+// cannot be parsed.
+func webHost() string {
+	cfg := config.Load()
+	if host, _, err := net.SplitHostPort(cfg.GatewayAddr); err == nil && host != "" {
+		if host != "0.0.0.0" {
+			return host
+		}
+	}
+	return "localhost"
+}
+
 func checkDocker() error {
 	wsl := isWSL()
 
@@ -473,7 +520,7 @@ func checkDocker() error {
 	return nil
 }
 
-func runSetup(provider, apiKey, notifyURL string, noInfra bool) error {
+func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode bool) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("cannot determine home directory: %w", err)
@@ -576,25 +623,19 @@ func runSetup(provider, apiKey, notifyURL string, noInfra bool) error {
 	}
 
 	fmt.Println()
-	fmt.Println("You're ready to go:")
-	fmt.Println()
-	fmt.Println("  agency create my-agent  # Create an agent")
-	fmt.Println("  agency start my-agent   # Start an agent")
-	fmt.Println("  agency status           # Check platform status")
-	fmt.Println()
-	// Derive web UI host from gateway address (same host, port 8280)
-	webHost := "localhost"
-	if !noInfra {
-		cfg := config.Load()
-		if host, _, err := net.SplitHostPort(cfg.GatewayAddr); err == nil && host != "" {
-			if host == "0.0.0.0" {
-				webHost = "localhost"
-			} else {
-				webHost = host
-			}
-		}
+	if cliMode {
+		fmt.Println("You're ready to go:")
+		fmt.Println()
+		fmt.Println("  agency create my-agent  # Create an agent")
+		fmt.Println("  agency start my-agent   # Start an agent")
+		fmt.Println("  agency status           # Check platform status")
+		fmt.Println()
+		fmt.Printf("  Open http://%s:8280 for the web UI\n", webHost())
+	} else {
+		setupURL := fmt.Sprintf("http://%s:8280/setup", webHost())
+		_ = openBrowser(setupURL)
+		fmt.Printf("Finish setup at: %s\n", setupURL)
 	}
-	fmt.Printf("  Open http://%s:8280 for the web UI\n", webHost)
 
 	return nil
 }
