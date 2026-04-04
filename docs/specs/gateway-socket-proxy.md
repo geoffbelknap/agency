@@ -156,12 +156,41 @@ Both Unix sockets are created with mode `0600` (gateway process user only). Acce
 
 No other container mounts either socket directory.
 
-### Unchanged Risks
+### Unchanged Risks (Addressed by Follow-Up Spec)
 
 - Any container on `agency-mediation` can reach the gateway proxy API (same as today, but now scoped to non-sensitive endpoints).
 - Non-sensitive traffic (budget checks, signals, LLM routing) travels as HTTP on the Docker bridge. This data is not secret.
 - Credential file mounts in egress remain the same (read-only).
-- A compromised enforcer on `agency-mediation` can still reach other infra services (egress, comms, knowledge). Mediation network segmentation (separate spec) addresses this.
+- **A compromised enforcer on the flat `agency-mediation` network can still reach egress, comms, knowledge, and web-fetch.** This is the existing threat model — no regression. See follow-up spec below.
+
+### Follow-Up: Mediation Network Segmentation
+
+This spec intentionally keeps the flat `agency-mediation` network as an interim state. A follow-up spec will segment it to isolate internet-facing services:
+
+```
+agency-mediation (internal services only, no internet access)
+  ├── comms
+  ├── knowledge
+  ├── intake
+  ├── embeddings
+  └── gateway-proxy
+
+agency-egress-mediation (LLM/API traffic — carries credentials at swap time)
+  ├── egress
+  └── enforcers (secondary connection)
+
+agency-fetch-mediation (web content retrieval — processes untrusted content)
+  ├── web-fetch
+  └── enforcers (secondary connection)
+
+agency-egress-net (internet access, existing)
+  ├── egress
+  └── web-fetch
+```
+
+**Rationale:** Egress and web-fetch both touch the public internet but have different threat profiles. Egress carries injected API credentials (exfiltration risk). Web-fetch processes untrusted page content (inbound attack risk / XPIA). Sharing a network means a compromise of either enables pivoting to the other. Separate mediation networks prevent this lateral movement.
+
+The segmentation spec will cover: network topology changes, enforcer multi-network connection logic, mediation proxy routing updates, and impact on the existing mediation-network-hardening proposal.
 
 ### Proxy Container Security Posture
 
