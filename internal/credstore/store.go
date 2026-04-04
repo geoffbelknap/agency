@@ -310,6 +310,18 @@ func (s *Store) GenerateSwapConfig() ([]byte, error) {
 				swap.Format = f
 			}
 			swap.Domains = extractDomains(resolved.Metadata.ProtocolConfig)
+			// Fallback: infer defaults for well-known providers when not explicitly set.
+			if defaults := inferProviderDefaults(resolved.Name); defaults != nil {
+				if len(swap.Domains) == 0 {
+					swap.Domains = defaults.Domains
+				}
+				if swap.Header == "" {
+					swap.Header = defaults.Header
+				}
+				if swap.Format == "" {
+					swap.Format = defaults.Format
+				}
+			}
 
 		case ProtocolJWTExchange:
 			swap.Type = "jwt-exchange"
@@ -457,6 +469,40 @@ func extractDomains(pc map[string]any) []string {
 		}
 	}
 	return domains
+}
+
+// providerDefaults holds default swap config for a well-known LLM provider.
+type providerDefaults struct {
+	Domains []string
+	Header  string
+	Format  string
+}
+
+// inferProviderDefaults returns swap defaults for well-known LLM provider
+// credentials based on their name. Handles credentials stored before
+// domain/header info was included in protocol_config.
+func inferProviderDefaults(name string) *providerDefaults {
+	n := strings.ToLower(name)
+	switch {
+	case strings.Contains(n, "anthropic"):
+		return &providerDefaults{
+			Domains: []string{"api.anthropic.com"},
+			Header:  "x-api-key",
+		}
+	case strings.Contains(n, "openai"):
+		return &providerDefaults{
+			Domains: []string{"api.openai.com"},
+			Header:  "Authorization",
+			Format:  "Bearer {key}",
+		}
+	case strings.Contains(n, "google"):
+		return &providerDefaults{
+			Domains: []string{"generativelanguage.googleapis.com"},
+			Header:  "x-goog-api-key",
+		}
+	default:
+		return nil
+	}
 }
 
 // matchesFilter checks if flat backend metadata matches the given filter.

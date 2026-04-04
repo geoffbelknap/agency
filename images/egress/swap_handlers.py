@@ -23,7 +23,8 @@ def handle_api_key(flow: Any, config: dict, resolver: Any) -> None:
         return
     fmt = config.get("format")
     value = fmt.format(key=key) if fmt else key
-    flow.request.headers[config["header"]] = value
+    header = config.get("header", "Authorization")
+    flow.request.headers[header] = value
 
 
 class JWTSwapState:

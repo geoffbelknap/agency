@@ -557,13 +557,19 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode bool) error {
 		c := apiclient.NewClient("http://" + cfg.GatewayAddr)
 		for _, key := range pendingKeys {
 			fmt.Printf("  Storing %s credential...\n", key.Provider)
-			_, err := c.CredentialSet(map[string]interface{}{
+			body := map[string]interface{}{
 				"name":     key.EnvVar,
 				"value":    key.Key,
 				"kind":     "provider",
 				"scope":    "platform",
 				"protocol": "api-key",
-			})
+			}
+			if domains := config.ProviderDomains(key.Provider); len(domains) > 0 {
+				body["protocol_config"] = map[string]interface{}{
+					"domains": domains,
+				}
+			}
+			_, err := c.CredentialSet(body)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to store %s credential: %v\n", key.Provider, err)
 				fmt.Fprintf(os.Stderr, "  Run manually: agency creds set %s <key> --kind provider --scope platform --protocol api-key\n", key.EnvVar)
@@ -590,13 +596,19 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode bool) error {
 					existing, _ := c.CredentialShow(envVar, false)
 					if existing == nil || existing["name"] == nil {
 						fmt.Printf("  Migrating %s credential to secure store...\n", provider)
-						_, err := c.CredentialSet(map[string]interface{}{
+						body := map[string]interface{}{
 							"name":     envVar,
 							"value":    val,
 							"kind":     "provider",
 							"scope":    "platform",
 							"protocol": "api-key",
-						})
+						}
+						if domains := config.ProviderDomains(provider); len(domains) > 0 {
+							body["protocol_config"] = map[string]interface{}{
+								"domains": domains,
+							}
+						}
+						_, err := c.CredentialSet(body)
 						if err != nil {
 							fmt.Fprintf(os.Stderr, "Warning: failed to migrate %s: %v\n", provider, err)
 						}
