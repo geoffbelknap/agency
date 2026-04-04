@@ -58,11 +58,21 @@ func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, l
 	r.Get("/api/v1/health", h.health)
 	r.Post("/api/v1/agents/{name}/signal", h.relaySignal)
 	r.Post("/api/v1/internal/llm", h.internalLLM)
-	r.Get("/api/v1/internal/credentials/resolve", h.resolveCredential)
 	r.Get("/api/v1/infra/status", h.infraStatus)
 	r.Get("/api/v1/channels", h.listChannels)
 	r.Get("/api/v1/channels/{name}/messages", h.readMessages)
 	r.Post("/api/v1/channels/{name}/messages", h.sendMessage)
+}
+
+// RegisterCredentialSocketRoutes registers the credential-only socket router.
+// This socket is mounted exclusively by the egress container for credential
+// resolution. It is NOT bridged to TCP — credentials never traverse a Docker network.
+func RegisterCredentialSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, logger *log.Logger, opts RouteOptions) {
+	h := newHandler(cfg, dc, logger)
+
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Get("/internal/credentials/resolve", h.resolveCredential)
+	})
 }
 
 // RegisterRoutes sets up all REST API routes on the given router.

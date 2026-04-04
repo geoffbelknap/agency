@@ -923,6 +923,8 @@ func runServe(httpAddr string) error {
 	// directory (not the file) and survive gateway restarts.
 	sockDir := filepath.Join(cfg.Home, "run")
 	os.MkdirAll(sockDir, 0755)
+	// Proxy-safe socket — bridged to TCP by the gateway-proxy container.
+	// Does NOT include credential resolution endpoints.
 	sockPath := filepath.Join(sockDir, "gateway.sock")
 	os.Remove(sockPath)                              // clean up stale socket
 	os.Remove(filepath.Join(cfg.Home, "gateway.sock")) // clean up legacy location
@@ -930,7 +932,7 @@ func runServe(httpAddr string) error {
 	if err != nil {
 		logger.Warn("could not create Unix socket", "err", err)
 	} else {
-		os.Chmod(sockPath, 0666) // world-accessible — access controlled by bind mount, not file perms
+		os.Chmod(sockPath, 0600) // gateway-user only — container isolation via bind mount scope
 		// Restricted router: only the endpoints infra containers need.
 		// No BearerAuth — containers don't hold the operator token.
 		sockRouter := chi.NewRouter()
@@ -950,6 +952,36 @@ func runServe(httpAddr string) error {
 		defer func() {
 			unixServer.Close()
 			os.Remove(sockPath)
+		}()
+	}
+
+	// Credential-only socket — mounted exclusively by egress for credential
+	// resolution. Never bridged to TCP (ASK Tenet 7: credentials never
+	// traverse a Docker network).
+	credSockPath := filepath.Join(sockDir, "gateway-cred.sock")
+	os.Remove(credSockPath)
+	credListener, err := net.Listen("unix", credSockPath)
+	if err != nil {
+		logger.Warn("could not create credential socket", "err", err)
+	} else {
+		os.Chmod(credSockPath, 0600)
+		credRouter := chi.NewRouter()
+		credRouter.Use(chiMiddleware.Recoverer)
+		api.RegisterCredentialSocketRoutes(credRouter, cfg, dc, logger, routeOpts)
+		credServer := &http.Server{
+			Handler:      credRouter,
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 5 * time.Minute,
+		}
+		go func() {
+			logger.Info("Credential socket listening", "path", credSockPath)
+			if err := credServer.Serve(credListener); err != nil && err != http.ErrServerClosed {
+				logger.Warn("credential socket error", "err", err)
+			}
+		}()
+		defer func() {
+			credServer.Close()
+			os.Remove(credSockPath)
 		}()
 	}
 
