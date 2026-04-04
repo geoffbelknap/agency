@@ -57,7 +57,7 @@ limacharlie-api:
 2. Egress checks `credential-swaps.yaml` — domain matches `limacharlie-api` config
 3. Check JWT cache: if cached token exists and hasn't expired, inject and forward
 4. If no cached token or expired:
-   a. Resolve the raw API key from the credential store via SocketKeyResolver (gateway Unix socket at `~/.agency/run/gateway.sock`)
+   a. Resolve the raw API key from the credential store via SocketKeyResolver (gateway credential socket at `~/.agency/run/gateway-cred.sock`)
    b. POST to `token_url` with `token_params` (substituting `${credential}` with the key and config values)
    c. Parse JSON response, extract token from `token_response_field`
    d. Cache the token for `token_ttl_seconds`
@@ -93,9 +93,9 @@ The connector's requests flow through the egress proxy (via `HTTPS_PROXY`). The 
 ### Credential Flow
 
 ```
-Intake container          Egress proxy              Gateway socket         LimaCharlie
+Intake container          Egress proxy              Gateway cred socket    LimaCharlie
                           (resolves via socket)      (~/.agency/run/
-                                                      gateway.sock)
+                                                      gateway-cred.sock)
 
   GET /detections -------> domain matches
                            credential-swaps.yaml
@@ -121,7 +121,7 @@ JWT exchange is handled by the unified swap handler dispatch in `images/egress/c
 - For `jwt-exchange` entries: create `_JWTSwapAuth` instance with `SocketKeyResolver` for credential resolution
 - On request: domain match → dispatch to JWT handler → resolve credential via gateway socket → exchange for token → cache → inject
 
-The `SocketKeyResolver` connects to the gateway Unix socket at `~/.agency/run/gateway.sock` to resolve `key_ref` values to real credential values at runtime.
+The `SocketKeyResolver` connects to the gateway credential socket at `~/.agency/run/gateway-cred.sock` to resolve `key_ref` values to real credential values at runtime. This socket is dedicated to credential resolution and is only mounted into the egress container — credentials never traverse a Docker network.
 
 ### Error Handling
 
