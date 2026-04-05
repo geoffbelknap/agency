@@ -41,17 +41,26 @@ type Period struct {
 
 // Totals holds aggregate counters for a group of LLM requests.
 type Totals struct {
-	Requests     int     `json:"requests"`
-	InputTokens  int64   `json:"input_tokens"`
-	OutputTokens int64   `json:"output_tokens"`
-	TotalTokens  int64   `json:"total_tokens"`
-	EstCostUSD   float64 `json:"est_cost_usd"`
-	Errors       int     `json:"errors"`
-	AvgLatencyMs int64   `json:"avg_latency_ms"`
-	P95LatencyMs int64   `json:"p95_latency_ms"`
+	Requests           int     `json:"requests"`
+	InputTokens        int64   `json:"input_tokens"`
+	OutputTokens       int64   `json:"output_tokens"`
+	TotalTokens        int64   `json:"total_tokens"`
+	EstCostUSD         float64 `json:"est_cost_usd"`
+	Errors             int     `json:"errors"`
+	AvgLatencyMs       int64   `json:"avg_latency_ms"`
+	P95LatencyMs       int64   `json:"p95_latency_ms"`
+	TTFTP50Ms          int64   `json:"ttft_p50_ms,omitempty"`
+	TTFTP95Ms          int64   `json:"ttft_p95_ms,omitempty"`
+	TPOTP50Ms          float64 `json:"tpot_p50_ms,omitempty"`
+	TPOTP95Ms          float64 `json:"tpot_p95_ms,omitempty"`
+	ToolCalls          int     `json:"tool_calls,omitempty"`
+	ToolHallucinations int     `json:"tool_hallucinations,omitempty"`
+	RetryCostUSD       float64 `json:"retry_cost_usd,omitempty"`
 	// internal — not serialised
-	latencies []int64 `json:"-"`
-	costAcc   float64 `json:"-"`
+	latencies []int64   `json:"-"`
+	costAcc   float64   `json:"-"`
+	ttfts     []int64   `json:"-"`
+	tpots     []float64 `json:"-"`
 }
 
 // ErrorEntry captures a recent LLM error for operator visibility.
@@ -86,22 +95,34 @@ type auditRecord struct {
 	DurationMs    int64
 	InputTokens   int
 	OutputTokens  int
+	TTFTMs        int64
+	TPOTMs        float64
+	StepIndex     int
+	ToolCallValid *bool
+	RetryOf       string
+	ContextTokens int64
 }
 
 func (r auditRecord) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Ts            string `json:"ts"`
-		Type          string `json:"type"`
-		Agent         string `json:"agent"`
-		Source        string `json:"source"`
-		Model         string `json:"model"`
-		ProviderModel string `json:"provider_model"`
-		Status        int    `json:"status"`
-		Error         string `json:"error,omitempty"`
-		DurationMs    int64  `json:"duration_ms"`
-		InputTokens   int    `json:"input_tokens"`
-		OutputTokens  int    `json:"output_tokens"`
-	}{r.Timestamp, r.Type, r.Agent, r.Source, r.Model, r.ProviderModel, r.Status, r.Error, r.DurationMs, r.InputTokens, r.OutputTokens})
+		Ts            string  `json:"ts"`
+		Type          string  `json:"type"`
+		Agent         string  `json:"agent"`
+		Source        string  `json:"source"`
+		Model         string  `json:"model"`
+		ProviderModel string  `json:"provider_model"`
+		Status        int     `json:"status"`
+		Error         string  `json:"error,omitempty"`
+		DurationMs    int64   `json:"duration_ms"`
+		InputTokens   int     `json:"input_tokens"`
+		OutputTokens  int     `json:"output_tokens"`
+		TTFTMs        int64   `json:"ttft_ms,omitempty"`
+		TPOTMs        float64 `json:"tpot_ms,omitempty"`
+		StepIndex     int     `json:"step_index,omitempty"`
+		ToolCallValid *bool   `json:"tool_call_valid,omitempty"`
+		RetryOf       string  `json:"retry_of,omitempty"`
+		ContextTokens int64   `json:"context_tokens,omitempty"`
+	}{r.Timestamp, r.Type, r.Agent, r.Source, r.Model, r.ProviderModel, r.Status, r.Error, r.DurationMs, r.InputTokens, r.OutputTokens, r.TTFTMs, r.TPOTMs, r.StepIndex, r.ToolCallValid, r.RetryOf, r.ContextTokens})
 }
 
 func (r *auditRecord) UnmarshalJSON(data []byte) error {
@@ -123,6 +144,12 @@ func (r *auditRecord) UnmarshalJSON(data []byte) error {
 		DurationMs    int64  `json:"duration_ms"`
 		InputTokens   int    `json:"input_tokens"`
 		OutputTokens  int    `json:"output_tokens"`
+		TTFTMs        int64   `json:"ttft_ms"`
+		TPOTMs        float64 `json:"tpot_ms"`
+		StepIndex     int     `json:"step_index"`
+		ToolCallValid *bool   `json:"tool_call_valid"`
+		RetryOf       string  `json:"retry_of"`
+		ContextTokens int64   `json:"context_tokens"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
@@ -150,6 +177,12 @@ func (r *auditRecord) UnmarshalJSON(data []byte) error {
 	r.DurationMs = raw.DurationMs
 	r.InputTokens = raw.InputTokens
 	r.OutputTokens = raw.OutputTokens
+	r.TTFTMs = raw.TTFTMs
+	r.TPOTMs = raw.TPOTMs
+	r.StepIndex = raw.StepIndex
+	r.ToolCallValid = raw.ToolCallValid
+	r.RetryOf = raw.RetryOf
+	r.ContextTokens = raw.ContextTokens
 	return nil
 }
 
@@ -417,6 +450,21 @@ func accumWithCost(t *Totals, rec auditRecord, cost float64) {
 	if rec.DurationMs > 0 {
 		t.latencies = append(t.latencies, rec.DurationMs)
 	}
+	if rec.TTFTMs > 0 {
+		t.ttfts = append(t.ttfts, rec.TTFTMs)
+	}
+	if rec.TPOTMs > 0 {
+		t.tpots = append(t.tpots, rec.TPOTMs)
+	}
+	if rec.ToolCallValid != nil {
+		t.ToolCalls++
+		if !*rec.ToolCallValid {
+			t.ToolHallucinations++
+		}
+	}
+	if rec.RetryOf != "" {
+		t.RetryCostUSD += cost
+	}
 }
 
 func accumMapWithCost(m map[string]Totals, key string, rec auditRecord, cost float64) {
@@ -439,9 +487,30 @@ func finalise(t *Totals) {
 		t.AvgLatencyMs = sum / int64(len(t.latencies))
 		t.P95LatencyMs = percentile(t.latencies, 95)
 	}
+	// TTFT/TPOT percentiles.
+	if len(t.ttfts) > 0 {
+		t.TTFTP50Ms = percentile(t.ttfts, 50)
+		t.TTFTP95Ms = percentile(t.ttfts, 95)
+	}
+	if len(t.tpots) > 0 {
+		sort.Float64s(t.tpots)
+		idx50 := int(float64(len(t.tpots)) * 0.50)
+		idx95 := int(float64(len(t.tpots)) * 0.95)
+		if idx50 >= len(t.tpots) {
+			idx50 = len(t.tpots) - 1
+		}
+		if idx95 >= len(t.tpots) {
+			idx95 = len(t.tpots) - 1
+		}
+		t.TPOTP50Ms = t.tpots[idx50]
+		t.TPOTP95Ms = t.tpots[idx95]
+	}
 	// Round cost to 6 decimal places.
 	t.EstCostUSD = math.Round(t.EstCostUSD*1e6) / 1e6
+	t.RetryCostUSD = math.Round(t.RetryCostUSD*1e6) / 1e6
 	t.latencies = nil // free memory
+	t.ttfts = nil
+	t.tpots = nil
 }
 
 func percentile(data []int64, pct int) int64 {
