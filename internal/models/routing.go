@@ -253,3 +253,56 @@ func (r *RoutingConfig) ResolveTierWithStrategy(tier string, extraEnv map[string
 		return nil, nil
 	}
 }
+
+// TierCapabilities returns the intersection of capabilities across all models
+// in the given tier. Returns nil if the tier is empty or unknown.
+func (r *RoutingConfig) TierCapabilities(tier string) []string {
+	var entries []TierEntry
+	switch tier {
+	case "frontier":
+		entries = r.Tiers.Frontier
+	case "standard":
+		entries = r.Tiers.Standard
+	case "fast":
+		entries = r.Tiers.Fast
+	case "mini":
+		entries = r.Tiers.Mini
+	case "nano":
+		entries = r.Tiers.Nano
+	case "batch":
+		entries = r.Tiers.Batch
+	default:
+		return nil
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+
+	first := r.Models[entries[0].Model]
+	caps := make(map[string]bool)
+	for _, c := range first.Capabilities {
+		caps[c] = true
+	}
+
+	for _, entry := range entries[1:] {
+		mc, ok := r.Models[entry.Model]
+		if !ok {
+			continue
+		}
+		has := make(map[string]bool)
+		for _, c := range mc.Capabilities {
+			has[c] = true
+		}
+		for c := range caps {
+			if !has[c] {
+				delete(caps, c)
+			}
+		}
+	}
+
+	result := make([]string, 0, len(caps))
+	for c := range caps {
+		result = append(result, c)
+	}
+	return result
+}
