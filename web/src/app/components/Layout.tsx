@@ -2,7 +2,7 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router';
 import { Bot, MessageSquare, Settings, Menu, X, Sun, Moon, Monitor, Pin, PinOff, Brain, Target, UserCircle } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { socket } from '../lib/ws';
-import { api } from '../lib/api';
+import { api, ensureConfig, getVia } from '../lib/api';
 import { useTheme, type Theme } from './ThemeProvider';
 import { useVisualViewport } from '../hooks/useVisualViewport';
 import { TextScaleControl } from './TextScaleControl';
@@ -30,8 +30,17 @@ export function Layout() {
   const [pinned, setPinned] = useState(() => localStorage.getItem('agency-sidebar-pinned') === 'true');
   const [setupChecked, setSetupChecked] = useState(false);
 
+  const [isRelay, setIsRelay] = useState(false);
+
   const { theme, setTheme } = useTheme();
   useVisualViewport();
+
+  // Relay connection metadata
+  useEffect(() => {
+    ensureConfig().then(() => {
+      setIsRelay(getVia() === 'relay');
+    });
+  }, []);
 
   // First-launch detection: redirect to /setup if no providers configured
   useEffect(() => {
@@ -238,6 +247,9 @@ export function Layout() {
             <span className="text-[11px] font-medium text-muted-foreground">
               {isConnected ? 'Connected' : 'Disconnected'}
             </span>
+            {isRelay && (
+              <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-primary/10 text-primary leading-none">relay</span>
+            )}
           </div>
         </div>
       </div>
@@ -314,7 +326,7 @@ export function Layout() {
         </div>
 
         {/* Connection indicator */}
-        <div className="border-t border-sidebar-border px-[11px] py-3">
+        <div className="border-t border-sidebar-border px-[11px] py-3 space-y-2">
           <div className="flex items-center gap-2.5 px-3">
             <div className="relative flex-shrink-0">
               <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-red-500'}`} />
@@ -323,11 +335,14 @@ export function Layout() {
               )}
             </div>
             <div className={`transition-opacity duration-150 ${expanded ? 'opacity-100' : 'sr-only'}`}>
-              <div className="text-[11px] font-medium text-muted-foreground whitespace-nowrap">
+              <div className="text-[11px] font-medium text-muted-foreground whitespace-nowrap flex items-center gap-1.5">
                 {isConnected ? 'Connected' : 'Disconnected'}
+                {isRelay && (
+                  <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-primary/10 text-primary leading-none">relay</span>
+                )}
               </div>
               <div className="text-[9px] font-mono text-muted-foreground whitespace-nowrap">
-                Gateway WS
+                {isRelay ? 'via relay' : 'Gateway WS'}
               </div>
             </div>
           </div>

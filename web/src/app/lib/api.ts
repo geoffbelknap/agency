@@ -1,6 +1,9 @@
 let BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 let TOKEN = import.meta.env.VITE_API_TOKEN || '';
 
+/** Connection mode: "relay" when accessed through the relay gateway, "local" otherwise. */
+let VIA: 'relay' | 'local' = 'local';
+
 // Auto-detect gateway config from local Vite server (dev mode only).
 // The agencyAutoConfig plugin in vite.config.ts serves the token and
 // gateway address read from ~/.agency/config.yaml.
@@ -16,6 +19,8 @@ function ensureConfig(): Promise<void> {
           if (cfg.gateway && !import.meta.env.VITE_API_BASE_URL) BASE = `${cfg.gateway}/api/v1`;
           // Empty gateway means same-origin (Vite proxy in dev mode)
           if (cfg.gateway === '' && !import.meta.env.VITE_API_BASE_URL) BASE = '/api/v1';
+          // Relay connection metadata
+          if (cfg.via === 'relay') VIA = 'relay';
         }
       } catch {
         // Not in dev mode or plugin not available — use defaults/env vars
@@ -31,6 +36,8 @@ ensureConfig();
 /** Expose token + config for other modules (e.g. WebSocket auth). */
 export { ensureConfig };
 export function getToken(): string { return TOKEN; }
+/** Returns "relay" when accessed through the relay gateway, "local" otherwise. */
+export function getVia(): 'relay' | 'local' { return VIA; }
 
 /** Authenticated fetch — attaches Bearer token to any request. */
 export async function authenticatedFetch(url: string, options?: RequestInit): Promise<Response> {
