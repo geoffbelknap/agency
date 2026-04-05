@@ -21,10 +21,12 @@ describe('ThemeProvider', () => {
     document.documentElement.classList.remove('dark');
   });
 
-  it('defaults to dark theme', () => {
+  it('defaults to system theme (resolves to light in jsdom where matchMedia returns false)', () => {
     render(<ThemeProvider><TestConsumer /></ThemeProvider>);
-    expect(screen.getByTestId('theme').textContent).toBe('dark');
-    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    expect(screen.getByTestId('theme').textContent).toBe('system');
+    // In jsdom, matchMedia('(prefers-color-scheme: dark)') returns false,
+    // so the system theme resolves to light — no dark class.
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
   });
 
   it('switches to light theme', async () => {
