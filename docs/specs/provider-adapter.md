@@ -113,6 +113,8 @@ Before routing, the enforcer inspects the request body:
 
 The tier walk order follows the existing `best_effort` strategy — prefer the nearest tier in the hierarchy (standard → fast → frontier → mini → nano).
 
+Tier fallback events are logged to the enforcer audit trail (e.g., "tier mini→fast: request requires tools, mini lacks capability").
+
 ## Tier Capability Manifest for Body
 
 The enforcer serves `/config/tiers.json` on port 8081 (config port), hot-reloaded on SIGHUP:
@@ -228,6 +230,8 @@ Write to routing.local.yaml? [Y/n]
 Capability probing is best-effort. If the model listing endpoint doesn't exist or probes fail:
 - Fail the `provider add` command with a clear error
 - Suggest `--no-probe` flag to skip discovery and write a skeleton config the operator fills in manually
+
+Probe responses are untrusted data. The CLI parses only HTTP status codes and known JSON schema fields (model IDs, capability indicators). No raw response content is interpreted or displayed beyond structured fields.
 
 ### Where Config Lands
 
