@@ -156,6 +156,7 @@ pytest images/tests/
 - `agency admin rebuild <agent>` regenerates all derived files (manifest, services.yaml, PLATFORM.md, FRAMEWORK.md, AGENTS.md) in one step.
 - Dev workflow: `git pull && make all && agency start <agent>`.
 - `agency setup` is the canonical first-run command (replaces `agency init`). `init` is a hidden alias for backwards compatibility. Setup checks Docker, prompts for provider/key, starts daemon, and brings up all infrastructure including agency-web.
+- **`agency quickstart`** is the guided first-run wizard. Gets new users from zero to a running agent with a demo task in under 10 minutes. 5 phases: environment check, provider config, infrastructure startup, agent creation, live demo. Each phase auto-skips if already done. `agency setup` is still the idempotent infrastructure command — quickstart is the hand-holding experience.
 - **Distribution**: Binary releases via GoReleaser → GitHub Releases + Homebrew tap (`brew install geoffbelknap/tap/agency`). Install script at `https://geoffbelknap.github.io/agency/install.sh`.
 - **agency-web is containerized**: Runs as an infra container (`agency-web:latest`) on port 8280, started automatically by `agency setup` / `agency infra up`. Source lives in `web/` (monorepo). `make web` builds the image.
 - **Claude Code plugin**: `.claude-plugin/` at repo root with MCP server config and guided skills (`/status`, `/deploy`, `/create-agent`, `/create-mission`). Auto-discovered when working inside the agency repo. Can also be installed standalone via `claude plugin add /path/to/agency`.
