@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -48,8 +49,10 @@ type LLMHandler struct {
 	rateLimiter *RateLimiter
 	agentName   string
 	budget      *BudgetTracker
-	toolTracker *ToolTracker
-	trajectory  *TrajectoryMonitor
+	toolTracker  *ToolTracker
+	trajectory   *TrajectoryMonitor
+	stepCounters map[string]int
+	stepMu       sync.Mutex
 }
 
 // NewLLMHandler creates an LLM proxy handler.
@@ -63,11 +66,12 @@ func NewLLMHandler(routing *RoutingConfig, egressProxy string, audit *AuditLogge
 	}
 
 	return &LLMHandler{
-		routing:     routing,
-		proxy:       egressProxy,
-		audit:       audit,
-		transport:   transport,
-		toolTracker: NewToolTracker(),
+		routing:      routing,
+		proxy:        egressProxy,
+		audit:        audit,
+		transport:    transport,
+		toolTracker:  NewToolTracker(),
+		stepCounters: make(map[string]int),
 	}
 }
 
@@ -136,16 +140,34 @@ func (lh *LLMHandler) SetTrajectory(tm *TrajectoryMonitor) {
 	lh.trajectory = tm
 }
 
+func (lh *LLMHandler) nextStepIndex(taskID string) int {
+	lh.stepMu.Lock()
+	defer lh.stepMu.Unlock()
+	if lh.stepCounters == nil {
+		lh.stepCounters = make(map[string]int)
+	}
+	lh.stepCounters[taskID]++
+	return lh.stepCounters[taskID]
+}
+
 // ServeHTTP handles /v1/* LLM API requests.
 func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	correlationID := r.Header.Get("X-Correlation-Id")
 	eventID := r.Header.Get("X-Agency-Event-Id")
 
-	// Extract task ID for per-task budget tracking
-	if taskID := r.Header.Get("X-Agency-Task-Id"); taskID != "" && lh.budget != nil {
+	// Extract task ID for per-task budget tracking and step index
+	taskID := r.Header.Get("X-Agency-Task-Id")
+	if taskID != "" && lh.budget != nil {
 		lh.budget.SetTask(taskID)
 	}
+
+	var stepIndex int
+	if taskID != "" {
+		stepIndex = lh.nextStepIndex(taskID)
+	}
+
+	retryOf := r.Header.Get("X-Agency-Retry-Of")
 
 	// Budget check — block if any budget level is exhausted
 	if lh.budget != nil {
@@ -340,21 +362,21 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Relay response
 	if isStream {
 		if isAnthropic {
-			lh.relayAnthropicStream(w, resp, modelAlias, providerModel, correlationID, eventID, start)
+			lh.relayAnthropicStream(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf)
 		} else {
-			lh.relayStream(w, resp, modelAlias, providerModel, correlationID, eventID, start)
+			lh.relayStream(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf)
 		}
 	} else {
 		if isAnthropic {
-			lh.relayAnthropicBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start)
+			lh.relayAnthropicBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf)
 		} else {
-			lh.relayBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start)
+			lh.relayBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf)
 		}
 	}
 }
 
 // relayBuffered relays a non-streaming LLM response.
-func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time) {
+func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string) {
 	// Copy safe headers
 	for k, vv := range resp.Header {
 		if safeResponseHeaders[strings.ToLower(k)] {
@@ -435,6 +457,8 @@ func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, 
 		InputTokens:   inputTokens,
 		OutputTokens:  outputTokens,
 		DurationMs:    time.Since(start).Milliseconds(),
+		StepIndex:     stepIndex,
+		RetryOf:       retryOf,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
@@ -470,7 +494,7 @@ func (lh *LLMHandler) emitTrajectoryAnomaly(anomaly Anomaly) {
 }
 
 // relayStream relays an SSE streaming LLM response.
-func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time) {
+func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string) {
 	// Copy safe stream headers
 	for k, vv := range resp.Header {
 		if safeStreamHeaders[strings.ToLower(k)] {
@@ -523,6 +547,8 @@ func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, mo
 		InputTokens:   inputTokens,
 		OutputTokens:  outputTokens,
 		DurationMs:    time.Since(start).Milliseconds(),
+		StepIndex:     stepIndex,
+		RetryOf:       retryOf,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
@@ -532,7 +558,7 @@ func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, mo
 
 // relayAnthropicBuffered relays a non-streaming Anthropic response, translating
 // it back to OpenAI format before sending to the client.
-func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time) {
+func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string) {
 	body, _ := io.ReadAll(resp.Body)
 
 	// Translate Anthropic response to OpenAI format
@@ -580,6 +606,8 @@ func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.R
 		InputTokens:   inputTokens,
 		OutputTokens:  outputTokens,
 		DurationMs:    time.Since(start).Milliseconds(),
+		StepIndex:     stepIndex,
+		RetryOf:       retryOf,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
@@ -589,7 +617,7 @@ func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.R
 
 // relayAnthropicStream relays an Anthropic SSE streaming response, translating
 // each event to OpenAI chat.completion.chunk format before sending to the client.
-func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time) {
+func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string) {
 	for k, vv := range resp.Header {
 		if safeStreamHeaders[strings.ToLower(k)] {
 			for _, v := range vv {
@@ -638,6 +666,8 @@ func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Res
 		InputTokens:   translator.inputTokens,
 		OutputTokens:  translator.outputTokens,
 		DurationMs:    time.Since(start).Milliseconds(),
+		StepIndex:     stepIndex,
+		RetryOf:       retryOf,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
