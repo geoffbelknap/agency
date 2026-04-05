@@ -1083,6 +1083,7 @@ class Curator:
                     self.store.add_edge(
                         source_id=src["id"], target_id=tgt["id"],
                         relation=relation, properties={"source_type": "inferred"},
+                        provenance="INFERRED",
                     )
                     self.store.log_curation("infer_edge", src["id"], {
                         "target_id": tgt["id"], "relation": relation,

@@ -494,33 +494,18 @@ class KnowledgeStore:
 
         Returns the number of edges updated.
         """
-        _SOURCE_TYPE_TO_PROVENANCE = {
-            "rule": "EXTRACTED",
-            "agent": "INFERRED",
-        }
-
-        rows = self._db.execute(
-            "SELECT e.id, e.properties, n.source_type "
-            "FROM edges e JOIN nodes n ON e.source_id = n.id"
-        ).fetchall()
-
-        updated = 0
-        for row in rows:
-            props = json.loads(row["properties"] or "{}")
-            if props.get("_provenance_migrated"):
-                continue
-            provenance = _SOURCE_TYPE_TO_PROVENANCE.get(
-                row["source_type"], "AMBIGUOUS"
-            )
-            props["_provenance_migrated"] = True
-            self._db.execute(
-                "UPDATE edges SET provenance = ?, properties = ? WHERE id = ?",
-                (provenance, json.dumps(props), row["id"]),
-            )
-            updated += 1
-
+        cursor = self._db.execute("""
+            UPDATE edges
+            SET provenance = CASE
+                WHEN (SELECT source_type FROM nodes WHERE id = edges.source_id) = 'rule' THEN 'EXTRACTED'
+                WHEN (SELECT source_type FROM nodes WHERE id = edges.source_id) = 'agent' THEN 'INFERRED'
+                ELSE 'AMBIGUOUS'
+            END,
+            properties = json_set(properties, '$._provenance_migrated', 1)
+            WHERE json_extract(properties, '$._provenance_migrated') IS NULL
+        """)
         self._db.commit()
-        return {"migrated": updated}
+        return {"migrated": cursor.rowcount}
 
     def filter_nodes_by_property(self, kind: str, property_name: str, value: str, limit: int = 50) -> list[dict]:
         """Find nodes matching kind + JSON property value. Max 50 results."""
