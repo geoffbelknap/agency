@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -128,11 +129,20 @@ func (m *Manager) Update() (*UpdateReport, error) {
 
 	report := &UpdateReport{}
 	for _, src := range cfg.Hub.Sources {
-		su, err := m.syncSourceWithReport(src, cacheDir)
-		if err != nil {
-			report.Warnings = append(report.Warnings, fmt.Sprintf("%s: %s", src.Name, err.Error()))
+		switch src.EffectiveType() {
+		case "oci":
+			client := newOCIClient(src.Registry)
+			if err := client.syncOCISource(context.Background(), cacheDir, src.Name); err != nil {
+				report.Warnings = append(report.Warnings, fmt.Sprintf("%s: %s", src.Name, err.Error()))
+			}
+			report.Sources = append(report.Sources, SourceUpdate{Name: src.Name})
+		default:
+			su, err := m.syncSourceWithReport(src, cacheDir)
+			if err != nil {
+				report.Warnings = append(report.Warnings, fmt.Sprintf("%s: %s", src.Name, err.Error()))
+			}
+			report.Sources = append(report.Sources, su)
 		}
-		report.Sources = append(report.Sources, su)
 	}
 
 	// Check what upgrades are available after pull
@@ -319,6 +329,14 @@ func (m *Manager) Install(componentName, kind, source, instanceName string) (*In
 	data, err := os.ReadFile(comp.Path)
 	if err != nil {
 		return nil, fmt.Errorf("read component: %w", err)
+	}
+
+	// Verify signature for OCI-sourced components
+	if src := m.findSourceByName(comp.Source); src != nil && src.EffectiveType() == "oci" {
+		ref := src.ComponentRef(kind, componentName, comp.Version)
+		if err := verifySignature(context.Background(), ref); err != nil {
+			return nil, fmt.Errorf("signature verification failed: %w", err)
+		}
 	}
 
 	// Create instance via registry
@@ -1168,6 +1186,17 @@ func (m *Manager) loadConfig() hubConfig {
 	}
 	yaml.Unmarshal(data, &cfg)
 	return cfg
+}
+
+// findSourceByName returns the Source config for a given source name.
+func (m *Manager) findSourceByName(name string) *Source {
+	cfg := m.loadConfig()
+	for _, src := range cfg.Hub.Sources {
+		if src.Name == name {
+			return &src
+		}
+	}
+	return nil
 }
 
 func (m *Manager) provenancePath() string {

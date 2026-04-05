@@ -130,3 +130,51 @@ func TestVerifySignatureNoCosign(t *testing.T) {
 		t.Errorf("expected 'cosign not installed' error, got: %s", err)
 	}
 }
+
+func TestManagerUpdateDispatchesOCI(t *testing.T) {
+	tmpDir := t.TempDir()
+	m := NewManager(tmpDir)
+
+	// Write config with an OCI source pointing to a non-routable address to avoid network hangs
+	config := []byte("hub:\n  sources:\n    - name: official\n      type: oci\n      registry: localhost:1/agency-hub\n")
+	os.WriteFile(filepath.Join(tmpDir, "config.yaml"), config, 0644)
+
+	// Update will fail to reach the registry (no network in unit test)
+	// but should attempt OCI sync, not git sync
+	report, _ := m.Update()
+	// Should have a warning about the OCI source (registry unreachable), not about git
+	if len(report.Sources) != 1 || report.Sources[0].Name != "official" {
+		t.Errorf("expected 1 source named 'official', got %v", report.Sources)
+	}
+	// Verify the warning is OCI-related, not git-related
+	if len(report.Warnings) == 0 {
+		t.Log("no warnings (unexpected but acceptable if localhost resolved)")
+	} else {
+		for _, w := range report.Warnings {
+			if strings.Contains(w, "git") && !strings.Contains(w, "oci") {
+				t.Errorf("expected OCI warning, got git-related: %s", w)
+			}
+		}
+	}
+}
+
+func TestFindSourceByName(t *testing.T) {
+	tmpDir := t.TempDir()
+	m := NewManager(tmpDir)
+
+	config := []byte("hub:\n  sources:\n    - name: test-source\n      type: oci\n      registry: ghcr.io/test\n")
+	os.WriteFile(filepath.Join(tmpDir, "config.yaml"), config, 0644)
+
+	src := m.findSourceByName("test-source")
+	if src == nil {
+		t.Fatal("expected to find source")
+	}
+	if src.EffectiveType() != "oci" {
+		t.Errorf("expected oci, got %s", src.EffectiveType())
+	}
+
+	missing := m.findSourceByName("nonexistent")
+	if missing != nil {
+		t.Error("expected nil for missing source")
+	}
+}
