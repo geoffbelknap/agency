@@ -183,3 +183,27 @@ func TestAuditLLMEntry(t *testing.T) {
 		t.Errorf("wrong input_tokens: %d", entry.InputTokens)
 	}
 }
+
+func TestAuditEntry_EconomicsFields(t *testing.T) {
+	valid := true
+	entry := AuditEntry{
+		Type:          "LLM_DIRECT_STREAM",
+		TTFTMs:        380,
+		TPOTMs:        28.5,
+		ContextTokens: 4200,
+		StepIndex:     3,
+		ToolCallValid: &valid,
+		RetryOf:       "corr-123",
+	}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed map[string]interface{}
+	json.Unmarshal(data, &parsed)
+
+	if parsed["ttft_ms"] != float64(380) { t.Errorf("ttft_ms: %v", parsed["ttft_ms"]) }
+	if parsed["step_index"] != float64(3) { t.Errorf("step_index: %v", parsed["step_index"]) }
+	if parsed["tool_call_valid"] != true { t.Errorf("tool_call_valid: %v", parsed["tool_call_valid"]) }
+	if parsed["retry_of"] != "corr-123" { t.Errorf("retry_of: %v", parsed["retry_of"]) }
+}

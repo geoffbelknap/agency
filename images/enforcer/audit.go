@@ -37,6 +37,13 @@ type AuditEntry struct {
 	DurationMs    int64  `json:"duration_ms,omitempty"`
 	InputTokens   int    `json:"input_tokens,omitempty"`
 	OutputTokens  int    `json:"output_tokens,omitempty"`
+	CachedTokens  int               `json:"cached_tokens,omitempty"`
+	TTFTMs        int64             `json:"ttft_ms,omitempty"`
+	TPOTMs        float64           `json:"tpot_ms,omitempty"`
+	ContextTokens int64             `json:"context_tokens,omitempty"`
+	StepIndex     int               `json:"step_index,omitempty"`
+	ToolCallValid *bool             `json:"tool_call_valid,omitempty"`
+	RetryOf       string            `json:"retry_of,omitempty"`
 	Sig           string            `json:"sig,omitempty"`
 	Extra         map[string]string `json:"extra,omitempty"`
 }
