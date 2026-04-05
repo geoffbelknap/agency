@@ -130,6 +130,11 @@ func NewManager(home string) *Manager {
 // Returns an UpdateReport with source diffs and available upgrades.
 // Does NOT sync managed files or upgrade components — use Upgrade() for that.
 func (m *Manager) Update() (*UpdateReport, error) {
+	// One-time migration: official source git → OCI
+	if m.migrateDefaultSourceToOCI() {
+		fmt.Println("[hub] Migrated official source from git to OCI")
+	}
+
 	cfg := m.loadConfig()
 	cacheDir := filepath.Join(m.Home, "hub-cache")
 	os.MkdirAll(cacheDir, 0755)
@@ -1183,6 +1188,41 @@ func (m *Manager) syncSourceWithReport(src Source, cacheDir string) (SourceUpdat
 		su.CommitCount = gitCommitCount(dest, oldCommit, newCommit)
 	}
 	return su, err
+}
+
+// migrateDefaultSourceToOCI checks if the "official" source is still git-based
+// and migrates it to OCI. Returns true if migration occurred.
+func (m *Manager) migrateDefaultSourceToOCI() bool {
+	cfgPath := filepath.Join(m.Home, "config.yaml")
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return false
+	}
+
+	var cfg hubConfig
+	if yaml.Unmarshal(data, &cfg) != nil {
+		return false
+	}
+
+	migrated := false
+	for i, src := range cfg.Hub.Sources {
+		if src.Name == "official" && src.EffectiveType() == "git" &&
+			strings.Contains(src.URL, "agency-hub") {
+			cfg.Hub.Sources[i] = DefaultSource
+			migrated = true
+		}
+	}
+
+	if !migrated {
+		return false
+	}
+
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		return false
+	}
+	os.WriteFile(cfgPath, out, 0644)
+	return true
 }
 
 func (m *Manager) loadConfig() hubConfig {
