@@ -469,6 +469,12 @@ func (ss *StartSequence) failClosed(ctx context.Context) {
 // access to the routing config.
 func (ss *StartSequence) generateTiersJSON() error {
 	agentDir := filepath.Join(ss.Home, "agents", ss.AgentName)
+	// Validate the resolved path stays within ss.Home (CodeQL path traversal check).
+	absAgentDir, _ := filepath.Abs(agentDir)
+	absHome, _ := filepath.Abs(ss.Home)
+	if !strings.HasPrefix(absAgentDir, absHome+string(filepath.Separator)) {
+		return fmt.Errorf("agent directory %q escapes home %q", agentDir, ss.Home)
+	}
 	routingPath := filepath.Join(ss.Home, "infrastructure", "routing.yaml")
 	if !fileExists(routingPath) {
 		return nil // no routing config — skip silently
