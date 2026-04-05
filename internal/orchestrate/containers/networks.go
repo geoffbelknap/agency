@@ -36,6 +36,18 @@ func CreateEgressNetwork(ctx context.Context, cli NetworkAPI, name string, label
 	return err
 }
 
+// CreateOperatorNetwork creates a non-internal bridge network for operator-facing
+// tools (agency-web, relay). Allows outbound access (relay needs to reach Cloudflare).
+// Isolated from the mediation network — operator tools only need the gateway.
+func CreateOperatorNetwork(ctx context.Context, cli NetworkAPI, name string, labels map[string]string) error {
+	_, err := cli.NetworkCreate(ctx, name, network.CreateOptions{
+		Driver:   "bridge",
+		Internal: false,
+		Labels:   mergeLabels(labels),
+	})
+	return err
+}
+
 // RemoveNetwork removes a network by name, ignoring "not found" errors.
 func RemoveNetwork(ctx context.Context, cli NetworkAPI, name string) error {
 	err := cli.NetworkRemove(ctx, name)
