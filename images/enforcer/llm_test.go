@@ -24,6 +24,7 @@ func testRoutingConfig() *RoutingConfig {
 			"claude-sonnet": {
 				Provider:      "openai-compat",
 				ProviderModel: "claude-sonnet-4-20250514",
+				Capabilities:  []string{"tools", "vision", "streaming"},
 				CostIn:        3.0,
 				CostOut:       15.0,
 			},
@@ -421,7 +422,7 @@ func TestLLMAnthropicTranslation(t *testing.T) {
 			"anthropic": {APIBase: provider.URL + "/v1/"},
 		},
 		Models: map[string]Model{
-			"claude-sonnet": {Provider: "anthropic", ProviderModel: "claude-sonnet-4-20250514"},
+			"claude-sonnet": {Provider: "anthropic", ProviderModel: "claude-sonnet-4-20250514", Capabilities: []string{"tools", "vision", "streaming"}},
 		},
 	}
 
@@ -482,7 +483,7 @@ func TestLLMRateLimitAcquireBeforeRequest(t *testing.T) {
 			"anthropic": {APIBase: provider.URL + "/v1/"},
 		},
 		Models: map[string]Model{
-			"claude-sonnet": {Provider: "anthropic", ProviderModel: "claude-sonnet-4-20250514"},
+			"claude-sonnet": {Provider: "anthropic", ProviderModel: "claude-sonnet-4-20250514", Capabilities: []string{"tools", "vision", "streaming"}},
 		},
 	}
 
@@ -531,7 +532,7 @@ func TestLLMRateLimitDeniedSendsKeepalive(t *testing.T) {
 			"anthropic": {APIBase: provider.URL + "/v1/"},
 		},
 		Models: map[string]Model{
-			"claude-sonnet": {Provider: "anthropic", ProviderModel: "claude-sonnet-4-20250514"},
+			"claude-sonnet": {Provider: "anthropic", ProviderModel: "claude-sonnet-4-20250514", Capabilities: []string{"tools", "vision", "streaming"}},
 		},
 	}
 
@@ -603,7 +604,7 @@ func TestLLMAnthropicStreaming(t *testing.T) {
 			"anthropic": {APIBase: provider.URL + "/v1/"},
 		},
 		Models: map[string]Model{
-			"claude-sonnet": {Provider: "anthropic", ProviderModel: "claude-sonnet-4-20250514"},
+			"claude-sonnet": {Provider: "anthropic", ProviderModel: "claude-sonnet-4-20250514", Capabilities: []string{"tools", "vision", "streaming"}},
 		},
 	}
 
