@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -2215,6 +2216,78 @@ func hubCmd() *cobra.Command {
 			return nil
 		},
 	})
+
+	// ── Provider management ──
+
+	providerCmd := &cobra.Command{Use: "provider", Short: "Provider management"}
+
+	providerAddCmd := &cobra.Command{
+		Use:   "add <name> <base-url>",
+		Short: "Discover and configure a local or custom LLM provider",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+			baseURL := args[1]
+			credential, _ := cmd.Flags().GetString("credential")
+			noProbe, _ := cmd.Flags().GetBool("no-probe")
+
+			var credValue string
+			if credential != "" {
+				fmt.Printf("Enter API key for %s: ", credential)
+				fmt.Scanln(&credValue)
+			}
+
+			if noProbe {
+				fmt.Println("Skipping discovery. Writing skeleton config...")
+				return writeProviderSkeleton(name, baseURL, credential)
+			}
+
+			fmt.Printf("Discovering models at %s...\n", baseURL)
+			models, err := discoverModels(context.Background(), baseURL, credValue)
+			if err != nil {
+				return fmt.Errorf("discovery failed: %w\n\nTry --no-probe to skip discovery and write a skeleton config", err)
+			}
+
+			if len(models) == 0 {
+				return fmt.Errorf("no models found at %s", baseURL)
+			}
+
+			fmt.Printf("\nFound %d models:\n\n", len(models))
+			for _, m := range models {
+				fmt.Printf("  %-30s %s\n", m.ID, strings.Join(m.Capabilities, ", "))
+			}
+
+			fmt.Printf("\nWrite to routing.local.yaml? [Y/n] ")
+			var confirm string
+			fmt.Scanln(&confirm)
+			if confirm != "" && strings.ToLower(confirm) != "y" {
+				fmt.Println("Cancelled.")
+				return nil
+			}
+
+			if err := writeProviderConfig(name, baseURL, credential, models); err != nil {
+				return err
+			}
+
+			if credential != "" && credValue != "" {
+				c, err := requireGateway()
+				if err == nil {
+					c.PostJSON("/api/v1/credentials", map[string]interface{}{
+						"name":  credential,
+						"value": credValue,
+					}, nil)
+				}
+			}
+
+			fmt.Printf("%s Provider %s configured with %d models\n", green.Render("✓"), bold.Render(name), len(models))
+			return nil
+		},
+	}
+	providerAddCmd.Flags().String("credential", "", "Credential env var name (e.g., CUSTOM_LLM_API_KEY)")
+	providerAddCmd.Flags().Bool("no-probe", false, "Skip model discovery, write skeleton config")
+	providerCmd.AddCommand(providerAddCmd)
+
+	cmd.AddCommand(providerCmd)
 
 	return cmd
 }
