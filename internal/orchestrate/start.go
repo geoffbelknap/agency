@@ -2,9 +2,11 @@ package orchestrate
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 
 	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/credstore"
+	"github.com/geoffbelknap/agency/internal/models"
 	"github.com/geoffbelknap/agency/internal/orchestrate/containers"
 )
 
@@ -273,6 +276,11 @@ func (ss *StartSequence) phase3Constraints() error {
 		return fmt.Errorf("write PLATFORM.md: %w", err)
 	}
 
+	// Generate tiers.json — tier capabilities manifest for body runtime.
+	if err := ss.generateTiersJSON(agentDir); err != nil {
+		ss.Log.Warn("failed to generate tiers.json", "err", err)
+	}
+
 	return nil
 }
 
@@ -452,6 +460,48 @@ func (ss *StartSequence) failClosed(ctx context.Context) {
 	for _, name := range []string{wsName, enfName} {
 		_ = containers.StopAndRemove(ctx, ss.Docker.RawClient(), name, 10)
 	}
+}
+
+// generateTiersJSON creates a tiers.json manifest from the routing config.
+// The file lists each tier's capabilities (intersection of all models in that
+// tier) and the default tier. The enforcer serves this at /config/tiers.json
+// so the body runtime can discover tier capabilities without direct filesystem
+// access to the routing config.
+func (ss *StartSequence) generateTiersJSON(agentDir string) error {
+	routingPath := filepath.Join(ss.Home, "infrastructure", "routing.yaml")
+	if !fileExists(routingPath) {
+		return nil // no routing config — skip silently
+	}
+	data, err := os.ReadFile(routingPath)
+	if err != nil {
+		return fmt.Errorf("read routing.yaml: %w", err)
+	}
+
+	var rc models.RoutingConfig
+	if err := yaml.Unmarshal(data, &rc); err != nil {
+		return fmt.Errorf("parse routing.yaml: %w", err)
+	}
+
+	tiersMap := map[string]interface{}{}
+	for _, tierName := range models.VALID_TIERS {
+		caps := rc.TierCapabilities(tierName)
+		if caps == nil {
+			continue
+		}
+		sort.Strings(caps)
+		tiersMap[tierName] = map[string]interface{}{"capabilities": caps}
+	}
+
+	manifest := map[string]interface{}{
+		"tiers":        tiersMap,
+		"default_tier": rc.Settings.DefaultTier,
+	}
+
+	out, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal tiers.json: %w", err)
+	}
+	return os.WriteFile(filepath.Join(agentDir, "tiers.json"), out, 0644)
 }
 
 func (ss *StartSequence) resolveModelTier(tier string) string {
