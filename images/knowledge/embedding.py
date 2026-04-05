@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_EMBED_KINDS = (
     "Software,ConfigItem,BehaviorPattern,Vulnerability,Finding,"
-    "ThreatIndicator,HuntHypothesis"
+    "ThreatIndicator,HuntHypothesis,procedure,episode,cached_result"
 )
 
 
