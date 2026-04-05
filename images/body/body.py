@@ -616,6 +616,28 @@ class Body:
             handler=lambda args: self._handle_complete_task(args["summary"]),
         )
 
+        # Register recall_tool_output — lets the agent retrieve full raw output
+        # of a previous tool call that was compressed for context savings.
+        self._raw_tool_outputs = {}
+        self._builtin_tools.register_tool(
+            name="recall_tool_output",
+            description=(
+                "Retrieve the full raw output of a previous tool call that was compressed. "
+                "Use when a compressed summary doesn't have enough detail."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "tool_call_id": {
+                        "type": "string",
+                        "description": "The tool call ID from the [Full output available via recall_tool_output('...')] tag",
+                    },
+                },
+                "required": ["tool_call_id"],
+            },
+            handler=lambda args: self._handle_recall_tool_output(args.get("tool_call_id", "")),
+        )
+
         # Register authority tools (halt_agent, recommend_exception)
         from authority_tools import register_authority_tools
         register_authority_tools(self._builtin_tools, signal_fn=self._emit_signal, agent_name=agent_name)
@@ -2611,6 +2633,14 @@ class Body:
         self._channel_reminder_sent = False
         self._checkpoint_injected = False
         log.info("Task %s complete via complete_task (%d turns)", task_id, turn + 1)
+
+    def _handle_recall_tool_output(self, tool_call_id: str) -> str:
+        """Return the full raw output for a previously compressed tool call."""
+        outputs = getattr(self, '_raw_tool_outputs', {})
+        raw = outputs.get(tool_call_id)
+        if raw is None:
+            return json.dumps({"error": f"No stored output for tool_call_id '{tool_call_id}'"})
+        return raw
 
     def _handle_complete_task(self, summary: str) -> str:
         """Handle the complete_task tool call from the agent."""
