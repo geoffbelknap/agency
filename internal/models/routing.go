@@ -306,3 +306,63 @@ func (r *RoutingConfig) TierCapabilities(tier string) []string {
 	}
 	return result
 }
+
+// ResolveTierWithCapabilities resolves a tier ensuring all required capabilities
+// are satisfied. If the requested tier lacks a required capability, it searches
+// adjacent tiers (closer first, preferring downward) for one that satisfies all
+// requirements. Returns the resolved provider, model, and the actual tier used.
+// Returns (nil, nil, "") if no tier can satisfy the requirements.
+func (r *RoutingConfig) ResolveTierWithCapabilities(tier string, required []string, extraEnv map[string]string) (*ProviderConfig, *ModelConfig, string) {
+	if len(required) == 0 {
+		pc, mc := r.ResolveTierWithStrategy(tier, extraEnv)
+		return pc, mc, tier
+	}
+	if r.tierSatisfies(tier, required) {
+		pc, mc := r.ResolveTier(tier, extraEnv)
+		if pc != nil && mc != nil {
+			return pc, mc, tier
+		}
+	}
+	pos := -1
+	for i, t := range tierOrder {
+		if t == tier {
+			pos = i
+			break
+		}
+	}
+	if pos < 0 {
+		return nil, nil, ""
+	}
+	for delta := 1; delta < len(tierOrder); delta++ {
+		for _, d := range []int{delta, -delta} {
+			idx := pos + d
+			if idx < 0 || idx >= len(tierOrder) {
+				continue
+			}
+			candidate := tierOrder[idx]
+			if r.tierSatisfies(candidate, required) {
+				pc, mc := r.ResolveTier(candidate, extraEnv)
+				if pc != nil && mc != nil {
+					return pc, mc, candidate
+				}
+			}
+		}
+	}
+	return nil, nil, ""
+}
+
+// tierSatisfies returns true if every required capability is present in the
+// intersection of capabilities for the given tier.
+func (r *RoutingConfig) tierSatisfies(tier string, required []string) bool {
+	caps := r.TierCapabilities(tier)
+	capSet := make(map[string]bool, len(caps))
+	for _, c := range caps {
+		capSet[c] = true
+	}
+	for _, req := range required {
+		if !capSet[req] {
+			return false
+		}
+	}
+	return true
+}
