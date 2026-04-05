@@ -11,11 +11,18 @@ vi.mock('../app/lib/ws', () => ({
   },
 }));
 
+vi.mock('../app/lib/api', () => ({
+  api: {
+    routing: { config: () => Promise.resolve({ configured: true }) },
+    infra: { status: () => Promise.resolve({ components: [] }) },
+  },
+}));
+
 vi.mock('../app/components/ThemeProvider', () => ({
   useTheme: () => ({ theme: 'dark' as const, resolvedTheme: 'dark' as const, setTheme: () => {} }),
 }));
 
-function renderLayoutAt(path: string) {
+async function renderLayoutAt(path: string) {
   render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
@@ -27,20 +34,23 @@ function renderLayoutAt(path: string) {
     </MemoryRouter>,
   );
 
-  return screen.getByText(path.startsWith('/channels') ? 'Channel page' : 'Overview page').parentElement;
+  const label = path.startsWith('/channels') ? 'Channel page' : 'Overview page';
+  // Layout renders a loading placeholder until async setup check completes
+  const el = await screen.findByText(label);
+  return el.parentElement;
 }
 
 describe('Layout scrolling behavior', () => {
-  it('uses overflow-hidden for channels routes to keep page chrome fixed', () => {
-    const outletContainer = renderLayoutAt('/channels/general');
+  it('uses overflow-hidden for channels routes to keep page chrome fixed', async () => {
+    const outletContainer = await renderLayoutAt('/channels/general');
 
     expect(outletContainer).toBeTruthy();
     expect(outletContainer).toHaveClass('overflow-hidden');
     expect(outletContainer).not.toHaveClass('overflow-auto');
   });
 
-  it('uses overflow-auto for non-channels routes', () => {
-    const outletContainer = renderLayoutAt('/');
+  it('uses overflow-auto for non-channels routes', async () => {
+    const outletContainer = await renderLayoutAt('/');
 
     expect(outletContainer).toBeTruthy();
     expect(outletContainer).toHaveClass('overflow-auto');
