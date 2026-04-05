@@ -56,6 +56,9 @@ func (h *handler) getAgentEconomics(w http.ResponseWriter, r *http.Request) {
 		"avg_latency_ms":          t.AvgLatencyMs,
 		"p95_latency_ms":          t.P95LatencyMs,
 		"by_model":                summary.ByModel,
+		"cache_hits":              0,
+		"cache_hit_rate":          0.0,
+		"cache_saved_usd":         0.0,
 	})
 }
 
@@ -91,5 +94,8 @@ func (h *handler) getEconomicsSummary(w http.ResponseWriter, r *http.Request) {
 		"retry_waste_usd":         t.RetryCostUSD,
 		"by_agent":                summary.ByAgent,
 		"by_model":                summary.ByModel,
+		"cache_hits":              0,
+		"cache_hit_rate":          0.0,
+		"cache_saved_usd":         0.0,
 	})
 }

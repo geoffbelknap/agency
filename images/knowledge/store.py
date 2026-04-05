@@ -474,6 +474,51 @@ class KnowledgeStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def soft_delete_by_label(self, label: str, kind: str) -> int:
+        """Soft-delete a node by label and kind. Returns number of nodes affected."""
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        cursor = self._db.execute(
+            "UPDATE nodes SET curation_status = 'soft_deleted', "
+            "curation_reason = 'cache_eviction', curation_at = ? "
+            "WHERE label = ? AND kind = ? AND (curation_status IS NULL OR curation_status = 'flagged')",
+            (now, label, kind),
+        )
+        affected = cursor.rowcount
+        self._db.commit()
+        if affected > 0:
+            # Find node ID(s) for curation log
+            rows = self._db.execute(
+                "SELECT id FROM nodes WHERE label = ? AND kind = ?", (label, kind),
+            ).fetchall()
+            for row in rows:
+                self.log_curation("soft_delete", row["id"], {"reason": "cache_eviction", "label": label})
+        return affected
+
+    def soft_delete_by_kind_and_property(self, kind: str, property_name: str, value: str) -> int:
+        """Soft-delete all nodes matching kind + property value. Returns count."""
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # First find matching nodes for curation log
+        rows = self._db.execute(
+            "SELECT id, label FROM nodes WHERE kind = ? "
+            "AND json_extract(properties, '$.' || ?) = ? "
+            "AND (curation_status IS NULL OR curation_status = 'flagged')",
+            (kind, property_name, value),
+        ).fetchall()
+        if not rows:
+            return 0
+        ids = [row["id"] for row in rows]
+        placeholders = ",".join("?" for _ in ids)
+        self._db.execute(
+            f"UPDATE nodes SET curation_status = 'soft_deleted', "
+            f"curation_reason = 'cache_clear', curation_at = ? "
+            f"WHERE id IN ({placeholders})",
+            [now] + ids,
+        )
+        self._db.commit()
+        for row in rows:
+            self.log_curation("soft_delete", row["id"], {"reason": "cache_clear", "label": row["label"]})
+        return len(ids)
+
     def get_neighbors_subgraph(self, node_id: str, relation: Optional[str] = None, limit: int = 50) -> dict:
         """Get neighbor nodes + connecting edges. Max 50 neighbor nodes."""
         limit = min(limit, 50)

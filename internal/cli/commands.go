@@ -231,7 +231,7 @@ func RegisterCommands(root *cobra.Command) {
 		channelCmd(), infraCmd(), hubCmd(), teamCmd(), capCmd(),
 		intakeCmd(), knowledgeCmd(), policyCmd(), adminCmd(),
 		contextCmd(), missionCmd(), eventCmd(), webhookCmd(), meeseeksCmd(), notificationsCmd(), auditCmd(),
-		credentialCmd(),
+		credentialCmd(), cacheCmd(),
 	} {
 		cmd.GroupID = "manage"
 		root.AddCommand(cmd)
@@ -4777,5 +4777,41 @@ func credentialCmd() *cobra.Command {
 	groupCmd.AddCommand(groupCreateCmd)
 
 	cmd.AddCommand(setCmd, listCmd, credShowCmd, credDeleteCmd, rotateCmd, testCmd, groupCmd)
+	return cmd
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Cache management
+// ════════════════════════════════════════════════════════════════════════════
+
+func cacheCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "cache", Short: "Semantic cache management"}
+
+	clearCmd := &cobra.Command{
+		Use:   "clear",
+		Short: "Clear cached task results for an agent",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			agent, _ := cmd.Flags().GetString("agent")
+			if agent == "" {
+				return fmt.Errorf("--agent is required")
+			}
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			var result map[string]interface{}
+			if err := c.DeleteJSON("/api/v1/agents/"+agent+"/cache", &result); err != nil {
+				return fmt.Errorf("failed to clear cache: %w", err)
+			}
+			deleted, _ := result["deleted"].(float64)
+			fmt.Printf("%s Cache cleared for %s (%d entries removed)\n",
+				green.Render("✓"), bold.Render(agent), int(deleted))
+			return nil
+		},
+	}
+	clearCmd.Flags().String("agent", "", "Agent name (required)")
+	clearCmd.MarkFlagRequired("agent")
+
+	cmd.AddCommand(clearCmd)
 	return cmd
 }

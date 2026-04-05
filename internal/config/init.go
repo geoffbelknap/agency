@@ -130,6 +130,11 @@ func RunInit(opts InitOptions) ([]KeyEntry, error) {
 	os.MkdirAll(knowledgeDir, 0755)
 	os.MkdirAll(filepath.Join(knowledgeDir, "ontology.d"), 0755)
 
+	// Seed agentic-memory ontology extension if not already present.
+	// Defines procedure, episode, and cached_result entity types used by
+	// the body runtime for procedural/episodic memory and semantic caching.
+	seedAgenticMemoryOntology(filepath.Join(knowledgeDir, "ontology.d"))
+
 	// Create infrastructure and registry directories.
 	// Services, routing, and ontology are synced from hub via `agency hub update`.
 	os.MkdirAll(filepath.Join(agencyHome, "infrastructure"), 0755)
@@ -281,6 +286,40 @@ func RunInit(opts InitOptions) ([]KeyEntry, error) {
 func syncHubCatalog(agencyHome string) {
 	mgr := hub.NewManager(agencyHome)
 	mgr.Update() //nolint:errcheck
+}
+
+// seedAgenticMemoryOntology writes the agentic-memory ontology extension to
+// ontology.d/ if it doesn't already exist. This defines the entity types used
+// by the body runtime for procedural memory, episodic memory, and semantic
+// caching. Idempotent — won't overwrite an existing file.
+func seedAgenticMemoryOntology(ontologyDir string) {
+	path := filepath.Join(ontologyDir, "agentic-memory.yaml")
+	if _, err := os.Stat(path); err == nil {
+		return // already exists
+	}
+
+	const content = `name: agentic-memory
+kind: ontology-extension
+description: Entity types for agentic memory — procedural, episodic, and cached results
+extends: default
+
+entity_types:
+  procedure:
+    description: A learned task-execution pattern — approach, tools, outcome, lessons
+    attributes: [task_id, summary, approach, tools_used, outcome, lessons, agent, mission, duration_minutes, timestamp]
+  episode:
+    description: A recorded task episode — what happened, what was notable, entities involved
+    attributes: [task_id, summary, notable_events, entities_involved, agent, mission, timestamp]
+  cached_result:
+    description: Cached task result for semantic deduplication
+    attributes: [task_description, trigger_context, agent, mission, outcome, cost_usd, duration_s, steps, tools_used, ttl_hours, full_result, created_at]
+
+relationship_types:
+  produced_by:
+    description: Was produced by a procedure or process
+    inverse: produced
+`
+	os.WriteFile(path, []byte(content), 0644) //nolint:errcheck
 }
 
 // ReadExistingKeys returns provider names that have keys in ~/.agency/.env.
