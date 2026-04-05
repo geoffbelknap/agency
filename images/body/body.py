@@ -1732,6 +1732,7 @@ class Body:
                     if self._task_complete_called:
                         self._finalize_task(task_id, turn)
                         break
+                    result = self._compress_tool_output(_tool_name, _tc["id"], result)
                     messages.append({
                         "role": "tool",
                         "tool_call_id": _tc["id"],
@@ -1774,6 +1775,10 @@ class Body:
                     if self._task_complete_called:
                         self._finalize_task(task_id, turn)
                         break
+                    # Compress large tool outputs before appending
+                    for tc in tool_calls:
+                        _tn = tc.get("function", {}).get("name", "")
+                        results[tc["id"]] = self._compress_tool_output(_tn, tc["id"], results[tc["id"]])
                     # Append results in the original tool_calls order
                     for tc in tool_calls:
                         messages.append({
@@ -2632,6 +2637,7 @@ class Body:
         self._task_result_summary = ''
         self._channel_reminder_sent = False
         self._checkpoint_injected = False
+        self._raw_tool_outputs = {}
         log.info("Task %s complete via complete_task (%d turns)", task_id, turn + 1)
 
     def _handle_recall_tool_output(self, tool_call_id: str) -> str:
