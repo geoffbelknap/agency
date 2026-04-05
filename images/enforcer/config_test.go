@@ -187,6 +187,71 @@ func TestResolveModelLocalProvider(t *testing.T) {
 	}
 }
 
+func TestRoutingConfig_ResolveTier(t *testing.T) {
+	rc := &RoutingConfig{
+		Models: map[string]Model{
+			"claude-sonnet": {Provider: "anthropic", ProviderModel: "claude-sonnet-4"},
+			"llama-8b":      {Provider: "ollama", ProviderModel: "llama3.1:8b"},
+		},
+		Tiers: TierConfig{
+			Standard: []TierEntry{{Model: "claude-sonnet", Preference: 0}},
+			Mini:     []TierEntry{{Model: "llama-8b", Preference: 0}},
+		},
+	}
+	model, ok := rc.ResolveTier("standard")
+	if !ok || model != "claude-sonnet" {
+		t.Errorf("expected claude-sonnet, got %s", model)
+	}
+	model, ok = rc.ResolveTier("mini")
+	if !ok || model != "llama-8b" {
+		t.Errorf("expected llama-8b, got %s", model)
+	}
+	_, ok = rc.ResolveTier("frontier")
+	if ok {
+		t.Error("expected false for empty tier")
+	}
+}
+
+func TestResolveTier_PreferenceOrdering(t *testing.T) {
+	rc := &RoutingConfig{
+		Models: map[string]Model{
+			"model-a": {Provider: "p", ProviderModel: "a"},
+			"model-b": {Provider: "p", ProviderModel: "b"},
+		},
+		Tiers: TierConfig{
+			Fast: []TierEntry{
+				{Model: "model-a", Preference: 5},
+				{Model: "model-b", Preference: 1},
+			},
+		},
+	}
+	model, ok := rc.ResolveTier("fast")
+	if !ok || model != "model-b" {
+		t.Errorf("expected model-b (lower preference), got %s", model)
+	}
+}
+
+func TestResolveTier_UnknownModel(t *testing.T) {
+	rc := &RoutingConfig{
+		Models: map[string]Model{},
+		Tiers: TierConfig{
+			Fast: []TierEntry{{Model: "nonexistent", Preference: 0}},
+		},
+	}
+	_, ok := rc.ResolveTier("fast")
+	if ok {
+		t.Error("expected false when best model not in config")
+	}
+}
+
+func TestResolveTier_UnknownTier(t *testing.T) {
+	rc := &RoutingConfig{}
+	_, ok := rc.ResolveTier("imaginary")
+	if ok {
+		t.Error("expected false for unknown tier name")
+	}
+}
+
 func TestLoadServerConfig(t *testing.T) {
 	dir := t.TempDir()
 	configFile := filepath.Join(dir, "server-config.yaml")
