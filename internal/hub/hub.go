@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -46,11 +47,37 @@ var allowedAuthEnvVars = map[string]bool{
 // Component kinds supported by the hub.
 var KnownKinds = []string{"pack", "preset", "connector", "service", "mission", "skill", "workspace", "policy", "ontology", "provider", "setup"}
 
-// Source represents a git-based hub registry source.
+// Source represents a hub registry source (OCI or git).
 type Source struct {
-	Name   string `yaml:"name" json:"name"`
-	URL    string `yaml:"url" json:"url"`
-	Branch string `yaml:"branch,omitempty" json:"branch,omitempty"`
+	Name     string `yaml:"name" json:"name"`
+	Type     string `yaml:"type,omitempty" json:"type,omitempty"`         // "oci" or "git"; defaults to "git"
+	URL      string `yaml:"url,omitempty" json:"url,omitempty"`           // git URL (when type=git)
+	Registry string `yaml:"registry,omitempty" json:"registry,omitempty"` // OCI registry base (when type=oci)
+	Branch   string `yaml:"branch,omitempty" json:"branch,omitempty"`     // git branch (when type=git)
+}
+
+// EffectiveType returns the source type, defaulting to "git" for backward compat.
+func (s Source) EffectiveType() string {
+	if s.Type == "oci" {
+		return "oci"
+	}
+	return "git"
+}
+
+// ComponentRef returns the full OCI reference for a component.
+// Format: {registry}/{kind}/{name}:{version}
+func (s Source) ComponentRef(kind, name, version string) string {
+	if version == "" {
+		version = "latest"
+	}
+	return s.Registry + "/" + kind + "/" + name + ":" + version
+}
+
+// DefaultSource is the official Agency hub, distributed as OCI artifacts.
+var DefaultSource = Source{
+	Name:     "official",
+	Type:     "oci",
+	Registry: "ghcr.io/geoffbelknap/agency-hub",
 }
 
 // Component represents a discovered hub component.
@@ -103,17 +130,31 @@ func NewManager(home string) *Manager {
 // Returns an UpdateReport with source diffs and available upgrades.
 // Does NOT sync managed files or upgrade components — use Upgrade() for that.
 func (m *Manager) Update() (*UpdateReport, error) {
+	// One-time migration: official source git → OCI
+	if m.migrateDefaultSourceToOCI() {
+		fmt.Println("[hub] Migrated official source from git to OCI")
+	}
+
 	cfg := m.loadConfig()
 	cacheDir := filepath.Join(m.Home, "hub-cache")
 	os.MkdirAll(cacheDir, 0755)
 
 	report := &UpdateReport{}
 	for _, src := range cfg.Hub.Sources {
-		su, err := m.syncSourceWithReport(src, cacheDir)
-		if err != nil {
-			report.Warnings = append(report.Warnings, fmt.Sprintf("%s: %s", src.Name, err.Error()))
+		switch src.EffectiveType() {
+		case "oci":
+			client := newOCIClient(src.Registry)
+			if err := client.syncOCISource(context.Background(), cacheDir, src.Name); err != nil {
+				report.Warnings = append(report.Warnings, fmt.Sprintf("%s: %s", src.Name, err.Error()))
+			}
+			report.Sources = append(report.Sources, SourceUpdate{Name: src.Name})
+		default:
+			su, err := m.syncSourceWithReport(src, cacheDir)
+			if err != nil {
+				report.Warnings = append(report.Warnings, fmt.Sprintf("%s: %s", src.Name, err.Error()))
+			}
+			report.Sources = append(report.Sources, su)
 		}
-		report.Sources = append(report.Sources, su)
 	}
 
 	// Check what upgrades are available after pull
@@ -300,6 +341,14 @@ func (m *Manager) Install(componentName, kind, source, instanceName string) (*In
 	data, err := os.ReadFile(comp.Path)
 	if err != nil {
 		return nil, fmt.Errorf("read component: %w", err)
+	}
+
+	// Verify signature for OCI-sourced components
+	if src := m.findSourceByName(comp.Source); src != nil && src.EffectiveType() == "oci" {
+		ref := src.ComponentRef(kind, componentName, comp.Version)
+		if err := verifySignature(context.Background(), ref); err != nil {
+			return nil, fmt.Errorf("signature verification failed: %w", err)
+		}
 	}
 
 	// Create instance via registry
@@ -1141,6 +1190,41 @@ func (m *Manager) syncSourceWithReport(src Source, cacheDir string) (SourceUpdat
 	return su, err
 }
 
+// migrateDefaultSourceToOCI checks if the "official" source is still git-based
+// and migrates it to OCI. Returns true if migration occurred.
+func (m *Manager) migrateDefaultSourceToOCI() bool {
+	cfgPath := filepath.Join(m.Home, "config.yaml")
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return false
+	}
+
+	var cfg hubConfig
+	if yaml.Unmarshal(data, &cfg) != nil {
+		return false
+	}
+
+	migrated := false
+	for i, src := range cfg.Hub.Sources {
+		if src.Name == "official" && src.EffectiveType() == "git" &&
+			strings.Contains(src.URL, "agency-hub") {
+			cfg.Hub.Sources[i] = DefaultSource
+			migrated = true
+		}
+	}
+
+	if !migrated {
+		return false
+	}
+
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		return false
+	}
+	os.WriteFile(cfgPath, out, 0644)
+	return true
+}
+
 func (m *Manager) loadConfig() hubConfig {
 	var cfg hubConfig
 	data, err := os.ReadFile(filepath.Join(m.Home, "config.yaml"))
@@ -1148,7 +1232,25 @@ func (m *Manager) loadConfig() hubConfig {
 		return cfg
 	}
 	yaml.Unmarshal(data, &cfg)
+
+	// If no sources configured and config doesn't explicitly set an empty list,
+	// use the default OCI source. An explicit "sources: []" means "no sources."
+	if len(cfg.Hub.Sources) == 0 && !strings.Contains(string(data), "sources:") {
+		cfg.Hub.Sources = []Source{DefaultSource}
+	}
+
 	return cfg
+}
+
+// findSourceByName returns the Source config for a given source name.
+func (m *Manager) findSourceByName(name string) *Source {
+	cfg := m.loadConfig()
+	for _, src := range cfg.Hub.Sources {
+		if src.Name == name {
+			return &src
+		}
+	}
+	return nil
 }
 
 func (m *Manager) provenancePath() string {

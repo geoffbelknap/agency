@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+*.local
+.certs/
+.superpowers/
+.worktrees/
+.worktrees/

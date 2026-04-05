@@ -1,0 +1,363 @@
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Agency — Brand Design System
+ *
+ * Warm, approachable, precise, and human. Not a dark hacker terminal.
+ * Not generic enterprise SaaS. A serious tool that's enjoyable to use.
+ *
+ * Light mode: warm parchment base (#FDFAF5), ink text (#1A1714), teal accent (#00A882)
+ * Dark mode:  deep warm dark (#1A1714), warm light text (#FDFAF5), bright teal (#00E5B4)
+ *
+ * All borders 0.5px. No shadows. No gradients. Fraunces for display, DM Sans for body,
+ * Space Mono for technical data.
+ */
+
+:root {
+  --font-size: 15px;
+
+  /* Brand palette — light mode */
+  --warm: #FDFAF5;
+  --ink: #1A1714;
+  --ink-mid: #6B6560;
+  --ink-faint: #B8B2AC;
+  --surface-alt: #FAF7F2;
+  --teal: #00A882;
+  --teal-dark: #007A62;
+  --teal-light: #E1F5EE;
+  --teal-border: #B8E8D8;
+
+  /* Semantic tokens mapped to brand */
+  --background: #FDFAF5;
+  --foreground: #1A1714;
+  --card: #FFFFFF;
+  --card-foreground: #1A1714;
+  --popover: #FFFFFF;
+  --popover-foreground: #1A1714;
+  --primary: #00A882;
+  --primary-foreground: #FFFFFF;
+  --secondary: #FAF7F2;
+  --secondary-foreground: #1A1714;
+  --muted: #FAF7F2;
+  --muted-foreground: #6B6560;
+  --accent: #E1F5EE;
+  --accent-foreground: #007A62;
+  --destructive: #D94040;
+  --destructive-foreground: #FFFFFF;
+  --border: #E8E2D9;
+  --border-mid: #D4CEC8;
+  --input: transparent;
+  --input-background: #FAF7F2;
+  --switch-background: #D4CEC8;
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --ring: #00A882;
+
+  /* Charts */
+  --chart-1: #00A882;
+  --chart-2: #E5A000;
+  --chart-3: #C084FC;
+  --chart-4: #3B82F6;
+  --chart-5: #EF4444;
+
+  --radius: 0.5rem;
+
+  /* Sidebar */
+  --sidebar: #FAF7F2;
+  --sidebar-foreground: #1A1714;
+  --sidebar-primary: #00A882;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #E1F5EE;
+  --sidebar-accent-foreground: #007A62;
+  --sidebar-border: #E8E2D9;
+  --sidebar-ring: #00A882;
+}
+
+.dark {
+  --background: #1A1714;
+  --foreground: #FDFAF5;
+  --card: #221E1A;
+  --card-foreground: #FDFAF5;
+  --popover: #221E1A;
+  --popover-foreground: #FDFAF5;
+  --primary: #00E5B4;
+  --primary-foreground: #1A1714;
+  --secondary: #221E1A;
+  --secondary-foreground: #FDFAF5;
+  --muted: #2A2520;
+  --muted-foreground: #8B9299;
+  --accent: #2A2520;
+  --accent-foreground: #FDFAF5;
+  --destructive: #EF4444;
+  --destructive-foreground: #FDFAF5;
+  --border: #2A2520;
+  --border-mid: #3A3530;
+  --input: #221E1A;
+  --ring: #00E5B4;
+  --font-weight-medium: 500;
+  --font-weight-normal: 300;
+
+  --chart-1: #00E5B4;
+  --chart-2: #E5A000;
+  --chart-3: #C084FC;
+  --chart-4: #60A5FA;
+  --chart-5: #F87171;
+
+  --sidebar: #1A1714;
+  --sidebar-foreground: #8B9299;
+  --sidebar-primary: #00E5B4;
+  --sidebar-primary-foreground: #1A1714;
+  --sidebar-accent: #2A2520;
+  --sidebar-accent-foreground: #FDFAF5;
+  --sidebar-border: #2A2520;
+  --sidebar-ring: #00E5B4;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-switch-background: var(--switch-background);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Brand-specific tokens */
+  --color-warm: var(--warm, #FDFAF5);
+  --color-ink: var(--ink, #1A1714);
+  --color-ink-mid: var(--ink-mid, #6B6560);
+  --color-ink-faint: var(--ink-faint, #B8B2AC);
+  --color-teal: var(--teal, #00A882);
+  --color-teal-dark: var(--teal-dark, #007A62);
+  --color-teal-light: var(--teal-light, #E1F5EE);
+  --color-teal-border: var(--teal-border, #B8E8D8);
+  --color-surface-alt: var(--surface-alt, #FAF7F2);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    border-width: 0;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  @media (max-width: 1023px) {
+    body {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+    }
+  }
+
+  #root {
+    height: 100%;
+  }
+
+  @media (max-width: 1023px) {
+    #root {
+      overflow: hidden;
+    }
+  }
+
+  html {
+    font-size: var(--font-size);
+  }
+
+  /* Typography scale — Fraunces for display, DM Sans for body */
+  h1 {
+    font-family: var(--font-display);
+    font-size: var(--text-2xl);
+    font-weight: var(--font-weight-normal);
+    line-height: 1.3;
+    letter-spacing: -0.02em;
+  }
+
+  h2 {
+    font-family: var(--font-display);
+    font-size: var(--text-xl);
+    font-weight: var(--font-weight-normal);
+    line-height: 1.35;
+    letter-spacing: -0.01em;
+  }
+
+  h3 {
+    font-size: var(--text-lg);
+    font-weight: 400;
+    line-height: 1.4;
+  }
+
+  h4 {
+    font-size: var(--text-base);
+    font-weight: 400;
+    line-height: 1.5;
+  }
+
+  label {
+    font-size: var(--text-sm);
+    font-weight: 400;
+    line-height: 1.5;
+  }
+
+  button {
+    font-size: var(--text-sm);
+    font-weight: 500;
+    line-height: 1.5;
+  }
+
+  input {
+    font-size: var(--text-sm);
+    font-weight: var(--font-weight-normal);
+    line-height: 1.5;
+  }
+
+  /* 0.5px border utility — the brand uses thin borders exclusively */
+  .border, [class*="border-"] {
+    border-width: 0.5px;
+  }
+  .border-0 { border-width: 0; }
+  .border-2 { border-width: 2px; } /* Featured card accent only */
+  .border-b { border-bottom-width: 0.5px; }
+  .border-t { border-top-width: 0.5px; }
+  .border-l { border-left-width: 0.5px; }
+  .border-r { border-right-width: 0.5px; }
+
+  /* Scrollbar — warm, subtle */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-mid, #D4CEC8);
+    border-radius: 3px;
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    background: #3A3530;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--ink-faint, #B8B2AC);
+  }
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: #4A4540;
+  }
+
+  /* Code blocks always dark regardless of mode */
+  pre, .code-block {
+    background: #1A1714 !important;
+    color: #8B9299;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.85;
+    border-radius: 8px;
+    border: 0.5px solid #2A2520;
+  }
+
+  pre code {
+    color: inherit;
+    background: transparent;
+  }
+}
+
+/* Hide scrollbar utility */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+.h-dvh {
+  height: 100vh;
+  height: 100dvh;
+  height: calc(100dvh - var(--vvh-offset, 0px));
+}
+
+@media (max-width: 1023px) {
+  .safe-top { padding-top: env(safe-area-inset-top, 0px); }
+  .safe-bottom { padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px); }
+  .safe-left { padding-left: env(safe-area-inset-left, 0px); }
+  .safe-right { padding-right: env(safe-area-inset-right, 0px); }
+}
+
+html, body, #root {
+  overscroll-behavior: none;
+}
+
+@media (max-width: 1023px) {
+  html, body, #root {
+    -webkit-overflow-scrolling: touch;
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
+  .prose {
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+}
+
+@media (max-width: 1023px) {
+  .mt-header-mobile {
+    margin-top: calc(3.5rem + env(safe-area-inset-top, 0px));
+  }
+}
+
+@keyframes pulse-warning {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.animate-pulse-warning {
+  animation: pulse-warning 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-warning {
+    animation: none;
+  }
+}
+
+/* Eyebrow utility — Space Mono, uppercase, teal, tracked */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--primary);
+}

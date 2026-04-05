@@ -1,0 +1,163 @@
+import { describe, it, expect, vi } from 'vitest';
+import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { http, HttpResponse } from 'msw';
+import { server } from '../../test/server';
+import { renderWithRouter } from '../../test/render';
+import { Overview } from './Overview';
+
+vi.mock('../../lib/ws', () => ({ socket: { on: () => () => {}, connect: () => {}, disconnect: () => {}, connected: false } }));
+
+const BASE = 'http://localhost:8200/api/v1';
+
+function wrapInfra(components: any[]) {
+  return { version: '0.1.0', build_id: 'test', components };
+}
+
+describe('Overview', () => {
+  it('renders agent summary table', async () => {
+    server.use(
+      http.get(`${BASE}/agents`, () =>
+        HttpResponse.json([
+          { name: 'steve', status: 'running', mode: 'autonomous', team: 'alpha', preset: 'ops', enforcer: 'active' },
+        ]),
+      ),
+      http.get(`${BASE}/infra/status`, () => HttpResponse.json(wrapInfra([]))),
+      http.get(`${BASE}/agents/steve/logs`, () => HttpResponse.json([])),
+    );
+    renderWithRouter(<Overview />);
+    await waitFor(() => {
+      expect(screen.getByText('steve')).toBeInTheDocument();
+      expect(screen.getByText('autonomous')).toBeInTheDocument();
+    });
+  });
+
+  it('renders infrastructure status strip', async () => {
+    server.use(
+      http.get(`${BASE}/agents`, () => HttpResponse.json([])),
+      http.get(`${BASE}/infra/status`, () =>
+        HttpResponse.json(wrapInfra([
+          { name: 'gateway', state: 'running', health: 'healthy' },
+          { name: 'redis', state: 'running', health: 'healthy' },
+        ])),
+      ),
+    );
+    renderWithRouter(<Overview />);
+    await waitFor(() => {
+      expect(screen.getByText('gateway')).toBeInTheDocument();
+      expect(screen.getByText('redis')).toBeInTheDocument();
+    });
+  });
+
+  it('shows loading state initially', () => {
+    renderWithRouter(<Overview />);
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
+  });
+
+  it('starts infrastructure via button', async () => {
+    let started = false;
+    server.use(
+      http.get(`${BASE}/agents`, () =>
+        HttpResponse.json([
+          { name: 'steve', status: 'running', mode: 'autonomous', team: 'alpha', preset: 'ops', enforcer: 'active' },
+        ]),
+      ),
+      http.get(`${BASE}/infra/status`, () =>
+        HttpResponse.json(wrapInfra([
+          { name: 'egress', state: 'missing', health: 'none', container_id: '', uptime: '' },
+          { name: 'comms', state: 'missing', health: 'none', container_id: '', uptime: '' },
+        ])),
+      ),
+      http.get(`${BASE}/agents/steve/logs`, () => HttpResponse.json([])),
+      http.post(`${BASE}/infra/up`, () => {
+        started = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    renderWithRouter(<Overview />);
+    await waitFor(() => {
+      expect(screen.getByText('steve')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /start infra/i })).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('button', { name: /start infra/i }));
+    await waitFor(() => {
+      expect(started).toBe(true);
+    });
+  });
+
+  it('shows restart infra when services are already running', async () => {
+    server.use(
+      http.get(`${BASE}/agents`, () => HttpResponse.json([])),
+      http.get(`${BASE}/infra/status`, () =>
+        HttpResponse.json(wrapInfra([
+          { name: 'gateway', state: 'running', health: 'healthy' },
+          { name: 'redis', state: 'running', health: 'healthy' },
+        ])),
+      ),
+    );
+
+    renderWithRouter(<Overview />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /restart infra/i })).toBeInTheDocument();
+    });
+  });
+
+  it('stops infrastructure via button', async () => {
+    let stopped = false;
+    server.use(
+      http.get(`${BASE}/agents`, () =>
+        HttpResponse.json([
+          { name: 'steve', status: 'running', mode: 'autonomous', team: 'alpha', preset: 'ops', enforcer: 'active' },
+        ]),
+      ),
+      http.get(`${BASE}/infra/status`, () =>
+        HttpResponse.json(wrapInfra([
+          { name: 'gateway', state: 'running', health: 'healthy', container_id: 'abc', uptime: '2h' },
+          { name: 'redis', state: 'running', health: 'healthy', container_id: 'def', uptime: '2h' },
+        ])),
+      ),
+      http.get(`${BASE}/agents/steve/logs`, () => HttpResponse.json([])),
+      http.post(`${BASE}/infra/down`, () => {
+        stopped = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    renderWithRouter(<Overview />);
+    await waitFor(() => {
+      expect(screen.getByText('steve')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('button', { name: /stop infra/i }));
+    await waitFor(() => {
+      expect(stopped).toBe(true);
+    });
+  });
+
+  it('restarts infrastructure via the primary button when services are running', async () => {
+    let restarted = false;
+    server.use(
+      http.get(`${BASE}/agents`, () => HttpResponse.json([])),
+      http.get(`${BASE}/infra/status`, () =>
+        HttpResponse.json(wrapInfra([
+          { name: 'gateway', state: 'running', health: 'healthy' },
+          { name: 'redis', state: 'running', health: 'healthy' },
+        ])),
+      ),
+      http.post(`${BASE}/infra/reload`, () => {
+        restarted = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+
+    renderWithRouter(<Overview />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /restart infra/i })).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /restart infra/i }));
+    await waitFor(() => {
+      expect(restarted).toBe(true);
+    });
+  });
+});

@@ -169,7 +169,7 @@ Five model tiers (frontier, standard, fast, mini, nano). Each agent preset decla
 | Project | What it is |
 |---------|-----------|
 | [ASK](https://askframework.org) | The security framework Agency implements. 27 tenets. Vendor-neutral. |
-| [agency-web](https://github.com/geoffbelknap/agency-web) | Web UI. Vite/React. Connects to the gateway REST API. |
+| [web/](web/) | Web UI. Vite/React. Connects to the gateway REST API. |
 | [agency-hub](https://github.com/geoffbelknap/agency-hub) | Component registry. Packs, presets, connectors, missions, services. |
 
 ## Building

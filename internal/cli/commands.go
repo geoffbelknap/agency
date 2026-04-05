@@ -1748,21 +1748,39 @@ func hubCmd() *cobra.Command {
 
 	// ── Source management ──
 
-	cmd.AddCommand(&cobra.Command{
-		Use: "add-source <name> <url>", Short: "Add a hub source", Args: cobra.ExactArgs(2),
+	addSourceCmd := &cobra.Command{
+		Use: "add-source <name> <url-or-registry>", Short: "Add a hub source", Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			srcType, _ := cmd.Flags().GetString("type")
 			branch, _ := cmd.Flags().GetString("branch")
 			if branch == "" {
 				branch = "main"
 			}
+
+			// Auto-detect source type if not specified
+			if srcType == "" {
+				if strings.Contains(args[1], ".git") || strings.HasPrefix(args[1], "https://github.com") {
+					srcType = "git"
+				} else {
+					srcType = "oci"
+				}
+			}
+
 			home, _ := os.UserHomeDir()
 			cfgPath := home + "/.agency/config.yaml"
 			data, err := os.ReadFile(cfgPath)
 			if err != nil {
 				return fmt.Errorf("read config: %w", err)
 			}
-			// Simple append — add source to hub.sources
-			entry := fmt.Sprintf("    - name: %s\n      url: %s\n      branch: %s\n", args[0], args[1], branch)
+
+			// Build entry based on source type
+			var entry string
+			if srcType == "oci" {
+				entry = fmt.Sprintf("    - name: %s\n      type: oci\n      registry: %s\n", args[0], args[1])
+			} else {
+				entry = fmt.Sprintf("    - name: %s\n      url: %s\n      branch: %s\n", args[0], args[1], branch)
+			}
+
 			content := string(data)
 			if !strings.Contains(content, "hub:") {
 				content += "\nhub:\n  sources:\n" + entry
@@ -1773,11 +1791,14 @@ func hubCmd() *cobra.Command {
 			if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
 				return err
 			}
-			fmt.Printf("%s Added source %s (%s)\n", green.Render("✓"), bold.Render(args[0]), args[1])
+			fmt.Printf("%s Added %s source %s (%s)\n", green.Render("✓"), srcType, bold.Render(args[0]), args[1])
 			fmt.Println("  Run 'agency hub update' to fetch components from this source")
 			return nil
 		},
-	})
+	}
+	addSourceCmd.Flags().String("type", "", "Source type: oci or git (auto-detected if omitted)")
+	addSourceCmd.Flags().String("branch", "main", "Git branch (only for git sources)")
+	cmd.AddCommand(addSourceCmd)
 
 	cmd.AddCommand(&cobra.Command{
 		Use: "remove-source <name>", Short: "Remove a hub source", Args: cobra.ExactArgs(1),

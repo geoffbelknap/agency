@@ -1,0 +1,112 @@
+interface AgentRow {
+  name: string;
+  status: string;
+  team: string;
+  mission?: string;
+  lastActive: string;
+  budget?: { daily_used: number; daily_limit: number };
+}
+
+interface Props {
+  agents: AgentRow[];
+  selectedAgent: string | null;
+  onSelect: (name: string) => void;
+}
+
+const STATUS_DOT_COLOR: Record<string, string> = {
+  running: 'bg-green-500',
+  stopped: 'bg-red-500',
+  paused: 'bg-amber-500',
+  halted: 'bg-amber-500',
+  idle: 'bg-gray-400',
+};
+
+function statusDotColor(status: string): string {
+  return STATUS_DOT_COLOR[status] ?? 'bg-gray-400';
+}
+
+function budgetColor(used: number, limit: number): string {
+  const pct = limit > 0 ? used / limit : 0;
+  if (pct > 0.95) return 'bg-red-500';
+  if (pct > 0.8) return 'bg-amber-500';
+  return 'bg-primary';
+}
+
+function relativeTime(iso: string): string {
+  if (!iso) return '—';
+  const diff = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(diff)) return '—';
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+export function AgentList({ agents, selectedAgent, onSelect }: Props) {
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="border-b text-left text-muted-foreground">
+          <th className="pb-2 pr-4 font-medium">Name</th>
+          <th className="pb-2 pr-4 font-medium">Status</th>
+          <th className="pb-2 pr-4 font-medium">Team</th>
+          <th className="pb-2 pr-4 font-medium">Mission</th>
+          <th className="pb-2 pr-4 font-medium">Budget</th>
+          <th className="pb-2 font-medium">Last Active</th>
+        </tr>
+      </thead>
+      <tbody>
+        {agents.map((agent) => {
+          const isSelected = agent.name === selectedAgent;
+          const rowClass = [
+            'cursor-pointer hover:bg-muted/50 transition-colors',
+            isSelected ? 'bg-primary/5' : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
+
+          return (
+            <tr
+              key={agent.name}
+              className={rowClass}
+              onClick={() => onSelect(agent.name)}
+              tabIndex={0}
+              role="button"
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(agent.name); } }}
+            >
+              <td className="py-2 pr-4 font-mono">{agent.name}</td>
+              <td className="py-2 pr-4">
+                <span className="flex items-center gap-1.5">
+                  <span className={`inline-block w-2 h-2 rounded-full ${statusDotColor(agent.status)}`} />
+                  {agent.status}
+                </span>
+              </td>
+              <td className="py-2 pr-4">{agent.team}</td>
+              <td className="py-2 pr-4">{agent.mission ?? '—'}</td>
+              <td className="py-2 pr-4">
+                {agent.budget ? (
+                  <div className="w-20 h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div
+                      data-budget-bar
+                      className={`h-full rounded-full ${budgetColor(agent.budget.daily_used, agent.budget.daily_limit)}`}
+                      style={{
+                        width: `${Math.min(100, (agent.budget.daily_used / agent.budget.daily_limit) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                ) : (
+                  '—'
+                )}
+              </td>
+              <td className="py-2" style={{ fontVariantNumeric: 'tabular-nums' }}>{relativeTime(agent.lastActive)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}

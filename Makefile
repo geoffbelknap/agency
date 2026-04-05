@@ -85,8 +85,8 @@ endef
 
 $(foreach img,$(CORE_IMAGES),$(eval $(call IMAGE_RULE,$(img))))
 
-# agency-web lives in the workspace (../agency-web)
-AGENCY_WEB_DIR ?= $(shell cd .. && pwd)/agency-web
+# agency-web source (monorepo)
+AGENCY_WEB_DIR ?= $(SOURCE_DIR)/web
 
 web:
 	@echo "Building agency-web..."
