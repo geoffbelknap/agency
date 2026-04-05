@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/apiclient"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/daemon"
+	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -567,10 +569,119 @@ func runQuickstart(opts quickstartOptions) error {
 		fmt.Printf("  %s agent           %s running\n", qsGreen.Render("✓"), agentName)
 	}
 
-	// runningAgent and choice are available for Phase 5
-	_, _ = runningAgent, choice
+	// Phase 5: Demo
+	if !opts.noDemo && runningAgent != "" {
+		demoTask := choice.task
+		if demoTask == "" {
+			demoTask = "What are you capable of? Give me three things I should try first."
+		}
 
+		fmt.Println()
+		fmt.Println("  Your agent is ready. Let's try it out:")
+		fmt.Println()
+		fmt.Printf("  > %s is thinking...", qsBold.Render(runningAgent))
+
+		if err := streamDemoResponse(c, c.BaseURL, runningAgent, demoTask); err != nil {
+			fmt.Println()
+			fmt.Println()
+			fmt.Println("  Agent started but the first task is taking a while.")
+			fmt.Printf("  Check %s or open %s\n", qsBold.Render("agency status"), qsBold.Render("http://localhost:8280"))
+		}
+	}
+
+	// What's next footer
 	fmt.Println()
-	fmt.Println(qsGreen.Render("Quickstart complete!"))
+	fmt.Println("  " + qsDim.Render("────────────────────────────────────────"))
+	fmt.Println("  Agent is running. What's next:")
+	if runningAgent != "" {
+		fmt.Printf("    • Send tasks:  %s\n", qsBold.Render(fmt.Sprintf("agency send %s \"your task here\"", runningAgent)))
+	}
+	fmt.Printf("    • Web UI:      %s\n", qsBold.Render("http://localhost:8280"))
+	fmt.Printf("    • Status:      %s\n", qsBold.Render("agency status"))
+	fmt.Printf("    • More agents: %s\n", qsBold.Render("agency hub search"))
+	if choice.preset == "engineer" {
+		fmt.Printf("    • Full team:   %s\n", qsBold.Render("agency hub install security-ops"))
+	}
+	if choice.preset == "code-reviewer" && runningAgent != "" {
+		fmt.Printf("    • Review PRs:  %s\n", qsBold.Render(fmt.Sprintf("agency send %s \"review my latest commit\"", runningAgent)))
+	}
+	fmt.Println()
+
 	return nil
+}
+
+func streamDemoResponse(client *apiclient.Client, baseURL, agentName, task string) error {
+	dmChannel := "dm-" + agentName
+
+	// Ensure DM channel exists
+	client.CreateChannel(dmChannel, "DM channel for "+agentName)
+
+	// Connect WebSocket
+	wsURL := strings.Replace(baseURL, "http://", "ws://", 1) + "/ws"
+	header := http.Header{}
+	if client.Token != "" {
+		header.Set("X-Agency-Token", client.Token)
+	}
+
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
+	if err != nil {
+		return fmt.Errorf("WebSocket connect: %w", err)
+	}
+	defer conn.Close()
+
+	// Subscribe to the DM channel
+	sub := map[string]interface{}{
+		"type":     "subscribe",
+		"channels": []string{dmChannel},
+	}
+	conn.WriteJSON(sub)
+
+	// Send the task
+	client.SendMessage(dmChannel, task)
+
+	// Listen for agent response with timeout
+	deadline := time.Now().Add(60 * time.Second)
+
+	for time.Now().Before(deadline) {
+		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		_, msgBytes, err := conn.ReadMessage()
+		if err != nil {
+			if time.Now().After(deadline) {
+				break
+			}
+			continue // timeout on read, retry
+		}
+
+		var event map[string]interface{}
+		if json.Unmarshal(msgBytes, &event) != nil {
+			continue
+		}
+
+		eventType, _ := event["type"].(string)
+		if eventType != "message" {
+			continue
+		}
+
+		msg, _ := event["message"].(map[string]interface{})
+		author, _ := msg["author"].(string)
+		if author == "_operator" || author == "" {
+			continue
+		}
+
+		content, _ := msg["content"].(string)
+		if content == "" {
+			continue
+		}
+
+		// Clear the "thinking" line and print response
+		fmt.Print("\r                                          \r")
+		fmt.Println()
+		lines := strings.Split(content, "\n")
+		for _, line := range lines {
+			fmt.Printf("  %s\n", line)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("timeout")
 }
