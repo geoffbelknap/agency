@@ -176,6 +176,10 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Get("/agents/{name}/budget", h.getBudget)
 		r.Get("/agents/{name}/budget/remaining", h.getBudgetRemaining)
 
+		// Economics (cost + performance analytics)
+		r.Get("/agents/{name}/economics", h.getAgentEconomics)
+		r.Get("/economics/summary", h.getEconomicsSummary)
+
 		// Context API (mid-session constraint push)
 		ctxH := &contextHandler{mgr: h.ctxMgr}
 		r.Route("/agents/{name}/context", func(r chi.Router) {
