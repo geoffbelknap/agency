@@ -294,6 +294,10 @@ routing_rules:
       cost_source: evaluation
     tier: fast
     reason: "Success criteria evaluation is checklist comparison"
+  - match:
+      cost_source: context_compression
+    tier: mini
+    reason: "Compression is structured summarization"
 `)
 		os.MkdirAll(filepath.Dir(localRoutingPath), 0755)
 		os.WriteFile(localRoutingPath, defaultRules, 0644)
