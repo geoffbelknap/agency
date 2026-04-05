@@ -43,6 +43,22 @@ func (m Model) HasCapability(cap string) bool {
 	return false
 }
 
+// TierEntry maps a model alias to a preference weight within a tier.
+type TierEntry struct {
+	Model      string `yaml:"model"`
+	Preference int    `yaml:"preference"`
+}
+
+// TierConfig defines model tiers for hybrid routing.
+type TierConfig struct {
+	Frontier []TierEntry `yaml:"frontier"`
+	Standard []TierEntry `yaml:"standard"`
+	Fast     []TierEntry `yaml:"fast"`
+	Mini     []TierEntry `yaml:"mini"`
+	Nano     []TierEntry `yaml:"nano"`
+	Batch    []TierEntry `yaml:"batch"`
+}
+
 // Settings holds enforcer operational settings.
 type Settings struct {
 	XPIAScan       bool `yaml:"xpia_scan"`
@@ -51,10 +67,49 @@ type Settings struct {
 
 // RoutingConfig represents the full routing.yaml configuration.
 type RoutingConfig struct {
-	Version   string              `yaml:"version"`
-	Providers map[string]Provider `yaml:"providers"`
-	Models    map[string]Model    `yaml:"models"`
-	Settings  Settings            `yaml:"settings"`
+	Version      string              `yaml:"version"`
+	Providers    map[string]Provider `yaml:"providers"`
+	Models       map[string]Model    `yaml:"models"`
+	Tiers        TierConfig          `yaml:"tiers"`
+	RoutingRules []RoutingRule       `yaml:"routing_rules"`
+	Settings     Settings            `yaml:"settings"`
+}
+
+// ResolveTier returns the preferred model alias for the given tier name.
+// It selects the entry with the lowest preference value and verifies
+// the model exists in the config. Returns ("", false) if the tier is
+// empty or the best model is not defined.
+func (rc *RoutingConfig) ResolveTier(tier string) (string, bool) {
+	var entries []TierEntry
+	switch tier {
+	case "frontier":
+		entries = rc.Tiers.Frontier
+	case "standard":
+		entries = rc.Tiers.Standard
+	case "fast":
+		entries = rc.Tiers.Fast
+	case "mini":
+		entries = rc.Tiers.Mini
+	case "nano":
+		entries = rc.Tiers.Nano
+	case "batch":
+		entries = rc.Tiers.Batch
+	default:
+		return "", false
+	}
+	if len(entries) == 0 {
+		return "", false
+	}
+	best := entries[0]
+	for _, e := range entries[1:] {
+		if e.Preference < best.Preference {
+			best = e
+		}
+	}
+	if _, ok := rc.Models[best.Model]; !ok {
+		return "", false
+	}
+	return best.Model, true
 }
 
 // APIKey represents an API key entry in api_keys.yaml.

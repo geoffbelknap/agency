@@ -44,6 +44,10 @@ type AuditEntry struct {
 	StepIndex     int               `json:"step_index,omitempty"`
 	ToolCallValid *bool             `json:"tool_call_valid,omitempty"`
 	RetryOf       string            `json:"retry_of,omitempty"`
+	ReroutedFrom  string            `json:"rerouted_from,omitempty"`
+	RerouteRule   string            `json:"reroute_rule,omitempty"`
+	TargetTier    string            `json:"target_tier,omitempty"`
+	ModelTierHint string            `json:"model_tier_hint,omitempty"`
 	Sig           string            `json:"sig,omitempty"`
 	Extra         map[string]string `json:"extra,omitempty"`
 }

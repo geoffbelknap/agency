@@ -271,6 +271,38 @@ func RunInit(opts InitOptions) ([]KeyEntry, error) {
 		return nil, fmt.Errorf("write config: %w", err)
 	}
 
+	// Seed default routing rules if not already present.
+	// These reroute non-reasoning LLM calls to cheaper tiers.
+	localRoutingPath := filepath.Join(agencyHome, "infrastructure", "routing.local.yaml")
+	if _, err := os.Stat(localRoutingPath); os.IsNotExist(err) {
+		defaultRules := []byte(`# Routing rules — reroute non-reasoning calls to cheaper tiers.
+# First match wins. Remove or edit to customize.
+routing_rules:
+  - match:
+      cost_source: memory_capture
+    tier: mini
+    reason: "Memory capture is structured extraction"
+  - match:
+      cost_source: consolidation
+    tier: fast
+    reason: "Consolidation is summarization"
+  - match:
+      cost_source: context_summary
+    tier: mini
+    reason: "Context summarization is compression"
+  - match:
+      cost_source: evaluation
+    tier: fast
+    reason: "Success criteria evaluation is checklist comparison"
+  - match:
+      cost_source: context_compression
+    tier: mini
+    reason: "Compression is structured summarization"
+`)
+		os.MkdirAll(filepath.Dir(localRoutingPath), 0755)
+		os.WriteFile(localRoutingPath, defaultRules, 0644)
+	}
+
 	// Sync hub catalog (best-effort — don't fail init if hub is unreachable).
 	// This also syncs routing.yaml, services, and ontology from the hub.
 	syncHubCatalog(agencyHome)

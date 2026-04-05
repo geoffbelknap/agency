@@ -16,6 +16,7 @@ COST_MODE_DEFAULTS = {
         "procedural_memory": {"capture": False, "retrieve": False},
         "episodic_memory": {"capture": False, "retrieve": False, "tool_enabled": False},
         "cache": {"enabled": True, "ttl_hours": 24, "confidence_threshold": 0.92, "assist_threshold": 0.80},
+        "context": {"compress_enabled": True, "compress_threshold": 1500, "compress_target": 300},
     },
     "balanced": {
         "reflection": {"enabled": False},
@@ -23,6 +24,7 @@ COST_MODE_DEFAULTS = {
         "procedural_memory": {"capture": True, "retrieve": True, "max_retrieved": 3, "include_failures": False},
         "episodic_memory": {"capture": True, "retrieve": True, "max_retrieved": 3, "tool_enabled": True},
         "cache": {"enabled": True, "ttl_hours": 24, "confidence_threshold": 0.92, "assist_threshold": 0.80},
+        "context": {"compress_enabled": True, "compress_threshold": 2000, "compress_target": 500},
     },
     "thorough": {
         "reflection": {"enabled": True, "max_rounds": 2},
@@ -30,6 +32,7 @@ COST_MODE_DEFAULTS = {
         "procedural_memory": {"capture": True, "retrieve": True, "max_retrieved": 5, "include_failures": True},
         "episodic_memory": {"capture": True, "retrieve": True, "max_retrieved": 5, "tool_enabled": True},
         "cache": {"enabled": True, "ttl_hours": 48, "confidence_threshold": 0.95, "assist_threshold": 0.85},
+        "context": {"compress_enabled": True, "compress_threshold": 3000, "compress_target": 800},
     },
 }
 
