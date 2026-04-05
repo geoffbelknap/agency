@@ -60,7 +60,8 @@ class TestEdgeProvenanceMigration:
         e_llm = store.add_edge(n_llm, n_target, "relates_to")
         e_local = store.add_edge(n_local, n_target, "relates_to")
 
-        store.migrate_edge_provenance()
+        stats = store.migrate_edge_provenance()
+        assert stats["migrated"] == 4
 
         def get_prov(eid):
             return store._db.execute(
@@ -78,7 +79,8 @@ class TestEdgeProvenanceMigration:
         n_target = store.add_node(label="target", kind="concept", summary="")
         e_id = store.add_edge(n_rule, n_target, "relates_to")
 
-        store.migrate_edge_provenance()
+        stats = store.migrate_edge_provenance()
+        assert stats["migrated"] > 0
         assert store._db.execute(
             "SELECT provenance FROM edges WHERE id = ?", (e_id,)
         ).fetchone()["provenance"] == "EXTRACTED"
@@ -87,7 +89,8 @@ class TestEdgeProvenanceMigration:
         store._db.execute("UPDATE edges SET provenance = 'INFERRED' WHERE id = ?", (e_id,))
         store._db.commit()
 
-        store.migrate_edge_provenance()
+        stats = store.migrate_edge_provenance()
+        assert stats["migrated"] == 0
         # Should remain INFERRED because the _provenance_migrated marker prevents re-migration
         assert store._db.execute(
             "SELECT provenance FROM edges WHERE id = ?", (e_id,)

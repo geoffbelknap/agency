@@ -481,7 +481,7 @@ class KnowledgeStore:
             params.append(relation)
         return [dict(r) for r in self._db.execute(sql, params).fetchall()]
 
-    def migrate_edge_provenance(self) -> int:
+    def migrate_edge_provenance(self) -> dict:
         """Migrate existing edges' provenance based on source node's source_type.
 
         Mapping:
@@ -520,7 +520,7 @@ class KnowledgeStore:
             updated += 1
 
         self._db.commit()
-        return updated
+        return {"migrated": updated}
 
     def filter_nodes_by_property(self, kind: str, property_name: str, value: str, limit: int = 50) -> list[dict]:
         """Find nodes matching kind + JSON property value. Max 50 results."""
