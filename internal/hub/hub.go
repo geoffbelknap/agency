@@ -46,11 +46,30 @@ var allowedAuthEnvVars = map[string]bool{
 // Component kinds supported by the hub.
 var KnownKinds = []string{"pack", "preset", "connector", "service", "mission", "skill", "workspace", "policy", "ontology", "provider", "setup"}
 
-// Source represents a git-based hub registry source.
+// Source represents a hub registry source (OCI or git).
 type Source struct {
-	Name   string `yaml:"name" json:"name"`
-	URL    string `yaml:"url" json:"url"`
-	Branch string `yaml:"branch,omitempty" json:"branch,omitempty"`
+	Name     string `yaml:"name" json:"name"`
+	Type     string `yaml:"type,omitempty" json:"type,omitempty"`         // "oci" or "git"; defaults to "git"
+	URL      string `yaml:"url,omitempty" json:"url,omitempty"`           // git URL (when type=git)
+	Registry string `yaml:"registry,omitempty" json:"registry,omitempty"` // OCI registry base (when type=oci)
+	Branch   string `yaml:"branch,omitempty" json:"branch,omitempty"`     // git branch (when type=git)
+}
+
+// EffectiveType returns the source type, defaulting to "git" for backward compat.
+func (s Source) EffectiveType() string {
+	if s.Type == "oci" {
+		return "oci"
+	}
+	return "git"
+}
+
+// ComponentRef returns the full OCI reference for a component.
+// Format: {registry}/{kind}/{name}:{version}
+func (s Source) ComponentRef(kind, name, version string) string {
+	if version == "" {
+		version = "latest"
+	}
+	return s.Registry + "/" + kind + "/" + name + ":" + version
 }
 
 // Component represents a discovered hub component.
