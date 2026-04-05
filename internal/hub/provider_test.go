@@ -195,3 +195,67 @@ func TestRemoveProviderRouting(t *testing.T) {
 		t.Error("other-model tier entry should still be present in standard tier")
 	}
 }
+
+func TestMergeProviderRouting_PassesCapabilities(t *testing.T) {
+	home := t.TempDir()
+	os.MkdirAll(filepath.Join(home, "infrastructure"), 0755)
+
+	providerYAML := []byte(`name: test-provider
+routing:
+  api_base: https://api.example.com/v1
+  auth_header: Authorization
+  auth_prefix: "Bearer "
+  models:
+    test-model:
+      provider_model: test-model-v1
+      capabilities: [tools, streaming]
+      cost_per_mtok_in: 1.0
+      cost_per_mtok_out: 2.0
+  tiers:
+    standard: test-model
+`)
+
+	err := MergeProviderRouting(home, "test-provider", providerYAML)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, "infrastructure", "routing.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var cfg map[string]interface{}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	models, ok := cfg["models"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected models map in routing.yaml")
+	}
+	model, ok := models["test-model"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected test-model entry in models")
+	}
+	caps, ok := model["capabilities"].([]interface{})
+	if !ok {
+		t.Fatal("expected capabilities field in merged model")
+	}
+	if len(caps) != 2 {
+		t.Errorf("expected 2 capabilities, got %d", len(caps))
+	}
+
+	// Verify the actual capability values
+	expected := map[string]bool{"tools": true, "streaming": true}
+	for _, c := range caps {
+		s, ok := c.(string)
+		if !ok {
+			t.Errorf("expected string capability, got %T", c)
+			continue
+		}
+		if !expected[s] {
+			t.Errorf("unexpected capability: %s", s)
+		}
+	}
+}
