@@ -1233,8 +1233,9 @@ func (m *Manager) loadConfig() hubConfig {
 	}
 	yaml.Unmarshal(data, &cfg)
 
-	// If no sources configured, use the default OCI source
-	if len(cfg.Hub.Sources) == 0 {
+	// If no sources configured and config doesn't explicitly set an empty list,
+	// use the default OCI source. An explicit "sources: []" means "no sources."
+	if len(cfg.Hub.Sources) == 0 && !strings.Contains(string(data), "sources:") {
 		cfg.Hub.Sources = []Source{DefaultSource}
 	}
 
