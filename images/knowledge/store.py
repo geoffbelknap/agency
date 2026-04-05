@@ -28,6 +28,8 @@ _SOURCE_PRIORITY = {"agent": 3, "llm": 2, "local": 1, "rule": 1}
 # propagates to other agents' system prompts via /org-context.
 ORG_STRUCTURAL_KINDS = {"team", "department", "escalation-path", "leadership"}
 
+VALID_PROVENANCE = {"EXTRACTED", "INFERRED", "AMBIGUOUS"}
+
 
 class KnowledgeStore:
     def __init__(self, data_dir: Path):
@@ -115,6 +117,13 @@ class KnowledgeStore:
                 self._db.execute(f"ALTER TABLE nodes ADD COLUMN {col}")
             except sqlite3.OperationalError:
                 pass  # Column already exists
+        # Edge provenance column (idempotent ALTER TABLE)
+        try:
+            self._db.execute(
+                "ALTER TABLE edges ADD COLUMN provenance TEXT DEFAULT 'AMBIGUOUS'"
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         # Curation log table
         self._db.execute("""
             CREATE TABLE IF NOT EXISTS curation_log (
@@ -420,13 +429,19 @@ class KnowledgeStore:
         properties: Optional[dict] = None,
         source_channel: str = "",
         provenance_id: str = "",
+        provenance: str = "AMBIGUOUS",
     ) -> str:
+        if provenance not in VALID_PROVENANCE:
+            raise ValueError(
+                f"Invalid provenance '{provenance}'; "
+                f"must be one of {sorted(VALID_PROVENANCE)}"
+            )
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         edge_id = uuid.uuid4().hex[:12]
         self._db.execute(
             "INSERT INTO edges (id, source_id, target_id, relation, weight, "
-            "properties, source_channel, provenance_id, timestamp) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "properties, source_channel, provenance_id, timestamp, provenance) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 edge_id,
                 source_id,
@@ -437,6 +452,7 @@ class KnowledgeStore:
                 source_channel,
                 provenance_id,
                 now,
+                provenance,
             ),
         )
         self._db.commit()
@@ -464,6 +480,47 @@ class KnowledgeStore:
             sql += " AND relation = ?"
             params.append(relation)
         return [dict(r) for r in self._db.execute(sql, params).fetchall()]
+
+    def migrate_edge_provenance(self) -> int:
+        """Migrate existing edges' provenance based on source node's source_type.
+
+        Mapping:
+          - source_type='rule'  -> EXTRACTED
+          - source_type='agent' -> INFERRED
+          - source_type='llm' or other -> AMBIGUOUS
+
+        Idempotent: marks each migrated edge with '_provenance_migrated' in
+        its properties JSON. Already-migrated edges are skipped.
+
+        Returns the number of edges updated.
+        """
+        _SOURCE_TYPE_TO_PROVENANCE = {
+            "rule": "EXTRACTED",
+            "agent": "INFERRED",
+        }
+
+        rows = self._db.execute(
+            "SELECT e.id, e.properties, n.source_type "
+            "FROM edges e JOIN nodes n ON e.source_id = n.id"
+        ).fetchall()
+
+        updated = 0
+        for row in rows:
+            props = json.loads(row["properties"] or "{}")
+            if props.get("_provenance_migrated"):
+                continue
+            provenance = _SOURCE_TYPE_TO_PROVENANCE.get(
+                row["source_type"], "AMBIGUOUS"
+            )
+            props["_provenance_migrated"] = True
+            self._db.execute(
+                "UPDATE edges SET provenance = ?, properties = ? WHERE id = ?",
+                (provenance, json.dumps(props), row["id"]),
+            )
+            updated += 1
+
+        self._db.commit()
+        return updated
 
     def filter_nodes_by_property(self, kind: str, property_name: str, value: str, limit: int = 50) -> list[dict]:
         """Find nodes matching kind + JSON property value. Max 50 results."""
