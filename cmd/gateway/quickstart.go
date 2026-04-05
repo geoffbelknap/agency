@@ -60,8 +60,18 @@ func runQuickstart(opts quickstartOptions) error {
 	fmt.Println(qsDim.Render("Setting up your agent platform"))
 	fmt.Println()
 
-	// TODO: phases will be added here
+	// Phase 1: Environment — check Docker
+	if err := checkDocker(); err != nil {
+		fmt.Printf("  %s environment     Docker not available\n", qsRed.Render("✗"))
+		fmt.Println()
+		fmt.Println(err.Error())
+		fmt.Println()
+		fmt.Println("Run `agency quickstart` again after installing Docker.")
+		return fmt.Errorf("Docker required")
+	}
+	fmt.Printf("  %s environment     Docker running\n", qsGreen.Render("✓"))
 
+	fmt.Println()
 	fmt.Println(qsGreen.Render("Quickstart complete!"))
 	return nil
 }
