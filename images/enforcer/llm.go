@@ -21,6 +21,16 @@ const (
 	llmMaxRequestBody  = 10 << 20 // 10 MB
 )
 
+// auditContext carries per-request metadata for audit log entries.
+type auditContext struct {
+	stepIndex     int
+	retryOf       string
+	reroutedFrom  string
+	rerouteRule   string
+	targetTier    string
+	modelTierHint string
+}
+
 // safeResponseHeaders are the only headers relayed from LLM provider responses.
 var safeResponseHeaders = map[string]bool{
 	"content-type":    true,
@@ -212,6 +222,24 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Read routing headers
+	costSource := r.Header.Get("X-Agency-Cost-Source")
+	modelTierHint := r.Header.Get("X-Agency-Model-Tier")
+
+	// Evaluate routing rules for potential reroute
+	var reroutedFrom, rerouteRule, targetTier string
+	if len(lh.routing.RoutingRules) > 0 {
+		ctx := buildRuleContext(reqBody, costSource, stepIndex, modelTierHint)
+		if tier, matched := evaluateRules(lh.routing.RoutingRules, ctx); matched {
+			if newModel, ok := lh.routing.ResolveTier(tier); ok {
+				reroutedFrom = modelAlias
+				rerouteRule = tier
+				targetTier = tier
+				modelAlias = newModel
+			}
+		}
+	}
+
 	targetURL, providerModel, providerName, err := lh.routing.ResolveModel(modelAlias)
 	if err != nil {
 		lh.audit.Log(AuditEntry{
@@ -360,23 +388,31 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Relay response
+	actx := auditContext{
+		stepIndex:     stepIndex,
+		retryOf:       retryOf,
+		reroutedFrom:  reroutedFrom,
+		rerouteRule:   rerouteRule,
+		targetTier:    targetTier,
+		modelTierHint: modelTierHint,
+	}
 	if isStream {
 		if isAnthropic {
-			lh.relayAnthropicStream(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf)
+			lh.relayAnthropicStream(w, resp, modelAlias, providerModel, correlationID, eventID, start, actx)
 		} else {
-			lh.relayStream(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf)
+			lh.relayStream(w, resp, modelAlias, providerModel, correlationID, eventID, start, actx)
 		}
 	} else {
 		if isAnthropic {
-			lh.relayAnthropicBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf)
+			lh.relayAnthropicBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start, actx)
 		} else {
-			lh.relayBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf)
+			lh.relayBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start, actx)
 		}
 	}
 }
 
 // relayBuffered relays a non-streaming LLM response.
-func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string) {
+func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, actx auditContext) {
 	// Copy safe headers
 	for k, vv := range resp.Header {
 		if safeResponseHeaders[strings.ToLower(k)] {
@@ -495,8 +531,12 @@ func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, 
 		DurationMs:    durationMs,
 		TTFTMs:        durationMs,
 		ToolCallValid: toolCallValid,
-		StepIndex:     stepIndex,
-		RetryOf:       retryOf,
+		StepIndex:     actx.stepIndex,
+		RetryOf:       actx.retryOf,
+		ReroutedFrom:  actx.reroutedFrom,
+		RerouteRule:   actx.rerouteRule,
+		TargetTier:    actx.targetTier,
+		ModelTierHint: actx.modelTierHint,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
@@ -532,7 +572,7 @@ func (lh *LLMHandler) emitTrajectoryAnomaly(anomaly Anomaly) {
 }
 
 // relayStream relays an SSE streaming LLM response.
-func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string) {
+func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, actx auditContext) {
 	// Copy safe stream headers
 	for k, vv := range resp.Header {
 		if safeStreamHeaders[strings.ToLower(k)] {
@@ -601,8 +641,12 @@ func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, mo
 		DurationMs:    durationMs,
 		TTFTMs:        ttftMs,
 		TPOTMs:        tpotMs,
-		StepIndex:     stepIndex,
-		RetryOf:       retryOf,
+		StepIndex:     actx.stepIndex,
+		RetryOf:       actx.retryOf,
+		ReroutedFrom:  actx.reroutedFrom,
+		RerouteRule:   actx.rerouteRule,
+		TargetTier:    actx.targetTier,
+		ModelTierHint: actx.modelTierHint,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
@@ -612,7 +656,7 @@ func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, mo
 
 // relayAnthropicBuffered relays a non-streaming Anthropic response, translating
 // it back to OpenAI format before sending to the client.
-func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string) {
+func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, actx auditContext) {
 	body, _ := io.ReadAll(resp.Body)
 
 	// Translate Anthropic response to OpenAI format
@@ -698,8 +742,12 @@ func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.R
 		DurationMs:    durationMs,
 		TTFTMs:        durationMs,
 		ToolCallValid: toolCallValid,
-		StepIndex:     stepIndex,
-		RetryOf:       retryOf,
+		StepIndex:     actx.stepIndex,
+		RetryOf:       actx.retryOf,
+		ReroutedFrom:  actx.reroutedFrom,
+		RerouteRule:   actx.rerouteRule,
+		TargetTier:    actx.targetTier,
+		ModelTierHint: actx.modelTierHint,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
@@ -709,7 +757,7 @@ func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.R
 
 // relayAnthropicStream relays an Anthropic SSE streaming response, translating
 // each event to OpenAI chat.completion.chunk format before sending to the client.
-func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string) {
+func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, actx auditContext) {
 	for k, vv := range resp.Header {
 		if safeStreamHeaders[strings.ToLower(k)] {
 			for _, v := range vv {
@@ -774,8 +822,12 @@ func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Res
 		DurationMs:    durationMs,
 		TTFTMs:        ttftMs,
 		TPOTMs:        tpotMs,
-		StepIndex:     stepIndex,
-		RetryOf:       retryOf,
+		StepIndex:     actx.stepIndex,
+		RetryOf:       actx.retryOf,
+		ReroutedFrom:  actx.reroutedFrom,
+		RerouteRule:   actx.rerouteRule,
+		TargetTier:    actx.targetTier,
+		ModelTierHint: actx.modelTierHint,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
