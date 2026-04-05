@@ -1,11 +1,33 @@
 package main
 
 import (
+	"bufio"
+	"crypto/tls"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
+
+var providerEnvVars = map[string]string{
+	"anthropic": "ANTHROPIC_API_KEY",
+	"openai":    "OPENAI_API_KEY",
+	"google":    "GEMINI_API_KEY",
+}
+
+var providerDisplayNames = map[string]string{
+	"anthropic": "Anthropic",
+	"openai":    "OpenAI",
+	"google":    "Google Gemini",
+}
 
 var (
 	qsBold  = lipgloss.NewStyle().Bold(true)
@@ -54,11 +76,133 @@ Run with --no-demo to skip the demo task.`,
 	return cmd
 }
 
+// detectProvider reads ~/.agency/config.yaml and returns the configured llm_provider.
+// Returns "" if no provider is configured.
+func detectProvider() string {
+	home := os.Getenv("AGENCY_HOME")
+	if home == "" {
+		userHome, _ := os.UserHomeDir()
+		home = filepath.Join(userHome, ".agency")
+	}
+	data, err := os.ReadFile(filepath.Join(home, "config.yaml"))
+	if err != nil {
+		return ""
+	}
+	var cfg map[string]interface{}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return ""
+	}
+	if p, ok := cfg["llm_provider"].(string); ok && p != "" {
+		return p
+	}
+	return ""
+}
+
+// promptProvider displays a numbered menu and returns the chosen provider key.
+func promptProvider() string {
+	fmt.Println()
+	fmt.Println(qsBold.Render("  Choose an LLM provider:"))
+	fmt.Println()
+	fmt.Printf("    1. Anthropic %s\n", qsDim.Render("(recommended)"))
+	fmt.Println("    2. OpenAI")
+	fmt.Println("    3. Google Gemini")
+	fmt.Println()
+	fmt.Print("  Enter choice [1]: ")
+
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	choice := strings.TrimSpace(scanner.Text())
+
+	switch choice {
+	case "2":
+		return "openai"
+	case "3":
+		return "google"
+	default:
+		return "anthropic"
+	}
+}
+
+// promptAPIKey reads an API key with masked input.
+func promptAPIKey(provider string) (string, error) {
+	name := providerDisplayNames[provider]
+	if name == "" {
+		name = provider
+	}
+	fmt.Printf("  %s API key: ", name)
+	raw, err := readPassword()
+	fmt.Println() // newline after masked input
+	if err != nil {
+		return "", fmt.Errorf("read API key: %w", err)
+	}
+	return strings.TrimSpace(string(raw)), nil
+}
+
+// validateAPIKey sends a cheap probe to verify the key is valid.
+// Returns nil on success (HTTP 200 or 429), error on 401 or connection failure.
+func validateAPIKey(provider, key string) error {
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+			},
+		},
+	}
+
+	var req *http.Request
+	var err error
+
+	switch provider {
+	case "anthropic":
+		req, err = http.NewRequest("POST", "https://api.anthropic.com/v1/messages", strings.NewReader(`{"model":"claude-sonnet-4-20250514","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("x-api-key", key)
+		req.Header.Set("anthropic-version", "2023-06-01")
+		req.Header.Set("content-type", "application/json")
+	case "openai":
+		req, err = http.NewRequest("GET", "https://api.openai.com/v1/models", nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+key)
+	case "google":
+		req, err = http.NewRequest("GET", "https://generativelanguage.googleapis.com/v1beta/openai/models", nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+key)
+	default:
+		return fmt.Errorf("unsupported provider: %s", provider)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("connection failed: %w", err)
+	}
+	// Discard body — untrusted data, don't interpret.
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+
+	switch {
+	case resp.StatusCode == 200, resp.StatusCode == 429:
+		return nil
+	case resp.StatusCode == 401:
+		return fmt.Errorf("invalid API key (HTTP 401)")
+	default:
+		return fmt.Errorf("unexpected response (HTTP %d)", resp.StatusCode)
+	}
+}
+
 func runQuickstart(opts quickstartOptions) error {
 	fmt.Println()
 	fmt.Println(qsBold.Render("Agency Quickstart"))
 	fmt.Println(qsDim.Render("Setting up your agent platform"))
 	fmt.Println()
+
+	var pendingKeys []config.KeyEntry
 
 	// Phase 1: Environment — check Docker
 	if err := checkDocker(); err != nil {
@@ -70,6 +214,100 @@ func runQuickstart(opts quickstartOptions) error {
 		return fmt.Errorf("Docker required")
 	}
 	fmt.Printf("  %s environment     Docker running\n", qsGreen.Render("✓"))
+
+	// Phase 2: Provider — detect or prompt for LLM provider and API key
+	providerName := opts.provider
+	apiKey := opts.key
+	needsPrompt := false
+
+	if providerName == "" {
+		providerName = detectProvider()
+	}
+
+	if providerName != "" && apiKey == "" {
+		// Provider already configured, no new key needed
+		displayName := providerDisplayNames[providerName]
+		if displayName == "" {
+			displayName = providerName
+		}
+		fmt.Printf("  %s provider        %s already configured\n", qsGreen.Render("✓"), displayName)
+	} else {
+		needsPrompt = (providerName == "" || apiKey == "")
+	}
+
+	if needsPrompt {
+		if providerName == "" {
+			providerName = promptProvider()
+		}
+
+		const maxAttempts = 3
+		validated := false
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			var err error
+			apiKey, err = promptAPIKey(providerName)
+			if err != nil {
+				return fmt.Errorf("provider setup failed: %w", err)
+			}
+			if apiKey == "" {
+				fmt.Printf("  %s No key entered.\n", qsRed.Render("✗"))
+				continue
+			}
+
+			fmt.Printf("  %s Validating key...", qsDim.Render("…"))
+			if err := validateAPIKey(providerName, apiKey); err != nil {
+				fmt.Printf("\r  %s Validation failed: %s\n", qsRed.Render("✗"), err)
+				if attempt < maxAttempts {
+					fmt.Printf("  %s Attempt %d of %d. Try again.\n", qsDim.Render("…"), attempt, maxAttempts)
+				}
+				continue
+			}
+
+			fmt.Printf("\r  %s Key validated.                \n", qsGreen.Render("✓"))
+			validated = true
+			break
+		}
+
+		if !validated {
+			fmt.Println()
+			fmt.Printf("  Could not validate API key after %d attempts.\n", maxAttempts)
+			fmt.Println("  See: https://github.com/geoffbelknap/agency#provider-setup")
+			return fmt.Errorf("provider validation failed")
+		}
+	}
+
+	// Run config init to set up ~/.agency/ and collect pending keys
+	if apiKey != "" {
+		var err error
+		pendingKeys, err = config.RunInit(config.InitOptions{
+			Provider: providerName,
+			APIKey:   apiKey,
+		})
+		if err != nil {
+			fmt.Printf("  %s config init failed: %s\n", qsRed.Render("✗"), err)
+			return fmt.Errorf("config init: %w", err)
+		}
+	} else if providerName != "" {
+		// No new key but ensure ~/.agency/ exists
+		var err error
+		pendingKeys, err = config.RunInit(config.InitOptions{
+			Provider: providerName,
+		})
+		if err != nil {
+			fmt.Printf("  %s config init failed: %s\n", qsRed.Render("✗"), err)
+			return fmt.Errorf("config init: %w", err)
+		}
+	}
+
+	if needsPrompt {
+		displayName := providerDisplayNames[providerName]
+		if displayName == "" {
+			displayName = providerName
+		}
+		fmt.Printf("  %s provider        %s\n", qsGreen.Render("✓"), displayName)
+	}
+
+	// pendingKeys will be used in Phase 3 to store credentials after daemon starts.
+	_ = pendingKeys
 
 	fmt.Println()
 	fmt.Println(qsGreen.Render("Quickstart complete!"))
