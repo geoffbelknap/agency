@@ -1,0 +1,95 @@
+// src/app/screens/Channels.test.tsx
+import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { http, HttpResponse } from 'msw';
+import { server } from '../../test/server';
+import { renderWithRouter } from '../../test/render';
+import { Channels } from './Channels';
+
+vi.mock('../lib/ws', () => ({
+  socket: { on: () => () => {}, connect: () => {}, disconnect: () => {}, connected: false, onConnectionChange: () => () => {}, gaveUp: false },
+}));
+
+
+beforeAll(() => {
+  window.HTMLElement.prototype.scrollIntoView = () => {};
+});
+
+const BASE = 'http://localhost:8200/api/v1';
+
+describe('Channels', () => {
+  it('renders channel list and auto-selects first', async () => {
+    server.use(
+      http.get(`${BASE}/channels`, () =>
+        HttpResponse.json([
+          { name: 'general', topic: 'General chat' },
+          { name: 'ops', topic: 'Operations' },
+        ]),
+      ),
+      http.get(`${BASE}/channels/general/messages`, () =>
+        HttpResponse.json([
+          { id: 'm1', author: 'steve', content: 'Hello world', timestamp: '2026-03-16T10:00:00Z' },
+        ]),
+      ),
+      http.get(`${BASE}/agents`, () => HttpResponse.json([])),
+    );
+    renderWithRouter(<Channels />);
+    await waitFor(() => {
+      expect(screen.getAllByText('general').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText('ops')).toBeInTheDocument();
+      expect(screen.getByText('Hello world')).toBeInTheDocument();
+    });
+  });
+
+  it('sends a message', async () => {
+    let sent = false;
+    server.use(
+      http.get(`${BASE}/channels`, () =>
+        HttpResponse.json([{ name: 'general' }]),
+      ),
+      http.get(`${BASE}/channels/general/messages`, () => HttpResponse.json([])),
+      http.post(`${BASE}/channels/general/messages`, () => {
+        sent = true;
+        return HttpResponse.json({ ok: true });
+      }),
+      http.get(`${BASE}/agents`, () => HttpResponse.json([])),
+    );
+    renderWithRouter(<Channels />);
+    await waitFor(() => {
+      expect(screen.getAllByText('general').length).toBeGreaterThanOrEqual(1);
+    });
+    const input = screen.getByPlaceholderText(/message #general/i);
+    await userEvent.type(input, 'Test message{Enter}');
+    await waitFor(() => {
+      expect(sent).toBe(true);
+    });
+  });
+
+  it('sends message via send button click', async () => {
+    let sent = false;
+    server.use(
+      http.get(`${BASE}/channels`, () =>
+        HttpResponse.json([{ name: 'general' }]),
+      ),
+      http.get(`${BASE}/channels/general/messages`, () => HttpResponse.json([])),
+      http.post(`${BASE}/channels/general/messages`, () => {
+        sent = true;
+        return HttpResponse.json({ ok: true });
+      }),
+      http.get(`${BASE}/agents`, () => HttpResponse.json([])),
+    );
+    renderWithRouter(<Channels />);
+    await waitFor(() => {
+      expect(screen.getAllByText('general').length).toBeGreaterThanOrEqual(1);
+    });
+    const input = screen.getByPlaceholderText(/message #general/i);
+    await userEvent.type(input, 'Hello from button');
+    const buttons = screen.getAllByRole('button');
+    await userEvent.click(buttons[buttons.length - 1]);
+    await waitFor(() => {
+      expect(sent).toBe(true);
+    });
+    expect(input).toHaveValue('');
+  });
+});

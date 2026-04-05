@@ -1,0 +1,160 @@
+import { describe, it, expect } from 'vitest';
+import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { http, HttpResponse } from 'msw';
+import { server } from '../../test/server';
+import { renderWithRouter } from '../../test/render';
+import { Hub } from './Hub';
+
+const BASE = 'http://localhost:8200/api/v1';
+
+describe('Hub', () => {
+  it('renders installed components', async () => {
+    server.use(
+      http.get(`${BASE}/hub/instances`, () =>
+        HttpResponse.json([
+          { name: 'ops-pack', kind: 'pack', source: 'github' },
+        ]),
+      ),
+      http.get(`${BASE}/hub/search`, () => HttpResponse.json([])),
+    );
+    renderWithRouter(<Hub />);
+    await userEvent.click(screen.getByRole('tab', { name: /installed/i }));
+    await waitFor(() => {
+      expect(screen.getByText('ops-pack')).toBeInTheDocument();
+    });
+  });
+
+  it('searches hub components', async () => {
+    server.use(
+      http.get(`${BASE}/hub/instances`, () => HttpResponse.json([])),
+      http.get(`${BASE}/hub/search`, ({ request }) => {
+        const url = new URL(request.url);
+        if (url.searchParams.get('q') === 'redis') {
+          return HttpResponse.json([
+            { name: 'redis-connector', kind: 'connector', description: 'Redis integration' },
+          ]);
+        }
+        return HttpResponse.json([]);
+      }),
+    );
+    renderWithRouter(<Hub />);
+    const input = screen.getByPlaceholderText(/search components/i);
+    await userEvent.type(input, 'redis{Enter}');
+    await waitFor(() => {
+      expect(screen.getByText('redis-connector')).toBeInTheDocument();
+    });
+  });
+
+  it('installs a component', async () => {
+    server.use(
+      http.get(`${BASE}/hub/instances`, () => HttpResponse.json([])),
+      http.get(`${BASE}/hub/search`, () =>
+        HttpResponse.json([
+          { name: 'test-pack', kind: 'pack', description: 'Test', source: 'hub' },
+        ]),
+      ),
+      http.post(`${BASE}/hub/install`, () => HttpResponse.json({ ok: true })),
+    );
+    renderWithRouter(<Hub />);
+    await waitFor(() => {
+      expect(screen.getByText('test-pack')).toBeInTheDocument();
+    });
+    const installButton = screen.getByRole('button', { name: /install/i });
+    await userEvent.click(installButton);
+    // No error message should appear
+    await waitFor(() => {
+      expect(screen.queryByText(/failed to install/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it('removes a component from installed tab', async () => {
+    server.use(
+      http.get(`${BASE}/hub/instances`, () =>
+        HttpResponse.json([
+          { name: 'base-pack', kind: 'pack', source: 'local', installed_at: '2026-03-10' },
+        ]),
+      ),
+      http.get(`${BASE}/hub/search`, () => HttpResponse.json([])),
+      http.post(`${BASE}/hub/remove`, () => HttpResponse.json({ ok: true })),
+    );
+    renderWithRouter(<Hub />);
+    await userEvent.click(screen.getByRole('tab', { name: /installed/i }));
+    await waitFor(() => {
+      expect(screen.getByText('base-pack')).toBeInTheDocument();
+    });
+    const removeButton = screen.getByRole('button', { name: /remove/i });
+    await userEvent.click(removeButton);
+    await waitFor(() => {
+      expect(screen.queryByText(/failed to remove/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it('deploys a pack', async () => {
+    server.use(
+      http.get(`${BASE}/hub/instances`, () =>
+        HttpResponse.json([
+          { name: 'base-pack', kind: 'pack', source: 'local', installed_at: '2026-03-10' },
+        ]),
+      ),
+      http.get(`${BASE}/hub/search`, () => HttpResponse.json([])),
+      http.post(`${BASE}/deploy`, () =>
+        HttpResponse.json({ agents_created: ['agent-1'] }),
+      ),
+    );
+    renderWithRouter(<Hub />);
+    await userEvent.click(screen.getByRole('tab', { name: /deploy/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/select installed pack/i)).toBeInTheDocument();
+    });
+    // Select the pack from the dropdown
+    const select = screen.getByRole('combobox');
+    await userEvent.selectOptions(select, 'base-pack');
+    const deployButton = screen.getByRole('button', { name: /^deploy$/i });
+    await userEvent.click(deployButton);
+    await waitFor(() => {
+      expect(screen.queryByText(/failed to deploy/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows teardown confirmation and confirms', async () => {
+    server.use(
+      http.get(`${BASE}/hub/instances`, () =>
+        HttpResponse.json([
+          { name: 'base-pack', kind: 'pack', source: 'local', installed_at: '2026-03-10' },
+        ]),
+      ),
+      http.get(`${BASE}/hub/search`, () => HttpResponse.json([])),
+      http.post(`${BASE}/teardown/:pack`, () => HttpResponse.json({ ok: true })),
+    );
+    renderWithRouter(<Hub />);
+    await userEvent.click(screen.getByRole('tab', { name: /deploy/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /teardown/i })).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('button', { name: /teardown/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/are you sure you want to tear down/i)).toBeInTheDocument();
+    });
+    // Click the confirm button in the dialog
+    const confirmButton = screen.getByRole('button', { name: /^teardown$/i });
+    await userEvent.click(confirmButton);
+    await waitFor(() => {
+      expect(screen.queryByText(/failed to teardown/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it('updates sources', async () => {
+    server.use(
+      http.get(`${BASE}/hub/instances`, () => HttpResponse.json([])),
+      http.get(`${BASE}/hub/search`, () => HttpResponse.json([])),
+      http.post(`${BASE}/hub/update`, () => HttpResponse.json({ ok: true })),
+    );
+    renderWithRouter(<Hub />);
+    const updateButton = screen.getByRole('button', { name: /update sources/i });
+    await userEvent.click(updateButton);
+    await waitFor(() => {
+      expect(screen.queryByText(/failed to update/i)).not.toBeInTheDocument();
+    });
+  });
+});
