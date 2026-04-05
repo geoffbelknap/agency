@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -38,6 +39,81 @@ var (
 	qsCyan  = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 	qsDim   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 )
+
+// qsSpinner displays an animated spinner with a status message on the current line.
+type qsSpinner struct {
+	mu     sync.Mutex
+	msg    string
+	stop   chan struct{}
+	done   chan struct{}
+	frames []string
+}
+
+func newQSSpinner() *qsSpinner {
+	return &qsSpinner{
+		frames: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
+		stop:   make(chan struct{}),
+		done:   make(chan struct{}),
+	}
+}
+
+func (s *qsSpinner) update(status string) {
+	s.mu.Lock()
+	prev := s.msg
+	s.msg = status
+	s.mu.Unlock()
+	if prev != "" {
+		fmt.Printf("\r  %s %s\n", qsGreen.Render("✓"), prev)
+	}
+}
+
+func (s *qsSpinner) run() {
+	defer close(s.done)
+	i := 0
+	ticker := time.NewTicker(80 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-ticker.C:
+			s.mu.Lock()
+			msg := s.msg
+			s.mu.Unlock()
+			if msg != "" {
+				frame := qsCyan.Render(s.frames[i%len(s.frames)])
+				fmt.Printf("\r  %s %s", frame, msg)
+			}
+			i++
+		}
+	}
+}
+
+func (s *qsSpinner) finish() {
+	s.mu.Lock()
+	msg := s.msg
+	s.msg = ""
+	s.mu.Unlock()
+	close(s.stop)
+	<-s.done
+	if msg != "" {
+		fmt.Printf("\r  %s %s\n", qsGreen.Render("✓"), msg)
+	}
+}
+
+type agentChoice struct {
+	label  string
+	preset string
+	name   string
+	task   string
+}
+
+var agentChoices = []agentChoice{
+	{"General assistant — research, write, analyze, code", "henry", "henry", "Look at my current directory and suggest something useful you could help me with."},
+	{"Security operations — triage alerts, investigate threats, audit posture", "engineer", "security-analyst", "Give me a brief status report on what you're ready to monitor."},
+	{"Code review — review PRs, find bugs, suggest improvements", "code-reviewer", "reviewer", "Look at my current directory and summarize what this project is."},
+	{"Research & analysis — deep dives, report writing, data synthesis", "researcher", "researcher", "What are you capable of? Give me three things I should try first."},
+}
 
 type quickstartOptions struct {
 	provider string
@@ -388,6 +464,111 @@ func runQuickstart(opts quickstartOptions) error {
 		}
 		fmt.Printf("  %s infrastructure  all services running\n", qsGreen.Render("✓"))
 	}
+
+	// Phase 4: Agent — create and start first agent
+	var runningAgent string
+	var choice agentChoice
+
+	agents, err := c.ListAgents()
+	if err == nil {
+		for _, a := range agents {
+			if s, _ := a["status"].(string); s == "running" {
+				name, _ := a["name"].(string)
+				runningAgent = name
+				break
+			}
+		}
+	}
+
+	if runningAgent != "" {
+		fmt.Printf("  %s agent           %s already running\n", qsGreen.Render("✓"), runningAgent)
+	} else {
+		// Determine agent choice
+		if opts.preset != "" {
+			// Match --preset flag to choices
+			found := false
+			for _, ac := range agentChoices {
+				if ac.preset == opts.preset {
+					choice = ac
+					found = true
+					break
+				}
+			}
+			if !found {
+				// Use the preset directly with a generic name
+				choice = agentChoice{
+					label:  opts.preset,
+					preset: opts.preset,
+					name:   opts.preset,
+					task:   "What can you help me with?",
+				}
+			}
+		} else {
+			// Prompt user
+			fmt.Println()
+			fmt.Println(qsBold.Render("  Choose your first agent:"))
+			fmt.Println()
+			for i, ac := range agentChoices {
+				fmt.Printf("    %d. %s\n", i+1, ac.label)
+			}
+			fmt.Println()
+			fmt.Print("  Enter choice [1]: ")
+
+			scanner := bufio.NewScanner(os.Stdin)
+			scanner.Scan()
+			input := strings.TrimSpace(scanner.Text())
+
+			idx := 0
+			switch input {
+			case "2":
+				idx = 1
+			case "3":
+				idx = 2
+			case "4":
+				idx = 3
+			default:
+				idx = 0
+			}
+			choice = agentChoices[idx]
+		}
+
+		agentName := choice.name
+		if opts.name != "" {
+			agentName = opts.name
+		}
+
+		// Create the agent
+		if _, err := c.CreateAgent(agentName, choice.preset); err != nil {
+			fmt.Printf("  %s agent           failed to create: %s\n", qsRed.Render("✗"), err)
+			return fmt.Errorf("agent create: %w", err)
+		}
+
+		// Start with spinner
+		sp := newQSSpinner()
+		go sp.run()
+		sp.update(fmt.Sprintf("agent           starting %s...", agentName))
+
+		startErr := c.StartAgentStream(agentName, func(component, status string) {
+			sp.update(fmt.Sprintf("agent           %s", component))
+		})
+		sp.finish()
+
+		if startErr != nil {
+			fmt.Printf("  %s agent           start failed: %s\n", qsRed.Render("✗"), startErr)
+			// Run doctor for diagnostics
+			if doctorOut, derr := c.Get("/api/v1/admin/doctor"); derr == nil {
+				fmt.Printf("\n%s\n", string(doctorOut))
+			}
+			fmt.Printf("\n  Try: agency start %s --verbose\n", agentName)
+			return fmt.Errorf("agent start: %w", startErr)
+		}
+
+		runningAgent = agentName
+		fmt.Printf("  %s agent           %s running\n", qsGreen.Render("✓"), agentName)
+	}
+
+	// runningAgent and choice are available for Phase 5
+	_, _ = runningAgent, choice
 
 	fmt.Println()
 	fmt.Println(qsGreen.Render("Quickstart complete!"))
