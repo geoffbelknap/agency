@@ -25,11 +25,22 @@ func (p Provider) CachingEnabled() bool {
 
 // Model represents an LLM model alias configuration.
 type Model struct {
-	Provider      string  `yaml:"provider"`
-	ProviderModel string  `yaml:"provider_model"`
-	CostIn        float64 `yaml:"cost_per_mtok_in"`
-	CostOut       float64 `yaml:"cost_per_mtok_out"`
-	CostCached    float64 `yaml:"cost_per_mtok_cached"`
+	Provider      string   `yaml:"provider"`
+	ProviderModel string   `yaml:"provider_model"`
+	Capabilities  []string `yaml:"capabilities"`
+	CostIn        float64  `yaml:"cost_per_mtok_in"`
+	CostOut       float64  `yaml:"cost_per_mtok_out"`
+	CostCached    float64  `yaml:"cost_per_mtok_cached"`
+}
+
+// HasCapability returns true if the model declares support for the given capability.
+func (m Model) HasCapability(cap string) bool {
+	for _, c := range m.Capabilities {
+		if c == cap {
+			return true
+		}
+	}
+	return false
 }
 
 // Settings holds enforcer operational settings.
