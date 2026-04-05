@@ -1479,6 +1479,56 @@ class Body:
         else:
             self._fallback = None
 
+        # Semantic cache check — before conversation loop
+        hit_type, cached_result, similarity, cache_label = self._check_cache(task_content)
+        self._cache_hit_label = cache_label if hit_type in ("full", "assist") else None
+
+        if hit_type == "full":
+            if self._xpia_scan_cached_result(cached_result):
+                self._emit_signal("cache_hit", {
+                    "task_id": task_id,
+                    "hit_type": "full",
+                    "similarity": round(similarity, 3),
+                })
+                # Deliver cached result and skip LLM loop
+                # Extract channel from task source (same logic as _post_task_response)
+                _cache_source = task.get("source", "dm")
+                _cache_channel = "general"
+                if ":" in _cache_source:
+                    _parts = _cache_source.split(":")
+                    if len(_parts) >= 2:
+                        _cache_channel = _parts[1]
+                elif _cache_source.startswith("dm"):
+                    _cache_channel = f"_dm-{self.agent_name}"
+                try:
+                    _comms_url = os.environ.get("AGENCY_COMMS_URL", "http://enforcer:8081/mediation/comms")
+                    self._http_client.post(
+                        f"{_comms_url}/channels/{_cache_channel}/messages",
+                        json={
+                            "author": self.agent_name,
+                            "content": cached_result,
+                            "metadata": {"agent": self.agent_name, "task_id": task_id, "cached": True},
+                        },
+                        timeout=5,
+                    )
+                except Exception:
+                    pass
+                self._finalize_task(task_id, 0)
+                return
+
+        if hit_type == "assist":
+            if self._xpia_scan_cached_result(cached_result):
+                self._emit_signal("cache_hit", {
+                    "task_id": task_id,
+                    "hit_type": "assist",
+                    "similarity": round(similarity, 3),
+                })
+                task_content = (
+                    "A similar task was completed recently with this result:\n\n"
+                    f"---\n{cached_result[:2000]}\n---\n\n"
+                    f"Verify and update as needed for this task:\n\n{task_content}"
+                )
+
         # Refresh system prompt to include latest memory
         self._system_prompt = self.assemble_system_prompt()
 
@@ -1820,6 +1870,23 @@ class Body:
                 })
                 log.info("Task %s: nudging agent to continue or complete (turn %d)", task_id, turn + 1)
                 continue
+
+        # Post-loop: evict stale cache entry if task failed after a cache assist.
+        # A "full" cache hit skips the loop entirely (returns early), so only
+        # "assist" hits reach here. If the task didn't complete successfully,
+        # the cached result that influenced it may be stale or misleading.
+        cache_label = getattr(self, '_cache_hit_label', None)
+        if cache_label and not self._task_complete_called:
+            try:
+                self._http_client.post(
+                    f"{self._knowledge_url}/delete-by-label",
+                    json={"label": cache_label, "kind": "cached_result"},
+                    timeout=5.0,
+                )
+                log.info("Evicted stale cache entry %s (task failed after cache assist)", cache_label)
+            except Exception:
+                pass  # Cache eviction failure is non-fatal
+        self._cache_hit_label = None
 
     def _call_llm(self, messages: list[dict], tools: Optional[list[dict]] = None) -> dict:
         """POST to the enforcer's OpenAI-compatible chat endpoint.
@@ -2248,6 +2315,77 @@ class Body:
         except Exception as e:
             log.warning("Failed to contribute %s to knowledge graph: %s", record_type, e)
 
+    def _check_cache(self, task_content: str) -> tuple:
+        """Check for semantically similar cached results.
+
+        Returns (hit_type, result, similarity, label) where hit_type is
+        "full", "assist", or None. label is the cache entry label for
+        eviction on failure.
+        """
+        cache_config = self._get_cache_config()
+        if not cache_config.get("enabled", True):
+            return None, None, 0.0, None
+
+        confidence = cache_config.get("confidence_threshold", 0.92)
+        assist = cache_config.get("assist_threshold", 0.80)
+        ttl_hours = cache_config.get("ttl_hours", 24)
+
+        from datetime import timedelta
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=ttl_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        try:
+            resp = self._http_client.post(
+                f"{self._knowledge_url}/query",
+                json={
+                    "query": task_content[:500],
+                    "kind": "cached_result",
+                    "limit": 1,
+                    "semantic_only": True,
+                    "filters": {"agent": self.agent_name, "created_after": cutoff},
+                },
+                timeout=2.0,
+            )
+            if resp.status_code != 200:
+                return None, None, 0.0, None
+
+            results = resp.json().get("results", [])
+            if not results:
+                return None, None, 0.0, None
+
+            top = results[0]
+            similarity = top.get("score", 0.0)
+            props = top.get("properties", {})
+            full_result = props.get("full_result", "")
+            label = top.get("label", "")
+
+            if similarity >= confidence and full_result:
+                return "full", full_result, similarity, label
+            elif similarity >= assist and full_result:
+                return "assist", full_result, similarity, label
+            return None, None, similarity, None
+        except Exception:
+            return None, None, 0.0, None
+
+    def _xpia_scan_cached_result(self, content: str) -> bool:
+        """Check cached content for injection patterns before use.
+
+        Returns True if content is safe to use.
+        Basic local check for obvious injection patterns.
+        Full enforcer XPIA scanning happens when the content enters the LLM path.
+        """
+        suspicious_patterns = [
+            "ignore previous instructions",
+            "you are now",
+            "system:",
+            "disregard",
+            "override your",
+        ]
+        content_lower = content.lower()
+        for pattern in suspicious_patterns:
+            if pattern in content_lower:
+                return False
+        return True
+
     def _get_cache_config(self) -> dict:
         """Get semantic cache configuration from mission or defaults."""
         mission = getattr(self, '_active_mission', None) or {}
@@ -2443,7 +2581,7 @@ class Body:
         # other internal signals that are only meaningful in the file log.
         _RELAY_SIGNALS = {"processing", "error", "task_complete", "task_accepted",
                           "progress_update", "finding", "self_halt", "escalation",
-                          "activity"}
+                          "activity", "cache_hit"}
         if signal_type not in _RELAY_SIGNALS:
             return
 
