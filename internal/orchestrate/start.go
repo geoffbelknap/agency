@@ -277,7 +277,7 @@ func (ss *StartSequence) phase3Constraints() error {
 	}
 
 	// Generate tiers.json — tier capabilities manifest for body runtime.
-	if err := ss.generateTiersJSON(agentDir); err != nil {
+	if err := ss.generateTiersJSON(); err != nil {
 		ss.Log.Warn("failed to generate tiers.json", "err", err)
 	}
 
@@ -467,7 +467,8 @@ func (ss *StartSequence) failClosed(ctx context.Context) {
 // tier) and the default tier. The enforcer serves this at /config/tiers.json
 // so the body runtime can discover tier capabilities without direct filesystem
 // access to the routing config.
-func (ss *StartSequence) generateTiersJSON(agentDir string) error {
+func (ss *StartSequence) generateTiersJSON() error {
+	agentDir := filepath.Join(ss.Home, "agents", ss.AgentName)
 	routingPath := filepath.Join(ss.Home, "infrastructure", "routing.yaml")
 	if !fileExists(routingPath) {
 		return nil // no routing config — skip silently
@@ -501,7 +502,7 @@ func (ss *StartSequence) generateTiersJSON(agentDir string) error {
 	if err != nil {
 		return fmt.Errorf("marshal tiers.json: %w", err)
 	}
-	return os.WriteFile(filepath.Join(filepath.Clean(agentDir), "tiers.json"), out, 0644)
+	return os.WriteFile(filepath.Join(agentDir, "tiers.json"), out, 0644)
 }
 
 func (ss *StartSequence) resolveModelTier(tier string) string {
