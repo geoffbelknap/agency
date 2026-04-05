@@ -1,0 +1,32 @@
+/* Agency — Brand Typography
+ *
+ * Fraunces:    Serif display face (weight 300/400) for headings, section titles,
+ *              empty state headings, editorial moments. Variable optical sizing.
+ * DM Sans:    Geometric humanist sans (weight 300/400/500) for everything else.
+ *             Default weight is 300, not 400. Use 500 only for emphasis.
+ *             Never use 600 or 700.
+ * Space Mono: Monospace for agent IDs, status indicators, metrics, timestamps,
+ *             eyebrows, repo paths, version numbers, policy names — any
+ *             technical/infrastructure data. This is the single most important
+ *             typographic rule.
+ */
+
+:root {
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-sans: 'DM Sans', system-ui, sans-serif;
+  --font-mono: 'Space Mono', 'Courier New', monospace;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-weight: var(--font-weight-normal);
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+code, pre, .font-mono, [class*="font-mono"] {
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;
+}

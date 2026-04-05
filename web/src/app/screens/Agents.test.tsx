@@ -1,0 +1,224 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter, Routes, Route } from 'react-router';
+import { http, HttpResponse } from 'msw';
+import { server } from '../../test/server';
+import { Agents } from './Agents';
+
+vi.mock('../../lib/ws', () => ({ socket: { on: () => () => {}, connect: () => {}, disconnect: () => {}, connected: false } }));
+
+const toastSuccess = vi.fn();
+const toastError = vi.fn();
+vi.mock('sonner', () => ({ toast: { success: (...args: any[]) => toastSuccess(...args), error: (...args: any[]) => toastError(...args) } }));
+
+const BASE = 'http://localhost:8200/api/v1';
+
+const defaultAgents = [
+  { name: 'alice', status: 'running', mode: 'autonomous', type: 'agent', preset: 'default', team: 'alpha', enforcer: 'active' },
+  { name: 'bob', status: 'stopped', mode: 'assisted', type: 'agent', preset: 'researcher', team: 'alpha', enforcer: 'paused' },
+];
+
+function renderAgents(route = '/agents') {
+  return render(
+    <MemoryRouter initialEntries={[route]}>
+      <Routes>
+        <Route path="/agents" element={<Agents />} />
+        <Route path="/agents/:name" element={<Agents />} />
+        <Route path="/channels/:name" element={<div>channel view</div>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+describe('Agents', () => {
+  beforeEach(() => {
+    toastSuccess.mockClear();
+    toastError.mockClear();
+  });
+
+  it('renders agents from API', async () => {
+    server.use(
+      http.get(`${BASE}/agents`, () =>
+        HttpResponse.json([
+          { name: 'steve', status: 'running', mode: 'autonomous', preset: 'default', team: 'alpha' },
+        ]),
+      ),
+    );
+    renderAgents();
+    await waitFor(() => {
+      expect(screen.getByText('steve')).toBeInTheDocument();
+      expect(screen.getByText('1 total agents')).toBeInTheDocument();
+    });
+  });
+
+  it('shows Resume button for halted agents', async () => {
+    server.use(
+      http.get(`${BASE}/agents`, () =>
+        HttpResponse.json([
+          { name: 'halted-agent', status: 'halted', mode: 'assisted' },
+        ]),
+      ),
+      http.get(`${BASE}/agents/halted-agent/logs`, () => HttpResponse.json([])),
+      http.get(`${BASE}/agents/halted-agent/budget`, () => HttpResponse.json({ daily_limit: 0, monthly_limit: 0, daily_used: 0, monthly_used: 0, today_llm_calls: 0, today_input_tokens: 0, today_output_tokens: 0 })),
+    );
+    renderAgents();
+    await waitFor(() => {
+      expect(screen.getByText('halted-agent')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByText('halted-agent'));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /resume/i })).toBeInTheDocument();
+    });
+  });
+
+  it('shows Start button for stopped agents', async () => {
+    server.use(
+      http.get(`${BASE}/agents`, () =>
+        HttpResponse.json([
+          { name: 'stopped-agent', status: 'stopped', mode: 'assisted' },
+        ]),
+      ),
+      http.get(`${BASE}/agents/stopped-agent/logs`, () => HttpResponse.json([])),
+      http.get(`${BASE}/agents/stopped-agent/budget`, () => HttpResponse.json({ daily_limit: 0, monthly_limit: 0, daily_used: 0, monthly_used: 0, today_llm_calls: 0, today_input_tokens: 0, today_output_tokens: 0 })),
+    );
+    renderAgents();
+    await waitFor(() => {
+      expect(screen.getByText('stopped-agent')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByText('stopped-agent'));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /start/i })).toBeInTheDocument();
+    });
+  });
+
+  it('starts a stopped agent', async () => {
+    server.use(
+      http.get(`${BASE}/agents`, () =>
+        HttpResponse.json(defaultAgents)
+      ),
+      http.get(`${BASE}/agents/bob/logs`, () => HttpResponse.json([])),
+      http.get(`${BASE}/agents/bob/budget`, () => HttpResponse.json({ daily_limit: 0, monthly_limit: 0, daily_used: 0, monthly_used: 0, today_llm_calls: 0, today_input_tokens: 0, today_output_tokens: 0 })),
+    );
+    renderAgents();
+    await waitFor(() => {
+      expect(screen.getByText('bob')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByText('bob'));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /start/i })).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('button', { name: /start/i }));
+    await waitFor(() => {
+      expect(toastError).not.toHaveBeenCalled();
+    });
+  });
+
+  it('pauses a running agent', async () => {
+    server.use(
+      http.get(`${BASE}/agents`, () =>
+        HttpResponse.json(defaultAgents)
+      ),
+      http.get(`${BASE}/agents/alice/logs`, () => HttpResponse.json([])),
+      http.get(`${BASE}/agents/alice/budget`, () => HttpResponse.json({ daily_limit: 0, monthly_limit: 0, daily_used: 0, monthly_used: 0, today_llm_calls: 0, today_input_tokens: 0, today_output_tokens: 0 })),
+    );
+    renderAgents();
+    await waitFor(() => {
+      expect(screen.getByText('alice')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByText('alice'));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /pause/i })).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('button', { name: /pause/i }));
+    await waitFor(() => {
+      expect(toastError).not.toHaveBeenCalled();
+    });
+  });
+
+  it('sends a DM task', async () => {
+    server.use(
+      http.get(`${BASE}/agents`, () =>
+        HttpResponse.json(defaultAgents)
+      ),
+      http.get(`${BASE}/agents/alice/logs`, () => HttpResponse.json([])),
+      http.get(`${BASE}/agents/alice/budget`, () => HttpResponse.json({ daily_limit: 0, monthly_limit: 0, daily_used: 0, monthly_used: 0, today_llm_calls: 0, today_input_tokens: 0, today_output_tokens: 0 })),
+    );
+    renderAgents();
+    await waitFor(() => {
+      expect(screen.getByText('alice')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByText('alice'));
+    // Click the Activity primary tab
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /activity/i })).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('tab', { name: /activity/i }));
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/describe the task/i)).toBeInTheDocument();
+    });
+    await userEvent.type(screen.getByPlaceholderText(/describe the task/i), 'do the thing');
+    await userEvent.click(screen.getByRole('button', { name: /send to dm/i }));
+    await waitFor(() => {
+      expect(toastSuccess).toHaveBeenCalledWith('Message sent to DM');
+    });
+  });
+
+  it('shows Resume for halted agent', async () => {
+    server.use(
+      http.get(`${BASE}/agents`, () =>
+        HttpResponse.json([
+          { name: 'carol', status: 'halted', mode: 'autonomous', type: 'agent', preset: 'default', team: 'alpha', enforcer: 'active' },
+        ])
+      ),
+      http.get(`${BASE}/agents/carol/logs`, () => HttpResponse.json([])),
+      http.get(`${BASE}/agents/carol/budget`, () => HttpResponse.json({ daily_limit: 0, monthly_limit: 0, daily_used: 0, monthly_used: 0, today_llm_calls: 0, today_input_tokens: 0, today_output_tokens: 0 })),
+    );
+    renderAgents();
+    await waitFor(() => {
+      expect(screen.getByText('carol')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByText('carol'));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /resume/i })).toBeInTheDocument();
+    });
+  });
+
+  it('shows spinning feedback while refreshing agents', async () => {
+    let releaseRefresh: (() => void) | null = null;
+    let requestCount = 0;
+
+    server.use(
+      http.get(`${BASE}/agents`, async () => {
+        requestCount += 1;
+        if (requestCount === 1) {
+          return HttpResponse.json(defaultAgents);
+        }
+
+        await new Promise<void>((resolve) => {
+          releaseRefresh = resolve;
+        });
+        return HttpResponse.json(defaultAgents);
+      }),
+    );
+
+    renderAgents();
+
+    await waitFor(() => {
+      expect(screen.getByText('alice')).toBeInTheDocument();
+    });
+
+    const refreshButton = screen.getByRole('button', { name: /refresh agents/i });
+    await userEvent.click(refreshButton);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /refreshing agents/i })).toBeDisabled();
+    });
+
+    releaseRefresh!();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /refresh agents/i })).not.toBeDisabled();
+    });
+  });
+});
