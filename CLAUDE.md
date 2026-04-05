@@ -113,6 +113,7 @@ pytest images/tests/
 - **Intake webhook auth**: Enforced via `AGENCY_INTAKE_REQUIRE_AUTH` env var on the intake service. Unauthenticated requests rejected when set.
 - **Docker memory limits**: All containers (workspace, enforcer, comms, knowledge, intake, egress) run with explicit memory limits.
 - **Capability hot-reload**: `cap enable/disable` regenerates service manifests, writes grants, copies service definitions, and SIGHUPs enforcers — no agent restart needed.
+- **Economics observability**: Every LLM call records TTFT (time to first token), TPOT (time per output token), StepIndex, ToolCallValid, and RetryOf in the enforcer audit log. Gateway aggregates into per-workflow rollups: loop cost, steps to resolution, context expansion rate, tool hallucination rate, retry waste. `GET /api/v1/agents/{name}/economics` and `GET /api/v1/economics/summary` expose the data. `agent_signal_workflow_economics` WebSocket signal emitted on task completion.
 
 - **Security model doc**: Full threat model, enforcement boundaries, and guarantee inventory at `docs/security-model.md`. Architecture diagram at `docs/architecture-diagram.md`.
 - **Hub instance registry**: Hub uses UUID IDs and human names. `agency hub instances` lists all active instances. Components are activated as named instances, not anonymous installs. `agency hub <nameOrID> activate` and `agency hub <nameOrID> config` operate on instances.

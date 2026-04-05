@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -48,8 +49,10 @@ type LLMHandler struct {
 	rateLimiter *RateLimiter
 	agentName   string
 	budget      *BudgetTracker
-	toolTracker *ToolTracker
-	trajectory  *TrajectoryMonitor
+	toolTracker  *ToolTracker
+	trajectory   *TrajectoryMonitor
+	stepCounters map[string]int
+	stepMu       sync.Mutex
 }
 
 // NewLLMHandler creates an LLM proxy handler.
@@ -63,11 +66,12 @@ func NewLLMHandler(routing *RoutingConfig, egressProxy string, audit *AuditLogge
 	}
 
 	return &LLMHandler{
-		routing:     routing,
-		proxy:       egressProxy,
-		audit:       audit,
-		transport:   transport,
-		toolTracker: NewToolTracker(),
+		routing:      routing,
+		proxy:        egressProxy,
+		audit:        audit,
+		transport:    transport,
+		toolTracker:  NewToolTracker(),
+		stepCounters: make(map[string]int),
 	}
 }
 
@@ -136,16 +140,34 @@ func (lh *LLMHandler) SetTrajectory(tm *TrajectoryMonitor) {
 	lh.trajectory = tm
 }
 
+func (lh *LLMHandler) nextStepIndex(taskID string) int {
+	lh.stepMu.Lock()
+	defer lh.stepMu.Unlock()
+	if lh.stepCounters == nil {
+		lh.stepCounters = make(map[string]int)
+	}
+	lh.stepCounters[taskID]++
+	return lh.stepCounters[taskID]
+}
+
 // ServeHTTP handles /v1/* LLM API requests.
 func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	correlationID := r.Header.Get("X-Correlation-Id")
 	eventID := r.Header.Get("X-Agency-Event-Id")
 
-	// Extract task ID for per-task budget tracking
-	if taskID := r.Header.Get("X-Agency-Task-Id"); taskID != "" && lh.budget != nil {
+	// Extract task ID for per-task budget tracking and step index
+	taskID := r.Header.Get("X-Agency-Task-Id")
+	if taskID != "" && lh.budget != nil {
 		lh.budget.SetTask(taskID)
 	}
+
+	var stepIndex int
+	if taskID != "" {
+		stepIndex = lh.nextStepIndex(taskID)
+	}
+
+	retryOf := r.Header.Get("X-Agency-Retry-Of")
 
 	// Budget check — block if any budget level is exhausted
 	if lh.budget != nil {
@@ -340,21 +362,21 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Relay response
 	if isStream {
 		if isAnthropic {
-			lh.relayAnthropicStream(w, resp, modelAlias, providerModel, correlationID, eventID, start)
+			lh.relayAnthropicStream(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf)
 		} else {
-			lh.relayStream(w, resp, modelAlias, providerModel, correlationID, eventID, start)
+			lh.relayStream(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf)
 		}
 	} else {
 		if isAnthropic {
-			lh.relayAnthropicBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start)
+			lh.relayAnthropicBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf)
 		} else {
-			lh.relayBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start)
+			lh.relayBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf)
 		}
 	}
 }
 
 // relayBuffered relays a non-streaming LLM response.
-func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time) {
+func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string) {
 	// Copy safe headers
 	for k, vv := range resp.Header {
 		if safeResponseHeaders[strings.ToLower(k)] {
@@ -424,6 +446,42 @@ func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, 
 		}
 	}
 
+	// Validate tool call arguments for hallucination detection
+	var toolCallValid *bool
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		if choices, ok := respBody["choices"].([]interface{}); ok && len(choices) > 0 {
+			if choice, ok := choices[0].(map[string]interface{}); ok {
+				if message, ok := choice["message"].(map[string]interface{}); ok {
+					if toolCalls, ok := message["tool_calls"].([]interface{}); ok && len(toolCalls) > 0 {
+						allValid := true
+						for _, tc := range toolCalls {
+							tcMap, ok := tc.(map[string]interface{})
+							if !ok {
+								allValid = false
+								break
+							}
+							fn, ok := tcMap["function"].(map[string]interface{})
+							if !ok {
+								allValid = false
+								break
+							}
+							argsStr, _ := fn["arguments"].(string)
+							if argsStr != "" {
+								var args json.RawMessage
+								if json.Unmarshal([]byte(argsStr), &args) != nil {
+									allValid = false
+								}
+							}
+						}
+						toolCallValid = &allValid
+					}
+				}
+			}
+		}
+	}
+
+	durationMs := time.Since(start).Milliseconds()
+
 	auditType := "LLM_DIRECT"
 	lh.audit.Log(AuditEntry{
 		Type:          auditType,
@@ -434,12 +492,16 @@ func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, 
 		Status:        resp.StatusCode,
 		InputTokens:   inputTokens,
 		OutputTokens:  outputTokens,
-		DurationMs:    time.Since(start).Milliseconds(),
+		DurationMs:    durationMs,
+		TTFTMs:        durationMs,
+		ToolCallValid: toolCallValid,
+		StepIndex:     stepIndex,
+		RetryOf:       retryOf,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, resp.StatusCode, time.Since(start).Milliseconds())
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, resp.StatusCode, durationMs)
 }
 
 // emitTrajectoryAnomaly logs a trajectory anomaly to the audit log and relays
@@ -470,7 +532,7 @@ func (lh *LLMHandler) emitTrajectoryAnomaly(anomaly Anomaly) {
 }
 
 // relayStream relays an SSE streaming LLM response.
-func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time) {
+func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string) {
 	// Copy safe stream headers
 	for k, vv := range resp.Header {
 		if safeStreamHeaders[strings.ToLower(k)] {
@@ -485,10 +547,14 @@ func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, mo
 	flusher, canFlush := w.(http.Flusher)
 
 	inputTokens, outputTokens := 0, 0
+	var ttftTime time.Time
 	buf := make([]byte, 4096)
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
+			if ttftTime.IsZero() {
+				ttftTime = time.Now()
+			}
 			chunk := buf[:n]
 			w.Write(chunk)
 			if canFlush {
@@ -512,6 +578,16 @@ func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, mo
 		}
 	}
 
+	ttftMs := int64(0)
+	if !ttftTime.IsZero() {
+		ttftMs = ttftTime.Sub(start).Milliseconds()
+	}
+	tpotMs := float64(0)
+	durationMs := time.Since(start).Milliseconds()
+	if outputTokens > 0 && ttftMs > 0 {
+		tpotMs = float64(durationMs-ttftMs) / float64(outputTokens)
+	}
+
 	auditType := "LLM_DIRECT_STREAM"
 	lh.audit.Log(AuditEntry{
 		Type:          auditType,
@@ -522,17 +598,21 @@ func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, mo
 		Status:        resp.StatusCode,
 		InputTokens:   inputTokens,
 		OutputTokens:  outputTokens,
-		DurationMs:    time.Since(start).Milliseconds(),
+		DurationMs:    durationMs,
+		TTFTMs:        ttftMs,
+		TPOTMs:        tpotMs,
+		StepIndex:     stepIndex,
+		RetryOf:       retryOf,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, resp.StatusCode, time.Since(start).Milliseconds())
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, resp.StatusCode, durationMs)
 }
 
 // relayAnthropicBuffered relays a non-streaming Anthropic response, translating
 // it back to OpenAI format before sending to the client.
-func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time) {
+func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string) {
 	body, _ := io.ReadAll(resp.Body)
 
 	// Translate Anthropic response to OpenAI format
@@ -570,6 +650,42 @@ func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.R
 		}
 	}
 
+	// Validate tool call arguments for hallucination detection (translated response is in OpenAI format)
+	var toolCallValid *bool
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		if choices, ok := respBody["choices"].([]interface{}); ok && len(choices) > 0 {
+			if choice, ok := choices[0].(map[string]interface{}); ok {
+				if message, ok := choice["message"].(map[string]interface{}); ok {
+					if toolCalls, ok := message["tool_calls"].([]interface{}); ok && len(toolCalls) > 0 {
+						allValid := true
+						for _, tc := range toolCalls {
+							tcMap, ok := tc.(map[string]interface{})
+							if !ok {
+								allValid = false
+								break
+							}
+							fn, ok := tcMap["function"].(map[string]interface{})
+							if !ok {
+								allValid = false
+								break
+							}
+							argsStr, _ := fn["arguments"].(string)
+							if argsStr != "" {
+								var args json.RawMessage
+								if json.Unmarshal([]byte(argsStr), &args) != nil {
+									allValid = false
+								}
+							}
+						}
+						toolCallValid = &allValid
+					}
+				}
+			}
+		}
+	}
+
+	durationMs := time.Since(start).Milliseconds()
+
 	lh.audit.Log(AuditEntry{
 		Type:          "LLM_DIRECT",
 		Model:         modelAlias,
@@ -579,17 +695,21 @@ func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.R
 		Status:        resp.StatusCode,
 		InputTokens:   inputTokens,
 		OutputTokens:  outputTokens,
-		DurationMs:    time.Since(start).Milliseconds(),
+		DurationMs:    durationMs,
+		TTFTMs:        durationMs,
+		ToolCallValid: toolCallValid,
+		StepIndex:     stepIndex,
+		RetryOf:       retryOf,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, resp.StatusCode, time.Since(start).Milliseconds())
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, resp.StatusCode, durationMs)
 }
 
 // relayAnthropicStream relays an Anthropic SSE streaming response, translating
 // each event to OpenAI chat.completion.chunk format before sending to the client.
-func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time) {
+func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string) {
 	for k, vv := range resp.Header {
 		if safeStreamHeaders[strings.ToLower(k)] {
 			for _, v := range vv {
@@ -603,6 +723,7 @@ func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Res
 	flusher, canFlush := w.(http.Flusher)
 	translator := newStreamTranslator()
 
+	var ttftTime time.Time
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -611,6 +732,9 @@ func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Res
 		}
 		if !strings.HasPrefix(line, "data: ") {
 			continue
+		}
+		if ttftTime.IsZero() {
+			ttftTime = time.Now()
 		}
 		data := line[6:]
 
@@ -628,6 +752,16 @@ func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Res
 		flusher.Flush()
 	}
 
+	ttftMs := int64(0)
+	if !ttftTime.IsZero() {
+		ttftMs = ttftTime.Sub(start).Milliseconds()
+	}
+	tpotMs := float64(0)
+	durationMs := time.Since(start).Milliseconds()
+	if translator.outputTokens > 0 && ttftMs > 0 {
+		tpotMs = float64(durationMs-ttftMs) / float64(translator.outputTokens)
+	}
+
 	lh.audit.Log(AuditEntry{
 		Type:          "LLM_DIRECT_STREAM",
 		Model:         modelAlias,
@@ -637,7 +771,11 @@ func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Res
 		Status:        resp.StatusCode,
 		InputTokens:   translator.inputTokens,
 		OutputTokens:  translator.outputTokens,
-		DurationMs:    time.Since(start).Milliseconds(),
+		DurationMs:    durationMs,
+		TTFTMs:        ttftMs,
+		TPOTMs:        tpotMs,
+		StepIndex:     stepIndex,
+		RetryOf:       retryOf,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 

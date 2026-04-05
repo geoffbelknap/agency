@@ -176,6 +176,10 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Get("/agents/{name}/budget", h.getBudget)
 		r.Get("/agents/{name}/budget/remaining", h.getBudgetRemaining)
 
+		// Economics (cost + performance analytics)
+		r.Get("/agents/{name}/economics", h.getAgentEconomics)
+		r.Get("/economics/summary", h.getEconomicsSummary)
+
 		// Context API (mid-session constraint push)
 		ctxH := &contextHandler{mgr: h.ctxMgr}
 		r.Route("/agents/{name}/context", func(r chi.Router) {
@@ -632,6 +636,18 @@ func (h *handler) relaySignal(w http.ResponseWriter, r *http.Request) {
 	// Run success criteria evaluation on task_complete signals
 	if body.SignalType == "task_complete" {
 		go h.evaluateTaskCompletion(name, body.Data)
+
+		// Emit a companion workflow_economics signal so WebSocket clients
+		// can display per-task cost data in real time.
+		// TODO: enrich with aggregated loop_cost_usd and context_expansion_rate
+		// from the economics rollup store once /economics endpoints land.
+		econData := map[string]interface{}{
+			"task_id": body.Data["task_id"],
+			"steps":   body.Data["turns"],
+		}
+		if h.wsHub != nil {
+			h.wsHub.BroadcastAgentSignal(name, "agent_signal_workflow_economics", econData)
+		}
 	}
 
 	writeJSON(w, 200, map[string]string{"status": "ok"})

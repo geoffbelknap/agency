@@ -577,6 +577,14 @@ func TestLLMRateLimitDeniedSendsKeepalive(t *testing.T) {
 	}
 }
 
+func TestStepIndexIncrement(t *testing.T) {
+	lh := &LLMHandler{stepCounters: make(map[string]int)}
+	if lh.nextStepIndex("t1") != 1 { t.Error("expected 1") }
+	if lh.nextStepIndex("t1") != 2 { t.Error("expected 2") }
+	if lh.nextStepIndex("t1") != 3 { t.Error("expected 3") }
+	if lh.nextStepIndex("t2") != 1 { t.Error("expected 1 for new task") }
+}
+
 func TestLLMAnthropicStreaming(t *testing.T) {
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
