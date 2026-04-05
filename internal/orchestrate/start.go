@@ -508,7 +508,7 @@ func (ss *StartSequence) generateTiersJSON() error {
 	if err != nil {
 		return fmt.Errorf("marshal tiers.json: %w", err)
 	}
-	return os.WriteFile(filepath.Join(agentDir, "tiers.json"), out, 0644)
+	return os.WriteFile(filepath.Join(absAgentDir, "tiers.json"), out, 0644)
 }
 
 func (ss *StartSequence) resolveModelTier(tier string) string {
