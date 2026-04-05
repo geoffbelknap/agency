@@ -446,6 +446,8 @@ func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, 
 		}
 	}
 
+	durationMs := time.Since(start).Milliseconds()
+
 	auditType := "LLM_DIRECT"
 	lh.audit.Log(AuditEntry{
 		Type:          auditType,
@@ -456,14 +458,15 @@ func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, 
 		Status:        resp.StatusCode,
 		InputTokens:   inputTokens,
 		OutputTokens:  outputTokens,
-		DurationMs:    time.Since(start).Milliseconds(),
+		DurationMs:    durationMs,
+		TTFTMs:        durationMs,
 		StepIndex:     stepIndex,
 		RetryOf:       retryOf,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, resp.StatusCode, time.Since(start).Milliseconds())
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, resp.StatusCode, durationMs)
 }
 
 // emitTrajectoryAnomaly logs a trajectory anomaly to the audit log and relays
@@ -509,10 +512,14 @@ func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, mo
 	flusher, canFlush := w.(http.Flusher)
 
 	inputTokens, outputTokens := 0, 0
+	var ttftTime time.Time
 	buf := make([]byte, 4096)
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
+			if ttftTime.IsZero() {
+				ttftTime = time.Now()
+			}
 			chunk := buf[:n]
 			w.Write(chunk)
 			if canFlush {
@@ -536,6 +543,16 @@ func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, mo
 		}
 	}
 
+	ttftMs := int64(0)
+	if !ttftTime.IsZero() {
+		ttftMs = ttftTime.Sub(start).Milliseconds()
+	}
+	tpotMs := float64(0)
+	durationMs := time.Since(start).Milliseconds()
+	if outputTokens > 0 && ttftMs > 0 {
+		tpotMs = float64(durationMs-ttftMs) / float64(outputTokens)
+	}
+
 	auditType := "LLM_DIRECT_STREAM"
 	lh.audit.Log(AuditEntry{
 		Type:          auditType,
@@ -546,14 +563,16 @@ func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, mo
 		Status:        resp.StatusCode,
 		InputTokens:   inputTokens,
 		OutputTokens:  outputTokens,
-		DurationMs:    time.Since(start).Milliseconds(),
+		DurationMs:    durationMs,
+		TTFTMs:        ttftMs,
+		TPOTMs:        tpotMs,
 		StepIndex:     stepIndex,
 		RetryOf:       retryOf,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, resp.StatusCode, time.Since(start).Milliseconds())
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, resp.StatusCode, durationMs)
 }
 
 // relayAnthropicBuffered relays a non-streaming Anthropic response, translating
@@ -596,6 +615,8 @@ func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.R
 		}
 	}
 
+	durationMs := time.Since(start).Milliseconds()
+
 	lh.audit.Log(AuditEntry{
 		Type:          "LLM_DIRECT",
 		Model:         modelAlias,
@@ -605,14 +626,15 @@ func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.R
 		Status:        resp.StatusCode,
 		InputTokens:   inputTokens,
 		OutputTokens:  outputTokens,
-		DurationMs:    time.Since(start).Milliseconds(),
+		DurationMs:    durationMs,
+		TTFTMs:        durationMs,
 		StepIndex:     stepIndex,
 		RetryOf:       retryOf,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, resp.StatusCode, time.Since(start).Milliseconds())
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, resp.StatusCode, durationMs)
 }
 
 // relayAnthropicStream relays an Anthropic SSE streaming response, translating
@@ -631,6 +653,7 @@ func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Res
 	flusher, canFlush := w.(http.Flusher)
 	translator := newStreamTranslator()
 
+	var ttftTime time.Time
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -639,6 +662,9 @@ func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Res
 		}
 		if !strings.HasPrefix(line, "data: ") {
 			continue
+		}
+		if ttftTime.IsZero() {
+			ttftTime = time.Now()
 		}
 		data := line[6:]
 
@@ -656,6 +682,16 @@ func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Res
 		flusher.Flush()
 	}
 
+	ttftMs := int64(0)
+	if !ttftTime.IsZero() {
+		ttftMs = ttftTime.Sub(start).Milliseconds()
+	}
+	tpotMs := float64(0)
+	durationMs := time.Since(start).Milliseconds()
+	if translator.outputTokens > 0 && ttftMs > 0 {
+		tpotMs = float64(durationMs-ttftMs) / float64(translator.outputTokens)
+	}
+
 	lh.audit.Log(AuditEntry{
 		Type:          "LLM_DIRECT_STREAM",
 		Model:         modelAlias,
@@ -665,7 +701,9 @@ func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Res
 		Status:        resp.StatusCode,
 		InputTokens:   translator.inputTokens,
 		OutputTokens:  translator.outputTokens,
-		DurationMs:    time.Since(start).Milliseconds(),
+		DurationMs:    durationMs,
+		TTFTMs:        ttftMs,
+		TPOTMs:        tpotMs,
 		StepIndex:     stepIndex,
 		RetryOf:       retryOf,
 	})
