@@ -119,6 +119,28 @@ func TestRemoveNetwork_PropagatesOtherErrors(t *testing.T) {
 	}
 }
 
+func TestCreateOperatorNetwork_NotInternal(t *testing.T) {
+	mock := &mockNetworkAPI{}
+	err := CreateOperatorNetwork(context.Background(), mock, "agency-operator", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mock.lastCreateOptions.Internal {
+		t.Error("operator network should NOT be internal (relay needs outbound)")
+	}
+}
+
+func TestCreateOperatorNetwork_MergesAgencyManagedLabel(t *testing.T) {
+	mock := &mockNetworkAPI{}
+	CreateOperatorNetwork(context.Background(), mock, "agency-operator", map[string]string{"custom": "label"})
+	if mock.lastCreateOptions.Labels["agency.managed"] != "true" {
+		t.Error("expected agency.managed label")
+	}
+	if mock.lastCreateOptions.Labels["custom"] != "label" {
+		t.Error("expected custom label preserved")
+	}
+}
+
 func TestMergeLabels_NilInput(t *testing.T) {
 	merged := mergeLabels(nil)
 	if merged["agency.managed"] != "true" {

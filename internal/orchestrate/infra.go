@@ -32,6 +32,7 @@ const (
 	mediationNet    = "agency-mediation"
 	egressNet       = "agency-egress-net"
 	internalNet     = "agency-internal"
+	operatorNet     = "agency-operator"
 )
 
 var defaultImages = map[string]string{
@@ -434,14 +435,18 @@ func (inf *Infra) ensureNetworks(ctx context.Context) error {
 		{mediationNet, false},
 		{egressNet, false},
 		{internalNet, true},
+		{operatorNet, false}, // agency-operator (operator tools, outbound allowed)
 	}
 	for _, n := range nets {
 		_, inspectErr := inf.cli.NetworkInspect(ctx, n.name, network.InspectOptions{})
 		if inspectErr != nil {
 			var err error
-			if n.internal {
+			switch {
+			case n.internal:
 				err = containers.CreateInternalNetwork(ctx, inf.cli, n.name, nil)
-			} else {
+			case n.name == operatorNet:
+				err = containers.CreateOperatorNetwork(ctx, inf.cli, n.name, nil)
+			default:
 				err = containers.CreateEgressNetwork(ctx, inf.cli, n.name, nil)
 			}
 			if err != nil {
@@ -887,7 +892,7 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("web"))
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
-	hc.NetworkMode = "bridge"
+	hc.NetworkMode = container.NetworkMode(operatorNet)
 	hc.ReadonlyRootfs = true
 	hc.Tmpfs = map[string]string{
 		"/var/cache/nginx":    "rw,noexec,nosuid,size=16m",
