@@ -1,9 +1,11 @@
 package hub
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -107,5 +109,24 @@ func TestNewOCIClient(t *testing.T) {
 	c := newOCIClient("ghcr.io/geoffbelknap/agency-hub")
 	if c.registry != "ghcr.io/geoffbelknap/agency-hub" {
 		t.Errorf("expected registry to be set, got %q", c.registry)
+	}
+}
+
+func TestCosignInstalled(t *testing.T) {
+	// Just verify the function doesn't panic — actual availability varies
+	_ = cosignInstalled()
+}
+
+func TestVerifySignatureNoCosign(t *testing.T) {
+	// If cosign is not installed, verify we get a clear error
+	if cosignInstalled() {
+		t.Skip("cosign is installed, skipping missing-cosign test")
+	}
+	err := verifySignature(context.Background(), "ghcr.io/test/fake:latest")
+	if err == nil {
+		t.Error("expected error when cosign not installed")
+	}
+	if !strings.Contains(err.Error(), "cosign not installed") {
+		t.Errorf("expected 'cosign not installed' error, got: %s", err)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -157,6 +158,39 @@ func (c *ociClient) syncOCISource(ctx context.Context, cacheDir, sourceName stri
 	}
 
 	return nil
+}
+
+// verifySignature checks the cosign keyless signature on an OCI artifact.
+// Shells out to the cosign CLI binary. Returns nil if valid, error if unsigned,
+// invalid, or cosign is not installed.
+//
+// Uses Sigstore public-good instance (Fulcio + Rekor) for keyless verification.
+// Verifies the signature was created by GitHub Actions OIDC for the agency-hub repo.
+func verifySignature(ctx context.Context, ref string) error {
+	cosignPath, err := exec.LookPath("cosign")
+	if err != nil {
+		return fmt.Errorf("cosign not installed — required for signature verification (install: https://docs.sigstore.dev/cosign/system_config/installation/)")
+	}
+
+	args := []string{
+		"verify",
+		"--certificate-identity-regexp", "https://github.com/geoffbelknap/agency-hub/.*",
+		"--certificate-oidc-issuer", "https://token.actions.githubusercontent.com",
+		ref,
+	}
+
+	cmd := exec.CommandContext(ctx, cosignPath, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("signature verification failed for %s: %s", ref, string(output))
+	}
+	return nil
+}
+
+// cosignInstalled returns true if the cosign CLI is available.
+func cosignInstalled() bool {
+	_, err := exec.LookPath("cosign")
+	return err == nil
 }
 
 // extractRegistryHost returns the hostname from a registry string.
