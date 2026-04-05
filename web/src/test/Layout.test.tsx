@@ -18,6 +18,7 @@ vi.mock('../app/lib/api', () => ({
   },
   ensureConfig: () => Promise.resolve(),
   getVia: () => 'local' as const,
+  getAuthenticated: () => false,
 }));
 
 vi.mock('../app/components/ThemeProvider', () => ({

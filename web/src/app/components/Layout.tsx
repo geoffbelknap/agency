@@ -1,8 +1,8 @@
 import { Link, Outlet, useLocation, useNavigate } from 'react-router';
-import { Bot, MessageSquare, Settings, Menu, X, Sun, Moon, Monitor, Pin, PinOff, Brain, Target, UserCircle } from 'lucide-react';
+import { Bot, MessageSquare, Settings, Menu, X, Sun, Moon, Monitor, Pin, PinOff, Brain, Target, UserCircle, LogOut } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { socket } from '../lib/ws';
-import { api, ensureConfig, getVia } from '../lib/api';
+import { api, ensureConfig, getVia, getAuthenticated } from '../lib/api';
 import { useTheme, type Theme } from './ThemeProvider';
 import { useVisualViewport } from '../hooks/useVisualViewport';
 import { TextScaleControl } from './TextScaleControl';
@@ -31,6 +31,7 @@ export function Layout() {
   const [setupChecked, setSetupChecked] = useState(false);
 
   const [isRelay, setIsRelay] = useState(false);
+  const [isRelayAuthenticated, setIsRelayAuthenticated] = useState(false);
 
   const { theme, setTheme } = useTheme();
   useVisualViewport();
@@ -39,7 +40,17 @@ export function Layout() {
   useEffect(() => {
     ensureConfig().then(() => {
       setIsRelay(getVia() === 'relay');
+      setIsRelayAuthenticated(getAuthenticated());
     });
+  }, []);
+
+  const handleSignOut = useCallback(async () => {
+    try {
+      await fetch('/auth/signout', { method: 'POST' });
+    } catch {
+      // best-effort
+    }
+    window.location.reload();
   }, []);
 
   // First-launch detection: redirect to /setup if no providers configured
@@ -251,6 +262,15 @@ export function Layout() {
               <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-primary/10 text-primary leading-none">relay</span>
             )}
           </div>
+          {isRelay && isRelayAuthenticated && (
+            <button
+              onClick={handleSignOut}
+              className="flex items-center gap-2.5 w-full mt-2 px-2 py-1.5 rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
+            >
+              <LogOut className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="text-[11px] font-medium">Sign out</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -346,6 +366,18 @@ export function Layout() {
               </div>
             </div>
           </div>
+          {isRelay && isRelayAuthenticated && (
+            <button
+              onClick={handleSignOut}
+              className={`flex items-center gap-3 px-3 py-1.5 rounded-md transition-all duration-150 w-full
+                text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${expanded ? '' : 'justify-center'}`}
+              title="Sign out"
+              aria-label="Sign out of relay session"
+            >
+              <LogOut className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className={`text-[11px] font-medium whitespace-nowrap transition-opacity duration-150 ${expanded ? 'opacity-100' : 'opacity-0 hidden'}`}>Sign out</span>
+            </button>
+          )}
         </div>
       </aside>
 
