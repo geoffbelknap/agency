@@ -1425,6 +1425,7 @@ class Body:
         task_id = task.get("task_id", "unknown")
         self._total_tasks += 1
         self._current_task_id = task_id
+        self._task_content = task_content  # saved for cache write
         self._event_id = task.get("event_id")
         self._task_complete_called = False
         self._current_task_turns = 0
@@ -2247,6 +2248,71 @@ class Body:
         except Exception as e:
             log.warning("Failed to contribute %s to knowledge graph: %s", record_type, e)
 
+    def _get_cache_config(self) -> dict:
+        """Get semantic cache configuration from mission or defaults."""
+        mission = getattr(self, '_active_mission', None) or {}
+        defaults = {
+            "enabled": True,
+            "ttl_hours": 24,
+            "confidence_threshold": 0.92,
+            "assist_threshold": 0.80,
+            "max_entries_per_mission": 100,
+            "scope": "mission",
+        }
+        return {**defaults, **mission.get("cache", {})}
+
+    def _write_cache_entry(self, task_id: str, task_content: str, result_text: str, metadata: dict) -> None:
+        """Write a cached_result node to the knowledge graph for semantic caching.
+
+        Non-fatal — cache write failure does not affect task completion.
+        Source channels scoped to agent's private channel (ASK Tenet 27).
+        """
+        import hashlib
+
+        cache_config = self._get_cache_config()
+        if not cache_config.get("enabled", True):
+            return
+
+        mission_name = (getattr(self, '_active_mission', None) or {}).get('name', '')
+        tools_used = list(getattr(self, '_tools_used_this_task', set()))
+        task_hash = hashlib.sha256(task_content.encode()).hexdigest()[:12]
+
+        node = {
+            "label": f"cache:{self.agent_name}:{task_hash}",
+            "kind": "cached_result",
+            "summary": result_text[:500],
+            "source_type": "agent",
+            "source_channels": [f"dm-{self.agent_name}"],
+            "properties": {
+                "task_description": task_content[:2000],
+                "trigger_context": metadata.get("trigger_context", ""),
+                "agent": self.agent_name,
+                "mission": mission_name,
+                "tools_used": tools_used,
+                "outcome": "success",
+                "cost_usd": metadata.get("cost_usd", 0),
+                "duration_s": metadata.get("duration_s", 0),
+                "steps": metadata.get("steps", 0),
+                "ttl_hours": cache_config.get("ttl_hours", 24),
+                "full_result": result_text,
+                "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            },
+        }
+
+        mission_id = (getattr(self, '_active_mission', None) or {}).get("id", "")
+        if mission_id:
+            node["mission_id"] = mission_id
+
+        try:
+            self._http_client.post(
+                f"{self._knowledge_url}/ingest/nodes",
+                json={"nodes": [node]},
+                timeout=10.0,
+            )
+            log.info("Wrote cache entry for task %s (hash=%s)", task_id, task_hash)
+        except Exception:
+            pass  # Cache write failure is non-fatal
+
     def _finalize_task(self, task_id: str, turn: int) -> None:
         """Clean up state after a task completes via complete_task flag."""
         reflection = getattr(self, '_reflection', None)
@@ -2298,8 +2364,29 @@ class Body:
             except Exception as e:
                 self._emit_signal("episode_generation_failed", {"task_id": task_id, "error": str(e)})
 
+        # Semantic cache write — store successful task results for deduplication.
+        # Uses the task content saved at loop start and the result summary from
+        # complete_task. Non-fatal: cache write failure doesn't affect the task.
+        task_content = getattr(self, '_task_content', '')
+        result_summary = getattr(self, '_task_result_summary', '')
+        if task_content and result_summary:
+            duration_s = int(time.time() - getattr(self, '_task_start_time', time.time()))
+            self._write_cache_entry(
+                task_id=task_id,
+                task_content=task_content,
+                result_text=result_summary,
+                metadata={
+                    "trigger_context": (getattr(self, '_active_mission', None) or {}).get("name", ""),
+                    "cost_usd": 0,  # actual cost tracked by enforcer, not available here
+                    "duration_s": duration_s,
+                    "steps": turn + 1,
+                },
+            )
+
         self._clear_conversation_log()
         self._current_task_id = None
+        self._task_content = ''
+        self._task_result_summary = ''
         self._channel_reminder_sent = False
         self._checkpoint_injected = False
         log.info("Task %s complete via complete_task (%d turns)", task_id, turn + 1)
@@ -2319,11 +2406,13 @@ class Body:
 
             # Intercept completion — don't set _task_complete_called yet
             self._reflection.intercept_completion(summary)
+            self._task_result_summary = summary
             return json.dumps({"status": "reflection_pending",
                                "message": "Evaluating output against mission criteria before completing."})
 
         # No reflection — complete immediately (existing behavior)
         self._task_complete_called = True
+        self._task_result_summary = summary
         return json.dumps({"status": "complete", "summary": summary})
 
     # -- Signal Emission --
