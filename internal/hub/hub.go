@@ -73,6 +73,13 @@ func (s Source) ComponentRef(kind, name, version string) string {
 	return s.Registry + "/" + kind + "/" + name + ":" + version
 }
 
+// DefaultSource is the official Agency hub, distributed as OCI artifacts.
+var DefaultSource = Source{
+	Name:     "official",
+	Type:     "oci",
+	Registry: "ghcr.io/geoffbelknap/agency-hub",
+}
+
 // Component represents a discovered hub component.
 type Component struct {
 	Name        string `json:"name" yaml:"name"`
@@ -1185,6 +1192,12 @@ func (m *Manager) loadConfig() hubConfig {
 		return cfg
 	}
 	yaml.Unmarshal(data, &cfg)
+
+	// If no sources configured, use the default OCI source
+	if len(cfg.Hub.Sources) == 0 {
+		cfg.Hub.Sources = []Source{DefaultSource}
+	}
+
 	return cfg
 }
 
