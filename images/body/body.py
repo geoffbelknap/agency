@@ -71,6 +71,10 @@ LLM_MAX_RETRIES = 6
 # (enforcer returns 429), or escalate called.
 # Minimum seconds between notification-generated tasks (push-driven via comms events)
 NOTIFICATION_COOLDOWN = int(os.environ.get("AGENCY_NOTIFICATION_COOLDOWN_SECS", "60"))
+# Tool output compression thresholds
+COMPRESS_THRESHOLD_CHARS = 8000   # ~2000 tokens
+COMPRESS_TARGET_TOKENS = 500
+COMPRESS_MAX_INPUT_CHARS = 80000  # ~20K tokens
 
 # Meeseeks system prompt template — minimal, task-focused
 MEESEEKS_SYSTEM_PROMPT = """You are a Meeseeks — a single-purpose agent on Agency, an AI agent operating platform.
@@ -2067,6 +2071,85 @@ class Body:
                         break
 
         return tools
+
+    # -- Tool Output Compression --
+
+    def _get_compression_config(self) -> dict:
+        """Return compression settings from the active mission or defaults."""
+        mission = getattr(self, '_active_mission', None) or {}
+        ctx_config = mission.get("context", {})
+        return {
+            "enabled": ctx_config.get("compress_enabled", True),
+            "threshold_chars": ctx_config.get("compress_threshold", 2000) * 4,
+            "target_tokens": ctx_config.get("compress_target", COMPRESS_TARGET_TOKENS),
+        }
+
+    def _store_raw_tool_output(self, tool_call_id: str, raw_output: str) -> None:
+        """Store raw tool output for later recall via recall_tool_output."""
+        if not hasattr(self, '_raw_tool_outputs'):
+            self._raw_tool_outputs = {}
+        self._raw_tool_outputs[tool_call_id] = raw_output
+
+    def _compress_tool_output(self, tool_name: str, tool_call_id: str, raw_output: str) -> str:
+        """Compress large tool outputs via a summarization LLM call.
+
+        Returns the original output if compression is disabled, the output
+        is below threshold, or the compression call fails.
+        """
+        config = self._get_compression_config()
+        if not config["enabled"] or len(raw_output) <= config["threshold_chars"]:
+            return raw_output
+
+        self._store_raw_tool_output(tool_call_id, raw_output)
+
+        estimated_tokens = len(raw_output) // 4
+        target = config["target_tokens"]
+        task_context = getattr(self, '_task_content', 'general task')
+
+        summarize_messages = [
+            {"role": "system", "content": (
+                f"You are a data compression assistant. Summarize the following tool output "
+                f"in approximately {target} tokens. Preserve specific values (IPs, hashes, "
+                f"timestamps, error codes, names, counts). Flag anomalies. Note what was omitted."
+            )},
+            {"role": "user", "content": (
+                f"Tool: {tool_name}\n"
+                f"Agent's current task: {task_context[:500]}\n\n"
+                f"Tool output ({estimated_tokens} tokens):\n\n"
+                f"{raw_output[:COMPRESS_MAX_INPUT_CHARS]}"
+            )},
+        ]
+
+        try:
+            url = f"{self.enforcer_url}/chat/completions"
+            headers = {"X-Agency-Cost-Source": "context_compression"}
+            if getattr(self, "_event_id", None):
+                headers["X-Agency-Event-Id"] = self._event_id
+            if self._current_task_id:
+                headers["X-Agency-Task-Id"] = self._current_task_id
+            api_key = os.environ.get("OPENAI_API_KEY")
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+
+            resp = self._http_client.post(
+                url,
+                json={"model": self.model, "messages": summarize_messages, "max_tokens": target * 2},
+                headers=headers,
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            summary = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+
+            if summary:
+                return (
+                    f"[Compressed from {estimated_tokens} tokens]\n"
+                    f"{summary}\n"
+                    f"[Full output available via recall_tool_output('{tool_call_id}')]"
+                )
+        except Exception as e:
+            log.warning("Tool output compression failed: %s — using raw output", e)
+
+        return raw_output
 
     def _handle_tool_call(self, tool_call: dict) -> str:
         """Dispatch a tool call to the appropriate handler."""
