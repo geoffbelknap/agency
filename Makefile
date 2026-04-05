@@ -1,5 +1,5 @@
 .PHONY: all build install deploy test clean images \
-       body enforcer comms knowledge intake egress workspace web-fetch web
+       body enforcer comms knowledge intake egress workspace web-fetch web relay
 
 VERSION  ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo 0.0.0)
 COMMIT   := $(shell git rev-parse --short HEAD)
@@ -67,8 +67,8 @@ clean:
 # Build all container images (core only; use `make images-all` to include web)
 images: $(CORE_IMAGES)
 
-# Build all container images including web UI
-images-all: images web
+# Build all container images including web UI and relay
+images-all: images web relay
 
 # Per-image targets. Repo-context images use repo root as context;
 # self-contained images use their own directory.
@@ -95,3 +95,14 @@ web:
 	fi
 	docker build --build-arg BUILD_ID=$(BUILD_ID) \
 		-f $(AGENCY_WEB_DIR)/Dockerfile -t agency-web:latest $(AGENCY_WEB_DIR)
+
+# agency-relay source (sibling repo in workspace)
+AGENCY_RELAY_DIR ?= $(SOURCE_DIR)/../agency-relay
+
+relay:
+	@echo "Building agency-relay..."
+	@if [ ! -d "$(AGENCY_RELAY_DIR)" ]; then \
+		echo "Error: agency-relay not found at $(AGENCY_RELAY_DIR)"; exit 1; \
+	fi
+	docker build --build-arg BUILD_ID=$(BUILD_ID) \
+		-f $(AGENCY_RELAY_DIR)/Dockerfile -t agency-relay:latest $(AGENCY_RELAY_DIR)

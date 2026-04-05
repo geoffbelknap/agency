@@ -42,6 +42,7 @@ var defaultImages = map[string]string{
 	"intake":    "agency-intake:latest",
 	"web-fetch": "agency-web-fetch:latest",
 	"web":            "agency-web:latest",
+	"relay":          "agency-relay:latest",
 	"embeddings":     "agency-embeddings:latest",
 	"gateway-proxy":  "agency-gateway-proxy:latest",
 }
@@ -213,6 +214,7 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 		{"intake", "Starting intake service", inf.ensureIntake},
 		{"web-fetch", "Starting web-fetch service (content extraction, security scanning)", inf.ensureWebFetch},
 		{"web", "Starting web UI", inf.ensureWeb},
+		{"relay", "Starting relay tunnel", inf.ensureRelay},
 		{"embeddings", "Starting embeddings service (local vector embeddings)", inf.ensureEmbeddings},
 	}
 
@@ -260,7 +262,7 @@ func (inf *Infra) TeardownWithProgress(ctx context.Context, onProgress ProgressF
 	if onProgress != nil {
 		onProgress("infra", "Stopping all services")
 	}
-	roles := []string{"web", "web-fetch", "intake", "knowledge", "comms", "egress", "embeddings", "gateway-proxy"}
+	roles := []string{"relay", "web", "web-fetch", "intake", "knowledge", "comms", "egress", "embeddings", "gateway-proxy"}
 
 	var wg sync.WaitGroup
 	for _, role := range roles {
@@ -937,6 +939,58 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 		return err
 	}
 	return inf.waitHealthy(ctx, name, 30*time.Second)
+}
+
+func (inf *Infra) ensureRelay(ctx context.Context) error {
+	// Relay is optional — only start if relay.yaml exists.
+	relayConfigPath := filepath.Join(inf.Home, "relay.yaml")
+	if !fileExists(relayConfigPath) {
+		return nil
+	}
+
+	if err := images.Resolve(ctx, inf.cli, "relay", inf.Version, "", inf.BuildID, inf.log); err != nil {
+		inf.log.Warn("agency-relay image not available, skipping", "err", err)
+		return nil // non-fatal — relay is optional
+	}
+	name := containerName("relay")
+	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) {
+		return nil
+	}
+	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("relay"))
+
+	hc := containers.HostConfigDefaults(containers.RoleInfra)
+	hc.NetworkMode = container.NetworkMode(operatorNet)
+	hc.Binds = []string{
+		inf.Home + ":/home/relay/.agency:rw",
+	}
+	hc.ExtraHosts = []string{"gateway:host-gateway"}
+	hc.Resources.Memory = 32 * 1024 * 1024 // 32MB — lightweight tunnel
+	hc.Resources.NanoCPUs = 250_000_000     // 0.25 CPU
+	pidsLimit := int64(32)
+	hc.Resources.PidsLimit = &pidsLimit
+
+	if _, err := containers.CreateAndStart(ctx, inf.cli,
+		name,
+		&container.Config{
+			Image:    defaultImages["relay"],
+			Hostname: "relay",
+			Env: []string{
+				"AGENCY_HOME=/home/relay/.agency",
+			},
+			Labels: map[string]string{
+				"agency.managed":       "true",
+				"agency.role":          "infra",
+				"agency.component":     "relay",
+				"agency.build.id":      images.ImageBuildLabel(ctx, inf.cli, defaultImages["relay"]),
+				"agency.build.gateway": inf.BuildID,
+			},
+		},
+		hc, nil,
+	); err != nil {
+		return err
+	}
+
+	return inf.waitRunning(ctx, name, 10*time.Second)
 }
 
 func (inf *Infra) ensureEmbeddings(ctx context.Context) error {
