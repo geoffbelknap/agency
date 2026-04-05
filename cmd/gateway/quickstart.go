@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -277,6 +278,14 @@ func validateAPIKey(provider, key string) error {
 }
 
 func runQuickstart(opts quickstartOptions) error {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt)
+	go func() {
+		<-sigCh
+		fmt.Println("\n\n  Interrupted. Completed phases are saved — run `agency quickstart` again to resume.")
+		os.Exit(0)
+	}()
+
 	fmt.Println()
 	fmt.Println(qsBold.Render("Agency Quickstart"))
 	fmt.Println(qsDim.Render("Setting up your agent platform"))
