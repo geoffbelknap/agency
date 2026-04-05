@@ -18,13 +18,16 @@ import (
 
 // AuditEntry mirrors the enforcer's audit entry (subset needed for summarization).
 type AuditEntry struct {
-	Timestamp    string `json:"ts"`
-	Type         string `json:"type"`
-	Agent        string `json:"agent,omitempty"`
-	Model        string `json:"model,omitempty"`
-	EventID      string `json:"event_id,omitempty"`
-	InputTokens  int    `json:"input_tokens,omitempty"`
-	OutputTokens int    `json:"output_tokens,omitempty"`
+	Timestamp     string `json:"ts"`
+	Type          string `json:"type"`
+	Agent         string `json:"agent,omitempty"`
+	Model         string `json:"model,omitempty"`
+	EventID       string `json:"event_id,omitempty"`
+	InputTokens   int    `json:"input_tokens,omitempty"`
+	OutputTokens  int    `json:"output_tokens,omitempty"`
+	TTFTMs        int64  `json:"ttft_ms,omitempty"`
+	ToolCallValid *bool  `json:"tool_call_valid,omitempty"`
+	RetryOf       string `json:"retry_of,omitempty"`
 }
 
 // MissionMetric holds aggregated metrics for one mission on one date.
@@ -37,6 +40,9 @@ type MissionMetric struct {
 	EstimatedCostUSD  float64 `json:"estimated_cost_usd"`
 	AvgTokensPerAct   float64 `json:"avg_tokens_per_activation"`
 	Model             string  `json:"model"`
+	TTFTP50Ms         int64   `json:"ttft_p50_ms"`
+	ToolHallRate      float64 `json:"tool_hallucination_rate"`
+	RetryWasteUSD     float64 `json:"retry_waste_usd"`
 	EscalationCount   *int    `json:"escalation_count"`  // v2 — null for now
 	FindingsCount     *int    `json:"findings_count"`    // v2 — null for now
 }
@@ -114,14 +120,17 @@ func (s *AuditSummarizer) upsertMetricsToKnowledge(metrics []MissionMetric) {
 			"summary":     "",
 			"source_type": "rule",
 			"properties": map[string]interface{}{
-				"mission":                m.Mission,
-				"date":                   m.Date,
-				"activations":            m.Activations,
-				"total_input_tokens":     m.TotalInputTokens,
-				"total_output_tokens":    m.TotalOutputTokens,
-				"estimated_cost_usd":     m.EstimatedCostUSD,
-				"avg_tokens_per_act":     m.AvgTokensPerAct,
-				"model":                  m.Model,
+				"mission":                    m.Mission,
+				"date":                       m.Date,
+				"activations":                m.Activations,
+				"total_input_tokens":         m.TotalInputTokens,
+				"total_output_tokens":        m.TotalOutputTokens,
+				"estimated_cost_usd":         m.EstimatedCostUSD,
+				"avg_tokens_per_act":         m.AvgTokensPerAct,
+				"model":                      m.Model,
+				"ttft_p50_ms":                m.TTFTP50Ms,
+				"tool_hallucination_rate":    m.ToolHallRate,
+				"retry_waste_usd":           m.RetryWasteUSD,
 			},
 		})
 	}
@@ -155,10 +164,14 @@ func (s *AuditSummarizer) summarizeDate(date string) ([]MissionMetric, error) {
 	files, _ := filepath.Glob(pattern)
 
 	type activation struct {
-		inputTokens  int
-		outputTokens int
-		models       []string
-		cost         float64
+		inputTokens    int
+		outputTokens   int
+		models         []string
+		cost           float64
+		ttfts          []int64
+		toolCallTotal  int
+		toolCallFailed int
+		retryCost      float64
 	}
 	missionActs := map[string]map[string]*activation{} // mission -> event_id -> activation
 
@@ -200,6 +213,22 @@ func (s *AuditSummarizer) summarizeDate(date string) ([]MissionMetric, error) {
 				s.logger.Warn("unknown model for cost estimation", "model", entry.Model)
 			}
 			act.cost += cost
+
+			// Collect TTFT values for percentile calculation
+			if entry.TTFTMs > 0 {
+				act.ttfts = append(act.ttfts, entry.TTFTMs)
+			}
+			// Track tool call validity for hallucination rate
+			if entry.ToolCallValid != nil {
+				act.toolCallTotal++
+				if !*entry.ToolCallValid {
+					act.toolCallFailed++
+				}
+			}
+			// Accumulate cost of retried calls
+			if entry.RetryOf != "" {
+				act.retryCost += cost
+			}
 		}
 		f.Close()
 	}
@@ -208,11 +237,18 @@ func (s *AuditSummarizer) summarizeDate(date string) ([]MissionMetric, error) {
 	for mission, activations := range missionActs {
 		var totalIn, totalOut int
 		var totalCost float64
+		var allTTFTs []int64
+		var totalToolCalls, totalToolFailed int
+		var totalRetryCost float64
 		modelCounts := map[string]int{}
 		for _, act := range activations {
 			totalIn += act.inputTokens
 			totalOut += act.outputTokens
 			totalCost += act.cost
+			allTTFTs = append(allTTFTs, act.ttfts...)
+			totalToolCalls += act.toolCallTotal
+			totalToolFailed += act.toolCallFailed
+			totalRetryCost += act.retryCost
 			for _, m := range act.models {
 				modelCounts[m]++
 			}
@@ -230,10 +266,25 @@ func (s *AuditSummarizer) summarizeDate(date string) ([]MissionMetric, error) {
 		if numActs > 0 {
 			avg = float64(totalIn+totalOut) / float64(numActs)
 		}
+
+		// TTFT P50 (median)
+		var ttftP50 int64
+		if len(allTTFTs) > 0 {
+			sort.Slice(allTTFTs, func(i, j int) bool { return allTTFTs[i] < allTTFTs[j] })
+			ttftP50 = allTTFTs[len(allTTFTs)/2]
+		}
+
+		// Tool hallucination rate
+		var hallRate float64
+		if totalToolCalls > 0 {
+			hallRate = float64(totalToolFailed) / float64(totalToolCalls)
+		}
+
 		metrics = append(metrics, MissionMetric{
 			Mission: mission, Date: date, Activations: numActs,
 			TotalInputTokens: totalIn, TotalOutputTokens: totalOut,
 			EstimatedCostUSD: totalCost, AvgTokensPerAct: avg, Model: modalModel,
+			TTFTP50Ms: ttftP50, ToolHallRate: hallRate, RetryWasteUSD: totalRetryCost,
 		})
 	}
 	sort.Slice(metrics, func(i, j int) bool { return metrics[i].Mission < metrics[j].Mission })
