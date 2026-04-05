@@ -88,10 +88,8 @@ jobs:
   build-and-push-web:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout agency-web
+      - name: Checkout
         uses: actions/checkout@v6
-        with:
-          repository: geoffbelknap/agency-web
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -115,8 +113,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
-          context: .
-          file: Dockerfile
+          context: web
+          file: web/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
