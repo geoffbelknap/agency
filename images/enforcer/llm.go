@@ -446,6 +446,40 @@ func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, 
 		}
 	}
 
+	// Validate tool call arguments for hallucination detection
+	var toolCallValid *bool
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		if choices, ok := respBody["choices"].([]interface{}); ok && len(choices) > 0 {
+			if choice, ok := choices[0].(map[string]interface{}); ok {
+				if message, ok := choice["message"].(map[string]interface{}); ok {
+					if toolCalls, ok := message["tool_calls"].([]interface{}); ok && len(toolCalls) > 0 {
+						allValid := true
+						for _, tc := range toolCalls {
+							tcMap, ok := tc.(map[string]interface{})
+							if !ok {
+								allValid = false
+								break
+							}
+							fn, ok := tcMap["function"].(map[string]interface{})
+							if !ok {
+								allValid = false
+								break
+							}
+							argsStr, _ := fn["arguments"].(string)
+							if argsStr != "" {
+								var args json.RawMessage
+								if json.Unmarshal([]byte(argsStr), &args) != nil {
+									allValid = false
+								}
+							}
+						}
+						toolCallValid = &allValid
+					}
+				}
+			}
+		}
+	}
+
 	durationMs := time.Since(start).Milliseconds()
 
 	auditType := "LLM_DIRECT"
@@ -460,6 +494,7 @@ func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, 
 		OutputTokens:  outputTokens,
 		DurationMs:    durationMs,
 		TTFTMs:        durationMs,
+		ToolCallValid: toolCallValid,
 		StepIndex:     stepIndex,
 		RetryOf:       retryOf,
 	})
@@ -615,6 +650,40 @@ func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.R
 		}
 	}
 
+	// Validate tool call arguments for hallucination detection (translated response is in OpenAI format)
+	var toolCallValid *bool
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		if choices, ok := respBody["choices"].([]interface{}); ok && len(choices) > 0 {
+			if choice, ok := choices[0].(map[string]interface{}); ok {
+				if message, ok := choice["message"].(map[string]interface{}); ok {
+					if toolCalls, ok := message["tool_calls"].([]interface{}); ok && len(toolCalls) > 0 {
+						allValid := true
+						for _, tc := range toolCalls {
+							tcMap, ok := tc.(map[string]interface{})
+							if !ok {
+								allValid = false
+								break
+							}
+							fn, ok := tcMap["function"].(map[string]interface{})
+							if !ok {
+								allValid = false
+								break
+							}
+							argsStr, _ := fn["arguments"].(string)
+							if argsStr != "" {
+								var args json.RawMessage
+								if json.Unmarshal([]byte(argsStr), &args) != nil {
+									allValid = false
+								}
+							}
+						}
+						toolCallValid = &allValid
+					}
+				}
+			}
+		}
+	}
+
 	durationMs := time.Since(start).Milliseconds()
 
 	lh.audit.Log(AuditEntry{
@@ -628,6 +697,7 @@ func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.R
 		OutputTokens:  outputTokens,
 		DurationMs:    durationMs,
 		TTFTMs:        durationMs,
+		ToolCallValid: toolCallValid,
 		StepIndex:     stepIndex,
 		RetryOf:       retryOf,
 	})
