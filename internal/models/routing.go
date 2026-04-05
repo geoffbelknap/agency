@@ -29,11 +29,22 @@ func (p *ProviderConfig) Validate() error {
 
 // ModelConfig describes a specific LLM model and its cost information.
 type ModelConfig struct {
-	Provider      string  `yaml:"provider" validate:"required"`
-	ProviderModel string  `yaml:"provider_model" validate:"required"`
-	CostPerMTokIn float64 `yaml:"cost_per_mtok_in" validate:"gte=0" default:"0"`
-	CostPerMTokOut float64 `yaml:"cost_per_mtok_out" validate:"gte=0" default:"0"`
-	CostPerMTokCached float64 `yaml:"cost_per_mtok_cached" validate:"gte=0" default:"0"`
+	Provider          string   `yaml:"provider" validate:"required"`
+	ProviderModel     string   `yaml:"provider_model" validate:"required"`
+	Capabilities      []string `yaml:"capabilities"`
+	CostPerMTokIn     float64  `yaml:"cost_per_mtok_in" validate:"gte=0" default:"0"`
+	CostPerMTokOut    float64  `yaml:"cost_per_mtok_out" validate:"gte=0" default:"0"`
+	CostPerMTokCached float64  `yaml:"cost_per_mtok_cached" validate:"gte=0" default:"0"`
+}
+
+// HasCapability returns true if the model declares the given capability.
+func (m ModelConfig) HasCapability(cap string) bool {
+	for _, c := range m.Capabilities {
+		if c == cap {
+			return true
+		}
+	}
+	return false
 }
 
 // TierEntry is a model reference within a tier, with an ordering preference.
