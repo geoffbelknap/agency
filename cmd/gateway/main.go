@@ -221,6 +221,10 @@ func main() {
 	setupC.GroupID = "platform"
 	root.AddCommand(setupC)
 
+	quickstartC := quickstartCmd()
+	quickstartC.GroupID = "platform"
+	root.AddCommand(quickstartC)
+
 	// Hidden alias: "init" → "setup" for backwards compatibility
 	initAlias := *setupC
 	initAlias.Use = "init"
