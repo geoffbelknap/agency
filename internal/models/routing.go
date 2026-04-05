@@ -29,11 +29,22 @@ func (p *ProviderConfig) Validate() error {
 
 // ModelConfig describes a specific LLM model and its cost information.
 type ModelConfig struct {
-	Provider      string  `yaml:"provider" validate:"required"`
-	ProviderModel string  `yaml:"provider_model" validate:"required"`
-	CostPerMTokIn float64 `yaml:"cost_per_mtok_in" validate:"gte=0" default:"0"`
-	CostPerMTokOut float64 `yaml:"cost_per_mtok_out" validate:"gte=0" default:"0"`
-	CostPerMTokCached float64 `yaml:"cost_per_mtok_cached" validate:"gte=0" default:"0"`
+	Provider          string   `yaml:"provider" validate:"required"`
+	ProviderModel     string   `yaml:"provider_model" validate:"required"`
+	Capabilities      []string `yaml:"capabilities"`
+	CostPerMTokIn     float64  `yaml:"cost_per_mtok_in" validate:"gte=0" default:"0"`
+	CostPerMTokOut    float64  `yaml:"cost_per_mtok_out" validate:"gte=0" default:"0"`
+	CostPerMTokCached float64  `yaml:"cost_per_mtok_cached" validate:"gte=0" default:"0"`
+}
+
+// HasCapability returns true if the model declares the given capability.
+func (m ModelConfig) HasCapability(cap string) bool {
+	for _, c := range m.Capabilities {
+		if c == cap {
+			return true
+		}
+	}
+	return false
 }
 
 // TierEntry is a model reference within a tier, with an ordering preference.
@@ -241,4 +252,117 @@ func (r *RoutingConfig) ResolveTierWithStrategy(tier string, extraEnv map[string
 	default:
 		return nil, nil
 	}
+}
+
+// TierCapabilities returns the intersection of capabilities across all models
+// in the given tier. Returns nil if the tier is empty or unknown.
+func (r *RoutingConfig) TierCapabilities(tier string) []string {
+	var entries []TierEntry
+	switch tier {
+	case "frontier":
+		entries = r.Tiers.Frontier
+	case "standard":
+		entries = r.Tiers.Standard
+	case "fast":
+		entries = r.Tiers.Fast
+	case "mini":
+		entries = r.Tiers.Mini
+	case "nano":
+		entries = r.Tiers.Nano
+	case "batch":
+		entries = r.Tiers.Batch
+	default:
+		return nil
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+
+	first := r.Models[entries[0].Model]
+	caps := make(map[string]bool)
+	for _, c := range first.Capabilities {
+		caps[c] = true
+	}
+
+	for _, entry := range entries[1:] {
+		mc, ok := r.Models[entry.Model]
+		if !ok {
+			continue
+		}
+		has := make(map[string]bool)
+		for _, c := range mc.Capabilities {
+			has[c] = true
+		}
+		for c := range caps {
+			if !has[c] {
+				delete(caps, c)
+			}
+		}
+	}
+
+	result := make([]string, 0, len(caps))
+	for c := range caps {
+		result = append(result, c)
+	}
+	return result
+}
+
+// ResolveTierWithCapabilities resolves a tier ensuring all required capabilities
+// are satisfied. If the requested tier lacks a required capability, it searches
+// adjacent tiers (closer first, preferring downward) for one that satisfies all
+// requirements. Returns the resolved provider, model, and the actual tier used.
+// Returns (nil, nil, "") if no tier can satisfy the requirements.
+func (r *RoutingConfig) ResolveTierWithCapabilities(tier string, required []string, extraEnv map[string]string) (*ProviderConfig, *ModelConfig, string) {
+	if len(required) == 0 {
+		pc, mc := r.ResolveTierWithStrategy(tier, extraEnv)
+		return pc, mc, tier
+	}
+	if r.tierSatisfies(tier, required) {
+		pc, mc := r.ResolveTier(tier, extraEnv)
+		if pc != nil && mc != nil {
+			return pc, mc, tier
+		}
+	}
+	pos := -1
+	for i, t := range tierOrder {
+		if t == tier {
+			pos = i
+			break
+		}
+	}
+	if pos < 0 {
+		return nil, nil, ""
+	}
+	for delta := 1; delta < len(tierOrder); delta++ {
+		for _, d := range []int{delta, -delta} {
+			idx := pos + d
+			if idx < 0 || idx >= len(tierOrder) {
+				continue
+			}
+			candidate := tierOrder[idx]
+			if r.tierSatisfies(candidate, required) {
+				pc, mc := r.ResolveTier(candidate, extraEnv)
+				if pc != nil && mc != nil {
+					return pc, mc, candidate
+				}
+			}
+		}
+	}
+	return nil, nil, ""
+}
+
+// tierSatisfies returns true if every required capability is present in the
+// intersection of capabilities for the given tier.
+func (r *RoutingConfig) tierSatisfies(tier string, required []string) bool {
+	caps := r.TierCapabilities(tier)
+	capSet := make(map[string]bool, len(caps))
+	for _, c := range caps {
+		capSet[c] = true
+	}
+	for _, req := range required {
+		if !capSet[req] {
+			return false
+		}
+	}
+	return true
 }

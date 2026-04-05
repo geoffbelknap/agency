@@ -26,6 +26,7 @@ var configWhitelist = map[string]bool{
 	"constraints.yaml":       true,
 	"skills-manifest.json":   true,
 	"session-context.json":   true,
+	"tiers.json":             true,
 }
 
 type ConfigServer struct {

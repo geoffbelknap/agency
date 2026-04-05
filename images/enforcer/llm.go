@@ -203,6 +203,26 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Detect required capabilities from request body
+	requiredCaps := detectRequiredCaps(reqBody)
+
+	// Check if resolved model supports required capabilities
+	if len(requiredCaps) > 0 {
+		model := lh.routing.Models[modelAlias]
+		for _, req := range requiredCaps {
+			if !model.HasCapability(req) {
+				lh.audit.Log(AuditEntry{
+					Type:          "LLM_CAPABILITY_MISMATCH",
+					Model:         modelAlias,
+					CorrelationID: correlationID,
+					Error:         fmt.Sprintf("model %s does not support %s", modelAlias, req),
+				})
+				http.Error(w, fmt.Sprintf(`{"error":"model %s does not support capability: %s"}`, modelAlias, req), 422)
+				return
+			}
+		}
+	}
+
 	// Scan tool-role messages for injection patterns (ASK Tenet 1 + 17).
 	// This runs automatically — the body cannot skip it.
 	if flags := scanToolMessages(reqBody); len(flags) > 0 {

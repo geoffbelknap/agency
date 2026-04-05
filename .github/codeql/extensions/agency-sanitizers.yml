@@ -23,3 +23,8 @@ extensions:
       # validateOutboundURL is a sanitizer for SSRF — validates URL scheme and host.
       - ["github.com/geoffbelknap/agency/internal/api", "", "validateOutboundURL", "", "RequestForgery", "manual"]
       - ["github.com/geoffbelknap/agency/internal/pkg/urlsafety", "", "Validate", "", "RequestForgery", "manual"]
+      # StartSequence fields (Home, AgentName) are operator-controlled config,
+      # not untrusted input. AgentName is validated against constraints.yaml at
+      # startup (start.go:188). All agent directory paths use the same pattern:
+      # filepath.Join(ss.Home, "agents", ss.AgentName).
+      - ["github.com/geoffbelknap/agency/internal/orchestrate", "StartSequence", "generateTiersJSON", "", "PathInjection", "manual"]
