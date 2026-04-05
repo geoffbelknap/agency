@@ -167,6 +167,7 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Get("/agents/{name}/procedures", h.listAgentProcedures)
 		r.Get("/agents/{name}/episodes", h.listAgentEpisodes)
 		r.Get("/agents/{name}/trajectory", h.getAgentTrajectory)
+		r.Delete("/agents/{name}/cache", h.clearAgentCache)
 
 		// Agent signals — enforcer relays body-originated signals here for
 		// WebSocket broadcast. Mediated path: body → enforcer → gateway → hub.

@@ -172,6 +172,8 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     app.router.add_get("/ontology/candidates", handle_ontology_candidates)
     app.router.add_post("/ontology/promote", handle_ontology_promote)
     app.router.add_post("/ontology/reject", handle_ontology_reject)
+    app.router.add_post("/delete-by-label", handle_delete_by_label)
+    app.router.add_post("/delete-by-kind", handle_delete_by_kind)
 
     async def _log_knowledge_shutdown(app: web.Application) -> None:
         logger.info("Knowledge server shutting down")
@@ -928,6 +930,48 @@ async def handle_ontology_reject(request: web.Request) -> web.Response:
         "occurrence_count": props.get("occurrence_count"),
     })
     return web.json_response({"rejected": node_id, "value": props.get("value")})
+
+
+async def handle_delete_by_label(request: web.Request) -> web.Response:
+    """POST /delete-by-label — soft-delete a cached_result node by label.
+
+    Body: {"label": "cache:agent:hash", "kind": "cached_result"}
+    Used by the body runtime to evict stale cache entries after task failure.
+    """
+    store: KnowledgeStore = request.app["store"]
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "JSON body required"}, status=400)
+    label = body.get("label", "")
+    kind = body.get("kind", "")
+    if not label or not kind:
+        return web.json_response({"error": "label and kind required"}, status=400)
+    count = store.soft_delete_by_label(label, kind)
+    return web.json_response({"deleted": count, "label": label, "kind": kind})
+
+
+async def handle_delete_by_kind(request: web.Request) -> web.Response:
+    """POST /delete-by-kind — soft-delete all nodes of a kind matching a property filter.
+
+    Body: {"kind": "cached_result", "filter": {"agent": "my-agent"}}
+    Used by the gateway to clear all cached results for an agent.
+    """
+    store: KnowledgeStore = request.app["store"]
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "JSON body required"}, status=400)
+    kind = body.get("kind", "")
+    filt = body.get("filter", {})
+    if not kind:
+        return web.json_response({"error": "kind required"}, status=400)
+    if not filt or not isinstance(filt, dict):
+        return web.json_response({"error": "filter with at least one property required"}, status=400)
+    total = 0
+    for prop, value in filt.items():
+        total += store.soft_delete_by_kind_and_property(kind, prop, value)
+    return web.json_response({"deleted": total, "kind": kind})
 
 
 async def _start_curation_loop(app: web.Application) -> None:
