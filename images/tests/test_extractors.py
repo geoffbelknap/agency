@@ -1,7 +1,11 @@
 """Tests for ExtractionResult and BaseExtractor base types."""
 
+import os
+import sys
 import pytest
-from knowledge.ingestion.base import ExtractionResult, BaseExtractor
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "knowledge"))
+from ingestion.base import ExtractionResult, BaseExtractor
 
 
 # ---------------------------------------------------------------------------

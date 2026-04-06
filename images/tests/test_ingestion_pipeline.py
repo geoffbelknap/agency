@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import os
+import sys
 from unittest.mock import MagicMock
 
 import pytest
 
-from knowledge.ingestion.pipeline import IngestionPipeline
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "knowledge"))
+from ingestion.pipeline import IngestionPipeline
 
 
 # ---------------------------------------------------------------------------

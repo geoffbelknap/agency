@@ -1,8 +1,12 @@
 """Tests for MergeBuffer — synthesis gate in the ingestion pipeline."""
 
+import os
+import sys
 import pytest
-from knowledge.ingestion.base import ExtractionResult
-from knowledge.ingestion.merge_buffer import MergeBuffer
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "knowledge"))
+from ingestion.base import ExtractionResult
+from ingestion.merge_buffer import MergeBuffer
 
 
 # ---------------------------------------------------------------------------
