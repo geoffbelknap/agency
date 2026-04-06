@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gopkg.in/yaml.v3"
 )
 
 // ModelTaskStats holds aggregated performance metrics for a (model, task_type) pair.
@@ -66,6 +67,7 @@ type RoutingOptimizer struct {
 	calls         []CallRecord
 	suggestions   []RoutingSuggestion
 	statsPath     string
+	localYAMLPath string // path to routing.local.yaml
 	windowDays    int
 	minCalls      int
 	minSuccess    float64
@@ -95,6 +97,11 @@ func WithMinSuccess(rate float64) OptimizerOption {
 // WithMinSavings sets the minimum savings percentage to generate a suggestion.
 func WithMinSavings(pct float64) OptimizerOption {
 	return func(o *RoutingOptimizer) { o.minSavings = pct }
+}
+
+// WithLocalYAMLPath sets the path to routing.local.yaml for writing approved overrides.
+func WithLocalYAMLPath(path string) OptimizerOption {
+	return func(o *RoutingOptimizer) { o.localYAMLPath = path }
 }
 
 // NewOptimizer creates a RoutingOptimizer with the given persistence path and options.
@@ -328,18 +335,75 @@ func (o *RoutingOptimizer) SetCurrentModels(m map[string]string) {
 	}
 }
 
-// Approve marks a suggestion as approved and returns it.
+// Approve marks a suggestion as approved, writes the override to routing.local.yaml, and returns it.
 func (o *RoutingOptimizer) Approve(id string) (*RoutingSuggestion, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+
+	var suggestion *RoutingSuggestion
 	for i := range o.suggestions {
 		if o.suggestions[i].ID == id {
 			o.suggestions[i].Status = "approved"
-			s := o.suggestions[i]
-			return &s, nil
+			suggestion = &o.suggestions[i]
+			break
 		}
 	}
-	return nil, fmt.Errorf("suggestion %s not found", id)
+	if suggestion == nil {
+		return nil, fmt.Errorf("suggestion %s not found", id)
+	}
+
+	if o.localYAMLPath != "" {
+		if err := o.writeLocalOverride(suggestion); err != nil {
+			return nil, fmt.Errorf("write routing.local.yaml: %w", err)
+		}
+	}
+
+	s := *suggestion
+	return &s, nil
+}
+
+// localOverride is a single routing override entry in routing.local.yaml.
+type localOverride struct {
+	PreferredModel string `yaml:"preferred_model"`
+	ApprovedFrom   string `yaml:"approved_from"`
+	ApprovedAt     string `yaml:"approved_at"`
+}
+
+// localConfig is the structure of routing.local.yaml.
+type localConfig struct {
+	Overrides map[string]localOverride `yaml:"overrides"`
+}
+
+// writeLocalOverride reads routing.local.yaml, adds/updates the override, and writes it back.
+// Caller must hold o.mu.
+func (o *RoutingOptimizer) writeLocalOverride(s *RoutingSuggestion) error {
+	config := localConfig{Overrides: make(map[string]localOverride)}
+
+	data, err := os.ReadFile(o.localYAMLPath)
+	if err == nil {
+		_ = yaml.Unmarshal(data, &config)
+	}
+	if config.Overrides == nil {
+		config.Overrides = make(map[string]localOverride)
+	}
+
+	config.Overrides[s.TaskType] = localOverride{
+		PreferredModel: s.SuggestedModel,
+		ApprovedFrom:   s.ID,
+		ApprovedAt:     time.Now().UTC().Format(time.RFC3339),
+	}
+
+	out, err := yaml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("marshal local config: %w", err)
+	}
+
+	dir := filepath.Dir(o.localYAMLPath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create local config dir: %w", err)
+	}
+
+	return os.WriteFile(o.localYAMLPath, out, 0o644)
 }
 
 // Reject marks a suggestion as rejected.

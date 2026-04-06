@@ -3,8 +3,11 @@ package routing
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 func newTestOptimizer(t *testing.T) *RoutingOptimizer {
@@ -459,5 +462,153 @@ func TestAvgLatencyComputed(t *testing.T) {
 	}
 	if stats[0].AvgLatencyMs != 200 {
 		t.Errorf("expected avg latency 200, got %f", stats[0].AvgLatencyMs)
+	}
+}
+
+func TestApproveWritesLocalYAML(t *testing.T) {
+	dir := t.TempDir()
+	localPath := filepath.Join(dir, "routing.local.yaml")
+	opt := NewOptimizer(filepath.Join(dir, "stats.json"),
+		WithMinCalls(5),
+		WithMinSuccess(0.90),
+		WithMinSavings(0.30),
+		WithLocalYAMLPath(localPath),
+	)
+
+	now := time.Now()
+	opt.SetCurrentModels(map[string]string{"memory_capture": "claude-sonnet-4-20250514"})
+
+	for i := 0; i < 10; i++ {
+		opt.RecordCall(CallRecord{Model: "claude-sonnet-4-20250514", TaskType: "memory_capture", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
+	}
+	for i := 0; i < 10; i++ {
+		opt.RecordCall(CallRecord{Model: "claude-haiku-4-5", TaskType: "memory_capture", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, Timestamp: now})
+	}
+
+	suggestions := opt.GenerateSuggestions()
+	if len(suggestions) == 0 {
+		t.Fatal("expected at least 1 suggestion")
+	}
+
+	approved, err := opt.Approve(suggestions[0].ID)
+	if err != nil {
+		t.Fatalf("approve failed: %v", err)
+	}
+	if approved.Status != "approved" {
+		t.Errorf("expected status approved, got %s", approved.Status)
+	}
+
+	// Verify routing.local.yaml was created.
+	data, err := os.ReadFile(localPath)
+	if err != nil {
+		t.Fatalf("failed to read routing.local.yaml: %v", err)
+	}
+
+	var config localConfig
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		t.Fatalf("failed to parse routing.local.yaml: %v", err)
+	}
+
+	override, ok := config.Overrides["memory_capture"]
+	if !ok {
+		t.Fatal("expected memory_capture override in routing.local.yaml")
+	}
+	if override.PreferredModel != "claude-haiku-4-5" {
+		t.Errorf("expected preferred_model claude-haiku-4-5, got %s", override.PreferredModel)
+	}
+	if override.ApprovedFrom != suggestions[0].ID {
+		t.Errorf("expected approved_from %s, got %s", suggestions[0].ID, override.ApprovedFrom)
+	}
+	if !strings.HasPrefix(override.ApprovedAt, "20") {
+		t.Errorf("expected approved_at to be an RFC3339 timestamp, got %s", override.ApprovedAt)
+	}
+}
+
+func TestApproveOverwritesExisting(t *testing.T) {
+	dir := t.TempDir()
+	localPath := filepath.Join(dir, "routing.local.yaml")
+
+	// Pre-populate with an existing override.
+	existing := localConfig{
+		Overrides: map[string]localOverride{
+			"memory_capture": {
+				PreferredModel: "old-model",
+				ApprovedFrom:   "sug-old",
+				ApprovedAt:     "2026-01-01T00:00:00Z",
+			},
+		},
+	}
+	data, _ := yaml.Marshal(existing)
+	if err := os.WriteFile(localPath, data, 0o644); err != nil {
+		t.Fatalf("failed to write seed file: %v", err)
+	}
+
+	opt := NewOptimizer(filepath.Join(dir, "stats.json"),
+		WithMinCalls(5),
+		WithMinSuccess(0.90),
+		WithMinSavings(0.30),
+		WithLocalYAMLPath(localPath),
+	)
+
+	now := time.Now()
+	opt.SetCurrentModels(map[string]string{"memory_capture": "claude-sonnet-4-20250514"})
+
+	for i := 0; i < 10; i++ {
+		opt.RecordCall(CallRecord{Model: "claude-sonnet-4-20250514", TaskType: "memory_capture", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
+	}
+	for i := 0; i < 10; i++ {
+		opt.RecordCall(CallRecord{Model: "claude-haiku-4-5", TaskType: "memory_capture", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, Timestamp: now})
+	}
+
+	suggestions := opt.GenerateSuggestions()
+	if len(suggestions) == 0 {
+		t.Fatal("expected at least 1 suggestion")
+	}
+
+	_, err := opt.Approve(suggestions[0].ID)
+	if err != nil {
+		t.Fatalf("approve failed: %v", err)
+	}
+
+	// Verify the override was updated.
+	data, err = os.ReadFile(localPath)
+	if err != nil {
+		t.Fatalf("failed to read routing.local.yaml: %v", err)
+	}
+
+	var config localConfig
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		t.Fatalf("failed to parse routing.local.yaml: %v", err)
+	}
+
+	override := config.Overrides["memory_capture"]
+	if override.PreferredModel != "claude-haiku-4-5" {
+		t.Errorf("expected preferred_model claude-haiku-4-5, got %s", override.PreferredModel)
+	}
+	if override.ApprovedFrom == "sug-old" {
+		t.Error("expected approved_from to be updated, still has old value")
+	}
+	if override.ApprovedAt == "2026-01-01T00:00:00Z" {
+		t.Error("expected approved_at to be updated, still has old value")
+	}
+}
+
+func TestApproveNonexistentReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	opt := NewOptimizer(filepath.Join(dir, "stats.json"),
+		WithLocalYAMLPath(filepath.Join(dir, "routing.local.yaml")),
+	)
+
+	_, err := opt.Approve("sug-does-not-exist")
+	if err == nil {
+		t.Fatal("expected error for nonexistent suggestion ID")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' in error message, got: %s", err.Error())
+	}
+
+	// Verify no file was created.
+	if _, err := os.Stat(filepath.Join(dir, "routing.local.yaml")); err == nil {
+		t.Error("routing.local.yaml should not exist when approval fails")
 	}
 }
