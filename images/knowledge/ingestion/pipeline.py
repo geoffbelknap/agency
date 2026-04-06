@@ -19,6 +19,8 @@ try:
     from ingestion.base import BaseExtractor, ExtractionResult
     from ingestion.classifier import SourceClassifier
     from ingestion.extractors.config import ConfigExtractor
+    from ingestion.extractors.code import CodeExtractor
+    from ingestion.extractors.html_extractor import HtmlExtractor
     from ingestion.extractors.markdown import MarkdownExtractor
     from ingestion.extractors.structured import StructuredExtractor
     from ingestion.merge_buffer import MergeBuffer
@@ -26,9 +28,19 @@ except ImportError:
     from knowledge.ingestion.base import BaseExtractor, ExtractionResult
     from knowledge.ingestion.classifier import SourceClassifier
     from knowledge.ingestion.extractors.config import ConfigExtractor
+    from knowledge.ingestion.extractors.code import CodeExtractor
+    from knowledge.ingestion.extractors.html_extractor import HtmlExtractor
     from knowledge.ingestion.extractors.markdown import MarkdownExtractor
     from knowledge.ingestion.extractors.structured import StructuredExtractor
     from knowledge.ingestion.merge_buffer import MergeBuffer
+
+try:
+    from ingestion.extractors.pdf import PdfExtractor
+except ImportError:
+    try:
+        from knowledge.ingestion.extractors.pdf import PdfExtractor
+    except ImportError:
+        PdfExtractor = None  # type: ignore[assignment, misc]
 
 logger = logging.getLogger("agency.knowledge.ingestion.pipeline")
 
@@ -51,11 +63,40 @@ class IngestionPipeline:
         self.synthesizer = synthesizer
 
         # Extractors in order of specificity (most specific first).
-        self._extractors: list[BaseExtractor] = [
-            ConfigExtractor(),
-            MarkdownExtractor(),
-            StructuredExtractor(),
-        ]
+        self._extractors: list[BaseExtractor] = self._load_extractors()
+
+    @staticmethod
+    def _load_extractors() -> list[BaseExtractor]:
+        """Build the extractor list — most specific first.
+
+        PdfExtractor is optional (requires PyMuPDF).  It is only registered
+        when the library is installed and the extractor reports itself as
+        available.
+        """
+        extractors: list[BaseExtractor] = []
+
+        # 1. PDF (optional dependency)
+        if PdfExtractor is not None:
+            pdf = PdfExtractor()
+            if pdf.available:
+                extractors.append(pdf)
+
+        # 2. Config (YAML / JSON / TOML)
+        extractors.append(ConfigExtractor())
+
+        # 3. HTML
+        extractors.append(HtmlExtractor())
+
+        # 4. Source code
+        extractors.append(CodeExtractor())
+
+        # 5. Markdown / plain text
+        extractors.append(MarkdownExtractor())
+
+        # 6. Structured fallback (any text/*)
+        extractors.append(StructuredExtractor())
+
+        return extractors
 
     # ------------------------------------------------------------------
     # Public API

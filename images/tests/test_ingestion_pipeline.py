@@ -162,3 +162,38 @@ class TestEdgeResolutionFailure:
 
         # Edge should be skipped, not cause an error.
         assert isinstance(stats["edges_created"], int)
+
+
+class TestIngestHtml:
+    """HTML content routes to the html extractor."""
+
+    def test_html_file_routes_to_html_extractor(self, pipeline, mock_store):
+        content = "<html><head><title>Test</title></head><body><h1>Hello</h1></body></html>"
+        stats = pipeline.ingest(content, filename="page.html")
+
+        assert stats["extractor"] == "html"
+        assert stats["nodes_created"] > 0
+
+    def test_html_content_type_routes_to_html_extractor(self, pipeline, mock_store):
+        content = "<h1>Heading</h1><p>Some text here.</p>"
+        stats = pipeline.ingest(
+            content, filename="data.txt", content_type="text/html"
+        )
+        assert stats["extractor"] == "html"
+
+
+class TestIngestCode:
+    """Python code routes to the code extractor."""
+
+    def test_python_file_routes_to_code_extractor(self, pipeline, mock_store):
+        content = 'def hello():\n    """Say hello."""\n    print("hello")\n'
+        stats = pipeline.ingest(content, filename="example.py")
+
+        assert stats["extractor"] == "code"
+        assert stats["source_type"] == "code"
+
+    def test_go_file_routes_to_code_extractor(self, pipeline, mock_store):
+        content = "package main\n\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n"
+        stats = pipeline.ingest(content, filename="main.go")
+
+        assert stats["extractor"] == "code"
