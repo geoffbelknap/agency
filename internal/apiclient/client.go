@@ -628,6 +628,10 @@ func (c *Client) KnowledgeStats() ([]byte, error) {
 	return c.Get("/api/v1/knowledge/stats")
 }
 
+func (c *Client) KnowledgeClassification() ([]byte, error) {
+	return c.Get("/api/v1/knowledge/classification")
+}
+
 func (c *Client) KnowledgeExport(format string) ([]byte, error) {
 	if format == "" {
 		format = "json"

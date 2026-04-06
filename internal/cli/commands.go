@@ -2766,6 +2766,29 @@ For URLs: passes the URL as filename (the knowledge service handles URL classifi
 	cmd.AddCommand(knowledgeOntologyCmd())
 	cmd.AddCommand(knowledgeReviewCmd())
 	cmd.AddCommand(knowledgePrincipalsCmd())
+	cmd.AddCommand(knowledgeClassificationCmd())
+
+	return cmd
+}
+
+func knowledgeClassificationCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "classification", Short: "Classification-based access control"}
+
+	cmd.AddCommand(&cobra.Command{
+		Use: "show", Short: "Show current classification config",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			data, err := c.KnowledgeClassification()
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	})
 
 	return cmd
 }

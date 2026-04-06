@@ -27,6 +27,7 @@ Endpoints:
     POST /quarantine              - Quarantine nodes by agent ({agent, since?})
     POST /quarantine/release      - Release quarantined node(s) ({node_id} or {agent})
     GET  /quarantine              - List quarantined nodes (optional ?agent=)
+    GET  /classification          - Return current classification config
 """
 
 import argparse
@@ -57,6 +58,7 @@ class _HealthFilterAccessLogger(AbstractAccessLogger):
 from typing import Optional
 from images.knowledge.ingester import RuleIngester
 from images.knowledge.principal_registry import PrincipalRegistry
+from images.knowledge.classification import ClassificationConfig
 from images.knowledge.store import KnowledgeStore
 from images.knowledge.synthesizer import LLMSynthesizer
 
@@ -123,6 +125,16 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
         )
     principal_registry = PrincipalRegistry(snapshot_path=snapshot_path)
     app["principal_registry"] = principal_registry
+
+    # Initialize classification config
+    config_path = os.environ.get("CLASSIFICATION_CONFIG_PATH", "/app/classification.yaml")
+    # fallback paths
+    if not os.path.exists(config_path):
+        config_path = os.path.join(os.environ.get("AGENCY_HOME", "/data"), "classification.yaml")
+    classification_config = ClassificationConfig(config_path=config_path if os.path.exists(config_path) else None)
+    app["classification_config"] = classification_config
+    # Wire into store
+    store.set_classification_config(classification_config)
 
     # Run one-time ontology migration
     _run_ontology_migration(store, data_dir or Path("/data"))
@@ -224,6 +236,7 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     app.router.add_post("/quarantine", handle_quarantine)
     app.router.add_post("/quarantine/release", handle_quarantine_release)
     app.router.add_get("/quarantine", handle_quarantine_list)
+    app.router.add_get("/classification", handle_classification)
 
     async def _log_knowledge_shutdown(app: web.Application) -> None:
         logger.info("Knowledge server shutting down")
@@ -249,6 +262,14 @@ async def handle_health(request: web.Request) -> web.Response:
         state = request.app.get("upstream_state", {})
         resp["upstream_ok"] = state.get("ok", False)
     return web.json_response(resp)
+
+
+async def handle_classification(request: web.Request) -> web.Response:
+    """GET /classification — return current classification config."""
+    config = request.app.get("classification_config")
+    if not config:
+        return web.json_response({"error": "classification not configured"}, status=503)
+    return web.json_response(config.to_dict())
 
 
 async def handle_query(request: web.Request) -> web.Response:

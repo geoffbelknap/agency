@@ -114,6 +114,11 @@ func (p *Proxy) QueryForAgent(ctx context.Context, text string, agentMissionID s
 	return p.post(ctx, "/query", body)
 }
 
+// Classification returns the current classification config from the knowledge service.
+func (p *Proxy) Classification(ctx context.Context) (json.RawMessage, error) {
+	return p.getRaw(ctx, "/classification")
+}
+
 // Communities returns the list of communities from the knowledge service.
 func (p *Proxy) Communities(ctx context.Context) (json.RawMessage, error) {
 	return p.getRaw(ctx, "/communities")
