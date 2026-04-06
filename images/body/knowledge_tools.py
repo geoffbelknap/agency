@@ -230,7 +230,7 @@ def register_knowledge_tools(registry, knowledge_url: str, agent_name: str, acti
         parameters={
             "type": "object",
             "properties": {
-                "pattern": {"type": "string", "enum": ["get_entity", "get_neighbors", "filter_entities", "find_similar"], "description": "Query pattern"},
+                "pattern": {"type": "string", "enum": ["get_entity", "get_neighbors", "filter_entities", "find_similar", "get_community", "list_communities", "get_hubs"], "description": "Query pattern"},
                 "id": {"type": "string", "description": "Node ID (for get_entity, get_neighbors, find_similar)"},
                 "relation": {"type": "string", "description": "Edge relation type (for get_neighbors)"},
                 "kind": {"type": "string", "description": "Entity kind (for filter_entities)"},
@@ -349,6 +349,27 @@ def _query_graph(base_url: str, agent_name: str, args: dict) -> str:
             if args.get("limit"):
                 params["limit"] = str(args["limit"])
             resp = _http.get(f"{base_url}/graph/similar/{node_id}", params=params)
+        elif pattern == "get_community":
+            node_id = args.get("id")
+            if not node_id:
+                return json.dumps({"error": "id is required for get_community"})
+            # First get the node to find its community_id
+            node_resp = _http.get(f"{base_url}/graph/node/{node_id}", params={"agent": agent_name})
+            try:
+                node_data = node_resp.json()
+            except Exception:
+                return json.dumps({"error": f"Failed to parse node response: {node_resp.text}"})
+            community_id = node_data.get("community_id")
+            if not community_id:
+                return json.dumps({"error": f"Node {node_id} has no community_id", "node": node_data})
+            resp = _http.get(f"{base_url}/community/{community_id}")
+        elif pattern == "list_communities":
+            resp = _http.get(f"{base_url}/communities")
+        elif pattern == "get_hubs":
+            hub_params = {}
+            if args.get("limit"):
+                hub_params["limit"] = str(args["limit"])
+            resp = _http.get(f"{base_url}/hubs", params=hub_params)
         else:
             return json.dumps({"error": f"unknown pattern: {pattern}"})
         return resp.text

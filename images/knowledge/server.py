@@ -20,6 +20,9 @@ Endpoints:
     GET  /principals              - List all principals (optional ?type= filter)
     POST /principals              - Register a principal ({type, name, metadata?})
     GET  /principals/{uuid}       - Resolve a principal UUID
+    GET  /communities             - List all detected communities
+    GET  /community/{id}          - Get members of a specific community
+    GET  /hubs                    - Get top hub nodes (optional ?limit=N)
 """
 
 import argparse
@@ -205,6 +208,9 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     app.router.add_get("/principals", handle_principals_list)
     app.router.add_post("/principals", handle_principals_register)
     app.router.add_get("/principals/{uuid}", handle_principals_resolve)
+    app.router.add_get("/communities", handle_communities)
+    app.router.add_get("/community/{id}", handle_community)
+    app.router.add_get("/hubs", handle_hubs)
 
     async def _log_knowledge_shutdown(app: web.Application) -> None:
         logger.info("Knowledge server shutting down")
@@ -1106,6 +1112,29 @@ async def handle_principals_resolve(request: web.Request) -> web.Response:
     if not principal:
         return web.json_response({"error": "principal not found"}, status=404)
     return web.json_response(principal)
+
+
+async def handle_communities(request: web.Request) -> web.Response:
+    """GET /communities — list all Community nodes."""
+    store: KnowledgeStore = request.app["store"]
+    communities = store.list_communities()
+    return web.json_response({"communities": communities})
+
+
+async def handle_community(request: web.Request) -> web.Response:
+    """GET /community/{id} — get members of a specific community."""
+    store: KnowledgeStore = request.app["store"]
+    community_id = request.match_info["id"]
+    members = store.get_community_members(community_id)
+    return web.json_response({"community_id": community_id, "members": members})
+
+
+async def handle_hubs(request: web.Request) -> web.Response:
+    """GET /hubs — get top hub nodes, optional ?limit=N."""
+    store: KnowledgeStore = request.app["store"]
+    limit = int(request.query.get("limit", "20"))
+    hubs = store.get_hubs(limit=limit)
+    return web.json_response({"hubs": hubs})
 
 
 async def _run_schema_migrations(app: web.Application) -> None:
