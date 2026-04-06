@@ -23,6 +23,7 @@ Endpoints:
     GET  /communities             - List all detected communities
     GET  /community/{id}          - Get members of a specific community
     GET  /hubs                    - Get top hub nodes (optional ?limit=N)
+    POST /insight                 - Save an agent's synthesized insight
 """
 
 import argparse
@@ -211,6 +212,7 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     app.router.add_get("/communities", handle_communities)
     app.router.add_get("/community/{id}", handle_community)
     app.router.add_get("/hubs", handle_hubs)
+    app.router.add_post("/insight", handle_save_insight)
 
     async def _log_knowledge_shutdown(app: web.Application) -> None:
         logger.info("Knowledge server shutting down")
@@ -1135,6 +1137,45 @@ async def handle_hubs(request: web.Request) -> web.Response:
     limit = int(request.query.get("limit", "20"))
     hubs = store.get_hubs(limit=limit)
     return web.json_response({"hubs": hubs})
+
+
+async def handle_save_insight(request: web.Request) -> web.Response:
+    """POST /insight — save an agent's synthesized insight."""
+    store: KnowledgeStore = request.app["store"]
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+    insight = body.get("insight", "")
+    source_nodes = body.get("source_nodes", [])
+
+    if not insight or not insight.strip():
+        return web.json_response({"error": "insight is required and must be non-empty"}, status=400)
+    if not source_nodes:
+        return web.json_response({"error": "source_nodes is required and must be non-empty"}, status=400)
+
+    confidence = body.get("confidence", "medium")
+    tags = body.get("tags")
+    agent_name = body.get("agent_name", "")
+
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: store.save_insight(
+                insight=insight,
+                source_node_ids=source_nodes,
+                confidence=confidence,
+                tags=tags,
+                agent_name=agent_name,
+            ),
+        )
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+    return web.json_response(result)
 
 
 async def _run_schema_migrations(app: web.Application) -> None:
