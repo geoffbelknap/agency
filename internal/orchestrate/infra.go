@@ -98,7 +98,7 @@ var defaultHealthChecks = map[string]*container.HealthConfig{
 		Retries:     3,
 	},
 	"gateway-proxy": {
-		Test:        []string{"CMD-SHELL", "socat -T1 TCP:127.0.0.1:8200 UNIX-CONNECT:/run/gateway.sock"},
+		Test:        []string{"CMD-SHELL", `socat -T1 - TCP:127.0.0.1:8200 < /dev/null`},
 		Interval:    5 * time.Second,
 		Timeout:     3 * time.Second,
 		StartPeriod: 3 * time.Second,
@@ -472,12 +472,8 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("gateway-proxy"))
 
-	runDir := filepath.Join(inf.Home, "run")
-
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
-	hc.Binds = []string{
-		runDir + ":/run:ro",
-	}
+	hc.ExtraHosts = []string{"gateway:host-gateway"}
 	hc.NetworkMode = container.NetworkMode(mediationNet)
 	hc.ReadonlyRootfs = true
 	hc.Resources.Memory = 16 * 1024 * 1024
@@ -582,6 +578,7 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
 	hc.NetworkMode = container.NetworkMode(mediationNet)
+	hc.ExtraHosts = []string{"gateway:host-gateway"}
 
 	id, err := containers.CreateAndStart(ctx, inf.cli,
 		name,

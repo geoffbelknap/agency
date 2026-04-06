@@ -113,6 +113,14 @@ func RunInit(opts InitOptions) ([]KeyEntry, error) {
 		filepath.Join(agencyHome, "registry", "services"),
 		filepath.Join(agencyHome, "registry", "mcp-servers"),
 		filepath.Join(agencyHome, "registry", "skills"),
+		filepath.Join(agencyHome, "infrastructure"),
+		filepath.Join(agencyHome, "infrastructure", "comms", "data"),
+		filepath.Join(agencyHome, "infrastructure", "comms", "data", "channels"),
+		filepath.Join(agencyHome, "infrastructure", "comms", "data", "cursors"),
+		filepath.Join(agencyHome, "infrastructure", "egress"),
+		filepath.Join(agencyHome, "infrastructure", "egress", "certs"),
+		filepath.Join(agencyHome, "infrastructure", "egress", "blocklists"),
+		filepath.Join(agencyHome, "run"),
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0755); err != nil {

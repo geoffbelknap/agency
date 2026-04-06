@@ -20,19 +20,60 @@ class KeyResolver(Protocol):
 
 
 class SocketKeyResolver:
-    """Resolve key references from the gateway via Unix socket.
+    """Resolve key references from the gateway.
 
-    Connects to the gateway's restricted socket (no auth needed — the
-    socket is only accessible to containers that have it bind-mounted).
+    Tries TCP first (via GATEWAY_URL + GATEWAY_TOKEN env vars), then
+    falls back to Unix socket if configured. TCP works cross-platform;
+    Unix socket only works on Linux (Docker Desktop on macOS/Windows
+    cannot mount Unix sockets into containers).
     """
 
     def __init__(self, socket_path: str) -> None:
+        import os
         self._socket_path = socket_path
+        self._gateway_url = os.environ.get("GATEWAY_URL", "")
+        self._gateway_token = os.environ.get("GATEWAY_TOKEN", "")
         self._cache: dict[str, str] = {}
 
     def resolve(self, key_ref: str) -> Optional[str]:
         if key_ref in self._cache:
             return self._cache[key_ref]
+
+        # Try TCP first (cross-platform)
+        if self._gateway_url and self._gateway_token:
+            result = self._resolve_tcp(key_ref)
+            if result is not None:
+                return result
+
+        # Fall back to Unix socket (Linux only)
+        if self._socket_path:
+            result = self._resolve_socket(key_ref)
+            if result is not None:
+                return result
+
+        return None
+
+    def _resolve_tcp(self, key_ref: str) -> Optional[str]:
+        try:
+            import urllib.request
+            import urllib.parse
+            import json
+
+            params = urllib.parse.urlencode({"name": key_ref})
+            url = f"{self._gateway_url}/api/v1/internal/credentials/resolve?{params}"
+            req = urllib.request.Request(url)
+            req.add_header("X-Agency-Token", self._gateway_token)
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read())
+                    self._cache[key_ref] = data.get("value", "")
+                    return self._cache[key_ref]
+            logger.warning("SocketKeyResolver: TCP resolve %s returned %d", key_ref, resp.status)
+        except Exception as exc:
+            logger.warning("SocketKeyResolver: TCP resolve %s failed: %s", key_ref, exc)
+        return None
+
+    def _resolve_socket(self, key_ref: str) -> Optional[str]:
         try:
             import urllib.parse
             import json
@@ -52,12 +93,10 @@ class SocketKeyResolver:
                 data = json.loads(resp.read())
                 self._cache[key_ref] = data.get("value", "")
                 return self._cache[key_ref]
-            logger.warning(
-                "SocketKeyResolver: resolve %s returned %d", key_ref, resp.status
-            )
+            logger.warning("SocketKeyResolver: socket resolve %s returned %d", key_ref, resp.status)
             conn.close()
         except Exception as exc:
-            logger.warning("SocketKeyResolver: failed to resolve %s: %s", key_ref, exc)
+            logger.warning("SocketKeyResolver: socket resolve %s failed: %s", key_ref, exc)
         return None
 
     def reload(self) -> None:
