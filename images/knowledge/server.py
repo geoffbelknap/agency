@@ -441,6 +441,8 @@ async def handle_context(request: web.Request) -> web.Response:
     subject = request.query.get("subject", "")
     visible_raw = request.query.get("visible_channels", "")
     visible = [c.strip() for c in visible_raw.split(",") if c.strip()] or None
+    principal_param = request.query.get("principal")
+    principal = {"principals": [principal_param]} if principal_param else None
     hops = min(max(int(request.query.get("hops", "2")), 1), 3)
     if not subject:
         return web.json_response({"error": "subject required"}, status=400)
@@ -448,7 +450,7 @@ async def handle_context(request: web.Request) -> web.Response:
     if not nodes:
         return web.json_response({"nodes": [], "edges": []})
     subgraph = store.get_subgraph(
-        nodes[0]["id"], max_hops=hops, visible_channels=visible
+        nodes[0]["id"], max_hops=hops, visible_channels=visible, principal=principal
     )
     return web.json_response(subgraph)
 
@@ -459,6 +461,8 @@ async def _cache_context(request, store):
         return web.json_response({"error": "subject required"}, status=400)
     visible_raw = request.query.get("visible_channels", "")
     visible = [c.strip() for c in visible_raw.split(",") if c.strip()] or None
+    principal_param = request.query.get("principal")
+    principal = {"principals": [principal_param]} if principal_param else None
     cache_key = f"context:{subject}:{sorted(visible or [])}"
     state = request.app.get("upstream_state", {})
     http = request.app["http"]
@@ -479,7 +483,7 @@ async def _cache_context(request, store):
     nodes = store.find_nodes(subject, visible_channels=visible)
     if not nodes:
         return web.json_response({"nodes": [], "edges": []})
-    subgraph = store.get_subgraph(nodes[0]["id"], max_hops=2, visible_channels=visible)
+    subgraph = store.get_subgraph(nodes[0]["id"], max_hops=2, visible_channels=visible, principal=principal)
     return web.json_response(subgraph)
 
 
@@ -505,11 +509,13 @@ async def handle_neighbors(request: web.Request) -> web.Response:
     node_id = request.query.get("node_id", "")
     direction = request.query.get("direction", "both")
     relation = request.query.get("relation") or None
+    principal_param = request.query.get("principal")
+    principal = {"principals": [principal_param]} if principal_param else None
     if not node_id:
         return web.json_response({"error": "node_id required"}, status=400)
     if direction not in ("outgoing", "incoming", "both"):
         return web.json_response({"error": "direction must be outgoing, incoming, or both"}, status=400)
-    result = store.get_neighbors(node_id, direction=direction, relation=relation)
+    result = store.get_neighbors(node_id, direction=direction, relation=relation, principal=principal)
     return web.json_response(result)
 
 
@@ -517,13 +523,15 @@ async def handle_path(request: web.Request) -> web.Response:
     store: KnowledgeStore = request.app["store"]
     from_label = request.query.get("from", "")
     to_label = request.query.get("to", "")
+    principal_param = request.query.get("principal")
+    principal = {"principals": [principal_param]} if principal_param else None
     try:
         max_hops = int(request.query.get("max_hops", "4"))
     except ValueError:
         return web.json_response({"error": "max_hops must be an integer"}, status=400)
     if not from_label or not to_label:
         return web.json_response({"error": "from and to required"}, status=400)
-    result = store.find_path(from_label, to_label, max_hops=max_hops)
+    result = store.find_path(from_label, to_label, max_hops=max_hops, principal=principal)
     if result is None:
         return web.json_response({"error": "no path found", "from": from_label, "to": to_label}, status=404)
     return web.json_response(result)
@@ -886,7 +894,10 @@ async def handle_graph_neighbors(request: web.Request) -> web.Response:
     store: KnowledgeStore = request.app["store"]
     node_id = request.match_info["node_id"]
     relation = request.query.get("relation")
-    result = store.get_neighbors_subgraph(node_id, relation=relation)
+    principal_param = request.query.get("principal")
+    principal = {"principals": [principal_param]} if principal_param else None
+    min_provenance = request.query.get("min_provenance")
+    result = store.get_neighbors_subgraph(node_id, relation=relation, principal=principal, min_provenance=min_provenance)
     return web.json_response(result)
 
 

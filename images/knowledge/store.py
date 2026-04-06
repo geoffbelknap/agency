@@ -370,6 +370,8 @@ class KnowledgeStore:
             results = self._find_nodes_vector(query, visible_channels, limit)
             if principal is not None:
                 results = self._filter_by_scope(results, principal)
+            if results:
+                results = self._apply_provenance_boost(results, limit)
             return results[:limit]
 
         # --- FTS5 leg ---
@@ -394,6 +396,8 @@ class KnowledgeStore:
                 fts_results = self._filter_by_channels(fts_results, visible_channels)
             if principal is not None:
                 fts_results = self._filter_by_scope(fts_results, principal)
+            if fts_results:
+                fts_results = self._apply_provenance_boost(fts_results, limit)
             return fts_results[:limit]
 
         # --- Vector leg ---
@@ -403,6 +407,8 @@ class KnowledgeStore:
         results = self._rrf_merge(fts_results, vec_results, visible_channels, limit)
         if principal is not None:
             results = self._filter_by_scope(results, principal)
+        if results:
+            results = self._apply_provenance_boost(results, limit)
         return results[:limit]
 
     def _find_nodes_vector(
@@ -463,6 +469,44 @@ class KnowledgeStore:
         if visible_channels is not None:
             results = self._filter_by_channels(results, visible_channels)
         return results[:limit]
+
+    def _apply_provenance_boost(self, results: list[dict], limit: int) -> list[dict]:
+        """Re-rank results by connected edge provenance quality.
+
+        Nodes connected by higher-provenance edges (EXTRACTED) are boosted
+        relative to nodes connected by lower-provenance edges (AMBIGUOUS).
+        Only re-ranks the first ``limit * 2`` results for efficiency.
+        """
+        _PROV_WEIGHT = {"EXTRACTED": 1.0, "INFERRED": 0.8, "AMBIGUOUS": 0.6}
+
+        cap = limit * 2
+        head = results[:cap]
+        tail = results[cap:]
+
+        for node in head:
+            edges = self.get_edges(node["id"], direction="both")
+            if not edges:
+                node["_provenance_score"] = 0.5  # neutral
+                continue
+            total_weight = sum(
+                _PROV_WEIGHT.get(e.get("provenance", "AMBIGUOUS"), 0.6)
+                for e in edges
+            )
+            node["_provenance_score"] = total_weight / len(edges)
+
+        # Combine with existing relevance (don't replace, boost)
+        for i, node in enumerate(head):
+            rank_score = 1.0 / (i + 1)
+            node["_combined_score"] = rank_score * node.get("_provenance_score", 0.5)
+
+        head.sort(key=lambda n: n.get("_combined_score", 0), reverse=True)
+
+        # Clean up internal scoring fields
+        for node in head:
+            node.pop("_provenance_score", None)
+            node.pop("_combined_score", None)
+
+        return head + tail
 
     def find_nodes_by_kind(self, kind: str, limit: int = 100) -> list[dict]:
         rows = self._db.execute(
@@ -535,18 +579,33 @@ class KnowledgeStore:
         source_channel: str = "",
         provenance_id: str = "",
         provenance: str = "AMBIGUOUS",
+        scope: Optional[dict] = None,
     ) -> str:
         if provenance not in VALID_PROVENANCE:
             raise ValueError(
                 f"Invalid provenance '{provenance}'; "
                 f"must be one of {sorted(VALID_PROVENANCE)}"
             )
+        # Edge scope inheritance: edge scope can't be wider than source node
+        if scope:
+            source_node = self.get_node(source_id)
+            if source_node:
+                source_scope = Scope.from_dict(json.loads(source_node.get("scope", "{}")))
+                edge_scope = Scope.from_dict(scope if isinstance(scope, dict) else json.loads(scope))
+                # Only validate if both have non-empty scope
+                if (edge_scope.channels or edge_scope.principals) and (source_scope.channels or source_scope.principals):
+                    if not edge_scope.is_narrower_than(source_scope):
+                        raise ValueError(
+                            f"Edge scope cannot be wider than source node scope. "
+                            f"Edge: {edge_scope.to_dict()}, Source: {source_scope.to_dict()}"
+                        )
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         edge_id = uuid.uuid4().hex[:12]
+        scope_json = json.dumps(Scope.from_dict(scope or {}).to_dict())
         self._db.execute(
             "INSERT INTO edges (id, source_id, target_id, relation, weight, "
-            "properties, source_channel, provenance_id, timestamp, provenance) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "properties, source_channel, provenance_id, timestamp, provenance, scope) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 edge_id,
                 source_id,
@@ -558,6 +617,7 @@ class KnowledgeStore:
                 provenance_id,
                 now,
                 provenance,
+                scope_json,
             ),
         )
         self._db.commit()
@@ -683,10 +743,10 @@ class KnowledgeStore:
             self.log_curation("soft_delete", row["id"], {"reason": "cache_clear", "label": row["label"]})
         return len(ids)
 
-    def get_neighbors_subgraph(self, node_id: str, relation: Optional[str] = None, limit: int = 50) -> dict:
+    def get_neighbors_subgraph(self, node_id: str, relation: Optional[str] = None, limit: int = 50, principal: Optional[dict] = None, min_provenance: Optional[str] = None) -> dict:
         """Get neighbor nodes + connecting edges. Max 50 neighbor nodes."""
         limit = min(limit, 50)
-        edges = self.get_edges(node_id, direction="both", relation=relation)
+        edges = self.get_edges(node_id, direction="both", relation=relation, min_provenance=min_provenance)
         neighbor_ids = set()
         for e in edges:
             if e["source_id"] != node_id:
@@ -697,16 +757,27 @@ class KnowledgeStore:
         for nid in list(neighbor_ids)[:limit]:
             node = self.get_node(nid)
             if node:
+                if principal and not self._node_passes_scope(node, principal):
+                    continue
                 nodes.append(node)
         returned_ids = {n["id"] for n in nodes} | {node_id}
         filtered_edges = [e for e in edges if e["source_id"] in returned_ids and e["target_id"] in returned_ids]
         return {"nodes": nodes, "edges": filtered_edges}
+
+    def _node_passes_scope(self, node: dict, principal_scope: dict) -> bool:
+        """Check if a single node is visible to the given principal scope."""
+        if node.get("kind") in STRUCTURAL_KINDS:
+            return True
+        p_scope = Scope.from_dict(principal_scope)
+        node_scope = Scope.from_dict(json.loads(node.get("scope") or "{}"))
+        return node_scope.overlaps(p_scope)
 
     def get_subgraph(
         self,
         node_id: str,
         max_hops: int = 1,
         visible_channels: Optional[list[str]] = None,
+        principal: Optional[dict] = None,
     ) -> dict:
         visited_nodes = set()
         all_edges = []
@@ -721,6 +792,10 @@ class KnowledgeStore:
                     all_edges.append(edge)
                     other = edge["target_id"] if edge["source_id"] == nid else edge["source_id"]
                     if other not in visited_nodes:
+                        if principal:
+                            neighbor_node = self.get_node(other)
+                            if neighbor_node and not self._node_passes_scope(neighbor_node, principal):
+                                continue
                         next_frontier.add(other)
             frontier = next_frontier
         nodes = []
@@ -914,6 +989,7 @@ class KnowledgeStore:
         node_id: str,
         direction: str = "both",
         relation: Optional[str] = None,
+        principal: Optional[dict] = None,
     ) -> dict:
         """Get direct neighbors of a node with edge metadata."""
         edges = self.get_edges(node_id, direction=direction, relation=relation)
@@ -922,6 +998,10 @@ class KnowledgeStore:
             other = edge["target_id"] if edge["source_id"] == node_id else edge["source_id"]
             neighbor_ids.add(other)
         neighbors = [n for nid in neighbor_ids if (n := self.get_node(nid))]
+        if principal:
+            neighbors = [n for n in neighbors if self._node_passes_scope(n, principal)]
+            visible_ids = {n["id"] for n in neighbors} | {node_id}
+            edges = [e for e in edges if e["source_id"] in visible_ids and e["target_id"] in visible_ids]
         return {"neighbors": neighbors, "edges": edges}
 
     def find_path(
@@ -929,6 +1009,7 @@ class KnowledgeStore:
         from_label: str,
         to_label: str,
         max_hops: int = 4,
+        principal: Optional[dict] = None,
     ) -> Optional[dict]:
         """BFS shortest path between two nodes identified by label."""
         from_nodes = self.find_nodes(from_label)
@@ -951,6 +1032,10 @@ class KnowledgeStore:
                 other = edge["target_id"] if edge["source_id"] == current_id else edge["source_id"]
                 if other in visited:
                     continue
+                if principal:
+                    neighbor_node = self.get_node(other)
+                    if neighbor_node and not self._node_passes_scope(neighbor_node, principal):
+                        continue
                 visited.add(other)
                 new_node_path = node_path + [other]
                 new_edge_path = edge_path + [edge]

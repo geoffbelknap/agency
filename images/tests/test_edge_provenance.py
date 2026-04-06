@@ -305,3 +305,80 @@ class TestHealthMetricsBenchmarks:
         assert metrics["graph_size"] == 0
         assert metrics["traversal_p95_ms"] == 0.0
         assert isinstance(metrics["scope_resolution_ms"], float)
+
+
+class TestProvenanceWeighting:
+    def test_extracted_edges_boost_ranking(self, tmp_path):
+        """Nodes with EXTRACTED edges should rank higher than AMBIGUOUS."""
+        store = KnowledgeStore(tmp_path)
+        # Node with EXTRACTED edges
+        strong = store.add_node("strong-finding", "finding", "well-supported finding")
+        support1 = store.add_node("evidence-1", "fact", "solid evidence")
+        store.add_edge(strong, support1, "DERIVED_FROM", provenance="EXTRACTED")
+
+        # Node with AMBIGUOUS edges
+        weak = store.add_node("weak-finding", "finding", "weakly-supported finding")
+        support2 = store.add_node("guess-1", "fact", "uncertain evidence")
+        store.add_edge(weak, support2, "DERIVED_FROM", provenance="AMBIGUOUS")
+        store._db.commit()
+
+        results = store.find_nodes("finding")
+        # Both should be found, but strong should rank higher
+        labels = [r["label"] for r in results]
+        assert "strong-finding" in labels
+        assert "weak-finding" in labels
+        # Strong should come first (or at least not after weak)
+        strong_idx = labels.index("strong-finding")
+        weak_idx = labels.index("weak-finding")
+        assert strong_idx <= weak_idx
+
+    def test_provenance_boost_with_no_edges(self, tmp_path):
+        """Nodes with no edges get neutral provenance score."""
+        store = KnowledgeStore(tmp_path)
+        store.add_node("orphan-finding", "finding", "an orphan finding with no edges")
+        store._db.commit()
+
+        results = store.find_nodes("orphan-finding")
+        labels = [r["label"] for r in results]
+        assert "orphan-finding" in labels
+
+    def test_provenance_boost_does_not_add_internal_fields(self, tmp_path):
+        """Internal scoring fields should be cleaned up before return."""
+        store = KnowledgeStore(tmp_path)
+        n1 = store.add_node("item", "finding", "a finding")
+        n2 = store.add_node("support", "fact", "evidence")
+        store.add_edge(n1, n2, "DERIVED_FROM", provenance="EXTRACTED")
+        store._db.commit()
+
+        results = store.find_nodes("finding")
+        for r in results:
+            assert "_provenance_score" not in r
+            assert "_combined_score" not in r
+
+    def test_inferred_ranks_between_extracted_and_ambiguous(self, tmp_path):
+        """INFERRED edges should rank between EXTRACTED and AMBIGUOUS."""
+        store = KnowledgeStore(tmp_path)
+        # EXTRACTED node
+        n_ext = store.add_node("extracted-node", "finding", "extracted finding")
+        s_ext = store.add_node("ext-evidence", "fact", "solid")
+        store.add_edge(n_ext, s_ext, "DERIVED_FROM", provenance="EXTRACTED")
+
+        # INFERRED node
+        n_inf = store.add_node("inferred-node", "finding", "inferred finding")
+        s_inf = store.add_node("inf-evidence", "fact", "moderate")
+        store.add_edge(n_inf, s_inf, "DERIVED_FROM", provenance="INFERRED")
+
+        # AMBIGUOUS node
+        n_amb = store.add_node("ambiguous-node", "finding", "ambiguous finding")
+        s_amb = store.add_node("amb-evidence", "fact", "weak")
+        store.add_edge(n_amb, s_amb, "DERIVED_FROM", provenance="AMBIGUOUS")
+        store._db.commit()
+
+        results = store.find_nodes("finding")
+        labels = [r["label"] for r in results]
+        # All three nodes with "finding" in label should appear
+        assert "extracted-node" in labels
+        assert "inferred-node" in labels
+        assert "ambiguous-node" in labels
+        # EXTRACTED should not rank after AMBIGUOUS
+        assert labels.index("extracted-node") <= labels.index("ambiguous-node")

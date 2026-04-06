@@ -274,6 +274,7 @@ def register_knowledge_tools(registry, knowledge_url: str, agent_name: str, acti
                 "property": {"type": "string", "description": "Property name (for filter_entities)"},
                 "value": {"type": "string", "description": "Property value (for filter_entities)"},
                 "limit": {"type": "integer", "description": "Max results (for find_similar, default 10)"},
+                "min_provenance": {"type": "string", "enum": ["EXTRACTED", "INFERRED", "AMBIGUOUS"], "description": "Minimum edge provenance tier"},
             },
             "required": ["pattern"],
         },
@@ -396,6 +397,8 @@ def _query_graph(base_url: str, agent_name: str, args: dict) -> str:
             params = {"agent": agent_name}
             if args.get("relation"):
                 params["relation"] = args["relation"]
+            if args.get("min_provenance"):
+                params["min_provenance"] = args["min_provenance"]
             resp = _http.get(f"{base_url}/graph/neighbors/{node_id}", params=params)
         elif pattern == "filter_entities":
             kind = args.get("kind")

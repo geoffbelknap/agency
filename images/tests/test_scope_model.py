@@ -369,3 +369,156 @@ class TestMigrateScopeIsIdempotent:
         node = store.get_node(node_id)
         stored_scope = json.loads(node["scope"])
         assert stored_scope["channels"] == ["#alerts"]
+
+
+class TestGetSubgraphScopeEnforcement:
+    def test_subgraph_respects_scope(self, tmp_path):
+        """get_subgraph with principal should not cross scope boundaries."""
+        store = KnowledgeStore(tmp_path)
+        # In-scope cluster
+        a = store.add_node("a-node", "fact", "in scope", scope={"principals": ["agent:x"]})
+        b = store.add_node("b-node", "fact", "in scope", scope={"principals": ["agent:x"]})
+        store.add_edge(a, b, "relates_to", provenance="EXTRACTED")
+        # Out-of-scope node connected to b
+        c = store.add_node("c-node", "fact", "out of scope", scope={"principals": ["agent:y"]})
+        store.add_edge(b, c, "relates_to", provenance="EXTRACTED")
+        # Further node behind c
+        d = store.add_node("d-node", "fact", "also out", scope={"principals": ["agent:y"]})
+        store.add_edge(c, d, "relates_to", provenance="EXTRACTED")
+        store._db.commit()
+
+        result = store.get_subgraph(a, max_hops=3, principal={"principals": ["agent:x"]})
+        node_ids = {n["id"] for n in result["nodes"]}
+        assert a in node_ids  # starting node
+        assert b in node_ids  # in scope
+        assert c not in node_ids  # out of scope — boundary
+        assert d not in node_ids  # behind boundary
+
+    def test_subgraph_without_principal_returns_all(self, tmp_path):
+        """Without principal param, all nodes reachable."""
+        store = KnowledgeStore(tmp_path)
+        a = store.add_node("a", "fact", "node a", scope={"principals": ["agent:x"]})
+        b = store.add_node("b", "fact", "node b", scope={"principals": ["agent:y"]})
+        store.add_edge(a, b, "relates_to", provenance="EXTRACTED")
+        store._db.commit()
+
+        result = store.get_subgraph(a, max_hops=1)
+        assert len(result["nodes"]) == 2
+
+    def test_subgraph_structural_nodes_always_visible(self, tmp_path):
+        """Structural nodes (agent, channel) visible regardless of scope."""
+        store = KnowledgeStore(tmp_path)
+        a = store.add_node("a", "fact", "in scope", scope={"principals": ["agent:x"]})
+        agent_node = store.add_node("some-agent", "agent", "an agent", scope={"principals": ["agent:y"]})
+        store.add_edge(a, agent_node, "member_of", provenance="EXTRACTED")
+        store._db.commit()
+
+        result = store.get_subgraph(a, max_hops=1, principal={"principals": ["agent:x"]})
+        labels = {n["label"] for n in result["nodes"]}
+        assert "some-agent" in labels  # structural, always visible
+
+
+class TestGetNeighborsScopeEnforcement:
+    def test_neighbors_filtered_by_scope(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        center = store.add_node("center", "fact", "hub", scope={"principals": ["agent:x"]})
+        visible = store.add_node("visible", "fact", "in scope", scope={"principals": ["agent:x"]})
+        hidden = store.add_node("hidden", "fact", "out of scope", scope={"principals": ["agent:y"]})
+        store.add_edge(center, visible, "relates_to", provenance="EXTRACTED")
+        store.add_edge(center, hidden, "relates_to", provenance="EXTRACTED")
+        store._db.commit()
+
+        result = store.get_neighbors(center, principal={"principals": ["agent:x"]})
+        labels = {n["label"] for n in result["neighbors"]}
+        assert "visible" in labels
+        assert "hidden" not in labels
+
+    def test_neighbors_subgraph_filtered(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        center = store.add_node("center", "fact", "hub", scope={"principals": ["agent:x"]})
+        visible = store.add_node("vis", "fact", "ok", scope={"principals": ["agent:x"]})
+        hidden = store.add_node("hid", "fact", "nope", scope={"principals": ["agent:y"]})
+        store.add_edge(center, visible, "relates_to", provenance="EXTRACTED")
+        store.add_edge(center, hidden, "relates_to", provenance="EXTRACTED")
+        store._db.commit()
+
+        result = store.get_neighbors_subgraph(center, principal={"principals": ["agent:x"]})
+        labels = {n["label"] for n in result["nodes"]}
+        assert "vis" in labels
+        assert "hid" not in labels
+
+
+class TestFindPathScopeEnforcement:
+    def test_path_blocked_by_scope_boundary(self, tmp_path):
+        """If the only path crosses a scope boundary, return None."""
+        store = KnowledgeStore(tmp_path)
+        a = store.add_node("start", "fact", "A", scope={"principals": ["agent:x"]})
+        b = store.add_node("middle", "fact", "B", scope={"principals": ["agent:y"]})  # out of scope
+        c = store.add_node("end", "fact", "C", scope={"principals": ["agent:x"]})
+        store.add_edge(a, b, "relates_to", provenance="EXTRACTED")
+        store.add_edge(b, c, "relates_to", provenance="EXTRACTED")
+        store._db.commit()
+
+        result = store.find_path("start", "end", principal={"principals": ["agent:x"]})
+        assert result is None  # no in-scope path
+
+    def test_path_uses_in_scope_route(self, tmp_path):
+        """Path finding should use in-scope nodes even if longer."""
+        store = KnowledgeStore(tmp_path)
+        a = store.add_node("start", "fact", "A", scope={"principals": ["agent:x"]})
+        shortcut = store.add_node("shortcut", "fact", "X", scope={"principals": ["agent:y"]})
+        via1 = store.add_node("via1", "fact", "V1", scope={"principals": ["agent:x"]})
+        via2 = store.add_node("via2", "fact", "V2", scope={"principals": ["agent:x"]})
+        end = store.add_node("end", "fact", "E", scope={"principals": ["agent:x"]})
+        # Short path: a -> shortcut -> end (crosses scope)
+        store.add_edge(a, shortcut, "relates_to", provenance="EXTRACTED")
+        store.add_edge(shortcut, end, "relates_to", provenance="EXTRACTED")
+        # Long path: a -> via1 -> via2 -> end (all in scope)
+        store.add_edge(a, via1, "relates_to", provenance="EXTRACTED")
+        store.add_edge(via1, via2, "relates_to", provenance="EXTRACTED")
+        store.add_edge(via2, end, "relates_to", provenance="EXTRACTED")
+        store._db.commit()
+
+        result = store.find_path("start", "end", principal={"principals": ["agent:x"]})
+        assert result is not None
+        path_labels = [n["label"] for n in result["nodes"]]
+        assert "shortcut" not in path_labels
+        assert "via1" in path_labels
+
+    def test_path_without_principal_crosses_all(self, tmp_path):
+        """Without principal, path crosses scope boundaries."""
+        store = KnowledgeStore(tmp_path)
+        a = store.add_node("start", "fact", "A", scope={"principals": ["agent:x"]})
+        b = store.add_node("middle", "fact", "B", scope={"principals": ["agent:y"]})
+        c = store.add_node("end", "fact", "C", scope={"principals": ["agent:x"]})
+        store.add_edge(a, b, "relates_to", provenance="EXTRACTED")
+        store.add_edge(b, c, "relates_to", provenance="EXTRACTED")
+        store._db.commit()
+
+        result = store.find_path("start", "end")
+        assert result is not None
+
+
+class TestEdgeScopeInheritance:
+    def test_edge_scope_narrower_than_source_accepted(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        src = store.add_node("source", "fact", "wide scope", scope={"channels": ["a", "b"], "principals": ["op:1"]})
+        tgt = store.add_node("target", "fact", "target")
+        # Edge scope is a subset — should be accepted
+        eid = store.add_edge(src, tgt, "relates_to", scope={"channels": ["a"]})
+        assert eid is not None
+
+    def test_edge_scope_wider_than_source_rejected(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        src = store.add_node("source", "fact", "narrow scope", scope={"channels": ["a"]})
+        tgt = store.add_node("target", "fact", "target")
+        with pytest.raises(ValueError, match="wider"):
+            store.add_edge(src, tgt, "relates_to", scope={"channels": ["a", "b", "c"]})
+
+    def test_edge_no_explicit_scope_accepted(self, tmp_path):
+        """Edges without explicit scope are always accepted."""
+        store = KnowledgeStore(tmp_path)
+        src = store.add_node("source", "fact", "scope", scope={"channels": ["a"]})
+        tgt = store.add_node("target", "fact", "target")
+        eid = store.add_edge(src, tgt, "relates_to")
+        assert eid is not None
