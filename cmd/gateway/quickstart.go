@@ -493,7 +493,28 @@ func runQuickstart(opts quickstartOptions) error {
 	}
 
 	if runningAgent != "" {
-		fmt.Printf("  %s agent           %s already running\n", qsGreen.Render("✓"), runningAgent)
+		// Agent exists — check if it needs a restart (stale build)
+		needsRestart := false
+		if agentInfo, err := c.ShowAgent(runningAgent); err == nil {
+			if agentBuild, _ := agentInfo["build_id"].(string); agentBuild != "" && agentBuild != buildID {
+				needsRestart = true
+			}
+		}
+
+		if needsRestart {
+			fmt.Printf("  %s agent           %s needs restart (new build)\n", qsCyan.Render("●"), runningAgent)
+			c.StopAgent(runningAgent)
+			sp := newQSSpinner()
+			go sp.run()
+			sp.update(fmt.Sprintf("agent           restarting %s...", runningAgent))
+			c.StartAgentStream(runningAgent, func(component, status string) {
+				sp.update(fmt.Sprintf("agent           %s", component))
+			})
+			sp.finish()
+			fmt.Printf("  %s agent           %s restarted\n", qsGreen.Render("✓"), runningAgent)
+		} else {
+			fmt.Printf("  %s agent           %s already running\n", qsGreen.Render("✓"), runningAgent)
+		}
 	} else {
 		// Determine agent choice
 		if opts.preset != "" {
