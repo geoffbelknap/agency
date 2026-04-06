@@ -112,8 +112,13 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     store = KnowledgeStore(data_dir or Path("/data"))
     app["store"] = store
 
-    # Initialize principal registry (shares store's DB connection)
-    principal_registry = PrincipalRegistry(store._db)
+    # Initialize principal registry from gateway snapshot
+    snapshot_path = "/app/registry.json"
+    if not os.path.exists(snapshot_path):
+        snapshot_path = os.path.join(
+            os.environ.get("AGENCY_HOME", "/data"), "registry.json"
+        )
+    principal_registry = PrincipalRegistry(snapshot_path=snapshot_path)
     app["principal_registry"] = principal_registry
 
     # Run one-time ontology migration
@@ -207,7 +212,7 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     app.router.add_post("/delete-by-label", handle_delete_by_label)
     app.router.add_post("/delete-by-kind", handle_delete_by_kind)
     app.router.add_get("/principals", handle_principals_list)
-    app.router.add_post("/principals", handle_principals_register)
+    # POST /principals removed — registrations are gateway-only now
     app.router.add_get("/principals/{uuid}", handle_principals_resolve)
     app.router.add_get("/communities", handle_communities)
     app.router.add_get("/community/{id}", handle_community)
@@ -1095,26 +1100,14 @@ async def handle_principals_list(request: web.Request) -> web.Response:
 
 
 async def handle_principals_register(request: web.Request) -> web.Response:
-    """POST /principals — register a new principal.
+    """POST /principals — no longer supported.
 
-    Body: {type, name, metadata?}
-    Returns: {uuid, type, name}
+    Principal registration is now handled by the gateway API.
     """
-    try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"error": "JSON body required"}, status=400)
-    ptype = body.get("type", "")
-    name = body.get("name", "")
-    metadata = body.get("metadata")
-    if not ptype or not name:
-        return web.json_response({"error": "type and name required"}, status=400)
-    registry: PrincipalRegistry = request.app["principal_registry"]
-    try:
-        principal_uuid = registry.register(ptype, name, metadata=metadata)
-    except ValueError as e:
-        return web.json_response({"error": str(e)}, status=400)
-    return web.json_response({"uuid": principal_uuid, "type": ptype, "name": name})
+    return web.json_response(
+        {"error": "Principal registration moved to gateway API. Use POST /api/v1/principals on the gateway."},
+        status=410,
+    )
 
 
 async def handle_principals_resolve(request: web.Request) -> web.Response:

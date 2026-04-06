@@ -1240,4 +1240,40 @@ func (c *Client) CredentialGroupCreate(body map[string]interface{}) (map[string]
 	return result, err
 }
 
+// ── Registry ──────────────────────────────────────────────────────────────
 
+// RegistryList returns all principals, optionally filtered by type.
+func (c *Client) RegistryList(principalType string) ([]byte, error) {
+	path := "/api/v1/registry/list"
+	if principalType != "" {
+		path += "?type=" + url.QueryEscape(principalType)
+	}
+	return c.Get(path)
+}
+
+// RegistryResolve resolves a principal by name/UUID and optional type.
+func (c *Client) RegistryResolve(nameOrUUID, principalType string) ([]byte, error) {
+	if len(nameOrUUID) == 36 {
+		return c.Get("/api/v1/registry/resolve?uuid=" + url.QueryEscape(nameOrUUID))
+	}
+	if principalType == "" {
+		return nil, fmt.Errorf("type is required when resolving by name")
+	}
+	return c.Get("/api/v1/registry/resolve?type=" + url.QueryEscape(principalType) + "&name=" + url.QueryEscape(nameOrUUID))
+}
+
+// RegistryRegister creates a new principal of the given type and name.
+func (c *Client) RegistryRegister(principalType, name string) ([]byte, error) {
+	body := map[string]string{"type": principalType, "name": name}
+	return c.Post("/api/v1/registry", body)
+}
+
+// RegistryUpdate updates fields on an existing principal by UUID.
+func (c *Client) RegistryUpdate(uuid string, fields map[string]interface{}) ([]byte, error) {
+	return c.Put("/api/v1/registry/"+url.PathEscape(uuid), fields)
+}
+
+// RegistryDelete removes a principal by UUID.
+func (c *Client) RegistryDelete(uuid string) ([]byte, error) {
+	return c.Delete("/api/v1/registry/" + url.PathEscape(uuid))
+}

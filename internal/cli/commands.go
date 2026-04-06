@@ -234,7 +234,7 @@ func RegisterCommands(root *cobra.Command) {
 		channelCmd(), infraCmd(), hubCmd(), teamCmd(), capCmd(),
 		intakeCmd(), knowledgeCmd(), policyCmd(), adminCmd(),
 		contextCmd(), missionCmd(), eventCmd(), webhookCmd(), meeseeksCmd(), notificationsCmd(), auditCmd(),
-		credentialCmd(), cacheCmd(),
+		credentialCmd(), cacheCmd(), registryCmd(),
 	} {
 		cmd.GroupID = "manage"
 		root.AddCommand(cmd)
@@ -4973,5 +4973,142 @@ func cacheCmd() *cobra.Command {
 	clearCmd.MarkFlagRequired("agent")
 
 	cmd.AddCommand(clearCmd)
+	return cmd
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Registry (principal identity registry)
+// ════════════════════════════════════════════════════════════════════════════
+
+func registryCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "registry", Short: "Principal identity registry"}
+
+	// --- list ---
+	listCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List registered principals",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			ptype, _ := cmd.Flags().GetString("type")
+			data, err := c.RegistryList(ptype)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	}
+	listCmd.Flags().String("type", "", "Filter by principal type (agent|operator|team|role|channel)")
+	cmd.AddCommand(listCmd)
+
+	// --- show ---
+	showCmd := &cobra.Command{
+		Use:   "show <name-or-uuid>",
+		Short: "Show a principal's registry entry",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			ptype, _ := cmd.Flags().GetString("type")
+			data, err := c.RegistryResolve(args[0], ptype)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	}
+	showCmd.Flags().String("type", "agent", "Principal type (used when resolving by name)")
+	cmd.AddCommand(showCmd)
+
+	// --- update ---
+	updateCmd := &cobra.Command{
+		Use:   "update <name-or-uuid>",
+		Short: "Update a principal's registry entry",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			parent, _ := cmd.Flags().GetString("parent")
+			status, _ := cmd.Flags().GetString("status")
+			if parent == "" && status == "" {
+				return fmt.Errorf("at least one of --parent or --status is required")
+			}
+			// Resolve name to UUID
+			ptype, _ := cmd.Flags().GetString("type")
+			resolved, err := c.RegistryResolve(args[0], ptype)
+			if err != nil {
+				return fmt.Errorf("resolve %s: %w", args[0], err)
+			}
+			var entry map[string]interface{}
+			if err := json.Unmarshal(resolved, &entry); err != nil {
+				return fmt.Errorf("parse resolve response: %w", err)
+			}
+			uuid, _ := entry["uuid"].(string)
+			if uuid == "" {
+				return fmt.Errorf("could not determine UUID for %s", args[0])
+			}
+			fields := map[string]interface{}{}
+			if parent != "" {
+				fields["parent_uuid"] = parent
+			}
+			if status != "" {
+				fields["status"] = status
+			}
+			data, err := c.RegistryUpdate(uuid, fields)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	}
+	updateCmd.Flags().String("parent", "", "Parent principal UUID")
+	updateCmd.Flags().String("status", "", "Principal status (active|suspended|revoked)")
+	updateCmd.Flags().String("type", "agent", "Principal type (used when resolving by name)")
+	cmd.AddCommand(updateCmd)
+
+	// --- delete ---
+	deleteCmd := &cobra.Command{
+		Use:   "delete <name-or-uuid>",
+		Short: "Delete a principal from the registry",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			// Resolve name to UUID
+			ptype, _ := cmd.Flags().GetString("type")
+			resolved, err := c.RegistryResolve(args[0], ptype)
+			if err != nil {
+				return fmt.Errorf("resolve %s: %w", args[0], err)
+			}
+			var entry map[string]interface{}
+			if err := json.Unmarshal(resolved, &entry); err != nil {
+				return fmt.Errorf("parse resolve response: %w", err)
+			}
+			uuid, _ := entry["uuid"].(string)
+			if uuid == "" {
+				return fmt.Errorf("could not determine UUID for %s", args[0])
+			}
+			data, err := c.RegistryDelete(uuid)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	}
+	deleteCmd.Flags().String("type", "agent", "Principal type (used when resolving by name)")
+	cmd.AddCommand(deleteCmd)
+
 	return cmd
 }

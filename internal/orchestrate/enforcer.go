@@ -35,6 +35,7 @@ type Enforcer struct {
 	SourceDir     string
 	BuildID       string
 	LifecycleID   string
+	PrincipalUUID string // agent UUID from principal registry
 	cli           *client.Client
 	log           *log.Logger
 	hmacKey       []byte
@@ -186,6 +187,7 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 				"agency.constraint.ws.path":          "/ws",
 				"agency.constraint.rest.constraints": "/constraints",
 				"agency.constraint.rest.ack":         "/constraints/ack",
+				"agency.principal.uuid":              e.PrincipalUUID,
 				"agency.build.id":                    images.ImageBuildLabel(ctx, e.cli, enforcerImage),
 				"agency.build.gateway":               e.BuildID,
 			},

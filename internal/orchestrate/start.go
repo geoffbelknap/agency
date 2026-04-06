@@ -119,7 +119,7 @@ func (ss *StartSequence) Run(ctx context.Context, onPhase PhaseCallback) (*Start
 
 // knownAgentYAMLKeys lists the valid top-level keys for agent.yaml.
 var knownAgentYAMLKeys = map[string]bool{
-	"version": true, "name": true, "type": true, "preset": true,
+	"version": true, "name": true, "uuid": true, "type": true, "preset": true,
 	"team": true, "policy": true, "model": true,
 	"model_tier": true, "role": true, "workspace": true,
 	"expertise": true, "responsiveness": true, "lifecycle_id": true,
@@ -220,6 +220,9 @@ func (ss *StartSequence) phase2Enforcement(ctx context.Context) error {
 	if lifecycleID, ok := ss.agentConfig["lifecycle_id"].(string); ok && lifecycleID != "" {
 		enf.LifecycleID = lifecycleID
 	}
+	if principalUUID, ok := ss.agentConfig["uuid"].(string); ok && principalUUID != "" {
+		enf.PrincipalUUID = principalUUID
+	}
 	if ss.KeyRotation {
 		ss.scopedKey, err = enf.StartWithKeyRotation(ctx)
 	} else {
@@ -308,6 +311,9 @@ func (ss *StartSequence) phase6Body(ctx context.Context) error {
 	}
 	ws.SourceDir = ss.SourceDir
 	ws.BuildID = ss.BuildID
+	if principalUUID, ok := ss.agentConfig["uuid"].(string); ok && principalUUID != "" {
+		ws.PrincipalUUID = principalUUID
+	}
 
 	deps := ss.readWorkspaceDeps()
 	if !deps.IsEmpty() {
