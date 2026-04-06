@@ -216,11 +216,17 @@ pytest images/tests/
 ```
 agency/
 ├── cmd/gateway/        # Go binary entry point
-├── internal/           # Go packages (api, cli, models, orchestrate, hub, etc.)
+├── internal/           # Go packages
+│   ├── registry/       # Principal UUID registry and ACL permissions
+│   ├── routing/        # Model routing metrics and optimizer
+│   └── ...             # api, cli, models, orchestrate, hub, etc.
 ├── images/             # Container image sources
 │   ├── body/           # Agent runtime (Python)
 │   ├── comms/          # Messaging server (Python)
 │   ├── knowledge/      # Knowledge graph (Python)
+│   │   ├── ingestion/  # Universal content ingestion pipeline
+│   │   ├── classification.py  # Classification-based access control
+│   │   └── graph_intelligence.py  # Community detection and hub analysis
 │   ├── intake/         # Work intake (Python)
 │   ├── egress/         # Credential swap proxy (Python)
 │   ├── enforcer/       # Enforcement proxy (Go)
@@ -228,12 +234,6 @@ agency/
 │   ├── web-fetch/      # Web page fetcher (Go)
 │   ├── models/         # Shared Pydantic models
 │   └── tests/          # Python tests for image code
-├── internal/registry/  # Principal UUID registry and ACL permissions
-│   ├── routing/        # Model routing metrics and optimizer
-├── images/knowledge/
-│   ├── ingestion/      # Universal content ingestion pipeline
-│   ├── classification.py  # Classification-based access control
-│   ├── graph_intelligence.py  # Community detection and hub analysis
 ├── presets/            # Agent preset YAML files
 ├── docs/              # Specs and documentation
 ├── go.mod             # Go module (github.com/geoffbelknap/agency)
