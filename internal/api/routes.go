@@ -293,6 +293,9 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Post("/knowledge/quarantine/release", h.knowledgeQuarantineRelease)
 		r.Get("/knowledge/quarantine", h.knowledgeQuarantineList)
 
+		// Knowledge classification
+		r.Get("/knowledge/classification", h.knowledgeClassification)
+
 		// Knowledge communities & hubs
 		r.Get("/knowledge/communities", h.knowledgeCommunities)
 		r.Get("/knowledge/communities/{id}", h.knowledgeCommunity)

@@ -1028,6 +1028,17 @@ func (h *handler) knowledgeQuarantineList(w http.ResponseWriter, r *http.Request
 	w.Write(data)
 }
 
+func (h *handler) knowledgeClassification(w http.ResponseWriter, r *http.Request) {
+	proxy := knowledge.NewProxy()
+	data, err := proxy.Classification(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
+}
+
 func (h *handler) knowledgeCommunities(w http.ResponseWriter, r *http.Request) {
 	proxy := knowledge.NewProxy()
 	data, err := proxy.Communities(r.Context())

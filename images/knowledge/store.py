@@ -65,6 +65,9 @@ class KnowledgeStore:
         self._embedding_provider = create_provider()
         self._embeddable_kinds = get_embeddable_kinds()
 
+        # --- Classification config (set via set_classification_config()) ---
+        self._classification_config = None
+
         # --- Create vec0 virtual table if possible ---
         if self._vec_available and self._embedding_provider.dimensions > 0:
             try:
@@ -77,6 +80,10 @@ class KnowledgeStore:
             except Exception as e:
                 logger.warning("Failed to create nodes_vec table: %s", e)
                 self._vec_available = False
+
+    def set_classification_config(self, config):
+        """Set the classification config used for scope merging in add_node."""
+        self._classification_config = config
 
     def _init_schema(self) -> None:
         self._db.executescript("""
@@ -223,6 +230,16 @@ class KnowledgeStore:
             node_scope = Scope.from_source_channels(source_channels)
         else:
             node_scope = Scope()
+
+        # Apply classification-based scope merge
+        if self._classification_config:
+            scope_dict = node_scope.to_dict()
+            classification = scope_dict.get("classification")
+            if classification:
+                scope_dict = self._classification_config.merge_classification_scope(
+                    scope_dict, classification
+                )
+                node_scope = Scope.from_dict(scope_dict)
 
         existing_row = self._db.execute(
             "SELECT * FROM nodes WHERE LOWER(label) = LOWER(?) AND kind = ?",
