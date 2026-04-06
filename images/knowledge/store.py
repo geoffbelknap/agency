@@ -155,6 +155,13 @@ class KnowledgeStore:
         self._db.execute(
             "CREATE INDEX IF NOT EXISTS idx_curation_log_action ON curation_log(action)"
         )
+        # Community detection and hub score columns (idempotent ALTER TABLE)
+        for col, typ in [("community_id", "TEXT"), ("community_cohesion", "REAL"),
+                         ("hub_score", "REAL"), ("hub_type", "TEXT")]:
+            try:
+                self._db.execute(f"ALTER TABLE nodes ADD COLUMN {col} {typ}")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
         # Pending nodes: org-structural contributions held for operator review
         self._db.execute("""
             CREATE TABLE IF NOT EXISTS pending_nodes (
@@ -460,6 +467,61 @@ class KnowledgeStore:
     def find_nodes_by_kind(self, kind: str, limit: int = 100) -> list[dict]:
         rows = self._db.execute(
             "SELECT * FROM nodes WHERE kind = ? LIMIT ?", (kind, limit)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # --- Community detection & hub score methods ---
+
+    def update_community(self, node_id: str, community_id: str, cohesion: float) -> None:
+        """Set community_id and community_cohesion on a node."""
+        self._db.execute(
+            "UPDATE nodes SET community_id = ?, community_cohesion = ? WHERE id = ?",
+            (community_id, cohesion, node_id),
+        )
+        self._db.commit()
+
+    def update_hub(self, node_id: str, hub_score: float, hub_type: str) -> None:
+        """Set hub_score and hub_type on a node."""
+        self._db.execute(
+            "UPDATE nodes SET hub_score = ?, hub_type = ? WHERE id = ?",
+            (hub_score, hub_type, node_id),
+        )
+        self._db.commit()
+
+    def clear_communities(self) -> None:
+        """Reset community_id and community_cohesion to NULL for all nodes."""
+        self._db.execute(
+            "UPDATE nodes SET community_id = NULL, community_cohesion = NULL"
+        )
+        self._db.commit()
+
+    def clear_hubs(self) -> None:
+        """Reset hub_score and hub_type to NULL for all nodes."""
+        self._db.execute(
+            "UPDATE nodes SET hub_score = NULL, hub_type = NULL"
+        )
+        self._db.commit()
+
+    def get_community_members(self, community_id: str, limit: int = 100) -> list[dict]:
+        """Return active nodes belonging to a community."""
+        rows = self._db.execute(
+            "SELECT * FROM nodes WHERE community_id = ? "
+            "AND (curation_status IS NULL OR curation_status = 'flagged') "
+            "LIMIT ?",
+            (community_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def list_communities(self, limit: int = 50) -> list[dict]:
+        """Return Community nodes from the graph."""
+        return self.find_nodes_by_kind("Community", limit=limit)
+
+    def get_hubs(self, limit: int = 20) -> list[dict]:
+        """Return nodes with hub scores, ordered by score descending."""
+        rows = self._db.execute(
+            "SELECT * FROM nodes WHERE hub_score IS NOT NULL "
+            "ORDER BY hub_score DESC LIMIT ?",
+            (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
 
