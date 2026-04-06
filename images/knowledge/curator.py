@@ -101,6 +101,7 @@ class Curator:
         self._last_scan_time: Optional[str] = None
         self._transitioned_to_active: bool = False
         self._ontology: Optional[dict] = None
+        self._last_community_ms: float = 0.0
 
     @property
     def is_observe_only(self) -> bool:
@@ -614,6 +615,45 @@ class Curator:
 
         return stats
 
+    def community_detection(self) -> dict:
+        """Run community detection on the knowledge graph.
+
+        Uses the Louvain algorithm via CommunityDetector. Runs in both
+        observe and active modes since it only creates Community nodes
+        and updates properties -- no merges or deletes.
+
+        Returns:
+            Dict with communities_found and nodes_assigned counts.
+        """
+        from images.knowledge.graph_intelligence import CommunityDetector
+
+        detector = CommunityDetector(self.store)
+        t0 = time.monotonic()
+        stats = detector.detect()
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        self._last_community_ms = elapsed_ms
+        self.store.log_curation("community_detection", "__graph__", stats)
+        logger.info("Community detection: %s (%.1f ms)", stats, elapsed_ms)
+        return stats
+
+    def hub_detection(self) -> dict:
+        """Run hub and bridge detection on the knowledge graph.
+
+        Uses HubDetector to identify highly connected nodes and bridge
+        nodes between communities. Runs in both observe and active modes
+        since it only updates node properties -- no merges or deletes.
+
+        Returns:
+            Dict with hubs_found and bridges_found counts.
+        """
+        from images.knowledge.graph_intelligence import HubDetector
+
+        detector = HubDetector(self.store)
+        stats = detector.detect()
+        self.store.log_curation("hub_detection", "__graph__", stats)
+        logger.info("Hub detection: %s", stats)
+        return stats
+
     def compute_health_metrics(self) -> dict:
         """Compute knowledge graph health metrics.
 
@@ -723,6 +763,7 @@ class Curator:
             "graph_size": graph_size,
             "traversal_p95_ms": traversal_p95_ms,
             "scope_resolution_ms": scope_resolution_ms,
+            "community_detection_ms": round(self._last_community_ms, 2),
         }
 
         # Log metrics to curation_log
@@ -1294,6 +1335,7 @@ class CurationLoop:
     def __init__(self, curator: Curator, interval_seconds: Union[int, float] = 600):
         self.curator = curator
         self.interval = interval_seconds
+        self._cycle_count: int = 0
 
     async def run(self) -> None:
         logger.info("Curation loop started (interval=%ss, mode=%s)", self.interval, self.curator._mode)
@@ -1307,6 +1349,7 @@ class CurationLoop:
             await asyncio.sleep(self.interval)
 
     def _run_cycle(self) -> None:
+        self._cycle_count += 1
         operations = [
             ("fuzzy_duplicate_scan", self.curator.fuzzy_duplicate_scan),
             ("orphan_pruning", self.curator.orphan_pruning),
@@ -1317,6 +1360,10 @@ class CurationLoop:
             ("emergence_scan", self.curator.emergence_scan),
             ("relationship_inference", self.curator.relationship_inference),
         ]
+        # Community and hub detection run every 6th cycle
+        if self._cycle_count % 6 == 0:
+            operations.append(("community_detection", self.curator.community_detection))
+            operations.append(("hub_detection", self.curator.hub_detection))
         for name, op in operations:
             try:
                 op()

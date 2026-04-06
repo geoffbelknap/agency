@@ -397,3 +397,40 @@ class TestHubDetectorEmptyGraph:
         result = detector.detect()
         assert result["hubs_found"] == 0
         assert result["bridges_found"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Curator integration tests
+# ---------------------------------------------------------------------------
+
+from images.knowledge.curator import Curator
+
+
+class TestCuratorCommunityDetection:
+    """Community detection callable from curator."""
+
+    def test_community_detection_callable_from_curator(self, tmp_path):
+        store = _build_two_cluster_store(tmp_path)
+        curator = Curator(store, mode="active")
+        stats = curator.community_detection()
+        assert "communities_found" in stats
+        assert "nodes_assigned" in stats
+        assert stats["communities_found"] >= 2
+
+    def test_hub_detection_callable_from_curator(self, tmp_path):
+        store = _build_two_cluster_store(tmp_path)
+        curator = Curator(store, mode="active")
+        # Run community detection first so hub/bridge detection has community_id data
+        curator.community_detection()
+        stats = curator.hub_detection()
+        assert "hubs_found" in stats
+        assert "bridges_found" in stats
+
+    def test_community_detection_ms_in_metrics(self, tmp_path):
+        store = _build_two_cluster_store(tmp_path)
+        curator = Curator(store, mode="active")
+        curator.community_detection()
+        metrics = curator.compute_health_metrics()
+        assert "community_detection_ms" in metrics
+        assert isinstance(metrics["community_detection_ms"], float)
+        assert metrics["community_detection_ms"] >= 0.0
