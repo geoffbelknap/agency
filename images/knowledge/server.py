@@ -16,6 +16,9 @@ Endpoints:
     GET  /stats                   - Graph statistics
     GET  /pending                 - List pending org-structural contributions
     POST /review/{pending_id}     - Approve or reject a pending contribution
+    GET  /principals              - List all principals (optional ?type= filter)
+    POST /principals              - Register a principal ({type, name, metadata?})
+    GET  /principals/{uuid}       - Resolve a principal UUID
 """
 
 import argparse
@@ -45,6 +48,7 @@ class _HealthFilterAccessLogger(AbstractAccessLogger):
 
 from typing import Optional
 from images.knowledge.ingester import RuleIngester
+from images.knowledge.principal_registry import PrincipalRegistry
 from images.knowledge.store import KnowledgeStore
 from images.knowledge.synthesizer import LLMSynthesizer
 
@@ -103,6 +107,10 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     store = KnowledgeStore(data_dir or Path("/data"))
     app["store"] = store
 
+    # Initialize principal registry (shares store's DB connection)
+    principal_registry = PrincipalRegistry(store._db)
+    app["principal_registry"] = principal_registry
+
     # Run one-time ontology migration
     _run_ontology_migration(store, data_dir or Path("/data"))
 
@@ -141,6 +149,9 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
         app.on_startup.append(_start_ingestion_loop)
         app.on_cleanup.append(_stop_ingestion_loop)
 
+    # Run schema migrations on startup
+    app.on_startup.append(_run_schema_migrations)
+
     # Start embedding backfill as a background task
     app.on_startup.append(_start_backfill_task)
     app.on_cleanup.append(_stop_backfill_task)
@@ -174,6 +185,9 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     app.router.add_post("/ontology/reject", handle_ontology_reject)
     app.router.add_post("/delete-by-label", handle_delete_by_label)
     app.router.add_post("/delete-by-kind", handle_delete_by_kind)
+    app.router.add_get("/principals", handle_principals_list)
+    app.router.add_post("/principals", handle_principals_register)
+    app.router.add_get("/principals/{uuid}", handle_principals_resolve)
 
     async def _log_knowledge_shutdown(app: web.Application) -> None:
         logger.info("Knowledge server shutting down")
@@ -972,6 +986,73 @@ async def handle_delete_by_kind(request: web.Request) -> web.Response:
     for prop, value in filt.items():
         total += store.soft_delete_by_kind_and_property(kind, prop, value)
     return web.json_response({"deleted": total, "kind": kind})
+
+
+async def handle_principals_list(request: web.Request) -> web.Response:
+    """GET /principals — list all principals, optional ?type= filter."""
+    registry: PrincipalRegistry = request.app["principal_registry"]
+    ptype = request.query.get("type")
+    if ptype:
+        if ptype not in PrincipalRegistry.VALID_TYPES:
+            return web.json_response(
+                {"error": f"invalid type '{ptype}', must be one of: {', '.join(PrincipalRegistry.VALID_TYPES)}"},
+                status=400,
+            )
+        principals = registry.list_by_type(ptype)
+    else:
+        principals = registry.list_all()
+    return web.json_response({"principals": principals})
+
+
+async def handle_principals_register(request: web.Request) -> web.Response:
+    """POST /principals — register a new principal.
+
+    Body: {type, name, metadata?}
+    Returns: {uuid, type, name}
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "JSON body required"}, status=400)
+    ptype = body.get("type", "")
+    name = body.get("name", "")
+    metadata = body.get("metadata")
+    if not ptype or not name:
+        return web.json_response({"error": "type and name required"}, status=400)
+    registry: PrincipalRegistry = request.app["principal_registry"]
+    try:
+        principal_uuid = registry.register(ptype, name, metadata=metadata)
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    return web.json_response({"uuid": principal_uuid, "type": ptype, "name": name})
+
+
+async def handle_principals_resolve(request: web.Request) -> web.Response:
+    """GET /principals/{uuid} — resolve a principal UUID."""
+    registry: PrincipalRegistry = request.app["principal_registry"]
+    principal_uuid = request.match_info["uuid"]
+    principal = registry.resolve(principal_uuid)
+    if not principal:
+        return web.json_response({"error": "principal not found"}, status=404)
+    return web.json_response(principal)
+
+
+async def _run_schema_migrations(app: web.Application) -> None:
+    """Run store schema migrations on startup."""
+    store: KnowledgeStore = app["store"]
+    loop = asyncio.get_event_loop()
+    try:
+        result = await loop.run_in_executor(None, store.migrate_edge_provenance)
+        if result.get("migrated", 0) > 0:
+            logger.info("Edge provenance migration: %s", result)
+    except Exception as e:
+        logger.warning("Edge provenance migration failed: %s", e)
+    try:
+        result = await loop.run_in_executor(None, store.migrate_node_scopes)
+        if result.get("migrated", 0) > 0:
+            logger.info("Node scopes migration: %s", result)
+    except Exception as e:
+        logger.warning("Node scopes migration failed: %s", e)
 
 
 async def _start_curation_loop(app: web.Application) -> None:
