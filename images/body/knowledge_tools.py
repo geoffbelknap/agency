@@ -225,6 +225,43 @@ def register_knowledge_tools(registry, knowledge_url: str, agent_name: str, acti
     )
 
     registry.register_tool(
+        name="save_insight",
+        description=(
+            "Persist a synthesized conclusion back into the knowledge graph. "
+            "Use this after combining information from multiple knowledge "
+            "queries to record a higher-order insight that other agents can "
+            "benefit from. Links the insight to its source nodes for "
+            "provenance tracking."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "insight": {
+                    "type": "string",
+                    "description": "The conclusion or synthesis to persist",
+                },
+                "source_nodes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Node IDs from prior query_knowledge results that informed this insight",
+                },
+                "confidence": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"],
+                    "description": "Confidence level of the insight",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional tags for categorization",
+                },
+            },
+            "required": ["insight", "source_nodes", "confidence"],
+        },
+        handler=lambda args: _save_insight(knowledge_url, agent_name, args),
+    )
+
+    registry.register_tool(
         name="query_graph",
         description="Query the knowledge graph by entity ID, relationships, or property filters. Returns structured nodes and edges, not text search results.",
         parameters={
@@ -313,6 +350,32 @@ def _get_context(base_url: str, agent_name: str, args: dict) -> str:
         return resp.text
     except Exception as e:
         return json.dumps({"error": f"Context query failed: {e}"})
+
+
+def _save_insight(base_url: str, agent_name: str, args: dict) -> str:
+    """Persist a synthesized conclusion back into the knowledge graph."""
+    insight = args.get("insight", "")
+    source_nodes = args.get("source_nodes", [])
+    confidence = args.get("confidence", "medium")
+    tags = args.get("tags", [])
+
+    if not insight:
+        return json.dumps({"error": "insight is required"})
+    if not source_nodes:
+        return json.dumps({"error": "source_nodes is required"})
+
+    payload = {
+        "insight": insight,
+        "source_nodes": source_nodes,
+        "confidence": confidence,
+        "tags": tags,
+        "agent_name": agent_name,
+    }
+    try:
+        resp = _http.post(f"{base_url}/insight", json=payload, timeout=30)
+        return resp.text
+    except Exception as e:
+        return json.dumps({"error": f"Save insight failed: {e}"})
 
 
 def _query_graph(base_url: str, agent_name: str, args: dict) -> str:
