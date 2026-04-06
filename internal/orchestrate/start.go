@@ -398,15 +398,16 @@ func (ss *StartSequence) phase7Session(ctx context.Context) error {
 			}
 		}
 	}
-	// grant-access ensures membership even if the channel already existed
+	// grant-access ensures membership even if the channel already existed.
+	// These are errors, not warnings — the channel is useless without grants.
 	dmGrant := map[string]interface{}{"agent": ss.AgentName}
 	if _, err := ss.Docker.CommsRequest(ctx, "POST", "/channels/"+dmChannel+"/grant-access", dmGrant); err != nil {
-		ss.Log.Warn("DM grant-access for agent failed", "channel", dmChannel, "err", err)
+		return fmt.Errorf("grant agent access to %s: %w", dmChannel, err)
 	}
 	// Operator needs membership to list and read/write DM channels in the web UI
 	opGrant := map[string]interface{}{"agent": "_operator"}
 	if _, err := ss.Docker.CommsRequest(ctx, "POST", "/channels/"+dmChannel+"/grant-access", opGrant); err != nil {
-		ss.Log.Warn("DM grant-access for operator failed", "channel", dmChannel, "err", err)
+		return fmt.Errorf("grant operator access to %s: %w", dmChannel, err)
 	}
 
 	// Register base expertise from agent.yaml (ASK tenet 5: operator-defined, read-only)
@@ -428,12 +429,15 @@ func (ss *StartSequence) phase7Session(ctx context.Context) error {
 					"keywords":    keywords,
 					"persistent":  true,
 				}
-				ss.Docker.CommsRequest(ctx, "POST",
+				if _, err := ss.Docker.CommsRequest(ctx, "POST",
 					"/subscriptions/"+ss.AgentName+"/expertise",
 					expertiseBody,
-				)
-				ss.Log.Info("registered base expertise", "agent", ss.AgentName,
-					"keywords", len(keywords))
+				); err != nil {
+					ss.Log.Warn("failed to register expertise", "agent", ss.AgentName, "err", err)
+				} else {
+					ss.Log.Info("registered base expertise", "agent", ss.AgentName,
+						"keywords", len(keywords))
+				}
 			}
 		}
 
@@ -454,12 +458,15 @@ func (ss *StartSequence) phase7Session(ctx context.Context) error {
 				respBody := map[string]interface{}{
 					"config": config,
 				}
-				ss.Docker.CommsRequest(ctx, "POST",
+				if _, err := ss.Docker.CommsRequest(ctx, "POST",
 					"/subscriptions/"+ss.AgentName+"/responsiveness",
 					respBody,
-				)
-				ss.Log.Info("registered responsiveness", "agent", ss.AgentName,
-					"default", config["default"])
+				); err != nil {
+					ss.Log.Warn("failed to register responsiveness", "agent", ss.AgentName, "err", err)
+				} else {
+					ss.Log.Info("registered responsiveness", "agent", ss.AgentName,
+						"default", config["default"])
+				}
 			}
 		}
 	}

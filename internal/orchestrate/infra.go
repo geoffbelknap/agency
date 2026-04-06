@@ -612,7 +612,9 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 	}
 	name := containerName("comms")
 	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
-		inf.ensureSystemChannels(ctx)
+		if err := inf.ensureSystemChannels(ctx); err != nil {
+			return fmt.Errorf("system channels: %w", err)
+		}
 		return nil
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("comms"))
@@ -656,7 +658,9 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 	}
 
 	// Create system channels
-	inf.ensureSystemChannels(ctx)
+	if err := inf.ensureSystemChannels(ctx); err != nil {
+		return fmt.Errorf("system channels: %w", err)
+	}
 
 	return nil
 }
@@ -1055,7 +1059,7 @@ func (inf *Infra) ensureEmbeddings(ctx context.Context) error {
 
 // -- System channels --
 
-func (inf *Infra) ensureSystemChannels(ctx context.Context) {
+func (inf *Infra) ensureSystemChannels(ctx context.Context) error {
 	channels := []struct {
 		name    string
 		topic   string
@@ -1079,9 +1083,19 @@ func (inf *Infra) ensureSystemChannels(ctx context.Context) {
 		}
 		_, err := inf.Docker.CommsRequest(ctx, "POST", "/channels", body)
 		if err != nil {
-			inf.log.Debug("channel create", "channel", ch.name, "err", err)
+			if strings.Contains(err.Error(), "409") {
+				continue // already exists
+			}
+			// Retry once — comms may still be initializing
+			time.Sleep(2 * time.Second)
+			if _, retryErr := inf.Docker.CommsRequest(ctx, "POST", "/channels", body); retryErr != nil {
+				if !strings.Contains(retryErr.Error(), "409") {
+					return fmt.Errorf("create system channel %s: %w", ch.name, retryErr)
+				}
+			}
 		}
 	}
+	return nil
 }
 
 // -- Helpers --
