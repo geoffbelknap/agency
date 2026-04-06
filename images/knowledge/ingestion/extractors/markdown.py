@@ -13,7 +13,10 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from ingestion.base import BaseExtractor, ExtractionResult
+try:
+    from ingestion.base import BaseExtractor, ExtractionResult
+except ImportError:
+    from knowledge.ingestion.base import BaseExtractor, ExtractionResult
 
 # ---------------------------------------------------------------------------
 # Regex patterns

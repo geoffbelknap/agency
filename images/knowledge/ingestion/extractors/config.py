@@ -17,7 +17,10 @@ from typing import Optional
 
 import yaml
 
-from ingestion.base import BaseExtractor, ExtractionResult
+try:
+    from ingestion.base import BaseExtractor, ExtractionResult
+except ImportError:
+    from knowledge.ingestion.base import BaseExtractor, ExtractionResult
 
 _URL_RE = re.compile(r"^https?://\S+$")
 
