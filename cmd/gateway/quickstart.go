@@ -398,9 +398,20 @@ func runQuickstart(opts quickstartOptions) error {
 
 	// Phase 3: Infrastructure — start daemon and bring up services
 	cfg := config.Load()
-	c := apiclient.NewClient("http://" + cfg.GatewayAddr)
+	gatewayAddr := "http://" + cfg.GatewayAddr
+	c := apiclient.NewClient(gatewayAddr)
 
 	gatewayRunning := c.CheckGateway() == nil
+
+	// If a stale daemon is running with an old token, restart it
+	if gatewayRunning {
+		if _, err := c.Get("/api/v1/infra/status"); err != nil {
+			// Token mismatch — old daemon, new config. Kill and restart.
+			daemon.Stop()
+			time.Sleep(1 * time.Second)
+			gatewayRunning = false
+		}
+	}
 
 	if gatewayRunning {
 		// Gateway is running — check infra health
