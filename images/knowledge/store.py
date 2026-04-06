@@ -636,6 +636,11 @@ class KnowledgeStore:
                 f"must be one of {sorted(_PROVENANCE_RANK.keys())}"
             )
 
+        _quarantine_filter = (
+            " AND source_id NOT IN (SELECT id FROM nodes WHERE curation_status = 'quarantined')"
+            " AND target_id NOT IN (SELECT id FROM nodes WHERE curation_status = 'quarantined')"
+        )
+
         if direction == "outgoing":
             sql = "SELECT * FROM edges WHERE source_id = ?"
         elif direction == "incoming":
@@ -651,6 +656,7 @@ class KnowledgeStore:
                 placeholders = ", ".join("?" for _ in allowed)
                 sql += f" AND provenance IN ({placeholders})"
                 params.extend(allowed)
+            sql += _quarantine_filter
             return [dict(r) for r in self._db.execute(sql, params).fetchall()]
         params = [node_id]
         if relation:
@@ -661,6 +667,7 @@ class KnowledgeStore:
             placeholders = ", ".join("?" for _ in allowed)
             sql += f" AND provenance IN ({placeholders})"
             params.extend(allowed)
+        sql += _quarantine_filter
         return [dict(r) for r in self._db.execute(sql, params).fetchall()]
 
     def migrate_edge_provenance(self) -> dict:
@@ -1259,6 +1266,102 @@ class KnowledgeStore:
             params.append(since)
         sql += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
+        rows = self._db.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+    # -- Provenance-based quarantine --
+
+    def quarantine_by_agent(self, agent_name: str, since: Optional[str] = None) -> dict:
+        """Quarantine all nodes contributed by *agent_name*.
+
+        Sets ``curation_status='quarantined'`` on every node whose
+        ``properties->contributed_by`` matches *agent_name*.  If *since* is
+        given (ISO-8601 timestamp string), only nodes with
+        ``created_at >= since`` are affected.
+
+        Each affected node is logged to the curation log.
+
+        Returns ``{"quarantined": <count>}``.
+        """
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        sql = (
+            "SELECT id FROM nodes "
+            "WHERE json_extract(properties, '$.contributed_by') = ? "
+            "AND (curation_status IS NULL OR curation_status != 'quarantined')"
+        )
+        params: list = [agent_name]
+        if since is not None:
+            sql += " AND created_at >= ?"
+            params.append(since)
+
+        rows = self._db.execute(sql, params).fetchall()
+        node_ids = [r["id"] for r in rows]
+
+        if node_ids:
+            placeholders = ", ".join("?" for _ in node_ids)
+            self._db.execute(
+                f"UPDATE nodes SET curation_status='quarantined', "
+                f"curation_reason='agent_quarantine', curation_at=? "
+                f"WHERE id IN ({placeholders})",
+                [now] + node_ids,
+            )
+            for nid in node_ids:
+                self.log_curation("quarantine_by_agent", nid, {"agent": agent_name})
+
+        self._db.commit()
+        return {"quarantined": len(node_ids)}
+
+    def quarantine_release_node(self, node_id: str) -> None:
+        """Release a single node from quarantine.
+
+        Clears ``curation_status``, ``curation_reason``, and ``curation_at``
+        back to NULL and logs the release.
+        """
+        self._db.execute(
+            "UPDATE nodes SET curation_status=NULL, curation_reason=NULL, "
+            "curation_at=NULL WHERE id = ?",
+            (node_id,),
+        )
+        self.log_curation("quarantine_release", node_id, {})
+        self._db.commit()
+
+    def quarantine_release_agent(self, agent_name: str) -> dict:
+        """Release all quarantined nodes contributed by *agent_name*.
+
+        Returns ``{"released": <count>}``.
+        """
+        rows = self._db.execute(
+            "SELECT id FROM nodes "
+            "WHERE curation_status = 'quarantined' "
+            "AND json_extract(properties, '$.contributed_by') = ?",
+            (agent_name,),
+        ).fetchall()
+        node_ids = [r["id"] for r in rows]
+
+        if node_ids:
+            placeholders = ", ".join("?" for _ in node_ids)
+            self._db.execute(
+                f"UPDATE nodes SET curation_status=NULL, curation_reason=NULL, "
+                f"curation_at=NULL WHERE id IN ({placeholders})",
+                node_ids,
+            )
+            for nid in node_ids:
+                self.log_curation("quarantine_release_agent", nid, {"agent": agent_name})
+
+        self._db.commit()
+        return {"released": len(node_ids)}
+
+    def list_quarantined(self, agent: Optional[str] = None) -> list[dict]:
+        """List nodes currently quarantined, optionally filtered by agent.
+
+        Returns a list of node dicts.
+        """
+        sql = "SELECT * FROM nodes WHERE curation_status = 'quarantined'"
+        params: list = []
+        if agent is not None:
+            sql += " AND json_extract(properties, '$.contributed_by') = ?"
+            params.append(agent)
         rows = self._db.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
 

@@ -136,6 +136,31 @@ func (h *handler) registryUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate suspension/revocation: check for coverage principal.
+	if status, ok := fields["status"].(string); ok && (status == "suspended" || status == "revoked") {
+		p, err := h.infra.Registry.Resolve(uuid)
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": err.Error()})
+			return
+		}
+		if p.Parent == "" {
+			force := r.URL.Query().Get("force")
+			if force != "true" {
+				writeJSON(w, 400, map[string]string{
+					"error": "no coverage principal — governed entities will fail-closed. Use ?force=true",
+				})
+				return
+			}
+		}
+		// Revocation also revokes all tokens for the principal.
+		if status == "revoked" {
+			if err := h.infra.Registry.RevokeTokens(uuid); err != nil {
+				writeJSON(w, 500, map[string]string{"error": "revoke tokens: " + err.Error()})
+				return
+			}
+		}
+	}
+
 	if err := h.infra.Registry.Update(uuid, fields); err != nil {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
@@ -151,6 +176,30 @@ func (h *handler) registryUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, p)
+}
+
+// registryEffective returns the effective (resolved) permissions for a principal.
+func (h *handler) registryEffective(w http.ResponseWriter, r *http.Request) {
+	if h.infra == nil || h.infra.Registry == nil {
+		writeJSON(w, 503, map[string]string{"error": "registry not available"})
+		return
+	}
+
+	uuid := chi.URLParam(r, "uuid")
+	if uuid == "" {
+		http.Error(w, "uuid required", http.StatusBadRequest)
+		return
+	}
+	eff, err := h.infra.Registry.EffectivePermissions(uuid)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"uuid":                  uuid,
+		"effective_permissions": eff,
+	})
 }
 
 // registryDelete removes a principal by UUID.

@@ -37,6 +37,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/models"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
+	"github.com/geoffbelknap/agency/internal/registry"
 	"github.com/geoffbelknap/agency/internal/ws"
 )
 
@@ -865,12 +866,24 @@ func runServe(httpAddr string) error {
 	auditSummarizer := auditpkg.NewAuditSummarizer(cfg.Home, knowledgeURL, logger)
 	auditSummarizer.Start(healthCtx)
 
+	// Principal registry — shared instance for auth + permission middleware.
+	var reg *registry.Registry
+	if regDB, regErr := registry.Open(filepath.Join(cfg.Home, "registry.db")); regErr == nil {
+		reg = regDB
+		if cfg.Token != "" {
+			reg.SetGatewayToken(cfg.Token)
+		}
+		defer reg.Close()
+	} else {
+		logger.Warn("principal registry unavailable — permission enforcement disabled", "error", regErr)
+	}
+
 	// REST API
 	r := chi.NewRouter()
 	r.Use(chiMiddleware.Recoverer)
 	r.Use(chiMiddleware.RealIP)
 	r.Use(corsMiddleware)
-	r.Use(api.BearerAuth(cfg.Token, cfg.EgressToken))
+	r.Use(api.BearerAuth(cfg.Token, cfg.EgressToken, reg))
 	routeOpts := api.RouteOptions{
 		Hub:          wsHub,
 		EventBus:     eventBus,
@@ -879,6 +892,7 @@ func runServe(httpAddr string) error {
 		NotifStore:   notifStore,
 		StopSuppress:    stopSuppress,
 		AuditSummarizer: auditSummarizer,
+		Registry:        reg,
 	}
 	if healthMgr != nil {
 		routeOpts.HealthMonitor = healthMgr

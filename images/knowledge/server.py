@@ -24,6 +24,9 @@ Endpoints:
     GET  /community/{id}          - Get members of a specific community
     GET  /hubs                    - Get top hub nodes (optional ?limit=N)
     POST /insight                 - Save an agent's synthesized insight
+    POST /quarantine              - Quarantine nodes by agent ({agent, since?})
+    POST /quarantine/release      - Release quarantined node(s) ({node_id} or {agent})
+    GET  /quarantine              - List quarantined nodes (optional ?agent=)
 """
 
 import argparse
@@ -218,6 +221,9 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     app.router.add_get("/community/{id}", handle_community)
     app.router.add_get("/hubs", handle_hubs)
     app.router.add_post("/insight", handle_save_insight)
+    app.router.add_post("/quarantine", handle_quarantine)
+    app.router.add_post("/quarantine/release", handle_quarantine_release)
+    app.router.add_get("/quarantine", handle_quarantine_list)
 
     async def _log_knowledge_shutdown(app: web.Application) -> None:
         logger.info("Knowledge server shutting down")
@@ -1304,6 +1310,74 @@ async def _ingestion_loop(app: web.Application) -> None:
             logger.debug("Ingestion poll error (comms may not be ready): %s", e)
 
         await asyncio.sleep(10)
+
+
+async def handle_quarantine(request: web.Request) -> web.Response:
+    """POST /quarantine — quarantine all nodes contributed by an agent.
+
+    Body: {"agent": "name", "since": "optional-ISO-timestamp"}
+    """
+    store: KnowledgeStore = request.app["store"]
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+    agent = body.get("agent", "")
+    if not agent:
+        return web.json_response({"error": "agent is required"}, status=400)
+
+    since = body.get("since")
+    try:
+        result = store.quarantine_by_agent(agent, since=since)
+    except Exception:
+        logger.exception("Quarantine failed for agent=%s", agent)
+        return web.json_response({"error": "quarantine failed"}, status=500)
+
+    return web.json_response(result)
+
+
+async def handle_quarantine_release(request: web.Request) -> web.Response:
+    """POST /quarantine/release — release quarantined node(s).
+
+    Body: {"node_id": "id"} to release a single node,
+          or {"agent": "name"} to release all quarantined nodes for an agent.
+    """
+    store: KnowledgeStore = request.app["store"]
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+    node_id = body.get("node_id")
+    agent = body.get("agent")
+
+    if not node_id and not agent:
+        return web.json_response({"error": "node_id or agent is required"}, status=400)
+
+    try:
+        if node_id:
+            store.quarantine_release_node(node_id)
+            return web.json_response({"released_node": node_id})
+        else:
+            result = store.quarantine_release_agent(agent)
+            return web.json_response(result)
+    except Exception:
+        logger.exception("Quarantine release failed")
+        return web.json_response({"error": "release failed"}, status=500)
+
+
+async def handle_quarantine_list(request: web.Request) -> web.Response:
+    """GET /quarantine — list quarantined nodes, optionally filtered by agent."""
+    store: KnowledgeStore = request.app["store"]
+    agent = request.query.get("agent")
+    try:
+        nodes = store.list_quarantined(agent=agent)
+    except Exception:
+        logger.exception("Quarantine list failed")
+        return web.json_response({"error": "list failed"}, status=500)
+
+    return web.json_response({"quarantined": nodes})
 
 
 if __name__ == "__main__":

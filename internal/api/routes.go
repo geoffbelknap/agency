@@ -26,6 +26,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 	"github.com/geoffbelknap/agency/internal/policy"
+	"github.com/geoffbelknap/agency/internal/registry"
 	"github.com/geoffbelknap/agency/internal/ws"
 )
 
@@ -40,6 +41,7 @@ type RouteOptions struct {
 	StopSuppress    *orchestrate.StopSuppression
 	AuditSummarizer *audit.AuditSummarizer
 	DockerStatus    *docker.Status
+	Registry        *registry.Registry
 }
 
 // RegisterSocketRoutes sets up the restricted API surface for the Unix socket.
@@ -111,6 +113,14 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 	}
 	if opts.DockerStatus != nil {
 		h.dockerStatus = opts.DockerStatus
+	}
+
+	// Permission enforcement middleware — runs after BearerAuth has resolved
+	// the principal into the request context. If no registry is available,
+	// the middleware is not applied (backward compatible).
+	// ASK Tenet 7: least privilege — route-level permission checks.
+	if opts.Registry != nil {
+		r.Use(PermissionMiddleware(opts.Registry))
 	}
 
 	// WebSocket endpoint (outside /api/v1 — at root /ws per spec)
@@ -278,6 +288,11 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Post("/knowledge/ontology/validate", h.knowledgeOntologyValidate)
 		r.Post("/knowledge/ontology/migrate", h.knowledgeOntologyMigrate)
 
+		// Knowledge quarantine (ASK tenet 16)
+		r.Post("/knowledge/quarantine", h.knowledgeQuarantine)
+		r.Post("/knowledge/quarantine/release", h.knowledgeQuarantineRelease)
+		r.Get("/knowledge/quarantine", h.knowledgeQuarantineList)
+
 		// Knowledge communities & hubs
 		r.Get("/knowledge/communities", h.knowledgeCommunities)
 		r.Get("/knowledge/communities/{id}", h.knowledgeCommunity)
@@ -288,6 +303,7 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Get("/registry/resolve", h.registryResolve)
 		r.Get("/registry/list", h.registryList)
 		r.Post("/registry", h.registryRegister)
+		r.Get("/registry/{uuid}/effective", h.registryEffective)
 		r.Put("/registry/{uuid}", h.registryUpdate)
 		r.Delete("/registry/{uuid}", h.registryDelete)
 
@@ -588,6 +604,10 @@ func (h *handler) listAgents(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) showAgent(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
+	if !h.canAccessAgent(getPrincipal(r), name) {
+		writeAgentForbidden(w)
+		return
+	}
 	detail, err := h.agents.Show(r.Context(), name)
 	if err != nil {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
@@ -622,6 +642,10 @@ func (h *handler) createAgent(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) deleteAgent(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
+	if !h.canAccessAgent(getPrincipal(r), name) {
+		writeAgentForbidden(w)
+		return
+	}
 	if err := h.agents.Delete(r.Context(), name); err != nil {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
 		return
@@ -979,6 +1003,10 @@ func (h *handler) startAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := chi.URLParam(r, "name")
+	if !h.canAccessAgent(getPrincipal(r), name) {
+		writeAgentForbidden(w)
+		return
+	}
 
 	// Ensure agent exists and load detail for lifecycle_id wiring
 	detail, err := h.agents.Show(r.Context(), name)
@@ -1085,6 +1113,10 @@ func (h *handler) restartAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := chi.URLParam(r, "name")
+	if !h.canAccessAgent(getPrincipal(r), name) {
+		writeAgentForbidden(w)
+		return
+	}
 
 	// Ensure agent exists and load detail for lifecycle_id wiring
 	detail, err := h.agents.Show(r.Context(), name)
@@ -1276,6 +1308,10 @@ func (h *handler) haltAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := chi.URLParam(r, "name")
+	if !h.canAccessAgent(getPrincipal(r), name) {
+		writeAgentForbidden(w)
+		return
+	}
 	var body struct {
 		Type      string `json:"type"`
 		Reason    string `json:"reason"`
@@ -1345,6 +1381,10 @@ func (h *handler) resumeAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := chi.URLParam(r, "name")
+	if !h.canAccessAgent(getPrincipal(r), name) {
+		writeAgentForbidden(w)
+		return
+	}
 	var body struct {
 		Initiator string `json:"initiator"`
 	}

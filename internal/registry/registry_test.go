@@ -284,6 +284,104 @@ func TestRegisterWithOptions(t *testing.T) {
 	}
 }
 
+func TestGenerateToken(t *testing.T) {
+	r := tempDB(t)
+	uuid, _ := r.Register("operator", "geoff")
+	token, err := r.GenerateToken(uuid)
+	if err != nil {
+		t.Fatalf("GenerateToken: %v", err)
+	}
+	if len(token) != 64 {
+		t.Errorf("expected 64-char hex token, got %d chars: %s", len(token), token)
+	}
+}
+
+func TestResolveToken(t *testing.T) {
+	r := tempDB(t)
+	uuid, _ := r.Register("operator", "geoff")
+	token, _ := r.GenerateToken(uuid)
+
+	p, err := r.ResolveToken(token)
+	if err != nil {
+		t.Fatalf("ResolveToken: %v", err)
+	}
+	if p.UUID != uuid {
+		t.Errorf("expected UUID %s, got %s", uuid, p.UUID)
+	}
+	if p.Name != "geoff" {
+		t.Errorf("expected name geoff, got %s", p.Name)
+	}
+}
+
+func TestResolveTokenNotFound(t *testing.T) {
+	r := tempDB(t)
+	_, err := r.ResolveToken("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	if err == nil {
+		t.Fatal("expected error for unknown token, got nil")
+	}
+}
+
+func TestGatewayTokenResolvesToOperator(t *testing.T) {
+	r := tempDB(t)
+	// Create an inactive operator and an active one.
+	inactiveUUID, _ := r.Register("operator", "inactive-op")
+	r.Update(inactiveUUID, map[string]interface{}{"status": "suspended"})
+	activeUUID, _ := r.Register("operator", "active-op")
+
+	r.SetGatewayToken("my-gateway-token")
+
+	p, err := r.ResolveToken("my-gateway-token")
+	if err != nil {
+		t.Fatalf("ResolveToken gateway: %v", err)
+	}
+	if p.UUID != activeUUID {
+		t.Errorf("expected active operator UUID %s, got %s", activeUUID, p.UUID)
+	}
+}
+
+func TestRevokeTokens(t *testing.T) {
+	r := tempDB(t)
+	uuid, _ := r.Register("operator", "geoff")
+	token, _ := r.GenerateToken(uuid)
+
+	err := r.RevokeTokens(uuid)
+	if err != nil {
+		t.Fatalf("RevokeTokens: %v", err)
+	}
+
+	_, err = r.ResolveToken(token)
+	if err == nil {
+		t.Fatal("expected error after revocation, got nil")
+	}
+}
+
+func TestHasActiveGovernance(t *testing.T) {
+	r := tempDB(t)
+
+	opUUID, _ := r.Register("operator", "admin", WithPermissions([]string{"*"}))
+	teamUUID, _ := r.Register("team", "sec", WithParent(opUUID))
+	agentUUID, _ := r.Register("agent", "scout", WithParent(teamUUID))
+
+	if !r.HasActiveGovernance(agentUUID) {
+		t.Fatal("agent with active operator in chain should have governance")
+	}
+
+	// Suspend operator — agent should lose governance.
+	r.Update(opUUID, map[string]interface{}{"status": "suspended"})
+	if r.HasActiveGovernance(agentUUID) {
+		t.Fatal("agent should lose governance when operator is suspended")
+	}
+}
+
+func TestHasActiveGovernanceNoParent(t *testing.T) {
+	r := tempDB(t)
+
+	agentUUID, _ := r.Register("agent", "orphan")
+	if r.HasActiveGovernance(agentUUID) {
+		t.Fatal("orphan agent with no parent should not have active governance")
+	}
+}
+
 func TestOpenCreatesFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "new-registry.db")
@@ -294,5 +392,53 @@ func TestOpenCreatesFile(t *testing.T) {
 	r.Close()
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		t.Error("expected DB file to be created")
+	}
+}
+
+func TestDefaultPermissionsOperator(t *testing.T) {
+	r := tempDB(t)
+	uuid, err := r.Register("operator", "admin")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	p, err := r.Resolve(uuid)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if !Permits(p.Permissions, "agent.write") {
+		t.Fatal("operator should default to * (covers everything)")
+	}
+}
+
+func TestDefaultPermissionsAgent(t *testing.T) {
+	r := tempDB(t)
+	uuid, err := r.Register("agent", "scout")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	p, err := r.Resolve(uuid)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if !Permits(p.Permissions, "knowledge.read") {
+		t.Fatal("agent should default to knowledge.read")
+	}
+	if Permits(p.Permissions, "agent.write") {
+		t.Fatal("agent should NOT have agent.write by default")
+	}
+}
+
+func TestExplicitEmptyPermissions(t *testing.T) {
+	r := tempDB(t)
+	uuid, err := r.Register("agent", "minimal", WithPermissions([]string{}))
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	p, err := r.Resolve(uuid)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(p.Permissions) != 0 {
+		t.Fatalf("explicit empty should stay empty, got %v", p.Permissions)
 	}
 }
