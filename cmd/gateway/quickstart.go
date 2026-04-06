@@ -649,21 +649,26 @@ func streamDemoResponse(client *apiclient.Client, baseURL, agentName, task strin
 	// Send the task
 	client.SendMessage(dmChannel, task)
 
-	// Listen for agent response with timeout
-	deadline := time.Now().Add(60 * time.Second)
+	// Listen for agent response with timeout.
+	// Recover from gorilla/websocket panics on failed connections.
+	defer func() {
+		if r := recover(); r != nil {
+			// WebSocket panic — swallow it, the caller handles the timeout fallback
+		}
+	}()
 
-	for time.Now().Before(deadline) {
+	deadline := time.Now().Add(60 * time.Second)
+	var connFailed bool
+
+	for time.Now().Before(deadline) && !connFailed {
 		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		_, msgBytes, err := conn.ReadMessage()
 		if err != nil {
-			// Distinguish timeout from fatal connection error
-			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-				break // connection closed cleanly
-			}
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				continue // read timeout, retry
 			}
-			break // fatal error, stop
+			connFailed = true
+			break // any other error — stop reading
 		}
 
 		var event map[string]interface{}
