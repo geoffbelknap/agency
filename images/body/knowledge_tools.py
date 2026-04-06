@@ -20,9 +20,32 @@ except ImportError:
 logger = logging.getLogger("agency.body.knowledge_tools")
 _http = httpx.Client(timeout=10)
 
+# Delimiters for enforcer-visible knowledge graph content tagging
+GRAPHRAG_START = "[KNOWLEDGE_GRAPH_CONTEXT]"
+GRAPHRAG_END = "[/KNOWLEDGE_GRAPH_CONTEXT]"
+
 # Ontology cache for kind validation
 _ontology_cache: Optional[dict] = None
 _ontology_mtime: float = 0.0
+
+
+def _tag_knowledge_content(content: str, results: list) -> str:
+    """Wrap knowledge graph content in delimiters for enforcer identification.
+
+    Extracts node IDs from results for provenance tracing and wraps the
+    content so the enforcer can distinguish knowledge-graph-sourced content
+    from other tool output.
+    """
+    if not content:
+        return content
+    node_ids = [n.get("id", "") for n in results if isinstance(n, dict)]
+    node_ids = [nid for nid in node_ids if nid]  # drop empties
+    tagged = f"{GRAPHRAG_START}\n"
+    if node_ids:
+        tagged += f"<!-- source_node_ids: {','.join(node_ids)} -->\n"
+    tagged += content
+    tagged += f"\n{GRAPHRAG_END}"
+    return tagged
 
 
 def _load_ontology() -> Optional[dict]:
@@ -315,7 +338,13 @@ def _query_knowledge(base_url: str, agent_name: str, args: dict) -> str:
             f"{base_url}/query",
             json={"query": args["query"], "agent": agent_name},
         )
-        return resp.text
+        # Parse results for provenance tagging
+        try:
+            data = resp.json()
+            results = data.get("results", data.get("nodes", []))
+        except Exception:
+            results = []
+        return _tag_knowledge_content(resp.text, results)
     except Exception as e:
         return json.dumps({"error": f"Knowledge query failed: {e}"})
 
@@ -326,7 +355,12 @@ def _who_knows_about(base_url: str, agent_name: str, args: dict) -> str:
             f"{base_url}/who-knows",
             params={"topic": args["topic"]},
         )
-        return resp.text
+        try:
+            data = resp.json()
+            results = data.get("results", data.get("experts", []))
+        except Exception:
+            results = []
+        return _tag_knowledge_content(resp.text, results)
     except Exception as e:
         return json.dumps({"error": f"Who-knows query failed: {e}"})
 
@@ -337,7 +371,12 @@ def _what_changed_since(base_url: str, agent_name: str, args: dict) -> str:
             f"{base_url}/changes",
             params={"since": args["since"]},
         )
-        return resp.text
+        try:
+            data = resp.json()
+            results = data.get("results", data.get("changes", []))
+        except Exception:
+            results = []
+        return _tag_knowledge_content(resp.text, results)
     except Exception as e:
         return json.dumps({"error": f"Changes query failed: {e}"})
 
@@ -348,7 +387,13 @@ def _get_context(base_url: str, agent_name: str, args: dict) -> str:
             f"{base_url}/context",
             params={"subject": args["subject"]},
         )
-        return resp.text
+        # Parse results for provenance tagging
+        try:
+            data = resp.json()
+            results = data.get("results", data.get("nodes", []))
+        except Exception:
+            results = []
+        return _tag_knowledge_content(resp.text, results)
     except Exception as e:
         return json.dumps({"error": f"Context query failed: {e}"})
 
@@ -438,6 +483,15 @@ def _query_graph(base_url: str, agent_name: str, args: dict) -> str:
             resp = _http.get(f"{base_url}/hubs", params=hub_params)
         else:
             return json.dumps({"error": f"unknown pattern: {pattern}"})
-        return resp.text
+        # Parse results for provenance tagging
+        try:
+            data = resp.json()
+            # Graph queries return nodes/neighbors/results depending on pattern
+            results = data.get("nodes", data.get("neighbors", data.get("results", [])))
+            if isinstance(results, dict):
+                results = [results]  # single-node get_entity returns a dict
+        except Exception:
+            results = []
+        return _tag_knowledge_content(resp.text, results)
     except Exception as e:
         return json.dumps({"error": f"Graph query failed: {e}"})

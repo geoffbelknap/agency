@@ -3280,6 +3280,149 @@ func adminCmd() *cobra.Command {
 	usageCmd.Flags().StringVar(&usageUntil, "until", "", "End time (ISO 8601 or YYYY-MM-DD)")
 	cmd.AddCommand(usageCmd)
 
+	// ── Routing optimizer commands ─────────────────────────────────────────
+	routingCmd := &cobra.Command{
+		Use: "routing", Short: "Routing optimizer — suggestions, approvals, stats",
+	}
+
+	routingCmd.AddCommand(&cobra.Command{
+		Use: "suggestions", Short: "List routing optimization suggestions",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			data, err := c.RoutingSuggestions()
+			if err != nil {
+				return err
+			}
+			var suggestions []map[string]interface{}
+			if err := json.Unmarshal(data, &suggestions); err != nil {
+				fmt.Println(string(data))
+				return nil
+			}
+			if len(suggestions) == 0 {
+				fmt.Println("  No routing suggestions.")
+				return nil
+			}
+			fmt.Printf("\n  %s\n\n", bold.Render("Routing Suggestions"))
+			for _, s := range suggestions {
+				id, _ := s["id"].(string)
+				status, _ := s["status"].(string)
+				taskType, _ := s["task_type"].(string)
+				current, _ := s["current_model"].(string)
+				suggested, _ := s["suggested_model"].(string)
+				reason, _ := s["reason"].(string)
+				savingsPct, _ := s["savings_percent"].(float64)
+
+				statusStyle := dim
+				switch status {
+				case "pending":
+					statusStyle = yellow
+				case "approved":
+					statusStyle = green
+				case "rejected":
+					statusStyle = red
+				}
+
+				fmt.Printf("  %s  %s\n", cyan.Render(id[:8]), statusStyle.Render("["+status+"]"))
+				fmt.Printf("    Task: %s\n", taskType)
+				fmt.Printf("    %s → %s  (%.0f%% savings)\n", current, green.Render(suggested), savingsPct*100)
+				fmt.Printf("    %s\n\n", dim.Render(reason))
+			}
+			return nil
+		},
+	})
+
+	routingCmd.AddCommand(&cobra.Command{
+		Use: "approve <suggestion-id>", Short: "Approve a routing suggestion",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			data, err := c.RoutingApprove(args[0])
+			if err != nil {
+				return err
+			}
+			var result map[string]interface{}
+			if err := json.Unmarshal(data, &result); err != nil {
+				fmt.Println(string(data))
+				return nil
+			}
+			fmt.Printf("  %s Suggestion %s approved.\n", green.Render("✓"), args[0][:8])
+			if taskType, ok := result["task_type"].(string); ok {
+				if model, ok := result["suggested_model"].(string); ok {
+					fmt.Printf("  Override written: %s → %s\n", taskType, green.Render(model))
+				}
+			}
+			return nil
+		},
+	})
+
+	routingCmd.AddCommand(&cobra.Command{
+		Use: "reject <suggestion-id>", Short: "Reject a routing suggestion",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			_, err = c.RoutingReject(args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Printf("  %s Suggestion %s rejected.\n", green.Render("✓"), args[0][:8])
+			return nil
+		},
+	})
+
+	var statsTaskType string
+	statsCmd := &cobra.Command{
+		Use: "stats", Short: "Per-model per-task-type routing statistics",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			data, err := c.RoutingStats(statsTaskType)
+			if err != nil {
+				return err
+			}
+			var stats []map[string]interface{}
+			if err := json.Unmarshal(data, &stats); err != nil {
+				fmt.Println(string(data))
+				return nil
+			}
+			if len(stats) == 0 {
+				fmt.Println("  No routing statistics yet.")
+				return nil
+			}
+			fmt.Printf("\n  %s\n\n", bold.Render("Routing Statistics"))
+			fmt.Printf("  %-20s %-25s %6s %8s %10s %10s\n",
+				"Task Type", "Model", "Calls", "Success", "Avg Lat", "Cost/1K")
+			fmt.Printf("  %-20s %-25s %6s %8s %10s %10s\n",
+				"─────────", "─────", "─────", "───────", "───────", "───────")
+			for _, s := range stats {
+				taskType, _ := s["task_type"].(string)
+				model, _ := s["model"].(string)
+				calls, _ := s["total_calls"].(float64)
+				success, _ := s["success_rate"].(float64)
+				latency, _ := s["avg_latency_ms"].(float64)
+				costPer1K, _ := s["cost_per_1k"].(float64)
+				fmt.Printf("  %-20s %-25s %6d %7.0f%% %8.0fms $%8.4f\n",
+					taskType, model, int(calls), success*100, latency, costPer1K)
+			}
+			fmt.Println()
+			return nil
+		},
+	}
+	statsCmd.Flags().StringVar(&statsTaskType, "task-type", "", "Filter by task type")
+	routingCmd.AddCommand(statsCmd)
+
+	cmd.AddCommand(routingCmd)
+
 	trustCmd := &cobra.Command{
 		Use: "trust [action]", Short: "Trust calibration", Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

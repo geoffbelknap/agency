@@ -25,6 +25,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/orchestrate/containers"
 	"github.com/geoffbelknap/agency/internal/pkg/envfile"
 	"github.com/geoffbelknap/agency/internal/registry"
+	"github.com/geoffbelknap/agency/internal/routing"
 	"github.com/geoffbelknap/agency/internal/services"
 )
 
@@ -121,6 +122,7 @@ type Infra struct {
 	GatewayToken  string // full auth token from config.yaml
 	EgressToken   string // scoped token for egress credential resolution
 	Registry     *registry.Registry
+	Optimizer    *routing.RoutingOptimizer
 	Docker       *agencyDocker.Client
 	cli        *client.Client
 	log        *log.Logger
@@ -204,6 +206,9 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 
 	// Merge ontology (base + extensions) on startup
 	inf.mergeOntology()
+
+	// Write default classification config if it doesn't exist
+	inf.ensureDefaultClassification()
 
 	progress("networks", "Creating Docker networks")
 	if err := inf.ensureNetworks(ctx); err != nil {
@@ -1115,6 +1120,17 @@ func (inf *Infra) ensureSystemChannels(ctx context.Context) error {
 		}
 	}
 
+	// Register default classification roles so they exist in the principal registry.
+	if inf.Registry != nil {
+		for _, roleName := range []string{"internal", "restricted", "confidential"} {
+			if _, regErr := inf.Registry.Register("role", roleName); regErr != nil {
+				if !strings.Contains(regErr.Error(), "UNIQUE constraint") {
+					inf.log.Warn("registry: register classification role", "role", roleName, "err", regErr)
+				}
+			}
+		}
+	}
+
 	if err := inf.WriteRegistrySnapshot(); err != nil {
 		inf.log.Warn("write registry snapshot", "err", err)
 	}
@@ -1334,6 +1350,40 @@ func enforceAuditDirPerms(root string) error {
 		}
 		return nil
 	})
+}
+
+// ensureDefaultClassification writes the default classification.yaml if it doesn't exist.
+func (inf *Infra) ensureDefaultClassification() {
+	classificationPath := filepath.Join(inf.Home, "knowledge", "classification.yaml")
+	if _, err := os.Stat(classificationPath); os.IsNotExist(err) {
+		defaultConfig := `version: 1
+tiers:
+  public:
+    description: "No access restrictions"
+    scope: {}
+  internal:
+    description: "Any registered principal"
+    scope:
+      principals: ["role:internal"]
+  restricted:
+    description: "Limited access"
+    scope:
+      principals: ["role:restricted"]
+  confidential:
+    description: "Need-to-know only"
+    scope:
+      principals: ["role:confidential"]
+`
+		if err := os.MkdirAll(filepath.Dir(classificationPath), 0755); err != nil {
+			inf.log.Warn("classification config: mkdir failed", "err", err)
+			return
+		}
+		if err := os.WriteFile(classificationPath, []byte(defaultConfig), 0644); err != nil {
+			inf.log.Warn("classification config: write failed", "err", err)
+			return
+		}
+		inf.log.Info("wrote default classification config", "path", classificationPath)
+	}
 }
 
 // mergeOntology loads the base ontology + extensions and writes the merged result.
