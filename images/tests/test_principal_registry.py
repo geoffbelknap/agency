@@ -6,7 +6,10 @@ import uuid
 
 import pytest
 
-from knowledge.principal_registry import PrincipalRegistry
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "knowledge"))
+from principal_registry import PrincipalRegistry
 
 
 @pytest.fixture
