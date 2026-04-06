@@ -213,6 +213,45 @@ func (p *Proxy) ResolvePrincipal(ctx context.Context, uuid string) ([]byte, erro
 	return p.get(ctx, "/principals/"+urlEncode(uuid))
 }
 
+// Quarantine quarantines knowledge contributed by an agent, optionally since a timestamp.
+// ASK tenet 16: quarantine is immediate, silent, and complete.
+func (p *Proxy) Quarantine(ctx context.Context, agent, since string) (json.RawMessage, error) {
+	body := map[string]string{"agent": agent}
+	if since != "" {
+		body["since"] = since
+	}
+	b, err := p.post(ctx, "/quarantine", body)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(b), nil
+}
+
+// QuarantineRelease releases quarantined nodes by node ID or agent name.
+func (p *Proxy) QuarantineRelease(ctx context.Context, nodeID, agent string) (json.RawMessage, error) {
+	body := map[string]string{}
+	if nodeID != "" {
+		body["node_id"] = nodeID
+	}
+	if agent != "" {
+		body["agent"] = agent
+	}
+	b, err := p.post(ctx, "/quarantine/release", body)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(b), nil
+}
+
+// QuarantineList lists quarantined nodes, optionally filtered by agent.
+func (p *Proxy) QuarantineList(ctx context.Context, agent string) (json.RawMessage, error) {
+	path := "/quarantine"
+	if agent != "" {
+		path += "?agent=" + urlEncode(agent)
+	}
+	return p.getRaw(ctx, path)
+}
+
 // URLEncode is an exported helper for URL-encoding query parameter values.
 func URLEncode(s string) string {
 	return urlEncode(s)

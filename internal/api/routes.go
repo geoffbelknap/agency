@@ -288,6 +288,11 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Post("/knowledge/ontology/validate", h.knowledgeOntologyValidate)
 		r.Post("/knowledge/ontology/migrate", h.knowledgeOntologyMigrate)
 
+		// Knowledge quarantine (ASK tenet 16)
+		r.Post("/knowledge/quarantine", h.knowledgeQuarantine)
+		r.Post("/knowledge/quarantine/release", h.knowledgeQuarantineRelease)
+		r.Get("/knowledge/quarantine", h.knowledgeQuarantineList)
+
 		// Knowledge communities & hubs
 		r.Get("/knowledge/communities", h.knowledgeCommunities)
 		r.Get("/knowledge/communities/{id}", h.knowledgeCommunity)

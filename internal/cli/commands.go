@@ -3573,6 +3573,81 @@ Also available as top-level: agency knowledge {query|who-knows|stats}`,
 			return nil
 		},
 	})
+	// agency admin knowledge quarantine
+	quarantineCmd := &cobra.Command{
+		Use:   "quarantine",
+		Short: "Quarantine knowledge contributed by an agent",
+		Long:  `Quarantine all knowledge nodes contributed by an agent. ASK tenet 16: quarantine is immediate, silent, and complete.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			agent, _ := cmd.Flags().GetString("agent")
+			if agent == "" {
+				return fmt.Errorf("--agent is required")
+			}
+			since, _ := cmd.Flags().GetString("since")
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.KnowledgeQuarantine(agent, since)
+			if err != nil {
+				return err
+			}
+			prettyPrint(result)
+			return nil
+		},
+	}
+	quarantineCmd.Flags().String("agent", "", "Agent name (required)")
+	quarantineCmd.Flags().String("since", "", "Only quarantine nodes created since this timestamp")
+	knowledgeAdminCmd.AddCommand(quarantineCmd)
+
+	// agency admin knowledge quarantine-release
+	quarantineReleaseCmd := &cobra.Command{
+		Use:   "quarantine-release",
+		Short: "Release quarantined knowledge nodes",
+		Long:  `Release quarantined nodes by node ID or by agent name.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			nodeID, _ := cmd.Flags().GetString("node")
+			agent, _ := cmd.Flags().GetString("agent")
+			if nodeID == "" && agent == "" {
+				return fmt.Errorf("--node or --agent is required")
+			}
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.KnowledgeQuarantineRelease(nodeID, agent)
+			if err != nil {
+				return err
+			}
+			prettyPrint(result)
+			return nil
+		},
+	}
+	quarantineReleaseCmd.Flags().String("node", "", "Node ID to release")
+	quarantineReleaseCmd.Flags().String("agent", "", "Release all quarantined nodes for this agent")
+	knowledgeAdminCmd.AddCommand(quarantineReleaseCmd)
+
+	// agency admin knowledge quarantine-list
+	quarantineListCmd := &cobra.Command{
+		Use:   "quarantine-list",
+		Short: "List quarantined knowledge nodes",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			agent, _ := cmd.Flags().GetString("agent")
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.KnowledgeQuarantineList(agent)
+			if err != nil {
+				return err
+			}
+			prettyPrint(result)
+			return nil
+		},
+	}
+	quarantineListCmd.Flags().String("agent", "", "Filter by agent name")
+	knowledgeAdminCmd.AddCommand(quarantineListCmd)
+
 	knowledgeAdminCmd.AddCommand(ontologyCmd)
 	knowledgeAdminCmd.AddCommand(&cobra.Command{
 		Use:   "curate",

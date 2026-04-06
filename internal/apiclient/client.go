@@ -838,6 +838,41 @@ func (c *Client) AdminKnowledge(action string, args map[string]string) (map[stri
 	return result, err
 }
 
+// ── Knowledge quarantine ───────────────────────────────────────────────────
+
+func (c *Client) KnowledgeQuarantine(agent, since string) (map[string]interface{}, error) {
+	body := map[string]string{"agent": agent}
+	if since != "" {
+		body["since"] = since
+	}
+	var result map[string]interface{}
+	err := c.PostJSON("/api/v1/knowledge/quarantine", body, &result)
+	return result, err
+}
+
+func (c *Client) KnowledgeQuarantineRelease(nodeID, agent string) (map[string]interface{}, error) {
+	body := map[string]string{}
+	if nodeID != "" {
+		body["node_id"] = nodeID
+	}
+	if agent != "" {
+		body["agent"] = agent
+	}
+	var result map[string]interface{}
+	err := c.PostJSON("/api/v1/knowledge/quarantine/release", body, &result)
+	return result, err
+}
+
+func (c *Client) KnowledgeQuarantineList(agent string) (map[string]interface{}, error) {
+	path := "/api/v1/knowledge/quarantine"
+	if agent != "" {
+		path += "?agent=" + url.QueryEscape(agent)
+	}
+	var result map[string]interface{}
+	err := c.GetJSON(path, &result)
+	return result, err
+}
+
 func (c *Client) AdminDepartment(action string, args map[string]string) (map[string]interface{}, error) {
 	body := map[string]interface{}{"action": action, "args": args}
 	var result map[string]interface{}

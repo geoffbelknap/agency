@@ -965,6 +965,69 @@ func (h *handler) knowledgeCurationLog(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
+// ── Knowledge quarantine (ASK tenet 16) ────────────────────────────────────
+
+func (h *handler) knowledgeQuarantine(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Agent string `json:"agent"`
+		Since string `json:"since"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if body.Agent == "" {
+		writeJSON(w, 400, map[string]string{"error": "agent required"})
+		return
+	}
+	proxy := knowledge.NewProxy()
+	data, err := proxy.Quarantine(r.Context(), body.Agent, body.Since)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+func (h *handler) knowledgeQuarantineRelease(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		NodeID string `json:"node_id"`
+		Agent  string `json:"agent"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if body.NodeID == "" && body.Agent == "" {
+		writeJSON(w, 400, map[string]string{"error": "node_id or agent required"})
+		return
+	}
+	proxy := knowledge.NewProxy()
+	data, err := proxy.QuarantineRelease(r.Context(), body.NodeID, body.Agent)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+func (h *handler) knowledgeQuarantineList(w http.ResponseWriter, r *http.Request) {
+	agent := r.URL.Query().Get("agent")
+	proxy := knowledge.NewProxy()
+	data, err := proxy.QuarantineList(r.Context(), agent)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
 func (h *handler) knowledgeCommunities(w http.ResponseWriter, r *http.Request) {
 	proxy := knowledge.NewProxy()
 	data, err := proxy.Communities(r.Context())
