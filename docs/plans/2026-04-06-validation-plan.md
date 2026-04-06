@@ -197,5 +197,10 @@ Open `http://localhost:8280`
 | Enforcer rejects all calls when capabilities empty | **Fixed** — backward compat | #27 |
 | Quickstart demo WebSocket panic | **Fixed** — recover() | #25, #26 |
 | Tests open browser (example.com) | **Fixed** — stub openBrowser | agency-relay |
-| Egress CA cert not generated on clean install | **OPEN** — next session | — |
+| Egress CA cert not generated on clean install | **Fixed** — pre-generate in RunInit | #33 |
+| Docker build context `archive/tar: write too long` | **Fixed** — .dockerignore support in createTar | #33 |
+| Credentials not stored when gateway already running | **Fixed** — store before if/else | #33 |
+| Key resolver TCP fallback gated on non-empty token | **Fixed** — allow TCP without token | #33 |
+| Daemon token lifecycle — stale empty tokens | **Fixed** — always restart daemon after RunInit | #33 |
+| Body budget check uses wrong enforcer port | **Fixed** — port 8081 (constraint) not 3128 (LLM proxy) | #33 |
 | DM channel not auto-created on fresh agent | **Needs investigation** | — |
