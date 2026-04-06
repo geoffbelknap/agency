@@ -383,3 +383,426 @@ class TestMarkdownExtractorMetadata:
         content = "# Hello\nWorld\n"
         result = ext.extract(content)
         assert result.raw_content == content
+
+
+# ---------------------------------------------------------------------------
+# StructuredExtractor
+# ---------------------------------------------------------------------------
+
+from ingestion.extractors.structured import StructuredExtractor
+
+
+class TestStructuredExtractorCanHandle:
+    """StructuredExtractor accepts any text/* content type."""
+
+    def setup_method(self):
+        self.ext = StructuredExtractor()
+
+    def test_name(self):
+        assert self.ext.name == "structured"
+
+    def test_handles_text_plain(self):
+        assert self.ext.can_handle("text/plain") is True
+
+    def test_handles_text_html(self):
+        assert self.ext.can_handle("text/html") is True
+
+    def test_handles_text_markdown(self):
+        assert self.ext.can_handle("text/markdown") is True
+
+    def test_handles_text_csv(self):
+        assert self.ext.can_handle("text/csv") is True
+
+    def test_rejects_application_json(self):
+        assert self.ext.can_handle("application/json") is False
+
+    def test_rejects_image_png(self):
+        assert self.ext.can_handle("image/png") is False
+
+
+class TestStructuredExtractorIPv4:
+    """IPv4 address extraction."""
+
+    def setup_method(self):
+        self.ext = StructuredExtractor()
+
+    def test_single_ip(self):
+        result = self.ext.extract("Found host at 192.168.1.1 in scan")
+        labels = [n["label"] for n in result.nodes]
+        assert "192.168.1.1" in labels
+
+    def test_ip_node_kind_is_indicator(self):
+        result = self.ext.extract("Host 10.0.0.1 responded")
+        node = next(n for n in result.nodes if n["label"] == "10.0.0.1")
+        assert node["kind"] == "indicator"
+
+    def test_private_ip_detected(self):
+        result = self.ext.extract("Internal: 192.168.0.5")
+        node = next(n for n in result.nodes if n["label"] == "192.168.0.5")
+        assert node["properties"]["visibility"] == "private"
+
+    def test_public_ip_detected(self):
+        result = self.ext.extract("External: 8.8.8.8")
+        node = next(n for n in result.nodes if n["label"] == "8.8.8.8")
+        assert node["properties"]["visibility"] == "public"
+
+    def test_multiple_ips(self):
+        result = self.ext.extract("Hosts: 10.0.0.1, 10.0.0.2, 8.8.4.4")
+        labels = [n["label"] for n in result.nodes if n["kind"] == "indicator"]
+        assert len(labels) == 3
+
+    def test_invalid_octet_rejected(self):
+        result = self.ext.extract("Not an IP: 999.999.999.999")
+        ip_nodes = [n for n in result.nodes if n["kind"] == "indicator"]
+        assert len(ip_nodes) == 0
+
+    def test_octet_256_rejected(self):
+        result = self.ext.extract("Edge case: 192.168.1.256")
+        ip_nodes = [n for n in result.nodes if n["kind"] == "indicator"]
+        assert len(ip_nodes) == 0
+
+
+class TestStructuredExtractorCVE:
+    """CVE ID extraction."""
+
+    def setup_method(self):
+        self.ext = StructuredExtractor()
+
+    def test_single_cve(self):
+        result = self.ext.extract("Patched CVE-2024-12345 in latest release")
+        labels = [n["label"] for n in result.nodes]
+        assert "CVE-2024-12345" in labels
+
+    def test_cve_node_kind_is_vulnerability(self):
+        result = self.ext.extract("CVE-2023-44487 is critical")
+        node = next(n for n in result.nodes if n["label"] == "CVE-2023-44487")
+        assert node["kind"] == "vulnerability"
+
+    def test_five_digit_cve(self):
+        result = self.ext.extract("See CVE-2021-44228 (Log4Shell)")
+        labels = [n["label"] for n in result.nodes]
+        assert "CVE-2021-44228" in labels
+
+    def test_multiple_cves(self):
+        result = self.ext.extract("CVE-2024-0001 and CVE-2024-0002 found")
+        cve_nodes = [n for n in result.nodes if n["kind"] == "vulnerability"]
+        assert len(cve_nodes) == 2
+
+
+class TestStructuredExtractorURL:
+    """URL extraction."""
+
+    def setup_method(self):
+        self.ext = StructuredExtractor()
+
+    def test_https_url(self):
+        result = self.ext.extract("Visit https://example.com/path")
+        labels = [n["label"] for n in result.nodes]
+        assert "https://example.com/path" in labels
+
+    def test_http_url(self):
+        result = self.ext.extract("Found http://internal.corp/api")
+        labels = [n["label"] for n in result.nodes]
+        assert "http://internal.corp/api" in labels
+
+    def test_url_node_kind(self):
+        result = self.ext.extract("See https://docs.example.com")
+        node = next(n for n in result.nodes if n["label"] == "https://docs.example.com")
+        assert node["kind"] == "url"
+
+    def test_url_with_query_params(self):
+        result = self.ext.extract("https://api.example.com/v1?key=val&foo=bar")
+        labels = [n["label"] for n in result.nodes]
+        assert "https://api.example.com/v1?key=val&foo=bar" in labels
+
+
+class TestStructuredExtractorEmail:
+    """Email address extraction."""
+
+    def setup_method(self):
+        self.ext = StructuredExtractor()
+
+    def test_single_email(self):
+        result = self.ext.extract("Contact admin@example.com for access")
+        labels = [n["label"] for n in result.nodes]
+        assert "admin@example.com" in labels
+
+    def test_email_node_kind_is_contact(self):
+        result = self.ext.extract("Owner: ops@corp.io")
+        node = next(n for n in result.nodes if n["label"] == "ops@corp.io")
+        assert node["kind"] == "contact"
+
+    def test_complex_email(self):
+        result = self.ext.extract("Send to first.last+tag@sub.domain.org")
+        labels = [n["label"] for n in result.nodes]
+        assert "first.last+tag@sub.domain.org" in labels
+
+
+class TestStructuredExtractorHTTPStatus:
+    """HTTP status code extraction as properties."""
+
+    def setup_method(self):
+        self.ext = StructuredExtractor()
+
+    def test_http_status_in_metadata(self):
+        result = self.ext.extract("Got HTTP 403 from server")
+        assert "403" in result.metadata.get("http_status_codes", [])
+
+    def test_status_code_pattern(self):
+        result = self.ext.extract("status 500 returned")
+        assert "500" in result.metadata.get("http_status_codes", [])
+
+    def test_error_code_pattern(self):
+        result = self.ext.extract("Server returned 404 Not Found")
+        assert "404" in result.metadata.get("http_status_codes", [])
+
+
+class TestStructuredExtractorDeduplication:
+    """Duplicate entities are extracted only once."""
+
+    def setup_method(self):
+        self.ext = StructuredExtractor()
+
+    def test_duplicate_ips(self):
+        result = self.ext.extract("10.0.0.1 then 10.0.0.1 again 10.0.0.1")
+        ip_nodes = [n for n in result.nodes if n["label"] == "10.0.0.1"]
+        assert len(ip_nodes) == 1
+
+    def test_duplicate_cves(self):
+        result = self.ext.extract("CVE-2024-1234 is CVE-2024-1234")
+        cve_nodes = [n for n in result.nodes if n["label"] == "CVE-2024-1234"]
+        assert len(cve_nodes) == 1
+
+    def test_duplicate_urls(self):
+        result = self.ext.extract("https://a.com then https://a.com")
+        url_nodes = [n for n in result.nodes if n["label"] == "https://a.com"]
+        assert len(url_nodes) == 1
+
+    def test_duplicate_emails(self):
+        result = self.ext.extract("a@b.com and a@b.com")
+        email_nodes = [n for n in result.nodes if n["label"] == "a@b.com"]
+        assert len(email_nodes) == 1
+
+
+class TestStructuredExtractorResult:
+    """Result-level properties."""
+
+    def setup_method(self):
+        self.ext = StructuredExtractor()
+
+    def test_needs_synthesis_always_true(self):
+        result = self.ext.extract("Just some text with 10.0.0.1")
+        assert result.needs_synthesis is True
+
+    def test_needs_synthesis_true_even_empty(self):
+        result = self.ext.extract("No entities here")
+        assert result.needs_synthesis is True
+
+    def test_source_type_is_structured(self):
+        result = self.ext.extract("data")
+        assert result.source_type == "structured"
+
+    def test_raw_content_preserved(self):
+        text = "Found CVE-2024-9999 at 10.0.0.1"
+        result = self.ext.extract(text)
+        assert result.raw_content == text
+
+    def test_metadata_passed_through(self):
+        result = self.ext.extract("text", metadata={"tool": "nmap"})
+        assert result.metadata["tool"] == "nmap"
+
+
+# ---------------------------------------------------------------------------
+# ConfigExtractor
+# ---------------------------------------------------------------------------
+
+from ingestion.extractors.config import ConfigExtractor
+
+
+class TestConfigExtractorCanHandle:
+    """ConfigExtractor.can_handle for various content types."""
+
+    def test_handles_application_yaml(self):
+        ext = ConfigExtractor()
+        assert ext.can_handle("application/yaml") is True
+
+    def test_handles_application_json(self):
+        ext = ConfigExtractor()
+        assert ext.can_handle("application/json") is True
+
+    def test_handles_application_toml(self):
+        ext = ConfigExtractor()
+        assert ext.can_handle("application/toml") is True
+
+    def test_rejects_text_plain(self):
+        ext = ConfigExtractor()
+        assert ext.can_handle("text/plain") is False
+
+    def test_rejects_text_markdown(self):
+        ext = ConfigExtractor()
+        assert ext.can_handle("text/markdown") is False
+
+    def test_name_is_config(self):
+        ext = ConfigExtractor()
+        assert ext.name == "config"
+
+    def test_handles_yaml_by_filename(self):
+        ext = ConfigExtractor()
+        assert ext.can_handle("application/octet-stream", "config.yaml") is True
+
+    def test_handles_yml_by_filename(self):
+        ext = ConfigExtractor()
+        assert ext.can_handle("application/octet-stream", "config.yml") is True
+
+    def test_handles_json_by_filename(self):
+        ext = ConfigExtractor()
+        assert ext.can_handle("application/octet-stream", "settings.json") is True
+
+    def test_handles_toml_by_filename(self):
+        ext = ConfigExtractor()
+        assert ext.can_handle("application/octet-stream", "pyproject.toml") is True
+
+
+class TestConfigExtractorYAML:
+    """YAML key extraction."""
+
+    def test_top_level_keys_become_nodes(self):
+        ext = ConfigExtractor()
+        result = ext.extract("name: myapp\nversion: 1.0\n", metadata={"content_type": "application/yaml"})
+        labels = [n["label"] for n in result.nodes if n["kind"] == "config_item"]
+        assert "name" in labels
+        assert "version" in labels
+
+    def test_nested_keys_create_part_of_edges(self):
+        ext = ConfigExtractor()
+        content = "database:\n  host: localhost\n  port: 5432\n"
+        result = ext.extract(content, metadata={"content_type": "application/yaml"})
+        part_of = [e for e in result.edges if e["relation"] == "part_of"]
+        assert len(part_of) >= 2
+        host_edge = [e for e in part_of if e["source_label"] == "database.host"]
+        assert host_edge[0]["target_label"] == "database"
+
+    def test_source_type_is_config(self):
+        ext = ConfigExtractor()
+        result = ext.extract("key: val\n", metadata={"content_type": "application/yaml"})
+        assert result.source_type == "config"
+
+
+class TestConfigExtractorJSON:
+    """JSON key extraction."""
+
+    def test_top_level_keys_become_nodes(self):
+        ext = ConfigExtractor()
+        result = ext.extract('{"name": "myapp", "version": "1.0"}', metadata={"content_type": "application/json"})
+        labels = [n["label"] for n in result.nodes if n["kind"] == "config_item"]
+        assert "name" in labels
+        assert "version" in labels
+
+    def test_nested_keys_create_part_of_edges(self):
+        ext = ConfigExtractor()
+        content = '{"database": {"host": "localhost", "port": 5432}}'
+        result = ext.extract(content, metadata={"content_type": "application/json"})
+        part_of = [e for e in result.edges if e["relation"] == "part_of"]
+        host_edge = [e for e in part_of if e["source_label"] == "database.host"]
+        assert len(host_edge) == 1
+        assert host_edge[0]["target_label"] == "database"
+
+
+class TestConfigExtractorNeedsSynthesis:
+    """Config extractor always sets needs_synthesis=False."""
+
+    def test_yaml_needs_synthesis_false(self):
+        ext = ConfigExtractor()
+        result = ext.extract("key: val\n", metadata={"content_type": "application/yaml"})
+        assert result.needs_synthesis is False
+
+    def test_json_needs_synthesis_false(self):
+        ext = ConfigExtractor()
+        result = ext.extract('{"key": "val"}', metadata={"content_type": "application/json"})
+        assert result.needs_synthesis is False
+
+
+class TestConfigExtractorURLs:
+    """URL values produce url nodes."""
+
+    def test_url_value_creates_url_node(self):
+        ext = ConfigExtractor()
+        content = "api_base: https://api.example.com/v1\n"
+        result = ext.extract(content, metadata={"content_type": "application/yaml"})
+        urls = [n for n in result.nodes if n["kind"] == "url"]
+        assert len(urls) == 1
+        assert urls[0]["label"] == "https://api.example.com/v1"
+
+    def test_multiple_urls_extracted(self):
+        ext = ConfigExtractor()
+        content = '{"primary": "https://a.com", "secondary": "https://b.com"}'
+        result = ext.extract(content, metadata={"content_type": "application/json"})
+        urls = [n for n in result.nodes if n["kind"] == "url"]
+        assert len(urls) == 2
+
+    def test_non_url_string_no_url_node(self):
+        ext = ConfigExtractor()
+        content = "name: myapp\n"
+        result = ext.extract(content, metadata={"content_type": "application/yaml"})
+        urls = [n for n in result.nodes if n["kind"] == "url"]
+        assert len(urls) == 0
+
+
+class TestConfigExtractorNestedStructure:
+    """Deeply nested structure edges."""
+
+    def test_three_levels_deep(self):
+        ext = ConfigExtractor()
+        content = "a:\n  b:\n    c: val\n"
+        result = ext.extract(content, metadata={"content_type": "application/yaml"})
+        part_of = [e for e in result.edges if e["relation"] == "part_of"]
+        c_edge = [e for e in part_of if e["source_label"] == "a.b.c"]
+        assert c_edge[0]["target_label"] == "a.b"
+        b_edge = [e for e in part_of if e["source_label"] == "a.b"]
+        assert b_edge[0]["target_label"] == "a"
+
+    def test_list_values_do_not_create_child_nodes(self):
+        ext = ConfigExtractor()
+        content = "tags:\n  - alpha\n  - beta\n"
+        result = ext.extract(content, metadata={"content_type": "application/yaml"})
+        labels = [n["label"] for n in result.nodes if n["kind"] == "config_item"]
+        assert "tags" in labels
+        assert len(labels) == 1
+
+
+class TestConfigExtractorParseErrors:
+    """Graceful handling of parse errors."""
+
+    def test_invalid_yaml_returns_empty_result(self):
+        ext = ConfigExtractor()
+        result = ext.extract("{{invalid yaml", metadata={"content_type": "application/yaml"})
+        assert result.nodes == []
+        assert result.edges == []
+        assert "error" in result.metadata
+
+    def test_invalid_json_returns_empty_result(self):
+        ext = ConfigExtractor()
+        result = ext.extract("{bad json", metadata={"content_type": "application/json"})
+        assert result.nodes == []
+        assert "error" in result.metadata
+
+
+class TestConfigExtractorTOML:
+    """TOML parsing."""
+
+    def test_toml_top_level_keys(self):
+        ext = ConfigExtractor()
+        content = 'name = "myapp"\nversion = "1.0"\n'
+        result = ext.extract(content, metadata={"content_type": "application/toml"})
+        labels = [n["label"] for n in result.nodes if n["kind"] == "config_item"]
+        assert "name" in labels
+        assert "version" in labels
+
+    def test_toml_nested_table(self):
+        ext = ConfigExtractor()
+        content = '[database]\nhost = "localhost"\nport = 5432\n'
+        result = ext.extract(content, metadata={"content_type": "application/toml"})
+        part_of = [e for e in result.edges if e["relation"] == "part_of"]
+        host_edge = [e for e in part_of if e["source_label"] == "database.host"]
+        assert len(host_edge) == 1
+        assert host_edge[0]["target_label"] == "database"
