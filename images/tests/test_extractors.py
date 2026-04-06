@@ -210,3 +210,176 @@ class TestBaseExtractor:
     def test_cannot_instantiate_abc_directly(self):
         with pytest.raises(TypeError):
             BaseExtractor()
+
+
+# ---------------------------------------------------------------------------
+# MarkdownExtractor
+# ---------------------------------------------------------------------------
+
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "knowledge"))
+from ingestion.extractors.markdown import MarkdownExtractor
+
+
+class TestMarkdownExtractorCanHandle:
+    """MarkdownExtractor.can_handle for various content types."""
+
+    def test_handles_text_markdown(self):
+        ext = MarkdownExtractor()
+        assert ext.can_handle("text/markdown") is True
+
+    def test_handles_text_plain(self):
+        ext = MarkdownExtractor()
+        assert ext.can_handle("text/plain") is True
+
+    def test_rejects_application_json(self):
+        ext = MarkdownExtractor()
+        assert ext.can_handle("application/json") is False
+
+    def test_rejects_text_html(self):
+        ext = MarkdownExtractor()
+        assert ext.can_handle("text/html") is False
+
+    def test_name_is_markdown(self):
+        ext = MarkdownExtractor()
+        assert ext.name == "markdown"
+
+
+class TestMarkdownExtractorHeadings:
+    """Heading extraction produces concept nodes."""
+
+    def test_single_heading(self):
+        ext = MarkdownExtractor()
+        result = ext.extract("# Overview\n")
+        concepts = [n for n in result.nodes if n["kind"] == "concept"]
+        assert len(concepts) == 1
+        assert concepts[0]["label"] == "Overview"
+
+    def test_multiple_headings(self):
+        ext = MarkdownExtractor()
+        result = ext.extract("# Top\n## Sub\n### Deep\n")
+        concepts = [n for n in result.nodes if n["kind"] == "concept"]
+        assert len(concepts) == 3
+
+    def test_heading_level_in_properties(self):
+        ext = MarkdownExtractor()
+        result = ext.extract("## Details\n")
+        concepts = [n for n in result.nodes if n["kind"] == "concept"]
+        assert concepts[0]["properties"]["level"] == 2
+
+
+class TestMarkdownExtractorHierarchy:
+    """Parent-child heading relationships produce part_of edges."""
+
+    def test_h2_under_h1_creates_part_of_edge(self):
+        ext = MarkdownExtractor()
+        result = ext.extract("# Parent\n## Child\n")
+        part_of = [e for e in result.edges if e["relation"] == "part_of"]
+        assert len(part_of) == 1
+        assert part_of[0]["source_label"] == "Child"
+        assert part_of[0]["target_label"] == "Parent"
+
+    def test_h3_under_h2_creates_part_of_edge(self):
+        ext = MarkdownExtractor()
+        result = ext.extract("# Top\n## Mid\n### Bottom\n")
+        part_of = [e for e in result.edges if e["relation"] == "part_of"]
+        assert len(part_of) == 2
+        bottom_edge = [e for e in part_of if e["source_label"] == "Bottom"]
+        assert bottom_edge[0]["target_label"] == "Mid"
+
+    def test_sibling_headings_no_edge_between_them(self):
+        ext = MarkdownExtractor()
+        result = ext.extract("# Top\n## A\n## B\n")
+        part_of = [e for e in result.edges if e["relation"] == "part_of"]
+        # Both A and B are children of Top
+        assert all(e["target_label"] == "Top" for e in part_of)
+        assert len(part_of) == 2
+
+
+class TestMarkdownExtractorLinks:
+    """Markdown links to .md files produce relates_to edges."""
+
+    def test_md_link_creates_relates_to_edge(self):
+        ext = MarkdownExtractor()
+        result = ext.extract("# Intro\nSee [other doc](other.md) for details.\n")
+        relates = [e for e in result.edges if e["relation"] == "relates_to"]
+        assert len(relates) == 1
+        assert relates[0]["target_label"] == "other.md"
+
+    def test_non_md_link_no_relates_to_edge(self):
+        ext = MarkdownExtractor()
+        result = ext.extract("# Intro\nSee [site](https://example.com) for details.\n")
+        relates = [e for e in result.edges if e["relation"] == "relates_to"]
+        assert len(relates) == 0
+
+
+class TestMarkdownExtractorURLs:
+    """URL extraction produces url nodes."""
+
+    def test_bare_url_creates_url_node(self):
+        ext = MarkdownExtractor()
+        result = ext.extract("Visit https://example.com for info.\n")
+        urls = [n for n in result.nodes if n["kind"] == "url"]
+        assert len(urls) == 1
+        assert urls[0]["label"] == "https://example.com"
+
+    def test_url_in_link_creates_url_node(self):
+        ext = MarkdownExtractor()
+        result = ext.extract("[Example](https://example.com/page)\n")
+        urls = [n for n in result.nodes if n["kind"] == "url"]
+        assert len(urls) == 1
+        assert urls[0]["label"] == "https://example.com/page"
+
+    def test_duplicate_urls_deduplicated(self):
+        ext = MarkdownExtractor()
+        result = ext.extract("https://example.com and https://example.com again\n")
+        urls = [n for n in result.nodes if n["kind"] == "url"]
+        assert len(urls) == 1
+
+
+class TestMarkdownExtractorSynthesis:
+    """needs_synthesis flag based on prose content."""
+
+    def test_headings_only_no_synthesis(self):
+        ext = MarkdownExtractor()
+        result = ext.extract("# A\n## B\n### C\n")
+        assert result.needs_synthesis is False
+
+    def test_substantial_prose_triggers_synthesis(self):
+        ext = MarkdownExtractor()
+        prose = "# Title\n" + "This is a paragraph with substantial content. " * 20 + "\n"
+        result = ext.extract(prose)
+        assert result.needs_synthesis is True
+
+    def test_short_prose_no_synthesis(self):
+        ext = MarkdownExtractor()
+        result = ext.extract("# Title\nShort note.\n")
+        assert result.needs_synthesis is False
+
+
+class TestMarkdownExtractorMetadata:
+    """Metadata handling."""
+
+    def test_source_file_in_metadata(self):
+        ext = MarkdownExtractor()
+        result = ext.extract("# Test\n", filename="README.md")
+        assert result.metadata["source_file"] == "README.md"
+
+    def test_passed_metadata_preserved(self):
+        ext = MarkdownExtractor()
+        result = ext.extract("# Test\n", filename="README.md", metadata={"custom": "val"})
+        assert result.metadata["custom"] == "val"
+        assert result.metadata["source_file"] == "README.md"
+
+    def test_result_source_type_is_markdown(self):
+        ext = MarkdownExtractor()
+        result = ext.extract("# Test\n")
+        assert result.source_type == "markdown"
+
+    def test_raw_content_preserved(self):
+        ext = MarkdownExtractor()
+        content = "# Hello\nWorld\n"
+        result = ext.extract(content)
+        assert result.raw_content == content
