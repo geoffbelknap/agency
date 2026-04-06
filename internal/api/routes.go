@@ -26,6 +26,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 	"github.com/geoffbelknap/agency/internal/policy"
+	"github.com/geoffbelknap/agency/internal/registry"
 	"github.com/geoffbelknap/agency/internal/ws"
 )
 
@@ -40,6 +41,7 @@ type RouteOptions struct {
 	StopSuppress    *orchestrate.StopSuppression
 	AuditSummarizer *audit.AuditSummarizer
 	DockerStatus    *docker.Status
+	Registry        *registry.Registry
 }
 
 // RegisterSocketRoutes sets up the restricted API surface for the Unix socket.
@@ -111,6 +113,14 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 	}
 	if opts.DockerStatus != nil {
 		h.dockerStatus = opts.DockerStatus
+	}
+
+	// Permission enforcement middleware — runs after BearerAuth has resolved
+	// the principal into the request context. If no registry is available,
+	// the middleware is not applied (backward compatible).
+	// ASK Tenet 7: least privilege — route-level permission checks.
+	if opts.Registry != nil {
+		r.Use(PermissionMiddleware(opts.Registry))
 	}
 
 	// WebSocket endpoint (outside /api/v1 — at root /ws per spec)
