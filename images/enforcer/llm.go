@@ -228,9 +228,12 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Detect required capabilities from request body
 	requiredCaps := detectRequiredCaps(reqBody)
 
-	// Check if resolved model supports required capabilities
+	// Check if resolved model supports required capabilities.
+	// Models with no capabilities declared are assumed to support everything
+	// (backward compat with routing configs that predate capability declarations).
 	if len(requiredCaps) > 0 {
 		model := lh.routing.Models[modelAlias]
+		if len(model.Capabilities) > 0 {
 		for _, req := range requiredCaps {
 			if !model.HasCapability(req) {
 				lh.audit.Log(AuditEntry{
@@ -242,6 +245,7 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, fmt.Sprintf(`{"error":"model %s does not support capability: %s"}`, modelAlias, req), 422)
 				return
 			}
+		}
 		}
 	}
 
