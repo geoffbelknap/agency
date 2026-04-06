@@ -1358,8 +1358,7 @@ class Body:
     def _check_budget(self, task: dict) -> bool:
         """Check budget before starting a task. Returns True if budget is available."""
         try:
-            enforcer_base = self.enforcer_url.rsplit("/v1", 1)[0]
-            resp = httpx.get(f"{enforcer_base}/budget", timeout=5)
+            resp = httpx.get("http://enforcer:8081/budget", timeout=5)
             if resp.status_code != 200:
                 log.warning("Budget check returned %d, proceeding", resp.status_code)
                 return True
