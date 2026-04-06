@@ -4,9 +4,17 @@ import json
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "knowledge"))
 
 from images.knowledge.store import KnowledgeStore
+
+try:
+    import networkx
+    _HAS_NETWORKX = True
+except ImportError:
+    _HAS_NETWORKX = False
 
 
 class TestCommunityColumns:
@@ -178,7 +186,8 @@ class TestGetHubs:
 # CommunityDetector tests
 # ---------------------------------------------------------------------------
 
-from graph_intelligence import CommunityDetector
+if _HAS_NETWORKX:
+    from graph_intelligence import CommunityDetector
 
 
 def _build_two_cluster_store(tmp_path):
@@ -205,6 +214,7 @@ def _build_two_cluster_store(tmp_path):
     return store
 
 
+@pytest.mark.skipif(not _HAS_NETWORKX, reason="networkx not installed")
 class TestCommunityDetector:
     def test_detects_two_communities(self, tmp_path):
         store = _build_two_cluster_store(tmp_path)
@@ -288,9 +298,11 @@ class TestCommunityDetector:
 # HubDetector tests
 # ---------------------------------------------------------------------------
 
-from graph_intelligence import HubDetector
+if _HAS_NETWORKX:
+    from graph_intelligence import HubDetector
 
 
+@pytest.mark.skipif(not _HAS_NETWORKX, reason="networkx not installed")
 class TestHubDetectorBasic:
     """Hub detected for a node connected to many others."""
 
@@ -325,6 +337,7 @@ class TestHubDetectorBasic:
         assert top["hub_type"] == "hub"
 
 
+@pytest.mark.skipif(not _HAS_NETWORKX, reason="networkx not installed")
 class TestHubDetectorStructuralExclusion:
     """Structural kinds must NOT be flagged as hubs."""
 
@@ -344,6 +357,7 @@ class TestHubDetectorStructuralExclusion:
         assert "my-agent" not in hub_labels
 
 
+@pytest.mark.skipif(not _HAS_NETWORKX, reason="networkx not installed")
 class TestHubDetectorBridge:
     """Bridge detection: node connecting separate clusters."""
 
@@ -388,6 +402,7 @@ class TestHubDetectorBridge:
         assert "the-bridge" in bridge_labels
 
 
+@pytest.mark.skipif(not _HAS_NETWORKX, reason="networkx not installed")
 class TestHubDetectorEmptyGraph:
     """Empty graph returns zeros."""
 
@@ -403,9 +418,11 @@ class TestHubDetectorEmptyGraph:
 # Curator integration tests
 # ---------------------------------------------------------------------------
 
-from images.knowledge.curator import Curator
+if _HAS_NETWORKX:
+    from images.knowledge.curator import Curator
 
 
+@pytest.mark.skipif(not _HAS_NETWORKX, reason="networkx not installed")
 class TestCuratorCommunityDetection:
     """Community detection callable from curator."""
 

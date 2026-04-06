@@ -9,7 +9,12 @@ import logging
 import uuid
 from collections import Counter
 
-import networkx as nx
+try:
+    import networkx as nx
+    _NETWORKX_AVAILABLE = True
+except ImportError:
+    _NETWORKX_AVAILABLE = False
+    nx = None
 
 logger = logging.getLogger("agency.knowledge.graph_intelligence")
 
@@ -72,7 +77,12 @@ class CommunityDetector:
 
         Returns:
             Dict with communities_found and nodes_assigned counts.
+            Returns zeros if networkx is not available.
         """
+        if not _NETWORKX_AVAILABLE:
+            logger.warning("networkx not installed — community detection skipped")
+            return {"communities_found": 0, "nodes_assigned": 0}
+
         G = self._build_graph()
 
         if G.number_of_nodes() == 0:
@@ -227,7 +237,12 @@ class HubDetector:
 
         Returns:
             Dict with hubs_found and bridges_found counts.
+            Returns zeros if networkx is not available.
         """
+        if not _NETWORKX_AVAILABLE:
+            logger.warning("networkx not installed — hub detection skipped")
+            return {"hubs_found": 0, "bridges_found": 0}
+
         G = self._build_graph()
 
         if G.number_of_nodes() == 0:
