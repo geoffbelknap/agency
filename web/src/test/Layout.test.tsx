@@ -16,6 +16,9 @@ vi.mock('../app/lib/api', () => ({
     routing: { config: () => Promise.resolve({ configured: true }) },
     infra: { status: () => Promise.resolve({ components: [] }) },
   },
+  ensureConfig: () => Promise.resolve(),
+  getVia: () => 'local' as const,
+  getAuthenticated: () => false,
 }));
 
 vi.mock('../app/components/ThemeProvider', () => ({
