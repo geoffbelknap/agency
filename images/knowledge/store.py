@@ -1484,3 +1484,85 @@ class KnowledgeStore:
             "peer_teams": peer_teams,
             "org_history": org_history,
         }
+
+    # ------------------------------------------------------------------
+    # Query feedback loop — save synthesized insights back into the graph
+    # ------------------------------------------------------------------
+
+    _VALID_CONFIDENCE = {"high", "medium", "low"}
+
+    def save_insight(
+        self,
+        insight: str,
+        source_node_ids: list[str],
+        confidence: str,
+        tags: Optional[list[str]] = None,
+        agent_name: str = "",
+    ) -> dict:
+        """Save an agent's synthesized insight back into the graph.
+
+        Creates a *finding* node linked to its source nodes via
+        DERIVED_FROM edges.  The finding's scope is the intersection of
+        all source node scopes — the insight can never be more visible
+        than its inputs (ASK Tenet 12).
+
+        Returns: {"node_id": str, "edges_created": int}
+        """
+        # --- Validate inputs ---
+        if confidence not in self._VALID_CONFIDENCE:
+            raise ValueError(
+                f"Invalid confidence '{confidence}'; "
+                f"must be one of {sorted(self._VALID_CONFIDENCE)}"
+            )
+        if not source_node_ids:
+            raise ValueError("source_node_ids must be non-empty")
+
+        # --- Validate all source nodes exist and collect scopes ---
+        source_nodes = []
+        for sid in source_node_ids:
+            node = self.get_node(sid)
+            if node is None:
+                raise ValueError(f"Source node '{sid}' not found")
+            source_nodes.append(node)
+
+        # --- Compute scope intersection ---
+        scopes = [
+            Scope.from_dict(json.loads(n.get("scope") or "{}"))
+            for n in source_nodes
+        ]
+        result_scope = scopes[0]
+        for s in scopes[1:]:
+            result_scope = result_scope.intersection(s)
+
+        # --- Build properties ---
+        properties = {
+            "confidence": confidence,
+            "contributed_by": agent_name,
+            "source_count": len(source_node_ids),
+            "insight_type": "agent_synthesis",
+        }
+        if tags is not None:
+            properties["tags"] = tags
+
+        # --- Create finding node ---
+        node_id = self.add_node(
+            label=insight[:100],
+            kind="finding",
+            summary=insight,
+            properties=properties,
+            source_type="agent",
+            scope=result_scope.to_dict(),
+        )
+
+        # --- Create DERIVED_FROM edges ---
+        edges_created = 0
+        for sid in source_node_ids:
+            self.add_edge(
+                source_id=node_id,
+                target_id=sid,
+                relation="DERIVED_FROM",
+                provenance="INFERRED",
+            )
+            edges_created += 1
+
+        return {"node_id": node_id, "edges_created": edges_created}
