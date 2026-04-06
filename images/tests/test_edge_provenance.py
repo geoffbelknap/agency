@@ -95,3 +95,173 @@ class TestEdgeProvenanceMigration:
         assert store._db.execute(
             "SELECT provenance FROM edges WHERE id = ?", (e_id,)
         ).fetchone()["provenance"] == "INFERRED"
+
+
+class TestIngesterCreatesExtractedEdges:
+    """RuleIngester should tag all edges with provenance=EXTRACTED."""
+
+    def test_ingester_creates_extracted_edges(self, tmp_path):
+        from images.knowledge.ingester import RuleIngester
+
+        store = KnowledgeStore(tmp_path)
+        ingester = RuleIngester(store)
+
+        # Ingest a simple message — creates agent node, channel node, member_of edge
+        ingester.ingest_message({
+            "id": "msg-001",
+            "channel": "general",
+            "author": "alice",
+            "content": "Hello world",
+        })
+
+        edges = [dict(r) for r in store._db.execute("SELECT * FROM edges").fetchall()]
+        assert len(edges) >= 1, "Expected at least one edge from ingest_message"
+        for edge in edges:
+            assert edge["provenance"] == "EXTRACTED", (
+                f"Edge {edge['id']} ({edge['relation']}) has provenance={edge['provenance']}, "
+                f"expected EXTRACTED"
+            )
+
+    def test_ingester_decision_edge_is_extracted(self, tmp_path):
+        from images.knowledge.ingester import RuleIngester
+
+        store = KnowledgeStore(tmp_path)
+        ingester = RuleIngester(store)
+
+        ingester.ingest_message({
+            "id": "msg-002",
+            "channel": "ops",
+            "author": "bob",
+            "content": "We decided to use Postgres",
+            "flags": {"decision": True},
+        })
+
+        edges = [dict(r) for r in store._db.execute("SELECT * FROM edges").fetchall()]
+        decided_edges = [e for e in edges if e["relation"] == "decided"]
+        assert len(decided_edges) == 1
+        assert decided_edges[0]["provenance"] == "EXTRACTED"
+
+    def test_ingester_blocker_edge_is_extracted(self, tmp_path):
+        from images.knowledge.ingester import RuleIngester
+
+        store = KnowledgeStore(tmp_path)
+        ingester = RuleIngester(store)
+
+        ingester.ingest_message({
+            "id": "msg-003",
+            "channel": "ops",
+            "author": "carol",
+            "content": "Blocked on API access",
+            "flags": {"blocker": True},
+        })
+
+        edges = [dict(r) for r in store._db.execute("SELECT * FROM edges").fetchall()]
+        raised_edges = [e for e in edges if e["relation"] == "raised"]
+        assert len(raised_edges) == 1
+        assert raised_edges[0]["provenance"] == "EXTRACTED"
+
+    def test_ingester_trust_signal_edge_is_extracted(self, tmp_path):
+        from images.knowledge.ingester import RuleIngester
+
+        store = KnowledgeStore(tmp_path)
+        ingester = RuleIngester(store)
+
+        # First create the agent node via a message
+        ingester.ingest_message({
+            "id": "msg-004",
+            "channel": "ops",
+            "author": "dave",
+            "content": "test",
+        })
+
+        ingester.ingest_trust_signal("dave", {
+            "signal_type": "task_success",
+            "weight": 1,
+            "timestamp": "2026-04-05T00:00:00Z",
+        })
+
+        edges = [dict(r) for r in store._db.execute("SELECT * FROM edges").fetchall()]
+        trust_edges = [e for e in edges if e["relation"] == "trust_signal"]
+        assert len(trust_edges) == 1
+        assert trust_edges[0]["provenance"] == "EXTRACTED"
+
+
+class TestGetEdgesFiltersByMinProvenance:
+    """get_edges() min_provenance parameter filters by provenance tier."""
+
+    def _make_edges(self, store):
+        """Create three edges with EXTRACTED, INFERRED, AMBIGUOUS provenance."""
+        n1 = store.add_node(label="source", kind="concept", summary="")
+        n2 = store.add_node(label="target", kind="concept", summary="")
+        e_ext = store.add_edge(n1, n2, "relates_to", provenance="EXTRACTED")
+        e_inf = store.add_edge(n1, n2, "relates_to", provenance="INFERRED")
+        e_amb = store.add_edge(n1, n2, "relates_to", provenance="AMBIGUOUS")
+        return n1, n2, e_ext, e_inf, e_amb
+
+    def test_no_filter_returns_all(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        n1, n2, e_ext, e_inf, e_amb = self._make_edges(store)
+        edges = store.get_edges(n1, direction="outgoing")
+        assert len(edges) == 3
+        ids = {e["id"] for e in edges}
+        assert ids == {e_ext, e_inf, e_amb}
+
+    def test_min_provenance_ambiguous_returns_all(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        n1, n2, e_ext, e_inf, e_amb = self._make_edges(store)
+        edges = store.get_edges(n1, direction="outgoing", min_provenance="AMBIGUOUS")
+        assert len(edges) == 3
+
+    def test_min_provenance_inferred_excludes_ambiguous(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        n1, n2, e_ext, e_inf, e_amb = self._make_edges(store)
+        edges = store.get_edges(n1, direction="outgoing", min_provenance="INFERRED")
+        ids = {e["id"] for e in edges}
+        assert ids == {e_ext, e_inf}
+        assert e_amb not in ids
+
+    def test_min_provenance_extracted_only(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        n1, n2, e_ext, e_inf, e_amb = self._make_edges(store)
+        edges = store.get_edges(n1, direction="outgoing", min_provenance="EXTRACTED")
+        assert len(edges) == 1
+        assert edges[0]["id"] == e_ext
+
+    def test_provenance_included_in_returned_dicts(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        n1, n2, e_ext, e_inf, e_amb = self._make_edges(store)
+        edges = store.get_edges(n1, direction="outgoing")
+        for e in edges:
+            assert "provenance" in e
+            assert e["provenance"] in VALID_PROVENANCE
+
+    def test_min_provenance_works_with_incoming_direction(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        n1, n2, e_ext, e_inf, e_amb = self._make_edges(store)
+        edges = store.get_edges(n2, direction="incoming", min_provenance="EXTRACTED")
+        assert len(edges) == 1
+        assert edges[0]["id"] == e_ext
+
+    def test_min_provenance_works_with_both_direction(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        n1, n2, e_ext, e_inf, e_amb = self._make_edges(store)
+        edges = store.get_edges(n1, direction="both", min_provenance="INFERRED")
+        ids = {e["id"] for e in edges}
+        assert ids == {e_ext, e_inf}
+
+    def test_min_provenance_combined_with_relation(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        n1 = store.add_node(label="a", kind="concept", summary="")
+        n2 = store.add_node(label="b", kind="concept", summary="")
+        store.add_edge(n1, n2, "relates_to", provenance="EXTRACTED")
+        store.add_edge(n1, n2, "depends_on", provenance="AMBIGUOUS")
+        edges = store.get_edges(n1, direction="outgoing", relation="relates_to", min_provenance="EXTRACTED")
+        assert len(edges) == 1
+        assert edges[0]["relation"] == "relates_to"
+        assert edges[0]["provenance"] == "EXTRACTED"
+
+    def test_invalid_min_provenance_raises(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        n1 = store.add_node(label="a", kind="concept", summary="")
+        with pytest.raises(ValueError, match="min_provenance"):
+            store.get_edges(n1, min_provenance="BOGUS")

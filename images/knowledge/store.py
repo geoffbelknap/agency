@@ -30,6 +30,8 @@ ORG_STRUCTURAL_KINDS = {"team", "department", "escalation-path", "leadership"}
 
 VALID_PROVENANCE = {"EXTRACTED", "INFERRED", "AMBIGUOUS"}
 
+_PROVENANCE_RANK = {"EXTRACTED": 1, "INFERRED": 2, "AMBIGUOUS": 3}
+
 
 class KnowledgeStore:
     def __init__(self, data_dir: Path):
@@ -463,7 +465,14 @@ class KnowledgeStore:
         node_id: str,
         direction: str = "outgoing",
         relation: Optional[str] = None,
+        min_provenance: Optional[str] = None,
     ) -> list[dict]:
+        if min_provenance is not None and min_provenance not in _PROVENANCE_RANK:
+            raise ValueError(
+                f"Invalid min_provenance '{min_provenance}'; "
+                f"must be one of {sorted(_PROVENANCE_RANK.keys())}"
+            )
+
         if direction == "outgoing":
             sql = "SELECT * FROM edges WHERE source_id = ?"
         elif direction == "incoming":
@@ -474,11 +483,21 @@ class KnowledgeStore:
             if relation:
                 sql += " AND relation = ?"
                 params.append(relation)
+            if min_provenance is not None:
+                allowed = [k for k, v in _PROVENANCE_RANK.items() if v <= _PROVENANCE_RANK[min_provenance]]
+                placeholders = ", ".join("?" for _ in allowed)
+                sql += f" AND provenance IN ({placeholders})"
+                params.extend(allowed)
             return [dict(r) for r in self._db.execute(sql, params).fetchall()]
         params = [node_id]
         if relation:
             sql += " AND relation = ?"
             params.append(relation)
+        if min_provenance is not None:
+            allowed = [k for k, v in _PROVENANCE_RANK.items() if v <= _PROVENANCE_RANK[min_provenance]]
+            placeholders = ", ".join("?" for _ in allowed)
+            sql += f" AND provenance IN ({placeholders})"
+            params.extend(allowed)
         return [dict(r) for r in self._db.execute(sql, params).fetchall()]
 
     def migrate_edge_provenance(self) -> dict:

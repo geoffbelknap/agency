@@ -547,6 +547,7 @@ class LLMSynthesizer:
                     source_id=source_id,
                     target_id=target_id,
                     relation=relation,
+                    provenance="AMBIGUOUS",
                     source_channel=source_channels[0] if source_channels else "",
                 )
 

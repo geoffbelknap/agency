@@ -55,6 +55,7 @@ class RuleIngester:
             source_id=source_id,
             target_id=target_id,
             relation=relation,
+            provenance="EXTRACTED",
             **kwargs,
         )
 
@@ -89,6 +90,7 @@ class RuleIngester:
                 source_id=agent_id,
                 target_id=decision_id,
                 relation="decided",
+                provenance="EXTRACTED",
                 source_channel=channel,
                 provenance_id=msg_id,
             )
@@ -107,6 +109,7 @@ class RuleIngester:
                 source_id=agent_id,
                 target_id=blocker_id,
                 relation="raised",
+                provenance="EXTRACTED",
                 source_channel=channel,
                 provenance_id=msg_id,
             )
@@ -116,6 +119,7 @@ class RuleIngester:
                 source_id=agent_id,
                 target_id=agent_id,
                 relation="replied_to",
+                provenance="EXTRACTED",
                 source_channel=channel,
                 provenance_id=msg_id,
                 properties={"reply_to": reply_to, "message_id": msg_id},
@@ -153,6 +157,7 @@ class RuleIngester:
             source_id=agent_id,
             target_id=agent_id,
             relation="trust_signal",
+            provenance="EXTRACTED",
             weight=weight,
             properties={"signal_type": signal_type},
             provenance_id=signal.get("timestamp", ""),
