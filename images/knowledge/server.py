@@ -10,6 +10,7 @@ Endpoints:
     GET  /changes?since=T         - What changed since timestamp
     GET  /context?subject=X       - Full context about a subject
     GET  /org-context?agent=X    - Organizational context scoped to an agent
+    POST /ingest                  - Universal content ingestion (auto-classify)
     POST /ingest/nodes            - Ingest nodes (rule-based or LLM)
     POST /ingest/edges            - Ingest edges
     GET  /export?format=jsonl     - Export graph for centralization
@@ -149,6 +150,21 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
         app.on_startup.append(_start_ingestion_loop)
         app.on_cleanup.append(_stop_ingestion_loop)
 
+    # Universal ingestion pipeline (optional — depends on ingestion extras)
+    try:
+        from ingestion.pipeline import IngestionPipeline
+        synth = app.get("synthesizer")
+        pipeline = IngestionPipeline(store=store, synthesizer=synth)
+        app["pipeline"] = pipeline
+    except ImportError:
+        try:
+            from images.knowledge.ingestion.pipeline import IngestionPipeline
+            synth = app.get("synthesizer")
+            pipeline = IngestionPipeline(store=store, synthesizer=synth)
+            app["pipeline"] = pipeline
+        except ImportError:
+            app["pipeline"] = None
+
     # Run schema migrations on startup
     app.on_startup.append(_run_schema_migrations)
 
@@ -164,6 +180,7 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     app.router.add_get("/org-context", handle_org_context)
     app.router.add_get("/neighbors", handle_neighbors)
     app.router.add_get("/path", handle_path)
+    app.router.add_post("/ingest", handle_ingest_universal)
     app.router.add_post("/ingest/nodes", handle_ingest_nodes)
     app.router.add_post("/ingest/edges", handle_ingest_edges)
     app.router.add_get("/export", handle_export)
@@ -502,6 +519,60 @@ async def handle_path(request: web.Request) -> web.Response:
     if result is None:
         return web.json_response({"error": "no path found", "from": from_label, "to": to_label}, status=404)
     return web.json_response(result)
+
+
+async def handle_ingest_universal(request: web.Request) -> web.Response:
+    """POST /ingest — universal content ingestion.
+
+    Accepts raw content with metadata and routes it through the
+    IngestionPipeline (classify → extract → store → optional synthesis).
+
+    Body: {
+        "content": "...",          # Required — the raw content to ingest
+        "filename": "...",         # Optional — filename hint for classification
+        "content_type": "...",     # Optional — MIME type hint
+        "scope": {...},            # Optional — authorization scope metadata
+        "source_principal": "..."  # Optional — principal that produced the content
+    }
+    """
+    pipeline = request.app.get("pipeline")
+    if pipeline is None:
+        return web.json_response(
+            {"error": "Ingestion pipeline not available"},
+            status=503,
+        )
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+    content = body.get("content", "")
+    if not content or not content.strip():
+        return web.json_response({"error": "content is required and must be non-empty"}, status=400)
+
+    filename = body.get("filename", "")
+    content_type = body.get("content_type", "")
+    scope = body.get("scope")
+    source_principal = body.get("source_principal", "")
+
+    try:
+        loop = asyncio.get_event_loop()
+        stats = await loop.run_in_executor(
+            None,
+            lambda: pipeline.ingest(
+                content,
+                filename=filename,
+                content_type=content_type,
+                scope=scope,
+                source_principal=source_principal,
+            ),
+        )
+    except Exception:
+        logger.exception("Ingestion pipeline error")
+        return web.json_response({"error": "Ingestion failed"}, status=500)
+
+    return web.json_response(stats)
 
 
 async def handle_ingest_nodes(request: web.Request) -> web.Response:
