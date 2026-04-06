@@ -39,8 +39,9 @@ class SocketKeyResolver:
         if key_ref in self._cache:
             return self._cache[key_ref]
 
-        # Try TCP first (cross-platform)
-        if self._gateway_url and self._gateway_token:
+        # Try TCP first (cross-platform). Works with or without token —
+        # gateway in dev mode (empty token) allows all requests.
+        if self._gateway_url:
             result = self._resolve_tcp(key_ref)
             if result is not None:
                 return result
@@ -62,7 +63,8 @@ class SocketKeyResolver:
             params = urllib.parse.urlencode({"name": key_ref})
             url = f"{self._gateway_url}/api/v1/internal/credentials/resolve?{params}"
             req = urllib.request.Request(url)
-            req.add_header("X-Agency-Token", self._gateway_token)
+            if self._gateway_token:
+                req.add_header("X-Agency-Token", self._gateway_token)
             with urllib.request.urlopen(req, timeout=5) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read())

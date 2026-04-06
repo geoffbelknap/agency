@@ -10,3 +10,7 @@ docs/
 .pytest_cache/
 __pycache__/
 .mypy_cache/
+# Compiled Go binaries — never needed in container builds
+agency
+gateway
+web/
