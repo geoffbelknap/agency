@@ -70,6 +70,14 @@ tags:
     description: User and agent profiles — display names, avatars, contact info
   - name: WebSocket
     description: Real-time WebSocket endpoint (outside /api/v1)
+  - name: Registry
+    description: Principal registry — UUID-based identity for all platform entities
+  - name: Routing Optimizer
+    description: LLM routing optimization — suggestions, approval, statistics
+  - name: Quarantine
+    description: Knowledge graph quarantine — isolate compromised agent contributions
+  - name: Classification
+    description: Knowledge graph classification — tier-based access control
 
 paths:
   # ── Health ──────────────────────────────────────────────────────────────────
@@ -1971,6 +1979,162 @@ paths:
                   value:
                     type: string
 
+  # ── Knowledge Ingestion & Insights ─────────────────────────────────────────
+  /knowledge/ingest:
+    post:
+      operationId: knowledgeIngest
+      summary: Universal content ingestion
+      tags: [Knowledge]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                filename:
+                  type: string
+                content_type:
+                  type: string
+                scope:
+                  type: object
+      responses:
+        "200":
+          description: Ingestion statistics
+
+  /knowledge/insight:
+    post:
+      operationId: knowledgeSaveInsight
+      summary: Save agent insight with provenance
+      tags: [Knowledge]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [insight, source_nodes, confidence]
+              properties:
+                insight:
+                  type: string
+                source_nodes:
+                  type: array
+                  items:
+                    type: string
+                confidence:
+                  type: string
+                  enum: [high, medium, low]
+                tags:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Created insight node ID
+
+  /knowledge/communities:
+    get:
+      operationId: knowledgeCommunities
+      summary: List knowledge graph communities
+      tags: [Knowledge]
+      responses:
+        "200":
+          description: List of community nodes
+
+  /knowledge/communities/{id}:
+    get:
+      operationId: knowledgeCommunity
+      summary: Get community members
+      tags: [Knowledge]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Community details with members
+
+  /knowledge/hubs:
+    get:
+      operationId: knowledgeHubs
+      summary: Get top hub nodes
+      tags: [Knowledge]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Hub nodes ranked by connectivity
+
+  # ── Knowledge Classification ───────────────────────────────────────────────
+  /knowledge/classification:
+    get:
+      operationId: knowledgeClassification
+      summary: Get classification tier configuration
+      tags: [Classification]
+      responses:
+        "200":
+          description: Classification tiers and scope mappings
+
+  # ── Knowledge Quarantine ───────────────────────────────────────────────────
+  /knowledge/quarantine:
+    post:
+      operationId: knowledgeQuarantine
+      summary: Quarantine nodes by agent
+      tags: [Quarantine]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent]
+              properties:
+                agent:
+                  type: string
+                since:
+                  type: string
+                  format: date-time
+      responses:
+        "200":
+          description: Quarantine stats
+    get:
+      operationId: knowledgeQuarantineList
+      summary: List quarantined nodes
+      tags: [Quarantine]
+      parameters:
+        - name: agent
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of quarantined nodes
+
+  /knowledge/quarantine/release:
+    post:
+      operationId: knowledgeQuarantineRelease
+      summary: Release quarantined nodes
+      tags: [Quarantine]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                node_id:
+                  type: string
+                agent:
+                  type: string
+      responses:
+        "200":
+          description: Release stats
+
   # ── Infrastructure ──────────────────────────────────────────────────────────
   /infra/status:
     get:
@@ -2461,6 +2625,66 @@ paths:
                   settings:
                     type: object
                     additionalProperties: true
+
+  # ── Routing Optimizer ──────────────────────────────────────────────────────
+  /routing/suggestions:
+    get:
+      operationId: routingSuggestions
+      summary: List routing optimization suggestions
+      tags: [Routing Optimizer]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, rejected]
+      responses:
+        "200":
+          description: List of suggestions
+
+  /routing/suggestions/{id}/approve:
+    post:
+      operationId: routingSuggestionApprove
+      summary: Approve a routing suggestion
+      tags: [Routing Optimizer]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Suggestion approved and applied to routing.local.yaml
+
+  /routing/suggestions/{id}/reject:
+    post:
+      operationId: routingSuggestionReject
+      summary: Reject a routing suggestion
+      tags: [Routing Optimizer]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Suggestion rejected
+
+  /routing/stats:
+    get:
+      operationId: routingStats
+      summary: Per-model per-task-type LLM usage statistics
+      tags: [Routing Optimizer]
+      parameters:
+        - name: task_type
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Model statistics with success rates and costs
 
   # ── Admin ───────────────────────────────────────────────────────────────────
   /admin/doctor:
@@ -4467,6 +4691,111 @@ paths:
                   errors: { type: array, items: { type: string } }
         "404":
           description: Agent not found
+
+  # ── Registry ───────────────────────────────────────────────────────────────
+  /registry:
+    get:
+      operationId: registrySnapshot
+      summary: Full registry snapshot
+      tags: [Registry]
+      responses:
+        "200":
+          description: JSON snapshot of all principals
+
+  /registry/resolve:
+    get:
+      operationId: registryResolve
+      summary: Resolve principal by UUID or type+name
+      tags: [Registry]
+      parameters:
+        - name: uuid
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: name
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Principal details
+        "404":
+          description: Not found
+
+  /registry/list:
+    get:
+      operationId: registryList
+      summary: List principals by type
+      tags: [Registry]
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [operator, agent, team, role, channel]
+      responses:
+        "200":
+          description: List of principals
+
+  /registry/{uuid}:
+    put:
+      operationId: registryUpdate
+      summary: Update principal fields
+      tags: [Registry]
+      parameters:
+        - name: uuid
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                parent:
+                  type: string
+                status:
+                  type: string
+                  enum: [active, suspended, revoked]
+                permissions:
+                  type: string
+      responses:
+        "200":
+          description: Updated
+    delete:
+      operationId: registryDelete
+      summary: Delete a principal
+      tags: [Registry]
+      parameters:
+        - name: uuid
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+
+  /registry/{uuid}/effective:
+    get:
+      operationId: registryEffective
+      summary: Compute effective permissions for a principal
+      tags: [Registry]
+      parameters:
+        - name: uuid
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Effective permissions after hierarchy resolution
 
 # ── WebSocket (outside /api/v1) ─────────────────────────────────────────────
 # Note: OpenAPI 3.1 does not natively support WebSocket. Documented as a
