@@ -337,8 +337,6 @@ func sendCmd() *cobra.Command {
 					if name, ok := a["name"].(string); ok && name == target {
 						channel = "dm-" + target
 						isDM = true
-						// Auto-create DM channel if needed
-						_, _ = c.CreateChannel(channel, "DM channel for "+target)
 						break
 					}
 				}

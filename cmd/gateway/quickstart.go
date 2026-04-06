@@ -663,9 +663,6 @@ func runQuickstart(opts quickstartOptions) error {
 func streamDemoResponse(client *apiclient.Client, baseURL, agentName, task string) error {
 	dmChannel := "dm-" + agentName
 
-	// Ensure DM channel exists
-	client.CreateChannel(dmChannel, "DM channel for "+agentName)
-
 	// Connect WebSocket
 	wsURL := strings.Replace(baseURL, "http://", "ws://", 1) + "/ws"
 	header := http.Header{}

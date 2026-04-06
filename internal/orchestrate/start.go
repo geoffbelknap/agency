@@ -387,13 +387,27 @@ func (ss *StartSequence) phase7Session(ctx context.Context) error {
 		"visibility": "private",
 		"members":    []string{ss.AgentName, "_operator"},
 	}
-	ss.Docker.CommsRequest(ctx, "POST", "/channels", dmBody)
+	// Retry once — comms may still be initializing during first agent start.
+	if _, err := ss.Docker.CommsRequest(ctx, "POST", "/channels", dmBody); err != nil {
+		if !strings.Contains(err.Error(), "409") { // 409 = already exists, fine
+			time.Sleep(2 * time.Second)
+			if _, retryErr := ss.Docker.CommsRequest(ctx, "POST", "/channels", dmBody); retryErr != nil {
+				if !strings.Contains(retryErr.Error(), "409") {
+					return fmt.Errorf("create DM channel %s: %w", dmChannel, retryErr)
+				}
+			}
+		}
+	}
 	// grant-access ensures membership even if the channel already existed
 	dmGrant := map[string]interface{}{"agent": ss.AgentName}
-	ss.Docker.CommsRequest(ctx, "POST", "/channels/"+dmChannel+"/grant-access", dmGrant)
+	if _, err := ss.Docker.CommsRequest(ctx, "POST", "/channels/"+dmChannel+"/grant-access", dmGrant); err != nil {
+		ss.Log.Warn("DM grant-access for agent failed", "channel", dmChannel, "err", err)
+	}
 	// Operator needs membership to list and read/write DM channels in the web UI
 	opGrant := map[string]interface{}{"agent": "_operator"}
-	ss.Docker.CommsRequest(ctx, "POST", "/channels/"+dmChannel+"/grant-access", opGrant)
+	if _, err := ss.Docker.CommsRequest(ctx, "POST", "/channels/"+dmChannel+"/grant-access", opGrant); err != nil {
+		ss.Log.Warn("DM grant-access for operator failed", "channel", dmChannel, "err", err)
+	}
 
 	// Register base expertise from agent.yaml (ASK tenet 5: operator-defined, read-only)
 	if ss.agentConfig != nil {
