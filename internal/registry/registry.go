@@ -367,6 +367,23 @@ func (r *Registry) RevokeTokens(principalUUID string) error {
 	return nil
 }
 
+// HasActiveGovernance walks the parent hierarchy looking for an active operator.
+// Returns true if the principal or any ancestor is an active operator.
+func (r *Registry) HasActiveGovernance(uuid string) bool {
+	p, err := r.Resolve(uuid)
+	if err != nil {
+		return false
+	}
+	// Walk up the hierarchy looking for an active operator.
+	if p.Status == "active" && p.Type == "operator" {
+		return true
+	}
+	if p.Parent != "" {
+		return r.HasActiveGovernance(p.Parent)
+	}
+	return false
+}
+
 // scanPrincipal scans a single row into a Principal.
 func scanPrincipal(row *sql.Row) (*Principal, error) {
 	var p Principal

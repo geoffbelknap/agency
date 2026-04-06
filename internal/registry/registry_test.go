@@ -355,6 +355,33 @@ func TestRevokeTokens(t *testing.T) {
 	}
 }
 
+func TestHasActiveGovernance(t *testing.T) {
+	r := tempDB(t)
+
+	opUUID, _ := r.Register("operator", "admin", WithPermissions([]string{"*"}))
+	teamUUID, _ := r.Register("team", "sec", WithParent(opUUID))
+	agentUUID, _ := r.Register("agent", "scout", WithParent(teamUUID))
+
+	if !r.HasActiveGovernance(agentUUID) {
+		t.Fatal("agent with active operator in chain should have governance")
+	}
+
+	// Suspend operator — agent should lose governance.
+	r.Update(opUUID, map[string]interface{}{"status": "suspended"})
+	if r.HasActiveGovernance(agentUUID) {
+		t.Fatal("agent should lose governance when operator is suspended")
+	}
+}
+
+func TestHasActiveGovernanceNoParent(t *testing.T) {
+	r := tempDB(t)
+
+	agentUUID, _ := r.Register("agent", "orphan")
+	if r.HasActiveGovernance(agentUUID) {
+		t.Fatal("orphan agent with no parent should not have active governance")
+	}
+}
+
 func TestOpenCreatesFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "new-registry.db")

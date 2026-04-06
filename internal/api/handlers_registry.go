@@ -136,6 +136,31 @@ func (h *handler) registryUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate suspension/revocation: check for coverage principal.
+	if status, ok := fields["status"].(string); ok && (status == "suspended" || status == "revoked") {
+		p, err := h.infra.Registry.Resolve(uuid)
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": err.Error()})
+			return
+		}
+		if p.Parent == "" {
+			force := r.URL.Query().Get("force")
+			if force != "true" {
+				writeJSON(w, 400, map[string]string{
+					"error": "no coverage principal — governed entities will fail-closed. Use ?force=true",
+				})
+				return
+			}
+		}
+		// Revocation also revokes all tokens for the principal.
+		if status == "revoked" {
+			if err := h.infra.Registry.RevokeTokens(uuid); err != nil {
+				writeJSON(w, 500, map[string]string{"error": "revoke tokens: " + err.Error()})
+				return
+			}
+		}
+	}
+
 	if err := h.infra.Registry.Update(uuid, fields); err != nil {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
