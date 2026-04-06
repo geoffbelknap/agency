@@ -87,7 +87,7 @@ func TestEffectivePermissions_EmptyOwnInheritsParent(t *testing.T) {
 	)
 	childUUID, _ := r.Register("agent", "scanner",
 		WithParent(parentUUID),
-		// no permissions — should inherit parent's full set
+		WithPermissions([]string{}), // explicit empty — should inherit parent's full set
 	)
 
 	perms, err := r.EffectivePermissions(childUUID)

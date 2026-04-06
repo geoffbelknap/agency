@@ -394,3 +394,51 @@ func TestOpenCreatesFile(t *testing.T) {
 		t.Error("expected DB file to be created")
 	}
 }
+
+func TestDefaultPermissionsOperator(t *testing.T) {
+	r := tempDB(t)
+	uuid, err := r.Register("operator", "admin")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	p, err := r.Resolve(uuid)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if !Permits(p.Permissions, "agent.write") {
+		t.Fatal("operator should default to * (covers everything)")
+	}
+}
+
+func TestDefaultPermissionsAgent(t *testing.T) {
+	r := tempDB(t)
+	uuid, err := r.Register("agent", "scout")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	p, err := r.Resolve(uuid)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if !Permits(p.Permissions, "knowledge.read") {
+		t.Fatal("agent should default to knowledge.read")
+	}
+	if Permits(p.Permissions, "agent.write") {
+		t.Fatal("agent should NOT have agent.write by default")
+	}
+}
+
+func TestExplicitEmptyPermissions(t *testing.T) {
+	r := tempDB(t)
+	uuid, err := r.Register("agent", "minimal", WithPermissions([]string{}))
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	p, err := r.Resolve(uuid)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(p.Permissions) != 0 {
+		t.Fatalf("explicit empty should stay empty, got %v", p.Permissions)
+	}
+}

@@ -16,6 +16,15 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// defaultPermissions are applied when Register() is called without WithPermissions.
+var defaultPermissions = map[string][]string{
+	"operator": {"*"},
+	"team":     {"agent.read", "knowledge.read", "knowledge.write", "mission.read"},
+	"agent":    {"knowledge.read", "knowledge.write"},
+	"channel":  {},
+	"role":     {},
+}
+
 const schema = `
 CREATE TABLE IF NOT EXISTS principals (
     uuid TEXT PRIMARY KEY,
@@ -115,15 +124,21 @@ func (r *Registry) Register(principalType, name string, opts ...Option) (string,
 		fn(o)
 	}
 
+	// Apply default permissions if WithPermissions was not explicitly called.
+	if o.permissions == nil {
+		if defaults, ok := defaultPermissions[principalType]; ok {
+			o.permissions = defaults
+		} else {
+			o.permissions = []string{}
+		}
+	}
+
 	id := uuid.New().String()
 	createdAt := time.Now().UTC().Format(time.RFC3339)
 
 	permsJSON, err := json.Marshal(o.permissions)
 	if err != nil {
 		return "", fmt.Errorf("marshal permissions: %w", err)
-	}
-	if o.permissions == nil {
-		permsJSON = []byte("[]")
 	}
 
 	metaJSON := []byte("{}")

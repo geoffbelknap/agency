@@ -5020,6 +5020,17 @@ func registryCmd() *cobra.Command {
 				return err
 			}
 			fmt.Println(string(data))
+
+			// Also display effective permissions if we can extract the UUID.
+			var entry map[string]interface{}
+			if err := json.Unmarshal(data, &entry); err == nil {
+				if uuid, ok := entry["uuid"].(string); ok && uuid != "" {
+					effData, err := c.RegistryEffective(uuid)
+					if err == nil {
+						fmt.Println("effective_permissions:", string(effData))
+					}
+				}
+			}
 			return nil
 		},
 	}

@@ -1273,6 +1273,11 @@ func (c *Client) RegistryUpdate(uuid string, fields map[string]interface{}) ([]b
 	return c.Put("/api/v1/registry/"+url.PathEscape(uuid), fields)
 }
 
+// RegistryEffective returns the effective permissions for a principal by UUID.
+func (c *Client) RegistryEffective(uuid string) ([]byte, error) {
+	return c.Get("/api/v1/registry/" + url.PathEscape(uuid) + "/effective")
+}
+
 // RegistryDelete removes a principal by UUID.
 func (c *Client) RegistryDelete(uuid string) ([]byte, error) {
 	return c.Delete("/api/v1/registry/" + url.PathEscape(uuid))
