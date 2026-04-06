@@ -282,3 +282,118 @@ class TestCommunityDetector:
         stats = detector.detect()
         assert stats["communities_found"] == 0
         assert stats["nodes_assigned"] == 0
+
+
+# ---------------------------------------------------------------------------
+# HubDetector tests
+# ---------------------------------------------------------------------------
+
+from graph_intelligence import HubDetector
+
+
+class TestHubDetectorBasic:
+    """Hub detected for a node connected to many others."""
+
+    def test_hub_detected(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        hub_id = store.add_node(label="central-concept", kind="concept", summary="The hub")
+        for i in range(8):
+            nid = store.add_node(label=f"spoke-{i}", kind="concept", summary=f"Spoke {i}")
+            store.add_edge(hub_id, nid, relation="related_to")
+
+        detector = HubDetector(store)
+        result = detector.detect()
+
+        assert result["hubs_found"] >= 1
+        hubs = store.get_hubs()
+        hub_labels = {h["label"] for h in hubs}
+        assert "central-concept" in hub_labels
+
+    def test_hub_score_and_type(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        hub_id = store.add_node(label="central-concept", kind="concept", summary="The hub")
+        for i in range(8):
+            nid = store.add_node(label=f"spoke-{i}", kind="concept", summary=f"Spoke {i}")
+            store.add_edge(hub_id, nid, relation="related_to")
+
+        detector = HubDetector(store)
+        detector.detect()
+
+        hubs = store.get_hubs()
+        top = [h for h in hubs if h["label"] == "central-concept"][0]
+        assert top["hub_score"] > 0
+        assert top["hub_type"] == "hub"
+
+
+class TestHubDetectorStructuralExclusion:
+    """Structural kinds must NOT be flagged as hubs."""
+
+    def test_structural_nodes_excluded(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        # Create an agent node with many connections — should be excluded
+        agent_id = store.add_node(label="my-agent", kind="agent", summary="An agent")
+        for i in range(10):
+            nid = store.add_node(label=f"node-{i}", kind="concept", summary=f"Node {i}")
+            store.add_edge(agent_id, nid, relation="uses")
+
+        detector = HubDetector(store)
+        detector.detect()
+
+        hubs = store.get_hubs()
+        hub_labels = {h["label"] for h in hubs}
+        assert "my-agent" not in hub_labels
+
+
+class TestHubDetectorBridge:
+    """Bridge detection: node connecting separate clusters."""
+
+    def test_bridge_detected(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        # Cluster A: fully connected
+        a_nodes = []
+        for i in range(4):
+            nid = store.add_node(label=f"cluster-a-{i}", kind="concept", summary=f"A{i}")
+            a_nodes.append(nid)
+        for i in range(len(a_nodes)):
+            for j in range(i + 1, len(a_nodes)):
+                store.add_edge(a_nodes[i], a_nodes[j], relation="related_to")
+
+        # Cluster B: fully connected
+        b_nodes = []
+        for i in range(4):
+            nid = store.add_node(label=f"cluster-b-{i}", kind="concept", summary=f"B{i}")
+            b_nodes.append(nid)
+        for i in range(len(b_nodes)):
+            for j in range(i + 1, len(b_nodes)):
+                store.add_edge(b_nodes[i], b_nodes[j], relation="related_to")
+
+        # Bridge node connecting both clusters
+        bridge_id = store.add_node(label="the-bridge", kind="concept", summary="Bridges A and B")
+        store.add_edge(bridge_id, a_nodes[0], relation="related_to")
+        store.add_edge(bridge_id, b_nodes[0], relation="related_to")
+
+        # Assign different communities so bridge detection can see cross-community neighbors
+        for nid in a_nodes:
+            store.update_community(nid, community_id="comm-a", cohesion=0.9)
+        for nid in b_nodes:
+            store.update_community(nid, community_id="comm-b", cohesion=0.9)
+
+        detector = HubDetector(store)
+        result = detector.detect()
+
+        assert result["bridges_found"] >= 1
+        hubs = store.get_hubs()
+        bridges = [h for h in hubs if h["hub_type"] == "bridge"]
+        bridge_labels = {b["label"] for b in bridges}
+        assert "the-bridge" in bridge_labels
+
+
+class TestHubDetectorEmptyGraph:
+    """Empty graph returns zeros."""
+
+    def test_empty_graph(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        detector = HubDetector(store)
+        result = detector.detect()
+        assert result["hubs_found"] == 0
+        assert result["bridges_found"] == 0

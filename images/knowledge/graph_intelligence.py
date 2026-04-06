@@ -167,3 +167,139 @@ class CommunityDetector:
             "communities_found": len(final_communities),
             "nodes_assigned": nodes_assigned,
         }
+
+
+# File-extension pattern for filtering mechanical hubs (e.g. "main.py", "config.yaml")
+import re
+
+_FILE_EXT_PATTERN = re.compile(r"\.\w{1,10}$")
+
+
+class HubDetector:
+    """Detect hub and bridge nodes in the knowledge graph.
+
+    Hub nodes are highly connected knowledge entities.  Bridge nodes sit
+    between communities and have high betweenness centrality.
+
+    Unlike CommunityDetector, the graph includes ALL edges (no provenance
+    filter) because hub analysis considers all connections.
+    """
+
+    def __init__(self, store, top_n: int = 20):
+        self.store = store
+        self.top_n = top_n
+
+    def _build_graph(self) -> nx.Graph:
+        """Load ALL nodes and ALL edges into a NetworkX graph."""
+        G = nx.Graph()
+        db = self.store._db
+
+        # Load all non-curated nodes
+        rows = db.execute(
+            "SELECT id, label, kind, summary, community_id FROM nodes "
+            "WHERE (curation_status IS NULL OR curation_status = 'flagged')"
+        ).fetchall()
+
+        for row in rows:
+            G.add_node(
+                row["id"],
+                label=row["label"],
+                kind=row["kind"],
+                summary=row["summary"] or "",
+                community_id=row["community_id"],
+            )
+
+        node_ids = set(G.nodes())
+
+        edge_rows = db.execute(
+            "SELECT source_id, target_id, weight FROM edges"
+        ).fetchall()
+
+        for edge in edge_rows:
+            src, tgt = edge["source_id"], edge["target_id"]
+            if src in node_ids and tgt in node_ids:
+                G.add_edge(src, tgt, weight=edge["weight"])
+
+        return G
+
+    def detect(self) -> dict:
+        """Run hub and bridge detection, write results to the store.
+
+        Returns:
+            Dict with hubs_found and bridges_found counts.
+        """
+        G = self._build_graph()
+
+        if G.number_of_nodes() == 0:
+            return {"hubs_found": 0, "bridges_found": 0}
+
+        self.store.clear_hubs()
+
+        # --- Hub detection by degree ---
+        degrees = dict(G.degree())
+
+        # Filter: exclude structural kinds
+        eligible = {
+            nid: deg
+            for nid, deg in degrees.items()
+            if G.nodes[nid]["kind"] not in _STRUCTURAL_KINDS
+        }
+
+        # Filter: exclude mechanical hubs (labels with file extensions)
+        eligible = {
+            nid: deg
+            for nid, deg in eligible.items()
+            if not _FILE_EXT_PATTERN.search(G.nodes[nid]["label"])
+        }
+
+        # Filter: exclude nodes with empty summaries
+        eligible = {
+            nid: deg
+            for nid, deg in eligible.items()
+            if G.nodes[nid]["summary"].strip()
+        }
+
+        if not eligible:
+            return {"hubs_found": 0, "bridges_found": 0}
+
+        max_degree = max(eligible.values())
+        if max_degree == 0:
+            return {"hubs_found": 0, "bridges_found": 0}
+
+        # Top N by degree → hub
+        sorted_by_degree = sorted(eligible.items(), key=lambda x: x[1], reverse=True)
+        top_hubs = sorted_by_degree[: self.top_n]
+        hub_node_ids = set()
+
+        for nid, deg in top_hubs:
+            score = deg / max_degree
+            self.store.update_hub(nid, hub_score=score, hub_type="hub")
+            hub_node_ids.add(nid)
+
+        hubs_found = len(top_hubs)
+
+        # --- Bridge detection by betweenness centrality ---
+        bridges_found = 0
+        bc = nx.betweenness_centrality(G)
+
+        for nid, centrality in bc.items():
+            if centrality <= 0.1:
+                continue
+            if G.nodes[nid]["kind"] in _STRUCTURAL_KINDS:
+                continue
+            # Check if neighbors span different communities
+            neighbor_communities = set()
+            for neighbor in G.neighbors(nid):
+                comm = G.nodes[neighbor].get("community_id")
+                if comm is not None:
+                    neighbor_communities.add(comm)
+            if len(neighbor_communities) < 2:
+                continue
+
+            # Mark as bridge (overwrites hub if already set)
+            self.store.update_hub(nid, hub_score=centrality, hub_type="bridge")
+            bridges_found += 1
+            if nid not in hub_node_ids:
+                hubs_found += 1
+
+        return {"hubs_found": hubs_found, "bridges_found": bridges_found}
