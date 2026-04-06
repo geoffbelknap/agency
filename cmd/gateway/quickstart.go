@@ -431,10 +431,16 @@ func runQuickstart(opts quickstartOptions) error {
 			if err := c.InfraUpStream(func(component, status string) {
 				fmt.Printf("    %s %s\n", qsGreen.Render("✓"), component)
 			}); err != nil {
-				fmt.Printf("  %s infrastructure  %s\n", qsRed.Render("✗"), err)
-				return fmt.Errorf("infra start: %w", err)
+				// Non-fatal if most services started (gateway-proxy may fail on macOS)
+				if strings.Contains(err.Error(), "gateway-proxy") && !strings.Contains(err.Error(), "knowledge") && !strings.Contains(err.Error(), "comms") {
+					fmt.Printf("  %s infrastructure  services running (gateway-proxy unavailable)\n", qsGreen.Render("✓"))
+				} else {
+					fmt.Printf("  %s infrastructure  %s\n", qsRed.Render("✗"), err)
+					return fmt.Errorf("infra start: %w", err)
+				}
+			} else {
+				fmt.Printf("  %s infrastructure  all services running\n", qsGreen.Render("✓"))
 			}
-			fmt.Printf("  %s infrastructure  all services running\n", qsGreen.Render("✓"))
 		}
 	} else {
 		// Gateway not running — start daemon, wait, store keys, bring up infra
@@ -480,10 +486,15 @@ func runQuickstart(opts quickstartOptions) error {
 		if err := c.InfraUpStream(func(component, status string) {
 			fmt.Printf("    %s %s\n", qsGreen.Render("✓"), component)
 		}); err != nil {
-			fmt.Printf("  %s infrastructure  %s\n", qsRed.Render("✗"), err)
-			return fmt.Errorf("infra start: %w", err)
+			if strings.Contains(err.Error(), "gateway-proxy") && !strings.Contains(err.Error(), "knowledge") && !strings.Contains(err.Error(), "comms") {
+				fmt.Printf("  %s infrastructure  services running (gateway-proxy unavailable)\n", qsGreen.Render("✓"))
+			} else {
+				fmt.Printf("  %s infrastructure  %s\n", qsRed.Render("✗"), err)
+				return fmt.Errorf("infra start: %w", err)
+			}
+		} else {
+			fmt.Printf("  %s infrastructure  all services running\n", qsGreen.Render("✓"))
 		}
-		fmt.Printf("  %s infrastructure  all services running\n", qsGreen.Render("✓"))
 	}
 
 	// Phase 3b: Hub sync + provider install

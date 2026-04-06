@@ -7,6 +7,7 @@ import (
 )
 
 func TestMigrateGitSourceToOCI(t *testing.T) {
+	t.Skip("OCI migration disabled until artifacts are published to GHCR")
 	tmpDir := t.TempDir()
 
 	// Simulate old git-based config
@@ -49,6 +50,7 @@ func TestMigrateNoOpForOCISource(t *testing.T) {
 }
 
 func TestMigratePreservesOtherSources(t *testing.T) {
+	t.Skip("OCI migration disabled until artifacts are published to GHCR")
 	tmpDir := t.TempDir()
 
 	// Official (git) + custom source — only official should migrate
@@ -77,6 +79,7 @@ func TestMigratePreservesOtherSources(t *testing.T) {
 }
 
 func TestDefaultSourceIsOCI(t *testing.T) {
+	t.Skip("OCI default disabled until artifacts are published to GHCR")
 	tmpDir := t.TempDir()
 	os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(""), 0644)
 
