@@ -260,6 +260,11 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Post("/knowledge/restore", h.knowledgeRestore)
 		r.Get("/knowledge/curation-log", h.knowledgeCurationLog)
 
+		// Knowledge principals
+		r.Get("/knowledge/principals", h.knowledgePrincipalsList)
+		r.Post("/knowledge/principals", h.knowledgePrincipalsRegister)
+		r.Get("/knowledge/principals/{uuid}", h.knowledgePrincipalsResolve)
+
 		// Knowledge review (operator-only — org-structural contributions)
 		r.Get("/knowledge/pending", h.handleKnowledgePending)
 		r.Post("/knowledge/review/{id}", h.handleKnowledgeReview)

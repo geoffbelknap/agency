@@ -2654,6 +2654,7 @@ func knowledgeCmd() *cobra.Command {
 
 	cmd.AddCommand(knowledgeOntologyCmd())
 	cmd.AddCommand(knowledgeReviewCmd())
+	cmd.AddCommand(knowledgePrincipalsCmd())
 
 	return cmd
 }
@@ -2740,6 +2741,56 @@ Use --approve or --reject with a contribution ID to act on one.`,
 	cmd.Flags().StringVar(&approveID, "approve", "", "Approve contribution with this ID")
 	cmd.Flags().StringVar(&rejectID, "reject", "", "Reject contribution with this ID")
 	cmd.Flags().StringVar(&reason, "reason", "", "Reason for rejection (optional)")
+
+	return cmd
+}
+
+func knowledgePrincipalsCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "principals", Short: "Principal registry operations"}
+
+	listCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List registered principals",
+		Example: `  agency knowledge principals list
+  agency knowledge principals list --type operator
+  agency knowledge principals list --type agent`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			pType, _ := cmd.Flags().GetString("type")
+			data, err := c.KnowledgePrincipals(pType)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	}
+	listCmd.Flags().String("type", "", "Filter by principal type (operator, agent, team, role, channel)")
+	cmd.AddCommand(listCmd)
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "register <type> <name>",
+		Short: "Register a new principal",
+		Example: `  agency knowledge principals register operator alice
+  agency knowledge principals register agent scout
+  agency knowledge principals register team security-ops`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			data, err := c.KnowledgeRegisterPrincipal(args[0], args[1])
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	})
 
 	return cmd
 }

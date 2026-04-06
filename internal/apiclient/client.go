@@ -675,6 +675,27 @@ func (c *Client) KnowledgeReview(id, action, reason string) ([]byte, error) {
 	})
 }
 
+// ── Knowledge Principals ────────────────────────────────────────────────────
+
+func (c *Client) KnowledgePrincipals(principalType string) ([]byte, error) {
+	path := "/api/v1/knowledge/principals"
+	if principalType != "" {
+		path += "?type=" + url.QueryEscape(principalType)
+	}
+	return c.Get(path)
+}
+
+func (c *Client) KnowledgeRegisterPrincipal(principalType, name string) ([]byte, error) {
+	return c.Post("/api/v1/knowledge/principals", map[string]string{
+		"type": principalType,
+		"name": name,
+	})
+}
+
+func (c *Client) KnowledgeResolvePrincipal(uuid string) ([]byte, error) {
+	return c.Get("/api/v1/knowledge/principals/" + url.QueryEscape(uuid))
+}
+
 // ── Knowledge Ontology ──────────────────────────────────────────────────────
 
 func (c *Client) KnowledgeOntology() ([]byte, error) {

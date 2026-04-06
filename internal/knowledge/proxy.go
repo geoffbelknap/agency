@@ -137,6 +137,26 @@ func (p *Proxy) Review(ctx context.Context, id string, action string, reason str
 	return p.post(ctx, "/review/"+id, body)
 }
 
+// Principals returns the list of registered principals, optionally filtered by type.
+func (p *Proxy) Principals(ctx context.Context, principalType string) ([]byte, error) {
+	path := "/principals"
+	if principalType != "" {
+		path += "?type=" + urlEncode(principalType)
+	}
+	return p.get(ctx, path)
+}
+
+// RegisterPrincipal registers a new principal with the given type and name.
+func (p *Proxy) RegisterPrincipal(ctx context.Context, principalType, name string) ([]byte, error) {
+	body := map[string]string{"type": principalType, "name": name}
+	return p.post(ctx, "/principals", body)
+}
+
+// ResolvePrincipal resolves a principal by UUID.
+func (p *Proxy) ResolvePrincipal(ctx context.Context, uuid string) ([]byte, error) {
+	return p.get(ctx, "/principals/"+urlEncode(uuid))
+}
+
 // URLEncode is an exported helper for URL-encoding query parameter values.
 func URLEncode(s string) string {
 	return urlEncode(s)
