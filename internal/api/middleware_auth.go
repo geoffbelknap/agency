@@ -115,3 +115,33 @@ func constantTimeEqual(expected, incoming string) bool {
 	}
 	return subtle.ConstantTimeCompare([]byte(expected), []byte(incoming)) == 1
 }
+
+// canAccessAgent checks whether a principal can access a specific agent.
+// Used for resource-scoped authorization on agent-specific handlers.
+// ASK Tenet 7: least privilege — scope access to the minimum required.
+func (h *handler) canAccessAgent(principal *registry.Principal, agentName string) bool {
+	if principal == nil {
+		return true // legacy mode — no principal resolved
+	}
+	if principal.Type == "operator" {
+		return true // operators access all agents
+	}
+	if principal.Type == "agent" && principal.Name == agentName {
+		return true // agent can access itself
+	}
+	// Team members can access agents in their team
+	if principal.Parent != "" && h.infra != nil && h.infra.Registry != nil {
+		agent, err := h.infra.Registry.ResolveByName("agent", agentName)
+		if err == nil && agent.Parent == principal.Parent {
+			return true // same team
+		}
+	}
+	return false
+}
+
+// writeAgentForbidden writes a 403 response for agent access denial.
+func writeAgentForbidden(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	json.NewEncoder(w).Encode(map[string]string{"error": "access denied to this agent"})
+}
