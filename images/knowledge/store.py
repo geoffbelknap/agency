@@ -407,6 +407,8 @@ class KnowledgeStore:
         results = self._rrf_merge(fts_results, vec_results, visible_channels, limit)
         if principal is not None:
             results = self._filter_by_scope(results, principal)
+        if results:
+            results = self._apply_provenance_boost(results, limit)
         return results[:limit]
 
     def _find_nodes_vector(
