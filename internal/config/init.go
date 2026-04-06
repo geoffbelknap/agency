@@ -133,6 +133,15 @@ func RunInit(opts InitOptions) ([]KeyEntry, error) {
 		return nil, fmt.Errorf("create directory %s: %w", auditDir, err)
 	}
 
+	// Pre-generate mitmproxy CA cert so it exists before any containers start.
+	// Without this, the enforcer may boot before the egress proxy generates its
+	// cert, causing TLS handshake failures on the first LLM call (502).
+	egressCertsDir := filepath.Join(agencyHome, "infrastructure", "egress", "certs")
+	if err := ensureEgressCACert(egressCertsDir); err != nil {
+		// Log but don't fail — mitmproxy will generate it on first run (race risk remains)
+		fmt.Fprintf(os.Stderr, "warning: could not pre-generate egress CA cert: %v\n", err)
+	}
+
 	// Create knowledge directory structure
 	knowledgeDir := filepath.Join(agencyHome, "knowledge")
 	os.MkdirAll(knowledgeDir, 0755)

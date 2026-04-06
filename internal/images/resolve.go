@@ -269,7 +269,53 @@ func dockerBuild(ctx context.Context, cli *client.Client, contextDir, dockerfile
 	return nil
 }
 
+// dockerIgnorePatterns returns the exclusion patterns from .dockerignore in dir.
+func dockerIgnorePatterns(dir string) []string {
+	data, err := os.ReadFile(filepath.Join(dir, ".dockerignore"))
+	if err != nil {
+		return nil
+	}
+	var patterns []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		patterns = append(patterns, line)
+	}
+	return patterns
+}
+
+// matchesIgnore checks if a relative path matches any .dockerignore pattern.
+// Follows Docker's .dockerignore semantics:
+//   - "*.txt" matches only at root level (not in subdirectories)
+//   - "dir/" matches a directory and all its contents
+//   - Exact names match at root level and as path prefixes
+func matchesIgnore(rel string, isDir bool, patterns []string) bool {
+	for _, p := range patterns {
+		// Directory pattern (trailing /)
+		if strings.HasSuffix(p, "/") {
+			dirPat := strings.TrimSuffix(p, "/")
+			if rel == dirPat || strings.HasPrefix(rel, dirPat+"/") {
+				return true
+			}
+			continue
+		}
+		// Glob pattern — match against full relative path (root-level only,
+		// consistent with Docker's .dockerignore behavior)
+		if matched, _ := filepath.Match(p, rel); matched {
+			return true
+		}
+		// Exact match or directory prefix match
+		if rel == p || strings.HasPrefix(rel, p+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 func createTar(dir string) (io.ReadCloser, error) {
+	ignorePatterns := dockerIgnorePatterns(dir)
 	r, w := io.Pipe()
 	go func() {
 		tw := tar.NewWriter(w)
@@ -284,11 +330,18 @@ func createTar(dir string) (io.ReadCloser, error) {
 			if rel == "." {
 				return nil
 			}
-			// Skip __pycache__, .pyc, .git
+			// Skip __pycache__, .pyc, .git (hardcoded — always excluded)
 			if info.IsDir() && (rel == "__pycache__" || rel == ".git") {
 				return filepath.SkipDir
 			}
 			if strings.HasSuffix(rel, ".pyc") {
+				return nil
+			}
+			// Skip paths matching .dockerignore patterns
+			if matchesIgnore(rel, info.IsDir(), ignorePatterns) {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
 				return nil
 			}
 			header, err := tar.FileInfoHeader(info, "")
@@ -307,7 +360,9 @@ func createTar(dir string) (io.ReadCloser, error) {
 				return err
 			}
 			defer f.Close()
-			_, err = io.Copy(tw, f)
+			// LimitReader prevents "write too long" if the file grows between
+			// Walk (which records size) and Copy (which reads the actual bytes).
+			_, err = io.Copy(tw, io.LimitReader(f, info.Size()))
 			return err
 		})
 		tw.Close()
