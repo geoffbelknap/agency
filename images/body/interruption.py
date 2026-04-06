@@ -169,5 +169,6 @@ class InterruptionController:
         try:
             with open(self._log_path, "a") as f:
                 f.write(json.dumps(entry) + "\n")
-        except Exception:
-            pass  # Don't fail on audit write errors
+        except Exception as exc:
+            import sys
+            print(f"[AUDIT] write failed ({self._log_path}): {exc}", file=sys.stderr)

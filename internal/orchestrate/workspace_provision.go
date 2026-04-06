@@ -137,7 +137,9 @@ func provisionWorkspace(ctx context.Context, cli *client.Client, containerName s
 	bundleCmd := []string{"sh", "-c",
 		"cat /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/agency-egress-ca.pem > /tmp/ca-bundle.pem 2>/dev/null || true",
 	}
-	_ = dockerExec(ctx, cli, containerName, bundleCmd)
+	if err := dockerExec(ctx, cli, containerName, bundleCmd); err != nil {
+		logger.Warn("CA bundle creation failed (TLS through egress may not work)", "err", err)
+	}
 
 	if len(deps.Pip) > 0 {
 		logger.Info("provisioning pip packages", "container", containerName, "packages", deps.Pip)
@@ -182,9 +184,11 @@ func provisionWorkspace(ctx context.Context, cli *client.Client, containerName s
 				"  fi; " +
 				"done",
 		}
-		_ = dockerExec(ctx, cli, containerName, wrapperCmd)
-		// Clean up downloads
-		_ = dockerExec(ctx, cli, containerName, []string{"rm", "-rf", "/tmp/pip-dl"})
+		if err := dockerExec(ctx, cli, containerName, wrapperCmd); err != nil {
+			logger.Warn("CLI wrapper creation failed (pip entry points may not work)", "err", err)
+		}
+		// Clean up downloads (best-effort)
+		dockerExec(ctx, cli, containerName, []string{"rm", "-rf", "/tmp/pip-dl"}) //nolint:errcheck
 	}
 
 	// Disable apt-get/apt/dpkg after install to prevent agent abuse.
