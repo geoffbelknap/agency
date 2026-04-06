@@ -38,6 +38,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/models"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 	"github.com/geoffbelknap/agency/internal/registry"
+	"github.com/geoffbelknap/agency/internal/routing"
 	"github.com/geoffbelknap/agency/internal/ws"
 )
 
@@ -878,6 +879,38 @@ func runServe(httpAddr string) error {
 		logger.Warn("principal registry unavailable — permission enforcement disabled", "error", regErr)
 	}
 
+	// Routing optimizer — tracks LLM call patterns and generates
+	// cost-saving suggestions. Persisted to ~/.agency/routing-stats.json.
+	optimizer := routing.NewOptimizer(
+		filepath.Join(cfg.Home, "routing-stats.json"),
+		routing.WithLocalYAMLPath(filepath.Join(cfg.Home, "infrastructure", "routing.local.yaml")),
+	)
+	if err := optimizer.Load(); err != nil {
+		logger.Warn("routing optimizer: failed to load persisted state", "err", err)
+	}
+
+	// Background goroutine: compute stats, generate suggestions, and persist
+	// every 60 minutes. Also saves on shutdown.
+	go func() {
+		ticker := time.NewTicker(60 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				optimizer.ComputeStats()
+				optimizer.GenerateSuggestions()
+				if err := optimizer.Save(); err != nil {
+					logger.Warn("routing optimizer: save failed", "err", err)
+				}
+			case <-healthCtx.Done():
+				if err := optimizer.Save(); err != nil {
+					logger.Warn("routing optimizer: shutdown save failed", "err", err)
+				}
+				return
+			}
+		}
+	}()
+
 	// REST API
 	r := chi.NewRouter()
 	r.Use(chiMiddleware.Recoverer)
@@ -893,6 +926,7 @@ func runServe(httpAddr string) error {
 		StopSuppress:    stopSuppress,
 		AuditSummarizer: auditSummarizer,
 		Registry:        reg,
+		Optimizer:       optimizer,
 	}
 	if healthMgr != nil {
 		routeOpts.HealthMonitor = healthMgr

@@ -1321,3 +1321,29 @@ func (c *Client) RegistryEffective(uuid string) ([]byte, error) {
 func (c *Client) RegistryDelete(uuid string) ([]byte, error) {
 	return c.Delete("/api/v1/registry/" + url.PathEscape(uuid))
 }
+
+// ── Routing optimizer ─────────────────────────────────────────────────────
+
+// RoutingSuggestions returns routing optimization suggestions.
+func (c *Client) RoutingSuggestions() ([]byte, error) {
+	return c.Get("/api/v1/routing/suggestions")
+}
+
+// RoutingApprove approves a routing suggestion by ID.
+func (c *Client) RoutingApprove(id string) ([]byte, error) {
+	return c.Post("/api/v1/routing/suggestions/"+url.PathEscape(id)+"/approve", nil)
+}
+
+// RoutingReject rejects a routing suggestion by ID.
+func (c *Client) RoutingReject(id string) ([]byte, error) {
+	return c.Post("/api/v1/routing/suggestions/"+url.PathEscape(id)+"/reject", nil)
+}
+
+// RoutingStats returns per-model per-task-type statistics from the optimizer.
+func (c *Client) RoutingStats(taskType string) ([]byte, error) {
+	path := "/api/v1/routing/stats"
+	if taskType != "" {
+		path += "?task_type=" + url.QueryEscape(taskType)
+	}
+	return c.Get(path)
+}

@@ -3,6 +3,8 @@ import urllib.request
 import urllib.parse
 import logging
 
+from knowledge_tools import GRAPHRAG_START, GRAPHRAG_END
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,7 +69,18 @@ def fetch_procedural_memory(knowledge_url, mission_id, max_retrieved=5, include_
                 lines.append("")
 
         lines.append("Use these as reference — adapt to the current situation, don't follow blindly.")
-        return "\n".join(lines)
+        content = "\n".join(lines)
+
+        # Wrap in GraphRAG delimiters for enforcer identification
+        node_ids = [p.get("id", "") for p in (results + failed_results) if isinstance(p, dict)]
+        node_ids = [nid for nid in node_ids if nid]
+        tagged = f"{GRAPHRAG_START}\n"
+        if node_ids:
+            tagged += f"<!-- source_node_ids: {','.join(node_ids)} -->\n"
+        tagged += f"<!-- source: procedural_memory -->\n"
+        tagged += content
+        tagged += f"\n{GRAPHRAG_END}"
+        return tagged
 
     except Exception as e:
         logger.warning(f"Failed to fetch procedural memory: {e}")
@@ -111,7 +124,18 @@ def fetch_episodic_memory(knowledge_url, agent_name, mission_id, max_retrieved=5
                 lines.append("Notable: " + "; ".join(str(n) for n in notable))
             lines.append("")
 
-        return "\n".join(lines)
+        content = "\n".join(lines)
+
+        # Wrap in GraphRAG delimiters for enforcer identification
+        node_ids = [ep.get("id", "") for ep in results if isinstance(ep, dict)]
+        node_ids = [nid for nid in node_ids if nid]
+        tagged = f"{GRAPHRAG_START}\n"
+        if node_ids:
+            tagged += f"<!-- source_node_ids: {','.join(node_ids)} -->\n"
+        tagged += f"<!-- source: episodic_memory -->\n"
+        tagged += content
+        tagged += f"\n{GRAPHRAG_END}"
+        return tagged
 
     except Exception as e:
         logger.warning(f"Failed to fetch episodic memory: {e}")

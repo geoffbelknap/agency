@@ -27,6 +27,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 	"github.com/geoffbelknap/agency/internal/policy"
 	"github.com/geoffbelknap/agency/internal/registry"
+	"github.com/geoffbelknap/agency/internal/routing"
 	"github.com/geoffbelknap/agency/internal/ws"
 )
 
@@ -42,6 +43,7 @@ type RouteOptions struct {
 	AuditSummarizer *audit.AuditSummarizer
 	DockerStatus    *docker.Status
 	Registry        *registry.Registry
+	Optimizer       *routing.RoutingOptimizer
 }
 
 // RegisterSocketRoutes sets up the restricted API surface for the Unix socket.
@@ -113,6 +115,9 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 	}
 	if opts.DockerStatus != nil {
 		h.dockerStatus = opts.DockerStatus
+	}
+	if opts.Optimizer != nil && h.infra != nil {
+		h.infra.Optimizer = opts.Optimizer
 	}
 
 	// Permission enforcement middleware — runs after BearerAuth has resolved
@@ -345,6 +350,12 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		// Routing metrics
 		r.Get("/routing/metrics", h.routingMetrics)
 		r.Get("/routing/config", h.routingConfig)
+
+		// Routing optimizer
+		r.Get("/routing/suggestions", h.routingSuggestions)
+		r.Post("/routing/suggestions/{id}/approve", h.routingSuggestionApprove)
+		r.Post("/routing/suggestions/{id}/reject", h.routingSuggestionReject)
+		r.Get("/routing/stats", h.routingStats)
 
 		// Providers and setup wizard
 		r.Get("/providers", h.listProviders)
