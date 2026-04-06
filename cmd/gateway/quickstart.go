@@ -402,6 +402,15 @@ func runQuickstart(opts quickstartOptions) error {
 
 	gatewayRunning := c.CheckGateway() == nil
 
+	// Detect stale daemon with mismatched auth token (e.g., after rm -rf ~/.agency)
+	if gatewayRunning {
+		if _, err := c.Get("/api/v1/infra/status"); err != nil {
+			daemon.Stop()
+			time.Sleep(1 * time.Second)
+			gatewayRunning = false
+		}
+	}
+
 	if gatewayRunning {
 		// Gateway is running — check infra health
 		status, err := c.InfraStatus()
