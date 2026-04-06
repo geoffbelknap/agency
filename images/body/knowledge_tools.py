@@ -338,13 +338,7 @@ def _query_knowledge(base_url: str, agent_name: str, args: dict) -> str:
             f"{base_url}/query",
             json={"query": args["query"], "agent": agent_name},
         )
-        # Parse results for provenance tagging
-        try:
-            data = resp.json()
-            results = data.get("results", data.get("nodes", []))
-        except Exception:
-            results = []
-        return _tag_knowledge_content(resp.text, results)
+        return resp.text
     except Exception as e:
         return json.dumps({"error": f"Knowledge query failed: {e}"})
 
@@ -355,12 +349,7 @@ def _who_knows_about(base_url: str, agent_name: str, args: dict) -> str:
             f"{base_url}/who-knows",
             params={"topic": args["topic"]},
         )
-        try:
-            data = resp.json()
-            results = data.get("results", data.get("experts", []))
-        except Exception:
-            results = []
-        return _tag_knowledge_content(resp.text, results)
+        return resp.text
     except Exception as e:
         return json.dumps({"error": f"Who-knows query failed: {e}"})
 
@@ -371,12 +360,7 @@ def _what_changed_since(base_url: str, agent_name: str, args: dict) -> str:
             f"{base_url}/changes",
             params={"since": args["since"]},
         )
-        try:
-            data = resp.json()
-            results = data.get("results", data.get("changes", []))
-        except Exception:
-            results = []
-        return _tag_knowledge_content(resp.text, results)
+        return resp.text
     except Exception as e:
         return json.dumps({"error": f"Changes query failed: {e}"})
 
@@ -387,13 +371,7 @@ def _get_context(base_url: str, agent_name: str, args: dict) -> str:
             f"{base_url}/context",
             params={"subject": args["subject"]},
         )
-        # Parse results for provenance tagging
-        try:
-            data = resp.json()
-            results = data.get("results", data.get("nodes", []))
-        except Exception:
-            results = []
-        return _tag_knowledge_content(resp.text, results)
+        return resp.text
     except Exception as e:
         return json.dumps({"error": f"Context query failed: {e}"})
 
@@ -484,14 +462,6 @@ def _query_graph(base_url: str, agent_name: str, args: dict) -> str:
         else:
             return json.dumps({"error": f"unknown pattern: {pattern}"})
         # Parse results for provenance tagging
-        try:
-            data = resp.json()
-            # Graph queries return nodes/neighbors/results depending on pattern
-            results = data.get("nodes", data.get("neighbors", data.get("results", [])))
-            if isinstance(results, dict):
-                results = [results]  # single-node get_entity returns a dict
-        except Exception:
-            results = []
-        return _tag_knowledge_content(resp.text, results)
+        return resp.text
     except Exception as e:
         return json.dumps({"error": f"Graph query failed: {e}"})
