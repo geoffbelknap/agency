@@ -4,7 +4,10 @@ import json
 
 import pytest
 
-from knowledge.scope import Scope
+try:
+    from knowledge.scope import Scope
+except ImportError:
+    from images.knowledge.scope import Scope
 
 
 class TestScopeCreation:
@@ -175,3 +178,194 @@ class TestIsNarrowerThan:
         a = Scope(channels=["#ops"], principals=["alice", "bob"])
         b = Scope(channels=["#ops", "#sec"], principals=["alice"])
         assert not a.is_narrower_than(b)
+
+
+# --- Store integration tests for scope column ---
+
+from images.knowledge.store import KnowledgeStore
+
+
+class TestNodeHasScopeColumn:
+    def test_node_has_scope_column(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        node_id = store.add_node(label="test", kind="concept", summary="x")
+        node = store.get_node(node_id)
+        assert "scope" in node
+        scope_data = json.loads(node["scope"])
+        assert "channels" in scope_data
+        assert "principals" in scope_data
+
+
+class TestEdgeHasScopeColumn:
+    def test_edge_has_scope_column(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        n1 = store.add_node(label="a", kind="concept")
+        n2 = store.add_node(label="b", kind="concept")
+        edge_id = store.add_edge(n1, n2, "related")
+        edges = store.get_edges(n1, direction="outgoing")
+        assert len(edges) == 1
+        assert "scope" in edges[0]
+
+
+class TestAddNodeWithScope:
+    def test_add_node_with_scope(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        scope_dict = {"channels": ["#ops", "#sec"], "principals": ["alice"]}
+        node_id = store.add_node(
+            label="scoped fact",
+            kind="concept",
+            summary="visible to ops/sec",
+            scope=scope_dict,
+        )
+        node = store.get_node(node_id)
+        stored_scope = json.loads(node["scope"])
+        assert sorted(stored_scope["channels"]) == ["#ops", "#sec"]
+        assert stored_scope["principals"] == ["alice"]
+
+
+class TestAddNodeScopeDefaultsFromSourceChannels:
+    def test_auto_build_scope_from_source_channels(self, tmp_path):
+        """When scope is not provided but source_channels is, scope is auto-built."""
+        store = KnowledgeStore(tmp_path)
+        node_id = store.add_node(
+            label="channel fact",
+            kind="concept",
+            source_channels=["#alerts", "#general"],
+        )
+        node = store.get_node(node_id)
+        stored_scope = json.loads(node["scope"])
+        assert sorted(stored_scope["channels"]) == ["#alerts", "#general"]
+        assert stored_scope["principals"] == []
+
+    def test_explicit_scope_overrides_source_channels(self, tmp_path):
+        """When scope is provided, source_channels does not affect scope."""
+        store = KnowledgeStore(tmp_path)
+        node_id = store.add_node(
+            label="override fact",
+            kind="concept",
+            source_channels=["#alerts"],
+            scope={"channels": ["#ops"], "principals": ["bob"]},
+        )
+        node = store.get_node(node_id)
+        stored_scope = json.loads(node["scope"])
+        assert stored_scope["channels"] == ["#ops"]
+        assert stored_scope["principals"] == ["bob"]
+
+
+class TestAddNodeScopeMergeOnDedup:
+    def test_merge_unions_scope(self, tmp_path):
+        """When deduplicating, scope channels and principals are unioned."""
+        store = KnowledgeStore(tmp_path)
+        store.add_node(
+            label="shared",
+            kind="concept",
+            scope={"channels": ["#ops"], "principals": ["alice"]},
+        )
+        store.add_node(
+            label="shared",
+            kind="concept",
+            scope={"channels": ["#sec"], "principals": ["bob"]},
+        )
+        nodes = store.find_nodes("shared")
+        assert len(nodes) == 1
+        stored_scope = json.loads(nodes[0]["scope"])
+        assert sorted(stored_scope["channels"]) == ["#ops", "#sec"]
+        assert sorted(stored_scope["principals"]) == ["alice", "bob"]
+
+
+class TestFindNodesFiltersByPrincipalScope:
+    def test_filters_by_principal_scope(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        store.add_node(
+            label="ops alert",
+            kind="concept",
+            summary="ops visible",
+            scope={"channels": ["#ops"], "principals": ["alice"]},
+        )
+        store.add_node(
+            label="sec alert",
+            kind="concept",
+            summary="sec visible",
+            scope={"channels": ["#sec"], "principals": ["bob"]},
+        )
+        # alice can see ops but not sec
+        results = store.find_nodes("alert", principal={"channels": ["#ops"], "principals": ["alice"]})
+        labels = [r["label"] for r in results]
+        assert "ops alert" in labels
+        assert "sec alert" not in labels
+
+    def test_empty_scope_nodes_visible_to_everyone(self, tmp_path):
+        """Nodes with empty scope are visible to any principal (backward compat)."""
+        store = KnowledgeStore(tmp_path)
+        store.add_node(label="public fact", kind="concept", summary="no scope")
+        results = store.find_nodes("public", principal={"channels": ["#ops"], "principals": ["alice"]})
+        assert len(results) == 1
+        assert results[0]["label"] == "public fact"
+
+    def test_structural_nodes_always_visible(self, tmp_path):
+        """Structural nodes (agent, channel, task) bypass scope filtering."""
+        store = KnowledgeStore(tmp_path)
+        store.add_node(
+            label="my-agent",
+            kind="agent",
+            scope={"channels": ["#ops"], "principals": ["alice"]},
+        )
+        results = store.find_nodes("my-agent", principal={"channels": ["#sec"], "principals": ["bob"]})
+        assert len(results) == 1
+        assert results[0]["label"] == "my-agent"
+
+
+class TestMigrateScopeFromSourceChannels:
+    def test_migrate_populates_scope(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        # Insert a node with source_channels but empty scope (simulate legacy)
+        node_id = store.add_node(
+            label="legacy node",
+            kind="concept",
+            source_channels=["#alerts", "#ops"],
+        )
+        # Manually clear the scope to simulate pre-migration state
+        store._db.execute("UPDATE nodes SET scope = '{}' WHERE id = ?", (node_id,))
+        store._db.commit()
+
+        result = store.migrate_node_scopes()
+        assert result["migrated"] == 1
+
+        node = store.get_node(node_id)
+        stored_scope = json.loads(node["scope"])
+        assert sorted(stored_scope["channels"]) == ["#alerts", "#ops"]
+        assert stored_scope["principals"] == []
+
+    def test_skips_nodes_without_source_channels(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        store.add_node(label="no channels", kind="concept")
+        # Clear scope
+        store._db.execute("UPDATE nodes SET scope = '{}' WHERE id IS NOT NULL")
+        store._db.commit()
+
+        result = store.migrate_node_scopes()
+        assert result["migrated"] == 0
+
+
+class TestMigrateScopeIsIdempotent:
+    def test_second_run_does_not_duplicate(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        node_id = store.add_node(
+            label="legacy node",
+            kind="concept",
+            source_channels=["#alerts"],
+        )
+        # Clear scope to simulate pre-migration
+        store._db.execute("UPDATE nodes SET scope = '{}' WHERE id = ?", (node_id,))
+        store._db.commit()
+
+        result1 = store.migrate_node_scopes()
+        assert result1["migrated"] == 1
+
+        result2 = store.migrate_node_scopes()
+        assert result2["migrated"] == 0
+
+        # Verify scope is still correct after second run
+        node = store.get_node(node_id)
+        stored_scope = json.loads(node["scope"])
+        assert stored_scope["channels"] == ["#alerts"]

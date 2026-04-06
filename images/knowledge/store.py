@@ -17,6 +17,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+try:
+    from knowledge.scope import Scope
+except ImportError:
+    from images.knowledge.scope import Scope
+
 logger = logging.getLogger("agency.knowledge.store")
 
 STRUCTURAL_KINDS = {"agent", "channel", "task", "OntologyCandidate", "RelationshipCandidate"}
@@ -126,6 +131,14 @@ class KnowledgeStore:
             )
         except sqlite3.OperationalError:
             pass  # Column already exists
+        # Scope columns on nodes and edges (idempotent ALTER TABLE)
+        for table in ("nodes", "edges"):
+            try:
+                self._db.execute(
+                    f"ALTER TABLE {table} ADD COLUMN scope TEXT DEFAULT '{{}}'"
+                )
+            except sqlite3.OperationalError:
+                pass  # Column already exists
         # Curation log table
         self._db.execute("""
             CREATE TABLE IF NOT EXISTS curation_log (
@@ -184,6 +197,7 @@ class KnowledgeStore:
         properties: Optional[dict] = None,
         source_type: str = "rule",
         source_channels: Optional[list[str]] = None,
+        scope: Optional[dict] = None,
     ) -> str:
         """Add or merge a node. Deduplicates by (label, kind) case-insensitively.
 
@@ -191,8 +205,17 @@ class KnowledgeStore:
           - Higher source_type priority (agent > llm > rule) wins for summary
           - Properties are merged (new values overwrite existing for same key)
           - source_channels are unioned
+          - scope channels and principals are unioned
         """
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # Build scope: use explicit scope, or auto-build from source_channels
+        if scope is not None:
+            node_scope = Scope.from_dict(scope)
+        elif source_channels:
+            node_scope = Scope.from_source_channels(source_channels)
+        else:
+            node_scope = Scope()
 
         existing_row = self._db.execute(
             "SELECT * FROM nodes WHERE LOWER(label) = LOWER(?) AND kind = ?",
@@ -220,6 +243,13 @@ class KnowledgeStore:
             existing_channels = set(json.loads(existing.get("source_channels") or "[]"))
             merged_channels = list(existing_channels | set(source_channels or []))
 
+            # Union scope channels and principals
+            existing_scope = Scope.from_dict(json.loads(existing.get("scope") or "{}"))
+            merged_scope = Scope(
+                channels=sorted(set(existing_scope.channels) | set(node_scope.channels)),
+                principals=sorted(set(existing_scope.principals) | set(node_scope.principals)),
+            )
+
             # Merge properties: new values overwrite existing for same key
             merged_props = json.loads(existing.get("properties") or "{}")
             merged_props.update(properties or {})
@@ -228,12 +258,13 @@ class KnowledgeStore:
 
             self._db.execute(
                 "UPDATE nodes SET summary=?, properties=?, source_type=?, "
-                "source_channels=?, updated_at=? WHERE id=?",
+                "source_channels=?, scope=?, updated_at=? WHERE id=?",
                 (
                     merged_summary,
                     json.dumps(merged_props),
                     merged_source_type,
                     json.dumps(merged_channels),
+                    json.dumps(merged_scope.to_dict()),
                     now,
                     node_id,
                 ),
@@ -253,8 +284,8 @@ class KnowledgeStore:
         node_id = uuid.uuid4().hex[:12]
         self._db.execute(
             "INSERT INTO nodes (id, label, kind, summary, properties, "
-            "source_type, source_channels, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "source_type, source_channels, scope, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 node_id,
                 label,
@@ -263,6 +294,7 @@ class KnowledgeStore:
                 json.dumps(properties or {}),
                 source_type,
                 json.dumps(source_channels or []),
+                json.dumps(node_scope.to_dict()),
                 now,
                 now,
             ),
@@ -319,6 +351,7 @@ class KnowledgeStore:
         visible_channels: Optional[list[str]] = None,
         limit: int = 50,
         semantic_only: bool = False,
+        principal: Optional[dict] = None,
     ) -> list[dict]:
         # Determine whether hybrid retrieval is possible
         can_vector = (
@@ -327,7 +360,10 @@ class KnowledgeStore:
         )
 
         if semantic_only and can_vector:
-            return self._find_nodes_vector(query, visible_channels, limit)
+            results = self._find_nodes_vector(query, visible_channels, limit)
+            if principal is not None:
+                results = self._filter_by_scope(results, principal)
+            return results[:limit]
 
         # --- FTS5 leg ---
         fts_results: list[dict] = []
@@ -349,13 +385,18 @@ class KnowledgeStore:
             # FTS only
             if visible_channels is not None:
                 fts_results = self._filter_by_channels(fts_results, visible_channels)
+            if principal is not None:
+                fts_results = self._filter_by_scope(fts_results, principal)
             return fts_results[:limit]
 
         # --- Vector leg ---
         vec_results = self._find_nodes_vector(query, visible_channels, limit * 2)
 
         # --- RRF merge ---
-        return self._rrf_merge(fts_results, vec_results, visible_channels, limit)
+        results = self._rrf_merge(fts_results, vec_results, visible_channels, limit)
+        if principal is not None:
+            results = self._filter_by_scope(results, principal)
+        return results[:limit]
 
     def _find_nodes_vector(
         self,
@@ -761,6 +802,50 @@ class KnowledgeStore:
             if not channels or visible_set.intersection(channels):
                 filtered.append(node)
         return filtered
+
+    def _filter_by_scope(
+        self, nodes: list[dict], principal_scope: dict
+    ) -> list[dict]:
+        """Post-filter nodes by scope overlap with a principal's scope."""
+        p_scope = Scope.from_dict(principal_scope)
+        filtered = []
+        for node in nodes:
+            # Structural nodes are always visible (same pattern as channels)
+            if node.get("kind") in STRUCTURAL_KINDS:
+                filtered.append(node)
+                continue
+            node_scope = Scope.from_dict(json.loads(node.get("scope") or "{}"))
+            if node_scope.overlaps(p_scope):
+                filtered.append(node)
+        return filtered
+
+    def migrate_node_scopes(self) -> dict:
+        """Populate scope from existing source_channels for nodes with empty scope.
+
+        Idempotent: only updates nodes whose scope is empty (``{}`` or missing).
+        Returns ``{"migrated": <count>}``.
+        """
+        rows = self._db.execute(
+            "SELECT id, source_channels, scope FROM nodes"
+        ).fetchall()
+        count = 0
+        for row in rows:
+            node = dict(row)
+            existing_scope = json.loads(node.get("scope") or "{}")
+            # Skip if scope already has meaningful data
+            if existing_scope.get("channels") or existing_scope.get("principals"):
+                continue
+            channels = json.loads(node.get("source_channels") or "[]")
+            if not channels:
+                continue
+            scope = Scope.from_source_channels(channels)
+            self._db.execute(
+                "UPDATE nodes SET scope = ? WHERE id = ?",
+                (json.dumps(scope.to_dict()), node["id"]),
+            )
+            count += 1
+        self._db.commit()
+        return {"migrated": count}
 
     def get_neighbors(
         self,
