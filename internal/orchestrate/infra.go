@@ -24,6 +24,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/orchestrate/containers"
 	"github.com/geoffbelknap/agency/internal/pkg/envfile"
+	"github.com/geoffbelknap/agency/internal/registry"
 	"github.com/geoffbelknap/agency/internal/services"
 )
 
@@ -119,6 +120,7 @@ type Infra struct {
 	GatewayAddr   string // e.g. "127.0.0.1:8200"
 	GatewayToken  string // full auth token from config.yaml
 	EgressToken   string // scoped token for egress credential resolution
+	Registry     *registry.Registry
 	Docker       *agencyDocker.Client
 	cli        *client.Client
 	log        *log.Logger
@@ -137,7 +139,13 @@ func NewInfra(home, version string, dc *agencyDocker.Client, logger *log.Logger,
 			return nil, err
 		}
 	}
-	return &Infra{Home: home, Version: version, Docker: dc, cli: cli, log: logger, hmacKey: hmacKey}, nil
+
+	reg, err := registry.Open(filepath.Join(home, "registry.db"))
+	if err != nil {
+		return nil, fmt.Errorf("open principal registry: %w", err)
+	}
+
+	return &Infra{Home: home, Version: version, Docker: dc, Registry: reg, cli: cli, log: logger, hmacKey: hmacKey}, nil
 }
 
 // serviceLabels returns Docker labels for service discovery.
@@ -1084,16 +1092,48 @@ func (inf *Infra) ensureSystemChannels(ctx context.Context) error {
 		_, err := inf.Docker.CommsRequest(ctx, "POST", "/channels", body)
 		if err != nil {
 			if strings.Contains(err.Error(), "409") {
-				continue // already exists
-			}
-			// Retry once — comms may still be initializing
-			time.Sleep(2 * time.Second)
-			if _, retryErr := inf.Docker.CommsRequest(ctx, "POST", "/channels", body); retryErr != nil {
-				if !strings.Contains(retryErr.Error(), "409") {
-					return fmt.Errorf("create system channel %s: %w", ch.name, retryErr)
+				// Channel already exists in comms — still register in principal registry below.
+			} else {
+				// Retry once — comms may still be initializing
+				time.Sleep(2 * time.Second)
+				if _, retryErr := inf.Docker.CommsRequest(ctx, "POST", "/channels", body); retryErr != nil {
+					if !strings.Contains(retryErr.Error(), "409") {
+						return fmt.Errorf("create system channel %s: %w", ch.name, retryErr)
+					}
 				}
 			}
 		}
+
+		// Register channel in the principal registry. Ignore "already exists"
+		// errors — system channels are idempotent across restarts.
+		if inf.Registry != nil {
+			if _, regErr := inf.Registry.Register("channel", ch.name); regErr != nil {
+				if !strings.Contains(regErr.Error(), "UNIQUE constraint") {
+					inf.log.Warn("registry: register channel", "channel", ch.name, "err", regErr)
+				}
+			}
+		}
+	}
+
+	if err := inf.writeRegistrySnapshot(); err != nil {
+		inf.log.Warn("write registry snapshot", "err", err)
+	}
+
+	return nil
+}
+
+// writeRegistrySnapshot exports all principals to registry.json in the home directory.
+func (inf *Infra) writeRegistrySnapshot() error {
+	if inf.Registry == nil {
+		return nil
+	}
+	data, err := inf.Registry.Snapshot()
+	if err != nil {
+		return fmt.Errorf("generate registry snapshot: %w", err)
+	}
+	path := filepath.Join(inf.Home, "registry.json")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return fmt.Errorf("write registry snapshot: %w", err)
 	}
 	return nil
 }
