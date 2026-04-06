@@ -24,6 +24,22 @@ Inside each workspace, Agency implements the [ASK cognitive model](https://askfr
 
 Agents communicate through channels, remember what they learn across sessions, and wake only when triggered. The same security model works whether you're running one agent or a hundred.
 
+### Knowledge graph intelligence
+
+Universal ingestion from any source — code, docs, configs, tool outputs. Dual extraction: deterministic parsers first, LLM only for semantic gaps. Community detection (Louvain) and hub analysis identify clusters and key entities. Query feedback loop refines retrieval over time. Four-tier classification (public/internal/restricted/confidential) controls access at the node level, with operator-configurable scope mappings.
+
+### Principal registry and ACL
+
+Every entity — operators, agents, services — gets a UUID-based identity in the principal registry. Hierarchical permission model with ceiling inheritance: child scopes can only narrow, never widen. Route-level and resource-level enforcement. Default-deny for unmatched routes.
+
+### Routing optimizer
+
+A background optimizer tracks per-model success rates and costs across tiers. When a cheaper model meets quality thresholds, it surfaces a suggestion. Operators review and approve — the optimizer never changes routing autonomously. Approved changes write to `routing.local.yaml`.
+
+### GraphRAG security
+
+XPIA scanning runs on graph-injected briefings before they reach an agent's context. Provenance tracking ties every knowledge node to its source. Compromised agent contributions can be quarantined without disrupting the rest of the graph.
+
 ## Quick start
 
 **You'll need:**
@@ -133,6 +149,13 @@ agency hub install <name>            Install a connector or pack
 agency hub <name> activate           Activate it
 agency creds set <name> <value>      Store a credential
 agency admin doctor                  Verify security guarantees
+
+agency registry list [--type agent]  List registered principals
+agency routing suggestions           View routing optimization suggestions
+agency routing approve <id>          Apply a cheaper model suggestion
+agency knowledge ingest <file>       Ingest a file into the knowledge graph
+agency knowledge classification show View classification tier config
+agency admin knowledge quarantine --agent <name>  Quarantine compromised contributions
 ```
 
 Run `agency <command> --help` for details on any command.
@@ -205,6 +228,12 @@ agency/
 │   ├── web-fetch/      # Web page fetcher (Go)
 │   ├── models/         # Shared Pydantic models
 │   └── tests/          # Python tests for image code
+├── internal/registry/  # Principal UUID registry and ACL permissions
+│   ├── routing/        # Model routing metrics and optimizer
+├── images/knowledge/
+│   ├── ingestion/      # Universal content ingestion pipeline
+│   ├── classification.py  # Classification-based access control
+│   ├── graph_intelligence.py  # Community detection and hub analysis
 ├── presets/            # Agent preset YAML files
 ├── docs/              # Specs and documentation
 ├── go.mod             # Go module (github.com/geoffbelknap/agency)
