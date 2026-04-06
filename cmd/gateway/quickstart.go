@@ -477,6 +477,16 @@ func runQuickstart(opts quickstartOptions) error {
 		fmt.Printf("  %s infrastructure  all services running\n", qsGreen.Render("✓"))
 	}
 
+	// Phase 3b: Hub sync + provider install
+	// After infra is up and credentials are stored, install the provider
+	// so routing.yaml and egress config are populated.
+	if providerName != "" {
+		c.HubUpdate()
+		c.Post("/api/v1/hub/install", map[string]interface{}{
+			"component": providerName,
+		})
+	}
+
 	// Phase 4: Agent — create and start first agent
 	var runningAgent string
 	var choice agentChoice
