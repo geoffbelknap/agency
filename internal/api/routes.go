@@ -259,6 +259,13 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Get("/knowledge/flags", h.knowledgeFlags)
 		r.Post("/knowledge/restore", h.knowledgeRestore)
 		r.Get("/knowledge/curation-log", h.knowledgeCurationLog)
+		r.Post("/knowledge/ingest", h.knowledgeIngest)
+		r.Post("/knowledge/insight", h.knowledgeSaveInsight)
+
+		// Knowledge principals
+		r.Get("/knowledge/principals", h.knowledgePrincipalsList)
+		r.Post("/knowledge/principals", h.knowledgePrincipalsRegister)
+		r.Get("/knowledge/principals/{uuid}", h.knowledgePrincipalsResolve)
 
 		// Knowledge review (operator-only — org-structural contributions)
 		r.Get("/knowledge/pending", h.handleKnowledgePending)
@@ -270,6 +277,11 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Get("/knowledge/ontology/relationships", h.knowledgeOntologyRelationships)
 		r.Post("/knowledge/ontology/validate", h.knowledgeOntologyValidate)
 		r.Post("/knowledge/ontology/migrate", h.knowledgeOntologyMigrate)
+
+		// Knowledge communities & hubs
+		r.Get("/knowledge/communities", h.knowledgeCommunities)
+		r.Get("/knowledge/communities/{id}", h.knowledgeCommunity)
+		r.Get("/knowledge/hubs", h.knowledgeHubs)
 
 		// Ontology candidates (emergence)
 		r.Get("/ontology/candidates", h.listOntologyCandidates)

@@ -17,6 +17,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+try:
+    from knowledge.scope import Scope
+except ImportError:
+    from images.knowledge.scope import Scope
+
 logger = logging.getLogger("agency.knowledge.store")
 
 STRUCTURAL_KINDS = {"agent", "channel", "task", "OntologyCandidate", "RelationshipCandidate"}
@@ -27,6 +32,10 @@ _SOURCE_PRIORITY = {"agent": 3, "llm": 2, "local": 1, "rule": 1}
 # graph. A compromised agent could inject false leadership/team data that
 # propagates to other agents' system prompts via /org-context.
 ORG_STRUCTURAL_KINDS = {"team", "department", "escalation-path", "leadership"}
+
+VALID_PROVENANCE = {"EXTRACTED", "INFERRED", "AMBIGUOUS"}
+
+_PROVENANCE_RANK = {"EXTRACTED": 1, "INFERRED": 2, "AMBIGUOUS": 3}
 
 
 class KnowledgeStore:
@@ -115,6 +124,21 @@ class KnowledgeStore:
                 self._db.execute(f"ALTER TABLE nodes ADD COLUMN {col}")
             except sqlite3.OperationalError:
                 pass  # Column already exists
+        # Edge provenance column (idempotent ALTER TABLE)
+        try:
+            self._db.execute(
+                "ALTER TABLE edges ADD COLUMN provenance TEXT DEFAULT 'AMBIGUOUS'"
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        # Scope columns on nodes and edges (idempotent ALTER TABLE)
+        for table in ("nodes", "edges"):
+            try:
+                self._db.execute(
+                    f"ALTER TABLE {table} ADD COLUMN scope TEXT DEFAULT '{{}}'"
+                )
+            except sqlite3.OperationalError:
+                pass  # Column already exists
         # Curation log table
         self._db.execute("""
             CREATE TABLE IF NOT EXISTS curation_log (
@@ -131,6 +155,13 @@ class KnowledgeStore:
         self._db.execute(
             "CREATE INDEX IF NOT EXISTS idx_curation_log_action ON curation_log(action)"
         )
+        # Community detection and hub score columns (idempotent ALTER TABLE)
+        for col, typ in [("community_id", "TEXT"), ("community_cohesion", "REAL"),
+                         ("hub_score", "REAL"), ("hub_type", "TEXT")]:
+            try:
+                self._db.execute(f"ALTER TABLE nodes ADD COLUMN {col} {typ}")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
         # Pending nodes: org-structural contributions held for operator review
         self._db.execute("""
             CREATE TABLE IF NOT EXISTS pending_nodes (
@@ -173,6 +204,7 @@ class KnowledgeStore:
         properties: Optional[dict] = None,
         source_type: str = "rule",
         source_channels: Optional[list[str]] = None,
+        scope: Optional[dict] = None,
     ) -> str:
         """Add or merge a node. Deduplicates by (label, kind) case-insensitively.
 
@@ -180,8 +212,17 @@ class KnowledgeStore:
           - Higher source_type priority (agent > llm > rule) wins for summary
           - Properties are merged (new values overwrite existing for same key)
           - source_channels are unioned
+          - scope channels and principals are unioned
         """
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # Build scope: use explicit scope, or auto-build from source_channels
+        if scope is not None:
+            node_scope = Scope.from_dict(scope)
+        elif source_channels:
+            node_scope = Scope.from_source_channels(source_channels)
+        else:
+            node_scope = Scope()
 
         existing_row = self._db.execute(
             "SELECT * FROM nodes WHERE LOWER(label) = LOWER(?) AND kind = ?",
@@ -209,6 +250,13 @@ class KnowledgeStore:
             existing_channels = set(json.loads(existing.get("source_channels") or "[]"))
             merged_channels = list(existing_channels | set(source_channels or []))
 
+            # Union scope channels and principals
+            existing_scope = Scope.from_dict(json.loads(existing.get("scope") or "{}"))
+            merged_scope = Scope(
+                channels=sorted(set(existing_scope.channels) | set(node_scope.channels)),
+                principals=sorted(set(existing_scope.principals) | set(node_scope.principals)),
+            )
+
             # Merge properties: new values overwrite existing for same key
             merged_props = json.loads(existing.get("properties") or "{}")
             merged_props.update(properties or {})
@@ -217,12 +265,13 @@ class KnowledgeStore:
 
             self._db.execute(
                 "UPDATE nodes SET summary=?, properties=?, source_type=?, "
-                "source_channels=?, updated_at=? WHERE id=?",
+                "source_channels=?, scope=?, updated_at=? WHERE id=?",
                 (
                     merged_summary,
                     json.dumps(merged_props),
                     merged_source_type,
                     json.dumps(merged_channels),
+                    json.dumps(merged_scope.to_dict()),
                     now,
                     node_id,
                 ),
@@ -242,8 +291,8 @@ class KnowledgeStore:
         node_id = uuid.uuid4().hex[:12]
         self._db.execute(
             "INSERT INTO nodes (id, label, kind, summary, properties, "
-            "source_type, source_channels, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "source_type, source_channels, scope, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 node_id,
                 label,
@@ -252,6 +301,7 @@ class KnowledgeStore:
                 json.dumps(properties or {}),
                 source_type,
                 json.dumps(source_channels or []),
+                json.dumps(node_scope.to_dict()),
                 now,
                 now,
             ),
@@ -308,6 +358,7 @@ class KnowledgeStore:
         visible_channels: Optional[list[str]] = None,
         limit: int = 50,
         semantic_only: bool = False,
+        principal: Optional[dict] = None,
     ) -> list[dict]:
         # Determine whether hybrid retrieval is possible
         can_vector = (
@@ -316,7 +367,10 @@ class KnowledgeStore:
         )
 
         if semantic_only and can_vector:
-            return self._find_nodes_vector(query, visible_channels, limit)
+            results = self._find_nodes_vector(query, visible_channels, limit)
+            if principal is not None:
+                results = self._filter_by_scope(results, principal)
+            return results[:limit]
 
         # --- FTS5 leg ---
         fts_results: list[dict] = []
@@ -338,13 +392,18 @@ class KnowledgeStore:
             # FTS only
             if visible_channels is not None:
                 fts_results = self._filter_by_channels(fts_results, visible_channels)
+            if principal is not None:
+                fts_results = self._filter_by_scope(fts_results, principal)
             return fts_results[:limit]
 
         # --- Vector leg ---
         vec_results = self._find_nodes_vector(query, visible_channels, limit * 2)
 
         # --- RRF merge ---
-        return self._rrf_merge(fts_results, vec_results, visible_channels, limit)
+        results = self._rrf_merge(fts_results, vec_results, visible_channels, limit)
+        if principal is not None:
+            results = self._filter_by_scope(results, principal)
+        return results[:limit]
 
     def _find_nodes_vector(
         self,
@@ -411,6 +470,61 @@ class KnowledgeStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    # --- Community detection & hub score methods ---
+
+    def update_community(self, node_id: str, community_id: str, cohesion: float) -> None:
+        """Set community_id and community_cohesion on a node."""
+        self._db.execute(
+            "UPDATE nodes SET community_id = ?, community_cohesion = ? WHERE id = ?",
+            (community_id, cohesion, node_id),
+        )
+        self._db.commit()
+
+    def update_hub(self, node_id: str, hub_score: float, hub_type: str) -> None:
+        """Set hub_score and hub_type on a node."""
+        self._db.execute(
+            "UPDATE nodes SET hub_score = ?, hub_type = ? WHERE id = ?",
+            (hub_score, hub_type, node_id),
+        )
+        self._db.commit()
+
+    def clear_communities(self) -> None:
+        """Reset community_id and community_cohesion to NULL for all nodes."""
+        self._db.execute(
+            "UPDATE nodes SET community_id = NULL, community_cohesion = NULL"
+        )
+        self._db.commit()
+
+    def clear_hubs(self) -> None:
+        """Reset hub_score and hub_type to NULL for all nodes."""
+        self._db.execute(
+            "UPDATE nodes SET hub_score = NULL, hub_type = NULL"
+        )
+        self._db.commit()
+
+    def get_community_members(self, community_id: str, limit: int = 100) -> list[dict]:
+        """Return active nodes belonging to a community."""
+        rows = self._db.execute(
+            "SELECT * FROM nodes WHERE community_id = ? "
+            "AND (curation_status IS NULL OR curation_status = 'flagged') "
+            "LIMIT ?",
+            (community_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def list_communities(self, limit: int = 50) -> list[dict]:
+        """Return Community nodes from the graph."""
+        return self.find_nodes_by_kind("Community", limit=limit)
+
+    def get_hubs(self, limit: int = 20) -> list[dict]:
+        """Return nodes with hub scores, ordered by score descending."""
+        rows = self._db.execute(
+            "SELECT * FROM nodes WHERE hub_score IS NOT NULL "
+            "ORDER BY hub_score DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def add_edge(
         self,
         source_id: str,
@@ -420,13 +534,19 @@ class KnowledgeStore:
         properties: Optional[dict] = None,
         source_channel: str = "",
         provenance_id: str = "",
+        provenance: str = "AMBIGUOUS",
     ) -> str:
+        if provenance not in VALID_PROVENANCE:
+            raise ValueError(
+                f"Invalid provenance '{provenance}'; "
+                f"must be one of {sorted(VALID_PROVENANCE)}"
+            )
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         edge_id = uuid.uuid4().hex[:12]
         self._db.execute(
             "INSERT INTO edges (id, source_id, target_id, relation, weight, "
-            "properties, source_channel, provenance_id, timestamp) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "properties, source_channel, provenance_id, timestamp, provenance) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 edge_id,
                 source_id,
@@ -437,6 +557,7 @@ class KnowledgeStore:
                 source_channel,
                 provenance_id,
                 now,
+                provenance,
             ),
         )
         self._db.commit()
@@ -447,7 +568,14 @@ class KnowledgeStore:
         node_id: str,
         direction: str = "outgoing",
         relation: Optional[str] = None,
+        min_provenance: Optional[str] = None,
     ) -> list[dict]:
+        if min_provenance is not None and min_provenance not in _PROVENANCE_RANK:
+            raise ValueError(
+                f"Invalid min_provenance '{min_provenance}'; "
+                f"must be one of {sorted(_PROVENANCE_RANK.keys())}"
+            )
+
         if direction == "outgoing":
             sql = "SELECT * FROM edges WHERE source_id = ?"
         elif direction == "incoming":
@@ -458,12 +586,48 @@ class KnowledgeStore:
             if relation:
                 sql += " AND relation = ?"
                 params.append(relation)
+            if min_provenance is not None:
+                allowed = [k for k, v in _PROVENANCE_RANK.items() if v <= _PROVENANCE_RANK[min_provenance]]
+                placeholders = ", ".join("?" for _ in allowed)
+                sql += f" AND provenance IN ({placeholders})"
+                params.extend(allowed)
             return [dict(r) for r in self._db.execute(sql, params).fetchall()]
         params = [node_id]
         if relation:
             sql += " AND relation = ?"
             params.append(relation)
+        if min_provenance is not None:
+            allowed = [k for k, v in _PROVENANCE_RANK.items() if v <= _PROVENANCE_RANK[min_provenance]]
+            placeholders = ", ".join("?" for _ in allowed)
+            sql += f" AND provenance IN ({placeholders})"
+            params.extend(allowed)
         return [dict(r) for r in self._db.execute(sql, params).fetchall()]
+
+    def migrate_edge_provenance(self) -> dict:
+        """Migrate existing edges' provenance based on source node's source_type.
+
+        Mapping:
+          - source_type='rule'  -> EXTRACTED
+          - source_type='agent' -> INFERRED
+          - source_type='llm' or other -> AMBIGUOUS
+
+        Idempotent: marks each migrated edge with '_provenance_migrated' in
+        its properties JSON. Already-migrated edges are skipped.
+
+        Returns the number of edges updated.
+        """
+        cursor = self._db.execute("""
+            UPDATE edges
+            SET provenance = CASE
+                WHEN (SELECT source_type FROM nodes WHERE id = edges.source_id) = 'rule' THEN 'EXTRACTED'
+                WHEN (SELECT source_type FROM nodes WHERE id = edges.source_id) = 'agent' THEN 'INFERRED'
+                ELSE 'AMBIGUOUS'
+            END,
+            properties = json_set(properties, '$._provenance_migrated', 1)
+            WHERE json_extract(properties, '$._provenance_migrated') IS NULL
+        """)
+        self._db.commit()
+        return {"migrated": cursor.rowcount}
 
     def filter_nodes_by_property(self, kind: str, property_name: str, value: str, limit: int = 50) -> list[dict]:
         """Find nodes matching kind + JSON property value. Max 50 results."""
@@ -700,6 +864,50 @@ class KnowledgeStore:
             if not channels or visible_set.intersection(channels):
                 filtered.append(node)
         return filtered
+
+    def _filter_by_scope(
+        self, nodes: list[dict], principal_scope: dict
+    ) -> list[dict]:
+        """Post-filter nodes by scope overlap with a principal's scope."""
+        p_scope = Scope.from_dict(principal_scope)
+        filtered = []
+        for node in nodes:
+            # Structural nodes are always visible (same pattern as channels)
+            if node.get("kind") in STRUCTURAL_KINDS:
+                filtered.append(node)
+                continue
+            node_scope = Scope.from_dict(json.loads(node.get("scope") or "{}"))
+            if node_scope.overlaps(p_scope):
+                filtered.append(node)
+        return filtered
+
+    def migrate_node_scopes(self) -> dict:
+        """Populate scope from existing source_channels for nodes with empty scope.
+
+        Idempotent: only updates nodes whose scope is empty (``{}`` or missing).
+        Returns ``{"migrated": <count>}``.
+        """
+        rows = self._db.execute(
+            "SELECT id, source_channels, scope FROM nodes"
+        ).fetchall()
+        count = 0
+        for row in rows:
+            node = dict(row)
+            existing_scope = json.loads(node.get("scope") or "{}")
+            # Skip if scope already has meaningful data
+            if existing_scope.get("channels") or existing_scope.get("principals"):
+                continue
+            channels = json.loads(node.get("source_channels") or "[]")
+            if not channels:
+                continue
+            scope = Scope.from_source_channels(channels)
+            self._db.execute(
+                "UPDATE nodes SET scope = ? WHERE id = ?",
+                (json.dumps(scope.to_dict()), node["id"]),
+            )
+            count += 1
+        self._db.commit()
+        return {"migrated": count}
 
     def get_neighbors(
         self,
@@ -1276,3 +1484,85 @@ class KnowledgeStore:
             "peer_teams": peer_teams,
             "org_history": org_history,
         }
+
+    # ------------------------------------------------------------------
+    # Query feedback loop — save synthesized insights back into the graph
+    # ------------------------------------------------------------------
+
+    _VALID_CONFIDENCE = {"high", "medium", "low"}
+
+    def save_insight(
+        self,
+        insight: str,
+        source_node_ids: list[str],
+        confidence: str,
+        tags: Optional[list[str]] = None,
+        agent_name: str = "",
+    ) -> dict:
+        """Save an agent's synthesized insight back into the graph.
+
+        Creates a *finding* node linked to its source nodes via
+        DERIVED_FROM edges.  The finding's scope is the intersection of
+        all source node scopes — the insight can never be more visible
+        than its inputs (ASK Tenet 12).
+
+        Returns: {"node_id": str, "edges_created": int}
+        """
+        # --- Validate inputs ---
+        if confidence not in self._VALID_CONFIDENCE:
+            raise ValueError(
+                f"Invalid confidence '{confidence}'; "
+                f"must be one of {sorted(self._VALID_CONFIDENCE)}"
+            )
+        if not source_node_ids:
+            raise ValueError("source_node_ids must be non-empty")
+
+        # --- Validate all source nodes exist and collect scopes ---
+        source_nodes = []
+        for sid in source_node_ids:
+            node = self.get_node(sid)
+            if node is None:
+                raise ValueError(f"Source node '{sid}' not found")
+            source_nodes.append(node)
+
+        # --- Compute scope intersection ---
+        scopes = [
+            Scope.from_dict(json.loads(n.get("scope") or "{}"))
+            for n in source_nodes
+        ]
+        result_scope = scopes[0]
+        for s in scopes[1:]:
+            result_scope = result_scope.intersection(s)
+
+        # --- Build properties ---
+        properties = {
+            "confidence": confidence,
+            "contributed_by": agent_name,
+            "source_count": len(source_node_ids),
+            "insight_type": "agent_synthesis",
+        }
+        if tags is not None:
+            properties["tags"] = tags
+
+        # --- Create finding node ---
+        node_id = self.add_node(
+            label=insight[:100],
+            kind="finding",
+            summary=insight,
+            properties=properties,
+            source_type="agent",
+            scope=result_scope.to_dict(),
+        )
+
+        # --- Create DERIVED_FROM edges ---
+        edges_created = 0
+        for sid in source_node_ids:
+            self.add_edge(
+                source_id=node_id,
+                target_id=sid,
+                relation="DERIVED_FROM",
+                provenance="INFERRED",
+            )
+            edges_created += 1
+
+        return {"node_id": node_id, "edges_created": edges_created}

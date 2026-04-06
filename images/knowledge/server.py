@@ -10,12 +10,20 @@ Endpoints:
     GET  /changes?since=T         - What changed since timestamp
     GET  /context?subject=X       - Full context about a subject
     GET  /org-context?agent=X    - Organizational context scoped to an agent
+    POST /ingest                  - Universal content ingestion (auto-classify)
     POST /ingest/nodes            - Ingest nodes (rule-based or LLM)
     POST /ingest/edges            - Ingest edges
     GET  /export?format=jsonl     - Export graph for centralization
     GET  /stats                   - Graph statistics
     GET  /pending                 - List pending org-structural contributions
     POST /review/{pending_id}     - Approve or reject a pending contribution
+    GET  /principals              - List all principals (optional ?type= filter)
+    POST /principals              - Register a principal ({type, name, metadata?})
+    GET  /principals/{uuid}       - Resolve a principal UUID
+    GET  /communities             - List all detected communities
+    GET  /community/{id}          - Get members of a specific community
+    GET  /hubs                    - Get top hub nodes (optional ?limit=N)
+    POST /insight                 - Save an agent's synthesized insight
 """
 
 import argparse
@@ -45,6 +53,7 @@ class _HealthFilterAccessLogger(AbstractAccessLogger):
 
 from typing import Optional
 from images.knowledge.ingester import RuleIngester
+from images.knowledge.principal_registry import PrincipalRegistry
 from images.knowledge.store import KnowledgeStore
 from images.knowledge.synthesizer import LLMSynthesizer
 
@@ -103,6 +112,10 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     store = KnowledgeStore(data_dir or Path("/data"))
     app["store"] = store
 
+    # Initialize principal registry (shares store's DB connection)
+    principal_registry = PrincipalRegistry(store._db)
+    app["principal_registry"] = principal_registry
+
     # Run one-time ontology migration
     _run_ontology_migration(store, data_dir or Path("/data"))
 
@@ -141,6 +154,24 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
         app.on_startup.append(_start_ingestion_loop)
         app.on_cleanup.append(_stop_ingestion_loop)
 
+    # Universal ingestion pipeline (optional — depends on ingestion extras)
+    try:
+        from ingestion.pipeline import IngestionPipeline
+        synth = app.get("synthesizer")
+        pipeline = IngestionPipeline(store=store, synthesizer=synth)
+        app["pipeline"] = pipeline
+    except ImportError:
+        try:
+            from images.knowledge.ingestion.pipeline import IngestionPipeline
+            synth = app.get("synthesizer")
+            pipeline = IngestionPipeline(store=store, synthesizer=synth)
+            app["pipeline"] = pipeline
+        except ImportError:
+            app["pipeline"] = None
+
+    # Run schema migrations on startup
+    app.on_startup.append(_run_schema_migrations)
+
     # Start embedding backfill as a background task
     app.on_startup.append(_start_backfill_task)
     app.on_cleanup.append(_stop_backfill_task)
@@ -153,6 +184,7 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     app.router.add_get("/org-context", handle_org_context)
     app.router.add_get("/neighbors", handle_neighbors)
     app.router.add_get("/path", handle_path)
+    app.router.add_post("/ingest", handle_ingest_universal)
     app.router.add_post("/ingest/nodes", handle_ingest_nodes)
     app.router.add_post("/ingest/edges", handle_ingest_edges)
     app.router.add_get("/export", handle_export)
@@ -174,6 +206,13 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     app.router.add_post("/ontology/reject", handle_ontology_reject)
     app.router.add_post("/delete-by-label", handle_delete_by_label)
     app.router.add_post("/delete-by-kind", handle_delete_by_kind)
+    app.router.add_get("/principals", handle_principals_list)
+    app.router.add_post("/principals", handle_principals_register)
+    app.router.add_get("/principals/{uuid}", handle_principals_resolve)
+    app.router.add_get("/communities", handle_communities)
+    app.router.add_get("/community/{id}", handle_community)
+    app.router.add_get("/hubs", handle_hubs)
+    app.router.add_post("/insight", handle_save_insight)
 
     async def _log_knowledge_shutdown(app: web.Application) -> None:
         logger.info("Knowledge server shutting down")
@@ -488,6 +527,60 @@ async def handle_path(request: web.Request) -> web.Response:
     if result is None:
         return web.json_response({"error": "no path found", "from": from_label, "to": to_label}, status=404)
     return web.json_response(result)
+
+
+async def handle_ingest_universal(request: web.Request) -> web.Response:
+    """POST /ingest — universal content ingestion.
+
+    Accepts raw content with metadata and routes it through the
+    IngestionPipeline (classify → extract → store → optional synthesis).
+
+    Body: {
+        "content": "...",          # Required — the raw content to ingest
+        "filename": "...",         # Optional — filename hint for classification
+        "content_type": "...",     # Optional — MIME type hint
+        "scope": {...},            # Optional — authorization scope metadata
+        "source_principal": "..."  # Optional — principal that produced the content
+    }
+    """
+    pipeline = request.app.get("pipeline")
+    if pipeline is None:
+        return web.json_response(
+            {"error": "Ingestion pipeline not available"},
+            status=503,
+        )
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+    content = body.get("content", "")
+    if not content or not content.strip():
+        return web.json_response({"error": "content is required and must be non-empty"}, status=400)
+
+    filename = body.get("filename", "")
+    content_type = body.get("content_type", "")
+    scope = body.get("scope")
+    source_principal = body.get("source_principal", "")
+
+    try:
+        loop = asyncio.get_event_loop()
+        stats = await loop.run_in_executor(
+            None,
+            lambda: pipeline.ingest(
+                content,
+                filename=filename,
+                content_type=content_type,
+                scope=scope,
+                source_principal=source_principal,
+            ),
+        )
+    except Exception:
+        logger.exception("Ingestion pipeline error")
+        return web.json_response({"error": "Ingestion failed"}, status=500)
+
+    return web.json_response(stats)
 
 
 async def handle_ingest_nodes(request: web.Request) -> web.Response:
@@ -972,6 +1065,135 @@ async def handle_delete_by_kind(request: web.Request) -> web.Response:
     for prop, value in filt.items():
         total += store.soft_delete_by_kind_and_property(kind, prop, value)
     return web.json_response({"deleted": total, "kind": kind})
+
+
+async def handle_principals_list(request: web.Request) -> web.Response:
+    """GET /principals — list all principals, optional ?type= filter."""
+    registry: PrincipalRegistry = request.app["principal_registry"]
+    ptype = request.query.get("type")
+    if ptype:
+        if ptype not in PrincipalRegistry.VALID_TYPES:
+            return web.json_response(
+                {"error": f"invalid type '{ptype}', must be one of: {', '.join(PrincipalRegistry.VALID_TYPES)}"},
+                status=400,
+            )
+        principals = registry.list_by_type(ptype)
+    else:
+        principals = registry.list_all()
+    return web.json_response({"principals": principals})
+
+
+async def handle_principals_register(request: web.Request) -> web.Response:
+    """POST /principals — register a new principal.
+
+    Body: {type, name, metadata?}
+    Returns: {uuid, type, name}
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "JSON body required"}, status=400)
+    ptype = body.get("type", "")
+    name = body.get("name", "")
+    metadata = body.get("metadata")
+    if not ptype or not name:
+        return web.json_response({"error": "type and name required"}, status=400)
+    registry: PrincipalRegistry = request.app["principal_registry"]
+    try:
+        principal_uuid = registry.register(ptype, name, metadata=metadata)
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    return web.json_response({"uuid": principal_uuid, "type": ptype, "name": name})
+
+
+async def handle_principals_resolve(request: web.Request) -> web.Response:
+    """GET /principals/{uuid} — resolve a principal UUID."""
+    registry: PrincipalRegistry = request.app["principal_registry"]
+    principal_uuid = request.match_info["uuid"]
+    principal = registry.resolve(principal_uuid)
+    if not principal:
+        return web.json_response({"error": "principal not found"}, status=404)
+    return web.json_response(principal)
+
+
+async def handle_communities(request: web.Request) -> web.Response:
+    """GET /communities — list all Community nodes."""
+    store: KnowledgeStore = request.app["store"]
+    communities = store.list_communities()
+    return web.json_response({"communities": communities})
+
+
+async def handle_community(request: web.Request) -> web.Response:
+    """GET /community/{id} — get members of a specific community."""
+    store: KnowledgeStore = request.app["store"]
+    community_id = request.match_info["id"]
+    members = store.get_community_members(community_id)
+    return web.json_response({"community_id": community_id, "members": members})
+
+
+async def handle_hubs(request: web.Request) -> web.Response:
+    """GET /hubs — get top hub nodes, optional ?limit=N."""
+    store: KnowledgeStore = request.app["store"]
+    limit = int(request.query.get("limit", "20"))
+    hubs = store.get_hubs(limit=limit)
+    return web.json_response({"hubs": hubs})
+
+
+async def handle_save_insight(request: web.Request) -> web.Response:
+    """POST /insight — save an agent's synthesized insight."""
+    store: KnowledgeStore = request.app["store"]
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+    insight = body.get("insight", "")
+    source_nodes = body.get("source_nodes", [])
+
+    if not insight or not insight.strip():
+        return web.json_response({"error": "insight is required and must be non-empty"}, status=400)
+    if not source_nodes:
+        return web.json_response({"error": "source_nodes is required and must be non-empty"}, status=400)
+
+    confidence = body.get("confidence", "medium")
+    tags = body.get("tags")
+    agent_name = body.get("agent_name", "")
+
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: store.save_insight(
+                insight=insight,
+                source_node_ids=source_nodes,
+                confidence=confidence,
+                tags=tags,
+                agent_name=agent_name,
+            ),
+        )
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+    return web.json_response(result)
+
+
+async def _run_schema_migrations(app: web.Application) -> None:
+    """Run store schema migrations on startup."""
+    store: KnowledgeStore = app["store"]
+    loop = asyncio.get_event_loop()
+    try:
+        result = await loop.run_in_executor(None, store.migrate_edge_provenance)
+        if result.get("migrated", 0) > 0:
+            logger.info("Edge provenance migration: %s", result)
+    except Exception as e:
+        logger.warning("Edge provenance migration failed: %s", e)
+    try:
+        result = await loop.run_in_executor(None, store.migrate_node_scopes)
+        if result.get("migrated", 0) > 0:
+            logger.info("Node scopes migration: %s", result)
+    except Exception as e:
+        logger.warning("Node scopes migration failed: %s", e)
 
 
 async def _start_curation_loop(app: web.Application) -> None:

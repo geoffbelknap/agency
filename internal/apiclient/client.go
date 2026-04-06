@@ -675,6 +675,60 @@ func (c *Client) KnowledgeReview(id, action, reason string) ([]byte, error) {
 	})
 }
 
+func (c *Client) KnowledgeIngest(content, filename, contentType string) ([]byte, error) {
+	body := map[string]string{
+		"content":      content,
+		"filename":     filename,
+		"content_type": contentType,
+	}
+	return c.Post("/api/v1/knowledge/ingest", body)
+}
+
+func (c *Client) KnowledgeIngestWithScope(content, filename, contentType string, scope json.RawMessage) ([]byte, error) {
+	body := map[string]interface{}{
+		"content":      content,
+		"filename":     filename,
+		"content_type": contentType,
+	}
+	if scope != nil {
+		body["scope"] = json.RawMessage(scope)
+	}
+	return c.Post("/api/v1/knowledge/ingest", body)
+}
+
+func (c *Client) KnowledgeSaveInsight(insight string, sourceNodes []string, confidence string, tags []string) ([]byte, error) {
+	body := map[string]interface{}{
+		"insight":      insight,
+		"source_nodes": sourceNodes,
+		"confidence":   confidence,
+	}
+	if len(tags) > 0 {
+		body["tags"] = tags
+	}
+	return c.Post("/api/v1/knowledge/insight", body)
+}
+
+// ── Knowledge Principals ────────────────────────────────────────────────────
+
+func (c *Client) KnowledgePrincipals(principalType string) ([]byte, error) {
+	path := "/api/v1/knowledge/principals"
+	if principalType != "" {
+		path += "?type=" + url.QueryEscape(principalType)
+	}
+	return c.Get(path)
+}
+
+func (c *Client) KnowledgeRegisterPrincipal(principalType, name string) ([]byte, error) {
+	return c.Post("/api/v1/knowledge/principals", map[string]string{
+		"type": principalType,
+		"name": name,
+	})
+}
+
+func (c *Client) KnowledgeResolvePrincipal(uuid string) ([]byte, error) {
+	return c.Get("/api/v1/knowledge/principals/" + url.QueryEscape(uuid))
+}
+
 // ── Knowledge Ontology ──────────────────────────────────────────────────────
 
 func (c *Client) KnowledgeOntology() ([]byte, error) {

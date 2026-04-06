@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -2652,8 +2655,117 @@ func knowledgeCmd() *cobra.Command {
 		},
 	})
 
+	ingestCmd := &cobra.Command{
+		Use:   "ingest <file-or-url>",
+		Short: "Ingest content into the knowledge graph",
+		Long: `Ingest a file or URL into the knowledge graph.
+
+For files: reads content from disk and detects content type from extension.
+For stdin: use "-" as the argument to read from stdin.
+For URLs: passes the URL as filename (the knowledge service handles URL classification).`,
+		Example: `  agency knowledge ingest report.md
+  agency knowledge ingest https://example.com/page
+  cat notes.txt | agency knowledge ingest - --type text/plain
+  agency knowledge ingest data.json --scope '{"principals":["operator:abc-123"]}'`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+
+			source := args[0]
+			contentType, _ := cmd.Flags().GetString("type")
+			scopeStr, _ := cmd.Flags().GetString("scope")
+
+			var content, filename string
+
+			if source == "-" {
+				// Read from stdin
+				b, err := io.ReadAll(os.Stdin)
+				if err != nil {
+					return fmt.Errorf("reading stdin: %w", err)
+				}
+				content = string(b)
+				filename = "stdin"
+				if contentType == "" {
+					contentType = "text/plain"
+				}
+			} else if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+				// URL — pass as filename, knowledge service handles it
+				filename = source
+			} else {
+				// File on disk
+				b, err := os.ReadFile(source)
+				if err != nil {
+					return fmt.Errorf("reading file: %w", err)
+				}
+				content = string(b)
+				filename = filepath.Base(source)
+				if contentType == "" {
+					contentType = mime.TypeByExtension(filepath.Ext(source))
+				}
+			}
+
+			var scope json.RawMessage
+			if scopeStr != "" {
+				scope = json.RawMessage(scopeStr)
+			}
+
+			data, err := c.KnowledgeIngestWithScope(content, filename, contentType, scope)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	}
+	ingestCmd.Flags().String("type", "", "Content type (e.g. text/markdown, application/json)")
+	ingestCmd.Flags().String("scope", "", "Scope JSON (e.g. '{\"principals\":[\"operator:uuid\"]}')")
+	cmd.AddCommand(ingestCmd)
+
+	insightCmd := &cobra.Command{
+		Use:   "insight <text>",
+		Short: "Save an insight to the knowledge graph",
+		Long:  `Save an agent-generated insight with source nodes, confidence level, and optional tags.`,
+		Example: `  agency knowledge insight "lateral movement detected from host-A to host-B" --sources id1,id2 --confidence high
+  agency knowledge insight "CVE-2024-1234 affects 3 hosts" --sources n1,n2,n3 --confidence medium --tags risk,security`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			insight := args[0]
+			sourcesStr, _ := cmd.Flags().GetString("sources")
+			confidence, _ := cmd.Flags().GetString("confidence")
+			tagsStr, _ := cmd.Flags().GetString("tags")
+
+			var sources []string
+			if sourcesStr != "" {
+				sources = strings.Split(sourcesStr, ",")
+			}
+			var tags []string
+			if tagsStr != "" {
+				tags = strings.Split(tagsStr, ",")
+			}
+
+			data, err := c.KnowledgeSaveInsight(insight, sources, confidence, tags)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	}
+	insightCmd.Flags().String("sources", "", "Comma-separated source node IDs")
+	insightCmd.Flags().String("confidence", "medium", "Confidence level (low, medium, high)")
+	insightCmd.Flags().String("tags", "", "Comma-separated tags")
+	cmd.AddCommand(insightCmd)
+
 	cmd.AddCommand(knowledgeOntologyCmd())
 	cmd.AddCommand(knowledgeReviewCmd())
+	cmd.AddCommand(knowledgePrincipalsCmd())
 
 	return cmd
 }
@@ -2740,6 +2852,56 @@ Use --approve or --reject with a contribution ID to act on one.`,
 	cmd.Flags().StringVar(&approveID, "approve", "", "Approve contribution with this ID")
 	cmd.Flags().StringVar(&rejectID, "reject", "", "Reject contribution with this ID")
 	cmd.Flags().StringVar(&reason, "reason", "", "Reason for rejection (optional)")
+
+	return cmd
+}
+
+func knowledgePrincipalsCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "principals", Short: "Principal registry operations"}
+
+	listCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List registered principals",
+		Example: `  agency knowledge principals list
+  agency knowledge principals list --type operator
+  agency knowledge principals list --type agent`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			pType, _ := cmd.Flags().GetString("type")
+			data, err := c.KnowledgePrincipals(pType)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	}
+	listCmd.Flags().String("type", "", "Filter by principal type (operator, agent, team, role, channel)")
+	cmd.AddCommand(listCmd)
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "register <type> <name>",
+		Short: "Register a new principal",
+		Example: `  agency knowledge principals register operator alice
+  agency knowledge principals register agent scout
+  agency knowledge principals register team security-ops`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			data, err := c.KnowledgeRegisterPrincipal(args[0], args[1])
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	})
 
 	return cmd
 }

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -955,6 +956,104 @@ func (h *handler) knowledgeRestore(w http.ResponseWriter, r *http.Request) {
 func (h *handler) knowledgeCurationLog(w http.ResponseWriter, r *http.Request) {
 	proxy := knowledge.NewProxy()
 	data, err := proxy.CurationLog(r.Context())
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+func (h *handler) knowledgeCommunities(w http.ResponseWriter, r *http.Request) {
+	proxy := knowledge.NewProxy()
+	data, err := proxy.Communities(r.Context())
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+func (h *handler) knowledgeCommunity(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeJSON(w, 400, map[string]string{"error": "missing community id"})
+		return
+	}
+	proxy := knowledge.NewProxy()
+	data, err := proxy.Community(r.Context(), id)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+func (h *handler) knowledgeHubs(w http.ResponseWriter, r *http.Request) {
+	limit := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	proxy := knowledge.NewProxy()
+	data, err := proxy.Hubs(r.Context(), limit)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+func (h *handler) knowledgeIngest(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Content     string          `json:"content"`
+		Filename    string          `json:"filename"`
+		ContentType string          `json:"content_type"`
+		Scope       json.RawMessage `json:"scope,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if body.Content == "" && body.Filename == "" {
+		writeJSON(w, 400, map[string]string{"error": "content or filename required"})
+		return
+	}
+	data, err := h.knowledge.Ingest(r.Context(), body.Content, body.Filename, body.ContentType, body.Scope)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+func (h *handler) knowledgeSaveInsight(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Insight     string   `json:"insight"`
+		SourceNodes []string `json:"source_nodes"`
+		Confidence  string   `json:"confidence"`
+		Tags        []string `json:"tags,omitempty"`
+		AgentName   string   `json:"agent_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if body.Insight == "" {
+		writeJSON(w, 400, map[string]string{"error": "insight required"})
+		return
+	}
+	data, err := h.knowledge.SaveInsight(r.Context(), body.Insight, body.SourceNodes, body.Confidence, body.Tags, body.AgentName)
 	if err != nil {
 		writeJSON(w, 502, map[string]string{"error": err.Error()})
 		return

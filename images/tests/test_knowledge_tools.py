@@ -43,11 +43,11 @@ class TestWhoKnows:
 
 
 class TestRegistration:
-    def test_registers_six_tools(self):
+    def test_registers_seven_tools(self):
         from images.body.knowledge_tools import register_knowledge_tools
         registry = MagicMock()
         register_knowledge_tools(registry, "http://knowledge:18092", "scout")
-        assert registry.register_tool.call_count == 6
+        assert registry.register_tool.call_count == 7
         names = [call.kwargs["name"] for call in registry.register_tool.call_args_list]
         assert "contribute_knowledge" in names
         assert "query_knowledge" in names
@@ -55,3 +55,4 @@ class TestRegistration:
         assert "what_changed_since" in names
         assert "get_context" in names
         assert "query_graph" in names
+        assert "save_insight" in names

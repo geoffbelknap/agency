@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -112,6 +114,25 @@ func (p *Proxy) QueryForAgent(ctx context.Context, text string, agentMissionID s
 	return p.post(ctx, "/query", body)
 }
 
+// Communities returns the list of communities from the knowledge service.
+func (p *Proxy) Communities(ctx context.Context) (json.RawMessage, error) {
+	return p.getRaw(ctx, "/communities")
+}
+
+// Community returns a single community by ID.
+func (p *Proxy) Community(ctx context.Context, id string) (json.RawMessage, error) {
+	return p.getRaw(ctx, "/community/"+url.PathEscape(id))
+}
+
+// Hubs returns knowledge hubs, optionally limited.
+func (p *Proxy) Hubs(ctx context.Context, limit int) (json.RawMessage, error) {
+	path := "/hubs"
+	if limit > 0 {
+		path += "?limit=" + strconv.Itoa(limit)
+	}
+	return p.getRaw(ctx, path)
+}
+
 // Get is an exported helper for arbitrary GET requests to the knowledge service.
 func (p *Proxy) Get(ctx context.Context, path string) ([]byte, error) {
 	return p.get(ctx, path)
@@ -120,6 +141,41 @@ func (p *Proxy) Get(ctx context.Context, path string) ([]byte, error) {
 // Post is an exported helper for arbitrary POST requests to the knowledge service.
 func (p *Proxy) Post(ctx context.Context, path string, body interface{}) ([]byte, error) {
 	return p.post(ctx, path, body)
+}
+
+// Ingest sends content to the knowledge service for ingestion.
+func (p *Proxy) Ingest(ctx context.Context, content, filename, contentType string, scope json.RawMessage) (json.RawMessage, error) {
+	body := map[string]interface{}{
+		"content":      content,
+		"filename":     filename,
+		"content_type": contentType,
+	}
+	if scope != nil {
+		body["scope"] = json.RawMessage(scope)
+	}
+	b, err := p.post(ctx, "/ingest", body)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(b), nil
+}
+
+// SaveInsight saves an agent-generated insight to the knowledge graph.
+func (p *Proxy) SaveInsight(ctx context.Context, insight string, sourceNodes []string, confidence string, tags []string, agentName string) (json.RawMessage, error) {
+	body := map[string]interface{}{
+		"insight":      insight,
+		"source_nodes": sourceNodes,
+		"confidence":   confidence,
+		"agent_name":   agentName,
+	}
+	if len(tags) > 0 {
+		body["tags"] = tags
+	}
+	b, err := p.post(ctx, "/insight", body)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(b), nil
 }
 
 // Pending returns org-structural knowledge contributions awaiting operator review.
@@ -137,12 +193,40 @@ func (p *Proxy) Review(ctx context.Context, id string, action string, reason str
 	return p.post(ctx, "/review/"+id, body)
 }
 
+// Principals returns the list of registered principals, optionally filtered by type.
+func (p *Proxy) Principals(ctx context.Context, principalType string) ([]byte, error) {
+	path := "/principals"
+	if principalType != "" {
+		path += "?type=" + urlEncode(principalType)
+	}
+	return p.get(ctx, path)
+}
+
+// RegisterPrincipal registers a new principal with the given type and name.
+func (p *Proxy) RegisterPrincipal(ctx context.Context, principalType, name string) ([]byte, error) {
+	body := map[string]string{"type": principalType, "name": name}
+	return p.post(ctx, "/principals", body)
+}
+
+// ResolvePrincipal resolves a principal by UUID.
+func (p *Proxy) ResolvePrincipal(ctx context.Context, uuid string) ([]byte, error) {
+	return p.get(ctx, "/principals/"+urlEncode(uuid))
+}
+
 // URLEncode is an exported helper for URL-encoding query parameter values.
 func URLEncode(s string) string {
 	return urlEncode(s)
 }
 
 // --- internal helpers ---
+
+func (p *Proxy) getRaw(ctx context.Context, path string) (json.RawMessage, error) {
+	b, err := p.get(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(b), nil
+}
 
 func (p *Proxy) get(ctx context.Context, path string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, nil)
