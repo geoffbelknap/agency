@@ -36,6 +36,16 @@ func MergeProviderRouting(home, providerName string, providerData []byte) error 
 			providerCfg[key] = v
 		}
 	}
+	// Fall back to credential.env_var if auth_env isn't in the routing block.
+	// Hub provider definitions store the env var name under credential.env_var,
+	// but the swap config generator looks for auth_env in the routing section.
+	if _, hasAuthEnv := providerCfg["auth_env"]; !hasAuthEnv {
+		if cred, ok := doc["credential"].(map[string]interface{}); ok {
+			if envVar, ok := cred["env_var"].(string); ok && envVar != "" {
+				providerCfg["auth_env"] = envVar
+			}
+		}
+	}
 	providers[providerName] = providerCfg
 
 	// Merge models, stamping each with the provider name
