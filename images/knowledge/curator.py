@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 
@@ -685,6 +686,30 @@ class Curator:
 
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+        # --- Performance benchmarks ---
+        graph_size = total_nodes + total_edges
+
+        # Traversal benchmark: get_subgraph on a sample node
+        sample_row = self.store._db.execute(
+            "SELECT id FROM nodes WHERE curation_status IS NULL "
+            "OR curation_status = 'flagged' LIMIT 1"
+        ).fetchone()
+        if sample_row:
+            t0 = time.monotonic()
+            self.store.get_subgraph(sample_row[0], max_hops=2)
+            traversal_p95_ms = round((time.monotonic() - t0) * 1000, 2)
+        else:
+            traversal_p95_ms = 0.0
+
+        # Scope resolution benchmark: find_nodes with principal param
+        t0 = time.monotonic()
+        self.store.find_nodes(
+            "benchmark",
+            principal={"type": "benchmark", "id": "benchmark:noop"},
+            limit=5,
+        )
+        scope_resolution_ms = round((time.monotonic() - t0) * 1000, 2)
+
         metrics = {
             "orphan_ratio": round(orphan_ratio, 4),
             "duplicate_density": round(duplicate_density, 4),
@@ -695,6 +720,9 @@ class Curator:
             "total_nodes": total_nodes,
             "total_edges": total_edges,
             "last_cycle": now,
+            "graph_size": graph_size,
+            "traversal_p95_ms": traversal_p95_ms,
+            "scope_resolution_ms": scope_resolution_ms,
         }
 
         # Log metrics to curation_log

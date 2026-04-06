@@ -265,3 +265,43 @@ class TestGetEdgesFiltersByMinProvenance:
         n1 = store.add_node(label="a", kind="concept", summary="")
         with pytest.raises(ValueError, match="min_provenance"):
             store.get_edges(n1, min_provenance="BOGUS")
+
+
+class TestHealthMetricsBenchmarks:
+    """compute_health_metrics() includes performance benchmark fields."""
+
+    def test_health_metrics_include_benchmarks(self, tmp_path):
+        from images.knowledge.curator import Curator
+
+        store = KnowledgeStore(tmp_path)
+        n1 = store.add_node(label="alpha", kind="concept", summary="first")
+        n2 = store.add_node(label="beta", kind="concept", summary="second")
+        store.add_edge(n1, n2, "relates_to")
+
+        curator = Curator(store)
+        metrics = curator.compute_health_metrics()
+
+        # graph_size = total_nodes + total_edges
+        assert "graph_size" in metrics
+        assert metrics["graph_size"] == metrics["total_nodes"] + metrics["total_edges"]
+
+        # traversal_p95_ms is a non-negative float
+        assert "traversal_p95_ms" in metrics
+        assert isinstance(metrics["traversal_p95_ms"], float)
+        assert metrics["traversal_p95_ms"] >= 0.0
+
+        # scope_resolution_ms is a non-negative float
+        assert "scope_resolution_ms" in metrics
+        assert isinstance(metrics["scope_resolution_ms"], float)
+        assert metrics["scope_resolution_ms"] >= 0.0
+
+    def test_health_metrics_benchmarks_empty_graph(self, tmp_path):
+        from images.knowledge.curator import Curator
+
+        store = KnowledgeStore(tmp_path)
+        curator = Curator(store)
+        metrics = curator.compute_health_metrics()
+
+        assert metrics["graph_size"] == 0
+        assert metrics["traversal_p95_ms"] == 0.0
+        assert isinstance(metrics["scope_resolution_ms"], float)
