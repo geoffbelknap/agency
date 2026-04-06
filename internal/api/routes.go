@@ -277,6 +277,11 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Post("/knowledge/ontology/validate", h.knowledgeOntologyValidate)
 		r.Post("/knowledge/ontology/migrate", h.knowledgeOntologyMigrate)
 
+		// Knowledge communities & hubs
+		r.Get("/knowledge/communities", h.knowledgeCommunities)
+		r.Get("/knowledge/communities/{id}", h.knowledgeCommunity)
+		r.Get("/knowledge/hubs", h.knowledgeHubs)
+
 		// Ontology candidates (emergence)
 		r.Get("/ontology/candidates", h.listOntologyCandidates)
 		r.Post("/ontology/promote", h.promoteOntologyCandidate)

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -112,6 +114,25 @@ func (p *Proxy) QueryForAgent(ctx context.Context, text string, agentMissionID s
 	return p.post(ctx, "/query", body)
 }
 
+// Communities returns the list of communities from the knowledge service.
+func (p *Proxy) Communities(ctx context.Context) (json.RawMessage, error) {
+	return p.getRaw(ctx, "/communities")
+}
+
+// Community returns a single community by ID.
+func (p *Proxy) Community(ctx context.Context, id string) (json.RawMessage, error) {
+	return p.getRaw(ctx, "/community/"+url.PathEscape(id))
+}
+
+// Hubs returns knowledge hubs, optionally limited.
+func (p *Proxy) Hubs(ctx context.Context, limit int) (json.RawMessage, error) {
+	path := "/hubs"
+	if limit > 0 {
+		path += "?limit=" + strconv.Itoa(limit)
+	}
+	return p.getRaw(ctx, path)
+}
+
 // Get is an exported helper for arbitrary GET requests to the knowledge service.
 func (p *Proxy) Get(ctx context.Context, path string) ([]byte, error) {
 	return p.get(ctx, path)
@@ -180,6 +201,14 @@ func URLEncode(s string) string {
 }
 
 // --- internal helpers ---
+
+func (p *Proxy) getRaw(ctx context.Context, path string) (json.RawMessage, error) {
+	b, err := p.get(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(b), nil
+}
 
 func (p *Proxy) get(ctx context.Context, path string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, nil)

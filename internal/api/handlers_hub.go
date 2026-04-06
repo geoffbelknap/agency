@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -955,6 +956,53 @@ func (h *handler) knowledgeRestore(w http.ResponseWriter, r *http.Request) {
 func (h *handler) knowledgeCurationLog(w http.ResponseWriter, r *http.Request) {
 	proxy := knowledge.NewProxy()
 	data, err := proxy.CurationLog(r.Context())
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+func (h *handler) knowledgeCommunities(w http.ResponseWriter, r *http.Request) {
+	proxy := knowledge.NewProxy()
+	data, err := proxy.Communities(r.Context())
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+func (h *handler) knowledgeCommunity(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeJSON(w, 400, map[string]string{"error": "missing community id"})
+		return
+	}
+	proxy := knowledge.NewProxy()
+	data, err := proxy.Community(r.Context(), id)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+func (h *handler) knowledgeHubs(w http.ResponseWriter, r *http.Request) {
+	limit := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	proxy := knowledge.NewProxy()
+	data, err := proxy.Hubs(r.Context(), limit)
 	if err != nil {
 		writeJSON(w, 502, map[string]string{"error": err.Error()})
 		return
