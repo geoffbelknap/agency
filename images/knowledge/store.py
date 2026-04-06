@@ -743,10 +743,10 @@ class KnowledgeStore:
             self.log_curation("soft_delete", row["id"], {"reason": "cache_clear", "label": row["label"]})
         return len(ids)
 
-    def get_neighbors_subgraph(self, node_id: str, relation: Optional[str] = None, limit: int = 50, principal: Optional[dict] = None) -> dict:
+    def get_neighbors_subgraph(self, node_id: str, relation: Optional[str] = None, limit: int = 50, principal: Optional[dict] = None, min_provenance: Optional[str] = None) -> dict:
         """Get neighbor nodes + connecting edges. Max 50 neighbor nodes."""
         limit = min(limit, 50)
-        edges = self.get_edges(node_id, direction="both", relation=relation)
+        edges = self.get_edges(node_id, direction="both", relation=relation, min_provenance=min_provenance)
         neighbor_ids = set()
         for e in edges:
             if e["source_id"] != node_id:
