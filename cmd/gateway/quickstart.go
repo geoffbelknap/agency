@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -655,10 +656,14 @@ func streamDemoResponse(client *apiclient.Client, baseURL, agentName, task strin
 		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		_, msgBytes, err := conn.ReadMessage()
 		if err != nil {
-			if time.Now().After(deadline) {
-				break
+			// Distinguish timeout from fatal connection error
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				break // connection closed cleanly
 			}
-			continue // timeout on read, retry
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				continue // read timeout, retry
+			}
+			break // fatal error, stop
 		}
 
 		var event map[string]interface{}
