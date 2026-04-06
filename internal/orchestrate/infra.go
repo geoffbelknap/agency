@@ -1115,15 +1115,15 @@ func (inf *Infra) ensureSystemChannels(ctx context.Context) error {
 		}
 	}
 
-	if err := inf.writeRegistrySnapshot(); err != nil {
+	if err := inf.WriteRegistrySnapshot(); err != nil {
 		inf.log.Warn("write registry snapshot", "err", err)
 	}
 
 	return nil
 }
 
-// writeRegistrySnapshot exports all principals to registry.json in the home directory.
-func (inf *Infra) writeRegistrySnapshot() error {
+// WriteRegistrySnapshot exports all principals to registry.json in the home directory.
+func (inf *Infra) WriteRegistrySnapshot() error {
 	if inf.Registry == nil {
 		return nil
 	}

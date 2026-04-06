@@ -41,6 +41,7 @@ type Workspace struct {
 	Version       string
 	SourceDir     string
 	BuildID       string
+	PrincipalUUID string // agent UUID from principal registry
 	cli           *client.Client
 	log           *log.Logger
 }
@@ -231,10 +232,11 @@ func (w *Workspace) Start(ctx context.Context, opts StartOptions) error {
 			User:     agencyUID + ":" + agencyGID,
 			Env:      mapToEnv(env),
 			Labels: map[string]string{
-				"agency.agent":         w.AgentName,
-				"agency.type":          "workspace",
-				"agency.build.id":      images.ImageBuildLabel(ctx, w.cli, bodyImage),
-				"agency.build.gateway": w.BuildID,
+				"agency.agent":          w.AgentName,
+				"agency.type":           "workspace",
+				"agency.principal.uuid": w.PrincipalUUID,
+				"agency.build.id":       images.ImageBuildLabel(ctx, w.cli, bodyImage),
+				"agency.build.gateway":  w.BuildID,
 			},
 		},
 		hostConfig,

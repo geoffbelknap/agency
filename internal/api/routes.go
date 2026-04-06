@@ -283,6 +283,14 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Get("/knowledge/communities/{id}", h.knowledgeCommunity)
 		r.Get("/knowledge/hubs", h.knowledgeHubs)
 
+		// Principal registry
+		r.Get("/registry", h.registrySnapshot)
+		r.Get("/registry/resolve", h.registryResolve)
+		r.Get("/registry/list", h.registryList)
+		r.Post("/registry", h.registryRegister)
+		r.Put("/registry/{uuid}", h.registryUpdate)
+		r.Delete("/registry/{uuid}", h.registryDelete)
+
 		// Ontology candidates (emergence)
 		r.Get("/ontology/candidates", h.listOntologyCandidates)
 		r.Post("/ontology/promote", h.promoteOntologyCandidate)
@@ -473,6 +481,9 @@ func newHandler(cfg *config.Config, dc *docker.Client, logger *log.Logger) *hand
 		infra.EgressToken = cfg.EgressToken
 	}
 	agents, _ := orchestrate.NewAgentManager(cfg.Home, dc, logger)
+	if agents != nil && infra != nil {
+		agents.SetInfra(infra)
+	}
 	halt, _ := orchestrate.NewHaltController(cfg.Home, cfg.Version, dc, logger)
 	audit := logs.NewWriter(cfg.Home)
 	ctxMgr := agencyctx.NewManager(audit)
