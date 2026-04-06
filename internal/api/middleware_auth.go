@@ -1,11 +1,27 @@
 package api
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/geoffbelknap/agency/internal/registry"
 )
+
+// contextKey is a private type for context keys to avoid collisions.
+type contextKey string
+
+// principalContextKey is the context key for the resolved principal.
+const principalContextKey contextKey = "principal"
+
+// getPrincipal extracts the principal from the request context.
+// Returns nil if no principal is resolved (backward compatibility).
+func getPrincipal(r *http.Request) *registry.Principal {
+	p, _ := r.Context().Value(principalContextKey).(*registry.Principal)
+	return p
+}
 
 // BearerAuth returns a middleware that validates the Authorization: Bearer <token>
 // or X-Agency-Token header using constant-time comparison.
@@ -16,7 +32,11 @@ import (
 // The egressToken parameter is a scoped token that only grants access to
 // the credential resolve endpoint (/api/v1/internal/credentials/resolve).
 // This limits blast radius if the egress container is compromised (ASK Tenet 4).
-func BearerAuth(token, egressToken string) func(http.Handler) http.Handler {
+//
+// The reg parameter is optional — if non-nil, the middleware resolves the
+// incoming token to a principal and stores it in the request context.
+// Handlers retrieve it via getPrincipal(r).
+func BearerAuth(token, egressToken string, reg *registry.Registry) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Allow health checks, web UI config, and WebSocket without auth.
@@ -36,6 +56,7 @@ func BearerAuth(token, egressToken string) func(http.Handler) http.Handler {
 
 			// Full token: access to all endpoints.
 			if constantTimeEqual(token, incoming) {
+				r = resolvePrincipal(r, reg, incoming)
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -43,6 +64,7 @@ func BearerAuth(token, egressToken string) func(http.Handler) http.Handler {
 			// Scoped egress token: only credential resolve endpoint.
 			if egressToken != "" && constantTimeEqual(egressToken, incoming) {
 				if r.URL.Path == "/api/v1/internal/credentials/resolve" && r.Method == http.MethodGet {
+					r = resolvePrincipal(r, reg, incoming)
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -58,6 +80,21 @@ func BearerAuth(token, egressToken string) func(http.Handler) http.Handler {
 			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 		})
 	}
+}
+
+// resolvePrincipal attempts to resolve the token to a principal via the registry
+// and stores it in the request context. If the registry is nil or resolution fails,
+// the request is returned unchanged (backward compatible).
+func resolvePrincipal(r *http.Request, reg *registry.Registry, token string) *http.Request {
+	if reg == nil {
+		return r
+	}
+	p, err := reg.ResolveToken(token)
+	if err != nil {
+		return r
+	}
+	ctx := context.WithValue(r.Context(), principalContextKey, p)
+	return r.WithContext(ctx)
 }
 
 // extractToken pulls the bearer token from Authorization header or X-Agency-Token header.
