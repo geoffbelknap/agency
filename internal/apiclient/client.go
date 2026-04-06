@@ -696,6 +696,18 @@ func (c *Client) KnowledgeIngestWithScope(content, filename, contentType string,
 	return c.Post("/api/v1/knowledge/ingest", body)
 }
 
+func (c *Client) KnowledgeSaveInsight(insight string, sourceNodes []string, confidence string, tags []string) ([]byte, error) {
+	body := map[string]interface{}{
+		"insight":      insight,
+		"source_nodes": sourceNodes,
+		"confidence":   confidence,
+	}
+	if len(tags) > 0 {
+		body["tags"] = tags
+	}
+	return c.Post("/api/v1/knowledge/insight", body)
+}
+
 // ── Knowledge Principals ────────────────────────────────────────────────────
 
 func (c *Client) KnowledgePrincipals(principalType string) ([]byte, error) {

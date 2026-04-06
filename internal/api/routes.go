@@ -260,6 +260,7 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Post("/knowledge/restore", h.knowledgeRestore)
 		r.Get("/knowledge/curation-log", h.knowledgeCurationLog)
 		r.Post("/knowledge/ingest", h.knowledgeIngest)
+		r.Post("/knowledge/insight", h.knowledgeSaveInsight)
 
 		// Knowledge principals
 		r.Get("/knowledge/principals", h.knowledgePrincipalsList)

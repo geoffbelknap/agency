@@ -1037,6 +1037,32 @@ func (h *handler) knowledgeIngest(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
+func (h *handler) knowledgeSaveInsight(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Insight     string   `json:"insight"`
+		SourceNodes []string `json:"source_nodes"`
+		Confidence  string   `json:"confidence"`
+		Tags        []string `json:"tags,omitempty"`
+		AgentName   string   `json:"agent_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if body.Insight == "" {
+		writeJSON(w, 400, map[string]string{"error": "insight required"})
+		return
+	}
+	data, err := h.knowledge.SaveInsight(r.Context(), body.Insight, body.SourceNodes, body.Confidence, body.Tags, body.AgentName)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
 // ── Knowledge Ontology ──────────────────────────────────────────────────────
 
 func (h *handler) knowledgeOntology(w http.ResponseWriter, r *http.Request) {

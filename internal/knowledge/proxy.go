@@ -160,6 +160,24 @@ func (p *Proxy) Ingest(ctx context.Context, content, filename, contentType strin
 	return json.RawMessage(b), nil
 }
 
+// SaveInsight saves an agent-generated insight to the knowledge graph.
+func (p *Proxy) SaveInsight(ctx context.Context, insight string, sourceNodes []string, confidence string, tags []string, agentName string) (json.RawMessage, error) {
+	body := map[string]interface{}{
+		"insight":      insight,
+		"source_nodes": sourceNodes,
+		"confidence":   confidence,
+		"agent_name":   agentName,
+	}
+	if len(tags) > 0 {
+		body["tags"] = tags
+	}
+	b, err := p.post(ctx, "/insight", body)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(b), nil
+}
+
 // Pending returns org-structural knowledge contributions awaiting operator review.
 func (p *Proxy) Pending(ctx context.Context) ([]byte, error) {
 	return p.get(ctx, "/pending")

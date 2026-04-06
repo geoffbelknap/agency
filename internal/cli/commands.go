@@ -2724,6 +2724,45 @@ For URLs: passes the URL as filename (the knowledge service handles URL classifi
 	ingestCmd.Flags().String("scope", "", "Scope JSON (e.g. '{\"principals\":[\"operator:uuid\"]}')")
 	cmd.AddCommand(ingestCmd)
 
+	insightCmd := &cobra.Command{
+		Use:   "insight <text>",
+		Short: "Save an insight to the knowledge graph",
+		Long:  `Save an agent-generated insight with source nodes, confidence level, and optional tags.`,
+		Example: `  agency knowledge insight "lateral movement detected from host-A to host-B" --sources id1,id2 --confidence high
+  agency knowledge insight "CVE-2024-1234 affects 3 hosts" --sources n1,n2,n3 --confidence medium --tags risk,security`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			insight := args[0]
+			sourcesStr, _ := cmd.Flags().GetString("sources")
+			confidence, _ := cmd.Flags().GetString("confidence")
+			tagsStr, _ := cmd.Flags().GetString("tags")
+
+			var sources []string
+			if sourcesStr != "" {
+				sources = strings.Split(sourcesStr, ",")
+			}
+			var tags []string
+			if tagsStr != "" {
+				tags = strings.Split(tagsStr, ",")
+			}
+
+			data, err := c.KnowledgeSaveInsight(insight, sources, confidence, tags)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	}
+	insightCmd.Flags().String("sources", "", "Comma-separated source node IDs")
+	insightCmd.Flags().String("confidence", "medium", "Confidence level (low, medium, high)")
+	insightCmd.Flags().String("tags", "", "Comma-separated tags")
+	cmd.AddCommand(insightCmd)
+
 	cmd.AddCommand(knowledgeOntologyCmd())
 	cmd.AddCommand(knowledgeReviewCmd())
 	cmd.AddCommand(knowledgePrincipalsCmd())
