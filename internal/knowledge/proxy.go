@@ -122,6 +122,23 @@ func (p *Proxy) Post(ctx context.Context, path string, body interface{}) ([]byte
 	return p.post(ctx, path, body)
 }
 
+// Ingest sends content to the knowledge service for ingestion.
+func (p *Proxy) Ingest(ctx context.Context, content, filename, contentType string, scope json.RawMessage) (json.RawMessage, error) {
+	body := map[string]interface{}{
+		"content":      content,
+		"filename":     filename,
+		"content_type": contentType,
+	}
+	if scope != nil {
+		body["scope"] = json.RawMessage(scope)
+	}
+	b, err := p.post(ctx, "/ingest", body)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(b), nil
+}
+
 // Pending returns org-structural knowledge contributions awaiting operator review.
 func (p *Proxy) Pending(ctx context.Context) ([]byte, error) {
 	return p.get(ctx, "/pending")

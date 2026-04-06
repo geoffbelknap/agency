@@ -675,6 +675,27 @@ func (c *Client) KnowledgeReview(id, action, reason string) ([]byte, error) {
 	})
 }
 
+func (c *Client) KnowledgeIngest(content, filename, contentType string) ([]byte, error) {
+	body := map[string]string{
+		"content":      content,
+		"filename":     filename,
+		"content_type": contentType,
+	}
+	return c.Post("/api/v1/knowledge/ingest", body)
+}
+
+func (c *Client) KnowledgeIngestWithScope(content, filename, contentType string, scope json.RawMessage) ([]byte, error) {
+	body := map[string]interface{}{
+		"content":      content,
+		"filename":     filename,
+		"content_type": contentType,
+	}
+	if scope != nil {
+		body["scope"] = json.RawMessage(scope)
+	}
+	return c.Post("/api/v1/knowledge/ingest", body)
+}
+
 // ── Knowledge Principals ────────────────────────────────────────────────────
 
 func (c *Client) KnowledgePrincipals(principalType string) ([]byte, error) {

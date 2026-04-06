@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -2651,6 +2654,75 @@ func knowledgeCmd() *cobra.Command {
 			return nil
 		},
 	})
+
+	ingestCmd := &cobra.Command{
+		Use:   "ingest <file-or-url>",
+		Short: "Ingest content into the knowledge graph",
+		Long: `Ingest a file or URL into the knowledge graph.
+
+For files: reads content from disk and detects content type from extension.
+For stdin: use "-" as the argument to read from stdin.
+For URLs: passes the URL as filename (the knowledge service handles URL classification).`,
+		Example: `  agency knowledge ingest report.md
+  agency knowledge ingest https://example.com/page
+  cat notes.txt | agency knowledge ingest - --type text/plain
+  agency knowledge ingest data.json --scope '{"principals":["operator:abc-123"]}'`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+
+			source := args[0]
+			contentType, _ := cmd.Flags().GetString("type")
+			scopeStr, _ := cmd.Flags().GetString("scope")
+
+			var content, filename string
+
+			if source == "-" {
+				// Read from stdin
+				b, err := io.ReadAll(os.Stdin)
+				if err != nil {
+					return fmt.Errorf("reading stdin: %w", err)
+				}
+				content = string(b)
+				filename = "stdin"
+				if contentType == "" {
+					contentType = "text/plain"
+				}
+			} else if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+				// URL — pass as filename, knowledge service handles it
+				filename = source
+			} else {
+				// File on disk
+				b, err := os.ReadFile(source)
+				if err != nil {
+					return fmt.Errorf("reading file: %w", err)
+				}
+				content = string(b)
+				filename = filepath.Base(source)
+				if contentType == "" {
+					contentType = mime.TypeByExtension(filepath.Ext(source))
+				}
+			}
+
+			var scope json.RawMessage
+			if scopeStr != "" {
+				scope = json.RawMessage(scopeStr)
+			}
+
+			data, err := c.KnowledgeIngestWithScope(content, filename, contentType, scope)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	}
+	ingestCmd.Flags().String("type", "", "Content type (e.g. text/markdown, application/json)")
+	ingestCmd.Flags().String("scope", "", "Scope JSON (e.g. '{\"principals\":[\"operator:uuid\"]}')")
+	cmd.AddCommand(ingestCmd)
 
 	cmd.AddCommand(knowledgeOntologyCmd())
 	cmd.AddCommand(knowledgeReviewCmd())

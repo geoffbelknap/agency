@@ -964,6 +964,31 @@ func (h *handler) knowledgeCurationLog(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
+func (h *handler) knowledgeIngest(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Content     string          `json:"content"`
+		Filename    string          `json:"filename"`
+		ContentType string          `json:"content_type"`
+		Scope       json.RawMessage `json:"scope,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if body.Content == "" && body.Filename == "" {
+		writeJSON(w, 400, map[string]string{"error": "content or filename required"})
+		return
+	}
+	data, err := h.knowledge.Ingest(r.Context(), body.Content, body.Filename, body.ContentType, body.Scope)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
 // ── Knowledge Ontology ──────────────────────────────────────────────────────
 
 func (h *handler) knowledgeOntology(w http.ResponseWriter, r *http.Request) {
