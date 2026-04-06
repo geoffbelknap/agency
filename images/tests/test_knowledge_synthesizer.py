@@ -1,6 +1,7 @@
 """Tests for LLM synthesis pipeline."""
 
 import json
+import time
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -94,6 +95,95 @@ class TestServerIntegration:
         synth = app["synthesizer"]
         assert isinstance(synth, LLMSynthesizer)
         assert not hasattr(synth, "enforcer_url")
+
+
+class TestContentSynthesis:
+    def test_add_content_for_synthesis(self, tmp_path):
+        """add_content_for_synthesis queues content items."""
+        store = KnowledgeStore(tmp_path)
+        synth = LLMSynthesizer(store)
+        assert not synth.has_pending_content()
+        synth.add_content_for_synthesis("Some raw text about infrastructure")
+        assert synth.has_pending_content()
+        assert len(synth._pending_content) == 1
+        assert synth._pending_content[0]["content"] == "Some raw text about infrastructure"
+        assert synth._pending_content[0]["scope"] is None
+
+    def test_add_content_with_scope(self, tmp_path):
+        """add_content_for_synthesis stores scope metadata."""
+        store = KnowledgeStore(tmp_path)
+        synth = LLMSynthesizer(store)
+        scope = {"source_channels": ["#docs"], "source_type": "document"}
+        synth.add_content_for_synthesis("Architecture decisions", scope=scope)
+        assert synth._pending_content[0]["scope"] == scope
+
+    def test_has_pending_content_false_when_empty(self, tmp_path):
+        """has_pending_content returns False on fresh synthesizer."""
+        store = KnowledgeStore(tmp_path)
+        synth = LLMSynthesizer(store)
+        assert synth.has_pending_content() is False
+
+    def test_should_synthesize_with_pending_content(self, tmp_path):
+        """should_synthesize returns True when content is queued."""
+        store = KnowledgeStore(tmp_path)
+        synth = LLMSynthesizer(store, message_threshold=50)
+        assert synth.should_synthesize() is False
+        synth.add_content_for_synthesis("Some content to process")
+        assert synth.should_synthesize() is True
+
+    def test_should_synthesize_content_respects_min_interval(self, tmp_path):
+        """Pending content still respects the minimum interval cooldown."""
+        store = KnowledgeStore(tmp_path)
+        synth = LLMSynthesizer(store, min_interval_seconds=9999)
+        # Simulate a recent synthesis
+        synth._last_synthesis = time.monotonic()
+        synth.add_content_for_synthesis("Content")
+        assert synth.should_synthesize() is False
+
+    def test_synthesize_content_calls_llm_and_applies(self, tmp_path):
+        """synthesize_content processes content through LLM extraction."""
+        store = KnowledgeStore(tmp_path)
+        synth = LLMSynthesizer(store)
+        synth.add_content_for_synthesis(
+            "The payment service depends on Stripe API",
+            scope={"source_channels": ["#docs"], "source_type": "document"},
+        )
+        llm_response = json.dumps({
+            "entities": [
+                {"label": "payment service", "kind": "system", "summary": "Handles payments"},
+                {"label": "Stripe API", "kind": "service", "summary": "Payment provider"},
+            ],
+            "relationships": [
+                {"source": "payment service", "target": "Stripe API", "relation": "depends_on"},
+            ],
+        })
+        mock_resp = httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": llm_response}}]},
+            request=httpx.Request("POST", "http://localhost:8200/api/v1/internal/llm"),
+        )
+        with patch.object(synth._http_gateway, "post", return_value=mock_resp):
+            synth.synthesize_content()
+
+        assert not synth.has_pending_content()
+        nodes = store.find_nodes("payment service")
+        assert len(nodes) == 1
+        assert nodes[0]["kind"] == "system"
+
+    def test_synthesize_content_clears_pending(self, tmp_path):
+        """synthesize_content clears the pending content list."""
+        store = KnowledgeStore(tmp_path)
+        synth = LLMSynthesizer(store)
+        synth.add_content_for_synthesis("Content A")
+        synth.add_content_for_synthesis("Content B")
+        mock_resp = httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": '{"entities":[],"relationships":[]}'}}]},
+            request=httpx.Request("POST", "http://localhost:8200/api/v1/internal/llm"),
+        )
+        with patch.object(synth._http_gateway, "post", return_value=mock_resp):
+            synth.synthesize_content()
+        assert not synth.has_pending_content()
 
 
 class TestConfigurableThresholds:
