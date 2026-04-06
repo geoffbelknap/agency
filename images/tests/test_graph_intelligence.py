@@ -1,5 +1,6 @@
 """Tests for graph intelligence columns and methods (community detection, hub scores)."""
 
+import json
 import os
 import sys
 
@@ -171,3 +172,113 @@ class TestGetHubs:
         # Highest scores first
         assert hubs[0]["hub_score"] == 4.0
         assert hubs[1]["hub_score"] == 3.0
+
+
+# ---------------------------------------------------------------------------
+# CommunityDetector tests
+# ---------------------------------------------------------------------------
+
+from graph_intelligence import CommunityDetector
+
+
+def _build_two_cluster_store(tmp_path):
+    """Create a store with two clear 3-node clusters, weakly connected."""
+    store = KnowledgeStore(tmp_path)
+    # Cluster A: a1, a2, a3 (dense)
+    a1 = store.add_node(label="a1", kind="concept", summary="A1")
+    a2 = store.add_node(label="a2", kind="concept", summary="A2")
+    a3 = store.add_node(label="a3", kind="concept", summary="A3")
+    store.add_edge(a1, a2, "related", provenance="EXTRACTED")
+    store.add_edge(a1, a3, "related", provenance="EXTRACTED")
+    store.add_edge(a2, a3, "related", provenance="EXTRACTED")
+
+    # Cluster B: b1, b2, b3 (dense)
+    b1 = store.add_node(label="b1", kind="concept", summary="B1")
+    b2 = store.add_node(label="b2", kind="concept", summary="B2")
+    b3 = store.add_node(label="b3", kind="concept", summary="B3")
+    store.add_edge(b1, b2, "related", provenance="INFERRED")
+    store.add_edge(b1, b3, "related", provenance="INFERRED")
+    store.add_edge(b2, b3, "related", provenance="INFERRED")
+
+    # Weak bridge between clusters
+    store.add_edge(a3, b1, "weak_link", provenance="EXTRACTED")
+    return store
+
+
+class TestCommunityDetector:
+    def test_detects_two_communities(self, tmp_path):
+        store = _build_two_cluster_store(tmp_path)
+        detector = CommunityDetector(store)
+        stats = detector.detect()
+        assert stats["communities_found"] >= 2
+
+    def test_community_nodes_created(self, tmp_path):
+        store = _build_two_cluster_store(tmp_path)
+        detector = CommunityDetector(store)
+        detector.detect()
+        communities = store.list_communities()
+        assert len(communities) >= 2
+        for c in communities:
+            assert c["kind"] == "Community"
+
+    def test_nodes_assigned_community_id(self, tmp_path):
+        store = _build_two_cluster_store(tmp_path)
+        detector = CommunityDetector(store)
+        detector.detect()
+        # Check that concept nodes got community_id assigned
+        rows = store._db.execute(
+            "SELECT * FROM nodes WHERE kind = 'concept' AND community_id IS NOT NULL"
+        ).fetchall()
+        assert len(rows) == 6  # all 6 concept nodes
+
+    def test_cohesion_between_0_and_1(self, tmp_path):
+        store = _build_two_cluster_store(tmp_path)
+        detector = CommunityDetector(store)
+        detector.detect()
+        communities = store.list_communities()
+        for c in communities:
+            props = json.loads(c["properties"]) if isinstance(c["properties"], str) else c["properties"]
+            assert 0.0 <= props["cohesion"] <= 1.0
+
+    def test_ambiguous_edges_excluded(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        n1 = store.add_node(label="x1", kind="concept", summary="X1")
+        n2 = store.add_node(label="x2", kind="concept", summary="X2")
+        # Only AMBIGUOUS edges — should not appear in NetworkX graph
+        store.add_edge(n1, n2, "related", provenance="AMBIGUOUS")
+        detector = CommunityDetector(store)
+        G = detector._build_graph()
+        assert G.number_of_edges() == 0
+
+    def test_structural_nodes_excluded(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        store.add_node(label="my-agent", kind="agent", summary="An agent")
+        store.add_node(label="my-channel", kind="channel", summary="A channel")
+        store.add_node(label="my-task", kind="task", summary="A task")
+        store.add_node(label="real-concept", kind="concept", summary="Real")
+        detector = CommunityDetector(store)
+        G = detector._build_graph()
+        assert len(G.nodes()) == 1  # only real-concept
+
+    def test_oversized_community_gets_split(self, tmp_path):
+        """A single large clique that exceeds max_community_fraction should be recursively split."""
+        store = KnowledgeStore(tmp_path)
+        # Create 20 fully-connected nodes — a single community that is 100% of graph
+        nodes = []
+        for i in range(20):
+            nid = store.add_node(label=f"n{i}", kind="concept", summary=f"Node {i}")
+            nodes.append(nid)
+        for i in range(len(nodes)):
+            for j in range(i + 1, len(nodes)):
+                store.add_edge(nodes[i], nodes[j], "related", provenance="EXTRACTED")
+        detector = CommunityDetector(store, max_community_fraction=0.25, resolution=1.0)
+        stats = detector.detect()
+        # With recursive splitting, we should get more than 1 community
+        assert stats["communities_found"] >= 2
+
+    def test_empty_graph_returns_zero(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        detector = CommunityDetector(store)
+        stats = detector.detect()
+        assert stats["communities_found"] == 0
+        assert stats["nodes_assigned"] == 0
