@@ -284,6 +284,77 @@ func TestRegisterWithOptions(t *testing.T) {
 	}
 }
 
+func TestGenerateToken(t *testing.T) {
+	r := tempDB(t)
+	uuid, _ := r.Register("operator", "geoff")
+	token, err := r.GenerateToken(uuid)
+	if err != nil {
+		t.Fatalf("GenerateToken: %v", err)
+	}
+	if len(token) != 64 {
+		t.Errorf("expected 64-char hex token, got %d chars: %s", len(token), token)
+	}
+}
+
+func TestResolveToken(t *testing.T) {
+	r := tempDB(t)
+	uuid, _ := r.Register("operator", "geoff")
+	token, _ := r.GenerateToken(uuid)
+
+	p, err := r.ResolveToken(token)
+	if err != nil {
+		t.Fatalf("ResolveToken: %v", err)
+	}
+	if p.UUID != uuid {
+		t.Errorf("expected UUID %s, got %s", uuid, p.UUID)
+	}
+	if p.Name != "geoff" {
+		t.Errorf("expected name geoff, got %s", p.Name)
+	}
+}
+
+func TestResolveTokenNotFound(t *testing.T) {
+	r := tempDB(t)
+	_, err := r.ResolveToken("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	if err == nil {
+		t.Fatal("expected error for unknown token, got nil")
+	}
+}
+
+func TestGatewayTokenResolvesToOperator(t *testing.T) {
+	r := tempDB(t)
+	// Create an inactive operator and an active one.
+	inactiveUUID, _ := r.Register("operator", "inactive-op")
+	r.Update(inactiveUUID, map[string]interface{}{"status": "suspended"})
+	activeUUID, _ := r.Register("operator", "active-op")
+
+	r.SetGatewayToken("my-gateway-token")
+
+	p, err := r.ResolveToken("my-gateway-token")
+	if err != nil {
+		t.Fatalf("ResolveToken gateway: %v", err)
+	}
+	if p.UUID != activeUUID {
+		t.Errorf("expected active operator UUID %s, got %s", activeUUID, p.UUID)
+	}
+}
+
+func TestRevokeTokens(t *testing.T) {
+	r := tempDB(t)
+	uuid, _ := r.Register("operator", "geoff")
+	token, _ := r.GenerateToken(uuid)
+
+	err := r.RevokeTokens(uuid)
+	if err != nil {
+		t.Fatalf("RevokeTokens: %v", err)
+	}
+
+	_, err = r.ResolveToken(token)
+	if err == nil {
+		t.Fatal("expected error after revocation, got nil")
+	}
+}
+
 func TestOpenCreatesFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "new-registry.db")

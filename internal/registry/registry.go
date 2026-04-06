@@ -5,7 +5,9 @@
 package registry
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -25,6 +27,11 @@ CREATE TABLE IF NOT EXISTS principals (
     created_at TEXT NOT NULL,
     metadata TEXT DEFAULT '{}',
     UNIQUE(type, name)
+);
+CREATE TABLE IF NOT EXISTS tokens (
+    token TEXT PRIMARY KEY,
+    principal_uuid TEXT NOT NULL,
+    created_at TEXT NOT NULL
 );
 `
 
@@ -49,7 +56,8 @@ type RegistrySnapshot struct {
 
 // Registry wraps a SQLite database for UUID-based principal identity.
 type Registry struct {
-	db *sql.DB
+	db           *sql.DB
+	gatewayToken string
 }
 
 // Option configures optional fields during principal registration.
@@ -297,6 +305,66 @@ func (r *Registry) Snapshot() ([]byte, error) {
 		Principals:  principals,
 	}
 	return json.Marshal(snap)
+}
+
+// GenerateToken creates a secure random token mapped to the given principal UUID.
+// The principal must exist. Returns a 64-character hex-encoded token.
+func (r *Registry) GenerateToken(principalUUID string) (string, error) {
+	// Verify principal exists.
+	var exists int
+	if err := r.db.QueryRow("SELECT 1 FROM principals WHERE uuid = ?", principalUUID).Scan(&exists); err != nil {
+		return "", fmt.Errorf("principal %s not found", principalUUID)
+	}
+
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate token: %w", err)
+	}
+	token := hex.EncodeToString(b)
+	createdAt := time.Now().UTC().Format(time.RFC3339)
+
+	if _, err := r.db.Exec(
+		"INSERT INTO tokens (token, principal_uuid, created_at) VALUES (?, ?, ?)",
+		token, principalUUID, createdAt,
+	); err != nil {
+		return "", fmt.Errorf("store token: %w", err)
+	}
+	return token, nil
+}
+
+// ResolveToken looks up a token and returns the associated principal.
+// If a gateway token is set and matches, returns the first active operator.
+func (r *Registry) ResolveToken(token string) (*Principal, error) {
+	// Check gateway token first.
+	if r.gatewayToken != "" && token == r.gatewayToken {
+		row := r.db.QueryRow(
+			`SELECT uuid, type, name, parent, status, permissions, created_at, metadata
+			 FROM principals WHERE type = 'operator' AND status = 'active'
+			 ORDER BY created_at LIMIT 1`,
+		)
+		return scanPrincipal(row)
+	}
+
+	var principalUUID string
+	err := r.db.QueryRow("SELECT principal_uuid FROM tokens WHERE token = ?", token).Scan(&principalUUID)
+	if err != nil {
+		return nil, fmt.Errorf("token not found")
+	}
+	return r.Resolve(principalUUID)
+}
+
+// SetGatewayToken stores the gateway token for backward-compatible token resolution.
+func (r *Registry) SetGatewayToken(token string) {
+	r.gatewayToken = token
+}
+
+// RevokeTokens deletes all tokens for the given principal UUID.
+func (r *Registry) RevokeTokens(principalUUID string) error {
+	_, err := r.db.Exec("DELETE FROM tokens WHERE principal_uuid = ?", principalUUID)
+	if err != nil {
+		return fmt.Errorf("revoke tokens: %w", err)
+	}
+	return nil
 }
 
 // scanPrincipal scans a single row into a Principal.
