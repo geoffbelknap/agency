@@ -578,6 +578,7 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
 	hc.NetworkMode = container.NetworkMode(mediationNet)
+	hc.ExtraHosts = []string{"gateway:host-gateway"}
 
 	id, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
