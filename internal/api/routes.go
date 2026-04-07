@@ -50,22 +50,6 @@ type RouteOptions struct {
 // Each infra-facing endpoint has its own auth mechanism (X-Agency-Token / X-Agency-Caller)
 // or is read-only health/status data.
 func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, logger *log.Logger, startup *StartupResult, opts RouteOptions) {
-	h := &handler{
-		cfg: cfg, dc: dc, log: logger,
-		infra: startup.Infra, agents: startup.AgentManager,
-		halt: startup.HaltController, audit: startup.Audit,
-		ctxMgr: startup.CtxMgr, mcpReg: startup.MCPReg,
-		knowledge: startup.Knowledge, missions: startup.MissionManager,
-		meeseeks: startup.MeeseeksManager, claims: startup.Claims,
-		credStore: startup.CredStore, profileStore: startup.ProfileStore,
-	}
-	if opts.Hub != nil {
-		h.wsHub = opts.Hub
-	}
-	if opts.EventBus != nil {
-		h.eventBus = opts.EventBus
-	}
-
 	r.Get("/api/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]string{"status": "ok", "version": cfg.Version, "build_id": cfg.BuildID})
 	})
@@ -124,18 +108,9 @@ func RegisterCredentialSocketRoutes(r chi.Router, cfg *config.Config, dc *docker
 	}
 }
 
-// RegisterRoutes sets up all REST API routes on the given router.
-// The hub parameter is optional — if non-nil, the WebSocket endpoint is registered.
-func RegisterRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, logger *log.Logger, startup *StartupResult, hub ...*ws.Hub) {
-	opts := RouteOptions{}
-	if len(hub) > 0 {
-		opts.Hub = hub[0]
-	}
-	RegisterRoutesWithOptions(r, cfg, dc, logger, startup, opts)
-}
-
-// RegisterRoutesWithOptions sets up all REST API routes with full option support.
-func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Client, logger *log.Logger, startup *StartupResult, opts RouteOptions) {
+// RegisterAll sets up all REST API routes with full option support.
+// This is the canonical registration entry point for the full HTTP API surface.
+func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *log.Logger, startup *StartupResult, opts RouteOptions) {
 	h := &handler{
 		cfg: cfg, dc: dc, log: logger,
 		infra: startup.Infra, agents: startup.AgentManager,
