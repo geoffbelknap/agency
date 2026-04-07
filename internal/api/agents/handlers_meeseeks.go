@@ -11,7 +11,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 )
 
-// spawnMeeseeks handles POST /api/v1/meeseeks
+// spawnMeeseeks handles POST /api/v1/agents/meeseeks
 func (h *handler) spawnMeeseeks(w http.ResponseWriter, r *http.Request) {
 	var req models.MeeseeksSpawnRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -117,14 +117,14 @@ func (h *handler) spawnMeeseeks(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// listMeeseeks handles GET /api/v1/meeseeks
+// listMeeseeks handles GET /api/v1/agents/meeseeks
 func (h *handler) listMeeseeks(w http.ResponseWriter, r *http.Request) {
 	parent := r.URL.Query().Get("parent")
 	list := h.deps.MeeseeksManager.List(parent)
 	writeJSON(w, 200, list)
 }
 
-// showMeeseeks handles GET /api/v1/meeseeks/{id}
+// showMeeseeks handles GET /api/v1/agents/meeseeks/{id}
 func (h *handler) showMeeseeks(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	mks, err := h.deps.MeeseeksManager.Get(id)
@@ -135,7 +135,7 @@ func (h *handler) showMeeseeks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, mks)
 }
 
-// killMeeseeks handles DELETE /api/v1/meeseeks/{id}
+// killMeeseeks handles DELETE /api/v1/agents/meeseeks/{id}
 func (h *handler) killMeeseeks(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
@@ -181,7 +181,7 @@ func (h *handler) killMeeseeks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": "terminated", "meeseeks_id": id})
 }
 
-// completeMeeseeks handles POST /api/v1/meeseeks/{id}/complete
+// completeMeeseeks handles POST /api/v1/agents/meeseeks/{id}/complete
 // Called by the body runtime when a Meeseeks signals task completion.
 func (h *handler) completeMeeseeks(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
@@ -204,7 +204,7 @@ func (h *handler) completeMeeseeks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": "completed", "meeseeks_id": id})
 }
 
-// killMeeseeksByParent handles DELETE /api/v1/meeseeks?parent=<agent>
+// killMeeseeksByParent handles DELETE /api/v1/agents/meeseeks?parent=<agent>
 func (h *handler) killMeeseeksByParent(w http.ResponseWriter, r *http.Request) {
 	parent := r.URL.Query().Get("parent")
 	if parent == "" {

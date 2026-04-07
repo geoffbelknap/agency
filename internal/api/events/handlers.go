@@ -66,7 +66,7 @@ func (h *handler) showEvent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, event)
 }
 
-// listSubscriptions handles GET /api/v1/subscriptions
+// listSubscriptions handles GET /api/v1/events/subscriptions
 func (h *handler) listSubscriptions(w http.ResponseWriter, r *http.Request) {
 	if h.deps.EventBus == nil {
 		writeJSON(w, 503, map[string]string{"error": "event bus not initialized"})
@@ -82,7 +82,7 @@ func (h *handler) listSubscriptions(w http.ResponseWriter, r *http.Request) {
 
 // ── Webhook CRUD ─────────────────────────────────────────────────────────────
 
-// createWebhook handles POST /api/v1/webhooks
+// createWebhook handles POST /api/v1/events/webhooks
 func (h *handler) createWebhook(w http.ResponseWriter, r *http.Request) {
 	if h.deps.WebhookMgr == nil {
 		writeJSON(w, 503, map[string]string{"error": "webhook manager not initialized"})
@@ -119,7 +119,7 @@ func (h *handler) createWebhook(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, wh)
 }
 
-// listWebhooks handles GET /api/v1/webhooks
+// listWebhooks handles GET /api/v1/events/webhooks
 func (h *handler) listWebhooks(w http.ResponseWriter, r *http.Request) {
 	if h.deps.WebhookMgr == nil {
 		writeJSON(w, 503, map[string]string{"error": "webhook manager not initialized"})
@@ -154,7 +154,7 @@ func (h *handler) listWebhooks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, safe)
 }
 
-// showWebhook handles GET /api/v1/webhooks/{name}
+// showWebhook handles GET /api/v1/events/webhooks/{name}
 func (h *handler) showWebhook(w http.ResponseWriter, r *http.Request) {
 	if h.deps.WebhookMgr == nil {
 		writeJSON(w, 503, map[string]string{"error": "webhook manager not initialized"})
@@ -173,7 +173,7 @@ func (h *handler) showWebhook(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, wh)
 }
 
-// deleteWebhook handles DELETE /api/v1/webhooks/{name}
+// deleteWebhook handles DELETE /api/v1/events/webhooks/{name}
 func (h *handler) deleteWebhook(w http.ResponseWriter, r *http.Request) {
 	if h.deps.WebhookMgr == nil {
 		writeJSON(w, 503, map[string]string{"error": "webhook manager not initialized"})
@@ -196,7 +196,7 @@ func (h *handler) deleteWebhook(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": "deleted", "name": name})
 }
 
-// rotateWebhookSecret handles POST /api/v1/webhooks/{name}/rotate-secret
+// rotateWebhookSecret handles POST /api/v1/events/webhooks/{name}/rotate-secret
 func (h *handler) rotateWebhookSecret(w http.ResponseWriter, r *http.Request) {
 	if h.deps.WebhookMgr == nil {
 		writeJSON(w, 503, map[string]string{"error": "webhook manager not initialized"})
@@ -279,7 +279,7 @@ func detectNotificationType(url string) string {
 
 var defaultNotificationEvents = []string{"operator_alert", "enforcer_exited", "mission_health_alert"}
 
-// listNotifications handles GET /api/v1/notifications
+// listNotifications handles GET /api/v1/events/notifications
 func (h *handler) listNotifications(w http.ResponseWriter, r *http.Request) {
 	if h.deps.NotifStore == nil {
 		writeJSON(w, 503, map[string]string{"error": "notification store not initialized"})
@@ -300,7 +300,7 @@ func (h *handler) listNotifications(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, safe)
 }
 
-// showNotification handles GET /api/v1/notifications/{name}
+// showNotification handles GET /api/v1/events/notifications/{name}
 func (h *handler) showNotification(w http.ResponseWriter, r *http.Request) {
 	if h.deps.NotifStore == nil {
 		writeJSON(w, 503, map[string]string{"error": "notification store not initialized"})
@@ -326,7 +326,7 @@ func (h *handler) showNotification(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, safeConfig{Name: nc.Name, Type: nc.Type, URL: nc.URL, Events: nc.Events})
 }
 
-// addNotification handles POST /api/v1/notifications
+// addNotification handles POST /api/v1/events/notifications
 func (h *handler) addNotification(w http.ResponseWriter, r *http.Request) {
 	if h.deps.NotifStore == nil {
 		writeJSON(w, 503, map[string]string{"error": "notification store not initialized"})
@@ -389,7 +389,7 @@ func (h *handler) addNotification(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, nc)
 }
 
-// deleteNotification handles DELETE /api/v1/notifications/{name}
+// deleteNotification handles DELETE /api/v1/events/notifications/{name}
 func (h *handler) deleteNotification(w http.ResponseWriter, r *http.Request) {
 	if h.deps.NotifStore == nil {
 		writeJSON(w, 503, map[string]string{"error": "notification store not initialized"})
@@ -413,7 +413,7 @@ func (h *handler) deleteNotification(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": "deleted", "name": name})
 }
 
-// testNotification handles POST /api/v1/notifications/{name}/test
+// testNotification handles POST /api/v1/events/notifications/{name}/test
 func (h *handler) testNotification(w http.ResponseWriter, r *http.Request) {
 	if h.deps.NotifStore == nil {
 		writeJSON(w, 503, map[string]string{"error": "notification store not initialized"})

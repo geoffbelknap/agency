@@ -12,7 +12,7 @@ import (
 
 // ── Profile REST handlers ───────────────────────────────────────────────────
 
-// listProfiles handles GET /api/v1/profiles?type=operator|agent
+// listProfiles handles GET /api/v1/admin/profiles?type=operator|agent
 func (h *handler) listProfiles(w http.ResponseWriter, r *http.Request) {
 	if h.deps.ProfileStore == nil {
 		writeJSON(w, 503, map[string]string{"error": "profile store not initialized"})
@@ -31,7 +31,7 @@ func (h *handler) listProfiles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, profiles)
 }
 
-// getProfile handles GET /api/v1/profiles/{id}
+// getProfile handles GET /api/v1/admin/profiles/{id}
 func (h *handler) getProfile(w http.ResponseWriter, r *http.Request) {
 	if h.deps.ProfileStore == nil {
 		writeJSON(w, 503, map[string]string{"error": "profile store not initialized"})
@@ -50,7 +50,7 @@ func (h *handler) getProfile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, p)
 }
 
-// createOrUpdateProfile handles PUT /api/v1/profiles/{id}
+// createOrUpdateProfile handles PUT /api/v1/admin/profiles/{id}
 func (h *handler) createOrUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	if h.deps.ProfileStore == nil {
 		writeJSON(w, 503, map[string]string{"error": "profile store not initialized"})
@@ -83,7 +83,7 @@ func (h *handler) createOrUpdateProfile(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, 200, p)
 }
 
-// deleteProfile handles DELETE /api/v1/profiles/{id}
+// deleteProfile handles DELETE /api/v1/admin/profiles/{id}
 func (h *handler) deleteProfile(w http.ResponseWriter, r *http.Request) {
 	if h.deps.ProfileStore == nil {
 		writeJSON(w, 503, map[string]string{"error": "profile store not initialized"})

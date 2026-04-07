@@ -67,7 +67,7 @@ func (h *handler) callEvaluationLLM(taskSummary string, criteria []evaluation.Cr
 	if addr == "" {
 		addr = "127.0.0.1:8200"
 	}
-	url := fmt.Sprintf("http://%s/api/v1/internal/llm", addr)
+	url := fmt.Sprintf("http://%s/api/v1/infra/internal/llm", addr)
 	req, err := http.NewRequest("POST", url, bytes.NewReader(reqBody))
 	if err != nil {
 		return evaluation.EvaluationResult{}, fmt.Errorf("failed to create request: %w", err)
