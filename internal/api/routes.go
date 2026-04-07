@@ -17,6 +17,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/audit"
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/api/creds"
+	apicomms "github.com/geoffbelknap/agency/internal/api/comms"
 	"github.com/geoffbelknap/agency/internal/api/graph"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
@@ -68,9 +69,12 @@ func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, l
 	r.Post("/api/v1/agents/{name}/signal", h.relaySignal)
 	r.Post("/api/v1/internal/llm", h.internalLLM)
 	r.Get("/api/v1/infra/status", h.infraStatus)
-	r.Get("/api/v1/channels", h.listChannels)
-	r.Get("/api/v1/channels/{name}/messages", h.readMessages)
-	r.Post("/api/v1/channels/{name}/messages", h.sendMessage)
+
+	apicomms.RegisterRoutes(r, apicomms.Deps{
+		Comms:  dc,
+		Config: cfg,
+		Logger: logger,
+	})
 }
 
 // RegisterCredentialSocketRoutes registers the credential-only socket router.
@@ -277,20 +281,6 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		// Internal LLM (infrastructure components)
 		r.Post("/internal/llm", h.internalLLM)
 
-		// Channels (proxy to comms container)
-		r.Get("/channels", h.listChannels)
-		r.Post("/channels", h.createChannel)
-		r.Get("/channels/{name}/messages", h.readMessages)
-		r.Post("/channels/{name}/messages", h.sendMessage)
-		r.Put("/channels/{name}/messages/{id}", h.editMessage)
-		r.Delete("/channels/{name}/messages/{id}", h.deleteMessage)
-		r.Post("/channels/{name}/messages/{id}/reactions", h.addReaction)
-		r.Delete("/channels/{name}/messages/{id}/reactions/{emoji}", h.removeReaction)
-		r.Get("/channels/search", h.searchMessages)
-		r.Post("/channels/{name}/archive", h.archiveChannel)
-		r.Get("/unreads", h.getUnreads)
-		r.Post("/channels/{name}/mark-read", h.markRead)
-
 		// Routing metrics
 		r.Get("/routing/metrics", h.routingMetrics)
 		r.Get("/routing/config", h.routingConfig)
@@ -420,6 +410,13 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 			Logger:    logger,
 		})
 	}
+
+	// Comms routes (extracted module) — channel/messaging proxy to comms container
+	apicomms.RegisterRoutes(r, apicomms.Deps{
+		Comms:  dc,
+		Config: cfg,
+		Logger: logger,
+	})
 }
 
 type handler struct {
@@ -633,205 +630,6 @@ func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 			return "available"
 		}(),
 	})
-}
-
-func (h *handler) listChannels(w http.ResponseWriter, r *http.Request) {
-	// Merge open channels (team, system) with operator's DM channels.
-	// The comms /channels endpoint only returns open channels by default.
-	// DMs require a member filter.
-	ctx := r.Context()
-	openData, err := h.dc.CommsRequest(ctx, "GET", "/channels", nil)
-	if err != nil {
-		writeJSON(w, 502, map[string]string{"error": err.Error()})
-		return
-	}
-	dmData, _ := h.dc.CommsRequest(ctx, "GET", "/channels?member=_operator", nil)
-
-	// Merge: parse both, deduplicate by name
-	var openChannels, dmChannels []map[string]interface{}
-	json.Unmarshal(openData, &openChannels)
-	json.Unmarshal(dmData, &dmChannels)
-
-	seen := make(map[string]bool)
-	var merged []map[string]interface{}
-	for _, ch := range openChannels {
-		name, _ := ch["name"].(string)
-		seen[name] = true
-		merged = append(merged, ch)
-	}
-	for _, ch := range dmChannels {
-		name, _ := ch["name"].(string)
-		if !seen[name] {
-			merged = append(merged, ch)
-		}
-	}
-
-	writeJSON(w, 200, merged)
-}
-
-func (h *handler) readMessages(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	limit := r.URL.Query().Get("limit")
-	if limit == "" {
-		limit = "50"
-	}
-	path := "/channels/" + name + "/messages?limit=" + limit + "&reader=_operator"
-	data, err := h.dc.CommsRequest(r.Context(), "GET", path, nil)
-	if err != nil {
-		writeJSON(w, 502, map[string]string{"error": err.Error()})
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	w.Write(data)
-}
-
-func (h *handler) sendMessage(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	var body map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
-		return
-	}
-	// Normalize operator author to the internal _operator identity used in comms
-	if body["author"] == nil || body["author"] == "operator" {
-		body["author"] = "_operator"
-	}
-	path := "/channels/" + name + "/messages"
-	data, err := h.dc.CommsRequest(r.Context(), "POST", path, body)
-	if err != nil {
-		writeJSON(w, 502, map[string]string{"error": err.Error()})
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	w.Write(data)
-}
-
-func (h *handler) editMessage(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	id := chi.URLParam(r, "id")
-	var body map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
-		return
-	}
-	if body["author"] == nil {
-		body["author"] = "_operator"
-	}
-	path := "/channels/" + name + "/messages/" + id
-	data, err := h.dc.CommsRequest(r.Context(), "PUT", path, body)
-	if err != nil {
-		status := 502
-		if strings.Contains(err.Error(), "comms returned 404") {
-			status = 404
-		} else if strings.Contains(err.Error(), "comms returned 403") {
-			status = 403
-		}
-		if data != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(status)
-			w.Write(data)
-			return
-		}
-		writeJSON(w, status, map[string]string{"error": err.Error()})
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	w.Write(data)
-}
-
-func (h *handler) deleteMessage(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	id := chi.URLParam(r, "id")
-	body := map[string]interface{}{"author": "_operator"}
-	// Try to read body for author override
-	var reqBody map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&reqBody); err == nil {
-		if reqBody["author"] != nil {
-			body["author"] = reqBody["author"]
-		}
-	}
-	path := "/channels/" + name + "/messages/" + id
-	data, err := h.dc.CommsRequest(r.Context(), "DELETE", path, body)
-	if err != nil {
-		status := 502
-		if strings.Contains(err.Error(), "comms returned 404") {
-			status = 404
-		} else if strings.Contains(err.Error(), "comms returned 403") {
-			status = 403
-		}
-		if data != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(status)
-			w.Write(data)
-			return
-		}
-		writeJSON(w, status, map[string]string{"error": err.Error()})
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	w.Write(data)
-}
-
-func (h *handler) addReaction(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	id := chi.URLParam(r, "id")
-	var body map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
-		return
-	}
-	path := "/channels/" + name + "/messages/" + id + "/reactions"
-	data, err := h.dc.CommsRequest(r.Context(), "POST", path, body)
-	if err != nil {
-		status := 502
-		if strings.Contains(err.Error(), "comms returned 404") {
-			status = 404
-		}
-		if data != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(status)
-			w.Write(data)
-			return
-		}
-		writeJSON(w, status, map[string]string{"error": err.Error()})
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	w.Write(data)
-}
-
-func (h *handler) removeReaction(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	id := chi.URLParam(r, "id")
-	emoji := chi.URLParam(r, "emoji")
-	author := r.URL.Query().Get("author")
-	if author == "" {
-		author = "_operator"
-	}
-	path := "/channels/" + name + "/messages/" + id + "/reactions/" + emoji + "?author=" + author
-	data, err := h.dc.CommsRequest(r.Context(), "DELETE", path, nil)
-	if err != nil {
-		status := 502
-		if strings.Contains(err.Error(), "comms returned 404") {
-			status = 404
-		}
-		if data != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(status)
-			w.Write(data)
-			return
-		}
-		writeJSON(w, status, map[string]string{"error": err.Error()})
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	w.Write(data)
 }
 
 func (h *handler) listResults(w http.ResponseWriter, r *http.Request) {
