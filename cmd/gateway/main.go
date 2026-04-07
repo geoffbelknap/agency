@@ -979,6 +979,9 @@ func runServe(httpAddr string) error {
 	}
 
 	// Start servers
+	if !strings.HasPrefix(httpAddr, "127.0.0.1") && !strings.HasPrefix(httpAddr, "localhost") {
+		logger.Warn("gateway listening on non-localhost address — ensure network access is restricted", "addr", httpAddr)
+	}
 	errCh := make(chan error, 1)
 
 	go func() {
