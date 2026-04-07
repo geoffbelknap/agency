@@ -75,7 +75,8 @@ async def _log_shutdown(app: web.Application) -> None:
 
 
 def create_app(data_dir: Optional[Path] = None, agents_dir: Optional[Path] = None) -> web.Application:
-    app = web.Application()
+    from logging_config import correlation_middleware
+    app = web.Application(middlewares=[correlation_middleware()])
     resolved_data_dir = data_dir or Path("/app/data")
     app["store"] = MessageStore(resolved_data_dir)
     app["agents_dir"] = agents_dir or Path("/app/agents")

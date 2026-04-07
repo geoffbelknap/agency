@@ -96,6 +96,26 @@ class TextFormatter(logging.Formatter):
         return "  ".join(parts)
 
 
+def correlation_middleware():
+    """aiohttp middleware that reads X-Correlation-Id and sets the contextvar.
+
+    Usage:
+        app = web.Application(middlewares=[correlation_middleware()])
+    """
+    from aiohttp import web  # deferred import — not all containers use aiohttp
+
+    @web.middleware
+    async def middleware(request: web.Request, handler):
+        cid = request.headers.get("X-Correlation-Id", "")
+        token = correlation_id.set(cid)
+        try:
+            return await handler(request)
+        finally:
+            correlation_id.reset(token)
+
+    return middleware
+
+
 def setup_logging(component: str, level: int = logging.INFO) -> None:
     """Configure the root logger with the agency structured format.
 

@@ -933,6 +933,7 @@ func runServe(httpAddr string) error {
 	r := chi.NewRouter()
 	r.Use(chiMiddleware.Recoverer)
 	r.Use(chiMiddleware.RealIP)
+	r.Use(api.CorrelationID)
 	r.Use(corsMiddleware)
 	r.Use(api.BearerAuth(cfg.Token, cfg.EgressToken, reg))
 	routeOpts := api.RouteOptions{
