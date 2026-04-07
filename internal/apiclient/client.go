@@ -892,13 +892,13 @@ func (c *Client) Deploy(packPath string, credentials map[string]string) (map[str
 		"credentials": credentials,
 	}
 	var result map[string]interface{}
-	err := c.PostJSON("/api/v1/deploy", body, &result)
+	err := c.PostJSON("/api/v1/hub/deploy", body, &result)
 	return result, err
 }
 
 func (c *Client) Teardown(packName string, del bool) error {
 	body := map[string]bool{"delete": del}
-	_, err := c.Post("/api/v1/teardown/"+packName, body)
+	_, err := c.Post("/api/v1/hub/teardown/"+packName, body)
 	return err
 }
 
@@ -907,13 +907,13 @@ func (c *Client) Teardown(packName string, del bool) error {
 func (c *Client) TeamCreate(name string, agents []string) (map[string]string, error) {
 	body := map[string]interface{}{"name": name, "agents": agents}
 	var result map[string]string
-	err := c.PostJSON("/api/v1/teams", body, &result)
+	err := c.PostJSON("/api/v1/admin/teams", body, &result)
 	return result, err
 }
 
 func (c *Client) TeamList() ([]map[string]interface{}, error) {
 	var teams []map[string]interface{}
-	err := c.GetJSON("/api/v1/teams", &teams)
+	err := c.GetJSON("/api/v1/admin/teams", &teams)
 	return teams, err
 }
 
@@ -933,7 +933,7 @@ func (c *Client) TeamActivity(name string) ([]map[string]interface{}, error) {
 
 func (c *Client) ConnectorList() ([]map[string]interface{}, error) {
 	var connectors []map[string]interface{}
-	err := c.GetJSON("/api/v1/connectors", &connectors)
+	err := c.GetJSON("/api/v1/hub/connectors", &connectors)
 	return connectors, err
 }
 
@@ -1154,7 +1154,7 @@ func (c *Client) EventShow(id string) (map[string]interface{}, error) {
 
 func (c *Client) SubscriptionList() ([]map[string]interface{}, error) {
 	var subs []map[string]interface{}
-	err := c.GetJSON("/api/v1/subscriptions", &subs)
+	err := c.GetJSON("/api/v1/events/subscriptions", &subs)
 	return subs, err
 }
 
@@ -1163,13 +1163,13 @@ func (c *Client) SubscriptionList() ([]map[string]interface{}, error) {
 func (c *Client) WebhookCreate(name, eventType string) (map[string]interface{}, error) {
 	body := map[string]string{"name": name, "event_type": eventType}
 	var result map[string]interface{}
-	err := c.PostJSON("/api/v1/webhooks", body, &result)
+	err := c.PostJSON("/api/v1/events/webhooks", body, &result)
 	return result, err
 }
 
 func (c *Client) WebhookList() ([]map[string]interface{}, error) {
 	var items []map[string]interface{}
-	err := c.GetJSON("/api/v1/webhooks", &items)
+	err := c.GetJSON("/api/v1/events/webhooks", &items)
 	return items, err
 }
 
@@ -1194,7 +1194,7 @@ func (c *Client) WebhookRotateSecret(name string) (map[string]interface{}, error
 
 func (c *Client) NotificationList() ([]map[string]interface{}, error) {
 	var items []map[string]interface{}
-	err := c.GetJSON("/api/v1/notifications", &items)
+	err := c.GetJSON("/api/v1/events/notifications", &items)
 	return items, err
 }
 
@@ -1213,7 +1213,7 @@ func (c *Client) NotificationAdd(name, notifType, url string, notifEvents []stri
 		body["headers"] = headers
 	}
 	var result map[string]interface{}
-	err := c.PostJSON("/api/v1/notifications", body, &result)
+	err := c.PostJSON("/api/v1/events/notifications", body, &result)
 	return result, err
 }
 
@@ -1232,12 +1232,12 @@ func (c *Client) NotificationTest(name string) (map[string]interface{}, error) {
 
 func (c *Client) CredentialSet(body map[string]interface{}) (map[string]interface{}, error) {
 	var result map[string]interface{}
-	err := c.PostJSON("/api/v1/credentials", body, &result)
+	err := c.PostJSON("/api/v1/creds", body, &result)
 	return result, err
 }
 
 func (c *Client) CredentialList(params url.Values) ([]map[string]interface{}, error) {
-	path := "/api/v1/credentials"
+	path := "/api/v1/creds"
 	if len(params) > 0 {
 		path += "?" + params.Encode()
 	}
@@ -1304,7 +1304,7 @@ func (c *Client) RegistryResolve(nameOrUUID, principalType string) ([]byte, erro
 // RegistryRegister creates a new principal of the given type and name.
 func (c *Client) RegistryRegister(principalType, name string) ([]byte, error) {
 	body := map[string]string{"type": principalType, "name": name}
-	return c.Post("/api/v1/registry", body)
+	return c.Post("/api/v1/admin/registry", body)
 }
 
 // RegistryUpdate updates fields on an existing principal by UUID.

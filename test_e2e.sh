@@ -201,7 +201,7 @@ check "echo '$SEND' | grep -qi 'sent\|delivered\|accepted'" "Task delivered via 
 sleep 10
 
 step "Check channel for agent message"
-MESSAGES=$(run_cmd "channel read general" "$AGENCY" channel read general)
+MESSAGES=$(run_cmd "comms read general" "$AGENCY" comms read general)
 echo "$MESSAGES"
 check "echo \"$MESSAGES\" | grep -qi \"$TEST_AGENT\"" "Agent posted to general channel"
 
