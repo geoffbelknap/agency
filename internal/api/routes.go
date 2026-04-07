@@ -125,9 +125,6 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *lo
 	if opts.EventBus != nil {
 		h.eventBus = opts.EventBus
 	}
-	if opts.Scheduler != nil {
-		h.scheduler = opts.Scheduler
-	}
 	if opts.WebhookMgr != nil {
 		h.webhookMgr = opts.WebhookMgr
 	}
@@ -139,15 +136,6 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *lo
 	}
 	if opts.StopSuppress != nil && h.agents != nil {
 		h.agents.StopSuppress = opts.StopSuppress
-	}
-	if opts.DockerStatus != nil {
-		h.dockerStatus = opts.DockerStatus
-	}
-
-	// Wire task completion handler before platform routes so it is set up
-	// regardless of whether the hub is registered here or in platform.
-	if opts.Hub != nil {
-		h.wsHub = opts.Hub
 	}
 
 	// Platform routes (extracted module) — openapi, health, init, websocket,
@@ -292,6 +280,16 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *lo
 	})
 }
 
+// handler is the monolithic handler struct that exists solely to support MCP tool
+// registration. All REST route handlers have been extracted into their own modules
+// (agents, admin, hub, infra, events, missions, platform, graph, creds, comms).
+//
+// The remaining fields are consumed by the MCP tool registration files
+// (mcp_register.go, mcp_admin.go, mcp_credentials.go, mcp_events.go,
+// mcp_meeseeks.go, mcp_missions.go, mcp_profiles.go) and by the small number
+// of routes still registered inline in RegisterAll (agentLogs, intakeItems,
+// intakeStats, intakeWebhook). Moving MCP registration into the individual
+// modules is a follow-up task.
 type handler struct {
 	cfg        *config.Config
 	dc         *docker.Client
@@ -300,7 +298,6 @@ type handler struct {
 	agents     *orchestrate.AgentManager
 	halt       *orchestrate.HaltController
 	audit      *logs.Writer
-	wsHub      *ws.Hub
 	ctxMgr     *agencyctx.Manager
 	mcpReg     *MCPToolRegistry
 	knowledge  *knowledge.Proxy
@@ -308,13 +305,11 @@ type handler struct {
 	meeseeks   *orchestrate.MeeseeksManager
 	eventBus   *events.Bus
 	webhookMgr *events.WebhookManager
-	scheduler  *events.Scheduler
 	claims        *orchestrate.MissionClaimRegistry
 	healthMonitor *orchestrate.MissionHealthMonitor
 	notifStore    *events.NotificationStore
 	credStore     *credstore.Store
 	profileStore  *profiles.Store
-	dockerStatus  *docker.Status
 }
 
 
