@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
@@ -79,12 +79,12 @@ type AgentManager struct {
 	Docker        *agencyDocker.Client
 	Comms         comms.Client
 	cli           *client.Client
-	log           *log.Logger
+	log           *slog.Logger
 	StopSuppress  *StopSuppression
 	infra         *Infra // optional — nil in tests without infra
 }
 
-func NewAgentManager(home string, dc *agencyDocker.Client, logger *log.Logger) (*AgentManager, error) {
+func NewAgentManager(home string, dc *agencyDocker.Client, logger *slog.Logger) (*AgentManager, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, err

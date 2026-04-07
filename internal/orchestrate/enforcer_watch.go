@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
@@ -21,7 +21,7 @@ type EnforcerAlertFunc func(agentName, reason string)
 type EnforcerWatcher struct {
 	cli        *client.Client
 	alert      EnforcerAlertFunc
-	logger     *log.Logger
+	logger     *slog.Logger
 	cancel     context.CancelFunc
 	suppress   *StopSuppression
 }
@@ -29,13 +29,13 @@ type EnforcerWatcher struct {
 // NewEnforcerWatcher creates a watcher that calls alertFn when an enforcer
 // container exits. The alertFn receives the agent name (extracted from the
 // container name) and a human-readable reason string.
-func NewEnforcerWatcher(alertFn EnforcerAlertFunc, logger *log.Logger, suppress *StopSuppression) (*EnforcerWatcher, error) {
+func NewEnforcerWatcher(alertFn EnforcerAlertFunc, logger *slog.Logger, suppress *StopSuppression) (*EnforcerWatcher, error) {
 	return NewEnforcerWatcherWithClient(alertFn, logger, suppress, nil)
 }
 
 // NewEnforcerWatcherWithClient creates a watcher using the provided Docker client
 // (or a new one if cli is nil). Prefer passing a shared client.
-func NewEnforcerWatcherWithClient(alertFn EnforcerAlertFunc, logger *log.Logger, suppress *StopSuppression, cli *client.Client) (*EnforcerWatcher, error) {
+func NewEnforcerWatcherWithClient(alertFn EnforcerAlertFunc, logger *slog.Logger, suppress *StopSuppression, cli *client.Client) (*EnforcerWatcher, error) {
 	if cli == nil {
 		var err error
 		cli, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())

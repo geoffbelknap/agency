@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/go-chi/chi/v5"
 
 	"github.com/geoffbelknap/agency/internal/config"
@@ -17,7 +17,7 @@ type Deps struct {
 	CredStore *credstore.Store
 	Audit     *logs.Writer
 	Config    *config.Config
-	Logger    *log.Logger
+	Logger    *slog.Logger
 }
 
 type handler struct {

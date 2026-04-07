@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"gopkg.in/yaml.v3"
 
 	"github.com/geoffbelknap/agency/internal/comms"
@@ -117,12 +117,12 @@ type Deployer struct {
 	BuildID     string // content-aware build ID for staleness detection
 	Docker      *agencyDocker.Client
 	Comms       comms.Client
-	Log         *log.Logger
+	Log         *slog.Logger
 	Credentials map[string]string
 	CredStore   *credstore.Store
 }
 
-func NewDeployer(home, version string, dc *agencyDocker.Client, logger *log.Logger) *Deployer {
+func NewDeployer(home, version string, dc *agencyDocker.Client, logger *slog.Logger) *Deployer {
 	return &Deployer{Home: home, Version: version, Docker: dc, Comms: dc, Log: logger}
 }
 

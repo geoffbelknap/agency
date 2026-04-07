@@ -11,7 +11,7 @@ import (
 
 	"strings"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
@@ -37,17 +37,17 @@ type Enforcer struct {
 	LifecycleID   string
 	PrincipalUUID string // agent UUID from principal registry
 	cli           *client.Client
-	log           *log.Logger
+	log           *slog.Logger
 	hmacKey       []byte
 }
 
-func NewEnforcer(agentName, home, version string, logger *log.Logger, hmacKey []byte) (*Enforcer, error) {
+func NewEnforcer(agentName, home, version string, logger *slog.Logger, hmacKey []byte) (*Enforcer, error) {
 	return NewEnforcerWithClient(agentName, home, version, logger, hmacKey, nil)
 }
 
 // NewEnforcerWithClient creates an Enforcer using the provided Docker client (or a new
 // one if cli is nil). Prefer passing a shared client to avoid redundant connections.
-func NewEnforcerWithClient(agentName, home, version string, logger *log.Logger, hmacKey []byte, cli *client.Client) (*Enforcer, error) {
+func NewEnforcerWithClient(agentName, home, version string, logger *slog.Logger, hmacKey []byte, cli *client.Client) (*Enforcer, error) {
 	if cli == nil {
 		var err error
 		cli, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())

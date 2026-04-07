@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
@@ -119,7 +119,7 @@ func resolveWorkspaceEnv(declared map[string]string, home, scopedKey string) map
 
 // provisionWorkspace installs declared apt/pip packages into the named
 // container and then disables the package managers to prevent agent misuse.
-func provisionWorkspace(ctx context.Context, cli *client.Client, containerName string, deps WorkspaceDeps, logger *log.Logger) error {
+func provisionWorkspace(ctx context.Context, cli *client.Client, containerName string, deps WorkspaceDeps, logger *slog.Logger) error {
 	if deps.IsEmpty() {
 		return nil
 	}

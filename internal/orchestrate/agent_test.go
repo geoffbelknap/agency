@@ -6,12 +6,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"gopkg.in/yaml.v3"
 )
 
-func newTestLogger() *log.Logger {
-	return log.New(os.Stderr)
+func newTestLogger() *slog.Logger {
+	return slog.Default()
 }
 
 func TestTaskIsComplete_MatchingTaskID(t *testing.T) {

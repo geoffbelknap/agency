@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/gorilla/websocket"
 )
 
@@ -31,11 +31,11 @@ func isPromotableSignal(signalType string) bool {
 
 // StartCommsRelay connects to the comms WebSocket and relays message events
 // to the hub. It reconnects with exponential backoff on disconnect.
-func StartCommsRelay(hub *Hub, logger *log.Logger) {
+func StartCommsRelay(hub *Hub, logger *slog.Logger) {
 	go commsRelayLoop(hub, logger)
 }
 
-func commsRelayLoop(hub *Hub, logger *log.Logger) {
+func commsRelayLoop(hub *Hub, logger *slog.Logger) {
 	backoff := commsReconnectMin
 
 	for {
@@ -57,7 +57,7 @@ func commsRelayLoop(hub *Hub, logger *log.Logger) {
 	}
 }
 
-func commsRelayOnce(hub *Hub, logger *log.Logger) error {
+func commsRelayOnce(hub *Hub, logger *slog.Logger) error {
 	conn, _, err := websocket.DefaultDialer.Dial(commsURL, nil)
 	if err != nil {
 		return err

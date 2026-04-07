@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/go-chi/chi/v5"
 
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
@@ -55,7 +55,7 @@ type Deps struct {
 	HealthMonitor   *orchestrate.MissionHealthMonitor // may be nil
 	Scheduler       *events.Scheduler                 // may be nil
 	Config          *config.Config
-	Logger          *log.Logger
+	Logger          *slog.Logger
 	CredStore       *credstore.Store
 	DockerStatus    *docker.Status   // may be nil
 	WSHub           *ws.Hub          // may be nil

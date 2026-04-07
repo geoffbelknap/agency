@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 
@@ -39,10 +39,10 @@ type HaltController struct {
 	Version string
 	Docker  *agencyDocker.Client
 	cli     *client.Client
-	log     *log.Logger
+	log     *slog.Logger
 }
 
-func NewHaltController(home, version string, dc *agencyDocker.Client, logger *log.Logger) (*HaltController, error) {
+func NewHaltController(home, version string, dc *agencyDocker.Client, logger *slog.Logger) (*HaltController, error) {
 	var cli *client.Client
 	if dc != nil {
 		cli = dc.RawClient()

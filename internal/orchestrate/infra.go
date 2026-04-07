@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
@@ -150,12 +150,12 @@ type Infra struct {
 	Docker       *agencyDocker.Client
 	Comms        comms.Client
 	cli        *client.Client
-	log        *log.Logger
+	log        *slog.Logger
 	hmacKey    []byte
 }
 
 // NewInfra creates a new infrastructure manager.
-func NewInfra(home, version string, dc *agencyDocker.Client, logger *log.Logger, hmacKey []byte) (*Infra, error) {
+func NewInfra(home, version string, dc *agencyDocker.Client, logger *slog.Logger, hmacKey []byte) (*Infra, error) {
 	var cli *client.Client
 	if dc != nil {
 		cli = dc.RawClient()

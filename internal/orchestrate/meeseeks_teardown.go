@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/docker/docker/api/types/container"
 	dockerclient "github.com/docker/docker/client"
 
@@ -15,7 +15,7 @@ import (
 // TeardownMeeseeks removes all containers and networks for a Meeseeks.
 // Audit logs are preserved at ~/.agency/audit/{meeseeks_id}/ and are NOT deleted.
 // Pass a non-nil dc to reuse a shared Docker client; otherwise a new connection is opened.
-func TeardownMeeseeks(ctx context.Context, mks *models.Meeseeks, logger *log.Logger, dc ...*agencyDocker.Client) error {
+func TeardownMeeseeks(ctx context.Context, mks *models.Meeseeks, logger *slog.Logger, dc ...*agencyDocker.Client) error {
 	var cli *dockerclient.Client
 	if len(dc) > 0 && dc[0] != nil {
 		cli = dc[0].RawClient()

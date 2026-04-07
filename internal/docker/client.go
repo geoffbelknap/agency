@@ -47,7 +47,7 @@ func NewClient() (*Client, error) {
 
 // TryNewClient attempts to create a Docker client. Returns nil (not an error)
 // if Docker is unavailable — the gateway can start in degraded mode.
-func TryNewClient(logger interface{ Warn(msg any, keyvals ...any) }) *Client {
+func TryNewClient(logger interface{ Warn(msg string, keyvals ...any) }) *Client {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		logger.Warn("Docker client unavailable, starting in degraded mode", "err", err)

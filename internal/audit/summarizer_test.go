@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 )
 
 func TestParseAuditLine(t *testing.T) {
@@ -119,7 +119,7 @@ func TestSummarizeUpsertsToKnowledge(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	logger := log.New(os.Stderr)
+	logger := slog.Default()
 	s := NewAuditSummarizer(tmp, srv.URL, logger)
 	// Override mission map directly for the test date
 	s.missionMap = map[string]string{"researcher": "soc-triage"}
