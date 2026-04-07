@@ -16,7 +16,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/hub"
 )
 
-// createOrUpdateCredential handles POST /api/v1/credentials
+// createOrUpdateCredential handles POST /api/v1/creds
 func (h *handler) createOrUpdateCredential(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name           string         `json:"name"`
@@ -70,7 +70,7 @@ func (h *handler) createOrUpdateCredential(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, 200, map[string]string{"status": "ok", "name": body.Name})
 }
 
-// listCredentials handles GET /api/v1/credentials
+// listCredentials handles GET /api/v1/creds
 func (h *handler) listCredentials(w http.ResponseWriter, r *http.Request) {
 	filter := credstore.Filter{
 		Kind:    r.URL.Query().Get("kind"),
@@ -127,7 +127,7 @@ func (h *handler) listCredentials(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, result)
 }
 
-// showCredential handles GET /api/v1/credentials/{name}
+// showCredential handles GET /api/v1/creds/{name}
 func (h *handler) showCredential(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	entry, err := h.deps.CredStore.Get(name)
@@ -160,7 +160,7 @@ func (h *handler) showCredential(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// deleteCredential handles DELETE /api/v1/credentials/{name}
+// deleteCredential handles DELETE /api/v1/creds/{name}
 func (h *handler) deleteCredential(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	if err := h.deps.CredStore.Delete(name); err != nil {
@@ -172,7 +172,7 @@ func (h *handler) deleteCredential(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": "deleted", "name": name})
 }
 
-// rotateCredential handles POST /api/v1/credentials/{name}/rotate
+// rotateCredential handles POST /api/v1/creds/{name}/rotate
 func (h *handler) rotateCredential(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	var body struct {
@@ -196,7 +196,7 @@ func (h *handler) rotateCredential(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": "rotated", "name": name})
 }
 
-// testCredential handles POST /api/v1/credentials/{name}/test
+// testCredential handles POST /api/v1/creds/{name}/test
 func (h *handler) testCredential(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	result, err := h.deps.CredStore.Test(name)
@@ -208,7 +208,7 @@ func (h *handler) testCredential(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, result)
 }
 
-// createCredentialGroup handles POST /api/v1/credentials/groups
+// createCredentialGroup handles POST /api/v1/creds/groups
 func (h *handler) createCredentialGroup(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name        string            `json:"name"`
@@ -311,7 +311,7 @@ func (h *handler) regenerateSwapConfig() {
 	os.WriteFile(swapPath, data, 0644)
 }
 
-// resolveCredential handles GET /api/v1/internal/credentials/resolve
+// resolveCredential handles GET /api/v1/creds/internal/resolve
 // Returns the decrypted credential value + protocol metadata for a given name.
 // Used by the egress proxy to resolve credentials from the store.
 // Auth: socket access IS authorization (restricted socket router, no BearerAuth).

@@ -53,7 +53,7 @@ Each card shows provider logo/icon, name, and description. Clicking expands it w
 - A "Verify & Save" button
 
 **Validation flow:**
-1. Store credential via `POST /api/v1/credentials`
+1. Store credential via `POST /api/v1/creds`
 2. Test via `POST /credentials/{name}/test`
 3. Card shows spinner during test, then green check (success) or red error with message (failure)
 4. At least one provider must validate successfully to proceed

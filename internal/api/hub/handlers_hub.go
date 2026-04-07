@@ -804,7 +804,7 @@ func (h *handler) regenerateSwapConfig() {
 	os.WriteFile(swapPath, data, 0644)
 }
 
-// deployPack handles POST /api/v1/deploy
+// deployPack handles POST /api/v1/hub/deploy
 func (h *handler) deployPack(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		PackPath    string               `json:"pack_path"`
@@ -881,7 +881,7 @@ func (h *handler) deployPack(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, result)
 }
 
-// teardownPack handles POST /api/v1/teardown/{pack}
+// teardownPack handles POST /api/v1/hub/teardown/{pack}
 func (h *handler) teardownPack(w http.ResponseWriter, r *http.Request) {
 	packName := chi.URLParam(r, "pack")
 	var body struct {

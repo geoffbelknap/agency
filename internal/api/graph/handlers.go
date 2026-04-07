@@ -11,7 +11,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/knowledge"
 )
 
-// knowledgeQuery handles POST /api/v1/knowledge/query
+// knowledgeQuery handles POST /api/v1/graph/query
 func (h *handler) knowledgeQuery(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Query string `json:"query"`
@@ -43,7 +43,7 @@ func (h *handler) knowledgeQuery(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// knowledgeWhoKnows handles GET /api/v1/knowledge/who-knows
+// knowledgeWhoKnows handles GET /api/v1/graph/who-knows
 func (h *handler) knowledgeWhoKnows(w http.ResponseWriter, r *http.Request) {
 	topic := r.URL.Query().Get("topic")
 	if topic == "" {
@@ -61,7 +61,7 @@ func (h *handler) knowledgeWhoKnows(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// knowledgeStats handles GET /api/v1/knowledge/stats
+// knowledgeStats handles GET /api/v1/graph/stats
 func (h *handler) knowledgeStats(w http.ResponseWriter, r *http.Request) {
 	proxy := knowledge.NewProxy()
 	data, err := proxy.Stats(r.Context())
@@ -74,7 +74,7 @@ func (h *handler) knowledgeStats(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// knowledgeExport handles GET /api/v1/knowledge/export
+// knowledgeExport handles GET /api/v1/graph/export
 func (h *handler) knowledgeExport(w http.ResponseWriter, r *http.Request) {
 	format := r.URL.Query().Get("format")
 	if format == "" {
@@ -91,7 +91,7 @@ func (h *handler) knowledgeExport(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// knowledgeImport handles POST /api/v1/knowledge/import
+// knowledgeImport handles POST /api/v1/graph/import
 func (h *handler) knowledgeImport(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -109,7 +109,7 @@ func (h *handler) knowledgeImport(w http.ResponseWriter, r *http.Request) {
 	w.Write(result)
 }
 
-// knowledgeChanges handles GET /api/v1/knowledge/changes
+// knowledgeChanges handles GET /api/v1/graph/changes
 func (h *handler) knowledgeChanges(w http.ResponseWriter, r *http.Request) {
 	since := r.URL.Query().Get("since")
 	proxy := knowledge.NewProxy()
@@ -123,7 +123,7 @@ func (h *handler) knowledgeChanges(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// knowledgeContext handles GET /api/v1/knowledge/context
+// knowledgeContext handles GET /api/v1/graph/context
 func (h *handler) knowledgeContext(w http.ResponseWriter, r *http.Request) {
 	subject := r.URL.Query().Get("subject")
 	if subject == "" {
@@ -141,7 +141,7 @@ func (h *handler) knowledgeContext(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// knowledgeNeighbors handles GET /api/v1/knowledge/neighbors
+// knowledgeNeighbors handles GET /api/v1/graph/neighbors
 func (h *handler) knowledgeNeighbors(w http.ResponseWriter, r *http.Request) {
 	nodeID := r.URL.Query().Get("node_id")
 	if nodeID == "" {
@@ -159,7 +159,7 @@ func (h *handler) knowledgeNeighbors(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// knowledgePath handles GET /api/v1/knowledge/path
+// knowledgePath handles GET /api/v1/graph/path
 func (h *handler) knowledgePath(w http.ResponseWriter, r *http.Request) {
 	from := r.URL.Query().Get("from")
 	to := r.URL.Query().Get("to")
@@ -178,7 +178,7 @@ func (h *handler) knowledgePath(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// knowledgeFlags handles GET /api/v1/knowledge/flags
+// knowledgeFlags handles GET /api/v1/graph/flags
 func (h *handler) knowledgeFlags(w http.ResponseWriter, r *http.Request) {
 	proxy := knowledge.NewProxy()
 	data, err := proxy.Flags(r.Context())
@@ -191,7 +191,7 @@ func (h *handler) knowledgeFlags(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// knowledgeRestore handles POST /api/v1/knowledge/restore
+// knowledgeRestore handles POST /api/v1/graph/restore
 func (h *handler) knowledgeRestore(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		NodeID string `json:"node_id"`
@@ -215,7 +215,7 @@ func (h *handler) knowledgeRestore(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// knowledgeCurationLog handles GET /api/v1/knowledge/curation-log
+// knowledgeCurationLog handles GET /api/v1/graph/curation-log
 func (h *handler) knowledgeCurationLog(w http.ResponseWriter, r *http.Request) {
 	proxy := knowledge.NewProxy()
 	data, err := proxy.CurationLog(r.Context())
@@ -228,7 +228,7 @@ func (h *handler) knowledgeCurationLog(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// knowledgeIngest handles POST /api/v1/knowledge/ingest
+// knowledgeIngest handles POST /api/v1/graph/ingest
 func (h *handler) knowledgeIngest(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Content     string          `json:"content"`
@@ -254,7 +254,7 @@ func (h *handler) knowledgeIngest(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// knowledgeSaveInsight handles POST /api/v1/knowledge/insight
+// knowledgeSaveInsight handles POST /api/v1/graph/insight
 func (h *handler) knowledgeSaveInsight(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Insight     string   `json:"insight"`
@@ -281,7 +281,7 @@ func (h *handler) knowledgeSaveInsight(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// knowledgePrincipalsList handles GET /api/v1/knowledge/principals
+// knowledgePrincipalsList handles GET /api/v1/graph/principals
 func (h *handler) knowledgePrincipalsList(w http.ResponseWriter, r *http.Request) {
 	principalType := r.URL.Query().Get("type")
 	data, err := h.deps.Knowledge.Principals(r.Context(), principalType)
@@ -294,7 +294,7 @@ func (h *handler) knowledgePrincipalsList(w http.ResponseWriter, r *http.Request
 	w.Write(data)
 }
 
-// knowledgePrincipalsRegister handles POST /api/v1/knowledge/principals
+// knowledgePrincipalsRegister handles POST /api/v1/graph/principals
 func (h *handler) knowledgePrincipalsRegister(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Type string `json:"type"`
@@ -322,7 +322,7 @@ func (h *handler) knowledgePrincipalsRegister(w http.ResponseWriter, r *http.Req
 	w.Write(data)
 }
 
-// knowledgePrincipalsResolve handles GET /api/v1/knowledge/principals/{uuid}
+// knowledgePrincipalsResolve handles GET /api/v1/graph/principals/{uuid}
 func (h *handler) knowledgePrincipalsResolve(w http.ResponseWriter, r *http.Request) {
 	uuid := chi.URLParam(r, "uuid")
 	if uuid == "" {
@@ -339,7 +339,7 @@ func (h *handler) knowledgePrincipalsResolve(w http.ResponseWriter, r *http.Requ
 	w.Write(data)
 }
 
-// knowledgeQuarantine handles POST /api/v1/knowledge/quarantine
+// knowledgeQuarantine handles POST /api/v1/graph/quarantine
 func (h *handler) knowledgeQuarantine(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Agent string `json:"agent"`
@@ -363,7 +363,7 @@ func (h *handler) knowledgeQuarantine(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// knowledgeQuarantineRelease handles POST /api/v1/knowledge/quarantine/release
+// knowledgeQuarantineRelease handles POST /api/v1/graph/quarantine/release
 func (h *handler) knowledgeQuarantineRelease(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		NodeID string `json:"node_id"`
@@ -387,7 +387,7 @@ func (h *handler) knowledgeQuarantineRelease(w http.ResponseWriter, r *http.Requ
 	w.Write(data)
 }
 
-// knowledgeQuarantineList handles GET /api/v1/knowledge/quarantine
+// knowledgeQuarantineList handles GET /api/v1/graph/quarantine
 func (h *handler) knowledgeQuarantineList(w http.ResponseWriter, r *http.Request) {
 	agent := r.URL.Query().Get("agent")
 	data, err := h.deps.Knowledge.QuarantineList(r.Context(), agent)
@@ -400,7 +400,7 @@ func (h *handler) knowledgeQuarantineList(w http.ResponseWriter, r *http.Request
 	w.Write(data)
 }
 
-// knowledgeClassification handles GET /api/v1/knowledge/classification
+// knowledgeClassification handles GET /api/v1/graph/classification
 func (h *handler) knowledgeClassification(w http.ResponseWriter, r *http.Request) {
 	data, err := h.deps.Knowledge.Classification(r.Context())
 	if err != nil {
@@ -411,7 +411,7 @@ func (h *handler) knowledgeClassification(w http.ResponseWriter, r *http.Request
 	w.Write(data)
 }
 
-// knowledgeCommunities handles GET /api/v1/knowledge/communities
+// knowledgeCommunities handles GET /api/v1/graph/communities
 func (h *handler) knowledgeCommunities(w http.ResponseWriter, r *http.Request) {
 	data, err := h.deps.Knowledge.Communities(r.Context())
 	if err != nil {
@@ -423,7 +423,7 @@ func (h *handler) knowledgeCommunities(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// knowledgeCommunity handles GET /api/v1/knowledge/communities/{id}
+// knowledgeCommunity handles GET /api/v1/graph/communities/{id}
 func (h *handler) knowledgeCommunity(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
@@ -440,7 +440,7 @@ func (h *handler) knowledgeCommunity(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// knowledgeHubs handles GET /api/v1/knowledge/hubs
+// knowledgeHubs handles GET /api/v1/graph/hubs
 func (h *handler) knowledgeHubs(w http.ResponseWriter, r *http.Request) {
 	limit := 0
 	if v := r.URL.Query().Get("limit"); v != "" {

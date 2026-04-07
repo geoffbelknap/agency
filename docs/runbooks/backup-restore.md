@@ -57,7 +57,7 @@ cp ~/.agency/notifications.yaml "$BACKUP_DIR/" 2>/dev/null || true
 ### Knowledge graph backup
 
 ```bash
-agency knowledge export /path/to/backups/knowledge-$(date +%Y%m%d).json
+agency graph export /path/to/backups/knowledge-$(date +%Y%m%d).json
 ```
 
 ## Restore Procedure
@@ -104,8 +104,8 @@ agency admin doctor
 ### Restore knowledge graph only
 
 ```bash
-agency knowledge import /path/to/backups/knowledge-YYYYMMDD.json
-agency knowledge stats
+agency graph import /path/to/backups/knowledge-YYYYMMDD.json
+agency graph stats
 ```
 
 ### Restore credentials only
@@ -135,5 +135,5 @@ This is intentional — organizational knowledge and credentials survive resets.
 - [ ] `agency admin doctor` passes
 - [ ] `agency creds list` shows expected credentials
 - [ ] `agency creds test <key>` passes for critical credentials
-- [ ] `agency knowledge stats` shows expected node/edge counts
+- [ ] `agency graph stats` shows expected node/edge counts
 - [ ] Agents can be created and started

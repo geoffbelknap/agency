@@ -70,13 +70,13 @@ agency revoke <name> <service>                     # Revoke service access
 ## Channels
 
 ```bash
-agency channel create <name>             # Create a channel
-agency channel list                      # List all channels
-agency channel send <channel> "<msg>"    # Send message to channel
-agency channel read <channel>            # Read channel messages
-agency channel read <channel> --limit N  # Read last N messages
-agency channel search "<query>"          # Search across all channels
-agency channel search "<query>" --channel <name>  # Search specific channel
+agency comms create <name>             # Create a channel
+agency comms list                      # List all channels
+agency comms send <channel> "<msg>"    # Send message to channel
+agency comms read <channel>            # Read channel messages
+agency comms read <channel> --limit N  # Read last N messages
+agency comms search "<query>"          # Search across all channels
+agency comms search "<query>" --channel <name>  # Search specific channel
 ```
 
 ## Teams

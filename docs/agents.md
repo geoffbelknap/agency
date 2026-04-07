@@ -145,8 +145,8 @@ agency log my-agent --filter security   # Filter by category
 If the agent is part of a team and sends messages to channels:
 
 ```bash
-agency channel read findings            # Read a specific channel
-agency channel search "error"           # Search across all channels
+agency comms read findings            # Read a specific channel
+agency comms search "error"           # Search across all channels
 ```
 
 ## Stopping an Agent

@@ -106,7 +106,7 @@ agency admin doctor
 agency log <other-agent-name>    # repeat for each agent
 
 # Review knowledge graph for injected content
-agency knowledge stats
+agency graph stats
 ```
 
 ## Recovery

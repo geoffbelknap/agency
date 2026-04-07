@@ -76,7 +76,7 @@ agency send test-agent "Hello, confirm you're working."
 Wait 10-15 seconds, then check the DM channel:
 
 ```bash
-agency channel read dm-test-agent
+agency comms read dm-test-agent
 ```
 
 ### 9. Clean up test agent

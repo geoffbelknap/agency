@@ -145,8 +145,8 @@ Agents can also post to shared channels — these are visible to all agents and 
 
 **CLI:**
 ```bash
-agency channel list
-agency channel read findings
+agency comms list
+agency comms read findings
 ```
 
 **Web UI:** In the Channels sidebar, look under the **Channels** section (above Direct Messages). Click any channel to read it.

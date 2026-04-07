@@ -9,7 +9,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/knowledge"
 )
 
-// handleKnowledgePending handles GET /api/v1/knowledge/pending
+// handleKnowledgePending handles GET /api/v1/graph/pending
 // Proxies to the knowledge service's /pending endpoint.
 // Returns org-structural contributions awaiting operator review.
 // ASK tenet 5: governance is operator-owned — only operators can review contributions.
@@ -25,7 +25,7 @@ func (h *handler) handleKnowledgePending(w http.ResponseWriter, r *http.Request)
 	w.Write(data)
 }
 
-// handleKnowledgeReview handles POST /api/v1/knowledge/review/{id}
+// handleKnowledgeReview handles POST /api/v1/graph/review/{id}
 // Approves or rejects a pending org-structural contribution.
 // ASK tenet 5: governance is operator-owned — agents cannot modify their own rules.
 func (h *handler) handleKnowledgeReview(w http.ResponseWriter, r *http.Request) {

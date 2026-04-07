@@ -33,7 +33,7 @@ func notifTestHandler(t *testing.T) (*handler, *events.NotificationStore, *event
 func TestListNotifications_Empty(t *testing.T) {
 	h, _, _ := notifTestHandler(t)
 
-	req := httptest.NewRequest("GET", "/api/v1/notifications", nil)
+	req := httptest.NewRequest("GET", "/api/v1/events/notifications", nil)
 	w := httptest.NewRecorder()
 	h.listNotifications(w, req)
 
@@ -51,7 +51,7 @@ func TestAddNotification(t *testing.T) {
 	h, store, bus := notifTestHandler(t)
 
 	body := `{"name":"test-ntfy","type":"ntfy","url":"https://ntfy.sh/test","events":["operator_alert"]}`
-	req := httptest.NewRequest("POST", "/api/v1/notifications", bytes.NewBufferString(body))
+	req := httptest.NewRequest("POST", "/api/v1/events/notifications", bytes.NewBufferString(body))
 	w := httptest.NewRecorder()
 	h.addNotification(w, req)
 
@@ -80,11 +80,11 @@ func TestAddNotification_Duplicate(t *testing.T) {
 	h, _, _ := notifTestHandler(t)
 
 	body := `{"name":"dup","url":"https://ntfy.sh/dup"}`
-	req := httptest.NewRequest("POST", "/api/v1/notifications", bytes.NewBufferString(body))
+	req := httptest.NewRequest("POST", "/api/v1/events/notifications", bytes.NewBufferString(body))
 	w := httptest.NewRecorder()
 	h.addNotification(w, req)
 
-	req2 := httptest.NewRequest("POST", "/api/v1/notifications", bytes.NewBufferString(body))
+	req2 := httptest.NewRequest("POST", "/api/v1/events/notifications", bytes.NewBufferString(body))
 	w2 := httptest.NewRecorder()
 	h.addNotification(w2, req2)
 
@@ -97,7 +97,7 @@ func TestAddNotification_DefaultEvents(t *testing.T) {
 	h, store, _ := notifTestHandler(t)
 
 	body := `{"name":"defaults","url":"https://ntfy.sh/defaults"}`
-	req := httptest.NewRequest("POST", "/api/v1/notifications", bytes.NewBufferString(body))
+	req := httptest.NewRequest("POST", "/api/v1/events/notifications", bytes.NewBufferString(body))
 	w := httptest.NewRecorder()
 	h.addNotification(w, req)
 
@@ -114,7 +114,7 @@ func TestAddNotification_AutoDetectType(t *testing.T) {
 	h, store, _ := notifTestHandler(t)
 
 	body := `{"name":"auto-ntfy","url":"https://ntfy.sh/topic"}`
-	req := httptest.NewRequest("POST", "/api/v1/notifications", bytes.NewBufferString(body))
+	req := httptest.NewRequest("POST", "/api/v1/events/notifications", bytes.NewBufferString(body))
 	w := httptest.NewRecorder()
 	h.addNotification(w, req)
 
@@ -124,7 +124,7 @@ func TestAddNotification_AutoDetectType(t *testing.T) {
 	}
 
 	body2 := `{"name":"auto-wh","url":"https://hooks.example.com/ops"}`
-	req2 := httptest.NewRequest("POST", "/api/v1/notifications", bytes.NewBufferString(body2))
+	req2 := httptest.NewRequest("POST", "/api/v1/events/notifications", bytes.NewBufferString(body2))
 	w2 := httptest.NewRecorder()
 	h.addNotification(w2, req2)
 
@@ -137,7 +137,7 @@ func TestAddNotification_AutoDetectType(t *testing.T) {
 func TestAddNotification_RejectsPrivateIP(t *testing.T) {
 	h, _, _ := notifTestHandler(t)
 	body := `{"name":"evil","type":"webhook","url":"https://169.254.169.254/latest/meta-data/","events":["operator_alert"]}`
-	req := httptest.NewRequest("POST", "/api/v1/notifications", bytes.NewBufferString(body))
+	req := httptest.NewRequest("POST", "/api/v1/events/notifications", bytes.NewBufferString(body))
 	w := httptest.NewRecorder()
 	h.addNotification(w, req)
 	if w.Code != 400 {
@@ -148,7 +148,7 @@ func TestAddNotification_RejectsPrivateIP(t *testing.T) {
 func TestAddNotification_RejectsHTTP(t *testing.T) {
 	h, _, _ := notifTestHandler(t)
 	body := `{"name":"evil","type":"webhook","url":"http://external.com/hook","events":["operator_alert"]}`
-	req := httptest.NewRequest("POST", "/api/v1/notifications", bytes.NewBufferString(body))
+	req := httptest.NewRequest("POST", "/api/v1/events/notifications", bytes.NewBufferString(body))
 	w := httptest.NewRecorder()
 	h.addNotification(w, req)
 	if w.Code != 400 {
@@ -160,13 +160,13 @@ func TestShowNotification(t *testing.T) {
 	h, _, _ := notifTestHandler(t)
 
 	body := `{"name":"show-me","url":"https://ntfy.sh/show"}`
-	req := httptest.NewRequest("POST", "/api/v1/notifications", bytes.NewBufferString(body))
+	req := httptest.NewRequest("POST", "/api/v1/events/notifications", bytes.NewBufferString(body))
 	w := httptest.NewRecorder()
 	h.addNotification(w, req)
 
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("name", "show-me")
-	req2 := httptest.NewRequest("GET", "/api/v1/notifications/show-me", nil)
+	req2 := httptest.NewRequest("GET", "/api/v1/events/notifications/show-me", nil)
 	req2 = req2.WithContext(context.WithValue(req2.Context(), chi.RouteCtxKey, rctx))
 	w2 := httptest.NewRecorder()
 	h.showNotification(w2, req2)
@@ -180,13 +180,13 @@ func TestDeleteNotification(t *testing.T) {
 	h, store, bus := notifTestHandler(t)
 
 	body := `{"name":"del-me","url":"https://ntfy.sh/del","events":["operator_alert"]}`
-	req := httptest.NewRequest("POST", "/api/v1/notifications", bytes.NewBufferString(body))
+	req := httptest.NewRequest("POST", "/api/v1/events/notifications", bytes.NewBufferString(body))
 	w := httptest.NewRecorder()
 	h.addNotification(w, req)
 
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("name", "del-me")
-	req2 := httptest.NewRequest("DELETE", "/api/v1/notifications/del-me", nil)
+	req2 := httptest.NewRequest("DELETE", "/api/v1/events/notifications/del-me", nil)
 	req2 = req2.WithContext(context.WithValue(req2.Context(), chi.RouteCtxKey, rctx))
 	w2 := httptest.NewRecorder()
 	h.deleteNotification(w2, req2)
@@ -209,13 +209,13 @@ func TestTestNotification(t *testing.T) {
 	h, _, _ := notifTestHandler(t)
 
 	body := `{"name":"test-dest","url":"https://ntfy.sh/test","events":["operator_alert"]}`
-	req := httptest.NewRequest("POST", "/api/v1/notifications", bytes.NewBufferString(body))
+	req := httptest.NewRequest("POST", "/api/v1/events/notifications", bytes.NewBufferString(body))
 	w := httptest.NewRecorder()
 	h.addNotification(w, req)
 
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("name", "test-dest")
-	req2 := httptest.NewRequest("POST", "/api/v1/notifications/test-dest/test", nil)
+	req2 := httptest.NewRequest("POST", "/api/v1/events/notifications/test-dest/test", nil)
 	req2 = req2.WithContext(context.WithValue(req2.Context(), chi.RouteCtxKey, rctx))
 	w2 := httptest.NewRecorder()
 	h.testNotification(w2, req2)
@@ -235,7 +235,7 @@ func TestTestNotification_NotFound(t *testing.T) {
 
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("name", "nonexistent")
-	req := httptest.NewRequest("POST", "/api/v1/notifications/nonexistent/test", nil)
+	req := httptest.NewRequest("POST", "/api/v1/events/notifications/nonexistent/test", nil)
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 	w := httptest.NewRecorder()
 	h.testNotification(w, req)

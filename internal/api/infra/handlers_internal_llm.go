@@ -25,7 +25,7 @@ var validInfraCallers = map[string]bool{
 	"platform-evaluation":   true,
 }
 
-// internalLLM handles POST /api/v1/internal/llm — proxies LLM calls for
+// internalLLM handles POST /api/v1/infra/internal/llm — proxies LLM calls for
 // infrastructure components with model resolution, format translation,
 // cost tracking, and audit.
 func (h *handler) internalLLM(w http.ResponseWriter, r *http.Request) {

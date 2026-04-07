@@ -62,10 +62,10 @@ var routePermissions = map[string]string{
     "POST /api/v1/agents/*/send":       "agent.write",
 
     // Knowledge
-    "GET /api/v1/knowledge/*":          "knowledge.read",
-    "POST /api/v1/knowledge/query":     "knowledge.read",
-    "POST /api/v1/knowledge/ingest":    "knowledge.write",
-    "POST /api/v1/knowledge/insight":   "knowledge.write",
+    "GET /api/v1/graph/*":          "knowledge.read",
+    "POST /api/v1/graph/query":     "knowledge.read",
+    "POST /api/v1/graph/ingest":    "knowledge.write",
+    "POST /api/v1/graph/insight":   "knowledge.write",
 
     // Registry
     "GET /api/v1/registry":             "registry.read",
@@ -86,11 +86,11 @@ var routePermissions = map[string]string{
     "POST /api/v1/hub/*":              "hub.write",
 
     // Credentials
-    "GET /api/v1/credentials":          "creds.read",
-    "GET /api/v1/credentials/*":        "creds.read",
-    "POST /api/v1/credentials":         "creds.write",
-    "PUT /api/v1/credentials/*":        "creds.write",
-    "DELETE /api/v1/credentials/*":     "creds.write",
+    "GET /api/v1/creds":          "creds.read",
+    "GET /api/v1/creds/*":        "creds.read",
+    "POST /api/v1/creds":         "creds.write",
+    "PUT /api/v1/creds/*":        "creds.write",
+    "DELETE /api/v1/creds/*":     "creds.write",
 
     // Infrastructure
     "GET /api/v1/infra/*":              "infra.read",

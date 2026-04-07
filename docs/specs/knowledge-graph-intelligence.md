@@ -203,7 +203,7 @@ Source → SourceClassifier → DeterministicExtractor(s) → MergeBuffer → LL
 
 - **Existing:** CommsSubscriber (WebSocket), graph_ingest (connector payloads via intake)
 - **New: `POST /ingest`** endpoint on the knowledge service — accepts raw content with metadata (source type, scope, provenance hint). The body runtime's tools can forward outputs here. Operators can POST documents directly.
-- **New: `agency knowledge ingest <file-or-url>`** CLI command — operator-initiated ingestion of files, directories, or URLs.
+- **New: `agency graph ingest <file-or-url>`** CLI command — operator-initiated ingestion of files, directories, or URLs.
 - **New: Watch mode** — configurable directory watch (`~/.agency/knowledge/watch/`) for auto-ingestion of dropped files. Optional, off by default.
 
 ### Scope Tagging
@@ -438,7 +438,7 @@ The `KnowledgeStore` class is the swap point. All graph operations — `add_node
 - `MergeBuffer` — decides whether LLM synthesis adds value after deterministic extraction
 - `LLMSynthesizer` extended to accept any content type, not just comms
 - `POST /ingest` endpoint on knowledge service
-- `agency knowledge ingest <file-or-url>` CLI command
+- `agency graph ingest <file-or-url>` CLI command
 - Watch mode for `~/.agency/knowledge/watch/` (optional, off by default)
 - All new edges tagged with appropriate provenance tier
 - All new nodes tagged with scope from their source
@@ -529,7 +529,7 @@ This spec establishes patterns that require follow-on specs:
 - `MergeBuffer` skips LLM synthesis for fully-extracted content
 - `MergeBuffer` triggers LLM synthesis for content with semantic gaps
 - `POST /ingest` accepts content with metadata, routes through pipeline
-- `agency knowledge ingest` CLI ingests files and URLs
+- `agency graph ingest` CLI ingests files and URLs
 - Watch mode picks up new files in watch directory
 - All new nodes carry correct scope from source
 - All new edges carry correct provenance tier

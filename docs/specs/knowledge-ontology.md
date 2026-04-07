@@ -333,11 +333,11 @@ Requires migration. The gateway detects removed types and checks the graph:
 
 ```bash
 # Operator edits base-ontology.yaml, removes "fact" type
-agency knowledge ontology validate
+agency graph ontology validate
 # Output: "Type 'fact' removed but 47 nodes use it."
-# Suggests: agency knowledge ontology migrate fact finding
+# Suggests: agency graph ontology migrate fact finding
 
-agency knowledge ontology migrate fact finding
+agency graph ontology migrate fact finding
 # Output: "Migrated 47 nodes from 'fact' to 'finding'. Ontology version bumped to 4."
 ```
 
@@ -381,21 +381,21 @@ The gateway ships with `base-ontology.yaml` embedded. On `agency setup`, it writ
 
 | Command | Effect |
 |---------|--------|
-| `agency knowledge ontology show` | Display active merged ontology |
-| `agency knowledge ontology types` | List entity types with descriptions |
-| `agency knowledge ontology relationships` | List relationship types |
-| `agency knowledge ontology validate` | Check graph nodes against ontology |
-| `agency knowledge ontology migrate <from> <to>` | Re-type nodes from one kind to another |
+| `agency graph ontology show` | Display active merged ontology |
+| `agency graph ontology types` | List entity types with descriptions |
+| `agency graph ontology relationships` | List relationship types |
+| `agency graph ontology validate` | Check graph nodes against ontology |
+| `agency graph ontology migrate <from> <to>` | Re-type nodes from one kind to another |
 
 ## REST API
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/v1/knowledge/ontology` | Get active ontology |
-| `GET` | `/api/v1/knowledge/ontology/types` | List entity types |
-| `GET` | `/api/v1/knowledge/ontology/relationships` | List relationship types |
-| `POST` | `/api/v1/knowledge/ontology/validate` | Validate graph against ontology |
-| `POST` | `/api/v1/knowledge/ontology/migrate` | Migrate nodes between types |
+| `GET` | `/api/v1/graph/ontology` | Get active ontology |
+| `GET` | `/api/v1/graph/ontology/types` | List entity types |
+| `GET` | `/api/v1/graph/ontology/relationships` | List relationship types |
+| `POST` | `/api/v1/graph/ontology/validate` | Validate graph against ontology |
+| `POST` | `/api/v1/graph/ontology/migrate` | Migrate nodes between types |
 
 ## What This Enables
 

@@ -47,7 +47,7 @@ Each agent gets an auto-created DM channel: `#op→\{agent_name\}`. When an oper
 
 The `agency send` command currently sends to named channels. The change: when the target matches an agent name (not a channel name), it sends to the DM channel instead.
 
-Lookup order for `agency send <target> <message>`: the gateway checks agent names first, then channel names. If both an agent and channel share a name, the agent DM takes precedence (use `agency channel send <channel> <message>` for the channel). DM channels are named `dm-\{agent_name\}` (not visible in `agency channel list` by default — use `--include-dm` to show them).
+Lookup order for `agency send <target> <message>`: the gateway checks agent names first, then channel names. If both an agent and channel share a name, the agent DM takes precedence (use `agency comms send <channel> <message>` for the channel). DM channels are named `dm-\{agent_name\}` (not visible in `agency comms list` by default — use `--include-dm` to show them).
 
 ### Migration
 

@@ -264,12 +264,12 @@ func (c *Client) RevokeAgent(name, capability string) (map[string]string, error)
 
 func (c *Client) ListChannels() ([]map[string]interface{}, error) {
 	var channels []map[string]interface{}
-	err := c.GetJSON("/api/v1/channels", &channels)
+	err := c.GetJSON("/api/v1/comms/channels", &channels)
 	return channels, err
 }
 
 func (c *Client) ReadChannel(name string, limit int) ([]map[string]interface{}, error) {
-	path := fmt.Sprintf("/api/v1/channels/%s/messages?limit=%d", name, limit)
+	path := fmt.Sprintf("/api/v1/comms/channels/%s/messages?limit=%d", name, limit)
 	var messages []map[string]interface{}
 	err := c.GetJSON(path, &messages)
 	return messages, err
@@ -285,7 +285,7 @@ func (c *Client) SendMessageWithMetadata(channel, content string, metadata map[s
 		body["metadata"] = metadata
 	}
 	var result map[string]interface{}
-	err := c.PostJSON("/api/v1/channels/"+channel+"/messages", body, &result)
+	err := c.PostJSON("/api/v1/comms/channels/"+channel+"/messages", body, &result)
 	return result, err
 }
 
@@ -295,19 +295,19 @@ func (c *Client) SearchMessages(query, channel string) ([]map[string]interface{}
 		params.Set("channel", channel)
 	}
 	var results []map[string]interface{}
-	err := c.GetJSON("/api/v1/channels/search?"+params.Encode(), &results)
+	err := c.GetJSON("/api/v1/comms/channels/search?"+params.Encode(), &results)
 	return results, err
 }
 
 func (c *Client) CreateChannel(name, topic string) (map[string]interface{}, error) {
 	body := map[string]string{"name": name, "topic": topic}
 	var result map[string]interface{}
-	err := c.PostJSON("/api/v1/channels", body, &result)
+	err := c.PostJSON("/api/v1/comms/channels", body, &result)
 	return result, err
 }
 
 func (c *Client) ArchiveChannel(name string) error {
-	_, err := c.Post("/api/v1/channels/"+name+"/archive", nil)
+	_, err := c.Post("/api/v1/comms/channels/"+name+"/archive", nil)
 	return err
 }
 
@@ -563,35 +563,35 @@ func (c *Client) HubInstances(kind string) ([]map[string]interface{}, error) {
 
 func (c *Client) CapList() ([]map[string]interface{}, error) {
 	var caps []map[string]interface{}
-	err := c.GetJSON("/api/v1/capabilities", &caps)
+	err := c.GetJSON("/api/v1/admin/capabilities", &caps)
 	return caps, err
 }
 
 func (c *Client) CapShow(name string) (map[string]interface{}, error) {
 	var cap map[string]interface{}
-	err := c.GetJSON("/api/v1/capabilities/"+name, &cap)
+	err := c.GetJSON("/api/v1/admin/capabilities/"+name, &cap)
 	return cap, err
 }
 
 func (c *Client) CapEnable(name, key string, agents []string) error {
 	body := map[string]interface{}{"key": key, "agents": agents}
-	_, err := c.Post("/api/v1/capabilities/"+name+"/enable", body)
+	_, err := c.Post("/api/v1/admin/capabilities/"+name+"/enable", body)
 	return err
 }
 
 func (c *Client) CapDisable(name string) error {
-	_, err := c.Post("/api/v1/capabilities/"+name+"/disable", nil)
+	_, err := c.Post("/api/v1/admin/capabilities/"+name+"/disable", nil)
 	return err
 }
 
 func (c *Client) CapAdd(kind, name string, spec map[string]interface{}) error {
 	body := map[string]interface{}{"kind": kind, "name": name, "spec": spec}
-	_, err := c.Post("/api/v1/capabilities", body)
+	_, err := c.Post("/api/v1/admin/capabilities", body)
 	return err
 }
 
 func (c *Client) CapDelete(name string) error {
-	_, err := c.Delete("/api/v1/capabilities/" + name)
+	_, err := c.Delete("/api/v1/admin/capabilities/" + name)
 	return err
 }
 
@@ -617,63 +617,63 @@ func (c *Client) AgentLogs(name, since, until string) ([]map[string]interface{},
 // ── Knowledge ───────────────────────────────────────────────────────────────
 
 func (c *Client) KnowledgeQuery(text string) ([]byte, error) {
-	return c.Post("/api/v1/knowledge/query", map[string]string{"text": text})
+	return c.Post("/api/v1/graph/query", map[string]string{"text": text})
 }
 
 func (c *Client) KnowledgeWhoKnows(topic string) ([]byte, error) {
-	return c.Get("/api/v1/knowledge/who-knows?topic=" + url.QueryEscape(topic))
+	return c.Get("/api/v1/graph/who-knows?topic=" + url.QueryEscape(topic))
 }
 
 func (c *Client) KnowledgeStats() ([]byte, error) {
-	return c.Get("/api/v1/knowledge/stats")
+	return c.Get("/api/v1/graph/stats")
 }
 
 func (c *Client) KnowledgeClassification() ([]byte, error) {
-	return c.Get("/api/v1/knowledge/classification")
+	return c.Get("/api/v1/graph/classification")
 }
 
 func (c *Client) KnowledgeExport(format string) ([]byte, error) {
 	if format == "" {
 		format = "json"
 	}
-	return c.Get("/api/v1/knowledge/export?format=" + format)
+	return c.Get("/api/v1/graph/export?format=" + format)
 }
 
 func (c *Client) KnowledgeChanges(since string) ([]byte, error) {
-	return c.Get("/api/v1/knowledge/changes?since=" + url.QueryEscape(since))
+	return c.Get("/api/v1/graph/changes?since=" + url.QueryEscape(since))
 }
 
 func (c *Client) KnowledgeContext(subject string) ([]byte, error) {
-	return c.Get("/api/v1/knowledge/context?subject=" + url.QueryEscape(subject))
+	return c.Get("/api/v1/graph/context?subject=" + url.QueryEscape(subject))
 }
 
 func (c *Client) KnowledgeNeighbors(nodeID string) ([]byte, error) {
-	return c.Get("/api/v1/knowledge/neighbors?node_id=" + url.QueryEscape(nodeID))
+	return c.Get("/api/v1/graph/neighbors?node_id=" + url.QueryEscape(nodeID))
 }
 
 func (c *Client) KnowledgePath(from, to string) ([]byte, error) {
 	params := url.Values{"from": {from}, "to": {to}}
-	return c.Get("/api/v1/knowledge/path?" + params.Encode())
+	return c.Get("/api/v1/graph/path?" + params.Encode())
 }
 
 func (c *Client) KnowledgeFlags() ([]byte, error) {
-	return c.Get("/api/v1/knowledge/flags")
+	return c.Get("/api/v1/graph/flags")
 }
 
 func (c *Client) KnowledgeRestore(nodeID string) ([]byte, error) {
-	return c.Post("/api/v1/knowledge/restore", map[string]string{"node_id": nodeID})
+	return c.Post("/api/v1/graph/restore", map[string]string{"node_id": nodeID})
 }
 
 func (c *Client) KnowledgeCurationLog() ([]byte, error) {
-	return c.Get("/api/v1/knowledge/curation-log")
+	return c.Get("/api/v1/graph/curation-log")
 }
 
 func (c *Client) KnowledgePending() ([]byte, error) {
-	return c.Get("/api/v1/knowledge/pending")
+	return c.Get("/api/v1/graph/pending")
 }
 
 func (c *Client) KnowledgeReview(id, action, reason string) ([]byte, error) {
-	return c.Post("/api/v1/knowledge/review/"+id, map[string]string{
+	return c.Post("/api/v1/graph/review/"+id, map[string]string{
 		"action": action,
 		"reason": reason,
 	})
@@ -685,7 +685,7 @@ func (c *Client) KnowledgeIngest(content, filename, contentType string) ([]byte,
 		"filename":     filename,
 		"content_type": contentType,
 	}
-	return c.Post("/api/v1/knowledge/ingest", body)
+	return c.Post("/api/v1/graph/ingest", body)
 }
 
 func (c *Client) KnowledgeIngestWithScope(content, filename, contentType string, scope json.RawMessage) ([]byte, error) {
@@ -697,7 +697,7 @@ func (c *Client) KnowledgeIngestWithScope(content, filename, contentType string,
 	if scope != nil {
 		body["scope"] = json.RawMessage(scope)
 	}
-	return c.Post("/api/v1/knowledge/ingest", body)
+	return c.Post("/api/v1/graph/ingest", body)
 }
 
 func (c *Client) KnowledgeSaveInsight(insight string, sourceNodes []string, confidence string, tags []string) ([]byte, error) {
@@ -709,13 +709,13 @@ func (c *Client) KnowledgeSaveInsight(insight string, sourceNodes []string, conf
 	if len(tags) > 0 {
 		body["tags"] = tags
 	}
-	return c.Post("/api/v1/knowledge/insight", body)
+	return c.Post("/api/v1/graph/insight", body)
 }
 
 // ── Knowledge Principals ────────────────────────────────────────────────────
 
 func (c *Client) KnowledgePrincipals(principalType string) ([]byte, error) {
-	path := "/api/v1/knowledge/principals"
+	path := "/api/v1/graph/principals"
 	if principalType != "" {
 		path += "?type=" + url.QueryEscape(principalType)
 	}
@@ -723,36 +723,36 @@ func (c *Client) KnowledgePrincipals(principalType string) ([]byte, error) {
 }
 
 func (c *Client) KnowledgeRegisterPrincipal(principalType, name string) ([]byte, error) {
-	return c.Post("/api/v1/knowledge/principals", map[string]string{
+	return c.Post("/api/v1/graph/principals", map[string]string{
 		"type": principalType,
 		"name": name,
 	})
 }
 
 func (c *Client) KnowledgeResolvePrincipal(uuid string) ([]byte, error) {
-	return c.Get("/api/v1/knowledge/principals/" + url.QueryEscape(uuid))
+	return c.Get("/api/v1/graph/principals/" + url.QueryEscape(uuid))
 }
 
 // ── Knowledge Ontology ──────────────────────────────────────────────────────
 
 func (c *Client) KnowledgeOntology() ([]byte, error) {
-	return c.Get("/api/v1/knowledge/ontology")
+	return c.Get("/api/v1/graph/ontology")
 }
 
 func (c *Client) KnowledgeOntologyTypes() ([]byte, error) {
-	return c.Get("/api/v1/knowledge/ontology/types")
+	return c.Get("/api/v1/graph/ontology/types")
 }
 
 func (c *Client) KnowledgeOntologyRelationships() ([]byte, error) {
-	return c.Get("/api/v1/knowledge/ontology/relationships")
+	return c.Get("/api/v1/graph/ontology/relationships")
 }
 
 func (c *Client) KnowledgeOntologyValidate() ([]byte, error) {
-	return c.Post("/api/v1/knowledge/ontology/validate", nil)
+	return c.Post("/api/v1/graph/ontology/validate", nil)
 }
 
 func (c *Client) KnowledgeOntologyMigrate(from, to string) ([]byte, error) {
-	return c.Post("/api/v1/knowledge/ontology/migrate", map[string]string{
+	return c.Post("/api/v1/graph/ontology/migrate", map[string]string{
 		"from": from,
 		"to":   to,
 	})
@@ -762,7 +762,7 @@ func (c *Client) KnowledgeOntologyMigrate(from, to string) ([]byte, error) {
 
 func (c *Client) PolicyShow(agent string) (map[string]interface{}, error) {
 	var policy map[string]interface{}
-	data, err := c.Get("/api/v1/policy/" + agent)
+	data, err := c.Get("/api/v1/admin/policy/" + agent)
 	if err != nil {
 		return nil, err
 	}
@@ -773,7 +773,7 @@ func (c *Client) PolicyShow(agent string) (map[string]interface{}, error) {
 func (c *Client) PolicyCheck(agent string) (map[string]interface{}, error) {
 	var result map[string]interface{}
 	// PolicyCheck calls the validate endpoint which checks the full policy chain
-	err := c.PostJSON("/api/v1/policy/"+agent+"/validate", nil, &result)
+	err := c.PostJSON("/api/v1/admin/policy/"+agent+"/validate", nil, &result)
 	return result, err
 }
 
@@ -790,7 +790,7 @@ func (c *Client) AdminDoctor() (map[string]interface{}, error) {
 }
 
 func (c *Client) RoutingMetrics(agent, since, until string) (map[string]interface{}, error) {
-	path := "/api/v1/routing/metrics?"
+	path := "/api/v1/infra/routing/metrics?"
 	if agent != "" {
 		path += "agent=" + agent + "&"
 	}
@@ -850,7 +850,7 @@ func (c *Client) KnowledgeQuarantine(agent, since string) (map[string]interface{
 		body["since"] = since
 	}
 	var result map[string]interface{}
-	err := c.PostJSON("/api/v1/knowledge/quarantine", body, &result)
+	err := c.PostJSON("/api/v1/graph/quarantine", body, &result)
 	return result, err
 }
 
@@ -863,12 +863,12 @@ func (c *Client) KnowledgeQuarantineRelease(nodeID, agent string) (map[string]in
 		body["agent"] = agent
 	}
 	var result map[string]interface{}
-	err := c.PostJSON("/api/v1/knowledge/quarantine/release", body, &result)
+	err := c.PostJSON("/api/v1/graph/quarantine/release", body, &result)
 	return result, err
 }
 
 func (c *Client) KnowledgeQuarantineList(agent string) (map[string]interface{}, error) {
-	path := "/api/v1/knowledge/quarantine"
+	path := "/api/v1/graph/quarantine"
 	if agent != "" {
 		path += "?agent=" + url.QueryEscape(agent)
 	}
@@ -1094,7 +1094,7 @@ func (c *Client) MissionHistory(name string) ([]map[string]interface{}, error) {
 // ── Meeseeks ────────────────────────────────────────────────────────────────
 
 func (c *Client) MeeseeksList(parent string) ([]map[string]interface{}, error) {
-	path := "/api/v1/meeseeks"
+	path := "/api/v1/agents/meeseeks"
 	if parent != "" {
 		path += "?parent=" + url.QueryEscape(parent)
 	}
@@ -1105,18 +1105,18 @@ func (c *Client) MeeseeksList(parent string) ([]map[string]interface{}, error) {
 
 func (c *Client) MeeseeksShow(id string) (map[string]interface{}, error) {
 	var info map[string]interface{}
-	err := c.GetJSON("/api/v1/meeseeks/"+id, &info)
+	err := c.GetJSON("/api/v1/agents/meeseeks/"+id, &info)
 	return info, err
 }
 
 func (c *Client) MeeseeksKill(id string) error {
-	_, err := c.Delete("/api/v1/meeseeks/" + id)
+	_, err := c.Delete("/api/v1/agents/meeseeks/" + id)
 	return err
 }
 
 func (c *Client) MeeseeksKillByParent(agent string) (map[string]interface{}, error) {
 	var result map[string]interface{}
-	path := "/api/v1/meeseeks?parent=" + url.QueryEscape(agent)
+	path := "/api/v1/agents/meeseeks?parent=" + url.QueryEscape(agent)
 	err := c.DeleteJSON(path, &result)
 	return result, err
 }
@@ -1326,22 +1326,22 @@ func (c *Client) RegistryDelete(uuid string) ([]byte, error) {
 
 // RoutingSuggestions returns routing optimization suggestions.
 func (c *Client) RoutingSuggestions() ([]byte, error) {
-	return c.Get("/api/v1/routing/suggestions")
+	return c.Get("/api/v1/infra/routing/suggestions")
 }
 
 // RoutingApprove approves a routing suggestion by ID.
 func (c *Client) RoutingApprove(id string) ([]byte, error) {
-	return c.Post("/api/v1/routing/suggestions/"+url.PathEscape(id)+"/approve", nil)
+	return c.Post("/api/v1/infra/routing/suggestions/"+url.PathEscape(id)+"/approve", nil)
 }
 
 // RoutingReject rejects a routing suggestion by ID.
 func (c *Client) RoutingReject(id string) ([]byte, error) {
-	return c.Post("/api/v1/routing/suggestions/"+url.PathEscape(id)+"/reject", nil)
+	return c.Post("/api/v1/infra/routing/suggestions/"+url.PathEscape(id)+"/reject", nil)
 }
 
 // RoutingStats returns per-model per-task-type statistics from the optimizer.
 func (c *Client) RoutingStats(taskType string) ([]byte, error) {
-	path := "/api/v1/routing/stats"
+	path := "/api/v1/infra/routing/stats"
 	if taskType != "" {
 		path += "?task_type=" + url.QueryEscape(taskType)
 	}

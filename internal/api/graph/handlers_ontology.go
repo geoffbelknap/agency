@@ -7,7 +7,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/knowledge"
 )
 
-// knowledgeOntology handles GET /api/v1/knowledge/ontology
+// knowledgeOntology handles GET /api/v1/graph/ontology
 func (h *handler) knowledgeOntology(w http.ResponseWriter, r *http.Request) {
 	cfg, err := knowledge.LoadOntology(h.deps.Config.Home)
 	if err != nil {
@@ -17,7 +17,7 @@ func (h *handler) knowledgeOntology(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, cfg)
 }
 
-// knowledgeOntologyTypes handles GET /api/v1/knowledge/ontology/types
+// knowledgeOntologyTypes handles GET /api/v1/graph/ontology/types
 func (h *handler) knowledgeOntologyTypes(w http.ResponseWriter, r *http.Request) {
 	cfg, err := knowledge.LoadOntology(h.deps.Config.Home)
 	if err != nil {
@@ -30,7 +30,7 @@ func (h *handler) knowledgeOntologyTypes(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// knowledgeOntologyRelationships handles GET /api/v1/knowledge/ontology/relationships
+// knowledgeOntologyRelationships handles GET /api/v1/graph/ontology/relationships
 func (h *handler) knowledgeOntologyRelationships(w http.ResponseWriter, r *http.Request) {
 	cfg, err := knowledge.LoadOntology(h.deps.Config.Home)
 	if err != nil {
@@ -43,7 +43,7 @@ func (h *handler) knowledgeOntologyRelationships(w http.ResponseWriter, r *http.
 	})
 }
 
-// knowledgeOntologyValidate handles POST /api/v1/knowledge/ontology/validate
+// knowledgeOntologyValidate handles POST /api/v1/graph/ontology/validate
 func (h *handler) knowledgeOntologyValidate(w http.ResponseWriter, r *http.Request) {
 	cfg, err := knowledge.LoadOntology(h.deps.Config.Home)
 	if err != nil {
@@ -91,7 +91,7 @@ func (h *handler) knowledgeOntologyValidate(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// knowledgeOntologyMigrate handles POST /api/v1/knowledge/ontology/migrate
+// knowledgeOntologyMigrate handles POST /api/v1/graph/ontology/migrate
 func (h *handler) knowledgeOntologyMigrate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		From string `json:"from"`
@@ -136,7 +136,7 @@ func (h *handler) knowledgeOntologyMigrate(w http.ResponseWriter, r *http.Reques
 	w.Write(data)
 }
 
-// listOntologyCandidates handles GET /api/v1/ontology/candidates
+// listOntologyCandidates handles GET /api/v1/graph/ontology/candidates
 // Proxies to the knowledge service's /ontology/candidates endpoint.
 // Returns emergence candidates — entity types observed in agent contributions
 // that don't match the current ontology schema.
@@ -165,7 +165,7 @@ func (h *handler) listOntologyCandidates(w http.ResponseWriter, r *http.Request)
 	w.Write(data)
 }
 
-// promoteOntologyCandidate handles POST /api/v1/ontology/promote
+// promoteOntologyCandidate handles POST /api/v1/graph/ontology/promote
 // Proxies to the knowledge service to promote a candidate value into the base ontology.
 func (h *handler) promoteOntologyCandidate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -192,7 +192,7 @@ func (h *handler) promoteOntologyCandidate(w http.ResponseWriter, r *http.Reques
 	w.Write(data)
 }
 
-// rejectOntologyCandidate handles POST /api/v1/ontology/reject
+// rejectOntologyCandidate handles POST /api/v1/graph/ontology/reject
 // Proxies to the knowledge service to reject a candidate value.
 func (h *handler) rejectOntologyCandidate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
