@@ -24,7 +24,7 @@ func (h *contextHandler) getConstraints(w http.ResponseWriter, r *http.Request) 
 }
 
 // getPolicy returns agent name and current constraints. Full policy engine
-// integration is out of scope for this handler; see /api/v1/policy/{agent}.
+// integration is out of scope for this handler; see /api/v1/admin/policy/{agent}.
 func (h *contextHandler) getPolicy(w http.ResponseWriter, r *http.Request) {
 	agent := chi.URLParam(r, "name")
 	constraints := h.mgr.CurrentConstraints(agent)

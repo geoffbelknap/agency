@@ -171,10 +171,10 @@ Each webhook has:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/v1/webhooks` | Create webhook (returns name + secret) |
-| `GET` | `/api/v1/webhooks` | List registered webhooks |
-| `GET` | `/api/v1/webhooks/\{name\}` | Show webhook detail |
-| `DELETE` | `/api/v1/webhooks/\{name\}` | Delete webhook |
+| `POST` | `/api/v1/events/webhooks` | Create webhook (returns name + secret) |
+| `GET` | `/api/v1/events/webhooks` | List registered webhooks |
+| `GET` | `/api/v1/events/webhooks/\{name\}` | Show webhook detail |
+| `DELETE` | `/api/v1/events/webhooks/\{name\}` | Delete webhook |
 | `POST` | `/api/v1/events/webhook/\{name\}` | Receive inbound webhook event |
 
 ### Platform Source
@@ -368,11 +368,11 @@ Show recent events with source and delivery status:
 |--------|------|-------------|
 | `GET` | `/api/v1/events` | List recent events |
 | `GET` | `/api/v1/events/\{id\}` | Show event detail |
-| `GET` | `/api/v1/subscriptions` | List active subscriptions |
-| `POST` | `/api/v1/webhooks` | Create webhook |
-| `GET` | `/api/v1/webhooks` | List webhooks |
-| `GET` | `/api/v1/webhooks/\{name\}` | Show webhook detail |
-| `DELETE` | `/api/v1/webhooks/\{name\}` | Delete webhook |
+| `GET` | `/api/v1/events/subscriptions` | List active subscriptions |
+| `POST` | `/api/v1/events/webhooks` | Create webhook |
+| `GET` | `/api/v1/events/webhooks` | List webhooks |
+| `GET` | `/api/v1/events/webhooks/\{name\}` | Show webhook detail |
+| `DELETE` | `/api/v1/events/webhooks/\{name\}` | Delete webhook |
 | `POST` | `/api/v1/events/webhook/\{name\}` | Receive inbound webhook |
 
 ### MCP Tools

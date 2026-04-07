@@ -61,7 +61,7 @@ socat with `fork` opens a new socket connection per request. Gateway restarts (w
 
 ### Credential Resolution Isolation
 
-The gateway socket router exposes internal endpoints including credential resolution (`/api/v1/internal/credentials/resolve`). This endpoint **must not** be reachable via the TCP proxy — it would allow any container on `agency-mediation` to resolve credentials.
+The gateway socket router exposes internal endpoints including credential resolution (`/api/v1/creds/internal/resolve`). This endpoint **must not** be reachable via the TCP proxy — it would allow any container on `agency-mediation` to resolve credentials.
 
 **Mitigation:** The gateway socket router must be split into two routers:
 

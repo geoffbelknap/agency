@@ -267,11 +267,11 @@ Agents:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/v1/meeseeks` | Spawn (called by parent agent via tool) |
-| `GET` | `/api/v1/meeseeks` | List all active Meeseeks |
-| `GET` | `/api/v1/meeseeks/\{id\}` | Show detail |
-| `DELETE` | `/api/v1/meeseeks/\{id\}` | Kill |
-| `DELETE` | `/api/v1/meeseeks?parent=\{agent\}` | Kill all for parent |
+| `POST` | `/api/v1/agents/meeseeks` | Spawn (called by parent agent via tool) |
+| `GET` | `/api/v1/agents/meeseeks` | List all active Meeseeks |
+| `GET` | `/api/v1/agents/meeseeks/\{id\}` | Show detail |
+| `DELETE` | `/api/v1/agents/meeseeks/\{id\}` | Kill |
+| `DELETE` | `/api/v1/agents/meeseeks?parent=\{agent\}` | Kill all for parent |
 
 ### MCP Tools
 

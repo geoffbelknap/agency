@@ -64,14 +64,14 @@ The gateway exposes two Unix sockets (see `docs/specs/gateway-socket-proxy.md`):
 **`~/.agency/run/gateway.sock`** — proxy-safe endpoints, bridged to TCP `gateway:8200` by the gateway socket proxy container:
 - `GET /api/v1/health`
 - `POST /api/v1/agents/{name}/signal`
-- `POST /api/v1/internal/llm`
+- `POST /api/v1/infra/internal/llm`
 - `GET /api/v1/infra/status`
-- `GET /api/v1/channels`
-- `GET /api/v1/channels/{name}/messages`
-- `POST /api/v1/channels/{name}/messages`
+- `GET /api/v1/comms/channels`
+- `GET /api/v1/comms/channels/{name}/messages`
+- `POST /api/v1/comms/channels/{name}/messages`
 
 **`~/.agency/run/gateway-cred.sock`** — credential resolution only, mounted into egress:
-- `GET /api/v1/internal/credentials/resolve`
+- `GET /api/v1/creds/internal/resolve`
 
 The proxy-safe socket is mounted only by the gateway-proxy container. The credential socket is mounted only by egress. No agent or workspace container has access to either socket.
 
@@ -81,15 +81,15 @@ The proxy-safe socket is mounted only by the gateway-proxy container. The creden
 | Endpoint | Allowed Callers |
 |----------|----------------|
 | `/api/v1/health` | any |
-| `/api/v1/internal/llm` | enforcer, knowledge |
+| `/api/v1/infra/internal/llm` | enforcer, knowledge |
 | `/api/v1/agents/{name}/signal` | enforcer |
-| `/api/v1/channels/*` | comms |
+| `/api/v1/comms/channels/*` | comms |
 | `/api/v1/infra/status` | any |
 
 **Allowlist (credential socket, direct mount):**
 | Endpoint | Allowed Callers |
 |----------|----------------|
-| `/api/v1/internal/credentials/resolve` | egress |
+| `/api/v1/creds/internal/resolve` | egress |
 
 All containers reach the gateway via `http://gateway:8200` (Docker DNS) through the socket proxy. No `host.docker.internal` or `ExtraHosts` are used.
 
