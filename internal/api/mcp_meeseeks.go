@@ -25,9 +25,9 @@ func registerMeeseeksTools(reg *MCPToolRegistry) {
 				},
 			},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			parent, _ := args["parent"].(string)
-			items := h.meeseeks.List(parent)
+			items := d.meeseeks.List(parent)
 			if len(items) == 0 {
 				if parent != "" {
 					return fmt.Sprintf("Meeseeks for %q: none active.", parent), false
@@ -71,12 +71,12 @@ func registerMeeseeksTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"id"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			id, _ := args["id"].(string)
 			if id == "" {
 				return "Error: id is required", true
 			}
-			m, err := h.meeseeks.Get(id)
+			m, err := d.meeseeks.Get(id)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -124,25 +124,25 @@ func registerMeeseeksTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"id"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			id, _ := args["id"].(string)
 			if id == "" {
 				return "Error: id is required", true
 			}
-			mks, err := h.meeseeks.Get(id)
+			mks, err := d.meeseeks.Get(id)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
-			if err := h.meeseeks.UpdateStatus(id, models.MeeseeksStatusTerminated); err != nil {
+			if err := d.meeseeks.UpdateStatus(id, models.MeeseeksStatusTerminated); err != nil {
 				return "Error: " + err.Error(), true
 			}
-			h.meeseeks.Remove(id)
-			h.audit.Write(mks.ParentAgent, "meeseeks_terminated", map[string]interface{}{
+			d.meeseeks.Remove(id)
+			d.audit.Write(mks.ParentAgent, "meeseeks_terminated", map[string]interface{}{
 				"meeseeks_id": id,
 				"task":        mks.Task,
 				"budget_used": mks.BudgetUsed,
 				"source":      "mcp_tool",
-				"build_id":    h.cfg.BuildID,
+				"build_id":    d.cfg.BuildID,
 			})
 			return fmt.Sprintf("Meeseeks %q terminated (task: %q, budget used: $%.4f).", id, mks.Task, mks.BudgetUsed), false
 		},

@@ -19,12 +19,12 @@ func registerProfileTools(reg *MCPToolRegistry) {
 				"type": map[string]interface{}{"type": "string", "description": "Filter by profile type: operator or agent"},
 			},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.profileStore == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.profileStore == nil {
 				return "Profile store not initialized.", true
 			}
 			filterType := mapStr(args, "type")
-			profiles, err := h.profileStore.List(filterType)
+			profiles, err := d.profileStore.List(filterType)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -47,15 +47,15 @@ func registerProfileTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"id"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.profileStore == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.profileStore == nil {
 				return "Profile store not initialized.", true
 			}
 			id := mapStr(args, "id")
 			if id == "" {
 				return "Error: id is required", true
 			}
-			p, err := h.profileStore.Get(id)
+			p, err := d.profileStore.Get(id)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -83,8 +83,8 @@ func registerProfileTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"id", "type", "display_name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.profileStore == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.profileStore == nil {
 				return "Profile store not initialized.", true
 			}
 
@@ -116,7 +116,7 @@ func registerProfileTools(reg *MCPToolRegistry) {
 				}
 			}
 
-			if err := h.profileStore.Put(p); err != nil {
+			if err := d.profileStore.Put(p); err != nil {
 				return "Error: " + err.Error(), true
 			}
 
@@ -135,15 +135,15 @@ func registerProfileTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"id"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.profileStore == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.profileStore == nil {
 				return "Profile store not initialized.", true
 			}
 			id := mapStr(args, "id")
 			if id == "" {
 				return "Error: id is required", true
 			}
-			if err := h.profileStore.Delete(id); err != nil {
+			if err := d.profileStore.Delete(id); err != nil {
 				return "Error: " + err.Error(), true
 			}
 			return fmt.Sprintf("Profile %q deleted.", id), false

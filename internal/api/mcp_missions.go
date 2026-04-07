@@ -39,7 +39,7 @@ func registerMissionTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name", "description", "instructions"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name, _ := args["name"].(string)
 			description, _ := args["description"].(string)
 			instructions, _ := args["instructions"].(string)
@@ -61,7 +61,7 @@ func registerMissionTools(reg *MCPToolRegistry) {
 				Instructions: instructions,
 				CostMode:     costMode,
 			}
-			if err := h.missions.Create(m); err != nil {
+			if err := d.missions.Create(m); err != nil {
 				return "Error: " + err.Error(), true
 			}
 			result := fmt.Sprintf("Mission %q created (id=%s).", m.Name, m.ID)
@@ -94,7 +94,7 @@ func registerMissionTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"mission", "target"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			mission, _ := args["mission"].(string)
 			target, _ := args["target"].(string)
 			targetType, _ := args["type"].(string)
@@ -109,7 +109,7 @@ func registerMissionTools(reg *MCPToolRegistry) {
 				targetType = "agent"
 			}
 
-			if err := h.missions.Assign(mission, target, targetType); err != nil {
+			if err := d.missions.Assign(mission, target, targetType); err != nil {
 				return "Error: " + err.Error(), true
 			}
 			return fmt.Sprintf("Mission %q assigned to %s %q.", mission, targetType, target), false
@@ -130,12 +130,12 @@ func registerMissionTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"mission"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			mission, _ := args["mission"].(string)
 			if mission == "" {
 				return "Error: mission is required", true
 			}
-			if err := h.missions.Pause(mission, ""); err != nil {
+			if err := d.missions.Pause(mission, ""); err != nil {
 				return "Error: " + err.Error(), true
 			}
 			return fmt.Sprintf("Mission %q paused.", mission), false
@@ -156,12 +156,12 @@ func registerMissionTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"mission"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			mission, _ := args["mission"].(string)
 			if mission == "" {
 				return "Error: mission is required", true
 			}
-			if err := h.missions.Resume(mission); err != nil {
+			if err := d.missions.Resume(mission); err != nil {
 				return "Error: " + err.Error(), true
 			}
 			return fmt.Sprintf("Mission %q resumed.", mission), false
@@ -186,7 +186,7 @@ func registerMissionTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"mission", "instructions"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			mission, _ := args["mission"].(string)
 			instructions, _ := args["instructions"].(string)
 
@@ -197,7 +197,7 @@ func registerMissionTools(reg *MCPToolRegistry) {
 				return "Error: instructions is required", true
 			}
 
-			existing, err := h.missions.Get(mission)
+			existing, err := d.missions.Get(mission)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -220,7 +220,7 @@ func registerMissionTools(reg *MCPToolRegistry) {
 				CostMode:         existing.CostMode,
 				MinTaskTier:      existing.MinTaskTier,
 			}
-			if err := h.missions.Update(mission, updated); err != nil {
+			if err := d.missions.Update(mission, updated); err != nil {
 				return "Error: " + err.Error(), true
 			}
 			return fmt.Sprintf("Mission %q updated to version %d.", mission, existing.Version+1), false
@@ -241,12 +241,12 @@ func registerMissionTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"mission"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			mission, _ := args["mission"].(string)
 			if mission == "" {
 				return "Error: mission is required", true
 			}
-			if err := h.missions.Complete(mission); err != nil {
+			if err := d.missions.Complete(mission); err != nil {
 				return "Error: " + err.Error(), true
 			}
 			return fmt.Sprintf("Mission %q marked as completed.", mission), false
@@ -267,12 +267,12 @@ func registerMissionTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"mission"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			mission, _ := args["mission"].(string)
 			if mission == "" {
 				return "Error: mission is required", true
 			}
-			m, err := h.missions.Get(mission)
+			m, err := d.missions.Get(mission)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -306,8 +306,8 @@ func registerMissionTools(reg *MCPToolRegistry) {
 		"agency_mission_list",
 		"List all missions with their status and assignment.",
 		nil,
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			missions, err := h.missions.List()
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			missions, err := d.missions.List()
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -344,12 +344,12 @@ func registerMissionTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"mission"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			mission, _ := args["mission"].(string)
 			if mission == "" {
 				return "Error: mission is required", true
 			}
-			entries, err := h.missions.History(mission)
+			entries, err := d.missions.History(mission)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -385,7 +385,7 @@ func registerMissionTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"mission", "query"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			missionName, _ := args["mission"].(string)
 			query, _ := args["query"].(string)
 			if missionName == "" {
@@ -395,12 +395,12 @@ func registerMissionTools(reg *MCPToolRegistry) {
 				return "Error: query is required", true
 			}
 
-			m, err := h.missions.Get(missionName)
+			m, err := d.missions.Get(missionName)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
 
-			result, err := h.knowledge.QueryByMission(context.Background(), query, m.ID)
+			result, err := d.knowledge.QueryByMission(context.Background(), query, m.ID)
 			if err != nil {
 				return "Error querying mission knowledge: " + err.Error(), true
 			}
@@ -434,7 +434,7 @@ func registerMissionTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"mission", "event_key", "agent"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			missionName, _ := args["mission"].(string)
 			eventKey, _ := args["event_key"].(string)
 			agentName, _ := args["agent"].(string)
@@ -453,17 +453,17 @@ func registerMissionTools(reg *MCPToolRegistry) {
 				return "Error: agent is required", true
 			}
 
-			m, err := h.missions.Get(missionName)
+			m, err := d.missions.Get(missionName)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
 
 			switch action {
 			case "release":
-				h.claims.Release(m.ID, eventKey)
+				d.claims.Release(m.ID, eventKey)
 				return fmt.Sprintf("Claim released for event %q on mission %q.", eventKey, missionName), false
 			case "claim":
-				ok, holder := h.claims.Claim(m.ID, eventKey, agentName)
+				ok, holder := d.claims.Claim(m.ID, eventKey, agentName)
 				if ok {
 					return fmt.Sprintf("Claimed event %q on mission %q by %q.", eventKey, missionName, agentName), false
 				}
@@ -488,17 +488,17 @@ func registerMissionTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"mission"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			missionName, _ := args["mission"].(string)
 			if missionName == "" {
 				return "Error: mission is required", true
 			}
 
-			if h.healthMonitor == nil {
+			if d.healthMonitor == nil {
 				return "Error: health monitor is not available", true
 			}
 
-			status, err := h.healthMonitor.CheckHealth(context.Background(), missionName)
+			status, err := d.healthMonitor.CheckHealth(context.Background(), missionName)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}

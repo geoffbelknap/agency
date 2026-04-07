@@ -1,4 +1,4 @@
-package api
+package admin
 
 import (
 	"encoding/json"
@@ -13,11 +13,11 @@ import (
 
 // registrySnapshot returns a full JSON snapshot of all registered principals.
 func (h *handler) registrySnapshot(w http.ResponseWriter, r *http.Request) {
-	if h.infra == nil || h.infra.Registry == nil {
+	if h.deps.Infra == nil || h.deps.Infra.Registry == nil {
 		writeJSON(w, 503, map[string]string{"error": "registry not available"})
 		return
 	}
-	data, err := h.infra.Registry.Snapshot()
+	data, err := h.deps.Infra.Registry.Snapshot()
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
@@ -28,7 +28,7 @@ func (h *handler) registrySnapshot(w http.ResponseWriter, r *http.Request) {
 
 // registryResolve resolves a principal by ?uuid= or by ?type=&name=.
 func (h *handler) registryResolve(w http.ResponseWriter, r *http.Request) {
-	if h.infra == nil || h.infra.Registry == nil {
+	if h.deps.Infra == nil || h.deps.Infra.Registry == nil {
 		writeJSON(w, 503, map[string]string{"error": "registry not available"})
 		return
 	}
@@ -41,9 +41,9 @@ func (h *handler) registryResolve(w http.ResponseWriter, r *http.Request) {
 	var err error
 
 	if uuid != "" {
-		p, err = h.infra.Registry.Resolve(uuid)
+		p, err = h.deps.Infra.Registry.Resolve(uuid)
 	} else if pType != "" && name != "" {
-		p, err = h.infra.Registry.ResolveByName(pType, name)
+		p, err = h.deps.Infra.Registry.ResolveByName(pType, name)
 	} else {
 		writeJSON(w, 400, map[string]string{"error": "provide ?uuid= or ?type=&name="})
 		return
@@ -58,12 +58,12 @@ func (h *handler) registryResolve(w http.ResponseWriter, r *http.Request) {
 
 // registryList lists principals, optionally filtered by ?type=.
 func (h *handler) registryList(w http.ResponseWriter, r *http.Request) {
-	if h.infra == nil || h.infra.Registry == nil {
+	if h.deps.Infra == nil || h.deps.Infra.Registry == nil {
 		writeJSON(w, 503, map[string]string{"error": "registry not available"})
 		return
 	}
 	pType := r.URL.Query().Get("type")
-	principals, err := h.infra.Registry.List(pType)
+	principals, err := h.deps.Infra.Registry.List(pType)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
@@ -76,7 +76,7 @@ func (h *handler) registryList(w http.ResponseWriter, r *http.Request) {
 
 // registryRegister creates a new principal. Body: {type, name, parent?, metadata?}
 func (h *handler) registryRegister(w http.ResponseWriter, r *http.Request) {
-	if h.infra == nil || h.infra.Registry == nil {
+	if h.deps.Infra == nil || h.deps.Infra.Registry == nil {
 		writeJSON(w, 503, map[string]string{"error": "registry not available"})
 		return
 	}
@@ -104,14 +104,14 @@ func (h *handler) registryRegister(w http.ResponseWriter, r *http.Request) {
 		opts = append(opts, registry.WithMetadata(body.Metadata))
 	}
 
-	uuid, err := h.infra.Registry.Register(body.Type, body.Name, opts...)
+	uuid, err := h.deps.Infra.Registry.Register(body.Type, body.Name, opts...)
 	if err != nil {
 		writeJSON(w, 409, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if err := h.infra.WriteRegistrySnapshot(); err != nil {
-		h.log.Warn("write registry snapshot", "err", err)
+	if err := h.deps.Infra.WriteRegistrySnapshot(); err != nil {
+		h.deps.Logger.Warn("write registry snapshot", "err", err)
 	}
 
 	writeJSON(w, 201, map[string]string{"uuid": uuid, "type": body.Type, "name": body.Name})
@@ -119,7 +119,7 @@ func (h *handler) registryRegister(w http.ResponseWriter, r *http.Request) {
 
 // registryUpdate updates allowed fields on a principal. Body: {parent?, status?, permissions?}
 func (h *handler) registryUpdate(w http.ResponseWriter, r *http.Request) {
-	if h.infra == nil || h.infra.Registry == nil {
+	if h.deps.Infra == nil || h.deps.Infra.Registry == nil {
 		writeJSON(w, 503, map[string]string{"error": "registry not available"})
 		return
 	}
@@ -138,7 +138,7 @@ func (h *handler) registryUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// Validate suspension/revocation: check for coverage principal.
 	if status, ok := fields["status"].(string); ok && (status == "suspended" || status == "revoked") {
-		p, err := h.infra.Registry.Resolve(uuid)
+		p, err := h.deps.Infra.Registry.Resolve(uuid)
 		if err != nil {
 			writeJSON(w, 404, map[string]string{"error": err.Error()})
 			return
@@ -154,23 +154,23 @@ func (h *handler) registryUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		// Revocation also revokes all tokens for the principal.
 		if status == "revoked" {
-			if err := h.infra.Registry.RevokeTokens(uuid); err != nil {
+			if err := h.deps.Infra.Registry.RevokeTokens(uuid); err != nil {
 				writeJSON(w, 500, map[string]string{"error": "revoke tokens: " + err.Error()})
 				return
 			}
 		}
 	}
 
-	if err := h.infra.Registry.Update(uuid, fields); err != nil {
+	if err := h.deps.Infra.Registry.Update(uuid, fields); err != nil {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if err := h.infra.WriteRegistrySnapshot(); err != nil {
-		h.log.Warn("write registry snapshot", "err", err)
+	if err := h.deps.Infra.WriteRegistrySnapshot(); err != nil {
+		h.deps.Logger.Warn("write registry snapshot", "err", err)
 	}
 
-	p, err := h.infra.Registry.Resolve(uuid)
+	p, err := h.deps.Infra.Registry.Resolve(uuid)
 	if err != nil {
 		writeJSON(w, 200, map[string]string{"status": "updated"})
 		return
@@ -180,7 +180,7 @@ func (h *handler) registryUpdate(w http.ResponseWriter, r *http.Request) {
 
 // registryEffective returns the effective (resolved) permissions for a principal.
 func (h *handler) registryEffective(w http.ResponseWriter, r *http.Request) {
-	if h.infra == nil || h.infra.Registry == nil {
+	if h.deps.Infra == nil || h.deps.Infra.Registry == nil {
 		writeJSON(w, 503, map[string]string{"error": "registry not available"})
 		return
 	}
@@ -190,7 +190,7 @@ func (h *handler) registryEffective(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "uuid required", http.StatusBadRequest)
 		return
 	}
-	eff, err := h.infra.Registry.EffectivePermissions(uuid)
+	eff, err := h.deps.Infra.Registry.EffectivePermissions(uuid)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -204,7 +204,7 @@ func (h *handler) registryEffective(w http.ResponseWriter, r *http.Request) {
 
 // registryDelete removes a principal by UUID.
 func (h *handler) registryDelete(w http.ResponseWriter, r *http.Request) {
-	if h.infra == nil || h.infra.Registry == nil {
+	if h.deps.Infra == nil || h.deps.Infra.Registry == nil {
 		writeJSON(w, 503, map[string]string{"error": "registry not available"})
 		return
 	}
@@ -215,13 +215,13 @@ func (h *handler) registryDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.infra.Registry.Delete(uuid); err != nil {
+	if err := h.deps.Infra.Registry.Delete(uuid); err != nil {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if err := h.infra.WriteRegistrySnapshot(); err != nil {
-		h.log.Warn("write registry snapshot", "err", err)
+	if err := h.deps.Infra.WriteRegistrySnapshot(); err != nil {
+		h.deps.Logger.Warn("write registry snapshot", "err", err)
 	}
 
 	writeJSON(w, 200, map[string]string{"status": "deleted", "uuid": uuid})

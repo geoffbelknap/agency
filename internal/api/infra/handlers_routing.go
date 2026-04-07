@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/go-chi/chi/v5"
 	"gopkg.in/yaml.v3"
 
 	"github.com/geoffbelknap/agency/internal/hub"
@@ -238,4 +239,115 @@ func LoadModelCosts(home string) map[string]routing.ModelCost {
 // by the parent api package's internal LLM handler and budget handlers.
 func LoadRoutingConfig(home string) *models.RoutingConfig {
 	return loadRoutingConfig(home)
+}
+
+// routingSuggestions returns routing optimization suggestions.
+//
+//	GET /api/v1/routing/suggestions?status=pending
+//
+// Query params:
+//
+//	status — filter by suggestion status: pending, approved, rejected (optional)
+func (h *handler) routingSuggestions(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Infra == nil || h.deps.Infra.Optimizer == nil {
+		writeJSON(w, 503, map[string]string{"error": "routing optimizer not available"})
+		return
+	}
+
+	suggestions := h.deps.Infra.Optimizer.Suggestions()
+
+	if status := r.URL.Query().Get("status"); status != "" {
+		var filtered []interface{}
+		for _, s := range suggestions {
+			if s.Status == status {
+				filtered = append(filtered, s)
+			}
+		}
+		if filtered == nil {
+			filtered = []interface{}{}
+		}
+		writeJSON(w, 200, filtered)
+		return
+	}
+
+	writeJSON(w, 200, suggestions)
+}
+
+// routingSuggestionApprove approves a routing suggestion.
+//
+//	POST /api/v1/routing/suggestions/{id}/approve
+func (h *handler) routingSuggestionApprove(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Infra == nil || h.deps.Infra.Optimizer == nil {
+		writeJSON(w, 503, map[string]string{"error": "routing optimizer not available"})
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeJSON(w, 400, map[string]string{"error": "missing suggestion id"})
+		return
+	}
+
+	suggestion, err := h.deps.Infra.Optimizer.Approve(id)
+	if err != nil {
+		writeJSON(w, 404, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, 200, suggestion)
+}
+
+// routingSuggestionReject rejects a routing suggestion.
+//
+//	POST /api/v1/routing/suggestions/{id}/reject
+func (h *handler) routingSuggestionReject(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Infra == nil || h.deps.Infra.Optimizer == nil {
+		writeJSON(w, 503, map[string]string{"error": "routing optimizer not available"})
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeJSON(w, 400, map[string]string{"error": "missing suggestion id"})
+		return
+	}
+
+	if err := h.deps.Infra.Optimizer.Reject(id); err != nil {
+		writeJSON(w, 404, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, 200, map[string]string{"status": "rejected", "id": id})
+}
+
+// routingStats returns per-model per-task-type statistics from the optimizer.
+//
+//	GET /api/v1/routing/stats?task_type=tool_use
+//
+// Query params:
+//
+//	task_type — filter to a single task type (optional)
+func (h *handler) routingStats(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Infra == nil || h.deps.Infra.Optimizer == nil {
+		writeJSON(w, 503, map[string]string{"error": "routing optimizer not available"})
+		return
+	}
+
+	stats := h.deps.Infra.Optimizer.Stats()
+
+	if taskType := r.URL.Query().Get("task_type"); taskType != "" {
+		var filtered []interface{}
+		for _, s := range stats {
+			if s.TaskType == taskType {
+				filtered = append(filtered, s)
+			}
+		}
+		if filtered == nil {
+			filtered = []interface{}{}
+		}
+		writeJSON(w, 200, filtered)
+		return
+	}
+
+	writeJSON(w, 200, stats)
 }

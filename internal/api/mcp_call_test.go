@@ -9,7 +9,7 @@ import (
 
 func TestMCPCallEndpoint(t *testing.T) {
 	reg := NewMCPToolRegistry()
-	reg.Register("echo", "Echo tool", nil, func(h *handler, args map[string]interface{}) (string, bool) {
+	reg.Register("echo", "Echo tool", nil, func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 		msg, _ := args["message"].(string)
 		return "echo: " + msg, false
 	})
@@ -56,7 +56,7 @@ func TestMCPCallUnknownTool(t *testing.T) {
 
 func TestMCPCallEnvForwarding(t *testing.T) {
 	reg := NewMCPToolRegistry()
-	reg.Register("env_test", "Test env", nil, func(h *handler, args map[string]interface{}) (string, bool) {
+	reg.Register("env_test", "Test env", nil, func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 		env, _ := args["_env"].(string)
 		return "env: " + env, false
 	})

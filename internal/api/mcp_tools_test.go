@@ -12,7 +12,7 @@ func TestMCPToolRegistry_RegisterAndList(t *testing.T) {
 	reg.Register("agency_test", "A test tool", map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{"name": map[string]interface{}{"type": "string"}},
-	}, func(h *handler, args map[string]interface{}) (string, bool) {
+	}, func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 		return "ok", false
 	})
 
@@ -27,7 +27,7 @@ func TestMCPToolRegistry_RegisterAndList(t *testing.T) {
 
 func TestMCPToolRegistry_Call(t *testing.T) {
 	reg := NewMCPToolRegistry()
-	reg.Register("echo", "Echo tool", nil, func(h *handler, args map[string]interface{}) (string, bool) {
+	reg.Register("echo", "Echo tool", nil, func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 		return "hello", false
 	})
 

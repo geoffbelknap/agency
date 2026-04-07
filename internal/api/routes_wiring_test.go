@@ -79,14 +79,11 @@ func TestRouteWiring_AllModulesRegistered(t *testing.T) {
 		Config: cfg,
 	})
 
-	// remaining routes still in routes.go: MCP tools, registry, intake
+	// MCP tools — only routes still on the api-level struct
 	mcpReg := NewMCPToolRegistry()
-	h := &handler{cfg: cfg, mcpReg: mcpReg}
-	r.Route("/api/v1", func(r chi.Router) {
-		r.Get("/mcp/tools", mcpToolsHandler(h.mcpReg))
-		r.Get("/registry", h.registrySnapshot)
-		r.Get("/intake/items", h.intakeItems)
-	})
+	d := &mcpDeps{cfg: cfg, mcpReg: mcpReg}
+	r.Get("/api/v1/mcp/tools", mcpToolsHandler(d.mcpReg))
+	r.Post("/api/v1/mcp/call", mcpCallHandler(d.mcpReg, d))
 
 	routes := []struct {
 		name   string

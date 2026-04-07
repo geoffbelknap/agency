@@ -55,8 +55,8 @@ func registerInfraTools(reg *MCPToolRegistry) {
 		"agency_infra_status",
 		"Show infrastructure health: which shared containers (egress, comms) are running and healthy.",
 		nil,
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			status, err := h.dc.InfraStatus(context.Background())
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			status, err := d.dc.InfraStatus(context.Background())
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -82,13 +82,13 @@ func registerInfraTools(reg *MCPToolRegistry) {
 		"agency_infra_up",
 		"Build images and start shared infrastructure (egress proxy, comms server). Required before starting any agent. Run after agency_setup.",
 		nil,
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.infra == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.infra == nil {
 				return "Error: infrastructure manager not initialized", true
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
-			if err := h.infra.EnsureRunning(ctx); err != nil {
+			if err := d.infra.EnsureRunning(ctx); err != nil {
 				return "Error: " + err.Error(), true
 			}
 			return "Infrastructure started.", false
@@ -99,11 +99,11 @@ func registerInfraTools(reg *MCPToolRegistry) {
 		"agency_infra_down",
 		"Stop and remove all shared infrastructure containers (egress, comms, knowledge).",
 		nil,
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.infra == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.infra == nil {
 				return "Error: infrastructure manager not initialized", true
 			}
-			if err := h.infra.Teardown(context.Background()); err != nil {
+			if err := d.infra.Teardown(context.Background()); err != nil {
 				return "Error: " + err.Error(), true
 			}
 			return "Infrastructure stopped.", false
@@ -124,15 +124,15 @@ func registerInfraTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"component"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			component, _ := args["component"].(string)
 			if component == "" {
 				return "Error: component is required", true
 			}
-			if h.infra == nil {
+			if d.infra == nil {
 				return "Error: infrastructure manager not initialized", true
 			}
-			if err := h.infra.RestartComponent(context.Background(), component); err != nil {
+			if err := d.infra.RestartComponent(context.Background(), component); err != nil {
 				return "Error: " + err.Error(), true
 			}
 			return fmt.Sprintf("Component '%s' rebuilt.", component), false
@@ -143,17 +143,17 @@ func registerInfraTools(reg *MCPToolRegistry) {
 		"agency_infra_reload",
 		"Send SIGHUP to all running enforcers to reload configuration (routing, egress domains, API keys, service registry) without restarting containers.",
 		nil,
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.infra == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.infra == nil {
 				return "Error: infrastructure manager not initialized", true
 			}
 			// Regenerate credential-swaps.yaml before reloading
-			h.regenerateSwapConfig()
+			d.regenerateSwapConfig()
 
 			components := []string{"egress", "comms", "knowledge", "intake"}
 			var reloaded []string
 			for _, comp := range components {
-				if err := h.infra.RestartComponent(context.Background(), comp); err != nil {
+				if err := d.infra.RestartComponent(context.Background(), comp); err != nil {
 					continue
 				}
 				reloaded = append(reloaded, comp)
@@ -175,7 +175,7 @@ func registerInfraTools(reg *MCPToolRegistry) {
 				"force":    map[string]interface{}{"type": "boolean", "description": "Reinitialize if already exists", "default": false},
 			},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			operator, _ := args["operator"].(string)
 			force, _ := args["force"].(bool)
 			opts := config.InitOptions{
@@ -197,9 +197,9 @@ func registerInfraTools(reg *MCPToolRegistry) {
 
 			// Store any new API keys in the credential store
 			for _, key := range pendingKeys {
-				if h.credStore != nil {
+				if d.credStore != nil {
 					now := time.Now().UTC().Format(time.RFC3339)
-					h.credStore.Put(credstore.Entry{ //nolint:errcheck
+					d.credStore.Put(credstore.Entry{ //nolint:errcheck
 						Name:  key.EnvVar,
 						Value: key.Key,
 						Metadata: credstore.Metadata{
@@ -231,11 +231,11 @@ func registerAgentTools(reg *MCPToolRegistry) {
 		"agency_list",
 		"List all agents with their current status (running, stopped, etc). Shows name and state for every configured agent.",
 		nil,
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.agents == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.agents == nil {
 				return "Error: agent manager not initialized", true
 			}
-			agents, err := h.agents.List(context.Background())
+			agents, err := d.agents.List(context.Background())
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -260,22 +260,22 @@ func registerAgentTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "name")
 			if err := mcpValidateAgentName(name); err != nil {
 				return fmt.Sprintf("Error: %s", err), true
 			}
-			if h.agents == nil {
+			if d.agents == nil {
 				return "Error: agent manager not initialized", true
 			}
 			preset := mapStr(args, "preset")
 			if preset == "" {
 				preset = "generalist"
 			}
-			if err := h.agents.Create(context.Background(), name, preset); err != nil {
+			if err := d.agents.Create(context.Background(), name, preset); err != nil {
 				return "Error: " + err.Error(), true
 			}
-			h.audit.Write(name, "agent_created", map[string]interface{}{"preset": preset})
+			d.audit.Write(name, "agent_created", map[string]interface{}{"preset": preset})
 			return fmt.Sprintf("Agent '%s' created.", name), false
 		},
 	)
@@ -291,15 +291,15 @@ func registerAgentTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"agent"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "agent")
 			if err := mcpValidateAgentName(name); err != nil {
 				return fmt.Sprintf("Error: %s", err), true
 			}
-			if h.agents == nil {
+			if d.agents == nil {
 				return "Error: agent manager not initialized", true
 			}
-			detail, err := h.agents.Show(context.Background(), name)
+			detail, err := d.agents.Show(context.Background(), name)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -371,43 +371,43 @@ func registerAgentTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"agent"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "agent")
 			if err := mcpValidateAgentName(name); err != nil {
 				return fmt.Sprintf("Error: %s", err), true
 			}
-			if h.agents == nil {
+			if d.agents == nil {
 				return "Error: agent manager not initialized", true
 			}
 
 			// Ensure agent exists
-			if _, err := h.agents.Show(context.Background(), name); err != nil {
+			if _, err := d.agents.Show(context.Background(), name); err != nil {
 				return "Error: " + err.Error(), true
 			}
 
 			ss := &orchestrate.StartSequence{
 				AgentName:   name,
-				Home:        h.cfg.Home,
-				Version:     h.cfg.Version,
-				SourceDir:   h.cfg.SourceDir,
-				Docker:      h.dc,
-				Comms:       h.dc,
-				Log:         h.log,
-				CredStore:   h.credStore,
+				Home:        d.cfg.Home,
+				Version:     d.cfg.Version,
+				SourceDir:   d.cfg.SourceDir,
+				Docker:      d.dc,
+				Comms:       d.dc,
+				Log:         d.log,
+				CredStore:   d.credStore,
 			}
 
 			result, err := ss.Run(context.Background(), func(phase int, phaseName, desc string) {
-				h.log.Info("start phase", "agent", name, "phase", phase, "name", phaseName)
-				h.audit.Write(name, "start_phase", map[string]interface{}{"phase": phase, "phase_name": phaseName})
+				d.log.Info("start phase", "agent", name, "phase", phase, "name", phaseName)
+				d.audit.Write(name, "start_phase", map[string]interface{}{"phase": phase, "phase_name": phaseName})
 			})
 			if err != nil {
-				h.audit.Write(name, "start_failed", map[string]interface{}{"error": err.Error()})
+				d.audit.Write(name, "start_failed", map[string]interface{}{"error": err.Error()})
 				return "Error: " + err.Error(), true
 			}
 
 			// Wire WebSocket client to enforcer for constraint delivery.
-			h.registerEnforcerWSClient(name)
-			h.audit.Write(name, "agent_started", nil)
+			d.registerEnforcerWSClient(name)
+			d.audit.Write(name, "agent_started", nil)
 
 			_ = result
 			return fmt.Sprintf("Agent '%s' started.", name), false
@@ -427,12 +427,12 @@ func registerAgentTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"agent"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "agent")
 			if err := mcpValidateAgentName(name); err != nil {
 				return fmt.Sprintf("Error: %s", err), true
 			}
-			if h.halt == nil {
+			if d.halt == nil {
 				return "Error: halt controller not initialized", true
 			}
 			haltType := mapStr(args, "halt_type")
@@ -443,11 +443,11 @@ func registerAgentTools(reg *MCPToolRegistry) {
 			if haltType == "emergency" && reason == "" {
 				return "Error: emergency halt requires a reason (ASK Tenet 2)", true
 			}
-			_, err := h.halt.Halt(context.Background(), name, haltType, reason, "operator")
+			_, err := d.halt.Halt(context.Background(), name, haltType, reason, "operator")
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
-			h.audit.Write(name, "agent_halted", map[string]interface{}{"type": haltType, "reason": reason, "initiator": "operator"})
+			d.audit.Write(name, "agent_halted", map[string]interface{}{"type": haltType, "reason": reason, "initiator": "operator"})
 			return fmt.Sprintf("Agent '%s' stopped.", name), false
 		},
 	)
@@ -463,62 +463,62 @@ func registerAgentTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"agent"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "agent")
 			if err := mcpValidateAgentName(name); err != nil {
 				return fmt.Sprintf("Error: %s", err), true
 			}
-			if h.agents == nil {
+			if d.agents == nil {
 				return "Error: agent manager not initialized", true
 			}
 
 			// Ensure agent exists and load detail for lifecycle_id wiring
-			detail, err := h.agents.Show(context.Background(), name)
+			detail, err := d.agents.Show(context.Background(), name)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
 
 			// Wire lifecycle_id into audit writer so all subsequent events carry it.
-			h.audit.SetLifecycleID(name, detail.LifecycleID)
+			d.audit.SetLifecycleID(name, detail.LifecycleID)
 
 			// Stop existing containers and close old WS client
-			h.unregisterEnforcerWSClient(name)
-			h.agents.StopContainers(context.Background(), name)
+			d.unregisterEnforcerWSClient(name)
+			d.agents.StopContainers(context.Background(), name)
 
 			// Start with key rotation (ASK tenet 4: least privilege)
 			ss := &orchestrate.StartSequence{
 				AgentName:   name,
-				Home:        h.cfg.Home,
-				Version:     h.cfg.Version,
-				SourceDir:   h.cfg.SourceDir,
-				BuildID:     h.cfg.BuildID,
-				Docker:      h.dc,
-				Comms:       h.dc,
-				Log:         h.log,
+				Home:        d.cfg.Home,
+				Version:     d.cfg.Version,
+				SourceDir:   d.cfg.SourceDir,
+				BuildID:     d.cfg.BuildID,
+				Docker:      d.dc,
+				Comms:       d.dc,
+				Log:         d.log,
 				KeyRotation: true,
-				CredStore:   h.credStore,
+				CredStore:   d.credStore,
 			}
 
 			result, err := ss.Run(context.Background(), func(phase int, phaseName, desc string) {
-				h.log.Info("restart phase", "agent", name, "phase", phase, "name", phaseName)
-				h.audit.Write(name, "start_phase", map[string]interface{}{
+				d.log.Info("restart phase", "agent", name, "phase", phase, "name", phaseName)
+				d.audit.Write(name, "start_phase", map[string]interface{}{
 					"phase":       phase,
 					"phase_name":  phaseName,
 					"trigger":     "restart",
-					"instance_id": h.containerInstanceID(context.Background(), name, "enforcer"),
-					"build_id":    h.cfg.BuildID,
+					"instance_id": d.containerInstanceID(context.Background(), name, "enforcer"),
+					"build_id":    d.cfg.BuildID,
 				})
 			})
 			if err != nil {
-				h.audit.Write(name, "restart_failed", map[string]interface{}{"error": err.Error(), "build_id": h.cfg.BuildID})
+				d.audit.Write(name, "restart_failed", map[string]interface{}{"error": err.Error(), "build_id": d.cfg.BuildID})
 				return "Error: " + err.Error(), true
 			}
 
 			// Re-wire WebSocket client to enforcer after restart.
-			h.registerEnforcerWSClient(name)
-			h.audit.Write(name, "agent_restarted", map[string]interface{}{
-				"instance_id": h.containerInstanceID(context.Background(), name, "workspace"),
-				"build_id":    h.cfg.BuildID,
+			d.registerEnforcerWSClient(name)
+			d.audit.Write(name, "agent_restarted", map[string]interface{}{
+				"instance_id": d.containerInstanceID(context.Background(), name, "workspace"),
+				"build_id":    d.cfg.BuildID,
 			})
 
 			_ = result
@@ -537,18 +537,18 @@ func registerAgentTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"agent"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "agent")
 			if err := mcpValidateAgentName(name); err != nil {
 				return fmt.Sprintf("Error: %s", err), true
 			}
-			if h.halt == nil {
+			if d.halt == nil {
 				return "Error: halt controller not initialized", true
 			}
-			if err := h.halt.Resume(context.Background(), name, "operator"); err != nil {
+			if err := d.halt.Resume(context.Background(), name, "operator"); err != nil {
 				return "Error: " + err.Error(), true
 			}
-			h.audit.Write(name, "agent_resumed", map[string]interface{}{"initiator": "operator"})
+			d.audit.Write(name, "agent_resumed", map[string]interface{}{"initiator": "operator"})
 			return fmt.Sprintf("Agent '%s' resumed.", name), false
 		},
 	)
@@ -564,18 +564,18 @@ func registerAgentTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"agent"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "agent")
 			if err := mcpValidateAgentName(name); err != nil {
 				return fmt.Sprintf("Error: %s", err), true
 			}
-			if h.agents == nil {
+			if d.agents == nil {
 				return "Error: agent manager not initialized", true
 			}
-			if err := h.agents.Delete(context.Background(), name); err != nil {
+			if err := d.agents.Delete(context.Background(), name); err != nil {
 				return "Error: " + err.Error(), true
 			}
-			h.audit.WriteSystem("agent_deleted", map[string]interface{}{"agent": name})
+			d.audit.WriteSystem("agent_deleted", map[string]interface{}{"agent": name})
 			return fmt.Sprintf("Agent '%s' deleted.", name), false
 		},
 	)
@@ -593,12 +593,12 @@ func registerAgentTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"agent", "service"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "agent")
 			if err := mcpValidateAgentName(name); err != nil {
 				return fmt.Sprintf("Error: %s", err), true
 			}
-			if h.agents == nil {
+			if d.agents == nil {
 				return "Error: agent manager not initialized", true
 			}
 			service := mapStr(args, "service")
@@ -607,12 +607,12 @@ func registerAgentTools(reg *MCPToolRegistry) {
 			}
 
 			// Verify agent exists
-			if _, err := h.agents.Show(context.Background(), name); err != nil {
+			if _, err := d.agents.Show(context.Background(), name); err != nil {
 				return "Error: " + err.Error(), true
 			}
 
 			// Write grant to agent's constraints
-			constraintsPath := filepath.Join(h.cfg.Home, "agents", name, "constraints.yaml")
+			constraintsPath := filepath.Join(d.cfg.Home, "agents", name, "constraints.yaml")
 			var constraints map[string]interface{}
 			if data, err := os.ReadFile(constraintsPath); err == nil {
 				yaml.Unmarshal(data, &constraints)
@@ -628,10 +628,10 @@ func registerAgentTools(reg *MCPToolRegistry) {
 			data, _ := yaml.Marshal(constraints)
 			os.WriteFile(constraintsPath, data, 0644)
 
-			h.log.Info("capability granted", "agent", name, "capability", service)
-			h.audit.Write(name, "capability_granted", map[string]interface{}{"capability": service})
+			d.log.Info("capability granted", "agent", name, "capability", service)
+			d.audit.Write(name, "capability_granted", map[string]interface{}{"capability": service})
 			// Hot-reload: regenerate manifest and signal enforcer
-			go h.reloadCapabilitiesForRunningAgents(service)
+			go d.reloadCapabilitiesForRunningAgents(service)
 			return fmt.Sprintf("Granted '%s' to agent '%s'.", service, name), false
 		},
 	)
@@ -648,12 +648,12 @@ func registerAgentTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"agent", "service"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "agent")
 			if err := mcpValidateAgentName(name); err != nil {
 				return fmt.Sprintf("Error: %s", err), true
 			}
-			if h.agents == nil {
+			if d.agents == nil {
 				return "Error: agent manager not initialized", true
 			}
 			service := mapStr(args, "service")
@@ -662,12 +662,12 @@ func registerAgentTools(reg *MCPToolRegistry) {
 			}
 
 			// Verify agent exists
-			if _, err := h.agents.Show(context.Background(), name); err != nil {
+			if _, err := d.agents.Show(context.Background(), name); err != nil {
 				return "Error: " + err.Error(), true
 			}
 
 			// Remove grant from agent's constraints
-			constraintsPath := filepath.Join(h.cfg.Home, "agents", name, "constraints.yaml")
+			constraintsPath := filepath.Join(d.cfg.Home, "agents", name, "constraints.yaml")
 			var constraints map[string]interface{}
 			if data, err := os.ReadFile(constraintsPath); err == nil {
 				yaml.Unmarshal(data, &constraints)
@@ -686,8 +686,8 @@ func registerAgentTools(reg *MCPToolRegistry) {
 				}
 			}
 
-			h.log.Info("capability revoked", "agent", name, "capability", service)
-			h.audit.Write(name, "capability_revoked", map[string]interface{}{"capability": service})
+			d.log.Info("capability revoked", "agent", name, "capability", service)
+			d.audit.Write(name, "capability_revoked", map[string]interface{}{"capability": service})
 			return fmt.Sprintf("Revoked '%s' from agent '%s'.", service, name), false
 		},
 	)
@@ -711,7 +711,7 @@ func registerCommsTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "name")
 			if name == "" {
 				return "Error: name is required", true
@@ -737,7 +737,7 @@ func registerCommsTools(reg *MCPToolRegistry) {
 			}
 			body["visibility"] = visibility
 
-			_, err := h.dc.CommsRequest(context.Background(), "POST", "/channels", body)
+			_, err := d.dc.CommsRequest(context.Background(), "POST", "/channels", body)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -755,8 +755,8 @@ func registerCommsTools(reg *MCPToolRegistry) {
 				"include_archived": map[string]interface{}{"type": "boolean", "description": "Include archived channels in the listing", "default": false},
 			},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			data, err := h.dc.CommsRequest(context.Background(), "GET", "/channels?member=_operator", nil)
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			data, err := d.dc.CommsRequest(context.Background(), "GET", "/channels?member=_operator", nil)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -776,14 +776,14 @@ func registerCommsTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"channel"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			channel := mapStr(args, "channel")
 			if channel == "" {
 				return "Error: channel is required", true
 			}
 			limit := mapInt(args, "limit", 20)
 			path := fmt.Sprintf("/channels/%s/messages?limit=%d&reader=_operator", channel, limit)
-			data, err := h.dc.CommsRequest(context.Background(), "GET", path, nil)
+			data, err := d.dc.CommsRequest(context.Background(), "GET", path, nil)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -803,7 +803,7 @@ func registerCommsTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"channel", "content"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			channel := mapStr(args, "channel")
 			if channel == "" {
 				return "Error: channel is required", true
@@ -817,7 +817,7 @@ func registerCommsTools(reg *MCPToolRegistry) {
 				"author":  "_operator",
 			}
 			path := "/channels/" + channel + "/messages"
-			_, err := h.dc.CommsRequest(context.Background(), "POST", path, body)
+			_, err := d.dc.CommsRequest(context.Background(), "POST", path, body)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -837,7 +837,7 @@ func registerCommsTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"query"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			query := mapStr(args, "query")
 			if query == "" {
 				return "Error: query is required", true
@@ -846,7 +846,7 @@ func registerCommsTools(reg *MCPToolRegistry) {
 			if channel := mapStr(args, "channel"); channel != "" {
 				path += "&channel=" + channel
 			}
-			data, err := h.dc.CommsRequest(context.Background(), "GET", path, nil)
+			data, err := d.dc.CommsRequest(context.Background(), "GET", path, nil)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -865,7 +865,7 @@ func registerCommsTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "name")
 			if name == "" {
 				return "Error: name is required", true
@@ -873,7 +873,7 @@ func registerCommsTools(reg *MCPToolRegistry) {
 			if !requireNameStr(name) {
 				return `{"error":"invalid name"}`, false
 			}
-			_, err := h.dc.CommsRequest(context.Background(), "POST", "/channels/"+name+"/archive", nil)
+			_, err := d.dc.CommsRequest(context.Background(), "POST", "/channels/"+name+"/archive", nil)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -893,7 +893,7 @@ func registerCommsTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"channel", "agent"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			channel := mapStr(args, "channel")
 			agent := mapStr(args, "agent")
 			if channel == "" || agent == "" {
@@ -903,7 +903,7 @@ func registerCommsTools(reg *MCPToolRegistry) {
 				return `{"error":"invalid agent name"}`, false
 			}
 			body := map[string]interface{}{"agent": agent}
-			_, err := h.dc.CommsRequest(context.Background(), "POST", "/channels/"+channel+"/grant-access", body)
+			_, err := d.dc.CommsRequest(context.Background(), "POST", "/channels/"+channel+"/grant-access", body)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -930,12 +930,12 @@ func registerObservabilityTools(reg *MCPToolRegistry) {
 				"types":   map[string]interface{}{"type": "string", "description": "Comma-separated event types to filter in verbose mode (e.g. task_delivered,halt_initiated)"},
 			},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			agent := mapStr(args, "agent")
 			since := mapStr(args, "since")
 			until := mapStr(args, "until")
 
-			reader := logs.NewReader(h.cfg.Home)
+			reader := logs.NewReader(d.cfg.Home)
 			var events []logs.Event
 			var err error
 
@@ -980,11 +980,11 @@ func registerObservabilityTools(reg *MCPToolRegistry) {
 		"agency_status",
 		"Show overall Agency health: infrastructure, agents, and security guarantees.",
 		nil,
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			var parts []string
 
 			// Infrastructure health
-			status, err := h.dc.InfraStatus(context.Background())
+			status, err := d.dc.InfraStatus(context.Background())
 			if err != nil {
 				parts = append(parts, "Infrastructure: "+err.Error())
 			} else if len(status) > 0 {
@@ -1006,8 +1006,8 @@ func registerObservabilityTools(reg *MCPToolRegistry) {
 			}
 
 			// Agents
-			if h.agents != nil {
-				agents, err := h.agents.List(context.Background())
+			if d.agents != nil {
+				agents, err := d.agents.List(context.Background())
 				if err == nil && len(agents) > 0 {
 					maps := make([]map[string]interface{}, len(agents))
 					for i, a := range agents {
@@ -1034,7 +1034,7 @@ func registerObservabilityTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"agent_name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "agent_name")
 			if name == "" {
 				return "Error: agent_name is required", true
@@ -1043,17 +1043,17 @@ func registerObservabilityTools(reg *MCPToolRegistry) {
 				return fmt.Sprintf("Error: %s", err), true
 			}
 
-			limits := h.budgetConfig()
-			costs := loadModelCosts(h.cfg.Home)
+			limits := d.budgetConfig()
+			costs := loadModelCosts(d.cfg.Home)
 
 			now := time.Now().UTC()
 			todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 			monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 
-			todayMetrics, _ := routing.CollectWithCosts(h.cfg.Home, routing.MetricsQuery{
+			todayMetrics, _ := routing.CollectWithCosts(d.cfg.Home, routing.MetricsQuery{
 				Agent: name, Since: todayStart.Format(time.RFC3339),
 			}, costs)
-			monthMetrics, _ := routing.CollectWithCosts(h.cfg.Home, routing.MetricsQuery{
+			monthMetrics, _ := routing.CollectWithCosts(d.cfg.Home, routing.MetricsQuery{
 				Agent: name, Since: monthStart.Format(time.RFC3339),
 			}, costs)
 

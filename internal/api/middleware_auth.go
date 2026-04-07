@@ -113,7 +113,7 @@ func constantTimeEqual(expected, incoming string) bool {
 // canAccessAgent checks whether a principal can access a specific agent.
 // Used for resource-scoped authorization on agent-specific handlers.
 // ASK Tenet 7: least privilege — scope access to the minimum required.
-func (h *handler) canAccessAgent(principal *registry.Principal, agentName string) bool {
+func (d *mcpDeps) canAccessAgent(principal *registry.Principal, agentName string) bool {
 	if principal == nil {
 		return true // legacy mode — no principal resolved
 	}
@@ -124,8 +124,8 @@ func (h *handler) canAccessAgent(principal *registry.Principal, agentName string
 		return true // agent can access itself
 	}
 	// Team members can access agents in their team
-	if principal.Parent != "" && h.infra != nil && h.infra.Registry != nil {
-		agent, err := h.infra.Registry.ResolveByName("agent", agentName)
+	if principal.Parent != "" && d.infra != nil && d.infra.Registry != nil {
+		agent, err := d.infra.Registry.ResolveByName("agent", agentName)
 		if err == nil && agent.Parent == principal.Parent {
 			return true // same team
 		}

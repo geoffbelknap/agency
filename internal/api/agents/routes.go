@@ -120,6 +120,8 @@ func RegisterRoutes(r chi.Router, d Deps) {
 		r.Get("/status", ctxH.getStatus)
 	})
 
+	r.Get("/api/v1/agents/{name}/logs", h.agentLogs)
+
 	// Meeseeks
 	r.Post("/api/v1/meeseeks", h.spawnMeeseeks)
 	r.Get("/api/v1/meeseeks", h.listMeeseeks)

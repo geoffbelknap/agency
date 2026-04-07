@@ -49,6 +49,12 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Get("/api/v1/routing/metrics", h.routingMetrics)
 	r.Get("/api/v1/routing/config", h.routingConfig)
 
+	// Routing optimizer
+	r.Get("/api/v1/routing/suggestions", h.routingSuggestions)
+	r.Post("/api/v1/routing/suggestions/{id}/approve", h.routingSuggestionApprove)
+	r.Post("/api/v1/routing/suggestions/{id}/reject", h.routingSuggestionReject)
+	r.Get("/api/v1/routing/stats", h.routingStats)
+
 	r.Get("/api/v1/providers", h.listProviders)
 	r.Get("/api/v1/setup/config", h.setupConfig)
 }
