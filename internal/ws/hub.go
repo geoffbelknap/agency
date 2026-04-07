@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/gorilla/websocket"
 )
 
@@ -158,7 +158,7 @@ type Client struct {
 	hub  *Hub
 	conn *websocket.Conn
 	send chan []byte
-	log  *log.Logger
+	log  *slog.Logger
 
 	mu           sync.Mutex
 	subscription *Subscription
@@ -264,7 +264,7 @@ type Hub struct {
 	register   chan *Client
 	unregister chan *Client
 	broadcast  chan Event
-	log        *log.Logger
+	log        *slog.Logger
 
 	mu                   sync.RWMutex
 	eventPublisher       EventPublishFunc
@@ -273,7 +273,7 @@ type Hub struct {
 }
 
 // NewHub creates a new Hub and starts its run loop.
-func NewHub(logger *log.Logger) *Hub {
+func NewHub(logger *slog.Logger) *Hub {
 	h := &Hub{
 		clients:    make(map[*Client]bool),
 		register:   make(chan *Client),

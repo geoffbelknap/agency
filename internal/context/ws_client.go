@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/gorilla/websocket"
 )
 
@@ -20,7 +20,7 @@ import (
 type WSClient struct {
 	agent string
 	url   string
-	log   *log.Logger
+	log   *slog.Logger
 
 	mu   sync.Mutex
 	conn *websocket.Conn
@@ -38,9 +38,9 @@ type WSClient struct {
 
 // NewWSClient creates a new WSClient with sensible reconnect defaults.
 // logger may be nil; a default logger is used in that case.
-func NewWSClient(agent, url string, logger *log.Logger) *WSClient {
+func NewWSClient(agent, url string, logger *slog.Logger) *WSClient {
 	if logger == nil {
-		logger = log.Default()
+		logger = slog.Default()
 	}
 	return &WSClient{
 		agent:         agent,

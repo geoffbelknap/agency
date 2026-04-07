@@ -5,18 +5,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 )
 
 func TestHub_BroadcastAgentSignal(t *testing.T) {
-	h := NewHub(log.Default())
+	h := NewHub(slog.Default())
 
 	ch := make(chan []byte, 10)
 	client := &Client{
 		hub:          h,
 		send:         ch,
 		subscription: &Subscription{Agents: []string{"mybot"}},
-		log:          log.Default(),
+		log:          slog.Default(),
 	}
 	h.register <- client
 	time.Sleep(50 * time.Millisecond) // let registration process
@@ -51,7 +51,7 @@ func TestHub_BroadcastAgentSignal(t *testing.T) {
 }
 
 func TestHub_SetAgentSignalPublisher(t *testing.T) {
-	h := NewHub(log.Default())
+	h := NewHub(slog.Default())
 
 	var captured struct {
 		agent      string

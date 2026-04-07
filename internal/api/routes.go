@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/go-chi/chi/v5"
 
 	"github.com/geoffbelknap/agency/internal/audit"
@@ -54,7 +54,7 @@ type RouteOptions struct {
 // Only endpoints needed by infra containers are registered — no BearerAuth middleware.
 // Each infra-facing endpoint has its own auth mechanism (X-Agency-Token / X-Agency-Caller)
 // or is read-only health/status data.
-func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, logger *log.Logger, startup *StartupResult, opts RouteOptions) {
+func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, logger *slog.Logger, startup *StartupResult, opts RouteOptions) {
 	r.Get("/api/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]string{"status": "ok", "version": cfg.Version, "build_id": cfg.BuildID})
 	})
@@ -102,7 +102,7 @@ func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, l
 // RegisterCredentialSocketRoutes registers the credential-only socket router.
 // This socket is mounted exclusively by the egress container for credential
 // resolution. It is NOT bridged to TCP — credentials never traverse a Docker network.
-func RegisterCredentialSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, logger *log.Logger, startup *StartupResult, opts RouteOptions) {
+func RegisterCredentialSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, logger *slog.Logger, startup *StartupResult, opts RouteOptions) {
 	if startup.CredStore != nil {
 		creds.RegisterRoutes(r, creds.Deps{
 			CredStore: startup.CredStore,
@@ -115,7 +115,7 @@ func RegisterCredentialSocketRoutes(r chi.Router, cfg *config.Config, dc *docker
 
 // RegisterAll sets up all REST API routes with full option support.
 // This is the canonical registration entry point for the full HTTP API surface.
-func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *log.Logger, startup *StartupResult, opts RouteOptions) {
+func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *slog.Logger, startup *StartupResult, opts RouteOptions) {
 	h := &handler{
 		cfg: cfg, dc: dc, log: logger,
 		infra: startup.Infra, agents: startup.AgentManager,
@@ -340,7 +340,7 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *lo
 type handler struct {
 	cfg        *config.Config
 	dc         *docker.Client
-	log        *log.Logger
+	log        *slog.Logger
 	infra      *orchestrate.Infra
 	agents     *orchestrate.AgentManager
 	halt       *orchestrate.HaltController

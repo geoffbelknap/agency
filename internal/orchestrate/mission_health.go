@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
@@ -31,7 +31,7 @@ type MissionHealthMonitor struct {
 	cli     *client.Client
 	alert   MissionHealthAlertFunc
 	pause   func(name, reason string) error
-	logger  *log.Logger
+	logger  *slog.Logger
 	cancel  context.CancelFunc
 }
 
@@ -42,7 +42,7 @@ func NewMissionHealthMonitor(
 	mm *MissionManager,
 	alertFn MissionHealthAlertFunc,
 	pauseFn func(name, reason string) error,
-	logger *log.Logger,
+	logger *slog.Logger,
 ) (*MissionHealthMonitor, error) {
 	return NewMissionHealthMonitorWithClient(mm, alertFn, pauseFn, logger, nil)
 }
@@ -53,7 +53,7 @@ func NewMissionHealthMonitorWithClient(
 	mm *MissionManager,
 	alertFn MissionHealthAlertFunc,
 	pauseFn func(name, reason string) error,
-	logger *log.Logger,
+	logger *slog.Logger,
 	cli *client.Client,
 ) (*MissionHealthMonitor, error) {
 	if cli == nil {

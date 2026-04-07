@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/go-chi/chi/v5"
 
 	"github.com/geoffbelknap/agency/internal/config"
@@ -15,7 +15,7 @@ import (
 type Deps struct {
 	Comms  commsClient.Client
 	Config *config.Config
-	Logger *log.Logger
+	Logger *slog.Logger
 }
 
 type handler struct {

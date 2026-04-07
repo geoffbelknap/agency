@@ -18,12 +18,14 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
+
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	agencylog "github.com/geoffbelknap/agency/internal/logging"
 	"github.com/geoffbelknap/agency/internal/api"
 	"github.com/geoffbelknap/agency/internal/apiclient"
 	"github.com/geoffbelknap/agency/internal/update"
@@ -670,10 +672,8 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser bo
 }
 
 func runServe(httpAddr string) error {
-	logger := log.NewWithOptions(os.Stderr, log.Options{
-		ReportTimestamp: true,
-		Prefix:         "agency",
-	})
+	logger := agencylog.New("gateway", buildID)
+	slog.SetDefault(logger)
 
 	cfg := config.Load()
 	cfg.Version = version
@@ -881,7 +881,8 @@ func runServe(httpAddr string) error {
 	// Initialize all gateway components via Startup.
 	startup, err := api.Startup(cfg, dc, logger)
 	if err != nil {
-		logger.Fatal("gateway startup failed", "err", err)
+		logger.Error("gateway startup failed", "err", err)
+		os.Exit(1)
 	}
 
 	// Principal registry — shared instance for auth + permission middleware.
@@ -932,6 +933,7 @@ func runServe(httpAddr string) error {
 	r := chi.NewRouter()
 	r.Use(chiMiddleware.Recoverer)
 	r.Use(chiMiddleware.RealIP)
+	r.Use(api.CorrelationID)
 	r.Use(corsMiddleware)
 	r.Use(api.BearerAuth(cfg.Token, cfg.EgressToken, reg))
 	routeOpts := api.RouteOptions{

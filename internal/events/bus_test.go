@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/geoffbelknap/agency/internal/models"
 )
 
@@ -24,7 +24,7 @@ func newTestBus() (*Bus, *[]auditEntry, *[]string) {
 	}
 
 	delivered := &[]string{}
-	logger := log.New(nil)
+	logger := slog.Default()
 
 	bus := NewBus(logger, audit)
 	bus.RegisterDelivery(DestAgent, func(sub *Subscription, event *models.Event) error {
@@ -162,7 +162,7 @@ func TestBusDeliveryFailure(t *testing.T) {
 	audit := func(eventType string, data map[string]interface{}) {
 		auditLog = append(auditLog, auditEntry{eventType, data})
 	}
-	logger := log.New(nil)
+	logger := slog.Default()
 	bus := NewBus(logger, audit)
 
 	bus.RegisterDelivery(DestAgent, func(sub *Subscription, event *models.Event) error {

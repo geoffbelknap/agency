@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 )
 
 // AuditEntry mirrors the enforcer's audit entry (subset needed for summarization).
@@ -53,11 +53,11 @@ type AuditSummarizer struct {
 	homeDir      string
 	knowledgeURL string
 	missionMap   map[string]string // agent -> mission
-	logger       *log.Logger
+	logger       *slog.Logger
 }
 
 // NewAuditSummarizer creates a summarizer that reads audit logs from homeDir.
-func NewAuditSummarizer(homeDir, knowledgeURL string, logger *log.Logger) *AuditSummarizer {
+func NewAuditSummarizer(homeDir, knowledgeURL string, logger *slog.Logger) *AuditSummarizer {
 	return &AuditSummarizer{
 		ticker:       time.NewTicker(15 * time.Minute),
 		homeDir:      homeDir,

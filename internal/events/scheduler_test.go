@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/geoffbelknap/agency/internal/models"
 )
 
 func TestSchedulerRegister(t *testing.T) {
-	bus := NewBus(log.Default(), nil)
+	bus := NewBus(slog.Default(), nil)
 	sched := NewScheduler(bus)
 	defer sched.Stop()
 
@@ -26,7 +26,7 @@ func TestSchedulerRegister(t *testing.T) {
 }
 
 func TestSchedulerInvalidCron(t *testing.T) {
-	bus := NewBus(log.Default(), nil)
+	bus := NewBus(slog.Default(), nil)
 	sched := NewScheduler(bus)
 
 	if err := sched.Register("bad", "not a cron", ""); err == nil {
@@ -35,7 +35,7 @@ func TestSchedulerInvalidCron(t *testing.T) {
 }
 
 func TestSchedulerDeactivateActivate(t *testing.T) {
-	bus := NewBus(log.Default(), nil)
+	bus := NewBus(slog.Default(), nil)
 	sched := NewScheduler(bus)
 	defer sched.Stop()
 
@@ -63,7 +63,7 @@ func TestSchedulerDeactivateActivate(t *testing.T) {
 }
 
 func TestSchedulerRemove(t *testing.T) {
-	bus := NewBus(log.Default(), nil)
+	bus := NewBus(slog.Default(), nil)
 	sched := NewScheduler(bus)
 	defer sched.Stop()
 
@@ -81,7 +81,7 @@ func TestSchedulerFiresEvent(t *testing.T) {
 	var mu sync.Mutex
 	var received []*models.Event
 
-	bus := NewBus(log.Default(), nil)
+	bus := NewBus(slog.Default(), nil)
 	bus.RegisterDelivery(DestAgent, func(sub *Subscription, event *models.Event) error {
 		mu.Lock()
 		received = append(received, event)

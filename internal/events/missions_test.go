@@ -3,7 +3,7 @@ package events
 import (
 	"testing"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/geoffbelknap/agency/internal/models"
 )
 
@@ -130,7 +130,7 @@ func TestBuildMissionSubscriptions_NoTriggers(t *testing.T) {
 }
 
 func TestOnMissionAssigned(t *testing.T) {
-	logger := log.New(nil)
+	logger := slog.Default()
 	bus := NewBus(logger, nil)
 
 	mission := &models.Mission{
@@ -158,7 +158,7 @@ func TestOnMissionAssigned(t *testing.T) {
 }
 
 func TestOnMissionPaused(t *testing.T) {
-	logger := log.New(nil)
+	logger := slog.Default()
 	bus := NewBus(logger, nil)
 
 	mission := &models.Mission{
@@ -182,7 +182,7 @@ func TestOnMissionPaused(t *testing.T) {
 }
 
 func TestOnMissionResumed(t *testing.T) {
-	logger := log.New(nil)
+	logger := slog.Default()
 	bus := NewBus(logger, nil)
 
 	mission := &models.Mission{
@@ -207,7 +207,7 @@ func TestOnMissionResumed(t *testing.T) {
 }
 
 func TestOnMissionCompleted(t *testing.T) {
-	logger := log.New(nil)
+	logger := slog.Default()
 	bus := NewBus(logger, nil)
 
 	mission := &models.Mission{

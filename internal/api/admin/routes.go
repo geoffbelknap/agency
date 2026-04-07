@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"regexp"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/go-chi/chi/v5"
 
 	"github.com/geoffbelknap/agency/internal/config"
@@ -34,7 +34,7 @@ type Deps struct {
 	ProfileStore *profiles.Store
 	CredStore    *credstore.Store
 	Config       *config.Config
-	Logger       *log.Logger
+	Logger       *slog.Logger
 	DC           *docker.Client
 	Signal       SignalSender
 	EventBus     *events.Bus // may be nil

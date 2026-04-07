@@ -113,7 +113,8 @@ def _run_ontology_migration(store: KnowledgeStore, data_dir: Path) -> None:
 
 
 def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) -> web.Application:
-    app = web.Application()
+    from logging_config import correlation_middleware
+    app = web.Application(middlewares=[correlation_middleware()])
     store = KnowledgeStore(data_dir or Path("/data"))
     app["store"] = store
 
@@ -1410,7 +1411,7 @@ if __name__ == "__main__":
     ingestion_env = os.environ.get("KNOWLEDGE_INGESTION", "true")
     enable_ingestion = ingestion_env.lower() in ("true", "1", "yes")
 
-    logging.basicConfig(level=logging.INFO)
+    # Logging configured automatically by sitecustomize.py via AGENCY_COMPONENT env var.
     app = create_app(data_dir=Path(args.data_dir), enable_ingestion=enable_ingestion)
     logger.info("Starting knowledge server on port %d", args.port)
     web.run_app(app, port=args.port, access_log_class=_HealthFilterAccessLogger)

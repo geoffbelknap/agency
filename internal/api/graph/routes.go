@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/go-chi/chi/v5"
 
 	"github.com/geoffbelknap/agency/internal/config"
@@ -16,7 +16,7 @@ import (
 type Deps struct {
 	Knowledge *knowledge.Proxy
 	Config    *config.Config
-	Logger    *log.Logger
+	Logger    *slog.Logger
 	Audit     *logs.Writer
 }
 

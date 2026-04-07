@@ -25,7 +25,8 @@ events { worker_connections 1024; }\n\
 http {\n\
     include /etc/nginx/mime.types;\n\
     default_type application/octet-stream;\n\
-    access_log /dev/stdout;\n\
+    log_format agency escape=json '"'"'{"ts":"$time_iso8601","level":"info","component":"web","msg":"access","method":"$request_method","path":"$uri","status":$status,"duration_s":$request_time,"bytes":$bytes_sent,"remote":"$remote_addr"}'"'"';\n\
+    access_log /dev/stdout agency;\n\
     sendfile on;\n\
     keepalive_timeout 65;\n\
     client_body_temp_path /tmp/client_temp;\n\

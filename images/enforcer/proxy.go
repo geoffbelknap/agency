@@ -4,7 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -395,7 +395,8 @@ func (ph *ProxyHandler) HandleConnect(w http.ResponseWriter, r *http.Request) {
 func mustParseURL(rawURL string) *url.URL {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		log.Fatalf("invalid proxy URL: %s", rawURL)
+		slog.Error("invalid proxy URL", "url", rawURL)
+		os.Exit(1)
 	}
 	return u
 }

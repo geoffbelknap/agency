@@ -973,7 +973,8 @@ def create_app(
     comms_url: str = "http://comms:8080",
     knowledge_url: Optional[str] = None,
 ) -> web.Application:
-    app = web.Application()
+    from logging_config import correlation_middleware
+    app = web.Application(middlewares=[correlation_middleware()])
     app["connectors_dir"] = connectors_dir or Path("/app/connectors")
     app["connectors"] = _load_connectors(app["connectors_dir"])
     app["store"] = WorkItemStore(data_dir=data_dir or Path("/app/data"))
@@ -1027,7 +1028,7 @@ def main():
     parser.add_argument("--knowledge-url", type=str, default=None)
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    # Logging configured automatically by sitecustomize.py via AGENCY_COMPONENT env var.
 
     app = create_app(
         connectors_dir=Path(args.connectors_dir),

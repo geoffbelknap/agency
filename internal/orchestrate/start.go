@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"gopkg.in/yaml.v3"
 
 	dockerclient "github.com/docker/docker/client"
@@ -31,7 +31,7 @@ type StartSequence struct {
 	BuildID     string // content-aware build ID for staleness detection
 	Docker      *agencyDocker.Client
 	Comms       comms.Client
-	Log         *log.Logger
+	Log         *slog.Logger
 	KeyRotation bool // Force scoped key rotation (used on restart)
 	CredStore   *credstore.Store
 

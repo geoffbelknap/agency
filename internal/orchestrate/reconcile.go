@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
@@ -17,7 +17,7 @@ import (
 // Called once at gateway startup after Docker client creation, before the HTTP
 // server starts. Errors are logged at WARN level but never returned — a failed
 // reconcile must not prevent the gateway from starting.
-func Reconcile(ctx context.Context, cli *client.Client, knownAgents []string, logger *log.Logger) {
+func Reconcile(ctx context.Context, cli *client.Client, knownAgents []string, logger *slog.Logger) {
 	known := make(map[string]bool, len(knownAgents))
 	for _, a := range knownAgents {
 		known[a] = true

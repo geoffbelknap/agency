@@ -5,10 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
-	"os"
 	"testing"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/go-chi/chi/v5"
 
 	"github.com/geoffbelknap/agency/internal/config"
@@ -19,7 +18,7 @@ func notifTestHandler(t *testing.T) (*handler, *events.NotificationStore, *event
 	t.Helper()
 	home := t.TempDir()
 	store := events.NewNotificationStore(home)
-	logger := log.NewWithOptions(os.Stderr, log.Options{Level: log.ErrorLevel})
+	logger := slog.Default()
 	bus := events.NewBus(logger, nil)
 	h := &handler{
 		deps: Deps{

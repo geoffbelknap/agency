@@ -3,11 +3,11 @@ package ws
 import (
 	"testing"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 )
 
 func TestSignalPromotionEndToEnd(t *testing.T) {
-	h := NewHub(log.Default())
+	h := NewHub(slog.Default())
 
 	var published []struct {
 		agent      string

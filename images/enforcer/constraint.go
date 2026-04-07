@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -89,29 +89,28 @@ func (ch *ConstraintHandler) RegisterRoutes(mux *http.ServeMux) {
 func (ch *ConstraintHandler) handleWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := ch.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("constraint: ws upgrade failed: %v", err)
+		slog.Warn("constraint: ws upgrade failed", "error", err)
 		return
 	}
 	defer conn.Close()
 
-	log.Printf("constraint: gateway connected via WebSocket")
+	slog.Info("constraint: gateway connected via WebSocket")
 
 	for {
 		var push wsPushMessage
 		if err := conn.ReadJSON(&push); err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-				log.Printf("constraint: ws read error: %v", err)
+				slog.Warn("constraint: ws read error", "error", err)
 			}
 			return
 		}
 
-		log.Printf("constraint: received push change_id=%s version=%d severity=%s",
-			push.ChangeID, push.Version, push.Severity)
+		slog.Info("constraint: received push", "change_id", push.ChangeID, "version", push.Version, "severity", push.Severity)
 
 		// Verify hash matches constraints.
 		computed := hashConstraints(push.Constraints)
 		if computed != push.Hash {
-			log.Printf("constraint: hash mismatch on push: computed=%s received=%s", computed, push.Hash)
+			slog.Warn("constraint: hash mismatch on push", "computed", computed, "received", push.Hash)
 			ack := ackReport{
 				Type:     "constraint_ack",
 				Agent:    ch.agent,
@@ -154,7 +153,7 @@ func (ch *ConstraintHandler) handleWS(w http.ResponseWriter, r *http.Request) {
 			BodyHash: push.Hash,
 		}
 		if err := conn.WriteJSON(ack); err != nil {
-			log.Printf("constraint: ws write ack error: %v", err)
+			slog.Warn("constraint: ws write ack error", "error", err)
 			return
 		}
 
@@ -240,13 +239,13 @@ func (ch *ConstraintHandler) notifyBody(changeID string, version int) {
 	resp, err := client.Post(ch.bodyNotifyURL, "application/json",
 		bytes.NewReader(payload))
 	if err != nil {
-		log.Printf("constraint: notify body failed: %v", err)
+		slog.Warn("constraint: notify body failed", "error", err)
 		return
 	}
 	resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		log.Printf("constraint: notify body returned %d", resp.StatusCode)
+		slog.Warn("constraint: notify body failed", "status", resp.StatusCode)
 	}
 }
 

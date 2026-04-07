@@ -7,6 +7,10 @@ WORKDIR /app
 COPY images/comms/requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Shared logging infrastructure (auto-configures via sitecustomize.py)
+COPY images/logging_config.py /app/logging_config.py
+COPY images/_sitecustomize.py /app/sitecustomize.py
+
 COPY images/comms/*.py /app/
 COPY images/models/ /app/images/models/
 COPY images/exceptions.py /app/images/exceptions.py

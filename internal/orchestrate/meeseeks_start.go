@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	dockerclient "github.com/docker/docker/client"
@@ -27,7 +27,7 @@ type MeeseeksStartSequence struct {
 	SourceDir string // agency_core/ path for dev-mode image builds
 	BuildID   string
 	Docker    *agencyDocker.Client
-	Log       *log.Logger
+	Log       *slog.Logger
 
 	// Parent's constraints file path (mounted read-only into Meeseeks)
 	ParentConstraintsPath string

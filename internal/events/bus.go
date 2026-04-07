@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/geoffbelknap/agency/internal/models"
 )
 
@@ -22,12 +22,12 @@ type Bus struct {
 	table   *SubscriptionTable
 	deliver map[string]DeliveryFunc // keyed by destination type
 	audit   AuditFunc
-	logger  *log.Logger
+	logger  *slog.Logger
 }
 
 // NewBus creates an event bus with a default-sized ring buffer and empty
 // subscription table.
-func NewBus(logger *log.Logger, audit AuditFunc) *Bus {
+func NewBus(logger *slog.Logger, audit AuditFunc) *Bus {
 	return &Bus{
 		ring:    NewRingBuffer(DefaultRingSize),
 		table:   NewSubscriptionTable(),

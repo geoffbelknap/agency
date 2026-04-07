@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
@@ -29,7 +29,7 @@ const (
 // Resolution order:
 //  1. Source tree build (if sourceDir is set — dev mode). Failure is fatal.
 //  2. GHCR pull (release mode)
-func Resolve(ctx context.Context, cli *client.Client, name, version, sourceDir, buildID string, logger *log.Logger) error {
+func Resolve(ctx context.Context, cli *client.Client, name, version, sourceDir, buildID string, logger *slog.Logger) error {
 	localTag := fmt.Sprintf("agency-%s:latest", name)
 
 	// Check if existing local image is current — skip rebuild if buildID matches.
@@ -106,7 +106,7 @@ func Resolve(ctx context.Context, cli *client.Client, name, version, sourceDir, 
 //  2. Pull from GHCR: ghcr.io/geoffbelknap/agency-<name>:v<version>, retag to agency-<name>:latest.
 //  3. Fallback: pull directly from upstreamRef (e.g. "ollama/ollama:0.9.3"), retag to agency-<name>:latest.
 //  4. Return error if all methods fail.
-func ResolveUpstream(ctx context.Context, cli *client.Client, name, version, upstreamRef, buildID string, logger *log.Logger) error {
+func ResolveUpstream(ctx context.Context, cli *client.Client, name, version, upstreamRef, buildID string, logger *slog.Logger) error {
 	localTag := fmt.Sprintf("agency-%s:latest", name)
 
 	// Check if existing local image is current — skip pull if buildID matches.
@@ -158,7 +158,7 @@ func ResolveUpstream(ctx context.Context, cli *client.Client, name, version, ups
 
 // buildFromSource builds an image directly from the source tree.
 // This is the dev-mode path — always builds fresh from current source.
-func buildFromSource(ctx context.Context, cli *client.Client, name, sourceDir, tag, buildID string, logger *log.Logger) error {
+func buildFromSource(ctx context.Context, cli *client.Client, name, sourceDir, tag, buildID string, logger *slog.Logger) error {
 	// Services that need the repo root as build context
 	// (they COPY agency_core/models/ and agency_core/exceptions.py)
 	repoContextNames := map[string]bool{
@@ -373,7 +373,7 @@ func createTar(dir string) (io.ReadCloser, error) {
 
 // pruneOldImages removes old images for a service, keeping only the current buildID.
 // This prevents unbounded image accumulation from repeated rebuilds.
-func pruneOldImages(ctx context.Context, cli *client.Client, name, currentBuildID string, logger *log.Logger) {
+func pruneOldImages(ctx context.Context, cli *client.Client, name, currentBuildID string, logger *slog.Logger) {
 	if cli == nil {
 		return
 	}

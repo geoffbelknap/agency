@@ -75,7 +75,8 @@ async def _log_shutdown(app: web.Application) -> None:
 
 
 def create_app(data_dir: Optional[Path] = None, agents_dir: Optional[Path] = None) -> web.Application:
-    app = web.Application()
+    from logging_config import correlation_middleware
+    app = web.Application(middlewares=[correlation_middleware()])
     resolved_data_dir = data_dir or Path("/app/data")
     app["store"] = MessageStore(resolved_data_dir)
     app["agents_dir"] = agents_dir or Path("/app/agents")
@@ -1082,7 +1083,7 @@ def main():
     parser.add_argument("--agents-dir", type=str, default="/app/agents")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="[comms] %(message)s")
+    # Logging configured automatically by sitecustomize.py via AGENCY_COMPONENT env var.
     app = create_app(data_dir=Path(args.data_dir), agents_dir=Path(args.agents_dir))
     logger.info("Starting comms server on port %d", args.port)
     web.run_app(app, host="0.0.0.0", port=args.port, print=None, access_log_class=_HealthFilterAccessLogger)

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
@@ -113,6 +113,29 @@ func containerName(role string) string {
 	return fmt.Sprintf("%s-infra-%s", prefix, role)
 }
 
+// loggingEnv returns standard logging environment variables for a container.
+// Every agency container gets these so structured logging works by default.
+func (inf *Infra) loggingEnv(component string) map[string]string {
+	format := os.Getenv("AGENCY_LOG_FORMAT")
+	if format == "" {
+		format = "json"
+	}
+	return map[string]string{
+		"AGENCY_LOG_FORMAT": format,
+		"AGENCY_COMPONENT":  component,
+		"BUILD_ID":          inf.BuildID,
+	}
+}
+
+// mergeEnv copies all entries from src into dst (dst wins on conflict).
+func mergeEnv(dst, src map[string]string) {
+	for k, v := range src {
+		if _, exists := dst[k]; !exists {
+			dst[k] = v
+		}
+	}
+}
+
 // Infra manages shared infrastructure containers.
 type Infra struct {
 	Home         string
@@ -127,12 +150,12 @@ type Infra struct {
 	Docker       *agencyDocker.Client
 	Comms        comms.Client
 	cli        *client.Client
-	log        *log.Logger
+	log        *slog.Logger
 	hmacKey    []byte
 }
 
 // NewInfra creates a new infrastructure manager.
-func NewInfra(home, version string, dc *agencyDocker.Client, logger *log.Logger, hmacKey []byte) (*Infra, error) {
+func NewInfra(home, version string, dc *agencyDocker.Client, logger *slog.Logger, hmacKey []byte) (*Infra, error) {
 	var cli *client.Client
 	if dc != nil {
 		cli = dc.RawClient()
@@ -595,6 +618,7 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 	hc.NetworkMode = container.NetworkMode(mediationNet)
 	hc.ExtraHosts = []string{"gateway:host-gateway"}
 
+	mergeEnv(env, inf.loggingEnv("egress"))
 	id, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
 		&container.Config{
@@ -655,6 +679,7 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 		&container.Config{
 			Image:        defaultImages["comms"],
 			Hostname:     "comms",
+			Env:          mapToEnv(inf.loggingEnv("comms")),
 			Labels:       inf.serviceLabels(ctx, defaultImages["comms"], "comms", "8080"),
 			Healthcheck:  defaultHealthChecks["comms"],
 			ExposedPorts: nat.PortSet{"8080/tcp": struct{}{}},
@@ -724,6 +749,7 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8204"}},
 	}
 
+	mergeEnv(env, inf.loggingEnv("knowledge"))
 	if _, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
 		&container.Config{
@@ -808,6 +834,7 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8205"}},
 	}
 
+	mergeEnv(env, inf.loggingEnv("intake"))
 	if _, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
 		&container.Config{
@@ -874,6 +901,7 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8206"}},
 	}
 
+	mergeEnv(env, inf.loggingEnv("web-fetch"))
 	if _, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
 		&container.Config{

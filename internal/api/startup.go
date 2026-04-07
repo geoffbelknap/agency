@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/config"
@@ -43,7 +43,7 @@ type StartupResult struct {
 // Core component failures (Infra, AgentManager, HaltController) are fatal and
 // return an error — the gateway will not start. Optional component failures
 // log warnings and leave the corresponding field nil.
-func Startup(cfg *config.Config, dc *docker.Client, logger *log.Logger) (*StartupResult, error) {
+func Startup(cfg *config.Config, dc *docker.Client, logger *slog.Logger) (*StartupResult, error) {
 	if dc == nil {
 		return nil, fmt.Errorf("docker client is required")
 	}

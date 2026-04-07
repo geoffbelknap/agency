@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -74,7 +74,7 @@ func NewAuditLogger(dir string, agent string) *AuditLogger {
 	if keyHex := os.Getenv("ENFORCER_AUDIT_HMAC_KEY"); keyHex != "" {
 		key, err := hex.DecodeString(keyHex)
 		if err != nil {
-			log.Printf("audit: invalid ENFORCER_AUDIT_HMAC_KEY (must be hex): %v", err)
+			slog.Warn("audit: invalid ENFORCER_AUDIT_HMAC_KEY (must be hex)", "error", err)
 		} else {
 			al.hmacKey = key
 		}
@@ -109,7 +109,7 @@ func (al *AuditLogger) Log(entry AuditEntry) {
 	case al.ch <- entry:
 	default:
 		// Channel full, drop entry (should not happen in practice)
-		log.Printf("audit: dropped entry (buffer full)")
+		slog.Warn("audit: dropped entry (buffer full)")
 	}
 }
 
@@ -139,7 +139,7 @@ func (al *AuditLogger) run() {
 				al.mu.Lock()
 				if al.file != nil {
 					if err := al.file.Close(); err != nil {
-						log.Printf("audit: close error: %v", err)
+						slog.Warn("audit: close error", "error", err)
 					}
 				}
 				al.mu.Unlock()
@@ -168,17 +168,17 @@ func (al *AuditLogger) flush(entries []AuditEntry) {
 	if al.file == nil || al.fileDate != today {
 		if al.file != nil {
 			if err := al.file.Close(); err != nil {
-				log.Printf("audit: close error: %v", err)
+				slog.Warn("audit: close error", "error", err)
 			}
 		}
 		if err := os.MkdirAll(al.dir, 0755); err != nil {
-			log.Printf("audit: mkdir error: %v", err)
+			slog.Warn("audit: mkdir error", "error", err)
 			return
 		}
 		filename := filepath.Join(al.dir, fmt.Sprintf("enforcer-%s.jsonl", today))
 		f, err := os.OpenFile(filename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 		if err != nil {
-			log.Printf("audit: open error: %v", err)
+			slog.Warn("audit: open error", "error", err)
 			return
 		}
 		al.file = f
@@ -188,12 +188,12 @@ func (al *AuditLogger) flush(entries []AuditEntry) {
 	for _, entry := range entries {
 		data, err := json.Marshal(entry)
 		if err != nil {
-			log.Printf("audit: marshal error: %v", err)
+			slog.Warn("audit: marshal error", "error", err)
 			continue
 		}
 		data = append(data, '\n')
 		if _, err := al.file.Write(data); err != nil {
-			log.Printf("audit: write error: %v", err)
+			slog.Warn("audit: write error", "error", err)
 		}
 	}
 	al.file.Sync()

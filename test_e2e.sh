@@ -487,6 +487,27 @@ else
 fi
 
 # --------------------------------------------------
+# Phase 27: Logging hygiene guard
+# --------------------------------------------------
+step "Logging hygiene"
+# Fail if anyone bypasses the unified logging infrastructure
+OLD_LOG_IMPORTS=$(grep -r 'charmbracelet/log' --include='*.go' internal/ cmd/ 2>/dev/null | grep -cv 'lipgloss' || true)
+if [ "$OLD_LOG_IMPORTS" -gt 0 ]; then
+    fail "Found $OLD_LOG_IMPORTS file(s) still importing charmbracelet/log (use log/slog)"
+    grep -r 'charmbracelet/log' --include='*.go' internal/ cmd/ | grep -v lipgloss | head -5
+else
+    pass "No charmbracelet/log imports in gateway code"
+fi
+
+OLD_BASICCONFIG=$(grep -r 'logging.basicConfig' --include='*.py' images/ 2>/dev/null | wc -l || true)
+if [ "$OLD_BASICCONFIG" -gt 0 ]; then
+    fail "Found $OLD_BASICCONFIG file(s) using logging.basicConfig (use sitecustomize.py)"
+    grep -r 'logging.basicConfig' --include='*.py' images/ | head -5
+else
+    pass "No logging.basicConfig in Python containers"
+fi
+
+# --------------------------------------------------
 # Results
 # --------------------------------------------------
 echo ""

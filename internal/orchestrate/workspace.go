@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/log"
+	"log/slog"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
@@ -43,16 +43,16 @@ type Workspace struct {
 	BuildID       string
 	PrincipalUUID string // agent UUID from principal registry
 	cli           *client.Client
-	log           *log.Logger
+	log           *slog.Logger
 }
 
-func NewWorkspace(agentName, home, version string, logger *log.Logger) (*Workspace, error) {
+func NewWorkspace(agentName, home, version string, logger *slog.Logger) (*Workspace, error) {
 	return NewWorkspaceWithClient(agentName, home, version, logger, nil)
 }
 
 // NewWorkspaceWithClient creates a Workspace using the provided Docker client (or a new
 // one if cli is nil). Prefer passing a shared client to avoid redundant connections.
-func NewWorkspaceWithClient(agentName, home, version string, logger *log.Logger, cli *client.Client) (*Workspace, error) {
+func NewWorkspaceWithClient(agentName, home, version string, logger *slog.Logger, cli *client.Client) (*Workspace, error) {
 	if cli == nil {
 		var err error
 		cli, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
