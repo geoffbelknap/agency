@@ -287,6 +287,7 @@ func setupCmd() *cobra.Command {
 		apiKey    string
 		notifyURL string
 		noInfra   bool
+		noBrowser bool
 		cliMode   bool
 	)
 
@@ -304,7 +305,7 @@ func setupCmd() *cobra.Command {
 			if cliMode {
 				// Quick setup: if --name or --preset flags are set, skip prompts
 				if name != "" || preset != "" {
-					return runSetup(provider, apiKey, notifyURL, noInfra, true)
+					return runSetup(provider, apiKey, notifyURL, noInfra, true, noBrowser)
 				}
 
 				// Interactive: prompt for provider/key if not set via flags
@@ -350,11 +351,11 @@ func setupCmd() *cobra.Command {
 					}
 				}
 
-				return runSetup(provider, apiKey, notifyURL, noInfra, true)
+				return runSetup(provider, apiKey, notifyURL, noInfra, true, noBrowser)
 			}
 
 			// Default: web-assisted setup — no prompts
-			return runSetup("", "", notifyURL, noInfra, false)
+			return runSetup("", "", notifyURL, noInfra, false, noBrowser)
 		},
 	}
 
@@ -364,6 +365,7 @@ func setupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "LLM provider API key")
 	cmd.Flags().StringVar(&notifyURL, "notify-url", "", "Notification URL (ntfy or webhook) for operator alerts")
 	cmd.Flags().BoolVar(&noInfra, "no-infra", false, "Skip Docker check and infrastructure startup")
+	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Don't open the web UI in a browser (also respected via AGENCY_NO_BROWSER=1)")
 	cmd.Flags().BoolVar(&cliMode, "cli", false, "Run full interactive setup in the terminal")
 
 	return cmd
@@ -432,18 +434,9 @@ func daemonStatusCmd() *cobra.Command {
 	}
 }
 
-func isWSL() bool {
-	data, err := os.ReadFile("/proc/version")
-	if err != nil {
-		return false
-	}
-	s := string(data)
-	return strings.Contains(s, "microsoft") || strings.Contains(s, "WSL")
-}
-
 // openBrowser attempts to open url in the system default browser.
-// Best-effort — returns an error but callers should ignore it.
-// Suppressed when AGENCY_NO_BROWSER=1 (for tests and headless environments).
+// Best-effort — callers should ignore errors.
+// Suppressed when AGENCY_NO_BROWSER=1 env var is set.
 func openBrowser(url string) error {
 	if os.Getenv("AGENCY_NO_BROWSER") != "" {
 		return nil
@@ -456,7 +449,6 @@ func openBrowser(url string) error {
 		cmd = "open"
 		args = []string{url}
 	case isWSL():
-		// Try wslview first (wslu package), fall back to cmd.exe
 		if _, err := exec.LookPath("wslview"); err == nil {
 			cmd = "wslview"
 			args = []string{url}
@@ -464,13 +456,23 @@ func openBrowser(url string) error {
 			cmd = "cmd.exe"
 			args = []string{"/c", "start", url}
 		}
-	default: // linux, freebsd, etc.
+	default:
 		cmd = "xdg-open"
 		args = []string{url}
 	}
 
 	return exec.Command(cmd, args...).Start()
 }
+
+func isWSL() bool {
+	data, err := os.ReadFile("/proc/version")
+	if err != nil {
+		return false
+	}
+	s := string(data)
+	return strings.Contains(s, "microsoft") || strings.Contains(s, "WSL")
+}
+
 
 // webHost derives the web UI hostname from the gateway address config.
 // Returns "localhost" if the gateway binds to 0.0.0.0 or if the address
@@ -533,7 +535,7 @@ func checkDocker() error {
 	return nil
 }
 
-func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode bool) error {
+func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser bool) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("cannot determine home directory: %w", err)
@@ -655,10 +657,12 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode bool) error {
 		fmt.Println("  agency start my-agent   # Start an agent")
 		fmt.Println("  agency status           # Check platform status")
 		fmt.Println()
-		fmt.Printf("  Open http://%s:8280 for the web UI\n", webHost())
+		fmt.Printf("  Open https://%s:8280 for the web UI\n", webHost())
 	} else {
-		setupURL := fmt.Sprintf("http://%s:8280/setup", webHost())
-		_ = openBrowser(setupURL)
+		setupURL := fmt.Sprintf("https://%s:8280/setup", webHost())
+		if !noBrowser {
+			_ = openBrowser(setupURL)
+		}
 		fmt.Printf("Finish setup at: %s\n", setupURL)
 	}
 

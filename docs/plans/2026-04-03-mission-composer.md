@@ -2101,7 +2101,7 @@ make install && make web && agency infra up
 
 - [ ] **Step 3: Smoke test — create mission via composer**
 
-Open `http://127.0.0.1:8280/missions`, click a mission, click "Visual Editor". Verify:
+Open `https://127.0.0.1:8280/missions`, click a mission, click "Visual Editor". Verify:
 - Canvas loads with React Flow
 - Nodes can be dragged from palette
 - Nodes can be connected

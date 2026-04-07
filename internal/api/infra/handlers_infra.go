@@ -35,7 +35,7 @@ func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 		"version":               h.deps.Config.Version,
 		"build_id":              h.deps.Config.BuildID,
 		"gateway_url":           "http://" + h.deps.Config.GatewayAddr,
-		"web_url":               "http://127.0.0.1:8280",
+		"web_url":               "https://127.0.0.1:8280",
 		"components":            status,
 		"infra_llm_daily_used":  infraState.DailyUsed,
 		"infra_llm_daily_limit": limits.InfraDaily,

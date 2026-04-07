@@ -883,7 +883,7 @@ Add after Phase 4:
 			fmt.Println()
 			fmt.Println()
 			fmt.Printf("  Agent started but the first task is taking a while.\n")
-			fmt.Printf("  Check %s or open %s\n", bold.Render("agency status"), bold.Render("http://localhost:8280"))
+			fmt.Printf("  Check %s or open %s\n", bold.Render("agency status"), bold.Render("https://localhost:8280"))
 		}
 	}
 
@@ -892,7 +892,7 @@ Add after Phase 4:
 	fmt.Println("  " + dim.Render("────────────────────────────────────────"))
 	fmt.Printf("  Agent is running. What's next:\n")
 	fmt.Printf("    • Send tasks:  %s\n", bold.Render(fmt.Sprintf("agency send %s \"your task here\"", runningAgent)))
-	fmt.Printf("    • Web UI:      %s\n", bold.Render("http://localhost:8280"))
+	fmt.Printf("    • Web UI:      %s\n", bold.Render("https://localhost:8280"))
 	fmt.Printf("    • Status:      %s\n", bold.Render("agency status"))
 	fmt.Printf("    • More agents: %s\n", bold.Render("agency hub search"))
 

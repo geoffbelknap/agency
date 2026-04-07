@@ -146,7 +146,7 @@ Your agent is ready. Let's try it out:
 ────────────────────────────────────────
 Agent is running. What's next:
   • Send tasks:  agency send henry "your task here"
-  • Web UI:      http://localhost:8280
+  • Web UI:      https://localhost:8280
   • Status:      agency status
   • More agents: agency hub search
 ```
@@ -157,7 +157,7 @@ Choice-specific additions to "What's next":
 
 **Implementation:** Send task via `POST /api/v1/agents/{name}/dm` (existing DM channel endpoint). Stream response by subscribing to the agent's WebSocket signal channel and rendering `agent_signal_task_complete` or message events. Cap at 60 seconds.
 
-**If demo times out:** "Agent started but the first task is taking a while. Check `agency status` or open http://localhost:8280."
+**If demo times out:** "Agent started but the first task is taking a while. Check `agency status` or open https://localhost:8280."
 
 ## Error Handling
 
