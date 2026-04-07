@@ -20,6 +20,7 @@ import (
 	apicomms "github.com/geoffbelknap/agency/internal/api/comms"
 	apievents "github.com/geoffbelknap/agency/internal/api/events"
 	"github.com/geoffbelknap/agency/internal/api/graph"
+	apihub "github.com/geoffbelknap/agency/internal/api/hub"
 	"github.com/geoffbelknap/agency/internal/api/platform"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
@@ -207,49 +208,13 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 			r.Get("/status", ctxH.getStatus)
 		})
 
-		// Presets
-		r.Get("/presets", h.listPresets)
-		r.Post("/presets", h.createPreset)
-		r.Get("/presets/{name}", h.getPreset)
-		r.Put("/presets/{name}", h.updatePreset)
-		r.Delete("/presets/{name}", h.deletePreset)
-
-		// Deploy
-		r.Post("/deploy", h.deployPack)
-		r.Post("/teardown/{pack}", h.teardownPack)
+		// Presets, deploy, hub, connector: handled by hub module (registered below)
 
 		// Policy
 		r.Get("/policy/{agent}", h.showPolicy)
 		r.Post("/policy/{agent}/validate", h.validatePolicy)
 
-		// Hub — specific paths before wildcard {nameOrID}
-		r.Post("/hub/update", h.hubUpdate)
-		r.Get("/hub/outdated", h.hubOutdated)
-		r.Post("/hub/upgrade", h.hubUpgrade)
-		r.Get("/hub/search", h.hubSearch)
-		r.Post("/hub/install", h.hubInstall)
-		r.Get("/hub/installed", h.hubInstalled)
-		r.Get("/hub/instances", h.hubInstances)
-		r.Get("/hub/doctor", h.hubDoctor)
-		r.Get("/intake/poll-health", h.intakePollHealth)
-		r.Post("/intake/poll/{connector}", h.intakePollTrigger)
-		// Wildcard routes after static paths
-		r.Get("/hub/{nameOrID}", h.hubShow)
-		r.Get("/hub/{nameOrID}/check", h.hubCheck)
-		r.Post("/hub/{nameOrID}/activate", h.hubActivate)
-		r.Post("/hub/{nameOrID}/deactivate", h.hubDeactivate)
-		r.Put("/hub/{nameOrID}/config", h.hubConfigure)
-		r.Delete("/hub/{nameOrID}", h.hubRemove)
-		// Legacy info route
-		r.Get("/hub/{name}/info", h.hubInfo)
-
-		// Connector setup — requirements check + credential provisioning
-		r.Get("/connectors/{name}/requirements", h.connectorRequirements)
-		r.Post("/connectors/{name}/configure", h.connectorConfigure)
-
-		// Egress domain provenance
-		r.Get("/egress/domains", h.egressDomains)
-		r.Get("/egress/domains/{domain}/provenance", h.egressDomainProvenance)
+		// Hub, connector, egress: handled by hub module (registered below)
 
 		// Capabilities
 		r.Get("/capabilities", h.listCapabilities)
@@ -364,6 +329,16 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		Config:    cfg,
 		Logger:    logger,
 		Audit:     startup.Audit,
+	})
+
+	// Hub, connector, preset, deploy, and teardown routes (extracted module)
+	apihub.RegisterRoutes(r, apihub.Deps{
+		CredStore: startup.CredStore,
+		Audit:     startup.Audit,
+		Config:    cfg,
+		Logger:    logger,
+		Signal:    &DockerSignalSender{RawClient: dc.RawClient()},
+		DC:        dc,
 	})
 
 	// Credential routes (extracted module) — only if CredStore is initialized
