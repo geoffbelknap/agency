@@ -130,7 +130,7 @@ func TestAuth_Validation(t *testing.T) {
 		{
 			name:       "egress token on correct endpoint and method",
 			cfgToken:   testToken, egressTok: egressToken,
-			path:       "/api/v1/internal/credentials/resolve", method: http.MethodGet,
+			path:       "/api/v1/creds/internal/resolve", method: http.MethodGet,
 			authHeader: "Bearer " + egressToken,
 			wantCode:   http.StatusOK,
 		},
@@ -144,7 +144,7 @@ func TestAuth_Validation(t *testing.T) {
 		{
 			name:       "egress token with POST on cred resolve returns 403",
 			cfgToken:   testToken, egressTok: egressToken,
-			path:       "/api/v1/internal/credentials/resolve", method: http.MethodPost,
+			path:       "/api/v1/creds/internal/resolve", method: http.MethodPost,
 			authHeader: "Bearer " + egressToken,
 			wantCode:   http.StatusForbidden,
 		},
@@ -432,7 +432,7 @@ func TestConditionalRegistration(t *testing.T) {
 		// Register with nil CredStore.
 		creds.RegisterRoutes(r, creds.Deps{Config: cfg, CredStore: nil})
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/credentials/", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/creds", nil)
 		rr := httptest.NewRecorder()
 
 		func() {

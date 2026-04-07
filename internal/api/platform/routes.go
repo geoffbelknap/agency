@@ -63,7 +63,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	// Audit summarization (optional dependency)
 	if d.AuditSummarizer != nil {
 		summarizer := d.AuditSummarizer
-		r.Post("/api/v1/audit/summarize", func(w http.ResponseWriter, r *http.Request) {
+		r.Post("/api/v1/admin/audit/summarize", func(w http.ResponseWriter, r *http.Request) {
 			metrics, err := summarizer.Summarize()
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)

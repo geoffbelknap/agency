@@ -866,7 +866,7 @@ func showCmd() *cobra.Command {
 // ════════════════════════════════════════════════════════════════════════════
 
 func channelCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "channel", Short: "Channel operations"}
+	cmd := &cobra.Command{Use: "comms", Short: "Channel operations"}
 
 	cmd.AddCommand(&cobra.Command{
 		Use: "list", Short: "List channels",
@@ -2181,7 +2181,7 @@ func hubCmd() *cobra.Command {
 			// If --dry-run or --set provided, check connector requirements first
 			if dryRun || len(setFlags) > 0 {
 				var reqs map[string]interface{}
-				if err := c.GetJSON("/api/v1/connectors/"+args[0]+"/requirements", &reqs); err != nil {
+				if err := c.GetJSON("/api/v1/hub/connectors/"+args[0]+"/requirements", &reqs); err != nil {
 					// Not a connector or no requires block — fall through
 					if !dryRun {
 						goto activate
@@ -2206,14 +2206,14 @@ func hubCmd() *cobra.Command {
 						creds[k] = v
 					}
 					var configResult map[string]interface{}
-					if err := c.PostJSON("/api/v1/connectors/"+args[0]+"/configure", map[string]interface{}{"credentials": creds}, &configResult); err != nil {
+					if err := c.PostJSON("/api/v1/hub/connectors/"+args[0]+"/configure", map[string]interface{}{"credentials": creds}, &configResult); err != nil {
 						return fmt.Errorf("configure: %w", err)
 					}
 					if ready, ok := configResult["ready"].(bool); ok && !ready {
 						fmt.Printf("%s Some requirements still unmet after --set\n", red.Render("!"))
 						// Re-check and show table
 						var reqs2 map[string]interface{}
-						if err := c.GetJSON("/api/v1/connectors/"+args[0]+"/requirements", &reqs2); err == nil {
+						if err := c.GetJSON("/api/v1/hub/connectors/"+args[0]+"/requirements", &reqs2); err == nil {
 							printRequirementsTable(reqs2)
 						}
 						return fmt.Errorf("connector requirements not fully met")
@@ -2222,7 +2222,7 @@ func hubCmd() *cobra.Command {
 			} else {
 				// No --set, no --dry-run: check if requirements are met
 				var reqs map[string]interface{}
-				if err := c.GetJSON("/api/v1/connectors/"+args[0]+"/requirements", &reqs); err == nil {
+				if err := c.GetJSON("/api/v1/hub/connectors/"+args[0]+"/requirements", &reqs); err == nil {
 					if ready, ok := reqs["ready"].(bool); ok && !ready {
 						fmt.Printf("\n  %s has unmet requirements:\n\n", bold.Render(args[0]))
 						printRequirementsTable(reqs)
@@ -2316,7 +2316,7 @@ func hubCmd() *cobra.Command {
 			if credential != "" && credValue != "" {
 				c, err := requireGateway()
 				if err == nil {
-					c.PostJSON("/api/v1/credentials", map[string]interface{}{
+					c.PostJSON("/api/v1/creds", map[string]interface{}{
 						"name":  credential,
 						"value": credValue,
 					}, nil)
@@ -2597,7 +2597,7 @@ func intakeCmd() *cobra.Command {
 			name := args[0]
 			fmt.Printf("  Polling %s...\n", cyan.Render(name))
 			var result map[string]interface{}
-			if err := c.PostJSON("/api/v1/intake/poll/"+name, nil, &result); err != nil {
+			if err := c.PostJSON("/api/v1/hub/intake/poll/"+name, nil, &result); err != nil {
 				return err
 			}
 			created, _ := result["work_items_created"].(float64)
@@ -2646,7 +2646,7 @@ func intakeCmd() *cobra.Command {
 // ════════════════════════════════════════════════════════════════════════════
 
 func knowledgeCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "knowledge", Short: "Knowledge graph operations"}
+	cmd := &cobra.Command{Use: "graph", Short: "Knowledge graph operations"}
 
 	cmd.AddCommand(&cobra.Command{
 		Use: "query <text>", Short: "Query the knowledge graph", Args: cobra.MinimumNArgs(1),
@@ -2847,7 +2847,7 @@ For URLs: passes the URL as filename (the knowledge service handles URL classifi
 			if err != nil {
 				return fmt.Errorf("read file: %w", err)
 			}
-			if _, err := c.Post("/api/v1/knowledge/import", json.RawMessage(data)); err != nil {
+			if _, err := c.Post("/api/v1/graph/import", json.RawMessage(data)); err != nil {
 				return fmt.Errorf("import: %w", err)
 			}
 			fmt.Printf("%s Knowledge graph imported from %s\n", green.Render("✓"), args[0])
@@ -3582,7 +3582,7 @@ func adminCmd() *cobra.Command {
 				return err
 			}
 			var result map[string]interface{}
-			if err := c.GetJSON("/api/v1/egress/domains", &result); err != nil {
+			if err := c.GetJSON("/api/v1/hub/egress/domains", &result); err != nil {
 				return err
 			}
 			domains, _ := result["domains"].([]interface{})
@@ -3626,7 +3626,7 @@ func adminCmd() *cobra.Command {
 				return err
 			}
 			var result map[string]interface{}
-			if err := c.GetJSON("/api/v1/egress/domains/"+args[0]+"/provenance", &result); err != nil {
+			if err := c.GetJSON("/api/v1/hub/egress/domains/"+args[0]+"/provenance", &result); err != nil {
 				return fmt.Errorf("domain %q not tracked in provenance", args[0])
 			}
 			domain, _ := result["domain"].(string)
@@ -4944,7 +4944,7 @@ func auditCmd() *cobra.Command {
 				return err
 			}
 			var result map[string]interface{}
-			err = c.PostJSON("/api/v1/audit/summarize", nil, &result)
+			err = c.PostJSON("/api/v1/admin/audit/summarize", nil, &result)
 			if err != nil {
 				return err
 			}
@@ -4983,7 +4983,7 @@ func auditCmd() *cobra.Command {
 // ════════════════════════════════════════════════════════════════════════════
 
 func credentialCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "creds", Aliases: []string{"credential", "credentials"}, Short: "Manage credentials in the credential store"}
+	cmd := &cobra.Command{Use: "creds", Short: "Manage credentials in the credential store"}
 
 	// agency credential set
 	setCmd := &cobra.Command{

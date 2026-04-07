@@ -388,12 +388,12 @@ export const api = {
   profiles: {
     list: (type?: 'operator' | 'agent') => {
       const params = type ? `?type=${type}` : '';
-      return req<RawProfile[]>(`/profiles${params}`);
+      return req<RawProfile[]>(`/admin/profiles${params}`);
     },
-    show: (id: string) => req<RawProfile>(`/profiles/${encodeURIComponent(id)}`),
+    show: (id: string) => req<RawProfile>(`/admin/profiles/${encodeURIComponent(id)}`),
     update: (id: string, data: Partial<Omit<RawProfile, 'id'>>) =>
-      req<RawProfile>(`/profiles/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
-    delete: (id: string) => req<OkResponse>(`/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+      req<RawProfile>(`/admin/profiles/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: string) => req<OkResponse>(`/admin/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
 
   agents: {
@@ -450,48 +450,48 @@ export const api = {
   },
 
   teams: {
-    list: () => req<RawTeam[]>('/teams'),
-    show: (name: string) => req<RawTeam>(`/teams/${name}`),
+    list: () => req<RawTeam[]>('/admin/teams'),
+    show: (name: string) => req<RawTeam>(`/admin/teams/${name}`),
     create: (name: string, agents: string[]) =>
-      req<OkResponse>('/teams', { method: 'POST', body: JSON.stringify({ name, agents }) }),
-    activity: (name: string) => req<RawAuditEntry[]>(`/teams/${name}/activity`),
+      req<OkResponse>('/admin/teams', { method: 'POST', body: JSON.stringify({ name, agents }) }),
+    activity: (name: string) => req<RawAuditEntry[]>(`/admin/teams/${name}/activity`),
   },
 
   channels: {
-    list: () => req<RawChannel[]>('/channels'),
-    read: (name: string, limit = 50) => req<RawMessage[]>(`/channels/${name}/messages?limit=${limit}&reader=operator`),
+    list: () => req<RawChannel[]>('/comms/channels'),
+    read: (name: string, limit = 50) => req<RawMessage[]>(`/comms/channels/${name}/messages?limit=${limit}&reader=operator`),
     send: (name: string, content: string, replyTo?: string, flags?: Record<string, boolean>) =>
-      req<OkResponse>(`/channels/${name}/messages`, {
+      req<OkResponse>(`/comms/channels/${name}/messages`, {
         method: 'POST',
         body: JSON.stringify({ author: 'operator', content, reply_to: replyTo, flags }),
       }),
     create: (name: string, topic?: string) =>
-      req<OkResponse>('/channels', { method: 'POST', body: JSON.stringify({ name, topic }) }),
-    archive: (name: string) => req<OkResponse>(`/channels/${name}/archive`, { method: 'POST', body: '{}' }),
+      req<OkResponse>('/comms/channels', { method: 'POST', body: JSON.stringify({ name, topic }) }),
+    archive: (name: string) => req<OkResponse>(`/comms/channels/${name}/archive`, { method: 'POST', body: '{}' }),
     search: (query: string, channel?: string) => {
       const params = new URLSearchParams({ q: query, participant: 'operator' });
       if (channel) params.set('channel', channel);
-      return req<RawMessage[]>(`/channels/search?${params}`);
+      return req<RawMessage[]>(`/comms/channels/search?${params}`);
     },
     edit: (channel: string, messageId: string, content: string) =>
-      req<OkResponse>(`/channels/${channel}/messages/${messageId}`, {
+      req<OkResponse>(`/comms/channels/${channel}/messages/${messageId}`, {
         method: 'PUT',
         body: JSON.stringify({ content, author: 'operator' }),
       }),
     delete: (channel: string, messageId: string) =>
-      req<OkResponse>(`/channels/${channel}/messages/${messageId}`, { method: 'DELETE' }),
+      req<OkResponse>(`/comms/channels/${channel}/messages/${messageId}`, { method: 'DELETE' }),
     react: (channel: string, messageId: string, emoji: string) =>
-      req<OkResponse>(`/channels/${channel}/messages/${messageId}/reactions`, {
+      req<OkResponse>(`/comms/channels/${channel}/messages/${messageId}/reactions`, {
         method: 'POST',
         body: JSON.stringify({ emoji, author: 'operator' }),
       }),
     unreact: (channel: string, messageId: string, emoji: string) =>
-      req<OkResponse>(`/channels/${channel}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}?author=operator`, {
+      req<OkResponse>(`/comms/channels/${channel}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}?author=operator`, {
         method: 'DELETE',
       }),
-    unreads: () => req<Record<string, { unread: number; mentions: number }>>('/unreads'),
+    unreads: () => req<Record<string, { unread: number; mentions: number }>>('/comms/unreads'),
     markRead: (channel: string) =>
-      req<OkResponse>(`/channels/${channel}/mark-read`, { method: 'POST', body: '{}' }),
+      req<OkResponse>(`/comms/channels/${channel}/mark-read`, { method: 'POST', body: '{}' }),
   },
 
   infra: {
@@ -589,18 +589,20 @@ export const api = {
       return { mission: raw.mission ?? name, evaluations: raw.evaluations ?? raw.results ?? [], summary: raw.summary ?? {} };
     },
     canvas: async (name: string) => {
-      const resp = await authenticatedFetch(`/api/v1/missions/${encodeURIComponent(name)}/canvas`);
+      await ensureConfig();
+      const resp = await authenticatedFetch(`${BASE}/missions/${encodeURIComponent(name)}/canvas`);
       if (resp.status === 404) return null;
-      if (!resp.ok) throw new Error(`GET /api/v1/missions/${name}/canvas: ${resp.status}`);
+      if (!resp.ok) throw new Error(`GET ${BASE}/missions/${name}/canvas: ${resp.status}`);
       return resp.json();
     },
     saveCanvas: async (name: string, doc: unknown) => {
-      const resp = await authenticatedFetch(`/api/v1/missions/${encodeURIComponent(name)}/canvas`, {
+      await ensureConfig();
+      const resp = await authenticatedFetch(`${BASE}/missions/${encodeURIComponent(name)}/canvas`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(doc),
       });
-      if (!resp.ok) throw new Error(`PUT /api/v1/missions/${name}/canvas: ${resp.status}`);
+      if (!resp.ok) throw new Error(`PUT ${BASE}/missions/${name}/canvas: ${resp.status}`);
       return resp.json();
     },
   },
@@ -628,15 +630,15 @@ export const api = {
   },
 
   notifications: {
-    list: () => req<RawNotification[]>('/notifications'),
-    show: (name: string) => req<RawNotification>(`/notifications/${name}`),
+    list: () => req<RawNotification[]>('/events/notifications'),
+    show: (name: string) => req<RawNotification>(`/events/notifications/${name}`),
     add: (name: string, url: string, type?: string, events?: string[]) =>
-      req<RawNotification>('/notifications', {
+      req<RawNotification>('/events/notifications', {
         method: 'POST',
         body: JSON.stringify({ name, url, ...(type ? { type } : {}), ...(events ? { events } : {}) }),
       }),
-    remove: (name: string) => req<OkResponse>(`/notifications/${name}`, { method: 'DELETE' }),
-    test: (name: string) => req<{ event_id: string; status: string }>(`/notifications/${name}/test`, { method: 'POST', body: '{}' }),
+    remove: (name: string) => req<OkResponse>(`/events/notifications/${name}`, { method: 'DELETE' }),
+    test: (name: string) => req<{ event_id: string; status: string }>(`/events/notifications/${name}/test`, { method: 'POST', body: '{}' }),
   },
 
   events: {
@@ -655,61 +657,61 @@ export const api = {
   meeseeks: {
     list: (parent?: string) => {
       const params = parent ? `?parent=${encodeURIComponent(parent)}` : '';
-      return req<RawMeeseeks[]>(`/meeseeks${params}`);
+      return req<RawMeeseeks[]>(`/agents/meeseeks${params}`);
     },
-    show: (id: string) => req<RawMeeseeks>(`/meeseeks/${id}`),
-    kill: (id: string) => req<OkResponse>(`/meeseeks/${id}`, { method: 'DELETE' }),
+    show: (id: string) => req<RawMeeseeks>(`/agents/meeseeks/${id}`),
+    kill: (id: string) => req<OkResponse>(`/agents/meeseeks/${id}`, { method: 'DELETE' }),
     killByParent: (parent: string) =>
-      req<{ status: string; killed: string[] }>(`/meeseeks?parent=${encodeURIComponent(parent)}`, { method: 'DELETE' }),
+      req<{ status: string; killed: string[] }>(`/agents/meeseeks?parent=${encodeURIComponent(parent)}`, { method: 'DELETE' }),
   },
 
   webhooks: {
-    list: () => req<RawWebhook[]>('/webhooks'),
-    show: (name: string) => req<RawWebhook>(`/webhooks/${name}`),
+    list: () => req<RawWebhook[]>('/events/webhooks'),
+    show: (name: string) => req<RawWebhook>(`/events/webhooks/${name}`),
     create: (name: string, eventType: string) =>
-      req<RawWebhook>('/webhooks', { method: 'POST', body: JSON.stringify({ name, event_type: eventType }) }),
-    delete: (name: string) => req<OkResponse>(`/webhooks/${name}`, { method: 'DELETE' }),
+      req<RawWebhook>('/events/webhooks', { method: 'POST', body: JSON.stringify({ name, event_type: eventType }) }),
+    delete: (name: string) => req<OkResponse>(`/events/webhooks/${name}`, { method: 'DELETE' }),
     rotateSecret: (name: string) =>
-      req<RawWebhook>(`/webhooks/${name}/rotate-secret`, { method: 'POST', body: '{}' }),
+      req<RawWebhook>(`/events/webhooks/${name}/rotate-secret`, { method: 'POST', body: '{}' }),
   },
 
   knowledge: {
-    query: (text: string) => req<Record<string, unknown>>('/knowledge/query', { method: 'POST', body: JSON.stringify({ query: text }) }),
-    whoKnows: (topic: string) => req<Record<string, unknown>>(`/knowledge/who-knows?topic=${encodeURIComponent(topic)}`),
-    stats: () => req<RawKnowledgeStats>('/knowledge/stats'),
-    export: (format = 'json') => req<Record<string, unknown>[]>(`/knowledge/export?format=${format}`),
-    neighbors: (nodeId: string) => req<Record<string, unknown>>(`/knowledge/neighbors?node_id=${encodeURIComponent(nodeId)}`),
-    context: (subject: string) => req<Record<string, unknown>>(`/knowledge/context?subject=${encodeURIComponent(subject)}`),
+    query: (text: string) => req<Record<string, unknown>>('/graph/query', { method: 'POST', body: JSON.stringify({ query: text }) }),
+    whoKnows: (topic: string) => req<Record<string, unknown>>(`/graph/who-knows?topic=${encodeURIComponent(topic)}`),
+    stats: () => req<RawKnowledgeStats>('/graph/stats'),
+    export: (format = 'json') => req<Record<string, unknown>[]>(`/graph/export?format=${format}`),
+    neighbors: (nodeId: string) => req<Record<string, unknown>>(`/graph/neighbors?node_id=${encodeURIComponent(nodeId)}`),
+    context: (subject: string) => req<Record<string, unknown>>(`/graph/context?subject=${encodeURIComponent(subject)}`),
     ontologyCandidates: () =>
-      req<{ candidates: unknown[] }>('/ontology/candidates'),
+      req<{ candidates: unknown[] }>('/graph/ontology/candidates'),
     ontologyPromote: (value: string) =>
-      req<{ promoted: boolean; value: string }>('/ontology/promote', { method: 'POST', body: JSON.stringify({ value }) }),
+      req<{ promoted: boolean; value: string }>('/graph/ontology/promote', { method: 'POST', body: JSON.stringify({ value }) }),
     ontologyReject: (value: string) =>
-      req<{ rejected: boolean; value: string }>('/ontology/reject', { method: 'POST', body: JSON.stringify({ value }) }),
+      req<{ rejected: boolean; value: string }>('/graph/ontology/reject', { method: 'POST', body: JSON.stringify({ value }) }),
   },
 
   capabilities: {
-    list: () => req<RawCapability[]>('/capabilities'),
-    show: (name: string) => req<RawCapability>(`/capabilities/${name}`),
+    list: () => req<RawCapability[]>('/admin/capabilities'),
+    show: (name: string) => req<RawCapability>(`/admin/capabilities/${name}`),
     enable: (name: string, key?: string, agents?: string[]) =>
-      req<OkResponse>(`/capabilities/${name}/enable`, { method: 'POST', body: JSON.stringify({ key, agents }) }),
-    disable: (name: string) => req<OkResponse>(`/capabilities/${name}/disable`, { method: 'POST', body: '{}' }),
+      req<OkResponse>(`/admin/capabilities/${name}/enable`, { method: 'POST', body: JSON.stringify({ key, agents }) }),
+    disable: (name: string) => req<OkResponse>(`/admin/capabilities/${name}/disable`, { method: 'POST', body: '{}' }),
     add: (name: string, kind: string) =>
-      req<OkResponse>('/capabilities', { method: 'POST', body: JSON.stringify({ name, kind }) }),
-    delete: (name: string) => req<OkResponse>(`/capabilities/${name}`, { method: 'DELETE' }),
+      req<OkResponse>('/admin/capabilities', { method: 'POST', body: JSON.stringify({ name, kind }) }),
+    delete: (name: string) => req<OkResponse>(`/admin/capabilities/${name}`, { method: 'DELETE' }),
   },
 
   credentials: {
     list: (filters?: Record<string, string>) => {
       const params = filters ? '?' + new URLSearchParams(filters).toString() : '';
-      return req<{ name: string; value: string; metadata?: Record<string, unknown> }[]>(`/credentials${params}`);
+      return req<{ name: string; value: string; metadata?: Record<string, unknown> }[]>(`/creds${params}`);
     },
     store: (name: string, value: string, opts?: { kind?: string; scope?: string; protocol?: string; service?: string }) =>
-      req<OkResponse>('/credentials', { method: 'POST', body: JSON.stringify({ name, value, ...opts }) }),
+      req<OkResponse>('/creds', { method: 'POST', body: JSON.stringify({ name, value, ...opts }) }),
     test: (name: string) =>
-      req<{ ok: boolean; status?: number; message?: string; latency_ms?: number }>(`/credentials/${encodeURIComponent(name)}/test`, { method: 'POST', body: '{}' }),
+      req<{ ok: boolean; status?: number; message?: string; latency_ms?: number }>(`/creds/${encodeURIComponent(name)}/test`, { method: 'POST', body: '{}' }),
     delete: (name: string) =>
-      req<OkResponse>(`/credentials/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+      req<OkResponse>(`/creds/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   },
 
   providers: {
@@ -724,7 +726,7 @@ export const api = {
     req<{ status: string; home: string }>('/init', { method: 'POST', body: JSON.stringify(opts) }),
 
   routing: {
-    config: () => req<{ configured: boolean; version: string; [key: string]: unknown }>('/routing/config'),
+    config: () => req<{ configured: boolean; version: string; [key: string]: unknown }>('/infra/routing/config'),
   },
 
   policy: {
@@ -733,13 +735,13 @@ export const api = {
   },
 
   presets: {
-    list: () => req<{ name: string; description: string; type: string; source: string }[]>('/presets'),
-    show: (name: string) => req<Record<string, unknown>>(`/presets/${name}`),
+    list: () => req<{ name: string; description: string; type: string; source: string }[]>('/hub/presets'),
+    show: (name: string) => req<Record<string, unknown>>(`/hub/presets/${name}`),
     create: (data: Record<string, unknown>) =>
-      req<OkResponse>('/presets', { method: 'POST', body: JSON.stringify(data) }),
+      req<OkResponse>('/hub/presets', { method: 'POST', body: JSON.stringify(data) }),
     update: (name: string, data: Record<string, unknown>) =>
-      req<OkResponse>(`/presets/${name}`, { method: 'PUT', body: JSON.stringify(data) }),
-    delete: (name: string) => req<OkResponse>(`/presets/${name}`, { method: 'DELETE' }),
+      req<OkResponse>(`/hub/presets/${name}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (name: string) => req<OkResponse>(`/hub/presets/${name}`, { method: 'DELETE' }),
   },
 
   agentConfig: {

@@ -113,7 +113,7 @@ describe('CreateAgentDialog', () => {
 
   it('falls back to text input when preset fetch fails', async () => {
     server.use(
-      http.get(`${BASE}/presets`, () => HttpResponse.error()),
+      http.get(`${BASE}/hub/presets`, () => HttpResponse.error()),
     );
     renderDialog();
     await waitFor(() => {

@@ -54,44 +54,44 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Post("/api/v1/admin/trust", h.adminTrust)
 	r.Get("/api/v1/admin/audit", h.adminAudit)
 	r.Get("/api/v1/admin/egress", h.adminEgress)
-	r.Post("/api/v1/admin/knowledge", h.adminKnowledge)
+	r.Post("/api/v1/admin/graph", h.adminKnowledge)
 	r.Post("/api/v1/admin/department", h.adminDepartment)
 
 	// Teams
-	r.Get("/api/v1/teams", h.listTeams)
-	r.Post("/api/v1/teams", h.createTeam)
-	r.Get("/api/v1/teams/{name}", h.showTeam)
-	r.Get("/api/v1/teams/{name}/activity", h.teamActivity)
+	r.Get("/api/v1/admin/teams", h.listTeams)
+	r.Post("/api/v1/admin/teams", h.createTeam)
+	r.Get("/api/v1/admin/teams/{name}", h.showTeam)
+	r.Get("/api/v1/admin/teams/{name}/activity", h.teamActivity)
 
 	// Capabilities
-	r.Get("/api/v1/capabilities", h.listCapabilities)
-	r.Get("/api/v1/capabilities/{name}", h.showCapability)
-	r.Post("/api/v1/capabilities/{name}/enable", h.enableCapability)
-	r.Post("/api/v1/capabilities/{name}/disable", h.disableCapability)
-	r.Post("/api/v1/capabilities", h.addCapability)
-	r.Delete("/api/v1/capabilities/{name}", h.deleteCapability)
+	r.Get("/api/v1/admin/capabilities", h.listCapabilities)
+	r.Get("/api/v1/admin/capabilities/{name}", h.showCapability)
+	r.Post("/api/v1/admin/capabilities/{name}/enable", h.enableCapability)
+	r.Post("/api/v1/admin/capabilities/{name}/disable", h.disableCapability)
+	r.Post("/api/v1/admin/capabilities", h.addCapability)
+	r.Delete("/api/v1/admin/capabilities/{name}", h.deleteCapability)
 
 	// Profiles
-	r.Get("/api/v1/profiles", h.listProfiles)
-	r.Get("/api/v1/profiles/{id}", h.getProfile)
-	r.Put("/api/v1/profiles/{id}", h.createOrUpdateProfile)
-	r.Delete("/api/v1/profiles/{id}", h.deleteProfile)
+	r.Get("/api/v1/admin/profiles", h.listProfiles)
+	r.Get("/api/v1/admin/profiles/{id}", h.getProfile)
+	r.Put("/api/v1/admin/profiles/{id}", h.createOrUpdateProfile)
+	r.Delete("/api/v1/admin/profiles/{id}", h.deleteProfile)
 
 	// Policy
-	r.Get("/api/v1/policy/{agent}", h.showPolicy)
-	r.Post("/api/v1/policy/{agent}/validate", h.validatePolicy)
+	r.Get("/api/v1/admin/policy/{agent}", h.showPolicy)
+	r.Post("/api/v1/admin/policy/{agent}/validate", h.validatePolicy)
 
 	// Rebuild
-	r.Post("/api/v1/agents/{name}/rebuild", h.rebuildAgent)
+	r.Post("/api/v1/admin/agents/{name}/rebuild", h.rebuildAgent)
 
 	// Principal registry
-	r.Get("/api/v1/registry", h.registrySnapshot)
-	r.Get("/api/v1/registry/resolve", h.registryResolve)
-	r.Get("/api/v1/registry/list", h.registryList)
-	r.Post("/api/v1/registry", h.registryRegister)
-	r.Get("/api/v1/registry/{uuid}/effective", h.registryEffective)
-	r.Put("/api/v1/registry/{uuid}", h.registryUpdate)
-	r.Delete("/api/v1/registry/{uuid}", h.registryDelete)
+	r.Get("/api/v1/admin/registry", h.registrySnapshot)
+	r.Get("/api/v1/admin/registry/resolve", h.registryResolve)
+	r.Get("/api/v1/admin/registry/list", h.registryList)
+	r.Post("/api/v1/admin/registry", h.registryRegister)
+	r.Get("/api/v1/admin/registry/{uuid}/effective", h.registryEffective)
+	r.Put("/api/v1/admin/registry/{uuid}", h.registryUpdate)
+	r.Delete("/api/v1/admin/registry/{uuid}", h.registryDelete)
 }
 
 // validResourceName matches lowercase alphanumeric names with hyphens, 1-64 chars.

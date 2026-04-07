@@ -11,7 +11,7 @@ const BASE = 'http://localhost:8200/api/v1';
 describe('Teams', () => {
   it('renders teams from API', async () => {
     server.use(
-      http.get(`${BASE}/teams`, () =>
+      http.get(`${BASE}/admin/teams`, () =>
         HttpResponse.json([
           { name: 'alpha', member_count: 3, created: '2026-03-15' },
         ]),
@@ -27,8 +27,8 @@ describe('Teams', () => {
   it('creates a new team', async () => {
     let created = false;
     server.use(
-      http.get(`${BASE}/teams`, () => HttpResponse.json([])),
-      http.post(`${BASE}/teams`, () => {
+      http.get(`${BASE}/admin/teams`, () => HttpResponse.json([])),
+      http.post(`${BASE}/admin/teams`, () => {
         created = true;
         return HttpResponse.json({ ok: true });
       }),
@@ -45,10 +45,10 @@ describe('Teams', () => {
 
   it('shows team detail and members on click', async () => {
     server.use(
-      http.get(`${BASE}/teams`, () =>
+      http.get(`${BASE}/admin/teams`, () =>
         HttpResponse.json([{ name: 'alpha', member_count: 2, created: '2026-03-15' }]),
       ),
-      http.get(`${BASE}/teams/alpha`, () =>
+      http.get(`${BASE}/admin/teams/alpha`, () =>
         HttpResponse.json({ name: 'alpha', members: ['agent-a', 'agent-b'] }),
       ),
       http.get(`${BASE}/teams/alpha/activity`, () => HttpResponse.json([])),

@@ -26,24 +26,24 @@ export const handlers = [
   })),
 
   // Teams
-  http.get(`${BASE}/teams`, () => HttpResponse.json([])),
-  http.get(`${BASE}/teams/:name`, () => HttpResponse.json({ name: 'test', members: [] })),
-  http.post(`${BASE}/teams`, () => HttpResponse.json({ ok: true })),
-  http.get(`${BASE}/teams/:name/activity`, () => HttpResponse.json([])),
+  http.get(`${BASE}/admin/teams`, () => HttpResponse.json([])),
+  http.get(`${BASE}/admin/teams/:name`, () => HttpResponse.json({ name: 'test', members: [] })),
+  http.post(`${BASE}/admin/teams`, () => HttpResponse.json({ ok: true })),
+  http.get(`${BASE}/admin/teams/:name/activity`, () => HttpResponse.json([])),
 
   // Channels
-  http.get(`${BASE}/channels`, () => HttpResponse.json([])),
-  http.get(`${BASE}/channels/:name/messages`, () => HttpResponse.json([])),
-  http.post(`${BASE}/channels/:name/messages`, () => HttpResponse.json({ ok: true })),
-  http.post(`${BASE}/channels`, () => HttpResponse.json({ ok: true })),
-  http.post(`${BASE}/channels/:name/archive`, () => HttpResponse.json({ ok: true })),
-  http.get(`${BASE}/channels/search`, () => HttpResponse.json([])),
-  http.put(`${BASE}/channels/:name/messages/:id`, () => HttpResponse.json({ ok: true })),
-  http.delete(`${BASE}/channels/:name/messages/:id`, () => HttpResponse.json({ ok: true })),
-  http.post(`${BASE}/channels/:name/messages/:id/reactions`, () => HttpResponse.json({ ok: true })),
-  http.delete(`${BASE}/channels/:name/messages/:id/reactions/:emoji`, () => HttpResponse.json({ ok: true })),
-  http.get(`${BASE}/unreads`, () => HttpResponse.json({})),
-  http.post(`${BASE}/channels/:name/mark-read`, () => HttpResponse.json({ ok: true })),
+  http.get(`${BASE}/comms/channels`, () => HttpResponse.json([])),
+  http.get(`${BASE}/comms/channels/:name/messages`, () => HttpResponse.json([])),
+  http.post(`${BASE}/comms/channels/:name/messages`, () => HttpResponse.json({ ok: true })),
+  http.post(`${BASE}/comms/channels`, () => HttpResponse.json({ ok: true })),
+  http.post(`${BASE}/comms/channels/:name/archive`, () => HttpResponse.json({ ok: true })),
+  http.get(`${BASE}/comms/channels/search`, () => HttpResponse.json([])),
+  http.put(`${BASE}/comms/channels/:name/messages/:id`, () => HttpResponse.json({ ok: true })),
+  http.delete(`${BASE}/comms/channels/:name/messages/:id`, () => HttpResponse.json({ ok: true })),
+  http.post(`${BASE}/comms/channels/:name/messages/:id/reactions`, () => HttpResponse.json({ ok: true })),
+  http.delete(`${BASE}/comms/channels/:name/messages/:id/reactions/:emoji`, () => HttpResponse.json({ ok: true })),
+  http.get(`${BASE}/comms/unreads`, () => HttpResponse.json({})),
+  http.post(`${BASE}/comms/channels/:name/mark-read`, () => HttpResponse.json({ ok: true })),
 
   // Infrastructure
   http.get(`${BASE}/infra/status`, () => HttpResponse.json({ version: '0.1.0', build_id: 'test', components: [] })),
@@ -59,6 +59,18 @@ export const handlers = [
   http.delete(`${BASE}/hub/:name`, () => HttpResponse.json({ ok: true })),
   http.post(`${BASE}/hub/update`, () => HttpResponse.json({ ok: true })),
   http.get(`${BASE}/hub/info/:name`, () => HttpResponse.json({})),
+  http.get(`${BASE}/hub/outdated`, () => HttpResponse.json([])),
+  http.get(`${BASE}/hub/presets`, () =>
+    HttpResponse.json([
+      { name: 'generalist', description: 'Proactive generalist assistant with broad tool access', type: 'standard' },
+      { name: 'engineer', description: 'Code development and debugging', type: 'standard' },
+      { name: 'researcher', description: 'Information gathering and research', type: 'standard' },
+      { name: 'coordinator', description: 'Team lead — task decomposition and delegation', type: 'coordinator' },
+    ]),
+  ),
+  http.post(`${BASE}/hub/presets`, () => HttpResponse.json({ ok: true })),
+  http.put(`${BASE}/hub/presets/:name`, () => HttpResponse.json({ ok: true })),
+  http.delete(`${BASE}/hub/presets/:name`, () => HttpResponse.json({ ok: true })),
 
   // Deploy
   http.post(`${BASE}/deploy`, () => HttpResponse.json({ agents_created: [] })),
@@ -93,54 +105,44 @@ export const handlers = [
   http.get(`${BASE}/subscriptions`, () => HttpResponse.json([])),
 
   // Meeseeks
-  http.get(`${BASE}/meeseeks`, () => HttpResponse.json([])),
-  http.get(`${BASE}/meeseeks/:id`, () => HttpResponse.json({ id: 'mks-test', status: 'spawned', task: 'test', parent_agent: 'test' })),
-  http.delete(`${BASE}/meeseeks/:id`, () => HttpResponse.json({ ok: true })),
-  http.delete(`${BASE}/meeseeks`, () => HttpResponse.json({ status: 'ok', killed: [] })),
+  http.get(`${BASE}/agents/meeseeks`, () => HttpResponse.json([])),
+  http.get(`${BASE}/agents/meeseeks/:id`, () => HttpResponse.json({ id: 'mks-test', status: 'spawned', task: 'test', parent_agent: 'test' })),
+  http.delete(`${BASE}/agents/meeseeks/:id`, () => HttpResponse.json({ ok: true })),
+  http.delete(`${BASE}/agents/meeseeks`, () => HttpResponse.json({ status: 'ok', killed: [] })),
 
   // Knowledge
-  http.post(`${BASE}/knowledge/query`, () => HttpResponse.json({ results: [] })),
-  http.get(`${BASE}/knowledge/who-knows`, () => HttpResponse.json({ agents: [] })),
-  http.get(`${BASE}/knowledge/stats`, () => HttpResponse.json({ node_count: 0, edge_count: 0 })),
-  http.get(`${BASE}/knowledge/export`, () => HttpResponse.json([])),
-  http.get(`${BASE}/knowledge/neighbors`, () => HttpResponse.json({ neighbors: [], edges: [] })),
-  http.get(`${BASE}/knowledge/context`, () => HttpResponse.json({})),
+  http.post(`${BASE}/graph/query`, () => HttpResponse.json({ results: [] })),
+  http.get(`${BASE}/graph/who-knows`, () => HttpResponse.json({ agents: [] })),
+  http.get(`${BASE}/graph/stats`, () => HttpResponse.json({ node_count: 0, edge_count: 0 })),
+  http.get(`${BASE}/graph/export`, () => HttpResponse.json([])),
+  http.get(`${BASE}/graph/neighbors`, () => HttpResponse.json({ neighbors: [], edges: [] })),
+  http.get(`${BASE}/graph/context`, () => HttpResponse.json({})),
 
   // Capabilities
-  http.get(`${BASE}/capabilities`, () => HttpResponse.json([])),
-  http.get(`${BASE}/capabilities/:name`, () => HttpResponse.json({})),
-  http.post(`${BASE}/capabilities/:name/enable`, () => HttpResponse.json({ ok: true })),
-  http.post(`${BASE}/capabilities/:name/disable`, () => HttpResponse.json({ ok: true })),
-  http.post(`${BASE}/capabilities`, () => HttpResponse.json({ ok: true })),
-  http.delete(`${BASE}/capabilities/:name`, () => HttpResponse.json({ ok: true })),
+  http.get(`${BASE}/admin/capabilities`, () => HttpResponse.json([])),
+  http.get(`${BASE}/admin/capabilities/:name`, () => HttpResponse.json({})),
+  http.post(`${BASE}/admin/capabilities/:name/enable`, () => HttpResponse.json({ ok: true })),
+  http.post(`${BASE}/admin/capabilities/:name/disable`, () => HttpResponse.json({ ok: true })),
+  http.post(`${BASE}/admin/capabilities`, () => HttpResponse.json({ ok: true })),
+  http.delete(`${BASE}/admin/capabilities/:name`, () => HttpResponse.json({ ok: true })),
 
   // Policy
   http.get(`${BASE}/policy/:agent`, () => HttpResponse.json({ rules: [] })),
   http.post(`${BASE}/policy/:agent/validate`, () => HttpResponse.json({ valid: true })),
 
-  // Presets
-  http.get(`${BASE}/presets`, () =>
-    HttpResponse.json([
-      { name: 'generalist', description: 'Proactive generalist assistant with broad tool access', type: 'standard' },
-      { name: 'engineer', description: 'Code development and debugging', type: 'standard' },
-      { name: 'researcher', description: 'Information gathering and research', type: 'standard' },
-      { name: 'coordinator', description: 'Team lead — task decomposition and delegation', type: 'coordinator' },
-    ]),
-  ),
-
   // Webhooks
-  http.get(`${BASE}/webhooks`, () => HttpResponse.json([])),
-  http.get(`${BASE}/webhooks/:name`, () => HttpResponse.json({ name: 'test-hook', event_type: 'operator_alert', url: 'https://ntfy.sh/test', created_at: new Date().toISOString() })),
-  http.post(`${BASE}/webhooks`, () => HttpResponse.json({ name: 'test-hook', event_type: 'operator_alert', url: 'https://example.com/hook', secret: 'sec_abc123' })),
-  http.delete(`${BASE}/webhooks/:name`, () => HttpResponse.json({ ok: true })),
-  http.post(`${BASE}/webhooks/:name/rotate-secret`, () => HttpResponse.json({ name: 'test-hook', event_type: 'operator_alert', url: 'https://example.com/hook', secret: 'sec_new456' })),
+  http.get(`${BASE}/events/webhooks`, () => HttpResponse.json([])),
+  http.get(`${BASE}/events/webhooks/:name`, () => HttpResponse.json({ name: 'test-hook', event_type: 'operator_alert', url: 'https://ntfy.sh/test', created_at: new Date().toISOString() })),
+  http.post(`${BASE}/events/webhooks`, () => HttpResponse.json({ name: 'test-hook', event_type: 'operator_alert', url: 'https://example.com/hook', secret: 'sec_abc123' })),
+  http.delete(`${BASE}/events/webhooks/:name`, () => HttpResponse.json({ ok: true })),
+  http.post(`${BASE}/events/webhooks/:name/rotate-secret`, () => HttpResponse.json({ name: 'test-hook', event_type: 'operator_alert', url: 'https://example.com/hook', secret: 'sec_new456' })),
 
   // Notifications
-  http.get(`${BASE}/notifications`, () => HttpResponse.json([])),
-  http.get(`${BASE}/notifications/:name`, () => HttpResponse.json({ name: 'alerts', type: 'ntfy', url: 'https://ntfy.sh/agency-alerts', events: ['operator_alert'] })),
-  http.post(`${BASE}/notifications`, () => HttpResponse.json({ name: 'alerts', type: 'ntfy', url: 'https://ntfy.sh/agency-alerts', events: ['operator_alert'] })),
-  http.delete(`${BASE}/notifications/:name`, () => HttpResponse.json({ status: 'ok', name: 'alerts' })),
-  http.post(`${BASE}/notifications/:name/test`, () => HttpResponse.json({ event_id: 'evt-test-1', status: 'sent' })),
+  http.get(`${BASE}/events/notifications`, () => HttpResponse.json([])),
+  http.get(`${BASE}/events/notifications/:name`, () => HttpResponse.json({ name: 'alerts', type: 'ntfy', url: 'https://ntfy.sh/agency-alerts', events: ['operator_alert'] })),
+  http.post(`${BASE}/events/notifications`, () => HttpResponse.json({ name: 'alerts', type: 'ntfy', url: 'https://ntfy.sh/agency-alerts', events: ['operator_alert'] })),
+  http.delete(`${BASE}/events/notifications/:name`, () => HttpResponse.json({ status: 'ok', name: 'alerts' })),
+  http.post(`${BASE}/events/notifications/:name/test`, () => HttpResponse.json({ event_id: 'evt-test-1', status: 'sent' })),
 
   // Agent memory endpoints
   http.get('*/api/v1/agents/:name/procedures', () =>
@@ -262,7 +264,7 @@ export const handlers = [
   ),
 
   // Ontology
-  http.get(`${BASE}/ontology/candidates`, () =>
+  http.get(`${BASE}/graph/ontology/candidates`, () =>
     HttpResponse.json({
       candidates: [
         { value: 'deployment_pipeline', count: 12, source: 'graph_ingest' },
@@ -270,10 +272,10 @@ export const handlers = [
       ],
     }),
   ),
-  http.post(`${BASE}/ontology/promote`, () =>
+  http.post(`${BASE}/graph/ontology/promote`, () =>
     HttpResponse.json({ promoted: true, value: 'deployment_pipeline' }),
   ),
-  http.post(`${BASE}/ontology/reject`, () =>
+  http.post(`${BASE}/graph/ontology/reject`, () =>
     HttpResponse.json({ rejected: true, value: 'api_endpoint' }),
   ),
 

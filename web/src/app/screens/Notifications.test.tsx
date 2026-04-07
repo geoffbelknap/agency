@@ -15,7 +15,7 @@ const BASE = 'http://localhost:8200/api/v1';
 describe('Notifications', () => {
   it('renders notification list', async () => {
     server.use(
-      http.get(`${BASE}/notifications`, () =>
+      http.get(`${BASE}/events/notifications`, () =>
         HttpResponse.json([
           { name: 'alerts', type: 'ntfy', url: 'https://ntfy.sh/agency-alerts', events: ['operator_alert', 'enforcer_exited'] },
         ]),
@@ -30,7 +30,7 @@ describe('Notifications', () => {
 
   it('shows empty state when no notifications', async () => {
     server.use(
-      http.get(`${BASE}/notifications`, () => HttpResponse.json([])),
+      http.get(`${BASE}/events/notifications`, () => HttpResponse.json([])),
     );
     renderWithRouter(<Notifications />);
     await waitFor(() => {
@@ -41,8 +41,8 @@ describe('Notifications', () => {
   it('creates a notification destination', async () => {
     let created = false;
     server.use(
-      http.get(`${BASE}/notifications`, () => HttpResponse.json([])),
-      http.post(`${BASE}/notifications`, () => {
+      http.get(`${BASE}/events/notifications`, () => HttpResponse.json([])),
+      http.post(`${BASE}/events/notifications`, () => {
         created = true;
         return HttpResponse.json({ name: 'my-ntfy', type: 'ntfy', url: 'https://ntfy.sh/my-topic', events: ['operator_alert'] });
       }),

@@ -21,18 +21,18 @@ var routePermissions = map[string]string{
 	"DELETE /agents/*": "agent.write",
 
 	// Knowledge
-	"GET /knowledge/*":          "knowledge.read",
-	"POST /knowledge/query":     "knowledge.read",
-	"POST /knowledge/ingest":    "knowledge.write",
-	"POST /knowledge/insight":   "knowledge.write",
-	"POST /knowledge/*":         "knowledge.write",
+	"GET /graph/*":          "knowledge.read",
+	"POST /graph/query":     "knowledge.read",
+	"POST /graph/ingest":    "knowledge.write",
+	"POST /graph/insight":   "knowledge.write",
+	"POST /graph/*":         "knowledge.write",
 
 	// Registry
-	"GET /registry":      "registry.read",
-	"GET /registry/*":    "registry.read",
-	"POST /registry":     "registry.write",
-	"PUT /registry/*":    "registry.write",
-	"DELETE /registry/*": "registry.write",
+	"GET /admin/registry":      "registry.read",
+	"GET /admin/registry/*":    "registry.read",
+	"POST /admin/registry":     "registry.write",
+	"PUT /admin/registry/*":    "registry.write",
+	"DELETE /admin/registry/*": "registry.write",
 
 	// Missions
 	"GET /missions":      "mission.read",
@@ -49,23 +49,23 @@ var routePermissions = map[string]string{
 	"DELETE /hub/*": "hub.write",
 
 	// Credentials
-	"GET /credentials":      "creds.read",
-	"GET /credentials/*":    "creds.read",
-	"POST /credentials":     "creds.write",
-	"POST /credentials/*":   "creds.write",
-	"PUT /credentials/*":    "creds.write",
-	"DELETE /credentials/*": "creds.write",
+	"GET /creds":      "creds.read",
+	"GET /creds/*":    "creds.read",
+	"POST /creds":     "creds.write",
+	"POST /creds/*":   "creds.write",
+	"PUT /creds/*":    "creds.write",
+	"DELETE /creds/*": "creds.write",
 
 	// Infra
 	"GET /infra/*":  "infra.read",
 	"POST /infra/*": "infra.write",
 
 	// Notifications
-	"GET /notifications":      "notification.read",
-	"GET /notifications/*":    "notification.read",
-	"POST /notifications":     "notification.write",
-	"POST /notifications/*":   "notification.write",
-	"DELETE /notifications/*": "notification.write",
+	"GET /events/notifications":      "notification.read",
+	"GET /events/notifications/*":    "notification.read",
+	"POST /events/notifications":     "notification.write",
+	"POST /events/notifications/*":   "notification.write",
+	"DELETE /events/notifications/*": "notification.write",
 
 	// Admin
 	"POST /admin/*": "admin.*",

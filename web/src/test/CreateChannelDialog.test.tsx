@@ -73,7 +73,7 @@ describe('CreateChannelDialog', () => {
     const user = userEvent.setup();
     let capturedBody: unknown;
     server.use(
-      http.post(`${BASE}/channels`, async ({ request }) => {
+      http.post(`${BASE}/comms/channels`, async ({ request }) => {
         capturedBody = await request.json();
         return HttpResponse.json({ ok: true }, { status: 201 });
       }),
@@ -92,7 +92,7 @@ describe('CreateChannelDialog', () => {
   it('closes and calls onCreated on success', async () => {
     const user = userEvent.setup();
     server.use(
-      http.post(`${BASE}/channels`, () =>
+      http.post(`${BASE}/comms/channels`, () =>
         HttpResponse.json({ ok: true }, { status: 201 }),
       ),
     );
@@ -110,7 +110,7 @@ describe('CreateChannelDialog', () => {
   it('shows error toast on failure and stays open', async () => {
     const user = userEvent.setup();
     server.use(
-      http.post(`${BASE}/channels`, () =>
+      http.post(`${BASE}/comms/channels`, () =>
         HttpResponse.json({ error: 'channel already exists' }, { status: 409 }),
       ),
     );

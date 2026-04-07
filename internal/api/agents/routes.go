@@ -107,7 +107,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 
 	// Economics
 	r.Get("/api/v1/agents/{name}/economics", h.getAgentEconomics)
-	r.Get("/api/v1/economics/summary", h.getEconomicsSummary)
+	r.Get("/api/v1/agents/economics/summary", h.getEconomicsSummary)
 
 	// Context API (mid-session constraint push)
 	ctxH := &contextHandler{mgr: d.CtxMgr}
@@ -123,12 +123,12 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Get("/api/v1/agents/{name}/logs", h.agentLogs)
 
 	// Meeseeks
-	r.Post("/api/v1/meeseeks", h.spawnMeeseeks)
-	r.Get("/api/v1/meeseeks", h.listMeeseeks)
-	r.Get("/api/v1/meeseeks/{id}", h.showMeeseeks)
-	r.Delete("/api/v1/meeseeks/{id}", h.killMeeseeks)
-	r.Delete("/api/v1/meeseeks", h.killMeeseeksByParent) // kill all for a parent (?parent=<agent>)
-	r.Post("/api/v1/meeseeks/{id}/complete", h.completeMeeseeks)
+	r.Post("/api/v1/agents/meeseeks", h.spawnMeeseeks)
+	r.Get("/api/v1/agents/meeseeks", h.listMeeseeks)
+	r.Get("/api/v1/agents/meeseeks/{id}", h.showMeeseeks)
+	r.Delete("/api/v1/agents/meeseeks/{id}", h.killMeeseeks)
+	r.Delete("/api/v1/agents/meeseeks", h.killMeeseeksByParent) // kill all for a parent (?parent=<agent>)
+	r.Post("/api/v1/agents/meeseeks/{id}/complete", h.completeMeeseeks)
 }
 
 // writeJSON writes a JSON response with the given status code.

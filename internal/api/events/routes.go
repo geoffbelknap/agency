@@ -38,29 +38,29 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	// Events
 	r.Get("/api/v1/events", h.listEvents)
 	r.Get("/api/v1/events/{id}", h.showEvent)
-	r.Get("/api/v1/subscriptions", h.listSubscriptions)
+	r.Get("/api/v1/events/subscriptions", h.listSubscriptions)
 
 	// Webhooks
-	r.Post("/api/v1/webhooks", h.createWebhook)
-	r.Get("/api/v1/webhooks", h.listWebhooks)
-	r.Get("/api/v1/webhooks/{name}", h.showWebhook)
-	r.Delete("/api/v1/webhooks/{name}", h.deleteWebhook)
-	r.Post("/api/v1/webhooks/{name}/rotate-secret", h.rotateWebhookSecret)
+	r.Post("/api/v1/events/webhooks", h.createWebhook)
+	r.Get("/api/v1/events/webhooks", h.listWebhooks)
+	r.Get("/api/v1/events/webhooks/{name}", h.showWebhook)
+	r.Delete("/api/v1/events/webhooks/{name}", h.deleteWebhook)
+	r.Post("/api/v1/events/webhooks/{name}/rotate-secret", h.rotateWebhookSecret)
 
 	// Inbound webhook receiver
 	r.Post("/api/v1/events/webhook/{name}", h.receiveWebhook)
 
 	// Intake proxy
-	r.Get("/api/v1/intake/items", h.intakeItems)
-	r.Get("/api/v1/intake/stats", h.intakeStats)
-	r.Post("/api/v1/intake/webhook", h.intakeWebhook)
+	r.Get("/api/v1/events/intake/items", h.intakeItems)
+	r.Get("/api/v1/events/intake/stats", h.intakeStats)
+	r.Post("/api/v1/events/intake/webhook", h.intakeWebhook)
 
 	// Notifications
-	r.Get("/api/v1/notifications", h.listNotifications)
-	r.Post("/api/v1/notifications", h.addNotification)
-	r.Get("/api/v1/notifications/{name}", h.showNotification)
-	r.Delete("/api/v1/notifications/{name}", h.deleteNotification)
-	r.Post("/api/v1/notifications/{name}/test", h.testNotification)
+	r.Get("/api/v1/events/notifications", h.listNotifications)
+	r.Post("/api/v1/events/notifications", h.addNotification)
+	r.Get("/api/v1/events/notifications/{name}", h.showNotification)
+	r.Delete("/api/v1/events/notifications/{name}", h.deleteNotification)
+	r.Post("/api/v1/events/notifications/{name}/test", h.testNotification)
 }
 
 // webhookRateLimiter provides simple per-name rate limiting.

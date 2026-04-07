@@ -15,7 +15,7 @@ const BASE = 'http://localhost:8200/api/v1';
 describe('Webhooks', () => {
   it('renders webhook list', async () => {
     server.use(
-      http.get(`${BASE}/webhooks`, () =>
+      http.get(`${BASE}/events/webhooks`, () =>
         HttpResponse.json([
           { name: 'alerts', event_type: 'operator_alert', url: 'https://ntfy.sh/my-alerts', created_at: '2026-03-26T10:00:00Z' },
         ]),
@@ -30,7 +30,7 @@ describe('Webhooks', () => {
 
   it('shows empty state when no webhooks', async () => {
     server.use(
-      http.get(`${BASE}/webhooks`, () => HttpResponse.json([])),
+      http.get(`${BASE}/events/webhooks`, () => HttpResponse.json([])),
     );
     renderWithRouter(<Webhooks />);
     await waitFor(() => {
@@ -41,8 +41,8 @@ describe('Webhooks', () => {
   it('creates a webhook', async () => {
     let created = false;
     server.use(
-      http.get(`${BASE}/webhooks`, () => HttpResponse.json([])),
-      http.post(`${BASE}/webhooks`, () => {
+      http.get(`${BASE}/events/webhooks`, () => HttpResponse.json([])),
+      http.post(`${BASE}/events/webhooks`, () => {
         created = true;
         return HttpResponse.json({ name: 'new-hook', event_type: 'operator_alert', url: '/events/webhook/new-hook', secret: 'sec_abc' });
       }),

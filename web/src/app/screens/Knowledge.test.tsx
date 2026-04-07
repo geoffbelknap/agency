@@ -11,7 +11,7 @@ const BASE = 'http://localhost:8200/api/v1';
 describe('Knowledge', () => {
   it('renders stats on mount', async () => {
     server.use(
-      http.get(`${BASE}/knowledge/stats`, () =>
+      http.get(`${BASE}/graph/stats`, () =>
         HttpResponse.json({ node_count: 42, edge_count: 100 }),
       ),
     );
@@ -24,10 +24,10 @@ describe('Knowledge', () => {
 
   it('queries who-knows and renders results', async () => {
     server.use(
-      http.get(`${BASE}/knowledge/stats`, () =>
+      http.get(`${BASE}/graph/stats`, () =>
         HttpResponse.json({ node_count: 0, edge_count: 0 }),
       ),
-      http.get(`${BASE}/knowledge/who-knows`, () =>
+      http.get(`${BASE}/graph/who-knows`, () =>
         HttpResponse.json({
           agents: [
             { name: 'alice', confidence: 0.95, topics: ['deployment', 'docker'] },
@@ -47,10 +47,10 @@ describe('Knowledge', () => {
 
   it('queries knowledge graph', async () => {
     server.use(
-      http.get(`${BASE}/knowledge/stats`, () =>
+      http.get(`${BASE}/graph/stats`, () =>
         HttpResponse.json({ node_count: 0, edge_count: 0 }),
       ),
-      http.post(`${BASE}/knowledge/query`, async ({ request }) => {
+      http.post(`${BASE}/graph/query`, async ({ request }) => {
         const body = await request.json() as { query?: string };
         if (body.query === 'deployment') {
           return HttpResponse.json({
