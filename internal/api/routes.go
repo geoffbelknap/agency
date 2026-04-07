@@ -16,6 +16,7 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/audit"
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
+	"github.com/geoffbelknap/agency/internal/api/creds"
 	"github.com/geoffbelknap/agency/internal/api/graph"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
@@ -76,19 +77,14 @@ func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, l
 // This socket is mounted exclusively by the egress container for credential
 // resolution. It is NOT bridged to TCP — credentials never traverse a Docker network.
 func RegisterCredentialSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, logger *log.Logger, startup *StartupResult, opts RouteOptions) {
-	h := &handler{
-		cfg: cfg, dc: dc, log: logger,
-		infra: startup.Infra, agents: startup.AgentManager,
-		halt: startup.HaltController, audit: startup.Audit,
-		ctxMgr: startup.CtxMgr, mcpReg: startup.MCPReg,
-		knowledge: startup.Knowledge, missions: startup.MissionManager,
-		meeseeks: startup.MeeseeksManager, claims: startup.Claims,
-		credStore: startup.CredStore, profileStore: startup.ProfileStore,
+	if startup.CredStore != nil {
+		creds.RegisterRoutes(r, creds.Deps{
+			CredStore: startup.CredStore,
+			Audit:     startup.Audit,
+			Config:    cfg,
+			Logger:    logger,
+		})
 	}
-
-	r.Route("/api/v1", func(r chi.Router) {
-		r.Get("/internal/credentials/resolve", h.resolveCredential)
-	})
 }
 
 // RegisterRoutes sets up all REST API routes on the given router.
@@ -281,9 +277,6 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		// Internal LLM (infrastructure components)
 		r.Post("/internal/llm", h.internalLLM)
 
-		// Internal credential resolve (egress proxy)
-		r.Get("/internal/credentials/resolve", h.resolveCredential)
-
 		// Channels (proxy to comms container)
 		r.Get("/channels", h.listChannels)
 		r.Post("/channels", h.createChannel)
@@ -305,15 +298,6 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		// Providers and setup wizard
 		r.Get("/providers", h.listProviders)
 		r.Get("/setup/config", h.setupConfig)
-
-		// Credentials
-		r.Post("/credentials", h.createOrUpdateCredential)
-		r.Get("/credentials", h.listCredentials)
-		r.Get("/credentials/{name}", h.showCredential)
-		r.Delete("/credentials/{name}", h.deleteCredential)
-		r.Post("/credentials/{name}/rotate", h.rotateCredential)
-		r.Post("/credentials/{name}/test", h.testCredential)
-		r.Post("/credentials/groups", h.createCredentialGroup)
 
 		// Admin
 		r.Get("/admin/doctor", h.adminDoctor)
@@ -426,6 +410,16 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		Logger:    logger,
 		Audit:     startup.Audit,
 	})
+
+	// Credential routes (extracted module) — only if CredStore is initialized
+	if startup.CredStore != nil {
+		creds.RegisterRoutes(r, creds.Deps{
+			CredStore: startup.CredStore,
+			Audit:     startup.Audit,
+			Config:    cfg,
+			Logger:    logger,
+		})
+	}
 }
 
 type handler struct {
