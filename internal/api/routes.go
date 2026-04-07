@@ -18,6 +18,7 @@ import (
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/api/creds"
 	apicomms "github.com/geoffbelknap/agency/internal/api/comms"
+	apievents "github.com/geoffbelknap/agency/internal/api/events"
 	"github.com/geoffbelknap/agency/internal/api/graph"
 	"github.com/geoffbelknap/agency/internal/api/platform"
 	"github.com/geoffbelknap/agency/internal/config"
@@ -125,7 +126,6 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 	}
 	if opts.WebhookMgr != nil {
 		h.webhookMgr = opts.WebhookMgr
-		h.webhookRL = newWebhookRateLimiter()
 	}
 	if opts.HealthMonitor != nil {
 		h.healthMonitor = opts.HealthMonitor
@@ -338,28 +338,6 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Delete("/meeseeks", h.killMeeseeksByParent)          // kill all for a parent (?parent=<agent>)
 		r.Post("/meeseeks/{id}/complete", h.completeMeeseeks)  // called by body runtime on task completion
 
-		// Events
-		r.Get("/events", h.listEvents)
-		r.Get("/events/{id}", h.showEvent)
-		r.Get("/subscriptions", h.listSubscriptions)
-
-		// Webhooks
-		r.Post("/webhooks", h.createWebhook)
-		r.Get("/webhooks", h.listWebhooks)
-		r.Get("/webhooks/{name}", h.showWebhook)
-		r.Delete("/webhooks/{name}", h.deleteWebhook)
-		r.Post("/webhooks/{name}/rotate-secret", h.rotateWebhookSecret)
-
-		// Inbound webhook receiver
-		r.Post("/events/webhook/{name}", h.receiveWebhook)
-
-		// Notifications
-		r.Get("/notifications", h.listNotifications)
-		r.Post("/notifications", h.addNotification)
-		r.Get("/notifications/{name}", h.showNotification)
-		r.Delete("/notifications/{name}", h.deleteNotification)
-		r.Post("/notifications/{name}/test", h.testNotification)
-
 		// Profiles
 		r.Get("/profiles", h.listProfiles)
 		r.Get("/profiles/{id}", h.getProfile)
@@ -367,6 +345,18 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Delete("/profiles/{id}", h.deleteProfile)
 
 	})
+
+	// Events, webhook, notification, and subscription routes (extracted module)
+	// Only registered when the event bus is wired in.
+	if opts.EventBus != nil {
+		apievents.RegisterRoutes(r, apievents.Deps{
+			EventBus:   opts.EventBus,
+			WebhookMgr: opts.WebhookMgr,
+			Scheduler:  opts.Scheduler,
+			NotifStore: opts.NotifStore,
+			Audit:      startup.Audit,
+		})
+	}
 
 	// Knowledge graph and ontology routes (extracted module)
 	graph.RegisterRoutes(r, graph.Deps{
@@ -410,7 +400,6 @@ type handler struct {
 	meeseeks   *orchestrate.MeeseeksManager
 	eventBus   *events.Bus
 	webhookMgr *events.WebhookManager
-	webhookRL  *webhookRateLimiter
 	scheduler  *events.Scheduler
 	claims        *orchestrate.MissionClaimRegistry
 	healthMonitor *orchestrate.MissionHealthMonitor

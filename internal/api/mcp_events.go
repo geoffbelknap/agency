@@ -10,6 +10,17 @@ import (
 	"github.com/geoffbelknap/agency/internal/models"
 )
 
+// detectNotificationType infers the notification type from the destination URL.
+func detectNotificationType(url string) string {
+	lower := strings.ToLower(url)
+	if strings.Contains(lower, "ntfy.") || strings.Contains(lower, "ntfy.sh") {
+		return "ntfy"
+	}
+	return "webhook"
+}
+
+var defaultNotificationEvents = []string{"operator_alert", "enforcer_exited", "mission_health_alert"}
+
 // ── Events (6 tools) ────────────────────────────────────────────────────────
 
 func registerEventTools(reg *MCPToolRegistry) {
