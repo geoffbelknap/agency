@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -142,21 +143,22 @@ func Start(port int) error {
 }
 
 // Stop sends SIGTERM to the daemon process and removes the PID file.
+// If the PID file is missing, it falls back to finding the process by
+// scanning for "agency serve" in the process list.
 func Stop() error {
 	pidFile := PIDFile()
 	if pidFile == "" {
 		return fmt.Errorf("cannot determine PID file path")
 	}
 
-	data, err := os.ReadFile(pidFile)
+	pid, err := readPID(pidFile)
 	if err != nil {
-		return fmt.Errorf("no daemon PID file found: %w", err)
-	}
-
-	pid, err := strconv.Atoi(string(data))
-	if err != nil {
-		os.Remove(pidFile)
-		return fmt.Errorf("invalid PID in file: %w", err)
+		// PID file missing or invalid — try to find the process by command line
+		foundPID, findErr := findDaemonProcess()
+		if findErr != nil || foundPID == 0 {
+			return fmt.Errorf("no daemon PID file found and could not locate process: %w", err)
+		}
+		pid = foundPID
 	}
 
 	proc, err := os.FindProcess(pid)
@@ -172,6 +174,46 @@ func Stop() error {
 
 	os.Remove(pidFile)
 	return nil
+}
+
+// readPID reads and parses the PID from a file.
+func readPID(path string) (int, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		os.Remove(path)
+		return 0, fmt.Errorf("invalid PID in file: %w", err)
+	}
+	return pid, nil
+}
+
+// findDaemonProcess scans /proc for a running "agency serve" process.
+// Returns the PID if found, 0 otherwise.
+func findDaemonProcess() (int, error) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return 0, err
+	}
+	self := os.Getpid()
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil || pid == self {
+			continue
+		}
+		cmdline, err := os.ReadFile(filepath.Join("/proc", e.Name(), "cmdline"))
+		if err != nil {
+			continue
+		}
+		// cmdline is null-separated; check for "agency" and "serve"
+		s := string(cmdline)
+		if strings.Contains(s, "agency") && strings.Contains(s, "serve") {
+			return pid, nil
+		}
+	}
+	return 0, nil
 }
 
 // EnsureRunning starts the daemon if not already running.

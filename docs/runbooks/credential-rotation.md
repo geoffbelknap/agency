@@ -27,7 +27,7 @@ This updates the encrypted credential store and regenerates `credential-swaps.ya
 agency creds test <credential-name>
 ```
 
-Expected: test passes with the new value.
+Expected: test passes with the new value. Note: provider credentials (Anthropic, OpenAI, Google) don't have a `test_endpoint` configured by default, so the test will skip. To verify provider keys, send a test message to an agent that uses the provider.
 
 ### 4. Reload egress proxy
 
@@ -86,14 +86,18 @@ This ensures the enforcer and egress proxy are using the new credential.
 For services using JWT exchange or shared auth config (e.g., LimaCharlie):
 
 ```bash
-# List credentials filtered by group
+# List credentials filtered by kind
+agency creds list --kind <kind>
+# e.g.: agency creds list --kind provider
+
+# List credentials in a named group (created with agency creds group create)
 agency creds list --group <group-name>
 
 # Rotate a credential within a group
 agency creds rotate <key-name> --value <new-value>
 ```
 
-The group configuration (`agency creds group create`) defines the protocol — individual key rotation within a group works the same as standalone rotation.
+The group configuration (`agency creds group create`) defines the protocol — individual key rotation within a group works the same as standalone rotation. Note: `--group` filters by named credential groups, not by the `kind` field.
 
 ## Verification
 

@@ -30,10 +30,11 @@ If Docker is not running, start it first:
 ### 3. Check for port conflicts
 
 ```bash
-lsof -i :8200  # gateway
-lsof -i :8201  # knowledge
-lsof -i :8202  # comms
+lsof -i :8200  # gateway REST API
+lsof -i :8280  # web UI
 ```
+
+Note: knowledge and comms run in Docker containers and communicate over internal Docker networks — they don't expose ports on the host.
 
 ## Recovery Procedures
 
@@ -79,16 +80,16 @@ agency infra status
 ### Gateway daemon not running
 
 ```bash
-# Check if PID file exists
-cat ~/.agency/gateway.pid
+# Check if daemon process is running
+pgrep -af "agency.*serve"
 
-# If stale PID, remove it
+# If stale PID file exists, remove it
 rm -f ~/.agency/gateway.pid
 
-# Restart daemon
-agency serve &
-# or just run any agency command — daemon auto-starts
+# Restart daemon (any agency command auto-starts the daemon)
 agency infra status
+# or explicitly:
+agency serve restart
 ```
 
 ### Network isolation broken

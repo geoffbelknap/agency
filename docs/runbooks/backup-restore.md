@@ -30,13 +30,14 @@ agency status
 # For each running agent:
 # agency stop <agent-name>
 
-# Copy everything
-cp -r ~/.agency/ "$BACKUP_DIR/"
-
-# Remove runtime artifacts (not needed for restore)
-rm -rf "$BACKUP_DIR/run/"
-rm -rf "$BACKUP_DIR/gateway.pid"
-rm -rf "$BACKUP_DIR/.cache/"
+# Copy everything (rsync skips Docker-owned files that cp can't read)
+rsync -a \
+  --exclude='run/' \
+  --exclude='gateway.pid' \
+  --exclude='.cache/' \
+  --exclude='infrastructure/egress/certs/' \
+  --exclude='infrastructure/embeddings/id_ed25519' \
+  ~/.agency/ "$BACKUP_DIR/"
 
 echo "Backup saved to $BACKUP_DIR"
 ls -lh "$BACKUP_DIR"

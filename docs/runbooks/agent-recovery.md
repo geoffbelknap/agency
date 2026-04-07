@@ -12,7 +12,7 @@ Agent is crashed, stuck, unresponsive, halted unexpectedly, or in a corrupted st
 agency show <agent-name>
 ```
 
-Look for: state (running/halted/stopped), halt reason, last activity timestamp.
+Look for: state (running/paused/stopped), halt reason, last activity timestamp. Note: halted agents show status "paused".
 
 ### 2. Check audit log
 

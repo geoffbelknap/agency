@@ -102,8 +102,8 @@ git -C ~/.agency/agents/<agent-name>/identity checkout <known-good-commit>
 # Were other agents affected?
 agency admin doctor
 
-# Check cross-agent communication
-agency admin audit
+# Check audit trail for each agent
+agency log <other-agent-name>    # repeat for each agent
 
 # Review knowledge graph for injected content
 agency knowledge stats

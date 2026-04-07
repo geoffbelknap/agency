@@ -494,6 +494,11 @@ func (c *Client) ListAgencyImages(ctx context.Context) ([]image.Summary, error) 
 	})
 }
 
+// RemoveImage removes a Docker image by tag or ID.
+func (c *Client) RemoveImage(ctx context.Context, imageRef string) ([]image.DeleteResponse, error) {
+	return c.cli.ImageRemove(ctx, imageRef, image.RemoveOptions{PruneChildren: true})
+}
+
 // LogFileSize returns the size in bytes of the log file for the named container.
 // It reads the LogPath from the inspect response and stats the file on the host.
 func (c *Client) LogFileSize(ctx context.Context, name string) (int64, error) {
