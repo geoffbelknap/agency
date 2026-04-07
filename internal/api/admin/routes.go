@@ -83,6 +83,15 @@ func RegisterRoutes(r chi.Router, d Deps) {
 
 	// Rebuild
 	r.Post("/api/v1/agents/{name}/rebuild", h.rebuildAgent)
+
+	// Principal registry
+	r.Get("/api/v1/registry", h.registrySnapshot)
+	r.Get("/api/v1/registry/resolve", h.registryResolve)
+	r.Get("/api/v1/registry/list", h.registryList)
+	r.Post("/api/v1/registry", h.registryRegister)
+	r.Get("/api/v1/registry/{uuid}/effective", h.registryEffective)
+	r.Put("/api/v1/registry/{uuid}", h.registryUpdate)
+	r.Delete("/api/v1/registry/{uuid}", h.registryDelete)
 }
 
 // validResourceName matches lowercase alphanumeric names with hyphens, 1-64 chars.

@@ -38,8 +38,8 @@ func registerEventTools(reg *MCPToolRegistry) {
 				"limit":       map[string]interface{}{"type": "integer", "description": "Max events to return (default 50)", "default": 50},
 			},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.eventBus == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.eventBus == nil {
 				return "Event bus not initialized.", true
 			}
 
@@ -53,9 +53,9 @@ func registerEventTools(reg *MCPToolRegistry) {
 
 			var events interface{}
 			if sourceType != "" || sourceName != "" || eventType != "" {
-				events = h.eventBus.Events().ListFiltered(sourceType, sourceName, eventType, limit)
+				events = d.eventBus.Events().ListFiltered(sourceType, sourceName, eventType, limit)
 			} else {
-				events = h.eventBus.Events().List(limit)
+				events = d.eventBus.Events().List(limit)
 			}
 
 			data, _ := json.Marshal(events)
@@ -74,8 +74,8 @@ func registerEventTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"id"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.eventBus == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.eventBus == nil {
 				return "Event bus not initialized.", true
 			}
 
@@ -84,7 +84,7 @@ func registerEventTools(reg *MCPToolRegistry) {
 				return "Error: id is required", true
 			}
 
-			event := h.eventBus.Events().Get(id)
+			event := d.eventBus.Events().Get(id)
 			if event == nil {
 				return fmt.Sprintf("Event %q not found.", id), true
 			}
@@ -99,12 +99,12 @@ func registerEventTools(reg *MCPToolRegistry) {
 		"agency_event_subscriptions",
 		"List all active event subscriptions (from missions, notifications, and system rules).",
 		nil,
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.eventBus == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.eventBus == nil {
 				return "Event bus not initialized.", true
 			}
 
-			subs := h.eventBus.Subscriptions().List()
+			subs := d.eventBus.Subscriptions().List()
 			if len(subs) == 0 {
 				return "No subscriptions.", false
 			}
@@ -137,8 +137,8 @@ func registerEventTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name", "event_type"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.webhookMgr == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.webhookMgr == nil {
 				return "Webhook manager not initialized.", true
 			}
 
@@ -148,7 +148,7 @@ func registerEventTools(reg *MCPToolRegistry) {
 				return "Error: name and event_type are required", true
 			}
 
-			wh, err := h.webhookMgr.Create(name, eventType)
+			wh, err := d.webhookMgr.Create(name, eventType)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -163,12 +163,12 @@ func registerEventTools(reg *MCPToolRegistry) {
 		"agency_webhook_list",
 		"List all registered inbound webhooks.",
 		nil,
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.webhookMgr == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.webhookMgr == nil {
 				return "Webhook manager not initialized.", true
 			}
 
-			webhooks, err := h.webhookMgr.List()
+			webhooks, err := d.webhookMgr.List()
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -195,8 +195,8 @@ func registerEventTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.webhookMgr == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.webhookMgr == nil {
 				return "Webhook manager not initialized.", true
 			}
 
@@ -205,7 +205,7 @@ func registerEventTools(reg *MCPToolRegistry) {
 				return "Error: name is required", true
 			}
 
-			if err := h.webhookMgr.Delete(name); err != nil {
+			if err := d.webhookMgr.Delete(name); err != nil {
 				return "Error: " + err.Error(), true
 			}
 
@@ -223,11 +223,11 @@ func registerNotificationTools(reg *MCPToolRegistry) {
 		"agency_notification_list",
 		"List configured notification destinations for operator alerts.",
 		nil,
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.notifStore == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.notifStore == nil {
 				return "Notification store not initialized.", true
 			}
-			configs := h.notifStore.List()
+			configs := d.notifStore.List()
 			if len(configs) == 0 {
 				return "No notification destinations configured.", false
 			}
@@ -250,8 +250,8 @@ func registerNotificationTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name", "url"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.notifStore == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.notifStore == nil {
 				return "Notification store not initialized.", true
 			}
 
@@ -281,15 +281,15 @@ func registerNotificationTools(reg *MCPToolRegistry) {
 				Events: evts,
 			}
 
-			if err := h.notifStore.Add(nc); err != nil {
+			if err := d.notifStore.Add(nc); err != nil {
 				return "Error: " + err.Error(), true
 			}
 
 			// Hot-reload subscriptions
-			if h.eventBus != nil {
+			if d.eventBus != nil {
 				subs := events.BuildNotificationSubscriptions([]config.NotificationConfig{nc})
 				for _, sub := range subs {
-					h.eventBus.Subscriptions().Add(sub)
+					d.eventBus.Subscriptions().Add(sub)
 				}
 			}
 
@@ -308,8 +308,8 @@ func registerNotificationTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.notifStore == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.notifStore == nil {
 				return "Notification store not initialized.", true
 			}
 
@@ -318,12 +318,12 @@ func registerNotificationTools(reg *MCPToolRegistry) {
 				return "Error: name is required", true
 			}
 
-			if err := h.notifStore.Remove(name); err != nil {
+			if err := d.notifStore.Remove(name); err != nil {
 				return "Error: " + err.Error(), true
 			}
 
-			if h.eventBus != nil {
-				h.eventBus.Subscriptions().RemoveByOrigin(events.OriginNotification, name)
+			if d.eventBus != nil {
+				d.eventBus.Subscriptions().RemoveByOrigin(events.OriginNotification, name)
 			}
 
 			return fmt.Sprintf("Removed notification destination %q", name), false
@@ -341,8 +341,8 @@ func registerNotificationTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.notifStore == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.notifStore == nil {
 				return "Notification store not initialized.", true
 			}
 
@@ -351,11 +351,11 @@ func registerNotificationTools(reg *MCPToolRegistry) {
 				return "Error: name is required", true
 			}
 
-			if _, err := h.notifStore.Get(name); err != nil {
+			if _, err := d.notifStore.Get(name); err != nil {
 				return "Error: " + err.Error(), true
 			}
 
-			if h.eventBus == nil {
+			if d.eventBus == nil {
 				return "Event bus not initialized.", true
 			}
 
@@ -364,7 +364,7 @@ func registerNotificationTools(reg *MCPToolRegistry) {
 				"severity": "info",
 				"message":  "Test notification from agency",
 			})
-			h.eventBus.Publish(event)
+			d.eventBus.Publish(event)
 
 			return fmt.Sprintf("Test notification sent (event: %s)", event.ID), false
 		},

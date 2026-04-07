@@ -14,36 +14,36 @@ import (
 
 // budgetStore returns the legacy file-based budget store.
 // Still used by infra LLM budget tracking and MCP tools.
-func (h *handler) budgetStore() *budget.Store {
-	return budget.NewStore(filepath.Join(h.cfg.Home, "budget"))
+func (d *mcpDeps) budgetStore() *budget.Store {
+	return budget.NewStore(filepath.Join(d.cfg.Home, "budget"))
 }
 
-func (h *handler) budgetConfig() models.PlatformBudgetConfig {
+func (d *mcpDeps) budgetConfig() models.PlatformBudgetConfig {
 	return models.DefaultPlatformBudgetConfig()
 }
 
 // getBudget returns full budget state for an agent.
 // Computes usage from enforcer audit logs (same source as routing metrics)
 // so it works even without the enforcer POSTing costs to /budget/record.
-func (h *handler) getBudget(w http.ResponseWriter, r *http.Request) {
+func (d *mcpDeps) getBudget(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	limits := h.budgetConfig()
+	limits := d.budgetConfig()
 
 	// Compute today's usage from audit logs
 	now := time.Now().UTC()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 
-	costs := loadModelCosts(h.cfg.Home)
+	costs := loadModelCosts(d.cfg.Home)
 
 	// Today's metrics
-	todayMetrics, _ := routing.CollectWithCosts(h.cfg.Home, routing.MetricsQuery{
+	todayMetrics, _ := routing.CollectWithCosts(d.cfg.Home, routing.MetricsQuery{
 		Agent: name,
 		Since: todayStart.Format(time.RFC3339),
 	}, costs)
 
 	// Monthly metrics
-	monthMetrics, _ := routing.CollectWithCosts(h.cfg.Home, routing.MetricsQuery{
+	monthMetrics, _ := routing.CollectWithCosts(d.cfg.Home, routing.MetricsQuery{
 		Agent: name,
 		Since: monthStart.Format(time.RFC3339),
 	}, costs)
@@ -80,19 +80,19 @@ func (h *handler) getBudget(w http.ResponseWriter, r *http.Request) {
 }
 
 // getBudgetRemaining returns lightweight remaining budget (computed from audit logs).
-func (h *handler) getBudgetRemaining(w http.ResponseWriter, r *http.Request) {
+func (d *mcpDeps) getBudgetRemaining(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	limits := h.budgetConfig()
-	costs := loadModelCosts(h.cfg.Home)
+	limits := d.budgetConfig()
+	costs := loadModelCosts(d.cfg.Home)
 
 	now := time.Now().UTC()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 
-	todayMetrics, _ := routing.CollectWithCosts(h.cfg.Home, routing.MetricsQuery{
+	todayMetrics, _ := routing.CollectWithCosts(d.cfg.Home, routing.MetricsQuery{
 		Agent: name, Since: todayStart.Format(time.RFC3339),
 	}, costs)
-	monthMetrics, _ := routing.CollectWithCosts(h.cfg.Home, routing.MetricsQuery{
+	monthMetrics, _ := routing.CollectWithCosts(d.cfg.Home, routing.MetricsQuery{
 		Agent: name, Since: monthStart.Format(time.RFC3339),
 	}, costs)
 

@@ -48,13 +48,13 @@ func registerTeamTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "name")
 			if err := mcpValidateResourceName(name, "team"); err != nil {
 				return fmt.Sprintf("Error: %s", err), true
 			}
 
-			teamDir := filepath.Join(h.cfg.Home, "teams", name)
+			teamDir := filepath.Join(d.cfg.Home, "teams", name)
 			if err := os.MkdirAll(teamDir, 0755); err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -73,8 +73,8 @@ func registerTeamTools(reg *MCPToolRegistry) {
 				return "Error: " + err.Error(), true
 			}
 
-			h.log.Info("team created", "name", name)
-			h.audit.WriteSystem("team_created", map[string]interface{}{"team": name})
+			d.log.Info("team created", "name", name)
+			d.audit.WriteSystem("team_created", map[string]interface{}{"team": name})
 			return fmt.Sprintf("Team '%s' created.", name), false
 		},
 	)
@@ -84,8 +84,8 @@ func registerTeamTools(reg *MCPToolRegistry) {
 		"agency_team_list",
 		"List all configured teams with member counts.",
 		nil,
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			teamsDir := filepath.Join(h.cfg.Home, "teams")
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			teamsDir := filepath.Join(d.cfg.Home, "teams")
 			entries, err := os.ReadDir(teamsDir)
 			if err != nil {
 				return "No teams configured.", false
@@ -128,12 +128,12 @@ func registerTeamTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "name")
 			if err := mcpValidateResourceName(name, "team"); err != nil {
 				return fmt.Sprintf("Error: %s", err), true
 			}
-			teamPath := filepath.Join(h.cfg.Home, "teams", name, "team.yaml")
+			teamPath := filepath.Join(d.cfg.Home, "teams", name, "team.yaml")
 			data, err := os.ReadFile(teamPath)
 			if err != nil {
 				return fmt.Sprintf("Error: team not found: %s", name), true
@@ -182,12 +182,12 @@ func registerTeamTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "name")
 			if err := mcpValidateResourceName(name, "team"); err != nil {
 				return fmt.Sprintf("Error: %s", err), true
 			}
-			teamPath := filepath.Join(h.cfg.Home, "teams", name, "team.yaml")
+			teamPath := filepath.Join(d.cfg.Home, "teams", name, "team.yaml")
 			data, err := os.ReadFile(teamPath)
 			if err != nil {
 				return fmt.Sprintf("Error: team not found: %s", name), true
@@ -196,7 +196,7 @@ func registerTeamTools(reg *MCPToolRegistry) {
 			yaml.Unmarshal(data, &team)
 
 			members, _ := team["members"].([]interface{})
-			reader := logs.NewReader(h.cfg.Home)
+			reader := logs.NewReader(d.cfg.Home)
 			var activity []string
 			for _, m := range members {
 				memberName, ok := m.(string)
@@ -240,7 +240,7 @@ func registerDeployTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"pack_file"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			packFile := mapStr(args, "pack_file")
 			if packFile == "" {
 				return "Error: pack_file is required", true
@@ -282,13 +282,13 @@ func registerDeployTools(reg *MCPToolRegistry) {
 				}
 			}
 
-			deployer := orchestrate.NewDeployer(h.cfg.Home, h.cfg.Version, h.dc, h.log)
+			deployer := orchestrate.NewDeployer(d.cfg.Home, d.cfg.Version, d.dc, d.log)
 			deployer.Credentials = creds
-			deployer.CredStore = h.credStore
+			deployer.CredStore = d.credStore
 
 			if mapBool(args, "dry_run") {
 				result, err := deployer.DryRunDeploy(context.Background(), pack, func(s string) {
-					h.log.Info("deploy dry-run", "status", s)
+					d.log.Info("deploy dry-run", "status", s)
 				})
 				if err != nil {
 					return "Error: " + err.Error(), true
@@ -298,13 +298,13 @@ func registerDeployTools(reg *MCPToolRegistry) {
 			}
 
 			result, err := deployer.Deploy(context.Background(), pack, func(s string) {
-				h.log.Info("deploy", "status", s)
+				d.log.Info("deploy", "status", s)
 			})
 			if err != nil {
-				h.audit.WriteSystem("deploy_failed", map[string]interface{}{"pack": packFile, "error": err.Error()})
+				d.audit.WriteSystem("deploy_failed", map[string]interface{}{"pack": packFile, "error": err.Error()})
 				return "Error: " + err.Error(), true
 			}
-			h.audit.WriteSystem("pack_deployed", map[string]interface{}{"pack": packFile})
+			d.audit.WriteSystem("pack_deployed", map[string]interface{}{"pack": packFile})
 			data, _ := json.Marshal(result)
 			return string(data), false
 		},
@@ -322,19 +322,19 @@ func registerDeployTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"pack_name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			packName := mapStr(args, "pack_name")
 			if packName == "" {
 				return "Error: pack_name is required", true
 			}
 			del := mapBool(args, "delete")
 
-			deployer := orchestrate.NewDeployer(h.cfg.Home, h.cfg.Version, h.dc, h.log)
-			deployer.CredStore = h.credStore
+			deployer := orchestrate.NewDeployer(d.cfg.Home, d.cfg.Version, d.dc, d.log)
+			deployer.CredStore = d.credStore
 			if err := deployer.Teardown(context.Background(), packName, del); err != nil {
 				return "Error: " + err.Error(), true
 			}
-			h.audit.WriteSystem("pack_teardown", map[string]interface{}{"pack": packName, "delete": del})
+			d.audit.WriteSystem("pack_teardown", map[string]interface{}{"pack": packName, "delete": del})
 			action := "stopped"
 			if del {
 				action = "torn down and deleted"
@@ -357,9 +357,9 @@ func registerConnectorTools(reg *MCPToolRegistry) {
 				"kind": map[string]interface{}{"type": "string", "description": "Component kind filter (optional, e.g. connector, preset, pack)"},
 			},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			kind := mapStr(args, "kind")
-			mgr := hub.NewManager(h.cfg.Home)
+			mgr := hub.NewManager(d.cfg.Home)
 			instances := mgr.Registry.List(kind)
 
 			if len(instances) == 0 {
@@ -384,12 +384,12 @@ func registerConnectorTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name_or_id"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "name_or_id")
 			if name == "" {
 				return "Error: name_or_id is required", true
 			}
-			mgr := hub.NewManager(h.cfg.Home)
+			mgr := hub.NewManager(d.cfg.Home)
 			inst := mgr.Registry.Resolve(name)
 			if inst == nil {
 				return fmt.Sprintf("Error: component instance not found: %s", name), true
@@ -397,8 +397,8 @@ func registerConnectorTools(reg *MCPToolRegistry) {
 			if err := mgr.Registry.SetState(name, "active"); err != nil {
 				return fmt.Sprintf("Error: %s", err), true
 			}
-			h.dc.CommsRequest(context.Background(), "POST", "/hub/"+inst.Name+"/activate", nil)
-			h.log.Info("hub component activated", "name", inst.Name, "id", inst.ID)
+			d.dc.CommsRequest(context.Background(), "POST", "/hub/"+inst.Name+"/activate", nil)
+			d.log.Info("hub component activated", "name", inst.Name, "id", inst.ID)
 			return fmt.Sprintf("Component instance '%s' activated.", inst.Name), false
 		},
 	)
@@ -414,12 +414,12 @@ func registerConnectorTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name_or_id"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "name_or_id")
 			if name == "" {
 				return "Error: name_or_id is required", true
 			}
-			mgr := hub.NewManager(h.cfg.Home)
+			mgr := hub.NewManager(d.cfg.Home)
 			inst := mgr.Registry.Resolve(name)
 			if inst == nil {
 				return fmt.Sprintf("Error: component instance not found: %s", name), true
@@ -427,8 +427,8 @@ func registerConnectorTools(reg *MCPToolRegistry) {
 			if err := mgr.Registry.SetState(name, "inactive"); err != nil {
 				return fmt.Sprintf("Error: %s", err), true
 			}
-			h.dc.CommsRequest(context.Background(), "POST", "/hub/"+inst.Name+"/deactivate", nil)
-			h.log.Info("hub component deactivated", "name", inst.Name, "id", inst.ID)
+			d.dc.CommsRequest(context.Background(), "POST", "/hub/"+inst.Name+"/deactivate", nil)
+			d.log.Info("hub component deactivated", "name", inst.Name, "id", inst.ID)
 			return fmt.Sprintf("Component instance '%s' deactivated.", inst.Name), false
 		},
 	)
@@ -444,12 +444,12 @@ func registerConnectorTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name_or_id"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "name_or_id")
 			if name == "" {
 				return "Error: name_or_id is required", true
 			}
-			mgr := hub.NewManager(h.cfg.Home)
+			mgr := hub.NewManager(d.cfg.Home)
 			inst := mgr.Registry.Resolve(name)
 			if inst == nil {
 				return fmt.Sprintf("Error: component instance not found: %s", name), true
@@ -462,7 +462,7 @@ func registerConnectorTools(reg *MCPToolRegistry) {
 			}
 
 			// Try to get live status from intake
-			liveData, err := h.dc.CommsRequest(context.Background(), "GET", "/hub/"+inst.Name+"/status", nil)
+			liveData, err := d.dc.CommsRequest(context.Background(), "GET", "/hub/"+inst.Name+"/status", nil)
 			if err == nil {
 				var liveStatus map[string]interface{}
 				if json.Unmarshal(liveData, &liveStatus) == nil {
@@ -503,7 +503,7 @@ func registerIntakeTools(reg *MCPToolRegistry) {
 				"limit":        map[string]interface{}{"type": "integer", "description": "Max items", "default": 50},
 			},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			path := "/items"
 			connector := mapStr(args, "connector")
 			if connector != "" {
@@ -555,7 +555,7 @@ func registerIntakeTools(reg *MCPToolRegistry) {
 				"connector": map[string]interface{}{"type": "string", "description": "Filter by connector name"},
 			},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			out, err := serviceGet(context.Background(), "8205", "/stats")
 			if err != nil {
 				return "Intake service unavailable.", true
@@ -599,10 +599,10 @@ func registerHubTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"query"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			query := mapStr(args, "query")
 			kind := mapStr(args, "kind")
-			mgr := hub.NewManager(h.cfg.Home)
+			mgr := hub.NewManager(d.cfg.Home)
 			results := mgr.Search(query, kind)
 
 			if len(results) == 0 {
@@ -630,12 +630,12 @@ func registerHubTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"component", "kind"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "component")
 			kind := mapStr(args, "kind")
 			source := mapStr(args, "source")
 
-			mgr := hub.NewManager(h.cfg.Home)
+			mgr := hub.NewManager(d.cfg.Home)
 			inst, err := mgr.Install(name, kind, source, "")
 			if err != nil {
 				return "Error: " + err.Error(), true
@@ -661,11 +661,11 @@ func registerHubTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"component", "kind"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "component")
 			kind := mapStr(args, "kind")
 
-			mgr := hub.NewManager(h.cfg.Home)
+			mgr := hub.NewManager(d.cfg.Home)
 			if err := mgr.Remove(name, kind); err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -678,8 +678,8 @@ func registerHubTools(reg *MCPToolRegistry) {
 		"agency_hub_list",
 		"List all hub-installed components with provenance details.",
 		nil,
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			mgr := hub.NewManager(h.cfg.Home)
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			mgr := hub.NewManager(d.cfg.Home)
 			installed := mgr.List()
 
 			if len(installed) == 0 {
@@ -699,8 +699,8 @@ func registerHubTools(reg *MCPToolRegistry) {
 		"agency_hub_update",
 		"Sync all hub source caches (git pull). Does not upgrade installed components.",
 		nil,
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			mgr := hub.NewManager(h.cfg.Home)
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			mgr := hub.NewManager(d.cfg.Home)
 			report, err := mgr.Update()
 			if err != nil {
 				return "Error: " + err.Error(), true
@@ -739,8 +739,8 @@ func registerHubTools(reg *MCPToolRegistry) {
 		"agency_hub_outdated",
 		"Show what would be upgraded from current hub cache. No network access.",
 		nil,
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			mgr := hub.NewManager(h.cfg.Home)
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			mgr := hub.NewManager(d.cfg.Home)
 			upgrades := mgr.Outdated()
 
 			if len(upgrades) == 0 {
@@ -773,7 +773,7 @@ func registerHubTools(reg *MCPToolRegistry) {
 				},
 			},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			var components []string
 			if raw, ok := args["components"]; ok {
 				if arr, ok := raw.([]interface{}); ok {
@@ -785,7 +785,7 @@ func registerHubTools(reg *MCPToolRegistry) {
 				}
 			}
 
-			mgr := hub.NewManager(h.cfg.Home)
+			mgr := hub.NewManager(d.cfg.Home)
 			report, err := mgr.Upgrade(components)
 			if err != nil {
 				return "Error: " + err.Error(), true
@@ -835,11 +835,11 @@ func registerHubTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"component"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "component")
 			kind := mapStr(args, "kind")
 
-			mgr := hub.NewManager(h.cfg.Home)
+			mgr := hub.NewManager(d.cfg.Home)
 			info, err := mgr.Info(name, kind)
 			if err != nil {
 				return "Error: " + err.Error(), true

@@ -36,8 +36,8 @@ func registerCredentialTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name", "value", "kind", "scope", "protocol"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.credStore == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.credStore == nil {
 				return "Error: credential store not initialized", true
 			}
 
@@ -90,7 +90,7 @@ func registerCredentialTools(reg *MCPToolRegistry) {
 				},
 			}
 
-			if err := h.credStore.Put(entry); err != nil {
+			if err := d.credStore.Put(entry); err != nil {
 				return "Error: " + err.Error(), true
 			}
 			return fmt.Sprintf("Credential %q stored (kind=%s scope=%s protocol=%s)", name, kind, scope, protocol), false
@@ -110,8 +110,8 @@ func registerCredentialTools(reg *MCPToolRegistry) {
 				"group":   map[string]interface{}{"type": "string", "description": "Filter by group"},
 			},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.credStore == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.credStore == nil {
 				return "Error: credential store not initialized", true
 			}
 
@@ -129,7 +129,7 @@ func registerCredentialTools(reg *MCPToolRegistry) {
 				filter.Group = g
 			}
 
-			entries, err := h.credStore.List(filter)
+			entries, err := d.credStore.List(filter)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -168,13 +168,13 @@ func registerCredentialTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.credStore == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.credStore == nil {
 				return "Error: credential store not initialized", true
 			}
 
 			name, _ := args["name"].(string)
-			entry, err := h.credStore.Get(name)
+			entry, err := d.credStore.Get(name)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -220,13 +220,13 @@ func registerCredentialTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.credStore == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.credStore == nil {
 				return "Error: credential store not initialized", true
 			}
 
 			name, _ := args["name"].(string)
-			if err := h.credStore.Delete(name); err != nil {
+			if err := d.credStore.Delete(name); err != nil {
 				return "Error: " + err.Error(), true
 			}
 			return fmt.Sprintf("Credential %q deleted", name), false
@@ -245,14 +245,14 @@ func registerCredentialTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name", "value"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.credStore == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.credStore == nil {
 				return "Error: credential store not initialized", true
 			}
 
 			name, _ := args["name"].(string)
 			value, _ := args["value"].(string)
-			if err := h.credStore.Rotate(name, value); err != nil {
+			if err := d.credStore.Rotate(name, value); err != nil {
 				return "Error: " + err.Error(), true
 			}
 			return fmt.Sprintf("Credential %q rotated", name), false
@@ -270,13 +270,13 @@ func registerCredentialTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.credStore == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.credStore == nil {
 				return "Error: credential store not initialized", true
 			}
 
 			name, _ := args["name"].(string)
-			result, err := h.credStore.Test(name)
+			result, err := d.credStore.Test(name)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -308,8 +308,8 @@ func registerCredentialTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name", "protocol"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.credStore == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.credStore == nil {
 				return "Error: credential store not initialized", true
 			}
 
@@ -348,7 +348,7 @@ func registerCredentialTools(reg *MCPToolRegistry) {
 				},
 			}
 
-			if err := h.credStore.Put(entry); err != nil {
+			if err := d.credStore.Put(entry); err != nil {
 				return "Error: " + err.Error(), true
 			}
 			return fmt.Sprintf("Group %q created (protocol=%s)", name, protocol), false

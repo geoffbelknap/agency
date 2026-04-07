@@ -52,6 +52,26 @@ func RegisterRoutes(r chi.Router, d Deps) {
 		r.Get("/ontology/relationships", h.knowledgeOntologyRelationships)
 		r.Post("/ontology/validate", h.knowledgeOntologyValidate)
 		r.Post("/ontology/migrate", h.knowledgeOntologyMigrate)
+
+		// Principals (knowledge service proxy)
+		r.Get("/principals", h.knowledgePrincipalsList)
+		r.Post("/principals", h.knowledgePrincipalsRegister)
+		r.Get("/principals/{uuid}", h.knowledgePrincipalsResolve)
+
+		// Quarantine (ASK tenet 16)
+		r.Post("/quarantine", h.knowledgeQuarantine)
+		r.Post("/quarantine/release", h.knowledgeQuarantineRelease)
+		r.Get("/quarantine", h.knowledgeQuarantineList)
+
+		// Classification, communities, hubs
+		r.Get("/classification", h.knowledgeClassification)
+		r.Get("/communities", h.knowledgeCommunities)
+		r.Get("/communities/{id}", h.knowledgeCommunity)
+		r.Get("/hubs", h.knowledgeHubs)
+
+		// Ingestion and insights
+		r.Post("/ingest", h.knowledgeIngest)
+		r.Post("/insight", h.knowledgeSaveInsight)
 	})
 
 	r.Route("/api/v1/ontology", func(r chi.Router) {

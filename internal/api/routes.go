@@ -116,7 +116,7 @@ func RegisterCredentialSocketRoutes(r chi.Router, cfg *config.Config, dc *docker
 // RegisterAll sets up all REST API routes with full option support.
 // This is the canonical registration entry point for the full HTTP API surface.
 func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *slog.Logger, startup *StartupResult, opts RouteOptions) {
-	h := &handler{
+	d := &mcpDeps{
 		cfg: cfg, dc: dc, log: logger,
 		infra: startup.Infra, agents: startup.AgentManager,
 		halt: startup.HaltController, audit: startup.Audit,
@@ -128,23 +128,23 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 
 	// Wire event framework components
 	if opts.EventBus != nil {
-		h.eventBus = opts.EventBus
+		d.eventBus = opts.EventBus
 	}
 	if opts.WebhookMgr != nil {
-		h.webhookMgr = opts.WebhookMgr
+		d.webhookMgr = opts.WebhookMgr
 	}
 	if opts.HealthMonitor != nil {
-		h.healthMonitor = opts.HealthMonitor
+		d.healthMonitor = opts.HealthMonitor
 	}
 	if opts.NotifStore != nil {
-		h.notifStore = opts.NotifStore
+		d.notifStore = opts.NotifStore
 	}
-	if opts.StopSuppress != nil && h.agents != nil {
-		h.agents.StopSuppress = opts.StopSuppress
+	if opts.StopSuppress != nil && d.agents != nil {
+		d.agents.StopSuppress = opts.StopSuppress
 	}
 
-	if opts.Optimizer != nil && h.infra != nil {
-		h.infra.Optimizer = opts.Optimizer
+	if opts.Optimizer != nil && d.infra != nil {
+		d.infra.Optimizer = opts.Optimizer
 	}
 
 	// Permission enforcement middleware — runs after BearerAuth has resolved
@@ -190,51 +190,9 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 		RawDocker:       dc,
 	})
 
-	r.Route("/api/v1", func(r chi.Router) {
-		// Agent logs (still in api package — depends on logs.Reader)
-		r.Get("/agents/{name}/logs", h.agentLogs)
-
-		// New routes added after modularization — these remain on the
-		// monolithic handler temporarily until moved to their modules.
-		r.Post("/knowledge/ingest", h.knowledgeIngest)
-		r.Post("/knowledge/insight", h.knowledgeSaveInsight)
-		r.Get("/knowledge/principals", h.knowledgePrincipalsList)
-		r.Post("/knowledge/principals", h.knowledgePrincipalsRegister)
-		r.Get("/knowledge/principals/{uuid}", h.knowledgePrincipalsResolve)
-		r.Post("/knowledge/quarantine", h.knowledgeQuarantine)
-		r.Post("/knowledge/quarantine/release", h.knowledgeQuarantineRelease)
-		r.Get("/knowledge/quarantine", h.knowledgeQuarantineList)
-		r.Get("/knowledge/classification", h.knowledgeClassification)
-		r.Get("/knowledge/communities", h.knowledgeCommunities)
-		r.Get("/knowledge/communities/{id}", h.knowledgeCommunity)
-		r.Get("/knowledge/hubs", h.knowledgeHubs)
-
-		// Principal registry
-		r.Get("/registry", h.registrySnapshot)
-		r.Get("/registry/resolve", h.registryResolve)
-		r.Get("/registry/list", h.registryList)
-		r.Post("/registry", h.registryRegister)
-		r.Get("/registry/{uuid}/effective", h.registryEffective)
-		r.Put("/registry/{uuid}", h.registryUpdate)
-		r.Delete("/registry/{uuid}", h.registryDelete)
-
-		// Routing optimizer
-		r.Get("/routing/suggestions", h.routingSuggestions)
-		r.Post("/routing/suggestions/{id}/approve", h.routingSuggestionApprove)
-		r.Post("/routing/suggestions/{id}/reject", h.routingSuggestionReject)
-		r.Get("/routing/stats", h.routingStats)
-
-		// Intake
-		r.Get("/intake/items", h.intakeItems)
-		r.Get("/intake/stats", h.intakeStats)
-		r.Post("/intake/webhook", h.intakeWebhook)
-
-		// MCP tools
-		r.Get("/mcp/tools", mcpToolsHandler(h.mcpReg))
-		r.Post("/mcp/call", mcpCallHandler(h.mcpReg, h))
-
-		// Missions routes are registered by the missions module below.
-	})
+	// MCP tools
+	r.Get("/api/v1/mcp/tools", mcpToolsHandler(d.mcpReg))
+	r.Post("/api/v1/mcp/call", mcpCallHandler(d.mcpReg, d))
 
 	// Events, webhook, notification, and subscription routes (extracted module)
 	// Only registered when the event bus is wired in.
@@ -327,17 +285,15 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 	})
 }
 
-// handler is the monolithic handler struct that exists solely to support MCP tool
-// registration. All REST route handlers have been extracted into their own modules
+// handler is a type alias for mcpDeps, preserved for backward compatibility
+// with old handler files that will be deleted in a follow-up task.
+type handler = mcpDeps
+
+// mcpDeps holds the dependencies consumed exclusively by MCP tool handlers.
+// All REST route handlers have been extracted into their own subpackage modules
 // (agents, admin, hub, infra, events, missions, platform, graph, creds, comms).
-//
-// The remaining fields are consumed by the MCP tool registration files
-// (mcp_register.go, mcp_admin.go, mcp_credentials.go, mcp_events.go,
-// mcp_meeseeks.go, mcp_missions.go, mcp_profiles.go) and by the small number
-// of routes still registered inline in RegisterAll (agentLogs, intakeItems,
-// intakeStats, intakeWebhook). Moving MCP registration into the individual
-// modules is a follow-up task.
-type handler struct {
+// Moving MCP registration into the individual modules is a follow-up task.
+type mcpDeps struct {
 	cfg        *config.Config
 	dc         *docker.Client
 	log        *slog.Logger
@@ -362,28 +318,28 @@ type handler struct {
 
 // registerEnforcerWSClient creates a WebSocket client to the agent's enforcer
 // and registers it with the ContextManager for constraint delivery.
-// Used by MCP start/restart tools which run through the monolithic handler.
-func (h *handler) registerEnforcerWSClient(agentName string) {
+// Used by MCP start/restart tools.
+func (d *mcpDeps) registerEnforcerWSClient(agentName string) {
 	enforcerWSURL := fmt.Sprintf("ws://agency-%s-enforcer:8081/ws", agentName)
-	wsClient := agencyctx.NewWSClient(agentName, enforcerWSURL, h.log)
+	wsClient := agencyctx.NewWSClient(agentName, enforcerWSURL, d.log)
 	wsClient.SetCallbacks(
-		func(agent string) { h.ctxMgr.HandleEnforcerDisconnect(agent) },
-		func(agent string) { h.ctxMgr.HandleEnforcerReconnect(agent) },
+		func(agent string) { d.ctxMgr.HandleEnforcerDisconnect(agent) },
+		func(agent string) { d.ctxMgr.HandleEnforcerReconnect(agent) },
 	)
 	go wsClient.ConnectWithReconnect()
-	h.ctxMgr.RegisterWSClient(agentName, wsClient)
-	h.log.Info("enforcer ws client registered", "agent", agentName, "url", enforcerWSURL)
+	d.ctxMgr.RegisterWSClient(agentName, wsClient)
+	d.log.Info("enforcer ws client registered", "agent", agentName, "url", enforcerWSURL)
 }
 
 // unregisterEnforcerWSClient closes and removes the WebSocket client for an agent.
-func (h *handler) unregisterEnforcerWSClient(agentName string) {
-	h.ctxMgr.UnregisterWSClient(agentName)
+func (d *mcpDeps) unregisterEnforcerWSClient(agentName string) {
+	d.ctxMgr.UnregisterWSClient(agentName)
 }
 
 // containerInstanceID returns the short Docker container ID for a component.
-func (h *handler) containerInstanceID(ctx context.Context, agentName, component string) string {
+func (d *mcpDeps) containerInstanceID(ctx context.Context, agentName, component string) string {
 	containerName := fmt.Sprintf("agency-%s-%s", agentName, component)
-	return h.dc.ContainerShortID(ctx, containerName)
+	return d.dc.ContainerShortID(ctx, containerName)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

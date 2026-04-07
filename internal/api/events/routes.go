@@ -50,6 +50,11 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	// Inbound webhook receiver
 	r.Post("/api/v1/events/webhook/{name}", h.receiveWebhook)
 
+	// Intake proxy
+	r.Get("/api/v1/intake/items", h.intakeItems)
+	r.Get("/api/v1/intake/stats", h.intakeStats)
+	r.Post("/api/v1/intake/webhook", h.intakeWebhook)
+
 	// Notifications
 	r.Get("/api/v1/notifications", h.listNotifications)
 	r.Post("/api/v1/notifications", h.addNotification)

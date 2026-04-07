@@ -28,7 +28,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 		"agency_admin_doctor",
 		"Verify all six security guarantees against running containers. Reports pass/fail for each guarantee.",
 		nil,
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			ctx := context.Background()
 
 			type checkResult struct {
@@ -40,7 +40,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 			allPassed := true
 			var checks []checkResult
 
-			agents, err := h.dc.ListAgentWorkspaces(ctx)
+			agents, err := d.dc.ListAgentWorkspaces(ctx)
 			if err != nil {
 				return fmt.Sprintf("Security guarantees (FAILURES)\n  Cannot list containers: %s", err), true
 			}
@@ -55,7 +55,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 
 				// 1. LLM credentials isolated
 				func() {
-					ws, err := h.dc.InspectContainer(ctx, wsName)
+					ws, err := d.dc.InspectContainer(ctx, wsName)
 					if err != nil {
 						allPassed = false
 						checks = append(checks, checkResult{"credentials_isolated", agentName, "FAIL", "Cannot inspect workspace: " + err.Error()})
@@ -89,7 +89,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 
 				// 2. Network mediation complete
 				func() {
-					ws, err := h.dc.InspectContainer(ctx, wsName)
+					ws, err := d.dc.InspectContainer(ctx, wsName)
 					if err != nil {
 						allPassed = false
 						checks = append(checks, checkResult{"network_mediation", agentName, "FAIL", "Cannot inspect workspace: " + err.Error()})
@@ -111,7 +111,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 
 				// 3. Constraints read-only
 				func() {
-					ws, err := h.dc.InspectContainer(ctx, wsName)
+					ws, err := d.dc.InspectContainer(ctx, wsName)
 					if err != nil {
 						allPassed = false
 						checks = append(checks, checkResult{"constraints_readonly", agentName, "FAIL", "Cannot inspect workspace: " + err.Error()})
@@ -137,7 +137,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 
 				// 4. Enforcer audit active
 				func() {
-					enf, err := h.dc.InspectContainer(ctx, enfName)
+					enf, err := d.dc.InspectContainer(ctx, enfName)
 					if err != nil {
 						allPassed = false
 						checks = append(checks, checkResult{"enforcer_audit", agentName, "FAIL", "Enforcer container not found: " + err.Error()})
@@ -157,7 +157,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 
 				// 5. Audit log not writable by agent
 				func() {
-					ws, err := h.dc.InspectContainer(ctx, wsName)
+					ws, err := d.dc.InspectContainer(ctx, wsName)
 					if err != nil {
 						allPassed = false
 						checks = append(checks, checkResult{"audit_not_writable", agentName, "FAIL", "Cannot inspect workspace: " + err.Error()})
@@ -177,7 +177,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 
 				// 6. Halt functional
 				func() {
-					ws, err := h.dc.InspectContainer(ctx, wsName)
+					ws, err := d.dc.InspectContainer(ctx, wsName)
 					if err != nil {
 						allPassed = false
 						checks = append(checks, checkResult{"halt_functional", agentName, "FAIL", "Cannot inspect workspace: " + err.Error()})
@@ -193,7 +193,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 
 				// 7. Operator override available
 				func() {
-					enf, err := h.dc.InspectContainer(ctx, enfName)
+					enf, err := d.dc.InspectContainer(ctx, enfName)
 					if err != nil {
 						allPassed = false
 						checks = append(checks, checkResult{"operator_override", agentName, "FAIL", "Cannot inspect enforcer: " + err.Error()})
@@ -217,7 +217,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 
 			// 8. Build consistency — infrastructure
 			func() {
-				infraStatus, err := h.dc.InfraStatus(ctx)
+				infraStatus, err := d.dc.InfraStatus(ctx)
 				if err != nil {
 					allPassed = false
 					checks = append(checks, checkResult{"build_consistency", "infra", "FAIL", "Cannot get infra status: " + err.Error()})
@@ -225,15 +225,15 @@ func registerAdminTools(reg *MCPToolRegistry) {
 				}
 				var mismatched []string
 				for _, ic := range infraStatus {
-					if ic.BuildID != "" && ic.BuildID != h.cfg.BuildID {
+					if ic.BuildID != "" && ic.BuildID != d.cfg.BuildID {
 						mismatched = append(mismatched, fmt.Sprintf("%s(%s)", ic.Name, ic.BuildID))
 					}
 				}
 				if len(mismatched) > 0 {
 					allPassed = false
-					checks = append(checks, checkResult{"build_consistency", "infra", "FAIL", fmt.Sprintf("Stale images: %s (gateway: %s)", strings.Join(mismatched, ", "), h.cfg.BuildID)})
+					checks = append(checks, checkResult{"build_consistency", "infra", "FAIL", fmt.Sprintf("Stale images: %s (gateway: %s)", strings.Join(mismatched, ", "), d.cfg.BuildID)})
 				} else {
-					checks = append(checks, checkResult{"build_consistency", "infra", "PASS", fmt.Sprintf("All infrastructure images match gateway build %s", h.cfg.BuildID)})
+					checks = append(checks, checkResult{"build_consistency", "infra", "PASS", fmt.Sprintf("All infrastructure images match gateway build %s", d.cfg.BuildID)})
 				}
 			}()
 
@@ -244,20 +244,20 @@ func registerAdminTools(reg *MCPToolRegistry) {
 					wsName := "agency-" + agentName + "-workspace"
 					var mismatched []string
 					for _, ctr := range []struct{ name, label string }{{enfName, "enforcer"}, {wsName, "workspace"}} {
-						ci, err := h.dc.InspectContainer(ctx, ctr.name)
+						ci, err := d.dc.InspectContainer(ctx, ctr.name)
 						if err != nil {
 							continue
 						}
 						bid := ci.Labels["agency.build.gateway"]
-						if bid != "" && bid != h.cfg.BuildID {
+						if bid != "" && bid != d.cfg.BuildID {
 							mismatched = append(mismatched, fmt.Sprintf("%s(%s)", ctr.label, bid))
 						}
 					}
 					if len(mismatched) > 0 {
 						allPassed = false
-						checks = append(checks, checkResult{"build_consistency", agentName, "FAIL", fmt.Sprintf("Stale images: %s (gateway: %s)", strings.Join(mismatched, ", "), h.cfg.BuildID)})
+						checks = append(checks, checkResult{"build_consistency", agentName, "FAIL", fmt.Sprintf("Stale images: %s (gateway: %s)", strings.Join(mismatched, ", "), d.cfg.BuildID)})
 					} else {
-						checks = append(checks, checkResult{"build_consistency", agentName, "PASS", fmt.Sprintf("All images match gateway build %s", h.cfg.BuildID)})
+						checks = append(checks, checkResult{"build_consistency", agentName, "PASS", fmt.Sprintf("All images match gateway build %s", d.cfg.BuildID)})
 					}
 				}()
 			}
@@ -274,7 +274,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 
 			// Scope audit: show declared scopes per agent per service
 			lines = append(lines, "", "Service credential scopes:")
-			scopeReport := h.buildScopeReport()
+			scopeReport := d.buildScopeReport()
 			if scopeReport == "" {
 				lines = append(lines, "  No scope declarations found in agent presets")
 			} else {
@@ -297,7 +297,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"reason"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			reason := mapStr(args, "reason")
 			if reason == "" {
 				return "Error: reason is required to prevent accidental use", true
@@ -306,21 +306,21 @@ func registerAdminTools(reg *MCPToolRegistry) {
 			ctx := context.Background()
 
 			// Stop all agents
-			if h.agents != nil {
-				agents, _ := h.agents.List(ctx)
+			if d.agents != nil {
+				agents, _ := d.agents.List(ctx)
 				for _, a := range agents {
-					h.agents.StopContainers(ctx, a.Name)
-					h.agents.Delete(ctx, a.Name)
+					d.agents.StopContainers(ctx, a.Name)
+					d.agents.Delete(ctx, a.Name)
 				}
 			}
 
 			// Tear down infrastructure
-			if h.infra != nil {
-				h.infra.Teardown(ctx)
+			if d.infra != nil {
+				d.infra.Teardown(ctx)
 			}
 
-			h.audit.WriteSystem("admin_destroy", map[string]interface{}{"reason": reason})
-			h.log.Info("admin destroy completed", "reason", reason)
+			d.audit.WriteSystem("admin_destroy", map[string]interface{}{"reason": reason})
+			d.log.Info("admin destroy completed", "reason", reason)
 			return "Agency destroyed. Knowledge graph preserved.", false
 		},
 	)
@@ -340,13 +340,13 @@ func registerAdminTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"action"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			action := mapStr(args, "action")
 			agent := mapStr(args, "agent")
 
 			if action == "list" {
 				// List all agent trust profiles
-				agentsDir := filepath.Join(h.cfg.Home, "agents")
+				agentsDir := filepath.Join(d.cfg.Home, "agents")
 				entries, err := os.ReadDir(agentsDir)
 				if err != nil {
 					return "No agents.", false
@@ -393,7 +393,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 				return `{"error":"invalid agent name"}`, false
 			}
 
-			trustPath := filepath.Join(h.cfg.Home, "agents", agent, "trust.yaml")
+			trustPath := filepath.Join(d.cfg.Home, "agents", agent, "trust.yaml")
 			var trust map[string]interface{}
 			if data, err := os.ReadFile(trustPath); err == nil {
 				yaml.Unmarshal(data, &trust)
@@ -469,7 +469,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 				if action == "demote" {
 					eventType = "trust_demoted"
 				}
-				h.audit.Write(agent, eventType, map[string]interface{}{"from": current, "to": target})
+				d.audit.Write(agent, eventType, map[string]interface{}{"from": current, "to": target})
 				return fmt.Sprintf("Trust for %s %sd: %s (level %d) → %s (level %d).", agent, action, levelLabels[current], current, levelLabels[target], target), false
 
 			case "record":
@@ -540,7 +540,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 				data, _ := yaml.Marshal(trust)
 				os.WriteFile(trustPath, data, 0644)
 
-				h.audit.Write(agent, "trust_signal", map[string]interface{}{"signal_type": signalType, "description": desc, "score": score, "level": newLevel})
+				d.audit.Write(agent, "trust_signal", map[string]interface{}{"signal_type": signalType, "description": desc, "score": score, "level": newLevel})
 
 				msg := fmt.Sprintf("Trust signal recorded for %s: %s (score: %.1f, level: %d)", agent, signalType, score, newLevel)
 				if newLevel != oldLevel {
@@ -570,14 +570,14 @@ func registerAdminTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"action", "agent"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			action := mapStr(args, "action")
 			agent := mapStr(args, "agent")
 			if !requireNameStr(agent) {
 				return `{"error":"invalid agent name"}`, false
 			}
 
-			egressPath := filepath.Join(h.cfg.Home, "agents", agent, "egress.yaml")
+			egressPath := filepath.Join(d.cfg.Home, "agents", agent, "egress.yaml")
 			var egress map[string]interface{}
 			if data, err := os.ReadFile(egressPath); err == nil {
 				yaml.Unmarshal(data, &egress)
@@ -624,7 +624,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 				egress["domains"] = domains
 				data, _ := yaml.Marshal(egress)
 				os.WriteFile(egressPath, data, 0644)
-				h.audit.Write(agent, "egress_domain_approved", map[string]interface{}{"domain": domain, "reason": reason})
+				d.audit.Write(agent, "egress_domain_approved", map[string]interface{}{"domain": domain, "reason": reason})
 				return fmt.Sprintf("Domain '%s' approved for %s.", domain, agent), false
 
 			case "revoke":
@@ -644,7 +644,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 				egress["domains"] = filtered
 				data, _ := yaml.Marshal(egress)
 				os.WriteFile(egressPath, data, 0644)
-				h.audit.Write(agent, "egress_domain_revoked", map[string]interface{}{"domain": domain})
+				d.audit.Write(agent, "egress_domain_revoked", map[string]interface{}{"domain": domain})
 				return fmt.Sprintf("Domain '%s' revoked from %s.", domain, agent), false
 
 			case "mode":
@@ -655,7 +655,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 				egress["mode"] = newMode
 				data, _ := yaml.Marshal(egress)
 				os.WriteFile(egressPath, data, 0644)
-				h.audit.Write(agent, "egress_mode_changed", map[string]interface{}{"mode": newMode})
+				d.audit.Write(agent, "egress_mode_changed", map[string]interface{}{"mode": newMode})
 				return fmt.Sprintf("Egress mode for %s set to %s.", agent, newMode), false
 
 			default:
@@ -679,12 +679,12 @@ func registerAdminTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"action"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			action := mapStr(args, "action")
 
 			switch action {
 			case "stats":
-				auditDir := filepath.Join(h.cfg.Home, "audit")
+				auditDir := filepath.Join(d.cfg.Home, "audit")
 				entries, err := os.ReadDir(auditDir)
 				if err != nil {
 					return "Audit log statistics:\n  Agents: 0\n  Log files: 0\n  Total size: 0.00 MB", false
@@ -737,7 +737,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 				if agent != "" && !requireNameStr(agent) {
 					return `{"error":"invalid agent name"}`, false
 				}
-				reader := logs.NewReader(h.cfg.Home)
+				reader := logs.NewReader(d.cfg.Home)
 				var events []logs.Event
 				var err error
 				if agent == "" {
@@ -755,7 +755,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 				return fmt.Sprintf("Audit log export: %d events for %s.", len(events), agent), false
 
 			case "retention":
-				h.audit.WriteSystem("retention_applied", nil)
+				d.audit.WriteSystem("retention_applied", nil)
 				return "Retention policy applied to audit logs.", false
 
 			default:
@@ -806,12 +806,12 @@ func registerAdminTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"action"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			action := mapStr(args, "action")
-			h.audit.WriteSystem("knowledge_admin", map[string]interface{}{"action": action})
+			d.audit.WriteSystem("knowledge_admin", map[string]interface{}{"action": action})
 
 			ctx := context.Background()
-			kp := h.knowledge
+			kp := d.knowledge
 
 			var (
 				raw []byte
@@ -957,9 +957,9 @@ func registerAdminTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"action"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			action := mapStr(args, "action")
-			deptDir := filepath.Join(h.cfg.Home, "departments")
+			deptDir := filepath.Join(d.cfg.Home, "departments")
 			os.MkdirAll(deptDir, 0755)
 
 			switch action {
@@ -1009,7 +1009,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 				}
 				data, _ := yaml.Marshal(policyData)
 				os.WriteFile(filepath.Join(dir, "policy.yaml"), data, 0644)
-				h.audit.WriteSystem("department_created", map[string]interface{}{"name": name})
+				d.audit.WriteSystem("department_created", map[string]interface{}{"name": name})
 				return fmt.Sprintf("Department '%s' created.", name), false
 
 			case "show":
@@ -1054,8 +1054,8 @@ func registerCapabilityTools(reg *MCPToolRegistry) {
 		"agency_cap_list",
 		"List all capabilities in the registry with their status (enabled/disabled) and kind (mcp, api, skill).",
 		nil,
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			capReg := capabilities.NewRegistry(h.cfg.Home)
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			capReg := capabilities.NewRegistry(d.cfg.Home)
 			caps := capReg.List()
 			if len(caps) == 0 {
 				return "No capabilities in registry.", false
@@ -1091,16 +1091,16 @@ func registerCapabilityTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "name")
 			if !requireNameStr(name) {
 				return `{"error":"invalid name"}`, false
 			}
-			capReg := capabilities.NewRegistry(h.cfg.Home)
+			capReg := capabilities.NewRegistry(d.cfg.Home)
 
 			// Check if it's an agent name first
-			if h.agents != nil {
-				if detail, err := h.agents.Show(context.Background(), name); err == nil {
+			if d.agents != nil {
+				if detail, err := d.agents.Show(context.Background(), name); err == nil {
 					// It's an agent — show its granted capabilities
 					lines := []string{fmt.Sprintf("Capabilities for agent '%s':", name)}
 					if len(detail.GrantedServices) > 0 {
@@ -1160,7 +1160,7 @@ func registerCapabilityTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "name")
 			if !requireNameStr(name) {
 				return `{"error":"invalid name"}`, false
@@ -1173,11 +1173,11 @@ func registerCapabilityTools(reg *MCPToolRegistry) {
 					agents = append(agents, s)
 				}
 			}
-			capReg := capabilities.NewRegistry(h.cfg.Home)
+			capReg := capabilities.NewRegistry(d.cfg.Home)
 			if err := capReg.Enable(name, key, agents); err != nil {
 				return "Error: " + err.Error(), true
 			}
-			h.audit.WriteSystem("capability_enabled", map[string]interface{}{"name": name})
+			d.audit.WriteSystem("capability_enabled", map[string]interface{}{"name": name})
 			return fmt.Sprintf("Capability '%s' enabled.", name), false
 		},
 	)
@@ -1193,16 +1193,16 @@ func registerCapabilityTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "name")
 			if !requireNameStr(name) {
 				return `{"error":"invalid name"}`, false
 			}
-			capReg := capabilities.NewRegistry(h.cfg.Home)
+			capReg := capabilities.NewRegistry(d.cfg.Home)
 			if err := capReg.Disable(name); err != nil {
 				return "Error: " + err.Error(), true
 			}
-			h.audit.WriteSystem("capability_disabled", map[string]interface{}{"name": name})
+			d.audit.WriteSystem("capability_disabled", map[string]interface{}{"name": name})
 			return fmt.Sprintf("Capability '%s' disabled.", name), false
 		},
 	)
@@ -1223,7 +1223,7 @@ func registerCapabilityTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"kind", "name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			kind := mapStr(args, "kind")
 			name := mapStr(args, "name")
 			if !requireNameStr(name) {
@@ -1242,11 +1242,11 @@ func registerCapabilityTools(reg *MCPToolRegistry) {
 			if ke := mapStr(args, "key_env"); ke != "" {
 				spec["key_env"] = ke
 			}
-			capReg := capabilities.NewRegistry(h.cfg.Home)
+			capReg := capabilities.NewRegistry(d.cfg.Home)
 			if err := capReg.Add(kind, name, spec); err != nil {
 				return "Error: " + err.Error(), true
 			}
-			h.audit.WriteSystem("capability_added", map[string]interface{}{"name": name, "kind": kind})
+			d.audit.WriteSystem("capability_added", map[string]interface{}{"name": name, "kind": kind})
 			return fmt.Sprintf("Capability '%s' (%s) added to registry.", name, kind), false
 		},
 	)
@@ -1262,16 +1262,16 @@ func registerCapabilityTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "name")
 			if !requireNameStr(name) {
 				return `{"error":"invalid name"}`, false
 			}
-			capReg := capabilities.NewRegistry(h.cfg.Home)
+			capReg := capabilities.NewRegistry(d.cfg.Home)
 			if err := capReg.Delete(name); err != nil {
 				return "Error: " + err.Error(), true
 			}
-			h.audit.WriteSystem("capability_deleted", map[string]interface{}{"name": name})
+			d.audit.WriteSystem("capability_deleted", map[string]interface{}{"name": name})
 			return fmt.Sprintf("Capability '%s' removed from registry.", name), false
 		},
 	)
@@ -1292,12 +1292,12 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"agent"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			agent := mapStr(args, "agent")
 			if err := mcpValidateAgentName(agent); err != nil {
 				return fmt.Sprintf("Error: %s", err), true
 			}
-			eng := policy.NewEngine(h.cfg.Home)
+			eng := policy.NewEngine(d.cfg.Home)
 			ep := eng.Show(agent)
 
 			lines := []string{fmt.Sprintf("Effective policy for %s:", agent)}
@@ -1361,16 +1361,16 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"agent"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			agent := mapStr(args, "agent")
 			if err := mcpValidateAgentName(agent); err != nil {
 				return fmt.Sprintf("Error: %s", err), true
 			}
-			eng := policy.NewEngine(h.cfg.Home)
+			eng := policy.NewEngine(d.cfg.Home)
 			ep := eng.Validate(agent)
 
 			// Also check constraints.yaml against hard floors
-			constraintsPath := filepath.Join(h.cfg.Home, "agents", agent, "constraints.yaml")
+			constraintsPath := filepath.Join(d.cfg.Home, "agents", agent, "constraints.yaml")
 			if data, err := os.ReadFile(constraintsPath); err == nil {
 				var constraints map[string]interface{}
 				if yaml.Unmarshal(data, &constraints) == nil {
@@ -1401,11 +1401,11 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 		"agency_policy_validate",
 		"Validate policy chains for all configured agents. Returns pass/fail for each.",
 		nil,
-		func(h *handler, args map[string]interface{}) (string, bool) {
-			if h.agents == nil {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if d.agents == nil {
 				return "Error: agent manager not initialized", true
 			}
-			agents, err := h.agents.List(context.Background())
+			agents, err := d.agents.List(context.Background())
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -1413,13 +1413,13 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				return "No agents to validate.", false
 			}
 
-			eng := policy.NewEngine(h.cfg.Home)
+			eng := policy.NewEngine(d.cfg.Home)
 			var results []string
 			for _, a := range agents {
 				ep := eng.Validate(a.Name)
 
 				// Also check constraints.yaml
-				constraintsPath := filepath.Join(h.cfg.Home, "agents", a.Name, "constraints.yaml")
+				constraintsPath := filepath.Join(d.cfg.Home, "agents", a.Name, "constraints.yaml")
 				if data, err := os.ReadFile(constraintsPath); err == nil {
 					var constraints map[string]interface{}
 					if yaml.Unmarshal(data, &constraints) == nil {
@@ -1457,10 +1457,10 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"action"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			action := mapStr(args, "action")
 
-			pReg, err := policy.NewPolicyRegistry(h.cfg.Home)
+			pReg, err := policy.NewPolicyRegistry(d.cfg.Home)
 			if err != nil {
 				return "Error: " + err.Error(), true
 			}
@@ -1500,7 +1500,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				if err != nil {
 					return "Error: " + err.Error(), true
 				}
-				h.audit.WriteSystem("policy_template_created", map[string]interface{}{"name": name, "path": path})
+				d.audit.WriteSystem("policy_template_created", map[string]interface{}{"name": name, "path": path})
 				return fmt.Sprintf("Policy template '%s' created.", name), false
 
 			case "show":
@@ -1538,7 +1538,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				if err := pReg.DeletePolicy(name); err != nil {
 					return "Error: " + err.Error(), true
 				}
-				h.audit.WriteSystem("policy_template_deleted", map[string]interface{}{"name": name})
+				d.audit.WriteSystem("policy_template_deleted", map[string]interface{}{"name": name})
 				return fmt.Sprintf("Policy template '%s' deleted.", name), false
 
 			default:
@@ -1565,10 +1565,10 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"action"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			action := mapStr(args, "action")
 
-			exceptionsDir := filepath.Join(h.cfg.Home, "exceptions")
+			exceptionsDir := filepath.Join(d.cfg.Home, "exceptions")
 			os.MkdirAll(exceptionsDir, 0755)
 
 			switch action {
@@ -1598,7 +1598,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				}
 				data, _ := yaml.Marshal(exception)
 				os.WriteFile(filepath.Join(exceptionsDir, reqID+".yaml"), data, 0644)
-				h.audit.Write(agent, "policy_exception_requested", map[string]interface{}{
+				d.audit.Write(agent, "policy_exception_requested", map[string]interface{}{
 					"request_id": reqID, "parameter": param, "domain": domain,
 				})
 				return fmt.Sprintf("Exception request '%s' created for %s.", reqID, agent), false
@@ -1626,7 +1626,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				data, _ := yaml.Marshal(exc)
 				os.WriteFile(excPath, data, 0644)
 				agent, _ := exc["agent"].(string)
-				h.audit.Write(agent, "policy_exception_approved", map[string]interface{}{
+				d.audit.Write(agent, "policy_exception_approved", map[string]interface{}{
 					"request_id": reqID, "principal": principal,
 				})
 				return fmt.Sprintf("Exception '%s' approved by %s.", reqID, principal), false
@@ -1656,7 +1656,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				data, _ := yaml.Marshal(exc)
 				os.WriteFile(excPath, data, 0644)
 				agent, _ := exc["agent"].(string)
-				h.audit.Write(agent, "policy_exception_denied", map[string]interface{}{
+				d.audit.Write(agent, "policy_exception_denied", map[string]interface{}{
 					"request_id": reqID, "principal": principal, "reason": reason,
 				})
 				return fmt.Sprintf("Exception '%s' denied by %s.", reqID, principal), false
@@ -1705,7 +1705,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 			},
 			"required": []string{"name"},
 		},
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			name := mapStr(args, "name")
 			if name == "" {
 				return "Error: agent name is required", true
@@ -1714,7 +1714,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				return `{"error":"invalid name"}`, false
 			}
 
-			agentDir := filepath.Join(h.cfg.Home, "agents", name)
+			agentDir := filepath.Join(d.cfg.Home, "agents", name)
 			if _, err := os.Stat(filepath.Join(agentDir, "agent.yaml")); err != nil {
 				return fmt.Sprintf("Error: agent not found: %s", name), true
 			}
@@ -1723,7 +1723,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 			var errors []string
 
 			// Manifest (services-manifest.json + services.yaml)
-			if err := h.generateAgentManifest(name); err != nil {
+			if err := d.generateAgentManifest(name); err != nil {
 				errors = append(errors, "manifest: "+err.Error())
 			} else {
 				regenerated = append(regenerated, "services-manifest.json", "services.yaml")
@@ -1770,7 +1770,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				regenerated = append(regenerated, "PLATFORM.md")
 			}
 
-			h.audit.Write(name, "admin_rebuild", map[string]interface{}{
+			d.audit.Write(name, "admin_rebuild", map[string]interface{}{
 				"regenerated": regenerated,
 				"errors":      errors,
 			})
@@ -1796,7 +1796,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 		"agency_help",
 		"Get an overview of all Agency tools grouped by workflow. Call this first if you are unfamiliar with Agency.",
 		nil,
-		func(h *handler, args map[string]interface{}) (string, bool) {
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			groups := []struct {
 				name  string
 				tools []string
@@ -1816,8 +1816,8 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 
 			// Build tool name -> description map from registry
 			toolMap := map[string]string{}
-			if h.mcpReg != nil {
-				for _, t := range h.mcpReg.Tools() {
+			if d.mcpReg != nil {
+				for _, t := range d.mcpReg.Tools() {
 					toolMap[t.Name] = t.Description
 				}
 			}
@@ -1851,8 +1851,8 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 
 // buildScopeReport generates a scope audit section for doctor output.
 // Shows each agent's declared scopes per service and flags unscoped agents.
-func (h *handler) buildScopeReport() string {
-	agentsDir := filepath.Join(h.cfg.Home, "agents")
+func (d *mcpDeps) buildScopeReport() string {
+	agentsDir := filepath.Join(d.cfg.Home, "agents")
 	entries, err := os.ReadDir(agentsDir)
 	if err != nil {
 		return ""
@@ -1872,7 +1872,7 @@ func (h *handler) buildScopeReport() string {
 			continue
 		}
 		agentName := e.Name()
-		scopes := h.loadPresetScopes(agentName)
+		scopes := d.loadPresetScopes(agentName)
 
 		// Check if agent has any granted services
 		constraintsPath := filepath.Join(agentsDir, agentName, "constraints.yaml")
@@ -1898,8 +1898,8 @@ func (h *handler) buildScopeReport() string {
 			yaml.Unmarshal(data, &agentCfg)
 		}
 		presetPaths := []string{
-			filepath.Join(h.cfg.Home, "hub-cache", "default", "presets", agentCfg.Preset, "preset.yaml"),
-			filepath.Join(h.cfg.Home, "presets", agentCfg.Preset+".yaml"),
+			filepath.Join(d.cfg.Home, "hub-cache", "default", "presets", agentCfg.Preset, "preset.yaml"),
+			filepath.Join(d.cfg.Home, "presets", agentCfg.Preset+".yaml"),
 		}
 		var presetData []byte
 		for _, p := range presetPaths {

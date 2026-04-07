@@ -13,7 +13,7 @@ type MCPTool struct {
 }
 
 // MCPHandler executes a tool call and returns text + isError.
-type MCPHandler func(h *handler, args map[string]interface{}) (string, bool)
+type MCPHandler func(d *mcpDeps, args map[string]interface{}) (string, bool)
 
 // mcpToolEntry stores a tool definition alongside its handler (handler not serialized).
 type mcpToolEntry struct {
@@ -54,12 +54,12 @@ func (r *MCPToolRegistry) Tools() []MCPTool {
 	return tools
 }
 
-func (r *MCPToolRegistry) Call(name string, h *handler, args map[string]interface{}) (string, bool) {
+func (r *MCPToolRegistry) Call(name string, d *mcpDeps, args map[string]interface{}) (string, bool) {
 	idx, ok := r.byName[name]
 	if !ok {
 		return "unknown tool: " + name, true
 	}
-	return r.entries[idx].handler(h, args)
+	return r.entries[idx].handler(d, args)
 }
 
 func mcpToolsHandler(reg *MCPToolRegistry) http.HandlerFunc {

@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-func mcpCallHandler(reg *MCPToolRegistry, h *handler) http.HandlerFunc {
+func mcpCallHandler(reg *MCPToolRegistry, d *mcpDeps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Name      string                 `json:"name"`
@@ -28,7 +28,7 @@ func mcpCallHandler(reg *MCPToolRegistry, h *handler) http.HandlerFunc {
 			req.Arguments["_env"] = envHeader
 		}
 
-		text, isErr := reg.Call(req.Name, h, req.Arguments)
+		text, isErr := reg.Call(req.Name, d, req.Arguments)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{

@@ -17,11 +17,11 @@ import (
 // capabilities, and preset scope declarations. Both the capability-reload path
 // (cap enable/disable) and the grant/revoke path call this single function so
 // the resulting files are always identical in structure.
-func (h *handler) generateAgentManifest(agentName string) error {
+func (d *mcpDeps) generateAgentManifest(agentName string) error {
 	if !requireNameStr(agentName) {
 		return fmt.Errorf("invalid agent name")
 	}
-	agentDir := filepath.Join(h.cfg.Home, "agents", agentName)
+	agentDir := filepath.Join(d.cfg.Home, "agents", agentName)
 
 	// --- Read granted capabilities from constraints.yaml ---
 	constraintsPath := filepath.Join(agentDir, "constraints.yaml")
@@ -39,10 +39,10 @@ func (h *handler) generateAgentManifest(agentName string) error {
 	}
 
 	// --- Load preset scope declarations for tool filtering ---
-	presetScopes := h.loadPresetScopes(agentName)
+	presetScopes := d.loadPresetScopes(agentName)
 
 	// --- Build enabled-service map from capability registry ---
-	reg := capabilities.NewRegistry(h.cfg.Home)
+	reg := capabilities.NewRegistry(d.cfg.Home)
 	allCaps := reg.List()
 	enabledServices := map[string]capabilities.Entry{}
 	for _, cap := range allCaps {
@@ -62,15 +62,15 @@ func (h *handler) generateAgentManifest(agentName string) error {
 		}
 		// Try registry first, then flat services dir, then directory-based layout
 		candidates := []string{
-			filepath.Join(h.cfg.Home, "registry", "services", svcName+".yaml"),
-			filepath.Join(h.cfg.Home, "services", svcName+".yaml"),
-			filepath.Join(h.cfg.Home, "registry", "services", svcName, "service.yaml"),
-			filepath.Join(h.cfg.Home, "services", svcName, "service.yaml"),
+			filepath.Join(d.cfg.Home, "registry", "services", svcName+".yaml"),
+			filepath.Join(d.cfg.Home, "services", svcName+".yaml"),
+			filepath.Join(d.cfg.Home, "registry", "services", svcName, "service.yaml"),
+			filepath.Join(d.cfg.Home, "services", svcName, "service.yaml"),
 		}
 		var data []byte
 		for _, path := range candidates {
-			if d, err := os.ReadFile(path); err == nil {
-				data = d
+			if rd, err := os.ReadFile(path); err == nil {
+				data = rd
 				break
 			}
 		}
@@ -102,7 +102,7 @@ func (h *handler) generateAgentManifest(agentName string) error {
 						filtered = append(filtered, t)
 					} else {
 						toolName, _ := toolMap["name"].(string)
-						h.log.Info("tool filtered by scope",
+						d.log.Info("tool filtered by scope",
 							"agent", agentName,
 							"service", svcName,
 							"tool", toolName,
@@ -149,8 +149,8 @@ func (h *handler) generateAgentManifest(agentName string) error {
 	// flat files and directory-based layouts that loadServiceDef by name
 	// might miss if the filename differs from the grant name) ---
 	svcDirs := []string{
-		filepath.Join(h.cfg.Home, "services"),
-		filepath.Join(h.cfg.Home, "registry", "services"),
+		filepath.Join(d.cfg.Home, "services"),
+		filepath.Join(d.cfg.Home, "registry", "services"),
 	}
 	for _, svcDir := range svcDirs {
 		entries, err := os.ReadDir(svcDir)
@@ -212,7 +212,7 @@ func (h *handler) generateAgentManifest(agentName string) error {
 		return fmt.Errorf("write services.yaml: %w", err)
 	}
 
-	h.log.Info("agent manifest generated",
+	d.log.Info("agent manifest generated",
 		"agent", agentName,
 		"services", len(services))
 	return nil
@@ -221,11 +221,11 @@ func (h *handler) generateAgentManifest(agentName string) error {
 // loadPresetScopes loads scope declarations from an agent's preset.
 // Returns a map of service grant_name -> set of allowed scope strings.
 // If no scopes are declared for a service, the map entry is nil (allow all).
-func (h *handler) loadPresetScopes(agentName string) map[string]map[string]bool {
+func (d *mcpDeps) loadPresetScopes(agentName string) map[string]map[string]bool {
 	if !requireNameStr(agentName) {
 		return nil
 	}
-	agentDir := filepath.Join(h.cfg.Home, "agents", agentName)
+	agentDir := filepath.Join(d.cfg.Home, "agents", agentName)
 
 	// Read agent.yaml to get preset name
 	var agentCfg struct {
@@ -240,13 +240,13 @@ func (h *handler) loadPresetScopes(agentName string) map[string]map[string]bool 
 
 	// Read preset from hub cache
 	presetPaths := []string{
-		filepath.Join(h.cfg.Home, "hub-cache", "default", "presets", agentCfg.Preset, "preset.yaml"),
-		filepath.Join(h.cfg.Home, "presets", agentCfg.Preset+".yaml"),
+		filepath.Join(d.cfg.Home, "hub-cache", "default", "presets", agentCfg.Preset, "preset.yaml"),
+		filepath.Join(d.cfg.Home, "presets", agentCfg.Preset+".yaml"),
 	}
 	var presetData []byte
 	for _, p := range presetPaths {
-		if d, err := os.ReadFile(p); err == nil {
-			presetData = d
+		if rd, err := os.ReadFile(p); err == nil {
+			presetData = rd
 			break
 		}
 	}
