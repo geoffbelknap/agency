@@ -1082,7 +1082,7 @@ def main():
     parser.add_argument("--agents-dir", type=str, default="/app/agents")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="[comms] %(message)s")
+    # Logging configured automatically by sitecustomize.py via AGENCY_COMPONENT env var.
     app = create_app(data_dir=Path(args.data_dir), agents_dir=Path(args.agents_dir))
     logger.info("Starting comms server on port %d", args.port)
     web.run_app(app, host="0.0.0.0", port=args.port, print=None, access_log_class=_HealthFilterAccessLogger)

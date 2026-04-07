@@ -1027,7 +1027,7 @@ def main():
     parser.add_argument("--knowledge-url", type=str, default=None)
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    # Logging configured automatically by sitecustomize.py via AGENCY_COMPONENT env var.
 
     app = create_app(
         connectors_dir=Path(args.connectors_dir),

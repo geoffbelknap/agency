@@ -37,12 +37,7 @@ from tools import BuiltinToolRegistry, ServiceToolDispatcher, SkillsManager
 from ws_listener import WSListener
 from typing import Optional
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[body] %(asctime)s | %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%SZ",
-    stream=sys.stdout,
-)
+# Logging configured automatically by sitecustomize.py via AGENCY_COMPONENT env var.
 log = logging.getLogger("body")
 
 
