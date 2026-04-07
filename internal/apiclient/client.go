@@ -919,13 +919,13 @@ func (c *Client) TeamList() ([]map[string]interface{}, error) {
 
 func (c *Client) TeamShow(name string) (map[string]interface{}, error) {
 	var team map[string]interface{}
-	err := c.GetJSON("/api/v1/teams/"+name, &team)
+	err := c.GetJSON("/api/v1/admin/teams/"+name, &team)
 	return team, err
 }
 
 func (c *Client) TeamActivity(name string) ([]map[string]interface{}, error) {
 	var activity []map[string]interface{}
-	err := c.GetJSON("/api/v1/teams/"+name+"/activity", &activity)
+	err := c.GetJSON("/api/v1/admin/teams/"+name+"/activity", &activity)
 	return activity, err
 }
 
@@ -938,18 +938,18 @@ func (c *Client) ConnectorList() ([]map[string]interface{}, error) {
 }
 
 func (c *Client) ConnectorActivate(name string) error {
-	_, err := c.Post("/api/v1/connectors/"+name+"/activate", nil)
+	_, err := c.Post("/api/v1/hub/connectors/"+name+"/activate", nil)
 	return err
 }
 
 func (c *Client) ConnectorDeactivate(name string) error {
-	_, err := c.Post("/api/v1/connectors/"+name+"/deactivate", nil)
+	_, err := c.Post("/api/v1/hub/connectors/"+name+"/deactivate", nil)
 	return err
 }
 
 func (c *Client) ConnectorStatus(name string) (map[string]interface{}, error) {
 	var status map[string]interface{}
-	err := c.GetJSON("/api/v1/connectors/"+name+"/status", &status)
+	err := c.GetJSON("/api/v1/hub/connectors/"+name+"/status", &status)
 	return status, err
 }
 
@@ -1175,18 +1175,18 @@ func (c *Client) WebhookList() ([]map[string]interface{}, error) {
 
 func (c *Client) WebhookShow(name string) (map[string]interface{}, error) {
 	var wh map[string]interface{}
-	err := c.GetJSON("/api/v1/webhooks/"+name, &wh)
+	err := c.GetJSON("/api/v1/events/webhooks/"+name, &wh)
 	return wh, err
 }
 
 func (c *Client) WebhookDelete(name string) error {
-	_, err := c.Delete("/api/v1/webhooks/" + name)
+	_, err := c.Delete("/api/v1/events/webhooks/" + name)
 	return err
 }
 
 func (c *Client) WebhookRotateSecret(name string) (map[string]interface{}, error) {
 	var result map[string]interface{}
-	err := c.PostJSON("/api/v1/webhooks/"+name+"/rotate-secret", nil, &result)
+	err := c.PostJSON("/api/v1/events/webhooks/"+name+"/rotate-secret", nil, &result)
 	return result, err
 }
 
@@ -1218,13 +1218,13 @@ func (c *Client) NotificationAdd(name, notifType, url string, notifEvents []stri
 }
 
 func (c *Client) NotificationRemove(name string) error {
-	_, err := c.Delete("/api/v1/notifications/" + name)
+	_, err := c.Delete("/api/v1/events/notifications/" + name)
 	return err
 }
 
 func (c *Client) NotificationTest(name string) (map[string]interface{}, error) {
 	var result map[string]interface{}
-	err := c.PostJSON("/api/v1/notifications/"+name+"/test", nil, &result)
+	err := c.PostJSON("/api/v1/events/notifications/"+name+"/test", nil, &result)
 	return result, err
 }
 
@@ -1247,7 +1247,7 @@ func (c *Client) CredentialList(params url.Values) ([]map[string]interface{}, er
 }
 
 func (c *Client) CredentialShow(name string, showValue bool) (map[string]interface{}, error) {
-	path := "/api/v1/credentials/" + name
+	path := "/api/v1/creds/" + name
 	if showValue {
 		path += "?show_value=true"
 	}
@@ -1257,25 +1257,25 @@ func (c *Client) CredentialShow(name string, showValue bool) (map[string]interfa
 }
 
 func (c *Client) CredentialDelete(name string) error {
-	_, err := c.Delete("/api/v1/credentials/" + name)
+	_, err := c.Delete("/api/v1/creds/" + name)
 	return err
 }
 
 func (c *Client) CredentialRotate(name, value string) (map[string]interface{}, error) {
 	var result map[string]interface{}
-	err := c.PostJSON("/api/v1/credentials/"+name+"/rotate", map[string]interface{}{"value": value}, &result)
+	err := c.PostJSON("/api/v1/creds/"+name+"/rotate", map[string]interface{}{"value": value}, &result)
 	return result, err
 }
 
 func (c *Client) CredentialTest(name string) (map[string]interface{}, error) {
 	var result map[string]interface{}
-	err := c.PostJSON("/api/v1/credentials/"+name+"/test", nil, &result)
+	err := c.PostJSON("/api/v1/creds/"+name+"/test", nil, &result)
 	return result, err
 }
 
 func (c *Client) CredentialGroupCreate(body map[string]interface{}) (map[string]interface{}, error) {
 	var result map[string]interface{}
-	err := c.PostJSON("/api/v1/credentials/groups", body, &result)
+	err := c.PostJSON("/api/v1/creds/groups", body, &result)
 	return result, err
 }
 
@@ -1283,7 +1283,7 @@ func (c *Client) CredentialGroupCreate(body map[string]interface{}) (map[string]
 
 // RegistryList returns all principals, optionally filtered by type.
 func (c *Client) RegistryList(principalType string) ([]byte, error) {
-	path := "/api/v1/registry/list"
+	path := "/api/v1/admin/registry/list"
 	if principalType != "" {
 		path += "?type=" + url.QueryEscape(principalType)
 	}
@@ -1293,12 +1293,12 @@ func (c *Client) RegistryList(principalType string) ([]byte, error) {
 // RegistryResolve resolves a principal by name/UUID and optional type.
 func (c *Client) RegistryResolve(nameOrUUID, principalType string) ([]byte, error) {
 	if len(nameOrUUID) == 36 {
-		return c.Get("/api/v1/registry/resolve?uuid=" + url.QueryEscape(nameOrUUID))
+		return c.Get("/api/v1/admin/registry/resolve?uuid=" + url.QueryEscape(nameOrUUID))
 	}
 	if principalType == "" {
 		return nil, fmt.Errorf("type is required when resolving by name")
 	}
-	return c.Get("/api/v1/registry/resolve?type=" + url.QueryEscape(principalType) + "&name=" + url.QueryEscape(nameOrUUID))
+	return c.Get("/api/v1/admin/registry/resolve?type=" + url.QueryEscape(principalType) + "&name=" + url.QueryEscape(nameOrUUID))
 }
 
 // RegistryRegister creates a new principal of the given type and name.
@@ -1309,17 +1309,17 @@ func (c *Client) RegistryRegister(principalType, name string) ([]byte, error) {
 
 // RegistryUpdate updates fields on an existing principal by UUID.
 func (c *Client) RegistryUpdate(uuid string, fields map[string]interface{}) ([]byte, error) {
-	return c.Put("/api/v1/registry/"+url.PathEscape(uuid), fields)
+	return c.Put("/api/v1/admin/registry/"+url.PathEscape(uuid), fields)
 }
 
 // RegistryEffective returns the effective permissions for a principal by UUID.
 func (c *Client) RegistryEffective(uuid string) ([]byte, error) {
-	return c.Get("/api/v1/registry/" + url.PathEscape(uuid) + "/effective")
+	return c.Get("/api/v1/admin/registry/" + url.PathEscape(uuid) + "/effective")
 }
 
 // RegistryDelete removes a principal by UUID.
 func (c *Client) RegistryDelete(uuid string) ([]byte, error) {
-	return c.Delete("/api/v1/registry/" + url.PathEscape(uuid))
+	return c.Delete("/api/v1/admin/registry/" + url.PathEscape(uuid))
 }
 
 // ── Routing optimizer ─────────────────────────────────────────────────────

@@ -26,12 +26,12 @@ Switching from Anthropic to OpenAI requires changing code or env vars in every i
 The gateway exposes an internal endpoint that infrastructure components call instead of provider APIs:
 
 ```
-POST /api/v1/internal/llm
+POST /api/v1/infra/internal/llm
 ```
 
 Flow:
 ```
-infra container → http://gateway:8200/api/v1/internal/llm
+infra container → http://gateway:8200/api/v1/infra/internal/llm
                   → gateway socket proxy → gateway.sock
                   → gateway resolves model alias from routing.yaml
                   → gateway translates format (OpenAI ↔ Anthropic)
@@ -48,7 +48,7 @@ Infrastructure containers reach the gateway via `http://gateway:8200` on the Doc
 Callers always send OpenAI-compatible format:
 
 ```json
-POST /api/v1/internal/llm
+POST /api/v1/infra/internal/llm
 X-Agency-Token: {gateway_token}
 X-Agency-Caller: knowledge-synthesizer
 
@@ -160,7 +160,7 @@ return data["content"][0]["text"]
 
 # After
 resp = self._http.post(
-    f"{self._gateway_url}/api/v1/internal/llm",
+    f"{self._gateway_url}/api/v1/infra/internal/llm",
     json={"model": self._model, "messages": [...], "max_tokens": 4096},
     headers={
         "X-Agency-Token": self._gateway_token,
@@ -217,7 +217,7 @@ func (h *handler) internalLLM(w http.ResponseWriter, r *http.Request) {
 ### Route
 
 ```go
-r.Post("/api/v1/internal/llm", h.internalLLM)
+r.Post("/api/v1/infra/internal/llm", h.internalLLM)
 ```
 
 ### Audit Events

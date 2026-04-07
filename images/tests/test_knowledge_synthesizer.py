@@ -61,7 +61,7 @@ class TestGatewayLLMFormat:
             json={
                 "choices": [{"message": {"content": '{"entities":[],"relationships":[]}'}}],
             },
-            request=httpx.Request("POST", "http://localhost:8200/api/v1/internal/llm"),
+            request=httpx.Request("POST", "http://localhost:8200/api/v1/infra/internal/llm"),
         )
         with patch.object(synth._http_gateway, "post", return_value=mock_response) as mock_post:
             result = synth._call_llm("test prompt")
@@ -80,7 +80,7 @@ class TestGatewayLLMFormat:
             json={
                 "choices": [{"message": {"content": "extracted text"}}],
             },
-            request=httpx.Request("POST", "http://localhost:8200/api/v1/internal/llm"),
+            request=httpx.Request("POST", "http://localhost:8200/api/v1/infra/internal/llm"),
         )
         with patch.object(synth._http_gateway, "post", return_value=mock_response):
             result = synth._call_llm("test prompt")
@@ -160,7 +160,7 @@ class TestContentSynthesis:
         mock_resp = httpx.Response(
             200,
             json={"choices": [{"message": {"content": llm_response}}]},
-            request=httpx.Request("POST", "http://localhost:8200/api/v1/internal/llm"),
+            request=httpx.Request("POST", "http://localhost:8200/api/v1/infra/internal/llm"),
         )
         with patch.object(synth._http_gateway, "post", return_value=mock_resp):
             synth.synthesize_content()
@@ -179,7 +179,7 @@ class TestContentSynthesis:
         mock_resp = httpx.Response(
             200,
             json={"choices": [{"message": {"content": '{"entities":[],"relationships":[]}'}}]},
-            request=httpx.Request("POST", "http://localhost:8200/api/v1/internal/llm"),
+            request=httpx.Request("POST", "http://localhost:8200/api/v1/infra/internal/llm"),
         )
         with patch.object(synth._http_gateway, "post", return_value=mock_resp):
             synth.synthesize_content()

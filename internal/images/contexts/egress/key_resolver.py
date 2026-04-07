@@ -47,7 +47,7 @@ class SocketKeyResolver:
             conn.sock = sock
 
             params = urllib.parse.urlencode({"name": key_ref})
-            conn.request("GET", f"/api/v1/internal/credentials/resolve?{params}")
+            conn.request("GET", f"/api/v1/creds/internal/resolve?{params}")
             resp = conn.getresponse()
             if resp.status == 200:
                 data = json.loads(resp.read())

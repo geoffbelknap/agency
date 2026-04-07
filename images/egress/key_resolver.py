@@ -61,7 +61,7 @@ class SocketKeyResolver:
             import json
 
             params = urllib.parse.urlencode({"name": key_ref})
-            url = f"{self._gateway_url}/api/v1/internal/credentials/resolve?{params}"
+            url = f"{self._gateway_url}/api/v1/creds/internal/resolve?{params}"
             req = urllib.request.Request(url)
             if self._gateway_token:
                 req.add_header("X-Agency-Token", self._gateway_token)
@@ -89,7 +89,7 @@ class SocketKeyResolver:
             conn.sock = sock
 
             params = urllib.parse.urlencode({"name": key_ref})
-            conn.request("GET", f"/api/v1/internal/credentials/resolve?{params}")
+            conn.request("GET", f"/api/v1/creds/internal/resolve?{params}")
             resp = conn.getresponse()
             if resp.status == 200:
                 data = json.loads(resp.read())

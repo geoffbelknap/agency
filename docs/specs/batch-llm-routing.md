@@ -46,10 +46,10 @@ batch:
 
 ### Gateway Batch Endpoint
 
-New internal endpoint alongside the existing `/api/v1/internal/llm`:
+New internal endpoint alongside the existing `/api/v1/infra/internal/llm`:
 
 ```
-POST /api/v1/internal/llm/batch
+POST /api/v1/infra/internal/llm/batch
 ```
 
 Request body — same as `/internal/llm` but with an additional `batch_options` field:
@@ -90,7 +90,7 @@ Response modes:
 
 ### Auto-Engagement Logic
 
-The existing `/api/v1/internal/llm` endpoint gains automatic batch routing based on the caller's latency budget:
+The existing `/api/v1/infra/internal/llm` endpoint gains automatic batch routing based on the caller's latency budget:
 
 ```go
 func (h *handler) internalLLM(w http.ResponseWriter, r *http.Request) {
@@ -205,7 +205,7 @@ def _call_llm(self, prompt: str) -> str | None:
     }
     # Gateway auto-routes to batch if threshold met
     resp = self._http_gateway.post(
-        f"{self._gateway_url}/api/v1/internal/llm",
+        f"{self._gateway_url}/api/v1/infra/internal/llm",
         json={"model": self._fallback_model, "messages": [...], "max_tokens": 4096},
         headers=headers,
     )
@@ -268,7 +268,7 @@ These are `LLM_BATCH_*` types so the routing metrics `isLLMType` function picks 
 
 1. **Routing config** — add `batch` section to routing.yaml schema and parsing
 2. **Anthropic batch adapter** — submit, poll, cancel (Anthropic is our primary provider)
-3. **Gateway batch endpoint** — `/api/v1/internal/llm/batch` with sync-wait mode
+3. **Gateway batch endpoint** — `/api/v1/infra/internal/llm/batch` with sync-wait mode
 4. **Auto-routing** — `X-Agency-Latency-Budget-Ms` header, threshold check in existing `/internal/llm`
 5. **Synthesizer header** — add latency budget header to `_call_llm`
 6. **OpenAI batch adapter** — same interface, different wire format

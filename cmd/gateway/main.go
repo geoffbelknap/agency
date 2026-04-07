@@ -873,7 +873,7 @@ func runServe(httpAddr string) error {
 	}
 
 	// Audit summarizer — aggregates enforcer JSONL logs into per-mission metrics.
-	// Runs every 15 minutes; also available on-demand via POST /api/v1/audit/summarize.
+	// Runs every 15 minutes; also available on-demand via POST /api/v1/admin/audit/summarize.
 	knowledgeURL := "http://localhost:8201"
 	auditSummarizer := auditpkg.NewAuditSummarizer(cfg.Home, knowledgeURL, logger)
 	auditSummarizer.Start(healthCtx)

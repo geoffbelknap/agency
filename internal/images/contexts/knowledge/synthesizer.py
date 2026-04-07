@@ -325,7 +325,7 @@ class LLMSynthesizer:
         """
         try:
             resp = self._http_gateway.post(
-                f"{self._gateway_url}/api/v1/internal/llm",
+                f"{self._gateway_url}/api/v1/infra/internal/llm",
                 json={
                     "model": self._model,
                     "messages": [{"role": "user", "content": prompt}],

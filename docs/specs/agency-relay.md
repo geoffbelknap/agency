@@ -488,7 +488,7 @@ WebSocket protocol-level pings handle connection liveness. No application-level 
 
 Worker caches GET responses using the Cache API, keyed per account:
 - `GET /api/v1/agents` — 5s TTL
-- `GET /api/v1/presets` — 30s TTL
+- `GET /api/v1/hub/presets` — 30s TTL
 - `GET /api/v1/hub/*` — 60s TTL
 - `GET /api/v1/infra/status` — 5s TTL
 - `GET /api/v1/graph/stats` — 10s TTL
