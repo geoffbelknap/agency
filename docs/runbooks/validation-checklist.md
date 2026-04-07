@@ -78,6 +78,29 @@ Run through each section. Mark each item as you verify it.
 - [ ] `agency --version` — shows expected version
 - [ ] `agency status` — no version mismatches between binary and containers
 
+### Error Verification
+
+After running the lifecycle checks above, verify no errors occurred:
+
+**Gateway log:**
+- [ ] No errors: `tail -100 ~/.agency/gateway.log | grep -c ERRO` returns 0
+- [ ] No panics: `tail -100 ~/.agency/gateway.log | grep -c panic` returns 0
+- [ ] No container crashes: `tail -100 ~/.agency/gateway.log | grep "container died"` returns nothing
+
+**Infra container logs:**
+- [ ] No errors in knowledge: `docker logs --since 1h agency-infra-knowledge 2>&1 | grep -ciE "^ERROR:|Traceback"` returns 0
+- [ ] No errors in egress: `docker logs --since 1h agency-infra-egress 2>&1 | grep -ciE "^ERROR:|Traceback"` returns 0
+- [ ] No errors in comms: `docker logs --since 1h agency-infra-comms 2>&1 | grep -ciE "^ERROR:|Traceback"` returns 0
+- [ ] No errors in intake: `docker logs --since 1h agency-infra-intake 2>&1 | grep -ciE "^ERROR:|Traceback"` returns 0
+
+**Docker state:**
+- [ ] No exited infra containers: `docker ps -a --filter "label=agency.managed=true" --filter "status=exited"` shows only cleanup artifacts
+- [ ] No restarting containers: `docker ps -a --filter "label=agency.managed=true" --filter "status=restarting"` is empty
+
+**Platform health:**
+- [ ] `agency admin doctor` reports zero failures (no ✗ lines)
+- [ ] `agency admin usage` shows zero errors (or no calls if no provider keys configured)
+
 ## Periodic Health Schedule
 
 | Frequency | What to Run |
