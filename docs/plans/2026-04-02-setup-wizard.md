@@ -1031,8 +1031,8 @@ git commit -m "feat: provider install merges routing config, remove cleans it up
 In `internal/api/routes.go`, in the `RegisterRoutesWithOptions` function, in the route registration section, add:
 
 ```go
-	r.Get("/api/v1/providers", h.listProviders)
-	r.Get("/api/v1/setup/config", h.setupConfig)
+	r.Get("/api/v1/infra/providers", h.listProviders)
+	r.Get("/api/v1/infra/setup/config", h.setupConfig)
 ```
 
 - [ ] **Step 2: Implement listProviders handler**

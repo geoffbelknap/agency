@@ -806,7 +806,7 @@ func TestAddNotification_RejectsPrivateIP(t *testing.T) {
 	h, _, _ := notifTestHandler(t)
 
 	body := `{"name":"evil","type":"webhook","url":"https://169.254.169.254/latest/meta-data/","events":["operator_alert"]}`
-	req := httptest.NewRequest("POST", "/api/v1/notifications", bytes.NewBufferString(body))
+	req := httptest.NewRequest("POST", "/api/v1/events/notifications", bytes.NewBufferString(body))
 	w := httptest.NewRecorder()
 	h.addNotification(w, req)
 
@@ -819,7 +819,7 @@ func TestAddNotification_RejectsHTTP(t *testing.T) {
 	h, _, _ := notifTestHandler(t)
 
 	body := `{"name":"evil","type":"webhook","url":"http://external.com/hook","events":["operator_alert"]}`
-	req := httptest.NewRequest("POST", "/api/v1/notifications", bytes.NewBufferString(body))
+	req := httptest.NewRequest("POST", "/api/v1/events/notifications", bytes.NewBufferString(body))
 	w := httptest.NewRecorder()
 	h.addNotification(w, req)
 

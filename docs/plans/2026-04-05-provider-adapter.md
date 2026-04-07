@@ -1135,7 +1135,7 @@ In `internal/cli/commands.go`, find the `hubCmd()` function and add a new `provi
 			if credential != "" && credValue != "" {
 				c, err := requireGateway()
 				if err == nil {
-					c.Post("/api/v1/credentials", map[string]interface{}{
+					c.Post("/api/v1/creds", map[string]interface{}{
 						"name":  credential,
 						"value": credValue,
 					})
