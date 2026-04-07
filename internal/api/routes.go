@@ -16,6 +16,7 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/audit"
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
+	"github.com/geoffbelknap/agency/internal/api/graph"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/docker"
@@ -270,35 +271,6 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		// Agent logs
 		r.Get("/agents/{name}/logs", h.agentLogs)
 
-		// Knowledge (proxy to knowledge container)
-		r.Post("/knowledge/query", h.knowledgeQuery)
-		r.Get("/knowledge/who-knows", h.knowledgeWhoKnows)
-		r.Get("/knowledge/stats", h.knowledgeStats)
-		r.Get("/knowledge/export", h.knowledgeExport)
-		r.Get("/knowledge/changes", h.knowledgeChanges)
-		r.Get("/knowledge/context", h.knowledgeContext)
-		r.Get("/knowledge/neighbors", h.knowledgeNeighbors)
-		r.Get("/knowledge/path", h.knowledgePath)
-		r.Get("/knowledge/flags", h.knowledgeFlags)
-		r.Post("/knowledge/restore", h.knowledgeRestore)
-		r.Get("/knowledge/curation-log", h.knowledgeCurationLog)
-
-		// Knowledge review (operator-only — org-structural contributions)
-		r.Get("/knowledge/pending", h.handleKnowledgePending)
-		r.Post("/knowledge/review/{id}", h.handleKnowledgeReview)
-
-		// Knowledge ontology
-		r.Get("/knowledge/ontology", h.knowledgeOntology)
-		r.Get("/knowledge/ontology/types", h.knowledgeOntologyTypes)
-		r.Get("/knowledge/ontology/relationships", h.knowledgeOntologyRelationships)
-		r.Post("/knowledge/ontology/validate", h.knowledgeOntologyValidate)
-		r.Post("/knowledge/ontology/migrate", h.knowledgeOntologyMigrate)
-
-		// Ontology candidates (emergence)
-		r.Get("/ontology/candidates", h.listOntologyCandidates)
-		r.Post("/ontology/promote", h.promoteOntologyCandidate)
-		r.Post("/ontology/reject", h.rejectOntologyCandidate)
-
 		// Infrastructure
 		r.Get("/infra/status", h.infraStatus)
 		r.Post("/infra/up", h.infraUp)
@@ -445,6 +417,14 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 				})
 			})
 		}
+	})
+
+	// Knowledge graph and ontology routes (extracted module)
+	graph.RegisterRoutes(r, graph.Deps{
+		Knowledge: startup.Knowledge,
+		Config:    cfg,
+		Logger:    logger,
+		Audit:     startup.Audit,
 	})
 }
 
