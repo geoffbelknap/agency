@@ -206,6 +206,7 @@ func (h *handler) startAgent(w http.ResponseWriter, r *http.Request) {
 		SourceDir: h.deps.Config.SourceDir,
 		BuildID:   h.deps.Config.BuildID,
 		Docker:    h.deps.RawDocker,
+		Comms:     h.deps.Comms,
 		Log:       h.deps.Logger,
 		CredStore: h.deps.CredStore,
 	}
@@ -316,6 +317,7 @@ func (h *handler) restartAgent(w http.ResponseWriter, r *http.Request) {
 		SourceDir:   h.deps.Config.SourceDir,
 		BuildID:     h.deps.Config.BuildID,
 		Docker:      h.deps.RawDocker,
+		Comms:       h.deps.Comms,
 		Log:         h.deps.Logger,
 		KeyRotation: true,
 		CredStore:   h.deps.CredStore,

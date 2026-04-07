@@ -389,8 +389,9 @@ func registerAgentTools(reg *MCPToolRegistry) {
 				AgentName:   name,
 				Home:        h.cfg.Home,
 				Version:     h.cfg.Version,
-			SourceDir:   h.cfg.SourceDir,
+				SourceDir:   h.cfg.SourceDir,
 				Docker:      h.dc,
+				Comms:       h.dc,
 				Log:         h.log,
 				CredStore:   h.credStore,
 			}
@@ -492,6 +493,7 @@ func registerAgentTools(reg *MCPToolRegistry) {
 				SourceDir:   h.cfg.SourceDir,
 				BuildID:     h.cfg.BuildID,
 				Docker:      h.dc,
+				Comms:       h.dc,
 				Log:         h.log,
 				KeyRotation: true,
 				CredStore:   h.credStore,

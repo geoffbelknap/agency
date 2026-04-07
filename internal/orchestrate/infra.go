@@ -19,6 +19,7 @@ import (
 	"github.com/docker/go-connections/nat"
 
 	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
+	"github.com/geoffbelknap/agency/internal/comms"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/images"
 	"github.com/geoffbelknap/agency/internal/knowledge"
@@ -120,6 +121,7 @@ type Infra struct {
 	GatewayToken  string // full auth token from config.yaml
 	EgressToken   string // scoped token for egress credential resolution
 	Docker       *agencyDocker.Client
+	Comms        comms.Client
 	cli        *client.Client
 	log        *log.Logger
 	hmacKey    []byte
@@ -137,7 +139,7 @@ func NewInfra(home, version string, dc *agencyDocker.Client, logger *log.Logger,
 			return nil, err
 		}
 	}
-	return &Infra{Home: home, Version: version, Docker: dc, cli: cli, log: logger, hmacKey: hmacKey}, nil
+	return &Infra{Home: home, Version: version, Docker: dc, Comms: dc, cli: cli, log: logger, hmacKey: hmacKey}, nil
 }
 
 // serviceLabels returns Docker labels for service discovery.
@@ -1081,14 +1083,14 @@ func (inf *Infra) ensureSystemChannels(ctx context.Context) error {
 		if ch.members != nil {
 			body["members"] = ch.members
 		}
-		_, err := inf.Docker.CommsRequest(ctx, "POST", "/channels", body)
+		_, err := inf.Comms.CommsRequest(ctx, "POST", "/channels", body)
 		if err != nil {
 			if strings.Contains(err.Error(), "409") {
 				continue // already exists
 			}
 			// Retry once — comms may still be initializing
 			time.Sleep(2 * time.Second)
-			if _, retryErr := inf.Docker.CommsRequest(ctx, "POST", "/channels", body); retryErr != nil {
+			if _, retryErr := inf.Comms.CommsRequest(ctx, "POST", "/channels", body); retryErr != nil {
 				if !strings.Contains(retryErr.Error(), "409") {
 					return fmt.Errorf("create system channel %s: %w", ch.name, retryErr)
 				}
