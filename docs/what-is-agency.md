@@ -55,7 +55,7 @@ agency create researcher --preset researcher
 agency start researcher
 agency brief researcher "Investigate recent developments in solid-state batteries"
 agency log researcher
-agency channel read findings
+agency comms read findings
 agency stop researcher
 ```
 

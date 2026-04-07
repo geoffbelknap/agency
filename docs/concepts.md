@@ -76,14 +76,14 @@ See [Presets](/presets) for details on each one.
 
 ```bash
 # Operator creates a channel
-agency channel create findings
+agency comms create findings
 
 # Agents send messages through their built-in tools
 # (inside the agent runtime, not shown here)
 send_message("findings", "Found SQL injection in auth.py line 42")
 
 # Operator reads the channel
-agency channel read findings
+agency comms read findings
 ```
 
 Channels support full-text search across all messages. Unread message counts appear in each agent's system prompt, so agents know when there's something to check.

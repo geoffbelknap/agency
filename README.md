@@ -153,8 +153,8 @@ agency admin doctor                  Verify security guarantees
 agency registry list [--type agent]  List registered principals
 agency routing suggestions           View routing optimization suggestions
 agency routing approve <id>          Apply a cheaper model suggestion
-agency knowledge ingest <file>       Ingest a file into the knowledge graph
-agency knowledge classification show View classification tier config
+agency graph ingest <file>           Ingest a file into the knowledge graph
+agency graph classification show     View classification tier config
 agency admin knowledge quarantine --agent <name>  Quarantine compromised contributions
 ```
 

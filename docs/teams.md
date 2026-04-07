@@ -102,8 +102,8 @@ agency team list                     # List all teams
 
 ```bash
 # Create channels
-agency channel create findings
-agency channel create escalations
+agency comms create findings
+agency comms create escalations
 
 # Create the team
 agency team create security-ops

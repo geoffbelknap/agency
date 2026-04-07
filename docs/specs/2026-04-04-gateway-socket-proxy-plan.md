@@ -561,7 +561,7 @@ Expected: 404 or 405 (endpoint not registered on proxy-safe socket).
 - [ ] **Step 9: Verify agents can respond to messages**
 
 Send a test message to an agent via the web UI or CLI:
-Run: `agency channel send dm-<agent-name> "hello, test message"`
+Run: `agency comms send dm-<agent-name> "hello, test message"`
 Expected: Agent processes the message and responds (LLM call succeeds through enforcer → gateway proxy → gateway → egress → Anthropic).
 
 - [ ] **Step 10: Verify two sockets exist**

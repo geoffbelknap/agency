@@ -116,7 +116,7 @@ agency registry update <agent-name> --type agent --parent <role-uuid>
 Or via the classification CLI:
 
 ```bash
-agency knowledge classification grant restricted --principal agent:researcher
+agency graph classification grant restricted --principal agent:researcher
 ```
 
 This adds `role:restricted` to the agent's scope so it can see restricted nodes.
@@ -127,16 +127,16 @@ This adds `role:restricted` to the agent's scope so it can see restricted nodes.
 
 ```bash
 # Show current classification config
-agency knowledge classification show
+agency graph classification show
 
 # Set tier scope (replaces principals for a tier)
-agency knowledge classification set <tier> --principals role:X,team:Y
+agency graph classification set <tier> --principals role:X,team:Y
 
 # Grant a principal access to a classification tier
-agency knowledge classification grant <tier> --principal <type:name>
+agency graph classification grant <tier> --principal <type:name>
 
 # Revoke a principal's access to a tier
-agency knowledge classification revoke <tier> --principal <type:name>
+agency graph classification revoke <tier> --principal <type:name>
 ```
 
 ---
@@ -170,7 +170,7 @@ The knowledge service reads the config file at startup. No write endpoint — op
 
 ### Phase 2: CLI + Server Endpoint
 
-- `agency knowledge classification show/set/grant/revoke`
+- `agency graph classification show/set/grant/revoke`
 - `GET /classification` endpoint on knowledge service
 - Go gateway proxy + route
 

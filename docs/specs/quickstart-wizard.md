@@ -35,7 +35,7 @@ If running, skip with "✓ environment — Docker running".
 
 ### Phase 2: Provider
 
-**Detection:** Check if `~/.agency/config.yaml` exists and has `llm_provider` set. If the gateway is already running (Phase 3 may not have happened yet), query the credential store (`GET /api/v1/credentials`) to verify. If the gateway isn't running yet, check for the credential store file on disk (`~/.agency/credentials/store.enc`). Validation call goes directly to the provider (not through the gateway/enforcer) since infra may not be up: Anthropic `POST /v1/messages` with `max_tokens: 1`, OpenAI `GET /v1/models`, Google `GET /v1/models`. If valid, skip with "✓ provider ({name} — already configured)".
+**Detection:** Check if `~/.agency/config.yaml` exists and has `llm_provider` set. If the gateway is already running (Phase 3 may not have happened yet), query the credential store (`GET /api/v1/creds`) to verify. If the gateway isn't running yet, check for the credential store file on disk (`~/.agency/credentials/store.enc`). Validation call goes directly to the provider (not through the gateway/enforcer) since infra may not be up: Anthropic `POST /v1/messages` with `max_tokens: 1`, OpenAI `GET /v1/models`, Google `GET /v1/models`. If valid, skip with "✓ provider ({name} — already configured)".
 
 **If no provider or validation fails:**
 

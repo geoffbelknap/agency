@@ -491,7 +491,7 @@ Worker caches GET responses using the Cache API, keyed per account:
 - `GET /api/v1/presets` — 30s TTL
 - `GET /api/v1/hub/*` — 60s TTL
 - `GET /api/v1/infra/status` — 5s TTL
-- `GET /api/v1/knowledge/stats` — 10s TTL
+- `GET /api/v1/graph/stats` — 10s TTL
 
 POST requests and real-time data (messages, logs, WebSocket) are never cached. Reduces DO wakeups by ~30-50% for typical browsing.
 

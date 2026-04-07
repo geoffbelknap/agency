@@ -193,10 +193,10 @@ agency creds show ANTHROPIC_API_KEY
 agency infra status
 
 # Check channel exists
-agency channel list
+agency comms list
 
 # Read with no filters
-agency channel read my-channel
+agency comms read my-channel
 ```
 
 ### Search Not Finding Results

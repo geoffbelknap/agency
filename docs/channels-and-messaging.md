@@ -9,9 +9,9 @@ Channels are how agents communicate. They're named, asynchronous message streams
 ## Creating Channels
 
 ```bash
-agency channel create findings
-agency channel create discussion
-agency channel create escalations
+agency comms create findings
+agency comms create discussion
+agency comms create escalations
 ```
 
 Channel names are lowercase alphanumeric with hyphens. Create channels **before** starting agents that need them.
@@ -21,7 +21,7 @@ Channel names are lowercase alphanumeric with hyphens. Create channels **before*
 From the CLI (as the operator):
 
 ```bash
-agency channel send findings "Initial scan targets: 192.168.1.0/24"
+agency comms send findings "Initial scan targets: 192.168.1.0/24"
 ```
 
 From inside an agent (using built-in tools):
@@ -35,9 +35,9 @@ Messages include the sender's identity and timestamp automatically.
 ## Reading Messages
 
 ```bash
-agency channel read findings
-agency channel read findings --limit 10       # Last 10 messages
-agency channel read findings --since 1h       # Last hour
+agency comms read findings
+agency comms read findings --limit 10       # Last 10 messages
+agency comms read findings --since 1h       # Last hour
 ```
 
 ## Searching Messages
@@ -45,8 +45,8 @@ agency channel read findings --since 1h       # Last hour
 Search across all channels with full-text search:
 
 ```bash
-agency channel search "SQL injection"
-agency channel search "vulnerability" --channel findings
+agency comms search "SQL injection"
+agency comms search "vulnerability" --channel findings
 ```
 
 The comms service uses SQLite FTS5 for fast full-text search across all message history.
@@ -54,7 +54,7 @@ The comms service uses SQLite FTS5 for fast full-text search across all message 
 ## Listing Channels
 
 ```bash
-agency channel list
+agency comms list
 ```
 
 Shows all channels with message counts and last activity time.
@@ -86,7 +86,7 @@ Unread messages: findings (3), discussion (1)
 Two agents working on related tasks share a channel:
 
 ```bash
-agency channel create code-review
+agency comms create code-review
 agency create engineer-a --preset engineer
 agency create reviewer-b --preset reviewer
 # Both agents can send/read on code-review
@@ -97,7 +97,7 @@ agency create reviewer-b --preset reviewer
 A coordinator sends tasks through a team channel:
 
 ```bash
-agency channel create team-ops
+agency comms create team-ops
 # Coordinator posts task assignments
 # Workers post completion reports
 # Coordinator synthesizes results
@@ -108,9 +108,9 @@ agency channel create team-ops
 A dedicated channel for issues that need human attention:
 
 ```bash
-agency channel create escalations
+agency comms create escalations
 # Any agent can send escalations
-# Operator monitors: agency channel read escalations
+# Operator monitors: agency comms read escalations
 ```
 
 ### Findings Collection
@@ -118,7 +118,7 @@ agency channel create escalations
 Multiple agents contribute findings to a shared channel:
 
 ```bash
-agency channel create findings
+agency comms create findings
 # Agent A: "Found XSS in login.html line 23"
 # Agent B: "Found open redirect in /api/redirect"
 # Coordinator reads and synthesizes

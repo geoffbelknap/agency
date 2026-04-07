@@ -45,7 +45,7 @@ Run through each section. Mark each item as you verify it.
 - [ ] `agency create validation-test` — agent directory created
 - [ ] `agency start validation-test` — agent starts, containers running
 - [ ] `agency show validation-test` — shows running state
-- [ ] `agency send validation-test "Hello"` — message delivered (check `agency channel read dm-validation-test`)
+- [ ] `agency send validation-test "Hello"` — message delivered (check `agency comms read dm-validation-test`)
 - [ ] `agency halt validation-test --tier supervised --reason "validation"` — agent halts (status shows "paused")
 - [ ] `agency resume validation-test` — agent resumes
 - [ ] `agency stop validation-test` — agent stops
@@ -60,8 +60,8 @@ Run through each section. Mark each item as you verify it.
 
 ### Knowledge Graph
 
-- [ ] `agency knowledge stats` — accessible, shows counts
-- [ ] `agency knowledge ontology show` — returns ontology types
+- [ ] `agency graph stats` — accessible, shows counts
+- [ ] `agency graph ontology show` — returns ontology types
 
 ### Hub
 
