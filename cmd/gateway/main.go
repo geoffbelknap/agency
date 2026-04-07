@@ -440,7 +440,11 @@ func isWSL() bool {
 
 // openBrowser attempts to open url in the system default browser.
 // Best-effort — returns an error but callers should ignore it.
+// Suppressed when AGENCY_NO_BROWSER=1 (for tests and headless environments).
 func openBrowser(url string) error {
+	if os.Getenv("AGENCY_NO_BROWSER") != "" {
+		return nil
+	}
 	var cmd string
 	var args []string
 
