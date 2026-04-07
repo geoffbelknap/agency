@@ -155,8 +155,8 @@ The enforcer already serves `/config/{filename}` to the body runtime. The gatewa
 ### Path 2: Gateway API (Comms, Knowledge, Intake)
 
 These containers reach the gateway via `http://gateway:8200`. They call:
-- `GET /api/v1/registry` — full snapshot (cached, refreshed on mutation)
-- `GET /api/v1/registry/resolve?type=agent&name=researcher` — single lookup
+- `GET /api/v1/admin/registry` — full snapshot (cached, refreshed on mutation)
+- `GET /api/v1/admin/registry/resolve?type=agent&name=researcher` — single lookup
 
 Cache locally with 60s TTL. Resolution only happens at entity boundaries, not per-message.
 
@@ -196,11 +196,11 @@ The knowledge service's `principal_registry.py` (from Phase 1) is updated to rea
 
 | Method | Path | Description | Auth |
 |---|---|---|---|
-| `GET` | `/api/v1/registry` | Full registry snapshot | Any authenticated |
-| `GET` | `/api/v1/registry/resolve` | Resolve by `?type=&name=` or `?uuid=` | Any authenticated |
-| `POST` | `/api/v1/registry` | Register a principal | **Operator only** |
-| `PUT` | `/api/v1/registry/{uuid}` | Update principal fields | **Operator only** |
-| `DELETE` | `/api/v1/registry/{uuid}` | Delete principal | **Operator only** |
+| `GET` | `/api/v1/admin/registry` | Full registry snapshot | Any authenticated |
+| `GET` | `/api/v1/admin/registry/resolve` | Resolve by `?type=&name=` or `?uuid=` | Any authenticated |
+| `POST` | `/api/v1/admin/registry` | Register a principal | **Operator only** |
+| `PUT` | `/api/v1/admin/registry/{uuid}` | Update principal fields | **Operator only** |
+| `DELETE` | `/api/v1/admin/registry/{uuid}` | Delete principal | **Operator only** |
 
 **ASK Tenet 18 (hierarchy inviolable from below):** All write endpoints (POST, PUT, DELETE) require operator-level authentication. The enforcer MUST NOT proxy these endpoints to agent containers. Agents can read the registry (GET) but cannot modify it.
 
@@ -235,7 +235,7 @@ The full `registry.json` snapshot delivered to containers contains all principal
 
 **Decision:** Principal existence is not sensitive information. Knowing that "operator:geoff" or "channel:#security-ops" exists does not grant access to anything — scope enforcement (Phase 1/1b) gates actual data access. This is analogous to a corporate directory: employees can see that other departments exist without having access to their files.
 
-If a future deployment requires principal existence to be confidential (e.g., compartmented operations), the snapshot delivery can be scoped per-agent. The API endpoint `GET /api/v1/registry` can accept a `scope` parameter. This is not implemented in this spec.
+If a future deployment requires principal existence to be confidential (e.g., compartmented operations), the snapshot delivery can be scoped per-agent. The API endpoint `GET /api/v1/admin/registry` can accept a `scope` parameter. This is not implemented in this spec.
 
 ---
 
@@ -294,7 +294,7 @@ This prevents a false sense of security from status changes that aren't yet enfo
 
 ### Phase 3: API & CLI
 
-- Gateway REST endpoints: GET/POST/PUT/DELETE `/api/v1/registry`
+- Gateway REST endpoints: GET/POST/PUT/DELETE `/api/v1/admin/registry`
 - CLI: `agency registry list/show/update/delete`
 - Existing commands updated: `agent create` prints UUID, `agent list` shows UUID column
 - Operator-only auth gating on write endpoints

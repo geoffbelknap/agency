@@ -68,11 +68,11 @@ var routePermissions = map[string]string{
     "POST /api/v1/graph/insight":   "knowledge.write",
 
     // Registry
-    "GET /api/v1/registry":             "registry.read",
-    "GET /api/v1/registry/*":           "registry.read",
-    "POST /api/v1/registry":            "registry.write",
-    "PUT /api/v1/registry/*":           "registry.write",
-    "DELETE /api/v1/registry/*":        "registry.write",
+    "GET /api/v1/admin/registry":             "registry.read",
+    "GET /api/v1/admin/registry/*":           "registry.read",
+    "POST /api/v1/admin/registry":            "registry.write",
+    "PUT /api/v1/admin/registry/*":           "registry.write",
+    "DELETE /api/v1/admin/registry/*":        "registry.write",
 
     // Missions
     "GET /api/v1/missions":             "mission.read",
@@ -97,10 +97,10 @@ var routePermissions = map[string]string{
     "POST /api/v1/infra/*":            "infra.write",
 
     // Notifications
-    "GET /api/v1/notifications":        "notification.read",
-    "GET /api/v1/notifications/*":      "notification.read",
-    "POST /api/v1/notifications":       "notification.write",
-    "DELETE /api/v1/notifications/*":   "notification.write",
+    "GET /api/v1/events/notifications":        "notification.read",
+    "GET /api/v1/events/notifications/*":      "notification.read",
+    "POST /api/v1/events/notifications":       "notification.write",
+    "DELETE /api/v1/events/notifications/*":   "notification.write",
 
     // Admin — catch-all for operator-only operations
     "POST /api/v1/admin/*":             "admin.*",
