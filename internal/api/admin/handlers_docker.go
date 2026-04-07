@@ -1,4 +1,4 @@
-package api
+package admin
 
 import (
 	"context"
@@ -6,8 +6,7 @@ import (
 	"strings"
 )
 
-// checkResult mirrors the inline type in adminDoctor so both functions share
-// the same JSON shape. It is redeclared here for use by runDockerChecks.
+// dockerCheckResult holds the result of a single infrastructure Docker hygiene check.
 type dockerCheckResult struct {
 	Name   string `json:"name"`
 	Agent  string `json:"agent,omitempty"`
@@ -47,7 +46,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 
 	// ── 1. Orphan containers ──────────────────────────────────────────────────
 	func() {
-		all, err := h.dc.ListAgencyContainers(ctx, false /* all, not just running */)
+		all, err := h.deps.DC.ListAgencyContainers(ctx, false /* all, not just running */)
 		if err != nil {
 			results = append(results, warn("docker_orphan_containers",
 				"Cannot list containers: "+err.Error()))
@@ -75,7 +74,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 
 	// ── 2. Orphan networks ────────────────────────────────────────────────────
 	func() {
-		nets, err := h.dc.ListNetworksByLabel(ctx, "agency.managed=true")
+		nets, err := h.deps.DC.ListNetworksByLabel(ctx, "agency.managed=true")
 		if err != nil {
 			results = append(results, warn("docker_orphan_networks",
 				"Cannot list networks: "+err.Error()))
@@ -99,7 +98,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 
 	// ── 3. Dangling images ────────────────────────────────────────────────────
 	func() {
-		imgs, err := h.dc.ListAgencyImages(ctx)
+		imgs, err := h.deps.DC.ListAgencyImages(ctx)
 		if err != nil {
 			results = append(results, warn("docker_dangling_images",
 				"Cannot list images: "+err.Error()))
@@ -129,7 +128,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 
 	// ── 4. Container log sizes ────────────────────────────────────────────────
 	func() {
-		running, err := h.dc.ListAgencyContainers(ctx, true /* running only */)
+		running, err := h.deps.DC.ListAgencyContainers(ctx, true /* running only */)
 		if err != nil {
 			results = append(results, warn("docker_log_sizes",
 				"Cannot list running containers: "+err.Error()))
@@ -139,7 +138,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 		var totalBytes int64
 		for _, ctr := range running {
 			name := strings.TrimPrefix(ctr.Names[0], "/")
-			size, err := h.dc.LogFileSize(ctx, name)
+			size, err := h.deps.DC.LogFileSize(ctx, name)
 			if err == nil {
 				totalBytes += size
 			}
@@ -159,7 +158,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 		var violations []string
 		for _, agentName := range runningAgents {
 			wsName := "agency-" + agentName + "-workspace"
-			info, err := h.dc.ContainerInspectRaw(ctx, wsName)
+			info, err := h.deps.DC.ContainerInspectRaw(ctx, wsName)
 			if err != nil {
 				violations = append(violations, agentName+"(inspect error: "+err.Error()+")")
 				continue
@@ -184,7 +183,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 		var violations []string
 		for _, agentName := range runningAgents {
 			// Agent networks follow the pattern agency-{name}-* excluding mediation and egress
-			nets, err := h.dc.ListNetworksByLabel(ctx, "agency.agent="+agentName)
+			nets, err := h.deps.DC.ListNetworksByLabel(ctx, "agency.agent="+agentName)
 			if err != nil {
 				violations = append(violations, agentName+"(list error: "+err.Error()+")")
 				continue
@@ -210,7 +209,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 
 	// ── 7. Log rotation ───────────────────────────────────────────────────────
 	func() {
-		running, err := h.dc.ListAgencyContainers(ctx, true /* running only */)
+		running, err := h.deps.DC.ListAgencyContainers(ctx, true /* running only */)
 		if err != nil {
 			results = append(results, warn("docker_log_rotation",
 				"Cannot list running containers: "+err.Error()))
@@ -219,7 +218,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 		var missing []string
 		for _, ctr := range running {
 			name := strings.TrimPrefix(ctr.Names[0], "/")
-			info, err := h.dc.ContainerInspectRaw(ctx, name)
+			info, err := h.deps.DC.ContainerInspectRaw(ctx, name)
 			if err != nil {
 				continue
 			}

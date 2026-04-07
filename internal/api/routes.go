@@ -5,16 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/log"
 	"github.com/go-chi/chi/v5"
-	"gopkg.in/yaml.v3"
 
 	"github.com/geoffbelknap/agency/internal/audit"
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
+	apiadmin "github.com/geoffbelknap/agency/internal/api/admin"
 	"github.com/geoffbelknap/agency/internal/api/creds"
 	apicomms "github.com/geoffbelknap/agency/internal/api/comms"
 	apievents "github.com/geoffbelknap/agency/internal/api/events"
@@ -30,7 +28,6 @@ import (
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
-	"github.com/geoffbelknap/agency/internal/policy"
 	"github.com/geoffbelknap/agency/internal/ws"
 )
 
@@ -219,38 +216,8 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 
 		// Presets, deploy, hub, connector: handled by hub module (registered below)
 
-		// Policy
-		r.Get("/policy/{agent}", h.showPolicy)
-		r.Post("/policy/{agent}/validate", h.validatePolicy)
-
-		// Hub, connector, egress: handled by hub module (registered below)
-
-		// Capabilities
-		r.Get("/capabilities", h.listCapabilities)
-		r.Get("/capabilities/{name}", h.showCapability)
-		r.Post("/capabilities/{name}/enable", h.enableCapability)
-		r.Post("/capabilities/{name}/disable", h.disableCapability)
-		r.Post("/capabilities", h.addCapability)
-		r.Delete("/capabilities/{name}", h.deleteCapability)
-
 		// Agent logs
 		r.Get("/agents/{name}/logs", h.agentLogs)
-
-		// Admin
-		r.Get("/admin/doctor", h.adminDoctor)
-		r.Post("/admin/destroy", h.adminDestroy)
-		r.Post("/agents/{name}/rebuild", h.rebuildAgent)
-		r.Post("/admin/trust", h.adminTrust)
-		r.Get("/admin/audit", h.adminAudit)
-		r.Get("/admin/egress", h.adminEgress)
-		r.Post("/admin/knowledge", h.adminKnowledge)
-		r.Post("/admin/department", h.adminDepartment)
-
-		// Teams
-		r.Get("/teams", h.listTeams)
-		r.Post("/teams", h.createTeam)
-		r.Get("/teams/{name}", h.showTeam)
-		r.Get("/teams/{name}/activity", h.teamActivity)
 
 		// Intake
 		r.Get("/intake/items", h.intakeItems)
@@ -293,12 +260,6 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Delete("/meeseeks/{id}", h.killMeeseeks)
 		r.Delete("/meeseeks", h.killMeeseeksByParent)          // kill all for a parent (?parent=<agent>)
 		r.Post("/meeseeks/{id}/complete", h.completeMeeseeks)  // called by body runtime on task completion
-
-		// Profiles
-		r.Get("/profiles", h.listProfiles)
-		r.Get("/profiles/{id}", h.getProfile)
-		r.Put("/profiles/{id}", h.createOrUpdateProfile)
-		r.Delete("/profiles/{id}", h.deleteProfile)
 
 	})
 
@@ -359,6 +320,21 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		Config:       cfg,
 		Logger:       logger,
 		Audit:        startup.Audit,
+	})
+
+	// Admin, teams, capabilities, profiles, and policy routes (extracted module)
+	apiadmin.RegisterRoutes(r, apiadmin.Deps{
+		AgentManager: startup.AgentManager,
+		Infra:        startup.Infra,
+		Knowledge:    startup.Knowledge,
+		Audit:        startup.Audit,
+		ProfileStore: startup.ProfileStore,
+		CredStore:    startup.CredStore,
+		Config:       cfg,
+		Logger:       logger,
+		DC:           dc,
+		Signal:       &DockerSignalSender{RawClient: dc.RawClient()},
+		EventBus:     opts.EventBus,
 	})
 }
 
@@ -817,43 +793,6 @@ func (h *handler) teardownPack(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": "torn down", "pack": packName})
 }
 
-func (h *handler) showPolicy(w http.ResponseWriter, r *http.Request) {
-	agent, ok := requireName(w, chi.URLParam(r, "agent"))
-	if !ok {
-		return
-	}
-	eng := policy.NewEngine(h.cfg.Home)
-	ep := eng.Show(agent)
-	writeJSON(w, 200, ep)
-}
-
-func (h *handler) validatePolicy(w http.ResponseWriter, r *http.Request) {
-	agent, ok := requireName(w, chi.URLParam(r, "agent"))
-	if !ok {
-		return
-	}
-	eng := policy.NewEngine(h.cfg.Home)
-	ep := eng.Validate(agent)
-
-	// Additionally enforce hard floors on the agent's constraints.yaml
-	// to prevent saving policies that violate immutable safety guarantees.
-	constraintsPath := filepath.Join(h.cfg.Home, "agents", agent, "constraints.yaml")
-	if data, err := os.ReadFile(constraintsPath); err == nil {
-		var constraints map[string]interface{}
-		if yaml.Unmarshal(data, &constraints) == nil {
-			if err := policy.ValidatePolicy(constraints); err != nil {
-				ep.Valid = false
-				ep.Violations = append(ep.Violations, err.Error())
-			}
-		}
-	}
-
-	if !ep.Valid {
-		writeJSON(w, 400, ep)
-		return
-	}
-	writeJSON(w, 200, ep)
-}
 
 func (h *handler) haltAgent(w http.ResponseWriter, r *http.Request) {
 	if !h.dockerRequired(w) {
