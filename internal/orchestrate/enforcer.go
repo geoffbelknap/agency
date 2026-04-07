@@ -170,6 +170,17 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 	enforcerHostConfig.NetworkMode = container.NetworkMode(internalNet)
 	enforcerHostConfig.Tmpfs = map[string]string{"/tmp": "size=64M", "/run": "size=32M"}
 
+	// Inject standard logging env vars
+	logFormat := os.Getenv("AGENCY_LOG_FORMAT")
+	if logFormat == "" {
+		logFormat = "json"
+	}
+	env["AGENCY_LOG_FORMAT"] = logFormat
+	env["AGENCY_COMPONENT"] = "enforcer"
+	if _, ok := env["BUILD_ID"]; !ok {
+		env["BUILD_ID"] = e.BuildID
+	}
+
 	containerID, err := containers.CreateAndStart(ctx, e.cli,
 		e.ContainerName,
 		&container.Config{

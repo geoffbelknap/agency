@@ -15,7 +15,7 @@ CORE_IMAGES = body enforcer comms knowledge intake egress workspace web-fetch ga
 
 # Services whose Dockerfile needs the repo root as build context
 # (they COPY images/models/ for shared Pydantic schemas).
-REPO_CONTEXT_IMAGES = comms knowledge intake
+REPO_CONTEXT_IMAGES = body comms knowledge intake egress
 
 # Build and install the gateway binary + all container images (including web UI)
 all: install images-all
