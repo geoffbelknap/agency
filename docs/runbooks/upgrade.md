@@ -7,14 +7,14 @@ New Agency version available. Applies to both Homebrew installs and source build
 ## Prerequisites
 
 - Current installation working (`agency admin doctor` passes)
-- No agents actively processing critical tasks (check `agency list`)
+- No agents actively processing critical tasks (check `agency status`)
 
 ## Steps
 
 ### 1. Stop all agents
 
 ```bash
-agency list
+agency status
 # For each running agent:
 agency stop <agent-name>
 ```
@@ -24,7 +24,7 @@ agency stop <agent-name>
 ```bash
 agency --version > /tmp/agency-pre-upgrade.txt
 agency infra status >> /tmp/agency-pre-upgrade.txt
-agency list >> /tmp/agency-pre-upgrade.txt
+agency status >> /tmp/agency-pre-upgrade.txt
 ```
 
 ### 3. Upgrade the binary

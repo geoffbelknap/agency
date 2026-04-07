@@ -2,6 +2,7 @@ package graph
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/geoffbelknap/agency/internal/knowledge"
@@ -85,6 +86,24 @@ func (h *handler) knowledgeExport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
 	w.Write(data)
+}
+
+// knowledgeImport handles POST /api/v1/knowledge/import
+func (h *handler) knowledgeImport(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, 400, map[string]string{"error": "read body: " + err.Error()})
+		return
+	}
+	proxy := knowledge.NewProxy()
+	result, err := proxy.Import(r.Context(), body)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(result)
 }
 
 // knowledgeChanges handles GET /api/v1/knowledge/changes

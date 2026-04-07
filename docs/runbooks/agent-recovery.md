@@ -36,7 +36,7 @@ Look for: exited containers, restart loops, OOMKilled.
 
 ```bash
 # Graceful halt
-agency halt <agent-name> --type supervised --reason "unresponsive recovery"
+agency halt <agent-name> --tier supervised --reason "unresponsive recovery"
 
 # Wait 5 seconds
 agency show <agent-name>
@@ -73,8 +73,9 @@ If OOMKilled: the agent exceeded its memory limit. Check if the task requires mo
 ### Agent in restart loop
 
 ```bash
-# Force stop (immediate halt)
-agency stop <agent-name> --immediate
+# Force halt then stop
+agency halt <agent-name> --tier immediate --reason "restart loop"
+agency stop <agent-name>
 
 # Check logs for the crash cause
 agency log <agent-name>
@@ -103,7 +104,8 @@ agency start <agent-name>
 agency admin rebuild <agent-name>
 
 # If that doesn't fix it, recreate the agent
-agency stop <agent-name> --immediate
+agency halt <agent-name> --tier immediate --reason "corrupted state"
+agency stop <agent-name>
 agency delete <agent-name>
 agency create <agent-name> --preset <original-preset>
 agency start <agent-name>

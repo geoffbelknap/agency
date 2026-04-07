@@ -12,7 +12,7 @@ One or more infrastructure components are down, unresponsive, or in an error sta
 agency infra status
 ```
 
-Identify which components are down: egress, comms, knowledge, intake, gateway-proxy, web.
+Identify which components are down: egress, comms, knowledge, intake, web-fetch, web, embeddings.
 
 ### 2. Check Docker
 

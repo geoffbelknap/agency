@@ -86,8 +86,8 @@ This ensures the enforcer and egress proxy are using the new credential.
 For services using JWT exchange or shared auth config (e.g., LimaCharlie):
 
 ```bash
-# List groups
-agency creds list --groups
+# List credentials filtered by group
+agency creds list --group <group-name>
 
 # Rotate a credential within a group
 agency creds rotate <key-name> --value <new-value>

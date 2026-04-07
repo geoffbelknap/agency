@@ -21,7 +21,7 @@ Suspected agent compromise, XPIA detection, anomalous behavior, trajectory anoma
 
 ```bash
 # Halt the agent (preserves state for investigation)
-agency halt <agent-name> --type supervised --reason "security investigation"
+agency halt <agent-name> --tier supervised --reason "security investigation"
 
 # Review audit trail
 agency log <agent-name>
@@ -34,7 +34,7 @@ agency show <agent-name>
 
 ```bash
 # Emergency halt — immediate, no graceful shutdown
-agency halt <agent-name> --type emergency --reason "suspected compromise"
+agency halt <agent-name> --tier emergency --reason "suspected compromise"
 ```
 
 Emergency halt: SIGKILL + network severance + filesystem freeze, simultaneously (ASK Tenet 14).
@@ -121,7 +121,8 @@ agency resume <agent-name>
 
 ```bash
 # Stop and delete the compromised agent
-agency stop <agent-name> --immediate
+agency halt <agent-name> --tier immediate --reason "confirmed compromise"
+agency stop <agent-name>
 agency delete <agent-name>
 
 # Rotate any credentials the agent had access to

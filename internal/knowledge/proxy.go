@@ -48,6 +48,11 @@ func (p *Proxy) Export(ctx context.Context, format string) ([]byte, error) {
 	return p.get(ctx, "/export?format="+urlEncode(format))
 }
 
+// Import imports a knowledge graph from a JSON export.
+func (p *Proxy) Import(ctx context.Context, data []byte) ([]byte, error) {
+	return p.post(ctx, "/import", json.RawMessage(data))
+}
+
 // Changes returns changes since a given timestamp.
 func (p *Proxy) Changes(ctx context.Context, since string) ([]byte, error) {
 	return p.get(ctx, "/changes?since="+urlEncode(since))
