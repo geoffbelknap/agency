@@ -26,20 +26,18 @@ type handler struct {
 func RegisterRoutes(r chi.Router, d Deps) {
 	h := &handler{deps: d}
 
-	r.Route("/api/v1", func(r chi.Router) {
-		r.Get("/channels", h.listChannels)
-		r.Post("/channels", h.createChannel)
-		r.Get("/channels/search", h.searchMessages)
-		r.Get("/channels/{name}/messages", h.readMessages)
-		r.Post("/channels/{name}/messages", h.sendMessage)
-		r.Put("/channels/{name}/messages/{id}", h.editMessage)
-		r.Delete("/channels/{name}/messages/{id}", h.deleteMessage)
-		r.Post("/channels/{name}/messages/{id}/reactions", h.addReaction)
-		r.Delete("/channels/{name}/messages/{id}/reactions/{emoji}", h.removeReaction)
-		r.Post("/channels/{name}/archive", h.archiveChannel)
-		r.Get("/unreads", h.getUnreads)
-		r.Post("/channels/{name}/mark-read", h.markRead)
-	})
+	r.Get("/api/v1/channels", h.listChannels)
+	r.Post("/api/v1/channels", h.createChannel)
+	r.Get("/api/v1/channels/search", h.searchMessages)
+	r.Get("/api/v1/channels/{name}/messages", h.readMessages)
+	r.Post("/api/v1/channels/{name}/messages", h.sendMessage)
+	r.Put("/api/v1/channels/{name}/messages/{id}", h.editMessage)
+	r.Delete("/api/v1/channels/{name}/messages/{id}", h.deleteMessage)
+	r.Post("/api/v1/channels/{name}/messages/{id}/reactions", h.addReaction)
+	r.Delete("/api/v1/channels/{name}/messages/{id}/reactions/{emoji}", h.removeReaction)
+	r.Post("/api/v1/channels/{name}/archive", h.archiveChannel)
+	r.Get("/api/v1/unreads", h.getUnreads)
+	r.Post("/api/v1/channels/{name}/mark-read", h.markRead)
 }
 
 // writeJSON writes a JSON response with the given status code.
