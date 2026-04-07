@@ -90,6 +90,9 @@ fi
 echo "Binary: $AGENCY"
 echo "Test agent: $TEST_AGENT"
 
+# Record test start time for log filtering
+TEST_START_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
 # Record gateway log position so we can scan new entries after the test
 GATEWAY_LOG=~/.agency/gateway.log
 LOG_START_LINE=0
@@ -425,6 +428,62 @@ fi
 # Exited infra containers may be from cleanup — only fail on unexpected exits
 if [ -n "$EXITED" ]; then
     echo "  ℹ Exited containers (may be from cleanup): $EXITED"
+fi
+
+# --------------------------------------------------
+# Phase 18: Infra container log scan
+# --------------------------------------------------
+step "Infra container log scan"
+# Use --since with the test start time to only capture entries from this run.
+# Docker's --since accepts RFC 3339, Unix timestamps, or duration strings.
+INFRA_CONTAINERS=$(docker ps --format '{{.Names}}' | grep "agency-infra-" 2>/dev/null)
+INFRA_LOG_ERRORS=0
+for ctr in $INFRA_CONTAINERS; do
+    # Grab ERROR/FATAL/Traceback entries from this container
+    CTR_ERRORS=$(docker logs --since "${TEST_START_TIME}" "$ctr" 2>&1 | grep -ciE "^ERROR:|^FATAL:|Traceback|CRITICAL" || true)
+    if [ "$CTR_ERRORS" -gt 0 ]; then
+        INFRA_LOG_ERRORS=$((INFRA_LOG_ERRORS + CTR_ERRORS))
+        fail "$ctr: $CTR_ERRORS error(s) in logs"
+        docker logs --since "${TEST_START_TIME}" "$ctr" 2>&1 | grep -iE "^ERROR:|^FATAL:|Traceback|CRITICAL" | head -3
+    fi
+done
+if [ "$INFRA_LOG_ERRORS" -eq 0 ]; then
+    pass "No errors in infra container logs ($(echo "$INFRA_CONTAINERS" | wc -w) containers checked)"
+fi
+
+# --------------------------------------------------
+# Phase 19: LLM usage error rate
+# --------------------------------------------------
+step "LLM usage error rate"
+# Check errors during this test run
+USAGE=$("$AGENCY" admin usage --since "$TEST_START_TIME" 2>&1)
+USAGE_ERRORS=$(echo "$USAGE" | grep -oP 'Errors:\s+\K\d+' || echo "0")
+USAGE_CALLS=$(echo "$USAGE" | grep -oP 'Calls:\s+\K\d+' || echo "0")
+if [ "$USAGE_ERRORS" -gt 0 ]; then
+    fail "LLM usage during test: $USAGE_ERRORS error(s) out of $USAGE_CALLS call(s)"
+else
+    if [ "$USAGE_CALLS" -gt 0 ]; then
+        pass "LLM usage during test: $USAGE_CALLS call(s), 0 errors"
+    else
+        pass "LLM usage during test: no calls made"
+    fi
+fi
+
+# Also check cumulative errors — catches ongoing infra LLM problems
+# (e.g., knowledge synthesizer failing every cycle)
+USAGE_ALL=$("$AGENCY" admin usage 2>&1)
+ALL_ERRORS=$(echo "$USAGE_ALL" | grep -oP 'Errors:\s+\K\d+' || echo "0")
+ALL_CALLS=$(echo "$USAGE_ALL" | grep -oP 'Calls:\s+\K\d+' || echo "0")
+if [ "$ALL_ERRORS" -gt 0 ]; then
+    ERROR_RATE=$((ALL_ERRORS * 100 / ALL_CALLS))
+    fail "LLM usage cumulative: $ALL_ERRORS error(s) out of $ALL_CALLS call(s) (${ERROR_RATE}% error rate)"
+    echo "$USAGE_ALL" | head -10
+else
+    if [ "$ALL_CALLS" -gt 0 ]; then
+        pass "LLM usage cumulative: $ALL_CALLS call(s), 0 errors"
+    else
+        pass "LLM usage cumulative: no calls recorded"
+    fi
 fi
 
 # --------------------------------------------------
