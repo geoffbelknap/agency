@@ -42,47 +42,45 @@ type handler struct {
 func RegisterRoutes(r chi.Router, d Deps) {
 	h := &handler{deps: d}
 
-	r.Route("/api/v1", func(r chi.Router) {
-		// Hub — specific static paths before wildcard {nameOrID}
-		r.Post("/hub/update", h.hubUpdate)
-		r.Get("/hub/outdated", h.hubOutdated)
-		r.Post("/hub/upgrade", h.hubUpgrade)
-		r.Get("/hub/search", h.hubSearch)
-		r.Post("/hub/install", h.hubInstall)
-		r.Get("/hub/installed", h.hubInstalled)
-		r.Get("/hub/instances", h.hubInstances)
-		r.Get("/hub/doctor", h.hubDoctor)
-		r.Get("/intake/poll-health", h.intakePollHealth)
-		r.Post("/intake/poll/{connector}", h.intakePollTrigger)
-		// Wildcard routes after static paths
-		r.Get("/hub/{nameOrID}", h.hubShow)
-		r.Get("/hub/{nameOrID}/check", h.hubCheck)
-		r.Post("/hub/{nameOrID}/activate", h.hubActivate)
-		r.Post("/hub/{nameOrID}/deactivate", h.hubDeactivate)
-		r.Put("/hub/{nameOrID}/config", h.hubConfigure)
-		r.Delete("/hub/{nameOrID}", h.hubRemove)
-		// Legacy info route
-		r.Get("/hub/{name}/info", h.hubInfo)
+	// Hub — specific static paths before wildcard {nameOrID}
+	r.Post("/api/v1/hub/update", h.hubUpdate)
+	r.Get("/api/v1/hub/outdated", h.hubOutdated)
+	r.Post("/api/v1/hub/upgrade", h.hubUpgrade)
+	r.Get("/api/v1/hub/search", h.hubSearch)
+	r.Post("/api/v1/hub/install", h.hubInstall)
+	r.Get("/api/v1/hub/installed", h.hubInstalled)
+	r.Get("/api/v1/hub/instances", h.hubInstances)
+	r.Get("/api/v1/hub/doctor", h.hubDoctor)
+	r.Get("/api/v1/intake/poll-health", h.intakePollHealth)
+	r.Post("/api/v1/intake/poll/{connector}", h.intakePollTrigger)
+	// Wildcard routes after static paths
+	r.Get("/api/v1/hub/{nameOrID}", h.hubShow)
+	r.Get("/api/v1/hub/{nameOrID}/check", h.hubCheck)
+	r.Post("/api/v1/hub/{nameOrID}/activate", h.hubActivate)
+	r.Post("/api/v1/hub/{nameOrID}/deactivate", h.hubDeactivate)
+	r.Put("/api/v1/hub/{nameOrID}/config", h.hubConfigure)
+	r.Delete("/api/v1/hub/{nameOrID}", h.hubRemove)
+	// Legacy info route
+	r.Get("/api/v1/hub/{name}/info", h.hubInfo)
 
-		// Connector setup — requirements check + credential provisioning
-		r.Get("/connectors/{name}/requirements", h.connectorRequirements)
-		r.Post("/connectors/{name}/configure", h.connectorConfigure)
+	// Connector setup — requirements check + credential provisioning
+	r.Get("/api/v1/connectors/{name}/requirements", h.connectorRequirements)
+	r.Post("/api/v1/connectors/{name}/configure", h.connectorConfigure)
 
-		// Egress domain provenance
-		r.Get("/egress/domains", h.egressDomains)
-		r.Get("/egress/domains/{domain}/provenance", h.egressDomainProvenance)
+	// Egress domain provenance
+	r.Get("/api/v1/egress/domains", h.egressDomains)
+	r.Get("/api/v1/egress/domains/{domain}/provenance", h.egressDomainProvenance)
 
-		// Deploy / teardown
-		r.Post("/deploy", h.deployPack)
-		r.Post("/teardown/{pack}", h.teardownPack)
+	// Deploy / teardown
+	r.Post("/api/v1/deploy", h.deployPack)
+	r.Post("/api/v1/teardown/{pack}", h.teardownPack)
 
-		// Presets
-		r.Get("/presets", h.listPresets)
-		r.Post("/presets", h.createPreset)
-		r.Get("/presets/{name}", h.getPreset)
-		r.Put("/presets/{name}", h.updatePreset)
-		r.Delete("/presets/{name}", h.deletePreset)
-	})
+	// Presets
+	r.Get("/api/v1/presets", h.listPresets)
+	r.Post("/api/v1/presets", h.createPreset)
+	r.Get("/api/v1/presets/{name}", h.getPreset)
+	r.Put("/api/v1/presets/{name}", h.updatePreset)
+	r.Delete("/api/v1/presets/{name}", h.deletePreset)
 }
 
 // writeJSON writes a JSON response with the given status code.

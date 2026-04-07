@@ -51,33 +51,31 @@ func RegisterRoutes(r chi.Router, d Deps) {
 		})
 	})
 
-	r.Route("/api/v1", func(r chi.Router) {
-		// OpenAPI spec
-		r.Get("/openapi.yaml", h.openapiSpec)
+	// OpenAPI spec
+	r.Get("/api/v1/openapi.yaml", h.openapiSpec)
 
-		// Health
-		r.Get("/health", h.health)
+	// Health
+	r.Get("/api/v1/health", h.health)
 
-		// Init
-		r.Post("/init", h.initPlatform)
+	// Init
+	r.Post("/api/v1/init", h.initPlatform)
 
-		// Audit summarization (optional dependency)
-		if d.AuditSummarizer != nil {
-			summarizer := d.AuditSummarizer
-			r.Post("/audit/summarize", func(w http.ResponseWriter, r *http.Request) {
-				metrics, err := summarizer.Summarize()
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(map[string]interface{}{ //nolint:errcheck
-					"metrics": metrics,
-					"count":   len(metrics),
-				})
+	// Audit summarization (optional dependency)
+	if d.AuditSummarizer != nil {
+		summarizer := d.AuditSummarizer
+		r.Post("/api/v1/audit/summarize", func(w http.ResponseWriter, r *http.Request) {
+			metrics, err := summarizer.Summarize()
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{ //nolint:errcheck
+				"metrics": metrics,
+				"count":   len(metrics),
 			})
-		}
-	})
+		})
+	}
 }
 
 // writeJSON writes a JSON response with the given status code.

@@ -76,59 +76,57 @@ type handler struct {
 func RegisterRoutes(r chi.Router, d Deps) {
 	h := &handler{deps: d}
 
-	r.Route("/api/v1", func(r chi.Router) {
-		// Agent CRUD and lifecycle
-		r.Get("/agents", h.listAgents)
-		r.Post("/agents", h.createAgent)
-		r.Get("/agents/{name}", h.showAgent)
-		r.Delete("/agents/{name}", h.deleteAgent)
-		r.Post("/agents/{name}/start", h.startAgent)
-		r.Post("/agents/{name}/restart", h.restartAgent)
-		r.Post("/agents/{name}/stop", h.haltAgent)  // canonical stop endpoint
-		r.Post("/agents/{name}/halt", h.haltAgent)  // alias: backward compat
-		r.Post("/agents/{name}/resume", h.resumeAgent)
-		r.Post("/agents/{name}/grant", h.grantAgent)
-		r.Post("/agents/{name}/revoke", h.revokeAgent)
-		r.Get("/agents/{name}/channels", h.agentChannels)
-		r.Get("/agents/{name}/results", h.listResults)
-		r.Get("/agents/{name}/results/{taskId}", h.getResult)
-		r.Get("/agents/{name}/config", h.agentConfig)
-		r.Put("/agents/{name}/config", h.updateAgentConfig)
-		r.Get("/agents/{name}/procedures", h.listAgentProcedures)
-		r.Get("/agents/{name}/episodes", h.listAgentEpisodes)
-		r.Get("/agents/{name}/trajectory", h.getAgentTrajectory)
-		r.Delete("/agents/{name}/cache", h.clearAgentCache)
+	// Agent CRUD and lifecycle
+	r.Get("/api/v1/agents", h.listAgents)
+	r.Post("/api/v1/agents", h.createAgent)
+	r.Get("/api/v1/agents/{name}", h.showAgent)
+	r.Delete("/api/v1/agents/{name}", h.deleteAgent)
+	r.Post("/api/v1/agents/{name}/start", h.startAgent)
+	r.Post("/api/v1/agents/{name}/restart", h.restartAgent)
+	r.Post("/api/v1/agents/{name}/stop", h.haltAgent)  // canonical stop endpoint
+	r.Post("/api/v1/agents/{name}/halt", h.haltAgent)  // alias: backward compat
+	r.Post("/api/v1/agents/{name}/resume", h.resumeAgent)
+	r.Post("/api/v1/agents/{name}/grant", h.grantAgent)
+	r.Post("/api/v1/agents/{name}/revoke", h.revokeAgent)
+	r.Get("/api/v1/agents/{name}/channels", h.agentChannels)
+	r.Get("/api/v1/agents/{name}/results", h.listResults)
+	r.Get("/api/v1/agents/{name}/results/{taskId}", h.getResult)
+	r.Get("/api/v1/agents/{name}/config", h.agentConfig)
+	r.Put("/api/v1/agents/{name}/config", h.updateAgentConfig)
+	r.Get("/api/v1/agents/{name}/procedures", h.listAgentProcedures)
+	r.Get("/api/v1/agents/{name}/episodes", h.listAgentEpisodes)
+	r.Get("/api/v1/agents/{name}/trajectory", h.getAgentTrajectory)
+	r.Delete("/api/v1/agents/{name}/cache", h.clearAgentCache)
 
-		// Agent signals
-		r.Post("/agents/{name}/signal", h.relaySignal)
+	// Agent signals
+	r.Post("/api/v1/agents/{name}/signal", h.relaySignal)
 
-		// Budget
-		r.Get("/agents/{name}/budget", h.getBudget)
-		r.Get("/agents/{name}/budget/remaining", h.getBudgetRemaining)
+	// Budget
+	r.Get("/api/v1/agents/{name}/budget", h.getBudget)
+	r.Get("/api/v1/agents/{name}/budget/remaining", h.getBudgetRemaining)
 
-		// Economics
-		r.Get("/agents/{name}/economics", h.getAgentEconomics)
-		r.Get("/economics/summary", h.getEconomicsSummary)
+	// Economics
+	r.Get("/api/v1/agents/{name}/economics", h.getAgentEconomics)
+	r.Get("/api/v1/economics/summary", h.getEconomicsSummary)
 
-		// Context API (mid-session constraint push)
-		ctxH := &contextHandler{mgr: d.CtxMgr}
-		r.Route("/agents/{name}/context", func(r chi.Router) {
-			r.Get("/constraints", ctxH.getConstraints)
-			r.Get("/exceptions", ctxH.getExceptions)
-			r.Get("/policy", ctxH.getPolicy)
-			r.Get("/changes", ctxH.getChanges)
-			r.Post("/push", ctxH.push)
-			r.Get("/status", ctxH.getStatus)
-		})
-
-		// Meeseeks
-		r.Post("/meeseeks", h.spawnMeeseeks)
-		r.Get("/meeseeks", h.listMeeseeks)
-		r.Get("/meeseeks/{id}", h.showMeeseeks)
-		r.Delete("/meeseeks/{id}", h.killMeeseeks)
-		r.Delete("/meeseeks", h.killMeeseeksByParent) // kill all for a parent (?parent=<agent>)
-		r.Post("/meeseeks/{id}/complete", h.completeMeeseeks)
+	// Context API (mid-session constraint push)
+	ctxH := &contextHandler{mgr: d.CtxMgr}
+	r.Route("/api/v1/agents/{name}/context", func(r chi.Router) {
+		r.Get("/constraints", ctxH.getConstraints)
+		r.Get("/exceptions", ctxH.getExceptions)
+		r.Get("/policy", ctxH.getPolicy)
+		r.Get("/changes", ctxH.getChanges)
+		r.Post("/push", ctxH.push)
+		r.Get("/status", ctxH.getStatus)
 	})
+
+	// Meeseeks
+	r.Post("/api/v1/meeseeks", h.spawnMeeseeks)
+	r.Get("/api/v1/meeseeks", h.listMeeseeks)
+	r.Get("/api/v1/meeseeks/{id}", h.showMeeseeks)
+	r.Delete("/api/v1/meeseeks/{id}", h.killMeeseeks)
+	r.Delete("/api/v1/meeseeks", h.killMeeseeksByParent) // kill all for a parent (?parent=<agent>)
+	r.Post("/api/v1/meeseeks/{id}/complete", h.completeMeeseeks)
 }
 
 // writeJSON writes a JSON response with the given status code.

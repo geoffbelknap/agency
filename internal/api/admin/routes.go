@@ -48,43 +48,41 @@ type handler struct {
 func RegisterRoutes(r chi.Router, d Deps) {
 	h := &handler{deps: d}
 
-	r.Route("/api/v1", func(r chi.Router) {
-		// Admin
-		r.Get("/admin/doctor", h.adminDoctor)
-		r.Post("/admin/destroy", h.adminDestroy)
-		r.Post("/admin/trust", h.adminTrust)
-		r.Get("/admin/audit", h.adminAudit)
-		r.Get("/admin/egress", h.adminEgress)
-		r.Post("/admin/knowledge", h.adminKnowledge)
-		r.Post("/admin/department", h.adminDepartment)
+	// Admin
+	r.Get("/api/v1/admin/doctor", h.adminDoctor)
+	r.Post("/api/v1/admin/destroy", h.adminDestroy)
+	r.Post("/api/v1/admin/trust", h.adminTrust)
+	r.Get("/api/v1/admin/audit", h.adminAudit)
+	r.Get("/api/v1/admin/egress", h.adminEgress)
+	r.Post("/api/v1/admin/knowledge", h.adminKnowledge)
+	r.Post("/api/v1/admin/department", h.adminDepartment)
 
-		// Teams
-		r.Get("/teams", h.listTeams)
-		r.Post("/teams", h.createTeam)
-		r.Get("/teams/{name}", h.showTeam)
-		r.Get("/teams/{name}/activity", h.teamActivity)
+	// Teams
+	r.Get("/api/v1/teams", h.listTeams)
+	r.Post("/api/v1/teams", h.createTeam)
+	r.Get("/api/v1/teams/{name}", h.showTeam)
+	r.Get("/api/v1/teams/{name}/activity", h.teamActivity)
 
-		// Capabilities
-		r.Get("/capabilities", h.listCapabilities)
-		r.Get("/capabilities/{name}", h.showCapability)
-		r.Post("/capabilities/{name}/enable", h.enableCapability)
-		r.Post("/capabilities/{name}/disable", h.disableCapability)
-		r.Post("/capabilities", h.addCapability)
-		r.Delete("/capabilities/{name}", h.deleteCapability)
+	// Capabilities
+	r.Get("/api/v1/capabilities", h.listCapabilities)
+	r.Get("/api/v1/capabilities/{name}", h.showCapability)
+	r.Post("/api/v1/capabilities/{name}/enable", h.enableCapability)
+	r.Post("/api/v1/capabilities/{name}/disable", h.disableCapability)
+	r.Post("/api/v1/capabilities", h.addCapability)
+	r.Delete("/api/v1/capabilities/{name}", h.deleteCapability)
 
-		// Profiles
-		r.Get("/profiles", h.listProfiles)
-		r.Get("/profiles/{id}", h.getProfile)
-		r.Put("/profiles/{id}", h.createOrUpdateProfile)
-		r.Delete("/profiles/{id}", h.deleteProfile)
+	// Profiles
+	r.Get("/api/v1/profiles", h.listProfiles)
+	r.Get("/api/v1/profiles/{id}", h.getProfile)
+	r.Put("/api/v1/profiles/{id}", h.createOrUpdateProfile)
+	r.Delete("/api/v1/profiles/{id}", h.deleteProfile)
 
-		// Policy
-		r.Get("/policy/{agent}", h.showPolicy)
-		r.Post("/policy/{agent}/validate", h.validatePolicy)
+	// Policy
+	r.Get("/api/v1/policy/{agent}", h.showPolicy)
+	r.Post("/api/v1/policy/{agent}/validate", h.validatePolicy)
 
-		// Rebuild
-		r.Post("/agents/{name}/rebuild", h.rebuildAgent)
-	})
+	// Rebuild
+	r.Post("/api/v1/agents/{name}/rebuild", h.rebuildAgent)
 }
 
 // validResourceName matches lowercase alphanumeric names with hyphens, 1-64 chars.
