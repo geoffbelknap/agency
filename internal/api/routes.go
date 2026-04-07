@@ -19,6 +19,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/api/creds"
 	apicomms "github.com/geoffbelknap/agency/internal/api/comms"
 	"github.com/geoffbelknap/agency/internal/api/graph"
+	"github.com/geoffbelknap/agency/internal/api/platform"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/docker"
@@ -65,7 +66,9 @@ func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, l
 		h.eventBus = opts.EventBus
 	}
 
-	r.Get("/api/v1/health", h.health)
+	r.Get("/api/v1/health", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]string{"status": "ok", "version": cfg.Version, "build_id": cfg.BuildID})
+	})
 	r.Post("/api/v1/agents/{name}/signal", h.relaySignal)
 	r.Post("/api/v1/internal/llm", h.internalLLM)
 	r.Get("/api/v1/infra/status", h.infraStatus)
@@ -137,11 +140,10 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		h.dockerStatus = opts.DockerStatus
 	}
 
-	// WebSocket endpoint (outside /api/v1 — at root /ws per spec)
+	// Wire task completion handler before platform routes so it is set up
+	// regardless of whether the hub is registered here or in platform.
 	if opts.Hub != nil {
 		h.wsHub = opts.Hub
-		r.Get("/ws", h.handleWebSocket)
-
 		// Wire task completion handler — triggers success criteria evaluation
 		// when task_complete signals arrive via the comms WebSocket relay.
 		opts.Hub.SetTaskCompleteHandler(func(agent string, data map[string]interface{}) {
@@ -149,28 +151,17 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		})
 	}
 
-	// Web UI config endpoint — serves the auth token so the containerized web UI
-	// can authenticate API and WebSocket requests. Excluded from BearerAuth
-	// middleware (the web UI needs this to get the token in the first place).
-	// Only reachable on localhost (gateway binds to 127.0.0.1 by default).
-	r.Get("/__agency/config", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
-			"token":   cfg.Token,
-			"gateway": "",
-		})
+	// Platform routes (extracted module) — openapi, health, init, websocket,
+	// audit summarization, and the /__agency/config config endpoint.
+	platform.RegisterRoutes(r, platform.Deps{
+		WSHub:           opts.Hub,
+		AuditSummarizer: opts.AuditSummarizer,
+		CredStore:       startup.CredStore,
+		Config:          cfg,
+		Logger:          logger,
 	})
 
 	r.Route("/api/v1", func(r chi.Router) {
-		// OpenAPI spec
-		r.Get("/openapi.yaml", h.openapiSpec)
-
-		// Health
-		r.Get("/health", h.health)
-
-		// Init
-		r.Post("/init", h.initPlatform)
-
 		// Agents
 		r.Get("/agents", h.listAgents)
 		r.Post("/agents", h.createAgent)
@@ -375,22 +366,6 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Put("/profiles/{id}", h.createOrUpdateProfile)
 		r.Delete("/profiles/{id}", h.deleteProfile)
 
-		// Audit summarization
-		if opts.AuditSummarizer != nil {
-			summarizer := opts.AuditSummarizer
-			r.Post("/audit/summarize", func(w http.ResponseWriter, r *http.Request) {
-				metrics, err := summarizer.Summarize()
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"metrics": metrics,
-					"count":   len(metrics),
-				})
-			})
-		}
 	})
 
 	// Knowledge graph and ontology routes (extracted module)
@@ -445,56 +420,6 @@ type handler struct {
 	dockerStatus  *docker.Status
 }
 
-
-func (h *handler) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]string{"status": "ok", "version": h.cfg.Version, "build_id": h.cfg.BuildID})
-}
-
-func (h *handler) initPlatform(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Operator        string `json:"operator"`
-		Force           bool   `json:"force"`
-		AnthropicAPIKey string `json:"anthropic_api_key"`
-		OpenAIAPIKey    string `json:"openai_api_key"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err.Error() != "EOF" {
-		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
-		return
-	}
-
-	opts := config.InitOptions{
-		Operator:        body.Operator,
-		Force:           body.Force,
-		AnthropicAPIKey: body.AnthropicAPIKey,
-		OpenAIAPIKey:    body.OpenAIAPIKey,
-	}
-	pendingKeys, err := config.RunInit(opts)
-	if err != nil {
-		writeJSON(w, 500, map[string]string{"error": err.Error()})
-		return
-	}
-
-	// Store any new API keys in the credential store
-	for _, key := range pendingKeys {
-		if h.credStore != nil {
-			now := time.Now().UTC().Format(time.RFC3339)
-			h.credStore.Put(credstore.Entry{ //nolint:errcheck
-				Name:  key.EnvVar,
-				Value: key.Key,
-				Metadata: credstore.Metadata{
-					Kind:      "provider",
-					Scope:     "platform",
-					Protocol:  "api-key",
-					Source:    "setup",
-					CreatedAt: now,
-					RotatedAt: now,
-				},
-			})
-		}
-	}
-
-	writeJSON(w, 200, map[string]string{"status": "initialized", "home": h.cfg.Home})
-}
 
 func (h *handler) listAgents(w http.ResponseWriter, r *http.Request) {
 	if h.agents == nil {
@@ -1237,14 +1162,6 @@ func (h *handler) infraRebuild(w http.ResponseWriter, r *http.Request) {
 	}
 	enc.Encode(map[string]string{"type": "done", "status": "restarted", "component": component})
 	flusher.Flush()
-}
-
-func (h *handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	if h.wsHub == nil {
-		writeJSON(w, 500, map[string]string{"error": "websocket hub not initialized"})
-		return
-	}
-	h.wsHub.HandleWebSocket(w, r)
 }
 
 // dockerRequired returns true if Docker is available. If not, writes a 503
