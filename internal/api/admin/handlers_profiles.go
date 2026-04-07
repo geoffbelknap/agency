@@ -1,4 +1,4 @@
-package api
+package admin
 
 import (
 	"encoding/json"
@@ -14,7 +14,7 @@ import (
 
 // listProfiles handles GET /api/v1/profiles?type=operator|agent
 func (h *handler) listProfiles(w http.ResponseWriter, r *http.Request) {
-	if h.profileStore == nil {
+	if h.deps.ProfileStore == nil {
 		writeJSON(w, 503, map[string]string{"error": "profile store not initialized"})
 		return
 	}
@@ -23,7 +23,7 @@ func (h *handler) listProfiles(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "type must be 'operator' or 'agent'"})
 		return
 	}
-	profiles, err := h.profileStore.List(filterType)
+	profiles, err := h.deps.ProfileStore.List(filterType)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
@@ -33,12 +33,12 @@ func (h *handler) listProfiles(w http.ResponseWriter, r *http.Request) {
 
 // getProfile handles GET /api/v1/profiles/{id}
 func (h *handler) getProfile(w http.ResponseWriter, r *http.Request) {
-	if h.profileStore == nil {
+	if h.deps.ProfileStore == nil {
 		writeJSON(w, 503, map[string]string{"error": "profile store not initialized"})
 		return
 	}
 	id := chi.URLParam(r, "id")
-	p, err := h.profileStore.Get(id)
+	p, err := h.deps.ProfileStore.Get(id)
 	if err != nil {
 		if isNotFound(err) {
 			writeJSON(w, 404, map[string]string{"error": err.Error()})
@@ -52,7 +52,7 @@ func (h *handler) getProfile(w http.ResponseWriter, r *http.Request) {
 
 // createOrUpdateProfile handles PUT /api/v1/profiles/{id}
 func (h *handler) createOrUpdateProfile(w http.ResponseWriter, r *http.Request) {
-	if h.profileStore == nil {
+	if h.deps.ProfileStore == nil {
 		writeJSON(w, 503, map[string]string{"error": "profile store not initialized"})
 		return
 	}
@@ -74,23 +74,23 @@ func (h *handler) createOrUpdateProfile(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := h.profileStore.Put(body); err != nil {
+	if err := h.deps.ProfileStore.Put(body); err != nil {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
 	}
 
-	p, _ := h.profileStore.Get(id)
+	p, _ := h.deps.ProfileStore.Get(id)
 	writeJSON(w, 200, p)
 }
 
 // deleteProfile handles DELETE /api/v1/profiles/{id}
 func (h *handler) deleteProfile(w http.ResponseWriter, r *http.Request) {
-	if h.profileStore == nil {
+	if h.deps.ProfileStore == nil {
 		writeJSON(w, 503, map[string]string{"error": "profile store not initialized"})
 		return
 	}
 	id := chi.URLParam(r, "id")
-	if err := h.profileStore.Delete(id); err != nil {
+	if err := h.deps.ProfileStore.Delete(id); err != nil {
 		if isNotFound(err) {
 			writeJSON(w, 404, map[string]string{"error": err.Error()})
 			return

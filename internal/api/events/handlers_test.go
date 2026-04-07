@@ -1,4 +1,4 @@
-package api
+package events
 
 import (
 	"bytes"
@@ -22,8 +22,11 @@ func notifTestHandler(t *testing.T) (*handler, *events.NotificationStore, *event
 	logger := log.NewWithOptions(os.Stderr, log.Options{Level: log.ErrorLevel})
 	bus := events.NewBus(logger, nil)
 	h := &handler{
-		notifStore: store,
-		eventBus:   bus,
+		deps: Deps{
+			NotifStore: store,
+			EventBus:   bus,
+		},
+		webhookRL: newWebhookRateLimiter(),
 	}
 	return h, store, bus
 }

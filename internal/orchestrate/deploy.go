@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/log"
 	"gopkg.in/yaml.v3"
 
+	"github.com/geoffbelknap/agency/internal/comms"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/hub"
@@ -115,13 +116,14 @@ type Deployer struct {
 	SourceDir   string // agency_core/ path for dev-mode image builds
 	BuildID     string // content-aware build ID for staleness detection
 	Docker      *agencyDocker.Client
+	Comms       comms.Client
 	Log         *log.Logger
 	Credentials map[string]string
 	CredStore   *credstore.Store
 }
 
 func NewDeployer(home, version string, dc *agencyDocker.Client, logger *log.Logger) *Deployer {
-	return &Deployer{Home: home, Version: version, Docker: dc, Log: logger}
+	return &Deployer{Home: home, Version: version, Docker: dc, Comms: dc, Log: logger}
 }
 
 // LoadPack reads and parses a pack YAML file.
@@ -265,7 +267,7 @@ func (d *Deployer) Deploy(ctx context.Context, pack *PackDef, onStatus func(stri
 				"topic":      ch.Topic,
 				"members":    []string{"_platform"},
 			}
-			_, err := d.Docker.CommsRequest(ctx, "POST", "/channels", body)
+			_, err := d.Comms.CommsRequest(ctx, "POST", "/channels", body)
 			if err != nil {
 				// 409 conflict means channel already exists — idempotent, continue
 				errStr := err.Error()
@@ -282,7 +284,7 @@ func (d *Deployer) Deploy(ctx context.Context, pack *PackDef, onStatus func(stri
 			grantBody := map[string]interface{}{}
 			for _, a := range pack.Team.Agents {
 				grantBody["agent"] = a.Name
-				if _, gerr := d.Docker.CommsRequest(ctx, "POST", "/channels/"+ch.Name+"/grant-access", grantBody); gerr != nil {
+				if _, gerr := d.Comms.CommsRequest(ctx, "POST", "/channels/"+ch.Name+"/grant-access", grantBody); gerr != nil {
 					d.Log.Warn("channel grant-access failed", "channel", ch.Name, "agent", a.Name, "err", gerr)
 				}
 			}
@@ -358,6 +360,7 @@ func (d *Deployer) Deploy(ctx context.Context, pack *PackDef, onStatus func(stri
 			SourceDir: d.SourceDir,
 			BuildID:   d.BuildID,
 			Docker:    d.Docker,
+			Comms:     d.Comms,
 			Log:       d.Log,
 		}
 		_, err := ss.Run(ctx, nil)
@@ -404,7 +407,7 @@ func (d *Deployer) Teardown(ctx context.Context, packName string, deleteResource
 	for _, c := range channels {
 		name, _ := c.(string)
 		if name != "" {
-			d.Docker.CommsRequest(ctx, "POST", "/channels/"+name+"/archive", map[string]interface{}{
+			d.Comms.CommsRequest(ctx, "POST", "/channels/"+name+"/archive", map[string]interface{}{
 				"archived_by": "_platform",
 			})
 		}

@@ -1,4 +1,4 @@
-package api
+package admin
 
 import (
 	"encoding/json"
@@ -32,7 +32,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 	}
 	type doctorReport struct {
 		AllPassed    bool          `json:"all_passed"`
-		TestedAgents []string     `json:"tested_agents"`
+		TestedAgents []string      `json:"tested_agents"`
 		Checks       []checkResult `json:"checks"`
 		Scopes       []scopeInfo   `json:"scopes,omitempty"`
 		Unscoped     []string      `json:"unscoped_agents,omitempty"`
@@ -42,7 +42,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 	report := doctorReport{AllPassed: true}
 
 	// Find running agents via docker (workspace containers)
-	agents, err := h.dc.ListAgentWorkspaces(ctx)
+	agents, err := h.deps.DC.ListAgentWorkspaces(ctx)
 	if err != nil {
 		report.AllPassed = false
 		report.Checks = append(report.Checks, checkResult{
@@ -83,7 +83,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 
 		// ── 1. LLM credentials isolated ───────────────────────────────
 		func() {
-			ws, err := h.dc.InspectContainer(ctx, wsName)
+			ws, err := h.deps.DC.InspectContainer(ctx, wsName)
 			if err != nil {
 				report.AllPassed = false
 				report.Checks = append(report.Checks, checkResult{
@@ -130,7 +130,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 
 		// ── 2. Network mediation complete ─────────────────────────────
 		func() {
-			ws, err := h.dc.InspectContainer(ctx, wsName)
+			ws, err := h.deps.DC.InspectContainer(ctx, wsName)
 			if err != nil {
 				report.AllPassed = false
 				report.Checks = append(report.Checks, checkResult{
@@ -161,7 +161,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 
 		// ── 3. Constraints read-only ──────────────────────────────────
 		func() {
-			ws, err := h.dc.InspectContainer(ctx, wsName)
+			ws, err := h.deps.DC.InspectContainer(ctx, wsName)
 			if err != nil {
 				report.AllPassed = false
 				report.Checks = append(report.Checks, checkResult{
@@ -200,7 +200,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 
 		// ── 4. Enforcer audit active ──────────────────────────────────
 		func() {
-			enf, err := h.dc.InspectContainer(ctx, enfName)
+			enf, err := h.deps.DC.InspectContainer(ctx, enfName)
 			if err != nil {
 				report.AllPassed = false
 				report.Checks = append(report.Checks, checkResult{
@@ -229,7 +229,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 
 		// ── 5. Audit log not writable by agent ────────────────────────
 		func() {
-			ws, err := h.dc.InspectContainer(ctx, wsName)
+			ws, err := h.deps.DC.InspectContainer(ctx, wsName)
 			if err != nil {
 				report.AllPassed = false
 				report.Checks = append(report.Checks, checkResult{
@@ -259,7 +259,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 
 		// ── 6. Halt functional ────────────────────────────────────────
 		func() {
-			ws, err := h.dc.InspectContainer(ctx, wsName)
+			ws, err := h.deps.DC.InspectContainer(ctx, wsName)
 			if err != nil {
 				report.AllPassed = false
 				report.Checks = append(report.Checks, checkResult{
@@ -285,7 +285,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 
 		// ── 7. Operator override available ────────────────────────────
 		func() {
-			enf, err := h.dc.InspectContainer(ctx, enfName)
+			enf, err := h.deps.DC.InspectContainer(ctx, enfName)
 			if err != nil {
 				report.AllPassed = false
 				report.Checks = append(report.Checks, checkResult{
@@ -331,7 +331,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Scope audit: collect per-agent scope declarations from presets
-	agentsDir := filepath.Join(h.cfg.Home, "agents")
+	agentsDir := filepath.Join(h.deps.Config.Home, "agents")
 	agentEntries, _ := os.ReadDir(agentsDir)
 	for _, ae := range agentEntries {
 		if !ae.IsDir() {
@@ -360,8 +360,8 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 			yaml.Unmarshal(data, &agentCfg)
 		}
 		presetPaths := []string{
-			filepath.Join(h.cfg.Home, "hub-cache", "default", "presets", agentCfg.Preset, "preset.yaml"),
-			filepath.Join(h.cfg.Home, "presets", agentCfg.Preset+".yaml"),
+			filepath.Join(h.deps.Config.Home, "hub-cache", "default", "presets", agentCfg.Preset, "preset.yaml"),
+			filepath.Join(h.deps.Config.Home, "presets", agentCfg.Preset+".yaml"),
 		}
 		for _, pp := range presetPaths {
 			data, err := os.ReadFile(pp)
@@ -400,18 +400,18 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) adminDestroy(w http.ResponseWriter, r *http.Request) {
 	// Stop all agents
-	agents, _ := h.agents.List(r.Context())
+	agents, _ := h.deps.AgentManager.List(r.Context())
 	for _, a := range agents {
-		h.agents.StopContainers(r.Context(), a.Name)
-		h.agents.Delete(r.Context(), a.Name)
+		h.deps.AgentManager.StopContainers(r.Context(), a.Name)
+		h.deps.AgentManager.Delete(r.Context(), a.Name)
 	}
 
 	// Tear down infrastructure
-	if h.infra != nil {
-		h.infra.Teardown(r.Context())
+	if h.deps.Infra != nil {
+		h.deps.Infra.Teardown(r.Context())
 	}
 
-	h.log.Info("admin destroy completed")
+	h.deps.Logger.Info("admin destroy completed")
 	writeJSON(w, 200, map[string]string{"status": "destroyed"})
 }
 
@@ -446,7 +446,7 @@ func (h *handler) adminTrust(w http.ResponseWriter, r *http.Request) {
 
 	// list action does not require agent
 	if body.Action == "list" {
-		agentsDir := filepath.Join(h.cfg.Home, "agents")
+		agentsDir := filepath.Join(h.deps.Config.Home, "agents")
 		entries, err := os.ReadDir(agentsDir)
 		if err != nil {
 			writeJSON(w, 200, []interface{}{})
@@ -495,7 +495,7 @@ func (h *handler) adminTrust(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Read current trust state from agent config
-	trustPath := filepath.Join(h.cfg.Home, "agents", agent, "trust.yaml")
+	trustPath := filepath.Join(h.deps.Config.Home, "agents", agent, "trust.yaml")
 	var trust map[string]interface{}
 	if data, err := os.ReadFile(trustPath); err == nil {
 		yaml.Unmarshal(data, &trust)
@@ -525,7 +525,7 @@ func (h *handler) adminTrust(w http.ResponseWriter, r *http.Request) {
 		}
 		data, _ := yaml.Marshal(trust)
 		os.WriteFile(trustPath, data, 0644)
-		h.audit.Write(agent, "trust_elevated", map[string]interface{}{"from": level, "to": trust["level"]})
+		h.deps.Audit.Write(agent, "trust_elevated", map[string]interface{}{"from": level, "to": trust["level"]})
 		writeJSON(w, 200, trust)
 	case "demote":
 		level := getLevel()
@@ -534,7 +534,7 @@ func (h *handler) adminTrust(w http.ResponseWriter, r *http.Request) {
 		}
 		data, _ := yaml.Marshal(trust)
 		os.WriteFile(trustPath, data, 0644)
-		h.audit.Write(agent, "trust_demoted", map[string]interface{}{"from": level, "to": trust["level"]})
+		h.deps.Audit.Write(agent, "trust_demoted", map[string]interface{}{"from": level, "to": trust["level"]})
 		writeJSON(w, 200, trust)
 	case "record":
 		signalType := body.SignalType
@@ -545,7 +545,7 @@ func (h *handler) adminTrust(w http.ResponseWriter, r *http.Request) {
 		if desc == "" {
 			desc = body.Args["description"]
 		}
-		h.audit.Write(agent, "trust_signal", map[string]interface{}{"signal_type": signalType, "description": desc})
+		h.deps.Audit.Write(agent, "trust_signal", map[string]interface{}{"signal_type": signalType, "description": desc})
 		writeJSON(w, 200, map[string]string{"status": "recorded", "agent": agent, "signal_type": signalType})
 	default:
 		writeJSON(w, 400, map[string]string{"error": "unknown action: " + body.Action})
@@ -563,11 +563,11 @@ func (h *handler) adminAudit(w http.ResponseWriter, r *http.Request) {
 	since := q.Get("since")
 	until := q.Get("until")
 
-	reader := logs.NewReader(h.cfg.Home)
+	reader := logs.NewReader(h.deps.Config.Home)
 
 	// stats action: return aggregate stats across all agents (or a single agent if provided)
 	if action == "stats" {
-		auditDir := filepath.Join(h.cfg.Home, "audit")
+		auditDir := filepath.Join(h.deps.Config.Home, "audit")
 		entries, err := os.ReadDir(auditDir)
 		if err != nil {
 			writeJSON(w, 200, map[string]interface{}{
@@ -640,7 +640,7 @@ func (h *handler) adminEgress(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Read egress config for the agent
-	egressPath := filepath.Join(h.cfg.Home, "agents", agent, "egress.yaml")
+	egressPath := filepath.Join(h.deps.Config.Home, "agents", agent, "egress.yaml")
 	var egress map[string]interface{}
 	if data, err := os.ReadFile(egressPath); err == nil {
 		yaml.Unmarshal(data, &egress)
@@ -662,7 +662,7 @@ func (h *handler) adminKnowledge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	kp := h.knowledge
+	kp := h.deps.Knowledge
 	args := body.Args
 	if args == nil {
 		args = map[string]string{}
@@ -808,7 +808,7 @@ func (h *handler) adminDepartment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deptDir := filepath.Join(h.cfg.Home, "departments")
+	deptDir := filepath.Join(h.deps.Config.Home, "departments")
 	os.MkdirAll(deptDir, 0755)
 
 	switch body.Action {
@@ -846,7 +846,7 @@ func (h *handler) rebuildAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agentDir := filepath.Join(h.cfg.Home, "agents", name)
+	agentDir := filepath.Join(h.deps.Config.Home, "agents", name)
 	if _, err := os.Stat(filepath.Join(agentDir, "agent.yaml")); err != nil {
 		writeJSON(w, 404, map[string]string{"error": "agent not found: " + name})
 		return
@@ -906,11 +906,11 @@ func (h *handler) rebuildAgent(w http.ResponseWriter, r *http.Request) {
 		regenerated = append(regenerated, "PLATFORM.md")
 	}
 
-	h.audit.Write(name, "admin_rebuild", map[string]interface{}{
+	h.deps.Audit.Write(name, "admin_rebuild", map[string]interface{}{
 		"regenerated": regenerated,
 		"errors":      errors,
 	})
-	h.log.Info("agent rebuild completed", "agent", name,
+	h.deps.Logger.Info("agent rebuild completed", "agent", name,
 		"regenerated", len(regenerated), "errors", len(errors))
 
 	status := "rebuilt"

@@ -1,4 +1,4 @@
-package api
+package missions
 
 import (
 	"encoding/json"
@@ -16,7 +16,7 @@ func (h *handler) getCanvas(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	canvasPath := filepath.Join(h.cfg.Home, "missions", name+".canvas.json")
+	canvasPath := filepath.Join(h.deps.Config.Home, "missions", name+".canvas.json")
 
 	data, err := os.ReadFile(canvasPath)
 	if err != nil {
@@ -41,7 +41,7 @@ func (h *handler) putCanvas(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify mission exists
-	missionPath := filepath.Join(h.cfg.Home, "missions", name+".yaml")
+	missionPath := filepath.Join(h.deps.Config.Home, "missions", name+".yaml")
 	if _, err := os.Stat(missionPath); os.IsNotExist(err) {
 		writeJSON(w, 404, map[string]string{"error": "mission not found"})
 		return
@@ -60,7 +60,7 @@ func (h *handler) putCanvas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	canvasPath := filepath.Join(h.cfg.Home, "missions", name+".canvas.json")
+	canvasPath := filepath.Join(h.deps.Config.Home, "missions", name+".canvas.json")
 	if err := os.WriteFile(canvasPath, body, 0644); err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
@@ -75,7 +75,7 @@ func (h *handler) deleteCanvas(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	canvasPath := filepath.Join(h.cfg.Home, "missions", name+".canvas.json")
+	canvasPath := filepath.Join(h.deps.Config.Home, "missions", name+".canvas.json")
 	os.Remove(canvasPath) // ignore errors — may not exist
 	writeJSON(w, 200, map[string]string{"status": "deleted"})
 }
