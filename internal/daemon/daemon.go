@@ -22,9 +22,8 @@ func PIDFile() string {
 }
 
 // IsRunning checks if a daemon is running by:
-// 1. Reading PID from ~/.agency/gateway.pid
-// 2. Checking if process exists (os.FindProcess + signal 0)
-// 3. Checking if health endpoint responds
+// 1. Reading PID from ~/.agency/gateway.pid and verifying the process
+// 2. Falling back to health endpoint check if PID file is missing
 func IsRunning(port int) bool {
 	pidFile := PIDFile()
 	if pidFile == "" {
@@ -32,28 +31,30 @@ func IsRunning(port int) bool {
 	}
 
 	data, err := os.ReadFile(pidFile)
-	if err != nil {
-		return false
-	}
-
-	pid, err := strconv.Atoi(string(data))
-	if err != nil {
-		return false
-	}
-
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-
-	// Signal 0 checks if process exists without sending a signal
-	if err := proc.Signal(syscall.Signal(0)); err != nil {
-		// Process not running, clean up stale PID file
+	if err == nil {
+		pid, err := strconv.Atoi(string(data))
+		if err == nil {
+			proc, err := os.FindProcess(pid)
+			if err == nil {
+				if err := proc.Signal(syscall.Signal(0)); err == nil {
+					// Process exists — verify health endpoint
+					client := &http.Client{Timeout: 2 * time.Second}
+					resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/api/v1/health", port))
+					if err == nil {
+						resp.Body.Close()
+						if resp.StatusCode == 200 {
+							return true
+						}
+					}
+				}
+			}
+		}
+		// PID file exists but process is dead — clean up
 		os.Remove(pidFile)
-		return false
 	}
 
-	// Process exists — verify the health endpoint responds
+	// No PID file or stale PID — check if health endpoint responds anyway
+	// (daemon may be running without a PID file)
 	client := &http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/api/v1/health", port))
 	if err != nil {

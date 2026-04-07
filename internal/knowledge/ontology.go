@@ -57,14 +57,23 @@ func LoadOntology(home string) (*OntologyConfig, error) {
 	knowledgeDir := filepath.Join(home, "knowledge")
 	basePath := filepath.Join(knowledgeDir, "base-ontology.yaml")
 
+	var cfg OntologyConfig
 	data, err := os.ReadFile(basePath)
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("read base ontology: %w", err)
 	}
+	if err == nil {
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			return nil, fmt.Errorf("parse base ontology: %w", err)
+		}
+	}
 
-	var cfg OntologyConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parse base ontology: %w", err)
+	// Ensure maps are initialized for extension merging
+	if cfg.EntityTypes == nil {
+		cfg.EntityTypes = make(map[string]EntityType)
+	}
+	if cfg.RelationshipTypes == nil {
+		cfg.RelationshipTypes = make(map[string]RelationshipType)
 	}
 
 	// Merge extensions from ontology.d/

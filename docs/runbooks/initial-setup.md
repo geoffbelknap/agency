@@ -33,7 +33,7 @@ Expected: `{"status":"ok","version":"...","build_id":"..."}`
 agency infra status
 ```
 
-Expected: egress, comms, knowledge, intake, gateway-proxy all showing healthy/running.
+Expected: egress, comms, knowledge, intake, web-fetch, web, embeddings all showing healthy/running.
 
 ### 4. Verify auth token exists
 
@@ -54,7 +54,7 @@ Expected: all checks pass. No agents exist yet, so agent-specific checks are ski
 ### 6. Configure provider
 
 ```bash
-agency creds set ANTHROPIC_API_KEY --value sk-ant-...
+agency creds set --name ANTHROPIC_API_KEY --value sk-ant-... --kind provider --protocol api-key --scope platform
 ```
 
 ### 7. Create and start a test agent

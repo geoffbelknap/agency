@@ -25,10 +25,10 @@ Scheduled backup, migration to new machine, disaster recovery, or state preserva
 BACKUP_DIR="/path/to/backups/agency-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$BACKUP_DIR"
 
-# Stop agents to ensure consistent state
-agency list | grep running | awk '{print $1}' | while read agent; do
-    agency stop "$agent"
-done
+# Stop agents to ensure consistent state (check agency status for running agents)
+agency status
+# For each running agent:
+# agency stop <agent-name>
 
 # Copy everything
 cp -r ~/.agency/ "$BACKUP_DIR/"
@@ -56,7 +56,7 @@ cp ~/.agency/notifications.yaml "$BACKUP_DIR/" 2>/dev/null || true
 ### Knowledge graph backup
 
 ```bash
-agency knowledge export > /path/to/backups/knowledge-$(date +%Y%m%d).json
+agency knowledge export /path/to/backups/knowledge-$(date +%Y%m%d).json
 ```
 
 ## Restore Procedure
@@ -103,7 +103,7 @@ agency admin doctor
 ### Restore knowledge graph only
 
 ```bash
-agency knowledge restore < /path/to/backups/knowledge-YYYYMMDD.json
+agency knowledge import /path/to/backups/knowledge-YYYYMMDD.json
 agency knowledge stats
 ```
 

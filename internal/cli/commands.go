@@ -30,6 +30,8 @@ var (
 	red    = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 	yellow = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
 	cyan   = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+
+	quiet bool // suppress spinners and progress animations
 )
 
 // spinner displays an animated spinner with a status message on the current line.
@@ -63,6 +65,10 @@ func (s *spinner) update(status string) {
 // run starts the spinner animation. Call in a goroutine.
 func (s *spinner) run() {
 	defer close(s.done)
+	if quiet {
+		<-s.stop
+		return
+	}
 	i := 0
 	ticker := time.NewTicker(80 * time.Millisecond)
 	defer ticker.Stop()
@@ -171,6 +177,8 @@ func checkDaemonVersion(c *Client) {
 
 // RegisterCommands adds all CLI subcommands to the root cobra command.
 func RegisterCommands(root *cobra.Command) {
+	root.PersistentFlags().BoolVarP(&quiet, "quiet", "q", false, "suppress spinners and progress animations")
+
 	// Extract semver from root version string ("0.1.1 (abc1234, ...)" → "0.1.1")
 	if v := root.Version; v != "" {
 		if idx := strings.IndexByte(v, ' '); idx > 0 {
@@ -210,7 +218,7 @@ func RegisterCommands(root *cobra.Command) {
 
 	// ── Daily operations — flat top-level verbs ──────────────────────────
 	for _, cmd := range []*cobra.Command{
-		startCmd(), stopCmd(), restartCmd(), sendCmd(), statusCmd(), logCmd(),
+		startCmd(), stopCmd(), restartCmd(), sendCmd(), statusCmd(), showCmd(), listCmd(), logCmd(),
 	} {
 		cmd.GroupID = "daily"
 		root.AddCommand(cmd)
@@ -223,11 +231,6 @@ func RegisterCommands(root *cobra.Command) {
 		cmd.GroupID = "agent"
 		root.AddCommand(cmd)
 	}
-
-	// Keep "show" as hidden alias for "status <agent>"
-	show := showCmd()
-	show.Hidden = true
-	root.AddCommand(show)
 
 	// ── Grouped subcommands ─────────────────────────────────────────────
 	for _, cmd := range []*cobra.Command{
@@ -275,7 +278,8 @@ func startCmd() *cobra.Command {
 }
 
 func stopCmd() *cobra.Command {
-	return &cobra.Command{
+	var force bool
+	cmd := &cobra.Command{
 		Use:   "stop <agent>",
 		Short: "Stop an agent",
 		Args:  cobra.ExactArgs(1),
@@ -284,6 +288,12 @@ func stopCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if force {
+				if _, err := c.HaltAgent(args[0], "immediate", "force stop"); err != nil {
+					// Ignore halt errors (agent may already be stopped/halted)
+					_ = err
+				}
+			}
 			if err := c.StopAgent(args[0]); err != nil {
 				return err
 			}
@@ -291,6 +301,8 @@ func stopCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "halt immediately before stopping (for stuck agents)")
+	return cmd
 }
 
 func restartCmd() *cobra.Command {
@@ -366,23 +378,13 @@ func sendCmd() *cobra.Command {
 
 func statusCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "status [agent]",
-		Short: "Show platform overview or agent detail",
-		Args:  cobra.MaximumNArgs(1),
+		Use:   "status",
+		Short: "Show platform overview",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
 				return err
-			}
-
-			// If an agent name is given, show agent detail
-			if len(args) == 1 {
-				agent, err := c.ShowAgent(args[0])
-				if err != nil {
-					return err
-				}
-				prettyPrint(agent)
-				return nil
 			}
 
 			// No args: show overview (infra + agents summary)
@@ -495,6 +497,44 @@ func statusCmd() *cobra.Command {
 						}
 					}
 				}
+			}
+			return nil
+		},
+	}
+}
+
+func listCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List agents",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			agents, err := c.ListAgents()
+			if err != nil {
+				return err
+			}
+			if len(agents) == 0 {
+				fmt.Println("No agents")
+				return nil
+			}
+			fmt.Printf("  %-20s %-12s %-12s %-20s\n", "NAME", "STATUS", "PRESET", "LAST ACTIVE")
+			for _, a := range agents {
+				name, _ := a["name"].(string)
+				status, _ := a["status"].(string)
+				preset, _ := a["preset"].(string)
+				lastActive, _ := a["last_active"].(string)
+
+				icon := dim.Render("○")
+				if status == "running" {
+					icon = green.Render("●")
+				} else if status == "paused" {
+					icon = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("●")
+				}
+				fmt.Printf("%s %-20s %-12s %-12s %-20s\n", icon, bold.Render(name), status, preset, dim.Render(lastActive))
 			}
 			return nil
 		},
@@ -769,10 +809,9 @@ func revokeCmd() *cobra.Command {
 // showCmd is kept as an alias for "status <agent>".
 func showCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:    "show <agent>",
-		Short:  "Show agent details (alias for 'status <agent>')",
-		Args:   cobra.ExactArgs(1),
-		Hidden: true,
+		Use:   "show <agent>",
+		Short: "Show agent details",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
@@ -1087,13 +1126,17 @@ func hubCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "hub", Short: "Hub and deploy operations"}
 
 	cmd.AddCommand(&cobra.Command{
-		Use: "search <query>", Short: "Search hub", Args: cobra.ExactArgs(1),
+		Use: "search [query]", Short: "Search hub", Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
 				return err
 			}
-			results, err := c.HubSearch(args[0], "")
+			query := ""
+			if len(args) > 0 {
+				query = args[0]
+			}
+			results, err := c.HubSearch(query, "")
 			if err != nil {
 				return err
 			}
@@ -2762,6 +2805,56 @@ For URLs: passes the URL as filename (the knowledge service handles URL classifi
 	insightCmd.Flags().String("confidence", "medium", "Confidence level (low, medium, high)")
 	insightCmd.Flags().String("tags", "", "Comma-separated tags")
 	cmd.AddCommand(insightCmd)
+
+	// Export knowledge graph
+	exportCmd := &cobra.Command{
+		Use:   "export [file]",
+		Short: "Export the knowledge graph to JSON",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			data, err := c.KnowledgeExport("json")
+			if err != nil {
+				return err
+			}
+			if len(args) == 1 {
+				if err := os.WriteFile(args[0], data, 0644); err != nil {
+					return fmt.Errorf("write file: %w", err)
+				}
+				fmt.Printf("%s Knowledge graph exported to %s\n", green.Render("✓"), args[0])
+				return nil
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	}
+	cmd.AddCommand(exportCmd)
+
+	// Import knowledge graph
+	importCmd := &cobra.Command{
+		Use:   "import <file>",
+		Short: "Import knowledge graph from a JSON export",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			data, err := os.ReadFile(args[0])
+			if err != nil {
+				return fmt.Errorf("read file: %w", err)
+			}
+			if _, err := c.Post("/api/v1/knowledge/import", json.RawMessage(data)); err != nil {
+				return fmt.Errorf("import: %w", err)
+			}
+			fmt.Printf("%s Knowledge graph imported from %s\n", green.Render("✓"), args[0])
+			return nil
+		},
+	}
+	cmd.AddCommand(importCmd)
 
 	cmd.AddCommand(knowledgeOntologyCmd())
 	cmd.AddCommand(knowledgeReviewCmd())
@@ -4934,9 +5027,9 @@ func credentialCmd() *cobra.Command {
 	}
 	setCmd.Flags().String("name", "", "Credential name (required)")
 	setCmd.Flags().String("value", "", "Secret value (required)")
-	setCmd.Flags().String("kind", "", "Kind: provider, service, gateway, internal (required)")
-	setCmd.Flags().String("scope", "", "Scope: platform, team:<name>, agent:<name> (required)")
-	setCmd.Flags().String("protocol", "", "Protocol: api-key, jwt-exchange, bearer, github-app, oauth2 (required)")
+	setCmd.Flags().String("kind", "provider", "Kind: provider, service, gateway, internal")
+	setCmd.Flags().String("scope", "platform", "Scope: platform, team:<name>, agent:<name>")
+	setCmd.Flags().String("protocol", "api-key", "Protocol: api-key, jwt-exchange, bearer, github-app, oauth2")
 	setCmd.Flags().String("service", "", "Service name for routing")
 	setCmd.Flags().String("group", "", "Group name to inherit config from")
 	setCmd.Flags().String("external-scopes", "", "Comma-separated external scopes")
@@ -4944,9 +5037,6 @@ func credentialCmd() *cobra.Command {
 	setCmd.Flags().String("expires", "", "Expiration in RFC3339 format")
 	setCmd.MarkFlagRequired("name")
 	setCmd.MarkFlagRequired("value")
-	setCmd.MarkFlagRequired("kind")
-	setCmd.MarkFlagRequired("scope")
-	setCmd.MarkFlagRequired("protocol")
 
 	// agency credential list
 	listCmd := &cobra.Command{

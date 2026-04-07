@@ -33,6 +33,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 		r.Get("/who-knows", h.knowledgeWhoKnows)
 		r.Get("/stats", h.knowledgeStats)
 		r.Get("/export", h.knowledgeExport)
+		r.Post("/import", h.knowledgeImport)
 		r.Get("/changes", h.knowledgeChanges)
 		r.Get("/context", h.knowledgeContext)
 		r.Get("/neighbors", h.knowledgeNeighbors)

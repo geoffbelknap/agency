@@ -46,14 +46,14 @@ Run through each section. Mark each item as you verify it.
 - [ ] `agency start validation-test` — agent starts, containers running
 - [ ] `agency show validation-test` — shows running state
 - [ ] `agency send validation-test "Hello"` — message delivered
-- [ ] `agency halt validation-test --type supervised --reason "validation"` — agent halts
+- [ ] `agency halt validation-test --tier supervised --reason "validation"` — agent halts
 - [ ] `agency resume validation-test` — agent resumes
 - [ ] `agency stop validation-test` — agent stops
 - [ ] `agency delete validation-test` — agent removed
 
 ### Credentials
 
-- [ ] `agency creds set validation-test-key --value test123` — stored
+- [ ] `agency creds set --name validation-test-key --value test123 --kind internal --protocol api-key --scope platform` — stored
 - [ ] `agency creds list` — shows the key
 - [ ] `agency creds show validation-test-key` — retrievable
 - [ ] `agency creds delete validation-test-key` — removed
@@ -61,12 +61,12 @@ Run through each section. Mark each item as you verify it.
 ### Knowledge Graph
 
 - [ ] `agency knowledge stats` — accessible, shows counts
-- [ ] `agency knowledge ontology` — returns ontology types
+- [ ] `agency knowledge ontology show` — returns ontology types
 
 ### Hub
 
 - [ ] `agency hub update` — fetches registry
-- [ ] `agency hub search` — returns results or empty
+- [ ] `agency hub search <query>` — returns results or empty
 
 ### Missions
 
