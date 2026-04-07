@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Shared logging infrastructure (auto-configures via sitecustomize.py)
 COPY images/logging_config.py /app/logging_config.py
-COPY images/sitecustomize.py /app/sitecustomize.py
+COPY images/_sitecustomize.py /app/sitecustomize.py
 
 COPY images/knowledge/*.py /app/
 RUN mkdir -p /app/images/knowledge \

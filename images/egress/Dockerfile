@@ -10,7 +10,7 @@ RUN mkdir -p /app/logs /app/blocklists
 
 # Shared logging infrastructure (auto-configures via sitecustomize.py)
 COPY images/logging_config.py /app/logging_config.py
-COPY images/sitecustomize.py /app/sitecustomize.py
+COPY images/_sitecustomize.py /app/sitecustomize.py
 
 COPY images/egress/addon.py /app/addon.py
 COPY images/egress/credential_swap.py /app/credential_swap.py

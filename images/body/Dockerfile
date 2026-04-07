@@ -12,7 +12,7 @@ RUN useradd -m -s /bin/sh -u 61000 bodyuser && \
 
 # Shared logging infrastructure (auto-configures via sitecustomize.py)
 COPY images/logging_config.py /app/logging_config.py
-COPY images/sitecustomize.py /app/sitecustomize.py
+COPY images/_sitecustomize.py /app/sitecustomize.py
 
 ARG CACHE_BUST=0
 COPY images/body/body.py /app/body.py
