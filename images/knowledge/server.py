@@ -10,12 +10,24 @@ Endpoints:
     GET  /changes?since=T         - What changed since timestamp
     GET  /context?subject=X       - Full context about a subject
     GET  /org-context?agent=X    - Organizational context scoped to an agent
+    POST /ingest                  - Universal content ingestion (auto-classify)
     POST /ingest/nodes            - Ingest nodes (rule-based or LLM)
     POST /ingest/edges            - Ingest edges
     GET  /export?format=jsonl     - Export graph for centralization
     GET  /stats                   - Graph statistics
     GET  /pending                 - List pending org-structural contributions
     POST /review/{pending_id}     - Approve or reject a pending contribution
+    GET  /principals              - List all principals (optional ?type= filter)
+    POST /principals              - Register a principal ({type, name, metadata?})
+    GET  /principals/{uuid}       - Resolve a principal UUID
+    GET  /communities             - List all detected communities
+    GET  /community/{id}          - Get members of a specific community
+    GET  /hubs                    - Get top hub nodes (optional ?limit=N)
+    POST /insight                 - Save an agent's synthesized insight
+    POST /quarantine              - Quarantine nodes by agent ({agent, since?})
+    POST /quarantine/release      - Release quarantined node(s) ({node_id} or {agent})
+    GET  /quarantine              - List quarantined nodes (optional ?agent=)
+    GET  /classification          - Return current classification config
 """
 
 import argparse
@@ -45,6 +57,8 @@ class _HealthFilterAccessLogger(AbstractAccessLogger):
 
 from typing import Optional
 from images.knowledge.ingester import RuleIngester
+from images.knowledge.principal_registry import PrincipalRegistry
+from images.knowledge.classification import ClassificationConfig
 from images.knowledge.store import KnowledgeStore
 from images.knowledge.synthesizer import LLMSynthesizer
 
@@ -103,6 +117,25 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     store = KnowledgeStore(data_dir or Path("/data"))
     app["store"] = store
 
+    # Initialize principal registry from gateway snapshot
+    snapshot_path = "/app/registry.json"
+    if not os.path.exists(snapshot_path):
+        snapshot_path = os.path.join(
+            os.environ.get("AGENCY_HOME", "/data"), "registry.json"
+        )
+    principal_registry = PrincipalRegistry(snapshot_path=snapshot_path)
+    app["principal_registry"] = principal_registry
+
+    # Initialize classification config
+    config_path = os.environ.get("CLASSIFICATION_CONFIG_PATH", "/app/classification.yaml")
+    # fallback paths
+    if not os.path.exists(config_path):
+        config_path = os.path.join(os.environ.get("AGENCY_HOME", "/data"), "classification.yaml")
+    classification_config = ClassificationConfig(config_path=config_path if os.path.exists(config_path) else None)
+    app["classification_config"] = classification_config
+    # Wire into store
+    store.set_classification_config(classification_config)
+
     # Run one-time ontology migration
     _run_ontology_migration(store, data_dir or Path("/data"))
 
@@ -141,6 +174,24 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
         app.on_startup.append(_start_ingestion_loop)
         app.on_cleanup.append(_stop_ingestion_loop)
 
+    # Universal ingestion pipeline (optional — depends on ingestion extras)
+    try:
+        from ingestion.pipeline import IngestionPipeline
+        synth = app.get("synthesizer")
+        pipeline = IngestionPipeline(store=store, synthesizer=synth)
+        app["pipeline"] = pipeline
+    except ImportError:
+        try:
+            from images.knowledge.ingestion.pipeline import IngestionPipeline
+            synth = app.get("synthesizer")
+            pipeline = IngestionPipeline(store=store, synthesizer=synth)
+            app["pipeline"] = pipeline
+        except ImportError:
+            app["pipeline"] = None
+
+    # Run schema migrations on startup
+    app.on_startup.append(_run_schema_migrations)
+
     # Start embedding backfill as a background task
     app.on_startup.append(_start_backfill_task)
     app.on_cleanup.append(_stop_backfill_task)
@@ -153,6 +204,7 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     app.router.add_get("/org-context", handle_org_context)
     app.router.add_get("/neighbors", handle_neighbors)
     app.router.add_get("/path", handle_path)
+    app.router.add_post("/ingest", handle_ingest_universal)
     app.router.add_post("/ingest/nodes", handle_ingest_nodes)
     app.router.add_post("/ingest/edges", handle_ingest_edges)
     app.router.add_get("/export", handle_export)
@@ -174,6 +226,17 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     app.router.add_post("/ontology/reject", handle_ontology_reject)
     app.router.add_post("/delete-by-label", handle_delete_by_label)
     app.router.add_post("/delete-by-kind", handle_delete_by_kind)
+    app.router.add_get("/principals", handle_principals_list)
+    # POST /principals removed — registrations are gateway-only now
+    app.router.add_get("/principals/{uuid}", handle_principals_resolve)
+    app.router.add_get("/communities", handle_communities)
+    app.router.add_get("/community/{id}", handle_community)
+    app.router.add_get("/hubs", handle_hubs)
+    app.router.add_post("/insight", handle_save_insight)
+    app.router.add_post("/quarantine", handle_quarantine)
+    app.router.add_post("/quarantine/release", handle_quarantine_release)
+    app.router.add_get("/quarantine", handle_quarantine_list)
+    app.router.add_get("/classification", handle_classification)
 
     async def _log_knowledge_shutdown(app: web.Application) -> None:
         logger.info("Knowledge server shutting down")
@@ -199,6 +262,14 @@ async def handle_health(request: web.Request) -> web.Response:
         state = request.app.get("upstream_state", {})
         resp["upstream_ok"] = state.get("ok", False)
     return web.json_response(resp)
+
+
+async def handle_classification(request: web.Request) -> web.Response:
+    """GET /classification — return current classification config."""
+    config = request.app.get("classification_config")
+    if not config:
+        return web.json_response({"error": "classification not configured"}, status=503)
+    return web.json_response(config.to_dict())
 
 
 async def handle_query(request: web.Request) -> web.Response:
@@ -402,6 +473,8 @@ async def handle_context(request: web.Request) -> web.Response:
     subject = request.query.get("subject", "")
     visible_raw = request.query.get("visible_channels", "")
     visible = [c.strip() for c in visible_raw.split(",") if c.strip()] or None
+    principal_param = request.query.get("principal")
+    principal = {"principals": [principal_param]} if principal_param else None
     hops = min(max(int(request.query.get("hops", "2")), 1), 3)
     if not subject:
         return web.json_response({"error": "subject required"}, status=400)
@@ -409,7 +482,7 @@ async def handle_context(request: web.Request) -> web.Response:
     if not nodes:
         return web.json_response({"nodes": [], "edges": []})
     subgraph = store.get_subgraph(
-        nodes[0]["id"], max_hops=hops, visible_channels=visible
+        nodes[0]["id"], max_hops=hops, visible_channels=visible, principal=principal
     )
     return web.json_response(subgraph)
 
@@ -420,6 +493,8 @@ async def _cache_context(request, store):
         return web.json_response({"error": "subject required"}, status=400)
     visible_raw = request.query.get("visible_channels", "")
     visible = [c.strip() for c in visible_raw.split(",") if c.strip()] or None
+    principal_param = request.query.get("principal")
+    principal = {"principals": [principal_param]} if principal_param else None
     cache_key = f"context:{subject}:{sorted(visible or [])}"
     state = request.app.get("upstream_state", {})
     http = request.app["http"]
@@ -440,7 +515,7 @@ async def _cache_context(request, store):
     nodes = store.find_nodes(subject, visible_channels=visible)
     if not nodes:
         return web.json_response({"nodes": [], "edges": []})
-    subgraph = store.get_subgraph(nodes[0]["id"], max_hops=2, visible_channels=visible)
+    subgraph = store.get_subgraph(nodes[0]["id"], max_hops=2, visible_channels=visible, principal=principal)
     return web.json_response(subgraph)
 
 
@@ -466,11 +541,13 @@ async def handle_neighbors(request: web.Request) -> web.Response:
     node_id = request.query.get("node_id", "")
     direction = request.query.get("direction", "both")
     relation = request.query.get("relation") or None
+    principal_param = request.query.get("principal")
+    principal = {"principals": [principal_param]} if principal_param else None
     if not node_id:
         return web.json_response({"error": "node_id required"}, status=400)
     if direction not in ("outgoing", "incoming", "both"):
         return web.json_response({"error": "direction must be outgoing, incoming, or both"}, status=400)
-    result = store.get_neighbors(node_id, direction=direction, relation=relation)
+    result = store.get_neighbors(node_id, direction=direction, relation=relation, principal=principal)
     return web.json_response(result)
 
 
@@ -478,16 +555,72 @@ async def handle_path(request: web.Request) -> web.Response:
     store: KnowledgeStore = request.app["store"]
     from_label = request.query.get("from", "")
     to_label = request.query.get("to", "")
+    principal_param = request.query.get("principal")
+    principal = {"principals": [principal_param]} if principal_param else None
     try:
         max_hops = int(request.query.get("max_hops", "4"))
     except ValueError:
         return web.json_response({"error": "max_hops must be an integer"}, status=400)
     if not from_label or not to_label:
         return web.json_response({"error": "from and to required"}, status=400)
-    result = store.find_path(from_label, to_label, max_hops=max_hops)
+    result = store.find_path(from_label, to_label, max_hops=max_hops, principal=principal)
     if result is None:
         return web.json_response({"error": "no path found", "from": from_label, "to": to_label}, status=404)
     return web.json_response(result)
+
+
+async def handle_ingest_universal(request: web.Request) -> web.Response:
+    """POST /ingest — universal content ingestion.
+
+    Accepts raw content with metadata and routes it through the
+    IngestionPipeline (classify → extract → store → optional synthesis).
+
+    Body: {
+        "content": "...",          # Required — the raw content to ingest
+        "filename": "...",         # Optional — filename hint for classification
+        "content_type": "...",     # Optional — MIME type hint
+        "scope": {...},            # Optional — authorization scope metadata
+        "source_principal": "..."  # Optional — principal that produced the content
+    }
+    """
+    pipeline = request.app.get("pipeline")
+    if pipeline is None:
+        return web.json_response(
+            {"error": "Ingestion pipeline not available"},
+            status=503,
+        )
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+    content = body.get("content", "")
+    if not content or not content.strip():
+        return web.json_response({"error": "content is required and must be non-empty"}, status=400)
+
+    filename = body.get("filename", "")
+    content_type = body.get("content_type", "")
+    scope = body.get("scope")
+    source_principal = body.get("source_principal", "")
+
+    try:
+        loop = asyncio.get_event_loop()
+        stats = await loop.run_in_executor(
+            None,
+            lambda: pipeline.ingest(
+                content,
+                filename=filename,
+                content_type=content_type,
+                scope=scope,
+                source_principal=source_principal,
+            ),
+        )
+    except Exception:
+        logger.exception("Ingestion pipeline error")
+        return web.json_response({"error": "Ingestion failed"}, status=500)
+
+    return web.json_response(stats)
 
 
 async def handle_ingest_nodes(request: web.Request) -> web.Response:
@@ -793,7 +926,10 @@ async def handle_graph_neighbors(request: web.Request) -> web.Response:
     store: KnowledgeStore = request.app["store"]
     node_id = request.match_info["node_id"]
     relation = request.query.get("relation")
-    result = store.get_neighbors_subgraph(node_id, relation=relation)
+    principal_param = request.query.get("principal")
+    principal = {"principals": [principal_param]} if principal_param else None
+    min_provenance = request.query.get("min_provenance")
+    result = store.get_neighbors_subgraph(node_id, relation=relation, principal=principal, min_provenance=min_provenance)
     return web.json_response(result)
 
 
@@ -974,6 +1110,123 @@ async def handle_delete_by_kind(request: web.Request) -> web.Response:
     return web.json_response({"deleted": total, "kind": kind})
 
 
+async def handle_principals_list(request: web.Request) -> web.Response:
+    """GET /principals — list all principals, optional ?type= filter."""
+    registry: PrincipalRegistry = request.app["principal_registry"]
+    ptype = request.query.get("type")
+    if ptype:
+        if ptype not in PrincipalRegistry.VALID_TYPES:
+            return web.json_response(
+                {"error": f"invalid type '{ptype}', must be one of: {', '.join(PrincipalRegistry.VALID_TYPES)}"},
+                status=400,
+            )
+        principals = registry.list_by_type(ptype)
+    else:
+        principals = registry.list_all()
+    return web.json_response({"principals": principals})
+
+
+async def handle_principals_register(request: web.Request) -> web.Response:
+    """POST /principals — no longer supported.
+
+    Principal registration is now handled by the gateway API.
+    """
+    return web.json_response(
+        {"error": "Principal registration moved to gateway API. Use POST /api/v1/principals on the gateway."},
+        status=410,
+    )
+
+
+async def handle_principals_resolve(request: web.Request) -> web.Response:
+    """GET /principals/{uuid} — resolve a principal UUID."""
+    registry: PrincipalRegistry = request.app["principal_registry"]
+    principal_uuid = request.match_info["uuid"]
+    principal = registry.resolve(principal_uuid)
+    if not principal:
+        return web.json_response({"error": "principal not found"}, status=404)
+    return web.json_response(principal)
+
+
+async def handle_communities(request: web.Request) -> web.Response:
+    """GET /communities — list all Community nodes."""
+    store: KnowledgeStore = request.app["store"]
+    communities = store.list_communities()
+    return web.json_response({"communities": communities})
+
+
+async def handle_community(request: web.Request) -> web.Response:
+    """GET /community/{id} — get members of a specific community."""
+    store: KnowledgeStore = request.app["store"]
+    community_id = request.match_info["id"]
+    members = store.get_community_members(community_id)
+    return web.json_response({"community_id": community_id, "members": members})
+
+
+async def handle_hubs(request: web.Request) -> web.Response:
+    """GET /hubs — get top hub nodes, optional ?limit=N."""
+    store: KnowledgeStore = request.app["store"]
+    limit = int(request.query.get("limit", "20"))
+    hubs = store.get_hubs(limit=limit)
+    return web.json_response({"hubs": hubs})
+
+
+async def handle_save_insight(request: web.Request) -> web.Response:
+    """POST /insight — save an agent's synthesized insight."""
+    store: KnowledgeStore = request.app["store"]
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+    insight = body.get("insight", "")
+    source_nodes = body.get("source_nodes", [])
+
+    if not insight or not insight.strip():
+        return web.json_response({"error": "insight is required and must be non-empty"}, status=400)
+    if not source_nodes:
+        return web.json_response({"error": "source_nodes is required and must be non-empty"}, status=400)
+
+    confidence = body.get("confidence", "medium")
+    tags = body.get("tags")
+    agent_name = body.get("agent_name", "")
+
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: store.save_insight(
+                insight=insight,
+                source_node_ids=source_nodes,
+                confidence=confidence,
+                tags=tags,
+                agent_name=agent_name,
+            ),
+        )
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+    return web.json_response(result)
+
+
+async def _run_schema_migrations(app: web.Application) -> None:
+    """Run store schema migrations on startup."""
+    store: KnowledgeStore = app["store"]
+    loop = asyncio.get_event_loop()
+    try:
+        result = await loop.run_in_executor(None, store.migrate_edge_provenance)
+        if result.get("migrated", 0) > 0:
+            logger.info("Edge provenance migration: %s", result)
+    except Exception as e:
+        logger.warning("Edge provenance migration failed: %s", e)
+    try:
+        result = await loop.run_in_executor(None, store.migrate_node_scopes)
+        if result.get("migrated", 0) > 0:
+            logger.info("Node scopes migration: %s", result)
+    except Exception as e:
+        logger.warning("Node scopes migration failed: %s", e)
+
+
 async def _start_curation_loop(app: web.Application) -> None:
     curator = app.get("curator")
     if curator:
@@ -1078,6 +1331,74 @@ async def _ingestion_loop(app: web.Application) -> None:
             logger.debug("Ingestion poll error (comms may not be ready): %s", e)
 
         await asyncio.sleep(10)
+
+
+async def handle_quarantine(request: web.Request) -> web.Response:
+    """POST /quarantine — quarantine all nodes contributed by an agent.
+
+    Body: {"agent": "name", "since": "optional-ISO-timestamp"}
+    """
+    store: KnowledgeStore = request.app["store"]
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+    agent = body.get("agent", "")
+    if not agent:
+        return web.json_response({"error": "agent is required"}, status=400)
+
+    since = body.get("since")
+    try:
+        result = store.quarantine_by_agent(agent, since=since)
+    except Exception:
+        logger.exception("Quarantine failed for agent=%s", agent)
+        return web.json_response({"error": "quarantine failed"}, status=500)
+
+    return web.json_response(result)
+
+
+async def handle_quarantine_release(request: web.Request) -> web.Response:
+    """POST /quarantine/release — release quarantined node(s).
+
+    Body: {"node_id": "id"} to release a single node,
+          or {"agent": "name"} to release all quarantined nodes for an agent.
+    """
+    store: KnowledgeStore = request.app["store"]
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+    node_id = body.get("node_id")
+    agent = body.get("agent")
+
+    if not node_id and not agent:
+        return web.json_response({"error": "node_id or agent is required"}, status=400)
+
+    try:
+        if node_id:
+            store.quarantine_release_node(node_id)
+            return web.json_response({"released_node": node_id})
+        else:
+            result = store.quarantine_release_agent(agent)
+            return web.json_response(result)
+    except Exception:
+        logger.exception("Quarantine release failed")
+        return web.json_response({"error": "release failed"}, status=500)
+
+
+async def handle_quarantine_list(request: web.Request) -> web.Response:
+    """GET /quarantine — list quarantined nodes, optionally filtered by agent."""
+    store: KnowledgeStore = request.app["store"]
+    agent = request.query.get("agent")
+    try:
+        nodes = store.list_quarantined(agent=agent)
+    except Exception:
+        logger.exception("Quarantine list failed")
+        return web.json_response({"error": "list failed"}, status=500)
+
+    return web.json_response({"quarantined": nodes})
 
 
 if __name__ == "__main__":

@@ -142,6 +142,7 @@ class LLMSynthesizer:
         )
         self._pending_messages: list[dict] = []
         self._pending_ids: set[str] = set()
+        self._pending_content: list[dict] = []
         self._last_synthesis = 0.0
 
         # Config
@@ -179,11 +180,27 @@ class LLMSynthesizer:
             if msg:
                 self._pending_messages.append(msg)
 
+    def add_content_for_synthesis(self, content: str, scope: dict = None) -> None:
+        """Queue raw content for knowledge extraction.
+
+        Args:
+            content: Raw text to extract knowledge from.
+            scope: Optional scope dict (e.g. source_channels, source_type)
+                   passed through to _apply_extraction.
+        """
+        self._pending_content.append({"content": content, "scope": scope})
+
+    def has_pending_content(self) -> bool:
+        """True if there is raw content queued for synthesis."""
+        return bool(self._pending_content)
+
     def should_synthesize(self) -> bool:
         now = time.monotonic()
         if self._last_synthesis and now - self._last_synthesis < self.min_interval_seconds:
             return False
         if len(self._pending_ids) >= self.message_threshold:
+            return True
+        if self._pending_content:
             return True
         if self._last_synthesis and now - self._last_synthesis >= self.time_threshold_seconds:
             return True
@@ -231,6 +248,84 @@ class LLMSynthesizer:
         self._last_synthesis = time.monotonic()
         self._pending_messages.clear()
         self._pending_ids.clear()
+
+    def synthesize_content(self) -> None:
+        """Process pending raw content through the extraction pipeline.
+
+        Each content item is formatted into an extraction prompt, sent to the LLM,
+        and the results are applied to the knowledge graph. Called from the synthesis
+        loop when has_pending_content() is True.
+        """
+        if not self._pending_content:
+            return
+
+        batch = list(self._pending_content)
+        self._pending_content.clear()
+
+        for item in batch:
+            content = item["content"]
+            scope = item.get("scope") or {}
+            source_channels = scope.get("source_channels", ["ingestion"])
+            source_type = scope.get("source_type", "content")
+
+            prompt = self._build_content_extraction_prompt(content)
+            t0 = time.monotonic()
+
+            response = self._call_llm(prompt)
+            extraction = self._parse_response(response) if response else None
+
+            duration_ms = int((time.monotonic() - t0) * 1000)
+
+            if extraction:
+                self._apply_extraction(extraction, source_channels, source_type=source_type)
+                logger.info(
+                    "Content synthesis complete: %d entities, %d relationships (model=%s)",
+                    len(extraction.get("entities", [])),
+                    len(extraction.get("relationships", [])),
+                    self._model,
+                )
+
+            self._log_synthesis({
+                "model": self._model,
+                "entities_extracted": len(extraction.get("entities", [])) if extraction else 0,
+                "relationships_extracted": len(extraction.get("relationships", [])) if extraction else 0,
+                "content_length": len(content),
+                "source_type": source_type,
+                "duration_ms": duration_ms,
+            })
+
+        self._last_synthesis = time.monotonic()
+
+    def _build_content_extraction_prompt(self, content: str) -> str:
+        """Build an extraction prompt for raw content (not comms messages).
+
+        Uses the same ontology-aware prompt structure as message extraction,
+        but formats the content directly instead of as authored messages.
+        """
+        self._maybe_reload_ontology()
+
+        stats = self.store.stats()
+        existing = []
+        for kind, count in stats.get("kinds", {}).items():
+            nodes = self.store.find_nodes_by_kind(kind, limit=20)
+            for n in nodes:
+                existing.append(f"- {n['label']} ({kind})")
+        existing_text = "\n".join(existing[:50]) if existing else "(none yet)"
+
+        # Truncate very large content to avoid blowing context
+        truncated = content[:10000]
+
+        if self._ontology:
+            return EXTRACTION_PROMPT.format(
+                entity_types=self._format_entity_types(),
+                relationship_types=self._format_relationship_types(),
+                existing_labels=existing_text,
+                messages=truncated,
+            )
+        return EXTRACTION_PROMPT_FREEFORM.format(
+            existing_labels=existing_text,
+            messages=truncated,
+        )
 
     def _load_ontology(self) -> Optional[dict]:
         """Load ontology from mounted file. Re-reads on each synthesis cycle if mtime changed."""
@@ -547,6 +642,7 @@ class LLMSynthesizer:
                     source_id=source_id,
                     target_id=target_id,
                     relation=relation,
+                    provenance="AMBIGUOUS",
                     source_channel=source_channels[0] if source_channels else "",
                 )
 

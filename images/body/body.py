@@ -28,6 +28,7 @@ from fallback import FallbackTracker
 from interruption import InterruptionController
 from mcp_client import MCPClient
 from memory_retrieval import fetch_procedural_memory, fetch_episodic_memory, handle_recall_episodes
+from knowledge_tools import GRAPHRAG_START, GRAPHRAG_END
 from xpia_scan import sanitize_knowledge_section
 from post_task import build_capture_prompt, parse_capture_response, enrich_procedure, enrich_episode
 from reflection import ReflectionState, build_reflection_prompt, parse_reflection_verdict
@@ -2903,7 +2904,9 @@ class Body:
             if len(lines) <= 1:
                 return None
 
-            return "\n".join(lines)
+            content = "\n".join(lines)
+            # Wrap in GraphRAG delimiters for enforcer identification
+            return f"{GRAPHRAG_START}\n<!-- source: org_context -->\n{content}\n{GRAPHRAG_END}"
         except Exception:
             return None
 
@@ -3029,7 +3032,17 @@ class Body:
                 continue
             lines.append(f"**{label}** ({kind}): {summary}")
 
-        return "\n".join(lines)
+        knowledge_content = "\n".join(lines)
+
+        # Wrap in GraphRAG delimiters for enforcer identification
+        node_ids = [item.get("id", "") for item in results[:8] if isinstance(item, dict)]
+        node_ids = [nid for nid in node_ids if nid]
+        tagged = f"{GRAPHRAG_START}\n"
+        if node_ids:
+            tagged += f"<!-- source_node_ids: {','.join(node_ids)} -->\n"
+        tagged += knowledge_content
+        tagged += f"\n{GRAPHRAG_END}"
+        return tagged
 
     def _save_message_artifact(self, content: str) -> Optional[str]:
         """Save a long message as an artifact file. Returns artifact ID or None on failure."""

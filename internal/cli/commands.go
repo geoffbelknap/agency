@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -231,7 +234,7 @@ func RegisterCommands(root *cobra.Command) {
 		channelCmd(), infraCmd(), hubCmd(), teamCmd(), capCmd(),
 		intakeCmd(), knowledgeCmd(), policyCmd(), adminCmd(),
 		contextCmd(), missionCmd(), eventCmd(), webhookCmd(), meeseeksCmd(), notificationsCmd(), auditCmd(),
-		credentialCmd(), cacheCmd(),
+		credentialCmd(), cacheCmd(), registryCmd(),
 	} {
 		cmd.GroupID = "manage"
 		root.AddCommand(cmd)
@@ -2652,8 +2655,140 @@ func knowledgeCmd() *cobra.Command {
 		},
 	})
 
+	ingestCmd := &cobra.Command{
+		Use:   "ingest <file-or-url>",
+		Short: "Ingest content into the knowledge graph",
+		Long: `Ingest a file or URL into the knowledge graph.
+
+For files: reads content from disk and detects content type from extension.
+For stdin: use "-" as the argument to read from stdin.
+For URLs: passes the URL as filename (the knowledge service handles URL classification).`,
+		Example: `  agency knowledge ingest report.md
+  agency knowledge ingest https://example.com/page
+  cat notes.txt | agency knowledge ingest - --type text/plain
+  agency knowledge ingest data.json --scope '{"principals":["operator:abc-123"]}'`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+
+			source := args[0]
+			contentType, _ := cmd.Flags().GetString("type")
+			scopeStr, _ := cmd.Flags().GetString("scope")
+
+			var content, filename string
+
+			if source == "-" {
+				// Read from stdin
+				b, err := io.ReadAll(os.Stdin)
+				if err != nil {
+					return fmt.Errorf("reading stdin: %w", err)
+				}
+				content = string(b)
+				filename = "stdin"
+				if contentType == "" {
+					contentType = "text/plain"
+				}
+			} else if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+				// URL — pass as filename, knowledge service handles it
+				filename = source
+			} else {
+				// File on disk
+				b, err := os.ReadFile(source)
+				if err != nil {
+					return fmt.Errorf("reading file: %w", err)
+				}
+				content = string(b)
+				filename = filepath.Base(source)
+				if contentType == "" {
+					contentType = mime.TypeByExtension(filepath.Ext(source))
+				}
+			}
+
+			var scope json.RawMessage
+			if scopeStr != "" {
+				scope = json.RawMessage(scopeStr)
+			}
+
+			data, err := c.KnowledgeIngestWithScope(content, filename, contentType, scope)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	}
+	ingestCmd.Flags().String("type", "", "Content type (e.g. text/markdown, application/json)")
+	ingestCmd.Flags().String("scope", "", "Scope JSON (e.g. '{\"principals\":[\"operator:uuid\"]}')")
+	cmd.AddCommand(ingestCmd)
+
+	insightCmd := &cobra.Command{
+		Use:   "insight <text>",
+		Short: "Save an insight to the knowledge graph",
+		Long:  `Save an agent-generated insight with source nodes, confidence level, and optional tags.`,
+		Example: `  agency knowledge insight "lateral movement detected from host-A to host-B" --sources id1,id2 --confidence high
+  agency knowledge insight "CVE-2024-1234 affects 3 hosts" --sources n1,n2,n3 --confidence medium --tags risk,security`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			insight := args[0]
+			sourcesStr, _ := cmd.Flags().GetString("sources")
+			confidence, _ := cmd.Flags().GetString("confidence")
+			tagsStr, _ := cmd.Flags().GetString("tags")
+
+			var sources []string
+			if sourcesStr != "" {
+				sources = strings.Split(sourcesStr, ",")
+			}
+			var tags []string
+			if tagsStr != "" {
+				tags = strings.Split(tagsStr, ",")
+			}
+
+			data, err := c.KnowledgeSaveInsight(insight, sources, confidence, tags)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	}
+	insightCmd.Flags().String("sources", "", "Comma-separated source node IDs")
+	insightCmd.Flags().String("confidence", "medium", "Confidence level (low, medium, high)")
+	insightCmd.Flags().String("tags", "", "Comma-separated tags")
+	cmd.AddCommand(insightCmd)
+
 	cmd.AddCommand(knowledgeOntologyCmd())
 	cmd.AddCommand(knowledgeReviewCmd())
+	cmd.AddCommand(knowledgePrincipalsCmd())
+	cmd.AddCommand(knowledgeClassificationCmd())
+
+	return cmd
+}
+
+func knowledgeClassificationCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "classification", Short: "Classification-based access control"}
+
+	cmd.AddCommand(&cobra.Command{
+		Use: "show", Short: "Show current classification config",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			data, err := c.KnowledgeClassification()
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	})
 
 	return cmd
 }
@@ -2740,6 +2875,56 @@ Use --approve or --reject with a contribution ID to act on one.`,
 	cmd.Flags().StringVar(&approveID, "approve", "", "Approve contribution with this ID")
 	cmd.Flags().StringVar(&rejectID, "reject", "", "Reject contribution with this ID")
 	cmd.Flags().StringVar(&reason, "reason", "", "Reason for rejection (optional)")
+
+	return cmd
+}
+
+func knowledgePrincipalsCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "principals", Short: "Principal registry operations"}
+
+	listCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List registered principals",
+		Example: `  agency knowledge principals list
+  agency knowledge principals list --type operator
+  agency knowledge principals list --type agent`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			pType, _ := cmd.Flags().GetString("type")
+			data, err := c.KnowledgePrincipals(pType)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	}
+	listCmd.Flags().String("type", "", "Filter by principal type (operator, agent, team, role, channel)")
+	cmd.AddCommand(listCmd)
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "register <type> <name>",
+		Short: "Register a new principal",
+		Example: `  agency knowledge principals register operator alice
+  agency knowledge principals register agent scout
+  agency knowledge principals register team security-ops`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			data, err := c.KnowledgeRegisterPrincipal(args[0], args[1])
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	})
 
 	return cmd
 }
@@ -3095,6 +3280,149 @@ func adminCmd() *cobra.Command {
 	usageCmd.Flags().StringVar(&usageUntil, "until", "", "End time (ISO 8601 or YYYY-MM-DD)")
 	cmd.AddCommand(usageCmd)
 
+	// ── Routing optimizer commands ─────────────────────────────────────────
+	routingCmd := &cobra.Command{
+		Use: "routing", Short: "Routing optimizer — suggestions, approvals, stats",
+	}
+
+	routingCmd.AddCommand(&cobra.Command{
+		Use: "suggestions", Short: "List routing optimization suggestions",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			data, err := c.RoutingSuggestions()
+			if err != nil {
+				return err
+			}
+			var suggestions []map[string]interface{}
+			if err := json.Unmarshal(data, &suggestions); err != nil {
+				fmt.Println(string(data))
+				return nil
+			}
+			if len(suggestions) == 0 {
+				fmt.Println("  No routing suggestions.")
+				return nil
+			}
+			fmt.Printf("\n  %s\n\n", bold.Render("Routing Suggestions"))
+			for _, s := range suggestions {
+				id, _ := s["id"].(string)
+				status, _ := s["status"].(string)
+				taskType, _ := s["task_type"].(string)
+				current, _ := s["current_model"].(string)
+				suggested, _ := s["suggested_model"].(string)
+				reason, _ := s["reason"].(string)
+				savingsPct, _ := s["savings_percent"].(float64)
+
+				statusStyle := dim
+				switch status {
+				case "pending":
+					statusStyle = yellow
+				case "approved":
+					statusStyle = green
+				case "rejected":
+					statusStyle = red
+				}
+
+				fmt.Printf("  %s  %s\n", cyan.Render(id[:8]), statusStyle.Render("["+status+"]"))
+				fmt.Printf("    Task: %s\n", taskType)
+				fmt.Printf("    %s → %s  (%.0f%% savings)\n", current, green.Render(suggested), savingsPct*100)
+				fmt.Printf("    %s\n\n", dim.Render(reason))
+			}
+			return nil
+		},
+	})
+
+	routingCmd.AddCommand(&cobra.Command{
+		Use: "approve <suggestion-id>", Short: "Approve a routing suggestion",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			data, err := c.RoutingApprove(args[0])
+			if err != nil {
+				return err
+			}
+			var result map[string]interface{}
+			if err := json.Unmarshal(data, &result); err != nil {
+				fmt.Println(string(data))
+				return nil
+			}
+			fmt.Printf("  %s Suggestion %s approved.\n", green.Render("✓"), args[0][:8])
+			if taskType, ok := result["task_type"].(string); ok {
+				if model, ok := result["suggested_model"].(string); ok {
+					fmt.Printf("  Override written: %s → %s\n", taskType, green.Render(model))
+				}
+			}
+			return nil
+		},
+	})
+
+	routingCmd.AddCommand(&cobra.Command{
+		Use: "reject <suggestion-id>", Short: "Reject a routing suggestion",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			_, err = c.RoutingReject(args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Printf("  %s Suggestion %s rejected.\n", green.Render("✓"), args[0][:8])
+			return nil
+		},
+	})
+
+	var statsTaskType string
+	statsCmd := &cobra.Command{
+		Use: "stats", Short: "Per-model per-task-type routing statistics",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			data, err := c.RoutingStats(statsTaskType)
+			if err != nil {
+				return err
+			}
+			var stats []map[string]interface{}
+			if err := json.Unmarshal(data, &stats); err != nil {
+				fmt.Println(string(data))
+				return nil
+			}
+			if len(stats) == 0 {
+				fmt.Println("  No routing statistics yet.")
+				return nil
+			}
+			fmt.Printf("\n  %s\n\n", bold.Render("Routing Statistics"))
+			fmt.Printf("  %-20s %-25s %6s %8s %10s %10s\n",
+				"Task Type", "Model", "Calls", "Success", "Avg Lat", "Cost/1K")
+			fmt.Printf("  %-20s %-25s %6s %8s %10s %10s\n",
+				"─────────", "─────", "─────", "───────", "───────", "───────")
+			for _, s := range stats {
+				taskType, _ := s["task_type"].(string)
+				model, _ := s["model"].(string)
+				calls, _ := s["total_calls"].(float64)
+				success, _ := s["success_rate"].(float64)
+				latency, _ := s["avg_latency_ms"].(float64)
+				costPer1K, _ := s["cost_per_1k"].(float64)
+				fmt.Printf("  %-20s %-25s %6d %7.0f%% %8.0fms $%8.4f\n",
+					taskType, model, int(calls), success*100, latency, costPer1K)
+			}
+			fmt.Println()
+			return nil
+		},
+	}
+	statsCmd.Flags().StringVar(&statsTaskType, "task-type", "", "Filter by task type")
+	routingCmd.AddCommand(statsCmd)
+
+	cmd.AddCommand(routingCmd)
+
 	trustCmd := &cobra.Command{
 		Use: "trust [action]", Short: "Trust calibration", Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -3411,6 +3739,81 @@ Also available as top-level: agency knowledge {query|who-knows|stats}`,
 			return nil
 		},
 	})
+	// agency admin knowledge quarantine
+	quarantineCmd := &cobra.Command{
+		Use:   "quarantine",
+		Short: "Quarantine knowledge contributed by an agent",
+		Long:  `Quarantine all knowledge nodes contributed by an agent. ASK tenet 16: quarantine is immediate, silent, and complete.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			agent, _ := cmd.Flags().GetString("agent")
+			if agent == "" {
+				return fmt.Errorf("--agent is required")
+			}
+			since, _ := cmd.Flags().GetString("since")
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.KnowledgeQuarantine(agent, since)
+			if err != nil {
+				return err
+			}
+			prettyPrint(result)
+			return nil
+		},
+	}
+	quarantineCmd.Flags().String("agent", "", "Agent name (required)")
+	quarantineCmd.Flags().String("since", "", "Only quarantine nodes created since this timestamp")
+	knowledgeAdminCmd.AddCommand(quarantineCmd)
+
+	// agency admin knowledge quarantine-release
+	quarantineReleaseCmd := &cobra.Command{
+		Use:   "quarantine-release",
+		Short: "Release quarantined knowledge nodes",
+		Long:  `Release quarantined nodes by node ID or by agent name.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			nodeID, _ := cmd.Flags().GetString("node")
+			agent, _ := cmd.Flags().GetString("agent")
+			if nodeID == "" && agent == "" {
+				return fmt.Errorf("--node or --agent is required")
+			}
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.KnowledgeQuarantineRelease(nodeID, agent)
+			if err != nil {
+				return err
+			}
+			prettyPrint(result)
+			return nil
+		},
+	}
+	quarantineReleaseCmd.Flags().String("node", "", "Node ID to release")
+	quarantineReleaseCmd.Flags().String("agent", "", "Release all quarantined nodes for this agent")
+	knowledgeAdminCmd.AddCommand(quarantineReleaseCmd)
+
+	// agency admin knowledge quarantine-list
+	quarantineListCmd := &cobra.Command{
+		Use:   "quarantine-list",
+		Short: "List quarantined knowledge nodes",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			agent, _ := cmd.Flags().GetString("agent")
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.KnowledgeQuarantineList(agent)
+			if err != nil {
+				return err
+			}
+			prettyPrint(result)
+			return nil
+		},
+	}
+	quarantineListCmd.Flags().String("agent", "", "Filter by agent name")
+	knowledgeAdminCmd.AddCommand(quarantineListCmd)
+
 	knowledgeAdminCmd.AddCommand(ontologyCmd)
 	knowledgeAdminCmd.AddCommand(&cobra.Command{
 		Use:   "curate",
@@ -4811,5 +5214,153 @@ func cacheCmd() *cobra.Command {
 	clearCmd.MarkFlagRequired("agent")
 
 	cmd.AddCommand(clearCmd)
+	return cmd
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Registry (principal identity registry)
+// ════════════════════════════════════════════════════════════════════════════
+
+func registryCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "registry", Short: "Principal identity registry"}
+
+	// --- list ---
+	listCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List registered principals",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			ptype, _ := cmd.Flags().GetString("type")
+			data, err := c.RegistryList(ptype)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	}
+	listCmd.Flags().String("type", "", "Filter by principal type (agent|operator|team|role|channel)")
+	cmd.AddCommand(listCmd)
+
+	// --- show ---
+	showCmd := &cobra.Command{
+		Use:   "show <name-or-uuid>",
+		Short: "Show a principal's registry entry",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			ptype, _ := cmd.Flags().GetString("type")
+			data, err := c.RegistryResolve(args[0], ptype)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+
+			// Also display effective permissions if we can extract the UUID.
+			var entry map[string]interface{}
+			if err := json.Unmarshal(data, &entry); err == nil {
+				if uuid, ok := entry["uuid"].(string); ok && uuid != "" {
+					effData, err := c.RegistryEffective(uuid)
+					if err == nil {
+						fmt.Println("effective_permissions:", string(effData))
+					}
+				}
+			}
+			return nil
+		},
+	}
+	showCmd.Flags().String("type", "agent", "Principal type (used when resolving by name)")
+	cmd.AddCommand(showCmd)
+
+	// --- update ---
+	updateCmd := &cobra.Command{
+		Use:   "update <name-or-uuid>",
+		Short: "Update a principal's registry entry",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			parent, _ := cmd.Flags().GetString("parent")
+			status, _ := cmd.Flags().GetString("status")
+			if parent == "" && status == "" {
+				return fmt.Errorf("at least one of --parent or --status is required")
+			}
+			// Resolve name to UUID
+			ptype, _ := cmd.Flags().GetString("type")
+			resolved, err := c.RegistryResolve(args[0], ptype)
+			if err != nil {
+				return fmt.Errorf("resolve %s: %w", args[0], err)
+			}
+			var entry map[string]interface{}
+			if err := json.Unmarshal(resolved, &entry); err != nil {
+				return fmt.Errorf("parse resolve response: %w", err)
+			}
+			uuid, _ := entry["uuid"].(string)
+			if uuid == "" {
+				return fmt.Errorf("could not determine UUID for %s", args[0])
+			}
+			fields := map[string]interface{}{}
+			if parent != "" {
+				fields["parent_uuid"] = parent
+			}
+			if status != "" {
+				fields["status"] = status
+			}
+			data, err := c.RegistryUpdate(uuid, fields)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	}
+	updateCmd.Flags().String("parent", "", "Parent principal UUID")
+	updateCmd.Flags().String("status", "", "Principal status (active|suspended|revoked)")
+	updateCmd.Flags().String("type", "agent", "Principal type (used when resolving by name)")
+	cmd.AddCommand(updateCmd)
+
+	// --- delete ---
+	deleteCmd := &cobra.Command{
+		Use:   "delete <name-or-uuid>",
+		Short: "Delete a principal from the registry",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			// Resolve name to UUID
+			ptype, _ := cmd.Flags().GetString("type")
+			resolved, err := c.RegistryResolve(args[0], ptype)
+			if err != nil {
+				return fmt.Errorf("resolve %s: %w", args[0], err)
+			}
+			var entry map[string]interface{}
+			if err := json.Unmarshal(resolved, &entry); err != nil {
+				return fmt.Errorf("parse resolve response: %w", err)
+			}
+			uuid, _ := entry["uuid"].(string)
+			if uuid == "" {
+				return fmt.Errorf("could not determine UUID for %s", args[0])
+			}
+			data, err := c.RegistryDelete(uuid)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	}
+	deleteCmd.Flags().String("type", "agent", "Principal type (used when resolving by name)")
+	cmd.AddCommand(deleteCmd)
+
 	return cmd
 }

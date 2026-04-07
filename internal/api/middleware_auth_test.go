@@ -117,7 +117,7 @@ func TestBearerAuth(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			handler := BearerAuth(tc.configToken, tc.egressToken)(ok)
+			handler := BearerAuth(tc.configToken, tc.egressToken, nil)(ok)
 
 			method := tc.method
 			if method == "" {

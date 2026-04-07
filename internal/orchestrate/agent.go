@@ -81,6 +81,7 @@ type AgentManager struct {
 	cli           *client.Client
 	log           *log.Logger
 	StopSuppress  *StopSuppression
+	infra         *Infra // optional — nil in tests without infra
 }
 
 func NewAgentManager(home string, dc *agencyDocker.Client, logger *log.Logger) (*AgentManager, error) {
@@ -89,6 +90,12 @@ func NewAgentManager(home string, dc *agencyDocker.Client, logger *log.Logger) (
 		return nil, err
 	}
 	return &AgentManager{Home: home, Docker: dc, Comms: dc, cli: cli, log: logger}, nil
+}
+
+// SetInfra attaches the infrastructure manager (and its principal registry)
+// to the agent manager. Must be called after both are initialised.
+func (am *AgentManager) SetInfra(inf *Infra) {
+	am.infra = inf
 }
 
 // List returns all defined agents with their runtime status.
@@ -152,6 +159,26 @@ func (am *AgentManager) Create(ctx context.Context, name, preset string) error {
 		return fmt.Errorf("agent %q already exists", name)
 	}
 
+	// Register in principal registry — gives the agent a stable UUID that
+	// survives renames, restarts, and shows up in audit trails and knowledge
+	// graph references. Fallback to local generation for test paths where
+	// infra/registry may be nil.
+	var agentUUID string
+	if am.infra != nil && am.infra.Registry != nil {
+		var regErr error
+		agentUUID, regErr = am.infra.Registry.Register("agent", name)
+		if regErr != nil {
+			am.log.Warn("registry: agent registration failed, using local UUID", "err", regErr)
+		} else {
+			if snapErr := am.infra.WriteRegistrySnapshot(); snapErr != nil {
+				am.log.Warn("registry: snapshot write failed", "err", snapErr)
+			}
+		}
+	}
+	if agentUUID == "" {
+		agentUUID = uuid.New().String()
+	}
+
 	// Read preset if available — presets define identity, hard_limits,
 	// escalation, expertise, and model preferences. Without a preset,
 	// agents get generic defaults.
@@ -174,6 +201,7 @@ func (am *AgentManager) Create(ctx context.Context, name, preset string) error {
 	agentYAML := map[string]interface{}{
 		"version":      "0.1",
 		"name":         name,
+		"uuid":         agentUUID,
 		"type":         agentType,
 		"preset":       preset,
 		"lifecycle_id": uuid.New().String(),

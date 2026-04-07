@@ -628,6 +628,10 @@ func (c *Client) KnowledgeStats() ([]byte, error) {
 	return c.Get("/api/v1/knowledge/stats")
 }
 
+func (c *Client) KnowledgeClassification() ([]byte, error) {
+	return c.Get("/api/v1/knowledge/classification")
+}
+
 func (c *Client) KnowledgeExport(format string) ([]byte, error) {
 	if format == "" {
 		format = "json"
@@ -673,6 +677,60 @@ func (c *Client) KnowledgeReview(id, action, reason string) ([]byte, error) {
 		"action": action,
 		"reason": reason,
 	})
+}
+
+func (c *Client) KnowledgeIngest(content, filename, contentType string) ([]byte, error) {
+	body := map[string]string{
+		"content":      content,
+		"filename":     filename,
+		"content_type": contentType,
+	}
+	return c.Post("/api/v1/knowledge/ingest", body)
+}
+
+func (c *Client) KnowledgeIngestWithScope(content, filename, contentType string, scope json.RawMessage) ([]byte, error) {
+	body := map[string]interface{}{
+		"content":      content,
+		"filename":     filename,
+		"content_type": contentType,
+	}
+	if scope != nil {
+		body["scope"] = json.RawMessage(scope)
+	}
+	return c.Post("/api/v1/knowledge/ingest", body)
+}
+
+func (c *Client) KnowledgeSaveInsight(insight string, sourceNodes []string, confidence string, tags []string) ([]byte, error) {
+	body := map[string]interface{}{
+		"insight":      insight,
+		"source_nodes": sourceNodes,
+		"confidence":   confidence,
+	}
+	if len(tags) > 0 {
+		body["tags"] = tags
+	}
+	return c.Post("/api/v1/knowledge/insight", body)
+}
+
+// ── Knowledge Principals ────────────────────────────────────────────────────
+
+func (c *Client) KnowledgePrincipals(principalType string) ([]byte, error) {
+	path := "/api/v1/knowledge/principals"
+	if principalType != "" {
+		path += "?type=" + url.QueryEscape(principalType)
+	}
+	return c.Get(path)
+}
+
+func (c *Client) KnowledgeRegisterPrincipal(principalType, name string) ([]byte, error) {
+	return c.Post("/api/v1/knowledge/principals", map[string]string{
+		"type": principalType,
+		"name": name,
+	})
+}
+
+func (c *Client) KnowledgeResolvePrincipal(uuid string) ([]byte, error) {
+	return c.Get("/api/v1/knowledge/principals/" + url.QueryEscape(uuid))
 }
 
 // ── Knowledge Ontology ──────────────────────────────────────────────────────
@@ -781,6 +839,41 @@ func (c *Client) AdminKnowledge(action string, args map[string]string) (map[stri
 	body := map[string]interface{}{"action": action, "args": args}
 	var result map[string]interface{}
 	err := c.PostJSON("/api/v1/admin/knowledge", body, &result)
+	return result, err
+}
+
+// ── Knowledge quarantine ───────────────────────────────────────────────────
+
+func (c *Client) KnowledgeQuarantine(agent, since string) (map[string]interface{}, error) {
+	body := map[string]string{"agent": agent}
+	if since != "" {
+		body["since"] = since
+	}
+	var result map[string]interface{}
+	err := c.PostJSON("/api/v1/knowledge/quarantine", body, &result)
+	return result, err
+}
+
+func (c *Client) KnowledgeQuarantineRelease(nodeID, agent string) (map[string]interface{}, error) {
+	body := map[string]string{}
+	if nodeID != "" {
+		body["node_id"] = nodeID
+	}
+	if agent != "" {
+		body["agent"] = agent
+	}
+	var result map[string]interface{}
+	err := c.PostJSON("/api/v1/knowledge/quarantine/release", body, &result)
+	return result, err
+}
+
+func (c *Client) KnowledgeQuarantineList(agent string) (map[string]interface{}, error) {
+	path := "/api/v1/knowledge/quarantine"
+	if agent != "" {
+		path += "?agent=" + url.QueryEscape(agent)
+	}
+	var result map[string]interface{}
+	err := c.GetJSON(path, &result)
 	return result, err
 }
 
@@ -1186,4 +1279,71 @@ func (c *Client) CredentialGroupCreate(body map[string]interface{}) (map[string]
 	return result, err
 }
 
+// ── Registry ──────────────────────────────────────────────────────────────
 
+// RegistryList returns all principals, optionally filtered by type.
+func (c *Client) RegistryList(principalType string) ([]byte, error) {
+	path := "/api/v1/registry/list"
+	if principalType != "" {
+		path += "?type=" + url.QueryEscape(principalType)
+	}
+	return c.Get(path)
+}
+
+// RegistryResolve resolves a principal by name/UUID and optional type.
+func (c *Client) RegistryResolve(nameOrUUID, principalType string) ([]byte, error) {
+	if len(nameOrUUID) == 36 {
+		return c.Get("/api/v1/registry/resolve?uuid=" + url.QueryEscape(nameOrUUID))
+	}
+	if principalType == "" {
+		return nil, fmt.Errorf("type is required when resolving by name")
+	}
+	return c.Get("/api/v1/registry/resolve?type=" + url.QueryEscape(principalType) + "&name=" + url.QueryEscape(nameOrUUID))
+}
+
+// RegistryRegister creates a new principal of the given type and name.
+func (c *Client) RegistryRegister(principalType, name string) ([]byte, error) {
+	body := map[string]string{"type": principalType, "name": name}
+	return c.Post("/api/v1/registry", body)
+}
+
+// RegistryUpdate updates fields on an existing principal by UUID.
+func (c *Client) RegistryUpdate(uuid string, fields map[string]interface{}) ([]byte, error) {
+	return c.Put("/api/v1/registry/"+url.PathEscape(uuid), fields)
+}
+
+// RegistryEffective returns the effective permissions for a principal by UUID.
+func (c *Client) RegistryEffective(uuid string) ([]byte, error) {
+	return c.Get("/api/v1/registry/" + url.PathEscape(uuid) + "/effective")
+}
+
+// RegistryDelete removes a principal by UUID.
+func (c *Client) RegistryDelete(uuid string) ([]byte, error) {
+	return c.Delete("/api/v1/registry/" + url.PathEscape(uuid))
+}
+
+// ── Routing optimizer ─────────────────────────────────────────────────────
+
+// RoutingSuggestions returns routing optimization suggestions.
+func (c *Client) RoutingSuggestions() ([]byte, error) {
+	return c.Get("/api/v1/routing/suggestions")
+}
+
+// RoutingApprove approves a routing suggestion by ID.
+func (c *Client) RoutingApprove(id string) ([]byte, error) {
+	return c.Post("/api/v1/routing/suggestions/"+url.PathEscape(id)+"/approve", nil)
+}
+
+// RoutingReject rejects a routing suggestion by ID.
+func (c *Client) RoutingReject(id string) ([]byte, error) {
+	return c.Post("/api/v1/routing/suggestions/"+url.PathEscape(id)+"/reject", nil)
+}
+
+// RoutingStats returns per-model per-task-type statistics from the optimizer.
+func (c *Client) RoutingStats(taskType string) ([]byte, error) {
+	path := "/api/v1/routing/stats"
+	if taskType != "" {
+		path += "?task_type=" + url.QueryEscape(taskType)
+	}
+	return c.Get(path)
+}

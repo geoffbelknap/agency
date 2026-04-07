@@ -29,6 +29,9 @@ import (
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
+
+	"github.com/geoffbelknap/agency/internal/registry"
+	"github.com/geoffbelknap/agency/internal/routing"
 	"github.com/geoffbelknap/agency/internal/ws"
 )
 
@@ -43,6 +46,8 @@ type RouteOptions struct {
 	StopSuppress    *orchestrate.StopSuppression
 	AuditSummarizer *audit.AuditSummarizer
 	DockerStatus    *docker.Status
+	Registry        *registry.Registry
+	Optimizer       *routing.RoutingOptimizer
 }
 
 // RegisterSocketRoutes sets up the restricted API surface for the Unix socket.
@@ -138,6 +143,18 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *lo
 		h.agents.StopSuppress = opts.StopSuppress
 	}
 
+	if opts.Optimizer != nil && h.infra != nil {
+		h.infra.Optimizer = opts.Optimizer
+	}
+
+	// Permission enforcement middleware — runs after BearerAuth has resolved
+	// the principal into the request context. If no registry is available,
+	// the middleware is not applied (backward compatible).
+	// ASK Tenet 7: least privilege — route-level permission checks.
+	if opts.Registry != nil {
+		r.Use(PermissionMiddleware(opts.Registry))
+	}
+
 	// Platform routes (extracted module) — openapi, health, init, websocket,
 	// audit summarization, and the /__agency/config config endpoint.
 	platform.RegisterRoutes(r, platform.Deps{
@@ -176,6 +193,36 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *lo
 	r.Route("/api/v1", func(r chi.Router) {
 		// Agent logs (still in api package — depends on logs.Reader)
 		r.Get("/agents/{name}/logs", h.agentLogs)
+
+		// New routes added after modularization — these remain on the
+		// monolithic handler temporarily until moved to their modules.
+		r.Post("/knowledge/ingest", h.knowledgeIngest)
+		r.Post("/knowledge/insight", h.knowledgeSaveInsight)
+		r.Get("/knowledge/principals", h.knowledgePrincipalsList)
+		r.Post("/knowledge/principals", h.knowledgePrincipalsRegister)
+		r.Get("/knowledge/principals/{uuid}", h.knowledgePrincipalsResolve)
+		r.Post("/knowledge/quarantine", h.knowledgeQuarantine)
+		r.Post("/knowledge/quarantine/release", h.knowledgeQuarantineRelease)
+		r.Get("/knowledge/quarantine", h.knowledgeQuarantineList)
+		r.Get("/knowledge/classification", h.knowledgeClassification)
+		r.Get("/knowledge/communities", h.knowledgeCommunities)
+		r.Get("/knowledge/communities/{id}", h.knowledgeCommunity)
+		r.Get("/knowledge/hubs", h.knowledgeHubs)
+
+		// Principal registry
+		r.Get("/registry", h.registrySnapshot)
+		r.Get("/registry/resolve", h.registryResolve)
+		r.Get("/registry/list", h.registryList)
+		r.Post("/registry", h.registryRegister)
+		r.Get("/registry/{uuid}/effective", h.registryEffective)
+		r.Put("/registry/{uuid}", h.registryUpdate)
+		r.Delete("/registry/{uuid}", h.registryDelete)
+
+		// Routing optimizer
+		r.Get("/routing/suggestions", h.routingSuggestions)
+		r.Post("/routing/suggestions/{id}/approve", h.routingSuggestionApprove)
+		r.Post("/routing/suggestions/{id}/reject", h.routingSuggestionReject)
+		r.Get("/routing/stats", h.routingStats)
 
 		// Intake
 		r.Get("/intake/items", h.intakeItems)
