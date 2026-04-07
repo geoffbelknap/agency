@@ -30,7 +30,7 @@ func getPrincipal(r *http.Request) *registry.Principal {
 // Paths ending in "/health" are always allowed without authentication.
 //
 // The egressToken parameter is a scoped token that only grants access to
-// the credential resolve endpoint (/api/v1/internal/credentials/resolve).
+// the credential resolve endpoint (/api/v1/creds/internal/resolve).
 // This limits blast radius if the egress container is compromised (ASK Tenet 4).
 //
 // The reg parameter is optional — if non-nil, the middleware resolves the
@@ -57,7 +57,7 @@ func BearerAuth(token, egressToken string, reg *registry.Registry) func(http.Han
 
 			// Scoped egress token: only credential resolve endpoint.
 			if egressToken != "" && constantTimeEqual(egressToken, incoming) {
-				if r.URL.Path == "/api/v1/internal/credentials/resolve" && r.Method == http.MethodGet {
+				if r.URL.Path == "/api/v1/creds/internal/resolve" && r.Method == http.MethodGet {
 					r = resolvePrincipal(r, reg, incoming)
 					next.ServeHTTP(w, r)
 					return

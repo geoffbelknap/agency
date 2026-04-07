@@ -92,17 +92,17 @@ func TestRouteWiring_AllModulesRegistered(t *testing.T) {
 	}{
 		{"agents", "GET", "/api/v1/agents"},
 		{"missions", "GET", "/api/v1/missions/"},
-		{"graph_query", "POST", "/api/v1/knowledge/query"},
+		{"graph_query", "POST", "/api/v1/graph/query"},
 		{"hub_installed", "GET", "/api/v1/hub/installed"},
-		{"channels", "GET", "/api/v1/channels"},
-		{"credentials", "GET", "/api/v1/credentials/"},
+		{"channels", "GET", "/api/v1/comms/channels"},
+		{"credentials", "GET", "/api/v1/creds"},
 		{"events", "GET", "/api/v1/events"},
 		{"admin_doctor", "GET", "/api/v1/admin/doctor"},
 		{"infra_status", "GET", "/api/v1/infra/status"},
 		{"health", "GET", "/api/v1/health"},
 		{"mcp_tools", "GET", "/api/v1/mcp/tools"},
-		{"registry", "GET", "/api/v1/registry"},
-		{"intake_items", "GET", "/api/v1/intake/items"},
+		{"registry", "GET", "/api/v1/admin/registry"},
+		{"intake_items", "GET", "/api/v1/events/intake/items"},
 	}
 
 	for _, tc := range routes {
