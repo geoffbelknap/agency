@@ -35,7 +35,7 @@ describe('ChannelBrowser', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     server.use(
-      http.get(`${BASE}/channels`, () => HttpResponse.json(defaultChannels)),
+      http.get(`${BASE}/comms/channels`, () => HttpResponse.json(defaultChannels)),
     );
   });
 
@@ -90,7 +90,7 @@ describe('ChannelBrowser', () => {
 
   it('shows loading skeleton while fetching', async () => {
     server.use(
-      http.get(`${BASE}/channels`, async () => {
+      http.get(`${BASE}/comms/channels`, async () => {
         await new Promise((r) => setTimeout(r, 500));
         return HttpResponse.json(defaultChannels);
       }),

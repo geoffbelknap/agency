@@ -21,13 +21,13 @@ const BASE = 'http://localhost:8200/api/v1';
 describe('Channels', () => {
   it('renders channel list and auto-selects first', async () => {
     server.use(
-      http.get(`${BASE}/channels`, () =>
+      http.get(`${BASE}/comms/channels`, () =>
         HttpResponse.json([
           { name: 'general', topic: 'General chat' },
           { name: 'ops', topic: 'Operations' },
         ]),
       ),
-      http.get(`${BASE}/channels/general/messages`, () =>
+      http.get(`${BASE}/comms/channels/general/messages`, () =>
         HttpResponse.json([
           { id: 'm1', author: 'steve', content: 'Hello world', timestamp: '2026-03-16T10:00:00Z' },
         ]),
@@ -45,11 +45,11 @@ describe('Channels', () => {
   it('sends a message', async () => {
     let sent = false;
     server.use(
-      http.get(`${BASE}/channels`, () =>
+      http.get(`${BASE}/comms/channels`, () =>
         HttpResponse.json([{ name: 'general' }]),
       ),
-      http.get(`${BASE}/channels/general/messages`, () => HttpResponse.json([])),
-      http.post(`${BASE}/channels/general/messages`, () => {
+      http.get(`${BASE}/comms/channels/general/messages`, () => HttpResponse.json([])),
+      http.post(`${BASE}/comms/channels/general/messages`, () => {
         sent = true;
         return HttpResponse.json({ ok: true });
       }),
@@ -69,11 +69,11 @@ describe('Channels', () => {
   it('sends message via send button click', async () => {
     let sent = false;
     server.use(
-      http.get(`${BASE}/channels`, () =>
+      http.get(`${BASE}/comms/channels`, () =>
         HttpResponse.json([{ name: 'general' }]),
       ),
-      http.get(`${BASE}/channels/general/messages`, () => HttpResponse.json([])),
-      http.post(`${BASE}/channels/general/messages`, () => {
+      http.get(`${BASE}/comms/channels/general/messages`, () => HttpResponse.json([])),
+      http.post(`${BASE}/comms/channels/general/messages`, () => {
         sent = true;
         return HttpResponse.json({ ok: true });
       }),

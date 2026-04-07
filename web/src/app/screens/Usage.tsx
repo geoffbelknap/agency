@@ -91,7 +91,7 @@ async function fetchMetrics(since?: string, until?: string): Promise<RoutingMetr
   if (since) params.set('since', since);
   if (until) params.set('until', until);
   const qs = params.toString();
-  const res = await fetch(`${base}/routing/metrics${qs ? `?${qs}` : ''}`, { headers });
+  const res = await fetch(`${base}/infra/routing/metrics${qs ? `?${qs}` : ''}`, { headers });
   if (!res.ok) throw new Error(`metrics: ${res.status}`);
   return res.json();
 }

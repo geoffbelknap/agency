@@ -11,7 +11,7 @@ const BASE = 'http://localhost:8200/api/v1';
 describe('Capabilities', () => {
   it('renders capabilities from API', async () => {
     server.use(
-      http.get(`${BASE}/capabilities`, () =>
+      http.get(`${BASE}/admin/capabilities`, () =>
         HttpResponse.json([
           { name: 'slack-api', kind: 'service', state: 'enabled', agents: ['steve'] },
         ]),
@@ -26,7 +26,7 @@ describe('Capabilities', () => {
 
   it('shows confirmation before delete', async () => {
     server.use(
-      http.get(`${BASE}/capabilities`, () =>
+      http.get(`${BASE}/admin/capabilities`, () =>
         HttpResponse.json([
           { name: 'test-cap', kind: 'tool', state: 'disabled', agents: [] },
         ]),
@@ -43,7 +43,7 @@ describe('Capabilities', () => {
   });
 
   it('has correct kind options in add form', async () => {
-    server.use(http.get(`${BASE}/capabilities`, () => HttpResponse.json([])));
+    server.use(http.get(`${BASE}/admin/capabilities`, () => HttpResponse.json([])));
     renderWithRouter(<Capabilities />);
     await userEvent.click(screen.getByRole('button', { name: /add capability/i }));
     // The add-form select should have service as default value
@@ -53,7 +53,7 @@ describe('Capabilities', () => {
 
   it('enables a disabled capability', async () => {
     server.use(
-      http.get(`${BASE}/capabilities`, () =>
+      http.get(`${BASE}/admin/capabilities`, () =>
         HttpResponse.json([
           { name: 'web-search', kind: 'service', state: 'disabled', agents: [] },
         ]),
@@ -73,7 +73,7 @@ describe('Capabilities', () => {
 
   it('disables an enabled capability', async () => {
     server.use(
-      http.get(`${BASE}/capabilities`, () =>
+      http.get(`${BASE}/admin/capabilities`, () =>
         HttpResponse.json([
           { name: 'web-search', kind: 'service', state: 'enabled', agents: [] },
         ]),
@@ -93,7 +93,7 @@ describe('Capabilities', () => {
 
   it('confirms delete and calls API', async () => {
     server.use(
-      http.get(`${BASE}/capabilities`, () =>
+      http.get(`${BASE}/admin/capabilities`, () =>
         HttpResponse.json([
           { name: 'file-write', kind: 'tool', state: 'disabled', agents: [] },
         ]),
@@ -118,8 +118,8 @@ describe('Capabilities', () => {
 
   it('adds a new capability', async () => {
     server.use(
-      http.get(`${BASE}/capabilities`, () => HttpResponse.json([])),
-      http.post(`${BASE}/capabilities`, () => HttpResponse.json({ ok: true })),
+      http.get(`${BASE}/admin/capabilities`, () => HttpResponse.json([])),
+      http.post(`${BASE}/admin/capabilities`, () => HttpResponse.json({ ok: true })),
     );
     renderWithRouter(<Capabilities />);
     await userEvent.click(screen.getByRole('button', { name: /add capability/i }));
