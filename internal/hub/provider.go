@@ -12,6 +12,22 @@ import (
 // into {home}/infrastructure/routing.yaml. The file is created with defaults
 // if it does not already exist.
 func MergeProviderRouting(home, providerName string, providerData []byte) error {
+	routingPath := filepath.Join(home, "infrastructure", "routing.yaml")
+	cfg, err := loadRoutingYAML(routingPath)
+	if err != nil {
+		return err
+	}
+
+	if err := mergeProviderInto(cfg, providerName, providerData); err != nil {
+		return err
+	}
+
+	return writeRoutingYAML(routingPath, cfg)
+}
+
+// mergeProviderInto merges a single provider's routing block into cfg.
+// cfg is modified in place. If providerData has no routing block, this is a no-op.
+func mergeProviderInto(cfg map[string]interface{}, providerName string, providerData []byte) error {
 	var doc map[string]interface{}
 	if err := yaml.Unmarshal(providerData, &doc); err != nil {
 		return fmt.Errorf("parse provider YAML: %w", err)
@@ -20,12 +36,6 @@ func MergeProviderRouting(home, providerName string, providerData []byte) error 
 	routing, ok := doc["routing"].(map[string]interface{})
 	if !ok {
 		return nil // no routing block — nothing to merge
-	}
-
-	routingPath := filepath.Join(home, "infrastructure", "routing.yaml")
-	cfg, err := loadRoutingYAML(routingPath)
-	if err != nil {
-		return err
 	}
 
 	// Merge provider config (api_base, auth fields)
@@ -81,7 +91,7 @@ func MergeProviderRouting(home, providerName string, providerData []byte) error 
 		}
 	}
 
-	return writeRoutingYAML(routingPath, cfg)
+	return nil
 }
 
 // RemoveProviderRouting removes a provider and all of its models and tier
