@@ -21,7 +21,6 @@ import (
 	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/profiles"
 	"github.com/geoffbelknap/agency/internal/events"
-	"github.com/geoffbelknap/agency/internal/hub"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -46,8 +45,16 @@ type RouteOptions struct {
 // Only endpoints needed by infra containers are registered — no BearerAuth middleware.
 // Each infra-facing endpoint has its own auth mechanism (X-Agency-Token / X-Agency-Caller)
 // or is read-only health/status data.
-func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, logger *log.Logger, opts RouteOptions) {
-	h := newHandler(cfg, dc, logger)
+func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, logger *log.Logger, startup *StartupResult, opts RouteOptions) {
+	h := &handler{
+		cfg: cfg, dc: dc, log: logger,
+		infra: startup.Infra, agents: startup.AgentManager,
+		halt: startup.HaltController, audit: startup.Audit,
+		ctxMgr: startup.CtxMgr, mcpReg: startup.MCPReg,
+		knowledge: startup.Knowledge, missions: startup.MissionManager,
+		meeseeks: startup.MeeseeksManager, claims: startup.Claims,
+		credStore: startup.CredStore, profileStore: startup.ProfileStore,
+	}
 	if opts.Hub != nil {
 		h.wsHub = opts.Hub
 	}
@@ -67,8 +74,16 @@ func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, l
 // RegisterCredentialSocketRoutes registers the credential-only socket router.
 // This socket is mounted exclusively by the egress container for credential
 // resolution. It is NOT bridged to TCP — credentials never traverse a Docker network.
-func RegisterCredentialSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, logger *log.Logger, opts RouteOptions) {
-	h := newHandler(cfg, dc, logger)
+func RegisterCredentialSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, logger *log.Logger, startup *StartupResult, opts RouteOptions) {
+	h := &handler{
+		cfg: cfg, dc: dc, log: logger,
+		infra: startup.Infra, agents: startup.AgentManager,
+		halt: startup.HaltController, audit: startup.Audit,
+		ctxMgr: startup.CtxMgr, mcpReg: startup.MCPReg,
+		knowledge: startup.Knowledge, missions: startup.MissionManager,
+		meeseeks: startup.MeeseeksManager, claims: startup.Claims,
+		credStore: startup.CredStore, profileStore: startup.ProfileStore,
+	}
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/internal/credentials/resolve", h.resolveCredential)
@@ -77,17 +92,25 @@ func RegisterCredentialSocketRoutes(r chi.Router, cfg *config.Config, dc *docker
 
 // RegisterRoutes sets up all REST API routes on the given router.
 // The hub parameter is optional — if non-nil, the WebSocket endpoint is registered.
-func RegisterRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, logger *log.Logger, hub ...*ws.Hub) {
+func RegisterRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, logger *log.Logger, startup *StartupResult, hub ...*ws.Hub) {
 	opts := RouteOptions{}
 	if len(hub) > 0 {
 		opts.Hub = hub[0]
 	}
-	RegisterRoutesWithOptions(r, cfg, dc, logger, opts)
+	RegisterRoutesWithOptions(r, cfg, dc, logger, startup, opts)
 }
 
 // RegisterRoutesWithOptions sets up all REST API routes with full option support.
-func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Client, logger *log.Logger, opts RouteOptions) {
-	h := newHandler(cfg, dc, logger)
+func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Client, logger *log.Logger, startup *StartupResult, opts RouteOptions) {
+	h := &handler{
+		cfg: cfg, dc: dc, log: logger,
+		infra: startup.Infra, agents: startup.AgentManager,
+		halt: startup.HaltController, audit: startup.Audit,
+		ctxMgr: startup.CtxMgr, mcpReg: startup.MCPReg,
+		knowledge: startup.Knowledge, missions: startup.MissionManager,
+		meeseeks: startup.MeeseeksManager, claims: startup.Claims,
+		credStore: startup.CredStore, profileStore: startup.ProfileStore,
+	}
 
 	// Wire event framework components
 	if opts.EventBus != nil {
@@ -451,54 +474,6 @@ type handler struct {
 	dockerStatus  *docker.Status
 }
 
-func newHandler(cfg *config.Config, dc *docker.Client, logger *log.Logger) *handler {
-	infra, _ := orchestrate.NewInfra(cfg.Home, cfg.Version, dc, logger, cfg.HMACKey)
-	if infra != nil {
-		infra.SourceDir = cfg.SourceDir
-		infra.BuildID = cfg.BuildID
-		infra.GatewayAddr = cfg.GatewayAddr
-		infra.GatewayToken = cfg.Token
-		infra.EgressToken = cfg.EgressToken
-	}
-	agents, _ := orchestrate.NewAgentManager(cfg.Home, dc, logger)
-	halt, _ := orchestrate.NewHaltController(cfg.Home, cfg.Version, dc, logger)
-	audit := logs.NewWriter(cfg.Home)
-	ctxMgr := agencyctx.NewManager(audit)
-
-	// Wire halt function so constraint timeout triggers agent halt.
-	// ASK tenet 6: unacknowledged constraint changes are treated as potential compromise.
-	if halt != nil {
-		ctxMgr.SetHaltFunc(func(agent, changeID, reason string) error {
-			return halt.HaltForUnackedConstraint(context.Background(), agent, changeID, reason)
-		})
-	}
-
-	// Initialize credential store (non-fatal — endpoints return 503 if nil).
-	var cs *credstore.Store
-	storePath := filepath.Join(cfg.Home, "credentials", "store.enc")
-	keyPath := filepath.Join(cfg.Home, "credentials", ".key")
-	if fb, err := credstore.NewFileBackend(storePath, keyPath); err != nil {
-		logger.Warn("credential store init failed", "err", err)
-	} else if fb != nil {
-		cs = credstore.NewStore(fb, cfg.Home)
-	}
-
-	// Initialize profile store.
-	ps := profiles.NewStore(filepath.Join(cfg.Home, "profiles"))
-
-	h := &handler{cfg: cfg, dc: dc, log: logger, infra: infra, agents: agents, halt: halt, audit: audit, ctxMgr: ctxMgr, mcpReg: NewMCPToolRegistry(), knowledge: knowledge.NewProxy(), missions: orchestrate.NewMissionManager(cfg.Home), meeseeks: orchestrate.NewMeeseeksManager(), claims: orchestrate.NewMissionClaimRegistry(), credStore: cs, profileStore: ps}
-	registerMCPTools(h.mcpReg)
-
-	// Migrate flat-file hub installations to the instance-directory model on startup.
-	hubMgr := hub.NewManager(cfg.Home)
-	if migrated, err := hubMgr.Registry.MigrateIfNeeded(); err != nil {
-		logger.Warn("hub migration failed", "err", err)
-	} else if migrated > 0 {
-		logger.Info("migrated hub instances from flat files", "count", migrated)
-	}
-
-	return h
-}
 
 func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": "ok", "version": h.cfg.Version, "build_id": h.cfg.BuildID})

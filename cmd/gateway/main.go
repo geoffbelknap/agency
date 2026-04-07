@@ -865,6 +865,12 @@ func runServe(httpAddr string) error {
 	auditSummarizer := auditpkg.NewAuditSummarizer(cfg.Home, knowledgeURL, logger)
 	auditSummarizer.Start(healthCtx)
 
+	// Initialize all gateway components via Startup.
+	startup, err := api.Startup(cfg, dc, logger)
+	if err != nil {
+		logger.Fatal("gateway startup failed", "err", err)
+	}
+
 	// REST API
 	r := chi.NewRouter()
 	r.Use(chiMiddleware.Recoverer)
@@ -884,7 +890,7 @@ func runServe(httpAddr string) error {
 		routeOpts.HealthMonitor = healthMgr
 	}
 	routeOpts.DockerStatus = dockerStatus
-	api.RegisterRoutesWithOptions(r, cfg, dc, logger, routeOpts)
+	api.RegisterRoutesWithOptions(r, cfg, dc, logger, startup, routeOpts)
 
 	// Wire auto-restore: when Docker reconnects, automatically bring up infra.
 	if cfg.AutoRestoreInfra {
@@ -953,7 +959,7 @@ func runServe(httpAddr string) error {
 		// No BearerAuth — containers don't hold the operator token.
 		sockRouter := chi.NewRouter()
 		sockRouter.Use(chiMiddleware.Recoverer)
-		api.RegisterSocketRoutes(sockRouter, cfg, dc, logger, routeOpts)
+		api.RegisterSocketRoutes(sockRouter, cfg, dc, logger, startup, routeOpts)
 		unixServer := &http.Server{
 			Handler:      sockRouter,
 			ReadTimeout:  30 * time.Second,
@@ -983,7 +989,7 @@ func runServe(httpAddr string) error {
 		os.Chmod(credSockPath, 0666) // world-connectable — egress runs as root; access controlled by bind mount scope
 		credRouter := chi.NewRouter()
 		credRouter.Use(chiMiddleware.Recoverer)
-		api.RegisterCredentialSocketRoutes(credRouter, cfg, dc, logger, routeOpts)
+		api.RegisterCredentialSocketRoutes(credRouter, cfg, dc, logger, startup, routeOpts)
 		credServer := &http.Server{
 			Handler:      credRouter,
 			ReadTimeout:  30 * time.Second,
