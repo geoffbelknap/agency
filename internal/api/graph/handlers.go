@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/geoffbelknap/agency/internal/knowledge"
 )
@@ -216,6 +219,236 @@ func (h *handler) knowledgeRestore(w http.ResponseWriter, r *http.Request) {
 func (h *handler) knowledgeCurationLog(w http.ResponseWriter, r *http.Request) {
 	proxy := knowledge.NewProxy()
 	data, err := proxy.CurationLog(r.Context())
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+// knowledgeIngest handles POST /api/v1/knowledge/ingest
+func (h *handler) knowledgeIngest(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Content     string          `json:"content"`
+		Filename    string          `json:"filename"`
+		ContentType string          `json:"content_type"`
+		Scope       json.RawMessage `json:"scope,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if body.Content == "" && body.Filename == "" {
+		writeJSON(w, 400, map[string]string{"error": "content or filename required"})
+		return
+	}
+	data, err := h.deps.Knowledge.Ingest(r.Context(), body.Content, body.Filename, body.ContentType, body.Scope)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+// knowledgeSaveInsight handles POST /api/v1/knowledge/insight
+func (h *handler) knowledgeSaveInsight(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Insight     string   `json:"insight"`
+		SourceNodes []string `json:"source_nodes"`
+		Confidence  string   `json:"confidence"`
+		Tags        []string `json:"tags,omitempty"`
+		AgentName   string   `json:"agent_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if body.Insight == "" {
+		writeJSON(w, 400, map[string]string{"error": "insight required"})
+		return
+	}
+	data, err := h.deps.Knowledge.SaveInsight(r.Context(), body.Insight, body.SourceNodes, body.Confidence, body.Tags, body.AgentName)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+// knowledgePrincipalsList handles GET /api/v1/knowledge/principals
+func (h *handler) knowledgePrincipalsList(w http.ResponseWriter, r *http.Request) {
+	principalType := r.URL.Query().Get("type")
+	data, err := h.deps.Knowledge.Principals(r.Context(), principalType)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": "knowledge service unavailable: " + err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+// knowledgePrincipalsRegister handles POST /api/v1/knowledge/principals
+func (h *handler) knowledgePrincipalsRegister(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Type string `json:"type"`
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if body.Type == "" {
+		writeJSON(w, 400, map[string]string{"error": "type required"})
+		return
+	}
+	if body.Name == "" {
+		writeJSON(w, 400, map[string]string{"error": "name required"})
+		return
+	}
+	data, err := h.deps.Knowledge.RegisterPrincipal(r.Context(), body.Type, body.Name)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": "knowledge service unavailable: " + err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	w.Write(data)
+}
+
+// knowledgePrincipalsResolve handles GET /api/v1/knowledge/principals/{uuid}
+func (h *handler) knowledgePrincipalsResolve(w http.ResponseWriter, r *http.Request) {
+	uuid := chi.URLParam(r, "uuid")
+	if uuid == "" {
+		writeJSON(w, 400, map[string]string{"error": "uuid required"})
+		return
+	}
+	data, err := h.deps.Knowledge.ResolvePrincipal(r.Context(), uuid)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": "knowledge service unavailable: " + err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+// knowledgeQuarantine handles POST /api/v1/knowledge/quarantine
+func (h *handler) knowledgeQuarantine(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Agent string `json:"agent"`
+		Since string `json:"since"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if body.Agent == "" {
+		writeJSON(w, 400, map[string]string{"error": "agent required"})
+		return
+	}
+	data, err := h.deps.Knowledge.Quarantine(r.Context(), body.Agent, body.Since)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+// knowledgeQuarantineRelease handles POST /api/v1/knowledge/quarantine/release
+func (h *handler) knowledgeQuarantineRelease(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		NodeID string `json:"node_id"`
+		Agent  string `json:"agent"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if body.NodeID == "" && body.Agent == "" {
+		writeJSON(w, 400, map[string]string{"error": "node_id or agent required"})
+		return
+	}
+	data, err := h.deps.Knowledge.QuarantineRelease(r.Context(), body.NodeID, body.Agent)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+// knowledgeQuarantineList handles GET /api/v1/knowledge/quarantine
+func (h *handler) knowledgeQuarantineList(w http.ResponseWriter, r *http.Request) {
+	agent := r.URL.Query().Get("agent")
+	data, err := h.deps.Knowledge.QuarantineList(r.Context(), agent)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+// knowledgeClassification handles GET /api/v1/knowledge/classification
+func (h *handler) knowledgeClassification(w http.ResponseWriter, r *http.Request) {
+	data, err := h.deps.Knowledge.Classification(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
+}
+
+// knowledgeCommunities handles GET /api/v1/knowledge/communities
+func (h *handler) knowledgeCommunities(w http.ResponseWriter, r *http.Request) {
+	data, err := h.deps.Knowledge.Communities(r.Context())
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+// knowledgeCommunity handles GET /api/v1/knowledge/communities/{id}
+func (h *handler) knowledgeCommunity(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeJSON(w, 400, map[string]string{"error": "missing community id"})
+		return
+	}
+	data, err := h.deps.Knowledge.Community(r.Context(), id)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+// knowledgeHubs handles GET /api/v1/knowledge/hubs
+func (h *handler) knowledgeHubs(w http.ResponseWriter, r *http.Request) {
+	limit := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	data, err := h.deps.Knowledge.Hubs(r.Context(), limit)
 	if err != nil {
 		writeJSON(w, 502, map[string]string{"error": err.Error()})
 		return
