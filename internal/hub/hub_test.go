@@ -3,7 +3,10 @@ package hub
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestSourceUpdateEmptyWhenNoChange(t *testing.T) {
@@ -162,6 +165,227 @@ func TestOutdatedNoChangeWhenVersionsMatch(t *testing.T) {
 	upgrades := mgr.Outdated()
 	if len(upgrades) != 0 {
 		t.Fatalf("expected no upgrades, got: %+v", upgrades)
+	}
+}
+
+func TestUpgradePreservesInstalledProviders(t *testing.T) {
+	home := t.TempDir()
+	mgr := NewManager(home)
+
+	// Hub cache with Anthropic + OpenAI defaults
+	hubRoutingYAML := `version: "0.1"
+providers:
+  anthropic:
+    api_base: https://api.anthropic.com
+    auth_env: ANTHROPIC_API_KEY
+  openai:
+    api_base: https://api.openai.com
+    auth_env: OPENAI_API_KEY
+models:
+  claude-sonnet:
+    provider: anthropic
+    capabilities: [tools, vision, streaming]
+  gpt-4o:
+    provider: openai
+    capabilities: [tools, vision, streaming]
+tiers:
+  standard:
+    - model: claude-sonnet
+      preference: 0
+    - model: gpt-4o
+      preference: 1
+settings:
+  default_tier: standard
+  tier_strategy: best_effort
+`
+	cacheDir := filepath.Join(home, "hub-cache", "default")
+	os.MkdirAll(filepath.Join(cacheDir, "pricing"), 0755)
+	os.WriteFile(filepath.Join(cacheDir, "pricing", "routing.yaml"), []byte(hubRoutingYAML), 0644)
+
+	// Ontology in cache (upgrade syncs ontology too)
+	os.MkdirAll(filepath.Join(cacheDir, "ontology"), 0755)
+	os.WriteFile(filepath.Join(cacheDir, "ontology", "base-ontology.yaml"),
+		[]byte("version: v2\nentity_types:\n  Host: {}\n"), 0644)
+
+	// Config with hub sources
+	os.WriteFile(filepath.Join(home, "config.yaml"),
+		[]byte("hub:\n  sources:\n    - name: default\n      url: https://example.com\n"), 0644)
+
+	// Write the hub base routing.yaml to infrastructure/
+	os.MkdirAll(filepath.Join(home, "infrastructure"), 0755)
+	os.WriteFile(filepath.Join(home, "infrastructure", "routing.yaml"), []byte(hubRoutingYAML), 0644)
+
+	// Register a non-default provider "together-ai" in the registry
+	_, err := mgr.Registry.Create("together-ai", "provider", "default/together-ai")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write provider YAML to the instance dir
+	instDir := mgr.Registry.InstanceDir("together-ai")
+	if instDir == "" {
+		t.Fatal("expected instance dir for together-ai")
+	}
+	providerYAML := `provider: together-ai
+version: "1.0.0"
+routing:
+  api_base: https://api.together.xyz
+  auth_env: OPENAI_API_KEY
+  models:
+    together-llama:
+      capabilities: [tools, streaming]
+  tiers:
+    standard: together-llama
+`
+	os.WriteFile(filepath.Join(instDir, "provider.yaml"), []byte(providerYAML), 0644)
+
+	// Merge provider routing (simulates hub install)
+	if err := MergeProviderRouting(home, "together-ai", []byte(providerYAML)); err != nil {
+		t.Fatalf("MergeProviderRouting failed: %v", err)
+	}
+
+	// Verify together-ai is in routing.yaml before upgrade
+	preData, _ := os.ReadFile(filepath.Join(home, "infrastructure", "routing.yaml"))
+	if !strings.Contains(string(preData), "together-ai") {
+		t.Fatal("expected together-ai in routing.yaml before upgrade")
+	}
+
+	// Run full upgrade
+	_, err = mgr.Upgrade(nil)
+	if err != nil {
+		t.Fatalf("Upgrade failed: %v", err)
+	}
+
+	// Read the routing.yaml after upgrade
+	postData, err := os.ReadFile(filepath.Join(home, "infrastructure", "routing.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var cfg map[string]interface{}
+	if err := yaml.Unmarshal(postData, &cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	providers, _ := cfg["providers"].(map[string]interface{})
+	models, _ := cfg["models"].(map[string]interface{})
+
+	// Assert: together-ai provider still present with correct api_base
+	togetherProv, ok := providers["together-ai"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("together-ai provider missing after upgrade; providers: %v", providers)
+	}
+	if togetherProv["api_base"] != "https://api.together.xyz" {
+		t.Errorf("expected together-ai api_base https://api.together.xyz, got %v", togetherProv["api_base"])
+	}
+
+	// Assert: together-ai model still present
+	if _, ok := models["together-llama"]; !ok {
+		t.Errorf("together-llama model missing after upgrade; models: %v", models)
+	}
+
+	// Assert: default providers still present and match hub cache
+	if _, ok := providers["anthropic"]; !ok {
+		t.Errorf("anthropic provider missing after upgrade")
+	}
+	if _, ok := providers["openai"]; !ok {
+		t.Errorf("openai provider missing after upgrade")
+	}
+
+	// Assert: default models still present
+	if _, ok := models["claude-sonnet"]; !ok {
+		t.Errorf("claude-sonnet model missing after upgrade")
+	}
+	if _, ok := models["gpt-4o"]; !ok {
+		t.Errorf("gpt-4o model missing after upgrade")
+	}
+}
+
+func TestUpgradeDoesNotPreserveRemovedProviders(t *testing.T) {
+	home := t.TempDir()
+	mgr := NewManager(home)
+
+	// Hub cache with just anthropic
+	hubRoutingYAML := `version: "0.1"
+providers:
+  anthropic:
+    api_base: https://api.anthropic.com
+    auth_env: ANTHROPIC_API_KEY
+models:
+  claude-sonnet:
+    provider: anthropic
+    capabilities: [tools, vision, streaming]
+tiers:
+  standard:
+    - model: claude-sonnet
+      preference: 0
+settings:
+  default_tier: standard
+  tier_strategy: best_effort
+`
+	cacheDir := filepath.Join(home, "hub-cache", "default")
+	os.MkdirAll(filepath.Join(cacheDir, "pricing"), 0755)
+	os.WriteFile(filepath.Join(cacheDir, "pricing", "routing.yaml"), []byte(hubRoutingYAML), 0644)
+
+	// Config
+	os.WriteFile(filepath.Join(home, "config.yaml"),
+		[]byte("hub:\n  sources:\n    - name: default\n      url: https://example.com\n"), 0644)
+
+	// Write routing.yaml that has a stale provider "stale-provider" (NOT in registry)
+	staleRoutingYAML := `version: "0.1"
+providers:
+  anthropic:
+    api_base: https://api.anthropic.com
+    auth_env: ANTHROPIC_API_KEY
+  stale-provider:
+    api_base: https://api.stale.com
+    auth_env: OPENAI_API_KEY
+models:
+  claude-sonnet:
+    provider: anthropic
+    capabilities: [tools, vision, streaming]
+  stale-model:
+    provider: stale-provider
+    capabilities: [tools]
+tiers:
+  standard:
+    - model: claude-sonnet
+      preference: 0
+    - model: stale-model
+      preference: 1
+settings:
+  default_tier: standard
+  tier_strategy: best_effort
+`
+	os.MkdirAll(filepath.Join(home, "infrastructure"), 0755)
+	os.WriteFile(filepath.Join(home, "infrastructure", "routing.yaml"), []byte(staleRoutingYAML), 0644)
+
+	// Run full upgrade
+	_, err := mgr.Upgrade(nil)
+	if err != nil {
+		t.Fatalf("Upgrade failed: %v", err)
+	}
+
+	// Read routing.yaml after upgrade
+	postData, err := os.ReadFile(filepath.Join(home, "infrastructure", "routing.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert: stale-provider is gone (hub base overwrites, and it's not in the registry)
+	if strings.Contains(string(postData), "stale-provider") {
+		t.Errorf("stale-provider should have been removed after upgrade, but found in routing.yaml")
+	}
+	if strings.Contains(string(postData), "stale-model") {
+		t.Errorf("stale-model should have been removed after upgrade, but found in routing.yaml")
+	}
+
+	// Verify anthropic is still there
+	var cfg map[string]interface{}
+	yaml.Unmarshal(postData, &cfg)
+	providers, _ := cfg["providers"].(map[string]interface{})
+	if _, ok := providers["anthropic"]; !ok {
+		t.Errorf("anthropic provider should still be present after upgrade")
 	}
 }
 

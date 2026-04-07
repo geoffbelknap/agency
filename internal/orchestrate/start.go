@@ -16,6 +16,7 @@ import (
 	dockerclient "github.com/docker/docker/client"
 
 	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
+	"github.com/geoffbelknap/agency/internal/comms"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/models"
 	"github.com/geoffbelknap/agency/internal/orchestrate/containers"
@@ -29,6 +30,7 @@ type StartSequence struct {
 	SourceDir   string // agency_core/ path for dev-mode image builds
 	BuildID     string // content-aware build ID for staleness detection
 	Docker      *agencyDocker.Client
+	Comms       comms.Client
 	Log         *log.Logger
 	KeyRotation bool // Force scoped key rotation (used on restart)
 	CredStore   *credstore.Store
@@ -375,11 +377,11 @@ func (ss *StartSequence) readWorkspaceDeps() WorkspaceDeps {
 func (ss *StartSequence) phase7Session(ctx context.Context) error {
 	// Join general channel
 	body := map[string]interface{}{"participant": ss.AgentName}
-	ss.Docker.CommsRequest(ctx, "POST", "/channels/general/join", body)
+	ss.Comms.CommsRequest(ctx, "POST", "/channels/general/join", body)
 
 	// Grant channel access
 	grantBody := map[string]interface{}{"agent": ss.AgentName}
-	ss.Docker.CommsRequest(ctx, "POST", "/channels/general/grant-access", grantBody)
+	ss.Comms.CommsRequest(ctx, "POST", "/channels/general/grant-access", grantBody)
 
 	// Auto-create DM channel for task delivery (replaces brief mechanism).
 	// Channel is created as type "direct" with visibility "private" so only
@@ -394,10 +396,10 @@ func (ss *StartSequence) phase7Session(ctx context.Context) error {
 		"members":    []string{ss.AgentName, "_operator"},
 	}
 	// Retry once — comms may still be initializing during first agent start.
-	if _, err := ss.Docker.CommsRequest(ctx, "POST", "/channels", dmBody); err != nil {
+	if _, err := ss.Comms.CommsRequest(ctx, "POST", "/channels", dmBody); err != nil {
 		if !strings.Contains(err.Error(), "409") { // 409 = already exists, fine
 			time.Sleep(2 * time.Second)
-			if _, retryErr := ss.Docker.CommsRequest(ctx, "POST", "/channels", dmBody); retryErr != nil {
+			if _, retryErr := ss.Comms.CommsRequest(ctx, "POST", "/channels", dmBody); retryErr != nil {
 				if !strings.Contains(retryErr.Error(), "409") {
 					return fmt.Errorf("create DM channel %s: %w", dmChannel, retryErr)
 				}
@@ -407,12 +409,12 @@ func (ss *StartSequence) phase7Session(ctx context.Context) error {
 	// grant-access ensures membership even if the channel already existed.
 	// These are errors, not warnings — the channel is useless without grants.
 	dmGrant := map[string]interface{}{"agent": ss.AgentName}
-	if _, err := ss.Docker.CommsRequest(ctx, "POST", "/channels/"+dmChannel+"/grant-access", dmGrant); err != nil {
+	if _, err := ss.Comms.CommsRequest(ctx, "POST", "/channels/"+dmChannel+"/grant-access", dmGrant); err != nil {
 		return fmt.Errorf("grant agent access to %s: %w", dmChannel, err)
 	}
 	// Operator needs membership to list and read/write DM channels in the web UI
 	opGrant := map[string]interface{}{"agent": "_operator"}
-	if _, err := ss.Docker.CommsRequest(ctx, "POST", "/channels/"+dmChannel+"/grant-access", opGrant); err != nil {
+	if _, err := ss.Comms.CommsRequest(ctx, "POST", "/channels/"+dmChannel+"/grant-access", opGrant); err != nil {
 		return fmt.Errorf("grant operator access to %s: %w", dmChannel, err)
 	}
 
@@ -435,7 +437,7 @@ func (ss *StartSequence) phase7Session(ctx context.Context) error {
 					"keywords":    keywords,
 					"persistent":  true,
 				}
-				if _, err := ss.Docker.CommsRequest(ctx, "POST",
+				if _, err := ss.Comms.CommsRequest(ctx, "POST",
 					"/subscriptions/"+ss.AgentName+"/expertise",
 					expertiseBody,
 				); err != nil {
@@ -464,7 +466,7 @@ func (ss *StartSequence) phase7Session(ctx context.Context) error {
 				respBody := map[string]interface{}{
 					"config": config,
 				}
-				if _, err := ss.Docker.CommsRequest(ctx, "POST",
+				if _, err := ss.Comms.CommsRequest(ctx, "POST",
 					"/subscriptions/"+ss.AgentName+"/responsiveness",
 					respBody,
 				); err != nil {

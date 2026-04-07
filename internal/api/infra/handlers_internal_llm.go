@@ -1,4 +1,4 @@
-package api
+package infra
 
 import (
 	"bytes"
@@ -14,6 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/geoffbelknap/agency/internal/budget"
 	"github.com/geoffbelknap/agency/internal/models"
 )
 
@@ -39,7 +40,7 @@ func (h *handler) internalLLM(w http.ResponseWriter, r *http.Request) {
 
 	// Validate auth token
 	token := r.Header.Get("X-Agency-Token")
-	if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(h.cfg.Token)) != 1 {
+	if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(h.deps.Config.Token)) != 1 {
 		writeJSON(w, 401, map[string]string{"error": "invalid or missing token"})
 		return
 	}
@@ -65,7 +66,7 @@ func (h *handler) internalLLM(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load routing config
-	rc := h.loadRoutingConfig()
+	rc := loadRoutingConfig(h.deps.Config.Home)
 	if rc == nil {
 		writeJSON(w, 500, map[string]string{"error": "routing config not available"})
 		return
@@ -79,8 +80,8 @@ func (h *handler) internalLLM(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check infrastructure budget
-	store := h.budgetStore()
-	limits := h.budgetConfig()
+	store := budget.NewStore(filepath.Join(h.deps.Config.Home, "budget"))
+	limits := models.DefaultPlatformBudgetConfig()
 	remaining, err := store.Remaining("_infrastructure", limits)
 	if err == nil && limits.InfraDaily > 0 {
 		infraUsed := remaining.DailyUsed
@@ -147,7 +148,7 @@ func (h *handler) internalLLM(w http.ResponseWriter, r *http.Request) {
 	// Send request
 	resp, err := client.Do(outReq)
 	if err != nil {
-		h.audit.Write("_infrastructure", "LLM_DIRECT_ERROR", map[string]interface{}{
+		h.deps.Audit.Write("_infrastructure", "LLM_DIRECT_ERROR", map[string]interface{}{
 			"source": caller, "model": modelAlias, "error": err.Error(),
 		})
 		writeJSON(w, 502, map[string]string{"error": "upstream LLM error"})
@@ -186,7 +187,7 @@ func (h *handler) internalLLM(w http.ResponseWriter, r *http.Request) {
 
 	// Audit event — uses enforcer-compatible field names so routing metrics
 	// can aggregate infrastructure LLM usage alongside agent LLM usage.
-	h.audit.Write("_infrastructure", "LLM_DIRECT", map[string]interface{}{
+	h.deps.Audit.Write("_infrastructure", "LLM_DIRECT", map[string]interface{}{
 		"source":         caller,
 		"model":          modelAlias,
 		"provider_model": modelCfg.ProviderModel,
@@ -204,18 +205,25 @@ func (h *handler) internalLLM(w http.ResponseWriter, r *http.Request) {
 	w.Write(finalBody)
 }
 
-// loadRoutingConfig loads the routing.yaml from the infrastructure directory.
-func (h *handler) loadRoutingConfig() *models.RoutingConfig {
-	routingPath := filepath.Join(h.cfg.Home, "infrastructure", "routing.yaml")
-	data, err := os.ReadFile(routingPath)
-	if err != nil {
-		return nil
+// loadProviderKey reads the API key for a provider. Checks in order:
+// 1. Process environment (for dev/CI overrides)
+// 2. Credential store
+func (h *handler) loadProviderKey(provider *models.ProviderConfig) string {
+	if provider.AuthEnv == "" {
+		return ""
 	}
-	var rc models.RoutingConfig
-	if err := yaml.Unmarshal(data, &rc); err != nil {
-		return nil
+	// Check process environment first (for dev/CI overrides)
+	if v := os.Getenv(provider.AuthEnv); v != "" {
+		return v
 	}
-	return &rc
+	// Check credential store
+	if h.deps.CredStore != nil {
+		entry, err := h.deps.CredStore.Get(provider.AuthEnv)
+		if err == nil && entry.Value != "" {
+			return entry.Value
+		}
+	}
+	return ""
 }
 
 // extractUsageFromResponse extracts token usage from an OpenAI-format response.
@@ -235,27 +243,6 @@ func extractUsageFromResponse(body []byte) (inputTokens, outputTokens int) {
 		outputTokens = int(v)
 	}
 	return
-}
-
-// loadProviderKey reads the API key for a provider. Checks in order:
-// 1. Process environment (for dev/CI overrides)
-// 2. Credential store
-func (h *handler) loadProviderKey(provider *models.ProviderConfig) string {
-	if provider.AuthEnv == "" {
-		return ""
-	}
-	// Check process environment first (for dev/CI overrides)
-	if v := os.Getenv(provider.AuthEnv); v != "" {
-		return v
-	}
-	// Check credential store
-	if h.credStore != nil {
-		entry, err := h.credStore.Get(provider.AuthEnv)
-		if err == nil && entry.Value != "" {
-			return entry.Value
-		}
-	}
-	return ""
 }
 
 // infraTranslateToAnthropic converts an OpenAI chat/completions request body to
@@ -390,4 +377,41 @@ func infraTranslateFromAnthropic(anthropicBody []byte) ([]byte, error) {
 	}
 
 	return json.Marshal(result)
+}
+
+// loadRoutingConfig reads routing.yaml (hub-managed) and routing.local.yaml
+// (operator overrides), merging them. Local overlay wins on conflicts.
+func loadRoutingConfig(home string) *models.RoutingConfig {
+	infraDir := filepath.Join(home, "infrastructure")
+
+	// Base: routing.yaml (managed by hub update)
+	var rc models.RoutingConfig
+	if data, err := os.ReadFile(filepath.Join(infraDir, "routing.yaml")); err == nil {
+		yaml.Unmarshal(data, &rc)
+	}
+
+	// Overlay: routing.local.yaml (operator customizations, never hub-managed)
+	if data, err := os.ReadFile(filepath.Join(infraDir, "routing.local.yaml")); err == nil {
+		var local models.RoutingConfig
+		if yaml.Unmarshal(data, &local) == nil {
+			// Merge providers
+			if rc.Providers == nil {
+				rc.Providers = local.Providers
+			} else {
+				for k, v := range local.Providers {
+					rc.Providers[k] = v
+				}
+			}
+			// Merge models (local overrides base)
+			if rc.Models == nil {
+				rc.Models = local.Models
+			} else {
+				for k, v := range local.Models {
+					rc.Models[k] = v
+				}
+			}
+		}
+	}
+
+	return &rc
 }

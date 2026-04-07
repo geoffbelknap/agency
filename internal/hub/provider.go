@@ -12,6 +12,22 @@ import (
 // into {home}/infrastructure/routing.yaml. The file is created with defaults
 // if it does not already exist.
 func MergeProviderRouting(home, providerName string, providerData []byte) error {
+	routingPath := filepath.Join(home, "infrastructure", "routing.yaml")
+	cfg, err := loadRoutingYAML(routingPath)
+	if err != nil {
+		return err
+	}
+
+	if err := mergeProviderInto(cfg, providerName, providerData); err != nil {
+		return err
+	}
+
+	return writeRoutingYAML(routingPath, cfg)
+}
+
+// mergeProviderInto merges a single provider's routing block into cfg.
+// cfg is modified in place. If providerData has no routing block, this is a no-op.
+func mergeProviderInto(cfg map[string]interface{}, providerName string, providerData []byte) error {
 	var doc map[string]interface{}
 	if err := yaml.Unmarshal(providerData, &doc); err != nil {
 		return fmt.Errorf("parse provider YAML: %w", err)
@@ -22,18 +38,22 @@ func MergeProviderRouting(home, providerName string, providerData []byte) error 
 		return nil // no routing block — nothing to merge
 	}
 
-	routingPath := filepath.Join(home, "infrastructure", "routing.yaml")
-	cfg, err := loadRoutingYAML(routingPath)
-	if err != nil {
-		return err
-	}
-
 	// Merge provider config (api_base, auth fields)
 	providers := ensureMap(cfg, "providers")
 	providerCfg := map[string]interface{}{}
 	for _, key := range []string{"api_base", "auth_header", "auth_prefix", "auth_env"} {
 		if v, ok := routing[key]; ok {
 			providerCfg[key] = v
+		}
+	}
+	// Fall back to credential.env_var if auth_env isn't in the routing block.
+	// Hub provider definitions store the env var name under credential.env_var,
+	// but the swap config generator looks for auth_env in the routing section.
+	if _, hasAuthEnv := providerCfg["auth_env"]; !hasAuthEnv {
+		if cred, ok := doc["credential"].(map[string]interface{}); ok {
+			if envVar, ok := cred["env_var"].(string); ok && envVar != "" {
+				providerCfg["auth_env"] = envVar
+			}
 		}
 	}
 	providers[providerName] = providerCfg
@@ -71,7 +91,7 @@ func MergeProviderRouting(home, providerName string, providerData []byte) error 
 		}
 	}
 
-	return writeRoutingYAML(routingPath, cfg)
+	return nil
 }
 
 // RemoveProviderRouting removes a provider and all of its models and tier

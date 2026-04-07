@@ -24,6 +24,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
+	"github.com/geoffbelknap/agency/internal/comms"
 )
 
 var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$`)
@@ -76,6 +77,7 @@ type TaskSummary struct {
 type AgentManager struct {
 	Home          string
 	Docker        *agencyDocker.Client
+	Comms         comms.Client
 	cli           *client.Client
 	log           *log.Logger
 	StopSuppress  *StopSuppression
@@ -87,7 +89,7 @@ func NewAgentManager(home string, dc *agencyDocker.Client, logger *log.Logger) (
 	if err != nil {
 		return nil, err
 	}
-	return &AgentManager{Home: home, Docker: dc, cli: cli, log: logger}, nil
+	return &AgentManager{Home: home, Docker: dc, Comms: dc, cli: cli, log: logger}, nil
 }
 
 // SetInfra attaches the infrastructure manager (and its principal registry)
@@ -381,7 +383,7 @@ func (am *AgentManager) Delete(ctx context.Context, name string) error {
 // JoinChannel joins an agent to a comms channel.
 func (am *AgentManager) JoinChannel(ctx context.Context, agentName, channel string) {
 	body := map[string]interface{}{"participant": agentName}
-	am.Docker.CommsRequest(ctx, "POST", "/channels/"+channel+"/join", body)
+	am.Comms.CommsRequest(ctx, "POST", "/channels/"+channel+"/join", body)
 }
 
 // StopContainers stops and removes all containers for an agent.

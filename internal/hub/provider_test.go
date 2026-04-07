@@ -259,3 +259,223 @@ routing:
 		}
 	}
 }
+
+func TestMergeProviderInto(t *testing.T) {
+	// Base config: anthropic provider, claude-sonnet model, standard tier with one entry.
+	cfg := map[string]interface{}{
+		"version": "0.1",
+		"providers": map[string]interface{}{
+			"anthropic": map[string]interface{}{
+				"api_base": "https://api.anthropic.com",
+				"auth_env": "ANTHROPIC_API_KEY",
+			},
+		},
+		"models": map[string]interface{}{
+			"claude-sonnet": map[string]interface{}{
+				"provider":     "anthropic",
+				"capabilities": []interface{}{"tools", "vision"},
+			},
+		},
+		"tiers": map[string]interface{}{
+			"standard": []interface{}{
+				map[string]interface{}{
+					"model":      "claude-sonnet",
+					"preference": 0,
+				},
+			},
+		},
+	}
+
+	providerYAML := `
+routing:
+  api_base: https://api.together.xyz/v1
+  auth_env: TOGETHER_API_KEY
+  models:
+    together-llama:
+      capabilities:
+        - tools
+  tiers:
+    standard: together-llama
+`
+
+	err := mergeProviderInto(cfg, "together-ai", []byte(providerYAML))
+	if err != nil {
+		t.Fatalf("mergeProviderInto returned error: %v", err)
+	}
+
+	// Existing provider untouched.
+	providers := cfg["providers"].(map[string]interface{})
+	anthro, ok := providers["anthropic"].(map[string]interface{})
+	if !ok {
+		t.Fatal("anthropic provider missing after merge")
+	}
+	if anthro["api_base"] != "https://api.anthropic.com" {
+		t.Errorf("anthropic api_base changed: %v", anthro["api_base"])
+	}
+
+	// New provider added with correct api_base.
+	together, ok := providers["together-ai"].(map[string]interface{})
+	if !ok {
+		t.Fatal("together-ai provider not added")
+	}
+	if together["api_base"] != "https://api.together.xyz/v1" {
+		t.Errorf("together-ai api_base = %v, want https://api.together.xyz/v1", together["api_base"])
+	}
+
+	// New model stamped with provider name.
+	models := cfg["models"].(map[string]interface{})
+	llama, ok := models["together-llama"].(map[string]interface{})
+	if !ok {
+		t.Fatal("together-llama model not added")
+	}
+	if llama["provider"] != "together-ai" {
+		t.Errorf("together-llama provider = %v, want together-ai", llama["provider"])
+	}
+
+	// Existing model untouched.
+	sonnet, ok := models["claude-sonnet"].(map[string]interface{})
+	if !ok {
+		t.Fatal("claude-sonnet model missing after merge")
+	}
+	if sonnet["provider"] != "anthropic" {
+		t.Errorf("claude-sonnet provider changed: %v", sonnet["provider"])
+	}
+
+	// Tier entries appended (should have 2 entries in standard tier).
+	tiers := cfg["tiers"].(map[string]interface{})
+	standardTier, ok := tiers["standard"].([]interface{})
+	if !ok {
+		t.Fatal("standard tier missing or wrong type")
+	}
+	if len(standardTier) != 2 {
+		t.Fatalf("standard tier has %d entries, want 2", len(standardTier))
+	}
+
+	// First entry should be the original.
+	entry0 := standardTier[0].(map[string]interface{})
+	if entry0["model"] != "claude-sonnet" {
+		t.Errorf("tier entry 0 model = %v, want claude-sonnet", entry0["model"])
+	}
+
+	// Second entry should be the new one.
+	entry1 := standardTier[1].(map[string]interface{})
+	if entry1["model"] != "together-llama" {
+		t.Errorf("tier entry 1 model = %v, want together-llama", entry1["model"])
+	}
+	if entry1["preference"] != 1 {
+		t.Errorf("tier entry 1 preference = %v, want 1", entry1["preference"])
+	}
+}
+
+func TestMergeProviderIntoNoRoutingBlock(t *testing.T) {
+	cfg := map[string]interface{}{
+		"version":   "0.1",
+		"providers": map[string]interface{}{},
+		"models":    map[string]interface{}{},
+		"tiers":     map[string]interface{}{},
+	}
+
+	providerYAML := `
+name: some-provider
+credential:
+  env_var: SOME_KEY
+`
+
+	err := mergeProviderInto(cfg, "some-provider", []byte(providerYAML))
+	if err != nil {
+		t.Fatalf("mergeProviderInto returned error: %v", err)
+	}
+
+	// Should be a no-op: no providers, models, or tiers added.
+	providers := cfg["providers"].(map[string]interface{})
+	if len(providers) != 0 {
+		t.Errorf("providers should be empty, got %d entries", len(providers))
+	}
+	models := cfg["models"].(map[string]interface{})
+	if len(models) != 0 {
+		t.Errorf("models should be empty, got %d entries", len(models))
+	}
+	tiers := cfg["tiers"].(map[string]interface{})
+	if len(tiers) != 0 {
+		t.Errorf("tiers should be empty, got %d entries", len(tiers))
+	}
+}
+
+func TestMergeProviderRoutingUnchangedBehavior(t *testing.T) {
+	home := t.TempDir()
+
+	providerYAML := `
+routing:
+  api_base: https://api.openai.com/v1
+  auth_env: OPENAI_API_KEY
+  models:
+    gpt-4o:
+      capabilities:
+        - tools
+        - vision
+  tiers:
+    standard: gpt-4o
+credential:
+  env_var: OPENAI_API_KEY
+`
+
+	err := MergeProviderRouting(home, "openai", []byte(providerYAML))
+	if err != nil {
+		t.Fatalf("MergeProviderRouting returned error: %v", err)
+	}
+
+	// Read back routing.yaml and verify.
+	routingPath := filepath.Join(home, "infrastructure", "routing.yaml")
+	data, err := os.ReadFile(routingPath)
+	if err != nil {
+		t.Fatalf("failed to read routing.yaml: %v", err)
+	}
+
+	var cfg map[string]interface{}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("failed to parse routing.yaml: %v", err)
+	}
+
+	// Provider present.
+	providers, ok := cfg["providers"].(map[string]interface{})
+	if !ok {
+		t.Fatal("providers section missing")
+	}
+	openai, ok := providers["openai"].(map[string]interface{})
+	if !ok {
+		t.Fatal("openai provider not found")
+	}
+	if openai["api_base"] != "https://api.openai.com/v1" {
+		t.Errorf("openai api_base = %v, want https://api.openai.com/v1", openai["api_base"])
+	}
+
+	// Model present with provider stamp.
+	models, ok := cfg["models"].(map[string]interface{})
+	if !ok {
+		t.Fatal("models section missing")
+	}
+	gpt4o, ok := models["gpt-4o"].(map[string]interface{})
+	if !ok {
+		t.Fatal("gpt-4o model not found")
+	}
+	if gpt4o["provider"] != "openai" {
+		t.Errorf("gpt-4o provider = %v, want openai", gpt4o["provider"])
+	}
+
+	// Tier entry present.
+	tiers, ok := cfg["tiers"].(map[string]interface{})
+	if !ok {
+		t.Fatal("tiers section missing")
+	}
+	standardTier, ok := tiers["standard"].([]interface{})
+	if !ok {
+		t.Fatal("standard tier missing or wrong type")
+	}
+	if len(standardTier) != 1 {
+		t.Fatalf("standard tier has %d entries, want 1", len(standardTier))
+	}
+	entry := standardTier[0].(map[string]interface{})
+	if entry["model"] != "gpt-4o" {
+		t.Errorf("tier entry model = %v, want gpt-4o", entry["model"])
+	}
+}

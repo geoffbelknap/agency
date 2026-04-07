@@ -172,6 +172,8 @@ func (m *Manager) Update() (*UpdateReport, error) {
 // warning but are kept (operator may have legitimate custom providers).
 // Defense-in-depth: the egress proxy allowlist is the primary control.
 func (m *Manager) syncRouting(cacheDir string) error {
+	// Step 1-2: Read and validate hub cache base
+	var hubBase []byte
 	entries, _ := os.ReadDir(cacheDir)
 	for _, e := range entries {
 		if !e.IsDir() {
@@ -181,17 +183,64 @@ func (m *Manager) syncRouting(cacheDir string) error {
 		if err != nil {
 			continue
 		}
-
 		validated, err := validateRoutingConfig(data)
 		if err != nil {
 			return fmt.Errorf("routing validation: %w", err)
 		}
-
-		destPath := filepath.Join(m.Home, "infrastructure", "routing.yaml")
-		os.MkdirAll(filepath.Dir(destPath), 0755)
-		return os.WriteFile(destPath, validated, 0644)
+		hubBase = validated
+		break
 	}
-	return nil
+	if hubBase == nil {
+		return nil // no routing.yaml in hub cache
+	}
+
+	// Step 3: Unmarshal hub base
+	var cfg map[string]interface{}
+	if err := yaml.Unmarshal(hubBase, &cfg); err != nil {
+		return fmt.Errorf("parse hub routing: %w", err)
+	}
+
+	// Step 4: Identify default provider names from hub base
+	defaultProviders := map[string]bool{}
+	if providers, ok := cfg["providers"].(map[string]interface{}); ok {
+		for name := range providers {
+			defaultProviders[name] = true
+		}
+	}
+
+	// Steps 5-7: Query installed providers, filter to non-defaults, merge
+	for _, inst := range m.Registry.List("provider") {
+		if defaultProviders[inst.Name] {
+			continue // hub base is authoritative for defaults
+		}
+		instDir := m.Registry.InstanceDir(inst.Name)
+		if instDir == "" {
+			continue
+		}
+		providerData, err := os.ReadFile(filepath.Join(instDir, "provider.yaml"))
+		if err != nil {
+			log.Printf("[hub] WARNING: cannot read provider %q for routing merge: %v", inst.Name, err)
+			continue
+		}
+		if err := mergeProviderInto(cfg, inst.Name, providerData); err != nil {
+			log.Printf("[hub] WARNING: failed to merge provider %q routing: %v", inst.Name, err)
+		}
+	}
+
+	// Step 8: Validate merged output (catches auth_env allowlist changes since install)
+	merged, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal merged routing: %w", err)
+	}
+	validated, err := validateRoutingConfig(merged)
+	if err != nil {
+		return fmt.Errorf("merged routing validation: %w", err)
+	}
+
+	// Step 9: Write
+	destPath := filepath.Join(m.Home, "infrastructure", "routing.yaml")
+	os.MkdirAll(filepath.Dir(destPath), 0755)
+	return os.WriteFile(destPath, validated, 0644)
 }
 
 // syncServices copies service definitions from the hub into the registry.
