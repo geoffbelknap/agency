@@ -19,6 +19,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/api/graph"
 	apihub "github.com/geoffbelknap/agency/internal/api/hub"
 	apiinfra "github.com/geoffbelknap/agency/internal/api/infra"
+	apimissions "github.com/geoffbelknap/agency/internal/api/missions"
 	"github.com/geoffbelknap/agency/internal/api/platform"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
@@ -228,30 +229,7 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		r.Get("/mcp/tools", mcpToolsHandler(h.mcpReg))
 		r.Post("/mcp/call", mcpCallHandler(h.mcpReg, h))
 
-		// Missions
-		r.Route("/missions", func(r chi.Router) {
-			r.Post("/", h.createMission)
-			r.Get("/", h.listMissions)
-			r.Get("/health", h.missionHealth) // all missions health
-			r.Get("/{name}", h.showMission)
-			r.Put("/{name}", h.updateMission)
-			r.Delete("/{name}", h.deleteMission)
-			r.Post("/{name}/assign", h.assignMission)
-			r.Post("/{name}/pause", h.pauseMission)
-			r.Post("/{name}/resume", h.resumeMission)
-			r.Post("/{name}/complete", h.completeMission)
-			r.Get("/{name}/health", h.missionHealth)
-			r.Get("/{name}/history", h.missionHistory)
-			r.Post("/{name}/knowledge", h.missionKnowledge)
-			r.Post("/{name}/claim", h.claimMissionEvent)
-			r.Delete("/{name}/claim", h.releaseMissionClaim)
-			r.Get("/{name}/procedures", h.listMissionProcedures)
-			r.Get("/{name}/episodes", h.listMissionEpisodes)
-			r.Get("/{name}/evaluations", h.listMissionEvaluations)
-			r.Get("/{name}/canvas", h.getCanvas)
-			r.Put("/{name}/canvas", h.putCanvas)
-			r.Delete("/{name}/canvas", h.deleteCanvas)
-		})
+		// Missions routes are registered by the missions module below.
 
 		// Meeseeks
 		r.Post("/meeseeks", h.spawnMeeseeks)
@@ -274,6 +252,22 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 			Audit:      startup.Audit,
 		})
 	}
+
+	// Missions and canvas routes (extracted module)
+	apimissions.RegisterRoutes(r, apimissions.Deps{
+		MissionManager: startup.MissionManager,
+		Claims:         startup.Claims,
+		HealthMonitor:  opts.HealthMonitor,
+		Scheduler:      opts.Scheduler,
+		EventBus:       opts.EventBus,
+		Knowledge:      startup.Knowledge,
+		CredStore:      startup.CredStore,
+		Audit:          startup.Audit,
+		Config:         cfg,
+		Logger:         logger,
+		Comms:          dc,
+		Signal:         &DockerSignalSender{RawClient: dc.RawClient()},
+	})
 
 	// Knowledge graph and ontology routes (extracted module)
 	graph.RegisterRoutes(r, graph.Deps{
@@ -858,7 +852,20 @@ func (h *handler) haltAgent(w http.ResponseWriter, r *http.Request) {
 
 	// Coverage failover: if halted agent is a coordinator for an active team
 	// mission, failover to the coverage agent (ASK tenet 14 — authority is never orphaned).
-	h.checkCoordinatorFailover(r.Context(), name)
+	apimissions.CheckCoordinatorFailover(r.Context(), name, apimissions.Deps{
+		MissionManager: h.missions,
+		Claims:         h.claims,
+		HealthMonitor:  h.healthMonitor,
+		Scheduler:      h.scheduler,
+		EventBus:       h.eventBus,
+		Knowledge:      h.knowledge,
+		CredStore:      h.credStore,
+		Audit:          h.audit,
+		Config:         h.cfg,
+		Logger:         h.log,
+		Comms:          h.dc,
+		Signal:         &DockerSignalSender{RawClient: h.dc.RawClient()},
+	})
 
 	writeJSON(w, 200, record)
 }
