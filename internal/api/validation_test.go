@@ -509,7 +509,7 @@ func TestUnauthenticatedPaths(t *testing.T) {
 		{http.MethodGet, "/api/v1/creds/"},
 		{http.MethodGet, "/api/v1/events"},
 		{http.MethodGet, "/api/v1/graph/query"},
-		{http.MethodGet, "/api/v1/registry"},
+		{http.MethodGet, "/api/v1/admin/registry"},
 		{http.MethodGet, "/api/v1/infra/status"},
 		{http.MethodGet, "/api/v1/admin/doctor"},
 	}

@@ -62,7 +62,7 @@ No gateway restart needed.
 
 ### REST API
 
-Five endpoints under `/api/v1/notifications`:
+Five endpoints under `/api/v1/events/notifications`:
 
 | Method | Path | Description |
 |---|---|---|

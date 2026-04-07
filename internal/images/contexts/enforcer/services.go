@@ -24,7 +24,7 @@ func GatewayKeyResolver(gatewayURL string) KeyResolver {
 		if gatewayURL == "" || name == "" {
 			return ""
 		}
-		resp, err := client.Get(gatewayURL + "/api/v1/internal/credentials/resolve?name=" + url.QueryEscape(name))
+		resp, err := client.Get(gatewayURL + "/api/v1/creds/internal/resolve?name=" + url.QueryEscape(name))
 		if err != nil {
 			return ""
 		}

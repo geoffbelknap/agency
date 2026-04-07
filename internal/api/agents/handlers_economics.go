@@ -65,7 +65,7 @@ func (h *handler) getAgentEconomics(w http.ResponseWriter, r *http.Request) {
 
 // getEconomicsSummary returns platform-wide economics metrics (today).
 //
-//	GET /api/v1/economics/summary
+//	GET /api/v1/agents/economics/summary
 func (h *handler) getEconomicsSummary(w http.ResponseWriter, r *http.Request) {
 	costs := apiinfra.LoadModelCosts(h.deps.Config.Home)
 	today := time.Now().UTC().Format("2006-01-02")

@@ -8,7 +8,7 @@ Add a "Create Agent" dialog to the Agents screen, backed by a new gateway endpoi
 
 ## Components
 
-### 1. Gateway Endpoint: `GET /api/v1/presets`
+### 1. Gateway Endpoint: `GET /api/v1/hub/presets`
 
 **File:** `agency-gateway/internal/api/routes.go`
 
@@ -58,7 +58,7 @@ presets: {
 | Field | Control | Default | Validation |
 |-------|---------|---------|------------|
 | Name | Text input | empty | Required. 2+ chars. Pattern: `^[a-z0-9][a-z0-9-]*[a-z0-9]$`. Not a reserved name (infra-egress, agency, enforcer, gateway, workspace). Inline error shown below input. |
-| Preset | Select dropdown | "generalist" | Fetched from `GET /api/v1/presets`. Each option shows name + description. |
+| Preset | Select dropdown | "generalist" | Fetched from `GET /api/v1/hub/presets`. Each option shows name + description. |
 
 **Preset fetching:**
 - Fetches on dialog open.
@@ -104,7 +104,7 @@ presets: {
 - Shows fallback text input when preset fetch fails
 
 **MSW mock handlers:**
-- `GET /api/v1/presets` — returns sample preset list
+- `GET /api/v1/hub/presets` — returns sample preset list
 - `POST /api/v1/agents` — success and error scenarios
 
 ## Files Changed

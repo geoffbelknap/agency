@@ -100,7 +100,7 @@ by_model:
     avg_ttft_ms: 180
 ```
 
-**`GET /api/v1/economics/summary`** — Cross-agent rollup (same shape, aggregated).
+**`GET /api/v1/agents/economics/summary`** — Cross-agent rollup (same shape, aggregated).
 
 ## WebSocket Signal
 

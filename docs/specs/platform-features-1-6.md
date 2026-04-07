@@ -397,7 +397,7 @@ func (s *AuditSummarizer) Summarize() ([]MissionMetric, error)
 
 ### CLI Command
 
-`agency audit summarize` — Calls `POST /api/v1/audit/summarize`. Returns summary table of missions + metrics. Endpoint calls `summarizer.Summarize()` synchronously.
+`agency audit summarize` — Calls `POST /api/v1/admin/audit/summarize`. Returns summary table of missions + metrics. Endpoint calls `summarizer.Summarize()` synchronously.
 
 ### Goroutine Safety
 

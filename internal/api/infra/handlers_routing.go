@@ -14,7 +14,7 @@ import (
 
 // routingMetrics returns aggregated LLM usage metrics from enforcer audit logs.
 //
-//	GET /api/v1/routing/metrics?agent=&since=&until=
+//	GET /api/v1/infra/routing/metrics?agent=&since=&until=
 //
 // Query params:
 //
@@ -42,7 +42,7 @@ func (h *handler) routingMetrics(w http.ResponseWriter, r *http.Request) {
 // routingConfig returns the current model routing configuration (sanitised —
 // no credential values, only env var names).
 //
-//	GET /api/v1/routing/config
+//	GET /api/v1/infra/routing/config
 func (h *handler) routingConfig(w http.ResponseWriter, r *http.Request) {
 	rc := loadRoutingConfig(h.deps.Config.Home)
 	if rc == nil {
@@ -121,7 +121,7 @@ func loadModelCosts(home string) map[string]routing.ModelCost {
 
 // listProviders returns available LLM providers from the hub cache with credential status.
 //
-//	GET /api/v1/providers
+//	GET /api/v1/infra/providers
 func (h *handler) listProviders(w http.ResponseWriter, r *http.Request) {
 	hubMgr := hub.NewManager(h.deps.Config.Home)
 
@@ -201,7 +201,7 @@ func strField(m map[string]interface{}, key string) string {
 
 // setupConfig returns the wizard configuration (capability tiers) from the hub cache.
 //
-//	GET /api/v1/setup/config
+//	GET /api/v1/infra/setup/config
 func (h *handler) setupConfig(w http.ResponseWriter, r *http.Request) {
 	hubMgr := hub.NewManager(h.deps.Config.Home)
 
@@ -243,7 +243,7 @@ func LoadRoutingConfig(home string) *models.RoutingConfig {
 
 // routingSuggestions returns routing optimization suggestions.
 //
-//	GET /api/v1/routing/suggestions?status=pending
+//	GET /api/v1/infra/routing/suggestions?status=pending
 //
 // Query params:
 //
@@ -275,7 +275,7 @@ func (h *handler) routingSuggestions(w http.ResponseWriter, r *http.Request) {
 
 // routingSuggestionApprove approves a routing suggestion.
 //
-//	POST /api/v1/routing/suggestions/{id}/approve
+//	POST /api/v1/infra/routing/suggestions/{id}/approve
 func (h *handler) routingSuggestionApprove(w http.ResponseWriter, r *http.Request) {
 	if h.deps.Infra == nil || h.deps.Infra.Optimizer == nil {
 		writeJSON(w, 503, map[string]string{"error": "routing optimizer not available"})
@@ -299,7 +299,7 @@ func (h *handler) routingSuggestionApprove(w http.ResponseWriter, r *http.Reques
 
 // routingSuggestionReject rejects a routing suggestion.
 //
-//	POST /api/v1/routing/suggestions/{id}/reject
+//	POST /api/v1/infra/routing/suggestions/{id}/reject
 func (h *handler) routingSuggestionReject(w http.ResponseWriter, r *http.Request) {
 	if h.deps.Infra == nil || h.deps.Infra.Optimizer == nil {
 		writeJSON(w, 503, map[string]string{"error": "routing optimizer not available"})
@@ -322,7 +322,7 @@ func (h *handler) routingSuggestionReject(w http.ResponseWriter, r *http.Request
 
 // routingStats returns per-model per-task-type statistics from the optimizer.
 //
-//	GET /api/v1/routing/stats?task_type=tool_use
+//	GET /api/v1/infra/routing/stats?task_type=tool_use
 //
 // Query params:
 //

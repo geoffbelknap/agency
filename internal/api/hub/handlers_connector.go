@@ -19,7 +19,7 @@ import (
 )
 
 // connectorRequirements returns the current requirement status for a connector.
-// GET /api/v1/connectors/{name}/requirements
+// GET /api/v1/hub/connectors/{name}/requirements
 func (h *handler) connectorRequirements(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	cc, err := h.loadConnectorConfig(name)
@@ -85,7 +85,7 @@ func (h *handler) connectorRequirements(w http.ResponseWriter, r *http.Request) 
 }
 
 // connectorConfigure provisions credentials, auth, and egress for a connector.
-// POST /api/v1/connectors/{name}/configure
+// POST /api/v1/hub/connectors/{name}/configure
 func (h *handler) connectorConfigure(w http.ResponseWriter, r *http.Request) {
 	// Localhost enforcement (ASK Tenet 3 — secrets only via local path)
 	if !isLoopback(r) {
@@ -180,7 +180,7 @@ func (h *handler) connectorConfigure(w http.ResponseWriter, r *http.Request) {
 }
 
 // egressDomains lists all egress domains with provenance.
-// GET /api/v1/egress/domains
+// GET /api/v1/hub/egress/domains
 func (h *handler) egressDomains(w http.ResponseWriter, r *http.Request) {
 	data := h.loadDomainProvenance()
 	domains := make([]map[string]interface{}, 0)
@@ -199,7 +199,7 @@ func (h *handler) egressDomains(w http.ResponseWriter, r *http.Request) {
 }
 
 // egressDomainProvenance returns provenance for a specific domain.
-// GET /api/v1/egress/domains/{domain}/provenance
+// GET /api/v1/hub/egress/domains/{domain}/provenance
 func (h *handler) egressDomainProvenance(w http.ResponseWriter, r *http.Request) {
 	domain := chi.URLParam(r, "domain")
 	data := h.loadDomainProvenance()

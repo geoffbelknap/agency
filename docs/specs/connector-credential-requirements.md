@@ -173,7 +173,7 @@ Status: NOT READY (4 requirements unmet)
 
 ## REST API
 
-### GET /api/v1/connectors/{name}/requirements
+### GET /api/v1/hub/connectors/{name}/requirements
 
 Returns the structured requirements for a connector, with current status.
 
@@ -212,7 +212,7 @@ Returns the structured requirements for a connector, with current status.
 }
 ```
 
-### POST /api/v1/connectors/{name}/configure
+### POST /api/v1/hub/connectors/{name}/configure
 
 Accepts credential values and configures them:
 
@@ -235,7 +235,7 @@ Response:
 }
 ```
 
-### POST /api/v1/connectors/{name}/activate
+### POST /api/v1/hub/connectors/{name}/activate
 
 Activates the connector. Returns error if requirements are not met:
 
@@ -252,12 +252,12 @@ Activates the connector. Returns error if requirements are not met:
 
 The REST API gives agency-web everything it needs to render a setup form:
 
-1. Fetch `/api/v1/connectors/{name}/requirements`
+1. Fetch `/api/v1/hub/connectors/{name}/requirements`
 2. Render form fields: password inputs for `type: secret`, text inputs for `type: config`, with descriptions, examples, and setup_url links
 3. Show auth type badge (JWT exchange, Bearer, OAuth2)
 4. Show egress domain status (green check / red x)
-5. Submit credentials via `/api/v1/connectors/{name}/configure`
-6. Activate via `/api/v1/connectors/{name}/activate`
+5. Submit credentials via `/api/v1/hub/connectors/{name}/configure`
+6. Activate via `/api/v1/hub/connectors/{name}/activate`
 
 No connector-specific UI code needed — the form is generated from the requirements schema.
 
@@ -378,10 +378,10 @@ agency admin egress why api.limacharlie.io
 ### REST API
 
 ```
-GET /api/v1/egress/domains
+GET /api/v1/hub/egress/domains
 → [{domain, sources: [{type, name, added_at}], auto_managed}]
 
-GET /api/v1/egress/domains/{domain}/provenance
+GET /api/v1/hub/egress/domains/{domain}/provenance
 → {domain, sources: [...], auto_managed, active_dependents: ["limacharlie"]}
 ```
 

@@ -134,10 +134,10 @@ agency routing stats --task-type agent_task  # filter by task type
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/v1/routing/suggestions` | List suggestions (optional `?status=pending`) |
-| `POST` | `/api/v1/routing/suggestions/{id}/approve` | Approve and apply |
-| `POST` | `/api/v1/routing/suggestions/{id}/reject` | Reject |
-| `GET` | `/api/v1/routing/stats` | Per-model per-task-type statistics |
+| `GET` | `/api/v1/infra/routing/suggestions` | List suggestions (optional `?status=pending`) |
+| `POST` | `/api/v1/infra/routing/suggestions/{id}/approve` | Approve and apply |
+| `POST` | `/api/v1/infra/routing/suggestions/{id}/reject` | Reject |
+| `GET` | `/api/v1/infra/routing/stats` | Per-model per-task-type statistics |
 
 ### What Approval Does
 

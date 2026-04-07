@@ -103,11 +103,11 @@ Remove this line:
 The proxy-safe socket router should now register these endpoints only:
 - `GET /api/v1/health`
 - `POST /api/v1/agents/{name}/signal`
-- `POST /api/v1/internal/llm`
+- `POST /api/v1/infra/internal/llm`
 - `GET /api/v1/infra/status`
-- `GET /api/v1/channels`
-- `GET /api/v1/channels/{name}/messages`
-- `POST /api/v1/channels/{name}/messages`
+- `GET /api/v1/comms/channels`
+- `GET /api/v1/comms/channels/{name}/messages`
+- `POST /api/v1/comms/channels/{name}/messages`
 
 - [ ] **Step 3: Create the credential socket in main.go**
 
@@ -555,7 +555,7 @@ Expected: Health response from gateway.
 
 - [ ] **Step 8: Verify credential resolution is NOT available via proxy**
 
-Run: `docker exec <enforcer-name> wget -q -O- "http://gateway:8200/api/v1/internal/credentials/resolve?name=test" 2>&1`
+Run: `docker exec <enforcer-name> wget -q -O- "http://gateway:8200/api/v1/creds/internal/resolve?name=test" 2>&1`
 Expected: 404 or 405 (endpoint not registered on proxy-safe socket).
 
 - [ ] **Step 9: Verify agents can respond to messages**

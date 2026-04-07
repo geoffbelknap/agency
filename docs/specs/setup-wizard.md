@@ -39,7 +39,7 @@ A "Skip Setup" link for veterans doing re-setup, which jumps straight to the mai
 
 ### Step 2: LLM Providers
 
-**Data source:** Hub-sourced provider components (kind: `provider`). Fetched via `GET /api/v1/providers`.
+**Data source:** Hub-sourced provider components (kind: `provider`). Fetched via `GET /api/v1/infra/providers`.
 
 **UI:** A grid of provider cards grouped by category:
 - **Cloud** — Anthropic, OpenAI, Google, Mistral, etc.
@@ -54,7 +54,7 @@ Each card shows provider logo/icon, name, and description. Clicking expands it w
 
 **Validation flow:**
 1. Store credential via `POST /api/v1/creds`
-2. Test via `POST /credentials/{name}/test`
+2. Test via `POST /api/v1/creds/{name}/test`
 3. Card shows spinner during test, then green check (success) or red error with message (failure)
 4. At least one provider must validate successfully to proceed
 
@@ -84,7 +84,7 @@ The platform expert persona is a hub-sourced preset (e.g., `platform-expert` or 
 
 ### Step 4: Capabilities
 
-**Data source:** Hub-sourced wizard config (kind: `setup`) provides the tier definitions. Capability list from `GET /api/v1/capabilities`.
+**Data source:** Hub-sourced wizard config (kind: `setup`) provides the tier definitions. Capability list from `GET /api/v1/admin/capabilities`.
 
 **Three tiers** shown as selectable cards:
 - **Minimal** — no optional capabilities. LLM access only.
@@ -114,7 +114,7 @@ If the platform expert toggle was enabled, the agent can immediately answer ques
 ## First-Launch Detection
 
 In the root app layout, before rendering the main UI:
-1. Call `GET /api/v1/routing/config`
+1. Call `GET /api/v1/infra/routing/config`
 2. If `configured: false` (no providers), redirect to `/setup`
 3. Otherwise, render the app normally
 
@@ -300,8 +300,8 @@ Update `ResolveTier` to implement the three strategies:
 
 ### New API endpoints
 
-- `GET /api/v1/providers` — returns installed + available (from hub cache) providers with credential status (configured/unconfigured) and category. Merges hub cache with installed state.
-- `GET /api/v1/setup/config` — returns the hub-sourced wizard configuration (capability tiers, defaults)
+- `GET /api/v1/infra/providers` — returns installed + available (from hub cache) providers with credential status (configured/unconfigured) and category. Merges hub cache with installed state.
+- `GET /api/v1/infra/setup/config` — returns the hub-sourced wizard configuration (capability tiers, defaults)
 
 ## Frontend Architecture (agency-web)
 
