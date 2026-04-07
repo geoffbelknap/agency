@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -96,15 +97,40 @@ func Load() *Config {
 		cfg.SourceDir = detectSourceDir()
 	}
 
+	// Auto-generate secrets if not present and persist them to config.yaml.
+	dirty := false
+
 	if len(cfg.HMACKey) == 0 {
-		// Generate a fresh 32-byte key and persist it.
 		key := make([]byte, 32)
 		if _, err := rand.Read(key); err == nil {
 			cfg.HMACKey = key
 			cf.HMACKey = hex.EncodeToString(key)
-			if out, err := yaml.Marshal(&cf); err == nil {
-				_ = os.WriteFile(configPath, out, 0600)
-			}
+			dirty = true
+		}
+	}
+
+	if cfg.Token == "" {
+		tokenBytes := make([]byte, 32)
+		if _, err := rand.Read(tokenBytes); err == nil {
+			cfg.Token = hex.EncodeToString(tokenBytes)
+			cf.Token = cfg.Token
+			dirty = true
+			_, _ = fmt.Fprintf(os.Stderr, "auto-generated gateway auth token (no token in config.yaml)\n")
+		}
+	}
+
+	if cfg.EgressToken == "" {
+		tokenBytes := make([]byte, 32)
+		if _, err := rand.Read(tokenBytes); err == nil {
+			cfg.EgressToken = hex.EncodeToString(tokenBytes)
+			cf.EgressToken = cfg.EgressToken
+			dirty = true
+		}
+	}
+
+	if dirty {
+		if out, err := yaml.Marshal(&cf); err == nil {
+			_ = os.WriteFile(configPath, out, 0600)
 		}
 	}
 

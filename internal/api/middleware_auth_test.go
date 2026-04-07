@@ -69,12 +69,12 @@ func TestBearerAuth(t *testing.T) {
 			wantStatusCode: http.StatusOK,
 		},
 		{
-			name:           "empty config token allows all (dev mode)",
+			name:           "empty config token rejects requests (fail-closed)",
 			configToken:    "",
 			egressToken:    "",
 			path:           "/api/v1/agents",
 			method:         http.MethodGet,
-			wantStatusCode: http.StatusOK,
+			wantStatusCode: http.StatusUnauthorized,
 		},
 		// Scoped egress token tests
 		{

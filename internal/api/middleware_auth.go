@@ -46,12 +46,6 @@ func BearerAuth(token, egressToken string, reg *registry.Registry) func(http.Han
 				return
 			}
 
-			// Dev/local mode: no token configured, allow all requests.
-			if token == "" {
-				next.ServeHTTP(w, r)
-				return
-			}
-
 			incoming := extractToken(r)
 
 			// Full token: access to all endpoints.
