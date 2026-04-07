@@ -18,6 +18,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/geoffbelknap/agency/internal/comms"
 )
 
 const prefix = "agency"
@@ -26,6 +27,9 @@ const prefix = "agency"
 type Client struct {
 	cli *client.Client
 }
+
+// Verify that Client implements comms.Client at compile time.
+var _ comms.Client = (*Client)(nil)
 
 // NewClient creates a new Docker client from the environment.
 func NewClient() (*Client, error) {
