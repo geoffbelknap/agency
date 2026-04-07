@@ -1,0 +1,12 @@
+pytest
+pytest-asyncio
+pytest-aiohttp
+pytest-timeout
+pydantic
+pyyaml
+httpx
+aiohttp
+docker
+jinja2
+croniter
+ruff
