@@ -287,6 +287,7 @@ func setupCmd() *cobra.Command {
 		apiKey    string
 		notifyURL string
 		noInfra   bool
+		noBrowser bool
 		cliMode   bool
 	)
 
@@ -304,7 +305,7 @@ func setupCmd() *cobra.Command {
 			if cliMode {
 				// Quick setup: if --name or --preset flags are set, skip prompts
 				if name != "" || preset != "" {
-					return runSetup(provider, apiKey, notifyURL, noInfra, true)
+					return runSetup(provider, apiKey, notifyURL, noInfra, true, noBrowser)
 				}
 
 				// Interactive: prompt for provider/key if not set via flags
@@ -350,11 +351,11 @@ func setupCmd() *cobra.Command {
 					}
 				}
 
-				return runSetup(provider, apiKey, notifyURL, noInfra, true)
+				return runSetup(provider, apiKey, notifyURL, noInfra, true, noBrowser)
 			}
 
 			// Default: web-assisted setup — no prompts
-			return runSetup("", "", notifyURL, noInfra, false)
+			return runSetup("", "", notifyURL, noInfra, false, noBrowser)
 		},
 	}
 
@@ -364,6 +365,7 @@ func setupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "LLM provider API key")
 	cmd.Flags().StringVar(&notifyURL, "notify-url", "", "Notification URL (ntfy or webhook) for operator alerts")
 	cmd.Flags().BoolVar(&noInfra, "no-infra", false, "Skip Docker check and infrastructure startup")
+	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Don't open the web UI in a browser (also respected via AGENCY_NO_BROWSER=1)")
 	cmd.Flags().BoolVar(&cliMode, "cli", false, "Run full interactive setup in the terminal")
 
 	return cmd
@@ -430,6 +432,36 @@ func daemonStatusCmd() *cobra.Command {
 			}
 		},
 	}
+}
+
+// openBrowser attempts to open url in the system default browser.
+// Best-effort — callers should ignore errors.
+// Suppressed when AGENCY_NO_BROWSER=1 env var is set.
+func openBrowser(url string) error {
+	if os.Getenv("AGENCY_NO_BROWSER") != "" {
+		return nil
+	}
+	var cmd string
+	var args []string
+
+	switch {
+	case runtime.GOOS == "darwin":
+		cmd = "open"
+		args = []string{url}
+	case isWSL():
+		if _, err := exec.LookPath("wslview"); err == nil {
+			cmd = "wslview"
+			args = []string{url}
+		} else {
+			cmd = "cmd.exe"
+			args = []string{"/c", "start", url}
+		}
+	default:
+		cmd = "xdg-open"
+		args = []string{url}
+	}
+
+	return exec.Command(cmd, args...).Start()
 }
 
 func isWSL() bool {
@@ -503,7 +535,7 @@ func checkDocker() error {
 	return nil
 }
 
-func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode bool) error {
+func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser bool) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("cannot determine home directory: %w", err)
@@ -628,6 +660,9 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode bool) error {
 		fmt.Printf("  Open https://%s:8280 for the web UI\n", webHost())
 	} else {
 		setupURL := fmt.Sprintf("https://%s:8280/setup", webHost())
+		if !noBrowser {
+			_ = openBrowser(setupURL)
+		}
 		fmt.Printf("Finish setup at: %s\n", setupURL)
 	}
 
