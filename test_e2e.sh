@@ -178,6 +178,102 @@ step "agency delete $TEST_AGENT"
 check "[ ! -d ~/.agency/agents/$TEST_AGENT ]" "Agent directory removed"
 
 # --------------------------------------------------
+# Phase 10: Credentials
+# --------------------------------------------------
+step "Credential CRUD"
+"$AGENCY" creds set e2e-test-key --value "test-secret-value" 2>&1 || true
+CRED_LIST=$("$AGENCY" creds list 2>&1)
+check "echo '$CRED_LIST' | grep -q 'e2e-test-key'" "Credential appears in list"
+
+CRED_SHOW=$("$AGENCY" creds show e2e-test-key 2>&1)
+check "echo '$CRED_SHOW' | grep -qi 'e2e-test-key'" "Credential is retrievable"
+
+"$AGENCY" creds delete e2e-test-key 2>&1 || true
+CRED_LIST2=$("$AGENCY" creds list 2>&1)
+check "! echo '$CRED_LIST2' | grep -q 'e2e-test-key'" "Credential deleted"
+
+# --------------------------------------------------
+# Phase 11: Missions
+# --------------------------------------------------
+step "Mission lifecycle"
+# Create a throwaway agent for mission testing
+"$AGENCY" create "$TEST_AGENT" 2>&1 || true
+
+cat > /tmp/e2e-test-mission.yaml <<MISSION
+name: e2e-test-mission
+description: E2E test mission
+instructions: This is a test mission for E2E validation.
+success_criteria:
+  checklist:
+    - "Test completed"
+MISSION
+
+"$AGENCY" mission create -f /tmp/e2e-test-mission.yaml 2>&1 || true
+MISSION_LIST=$("$AGENCY" mission list 2>&1)
+check "echo '$MISSION_LIST' | grep -q 'e2e-test-mission'" "Mission appears in list"
+
+"$AGENCY" mission assign e2e-test-mission "$TEST_AGENT" 2>&1 || true
+MISSION_SHOW=$("$AGENCY" mission show e2e-test-mission 2>&1)
+check "echo '$MISSION_SHOW' | grep -qi '$TEST_AGENT\|assigned'" "Mission assigned to agent"
+
+"$AGENCY" mission delete e2e-test-mission 2>&1 || true
+MISSION_LIST2=$("$AGENCY" mission list 2>&1)
+check "! echo '$MISSION_LIST2' | grep -q 'e2e-test-mission'" "Mission deleted"
+
+"$AGENCY" delete "$TEST_AGENT" 2>&1 || true
+
+# --------------------------------------------------
+# Phase 12: Hub
+# --------------------------------------------------
+step "Hub operations"
+"$AGENCY" hub update 2>&1 || true
+HUB_SEARCH=$("$AGENCY" hub search 2>&1)
+check "echo '$HUB_SEARCH' | grep -qi 'pack\|connector\|preset\|no results'" "Hub search returns results or empty"
+
+HUB_INSTALLED=$("$AGENCY" hub installed 2>&1)
+# This is informational — may be empty on fresh install
+echo "Hub installed: $HUB_INSTALLED"
+
+# --------------------------------------------------
+# Phase 13: Knowledge graph
+# --------------------------------------------------
+step "Knowledge graph"
+KNOWLEDGE_STATS=$("$AGENCY" knowledge stats 2>&1) || true
+check "echo '$KNOWLEDGE_STATS' | grep -qi 'nodes\|edges\|entities\|empty\|0'" "Knowledge stats accessible"
+
+KNOWLEDGE_ONTOLOGY=$("$AGENCY" knowledge ontology 2>&1) || true
+check "echo '$KNOWLEDGE_ONTOLOGY' | grep -qi 'type\|relationship\|ontology\|empty'" "Ontology accessible"
+
+# --------------------------------------------------
+# Phase 14: Auth validation (API level)
+# --------------------------------------------------
+step "Auth enforcement"
+TOKEN=$(grep '^token:' ~/.agency/config.yaml | awk '{print $2}' | tr -d '"' | tr -d "'")
+
+# Authenticated request should work
+check "curl -sf -H 'Authorization: Bearer $TOKEN' http://localhost:18200/api/v1/health" "Authenticated health check works"
+
+# Unauthenticated request to protected endpoint should fail
+HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18200/api/v1/agents)
+check "[ '$HTTP_CODE' = '401' ]" "Unauthenticated request returns 401"
+
+# Health endpoint works without auth
+check "curl -sf http://localhost:18200/api/v1/health" "Health check works without auth"
+
+# --------------------------------------------------
+# Phase 15: Infrastructure status
+# --------------------------------------------------
+step "Infrastructure status (post-modularization)"
+INFRA_STATUS=$("$AGENCY" infra status 2>&1)
+echo "$INFRA_STATUS"
+check "echo '$INFRA_STATUS' | grep -qi 'egress\|comms\|knowledge\|healthy\|running'" "Infrastructure components visible"
+
+# Admin doctor validates enforcement integrity
+DOCTOR=$("$AGENCY" admin doctor 2>&1) || true
+echo "$DOCTOR" | tail -5
+check "echo '$DOCTOR' | grep -qi 'pass\|check\|ok\|no agents'" "Admin doctor runs without error"
+
+# --------------------------------------------------
 # Results
 # --------------------------------------------------
 echo ""
