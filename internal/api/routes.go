@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/go-chi/chi/v5"
@@ -21,6 +20,7 @@ import (
 	apievents "github.com/geoffbelknap/agency/internal/api/events"
 	"github.com/geoffbelknap/agency/internal/api/graph"
 	apihub "github.com/geoffbelknap/agency/internal/api/hub"
+	apiinfra "github.com/geoffbelknap/agency/internal/api/infra"
 	"github.com/geoffbelknap/agency/internal/api/platform"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
@@ -72,8 +72,17 @@ func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, l
 		writeJSON(w, 200, map[string]string{"status": "ok", "version": cfg.Version, "build_id": cfg.BuildID})
 	})
 	r.Post("/api/v1/agents/{name}/signal", h.relaySignal)
-	r.Post("/api/v1/internal/llm", h.internalLLM)
-	r.Get("/api/v1/infra/status", h.infraStatus)
+
+	// Infra routes on the socket (subset: status + internal LLM only)
+	apiinfra.RegisterRoutes(r, apiinfra.Deps{
+		Infra:        startup.Infra,
+		DC:           dc,
+		DockerStatus: opts.DockerStatus,
+		CredStore:    startup.CredStore,
+		Config:       cfg,
+		Logger:       logger,
+		Audit:        startup.Audit,
+	})
 
 	apicomms.RegisterRoutes(r, apicomms.Deps{
 		Comms:  dc,
@@ -227,24 +236,6 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		// Agent logs
 		r.Get("/agents/{name}/logs", h.agentLogs)
 
-		// Infrastructure
-		r.Get("/infra/status", h.infraStatus)
-		r.Post("/infra/up", h.infraUp)
-		r.Post("/infra/down", h.infraDown)
-		r.Post("/infra/rebuild/{component}", h.infraRebuild)
-		r.Post("/infra/reload", h.infraReload)
-
-		// Internal LLM (infrastructure components)
-		r.Post("/internal/llm", h.internalLLM)
-
-		// Routing metrics
-		r.Get("/routing/metrics", h.routingMetrics)
-		r.Get("/routing/config", h.routingConfig)
-
-		// Providers and setup wizard
-		r.Get("/providers", h.listProviders)
-		r.Get("/setup/config", h.setupConfig)
-
 		// Admin
 		r.Get("/admin/doctor", h.adminDoctor)
 		r.Post("/admin/destroy", h.adminDestroy)
@@ -356,6 +347,18 @@ func RegisterRoutesWithOptions(r chi.Router, cfg *config.Config, dc *docker.Clie
 		Comms:  dc,
 		Config: cfg,
 		Logger: logger,
+	})
+
+	// Infra, internal LLM, routing, providers, and setup routes (extracted module)
+	apiinfra.RegisterRoutes(r, apiinfra.Deps{
+		Infra:        startup.Infra,
+		DC:           dc,
+		DockerStatus: opts.DockerStatus,
+		CredStore:    startup.CredStore,
+		EventBus:     opts.EventBus,
+		Config:       cfg,
+		Logger:       logger,
+		Audit:        startup.Audit,
 	})
 }
 
@@ -487,38 +490,6 @@ func (h *handler) relaySignal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, 200, map[string]string{"status": "ok"})
-}
-
-func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
-	status, err := h.dc.InfraStatus(r.Context())
-	if err != nil {
-		if h.dockerStatus != nil {
-			h.dockerStatus.RecordError(err)
-		}
-		writeJSON(w, 500, map[string]string{"error": err.Error()})
-		return
-	}
-	if h.dockerStatus != nil {
-		h.dockerStatus.RecordSuccess()
-	}
-	limits := h.budgetConfig()
-	store := h.budgetStore()
-	infraState, _ := store.Load("_infrastructure")
-	writeJSON(w, 200, map[string]interface{}{
-		"version":              h.cfg.Version,
-		"build_id":             h.cfg.BuildID,
-		"gateway_url":          "http://" + h.cfg.GatewayAddr,
-		"web_url":              "http://127.0.0.1:8280",
-		"components":           status,
-		"infra_llm_daily_used":  infraState.DailyUsed,
-		"infra_llm_daily_limit": limits.InfraDaily,
-		"docker": func() string {
-			if h.dockerStatus != nil && !h.dockerStatus.Available() {
-				return "unavailable"
-			}
-			return "available"
-		}(),
-	})
 }
 
 func (h *handler) listResults(w http.ResponseWriter, r *http.Request) {
@@ -969,163 +940,6 @@ func (h *handler) resumeAgent(w http.ResponseWriter, r *http.Request) {
 	h.audit.Write(name, "agent_resumed", map[string]interface{}{"initiator": body.Initiator})
 	events.EmitAgentEvent(h.eventBus, "agent_resumed", name, nil)
 	writeJSON(w, 200, map[string]string{"status": "resumed", "agent": name})
-}
-
-func (h *handler) infraUp(w http.ResponseWriter, r *http.Request) {
-	if !h.dockerRequired(w) {
-		return
-	}
-	if h.infra == nil {
-		writeJSON(w, 500, map[string]string{"error": "infrastructure manager not initialized"})
-		return
-	}
-
-	// If the client accepts NDJSON, stream progress events.
-	stream := r.Header.Get("Accept") == "application/x-ndjson"
-
-	// Use background context: infra startup must complete even if the client
-	// disconnects (otherwise we leave infrastructure half-running).
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	if !stream {
-		if err := h.infra.EnsureRunning(ctx); err != nil {
-			if h.dockerStatus != nil {
-				h.dockerStatus.RecordError(err)
-			}
-			writeJSON(w, 500, map[string]string{"error": err.Error()})
-			return
-		}
-		if h.dockerStatus != nil {
-			h.dockerStatus.RecordSuccess()
-		}
-		events.EmitInfraEvent(h.eventBus, "infra_up", nil)
-		writeJSON(w, 200, map[string]string{"status": "running"})
-		return
-	}
-
-	// Streaming mode: send progress events as NDJSON lines.
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeJSON(w, 500, map[string]string{"error": "streaming not supported"})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/x-ndjson")
-	w.WriteHeader(200)
-
-	enc := json.NewEncoder(w)
-	onProgress := func(component, status string) {
-		enc.Encode(map[string]string{
-			"type":      "progress",
-			"component": component,
-			"status":    status,
-		})
-		flusher.Flush()
-	}
-
-	if err := h.infra.EnsureRunningWithProgress(ctx, onProgress); err != nil {
-		if h.dockerStatus != nil {
-			h.dockerStatus.RecordError(err)
-		}
-		enc.Encode(map[string]string{"type": "error", "error": err.Error()})
-		flusher.Flush()
-		return
-	}
-	if h.dockerStatus != nil {
-		h.dockerStatus.RecordSuccess()
-	}
-
-	events.EmitInfraEvent(h.eventBus, "infra_up", nil)
-	enc.Encode(map[string]string{"type": "done", "status": "running"})
-	flusher.Flush()
-}
-
-func (h *handler) infraDown(w http.ResponseWriter, r *http.Request) {
-	if !h.dockerRequired(w) {
-		return
-	}
-	if h.infra == nil {
-		writeJSON(w, 500, map[string]string{"error": "infrastructure manager not initialized"})
-		return
-	}
-
-	stream := r.Header.Get("Accept") == "application/x-ndjson"
-	if !stream {
-		if err := h.infra.Teardown(r.Context()); err != nil {
-			writeJSON(w, 500, map[string]string{"error": err.Error()})
-			return
-		}
-		events.EmitInfraEvent(h.eventBus, "infra_down", nil)
-		writeJSON(w, 200, map[string]string{"status": "stopped"})
-		return
-	}
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeJSON(w, 500, map[string]string{"error": "streaming not supported"})
-		return
-	}
-	w.Header().Set("Content-Type", "application/x-ndjson")
-	w.WriteHeader(200)
-	enc := json.NewEncoder(w)
-
-	onProgress := func(component, status string) {
-		enc.Encode(map[string]string{"type": "progress", "component": component, "status": status})
-		flusher.Flush()
-	}
-	if err := h.infra.TeardownWithProgress(r.Context(), onProgress); err != nil {
-		enc.Encode(map[string]string{"type": "error", "error": err.Error()})
-		flusher.Flush()
-		return
-	}
-	enc.Encode(map[string]string{"type": "done", "status": "stopped"})
-	flusher.Flush()
-}
-
-func (h *handler) infraRebuild(w http.ResponseWriter, r *http.Request) {
-	if !h.dockerRequired(w) {
-		return
-	}
-	component := chi.URLParam(r, "component")
-	if h.infra == nil {
-		writeJSON(w, 500, map[string]string{"error": "infrastructure manager not initialized"})
-		return
-	}
-
-	stream := r.Header.Get("Accept") == "application/x-ndjson"
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	if !stream {
-		if err := h.infra.RestartComponent(ctx, component); err != nil {
-			writeJSON(w, 400, map[string]string{"error": err.Error()})
-			return
-		}
-		writeJSON(w, 200, map[string]string{"status": "restarted", "component": component})
-		return
-	}
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeJSON(w, 500, map[string]string{"error": "streaming not supported"})
-		return
-	}
-	w.Header().Set("Content-Type", "application/x-ndjson")
-	w.WriteHeader(200)
-	enc := json.NewEncoder(w)
-
-	onProgress := func(comp, status string) {
-		enc.Encode(map[string]string{"type": "progress", "component": comp, "status": status})
-		flusher.Flush()
-	}
-	if err := h.infra.RestartComponentWithProgress(ctx, component, onProgress); err != nil {
-		enc.Encode(map[string]string{"type": "error", "error": err.Error()})
-		flusher.Flush()
-		return
-	}
-	enc.Encode(map[string]string{"type": "done", "status": "restarted", "component": component})
-	flusher.Flush()
 }
 
 // dockerRequired returns true if Docker is available. If not, writes a 503

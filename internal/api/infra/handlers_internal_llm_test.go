@@ -1,4 +1,4 @@
-package api
+package infra
 
 import (
 	"encoding/json"
