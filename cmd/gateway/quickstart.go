@@ -635,7 +635,7 @@ func runQuickstart(opts quickstartOptions) error {
 			fmt.Println()
 			fmt.Println()
 			fmt.Println("  Agent started but the first task is taking a while.")
-			fmt.Printf("  Check %s or open %s\n", qsBold.Render("agency status"), qsBold.Render("http://localhost:8280"))
+			fmt.Printf("  Check %s or open %s\n", qsBold.Render("agency status"), qsBold.Render("https://localhost:8280"))
 		}
 	}
 
@@ -646,7 +646,7 @@ func runQuickstart(opts quickstartOptions) error {
 	if runningAgent != "" {
 		fmt.Printf("    • Send tasks:  %s\n", qsBold.Render(fmt.Sprintf("agency send %s \"your task here\"", runningAgent)))
 	}
-	fmt.Printf("    • Web UI:      %s\n", qsBold.Render("http://localhost:8280"))
+	fmt.Printf("    • Web UI:      %s\n", qsBold.Render("https://localhost:8280"))
 	fmt.Printf("    • Status:      %s\n", qsBold.Render("agency status"))
 	fmt.Printf("    • More agents: %s\n", qsBold.Render("agency hub search"))
 	if choice.preset == "engineer" {

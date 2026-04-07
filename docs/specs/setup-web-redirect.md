@@ -16,8 +16,7 @@ Change `agency setup` to perform mechanical initialization (config, daemon, infr
 2. `config.RunInit()` with no provider or API key — creates `~/.agency/` directory structure and config files only
 3. Start daemon
 4. Start infrastructure (all containers including agency-web)
-5. Attempt to open `http://<host>:8280/setup` in the system default browser (best-effort, no error on failure)
-6. Print the URL to stdout regardless of whether the browser launched
+5. Print `https://<host>:8280/setup` to stdout (no automatic browser open — avoids side effects in headless/CI environments)
 
 No interactive prompts. No provider menu. No API key input.
 
@@ -77,7 +76,7 @@ Starting infrastructure...
   ✓ agency-web
 Infrastructure running.
 
-Finish setup at: http://localhost:8280/setup
+Finish setup at: https://localhost:8280/setup
 ```
 
 ### CLI mode (`agency setup --cli`)

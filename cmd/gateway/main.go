@@ -441,36 +441,6 @@ func isWSL() bool {
 	return strings.Contains(s, "microsoft") || strings.Contains(s, "WSL")
 }
 
-// openBrowser attempts to open url in the system default browser.
-// Best-effort — returns an error but callers should ignore it.
-// Suppressed when AGENCY_NO_BROWSER=1 (for tests and headless environments).
-func openBrowser(url string) error {
-	if os.Getenv("AGENCY_NO_BROWSER") != "" {
-		return nil
-	}
-	var cmd string
-	var args []string
-
-	switch {
-	case runtime.GOOS == "darwin":
-		cmd = "open"
-		args = []string{url}
-	case isWSL():
-		// Try wslview first (wslu package), fall back to cmd.exe
-		if _, err := exec.LookPath("wslview"); err == nil {
-			cmd = "wslview"
-			args = []string{url}
-		} else {
-			cmd = "cmd.exe"
-			args = []string{"/c", "start", url}
-		}
-	default: // linux, freebsd, etc.
-		cmd = "xdg-open"
-		args = []string{url}
-	}
-
-	return exec.Command(cmd, args...).Start()
-}
 
 // webHost derives the web UI hostname from the gateway address config.
 // Returns "localhost" if the gateway binds to 0.0.0.0 or if the address
@@ -655,10 +625,9 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode bool) error {
 		fmt.Println("  agency start my-agent   # Start an agent")
 		fmt.Println("  agency status           # Check platform status")
 		fmt.Println()
-		fmt.Printf("  Open http://%s:8280 for the web UI\n", webHost())
+		fmt.Printf("  Open https://%s:8280 for the web UI\n", webHost())
 	} else {
-		setupURL := fmt.Sprintf("http://%s:8280/setup", webHost())
-		_ = openBrowser(setupURL)
+		setupURL := fmt.Sprintf("https://%s:8280/setup", webHost())
 		fmt.Printf("Finish setup at: %s\n", setupURL)
 	}
 
