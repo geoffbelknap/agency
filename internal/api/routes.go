@@ -285,10 +285,6 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 	})
 }
 
-// handler is a type alias for mcpDeps, preserved for backward compatibility
-// with old handler files that will be deleted in a follow-up task.
-type handler = mcpDeps
-
 // mcpDeps holds the dependencies consumed exclusively by MCP tool handlers.
 // All REST route handlers have been extracted into their own subpackage modules
 // (agents, admin, hub, infra, events, missions, platform, graph, creds, comms).
