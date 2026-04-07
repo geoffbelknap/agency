@@ -51,8 +51,8 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Get("/api/v1/hub/installed", h.hubInstalled)
 	r.Get("/api/v1/hub/instances", h.hubInstances)
 	r.Get("/api/v1/hub/doctor", h.hubDoctor)
-	r.Get("/api/v1/intake/poll-health", h.intakePollHealth)
-	r.Post("/api/v1/intake/poll/{connector}", h.intakePollTrigger)
+	r.Get("/api/v1/hub/intake/poll-health", h.intakePollHealth)
+	r.Post("/api/v1/hub/intake/poll/{connector}", h.intakePollTrigger)
 	// Wildcard routes after static paths
 	r.Get("/api/v1/hub/{nameOrID}", h.hubShow)
 	r.Get("/api/v1/hub/{nameOrID}/check", h.hubCheck)
@@ -64,23 +64,23 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Get("/api/v1/hub/{name}/info", h.hubInfo)
 
 	// Connector setup — requirements check + credential provisioning
-	r.Get("/api/v1/connectors/{name}/requirements", h.connectorRequirements)
-	r.Post("/api/v1/connectors/{name}/configure", h.connectorConfigure)
+	r.Get("/api/v1/hub/connectors/{name}/requirements", h.connectorRequirements)
+	r.Post("/api/v1/hub/connectors/{name}/configure", h.connectorConfigure)
 
 	// Egress domain provenance
-	r.Get("/api/v1/egress/domains", h.egressDomains)
-	r.Get("/api/v1/egress/domains/{domain}/provenance", h.egressDomainProvenance)
+	r.Get("/api/v1/hub/egress/domains", h.egressDomains)
+	r.Get("/api/v1/hub/egress/domains/{domain}/provenance", h.egressDomainProvenance)
 
 	// Deploy / teardown
-	r.Post("/api/v1/deploy", h.deployPack)
-	r.Post("/api/v1/teardown/{pack}", h.teardownPack)
+	r.Post("/api/v1/hub/deploy", h.deployPack)
+	r.Post("/api/v1/hub/teardown/{pack}", h.teardownPack)
 
 	// Presets
-	r.Get("/api/v1/presets", h.listPresets)
-	r.Post("/api/v1/presets", h.createPreset)
-	r.Get("/api/v1/presets/{name}", h.getPreset)
-	r.Put("/api/v1/presets/{name}", h.updatePreset)
-	r.Delete("/api/v1/presets/{name}", h.deletePreset)
+	r.Get("/api/v1/hub/presets", h.listPresets)
+	r.Post("/api/v1/hub/presets", h.createPreset)
+	r.Get("/api/v1/hub/presets/{name}", h.getPreset)
+	r.Put("/api/v1/hub/presets/{name}", h.updatePreset)
+	r.Delete("/api/v1/hub/presets/{name}", h.deletePreset)
 }
 
 // writeJSON writes a JSON response with the given status code.

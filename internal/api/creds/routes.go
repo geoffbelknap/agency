@@ -28,7 +28,7 @@ type handler struct {
 func RegisterRoutes(r chi.Router, d Deps) {
 	h := &handler{deps: d}
 
-	r.Route("/api/v1/credentials", func(r chi.Router) {
+	r.Route("/api/v1/creds", func(r chi.Router) {
 		r.Post("/", h.createOrUpdateCredential)
 		r.Get("/", h.listCredentials)
 		r.Get("/{name}", h.showCredential)
@@ -38,7 +38,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 		r.Post("/groups", h.createCredentialGroup)
 	})
 
-	r.Get("/api/v1/internal/credentials/resolve", h.resolveCredential)
+	r.Get("/api/v1/creds/internal/resolve", h.resolveCredential)
 }
 
 // writeJSON writes a JSON response with the given status code.

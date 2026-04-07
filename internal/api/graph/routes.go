@@ -28,7 +28,7 @@ type handler struct {
 func RegisterRoutes(r chi.Router, d Deps) {
 	h := &handler{deps: d}
 
-	r.Route("/api/v1/knowledge", func(r chi.Router) {
+	r.Route("/api/v1/graph", func(r chi.Router) {
 		r.Post("/query", h.knowledgeQuery)
 		r.Get("/who-knows", h.knowledgeWhoKnows)
 		r.Get("/stats", h.knowledgeStats)
@@ -74,7 +74,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 		r.Post("/insight", h.knowledgeSaveInsight)
 	})
 
-	r.Route("/api/v1/ontology", func(r chi.Router) {
+	r.Route("/api/v1/graph/ontology", func(r chi.Router) {
 		r.Get("/candidates", h.listOntologyCandidates)
 		r.Post("/promote", h.promoteOntologyCandidate)
 		r.Post("/reject", h.rejectOntologyCandidate)

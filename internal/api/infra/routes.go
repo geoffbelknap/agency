@@ -44,19 +44,19 @@ func RegisterRoutes(r chi.Router, d Deps) {
 		r.Post("/reload", h.infraReload)
 	})
 
-	r.Post("/api/v1/internal/llm", h.internalLLM)
+	r.Post("/api/v1/infra/internal/llm", h.internalLLM)
 
-	r.Get("/api/v1/routing/metrics", h.routingMetrics)
-	r.Get("/api/v1/routing/config", h.routingConfig)
+	r.Get("/api/v1/infra/routing/metrics", h.routingMetrics)
+	r.Get("/api/v1/infra/routing/config", h.routingConfig)
 
 	// Routing optimizer
-	r.Get("/api/v1/routing/suggestions", h.routingSuggestions)
-	r.Post("/api/v1/routing/suggestions/{id}/approve", h.routingSuggestionApprove)
-	r.Post("/api/v1/routing/suggestions/{id}/reject", h.routingSuggestionReject)
-	r.Get("/api/v1/routing/stats", h.routingStats)
+	r.Get("/api/v1/infra/routing/suggestions", h.routingSuggestions)
+	r.Post("/api/v1/infra/routing/suggestions/{id}/approve", h.routingSuggestionApprove)
+	r.Post("/api/v1/infra/routing/suggestions/{id}/reject", h.routingSuggestionReject)
+	r.Get("/api/v1/infra/routing/stats", h.routingStats)
 
-	r.Get("/api/v1/providers", h.listProviders)
-	r.Get("/api/v1/setup/config", h.setupConfig)
+	r.Get("/api/v1/infra/providers", h.listProviders)
+	r.Get("/api/v1/infra/setup/config", h.setupConfig)
 }
 
 // dockerRequired returns true if Docker is available. If not, writes a 503
