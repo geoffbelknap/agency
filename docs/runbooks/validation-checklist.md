@@ -78,6 +78,17 @@ Run through each section. Mark each item as you verify it.
 - [ ] `agency --version` — shows expected version
 - [ ] `agency status` — no version mismatches between binary and containers
 
+### Error Verification
+
+After running the lifecycle checks above, verify no errors occurred:
+
+- [ ] Gateway log has no errors: `tail -100 ~/.agency/gateway.log | grep -c ERRO` returns 0
+- [ ] Gateway log has no panics: `tail -100 ~/.agency/gateway.log | grep -c panic` returns 0
+- [ ] No container crashes: `tail -100 ~/.agency/gateway.log | grep "container died"` returns nothing
+- [ ] No exited infra containers: `docker ps -a --filter "label=agency.managed=true" --filter "status=exited"` shows only cleanup artifacts
+- [ ] No restarting containers: `docker ps -a --filter "label=agency.managed=true" --filter "status=restarting"` is empty
+- [ ] `agency admin doctor` reports zero failures (no ✗ lines)
+
 ## Periodic Health Schedule
 
 | Frequency | What to Run |
