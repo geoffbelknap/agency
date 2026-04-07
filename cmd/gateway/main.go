@@ -395,7 +395,10 @@ func daemonRestartCmd() *cobra.Command {
 			if daemon.IsRunning(8200) {
 				fmt.Println("Stopping daemon...")
 				if err := daemon.Stop(); err != nil {
-					return fmt.Errorf("stop: %w", err)
+					// Stop may fail if the PID file is missing (e.g., after
+					// a prior "serve stop" already removed it). As long as
+					// the daemon actually shuts down, this is non-fatal.
+					fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
 				}
 				// Wait for process to exit
 				for i := 0; i < 20; i++ {

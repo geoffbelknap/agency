@@ -3675,9 +3675,19 @@ func adminCmd() *cobra.Command {
 
 	cmd.AddCommand(egressCmd)
 
-	cmd.AddCommand(&cobra.Command{
+	destroyCmd := &cobra.Command{
 		Use: "destroy", Short: "Destroy all agents and infrastructure",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			yes, _ := cmd.Flags().GetBool("yes")
+			if !yes {
+				fmt.Print("This will destroy all agents and infrastructure. Continue? [y/N] ")
+				var answer string
+				fmt.Scanln(&answer)
+				if answer != "y" && answer != "Y" && answer != "yes" {
+					fmt.Println("Aborted.")
+					return nil
+				}
+			}
 			c, err := requireGateway()
 			if err != nil {
 				return err
@@ -3689,7 +3699,9 @@ func adminCmd() *cobra.Command {
 			fmt.Printf("%s All destroyed\n", green.Render("✓"))
 			return nil
 		},
-	})
+	}
+	destroyCmd.Flags().Bool("yes", false, "Skip confirmation prompt")
+	cmd.AddCommand(destroyCmd)
 
 	cmd.AddCommand(&cobra.Command{
 		Use: "rebuild <agent>", Short: "Regenerate all derived config files for an agent",

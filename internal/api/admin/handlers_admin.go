@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -411,8 +412,39 @@ func (h *handler) adminDestroy(w http.ResponseWriter, r *http.Request) {
 		h.deps.Infra.Teardown(r.Context())
 	}
 
+	// Prune dangling agency images
+	if h.deps.DC != nil {
+		h.pruneDanglingImages(r.Context())
+	}
+
 	h.deps.Logger.Info("admin destroy completed")
 	writeJSON(w, 200, map[string]string{"status": "destroyed"})
+}
+
+// pruneDanglingImages removes agency-prefixed images that are not tagged :latest.
+func (h *handler) pruneDanglingImages(ctx context.Context) {
+	imgs, err := h.deps.DC.ListAgencyImages(ctx)
+	if err != nil {
+		h.deps.Logger.Warn("prune images: list failed", "err", err)
+		return
+	}
+	for _, img := range imgs {
+		for _, tag := range img.RepoTags {
+			if !strings.HasSuffix(tag, ":latest") {
+				if _, err := h.deps.DC.RemoveImage(ctx, tag); err != nil {
+					h.deps.Logger.Debug("prune image skip", "tag", tag, "err", err)
+				} else {
+					h.deps.Logger.Info("pruned dangling image", "tag", tag)
+				}
+			}
+		}
+		// Remove untagged images
+		if len(img.RepoTags) == 0 {
+			if _, err := h.deps.DC.RemoveImage(ctx, img.ID); err != nil {
+				h.deps.Logger.Debug("prune untagged image skip", "id", img.ID, "err", err)
+			}
+		}
+	}
 }
 
 func (h *handler) adminTrust(w http.ResponseWriter, r *http.Request) {

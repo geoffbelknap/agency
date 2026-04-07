@@ -73,10 +73,10 @@ Expected: agent status shows running/healthy.
 agency send test-agent "Hello, confirm you're working."
 ```
 
-Wait 10-15 seconds, then check:
+Wait 10-15 seconds, then check the DM channel:
 
 ```bash
-agency channel read general
+agency channel read dm-test-agent
 ```
 
 ### 9. Clean up test agent
@@ -101,6 +101,6 @@ All of the following must be true:
 If setup fails partway through:
 
 ```bash
-agency admin destroy --yes
+agency admin destroy --yes  # or pipe: echo y | agency admin destroy
 agency setup
 ```

@@ -80,9 +80,17 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 				"Cannot list networks: "+err.Error()))
 			return
 		}
+		// Shared infrastructure networks are expected to be empty when
+		// no agents are running — they're created by infra up, not orphans.
+		infraNets := map[string]bool{
+			"agency-mediation": true,
+			"agency-egress-net": true,
+			"agency-internal": true,
+			"agency-operator": true,
+		}
 		var orphans []string
 		for _, n := range nets {
-			if len(n.Containers) == 0 {
+			if len(n.Containers) == 0 && !infraNets[n.Name] {
 				orphans = append(orphans, n.Name)
 			}
 		}

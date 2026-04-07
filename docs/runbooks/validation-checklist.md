@@ -32,7 +32,7 @@ Run through each section. Mark each item as you verify it.
 - [ ] `agency infra status` — all components healthy
 - [ ] `agency admin doctor` — all checks pass
 - [ ] `curl -sf http://localhost:8200/api/v1/health` — returns OK
-- [ ] Gateway PID file exists: `cat ~/.agency/gateway.pid`
+- [ ] Gateway daemon running: `pgrep -af "agency.*serve"` shows a process
 
 ### Auth
 
@@ -45,8 +45,8 @@ Run through each section. Mark each item as you verify it.
 - [ ] `agency create validation-test` — agent directory created
 - [ ] `agency start validation-test` — agent starts, containers running
 - [ ] `agency show validation-test` — shows running state
-- [ ] `agency send validation-test "Hello"` — message delivered
-- [ ] `agency halt validation-test --tier supervised --reason "validation"` — agent halts
+- [ ] `agency send validation-test "Hello"` — message delivered (check `agency channel read dm-validation-test`)
+- [ ] `agency halt validation-test --tier supervised --reason "validation"` — agent halts (status shows "paused")
 - [ ] `agency resume validation-test` — agent resumes
 - [ ] `agency stop validation-test` — agent stops
 - [ ] `agency delete validation-test` — agent removed
