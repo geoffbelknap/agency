@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -187,7 +187,7 @@ func (bt *BudgetTracker) fetchGatewayRemaining() *budgetRemainingResponse {
 	client := &http.Client{Timeout: 5 * time.Second}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		log.Printf("budget: failed to create gateway request: %v", err)
+		slog.Warn("budget: failed to create gateway request", "error", err)
 		return nil
 	}
 	if token := os.Getenv("GATEWAY_TOKEN"); token != "" {
@@ -195,20 +195,20 @@ func (bt *BudgetTracker) fetchGatewayRemaining() *budgetRemainingResponse {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("budget: gateway budget query failed: %v", err)
+		slog.Warn("budget: gateway budget query failed", "error", err)
 		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		io.Copy(io.Discard, resp.Body)
-		log.Printf("budget: gateway budget query returned %d", resp.StatusCode)
+		slog.Warn("budget: gateway budget query failed", "status", resp.StatusCode)
 		return nil
 	}
 
 	var result budgetRemainingResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		log.Printf("budget: failed to decode gateway budget response: %v", err)
+		slog.Warn("budget: failed to decode gateway budget response", "error", err)
 		return nil
 	}
 	return &result
@@ -239,7 +239,7 @@ func (bt *BudgetTracker) reportCostToGateway(costUSD float64, inputTokens, outpu
 		}
 		resp, err := client.Do(req)
 		if err != nil {
-			log.Printf("budget: failed to report cost to gateway: %v", err)
+			slog.Warn("budget: failed to report cost to gateway", "error", err)
 			return
 		}
 		resp.Body.Close()

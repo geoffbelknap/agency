@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,6 +15,8 @@ import (
 var buildID = "dev"
 
 func main() {
+	initLogging()
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -28,7 +30,8 @@ func main() {
 	// Load config.
 	cfg, err := LoadConfig(filepath.Join(configDir, "config.yaml"))
 	if err != nil {
-		log.Fatalf("failed to load config: %v", err)
+		slog.Error("failed to load config", "error", err)
+		os.Exit(1)
 	}
 
 	// Load audit logger.
@@ -39,7 +42,8 @@ func main() {
 	auditHMACKey := os.Getenv("WEB_FETCH_AUDIT_HMAC_KEY")
 	auditLogger, err := NewAuditLogger(auditDir, auditHMACKey)
 	if err != nil {
-		log.Fatalf("failed to create audit logger: %v", err)
+		slog.Error("failed to create audit logger", "error", err)
+		os.Exit(1)
 	}
 
 	// Build blocklists.
@@ -83,22 +87,23 @@ func main() {
 		ch := make(chan os.Signal, 1)
 		signal.Notify(ch, syscall.SIGHUP)
 		for range ch {
-			log.Println("SIGHUP received — reloading config and blocklists")
+			slog.Info("SIGHUP received — reloading config and blocklists")
 			newCfg, cfgErr := LoadConfig(filepath.Join(configDir, "config.yaml"))
 			if cfgErr != nil {
-				log.Printf("reload: failed to load config: %v", cfgErr)
+				slog.Warn("reload: failed to load config", "error", cfgErr)
 				continue
 			}
 			svc.cfg = newCfg
 			svc.blocklist = buildBlocklists(configDir)
 			svc.rateLimiter = NewRateLimiter(newCfg.RateLimits.GlobalRPM, newCfg.RateLimits.PerDomainRPM)
-			log.Println("reload complete")
+			slog.Info("reload complete")
 		}
 	}()
 
-	log.Printf("web-fetch %s listening on :%s", buildID, port)
+	slog.Info("web-fetch listening", "port", port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
-		log.Fatalf("server error: %v", err)
+		slog.Error("server error", "error", err)
+		os.Exit(1)
 	}
 }
 

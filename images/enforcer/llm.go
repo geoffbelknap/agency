@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -117,7 +117,7 @@ func (lh *LLMHandler) emitErrorSignal(status int, model, correlationID string, r
 	go func() {
 		resp, err := http.Post("http://localhost:3128/signal", "application/json", bytes.NewReader(payload))
 		if err != nil {
-			log.Printf("error signal relay failed: %v", err)
+			slog.Warn("error signal relay failed", "error", err)
 			return
 		}
 		resp.Body.Close()
@@ -338,7 +338,7 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		resp, err = lh.transport.RoundTrip(outReq)
 		if err != nil {
 			if attempt < llmMaxRetries-1 {
-				log.Printf("LLM upstream error (attempt %d/%d): %v", attempt+1, llmMaxRetries, err)
+				slog.Warn("LLM upstream error", "attempt", attempt+1, "max_retries", llmMaxRetries, "error", err)
 				time.Sleep(llmRetryDelay * time.Duration(attempt+1))
 				continue
 			}
@@ -528,7 +528,7 @@ func (lh *LLMHandler) emitTrajectoryAnomaly(anomaly Anomaly) {
 	go func() {
 		resp, err := http.Post("http://localhost:3128/signal", "application/json", bytes.NewReader(payload))
 		if err != nil {
-			log.Printf("trajectory signal relay failed: %v", err)
+			slog.Warn("trajectory signal relay failed", "error", err)
 			return
 		}
 		resp.Body.Close()

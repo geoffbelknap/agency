@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -70,7 +70,7 @@ func NewEnforcer() *Enforcer {
 	routingFile := envOr("ROUTING_CONFIG", defaultRoutingCfg)
 	routing, err := LoadRoutingConfig(routingFile)
 	if err != nil {
-		log.Printf("warning: could not load routing config: %v", err)
+		slog.Warn("could not load routing config", "error", err)
 		routing = &RoutingConfig{
 			Providers: make(map[string]Provider),
 			Models:    make(map[string]Model),
@@ -81,7 +81,7 @@ func NewEnforcer() *Enforcer {
 	apiKeysFile := envOr("API_KEYS_FILE", defaultAPIKeysFile)
 	apiKeys, err := LoadAPIKeys(apiKeysFile)
 	if err != nil {
-		log.Printf("warning: could not load API keys: %v", err)
+		slog.Warn("could not load API keys", "error", err)
 	}
 	auth := NewAuthMiddleware(apiKeys)
 
@@ -89,7 +89,7 @@ func NewEnforcer() *Enforcer {
 	domains := NewDomainGate()
 	domainsFile := envOr("EGRESS_DOMAINS_FILE", defaultDomainsFile)
 	if err := domains.LoadFromFile(domainsFile); err != nil {
-		log.Printf("warning: could not load egress domains: %v", err)
+		slog.Warn("could not load egress domains", "error", err)
 	}
 
 	// Load service registry (scope metadata only — no real keys needed)
@@ -97,7 +97,7 @@ func NewEnforcer() *Enforcer {
 	servicesDir := envOr("SERVICES_DIR", defaultServicesDir)
 	agentDir := envOr("AGENT_DIR", defaultAgentDir)
 	if err := services.LoadFromFiles(servicesDir, agentDir); err != nil {
-		log.Printf("warning: could not load services: %v", err)
+		slog.Warn("could not load services", "error", err)
 	}
 
 	egressProxy := envOr("EGRESS_PROXY", defaultEgressProxy)
@@ -147,42 +147,42 @@ func NewEnforcer() *Enforcer {
 
 // Reload reloads all configuration files (triggered by SIGHUP).
 func (e *Enforcer) Reload() {
-	log.Println("SIGHUP received, reloading configuration")
+	slog.Info("SIGHUP received, reloading configuration")
 
 	// Reload routing config
 	routingFile := envOr("ROUTING_CONFIG", defaultRoutingCfg)
 	if rc, err := LoadRoutingConfig(routingFile); err == nil {
 		e.routing = rc
 		e.llm.SetRouting(rc)
-		log.Println("reloaded routing config")
+		slog.Info("reloaded routing config")
 	} else {
-		log.Printf("warning: failed to reload routing: %v", err)
+		slog.Warn("failed to reload routing", "error", err)
 	}
 
 	// Reload API keys
 	apiKeysFile := envOr("API_KEYS_FILE", defaultAPIKeysFile)
 	if keys, err := LoadAPIKeys(apiKeysFile); err == nil {
 		e.auth.SetKeys(keys)
-		log.Println("reloaded API keys")
+		slog.Info("reloaded API keys")
 	} else {
-		log.Printf("warning: failed to reload API keys: %v", err)
+		slog.Warn("failed to reload API keys", "error", err)
 	}
 
 	// Reload domain gate
 	domainsFile := envOr("EGRESS_DOMAINS_FILE", defaultDomainsFile)
 	if err := e.domains.LoadFromFile(domainsFile); err != nil {
-		log.Printf("warning: failed to reload egress domains: %v", err)
+		slog.Warn("failed to reload egress domains", "error", err)
 	} else {
-		log.Println("reloaded egress domains")
+		slog.Info("reloaded egress domains")
 	}
 
 	// Reload service registry (scope metadata only — no real keys needed)
 	servicesDir := envOr("SERVICES_DIR", defaultServicesDir)
 	agentDir := envOr("AGENT_DIR", defaultAgentDir)
 	if err := e.services.LoadFromFiles(servicesDir, agentDir); err != nil {
-		log.Printf("warning: failed to reload services: %v", err)
+		slog.Warn("failed to reload services", "error", err)
 	} else {
-		log.Println("reloaded services")
+		slog.Info("reloaded services")
 	}
 
 	e.audit.Log(AuditEntry{
@@ -197,7 +197,7 @@ func (e *Enforcer) Reload() {
 		payload := bytes.NewReader([]byte(`{"type":"config_change"}`))
 		resp, err := client.Post(configURL, "application/json", payload)
 		if err != nil {
-			log.Printf("config notify: body unreachable: %v", err)
+			slog.Warn("config notify: body unreachable", "error", err)
 			return
 		}
 		resp.Body.Close()
@@ -257,7 +257,7 @@ func (e *Enforcer) handleSignalRelay(w http.ResponseWriter, r *http.Request) {
 		}
 		resp, err := client.Do(req)
 		if err != nil {
-			log.Printf("signal relay failed: %v", err)
+			slog.Warn("signal relay failed", "error", err)
 			return
 		}
 		resp.Body.Close()
@@ -279,6 +279,8 @@ func (e *Enforcer) ConnectHandler() http.Handler {
 }
 
 func main() {
+	initLogging()
+
 	port := envOr("ENFORCER_PORT", defaultPort)
 	constraintPort := envOr("CONSTRAINT_WS_PORT", defaultConstraintPort)
 
@@ -358,7 +360,7 @@ func main() {
 	signal.Notify(done, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
 		<-done
-		log.Println("shutting down enforcer")
+		slog.Info("shutting down enforcer")
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		server.Shutdown(ctx)
@@ -368,15 +370,17 @@ func main() {
 
 	// Start constraint server in background.
 	go func() {
-		log.Printf("constraint server listening on :%s", constraintPort)
+		slog.Info("constraint server listening on :" + constraintPort + "")
 		if err := constraintServer.ListenAndServe(); err != http.ErrServerClosed {
-			log.Fatalf("constraint server error: %v", err)
+			slog.Error("constraint server error", "error", err)
+		os.Exit(1)
 		}
 	}()
 
-	log.Printf("enforcer listening on :%s", port)
+	slog.Info("enforcer listening on :" + port + "")
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
-		log.Fatalf("server error: %v", err)
+		slog.Error("server error", "error", err)
+		os.Exit(1)
 	}
-	log.Println("enforcer stopped")
+	slog.Info("enforcer stopped")
 }
