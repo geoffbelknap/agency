@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { api } from '../lib/api';
 import { Agent } from '../types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { useIsMobile } from '../components/ui/use-mobile';
 import { TrustTab } from './admin/TrustTab';
 import { PolicyTab } from './admin/PolicyTab';
 import { DangerZoneTab } from './admin/DangerZoneTab';
@@ -30,9 +31,50 @@ const VALID_TABS = new Set([
   'notifications', 'audit', 'setup', 'danger',
 ]);
 
+const TAB_GROUPS = [
+  {
+    label: 'Operations',
+    tabs: [
+      { value: 'infrastructure', label: 'Infrastructure' },
+      { value: 'hub', label: 'Hub' },
+      { value: 'intake', label: 'Intake' },
+      { value: 'knowledge', label: 'Knowledge' },
+    ],
+  },
+  {
+    label: 'Governance',
+    tabs: [
+      { value: 'capabilities', label: 'Capabilities' },
+      { value: 'presets', label: 'Presets' },
+      { value: 'trust', label: 'Trust' },
+      { value: 'egress', label: 'Egress' },
+      { value: 'policy', label: 'Policy' },
+      { value: 'doctor', label: 'Doctor' },
+    ],
+  },
+  {
+    label: 'Observability',
+    tabs: [
+      { value: 'usage', label: 'Usage' },
+      { value: 'events', label: 'Events' },
+      { value: 'webhooks', label: 'Webhooks' },
+      { value: 'notifications', label: 'Notifications' },
+      { value: 'audit', label: 'Audit' },
+      { value: 'setup', label: 'Setup Wizard' },
+    ],
+  },
+  {
+    label: 'Critical',
+    tabs: [
+      { value: 'danger', label: 'Danger Zone' },
+    ],
+  },
+];
+
 export function Admin() {
   const { tab: urlTab } = useParams<{ tab: string }>();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const activeTab = urlTab && VALID_TABS.has(urlTab) ? urlTab : 'infrastructure';
 
   const handleTabChange = useCallback((value: string) => {
@@ -174,7 +216,29 @@ export function Admin() {
       {/* Content */}
       <div className="flex-1 p-4 md:p-8 overflow-auto">
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
-          <TabsList className="flex flex-nowrap overflow-x-auto md:flex-wrap h-auto gap-x-1 gap-y-1.5 scrollbar-none">
+          {isMobile && (
+          <div className="space-y-2">
+            <label htmlFor="admin-section" className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              Section
+            </label>
+            <select
+              id="admin-section"
+              value={activeTab}
+              onChange={(e) => handleTabChange(e.target.value)}
+              className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm text-foreground"
+            >
+              {TAB_GROUPS.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.tabs.map((tab) => (
+                    <option key={tab.value} value={tab.value}>{tab.label}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+          )}
+
+          <TabsList className={`${isMobile ? 'hidden' : 'flex'} flex-nowrap overflow-x-auto md:flex-wrap h-auto gap-x-1 gap-y-1.5 scrollbar-none`}>
             {/* Operations */}
             <TabsTrigger value="infrastructure">Infrastructure</TabsTrigger>
             <TabsTrigger value="hub">Hub</TabsTrigger>
