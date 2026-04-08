@@ -93,25 +93,80 @@ echo "Test agent: $TEST_AGENT"
 # Record test start time for log filtering
 TEST_START_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-# Record gateway log position so we can scan new entries after the test
+# Gateway log position — set after setup creates ~/.agency/
 GATEWAY_LOG=~/.agency/gateway.log
 LOG_START_LINE=0
-if [ -f "$GATEWAY_LOG" ]; then
-    LOG_START_LINE=$(wc -l < "$GATEWAY_LOG")
+
+# ---------------------------------------------------------------------------
+# Pre-cleanup: nuke all agency state so every run starts from a clean slate.
+# This avoids stale containers, networks, audit logs, and daemon PIDs from
+# prior sessions contaminating the test.
+# ---------------------------------------------------------------------------
+echo "Cleaning previous agency state..."
+
+# 1. Kill any running gateway daemon
+if [ -f ~/.agency/gateway.pid ]; then
+    PID=$(cat ~/.agency/gateway.pid 2>/dev/null)
+    if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+        kill "$PID" 2>/dev/null || true
+        sleep 1
+        # Force-kill if still alive
+        kill -0 "$PID" 2>/dev/null && kill -9 "$PID" 2>/dev/null || true
+        echo "  Stopped gateway daemon (PID $PID)"
+    fi
+fi
+# Catch any gateway process not tracked by the PID file
+pkill -f "agency serve" 2>/dev/null || true
+
+# 2. Remove all agency Docker containers (labeled and unlabeled)
+LABELED=$(docker ps -aq --filter "label=agency.managed=true" 2>/dev/null)
+NAMED=$(docker ps -aq --filter "name=agency-" 2>/dev/null)
+ALL_CONTAINERS=$(echo -e "${LABELED}\n${NAMED}" | sort -u | grep -v '^$' || true)
+if [ -n "$ALL_CONTAINERS" ]; then
+    echo "$ALL_CONTAINERS" | xargs docker rm -f 2>/dev/null || true
+    echo "  Removed $(echo "$ALL_CONTAINERS" | wc -w) container(s)"
 fi
 
-# Pre-cleanup: remove any leftover state from prior runs
-"$AGENCY_BIN" -q stop "$TEST_AGENT" 2>/dev/null || true
-"$AGENCY_BIN" -q delete "$TEST_AGENT" 2>/dev/null || true
-"$AGENCY_BIN" -q mission delete e2e-test-mission 2>/dev/null || true
-"$AGENCY_BIN" -q creds delete e2e-test-key 2>/dev/null || true
+# 3. Remove all agency Docker networks
+LABELED_NETS=$(docker network ls -q --filter "label=agency.managed=true" 2>/dev/null)
+NAMED_NETS=$(docker network ls --format '{{.Name}}' 2>/dev/null | grep '^agency-' | xargs -r -I{} docker network inspect {} --format '{{.ID}}' 2>/dev/null || true)
+ALL_NETS=$(echo -e "${LABELED_NETS}\n${NAMED_NETS}" | sort -u | grep -v '^$' || true)
+if [ -n "$ALL_NETS" ]; then
+    echo "$ALL_NETS" | xargs docker network rm 2>/dev/null || true
+    echo "  Removed agency network(s)"
+fi
+
+# 4. Archive ~/.agency/ so setup bootstraps fresh
+if [ -d ~/.agency ]; then
+    ARCHIVE=~/.agency-archive-$(date +%Y%m%d-%H%M%S)
+    mv ~/.agency "$ARCHIVE"
+    echo "  Archived ~/.agency → $ARCHIVE"
+fi
+
+echo "Clean slate ready."
 
 # --------------------------------------------------
 # Phase 1: Init
 # --------------------------------------------------
 step "agency init"
 if [ ! -f ~/.agency/config.yaml ]; then
-    run_cmd "agency setup" AGENCY_NO_BROWSER=1 "$AGENCY_BIN" -q setup
+    # Build setup flags from environment variables.
+    # Supports: ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY
+    SETUP_FLAGS=()
+    if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+        SETUP_FLAGS+=(--provider anthropic --api-key "$ANTHROPIC_API_KEY")
+        echo "  Provider: anthropic (from ANTHROPIC_API_KEY)"
+    elif [ -n "${OPENAI_API_KEY:-}" ]; then
+        SETUP_FLAGS+=(--provider openai --api-key "$OPENAI_API_KEY")
+        echo "  Provider: openai (from OPENAI_API_KEY)"
+    elif [ -n "${GOOGLE_API_KEY:-}" ]; then
+        SETUP_FLAGS+=(--provider google --api-key "$GOOGLE_API_KEY")
+        echo "  Provider: google (from GOOGLE_API_KEY)"
+    else
+        echo "  No LLM provider key found in environment (ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY)"
+        echo "  LLM-dependent tests will fail"
+    fi
+    run_cmd "agency setup" AGENCY_NO_BROWSER=1 "$AGENCY_BIN" setup --no-browser "${SETUP_FLAGS[@]}"
 else
     echo "Already initialized, skipping setup"
 fi
