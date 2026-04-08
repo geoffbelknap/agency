@@ -881,7 +881,7 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 	env := map[string]string{
 		"HTTP_PROXY":  "http://egress:3128",
 		"HTTPS_PROXY": "http://egress:3128",
-		"NO_PROXY":    "comms,knowledge,localhost,127.0.0.1",
+		"NO_PROXY":    "gateway,localhost,127.0.0.1",
 	}
 
 	if v := os.Getenv("WEB_FETCH_AUDIT_HMAC_KEY"); v != "" {
