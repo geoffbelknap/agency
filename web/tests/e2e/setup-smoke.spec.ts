@@ -30,7 +30,6 @@ test('setup wizard can advance past hub sync into welcome', async ({ page }) => 
   await expect(page.getByRole('heading', { name: 'Welcome to Agency' })).toBeVisible();
   const nameInput = page.getByPlaceholder('operator');
   await expect(nameInput).toBeVisible();
-
   await page.route('**/api/v1/init', async (route) => {
     const body = route.request().postDataJSON();
     expect(body).toMatchObject({ operator: 'operator' });

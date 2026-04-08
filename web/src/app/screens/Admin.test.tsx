@@ -93,6 +93,14 @@ describe('Admin — Policy tab', () => {
     expect(screen.getByRole('tab', { name: /policy/i })).toBeInTheDocument();
   });
 
+  it('shows the active section summary', async () => {
+    server.use(...agentHandlers);
+    renderAdmin('policy');
+    expect(screen.getByRole('heading', { name: 'Policy' })).toBeInTheDocument();
+    expect(screen.getByText(/inspect and validate per-agent policy state/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/policies, trust, and agent operating boundaries/i).length).toBeGreaterThan(0);
+  });
+
   it('validates policy', async () => {
     let validated = false;
     server.use(

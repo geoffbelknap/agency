@@ -84,7 +84,9 @@ API requests to `/api/v1` and WebSocket connections on `/ws` are automatically p
 | `npm test`           | Run tests once (Vitest)          |
 | `npm run test:watch` | Run tests in watch mode          |
 | `npm run test:e2e`   | Run mocked Playwright browser smoke tests |
+| `npm run test:e2e:headed` | Run mocked Playwright browser smoke tests with a visible browser |
 | `npm run test:e2e:live` | Run Playwright against a live local Agency stack |
+| `npm run test:e2e:live:headed` | Run live-stack Playwright with a visible browser |
 
 ## Browser E2E
 

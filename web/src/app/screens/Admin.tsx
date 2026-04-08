@@ -34,48 +34,59 @@ const VALID_TABS = new Set([
 const TAB_GROUPS = [
   {
     label: 'Operations',
+    description: 'Infrastructure, intake, and shared platform services.',
     tabs: [
-      { value: 'infrastructure', label: 'Infrastructure' },
-      { value: 'hub', label: 'Hub' },
-      { value: 'intake', label: 'Intake' },
-      { value: 'knowledge', label: 'Knowledge' },
+      { value: 'infrastructure', label: 'Infrastructure', description: 'Provision and rebuild the local platform.' },
+      { value: 'hub', label: 'Hub', description: 'Configure the operator-facing control surface.' },
+      { value: 'intake', label: 'Intake', description: 'Manage inbound channels and collection paths.' },
+      { value: 'knowledge', label: 'Knowledge', description: 'Inspect stored knowledge bases and retrieval inputs.' },
     ],
   },
   {
     label: 'Governance',
+    description: 'Policies, trust, and agent operating boundaries.',
     tabs: [
-      { value: 'capabilities', label: 'Capabilities' },
-      { value: 'presets', label: 'Presets' },
-      { value: 'trust', label: 'Trust' },
-      { value: 'egress', label: 'Egress' },
-      { value: 'policy', label: 'Policy' },
-      { value: 'doctor', label: 'Doctor' },
+      { value: 'capabilities', label: 'Capabilities', description: 'Review scoped capabilities and assignment rules.' },
+      { value: 'presets', label: 'Presets', description: 'Manage reusable agent configuration presets.' },
+      { value: 'trust', label: 'Trust', description: 'Adjust agent trust tiers and restrictions.' },
+      { value: 'egress', label: 'Egress', description: 'Define allowed outbound network destinations.' },
+      { value: 'policy', label: 'Policy', description: 'Inspect and validate per-agent policy state.' },
+      { value: 'doctor', label: 'Doctor', description: 'Run platform health checks and spot drift.' },
     ],
   },
   {
     label: 'Observability',
+    description: 'Usage, events, notifications, and operational history.',
     tabs: [
-      { value: 'usage', label: 'Usage' },
-      { value: 'events', label: 'Events' },
-      { value: 'webhooks', label: 'Webhooks' },
-      { value: 'notifications', label: 'Notifications' },
-      { value: 'audit', label: 'Audit' },
-      { value: 'setup', label: 'Setup Wizard' },
+      { value: 'usage', label: 'Usage', description: 'Track spend, token flow, and runtime volume.' },
+      { value: 'events', label: 'Events', description: 'Inspect recent system and agent event streams.' },
+      { value: 'webhooks', label: 'Webhooks', description: 'Manage outbound event delivery endpoints.' },
+      { value: 'notifications', label: 'Notifications', description: 'Configure alerting and delivery preferences.' },
+      { value: 'audit', label: 'Audit', description: 'Review recorded agent actions and policy decisions.' },
+      { value: 'setup', label: 'Setup Wizard', description: 'Re-run guided environment setup.' },
     ],
   },
   {
     label: 'Critical',
+    description: 'High-impact controls that affect the entire environment.',
     tabs: [
-      { value: 'danger', label: 'Danger Zone' },
+      { value: 'danger', label: 'Danger Zone', description: 'Destroy infrastructure and reset the environment.' },
     ],
   },
 ];
+
+const TAB_INDEX = new Map(
+  TAB_GROUPS.flatMap((group) =>
+    group.tabs.map((tab) => [tab.value, { ...tab, group: group.label, groupDescription: group.description }] as const),
+  ),
+);
 
 export function Admin() {
   const { tab: urlTab } = useParams<{ tab: string }>();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const activeTab = urlTab && VALID_TABS.has(urlTab) ? urlTab : 'infrastructure';
+  const activeSection = TAB_INDEX.get(activeTab) ?? TAB_INDEX.get('infrastructure')!;
 
   const handleTabChange = useCallback((value: string) => {
     navigate(`/admin/${value}`, { replace: true });
@@ -216,6 +227,25 @@ export function Admin() {
       {/* Content */}
       <div className="flex-1 p-4 md:p-8 overflow-auto">
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
+          <div className="rounded-2xl border border-border bg-card px-4 py-4 md:px-5">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div className="space-y-2">
+                <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                  {activeSection.group}
+                </div>
+                <div>
+                  <h2 className="text-lg font-medium text-foreground">{activeSection.label}</h2>
+                  <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+                    {activeSection.description}
+                  </p>
+                </div>
+              </div>
+              <div className="rounded-xl bg-secondary px-3 py-2 text-xs text-muted-foreground md:max-w-xs">
+                {activeSection.groupDescription}
+              </div>
+            </div>
+          </div>
+
           {isMobile && (
           <div className="space-y-2">
             <label htmlFor="admin-section" className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
@@ -235,34 +265,35 @@ export function Admin() {
                 </optgroup>
               ))}
             </select>
+            <p className="text-xs text-muted-foreground">
+              {activeSection.group}: {activeSection.description}
+            </p>
           </div>
           )}
 
-          <TabsList className={`${isMobile ? 'hidden' : 'flex'} flex-nowrap overflow-x-auto md:flex-wrap h-auto gap-x-1 gap-y-1.5 scrollbar-none`}>
-            {/* Operations */}
-            <TabsTrigger value="infrastructure">Infrastructure</TabsTrigger>
-            <TabsTrigger value="hub">Hub</TabsTrigger>
-            <TabsTrigger value="intake">Intake</TabsTrigger>
-            <TabsTrigger value="knowledge">Knowledge</TabsTrigger>
-            <span className="w-px h-5 bg-border mx-1 self-center" />
-            {/* Security & Governance */}
-            <TabsTrigger value="capabilities">Capabilities</TabsTrigger>
-            <TabsTrigger value="presets">Presets</TabsTrigger>
-            <TabsTrigger value="trust">Trust</TabsTrigger>
-            <TabsTrigger value="egress">Egress</TabsTrigger>
-            <TabsTrigger value="policy">Policy</TabsTrigger>
-            <TabsTrigger value="doctor">Doctor</TabsTrigger>
-            <span className="w-px h-5 bg-border mx-1 self-center" />
-            {/* Monitoring */}
-            <TabsTrigger value="usage">Usage</TabsTrigger>
-            <TabsTrigger value="events">Events</TabsTrigger>
-            <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
-            <TabsTrigger value="notifications">Notifications</TabsTrigger>
-            <TabsTrigger value="audit">Audit</TabsTrigger>
-            <TabsTrigger value="setup">Setup Wizard</TabsTrigger>
-            <span className="w-px h-5 bg-border mx-1 self-center" />
-            <TabsTrigger value="danger" className="text-red-400 data-[state=active]:text-red-300">Danger Zone</TabsTrigger>
-          </TabsList>
+          <div className={`${isMobile ? 'hidden' : 'grid'} gap-3 xl:grid-cols-2`}>
+            {TAB_GROUPS.map((group) => (
+              <div key={group.label} className="rounded-2xl border border-border bg-card p-3">
+                <div className="mb-3 px-1">
+                  <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                    {group.label}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">{group.description}</div>
+                </div>
+                <TabsList className="h-auto w-full flex-wrap justify-start gap-1.5 bg-transparent p-0">
+                  {group.tabs.map((tab) => (
+                    <TabsTrigger
+                      key={tab.value}
+                      value={tab.value}
+                      className={tab.value === 'danger' ? 'text-red-400 data-[state=active]:text-red-300' : ''}
+                    >
+                      {tab.label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </div>
+            ))}
+          </div>
 
           <TabsContent value="infrastructure"><Suspense fallback={LAZY_FALLBACK}><Infrastructure /></Suspense></TabsContent>
           <TabsContent value="hub"><Suspense fallback={LAZY_FALLBACK}><Hub /></Suspense></TabsContent>
