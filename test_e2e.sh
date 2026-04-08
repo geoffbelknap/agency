@@ -96,7 +96,7 @@ echo "Test agent: $TEST_AGENT"
 # ---------------------------------------------------------------------------
 load_env() {
     local envfile="$1"
-    [ -f "$envfile" ] || return
+    [ -f "$envfile" ] || return 0
     while IFS='=' read -r key value; do
         # Skip comments and blank lines
         [[ "$key" =~ ^#.*$ || -z "$key" ]] && continue
@@ -197,7 +197,8 @@ if [ ! -f ~/.agency/config.yaml ]; then
         SETUP_FLAGS+=(--provider google --api-key "$GOOGLE_API_KEY")
         echo "  Provider: google"
     fi
-    run_cmd "agency setup" AGENCY_NO_BROWSER=1 "$AGENCY_BIN" setup --no-browser "${SETUP_FLAGS[@]}"
+    export AGENCY_NO_BROWSER=1
+    run_cmd "agency setup" "$AGENCY_BIN" setup --no-browser "${SETUP_FLAGS[@]}"
 else
     echo "Already initialized, skipping setup"
 fi
