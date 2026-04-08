@@ -109,6 +109,7 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 		"AGENT_NAME":         e.AgentName,
 		"CONSTRAINT_WS_PORT": "8081",
 		"GATEWAY_URL":        "http://gateway:8200",
+		"AGENCY_CALLER":      "enforcer",
 	}
 	if e.LifecycleID != "" {
 		env["AGENCY_LIFECYCLE_ID"] = e.LifecycleID
@@ -222,8 +223,13 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 		return "", err
 	}
 
-	// Connect to mediation network
-	_ = e.cli.NetworkConnect(ctx, mediationNet, containerID, &network.EndpointSettings{
+	// Connect to gateway network (hub — service access, signals, budget)
+	_ = e.cli.NetworkConnect(ctx, gatewayNet, containerID, &network.EndpointSettings{
+		Aliases: []string{"enforcer"},
+	})
+
+	// Connect to egress network (LLM proxy)
+	_ = e.cli.NetworkConnect(ctx, egressIntNet, containerID, &network.EndpointSettings{
 		Aliases: []string{"enforcer"},
 	})
 

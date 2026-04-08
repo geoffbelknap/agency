@@ -1,11 +1,7 @@
-FROM python:3.13-slim
+FROM agency-python-base:latest
 ARG BUILD_ID=unknown
 LABEL agency.build.id=${BUILD_ID}
 WORKDIR /app
-
-# Build context: repo root
-COPY images/comms/requirements.txt /app/
-RUN pip install --no-cache-dir -r requirements.txt
 
 # Shared logging infrastructure (auto-configures via sitecustomize.py)
 COPY images/logging_config.py /app/logging_config.py

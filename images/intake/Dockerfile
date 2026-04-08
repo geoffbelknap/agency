@@ -1,9 +1,9 @@
-FROM python:3.13-slim
+FROM agency-python-base:latest
 ARG BUILD_ID=unknown
 LABEL agency.build.id=${BUILD_ID}
 WORKDIR /app
 
-# Build context: repo root
+# Extra deps not in the shared base
 COPY images/intake/requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 

@@ -31,11 +31,11 @@ import (
 )
 
 const (
-	prefix          = "agency"
-	mediationNet    = "agency-mediation"
-	egressNet       = "agency-egress-net"
-	internalNet     = "agency-internal"
-	operatorNet     = "agency-operator"
+	prefix       = "agency"
+	gatewayNet   = "agency-gateway"
+	egressIntNet = "agency-egress-int"
+	egressExtNet = "agency-egress-ext"
+	operatorNet  = "agency-operator"
 )
 
 var defaultImages = map[string]string{
@@ -183,7 +183,7 @@ func (inf *Infra) serviceLabels(ctx context.Context, imageRef, serviceName, port
 		services.LabelServiceName:    serviceName,
 		services.LabelServicePort:    port,
 		services.LabelServiceHealth:  "/health",
-		services.LabelServiceNetwork: mediationNet,
+		services.LabelServiceNetwork: gatewayNet,
 		services.LabelServiceHMAC:    services.GenerateHMAC(cname, inf.hmacKey),
 		"agency.build.id":            images.ImageBuildLabel(ctx, inf.cli, imageRef),
 		"agency.build.gateway":       inf.BuildID,
@@ -283,6 +283,12 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("infrastructure failures: %s", strings.Join(errs, "; "))
+	}
+
+	// Audit: verify no managed container has Docker socket access
+	if violations := inf.AuditDockerSocket(ctx); len(violations) > 0 {
+		inf.log.Error("Docker socket audit FAILED — containers with /var/run/docker.sock mounted",
+			"containers", violations)
 	}
 
 	return nil
@@ -463,27 +469,28 @@ func (inf *Infra) seedBuiltinServices() {
 func (inf *Infra) ensureNetworks(ctx context.Context) error {
 	// ASK Tenet 3: mediation is complete. Internal networks have no default
 	// route to the host — containers can only reach peers on the same network.
-	// - agent-internal networks: Internal (set in EnsureAgentNetwork)
-	// - agency-internal (shared): Internal — no agent workspaces attached
-	// - mediation: NOT internal — enforcers need host-gateway for budget API
-	// - egress-net: NOT internal — egress proxy needs internet access
+	// Hub-and-spoke topology:
+	// - gatewayNet: Internal — hub for all services and enforcers
+	// - egressIntNet: Internal — services that need outbound proxy access
+	// - egressExtNet: NOT internal — egress proxy reaches internet
+	// - operatorNet: NOT internal — operator tools (web, relay)
 	type netSpec struct {
 		name     string
 		internal bool
 	}
 	nets := []netSpec{
-		{mediationNet, false},
-		{egressNet, false},
-		{internalNet, true},
-		{operatorNet, false}, // agency-operator (operator tools, outbound allowed)
+		{gatewayNet, true},    // Hub — all services and enforcers
+		{egressIntNet, true},  // Services → egress proxy
+		{egressExtNet, false}, // Egress proxy → internet
+		{operatorNet, false},  // Operator tools (web, relay)
 	}
 	for _, n := range nets {
 		_, inspectErr := inf.cli.NetworkInspect(ctx, n.name, network.InspectOptions{})
 		if inspectErr != nil {
 			var err error
 			switch {
-			case n.internal:
-				err = containers.CreateInternalNetwork(ctx, inf.cli, n.name, nil)
+			case n.name == gatewayNet || n.name == egressIntNet:
+				err = containers.CreateMediationNetwork(ctx, inf.cli, n.name, nil)
 			case n.name == operatorNet:
 				err = containers.CreateOperatorNetwork(ctx, inf.cli, n.name, nil)
 			default:
@@ -511,8 +518,7 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("gateway-proxy"))
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
-	hc.ExtraHosts = []string{"gateway:host-gateway"}
-	hc.NetworkMode = container.NetworkMode(mediationNet)
+	hc.NetworkMode = container.NetworkMode(gatewayNet)
 	hc.ReadonlyRootfs = true
 	hc.Resources.Memory = 16 * 1024 * 1024
 	hc.Resources.NanoCPUs = 250_000_000
@@ -521,7 +527,7 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 
 	netCfg := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
-			mediationNet: {
+			gatewayNet: {
 				Aliases: []string{"gateway"},
 			},
 		},
@@ -612,11 +618,11 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 	}
 	env["GATEWAY_URL"] = "http://gateway:8200"
 	env["GATEWAY_TOKEN"] = inf.EgressToken
+	env["AGENCY_CALLER"] = "egress"
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
-	hc.NetworkMode = container.NetworkMode(mediationNet)
-	hc.ExtraHosts = []string{"gateway:host-gateway"}
+	hc.NetworkMode = container.NetworkMode(egressIntNet)
 
 	mergeEnv(env, inf.loggingEnv("egress"))
 	id, err := containers.CreateAndStart(ctx, inf.cli,
@@ -638,8 +644,11 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 		return err
 	}
 
-	// Connect to egress network
-	inf.connectIfNeeded(ctx, id, egressNet, []string{"egress"})
+	// Connect to egress-ext network (internet access)
+	inf.connectIfNeeded(ctx, id, egressExtNet, []string{"egress"})
+
+	// Connect to gateway network (hub — service access)
+	inf.connectIfNeeded(ctx, id, gatewayNet, []string{"egress"})
 
 	return inf.waitHealthy(ctx, name, 30*time.Second)
 }
@@ -669,7 +678,7 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 		commsData + ":/app/data:rw",
 		agentsDir + ":/app/agents:rw",
 	}
-	hc.NetworkMode = container.NetworkMode(mediationNet)
+	hc.NetworkMode = container.NetworkMode(gatewayNet)
 	hc.PortBindings = nat.PortMap{
 		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8202"}},
 	}
@@ -679,7 +688,7 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 		&container.Config{
 			Image:        defaultImages["comms"],
 			Hostname:     "comms",
-			Env:          mapToEnv(inf.loggingEnv("comms")),
+			Env:          mapToEnv(func() map[string]string { e := inf.loggingEnv("comms"); e["AGENCY_CALLER"] = "comms"; return e }()),
 			Labels:       inf.serviceLabels(ctx, defaultImages["comms"], "comms", "8080"),
 			Healthcheck:  defaultHealthChecks["comms"],
 			ExposedPorts: nat.PortSet{"8080/tcp": struct{}{}},
@@ -724,6 +733,7 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 		"NO_PROXY":             "agency-infra-embeddings,localhost,127.0.0.1,gateway",
 		"AGENCY_GATEWAY_TOKEN": inf.GatewayToken,
 		"AGENCY_GATEWAY_URL":   "http://gateway:8200",
+		"AGENCY_CALLER":        "knowledge",
 	}
 
 	binds := []string{
@@ -744,13 +754,13 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
-	hc.NetworkMode = container.NetworkMode(mediationNet)
+	hc.NetworkMode = container.NetworkMode(gatewayNet)
 	hc.PortBindings = nat.PortMap{
 		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8204"}},
 	}
 
 	mergeEnv(env, inf.loggingEnv("knowledge"))
-	if _, err := containers.CreateAndStart(ctx, inf.cli,
+	id, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
 		&container.Config{
 			Image:        defaultImages["knowledge"],
@@ -761,7 +771,8 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 			ExposedPorts: nat.PortSet{"8080/tcp": struct{}{}},
 		},
 		hc, nil,
-	); err != nil {
+	)
+	if err != nil {
 		return err
 	}
 
@@ -772,8 +783,8 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 		return err
 	}
 
-	// Connect knowledge to all existing agent networks
-	inf.connectToAgentNetworks(ctx, name, "knowledge")
+	// Connect knowledge to egress-int network for outbound proxy access
+	inf.connectIfNeeded(ctx, id, egressIntNet, []string{"knowledge"})
 	return nil
 }
 
@@ -806,8 +817,10 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 	env := map[string]string{
 		"HTTP_PROXY":    "http://egress:3128",
 		"HTTPS_PROXY":   "http://egress:3128",
-		"NO_PROXY":      "comms,knowledge,localhost,127.0.0.1",
-		"KNOWLEDGE_URL": "http://knowledge:8080",
+		"NO_PROXY":       "gateway,localhost,127.0.0.1",
+		"GATEWAY_URL":    "http://gateway:8200",
+		"GATEWAY_TOKEN":  inf.GatewayToken,
+		"AGENCY_CALLER":  "intake",
 	}
 
 	// Load operator config vars (LC_ORG_ID, etc.) from config.yaml and .env (legacy)
@@ -828,14 +841,14 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
-	hc.NetworkMode = container.NetworkMode(mediationNet)
+	hc.NetworkMode = container.NetworkMode(gatewayNet)
 	hc.Resources.Memory = 128 * 1024 * 1024 // 128MB — intake is lightweight
 	hc.PortBindings = nat.PortMap{
 		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8205"}},
 	}
 
 	mergeEnv(env, inf.loggingEnv("intake"))
-	if _, err := containers.CreateAndStart(ctx, inf.cli,
+	id, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
 		&container.Config{
 			Image:        defaultImages["intake"],
@@ -846,13 +859,18 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 			ExposedPorts: nat.PortSet{"8080/tcp": struct{}{}},
 		},
 		hc, nil,
-	); err != nil {
+	)
+	if err != nil {
 		return err
 	}
 
 	if err := inf.waitRunning(ctx, name, 10*time.Second); err != nil {
 		return err
 	}
+
+	// Connect intake to egress-int network for outbound proxy access
+	inf.connectIfNeeded(ctx, id, egressIntNet, []string{"intake"})
+
 	return inf.waitHealthy(ctx, name, 30*time.Second)
 }
 
@@ -878,9 +896,10 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 	}
 
 	env := map[string]string{
-		"HTTP_PROXY":  "http://egress:3128",
-		"HTTPS_PROXY": "http://egress:3128",
-		"NO_PROXY":    "comms,knowledge,localhost,127.0.0.1",
+		"HTTP_PROXY":    "http://egress:3128",
+		"HTTPS_PROXY":   "http://egress:3128",
+		"NO_PROXY":      "gateway,localhost,127.0.0.1",
+		"AGENCY_CALLER": "web-fetch",
 	}
 
 	if v := os.Getenv("WEB_FETCH_AUDIT_HMAC_KEY"); v != "" {
@@ -896,13 +915,13 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
-	hc.NetworkMode = container.NetworkMode(mediationNet)
+	hc.NetworkMode = container.NetworkMode(gatewayNet)
 	hc.PortBindings = nat.PortMap{
 		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8206"}},
 	}
 
 	mergeEnv(env, inf.loggingEnv("web-fetch"))
-	if _, err := containers.CreateAndStart(ctx, inf.cli,
+	id, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
 		&container.Config{
 			Image:        defaultImages["web-fetch"],
@@ -913,13 +932,18 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 			ExposedPorts: nat.PortSet{"8080/tcp": struct{}{}},
 		},
 		hc, nil,
-	); err != nil {
+	)
+	if err != nil {
 		return err
 	}
 
 	if err := inf.waitRunning(ctx, name, 10*time.Second); err != nil {
 		return err
 	}
+
+	// Connect web-fetch to egress-int network for outbound proxy access
+	inf.connectIfNeeded(ctx, id, egressIntNet, []string{"web-fetch"})
+
 	return inf.waitHealthy(ctx, name, 30*time.Second)
 }
 
@@ -1071,7 +1095,7 @@ func (inf *Infra) ensureEmbeddings(ctx context.Context) error {
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
-	hc.NetworkMode = container.NetworkMode(mediationNet)
+	hc.NetworkMode = container.NetworkMode(gatewayNet)
 	// Override memory: 3GB for model inference
 	hc.Resources.Memory = 3 * 1024 * 1024 * 1024
 
@@ -1314,29 +1338,6 @@ func (inf *Infra) connectIfNeeded(ctx context.Context, containerID, netName stri
 	})
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		inf.log.Warn("network connect", "container", containerID, "network", netName, "err", err)
-	}
-}
-
-func (inf *Infra) connectToAgentNetworks(ctx context.Context, containerName, alias string) {
-	nets, err := inf.cli.NetworkList(ctx, network.ListOptions{
-		Filters: filters.NewArgs(filters.Arg("name", "agency-")),
-	})
-	if err != nil {
-		return
-	}
-
-	ctr, err := inf.cli.ContainerInspect(ctx, containerName)
-	if err != nil {
-		return
-	}
-	connected := ctr.NetworkSettings.Networks
-
-	for _, n := range nets {
-		if strings.HasSuffix(n.Name, "-internal") && n.Name != internalNet {
-			if _, ok := connected[n.Name]; !ok {
-				inf.connectIfNeeded(ctx, ctr.ID, n.Name, []string{alias})
-			}
-		}
 	}
 }
 

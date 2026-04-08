@@ -16,7 +16,7 @@ func TestServiceMapRegister(t *testing.T) {
 		LabelServiceName:    "comms",
 		LabelServicePort:    "8080",
 		LabelServiceHealth:  "/health",
-		LabelServiceNetwork: "agency-mediation",
+		LabelServiceNetwork: "agency-gateway",
 		LabelServiceHMAC:    GenerateHMAC("agency-infra-comms", []byte("key")),
 	}
 	err := sm.Register("abc123", "agency-infra-comms", labels)
@@ -32,7 +32,7 @@ func TestServiceMapURL(t *testing.T) {
 		LabelServiceName:    "comms",
 		LabelServicePort:    "8080",
 		LabelServiceHealth:  "/health",
-		LabelServiceNetwork: "agency-mediation",
+		LabelServiceNetwork: "agency-gateway",
 		LabelServiceHMAC:    GenerateHMAC("agency-infra-comms", []byte("key")),
 	}
 	sm.Register("abc123", "agency-infra-comms", labels)
@@ -57,7 +57,7 @@ func TestServiceMapDeregister(t *testing.T) {
 		LabelServiceName:    "comms",
 		LabelServicePort:    "8080",
 		LabelServiceHealth:  "/health",
-		LabelServiceNetwork: "agency-mediation",
+		LabelServiceNetwork: "agency-gateway",
 		LabelServiceHMAC:    GenerateHMAC("agency-infra-comms", []byte("key")),
 	}
 	sm.Register("abc123", "agency-infra-comms", labels)
@@ -75,7 +75,7 @@ func TestServiceMapRejectsInvalidHMAC(t *testing.T) {
 		LabelServiceName:    "comms",
 		LabelServicePort:    "8080",
 		LabelServiceHealth:  "/health",
-		LabelServiceNetwork: "agency-mediation",
+		LabelServiceNetwork: "agency-gateway",
 		LabelServiceHMAC:    "invalid-hmac",
 	}
 	err := sm.Register("xyz789", "agency-infra-comms", labels)
@@ -97,7 +97,7 @@ func TestServiceMapAll(t *testing.T) {
 			LabelServiceName:    name,
 			LabelServicePort:    "8080",
 			LabelServiceHealth:  "/health",
-			LabelServiceNetwork: "agency-mediation",
+			LabelServiceNetwork: "agency-gateway",
 			LabelServiceHMAC:    GenerateHMAC(cname, []byte("key")),
 		}
 		sm.Register("id-"+name, cname, labels)
@@ -115,7 +115,7 @@ func TestServiceMapIsHealthy(t *testing.T) {
 		LabelServiceName:    "comms",
 		LabelServicePort:    "8080",
 		LabelServiceHealth:  "/health",
-		LabelServiceNetwork: "agency-mediation",
+		LabelServiceNetwork: "agency-gateway",
 		LabelServiceHMAC:    GenerateHMAC("agency-infra-comms", []byte("key")),
 	}
 	sm.Register("abc123", "agency-infra-comms", labels)
@@ -137,7 +137,7 @@ func TestServiceMapTrackCreation(t *testing.T) {
 		LabelServiceName:    "comms",
 		LabelServicePort:    "8080",
 		LabelServiceHealth:  "/health",
-		LabelServiceNetwork: "agency-mediation",
+		LabelServiceNetwork: "agency-gateway",
 		LabelServiceHMAC:    "does-not-matter",
 	}
 	err := sm.Register("abc123", "agency-infra-comms", labels)

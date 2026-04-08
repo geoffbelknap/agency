@@ -83,10 +83,10 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 		// Shared infrastructure networks are expected to be empty when
 		// no agents are running — they're created by infra up, not orphans.
 		infraNets := map[string]bool{
-			"agency-mediation": true,
-			"agency-egress-net": true,
-			"agency-internal": true,
-			"agency-operator": true,
+			"agency-gateway":    true,
+			"agency-egress-int": true,
+			"agency-egress-ext": true,
+			"agency-operator":   true,
 		}
 		var orphans []string
 		for _, n := range nets {

@@ -1,4 +1,4 @@
-.PHONY: all build install deploy test clean images \
+.PHONY: all build install deploy test clean images python-base \
        body enforcer comms knowledge intake egress workspace web-fetch web relay
 
 VERSION  ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo 0.0.0)
@@ -63,6 +63,14 @@ test:
 
 clean:
 	rm -f agency gateway
+
+# Shared Python base image — prerequisite for Python service images
+python-base:
+	@echo "Building agency-python-base..."
+	docker build -f $(IMAGE_DIR)/python-base/Dockerfile -t agency-python-base:latest $(IMAGE_DIR)/python-base
+
+# Python service images depend on the shared base (egress excluded — uses mitmproxy)
+body comms knowledge intake: python-base
 
 # Build all container images (core only; use `make images-all` to include web)
 images: $(CORE_IMAGES)

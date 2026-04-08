@@ -61,25 +61,14 @@ from images.knowledge.principal_registry import PrincipalRegistry
 from images.knowledge.classification import ClassificationConfig
 from images.knowledge.store import KnowledgeStore
 from images.knowledge.synthesizer import LLMSynthesizer
+from images.knowledge.gateway_client import GatewayClient
 
 logger = logging.getLogger("agency.knowledge")
 
 
-def publish_knowledge_update(comms_url: str, node_summary: str, metadata: dict) -> None:
-    """Publish a knowledge update to the _knowledge-updates comms channel."""
-    try:
-        client = httpx.Client(timeout=5)
-        client.post(
-            f"{comms_url}/channels/_knowledge-updates/messages",
-            json={
-                "author": "_knowledge-service",
-                "content": node_summary,
-                "metadata": metadata,
-            },
-            headers={"X-Agency-Platform": "true"},
-        )
-    except Exception:
-        logger.warning("Failed to publish knowledge update to comms")
+def publish_knowledge_update(gateway: "GatewayClient", node_summary: str, metadata: dict) -> None:
+    """Publish a knowledge update event via the gateway event bus."""
+    gateway.publish_knowledge_update(node_summary, metadata)
 
 
 def _run_ontology_migration(store: KnowledgeStore, data_dir: Path) -> None:
@@ -166,12 +155,14 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
         app.on_cleanup.append(_stop_curation_loop)
 
     if should_ingest and mode != "cache":
-        comms_url = os.environ.get("AGENCY_COMMS_URL", "http://comms:8080")
+        gateway_url = os.environ.get("AGENCY_GATEWAY_URL", "http://gateway:8200")
+        gateway_token = os.environ.get("AGENCY_GATEWAY_TOKEN", "")
+        gateway = GatewayClient(base_url=gateway_url, token=gateway_token)
         ingester = RuleIngester(store, curator=app.get("curator"))
         synthesizer = LLMSynthesizer(store, curator=app.get("curator"))
         app["ingester"] = ingester
         app["synthesizer"] = synthesizer
-        app["comms_url"] = comms_url
+        app["gateway"] = gateway
         app.on_startup.append(_start_ingestion_loop)
         app.on_cleanup.append(_stop_ingestion_loop)
 
@@ -632,7 +623,11 @@ async def handle_ingest_nodes(request: web.Request) -> web.Response:
 
     body = await request.json()
     nodes = body.get("nodes", [])
-    comms_url = request.app.get("comms_url", os.environ.get("AGENCY_COMMS_URL", "http://comms:18091"))
+    gateway = request.app.get("gateway")
+    if gateway is None:
+        gateway_url = os.environ.get("AGENCY_GATEWAY_URL", "http://gateway:8200")
+        gateway_token = os.environ.get("AGENCY_GATEWAY_TOKEN", "")
+        gateway = GatewayClient(base_url=gateway_url, token=gateway_token)
     count = 0
     pending_review = 0
     for node in nodes:
@@ -664,7 +659,7 @@ async def handle_ingest_nodes(request: web.Request) -> web.Response:
         if kind.lower() not in _SILENT_KINDS:
             node_summary = node.get("summary") or node["label"]
             publish_knowledge_update(
-                comms_url=comms_url,
+                gateway=gateway,
                 node_summary=node_summary,
                 metadata={
                     "node_id": node_id,
@@ -1290,16 +1285,18 @@ async def _stop_ingestion_loop(app: web.Application) -> None:
 async def _ingestion_loop(app: web.Application) -> None:
     ingester: RuleIngester = app["ingester"]
     synthesizer: LLMSynthesizer = app["synthesizer"]
-    comms_url: str = app["comms_url"]
+    gateway: GatewayClient = app["gateway"]
+    gateway_url = gateway.base_url
+    headers = gateway._headers()
     http = httpx.AsyncClient(timeout=10)
     last_timestamps: dict[str, str] = {}
 
-    logger.info("Ingestion loop started (comms=%s)", comms_url)
+    logger.info("Ingestion loop started (gateway=%s)", gateway_url)
 
     while True:
         try:
-            # Poll comms for channels
-            resp = await http.get(f"{comms_url}/channels")
+            # Poll comms channels via gateway
+            resp = await http.get(f"{gateway_url}/api/v1/comms/channels", headers=headers)
             if resp.status_code == 200:
                 channels = resp.json()
                 for ch in channels:
@@ -1307,8 +1304,9 @@ async def _ingestion_loop(app: web.Application) -> None:
                     since = last_timestamps.get(ch_name, "1970-01-01T00:00:00Z")
                     # Get messages since last poll
                     msg_resp = await http.get(
-                        f"{comms_url}/channels/{ch_name}/messages",
+                        f"{gateway_url}/api/v1/comms/channels/{ch_name}/messages",
                         params={"since": since, "limit": "100"},
+                        headers=headers,
                     )
                     if msg_resp.status_code == 200:
                         messages = msg_resp.json()

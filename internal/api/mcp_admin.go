@@ -97,7 +97,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 					}
 					var forbidden []string
 					for _, net := range ws.Networks {
-						if strings.Contains(net, "egress") || net == "agency-mediation" {
+						if strings.Contains(net, "egress") || net == "agency-gateway" {
 							forbidden = append(forbidden, net)
 						}
 					}
