@@ -167,11 +167,16 @@ func buildFromSource(ctx context.Context, cli *client.Client, name, sourceDir, t
 
 	var contextDir, dockerfilePath string
 
-	if repoContextNames[name] {
+	switch {
+	case repoContextNames[name]:
 		// Build context is repo root; Dockerfile is in images/{name}/
 		contextDir = sourceDir
 		dockerfilePath = filepath.Join("images", name, "Dockerfile")
-	} else {
+	case name == "web":
+		// agency-web lives in the top-level web/ directory rather than images/.
+		contextDir = filepath.Join(sourceDir, "web")
+		dockerfilePath = "Dockerfile"
+	default:
 		// Self-contained: build context is the image directory itself
 		contextDir = filepath.Join(sourceDir, "images", name)
 		dockerfilePath = "Dockerfile"

@@ -28,6 +28,9 @@ func (h *handler) listProfiles(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
 	}
+	if profiles == nil {
+		profiles = []models.Profile{}
+	}
 	writeJSON(w, 200, profiles)
 }
 

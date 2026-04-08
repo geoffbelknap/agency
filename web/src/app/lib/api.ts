@@ -730,8 +730,8 @@ export const api = {
   },
 
   policy: {
-    show: (agent: string) => req<RawPolicyValidation>(`/policy/${agent}`),
-    validate: (agent: string) => req<RawPolicyValidation>(`/policy/${agent}/validate`, { method: 'POST', body: '{}' }),
+    show: (agent: string) => req<RawPolicyValidation>(`/admin/policy/${agent}`),
+    validate: (agent: string) => req<RawPolicyValidation>(`/admin/policy/${agent}/validate`, { method: 'POST', body: '{}' }),
   },
 
   presets: {

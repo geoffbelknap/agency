@@ -142,11 +142,7 @@ func (h *handler) updateMission(w http.ResponseWriter, r *http.Request) {
 
 // missionHealth handles GET /api/v1/missions/health and GET /api/v1/missions/{name}/health
 func (h *handler) missionHealth(w http.ResponseWriter, r *http.Request) {
-	name, ok := requireName(w, chi.URLParam(r, "name"))
-	if !ok {
-		return
-	}
-
+	name := chi.URLParam(r, "name")
 	if name == "" || name == "health" {
 		// GET /missions/health — all missions
 		missions, err := h.deps.MissionManager.List()
@@ -161,7 +157,14 @@ func (h *handler) missionHealth(w http.ResponseWriter, r *http.Request) {
 				results = append(results, checker.CheckHealth(m))
 			}
 		}
+		if results == nil {
+			results = []orchestrate.MissionHealthResponse{}
+		}
 		writeJSON(w, 200, map[string]interface{}{"missions": results})
+		return
+	}
+	name, ok := requireName(w, name)
+	if !ok {
 		return
 	}
 

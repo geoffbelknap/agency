@@ -990,10 +990,9 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 }
 
 func (inf *Infra) ensureWeb(ctx context.Context) error {
-	// agency-web lives outside agency_core/, so image resolution only checks
-	// if the image exists locally. Build via `make web` or the image resolver
-	// will pull from GHCR in release mode.
-	if err := images.Resolve(ctx, inf.cli, "web", inf.Version, "", inf.BuildID, inf.log); err != nil {
+	// agency-web lives in the repo's top-level web/ directory, so it uses the
+	// main source tree as the resolver entrypoint instead of images/web/.
+	if err := images.Resolve(ctx, inf.cli, "web", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		inf.log.Warn("agency-web image not available, skipping", "err", err)
 		return nil // non-fatal — web UI is optional
 	}
