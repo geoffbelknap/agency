@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"log/slog"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
+	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/images"
 	"github.com/geoffbelknap/agency/internal/orchestrate/containers"
@@ -28,9 +28,9 @@ var forbiddenProviderKeys = []string{
 }
 
 const (
-	bodyImage  = "agency-body:latest"
-	agencyUID  = "61000"
-	agencyGID  = "61000"
+	bodyImage = "agency-body:latest"
+	agencyUID = "61000"
+	agencyGID = "61000"
 )
 
 // Workspace manages the per-agent workspace (body runtime) container.
@@ -78,7 +78,6 @@ type StartOptions struct {
 	ExtraBinds []string
 	Deps       WorkspaceDeps // Declared workspace dependencies
 }
-
 
 // Start creates and starts the workspace container inside the enforcement boundary.
 func (w *Workspace) Start(ctx context.Context, opts StartOptions) error {
@@ -129,16 +128,16 @@ func (w *Workspace) Start(ctx context.Context, opts StartOptions) error {
 	}
 
 	env := map[string]string{
-		"AGENCY_ENFORCER_URL":   "http://enforcer:3128/v1",
-		"OPENAI_API_BASE":       "http://enforcer:3128/v1",
-		"HTTP_PROXY":            proxyURL,
-		"HTTPS_PROXY":           proxyURL,
-		"NO_PROXY":              "enforcer,localhost,127.0.0.1",
-		"AGENCY_COMMS_URL":      "http://enforcer:8081/mediation/comms",
-		"AGENCY_KNOWLEDGE_URL":  "http://enforcer:8081/mediation/knowledge",
-		"AGENCY_AGENT_NAME":     w.AgentName,
-		"AGENCY_MODEL":          "claude-sonnet",
-		"PATH":                  "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"AGENCY_ENFORCER_URL":  "http://enforcer:3128/v1",
+		"OPENAI_API_BASE":      "http://enforcer:3128/v1",
+		"HTTP_PROXY":           proxyURL,
+		"HTTPS_PROXY":          proxyURL,
+		"NO_PROXY":             "enforcer,localhost,127.0.0.1",
+		"AGENCY_COMMS_URL":     "http://enforcer:8081/mediation/comms",
+		"AGENCY_KNOWLEDGE_URL": "http://enforcer:8081/mediation/knowledge",
+		"AGENCY_AGENT_NAME":    w.AgentName,
+		"AGENCY_MODEL":         "claude-sonnet",
+		"PATH":                 "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 	}
 
 	if opts.Model != "" {
@@ -180,12 +179,12 @@ func (w *Workspace) Start(ctx context.Context, opts StartOptions) error {
 
 	// Core binds — enforce ASK tenets via mount modes
 	binds := []string{
-		constraintsFile + ":/agency/constraints.yaml:ro",          // Tenet 1: read-only
-		volName + ":/workspace:rw",                                 // Named volume
-		memoryDir + ":/agency/memory:rw",                           // Agent-writable
+		constraintsFile + ":/agency/constraints.yaml:ro", // Tenet 1: read-only
+		volName + ":/workspace:rw",                       // Named volume
+		memoryDir + ":/agency/memory:rw",                 // Agent-writable
 		filepath.Join(agentDir, "identity.md") + ":/agency/identity.md:ro",
-		auditDir + ":/var/lib/agency/audit:ro",                     // Tenet 2: read-only
-		contextFile + ":/agency/state/session-context.json:ro",     // Agent reads, never writes
+		auditDir + ":/var/lib/agency/audit:ro",                 // Tenet 2: read-only
+		contextFile + ":/agency/state/session-context.json:ro", // Agent reads, never writes
 		signalsFile + ":/agency/state/agent-signals.jsonl:rw",
 	}
 

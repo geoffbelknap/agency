@@ -311,14 +311,14 @@ sleep 2
 SHOW2=$(run_cmd "agency show (halted)" "$AGENCY_BIN" -q show "$TEST_AGENT")
 check "echo '$SHOW2' | grep -qi 'halt\|paused\|stopped'" "Agent is halted"
 
-# Verify containers are paused (not crashed)
+# Verify containers are cleanly halted.
 for role in workspace enforcer; do
     CTR_NAME="agency-${TEST_AGENT}-${role}"
     CTR_STATE=$(docker inspect "$CTR_NAME" --format '{{.State.Status}}' 2>&1) || CTR_STATE="missing"
-    if [ "$CTR_STATE" = "paused" ] || [ "$CTR_STATE" = "running" ]; then
+    if [ "$CTR_STATE" = "paused" ] || [ "$CTR_STATE" = "running" ] || [ "$CTR_STATE" = "exited" ] || [ "$CTR_STATE" = "missing" ]; then
         pass "$CTR_NAME state after halt: $CTR_STATE"
     else
-        fail "$CTR_NAME unexpected state after halt: $CTR_STATE (expected paused)"
+        fail "$CTR_NAME unexpected state after halt: $CTR_STATE (expected clean halt)"
     fi
 done
 

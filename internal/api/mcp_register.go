@@ -386,14 +386,14 @@ func registerAgentTools(reg *MCPToolRegistry) {
 			}
 
 			ss := &orchestrate.StartSequence{
-				AgentName:   name,
-				Home:        d.cfg.Home,
-				Version:     d.cfg.Version,
-				SourceDir:   d.cfg.SourceDir,
-				Docker:      d.dc,
-				Comms:       d.dc,
-				Log:         d.log,
-				CredStore:   d.credStore,
+				AgentName: name,
+				Home:      d.cfg.Home,
+				Version:   d.cfg.Version,
+				SourceDir: d.cfg.SourceDir,
+				Docker:    d.dc,
+				Comms:     d.dc,
+				Log:       d.log,
+				CredStore: d.credStore,
 			}
 
 			result, err := ss.Run(context.Background(), func(phase int, phaseName, desc string) {
@@ -443,6 +443,7 @@ func registerAgentTools(reg *MCPToolRegistry) {
 			if haltType == "emergency" && reason == "" {
 				return "Error: emergency halt requires a reason (ASK Tenet 2)", true
 			}
+			d.unregisterEnforcerWSClient(name)
 			_, err := d.halt.Halt(context.Background(), name, haltType, reason, "operator")
 			if err != nil {
 				return "Error: " + err.Error(), true
@@ -548,6 +549,7 @@ func registerAgentTools(reg *MCPToolRegistry) {
 			if err := d.halt.Resume(context.Background(), name, "operator"); err != nil {
 				return "Error: " + err.Error(), true
 			}
+			d.registerEnforcerWSClient(name)
 			d.audit.Write(name, "agent_resumed", map[string]interface{}{"initiator": "operator"})
 			return fmt.Sprintf("Agent '%s' resumed.", name), false
 		},

@@ -6,29 +6,29 @@ import (
 	"fmt"
 	"net/http"
 
-	"log/slog"
 	"github.com/go-chi/chi/v5"
+	"log/slog"
 
-	"github.com/geoffbelknap/agency/internal/audit"
-	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	apiadmin "github.com/geoffbelknap/agency/internal/api/admin"
 	apiagents "github.com/geoffbelknap/agency/internal/api/agents"
-	"github.com/geoffbelknap/agency/internal/api/creds"
 	apicomms "github.com/geoffbelknap/agency/internal/api/comms"
+	"github.com/geoffbelknap/agency/internal/api/creds"
 	apievents "github.com/geoffbelknap/agency/internal/api/events"
 	"github.com/geoffbelknap/agency/internal/api/graph"
 	apihub "github.com/geoffbelknap/agency/internal/api/hub"
 	apiinfra "github.com/geoffbelknap/agency/internal/api/infra"
 	apimissions "github.com/geoffbelknap/agency/internal/api/missions"
 	"github.com/geoffbelknap/agency/internal/api/platform"
+	"github.com/geoffbelknap/agency/internal/audit"
 	"github.com/geoffbelknap/agency/internal/config"
+	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/docker"
-	"github.com/geoffbelknap/agency/internal/profiles"
 	"github.com/geoffbelknap/agency/internal/events"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
+	"github.com/geoffbelknap/agency/internal/profiles"
 
 	"github.com/geoffbelknap/agency/internal/registry"
 	"github.com/geoffbelknap/agency/internal/routing"
@@ -37,12 +37,12 @@ import (
 
 // RouteOptions holds optional dependencies for route registration.
 type RouteOptions struct {
-	Hub           *ws.Hub
-	EventBus      *events.Bus
-	Scheduler     *events.Scheduler
-	WebhookMgr    *events.WebhookManager
-	HealthMonitor *orchestrate.MissionHealthMonitor
-	NotifStore    *events.NotificationStore
+	Hub             *ws.Hub
+	EventBus        *events.Bus
+	Scheduler       *events.Scheduler
+	WebhookMgr      *events.WebhookManager
+	HealthMonitor   *orchestrate.MissionHealthMonitor
+	NotifStore      *events.NotificationStore
 	StopSuppress    *orchestrate.StopSuppression
 	AuditSummarizer *audit.AuditSummarizer
 	DockerStatus    *docker.Status
@@ -57,12 +57,12 @@ type RouteOptions struct {
 func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, logger *slog.Logger, startup *StartupResult, opts RouteOptions) {
 	// Defense-in-depth: validate X-Agency-Caller on protected endpoints
 	callerAllowlist := map[string][]string{
-		"POST /api/v1/agents/{name}/signal":    {"enforcer"},
-		"POST /api/v1/infra/internal/llm":      {"enforcer", "knowledge"},
-		"POST /api/v1/comms/channels/*":         {"comms", "intake"},
-		"GET /api/v1/comms/channels/*":          {"comms", "intake", "enforcer"},
-		"POST /api/v1/graph/ingest":             {"intake"},
-		"POST /api/v1/events/publish":           {"intake", "knowledge"},
+		"POST /api/v1/agents/{name}/signal": {"enforcer"},
+		"POST /api/v1/infra/internal/llm":   {"enforcer", "knowledge"},
+		"POST /api/v1/comms/channels/*":     {"comms", "intake"},
+		"GET /api/v1/comms/channels/*":      {"comms", "intake", "enforcer"},
+		"POST /api/v1/graph/ingest":         {"intake"},
+		"POST /api/v1/events/publish":       {"intake", "knowledge"},
 	}
 	r.Use(CallerValidation(callerAllowlist))
 
@@ -168,6 +168,9 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 	}
 	if opts.StopSuppress != nil && d.agents != nil {
 		d.agents.StopSuppress = opts.StopSuppress
+	}
+	if opts.StopSuppress != nil && startup.HaltController != nil {
+		startup.HaltController.StopSuppress = opts.StopSuppress
 	}
 
 	if opts.Optimizer != nil && d.infra != nil {
@@ -317,27 +320,26 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 // (agents, admin, hub, infra, events, missions, platform, graph, creds, comms).
 // Moving MCP registration into the individual modules is a follow-up task.
 type mcpDeps struct {
-	cfg        *config.Config
-	dc         *docker.Client
-	log        *slog.Logger
-	infra      *orchestrate.Infra
-	agents     *orchestrate.AgentManager
-	halt       *orchestrate.HaltController
-	audit      *logs.Writer
-	ctxMgr     *agencyctx.Manager
-	mcpReg     *MCPToolRegistry
-	knowledge  *knowledge.Proxy
-	missions   *orchestrate.MissionManager
-	meeseeks   *orchestrate.MeeseeksManager
-	eventBus   *events.Bus
-	webhookMgr *events.WebhookManager
+	cfg           *config.Config
+	dc            *docker.Client
+	log           *slog.Logger
+	infra         *orchestrate.Infra
+	agents        *orchestrate.AgentManager
+	halt          *orchestrate.HaltController
+	audit         *logs.Writer
+	ctxMgr        *agencyctx.Manager
+	mcpReg        *MCPToolRegistry
+	knowledge     *knowledge.Proxy
+	missions      *orchestrate.MissionManager
+	meeseeks      *orchestrate.MeeseeksManager
+	eventBus      *events.Bus
+	webhookMgr    *events.WebhookManager
 	claims        *orchestrate.MissionClaimRegistry
 	healthMonitor *orchestrate.MissionHealthMonitor
 	notifStore    *events.NotificationStore
 	credStore     *credstore.Store
 	profileStore  *profiles.Store
 }
-
 
 // registerEnforcerWSClient creates a WebSocket client to the agent's enforcer
 // and registers it with the ContextManager for constraint delivery.
