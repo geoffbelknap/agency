@@ -90,6 +90,41 @@ fi
 echo "Binary: $AGENCY_BIN"
 echo "Test agent: $TEST_AGENT"
 
+# ---------------------------------------------------------------------------
+# Load API keys from .env files (repo root, workspace root, or home dir).
+# Keys already in the environment take precedence over .env values.
+# ---------------------------------------------------------------------------
+load_env() {
+    local envfile="$1"
+    [ -f "$envfile" ] || return
+    while IFS='=' read -r key value; do
+        # Skip comments and blank lines
+        [[ "$key" =~ ^#.*$ || -z "$key" ]] && continue
+        # Strip surrounding quotes
+        value="${value%\"}" ; value="${value#\"}"
+        value="${value%\'}" ; value="${value#\'}"
+        # Only export if not already set
+        if [ -z "${!key:-}" ]; then
+            export "$key=$value"
+        fi
+    done < "$envfile"
+}
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+load_env "$SCRIPT_DIR/.env"
+load_env "$SCRIPT_DIR/../.env"
+load_env "$HOME/.env"
+
+# Require at least one LLM provider key
+if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${OPENAI_API_KEY:-}" ] && [ -z "${GOOGLE_API_KEY:-}" ]; then
+    echo "ERROR: No LLM provider API key found."
+    echo "Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY in:"
+    echo "  - environment variables"
+    echo "  - $SCRIPT_DIR/.env"
+    echo "  - $SCRIPT_DIR/../.env (workspace root)"
+    exit 1
+fi
+
 # Record test start time for log filtering
 TEST_START_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -150,21 +185,17 @@ echo "Clean slate ready."
 # --------------------------------------------------
 step "agency init"
 if [ ! -f ~/.agency/config.yaml ]; then
-    # Build setup flags from environment variables.
-    # Supports: ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY
+    # Pick the first available provider key (already validated above)
     SETUP_FLAGS=()
     if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
         SETUP_FLAGS+=(--provider anthropic --api-key "$ANTHROPIC_API_KEY")
-        echo "  Provider: anthropic (from ANTHROPIC_API_KEY)"
+        echo "  Provider: anthropic"
     elif [ -n "${OPENAI_API_KEY:-}" ]; then
         SETUP_FLAGS+=(--provider openai --api-key "$OPENAI_API_KEY")
-        echo "  Provider: openai (from OPENAI_API_KEY)"
+        echo "  Provider: openai"
     elif [ -n "${GOOGLE_API_KEY:-}" ]; then
         SETUP_FLAGS+=(--provider google --api-key "$GOOGLE_API_KEY")
-        echo "  Provider: google (from GOOGLE_API_KEY)"
-    else
-        echo "  No LLM provider key found in environment (ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY)"
-        echo "  LLM-dependent tests will fail"
+        echo "  Provider: google"
     fi
     run_cmd "agency setup" AGENCY_NO_BROWSER=1 "$AGENCY_BIN" setup --no-browser "${SETUP_FLAGS[@]}"
 else
