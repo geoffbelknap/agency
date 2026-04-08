@@ -519,6 +519,17 @@ else
     fail "gateway-proxy container not found"
 fi
 
+# Verify the proxy actually forwards traffic (not a self-loop).
+# Call the gateway health endpoint FROM an infra container, through the proxy.
+# Uses Python (available in all agency Python containers) since wget/curl may not be installed.
+PROXY_HEALTH=$(docker exec agency-infra-intake python3 -c "import urllib.request; print(urllib.request.urlopen('http://gateway:8200/api/v1/health').read().decode())" 2>&1) || PROXY_HEALTH=""
+if echo "$PROXY_HEALTH" | grep -q '"status"'; then
+    pass "gateway-proxy round-trip works (intake → proxy → gateway)"
+else
+    fail "gateway-proxy round-trip failed — proxy may not be forwarding traffic"
+    echo "    Response: $PROXY_HEALTH"
+fi
+
 # --------------------------------------------------
 # Phase 22: Docker socket audit
 # --------------------------------------------------
