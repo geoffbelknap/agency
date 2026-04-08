@@ -522,7 +522,7 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	hc.ReadonlyRootfs = true
 	hc.Resources.Memory = 16 * 1024 * 1024
 	hc.Resources.NanoCPUs = 250_000_000
-	pidsLimit := int64(32)
+	pidsLimit := int64(64)
 	hc.Resources.PidsLimit = &pidsLimit
 
 	netCfg := &network.NetworkingConfig{

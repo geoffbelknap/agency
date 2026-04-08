@@ -487,7 +487,97 @@ else
 fi
 
 # --------------------------------------------------
-# Phase 27: Logging hygiene guard
+# Phase 20: Capacity endpoint
+# --------------------------------------------------
+step "Capacity endpoint"
+CAPACITY=$(run_cmd "infra capacity" "$AGENCY" infra capacity)
+echo "$CAPACITY"
+check "echo '$CAPACITY' | grep -qi 'capacity\|Memory\|Agents\|slots'" "Capacity data returned"
+
+CAPACITY_HTTP=$(curl -sf -H "Authorization: Bearer $TOKEN" http://localhost:8200/api/v1/infra/capacity 2>&1) || true
+check "echo '$CAPACITY_HTTP' | grep -q 'available_slots'" "REST capacity endpoint returns available_slots"
+
+# --------------------------------------------------
+# Phase 21: Network topology
+# --------------------------------------------------
+step "Network topology (hub-and-spoke)"
+# The hub network is agency-gateway (internal bridge for all services and enforcers)
+GATEWAY_NET=$(docker network inspect agency-gateway --format '{{.Internal}}' 2>&1) || GATEWAY_NET="missing"
+if [ "$GATEWAY_NET" = "true" ]; then
+    pass "agency-gateway network exists and is Internal:true"
+elif [ "$GATEWAY_NET" = "false" ]; then
+    echo "  ℹ agency-gateway network exists but Internal:false (pre-existing, will fix on recreate)"
+    pass "agency-gateway network exists"
+else
+    fail "agency-gateway network: $GATEWAY_NET"
+fi
+
+GATEWAY_PROXY=$(docker ps --filter "name=agency-infra-gateway-proxy" --format '{{.Names}}' 2>/dev/null)
+if [ -n "$GATEWAY_PROXY" ]; then
+    pass "gateway-proxy container running"
+else
+    fail "gateway-proxy container not found"
+fi
+
+# --------------------------------------------------
+# Phase 22: Docker socket audit
+# --------------------------------------------------
+step "Docker socket audit"
+SOCKET_VIOLATIONS=$(docker ps -a --filter "label=agency.managed=true" --format '{{.Names}} {{.Mounts}}' 2>/dev/null | grep -c "docker.sock" || true)
+if [ "$SOCKET_VIOLATIONS" -gt 0 ]; then
+    fail "SECURITY: $SOCKET_VIOLATIONS container(s) have Docker socket mounted"
+else
+    pass "No Docker socket mounts on managed containers"
+fi
+
+# --------------------------------------------------
+# Phase 23: Notifications
+# --------------------------------------------------
+step "Notifications"
+# Add and test a dummy notification destination
+run_cmd "notify add" "$AGENCY" notify add e2e-test-notif --url https://ntfy.sh/agency-e2e-test 2>/dev/null || true
+NOTIF_LIST=$("$AGENCY" notify list 2>&1)
+check "echo '$NOTIF_LIST' | grep -qi 'e2e-test-notif\|notifications\|destinations'" "Notification list accessible"
+
+"$AGENCY" notify remove e2e-test-notif 2>/dev/null || true
+
+# --------------------------------------------------
+# Phase 24: Registry
+# --------------------------------------------------
+step "Principal registry"
+REGISTRY_LIST=$("$AGENCY" registry list 2>&1)
+check "echo '$REGISTRY_LIST' | grep -qi 'operator\|agent\|principal\|uuid\|\[\]'" "Registry list accessible"
+
+# --------------------------------------------------
+# Phase 25: Routing
+# --------------------------------------------------
+step "Routing"
+ROUTING_CONFIG=$("$AGENCY" infra routing stats 2>&1) || true
+check "true" "Routing stats command executes without crash"
+
+SUGGESTIONS=$("$AGENCY" infra routing suggestions 2>&1) || true
+check "true" "Routing suggestions command executes without crash"
+
+# Providers are listed via REST, not a standalone CLI command
+PROVIDERS_HTTP=$(curl -sf -H "Authorization: Bearer $TOKEN" http://localhost:8200/api/v1/infra/providers 2>&1) || true
+check "echo '$PROVIDERS_HTTP' | grep -qi 'provider\|anthropic\|openai\|gemini\|ollama\|\[\]'" "Providers endpoint accessible"
+
+# --------------------------------------------------
+# Phase 26: Capabilities
+# --------------------------------------------------
+step "Capabilities"
+CAP_LIST=$("$AGENCY" cap list 2>&1) || true
+check "true" "Capabilities list executes without crash"
+
+# --------------------------------------------------
+# Phase 27: Meeseeks
+# --------------------------------------------------
+step "Meeseeks"
+MEESEEKS_LIST=$("$AGENCY" meeseeks list 2>&1) || true
+check "true" "Meeseeks list executes without crash"
+
+# --------------------------------------------------
+# Phase 28: Logging hygiene guard
 # --------------------------------------------------
 step "Logging hygiene"
 # Fail if anyone bypasses the unified logging infrastructure

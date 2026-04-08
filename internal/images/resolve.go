@@ -162,7 +162,7 @@ func buildFromSource(ctx context.Context, cli *client.Client, name, sourceDir, t
 	// Services that need the repo root as build context
 	// (they COPY agency_core/models/ and agency_core/exceptions.py)
 	repoContextNames := map[string]bool{
-		"comms": true, "knowledge": true, "intake": true,
+		"body": true, "comms": true, "knowledge": true, "intake": true, "egress": true,
 	}
 
 	var contextDir, dockerfilePath string

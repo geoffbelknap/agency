@@ -96,7 +96,24 @@ git -C ~/.agency/agents/<agent-name>/identity log --oneline
 git -C ~/.agency/agents/<agent-name>/identity checkout <known-good-commit>
 ```
 
-### 4. Check for lateral movement
+### 4. Quarantine knowledge graph contributions
+
+If the agent may have injected malicious content into the knowledge graph:
+
+```bash
+# Quarantine all nodes contributed by this agent
+agency admin graph quarantine --agent <agent-name>
+
+# Or quarantine only nodes since a specific time
+agency admin graph quarantine --agent <agent-name> --since <timestamp>
+
+# Verify quarantine
+agency admin graph quarantine --list
+```
+
+Quarantined nodes are excluded from all retrieval. They can be released per-node or per-agent after investigation.
+
+### 5. Check for lateral movement
 
 ```bash
 # Were other agents affected?
@@ -107,6 +124,9 @@ agency log <other-agent-name>    # repeat for each agent
 
 # Review knowledge graph for injected content
 agency graph stats
+
+# Verify no Docker socket mounts on containers (gateway checks this at startup)
+# If doctor reports docker_socket_audit failures, investigate immediately
 ```
 
 ## Recovery
@@ -152,6 +172,14 @@ Review the guardrails configuration to understand why the injection wasn't caugh
 2. Review and update guardrail patterns if the attack was novel
 3. Check if other agents with similar profiles are vulnerable
 4. Consider tightening the agent's constraints or reducing its trust tier
+5. Review and release quarantined knowledge after investigation (see [Knowledge Management](knowledge-management.md))
+
+## See Also
+
+- [Principal Management](principal-management.md) — suspending principals during incidents
+- [Knowledge Management](knowledge-management.md) — quarantine and release procedures
+- [Credential Rotation](credential-rotation.md) — rotating compromised credentials
+- [Monitoring & Observability](monitoring-and-observability.md) — trajectory anomaly detection
 
 ## Verification
 

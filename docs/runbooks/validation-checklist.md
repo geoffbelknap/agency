@@ -29,10 +29,12 @@ Run through each section. Mark each item as you verify it.
 
 ### Infrastructure
 
-- [ ] `agency infra status` — all components healthy
-- [ ] `agency admin doctor` — all checks pass
+- [ ] `agency infra status` — all components healthy (including gateway-proxy)
+- [ ] `agency admin doctor` — all checks pass (including `host_capacity`, `network_pool`)
+- [ ] `agency infra capacity` — shows available agent slots, correct host profiling
 - [ ] `curl -sf http://localhost:8200/api/v1/health` — returns OK
 - [ ] Gateway daemon running: `pgrep -af "agency.*serve"` shows a process
+- [ ] Hub network exists: `docker network inspect agency-gateway` — Internal:true
 
 ### Auth
 
@@ -97,15 +99,39 @@ After running the lifecycle checks above, verify no errors occurred:
 - [ ] No exited infra containers: `docker ps -a --filter "label=agency.managed=true" --filter "status=exited"` shows only cleanup artifacts
 - [ ] No restarting containers: `docker ps -a --filter "label=agency.managed=true" --filter "status=restarting"` is empty
 
+**Docker socket audit:**
+- [ ] No containers with Docker socket mounts: `agency admin doctor` passes the `docker_socket_audit` check (gateway runs `AuditDockerSocket()` at startup)
+
 **Platform health:**
 - [ ] `agency admin doctor` reports zero failures (no ✗ lines)
 - [ ] `agency admin usage` shows zero errors (or no calls if no provider keys configured)
+
+### Routing & Providers
+
+- [ ] `agency infra providers` — lists configured providers
+- [ ] `agency infra routing stats` — routing data present (if calls have been made)
+- [ ] `agency infra routing suggestions` — no critical suggestions pending
+
+### Notifications
+
+- [ ] `agency notifications list` — shows expected destinations
+- [ ] `agency notifications test <name>` — delivery works
+
+### Capabilities
+
+- [ ] `agency cap list` — shows expected capabilities
+- [ ] Web-fetch service operational (if enabled): `agency infra status` includes web-fetch
+
+### Registry
+
+- [ ] `agency registry list` — shows expected principals
+- [ ] No suspended principals that should be active
 
 ## Periodic Health Schedule
 
 | Frequency | What to Run |
 |-----------|-------------|
 | Every deploy | Full checklist above |
-| Daily | `agency admin doctor` + `agency infra status` |
-| Weekly | `go test ./...` + review audit logs |
-| Monthly | Full checklist + credential rotation review |
+| Daily | `agency admin doctor` + `agency infra status` + `agency infra capacity` |
+| Weekly | `go test ./...` + review audit logs + `agency infra routing suggestions` |
+| Monthly | Full checklist + credential rotation review + `agency admin usage` review |

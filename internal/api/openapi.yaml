@@ -2273,6 +2273,55 @@ paths:
                     items:
                       type: string
 
+  /infra/capacity:
+    get:
+      operationId: infraCapacity
+      summary: Show host capacity and agent slot availability
+      description: |
+        Returns the host resource budget derived from capacity.yaml, including
+        memory limits, agent/meeseeks slot sizes, running counts, and available
+        slots. Used by the CLI (`agency infra capacity`) and enforced at agent
+        start and meeseeks spawn.
+      tags: [Infra]
+      responses:
+        "200":
+          description: Current capacity state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  host_memory_mb:
+                    type: integer
+                  host_cpu_cores:
+                    type: integer
+                  system_reserve_mb:
+                    type: integer
+                  infra_overhead_mb:
+                    type: integer
+                  max_agents:
+                    type: integer
+                  max_concurrent_meesks:
+                    type: integer
+                  agent_slot_mb:
+                    type: integer
+                  meeseeks_slot_mb:
+                    type: integer
+                  network_pool_configured:
+                    type: boolean
+                  running_agents:
+                    type: integer
+                  running_meeseeks:
+                    type: integer
+                  available_slots:
+                    type: integer
+        "503":
+          description: Capacity config not available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /infra/setup/config:
     get:
       operationId: getSetupConfig
@@ -3989,6 +4038,68 @@ paths:
                 items:
                   type: object
                   additionalProperties: true
+
+  # ── Internal Event Publishing ────────────────────────────────────────────────
+  /events/publish:
+    post:
+      operationId: publishEvent
+      summary: Publish an event to the event bus (internal)
+      description: |
+        Internal endpoint for infra services (intake, knowledge) to publish
+        events to the gateway event bus. Replaces direct service-to-service
+        comms calls. Protected by X-Agency-Caller validation on the socket
+        router (allowed callers: intake, knowledge).
+      tags: [Events]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source_type, source_name, event_type]
+              properties:
+                source_type:
+                  type: string
+                  description: Event source category (e.g., connector, schedule)
+                source_name:
+                  type: string
+                  description: Name of the source (e.g., connector name)
+                event_type:
+                  type: string
+                  description: Type of event being published
+                data:
+                  type: object
+                  additionalProperties: true
+                  description: Event payload
+                metadata:
+                  type: object
+                  additionalProperties: true
+                  description: Optional metadata
+      responses:
+        "202":
+          description: Event published
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: published
+                  event_id:
+                    type: string
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Event bus not initialized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   # ── Webhooks ────────────────────────────────────────────────────────────────
   /events/webhooks:

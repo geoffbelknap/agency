@@ -12,7 +12,7 @@ One or more infrastructure components are down, unresponsive, or in an error sta
 agency infra status
 ```
 
-Identify which components are down: egress, comms, knowledge, intake, web-fetch, web, embeddings.
+Identify which components are down: egress, comms, knowledge, intake, web-fetch, web, embeddings, gateway-proxy.
 
 ### 2. Check Docker
 
@@ -102,14 +102,31 @@ agency infra up
 agency admin doctor
 ```
 
-The startup sequence recreates networks with correct isolation settings (internal networks for agents, mediation network for enforcer-to-infra communication).
+The startup sequence recreates the hub-and-spoke network topology: `agency-gateway` (internal bridge) as the hub connecting gateway-proxy, comms, knowledge, and intake; `agency-egress-int` (internal) for services needing egress access; `agency-egress-ext` (external) for egress proxy internet access; `agency-operator` (external) for web UI and relay; per-agent `agency-<name>-internal` networks for workspace↔enforcer. Internal networks enforce `Internal:true` (no external route).
+
+### Capacity limit reached
+
+If `agency start` fails with "no available agent slots":
+
+```bash
+agency infra capacity
+```
+
+Check `available_slots`. Either stop unused agents or adjust `~/.agency/capacity.yaml` if the host has more resources than initially profiled.
 
 ## Verification
 
 - [ ] `agency infra status` shows all components healthy
+- [ ] `agency infra capacity` shows available agent slots
 - [ ] `agency admin doctor` passes all infrastructure checks
 - [ ] `curl -sf http://localhost:8200/api/v1/health` returns OK
 - [ ] Agents can be started: `agency start <test-agent>`
+
+## See Also
+
+- [Hub & Capabilities](hub-and-capabilities.md) — connector and web-fetch issues
+- [Routing & Providers](routing-and-providers.md) — provider connectivity, egress
+- [Notifications & Webhooks](notifications-and-webhooks.md) — event bus, intake
 
 ## Escalation
 
