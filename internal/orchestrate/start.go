@@ -16,8 +16,12 @@ import (
 	dockerclient "github.com/docker/docker/client"
 
 	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
+
 	"github.com/geoffbelknap/agency/internal/comms"
 	"github.com/geoffbelknap/agency/internal/credstore"
+	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/models"
 	"github.com/geoffbelknap/agency/internal/orchestrate/containers"
 )
@@ -34,6 +38,7 @@ type StartSequence struct {
 	Log         *slog.Logger
 	KeyRotation bool // Force scoped key rotation (used on restart)
 	CredStore   *credstore.Store
+	Audit       *logs.Writer // optional — capacity rejection audit logging
 
 	// Resolved state
 	agentConfig      map[string]interface{}
@@ -58,6 +63,11 @@ type StartResult struct {
 func (ss *StartSequence) Run(ctx context.Context, onPhase PhaseCallback) (*StartResult, error) {
 	if onPhase == nil {
 		onPhase = func(int, string, string) {}
+	}
+
+	// Capacity pre-flight: reject early if no resource slots available.
+	if err := ss.checkCapacity(ctx); err != nil {
+		return nil, fmt.Errorf("capacity check: %w", err)
 	}
 
 	var err error
@@ -479,6 +489,60 @@ func (ss *StartSequence) phase7Session(ctx context.Context) error {
 		}
 	}
 
+	return nil
+}
+
+// checkCapacity loads the host capacity config and verifies a slot is available
+// for a new agent. Returns nil when capacity is available or not configured.
+func (ss *StartSequence) checkCapacity(ctx context.Context) error {
+	capPath := filepath.Join(ss.Home, "capacity.yaml")
+	cfg, err := LoadCapacity(capPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("capacity config not found — run agency setup to profile host resources")
+		}
+		return fmt.Errorf("load capacity config: %w", err)
+	}
+
+	// Count running workspace containers (agents).
+	var agentCount, meeseeksCount int
+	if ss.Docker != nil {
+		cli := ss.Docker.RawClient()
+
+		agents, err := cli.ContainerList(ctx, container.ListOptions{
+			Filters: filters.NewArgs(
+				filters.Arg("label", "agency.type=workspace"),
+				filters.Arg("status", "running"),
+			),
+		})
+		if err != nil {
+			return fmt.Errorf("list workspace containers: %w", err)
+		}
+		agentCount = len(agents)
+
+		meeseeks, err := cli.ContainerList(ctx, container.ListOptions{
+			Filters: filters.NewArgs(
+				filters.Arg("label", "agency.type=meeseeks-workspace"),
+				filters.Arg("status", "running"),
+			),
+		})
+		if err != nil {
+			return fmt.Errorf("list meeseeks containers: %w", err)
+		}
+		meeseeksCount = len(meeseeks)
+	}
+
+	if err := CheckSlotAvailable(cfg, agentCount, meeseeksCount); err != nil {
+		if ss.Audit != nil {
+			ss.Audit.Write(ss.AgentName, "agent_start_capacity_rejected", map[string]interface{}{
+				"running_agents":   agentCount,
+				"running_meeseeks": meeseeksCount,
+				"max_agents":       cfg.MaxAgents,
+				"reason":           err.Error(),
+			})
+		}
+		return err
+	}
 	return nil
 }
 

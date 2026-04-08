@@ -3,12 +3,15 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/go-chi/chi/v5"
 	"gopkg.in/yaml.v3"
 
@@ -393,6 +396,62 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			break
+		}
+	}
+
+	// Host capacity check (ASK Tenet 8: operations are bounded)
+	capPath := filepath.Join(h.deps.Config.Home, "capacity.yaml")
+	capCfg, capErr := orchestrate.LoadCapacity(capPath)
+	if capErr != nil {
+		report.AllPassed = false
+		report.Checks = append(report.Checks, checkResult{
+			Name: "host_capacity", Status: "fail",
+			Detail: "Capacity config not found — run agency setup",
+		})
+	} else {
+		agentCount := len(agents)
+		meeseeksCount := 0
+		// Count meeseeks containers
+		if mks, err := h.deps.DC.RawClient().ContainerList(ctx, container.ListOptions{
+			Filters: filters.NewArgs(
+				filters.Arg("label", "agency.role=meeseeks"),
+				filters.Arg("status", "running"),
+			),
+		}); err == nil {
+			meeseeksCount = len(mks)
+		}
+
+		total := agentCount + meeseeksCount
+		pct := 0
+		if capCfg.MaxAgents > 0 {
+			pct = (total * 100) / capCfg.MaxAgents
+		}
+
+		if pct >= 80 {
+			report.Checks = append(report.Checks, checkResult{
+				Name: "host_capacity", Status: "warn",
+				Detail: fmt.Sprintf("Approaching capacity: %d/%d slots used (%d%%)", total, capCfg.MaxAgents, pct),
+			})
+		} else {
+			report.Checks = append(report.Checks, checkResult{
+				Name: "host_capacity", Status: "pass",
+				Detail: fmt.Sprintf("%d/%d slots used (%d available)", total, capCfg.MaxAgents, capCfg.MaxAgents-total),
+			})
+		}
+	}
+
+	// Network pool check
+	if capErr == nil {
+		if capCfg.NetworkPoolConfigured {
+			report.Checks = append(report.Checks, checkResult{
+				Name: "network_pool", Status: "pass",
+				Detail: "Docker network pool configured for /24 subnets",
+			})
+		} else {
+			report.Checks = append(report.Checks, checkResult{
+				Name: "network_pool", Status: "warn",
+				Detail: "Default Docker pool (limited to ~15 networks) — run agency setup to configure",
+			})
 		}
 	}
 

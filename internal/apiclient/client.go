@@ -420,6 +420,12 @@ func (c *Client) InfraRebuildStream(component string, onProgress func(component,
 	return c.streamPost("/api/v1/infra/rebuild/"+component, onProgress)
 }
 
+func (c *Client) InfraCapacity() (map[string]interface{}, error) {
+	var result map[string]interface{}
+	err := c.GetJSON("/api/v1/infra/capacity", &result)
+	return result, err
+}
+
 func (c *Client) InfraReload() (map[string]interface{}, error) {
 	var result map[string]interface{}
 	err := c.PostJSON("/api/v1/infra/reload", nil, &result)
