@@ -1,10 +1,14 @@
 package agents
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/go-chi/chi/v5"
 
 	"github.com/geoffbelknap/agency/internal/models"
@@ -79,6 +83,27 @@ func (h *handler) spawnMeeseeks(w http.ResponseWriter, r *http.Request) {
 
 	if mission.Status != "active" {
 		writeJSON(w, 403, map[string]string{"error": fmt.Sprintf("mission %s is not active (status: %s)", mission.Name, mission.Status)})
+		return
+	}
+
+	// Capacity pre-flight: reject early if no resource slots available.
+	capPath := filepath.Join(h.deps.Config.Home, "capacity.yaml")
+	capCfg, capErr := orchestrate.LoadCapacity(capPath)
+	if capErr != nil {
+		writeJSON(w, 503, map[string]string{"error": "capacity config not found — run agency setup to profile host resources"})
+		return
+	}
+	agentCount, meeseeksCount := h.countRunningSlots(r.Context())
+	if err := orchestrate.CheckMeeseeksSlotAvailable(capCfg, agentCount, meeseeksCount); err != nil {
+		h.deps.Audit.Write(parent, "meeseeks_spawn_capacity_rejected", map[string]interface{}{
+			"running_agents":   agentCount,
+			"running_meeseeks": meeseeksCount,
+			"max_agents":       capCfg.MaxAgents,
+			"max_meeseeks":     capCfg.MaxConcurrentMeesks,
+			"reason":           err.Error(),
+			"build_id":         h.deps.Config.BuildID,
+		})
+		writeJSON(w, 429, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -270,6 +295,36 @@ func (h *handler) handleMeeseeksDistress(meeseeksID string, level string, budget
 			"task":        task,
 		})
 	}
+}
+
+// countRunningSlots returns the number of running workspace (agent) and
+// meeseeks containers by querying Docker labels.
+func (h *handler) countRunningSlots(ctx context.Context) (agents int, meeseeks int) {
+	if h.deps.RawDocker == nil {
+		return 0, 0
+	}
+	cli := h.deps.RawDocker.RawClient()
+
+	agentCtrs, err := cli.ContainerList(ctx, container.ListOptions{
+		Filters: filters.NewArgs(
+			filters.Arg("label", "agency.type=workspace"),
+			filters.Arg("status", "running"),
+		),
+	})
+	if err == nil {
+		agents = len(agentCtrs)
+	}
+
+	meeseeksCtrs, err := cli.ContainerList(ctx, container.ListOptions{
+		Filters: filters.NewArgs(
+			filters.Arg("label", "agency.type=meeseeks-workspace"),
+			filters.Arg("status", "running"),
+		),
+	})
+	if err == nil {
+		meeseeks = len(meeseeksCtrs)
+	}
+	return
 }
 
 // isRateLimit checks if an error message indicates rate limiting.
