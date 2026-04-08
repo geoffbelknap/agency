@@ -17,7 +17,7 @@ Replace all `host.docker.internal` usage with a **gateway socket proxy** — a m
 
 ```
 Host:
-  Gateway process → ~/.agency/run/gateway.sock (mode 0600)
+  Gateway process → ~/.agency/run/gateway.sock (mode set by gateway process)
 
 Docker (agency-mediation network):
   gateway-proxy (socat) ─── mounts socket ──→ gateway.sock
@@ -110,8 +110,8 @@ Real API keys are still mounted as read-only files into egress for the credentia
 
 ```
 1. Gateway (host) — creates Unix sockets:
-   - ~/.agency/run/gateway.sock (proxy-safe endpoints, mode 0600)
-   - ~/.agency/run/gateway-cred.sock (credential resolution, mode 0600)
+   - ~/.agency/run/gateway.sock (proxy-safe endpoints)
+   - ~/.agency/run/gateway-cred.sock (credential resolution)
 2. Docker networks (agency-mediation, agency-egress-net, per-agent)
 3. gateway-proxy — verify socket exists, mount it, listen on TCP 8200
 4. egress — needs mediation network + gateway proxy + credential socket
@@ -141,13 +141,13 @@ Gateway-proxy startup validation: verify `~/.agency/run/gateway.sock` exists and
 - **Reduces lateral movement surface.** The host IP is no longer reachable from any container.
 - **Credential resolution isolated.** Only egress can resolve credentials (via dedicated socket mount). The TCP proxy does not expose credential endpoints. Today any container with `host.docker.internal` could hit the credential endpoint on the gateway.
 - **ASK Tenet 3 (mediation is complete):** strengthened — gateway access is a named service on the mediation network, not a host escape hatch.
-- **ASK Tenet 7 (least privilege):** the proxy has no credentials, no writable mounts, no business logic. Socket permissions are 0600 (gateway process user only); container isolation provided by bind mount scope.
+- **ASK Tenet 7 (least privilege):** the proxy has no credentials, no writable mounts, no business logic. Access is constrained by bind mount scope, with socket modes set by the gateway process for runtime compatibility.
 
 ### Socket Permissions
 
-Both Unix sockets are created with mode `0600` (gateway process user only). Access control has two layers:
-- **File permissions (0600):** host-level containment — survives container escape
-- **Bind mount scope:** container-level isolation — only designated containers mount each socket
+Socket access control is enforced primarily by bind-mount scope: only designated containers
+receive each socket mount. The gateway process sets socket modes at creation time, and those
+modes must remain compatible with container runtime users across Linux Docker CE and Docker Desktop.
 
 | Socket | Mounted by | Purpose |
 |--------|-----------|---------|
