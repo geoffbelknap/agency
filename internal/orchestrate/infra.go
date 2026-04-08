@@ -683,6 +683,9 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 	commsData := filepath.Join(inf.Home, "infrastructure", "comms", "data")
 	os.MkdirAll(commsData, 0777)
 	os.Chmod(commsData, 0777)
+	// Fix subdirectory permissions — Docker creates these as root with restrictive
+	// perms, but CAP_DROP ALL removes DAC_OVERRIDE so the container can't write.
+	fixDirPerms(commsData, 0777)
 	agentsDir := filepath.Join(inf.Home, "agents")
 	os.MkdirAll(agentsDir, 0755)
 
@@ -692,19 +695,17 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 		agentsDir + ":/app/agents:rw",
 	}
 	hc.NetworkMode = container.NetworkMode(gatewayNet)
-	hc.PortBindings = nat.PortMap{
-		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8202"}},
-	}
+	// No host port binding — comms is reached via Docker container IP.
+	// Host port publishing is unreliable on some hosts with user-defined networks.
 
 	if _, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
 		&container.Config{
-			Image:        defaultImages["comms"],
-			Hostname:     "comms",
-			Env:          mapToEnv(func() map[string]string { e := inf.loggingEnv("comms"); e["AGENCY_CALLER"] = "comms"; return e }()),
-			Labels:       inf.serviceLabels(ctx, defaultImages["comms"], "comms", "8080"),
-			Healthcheck:  defaultHealthChecks["comms"],
-			ExposedPorts: nat.PortSet{"8080/tcp": struct{}{}},
+			Image:       defaultImages["comms"],
+			Hostname:    "comms",
+			Env:         mapToEnv(func() map[string]string { e := inf.loggingEnv("comms"); e["AGENCY_CALLER"] = "comms"; return e }()),
+			Labels:      inf.serviceLabels(ctx, defaultImages["comms"], "comms", "8080"),
+			Healthcheck: defaultHealthChecks["comms"],
 		},
 		hc, nil,
 	); err != nil {
@@ -740,6 +741,7 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 	knowledgeDir := filepath.Join(inf.Home, "knowledge", "data")
 	os.MkdirAll(knowledgeDir, 0777)
 	os.Chmod(knowledgeDir, 0777)
+	fixDirPerms(knowledgeDir, 0777)
 
 	env := map[string]string{
 		"HTTPS_PROXY":          "http://egress:3128",
@@ -814,6 +816,7 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 	intakeDir := filepath.Join(inf.Home, "infrastructure", "intake", "data")
 	os.MkdirAll(intakeDir, 0777)
 	os.Chmod(intakeDir, 0777)
+	fixDirPerms(intakeDir, 0777)
 	connectorsDir := filepath.Join(inf.Home, "connectors")
 	os.MkdirAll(connectorsDir, 0755)
 
@@ -1419,6 +1422,19 @@ func (inf *Infra) connectIfNeeded(ctx context.Context, containerID, netName stri
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		inf.log.Warn("network connect", "container", containerID, "network", netName, "err", err)
 	}
+}
+
+// fixDirPerms recursively sets permissions on all subdirectories and files
+// under dir. Needed because containers with CAP_DROP ALL lack DAC_OVERRIDE
+// and can't access files/dirs owned by other UIDs with restrictive perms.
+func fixDirPerms(dir string, perm os.FileMode) {
+	filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		os.Chmod(path, perm)
+		return nil
+	})
 }
 
 func mapToEnv(m map[string]string) []string {
