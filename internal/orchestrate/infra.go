@@ -560,6 +560,11 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 		&container.Config{
 			Image:    defaultImages["gateway-proxy"],
 			Hostname: "gateway-proxy",
+			ExposedPorts: nat.PortSet{
+				"8202/tcp": struct{}{},
+				"8204/tcp": struct{}{},
+				"8205/tcp": struct{}{},
+			},
 			Labels: map[string]string{
 				"agency.managed":       "true",
 				"agency.role":          "infra",
