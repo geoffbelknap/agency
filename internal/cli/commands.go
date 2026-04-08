@@ -1115,6 +1115,65 @@ func infraCmd() *cobra.Command {
 		},
 	})
 
+	cmd.AddCommand(&cobra.Command{
+		Use:   "capacity",
+		Short: "Show host capacity and agent slot availability",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			resp, err := c.InfraCapacity()
+			if err != nil {
+				return fmt.Errorf("cannot read capacity: %w", err)
+			}
+
+			// Extract values with safe type assertions
+			getInt := func(key string) int {
+				if v, ok := resp[key].(float64); ok {
+					return int(v)
+				}
+				return 0
+			}
+			getBool := func(key string) bool {
+				v, _ := resp[key].(bool)
+				return v
+			}
+
+			maxAgents := getInt("max_agents")
+			running := getInt("running_agents")
+			meeseeks := getInt("running_meeseeks")
+			available := getInt("available_slots")
+			memMB := getInt("host_memory_mb")
+			cpuCores := getInt("host_cpu_cores")
+			reserveMB := getInt("system_reserve_mb")
+			infraMB := getInt("infra_overhead_mb")
+			poolOK := getBool("network_pool_configured")
+
+			fmt.Println("Host Capacity:")
+			fmt.Printf("  Memory: %d GB (%.1f GB reserved, %.1f GB infra)\n",
+				memMB/1024, float64(reserveMB)/1024.0, float64(infraMB)/1024.0)
+			fmt.Printf("  CPU: %d cores (2 reserved)\n", cpuCores)
+			fmt.Println()
+			fmt.Printf("Agents: %d/%d running (%d slots available", running, maxAgents, available)
+			if meeseeks > 0 {
+				fmt.Printf(", %d used by meeseeks", meeseeks)
+			}
+			fmt.Println(")")
+			fmt.Printf("Meeseeks: %d active (shares agent pool)\n", meeseeks)
+
+			if poolOK {
+				fmt.Println("Networks: configured (/24 subnets)")
+			} else {
+				fmt.Println("Networks: default pool (limited — run agency setup to configure)")
+			}
+
+			fmt.Println()
+			fmt.Println("Config: ~/.agency/capacity.yaml")
+			return nil
+		},
+	})
+
 	return cmd
 }
 
