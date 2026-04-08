@@ -83,6 +83,33 @@ API requests to `/api/v1` and WebSocket connections on `/ws` are automatically p
 | `npm run build`      | Build for production             |
 | `npm test`           | Run tests once (Vitest)          |
 | `npm run test:watch` | Run tests in watch mode          |
+| `npm run test:e2e`   | Run mocked Playwright browser smoke tests |
+| `npm run test:e2e:live` | Run Playwright against a live local Agency stack |
+
+## Browser E2E
+
+Install Playwright locally:
+
+```bash
+cd web
+npm install
+npx playwright install chromium
+```
+
+Mocked browser smoke:
+
+```bash
+cd web
+npm run test:e2e
+```
+
+Live local stack smoke:
+
+```bash
+./scripts/e2e-live-web.sh
+```
+
+The live harness is dev-only. It lives in repo test paths and scripts, uses `devDependencies`, and is not part of the shipped runtime or container images.
 
 ## Project Structure
 

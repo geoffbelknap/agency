@@ -13,7 +13,11 @@
     "dev": "vite",
     "postinstall": "node bin/postinstall.mjs",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "playwright test -c playwright.config.ts",
+    "test:e2e:headed": "playwright test -c playwright.config.ts --headed",
+    "test:e2e:live": "playwright test -c playwright.live.config.ts",
+    "test:e2e:live:headed": "playwright test -c playwright.live.config.ts --headed"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -48,6 +52,7 @@
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.54.2",
     "@tailwindcss/vite": "^4.2.2",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",

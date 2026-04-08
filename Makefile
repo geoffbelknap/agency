@@ -1,5 +1,5 @@
 .PHONY: all build install deploy test clean images python-base \
-       body enforcer comms knowledge intake egress workspace web-fetch web relay
+       body enforcer comms knowledge intake egress workspace web-fetch web relay e2e-live-web
 
 VERSION  ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo 0.0.0)
 COMMIT   := $(shell git rev-parse --short HEAD)
@@ -114,3 +114,6 @@ relay:
 	fi
 	docker build --build-arg BUILD_ID=$(BUILD_ID) \
 		-f $(AGENCY_RELAY_DIR)/Dockerfile -t agency-relay:latest $(AGENCY_RELAY_DIR)
+
+e2e-live-web:
+	@./scripts/e2e-live-web.sh
