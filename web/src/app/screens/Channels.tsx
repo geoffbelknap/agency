@@ -17,7 +17,6 @@ import { HelpDialog } from './channels/HelpDialog';
 import { AgentDetailSheet } from './channels/AgentDetailSheet';
 import { api, type RawChannel, type RawAgent, type RawBudgetResponse } from '../lib/api';
 import { fetchOperatorDisplayName, getOperatorDisplayName } from '../lib/operator';
-import { socket } from '../lib/ws';
 import { formatMessageTime } from '../lib/time';
 import type { Channel, Message } from '../types';
 
@@ -125,7 +124,7 @@ export function Channels() {
     );
   }, []);
 
-  const { typingAgents, processingAgents, agentActivity, wsConnected, setProcessingAgents } =
+  const { typingAgents, processingAgents, agentActivity, setProcessingAgents } =
     useChannelSocket(
       {
         selectedChannelName: selectedChannel?.name,
@@ -334,12 +333,6 @@ export function Channels() {
         />
         {selectedChannel ? (
           <>
-            {!wsConnected && (
-              <div role="alert" aria-live="assertive" className="flex items-center justify-center gap-2 px-4 py-1.5 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 border-b border-amber-200 dark:border-amber-900/40">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                <span>{socket.gaveUp ? 'Connection lost — refresh to retry' : 'Reconnecting...'}</span>
-              </div>
-            )}
             <MessageArea
               key={selectedChannel.id}
               channel={selectedChannel}

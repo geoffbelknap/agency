@@ -6,6 +6,7 @@ import { Agent } from '../types';
 import { Button } from '../components/ui/button';
 import { api, type RawAgent, type RawCapability } from '../lib/api';
 import { socket } from '../lib/ws';
+import { useIsMobile } from '../components/ui/use-mobile';
 import { CreateAgentDialog } from '../components/CreateAgentDialog';
 import { AgentList } from './agents/AgentList';
 import { AgentDetail } from './agents/AgentDetail';
@@ -37,6 +38,7 @@ function mapAgent(a: RawAgent): Agent {
 export function Agents() {
   const { name: urlAgentName } = useParams<{ name: string }>();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [capabilities, setCapabilities] = useState<RawCapability[]>([]);
   const [loading, setLoading] = useState(true);
@@ -150,40 +152,52 @@ export function Agents() {
         </div>
       </div>
 
-      {/* Master-Detail split */}
-      <div className="flex-1 min-h-0 flex flex-col">
-        {/* Agent List — top portion */}
-        <div className="shrink-0 max-h-[25vh] min-h-[120px] overflow-auto border-b border-border px-4 md:px-8">
-          {loading ? (
-            <div className="text-sm text-muted-foreground py-4">Loading agents…</div>
-          ) : agents.length === 0 ? (
-            <div className="text-sm text-muted-foreground py-4">No agents. Create one to get started.</div>
-          ) : (
-            <AgentList
-              agents={listRows}
-              selectedAgent={selectedAgent?.name ?? null}
-              onSelect={handleSelect}
-            />
-          )}
-        </div>
-
-        {/* Detail — bottom portion */}
-        <div className="flex-1 min-h-0 overflow-auto">
-          {selectedAgent ? (
-            <AgentDetail
-              agent={selectedAgent}
-              infraBuildId={infraBuildId}
-              capabilities={capabilities}
-              onClose={handleCloseDetail}
-              onAction={handleAction}
-              actionLoading={actionLoading}
-              onRefreshAgents={load}
-            />
-          ) : (
-            <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-              Select an agent to view details
+      <div className="flex-1 min-h-0 px-4 pb-4 md:px-8 md:pb-8">
+        <div className="flex h-full min-h-0 flex-col gap-4 lg:grid lg:grid-cols-[360px_minmax(0,1fr)] lg:gap-6">
+          <div className={`${selectedAgent ? 'hidden lg:flex' : 'flex'} min-h-0 flex-col rounded-2xl border border-border bg-card`}>
+            <div className="border-b border-border px-4 py-3">
+              <h2 className="text-sm font-medium text-foreground">Fleet</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Review status, budget pressure, and recent activity at a glance.
+              </p>
             </div>
-          )}
+            <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
+              {loading ? (
+                <div className="text-sm text-muted-foreground py-4">Loading agents…</div>
+              ) : agents.length === 0 ? (
+                <div className="text-sm text-muted-foreground py-4">No agents. Create one to get started.</div>
+              ) : (
+                <AgentList
+                  agents={listRows}
+                  selectedAgent={selectedAgent?.name ?? null}
+                  onSelect={handleSelect}
+                />
+              )}
+            </div>
+          </div>
+
+          <div className={`${!selectedAgent && isMobile ? 'hidden' : 'block'} min-h-0 overflow-auto rounded-2xl border border-border bg-card`}>
+            {selectedAgent ? (
+              <AgentDetail
+                agent={selectedAgent}
+                infraBuildId={infraBuildId}
+                capabilities={capabilities}
+                onClose={handleCloseDetail}
+                onAction={handleAction}
+                actionLoading={actionLoading}
+                onRefreshAgents={load}
+              />
+            ) : (
+              <div className="flex h-full min-h-[280px] items-center justify-center px-6 text-center">
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-foreground">No agent selected</div>
+                  <div className="text-sm text-muted-foreground">
+                    Choose an agent from the fleet panel to inspect activity, controls, and system state.
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

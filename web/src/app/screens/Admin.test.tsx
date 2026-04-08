@@ -32,10 +32,11 @@ function renderAdminInForm(initialTab = 'infrastructure') {
 }
 
 function selectRadixValue(value: string) {
-  const selects = document.querySelectorAll('select');
+  const selects = Array.from(document.querySelectorAll('select'));
   if (selects.length === 0) throw new Error('No native select found');
-  // Use the last select (most recently rendered/relevant one)
-  const nativeSelect = selects[selects.length - 1];
+  const nativeSelect = selects.find((select) =>
+    Array.from(select.options).some((option) => option.value === value),
+  ) ?? selects[selects.length - 1];
   fireEvent.change(nativeSelect, { target: { value } });
 }
 
