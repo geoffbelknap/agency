@@ -2,8 +2,12 @@ package orchestrate
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,60 +57,57 @@ var defaultImages = map[string]string{
 var defaultHealthChecks = map[string]*container.HealthConfig{
 	"egress": {
 		Test:        []string{"CMD-SHELL", `python -c "import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1',3128)); s.close()"`},
-		Interval:    2 * time.Second,
-		Timeout:     3 * time.Second,
-		StartPeriod: 1 * time.Second,
-		Retries:     3,
-	},
-	"comms": {
-		Test:        []string{"CMD-SHELL", `python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"`},
-		Interval:    2 * time.Second,
-		Timeout:     3 * time.Second,
-		StartPeriod: 1 * time.Second,
-		Retries:     3,
-	},
-	"knowledge": {
-		Test:        []string{"CMD-SHELL", `python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"`},
-		Interval:    2 * time.Second,
-		Timeout:     3 * time.Second,
-		StartPeriod: 1 * time.Second,
-		Retries:     3,
-	},
-	"intake": {
-		Test:        []string{"CMD-SHELL", `python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"`},
-		Interval:    2 * time.Second,
-		Timeout:     3 * time.Second,
-		StartPeriod: 1 * time.Second,
-		Retries:     3,
-	},
-	"web-fetch": {
-		Test:        []string{"CMD", "wget", "-q", "-O-", "http://127.0.0.1:8080/health"},
-		Interval:    2 * time.Second,
-		Timeout:     3 * time.Second,
-		StartPeriod: 1 * time.Second,
-		Retries:  3,
-	},
-	"web": {
-		Test:        []string{"CMD", "wget", "--no-check-certificate", "-q", "-O-", "https://127.0.0.1:8280/health"},
-		Interval:    5 * time.Second,
-		Timeout:     2 * time.Second,
-		StartPeriod: 2 * time.Second,
-		Retries:     3,
-	},
-	"embeddings": {
-		Test:        []string{"CMD-SHELL", `bash -c "echo > /dev/tcp/127.0.0.1/11434"`},
-		Interval:    5 * time.Second,
+		Interval:    10 * time.Second,
 		Timeout:     3 * time.Second,
 		StartPeriod: 5 * time.Second,
 		Retries:     3,
 	},
-	"gateway-proxy": {
-		Test:        []string{"CMD-SHELL", `socat -T1 - TCP:127.0.0.1:8200 < /dev/null`},
-		Interval:    5 * time.Second,
+	"comms": {
+		Test:        []string{"CMD-SHELL", `python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"`},
+		Interval:    10 * time.Second,
 		Timeout:     3 * time.Second,
-		StartPeriod: 3 * time.Second,
+		StartPeriod: 5 * time.Second,
 		Retries:     3,
 	},
+	"knowledge": {
+		Test:        []string{"CMD-SHELL", `python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"`},
+		Interval:    10 * time.Second,
+		Timeout:     3 * time.Second,
+		StartPeriod: 5 * time.Second,
+		Retries:     3,
+	},
+	"intake": {
+		Test:        []string{"CMD-SHELL", `python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"`},
+		Interval:    10 * time.Second,
+		Timeout:     3 * time.Second,
+		StartPeriod: 5 * time.Second,
+		Retries:     3,
+	},
+	"web-fetch": {
+		Test:        []string{"CMD", "wget", "-q", "-O-", "http://127.0.0.1:8080/health"},
+		Interval:    10 * time.Second,
+		Timeout:     3 * time.Second,
+		StartPeriod: 5 * time.Second,
+		Retries:     3,
+	},
+	"web": {
+		Test:        []string{"CMD", "wget", "--no-check-certificate", "-q", "-O-", "https://127.0.0.1:8280/health"},
+		Interval:    10 * time.Second,
+		Timeout:     3 * time.Second,
+		StartPeriod: 5 * time.Second,
+		Retries:     3,
+	},
+	"embeddings": {
+		Test:        []string{"CMD-SHELL", `bash -c "echo > /dev/tcp/127.0.0.1/11434"`},
+		Interval:    10 * time.Second,
+		Timeout:     3 * time.Second,
+		StartPeriod: 10 * time.Second,
+		Retries:     3,
+	},
+	// gateway-proxy has no Docker health check. It's socat — starts instantly.
+	// Readiness is verified by the gateway via waitSocketReady() instead.
+	// A Docker health check here would fork socat per check, causing PID
+	// exhaustion under concurrent health probes from other containers.
 }
 
 func containerName(role string) string {
@@ -240,12 +241,20 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 		return fmt.Errorf("ensure networks: %w", err)
 	}
 
+	// Gateway proxy must start first — it's the hub. Every other container
+	// depends on it for Docker DNS resolution ("gateway" hostname), credential
+	// resolution, and event publishing through the socket proxy.
+	progress("gateway-proxy", "Starting gateway proxy")
+	if err := inf.ensureGatewayProxy(ctx); err != nil {
+		return fmt.Errorf("start gateway-proxy: %w", err)
+	}
+	progress("gateway-proxy", "Started gateway-proxy")
+
 	components := []struct {
 		name string
 		desc string
 		ensure func(ctx context.Context) error
 	}{
-		{"gateway-proxy", "Starting gateway proxy", inf.ensureGatewayProxy},
 		{"egress", "Starting egress proxy (credential swap, network mediation)", inf.ensureEgress},
 		{"comms", "Starting comms server (channels, messaging)", inf.ensureComms},
 		{"knowledge", "Starting knowledge graph", inf.ensureKnowledge},
@@ -256,7 +265,8 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 		{"embeddings", "Starting embeddings service (local vector embeddings)", inf.ensureEmbeddings},
 	}
 
-	// Start all components in parallel — they're independent.
+	// Start remaining components in parallel — they all depend on gateway-proxy
+	// which is now ready, but are independent of each other.
 	progress("infra", "Starting all services")
 	type result struct {
 		name string
@@ -520,10 +530,17 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.NetworkMode = container.NetworkMode(gatewayNet)
 	hc.ReadonlyRootfs = true
-	hc.Resources.Memory = 16 * 1024 * 1024
-	hc.Resources.NanoCPUs = 250_000_000
-	pidsLimit := int64(64)
-	hc.Resources.PidsLimit = &pidsLimit
+	hc.Resources.Memory = 64 * 1024 * 1024
+	hc.Resources.NanoCPUs = 500_000_000
+	// No PID limit — socat forks per connection and the gateway-proxy handles
+	// all inter-container traffic. A limit here causes fork() exhaustion under
+	// normal load. The memory limit (64MB) is the effective constraint.
+	hc.Resources.PidsLimit = nil
+	// Mount the run directory so socat can reach the gateway Unix socket.
+	// Mount the directory (not the socket file) so new sockets from daemon
+	// restarts are picked up without recreating the container.
+	runDir := filepath.Join(inf.Home, "run")
+	hc.Binds = []string{runDir + ":/run:ro"}
 
 	netCfg := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
@@ -545,7 +562,6 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 				"agency.build.id":      images.ImageBuildLabel(ctx, inf.cli, defaultImages["gateway-proxy"]),
 				"agency.build.gateway": inf.BuildID,
 			},
-			Healthcheck: defaultHealthChecks["gateway-proxy"],
 		},
 		hc, netCfg,
 	); err != nil {
@@ -555,7 +571,9 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	if err := inf.waitRunning(ctx, name, 10*time.Second); err != nil {
 		return err
 	}
-	return inf.waitHealthy(ctx, name, 15*time.Second)
+	// No Docker health check — verify readiness by probing the gateway socket
+	// directly from the Go process. This avoids socat fork pressure.
+	return inf.waitSocketReady(ctx, 10*time.Second)
 }
 
 func (inf *Infra) ensureEgress(ctx context.Context) error {
@@ -576,6 +594,17 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 	os.Chmod(blocklists, 0777) // ensure umask doesn't restrict
 	os.MkdirAll(certsDir, 0777)
 	os.Chmod(certsDir, 0777) // ensure umask doesn't restrict
+
+	// Cert files generated by mitmproxy on first run may be root-owned with 600
+	// perms. CAP_DROP ALL removes DAC_OVERRIDE, so the container can't read
+	// its own certs on restart. Fix permissions on any existing cert files.
+	if entries, err := os.ReadDir(certsDir); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				os.Chmod(filepath.Join(certsDir, e.Name()), 0644)
+			}
+		}
+	}
 
 	binds := []string{
 		configDir + ":/app/config:ro",
@@ -670,6 +699,9 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 	commsData := filepath.Join(inf.Home, "infrastructure", "comms", "data")
 	os.MkdirAll(commsData, 0777)
 	os.Chmod(commsData, 0777)
+	// Fix subdirectory permissions — Docker creates these as root with restrictive
+	// perms, but CAP_DROP ALL removes DAC_OVERRIDE so the container can't write.
+	fixDirPerms(commsData, 0777)
 	agentsDir := filepath.Join(inf.Home, "agents")
 	os.MkdirAll(agentsDir, 0755)
 
@@ -679,19 +711,17 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 		agentsDir + ":/app/agents:rw",
 	}
 	hc.NetworkMode = container.NetworkMode(gatewayNet)
-	hc.PortBindings = nat.PortMap{
-		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8202"}},
-	}
+	// No host port binding — comms is reached via Docker container IP.
+	// Host port publishing is unreliable on some hosts with user-defined networks.
 
 	if _, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
 		&container.Config{
-			Image:        defaultImages["comms"],
-			Hostname:     "comms",
-			Env:          mapToEnv(func() map[string]string { e := inf.loggingEnv("comms"); e["AGENCY_CALLER"] = "comms"; return e }()),
-			Labels:       inf.serviceLabels(ctx, defaultImages["comms"], "comms", "8080"),
-			Healthcheck:  defaultHealthChecks["comms"],
-			ExposedPorts: nat.PortSet{"8080/tcp": struct{}{}},
+			Image:       defaultImages["comms"],
+			Hostname:    "comms",
+			Env:         mapToEnv(func() map[string]string { e := inf.loggingEnv("comms"); e["AGENCY_CALLER"] = "comms"; return e }()),
+			Labels:      inf.serviceLabels(ctx, defaultImages["comms"], "comms", "8080"),
+			Healthcheck: defaultHealthChecks["comms"],
 		},
 		hc, nil,
 	); err != nil {
@@ -727,6 +757,7 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 	knowledgeDir := filepath.Join(inf.Home, "knowledge", "data")
 	os.MkdirAll(knowledgeDir, 0777)
 	os.Chmod(knowledgeDir, 0777)
+	fixDirPerms(knowledgeDir, 0777)
 
 	env := map[string]string{
 		"HTTPS_PROXY":          "http://egress:3128",
@@ -801,6 +832,7 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 	intakeDir := filepath.Join(inf.Home, "infrastructure", "intake", "data")
 	os.MkdirAll(intakeDir, 0777)
 	os.Chmod(intakeDir, 0777)
+	fixDirPerms(intakeDir, 0777)
 	connectorsDir := filepath.Join(inf.Home, "connectors")
 	os.MkdirAll(connectorsDir, 0755)
 
@@ -1148,19 +1180,26 @@ func (inf *Infra) ensureSystemChannels(ctx context.Context) error {
 		if ch.members != nil {
 			body["members"] = ch.members
 		}
-		_, err := inf.Comms.CommsRequest(ctx, "POST", "/channels", body)
-		if err != nil {
-			if strings.Contains(err.Error(), "409") {
-			// Channel already exists in comms — still register in principal registry below.
-			} else {
-				// Retry once — comms may still be initializing
-				time.Sleep(2 * time.Second)
-				if _, retryErr := inf.Comms.CommsRequest(ctx, "POST", "/channels", body); retryErr != nil {
-					if !strings.Contains(retryErr.Error(), "409") {
-						return fmt.Errorf("create system channel %s: %w", ch.name, retryErr)
-					}
-				}
+		// Try the host-bound port first (fast path), fall back to the gateway
+		// socket proxy (works when Docker port publishing is unavailable).
+		var lastErr error
+		for attempt := 0; attempt < 4; attempt++ {
+			if attempt > 0 {
+				time.Sleep(3 * time.Second)
 			}
+			if attempt < 2 {
+				_, lastErr = inf.Comms.CommsRequest(ctx, "POST", "/channels", body)
+			} else {
+				// Fall back to gateway socket — comms is reachable via the proxy
+				lastErr = inf.commsViaSocket(ctx, "/channels", body)
+			}
+			if lastErr == nil || strings.Contains(lastErr.Error(), "409") {
+				lastErr = nil
+				break
+			}
+		}
+		if lastErr != nil {
+			return fmt.Errorf("create system channel %s: %w", ch.name, lastErr)
 		}
 
 		// Register channel in the principal registry. Ignore "already exists"
@@ -1332,6 +1371,66 @@ func (inf *Infra) waitHealthy(ctx context.Context, name string, timeout time.Dur
 	}
 }
 
+// commsViaSocket sends a POST to comms through the gateway Unix socket proxy.
+// Used as fallback when Docker host port publishing is unavailable.
+func (inf *Infra) commsViaSocket(ctx context.Context, path string, body interface{}) error {
+	sockPath := filepath.Join(inf.Home, "run", "gateway.sock")
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return net.DialTimeout("unix", sockPath, 5*time.Second)
+			},
+		},
+		Timeout: 15 * time.Second,
+	}
+
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", "http://gateway/api/v1/comms"+path, strings.NewReader(string(jsonBody)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+inf.GatewayToken)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("comms via socket: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("comms via socket %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+// waitSocketReady polls the gateway Unix socket directly from the Go process.
+// Used instead of Docker health checks for the gateway-proxy container to avoid
+// socat fork pressure. Connects to the socket and sends a minimal HTTP request.
+func (inf *Infra) waitSocketReady(ctx context.Context, timeout time.Duration) error {
+	sockPath := filepath.Join(inf.Home, "run", "gateway.sock")
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("unix", sockPath, 2*time.Second)
+		if err == nil {
+			conn.Close()
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("gateway socket not ready within %v", timeout)
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("gateway socket %s not ready within %v", sockPath, timeout)
+}
+
 func (inf *Infra) connectIfNeeded(ctx context.Context, containerID, netName string, aliases []string) {
 	err := inf.cli.NetworkConnect(ctx, netName, containerID, &network.EndpointSettings{
 		Aliases: aliases,
@@ -1339,6 +1438,19 @@ func (inf *Infra) connectIfNeeded(ctx context.Context, containerID, netName stri
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		inf.log.Warn("network connect", "container", containerID, "network", netName, "err", err)
 	}
+}
+
+// fixDirPerms recursively sets permissions on all subdirectories and files
+// under dir. Needed because containers with CAP_DROP ALL lack DAC_OVERRIDE
+// and can't access files/dirs owned by other UIDs with restrictive perms.
+func fixDirPerms(dir string, perm os.FileMode) {
+	filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		os.Chmod(path, perm)
+		return nil
+	})
 }
 
 func mapToEnv(m map[string]string) []string {

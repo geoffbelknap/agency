@@ -1,6 +1,7 @@
 package orchestrate
 
 import (
+	"bufio"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,15 +55,57 @@ func TestNetworkConstantsInDocs(t *testing.T) {
 	}
 }
 
+// TestGatewayProxyNotSelfLoop parses the gateway-proxy Dockerfile and verifies
+// that socat's upstream target is a Unix socket, not a TCP connection to the
+// container's own hostname. A TCP self-loop (TCP:gateway:8200 when the container
+// IS "gateway") was the root cause of all inter-container communication failures.
+func TestGatewayProxyNotSelfLoop(t *testing.T) {
+	root := repoRoot(t)
+	dockerfile := filepath.Join(root, "images", "gateway-proxy", "Dockerfile")
+
+	f, err := os.Open(dockerfile)
+	if err != nil {
+		t.Fatal("open gateway-proxy Dockerfile:", err)
+	}
+	defer f.Close()
+
+	var entrypoint string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "ENTRYPOINT") {
+			entrypoint = line
+			break
+		}
+	}
+	if entrypoint == "" {
+		t.Fatal("no ENTRYPOINT found in gateway-proxy Dockerfile")
+	}
+
+	// The upstream target must be a Unix socket, not TCP to the container's own alias
+	if strings.Contains(entrypoint, "TCP:gateway") {
+		t.Errorf("gateway-proxy ENTRYPOINT forwards to TCP:gateway — this is a self-loop "+
+			"because the container IS 'gateway' on the Docker network. "+
+			"Use UNIX-CONNECT:/run/gateway.sock instead.\n  ENTRYPOINT: %s", entrypoint)
+	}
+	if !strings.Contains(entrypoint, "UNIX-CONNECT") {
+		t.Errorf("gateway-proxy ENTRYPOINT does not use UNIX-CONNECT — "+
+			"socat should bridge TCP to the gateway Unix socket.\n  ENTRYPOINT: %s", entrypoint)
+	}
+}
+
 // TestDefaultImagesHaveHealthChecks verifies that every infra image in
 // defaultImages also has a health check defined. Missing health checks
 // cause containers to never become "healthy" and block startup.
 func TestDefaultImagesHaveHealthChecks(t *testing.T) {
-	// These images intentionally have no health check (non-service or external)
+	// These images intentionally have no Docker health check:
+	// - gateway-proxy: socat, starts instantly; readiness checked via waitSocketReady()
+	// - relay, web, embeddings: non-service or external images
 	noHealthCheck := map[string]bool{
-		"relay":      true,
-		"web":        true,
-		"embeddings": true,
+		"gateway-proxy": true,
+		"relay":         true,
+		"web":           true,
+		"embeddings":    true,
 	}
 
 	for name := range defaultImages {

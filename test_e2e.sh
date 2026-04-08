@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-AGENCY="$(dirname "$0")/agency"
+AGENCY_BIN="$(dirname "$0")/agency"
 TEST_AGENT="e2e-test-agent"
 PASS=0
 FAIL=0
@@ -69,10 +69,10 @@ run_cmd() {
 
 cleanup() {
     echo -e "\n${YELLOW}Cleanup...${NC}"
-    "$AGENCY" stop "$TEST_AGENT" 2>/dev/null && echo "✓ Agent $TEST_AGENT stopped" || true
-    "$AGENCY" delete "$TEST_AGENT" 2>/dev/null && echo "✓ Agent $TEST_AGENT deleted" || true
-    "$AGENCY" mission delete e2e-test-mission 2>/dev/null || true
-    "$AGENCY" creds delete e2e-test-key 2>/dev/null || true
+    "$AGENCY_BIN" -q stop "$TEST_AGENT" 2>/dev/null && echo "✓ Agent $TEST_AGENT stopped" || true
+    "$AGENCY_BIN" -q delete "$TEST_AGENT" 2>/dev/null && echo "✓ Agent $TEST_AGENT deleted" || true
+    "$AGENCY_BIN" -q mission delete e2e-test-mission 2>/dev/null || true
+    "$AGENCY_BIN" -q creds delete e2e-test-key 2>/dev/null || true
 }
 
 trap cleanup EXIT
@@ -82,12 +82,12 @@ echo " Agency E2E Test"
 echo "================================"
 
 # Verify binary exists
-if [ ! -x "$AGENCY" ]; then
-    echo "Binary not found at $AGENCY. Build first: go build -o agency ./cmd/gateway/"
+if [ ! -x "$AGENCY_BIN" ]; then
+    echo "Binary not found at $AGENCY_BIN. Build first: go build -o agency ./cmd/gateway/"
     exit 1
 fi
 
-echo "Binary: $AGENCY"
+echo "Binary: $AGENCY_BIN"
 echo "Test agent: $TEST_AGENT"
 
 # Record test start time for log filtering
@@ -101,17 +101,17 @@ if [ -f "$GATEWAY_LOG" ]; then
 fi
 
 # Pre-cleanup: remove any leftover state from prior runs
-"$AGENCY" stop "$TEST_AGENT" 2>/dev/null || true
-"$AGENCY" delete "$TEST_AGENT" 2>/dev/null || true
-"$AGENCY" mission delete e2e-test-mission 2>/dev/null || true
-"$AGENCY" creds delete e2e-test-key 2>/dev/null || true
+"$AGENCY_BIN" -q stop "$TEST_AGENT" 2>/dev/null || true
+"$AGENCY_BIN" -q delete "$TEST_AGENT" 2>/dev/null || true
+"$AGENCY_BIN" -q mission delete e2e-test-mission 2>/dev/null || true
+"$AGENCY_BIN" -q creds delete e2e-test-key 2>/dev/null || true
 
 # --------------------------------------------------
 # Phase 1: Init
 # --------------------------------------------------
 step "agency init"
 if [ ! -f ~/.agency/config.yaml ]; then
-    run_cmd "agency setup" AGENCY_NO_BROWSER=1 "$AGENCY" setup
+    run_cmd "agency setup" AGENCY_NO_BROWSER=1 "$AGENCY_BIN" -q setup
 else
     echo "Already initialized, skipping setup"
 fi
@@ -129,11 +129,11 @@ check "curl -sf http://localhost:8200/api/v1/health" "Gateway is healthy"
 # Phase 3: Infrastructure
 # --------------------------------------------------
 step "agency infra up"
-run_cmd "agency infra up" "$AGENCY" infra up
+run_cmd "agency infra up" "$AGENCY_BIN" -q infra up
 sleep 5
 
 step "agency infra status"
-STATUS=$(run_cmd "agency infra status" "$AGENCY" infra status)
+STATUS=$(run_cmd "agency infra status" "$AGENCY_BIN" -q infra status)
 echo "$STATUS"
 check "echo '$STATUS' | grep -qi 'healthy\|running\|ok'" "Infrastructure has healthy components"
 
@@ -141,13 +141,13 @@ check "echo '$STATUS' | grep -qi 'healthy\|running\|ok'" "Infrastructure has hea
 # Phase 4: Create agent
 # --------------------------------------------------
 step "agency create $TEST_AGENT"
-run_cmd "agency create" "$AGENCY" create "$TEST_AGENT"
+run_cmd "agency create" "$AGENCY_BIN" -q create "$TEST_AGENT"
 check "[ -d ~/.agency/agents/$TEST_AGENT ]" "Agent directory exists"
 check "[ -f ~/.agency/agents/$TEST_AGENT/agent.yaml ]" "agent.yaml exists"
 check "[ -f ~/.agency/agents/$TEST_AGENT/constraints.yaml ]" "constraints.yaml exists"
 
 step "agency status (check agent visible)"
-LIST=$("$AGENCY" status 2>&1)
+LIST=$("$AGENCY_BIN" -q status 2>&1)
 echo "$LIST"
 check "echo '$LIST' | grep -q '$TEST_AGENT'" "Agent appears in status"
 
@@ -155,11 +155,11 @@ check "echo '$LIST' | grep -q '$TEST_AGENT'" "Agent appears in status"
 # Phase 5: Start agent
 # --------------------------------------------------
 step "agency start $TEST_AGENT"
-run_cmd "agency start" "$AGENCY" start "$TEST_AGENT"
+run_cmd "agency start" "$AGENCY_BIN" -q start "$TEST_AGENT"
 sleep 3
 
 step "agency show $TEST_AGENT"
-SHOW=$(run_cmd "agency show" "$AGENCY" show "$TEST_AGENT")
+SHOW=$(run_cmd "agency show" "$AGENCY_BIN" -q show "$TEST_AGENT")
 echo "$SHOW"
 check "echo '$SHOW' | grep -qi 'running\|started\|healthy'" "Agent is running"
 
@@ -194,14 +194,14 @@ done
 # --------------------------------------------------
 step "agency send $TEST_AGENT"
 sleep 5
-SEND=$(run_cmd "agency send" "$AGENCY" send "$TEST_AGENT" "Say hello in the general channel. This is an E2E test.")
+SEND=$(run_cmd "agency send" "$AGENCY_BIN" -q send "$TEST_AGENT" "Say hello in the general channel. This is an E2E test.")
 echo "Send output: '$SEND'"
 check "echo '$SEND' | grep -qi 'sent\|delivered\|accepted'" "Task delivered via DM"
 
 sleep 10
 
 step "Check channel for agent message"
-MESSAGES=$(run_cmd "comms read general" "$AGENCY" comms read general)
+MESSAGES=$(run_cmd "comms read general" "$AGENCY_BIN" -q comms read general)
 echo "$MESSAGES"
 check "echo \"$MESSAGES\" | grep -qi \"$TEST_AGENT\"" "Agent posted to general channel"
 
@@ -209,7 +209,7 @@ check "echo \"$MESSAGES\" | grep -qi \"$TEST_AGENT\"" "Agent posted to general c
 # Phase 7: Logs
 # --------------------------------------------------
 step "agency log $TEST_AGENT"
-LOGS=$(run_cmd "agency log" "$AGENCY" log "$TEST_AGENT")
+LOGS=$(run_cmd "agency log" "$AGENCY_BIN" -q log "$TEST_AGENT")
 echo "$LOGS" | tail -5
 check "echo '$LOGS' | grep -qi 'task\|session\|event\|audit\|MEDIATION\|agent_started'" "Audit log readable"
 
@@ -217,10 +217,10 @@ check "echo '$LOGS' | grep -qi 'task\|session\|event\|audit\|MEDIATION\|agent_st
 # Phase 8: Halt and resume
 # --------------------------------------------------
 step "agency halt $TEST_AGENT"
-run_cmd "agency halt" "$AGENCY" halt "$TEST_AGENT" --tier supervised --reason "E2E test"
+run_cmd "agency halt" "$AGENCY_BIN" -q halt "$TEST_AGENT" --tier supervised --reason "E2E test"
 sleep 2
 
-SHOW2=$(run_cmd "agency show (halted)" "$AGENCY" show "$TEST_AGENT")
+SHOW2=$(run_cmd "agency show (halted)" "$AGENCY_BIN" -q show "$TEST_AGENT")
 check "echo '$SHOW2' | grep -qi 'halt\|paused\|stopped'" "Agent is halted"
 
 # Verify containers are paused (not crashed)
@@ -235,10 +235,10 @@ for role in workspace enforcer; do
 done
 
 step "agency resume $TEST_AGENT"
-run_cmd "agency resume" "$AGENCY" resume "$TEST_AGENT"
+run_cmd "agency resume" "$AGENCY_BIN" -q resume "$TEST_AGENT"
 sleep 3
 
-SHOW3=$(run_cmd "agency show (resumed)" "$AGENCY" show "$TEST_AGENT")
+SHOW3=$(run_cmd "agency show (resumed)" "$AGENCY_BIN" -q show "$TEST_AGENT")
 check "echo '$SHOW3' | grep -qi 'running\|started'" "Agent resumed"
 
 # Verify containers resumed (not crashed)
@@ -257,32 +257,32 @@ done
 # Phase 9: Stop and delete
 # --------------------------------------------------
 step "agency stop $TEST_AGENT"
-run_cmd "agency stop" "$AGENCY" stop "$TEST_AGENT"
+run_cmd "agency stop" "$AGENCY_BIN" -q stop "$TEST_AGENT"
 
 step "agency delete $TEST_AGENT"
-run_cmd "agency delete" "$AGENCY" delete "$TEST_AGENT"
+run_cmd "agency delete" "$AGENCY_BIN" -q delete "$TEST_AGENT"
 check "[ ! -d ~/.agency/agents/$TEST_AGENT ]" "Agent directory removed"
 
 # --------------------------------------------------
 # Phase 10: Credentials
 # --------------------------------------------------
 step "Credential CRUD"
-run_cmd "creds set" "$AGENCY" creds set --name e2e-test-key --value "test-secret-value" --kind internal --protocol api-key --scope platform
-CRED_LIST=$("$AGENCY" creds list 2>&1)
+run_cmd "creds set" "$AGENCY_BIN" -q creds set --name e2e-test-key --value "test-secret-value" --kind internal --protocol api-key --scope platform
+CRED_LIST=$("$AGENCY_BIN" -q creds list 2>&1)
 check "echo '$CRED_LIST' | grep -q 'e2e-test-key'" "Credential appears in list"
 
-CRED_SHOW=$("$AGENCY" creds show e2e-test-key 2>&1)
+CRED_SHOW=$("$AGENCY_BIN" -q creds show e2e-test-key 2>&1)
 check "echo '$CRED_SHOW' | grep -qi 'e2e-test-key'" "Credential is retrievable"
 
-run_cmd "creds delete" "$AGENCY" creds delete e2e-test-key
-CRED_LIST2=$("$AGENCY" creds list 2>&1)
+run_cmd "creds delete" "$AGENCY_BIN" -q creds delete e2e-test-key
+CRED_LIST2=$("$AGENCY_BIN" -q creds list 2>&1)
 check "! echo '$CRED_LIST2' | grep -q 'e2e-test-key'" "Credential deleted"
 
 # --------------------------------------------------
 # Phase 11: Missions
 # --------------------------------------------------
 step "Mission lifecycle"
-run_cmd "create agent for missions" "$AGENCY" create "$TEST_AGENT"
+run_cmd "create agent for missions" "$AGENCY_BIN" -q create "$TEST_AGENT"
 
 cat > /tmp/e2e-test-mission.yaml <<MISSION
 name: e2e-test-mission
@@ -290,37 +290,37 @@ description: E2E test mission
 instructions: This is a test mission for E2E validation.
 MISSION
 
-run_cmd "mission create" "$AGENCY" mission create /tmp/e2e-test-mission.yaml
-MISSION_LIST=$("$AGENCY" mission list 2>&1)
+run_cmd "mission create" "$AGENCY_BIN" -q mission create /tmp/e2e-test-mission.yaml
+MISSION_LIST=$("$AGENCY_BIN" -q mission list 2>&1)
 check "echo '$MISSION_LIST' | grep -q 'e2e-test-mission'" "Mission appears in list"
 
-run_cmd "mission assign" "$AGENCY" mission assign e2e-test-mission "$TEST_AGENT"
-MISSION_SHOW=$("$AGENCY" mission show e2e-test-mission 2>&1)
+run_cmd "mission assign" "$AGENCY_BIN" -q mission assign e2e-test-mission "$TEST_AGENT"
+MISSION_SHOW=$("$AGENCY_BIN" -q mission show e2e-test-mission 2>&1)
 check "echo '$MISSION_SHOW' | grep -qi '$TEST_AGENT\|assigned'" "Mission assigned to agent"
 
-run_cmd "mission pause" "$AGENCY" mission pause e2e-test-mission
-run_cmd "mission delete" "$AGENCY" mission delete e2e-test-mission
-MISSION_LIST2=$("$AGENCY" mission list 2>&1)
+run_cmd "mission pause" "$AGENCY_BIN" -q mission pause e2e-test-mission
+run_cmd "mission delete" "$AGENCY_BIN" -q mission delete e2e-test-mission
+MISSION_LIST2=$("$AGENCY_BIN" -q mission list 2>&1)
 check "! echo '$MISSION_LIST2' | grep -q 'e2e-test-mission'" "Mission deleted"
 
-"$AGENCY" delete "$TEST_AGENT" 2>/dev/null || true
+"$AGENCY_BIN" -q delete "$TEST_AGENT" 2>/dev/null || true
 
 # --------------------------------------------------
 # Phase 12: Hub
 # --------------------------------------------------
 step "Hub operations"
-run_cmd "hub update" "$AGENCY" hub update
-HUB_SEARCH=$("$AGENCY" hub search test 2>&1) || true
+run_cmd "hub update" "$AGENCY_BIN" -q hub update
+HUB_SEARCH=$("$AGENCY_BIN" -q hub search test 2>&1) || true
 check "true" "Hub search executes without crash"
 
 # --------------------------------------------------
 # Phase 13: Knowledge graph
 # --------------------------------------------------
 step "Knowledge graph"
-KNOWLEDGE_STATS=$(run_cmd "knowledge stats" "$AGENCY" knowledge stats)
+KNOWLEDGE_STATS=$(run_cmd "knowledge stats" "$AGENCY_BIN" -q knowledge stats)
 check "echo '$KNOWLEDGE_STATS' | grep -qi 'nodes\|edges\|entities\|empty\|0'" "Knowledge stats accessible"
 
-KNOWLEDGE_ONTOLOGY=$(run_cmd "knowledge ontology" "$AGENCY" knowledge ontology)
+KNOWLEDGE_ONTOLOGY=$(run_cmd "knowledge ontology" "$AGENCY_BIN" -q knowledge ontology)
 check "echo '$KNOWLEDGE_ONTOLOGY' | grep -qi 'type\|relationship\|ontology\|empty'" "Ontology accessible"
 
 # --------------------------------------------------
@@ -340,11 +340,11 @@ check "curl -sf http://localhost:8200/api/v1/health" "Health check works without
 # Phase 15: Infrastructure status + doctor
 # --------------------------------------------------
 step "Infrastructure status (post-modularization)"
-INFRA_STATUS=$(run_cmd "infra status" "$AGENCY" infra status)
+INFRA_STATUS=$(run_cmd "infra status" "$AGENCY_BIN" -q infra status)
 echo "$INFRA_STATUS"
 check "echo '$INFRA_STATUS' | grep -qi 'egress\|comms\|knowledge\|healthy\|running'" "Infrastructure components visible"
 
-DOCTOR=$(run_cmd "admin doctor" "$AGENCY" admin doctor)
+DOCTOR=$(run_cmd "admin doctor" "$AGENCY_BIN" -q admin doctor)
 echo "$DOCTOR"
 # Doctor failures — dangling images are informational in dev (dirty builds),
 # but security checks (credentials_isolated, network_mediation, etc.) must pass.
@@ -456,7 +456,7 @@ fi
 # --------------------------------------------------
 step "LLM usage error rate"
 # Check errors during this test run
-USAGE=$("$AGENCY" admin usage --since "$TEST_START_TIME" 2>&1)
+USAGE=$("$AGENCY_BIN" -q admin usage --since "$TEST_START_TIME" 2>&1)
 USAGE_ERRORS=$(echo "$USAGE" | grep -oP 'Errors:\s+\K\d+' || echo "0")
 USAGE_CALLS=$(echo "$USAGE" | grep -oP 'Calls:\s+\K\d+' || echo "0")
 if [ "$USAGE_ERRORS" -gt 0 ]; then
@@ -471,7 +471,7 @@ fi
 
 # Also check cumulative errors — catches ongoing infra LLM problems
 # (e.g., knowledge synthesizer failing every cycle)
-USAGE_ALL=$("$AGENCY" admin usage 2>&1)
+USAGE_ALL=$("$AGENCY_BIN" -q admin usage 2>&1)
 ALL_ERRORS=$(echo "$USAGE_ALL" | grep -oP 'Errors:\s+\K\d+' || echo "0")
 ALL_CALLS=$(echo "$USAGE_ALL" | grep -oP 'Calls:\s+\K\d+' || echo "0")
 if [ "$ALL_ERRORS" -gt 0 ]; then
@@ -490,7 +490,7 @@ fi
 # Phase 20: Capacity endpoint
 # --------------------------------------------------
 step "Capacity endpoint"
-CAPACITY=$(run_cmd "infra capacity" "$AGENCY" infra capacity)
+CAPACITY=$(run_cmd "infra capacity" "$AGENCY_BIN" -q infra capacity)
 echo "$CAPACITY"
 check "echo '$CAPACITY' | grep -qi 'capacity\|Memory\|Agents\|slots'" "Capacity data returned"
 
@@ -519,6 +519,17 @@ else
     fail "gateway-proxy container not found"
 fi
 
+# Verify the proxy actually forwards traffic (not a self-loop).
+# Call the gateway health endpoint FROM an infra container, through the proxy.
+# Uses Python (available in all agency Python containers) since wget/curl may not be installed.
+PROXY_HEALTH=$(docker exec agency-infra-intake python3 -c "import urllib.request; print(urllib.request.urlopen('http://gateway:8200/api/v1/health').read().decode())" 2>&1) || PROXY_HEALTH=""
+if echo "$PROXY_HEALTH" | grep -q '"status"'; then
+    pass "gateway-proxy round-trip works (intake → proxy → gateway)"
+else
+    fail "gateway-proxy round-trip failed — proxy may not be forwarding traffic"
+    echo "    Response: $PROXY_HEALTH"
+fi
+
 # --------------------------------------------------
 # Phase 22: Docker socket audit
 # --------------------------------------------------
@@ -535,27 +546,27 @@ fi
 # --------------------------------------------------
 step "Notifications"
 # Add and test a dummy notification destination
-run_cmd "notify add" "$AGENCY" notify add e2e-test-notif --url https://ntfy.sh/agency-e2e-test 2>/dev/null || true
-NOTIF_LIST=$("$AGENCY" notify list 2>&1)
+run_cmd "notify add" "$AGENCY_BIN" -q notify add e2e-test-notif --url https://ntfy.sh/agency-e2e-test 2>/dev/null || true
+NOTIF_LIST=$("$AGENCY_BIN" -q notify list 2>&1)
 check "echo '$NOTIF_LIST' | grep -qi 'e2e-test-notif\|notifications\|destinations'" "Notification list accessible"
 
-"$AGENCY" notify remove e2e-test-notif 2>/dev/null || true
+"$AGENCY_BIN" -q notify remove e2e-test-notif 2>/dev/null || true
 
 # --------------------------------------------------
 # Phase 24: Registry
 # --------------------------------------------------
 step "Principal registry"
-REGISTRY_LIST=$("$AGENCY" registry list 2>&1)
+REGISTRY_LIST=$("$AGENCY_BIN" -q registry list 2>&1)
 check "echo '$REGISTRY_LIST' | grep -qi 'operator\|agent\|principal\|uuid\|\[\]'" "Registry list accessible"
 
 # --------------------------------------------------
 # Phase 25: Routing
 # --------------------------------------------------
 step "Routing"
-ROUTING_CONFIG=$("$AGENCY" infra routing stats 2>&1) || true
+ROUTING_CONFIG=$("$AGENCY_BIN" -q infra routing stats 2>&1) || true
 check "true" "Routing stats command executes without crash"
 
-SUGGESTIONS=$("$AGENCY" infra routing suggestions 2>&1) || true
+SUGGESTIONS=$("$AGENCY_BIN" -q infra routing suggestions 2>&1) || true
 check "true" "Routing suggestions command executes without crash"
 
 # Providers are listed via REST, not a standalone CLI command
@@ -566,14 +577,14 @@ check "echo '$PROVIDERS_HTTP' | grep -qi 'provider\|anthropic\|openai\|gemini\|o
 # Phase 26: Capabilities
 # --------------------------------------------------
 step "Capabilities"
-CAP_LIST=$("$AGENCY" cap list 2>&1) || true
+CAP_LIST=$("$AGENCY_BIN" -q cap list 2>&1) || true
 check "true" "Capabilities list executes without crash"
 
 # --------------------------------------------------
 # Phase 27: Meeseeks
 # --------------------------------------------------
 step "Meeseeks"
-MEESEEKS_LIST=$("$AGENCY" meeseeks list 2>&1) || true
+MEESEEKS_LIST=$("$AGENCY_BIN" -q meeseeks list 2>&1) || true
 check "true" "Meeseeks list executes without crash"
 
 # --------------------------------------------------
