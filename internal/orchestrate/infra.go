@@ -521,9 +521,9 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.NetworkMode = container.NetworkMode(gatewayNet)
 	hc.ReadonlyRootfs = true
-	hc.Resources.Memory = 32 * 1024 * 1024
+	hc.Resources.Memory = 64 * 1024 * 1024
 	hc.Resources.NanoCPUs = 500_000_000
-	pidsLimit := int64(256)
+	pidsLimit := int64(128)
 	hc.Resources.PidsLimit = &pidsLimit
 
 	netCfg := &network.NetworkingConfig{
