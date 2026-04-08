@@ -10,7 +10,7 @@ import (
 func TestMCPToolRegistry_RegisterAndList(t *testing.T) {
 	reg := NewMCPToolRegistry()
 	reg.Register("agency_test", "A test tool", map[string]interface{}{
-		"type": "object",
+		"type":       "object",
 		"properties": map[string]interface{}{"name": map[string]interface{}{"type": "string"}},
 	}, func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 		return "ok", false
@@ -68,6 +68,32 @@ func TestMCPToolsEndpoint(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&body)
 	if len(body.Tools) != 1 {
 		t.Fatalf("tools = %d, want 1", len(body.Tools))
+	}
+}
+
+func TestMCPToolRegistry_RegisterDuplicatePanics(t *testing.T) {
+	reg := NewMCPToolRegistry()
+	reg.Register("agency_test", "Test", nil, nil)
+
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected duplicate registration to panic")
+		}
+	}()
+
+	reg.Register("agency_test", "Duplicate", nil, nil)
+}
+
+func TestMCPToolRegistry_ToolsReturnsCopy(t *testing.T) {
+	reg := NewMCPToolRegistry()
+	reg.Register("agency_test", "Test", nil, nil)
+
+	tools := reg.Tools()
+	tools[0].Name = "mutated"
+
+	fresh := reg.Tools()
+	if fresh[0].Name != "agency_test" {
+		t.Fatalf("registry tool name = %q, want agency_test", fresh[0].Name)
 	}
 }
 
