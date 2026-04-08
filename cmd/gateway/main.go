@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -651,6 +652,73 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser bo
 		}
 	}
 
+	// Profile host capacity
+	fmt.Println()
+	fmt.Println("Profiling host capacity...")
+
+	hasEmbeddings := true
+	embedProvider := os.Getenv("KNOWLEDGE_EMBED_PROVIDER")
+	if embedProvider != "" && embedProvider != "ollama" {
+		hasEmbeddings = false
+	}
+
+	capCfg, capErr := orchestrate.ProfileHost(hasEmbeddings)
+	if capErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not profile host: %v\n", capErr)
+	} else {
+		capPath := filepath.Join(agencyHome, "capacity.yaml")
+		if err := orchestrate.SaveCapacity(capPath, capCfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not save capacity config: %v\n", err)
+		} else {
+			fmt.Println()
+			fmt.Println("Host capacity profile:")
+			fmt.Printf("  Memory: %d GB total, %.1f GB system reserve, %.1f GB infrastructure\n",
+				capCfg.HostMemoryMB/1024,
+				float64(capCfg.SystemReserveMB)/1024.0,
+				float64(capCfg.InfraOverheadMB)/1024.0)
+			fmt.Printf("  CPU: %d cores (2 reserved for system)\n", capCfg.HostCPUCores)
+			fmt.Printf("  Agent capacity: %d concurrent (%d MB each)\n",
+				capCfg.MaxAgents, capCfg.AgentSlotMB)
+			fmt.Printf("  Meeseeks: share the same pool (%d MB each)\n",
+				capCfg.MeeseeksSlotMB)
+			fmt.Println()
+			fmt.Printf("Written to %s — edit to adjust limits.\n", capPath)
+		}
+	}
+
+	// Docker network pool configuration (CLI mode only)
+	if cliMode {
+		daemonJSON := "/etc/docker/daemon.json"
+		needsConfig := true
+
+		if data, err := os.ReadFile(daemonJSON); err == nil {
+			if strings.Contains(string(data), "default-address-pools") {
+				needsConfig = false
+			}
+		}
+
+		if needsConfig {
+			fmt.Println()
+			fmt.Println("Docker network pool: default (limited to ~15 networks)")
+			fmt.Println("Recommended: /24 subnets from 172.16.0.0/12 (~4,000 networks)")
+			fmt.Print("Configure now? This requires a Docker daemon restart. [y/N] ")
+
+			scanner := bufio.NewScanner(os.Stdin)
+			if scanner.Scan() && strings.ToLower(strings.TrimSpace(scanner.Text())) == "y" {
+				if err := configureDockerPool(daemonJSON); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: could not configure Docker pool: %v\n", err)
+				} else {
+					fmt.Println("Docker pool configured. Restart Docker daemon to apply.")
+					capPath := filepath.Join(agencyHome, "capacity.yaml")
+					if cap, loadErr := orchestrate.LoadCapacity(capPath); loadErr == nil {
+						cap.NetworkPoolConfigured = true
+						orchestrate.SaveCapacity(capPath, cap)
+					}
+				}
+			}
+		}
+	}
+
 	fmt.Println()
 	if cliMode {
 		fmt.Println("You're ready to go:")
@@ -1118,4 +1186,28 @@ func listAgentNames(home string) []string {
 func readPassword() ([]byte, error) {
 	fd := int(syscall.Stdin)
 	return term.ReadPassword(fd)
+}
+
+func configureDockerPool(path string) error {
+	var existing map[string]interface{}
+
+	data, err := os.ReadFile(path)
+	if err == nil {
+		if err := json.Unmarshal(data, &existing); err != nil {
+			return fmt.Errorf("cannot parse existing %s: %w", path, err)
+		}
+	} else {
+		existing = make(map[string]interface{})
+	}
+
+	existing["default-address-pools"] = []map[string]interface{}{
+		{"base": "172.16.0.0/12", "size": 24},
+	}
+
+	out, err := json.MarshalIndent(existing, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, append(out, '\n'), 0644)
 }
