@@ -457,8 +457,10 @@ fi
 step "LLM usage error rate"
 # Check errors during this test run
 USAGE=$("$AGENCY_BIN" -q admin usage --since "$TEST_START_TIME" 2>&1)
-USAGE_ERRORS=$(echo "$USAGE" | grep -oP 'Errors:\s+\K\d+' || echo "0")
-USAGE_CALLS=$(echo "$USAGE" | grep -oP 'Calls:\s+\K\d+' || echo "0")
+USAGE_ERRORS=$(echo "$USAGE" | sed -n 's/.*Errors:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)
+[ -z "$USAGE_ERRORS" ] && USAGE_ERRORS=0
+USAGE_CALLS=$(echo "$USAGE" | sed -n 's/.*Calls:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)
+[ -z "$USAGE_CALLS" ] && USAGE_CALLS=0
 if [ "$USAGE_ERRORS" -gt 0 ]; then
     fail "LLM usage during test: $USAGE_ERRORS error(s) out of $USAGE_CALLS call(s)"
 else
@@ -472,8 +474,10 @@ fi
 # Also check cumulative errors — catches ongoing infra LLM problems
 # (e.g., knowledge synthesizer failing every cycle)
 USAGE_ALL=$("$AGENCY_BIN" -q admin usage 2>&1)
-ALL_ERRORS=$(echo "$USAGE_ALL" | grep -oP 'Errors:\s+\K\d+' || echo "0")
-ALL_CALLS=$(echo "$USAGE_ALL" | grep -oP 'Calls:\s+\K\d+' || echo "0")
+ALL_ERRORS=$(echo "$USAGE_ALL" | sed -n 's/.*Errors:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)
+[ -z "$ALL_ERRORS" ] && ALL_ERRORS=0
+ALL_CALLS=$(echo "$USAGE_ALL" | sed -n 's/.*Calls:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)
+[ -z "$ALL_CALLS" ] && ALL_CALLS=0
 if [ "$ALL_ERRORS" -gt 0 ]; then
     ERROR_RATE=$((ALL_ERRORS * 100 / ALL_CALLS))
     fail "LLM usage cumulative: $ALL_ERRORS error(s) out of $ALL_CALLS call(s) (${ERROR_RATE}% error rate)"
@@ -528,6 +532,15 @@ if echo "$PROXY_HEALTH" | grep -q '"status"'; then
 else
     fail "gateway-proxy round-trip failed — proxy may not be forwarding traffic"
     echo "    Response: $PROXY_HEALTH"
+fi
+
+# Verify the reverse direction (gateway→container via proxy published ports).
+COMMS_HEALTH=$(curl -sf http://localhost:8202/health 2>&1) || COMMS_HEALTH=""
+if echo "$COMMS_HEALTH" | grep -q '"status"'; then
+    pass "gateway→comms proxy bridge works (localhost:8202 → comms:8080)"
+else
+    fail "gateway→comms proxy bridge failed — reverse proxy may not be forwarding"
+    echo "    Response: $COMMS_HEALTH"
 fi
 
 # --------------------------------------------------

@@ -207,45 +207,13 @@ func (c *Client) ExecInContainer(ctx context.Context, containerName string, cmd 
 	return buf.String(), nil
 }
 
-// commsURL returns the base URL for comms requests. Resolves the comms
-// container's IP on the Docker network via container inspect. Falls back to
-// localhost:8202 (host port binding) if resolution fails.
-//
-// Container IP access is reliable on all Docker hosts, unlike host port
-// publishing which fails on some hosts with user-defined networks.
-func (c *Client) commsURL(path string) string {
-	if c.cli != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		info, err := c.cli.ContainerInspect(ctx, prefix+"-infra-comms")
-		if err == nil {
-			for _, net := range info.NetworkSettings.Networks {
-				if net.IPAddress != "" {
-					return "http://" + net.IPAddress + ":8080" + path
-				}
-			}
-		}
-	}
-	return "http://localhost:8202" + path
-}
-
-// commsHTTPClient returns an HTTP client for comms requests.
-func (c *Client) commsHTTPClient() *http.Client {
-	return &http.Client{Timeout: 15 * time.Second}
-}
-
-// CommsRequest makes an HTTP request to the comms service through the gateway
-// socket proxy. The request routes through the Unix socket → socat proxy →
-// Docker network → comms:8080. This avoids depending on Docker host port
-// publishing which is unreliable on some hosts with user-defined networks.
-//
-// Falls back to localhost:8202 (direct port binding) if the socket is not
-// configured, for backward compatibility.
+// CommsRequest makes an HTTP request to the comms service via the gateway-proxy.
+// The proxy bridges localhost:8202 → comms:8080 on the internal Docker network.
 //
 // Platform-only endpoints (grant-access, archive) get the X-Agency-Platform header.
 func (c *Client) CommsRequest(ctx context.Context, method, path string, body interface{}) ([]byte, error) {
-	url := c.commsURL(path)
-	httpClient := c.commsHTTPClient()
+	url := "http://localhost:8202" + path
+	httpClient := &http.Client{Timeout: 15 * time.Second}
 
 	var req *http.Request
 	var err error
