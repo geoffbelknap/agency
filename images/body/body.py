@@ -2571,7 +2571,7 @@ class Body:
         except OSError as e:
             log.warning("Failed to write signal: %s", e)
 
-        # Real-time relay via comms → gateway WebSocket relay (best-effort).
+        # Real-time bridge via comms -> gateway WebSocket hub (best-effort).
         # Only relay signals that clients care about — skip heartbeats and
         # other internal signals that are only meaningful in the file log.
         _RELAY_SIGNALS = {"processing", "error", "task_complete", "task_accepted",
@@ -2581,7 +2581,7 @@ class Body:
             return
 
         # Comms is on the mediation network — reachable from the workspace.
-        # The gateway's comms relay picks up the signal and broadcasts via
+        # The gateway's comms bridge picks up the signal and broadcasts via
         # WebSocket hub to agency-web and other connected clients.
         try:
             comms_url = os.environ.get("AGENCY_COMMS_URL", "http://enforcer:8081/mediation/comms")

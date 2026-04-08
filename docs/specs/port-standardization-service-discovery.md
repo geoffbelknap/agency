@@ -132,7 +132,7 @@ The current comms container creation doesn't set `NetworkMode` explicitly — it
 - `agency-gateway/internal/orchestrate/enforcer.go` — add labels to enforcer creation
 - `agency-gateway/internal/orchestrate/workspace.go` — set env vars from service map instead of hardcoded URLs
 - `agency-gateway/internal/docker/client.go` — replace `http://localhost:18091` with `http://localhost:8202`
-- `agency-gateway/internal/ws/comms_relay.go` — replace `ws://localhost:18091` with `ws://localhost:8202`
+- `agency-gateway/internal/ws/comms_bridge.go` — replace `ws://localhost:18091` with `ws://localhost:8202`
 - `agency-gateway/internal/knowledge/proxy.go` — rewrite to use HTTP to `localhost:8204` instead of docker exec
 - `agency-gateway/internal/orchestrate/start.go` — replace docker exec budget config with HTTP to `localhost:8203/budget-configure`
 - `agency-gateway/internal/api/` — webhook endpoint forwards to `localhost:8205`

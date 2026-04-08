@@ -34,7 +34,7 @@ import (
 func TestRouteWiring_AllModulesRegistered(t *testing.T) {
 	r := chi.NewRouter()
 
-	cfg := &config.Config{Version: "test", Token: "test-token"}
+	cfg := &config.Config{Home: t.TempDir(), Version: "test", Token: "test-token"}
 
 	// platform module — health, openapi, init, websocket, audit, config endpoint
 	platform.RegisterRoutes(r, platform.Deps{
@@ -174,7 +174,7 @@ func TestOpenAPIPathsHaveRoutes(t *testing.T) {
 
 	// Build the full router with all modules registered (same as RegisterAll).
 	r := chi.NewRouter()
-	cfg := &config.Config{Version: "test", Token: "test-token"}
+	cfg := &config.Config{Home: t.TempDir(), Version: "test", Token: "test-token"}
 
 	platform.RegisterRoutes(r, platform.Deps{Config: cfg})
 	apiagents.RegisterRoutes(r, apiagents.Deps{Config: cfg})
@@ -207,6 +207,7 @@ func TestOpenAPIPathsHaveRoutes(t *testing.T) {
 		"POST /graph/ontology/migrate":            true,
 		"POST /admin/knowledge":                   true,
 		"POST /admin/audit/summarize":             true,
+		"POST /events/intake/webhook":             true,
 	}
 
 	missing := 0

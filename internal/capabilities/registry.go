@@ -11,13 +11,13 @@ import (
 
 // Entry represents a registered capability (MCP server, service, or skill).
 type Entry struct {
-	Name        string   `json:"name" yaml:"name"`
-	Kind        string   `json:"kind" yaml:"kind"` // mcp-server, service, skill
-	Description string   `json:"description,omitempty" yaml:"description"`
-	State       string   `json:"state"` // available, restricted, disabled
-	Agents      []string `json:"agents,omitempty"`
-	URL         string   `json:"url,omitempty" yaml:"url,omitempty"`
-	KeyEnv      string   `json:"key_env,omitempty" yaml:"key_env,omitempty"`
+	Name        string                 `json:"name" yaml:"name"`
+	Kind        string                 `json:"kind" yaml:"kind"` // mcp-server, service, skill
+	Description string                 `json:"description,omitempty" yaml:"description"`
+	State       string                 `json:"state"` // available, restricted, disabled
+	Agents      []string               `json:"agents,omitempty"`
+	URL         string                 `json:"url,omitempty" yaml:"url,omitempty"`
+	KeyEnv      string                 `json:"key_env,omitempty" yaml:"key_env,omitempty"`
 	Spec        map[string]interface{} `json:"spec,omitempty" yaml:",inline"`
 }
 
@@ -38,7 +38,7 @@ type Registry struct {
 
 // NewRegistry creates a new capability registry rooted at the agency home directory.
 func NewRegistry(home string) *Registry {
-	return &Registry{Home: home}
+	return &Registry{Home: resolveHome(home)}
 }
 
 // List returns all capabilities, merging registry entries with state from capabilities.yaml.
@@ -267,3 +267,16 @@ func (r *Registry) saveStates(states map[string]capState) error {
 	return os.WriteFile(r.configPath(), data, 0644)
 }
 
+func resolveHome(home string) string {
+	if home != "" {
+		return home
+	}
+	if envHome := os.Getenv("AGENCY_HOME"); envHome != "" {
+		return envHome
+	}
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		return ".agency"
+	}
+	return filepath.Join(userHome, ".agency")
+}

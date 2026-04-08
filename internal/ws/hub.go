@@ -255,7 +255,7 @@ func (c *Client) writePump() {
 // ── Hub ─────────────────────────────────────────────────────────────────────
 
 // Hub maintains the set of active clients and broadcasts events to them.
-// EventPublishFunc is called when a channel message arrives via comms relay,
+// EventPublishFunc is called when a channel message arrives via the comms bridge,
 // allowing the event bus to receive channel events.
 type EventPublishFunc func(channel, messageID, content, author string)
 
@@ -351,7 +351,7 @@ func (h *Hub) run() {
 
 // Broadcast sends an event to all subscribed clients.
 // If the broadcast channel is full the event is dropped with a warning rather
-// than blocking the caller (which is often the comms relay goroutine).
+// than blocking the caller (which is often the comms bridge goroutine).
 func (h *Hub) Broadcast(e Event) {
 	if e.V == 0 {
 		e.V = 1
@@ -394,7 +394,7 @@ func (h *Hub) BroadcastAgentSignal(agent, eventType string, data map[string]inte
 	}
 }
 
-// SetEventPublisher sets a callback that is invoked when the comms relay
+// SetEventPublisher sets a callback that is invoked when the comms bridge
 // receives a channel message, allowing integration with the event bus.
 func (h *Hub) SetEventPublisher(fn EventPublishFunc) {
 	h.mu.Lock()
@@ -412,11 +412,11 @@ func (h *Hub) PublishChannelEvent(channel, messageID, content, author string) {
 	}
 }
 
-// AgentSignalPublishFunc is called when the comms relay receives an agent
+// AgentSignalPublishFunc is called when the comms bridge receives an agent
 // signal that should be promoted to a platform event.
 type AgentSignalPublishFunc func(agent, signalType string, data map[string]interface{})
 
-// SetAgentSignalPublisher sets a callback invoked when the comms relay
+// SetAgentSignalPublisher sets a callback invoked when the comms bridge
 // receives an agent signal eligible for event bus promotion.
 func (h *Hub) SetAgentSignalPublisher(fn AgentSignalPublishFunc) {
 	h.mu.Lock()

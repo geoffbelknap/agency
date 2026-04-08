@@ -109,18 +109,18 @@ func TestAuth_Validation(t *testing.T) {
 
 		// Valid bearer token grants access
 		{
-			name:       "valid bearer token on agents endpoint",
-			cfgToken:   testToken, egressTok: egressToken,
-			path:       "/api/v1/agents", method: http.MethodGet,
+			name:     "valid bearer token on agents endpoint",
+			cfgToken: testToken, egressTok: egressToken,
+			path: "/api/v1/agents", method: http.MethodGet,
 			authHeader: "Bearer " + testToken,
 			wantCode:   http.StatusOK,
 		},
 
 		// Wrong token — rejected
 		{
-			name:       "wrong token is rejected with 401",
-			cfgToken:   testToken, egressTok: egressToken,
-			path:       "/api/v1/missions", method: http.MethodGet,
+			name:     "wrong token is rejected with 401",
+			cfgToken: testToken, egressTok: egressToken,
+			path: "/api/v1/missions", method: http.MethodGet,
 			authHeader: "Bearer notthetoken",
 			wantCode:   http.StatusUnauthorized,
 		},
@@ -128,23 +128,23 @@ func TestAuth_Validation(t *testing.T) {
 		// Scoped egress token — already covered in middleware_auth_test.go,
 		// but we include the key invariants here for completeness.
 		{
-			name:       "egress token on correct endpoint and method",
-			cfgToken:   testToken, egressTok: egressToken,
-			path:       "/api/v1/creds/internal/resolve", method: http.MethodGet,
+			name:     "egress token on correct endpoint and method",
+			cfgToken: testToken, egressTok: egressToken,
+			path: "/api/v1/creds/internal/resolve", method: http.MethodGet,
 			authHeader: "Bearer " + egressToken,
 			wantCode:   http.StatusOK,
 		},
 		{
-			name:       "egress token on wrong endpoint returns 403 not 401",
-			cfgToken:   testToken, egressTok: egressToken,
-			path:       "/api/v1/agents", method: http.MethodGet,
+			name:     "egress token on wrong endpoint returns 403 not 401",
+			cfgToken: testToken, egressTok: egressToken,
+			path: "/api/v1/agents", method: http.MethodGet,
 			authHeader: "Bearer " + egressToken,
 			wantCode:   http.StatusForbidden,
 		},
 		{
-			name:       "egress token with POST on cred resolve returns 403",
-			cfgToken:   testToken, egressTok: egressToken,
-			path:       "/api/v1/creds/internal/resolve", method: http.MethodPost,
+			name:     "egress token with POST on cred resolve returns 403",
+			cfgToken: testToken, egressTok: egressToken,
+			path: "/api/v1/creds/internal/resolve", method: http.MethodPost,
 			authHeader: "Bearer " + egressToken,
 			wantCode:   http.StatusForbidden,
 		},
@@ -240,7 +240,7 @@ func TestConfig_TokenAutoGeneration(t *testing.T) {
 		}
 
 		var cf struct {
-			Token      string `yaml:"token"`
+			Token       string `yaml:"token"`
 			EgressToken string `yaml:"egress_token"`
 		}
 		if err := yaml.Unmarshal(data, &cf); err != nil {
@@ -299,7 +299,7 @@ func TestConfig_TokenAutoGeneration(t *testing.T) {
 // Panics only occur when handlers actually run, not during registration.
 // A panic here means a module is accessing deps at registration time, which is wrong.
 func TestModuleIsolation(t *testing.T) {
-	cfg := &config.Config{Version: "test", Token: "test-token"}
+	cfg := &config.Config{Home: t.TempDir(), Version: "test", Token: "test-token"}
 
 	modules := []struct {
 		name string
@@ -405,7 +405,7 @@ func TestModuleIsolation(t *testing.T) {
 // - Events module: when EventBus is nil, listEvents returns 503 (not wired away)
 // - Creds module: when CredStore is nil, credential handlers return 500/503
 func TestConditionalRegistration(t *testing.T) {
-	cfg := &config.Config{Version: "test", Token: "test-token"}
+	cfg := &config.Config{Home: t.TempDir(), Version: "test", Token: "test-token"}
 
 	t.Run("events route registered regardless of nil EventBus", func(t *testing.T) {
 		r := chi.NewRouter()

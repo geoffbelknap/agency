@@ -790,7 +790,7 @@ func runServe(httpAddr string) error {
 
 	// WebSocket hub
 	wsHub := ws.NewHub(logger)
-	ws.StartCommsRelay(wsHub, logger)
+	ws.StartCommsBridge(wsHub, logger)
 
 	// Event bus
 	audit := logs.NewWriter(cfg.Home)
@@ -833,7 +833,7 @@ func runServe(httpAddr string) error {
 		eventBus.Subscriptions().Add(sub)
 	}
 
-	// Wire channel events from comms relay to event bus
+	// Wire channel events from the comms bridge to the event bus.
 	wsHub.SetEventPublisher(func(channel, messageID, content, author string) {
 		event := models.NewChannelEvent(channel, messageID,
 			map[string]interface{}{"content": content},

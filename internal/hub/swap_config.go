@@ -36,6 +36,7 @@ type SwapEntry struct {
 // GenerateSwapConfig builds credential-swaps.yaml content from service
 // definitions, routing.yaml provider entries, and jwt-swap.yaml entries.
 func GenerateSwapConfig(home string) ([]byte, error) {
+	home = resolveHome(home)
 	cfg := SwapConfigFile{Swaps: map[string]SwapEntry{}}
 
 	// Pre-load JWT swap configs so service definitions that hit JWT-protected
@@ -74,8 +75,8 @@ func GenerateSwapConfig(home string) ([]byte, error) {
 			continue
 		}
 		var svc struct {
-			Service string `yaml:"service"`
-			APIBase string `yaml:"api_base"`
+			Service    string `yaml:"service"`
+			APIBase    string `yaml:"api_base"`
 			Credential struct {
 				EnvVar       string `yaml:"env_var"`
 				Header       string `yaml:"header"`
@@ -226,6 +227,7 @@ func GenerateSwapConfig(home string) ([]byte, error) {
 
 // WriteSwapConfig generates and writes credential-swaps.yaml.
 func WriteSwapConfig(home string) error {
+	home = resolveHome(home)
 	data, err := GenerateSwapConfig(home)
 	if err != nil {
 		return fmt.Errorf("generate swap config: %w", err)
@@ -243,4 +245,18 @@ func extractSwapDomain(apiBase string) string {
 	d = strings.SplitN(d, "/", 2)[0]
 	d = strings.SplitN(d, ":", 2)[0]
 	return strings.ToLower(d)
+}
+
+func resolveHome(home string) string {
+	if home != "" {
+		return home
+	}
+	if envHome := os.Getenv("AGENCY_HOME"); envHome != "" {
+		return envHome
+	}
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		return ".agency"
+	}
+	return filepath.Join(userHome, ".agency")
 }

@@ -369,7 +369,7 @@ agency relay uninstall            # remove system service
 
 ### Gateway Integration
 
-- If `relay.yaml` exists and `enabled: true`, relay client starts automatically with the daemon (same pattern as comms relay)
+- If `relay.yaml` exists and `enabled: true`, relay client starts automatically with the daemon (same pattern as the comms bridge)
 - New gateway endpoints:
   - `POST /api/v1/relay/connect` — signal daemon to start tunnel
   - `POST /api/v1/relay/disconnect` — signal daemon to stop tunnel

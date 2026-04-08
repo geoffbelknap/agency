@@ -9,9 +9,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/geoffbelknap/agency/internal/events"
 	apimissions "github.com/geoffbelknap/agency/internal/api/missions"
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
+	"github.com/geoffbelknap/agency/internal/events"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 )
 
@@ -367,6 +367,7 @@ func (h *handler) haltAgent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "emergency halt requires a reason (ASK Tenet 2)"})
 		return
 	}
+	h.unregisterEnforcerWSClient(name)
 	record, err := h.deps.HaltController.Halt(r.Context(), name, body.Type, body.Reason, body.Initiator)
 	if err != nil {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
@@ -444,6 +445,7 @@ func (h *handler) resumeAgent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
 	}
+	h.registerEnforcerWSClient(name)
 	h.deps.Audit.Write(name, "agent_resumed", map[string]interface{}{"initiator": body.Initiator})
 	events.EmitAgentEvent(h.deps.EventBus, "agent_resumed", name, nil)
 	writeJSON(w, 200, map[string]string{"status": "resumed", "agent": name})

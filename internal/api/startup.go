@@ -7,8 +7,8 @@ import (
 
 	"log/slog"
 
-	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/config"
+	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/hub"
@@ -76,6 +76,9 @@ func Startup(cfg *config.Config, dc *docker.Client, logger *slog.Logger) (*Start
 	if halt == nil {
 		return nil, fmt.Errorf("halt controller init returned nil")
 	}
+	halt.SourceDir = cfg.SourceDir
+	halt.BuildID = cfg.BuildID
+	halt.Comms = dc
 
 	audit := logs.NewWriter(cfg.Home)
 	ctxMgr := agencyctx.NewManager(audit)
@@ -97,6 +100,7 @@ func Startup(cfg *config.Config, dc *docker.Client, logger *slog.Logger) (*Start
 	} else if fb != nil {
 		cs = credstore.NewStore(fb, cfg.Home)
 	}
+	halt.CredStore = cs
 
 	// Initialize profile store (non-fatal).
 	ps := profiles.NewStore(filepath.Join(cfg.Home, "profiles"))

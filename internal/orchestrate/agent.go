@@ -14,7 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"log/slog"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
@@ -22,9 +21,10 @@ import (
 	"github.com/docker/go-connections/nat"
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
+	"log/slog"
 
-	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/comms"
+	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
 )
 
 var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$`)
@@ -36,19 +36,19 @@ var reservedNames = map[string]bool{
 
 // AgentDetail contains the full agent definition and runtime status.
 type AgentDetail struct {
-	Name        string              `json:"name"`
-	Type        string              `json:"type"`
-	Status      string              `json:"status"` // running, stopped, paused
-	Model       string              `json:"model,omitempty"`
-	ModelTier   string              `json:"model_tier,omitempty"`
-	Preset      string              `json:"preset,omitempty"`
-	Role        string              `json:"role,omitempty"`
-	Team        string              `json:"team,omitempty"`
-	TrustLevel  int                 `json:"trust_level,omitempty"`
-	Workspace   string              `json:"workspace"`
-	Enforcer    string              `json:"enforcer"`
-	AgentDir    string              `json:"agent_dir"`
-	LifecycleID string              `json:"lifecycle_id,omitempty"`
+	Name            string              `json:"name"`
+	Type            string              `json:"type"`
+	Status          string              `json:"status"` // running, stopped, paused
+	Model           string              `json:"model,omitempty"`
+	ModelTier       string              `json:"model_tier,omitempty"`
+	Preset          string              `json:"preset,omitempty"`
+	Role            string              `json:"role,omitempty"`
+	Team            string              `json:"team,omitempty"`
+	TrustLevel      int                 `json:"trust_level,omitempty"`
+	Workspace       string              `json:"workspace"`
+	Enforcer        string              `json:"enforcer"`
+	AgentDir        string              `json:"agent_dir"`
+	LifecycleID     string              `json:"lifecycle_id,omitempty"`
 	Constraints     *ConstraintsSummary `json:"constraints,omitempty"`
 	Restrictions    []string            `json:"restrictions,omitempty"`
 	GrantedCaps     []string            `json:"granted_capabilities,omitempty"`
@@ -75,13 +75,13 @@ type TaskSummary struct {
 
 // AgentManager handles agent CRUD operations.
 type AgentManager struct {
-	Home          string
-	Docker        *agencyDocker.Client
-	Comms         comms.Client
-	cli           *client.Client
-	log           *slog.Logger
-	StopSuppress  *StopSuppression
-	infra         *Infra // optional — nil in tests without infra
+	Home         string
+	Docker       *agencyDocker.Client
+	Comms        comms.Client
+	cli          *client.Client
+	log          *slog.Logger
+	StopSuppress *StopSuppression
+	infra        *Infra // optional — nil in tests without infra
 }
 
 func NewAgentManager(home string, dc *agencyDocker.Client, logger *slog.Logger) (*AgentManager, error) {
@@ -553,6 +553,9 @@ func (am *AgentManager) loadAgentDetail(name, agentsDir string, running map[stri
 		d.Status = ci.State
 	} else {
 		d.Workspace = "stopped"
+		if activeHaltExists(am.Home, name) {
+			d.Status = "halted"
+		}
 	}
 	if ci, ok := running[enfName]; ok {
 		d.Enforcer = ci.State
