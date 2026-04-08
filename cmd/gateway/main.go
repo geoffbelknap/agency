@@ -358,8 +358,9 @@ func setupCmd() *cobra.Command {
 				return runSetup(provider, apiKey, notifyURL, noInfra, true, noBrowser)
 			}
 
-			// Default: web-assisted setup — no prompts
-			return runSetup("", "", notifyURL, noInfra, false, noBrowser)
+			// Default: web-assisted setup — no prompts.
+			// Pass through --provider/--api-key if given (supports non-interactive use).
+			return runSetup(provider, apiKey, notifyURL, noInfra, false, noBrowser)
 		},
 	}
 
