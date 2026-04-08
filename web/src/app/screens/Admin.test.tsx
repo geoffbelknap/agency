@@ -96,10 +96,10 @@ describe('Admin — Policy tab', () => {
     let validated = false;
     server.use(
       ...agentHandlers,
-      http.get(`${BASE}/policy/alice`, () =>
+      http.get(`${BASE}/admin/policy/alice`, () =>
         HttpResponse.json({ rules: [] }),
       ),
-      http.post(`${BASE}/policy/alice/validate`, () => {
+      http.post(`${BASE}/admin/policy/alice/validate`, () => {
         validated = true;
         return HttpResponse.json({ valid: true });
       }),
