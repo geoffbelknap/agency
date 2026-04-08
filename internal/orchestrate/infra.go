@@ -241,12 +241,20 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 		return fmt.Errorf("ensure networks: %w", err)
 	}
 
+	// Gateway proxy must start first — it's the hub. Every other container
+	// depends on it for Docker DNS resolution ("gateway" hostname), credential
+	// resolution, and event publishing through the socket proxy.
+	progress("gateway-proxy", "Starting gateway proxy")
+	if err := inf.ensureGatewayProxy(ctx); err != nil {
+		return fmt.Errorf("start gateway-proxy: %w", err)
+	}
+	progress("gateway-proxy", "Started gateway-proxy")
+
 	components := []struct {
 		name string
 		desc string
 		ensure func(ctx context.Context) error
 	}{
-		{"gateway-proxy", "Starting gateway proxy", inf.ensureGatewayProxy},
 		{"egress", "Starting egress proxy (credential swap, network mediation)", inf.ensureEgress},
 		{"comms", "Starting comms server (channels, messaging)", inf.ensureComms},
 		{"knowledge", "Starting knowledge graph", inf.ensureKnowledge},
@@ -257,7 +265,8 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 		{"embeddings", "Starting embeddings service (local vector embeddings)", inf.ensureEmbeddings},
 	}
 
-	// Start all components in parallel — they're independent.
+	// Start remaining components in parallel — they all depend on gateway-proxy
+	// which is now ready, but are independent of each other.
 	progress("infra", "Starting all services")
 	type result struct {
 		name string
@@ -523,8 +532,10 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	hc.ReadonlyRootfs = true
 	hc.Resources.Memory = 64 * 1024 * 1024
 	hc.Resources.NanoCPUs = 500_000_000
-	pidsLimit := int64(128)
-	hc.Resources.PidsLimit = &pidsLimit
+	// No PID limit — socat forks per connection and the gateway-proxy handles
+	// all inter-container traffic. A limit here causes fork() exhaustion under
+	// normal load. The memory limit (64MB) is the effective constraint.
+	hc.Resources.PidsLimit = nil
 
 	netCfg := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
