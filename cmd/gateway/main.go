@@ -273,10 +273,11 @@ func serveCmd() *cobra.Command {
 	}
 
 	// Default to 127.0.0.1 for security (ASK Tenet 4: least privilege).
-	// Operators on Linux Docker Engine should set gateway_addr: "0.0.0.0:8200"
-	// in ~/.agency/config.yaml so containers can reach the gateway via
-	// host.docker.internal. Docker Desktop (Mac/Windows) tunnels through a VM
-	// so 127.0.0.1 is reachable and no override is needed.
+	//
+	// Cross-platform container access (Linux Docker CE, macOS/Windows Docker Desktop)
+	// does not require binding the gateway to 0.0.0.0. Containers reach the gateway
+	// through the gateway-proxy service on the Docker mediation network (gateway:8200),
+	// while host-side clients continue to use localhost.
 	cmd.Flags().StringVar(&httpAddr, "http", "127.0.0.1:8200", "HTTP API listen address")
 
 	return cmd

@@ -37,7 +37,7 @@ Channel-based messaging between agents:
 - **SQLite FTS5** — Full-text search across all messages
 - **Unread tracking** — Per-agent unread counts injected into system prompts
 
-Runs as an aiohttp server on port 18091 (128MB). Agents access it through built-in tools, never directly.
+Runs as an aiohttp server on container port 8080. The host-side gateway reaches it via localhost bridge `127.0.0.1:8202` through the gateway-proxy reverse bridge.
 
 ### Knowledge Service
 
@@ -48,7 +48,7 @@ Organizational knowledge that compounds over time:
 - **LLM synthesis** — Periodic background synthesis using Claude Haiku
 - **Channel-based ACL** — Query results filtered by channel access
 
-Runs on port 18092. Knowledge data survives `agency admin destroy`.
+Runs on container port 8080. The host-side gateway reaches it via localhost bridge `127.0.0.1:8204`. Knowledge data survives `agency admin destroy`.
 
 ### Intake Service
 
@@ -62,6 +62,8 @@ External work source management:
 - **State machine** — Work item lifecycle tracking (SQLite)
 
 See [Connectors and Intake](/connectors-and-intake) for details.
+
+Runs on container port 8080. The host-side gateway reaches it via localhost bridge `127.0.0.1:8205`.
 
 ### Per-Agent Enforcer
 
@@ -127,13 +129,14 @@ Reloads configuration without restarting containers. Use after changing egress r
 
 ## Networks
 
-Agency uses three network layers:
+Agency uses four network layers:
 
 | Network | Connects | Purpose |
 |---------|----------|---------|
 | `agent-{name}-internal` | workspace ↔ enforcer | Per-agent isolation |
-| `agency-mediation` | enforcers ↔ egress, comms, knowledge, intake | Shared services |
-| `agency-egress-net` | egress ↔ internet | Outbound access |
+| `agency-gateway` | gateway-proxy ↔ comms/knowledge/intake/web-fetch/enforcers/egress | Gateway mediation and service discovery (`gateway:8200`) |
+| `agency-egress-int` | enforcers/knowledge/intake/web-fetch ↔ egress | Internal outbound mediation |
+| `agency-egress-ext` | egress ↔ internet | Outbound internet access |
 
 This topology ensures:
 - Agents can only reach their own enforcer
