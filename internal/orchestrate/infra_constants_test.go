@@ -55,10 +55,9 @@ func TestNetworkConstantsInDocs(t *testing.T) {
 }
 
 // TestGatewayProxyNotSelfLoop parses the gateway-proxy entrypoint script and
-// verifies that socat's upstream target is a Unix socket, not a TCP connection
-// to the container's own hostname. A TCP self-loop (TCP:gateway:8200 when the
-// container IS "gateway") was the root cause of all inter-container communication
-// failures.
+// verifies that socat never forwards to TCP:gateway (the container's own alias).
+// A TCP self-loop was the root cause of all inter-container communication failures.
+// The proxy uses UNIX-CONNECT on Linux and host.docker.internal on macOS.
 func TestGatewayProxyNotSelfLoop(t *testing.T) {
 	root := repoRoot(t)
 	script := filepath.Join(root, "images", "gateway-proxy", "entrypoint.sh")
@@ -69,15 +68,17 @@ func TestGatewayProxyNotSelfLoop(t *testing.T) {
 	}
 	content := string(data)
 
-	// The container→gateway bridge must use a Unix socket, not TCP to its own alias
-	if strings.Contains(content, "TCP:gateway") {
-		t.Errorf("gateway-proxy entrypoint forwards to TCP:gateway — this is a self-loop "+
-			"because the container IS 'gateway' on the Docker network. "+
-			"Use UNIX-CONNECT:/run/gateway.sock instead.")
+	// Must never forward to TCP:gateway — that's a self-loop
+	if strings.Contains(content, "TCP:gateway:") {
+		t.Error("gateway-proxy entrypoint forwards to TCP:gateway — self-loop")
 	}
+	// Must support Unix socket path (Linux)
 	if !strings.Contains(content, "UNIX-CONNECT:/run/gateway.sock") {
-		t.Errorf("gateway-proxy entrypoint does not use UNIX-CONNECT:/run/gateway.sock — "+
-			"the container→gateway bridge must use the Unix socket.")
+		t.Error("gateway-proxy entrypoint missing UNIX-CONNECT:/run/gateway.sock (Linux path)")
+	}
+	// Must support host.docker.internal fallback (macOS Docker Desktop)
+	if !strings.Contains(content, "host.docker.internal") {
+		t.Error("gateway-proxy entrypoint missing host.docker.internal (macOS path)")
 	}
 }
 
