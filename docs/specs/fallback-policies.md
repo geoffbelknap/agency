@@ -330,7 +330,7 @@ See the Task Tier and Cost Model spec for the full tier classification logic.
 
 ## ASK Compliance
 
-- **Tenet 3 (Mediation is complete):** Escalation signals from fallback chains flow through the standard signal protocol — body runtime to comms relay to gateway. No unmediated paths.
+- **Tenet 3 (Mediation is complete):** Escalation signals from fallback chains flow through the standard signal protocol — body runtime to comms bridge to gateway. No unmediated paths.
 - **Tenet 4 (Least privilege):** Fallback policies cannot grant new capabilities. `alternative_tool` only suggests tools already in the agent's grants. The validation layer rejects references to ungranted tools.
 - **Tenet 17 (Instructions from verified principals):** Fallback policies are operator-defined instructions stored in mission YAML. The agent follows operator recovery guidance rather than improvising its own strategies.
 - **Tenet 2 (Every action leaves a trace):** Fallback activation and exhaustion emit signals logged through the standard audit pipeline. The `fallback_activated` and `fallback_exhausted` signals provide full traceability.

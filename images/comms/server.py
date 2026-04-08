@@ -1045,7 +1045,7 @@ async def handle_signal(request: web.Request) -> web.Response:
     Body: {"agent": "name", "signal_type": "processing", "data": {...}}
 
     Signals are not channel messages — they flow to system observers only
-    (the gateway relay and operator connections) for real-time UI updates
+    (the gateway bridge and operator connections) for real-time UI updates
     like typing indicators and error notifications.
     """
     try:

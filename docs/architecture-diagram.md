@@ -125,7 +125,7 @@ Via Web UI / CLI:
     |
  4. Comms stores message, fans out via WebSocket
     |
- 5. Gateway's comms relay receives WS event, broadcasts to web UI
+ 5. Gateway's comms bridge receives WS event, broadcasts to web UI
     |
     +-- Web UI displays message instantly (WebSocket append)
     |
@@ -138,7 +138,7 @@ Via Web UI / CLI:
     |
  9. Agent response posted to comms via enforcer mediation proxy
     |
-10. Comms fans out -> gateway relay -> web UI displays response
+10. Comms fans out -> gateway bridge -> web UI displays response
 
 
 Via Webhook (GitHub, Slack, etc.):

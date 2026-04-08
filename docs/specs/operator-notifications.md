@@ -24,7 +24,7 @@ The event bus already supports ntfy push notifications, outbound webhooks, and a
 
 ### 1. Signal-to-Event Promotion
 
-The body runtime already emits signals via comms for every alertable condition. The comms relay in the gateway already bridges signals to the WebSocket hub. We extend the relay to also publish certain signals as platform events into the event bus.
+The body runtime already emits signals via comms for every alertable condition. The comms bridge in the gateway already bridges signals to the WebSocket hub. We extend the bridge to also publish certain signals as platform events into the event bus.
 
 **Promotable signal types:**
 
@@ -38,7 +38,7 @@ The body runtime already emits signals via comms for every alertable condition. 
 | `tool_error` | tool | warning |
 | `comms_error` | comms | warning |
 
-When the comms relay receives a signal with `signal_type` in this set, it calls:
+When the comms bridge receives a signal with `signal_type` in this set, it calls:
 
 ```go
 events.EmitAgentEvent(bus, "operator_alert", agentName, map[string]interface{}{
@@ -58,7 +58,7 @@ One event type (`operator_alert`) with a `category` field. Keeps subscription co
 - Add `severity` field to the signal data dict at each callsite (`critical` or `warning` per table above).
 - Add `message` field with the human-readable string (the same text currently passed to `_post_operator_notification`).
 
-**Comms relay changes** (`comms_relay.go`):
+**Comms bridge changes** (`comms_bridge.go`):
 
 - Add a `promotableSignals` set matching the signal types above.
 - In the signal detection path (where it already checks for `agent_signal_*` messages), add: if signal type is in the promotable set, call `EmitAgentEvent` to publish as `operator_alert`.
@@ -78,7 +78,7 @@ Operator alert notifications (optional)
 
 - **ntfy detection:** URL contains `ntfy.sh` or `ntfy.` in the host → `type: ntfy`. The last path segment is the topic.
 - **Webhook detection:** All other URLs → `type: webhook`.
-- **Skip:** No external notification. Alerts still appear in #operator channel via comms relay WebSocket broadcast (agency-web picks these up as before).
+- **Skip:** No external notification. Alerts still appear in #operator channel via comms bridge WebSocket broadcast (agency-web picks these up as before).
 
 **Config written to `~/.agency/config.yaml`:**
 
@@ -97,7 +97,7 @@ This uses the existing `notifications:` config section and `BuildNotificationSub
 
 **Fallback behavior:**
 
-The comms relay always broadcasts operator-alertable signals to the WebSocket hub regardless of notification config. This means agency-web's #operator channel shows alerts even if no external notification is configured. The external notification (ntfy/webhook) is additive, not a replacement for in-app visibility.
+The comms bridge always broadcasts operator-alertable signals to the WebSocket hub regardless of notification config. This means agency-web's #operator channel shows alerts even if no external notification is configured. The external notification (ntfy/webhook) is additive, not a replacement for in-app visibility.
 
 **Severity-to-priority mapping (ntfy):**
 
@@ -119,7 +119,7 @@ The ntfy delivery handler already infers priority from metadata. We formalize it
 - **Explicit attachment mode:** The task metadata can include `report: true` to force artifact generation regardless of length. Set by the sender: `agency send scout "analyze the logs" --report`.
 - **Post to source channel:** The task completion response posts to the channel the task originated from (already tracked in `task["source"]`). DM tasks respond in the DM channel. Channel mentions respond in the originating channel. The #operator channel is not involved.
 - **Artifact metadata on message:** When an artifact is generated, the comms message includes metadata `has_artifact: true`, `agent: <name>`, `task_id: <id>`. agency-web already renders "View full report" and "Download .md" links from this metadata — no web UI changes needed.
-- **Signal carries artifact reference:** The `task_complete` signal includes `has_artifact: true` and `task_id` when an artifact was generated. The comms relay includes this in the WebSocket broadcast.
+- **Signal carries artifact reference:** The `task_complete` signal includes `has_artifact: true` and `task_id` when an artifact was generated. The comms bridge includes this in the WebSocket broadcast.
 
 **Body runtime changes (`_finalize_task`):**
 
@@ -166,7 +166,7 @@ This sets `metadata.report: true` on the task, which the body runtime checks whe
 
 - **Tenet 1 (Constraints external):** Agent emits signals. It cannot control where notifications are delivered — that's operator-configured in gateway config.
 - **Tenet 2 (Every action leaves a trace):** Signals are written to `agent-signals.jsonl` (audit source of truth). Platform events are logged by the event bus audit function. Delivery attempts are logged.
-- **Tenet 3 (Mediation complete):** Signal path: agent → comms (NO_PROXY, agent-internal network) → gateway comms relay → event bus → delivery handler → egress proxy. No unmediated path.
+- **Tenet 3 (Mediation complete):** Signal path: agent → comms (NO_PROXY, agent-internal network) → gateway comms bridge → event bus → delivery handler → egress proxy. No unmediated path.
 - **Tenet 17 (Instructions from verified principals only):** Signals are data flowing outward, not instructions. The agent cannot instruct the notification system — it can only emit facts about its state. Routing decisions are made by the gateway based on operator config.
 
 ## Files Changed
@@ -174,7 +174,7 @@ This sets `metadata.report: true` on the task, which the body runtime checks whe
 | File | Change |
 |---|---|
 | `images/body/body.py` | Remove `_post_operator_notification`, add severity to signals, add `_post_task_response`, update `_finalize_task` artifact threshold logic |
-| `agency-gateway/internal/ws/comms_relay.go` | Add signal-to-event promotion for operator-alertable signal types |
+| `agency-gateway/internal/ws/comms_bridge.go` | Add signal-to-event promotion for operator-alertable signal types |
 | `agency-gateway/internal/events/deliver_outbound.go` | Map severity field to ntfy priority |
 | `agency-gateway/internal/cli/init.go` | Add notification URL prompt |
 | `agency-gateway/internal/cli/send.go` | Add `--report` flag |

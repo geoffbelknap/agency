@@ -24,7 +24,7 @@
 
 ## What Does NOT Change
 
-All service client code — `comms/client.go`, `knowledge/proxy.go`, `ws/comms_relay.go`, `api/events/handlers_intake.go`, `api/hub/handlers_hub.go`, `orchestrate/hub_health.go`. They already use `localhost:PORT`. That keeps working.
+All service client code — `comms/client.go`, `knowledge/proxy.go`, `ws/comms_bridge.go`, `api/events/handlers_intake.go`, `api/hub/handlers_hub.go`, `orchestrate/hub_health.go`. They already use `localhost:PORT`. That keeps working.
 
 ---
 

@@ -39,7 +39,7 @@ The knowledge service already has the machinery for ingestion: a `RuleIngester` 
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Trigger mechanism | WebSocket push from comms, not polling | The comms service already pushes events via WebSocket. The gateway already consumes this stream (`comms_relay.go`). Polling every 10s (current approach) introduces latency and misses bursts. WebSocket gives real-time, ordered delivery. |
+| Trigger mechanism | WebSocket push from comms, not polling | The comms service already pushes events via WebSocket. The gateway already consumes this stream (`comms_bridge.go`). Polling every 10s (current approach) introduces latency and misses bursts. WebSocket gives real-time, ordered delivery. |
 | Where the pipeline runs | Inside the knowledge service container | The knowledge service already owns the `RuleIngester`, `LLMSynthesizer`, `Curator`, and `KnowledgeStore`. Moving ingestion logic elsewhere would split ownership. The knowledge service subscribes to the comms WebSocket directly on the mediation network. |
 | Pre-filter location | Knowledge service, before rule ingestion | Filtering requires content analysis. Running it at the source (comms) would couple comms to knowledge concerns. Running it at the gateway would add latency to the relay path. The knowledge service is the right place because it owns the "is this worth remembering?" decision. |
 | Filter approach | Rule-based heuristics, not LLM | Filtering runs on every message and must be fast (<1ms). LLM calls for filtering would be too slow and too expensive. Simple heuristics (message length, flag presence, structural markers) are sufficient to reject noise. |
@@ -80,7 +80,7 @@ Comms Service                    Knowledge Service
 
 Replace the polling-based `_ingestion_loop` with a WebSocket subscriber that connects to comms at `ws://comms:18091/ws?agent=_knowledge-service`.
 
-The knowledge service registers as a system agent named `_knowledge-service`. Like `_gateway`, it receives all messages across all channels (comms already supports system observers). On disconnect, it reconnects with exponential backoff (same pattern as `comms_relay.go` in the gateway).
+The knowledge service registers as a system agent named `_knowledge-service`. Like `_gateway`, it receives all messages across all channels (comms already supports system observers). On disconnect, it reconnects with exponential backoff (same pattern as `comms_bridge.go` in the gateway).
 
 The subscriber maintains a high-water mark (last processed message timestamp per channel) persisted to disk. On reconnect, it replays missed messages by calling `GET /channels/{name}/messages?since={hwm}` for each channel. This guarantees at-least-once delivery without requiring comms to implement a durable queue.
 
@@ -236,7 +236,7 @@ The existing `synthesis_audit` structured log entries continue. Add a `filter_au
 | `knowledge/synthesizer.py` | Add channel-scoped batching to `synthesize()`. |
 | `knowledge/store.py` | Add high-water mark persistence methods. |
 | `comms/server.py` | No changes. Knowledge service connects as a WebSocket client like any other agent. |
-| `comms_relay.go` | No changes. The gateway relay and knowledge ingestion are independent consumers. |
+| `comms_bridge.go` | No changes. The gateway bridge and knowledge ingestion are independent consumers. |
 | Docker compose | Ensure knowledge service starts after comms (existing dependency). No new containers. |
 
 ---

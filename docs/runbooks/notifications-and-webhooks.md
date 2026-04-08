@@ -55,7 +55,7 @@ agency notifications remove ops-alerts
 
 ### How delivery works
 
-All notification delivery goes through the gateway event bus. Agent signals (error, escalation, self_halt) are promoted to `operator_alert` platform events by the comms relay, then routed to matching notification destinations.
+All notification delivery goes through the gateway event bus. Agent signals (error, escalation, self_halt) are promoted to `operator_alert` platform events by the comms bridge, then routed to matching notification destinations.
 
 Destinations are stored in `~/.agency/notifications.yaml`. The event bus hot-reloads subscriptions on add/remove — no restart needed.
 

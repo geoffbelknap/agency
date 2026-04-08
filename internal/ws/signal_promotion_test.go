@@ -24,14 +24,14 @@ func TestSignalPromotionEndToEnd(t *testing.T) {
 		}{agent, signalType, sev})
 	})
 
-	// Simulate what comms relay does for a promotable signal
+	// Simulate what the comms bridge does for a promotable signal.
 	promotableData := map[string]interface{}{
 		"category": "budget_exhausted",
 		"severity": "critical",
 		"message":  "scout daily budget exhausted",
 	}
 
-	// The comms relay calls BroadcastAgentSignal then checks isPromotableSignal
+	// The comms bridge calls BroadcastAgentSignal then checks isPromotableSignal.
 	h.BroadcastAgentSignal("scout", "agent_signal_error", promotableData)
 	signalType := "error" // extracted from "agent_signal_error"
 	if isPromotableSignal(signalType) {

@@ -10,10 +10,10 @@ import (
 )
 
 const (
-	commsURL           = "ws://localhost:8202/ws?agent=_gateway"
-	commsReconnectMin  = 1 * time.Second
-	commsReconnectMax  = 30 * time.Second
-	commsReconnectMult = 2
+	commsURL            = "ws://localhost:8202/ws?agent=_gateway"
+	commsReconnectMin   = 1 * time.Second
+	commsReconnectMax   = 30 * time.Second
+	commsReconnectMult  = 2
 )
 
 // promotableSignals are signal types that should be promoted to platform
@@ -29,24 +29,24 @@ func isPromotableSignal(signalType string) bool {
 	return promotableSignals[signalType]
 }
 
-// StartCommsRelay connects to the comms WebSocket and relays message events
-// to the hub. It reconnects with exponential backoff on disconnect.
-func StartCommsRelay(hub *Hub, logger *slog.Logger) {
-	go commsRelayLoop(hub, logger)
+// StartCommsBridge connects to the comms WebSocket and bridges message events
+// into the gateway WebSocket hub and event bus.
+func StartCommsBridge(hub *Hub, logger *slog.Logger) {
+	go commsBridgeLoop(hub, logger)
 }
 
-func commsRelayLoop(hub *Hub, logger *slog.Logger) {
+func commsBridgeLoop(hub *Hub, logger *slog.Logger) {
 	backoff := commsReconnectMin
 
 	for {
-		err := commsRelayOnce(hub, logger)
+		err := commsBridgeOnce(hub, logger)
 		if err != nil {
-			logger.Warn("comms relay disconnected", "err", err, "reconnect_in", backoff)
+			logger.Warn("comms bridge disconnected", "err", err, "reconnect_in", backoff)
 		} else {
 			// Clean close — connection was healthy; reset backoff so the next
 			// reconnect attempt starts at the minimum delay again.
 			backoff = commsReconnectMin
-			logger.Info("comms relay connection closed, reconnecting", "reconnect_in", backoff)
+			logger.Info("comms bridge connection closed, reconnecting", "reconnect_in", backoff)
 		}
 
 		time.Sleep(backoff)
@@ -57,17 +57,14 @@ func commsRelayLoop(hub *Hub, logger *slog.Logger) {
 	}
 }
 
-func commsRelayOnce(hub *Hub, logger *slog.Logger) error {
+func commsBridgeOnce(hub *Hub, logger *slog.Logger) error {
 	conn, _, err := websocket.DefaultDialer.Dial(commsURL, nil)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	logger.Info("comms relay connected", "url", commsURL)
-
-	// Reset backoff on successful connection (caller handles this via return nil)
-	// We use a closure variable in the loop instead.
+	logger.Info("comms bridge connected", "url", commsURL)
 
 	for {
 		_, raw, err := conn.ReadMessage()
@@ -78,7 +75,7 @@ func commsRelayOnce(hub *Hub, logger *slog.Logger) error {
 		// Parse the comms event — could be a message, signal, or other event type.
 		var msg map[string]interface{}
 		if err := json.Unmarshal(raw, &msg); err != nil {
-			logger.Debug("comms relay: unparseable message", "err", err)
+			logger.Debug("comms bridge: unparseable message", "err", err)
 			continue
 		}
 
@@ -87,14 +84,14 @@ func commsRelayOnce(hub *Hub, logger *slog.Logger) error {
 			msgType = "message"
 		}
 
-		// Agent signals get broadcast directly with full payload
+		// Agent signals get broadcast directly with full payload.
 		if strings.HasPrefix(msgType, "agent_signal_") {
 			agent, _ := msg["agent"].(string)
 			data, _ := msg["data"].(map[string]interface{})
 			hub.BroadcastAgentSignal(agent, msgType, data)
 
 			// Promote operator-alertable signals to platform events.
-			// Signal type is encoded in the message type: "agent_signal_error" → "error"
+			// Signal type is encoded in the message type: "agent_signal_error" -> "error"
 			signalType := strings.TrimPrefix(msgType, "agent_signal_")
 			if isPromotableSignal(signalType) {
 				hub.PublishAgentSignal(agent, signalType, data)
@@ -102,7 +99,7 @@ func commsRelayOnce(hub *Hub, logger *slog.Logger) error {
 			continue
 		}
 
-		// Standard message relay
+		// Standard message bridge.
 		channel, _ := msg["channel"].(string)
 		message, _ := msg["message"].(map[string]interface{})
 		event := Event{
@@ -115,7 +112,7 @@ func commsRelayOnce(hub *Hub, logger *slog.Logger) error {
 
 		hub.Broadcast(event)
 
-		// Publish to event bus for subscription matching (Task 14: channel source)
+		// Publish to event bus for subscription matching.
 		if channel != "" && message != nil {
 			content, _ := message["content"].(string)
 			author, _ := message["author"].(string)
