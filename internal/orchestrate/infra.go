@@ -536,6 +536,11 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	// all inter-container traffic. A limit here causes fork() exhaustion under
 	// normal load. The memory limit (64MB) is the effective constraint.
 	hc.Resources.PidsLimit = nil
+	// Mount the run directory so socat can reach the gateway Unix socket.
+	// Mount the directory (not the socket file) so new sockets from daemon
+	// restarts are picked up without recreating the container.
+	runDir := filepath.Join(inf.Home, "run")
+	hc.Binds = []string{runDir + ":/run:ro"}
 
 	netCfg := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
