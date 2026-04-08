@@ -618,6 +618,7 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 	}
 	env["GATEWAY_URL"] = "http://gateway:8200"
 	env["GATEWAY_TOKEN"] = inf.EgressToken
+	env["AGENCY_CALLER"] = "egress"
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
@@ -687,7 +688,7 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 		&container.Config{
 			Image:        defaultImages["comms"],
 			Hostname:     "comms",
-			Env:          mapToEnv(inf.loggingEnv("comms")),
+			Env:          mapToEnv(func() map[string]string { e := inf.loggingEnv("comms"); e["AGENCY_CALLER"] = "comms"; return e }()),
 			Labels:       inf.serviceLabels(ctx, defaultImages["comms"], "comms", "8080"),
 			Healthcheck:  defaultHealthChecks["comms"],
 			ExposedPorts: nat.PortSet{"8080/tcp": struct{}{}},
@@ -732,6 +733,7 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 		"NO_PROXY":             "agency-infra-embeddings,localhost,127.0.0.1,gateway",
 		"AGENCY_GATEWAY_TOKEN": inf.GatewayToken,
 		"AGENCY_GATEWAY_URL":   "http://gateway:8200",
+		"AGENCY_CALLER":        "knowledge",
 	}
 
 	binds := []string{
@@ -818,6 +820,7 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 		"NO_PROXY":       "gateway,localhost,127.0.0.1",
 		"GATEWAY_URL":    "http://gateway:8200",
 		"GATEWAY_TOKEN":  inf.GatewayToken,
+		"AGENCY_CALLER":  "intake",
 	}
 
 	// Load operator config vars (LC_ORG_ID, etc.) from config.yaml and .env (legacy)
@@ -893,9 +896,10 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 	}
 
 	env := map[string]string{
-		"HTTP_PROXY":  "http://egress:3128",
-		"HTTPS_PROXY": "http://egress:3128",
-		"NO_PROXY":    "gateway,localhost,127.0.0.1",
+		"HTTP_PROXY":    "http://egress:3128",
+		"HTTPS_PROXY":   "http://egress:3128",
+		"NO_PROXY":      "gateway,localhost,127.0.0.1",
+		"AGENCY_CALLER": "web-fetch",
 	}
 
 	if v := os.Getenv("WEB_FETCH_AUDIT_HMAC_KEY"); v != "" {

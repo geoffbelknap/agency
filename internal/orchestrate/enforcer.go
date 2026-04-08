@@ -109,6 +109,7 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 		"AGENT_NAME":         e.AgentName,
 		"CONSTRAINT_WS_PORT": "8081",
 		"GATEWAY_URL":        "http://gateway:8200",
+		"AGENCY_CALLER":      "enforcer",
 	}
 	if e.LifecycleID != "" {
 		env["AGENCY_LIFECYCLE_ID"] = e.LifecycleID
