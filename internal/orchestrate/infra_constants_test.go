@@ -58,11 +58,14 @@ func TestNetworkConstantsInDocs(t *testing.T) {
 // defaultImages also has a health check defined. Missing health checks
 // cause containers to never become "healthy" and block startup.
 func TestDefaultImagesHaveHealthChecks(t *testing.T) {
-	// These images intentionally have no health check (non-service or external)
+	// These images intentionally have no Docker health check:
+	// - gateway-proxy: socat, starts instantly; readiness checked via waitSocketReady()
+	// - relay, web, embeddings: non-service or external images
 	noHealthCheck := map[string]bool{
-		"relay":      true,
-		"web":        true,
-		"embeddings": true,
+		"gateway-proxy": true,
+		"relay":         true,
+		"web":           true,
+		"embeddings":    true,
 	}
 
 	for name := range defaultImages {

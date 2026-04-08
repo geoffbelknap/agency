@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,60 +54,57 @@ var defaultImages = map[string]string{
 var defaultHealthChecks = map[string]*container.HealthConfig{
 	"egress": {
 		Test:        []string{"CMD-SHELL", `python -c "import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1',3128)); s.close()"`},
-		Interval:    2 * time.Second,
-		Timeout:     3 * time.Second,
-		StartPeriod: 1 * time.Second,
-		Retries:     3,
-	},
-	"comms": {
-		Test:        []string{"CMD-SHELL", `python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"`},
-		Interval:    2 * time.Second,
-		Timeout:     3 * time.Second,
-		StartPeriod: 1 * time.Second,
-		Retries:     3,
-	},
-	"knowledge": {
-		Test:        []string{"CMD-SHELL", `python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"`},
-		Interval:    2 * time.Second,
-		Timeout:     3 * time.Second,
-		StartPeriod: 1 * time.Second,
-		Retries:     3,
-	},
-	"intake": {
-		Test:        []string{"CMD-SHELL", `python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"`},
-		Interval:    2 * time.Second,
-		Timeout:     3 * time.Second,
-		StartPeriod: 1 * time.Second,
-		Retries:     3,
-	},
-	"web-fetch": {
-		Test:        []string{"CMD", "wget", "-q", "-O-", "http://127.0.0.1:8080/health"},
-		Interval:    2 * time.Second,
-		Timeout:     3 * time.Second,
-		StartPeriod: 1 * time.Second,
-		Retries:  3,
-	},
-	"web": {
-		Test:        []string{"CMD", "wget", "--no-check-certificate", "-q", "-O-", "https://127.0.0.1:8280/health"},
-		Interval:    5 * time.Second,
-		Timeout:     2 * time.Second,
-		StartPeriod: 2 * time.Second,
-		Retries:     3,
-	},
-	"embeddings": {
-		Test:        []string{"CMD-SHELL", `bash -c "echo > /dev/tcp/127.0.0.1/11434"`},
-		Interval:    5 * time.Second,
+		Interval:    10 * time.Second,
 		Timeout:     3 * time.Second,
 		StartPeriod: 5 * time.Second,
 		Retries:     3,
 	},
-	"gateway-proxy": {
-		Test:        []string{"CMD-SHELL", `socat -T1 - TCP:127.0.0.1:8200 < /dev/null`},
-		Interval:    5 * time.Second,
+	"comms": {
+		Test:        []string{"CMD-SHELL", `python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"`},
+		Interval:    10 * time.Second,
 		Timeout:     3 * time.Second,
-		StartPeriod: 3 * time.Second,
+		StartPeriod: 5 * time.Second,
 		Retries:     3,
 	},
+	"knowledge": {
+		Test:        []string{"CMD-SHELL", `python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"`},
+		Interval:    10 * time.Second,
+		Timeout:     3 * time.Second,
+		StartPeriod: 5 * time.Second,
+		Retries:     3,
+	},
+	"intake": {
+		Test:        []string{"CMD-SHELL", `python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"`},
+		Interval:    10 * time.Second,
+		Timeout:     3 * time.Second,
+		StartPeriod: 5 * time.Second,
+		Retries:     3,
+	},
+	"web-fetch": {
+		Test:        []string{"CMD", "wget", "-q", "-O-", "http://127.0.0.1:8080/health"},
+		Interval:    10 * time.Second,
+		Timeout:     3 * time.Second,
+		StartPeriod: 5 * time.Second,
+		Retries:     3,
+	},
+	"web": {
+		Test:        []string{"CMD", "wget", "--no-check-certificate", "-q", "-O-", "https://127.0.0.1:8280/health"},
+		Interval:    10 * time.Second,
+		Timeout:     3 * time.Second,
+		StartPeriod: 5 * time.Second,
+		Retries:     3,
+	},
+	"embeddings": {
+		Test:        []string{"CMD-SHELL", `bash -c "echo > /dev/tcp/127.0.0.1/11434"`},
+		Interval:    10 * time.Second,
+		Timeout:     3 * time.Second,
+		StartPeriod: 10 * time.Second,
+		Retries:     3,
+	},
+	// gateway-proxy has no Docker health check. It's socat — starts instantly.
+	// Readiness is verified by the gateway via waitSocketReady() instead.
+	// A Docker health check here would fork socat per check, causing PID
+	// exhaustion under concurrent health probes from other containers.
 }
 
 func containerName(role string) string {
@@ -520,9 +518,9 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.NetworkMode = container.NetworkMode(gatewayNet)
 	hc.ReadonlyRootfs = true
-	hc.Resources.Memory = 16 * 1024 * 1024
-	hc.Resources.NanoCPUs = 250_000_000
-	pidsLimit := int64(64)
+	hc.Resources.Memory = 32 * 1024 * 1024
+	hc.Resources.NanoCPUs = 500_000_000
+	pidsLimit := int64(256)
 	hc.Resources.PidsLimit = &pidsLimit
 
 	netCfg := &network.NetworkingConfig{
@@ -545,7 +543,6 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 				"agency.build.id":      images.ImageBuildLabel(ctx, inf.cli, defaultImages["gateway-proxy"]),
 				"agency.build.gateway": inf.BuildID,
 			},
-			Healthcheck: defaultHealthChecks["gateway-proxy"],
 		},
 		hc, netCfg,
 	); err != nil {
@@ -555,7 +552,9 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	if err := inf.waitRunning(ctx, name, 10*time.Second); err != nil {
 		return err
 	}
-	return inf.waitHealthy(ctx, name, 15*time.Second)
+	// No Docker health check — verify readiness by probing the gateway socket
+	// directly from the Go process. This avoids socat fork pressure.
+	return inf.waitSocketReady(ctx, 10*time.Second)
 }
 
 func (inf *Infra) ensureEgress(ctx context.Context) error {
@@ -1330,6 +1329,28 @@ func (inf *Infra) waitHealthy(ctx context.Context, name string, timeout time.Dur
 			return fmt.Errorf("container %s did not become healthy within %v", name, timeout)
 		}
 	}
+}
+
+// waitSocketReady polls the gateway Unix socket directly from the Go process.
+// Used instead of Docker health checks for the gateway-proxy container to avoid
+// socat fork pressure. Connects to the socket and sends a minimal HTTP request.
+func (inf *Infra) waitSocketReady(ctx context.Context, timeout time.Duration) error {
+	sockPath := filepath.Join(inf.Home, "run", "gateway.sock")
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("unix", sockPath, 2*time.Second)
+		if err == nil {
+			conn.Close()
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("gateway socket not ready within %v", timeout)
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("gateway socket %s not ready within %v", sockPath, timeout)
 }
 
 func (inf *Infra) connectIfNeeded(ctx context.Context, containerID, netName string, aliases []string) {
