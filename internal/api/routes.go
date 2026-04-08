@@ -97,6 +97,22 @@ func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, l
 		Config: cfg,
 		Logger: logger,
 	})
+
+	// Knowledge graph routes on the socket — used by intake for graph ingest.
+	graph.RegisterRoutes(r, graph.Deps{
+		Knowledge: startup.Knowledge,
+		Logger:    logger,
+	})
+
+	// Event routes on the socket — used by intake for event publishing.
+	if opts.EventBus != nil {
+		apievents.RegisterRoutes(r, apievents.Deps{
+			EventBus:   opts.EventBus,
+			WebhookMgr: opts.WebhookMgr,
+			Scheduler:  opts.Scheduler,
+			NotifStore: opts.NotifStore,
+		})
+	}
 }
 
 // RegisterCredentialSocketRoutes registers the credential-only socket router.
