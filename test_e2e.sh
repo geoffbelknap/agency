@@ -91,8 +91,9 @@ echo "Binary: $AGENCY_BIN"
 echo "Test agent: $TEST_AGENT"
 
 # ---------------------------------------------------------------------------
-# Load API keys from .env files (repo root, workspace root, or home dir).
-# Keys already in the environment take precedence over .env values.
+# Load API keys from .env-agency files (repo root, workspace root, or home).
+# Keeps agency secrets separate from other .env files that tools may pick up.
+# Keys already in the environment take precedence over file values.
 # ---------------------------------------------------------------------------
 load_env() {
     local envfile="$1"
@@ -111,17 +112,17 @@ load_env() {
 }
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-load_env "$SCRIPT_DIR/.env"
-load_env "$SCRIPT_DIR/../.env"
-load_env "$HOME/.env"
+load_env "$SCRIPT_DIR/.env-agency"
+load_env "$SCRIPT_DIR/../.env-agency"
+load_env "$HOME/.env-agency"
 
 # Require at least one LLM provider key
 if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${OPENAI_API_KEY:-}" ] && [ -z "${GOOGLE_API_KEY:-}" ]; then
     echo "ERROR: No LLM provider API key found."
     echo "Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY in:"
     echo "  - environment variables"
-    echo "  - $SCRIPT_DIR/.env"
-    echo "  - $SCRIPT_DIR/../.env (workspace root)"
+    echo "  - $SCRIPT_DIR/.env-agency"
+    echo "  - $SCRIPT_DIR/../.env-agency (workspace root)"
     exit 1
 fi
 
