@@ -113,6 +113,14 @@ agency start <agent-name>
 
 Workspace data is at `~/.agency/agents/<name>/workspace-data/` and survives delete/recreate if not manually removed.
 
+### Agent won't start — no available slots
+
+```bash
+agency infra capacity
+```
+
+If `available_slots` is 0, the host is at capacity. Either stop unused agents or increase limits in `~/.agency/capacity.yaml` if the host has more resources than initially profiled.
+
 ### Enforcer not running
 
 ```bash
@@ -132,6 +140,14 @@ The workspace crash watcher detects enforcer crashes and emits operator alerts a
 - [ ] `agency admin doctor` passes for this agent
 - [ ] Agent responds to a test message: `agency send <agent-name> "Health check"`
 - [ ] Audit log shows normal operation: `agency log <agent-name>`
+
+## See Also
+
+- [Mission Management](mission-management.md) — reflection loop stuck, fallback policies
+- [Budget & Cost](budget-and-cost.md) — budget exhaustion, cost investigation
+- [Monitoring & Observability](monitoring-and-observability.md) — trajectory anomalies, meeseeks
+- [Principal Management](principal-management.md) — auth failures from principal changes
+- [Infrastructure Recovery](infrastructure-recovery.md) — capacity slot exhaustion
 
 ## Preserving Evidence
 

@@ -13,7 +13,9 @@ Scheduled backup, migration to new machine, disaster recovery, or state preserva
 | `~/.agency/knowledge/` | Knowledge graph database + ontology | High |
 | `~/.agency/agents/` | Agent configs, constraints, identity, workspace data | High |
 | `~/.agency/audit/` | HMAC-signed audit logs | High |
+| `~/.agency/registry.db` | Principal registry (UUIDs, permissions) | High |
 | `~/.agency/notifications.yaml` | Notification destinations | Medium |
+| `~/.agency/capacity.yaml` | Host capacity profiling | Medium (re-generatable via `agency setup`) |
 | `~/.agency/hub-cache/` | Hub registry cache | Low (re-downloadable) |
 | `~/.agency/infrastructure/` | Routing config, service definitions | Low (regenerable) |
 

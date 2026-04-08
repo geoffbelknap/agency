@@ -71,13 +71,14 @@ Wait for all components to show healthy.
 agency admin doctor
 ```
 
-### 8. Check for version mismatches
+### 8. Check version mismatches and capacity
 
 ```bash
 agency status
+agency infra capacity
 ```
 
-The binary version and container image build IDs should match. Stale images auto-rebuild on next `agency start`, but `make images` or `agency infra rebuild` handles it proactively.
+The binary version and container image build IDs should match. Stale images auto-rebuild on next `agency start`, but `make images` or `agency infra rebuild` handles it proactively. Capacity config (`~/.agency/capacity.yaml`) survives upgrades — re-run `agency setup` only if host resources changed.
 
 ### 9. Restart agents
 

@@ -43,21 +43,29 @@ grep '^token:' ~/.agency/config.yaml
 
 Expected: non-empty hex string. If missing, `config.Load()` auto-generates one on next daemon start.
 
-### 5. Run doctor
+### 5. Verify capacity
+
+```bash
+agency infra capacity
+```
+
+Expected: shows host memory/CPU, max agents, available slots. Capacity is profiled during `agency setup` and written to `~/.agency/capacity.yaml`.
+
+### 6. Run doctor
 
 ```bash
 agency admin doctor
 ```
 
-Expected: all checks pass. No agents exist yet, so agent-specific checks are skipped.
+Expected: all checks pass including `host_capacity` and `network_pool`. No agents exist yet, so agent-specific checks are skipped.
 
-### 6. Configure provider
+### 7. Configure provider
 
 ```bash
 agency creds set --name ANTHROPIC_API_KEY --value sk-ant-... --kind provider --protocol api-key --scope platform
 ```
 
-### 7. Create and start a test agent
+### 8. Create and start a test agent
 
 ```bash
 agency create test-agent
@@ -67,7 +75,7 @@ agency show test-agent
 
 Expected: agent status shows running/healthy.
 
-### 8. Send a test message
+### 9. Send a test message
 
 ```bash
 agency send test-agent "Hello, confirm you're working."
@@ -79,7 +87,7 @@ Wait 10-15 seconds, then check the DM channel:
 agency comms read dm-test-agent
 ```
 
-### 9. Clean up test agent
+### 10. Clean up test agent
 
 ```bash
 agency stop test-agent
@@ -91,10 +99,21 @@ agency delete test-agent
 All of the following must be true:
 - [ ] `~/.agency/` directory exists with `config.yaml`
 - [ ] `config.yaml` has non-empty `token` and `egress_token`
+- [ ] `~/.agency/capacity.yaml` exists with correct host profiling
 - [ ] `agency infra status` shows all components healthy
-- [ ] `agency admin doctor` passes all checks
+- [ ] `agency infra capacity` shows available agent slots
+- [ ] `agency admin doctor` passes all checks (including `host_capacity`, `network_pool`)
 - [ ] At least one LLM provider credential is configured
 - [ ] Test agent started, responded, and cleaned up successfully
+
+## Next Steps
+
+After initial setup is verified:
+
+- [Routing & Providers](routing-and-providers.md) — add additional LLM providers
+- [Notifications & Webhooks](notifications-and-webhooks.md) — set up operator alerting
+- [Hub & Capabilities](hub-and-capabilities.md) — install connectors and capabilities
+- [Mission Management](mission-management.md) — create standing instructions for agents
 
 ## Rollback
 

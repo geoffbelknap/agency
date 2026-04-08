@@ -84,7 +84,7 @@ agency admin doctor    # verify all security guarantees are holding
 
 ### Operating via AI assistant
 
-Agency ships with an MCP server (85+ tools) and a Claude Code plugin with guided skills (`/status`, `/deploy`, `/create-agent`, `/create-mission`, and more).
+Agency ships with an MCP server (112 tools) and a Claude Code plugin with guided skills (`/status`, `/deploy`, `/create-agent`, `/create-mission`, and more).
 
 #### Claude Code (recommended)
 
@@ -149,6 +149,7 @@ agency hub install <name>            Install a connector or pack
 agency hub <name> activate           Activate it
 agency creds set <name> <value>      Store a credential
 agency admin doctor                  Verify security guarantees
+agency infra capacity                Host capacity and agent slots
 
 agency registry list [--type agent]  List registered principals
 agency routing suggestions           View routing optimization suggestions
@@ -232,6 +233,7 @@ agency/
 │   ├── enforcer/       # Enforcement proxy (Go)
 │   ├── workspace/      # Agent workspace container
 │   ├── web-fetch/      # Web page fetcher (Go)
+│   ├── python-base/    # Shared Python base image
 │   ├── models/         # Shared Pydantic models
 │   └── tests/          # Python tests for image code
 ├── presets/            # Agent preset YAML files
