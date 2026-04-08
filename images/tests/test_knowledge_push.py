@@ -1,95 +1,88 @@
-"""Tests for knowledge graph push integration to comms channel."""
+"""Tests for knowledge graph push integration via gateway event bus."""
 
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from images.knowledge.server import publish_knowledge_update
+from images.knowledge.gateway_client import GatewayClient
 from images.models.comms import Channel, ChannelType
 
 
 class TestPublishKnowledgeUpdate:
-    """Tests for publish_knowledge_update function."""
+    """Tests for publish_knowledge_update function (gateway delegation)."""
 
-    def test_calls_httpx_post_with_correct_url(self):
-        """publish_knowledge_update posts to the _knowledge-updates channel endpoint."""
-        comms_url = "http://comms:18091"
-        with patch("images.knowledge.server.httpx.Client") as mock_client_cls:
+    def test_delegates_to_gateway_client(self):
+        """publish_knowledge_update delegates to GatewayClient.publish_knowledge_update."""
+        gateway = MagicMock(spec=GatewayClient)
+
+        publish_knowledge_update(
+            gateway=gateway,
+            node_summary="agent alice knows about security",
+            metadata={"node_id": "abc123", "kind": "agent", "topic": "alice", "contributed_by": "rule"},
+        )
+
+        gateway.publish_knowledge_update.assert_called_once_with(
+            "agent alice knows about security",
+            {"node_id": "abc123", "kind": "agent", "topic": "alice", "contributed_by": "rule"},
+        )
+
+class TestGatewayClient:
+    """Tests for GatewayClient.publish_knowledge_update."""
+
+    def test_publishes_event_to_gateway(self):
+        """GatewayClient posts to /api/v1/events/publish with correct payload."""
+        with patch("images.knowledge.gateway_client.httpx.Client") as mock_client_cls:
             mock_client = MagicMock()
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_client.post.return_value = mock_resp
             mock_client_cls.return_value = mock_client
 
-            publish_knowledge_update(
-                comms_url=comms_url,
-                node_summary="agent alice knows about security",
-                metadata={"node_id": "abc123", "kind": "agent", "topic": "alice", "contributed_by": "rule"},
+            gw = GatewayClient(base_url="http://gateway:8200", token="test-token")
+            gw.publish_knowledge_update(
+                "deploy pipeline updated",
+                {"node_id": "xyz789", "kind": "concept", "topic": "deploy", "contributed_by": "llm"},
             )
 
-            mock_client_cls.assert_called_once_with(timeout=5)
-            mock_client.post.assert_called_once_with(
-                f"{comms_url}/channels/_knowledge-updates/messages",
-                json={
-                    "author": "_knowledge-service",
-                    "content": "agent alice knows about security",
-                    "metadata": {
-                        "node_id": "abc123",
-                        "kind": "agent",
-                        "topic": "alice",
-                        "contributed_by": "rule",
-                    },
-                },
-                headers={"X-Agency-Platform": "true"},
-            )
+            mock_client.post.assert_called_once()
+            call_args = mock_client.post.call_args
+            assert call_args.args[0] == "http://gateway:8200/api/v1/events/publish"
+            body = call_args.kwargs["json"]
+            assert body["source_type"] == "platform"
+            assert body["source_name"] == "knowledge"
+            assert body["event_type"] == "knowledge_update"
+            assert body["data"]["summary"] == "deploy pipeline updated"
+            assert body["data"]["channel"] == "_knowledge-updates"
+            assert body["data"]["node_id"] == "xyz789"
+            assert body["data"]["kind"] == "concept"
 
-    def test_calls_httpx_post_with_correct_body(self):
-        """publish_knowledge_update sends author, content, and metadata fields."""
-        with patch("images.knowledge.server.httpx.Client") as mock_client_cls:
+    def test_sends_auth_header(self):
+        """GatewayClient includes Authorization header when token is set."""
+        with patch("images.knowledge.gateway_client.httpx.Client") as mock_client_cls:
             mock_client = MagicMock()
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_client.post.return_value = mock_resp
             mock_client_cls.return_value = mock_client
 
-            publish_knowledge_update(
-                comms_url="http://localhost:18091",
-                node_summary="deploy pipeline updated",
-                metadata={"node_id": "xyz789", "kind": "concept", "topic": "deploy", "contributed_by": "llm"},
-            )
+            gw = GatewayClient(base_url="http://gateway:8200", token="my-token")
+            gw.publish_knowledge_update("test", {})
 
-            call_kwargs = mock_client.post.call_args
-            body = call_kwargs.kwargs["json"]
-            assert body["author"] == "_knowledge-service"
-            assert body["content"] == "deploy pipeline updated"
-            assert body["metadata"]["node_id"] == "xyz789"
-            assert body["metadata"]["kind"] == "concept"
-            assert body["metadata"]["topic"] == "deploy"
-            assert body["metadata"]["contributed_by"] == "llm"
+            call_args = mock_client.post.call_args
+            headers = call_args.kwargs["headers"]
+            assert headers["Authorization"] == "Bearer my-token"
 
-    def test_does_not_raise_on_httpx_failure(self):
-        """publish_knowledge_update swallows exceptions and logs a warning."""
-        with patch("images.knowledge.server.httpx.Client") as mock_client_cls:
+    def test_does_not_raise_on_failure(self):
+        """GatewayClient swallows exceptions and logs a warning."""
+        with patch("images.knowledge.gateway_client.httpx.Client") as mock_client_cls:
             mock_client = MagicMock()
             mock_client.post.side_effect = Exception("connection refused")
             mock_client_cls.return_value = mock_client
 
+            gw = GatewayClient(base_url="http://gateway:8200", token="")
             # Must not raise
-            publish_knowledge_update(
-                comms_url="http://comms:18091",
-                node_summary="test node",
-                metadata={"node_id": "n1", "kind": "concept", "topic": "test", "contributed_by": "rule"},
-            )
-
-    def test_platform_header_sent(self):
-        """publish_knowledge_update always sends X-Agency-Platform header."""
-        with patch("images.knowledge.server.httpx.Client") as mock_client_cls:
-            mock_client = MagicMock()
-            mock_client_cls.return_value = mock_client
-
-            publish_knowledge_update(
-                comms_url="http://comms:18091",
-                node_summary="some node",
-                metadata={},
-            )
-
-            call_kwargs = mock_client.post.call_args
-            headers = call_kwargs.kwargs["headers"]
-            assert headers.get("X-Agency-Platform") == "true"
+            gw.publish_knowledge_update("test node", {"node_id": "n1"})
 
 
 class TestKnowledgeUpdatesChannelModel:
