@@ -141,6 +141,26 @@ func TestCreateOperatorNetwork_MergesAgencyManagedLabel(t *testing.T) {
 	}
 }
 
+func TestCreateMediationNetwork(t *testing.T) {
+	mock := &mockNetworkAPI{}
+	err := CreateMediationNetwork(context.Background(), mock, "agency-gateway", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mock.lastCreateName != "agency-gateway" {
+		t.Fatalf("expected network name agency-gateway, got %s", mock.lastCreateName)
+	}
+	if mock.lastCreateOptions.Driver != "bridge" {
+		t.Fatalf("expected bridge, got %s", mock.lastCreateOptions.Driver)
+	}
+	if !mock.lastCreateOptions.Internal {
+		t.Fatal("mediation network must be internal")
+	}
+	if mock.lastCreateOptions.Labels["agency.managed"] != "true" {
+		t.Fatal("missing managed label")
+	}
+}
+
 func TestMergeLabels_NilInput(t *testing.T) {
 	merged := mergeLabels(nil)
 	if merged["agency.managed"] != "true" {

@@ -48,6 +48,18 @@ func CreateOperatorNetwork(ctx context.Context, cli NetworkAPI, name string, lab
 	return err
 }
 
+// CreateMediationNetwork creates an internal bridge network for service mediation.
+// Used for agency-gateway and agency-egress-int — internal networks with no
+// external route, enforcing the mediation boundary (ASK tenet 3).
+func CreateMediationNetwork(ctx context.Context, cli NetworkAPI, name string, labels map[string]string) error {
+	_, err := cli.NetworkCreate(ctx, name, network.CreateOptions{
+		Driver:   "bridge",
+		Internal: true,
+		Labels:   mergeLabels(labels),
+	})
+	return err
+}
+
 // RemoveNetwork removes a network by name, ignoring "not found" errors.
 func RemoveNetwork(ctx context.Context, cli NetworkAPI, name string) error {
 	err := cli.NetworkRemove(ctx, name)
