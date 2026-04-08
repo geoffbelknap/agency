@@ -1,7 +1,6 @@
 package orchestrate
 
 import (
-	"bufio"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,42 +54,31 @@ func TestNetworkConstantsInDocs(t *testing.T) {
 	}
 }
 
-// TestGatewayProxyNotSelfLoop parses the gateway-proxy Dockerfile and verifies
-// that socat's upstream target is a Unix socket, not a TCP connection to the
-// container's own hostname. A TCP self-loop (TCP:gateway:8200 when the container
-// IS "gateway") was the root cause of all inter-container communication failures.
+// TestGatewayProxyNotSelfLoop parses the gateway-proxy entrypoint script and
+// verifies that socat never forwards to TCP:gateway (the container's own alias).
+// A TCP self-loop was the root cause of all inter-container communication failures.
+// The proxy uses UNIX-CONNECT on Linux and host.docker.internal on macOS.
 func TestGatewayProxyNotSelfLoop(t *testing.T) {
 	root := repoRoot(t)
-	dockerfile := filepath.Join(root, "images", "gateway-proxy", "Dockerfile")
+	script := filepath.Join(root, "images", "gateway-proxy", "entrypoint.sh")
 
-	f, err := os.Open(dockerfile)
+	data, err := os.ReadFile(script)
 	if err != nil {
-		t.Fatal("open gateway-proxy Dockerfile:", err)
+		t.Fatal("read gateway-proxy entrypoint.sh:", err)
 	}
-	defer f.Close()
+	content := string(data)
 
-	var entrypoint string
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "ENTRYPOINT") {
-			entrypoint = line
-			break
-		}
+	// Must never forward to TCP:gateway — that's a self-loop
+	if strings.Contains(content, "TCP:gateway:") {
+		t.Error("gateway-proxy entrypoint forwards to TCP:gateway — self-loop")
 	}
-	if entrypoint == "" {
-		t.Fatal("no ENTRYPOINT found in gateway-proxy Dockerfile")
+	// Must support Unix socket path (Linux)
+	if !strings.Contains(content, "UNIX-CONNECT:/run/gateway.sock") {
+		t.Error("gateway-proxy entrypoint missing UNIX-CONNECT:/run/gateway.sock (Linux path)")
 	}
-
-	// The upstream target must be a Unix socket, not TCP to the container's own alias
-	if strings.Contains(entrypoint, "TCP:gateway") {
-		t.Errorf("gateway-proxy ENTRYPOINT forwards to TCP:gateway — this is a self-loop "+
-			"because the container IS 'gateway' on the Docker network. "+
-			"Use UNIX-CONNECT:/run/gateway.sock instead.\n  ENTRYPOINT: %s", entrypoint)
-	}
-	if !strings.Contains(entrypoint, "UNIX-CONNECT") {
-		t.Errorf("gateway-proxy ENTRYPOINT does not use UNIX-CONNECT — "+
-			"socat should bridge TCP to the gateway Unix socket.\n  ENTRYPOINT: %s", entrypoint)
+	// Must support host.docker.internal fallback (macOS Docker Desktop)
+	if !strings.Contains(content, "host.docker.internal") {
+		t.Error("gateway-proxy entrypoint missing host.docker.internal (macOS path)")
 	}
 }
 

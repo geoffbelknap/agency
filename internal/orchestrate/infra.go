@@ -2,12 +2,9 @@ package orchestrate
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"io/fs"
 	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -536,6 +533,13 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	// all inter-container traffic. A limit here causes fork() exhaustion under
 	// normal load. The memory limit (64MB) is the effective constraint.
 	hc.Resources.PidsLimit = nil
+	// Reverse bridges: host gateway reaches services through published ports.
+	// Ports must publish to the host for macOS Docker Desktop compatibility.
+	hc.PortBindings = nat.PortMap{
+		"8202/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8202"}},
+		"8204/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8204"}},
+		"8205/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8205"}},
+	}
 	// Mount the run directory so socat can reach the gateway Unix socket.
 	// Mount the directory (not the socket file) so new sockets from daemon
 	// restarts are picked up without recreating the container.
@@ -547,6 +551,7 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 			gatewayNet: {
 				Aliases: []string{"gateway"},
 			},
+			operatorNet: {},
 		},
 	}
 
@@ -1180,19 +1185,13 @@ func (inf *Infra) ensureSystemChannels(ctx context.Context) error {
 		if ch.members != nil {
 			body["members"] = ch.members
 		}
-		// Try the host-bound port first (fast path), fall back to the gateway
-		// socket proxy (works when Docker port publishing is unavailable).
+		// Single path through the gateway-proxy. Retry with backoff for startup timing.
 		var lastErr error
 		for attempt := 0; attempt < 4; attempt++ {
 			if attempt > 0 {
 				time.Sleep(3 * time.Second)
 			}
-			if attempt < 2 {
-				_, lastErr = inf.Comms.CommsRequest(ctx, "POST", "/channels", body)
-			} else {
-				// Fall back to gateway socket — comms is reachable via the proxy
-				lastErr = inf.commsViaSocket(ctx, "/channels", body)
-			}
+			_, lastErr = inf.Comms.CommsRequest(ctx, "POST", "/channels", body)
 			if lastErr == nil || strings.Contains(lastErr.Error(), "409") {
 				lastErr = nil
 				break
@@ -1369,44 +1368,6 @@ func (inf *Infra) waitHealthy(ctx context.Context, name string, timeout time.Dur
 			return fmt.Errorf("container %s did not become healthy within %v", name, timeout)
 		}
 	}
-}
-
-// commsViaSocket sends a POST to comms through the gateway Unix socket proxy.
-// Used as fallback when Docker host port publishing is unavailable.
-func (inf *Infra) commsViaSocket(ctx context.Context, path string, body interface{}) error {
-	sockPath := filepath.Join(inf.Home, "run", "gateway.sock")
-	httpClient := &http.Client{
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return net.DialTimeout("unix", sockPath, 5*time.Second)
-			},
-		},
-		Timeout: 15 * time.Second,
-	}
-
-	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", "http://gateway/api/v1/comms"+path, strings.NewReader(string(jsonBody)))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+inf.GatewayToken)
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("comms via socket: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("comms via socket %d: %s", resp.StatusCode, string(respBody))
-	}
-	return nil
 }
 
 // waitSocketReady polls the gateway Unix socket directly from the Go process.

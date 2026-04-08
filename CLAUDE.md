@@ -156,6 +156,7 @@ pytest images/tests/
 8. **Image pruning runs after every resolve** (pull or build) — not just dev mode
 9. **Gateway startup reconciles Docker state** — orphan containers/networks are cleaned up automatically
 10. **Labels are the source of truth** — all agency containers/networks get `agency.managed=true` for lifecycle management
+11. **Never call containers directly from the gateway** — use localhost ports routed through the gateway-proxy (8202→comms, 8204→knowledge, 8205→intake). Container IPs are not routable from the host on macOS Docker Desktop. No fallback paths — one route per service.
 
 ## Key Rules
 
@@ -198,7 +199,12 @@ pytest images/tests/
 - Hub `activate` auto-provisions egress domains from the connector's `requires.egress_domains`. The requirements check does not gate on egress domains (informational only).
 - Service definitions may use `${...}` placeholders in `api_base` (e.g., `${JIRA_DOMAIN}`). Validation expands these with `os.Expand` before `url.Parse`.
 - Connector graph_ingest templates use Jinja2 `SandboxedEnvironment` which **throws** on missing keys — it does not silently return empty string. Templates must match the actual API response structure exactly. Test with real payloads.
-- Container-to-gateway communication uses the **gateway socket proxy** — a socat container (`agency-infra-gateway-proxy`) on the `agency-gateway` network that bridges `~/.agency/run/gateway.sock` to TCP `gateway:8200`. All containers reach the gateway via `http://gateway:8200` (Docker DNS). No `host.docker.internal` or `ExtraHosts` — works identically on Linux, macOS, and WSL. Credential resolution uses a separate socket (`~/.agency/run/gateway-cred.sock`) mounted only into egress — credentials never traverse a Docker network. See `docs/specs/gateway-socket-proxy.md`.
+- **Bidirectional gateway proxy** — a socat container (`agency-infra-gateway-proxy`) on the `agency-gateway` and `agency-operator` networks. Bridges traffic in both directions:
+  - **Container→gateway**: TCP:8200 → UNIX:`~/.agency/run/gateway.sock`. All containers reach the gateway via `http://gateway:8200` (Docker DNS).
+  - **Gateway→comms**: localhost:8202 → proxy:8202 → comms:8080. The host gateway calls `http://localhost:8202`.
+  - **Gateway→knowledge**: localhost:8204 → proxy:8204 → knowledge:8080.
+  - **Gateway→intake**: localhost:8205 → proxy:8205 → intake:8080.
+  No `host.docker.internal` or `ExtraHosts` — works identically on Linux, macOS, and WSL. The operator network connection is required for macOS Docker Desktop to publish port bindings (internal networks don't publish). Credential resolution uses a separate socket (`~/.agency/run/gateway-cred.sock`) mounted only into egress — credentials never traverse a Docker network. See `docs/specs/gateway-socket-proxy.md`.
 - Pack schema does not support missions. Missions are created and assigned separately via `agency mission create` / `agency mission assign`. Pack model has `extra="forbid"` — no unknown fields allowed.
 - Agent presets for autonomous agents (e.g., alert triage) must explicitly prohibit asking clarifying questions in `hard_limits` and `identity.body`. Default agent behavior is to ask before acting.
 
