@@ -215,8 +215,13 @@ func (ms *MeeseeksStartSequence) phase2Enforcement(ctx context.Context) error {
 		return err
 	}
 
-	// Connect to mediation network
-	_ = ms.cli.NetworkConnect(ctx, mediationNet, enforcerContainerID, &network.EndpointSettings{
+	// Connect to gateway network (hub — service access, signals, budget)
+	_ = ms.cli.NetworkConnect(ctx, gatewayNet, enforcerContainerID, &network.EndpointSettings{
+		Aliases: []string{"enforcer"},
+	})
+
+	// Connect to egress network (LLM proxy)
+	_ = ms.cli.NetworkConnect(ctx, egressIntNet, enforcerContainerID, &network.EndpointSettings{
 		Aliases: []string{"enforcer"},
 	})
 

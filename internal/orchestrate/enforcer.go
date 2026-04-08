@@ -222,8 +222,13 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 		return "", err
 	}
 
-	// Connect to mediation network
-	_ = e.cli.NetworkConnect(ctx, mediationNet, containerID, &network.EndpointSettings{
+	// Connect to gateway network (hub — service access, signals, budget)
+	_ = e.cli.NetworkConnect(ctx, gatewayNet, containerID, &network.EndpointSettings{
+		Aliases: []string{"enforcer"},
+	})
+
+	// Connect to egress network (LLM proxy)
+	_ = e.cli.NetworkConnect(ctx, egressIntNet, containerID, &network.EndpointSettings{
 		Aliases: []string{"enforcer"},
 	})
 

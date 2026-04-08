@@ -75,8 +75,8 @@ func Reconcile(ctx context.Context, cli *client.Client, knownAgents []string, lo
 	// Shared infrastructure networks are created by infra up and are expected
 	// to be empty when no agents are running — they are not orphans.
 	infraNets := map[string]bool{
-		"agency-mediation": true, "agency-egress-net": true,
-		"agency-internal": true, "agency-operator": true,
+		gatewayNet: true, egressIntNet: true,
+		egressExtNet: true, operatorNet: true,
 	}
 	for _, net := range nets {
 		if len(net.Containers) == 0 && !infraNets[net.Name] {
