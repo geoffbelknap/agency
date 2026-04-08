@@ -111,6 +111,8 @@ Live local stack smoke:
 ./scripts/e2e-live-web.sh
 ```
 
+The mocked suite covers the full UI route surface with deterministic fixtures. The live suite is read-only and verifies setup-vs-initialized routing, top-level app navigation, and representative drill-downs against a real local Agency stack.
+
 The live harness is dev-only. It lives in repo test paths and scripts, uses `devDependencies`, and is not part of the shipped runtime or container images.
 
 ## Project Structure
