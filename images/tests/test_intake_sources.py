@@ -64,7 +64,7 @@ class TestPollIntegration:
                     connector=app["connectors"]["github-issues"],
                     store=store,
                     poll_state=poll_state,
-                    comms_url="http://mock:18091",
+                    gateway=app["gateway"],
                 )
                 assert created == 2
                 assert mock_deliver.call_count == 2
@@ -88,13 +88,13 @@ class TestPollIntegration:
                     connector=app["connectors"]["github-issues"],
                     store=store,
                     poll_state=poll_state,
-                    comms_url="http://mock:18091",
+                    gateway=app["gateway"],
                 )
                 created2 = await _poll_once(
                     connector=app["connectors"]["github-issues"],
                     store=store,
                     poll_state=poll_state,
-                    comms_url="http://mock:18091",
+                    gateway=app["gateway"],
                 )
                 assert created1 == 1
                 assert created2 == 0
@@ -129,7 +129,7 @@ class TestScheduleIntegration:
                 connectors=app["connectors"],
                 store=store,
                 schedule_state=schedule_state,
-                comms_url="http://mock:18091",
+                gateway=app["gateway"],
             )
             assert fired == 1
             mock_deliver.assert_called_once()
@@ -148,13 +148,13 @@ class TestScheduleIntegration:
                 connectors=app["connectors"],
                 store=store,
                 schedule_state=schedule_state,
-                comms_url="http://mock:18091",
+                gateway=app["gateway"],
             )
             fired2 = await _schedule_once(
                 connectors=app["connectors"],
                 store=store,
                 schedule_state=schedule_state,
-                comms_url="http://mock:18091",
+                gateway=app["gateway"],
             )
             assert fired1 == 1
             assert fired2 == 0
@@ -204,7 +204,7 @@ class TestChannelWatchIntegration:
                     connector=app["connectors"]["support-watch"],
                     store=store,
                     watch_state=watch_state,
-                    comms_url="http://mock:18091",
+                    gateway=app["gateway"],
                 )
                 assert created == 2
                 assert mock_deliver.call_count == 2
@@ -231,13 +231,13 @@ class TestChannelWatchIntegration:
                     connector=app["connectors"]["support-watch"],
                     store=store,
                     watch_state=watch_state,
-                    comms_url="http://mock:18091",
+                    gateway=app["gateway"],
                 )
                 mock_fetch.return_value = messages_batch2
                 created = await _channel_watch_once(
                     connector=app["connectors"]["support-watch"],
                     store=store,
                     watch_state=watch_state,
-                    comms_url="http://mock:18091",
+                    gateway=app["gateway"],
                 )
                 assert created == 0

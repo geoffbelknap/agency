@@ -47,7 +47,7 @@ def data_dir(tmp_path):
 
 @pytest.fixture
 def intake_app(connectors_dir, data_dir):
-    return create_app(connectors_dir=connectors_dir, data_dir=data_dir, comms_url="http://mock:18091")
+    return create_app(connectors_dir=connectors_dir, data_dir=data_dir)
 
 
 class TestIntakeHealth:

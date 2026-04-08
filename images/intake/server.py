@@ -20,6 +20,8 @@ from aiohttp.abc import AbstractAccessLogger
 
 from typing import Optional, Union
 
+from images.intake.gateway_client import GatewayClient
+
 
 class _HealthFilterAccessLogger(AbstractAccessLogger):
     """Access logger that suppresses /health requests (Docker healthcheck noise)."""
@@ -67,52 +69,37 @@ def _load_connectors(connectors_dir: Path) -> dict[str, ConnectorConfig]:
 
 
 async def _deliver_task(
-    comms_url: str,
+    gateway: GatewayClient,
     agent_name: str,
     task_content: str,
     work_item_id: str,
     priority: str,
     source: str,
 ) -> bool:
-    """Deliver task to agent via comms service."""
-    async with ClientSession() as session:
-        try:
-            async with session.post(
-                f"{comms_url}/tasks/deliver",
-                json={
-                    "agent_name": agent_name,
-                    "task_content": task_content,
-                    "work_item_id": work_item_id,
-                    "priority": priority,
-                    "source": source,
-                },
-            ) as resp:
-                return resp.status == 200
-        except Exception as e:
-            logger.error(f"Task delivery failed: {e}")
-            return False
+    """Deliver task to agent via gateway event bus."""
+    await gateway.publish_event(
+        source_name="intake",
+        event_type="work_item_created",
+        data={
+            "agent_name": agent_name,
+            "task_content": task_content,
+            "work_item_id": work_item_id,
+            "priority": priority,
+            "source": source,
+        },
+    )
+    return True
 
 
 async def _deliver_to_channel(
-    comms_url: str,
+    gateway: GatewayClient,
     channel_name: str,
     content: str,
     source: str,
 ) -> bool:
-    """Post a message to a comms channel."""
-    async with ClientSession() as session:
-        try:
-            async with session.post(
-                f"{comms_url}/channels/{channel_name}/messages",
-                json={
-                    "content": content,
-                    "author": source,
-                },
-            ) as resp:
-                return resp.status == 200
-        except Exception as e:
-            logger.error(f"Channel delivery to {channel_name} failed: {e}")
-            return False
+    """Post a message to a comms channel via gateway."""
+    result = await gateway.post_channel_message(channel_name, content, source)
+    return result is not None
 
 
 def _make_ssl_context():
@@ -146,24 +133,10 @@ async def _fetch_url(url: str, method: str = "GET", headers: Optional[dict] = No
 
 
 async def _fetch_channel_messages(
-    comms_url: str, channel: str, since: Optional[str] = None
+    gateway: GatewayClient, channel: str, since: Optional[str] = None
 ) -> list[dict]:
-    """Fetch messages from comms service."""
-    async with ClientSession() as session:
-        try:
-            params = {"limit": "100"}
-            if since:
-                params["since"] = since
-            async with session.get(
-                f"{comms_url}/channels/{channel}/messages", params=params
-            ) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-                logger.warning(f"Channel fetch {channel} returned {resp.status}")
-                return []
-        except Exception as e:
-            logger.warning(f"Channel fetch {channel} failed: {e}")
-            return []
+    """Fetch messages from comms channel via gateway."""
+    return await gateway.get_channel_messages(channel, since=since)
 
 
 async def _execute_relay(relay: ConnectorRelayTarget, payload: dict, connector_name: str) -> bool:
@@ -204,7 +177,7 @@ async def _route_and_deliver(
     connector_config,
     payload: dict,
     store: WorkItemStore,
-    comms_url: str,
+    gateway: GatewayClient,
     source_label: str,
     knowledge_url: Optional[str] = None,
     event_buffer: Optional[EventBuffer] = None,
@@ -280,7 +253,7 @@ async def _route_and_deliver(
     if target_type == "channel":
         channel_text = _format_channel_message(payload, source_label)
         delivered = await _deliver_to_channel(
-            comms_url=comms_url,
+            gateway=gateway,
             channel_name=target_name,
             content=channel_text,
             source=source_label,
@@ -289,7 +262,7 @@ async def _route_and_deliver(
         # Agent, team, or mission routes: deliver as agent task
         deliver_to = target_name
         delivered = await _deliver_task(
-            comms_url=comms_url,
+            gateway=gateway,
             agent_name=deliver_to,
             task_content=task_text,
             work_item_id=wi.id,
@@ -406,7 +379,7 @@ async def _poll_once(
     connector,
     store: WorkItemStore,
     poll_state: PollStateStore,
-    comms_url: str,
+    gateway: GatewayClient,
     knowledge_url: Optional[str] = None,
     event_buffer: Optional[EventBuffer] = None,
 ) -> int:
@@ -466,7 +439,7 @@ async def _poll_once(
     for item in new_items:
         payload = item if isinstance(item, dict) else {"data": item}
         await _route_and_deliver(
-            connector.name, connector, payload, store, comms_url,
+            connector.name, connector, payload, store, gateway,
             source_label=f"poll:{connector.name}",
             knowledge_url=knowledge_url,
             event_buffer=event_buffer,
@@ -527,7 +500,7 @@ async def _poll_once(
             for fu_item in fu_new_items:
                 fu_payload = fu_item if isinstance(fu_item, dict) else {"data": fu_item}
                 await _route_and_deliver(
-                    connector.name, connector, fu_payload, store, comms_url,
+                    connector.name, connector, fu_payload, store, gateway,
                     source_label=f"poll:{connector.name}:reply",
                     knowledge_url=knowledge_url,
                     event_buffer=event_buffer,
@@ -541,7 +514,7 @@ async def _schedule_once(
     connectors: dict,
     store: WorkItemStore,
     schedule_state: ScheduleStateStore,
-    comms_url: str,
+    gateway: GatewayClient,
     poll_state: Optional[PollStateStore] = None,
     knowledge_url: Optional[str] = None,
     event_buffer: Optional[EventBuffer] = None,
@@ -560,7 +533,7 @@ async def _schedule_once(
         schedule_state.set_last_fired(name, now)
 
         await _route_and_deliver(
-            name, connector, payload, store, comms_url,
+            name, connector, payload, store, gateway,
             source_label=f"schedule:{name}",
             knowledge_url=knowledge_url,
             event_buffer=event_buffer,
@@ -575,7 +548,7 @@ async def _schedule_once(
             if not should_fire(connector.source.cron, schedule_state.get_last_fired(name)):
                 continue
             try:
-                created = await _poll_once(connector, store, poll_state, comms_url, knowledge_url=knowledge_url, event_buffer=event_buffer)
+                created = await _poll_once(connector, store, poll_state, gateway, knowledge_url=knowledge_url, event_buffer=event_buffer)
                 schedule_state.set_last_fired(name, datetime.now(timezone.utc))
                 if created:
                     logger.info(f"Cron-poll {name}: created {created} work items")
@@ -590,7 +563,7 @@ async def _channel_watch_once(
     connector,
     store: WorkItemStore,
     watch_state: ChannelWatchStateStore,
-    comms_url: str,
+    gateway: GatewayClient,
     knowledge_url: Optional[str] = None,
     event_buffer: Optional[EventBuffer] = None,
 ) -> int:
@@ -598,7 +571,7 @@ async def _channel_watch_once(
     last_seen = watch_state.get_last_seen(connector.name)
     since = last_seen.isoformat() if last_seen else None
 
-    messages = await _fetch_channel_messages(comms_url, connector.source.channel, since=since)
+    messages = await _fetch_channel_messages(gateway, connector.source.channel, since=since)
     if not messages:
         return 0
 
@@ -620,7 +593,7 @@ async def _channel_watch_once(
             "timestamp": msg["timestamp"],
         }
         await _route_and_deliver(
-            connector.name, connector, payload, store, comms_url,
+            connector.name, connector, payload, store, gateway,
             source_label=f"channel-watch:{connector.name}",
             knowledge_url=knowledge_url,
             event_buffer=event_buffer,
@@ -685,7 +658,7 @@ async def _poll_loop(app: web.Application) -> None:
 
                 last_poll[name] = now
                 try:
-                    created = await _poll_once(connector, app["store"], poll_state, app["comms_url"], knowledge_url=app.get("knowledge_url"), event_buffer=app.get("event_buffer"))
+                    created = await _poll_once(connector, app["store"], poll_state, app["gateway"], knowledge_url=app.get("knowledge_url"), event_buffer=app.get("event_buffer"))
                     if created:
                         logger.info(f"Poll {name}: created {created} work items")
                 except Exception as e:
@@ -707,7 +680,7 @@ async def _schedule_loop(app: web.Application) -> None:
             continue
 
         try:
-            fired = await _schedule_once(app["connectors"], app["store"], schedule_state, app["comms_url"], poll_state=poll_state, knowledge_url=app.get("knowledge_url"), event_buffer=app.get("event_buffer"))
+            fired = await _schedule_once(app["connectors"], app["store"], schedule_state, app["gateway"], poll_state=poll_state, knowledge_url=app.get("knowledge_url"), event_buffer=app.get("event_buffer"))
             if fired:
                 logger.info(f"Schedule: fired {fired} connectors")
         except Exception as e:
@@ -727,7 +700,7 @@ async def _channel_watch_loop(app: web.Application) -> None:
                 if connector.source.type != "channel-watch":
                     continue
                 try:
-                    created = await _channel_watch_once(connector, app["store"], watch_state, app["comms_url"], knowledge_url=app.get("knowledge_url"), event_buffer=app.get("event_buffer"))
+                    created = await _channel_watch_once(connector, app["store"], watch_state, app["gateway"], knowledge_url=app.get("knowledge_url"), event_buffer=app.get("event_buffer"))
                     if created:
                         logger.info(f"Channel-watch {name}: created {created} work items")
                 except Exception as e:
@@ -805,12 +778,12 @@ async def handle_poll_trigger(request: web.Request) -> web.Response:
 
     store: WorkItemStore = request.app["store"]
     poll_state = PollStateStore(store.data_dir)
-    comms_url = request.app["comms_url"]
+    gateway = request.app["gateway"]
     knowledge_url = request.app.get("knowledge_url")
     event_buffer = request.app.get("event_buffer")
 
     try:
-        created = await _poll_once(connector, store, poll_state, comms_url,
+        created = await _poll_once(connector, store, poll_state, gateway,
                                    knowledge_url=knowledge_url, event_buffer=event_buffer)
         return web.json_response({"connector": connector_name, "work_items_created": created})
     except Exception as e:
@@ -954,11 +927,11 @@ async def handle_webhook(request: web.Request) -> web.Response:
         return web.json_response({"error": "Rate limit exceeded (concurrent)"}, status=429)
 
     # Route and deliver (handles both agent/team and relay targets)
-    comms_url = request.app["comms_url"]
+    gateway = request.app["gateway"]
     knowledge_url = request.app.get("knowledge_url")
     event_buffer = request.app.get("event_buffer")
     delivered = await _route_and_deliver(
-        connector_name, connector, payload, store, comms_url,
+        connector_name, connector, payload, store, gateway,
         source_label=f"connector:{connector_name}",
         knowledge_url=knowledge_url,
         event_buffer=event_buffer,
@@ -970,16 +943,16 @@ async def handle_webhook(request: web.Request) -> web.Response:
 def create_app(
     connectors_dir: Optional[Path] = None,
     data_dir: Optional[Path] = None,
-    comms_url: str = "http://comms:8080",
-    knowledge_url: Optional[str] = None,
+    gateway_url: str = "http://gateway:8200",
+    gateway_token: str = "",
 ) -> web.Application:
     from logging_config import correlation_middleware
     app = web.Application(middlewares=[correlation_middleware()])
     app["connectors_dir"] = connectors_dir or Path("/app/connectors")
     app["connectors"] = _load_connectors(app["connectors_dir"])
     app["store"] = WorkItemStore(data_dir=data_dir or Path("/app/data"))
-    app["comms_url"] = comms_url
-    app["knowledge_url"] = knowledge_url or os.environ.get("KNOWLEDGE_URL")
+    app["gateway"] = GatewayClient(base_url=gateway_url, token=gateway_token)
+    app["knowledge_url"] = os.environ.get("KNOWLEDGE_URL")
     app["event_buffer"] = EventBuffer()
 
     app.router.add_get("/health", handle_health)
@@ -1024,8 +997,14 @@ def main():
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--connectors-dir", type=str, default="/app/connectors")
     parser.add_argument("--data-dir", type=str, default="/app/data")
-    parser.add_argument("--comms-url", type=str, default="http://comms:8080")
-    parser.add_argument("--knowledge-url", type=str, default=None)
+    parser.add_argument(
+        "--gateway-url", type=str,
+        default=os.environ.get("GATEWAY_URL", "http://gateway:8200"),
+    )
+    parser.add_argument(
+        "--gateway-token", type=str,
+        default=os.environ.get("GATEWAY_TOKEN", ""),
+    )
     args = parser.parse_args()
 
     # Logging configured automatically by sitecustomize.py via AGENCY_COMPONENT env var.
@@ -1033,8 +1012,8 @@ def main():
     app = create_app(
         connectors_dir=Path(args.connectors_dir),
         data_dir=Path(args.data_dir),
-        comms_url=args.comms_url,
-        knowledge_url=args.knowledge_url,
+        gateway_url=args.gateway_url,
+        gateway_token=args.gateway_token,
     )
     _setup_sighup_handler(app)
     logger.info("Starting intake server on port %d", args.port)

@@ -806,8 +806,9 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 	env := map[string]string{
 		"HTTP_PROXY":    "http://egress:3128",
 		"HTTPS_PROXY":   "http://egress:3128",
-		"NO_PROXY":      "comms,knowledge,localhost,127.0.0.1",
-		"KNOWLEDGE_URL": "http://knowledge:8080",
+		"NO_PROXY":       "gateway,localhost,127.0.0.1",
+		"GATEWAY_URL":    "http://gateway:8200",
+		"GATEWAY_TOKEN":  inf.GatewayToken,
 	}
 
 	// Load operator config vars (LC_ORG_ID, etc.) from config.yaml and .env (legacy)
