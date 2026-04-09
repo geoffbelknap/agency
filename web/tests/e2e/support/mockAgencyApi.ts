@@ -64,6 +64,21 @@ const infraStatus = {
   ],
 };
 
+const infraCapacity = {
+  host_memory_mb: 32768,
+  host_cpu_cores: 8,
+  system_reserve_mb: 4096,
+  infra_overhead_mb: 2048,
+  max_agents: 6,
+  max_concurrent_meesks: 2,
+  agent_slot_mb: 4096,
+  meeseeks_slot_mb: 2048,
+  network_pool_configured: true,
+  running_agents: 2,
+  running_meeseeks: 1,
+  available_slots: 3,
+};
+
 const agentLogs: Record<string, unknown[]> = {
   _all: [
     {
@@ -387,6 +402,10 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
     }
     if (method === 'GET' && pathname === '/api/v1/infra/status') {
       await route.fulfill(json(infraStatus));
+      return;
+    }
+    if (method === 'GET' && pathname === '/api/v1/infra/capacity') {
+      await route.fulfill(json(infraCapacity));
       return;
     }
     if (method === 'POST' && ['/api/v1/infra/up', '/api/v1/infra/down', '/api/v1/infra/reload'].includes(pathname)) {

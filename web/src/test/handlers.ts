@@ -74,6 +74,22 @@ export const handlers = [
   http.post(`${BASE}/infra/down`, () => HttpResponse.json({ ok: true })),
   http.post(`${BASE}/infra/rebuild/:component`, () => HttpResponse.json({ ok: true })),
   http.post(`${BASE}/infra/reload`, () => HttpResponse.json({ ok: true })),
+  http.get(`${BASE}/infra/capacity`, () =>
+    HttpResponse.json({
+      host_memory_mb: 32768,
+      host_cpu_cores: 8,
+      system_reserve_mb: 4096,
+      infra_overhead_mb: 2048,
+      max_agents: 6,
+      max_concurrent_meesks: 2,
+      agent_slot_mb: 4096,
+      meeseeks_slot_mb: 2048,
+      network_pool_configured: true,
+      running_agents: 2,
+      running_meeseeks: 1,
+      available_slots: 3,
+    }),
+  ),
   http.get(`${BASE}/infra/providers`, () => HttpResponse.json([])),
   http.get(`${BASE}/infra/routing/metrics`, () =>
     HttpResponse.json({
