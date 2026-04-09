@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WEB_DIR="$ROOT_DIR/web"
 AGENCY_BIN="${AGENCY_BIN:-}"
+PLAYWRIGHT_CONFIG="${AGENCY_PLAYWRIGHT_CONFIG:-playwright.live.config.ts}"
 
 if [ -z "$AGENCY_BIN" ]; then
   if command -v agency >/dev/null 2>&1; then
@@ -132,6 +133,6 @@ else
   wait_for_url "$WEB_HEALTH_URL" 120
 fi
 
-echo "==> Running live Playwright smoke"
+echo "==> Running live Playwright suite"
 cd "$WEB_DIR"
-npx playwright test -c playwright.live.config.ts "$@"
+npx playwright test -c "$PLAYWRIGHT_CONFIG" "$@"

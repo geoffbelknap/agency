@@ -87,6 +87,9 @@ API requests to `/api/v1` and WebSocket connections on `/ws` are automatically p
 | `npm run test:e2e:headed` | Run mocked Playwright browser smoke tests with a visible browser |
 | `npm run test:e2e:live` | Run Playwright against a live local Agency stack |
 | `npm run test:e2e:live:headed` | Run live-stack Playwright with a visible browser |
+| `npm run test:e2e:live:safe` | Run the default safe live-stack suite |
+| `npm run test:e2e:live:risky` | Run opt-in live flows with higher operational risk |
+| `npm run test:e2e:live:danger` | Run explicit opt-in destructive live flows |
 
 ## Browser E2E
 
@@ -105,13 +108,24 @@ cd web
 npm run test:e2e
 ```
 
-Live local stack smoke:
+Live local stack safe suite:
 
 ```bash
 ./scripts/e2e-live-web.sh
 ```
 
-The mocked suite covers the full UI route surface with deterministic fixtures. The live suite is read-only and verifies setup-vs-initialized routing, top-level app navigation, representative drill-downs, and interactive browser flows against a real local Agency stack.
+The mocked suite covers the full UI route surface with deterministic fixtures. The default live suite covers the real stack without destructive or outbound side effects. It verifies setup-vs-initialized routing, top-level app navigation, representative drill-downs, interactive browser flows, and safe CRUD coverage against a local Agency stack.
+
+## Live Suite Tiers
+
+- `live-safe`
+  Default. Real-stack coverage that may create temporary data but must clean up after itself and avoid external or destructive side effects.
+- `live-risky`
+  Opt-in coverage for flows like installs, connector activation, outbound notification sends, or other shared-environment mutations.
+- `live-danger`
+  Explicit opt-in only for high-blast-radius flows such as full resets or destructive admin operations.
+
+See [tests/COVERAGE_TIERS.md](tests/COVERAGE_TIERS.md) for the current inventory and classification.
 
 The live harness now reuses an already-healthy local gateway, shared infra, and web container by default. To force the old cold-start behavior, set `AGENCY_E2E_FORCE_RESTART=1` and optionally `AGENCY_E2E_FORCE_INFRA_UP=1`.
 
