@@ -96,6 +96,22 @@ func TestDefaultSourceIsOCI(t *testing.T) {
 	}
 }
 
+func TestDefaultSourceUsedWhenConfigMissing(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	m := NewManager(tmpDir)
+	cfg := m.loadConfig()
+	if len(cfg.Hub.Sources) != 1 {
+		t.Fatalf("expected 1 default source, got %d", len(cfg.Hub.Sources))
+	}
+	if cfg.Hub.Sources[0].EffectiveType() != "oci" {
+		t.Errorf("expected oci default source, got %s", cfg.Hub.Sources[0].EffectiveType())
+	}
+	if cfg.Hub.Sources[0].Registry != "ghcr.io/geoffbelknap/agency-hub" {
+		t.Errorf("unexpected registry: %s", cfg.Hub.Sources[0].Registry)
+	}
+}
+
 func TestOCIIndexParsesCatalogComponents(t *testing.T) {
 	data := []byte(`
 schema_version: 1
@@ -205,4 +221,49 @@ func TestOCILivePullCatalogIndex(t *testing.T) {
 	if len(index.Components) == 0 {
 		t.Fatal("live OCI catalog has no components")
 	}
+}
+
+func TestOCILiveHubUpdateSearchInstallFlow(t *testing.T) {
+	if os.Getenv("AGENCY_TEST_OCI_LIVE") != "1" {
+		t.Skip("set AGENCY_TEST_OCI_LIVE=1 to exercise the live GHCR hub flow")
+	}
+
+	home := t.TempDir()
+	mgr := NewManager(home)
+
+	report, err := mgr.Update()
+	if err != nil {
+		t.Fatalf("hub update from live OCI source: %v", err)
+	}
+	if len(report.Warnings) > 0 {
+		t.Fatalf("hub update returned warnings: %v", report.Warnings)
+	}
+
+	results := mgr.Search("limacharlie", "connector")
+	if len(results) == 0 {
+		t.Fatal("expected limacharlie connector in live OCI hub search results")
+	}
+	if results[0].Source != "official" {
+		t.Fatalf("source = %q, want official", results[0].Source)
+	}
+	if _, err := os.Stat(filepath.Join(home, "hub-cache", "official", "connectors", "limacharlie", "connector.yaml")); err != nil {
+		t.Fatalf("expected cached connector file: %v", err)
+	}
+
+	t.Run("install", func(t *testing.T) {
+		if !cosignInstalled() {
+			t.Skip("cosign is required for OCI install signature verification")
+		}
+
+		inst, err := mgr.Install("limacharlie", "connector", "official", "limacharlie-live-test")
+		if err != nil {
+			t.Fatalf("install live OCI connector: %v", err)
+		}
+		if inst.Kind != "connector" {
+			t.Fatalf("installed kind = %q, want connector", inst.Kind)
+		}
+		if _, err := os.Stat(filepath.Join(mgr.Registry.InstanceDir(inst.ID), "connector.yaml")); err != nil {
+			t.Fatalf("expected installed connector file: %v", err)
+		}
+	})
 }
