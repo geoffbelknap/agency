@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { formatDateTimeShort } from '../lib/time';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
-import { Search, Database, Sparkles, Check, X, RotateCcw, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { Search, Database, Sparkles, Check, X, RotateCcw, ShieldCheck, ShieldAlert, Network } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface QueryResult {
@@ -65,6 +65,20 @@ interface QuarantinedNode {
   type?: string;
   reason?: string;
   quarantinedAt?: string;
+}
+
+interface TopologyItem {
+  id: string;
+  label: string;
+  detail?: string;
+  count?: number;
+}
+
+interface GraphTopology {
+  tiers: TopologyItem[];
+  principals: TopologyItem[];
+  communities: TopologyItem[];
+  hubs: TopologyItem[];
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -239,6 +253,28 @@ function parseQuarantinedNodes(raw: unknown): QuarantinedNode[] {
   });
 }
 
+function unwrapList(raw: unknown, keys: string[]): unknown[] {
+  const record = asRecord(raw);
+  if (Array.isArray(raw)) return raw;
+  for (const key of keys) {
+    if (Array.isArray(record[key])) return record[key] as unknown[];
+  }
+  return [];
+}
+
+function parseTopologyItems(raw: unknown, keys: string[], fallbackPrefix: string): TopologyItem[] {
+  return unwrapList(raw, keys).map((entry, index) => {
+    const item = asRecord(entry);
+    const id = firstString(item, ['id', 'uuid', 'name', 'tier', 'label']) ?? `${fallbackPrefix}-${index}`;
+    return {
+      id,
+      label: firstString(item, ['label', 'name', 'tier', 'type', 'uuid']) ?? id,
+      detail: firstString(item, ['description', 'summary', 'scope', 'classification', 'type']),
+      count: firstNumber(item, ['count', 'size', 'nodes', 'node_count', 'degree']),
+    };
+  });
+}
+
 export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string, kind: string) => void }) {
   const [queryText, setQueryText] = useState('');
   const [queryResults, setQueryResults] = useState<QueryResult[]>([]);
@@ -263,6 +299,8 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
   const [quarantinedNodes, setQuarantinedNodes] = useState<QuarantinedNode[]>([]);
   const [quarantineLoading, setQuarantineLoading] = useState(false);
   const [quarantineActionLoading, setQuarantineActionLoading] = useState<string | null>(null);
+  const [topology, setTopology] = useState<GraphTopology>({ tiers: [], principals: [], communities: [], hubs: [] });
+  const [topologyLoading, setTopologyLoading] = useState(false);
 
   const loadPendingContributions = async () => {
     try {
@@ -285,6 +323,26 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
       setQuarantinedNodes([]);
     } finally {
       setQuarantineLoading(false);
+    }
+  };
+
+  const loadTopology = async () => {
+    try {
+      setTopologyLoading(true);
+      const [classification, principals, communities, hubs] = await Promise.all([
+        api.knowledge.classification().catch(() => null),
+        api.knowledge.principals().catch(() => null),
+        api.knowledge.communities().catch(() => null),
+        api.knowledge.hubs(10).catch(() => null),
+      ]);
+      setTopology({
+        tiers: parseTopologyItems(classification, ['tiers', 'classifications', 'items'], 'tier'),
+        principals: parseTopologyItems(principals, ['principals', 'items'], 'principal'),
+        communities: parseTopologyItems(communities, ['communities', 'items'], 'community'),
+        hubs: parseTopologyItems(hubs, ['hubs', 'items'], 'hub'),
+      });
+    } finally {
+      setTopologyLoading(false);
     }
   };
 
@@ -375,6 +433,7 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
     loadOntologyReviewData();
     loadPendingContributions();
     loadQuarantinedNodes();
+    loadTopology();
     const loadStats = async () => {
       try {
         setStatsLoading(true);
@@ -656,6 +715,52 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
             ))}
           </div>
         )}
+      </div>
+
+      {/* Topology */}
+      <div className="bg-card border border-border rounded p-4 md:p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-foreground/80 flex items-center gap-2">
+            <Network className="w-4 h-4" />
+            Graph Topology
+          </h2>
+          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={loadTopology} disabled={topologyLoading}>
+            {topologyLoading ? '...' : 'Refresh'}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground mb-3">
+          Read-only view of classification tiers, registered principals, communities, and highly connected hubs.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {([
+            ['Classification', topology.tiers],
+            ['Principals', topology.principals],
+            ['Communities', topology.communities],
+            ['Hubs', topology.hubs],
+          ] as const).map(([label, items]) => (
+            <div key={label} className="bg-background border border-border rounded p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{label}</div>
+                <span className="text-[10px] text-muted-foreground">{items.length}</span>
+              </div>
+              {items.length === 0 ? (
+                <div className="text-xs text-muted-foreground/70 py-3">No data</div>
+              ) : (
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {items.slice(0, 8).map((item) => (
+                    <div key={item.id} className="rounded bg-secondary/50 px-2 py-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-foreground truncate">{item.label}</span>
+                        {item.count != null && <span className="text-[10px] text-muted-foreground">{item.count}</span>}
+                      </div>
+                      {item.detail && <div className="mt-0.5 text-[10px] text-muted-foreground truncate">{item.detail}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Quarantine */}

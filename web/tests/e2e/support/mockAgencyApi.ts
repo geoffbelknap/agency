@@ -587,6 +587,22 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
       await route.fulfill(json({ ok: true }));
       return;
     }
+    if (method === 'GET' && pathname === '/api/v1/graph/classification') {
+      await route.fulfill(json({ tiers: [] }));
+      return;
+    }
+    if (method === 'GET' && pathname === '/api/v1/graph/principals') {
+      await route.fulfill(json([]));
+      return;
+    }
+    if (method === 'GET' && pathname === '/api/v1/graph/communities') {
+      await route.fulfill(json({ communities: [] }));
+      return;
+    }
+    if (method === 'GET' && pathname === '/api/v1/graph/hubs') {
+      await route.fulfill(json({ hubs: [] }));
+      return;
+    }
     if (method === 'POST' && /^\/api\/v1\/graph\/ontology\/(promote|reject|restore)$/.test(pathname)) {
       const bodyText = request.postData() || '{}';
       const body = JSON.parse(bodyText) as { node_id?: string; value?: string };
