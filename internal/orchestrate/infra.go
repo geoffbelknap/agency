@@ -31,6 +31,12 @@ import (
 	"github.com/geoffbelknap/agency/internal/services"
 )
 
+type dockerNetworkAPI interface {
+	NetworkInspect(ctx context.Context, networkID string, options network.InspectOptions) (network.Inspect, error)
+	NetworkCreate(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error)
+	NetworkRemove(ctx context.Context, networkID string) error
+}
+
 const (
 	prefix       = "agency"
 	gatewayNet   = "agency-gateway"
@@ -404,15 +410,48 @@ func (inf *Infra) RestartComponentWithProgress(ctx context.Context, component st
 // route to the host — all external access must go through the enforcer/egress
 // chain (ASK Tenet 3: mediation is complete).
 func (inf *Infra) EnsureAgentNetwork(ctx context.Context, netName string) error {
-	_, err := inf.cli.NetworkInspect(ctx, netName, network.InspectOptions{})
-	if err != nil {
-		if createErr := containers.CreateInternalNetwork(ctx, inf.cli, netName, nil); createErr != nil {
-			inf.log.Error("failed to create agent network", "network", netName, "err", createErr)
-			return createErr
-		}
-		inf.log.Debug("created agent network", "network", netName, "internal", true)
+	if err := ensureInternalNetworkReady(ctx, inf.cli, netName); err != nil {
+		inf.log.Error("failed to create agent network", "network", netName, "err", err)
+		return err
 	}
+	inf.log.Debug("ensured agent network", "network", netName, "internal", true)
 	return nil
+}
+
+func ensureInternalNetworkReady(ctx context.Context, cli dockerNetworkAPI, netName string) error {
+	if _, err := cli.NetworkInspect(ctx, netName, network.InspectOptions{}); err == nil {
+		return nil
+	} else if !containers.IsNetworkNotFound(err) {
+		return fmt.Errorf("inspect agent network %s: %w", netName, err)
+	}
+
+	createErr := containers.CreateInternalNetwork(ctx, cli, netName, nil)
+	if createErr != nil && !containers.IsNetworkAlreadyExists(createErr) {
+		return createErr
+	}
+
+	backoff := []time.Duration{50 * time.Millisecond, 100 * time.Millisecond, 250 * time.Millisecond, 500 * time.Millisecond, time.Second}
+	for _, delay := range backoff {
+		if _, err := cli.NetworkInspect(ctx, netName, network.InspectOptions{}); err == nil {
+			return nil
+		} else if !containers.IsNetworkNotFound(err) {
+			return fmt.Errorf("verify agent network %s: %w", netName, err)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+
+	if _, err := cli.NetworkInspect(ctx, netName, network.InspectOptions{}); err == nil {
+		return nil
+	} else if containers.IsNetworkNotFound(err) {
+		return fmt.Errorf("agent network %s not ready after create", netName)
+	} else {
+		return fmt.Errorf("verify agent network %s: %w", netName, err)
+	}
 }
 
 // -- Config generation --
@@ -591,7 +630,7 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 		return fmt.Errorf("resolve egress image: %w", err)
 	}
 	name := containerName("egress")
-	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
+	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) && inf.hasContainerEnv(ctx, name, "GATEWAY_TOKEN", inf.EgressToken) {
 		return nil
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("egress"))
@@ -759,7 +798,7 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 		return fmt.Errorf("resolve knowledge image: %w", err)
 	}
 	name := containerName("knowledge")
-	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
+	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) && inf.hasContainerEnv(ctx, name, "AGENCY_GATEWAY_TOKEN", inf.GatewayToken) {
 		return nil
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("knowledge"))
@@ -834,7 +873,7 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 		return fmt.Errorf("resolve intake image: %w", err)
 	}
 	name := containerName("intake")
-	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
+	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) && inf.hasContainerEnv(ctx, name, "GATEWAY_TOKEN", inf.GatewayToken) {
 		return nil
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("intake"))
@@ -1283,6 +1322,20 @@ func (inf *Infra) isCurrentBuild(ctx context.Context, containerName string) bool
 		return false
 	}
 	return inspect.Config.Labels["agency.build.gateway"] == inf.BuildID
+}
+
+func (inf *Infra) hasContainerEnv(ctx context.Context, containerName, key, want string) bool {
+	inspect, err := inf.cli.ContainerInspect(ctx, containerName)
+	if err != nil {
+		return false
+	}
+	prefix := key + "="
+	for _, envVar := range inspect.Config.Env {
+		if strings.HasPrefix(envVar, prefix) {
+			return strings.TrimPrefix(envVar, prefix) == want
+		}
+	}
+	return false
 }
 
 func (inf *Infra) stopAndRemove(ctx context.Context, name string, timeoutSecs int) error {

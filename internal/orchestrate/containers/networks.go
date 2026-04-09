@@ -63,7 +63,7 @@ func CreateMediationNetwork(ctx context.Context, cli NetworkAPI, name string, la
 // RemoveNetwork removes a network by name, ignoring "not found" errors.
 func RemoveNetwork(ctx context.Context, cli NetworkAPI, name string) error {
 	err := cli.NetworkRemove(ctx, name)
-	if err != nil && !isNetworkNotFound(err) {
+	if err != nil && !IsNetworkNotFound(err) {
 		return err
 	}
 	return nil
@@ -80,12 +80,21 @@ func mergeLabels(labels map[string]string) map[string]string {
 	return merged
 }
 
-// isNetworkNotFound returns true for Docker "no such network" errors.
-func isNetworkNotFound(err error) bool {
+// IsNetworkNotFound returns true for Docker "no such network" errors.
+func IsNetworkNotFound(err error) bool {
 	if err == nil {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "no such network") ||
 		strings.Contains(msg, "not found")
+}
+
+// IsNetworkAlreadyExists returns true for Docker network name conflicts.
+func IsNetworkAlreadyExists(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "already exists")
 }

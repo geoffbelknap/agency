@@ -39,11 +39,9 @@ func Resolve(ctx context.Context, cli *client.Client, name, version, sourceDir, 
 	}
 	if exists && buildID != "" {
 		imgBuildID := ImageBuildLabel(ctx, cli, localTag)
-		// Skip rebuild only when both build IDs are clean (no -dirty suffix)
-		// and share the same commit hash. A dirty working tree means source
-		// files may have changed — always rebuild to pick up those changes.
-		dirty := strings.HasSuffix(buildID, "-dirty") || strings.HasSuffix(imgBuildID, "-dirty")
-		if !dirty && imgBuildID != "" && imgBuildID == buildID {
+		// BUILD_ID is content-aware for dirty trees, so an exact match means the
+		// local image already reflects the current working copy.
+		if imgBuildID != "" && imgBuildID == buildID {
 			return nil // Image is current — skip rebuild
 		}
 		if imgBuildID != "" {

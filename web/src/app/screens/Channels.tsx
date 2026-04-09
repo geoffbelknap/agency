@@ -25,6 +25,7 @@ export function Channels() {
   const isMobile = useIsMobile();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [agentStatuses, setAgentStatuses] = useState<Record<string, 'running' | 'idle' | 'halted' | 'unknown'>>({});
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [threadParent, setThreadParent] = useState<Message | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -66,16 +67,32 @@ export function Channels() {
 
   const loadChannels = useCallback(async () => {
     try {
-      const data = (await api.channels.list()) ?? [];
+      const [data, agents] = await Promise.all([
+        api.channels.list(),
+        api.agents.list().catch(() => [] as RawAgent[]),
+      ]);
       const mapped: Channel[] = data.map((c: RawChannel) => ({
         id: c.name,
         name: c.name,
         topic: c.topic || '',
+        type: c.type,
+        state: c.state,
         unreadCount: c.unread || 0,
         mentionCount: c.mentions || 0,
         lastActivity: '',
         members: (c.members || []).filter((m: string) => m !== '_operator'),
-      }));
+      })).filter((channel) => channel.state !== 'archived');
+      const nextStatuses: Record<string, 'running' | 'idle' | 'halted' | 'unknown'> = {};
+      for (const agent of agents ?? []) {
+        if (agent.status === 'running') {
+          nextStatuses[agent.name] = 'running';
+        } else if (agent.status === 'halted' || agent.status === 'stopped' || agent.status === 'paused' || agent.status === 'unhealthy') {
+          nextStatuses[agent.name] = 'halted';
+        } else {
+          nextStatuses[agent.name] = 'unknown';
+        }
+      }
+      setAgentStatuses(nextStatuses);
       setChannels(mapped);
       return mapped;
     } catch (err) {
@@ -326,6 +343,7 @@ export function Channels() {
           channels={channels}
           selectedChannel={selectedChannel}
           onSelect={(ch) => { handleChannelSelect(ch); setMobileSidebarOpen(false); }}
+          dmStatuses={agentStatuses}
           onBrowseChannels={() => setBrowserOpen(true)}
           onCreateChannel={() => setCreateChannelOpen(true)}
           mobileOpen={mobileSidebarOpen}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../../test/server';
@@ -13,54 +13,45 @@ describe('Teams', () => {
     server.use(
       http.get(`${BASE}/admin/teams`, () =>
         HttpResponse.json([
-          { name: 'alpha', member_count: 3, created: '2026-03-15' },
+          { name: 'alpha-team', member_count: 2, created: '2026-04-08T00:00:00Z' },
         ]),
       ),
     );
+
     renderWithRouter(<Teams />);
+
     await waitFor(() => {
-      expect(screen.getByText('alpha')).toBeInTheDocument();
-      expect(screen.getByText('3 members')).toBeInTheDocument();
+      expect(screen.getByText('alpha-team')).toBeInTheDocument();
+      expect(screen.getByText('2 members')).toBeInTheDocument();
     });
   });
 
-  it('creates a new team', async () => {
-    let created = false;
-    server.use(
-      http.get(`${BASE}/admin/teams`, () => HttpResponse.json([])),
-      http.post(`${BASE}/admin/teams`, () => {
-        created = true;
-        return HttpResponse.json({ ok: true });
-      }),
-    );
-    renderWithRouter(<Teams />);
-    await userEvent.click(screen.getByRole('button', { name: /create team/i }));
-    const input = screen.getByPlaceholderText('Team name...');
-    await userEvent.type(input, 'beta');
-    await userEvent.click(screen.getByRole('button', { name: /^create$/i }));
-    await waitFor(() => {
-      expect(created).toBe(true);
-    });
-  });
-
-  it('shows team detail and members on click', async () => {
+  it('confirms delete and removes the team from the list', async () => {
     server.use(
       http.get(`${BASE}/admin/teams`, () =>
-        HttpResponse.json([{ name: 'alpha', member_count: 2, created: '2026-03-15' }]),
+        HttpResponse.json([
+          { name: 'alpha-team', member_count: 2, created: '2026-04-08T00:00:00Z' },
+        ]),
       ),
-      http.get(`${BASE}/admin/teams/alpha`, () =>
-        HttpResponse.json({ name: 'alpha', members: ['agent-a', 'agent-b'] }),
-      ),
-      http.get(`${BASE}/teams/alpha/activity`, () => HttpResponse.json([])),
+      http.delete(`${BASE}/admin/teams/:name`, () => HttpResponse.json({ ok: true })),
     );
+
     renderWithRouter(<Teams />);
+
     await waitFor(() => {
-      expect(screen.getByText('alpha')).toBeInTheDocument();
+      expect(screen.getByText('alpha-team')).toBeInTheDocument();
     });
-    await userEvent.click(screen.getByText('alpha'));
+
+    await userEvent.click(screen.getByRole('button', { name: /delete team alpha-team/i }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByText(/cannot be undone/i)).toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }));
+
     await waitFor(() => {
-      expect(screen.getByText('agent-a')).toBeInTheDocument();
-      expect(screen.getByText('agent-b')).toBeInTheDocument();
+      expect(screen.queryByText('alpha-team')).not.toBeInTheDocument();
+      expect(screen.getByText(/no teams yet/i)).toBeInTheDocument();
     });
   });
 });

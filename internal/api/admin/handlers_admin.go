@@ -889,6 +889,18 @@ func (h *handler) adminKnowledge(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			raw, err = kp.Post(ctx, "/ontology/reject", map[string]string{"node_id": resolved})
 		}
+	case "ontology_restore":
+		val := args["value"]
+		nodeID := args["node_id"]
+		if val == "" && nodeID == "" {
+			writeJSON(w, 400, map[string]string{"error": "node_id or value is required"})
+			return
+		}
+		var resolved string
+		resolved, err = knowledge.ResolveOntologyCandidateID(ctx, kp, nodeID, val)
+		if err == nil {
+			raw, err = kp.Restore(ctx, resolved)
+		}
 	default:
 		writeJSON(w, 400, map[string]string{"error": "unknown action: " + body.Action})
 		return

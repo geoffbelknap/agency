@@ -13,6 +13,7 @@ func (h *handler) listChannels(w http.ResponseWriter, r *http.Request) {
 	// The comms /channels endpoint only returns open channels by default.
 	// DMs require a member filter.
 	ctx := r.Context()
+	includeArchived := r.URL.Query().Get("include_archived") == "true"
 	openData, err := h.deps.Comms.CommsRequest(ctx, "GET", "/channels", nil)
 	if err != nil {
 		writeJSON(w, 502, map[string]string{"error": err.Error()})
@@ -28,11 +29,17 @@ func (h *handler) listChannels(w http.ResponseWriter, r *http.Request) {
 	seen := make(map[string]bool)
 	var merged []map[string]interface{}
 	for _, ch := range openChannels {
+		if !includeArchived && channelState(ch) == "archived" {
+			continue
+		}
 		name, _ := ch["name"].(string)
 		seen[name] = true
 		merged = append(merged, ch)
 	}
 	for _, ch := range dmChannels {
+		if !includeArchived && channelState(ch) == "archived" {
+			continue
+		}
 		name, _ := ch["name"].(string)
 		if !seen[name] {
 			merged = append(merged, ch)
@@ -40,6 +47,11 @@ func (h *handler) listChannels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, 200, merged)
+}
+
+func channelState(ch map[string]interface{}) string {
+	state, _ := ch["state"].(string)
+	return strings.ToLower(state)
 }
 
 func (h *handler) createChannel(w http.ResponseWriter, r *http.Request) {

@@ -70,6 +70,8 @@ func (h *handler) deleteAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	// Remove agent from all channel memberships
 	h.deps.Comms.CommsRequest(r.Context(), "POST", "/participants/"+name+"/leave-all", nil)
+	// Archive the dedicated DM channel so deleted agents do not linger in the UI.
+	h.deps.Comms.CommsRequest(r.Context(), "POST", "/channels/dm-"+name+"/archive", nil)
 	h.deps.Audit.WriteSystem("agent_deleted", map[string]interface{}{"agent": name})
 	writeJSON(w, 200, map[string]string{"status": "deleted", "name": name})
 }

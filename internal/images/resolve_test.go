@@ -193,3 +193,18 @@ func TestImageExists_False(t *testing.T) {
 		t.Error("expected nonexistent image to return false")
 	}
 }
+
+func TestDirtyBuildIDIncludesContentHash(t *testing.T) {
+	makefilePath := filepath.Join(repoRoot(t), "Makefile")
+	data, err := os.ReadFile(makefilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "DIRTY_HASH :=") {
+		t.Fatal("Makefile is missing DIRTY_HASH computation")
+	}
+	if !strings.Contains(content, "-dirty.$(DIRTY_HASH)") {
+		t.Fatal("Makefile dirty BUILD_ID suffix must include the diff hash")
+	}
+}

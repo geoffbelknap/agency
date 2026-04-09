@@ -1902,8 +1902,9 @@ paths:
           application/json:
             schema:
               type: object
-              required: [value]
               properties:
+                node_id:
+                  type: string
                 value:
                   type: string
       responses:
@@ -1930,8 +1931,9 @@ paths:
           application/json:
             schema:
               type: object
-              required: [value]
               properties:
+                node_id:
+                  type: string
                 value:
                   type: string
       responses:
@@ -1943,6 +1945,34 @@ paths:
                 type: object
                 properties:
                   rejected:
+                    type: boolean
+                  value:
+                    type: string
+
+  /graph/ontology/restore:
+    post:
+      operationId: restoreOntologyCandidate
+      summary: Restore an ontology candidate to review
+      tags: [Graph]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                node_id:
+                  type: string
+                value:
+                  type: string
+      responses:
+        "200":
+          description: Candidate restored
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
                     type: boolean
                   value:
                     type: string
@@ -3148,6 +3178,21 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteTeam
+      summary: Delete a team
+      tags: [Admin]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/StatusResponse"
         "404":
           $ref: "#/components/responses/NotFound"
 

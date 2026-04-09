@@ -42,6 +42,28 @@ describe('Channels', () => {
     });
   });
 
+  it('hides archived channels from the default sidebar', async () => {
+    server.use(
+      http.get(`${BASE}/comms/channels`, () =>
+        HttpResponse.json([
+          { name: 'general', topic: 'General chat', state: 'active' },
+          { name: 'playwright-old', topic: 'Archived test channel', state: 'archived' },
+        ]),
+      ),
+      http.get(`${BASE}/comms/channels/general/messages`, () =>
+        HttpResponse.json([
+          { id: 'm1', author: 'steve', content: 'Hello world', timestamp: '2026-03-16T10:00:00Z' },
+        ]),
+      ),
+      http.get(`${BASE}/agents`, () => HttpResponse.json([])),
+    );
+    renderWithRouter(<Channels />);
+    await waitFor(() => {
+      expect(screen.getAllByText('general').length).toBeGreaterThanOrEqual(1);
+      expect(screen.queryByText('playwright-old')).not.toBeInTheDocument();
+    });
+  });
+
   it('sends a message', async () => {
     let sent = false;
     server.use(

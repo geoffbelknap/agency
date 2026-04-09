@@ -215,3 +215,37 @@ func (h *handler) rejectOntologyCandidate(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(200)
 	w.Write(data)
 }
+
+// restoreOntologyCandidate handles POST /api/v1/graph/ontology/restore
+// Restores a previously promoted or rejected ontology candidate back to review.
+func (h *handler) restoreOntologyCandidate(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		NodeID string `json:"node_id"`
+		Value  string `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid request body"})
+		return
+	}
+	if body.NodeID == "" && body.Value == "" {
+		writeJSON(w, 400, map[string]string{"error": "node_id or value is required"})
+		return
+	}
+
+	kp := knowledge.NewProxy()
+	nodeID, err := knowledge.ResolveOntologyCandidateID(r.Context(), kp, body.NodeID, body.Value)
+	if err != nil {
+		writeJSON(w, 404, map[string]string{"error": err.Error()})
+		return
+	}
+
+	data, err := kp.Restore(r.Context(), nodeID)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": "knowledge service unavailable: " + err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
