@@ -524,7 +524,7 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
       return;
     }
     if (method === 'GET' && pathname === '/api/v1/graph/ontology/candidates') {
-      await route.fulfill(json({ candidates: [{ value: 'rollout-readiness', count: 4, source: 'agent' }] }));
+      await route.fulfill(json({ candidates: [{ id: 'candidate-rollout-readiness', value: 'rollout-readiness', count: 4, source: 'agent' }] }));
       return;
     }
     if (method === 'POST' && /^\/api\/v1\/graph\/ontology\/(promote|reject)$/.test(pathname)) {

@@ -38,6 +38,17 @@ async function requestWithToken(page: Page, method: 'DELETE' | 'POST', path: str
   return response.status();
 }
 
+async function getJSONWithToken<T>(page: Page, path: string): Promise<T | null> {
+  const configResponse = await page.request.get('/__agency/config');
+  const config = configResponse.ok() ? await configResponse.json() : {};
+  const token = (config as { token?: string })?.token ?? '';
+  const response = await page.request.get(path, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!response.ok()) {
+    return null;
+  }
+  return response.json() as Promise<T>;
+}
+
 async function channelExists(page: Page, channelName: string) {
   const response = await page.request.get('/api/v1/comms/channels');
   if (!response.ok()) {
@@ -73,6 +84,12 @@ async function clearBlockingToasts(page: Page) {
     await closeButtons.nth(i).click({ force: true }).catch(() => {});
   }
 }
+
+type HubComponent = {
+  name: string;
+  kind: string;
+  source?: string;
+};
 
 test('live risky suite supports capability add, enable, disable, and delete flow', async ({ page }) => {
   const capabilityName = uniqueName('playwright-capability');
@@ -197,6 +214,137 @@ test('live risky suite supports notification test-send to a contained local sink
   } finally {
     await bestEffortDelete(page, `/api/v1/events/notifications/${encodeURIComponent(destinationName)}`);
     await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+  }
+});
+
+test('live risky suite supports hub install and remove for an eligible catalog component', async ({ page }) => {
+  let target: HubComponent | null = null;
+
+  try {
+    await page.goto('/admin/hub');
+    const initialized = await expectSetupOrInitialized(page);
+    if (!initialized) {
+      return;
+    }
+
+    const [searchResults, installedResults] = await Promise.all([
+      getJSONWithToken<HubComponent[]>(page, '/api/v1/hub/search?q='),
+      getJSONWithToken<Array<{ name?: string }>>(page, '/api/v1/hub/instances'),
+    ]);
+
+    const installedNames = new Set((installedResults ?? []).map((item) => item.name).filter(Boolean) as string[]);
+    target = (searchResults ?? []).find((component) =>
+      ['preset', 'policy', 'skill', 'workspace'].includes(component.kind)
+      && !!component.name
+      && !installedNames.has(component.name),
+    ) ?? null;
+
+    test.skip(!target, 'No eligible removable hub component was available in the local catalog');
+
+    await page.getByRole('tab', { name: /^Browse$/ }).click();
+    await page.getByPlaceholder('Search components...').fill(target!.name);
+    await page.getByRole('button', { name: /^Search$/ }).click();
+    await settle(page);
+
+    const browseRow = page.locator('div.bg-card').filter({ has: page.getByText(target!.name, { exact: true }) }).first();
+    await expect(browseRow).toBeVisible();
+    await browseRow.getByRole('button', { name: /^Install$/ }).click();
+    await settle(page);
+
+    await page.getByRole('tab', { name: /installed/i }).click();
+    await settle(page);
+
+    const installedRow = page.locator('tr').filter({ has: page.getByText(target!.name, { exact: true }) }).first();
+    await expect(installedRow).toBeVisible();
+    await installedRow.getByRole('button', { name: /^Remove$/ }).click();
+    await settle(page);
+    await expect(installedRow).toHaveCount(0);
+  } finally {
+    if (target?.name) {
+      await requestWithToken(page, 'DELETE', `/api/v1/hub/${encodeURIComponent(target.name)}`).catch(() => {});
+    }
+  }
+});
+
+test('live risky suite supports connector deactivate and reactivate for a ready installed connector', async ({ page }) => {
+  let target: { name: string; state?: string } | null = null;
+
+  try {
+    await page.goto('/admin/intake');
+    const initialized = await expectSetupOrInitialized(page);
+    if (!initialized) {
+      return;
+    }
+
+    const connectors = await getJSONWithToken<Array<{ name: string; state?: string }>>(page, '/api/v1/hub/instances?kind=connector');
+    test.skip(!connectors || connectors.length === 0, 'No installed connectors available for toggle coverage');
+
+    for (const connector of connectors ?? []) {
+      const requirements = await getJSONWithToken<{ ready?: boolean }>(page, `/api/v1/hub/connectors/${encodeURIComponent(connector.name)}/requirements`);
+      if (requirements?.ready) {
+        target = connector;
+        break;
+      }
+    }
+
+    test.skip(!target, 'No ready connector was available for reversible toggle coverage');
+
+    const connectorButton = page.getByRole('button', { name: new RegExp(target!.name) }).first();
+    await expect(connectorButton).toBeVisible();
+    await connectorButton.click();
+    await settle(page);
+
+    const toggleLabel = target!.state === 'active' ? 'Deactivate' : 'Activate';
+    const revertLabel = target!.state === 'active' ? 'Activate' : 'Deactivate';
+
+    await page.getByRole('button', { name: toggleLabel }).click();
+    await settle(page);
+    await expect(page.getByRole('button', { name: revertLabel })).toBeVisible();
+
+    await page.getByRole('button', { name: revertLabel }).click();
+    await settle(page);
+    await expect(page.getByRole('button', { name: toggleLabel })).toBeVisible();
+  } finally {
+    if (target?.name) {
+      const desiredPath = target.state === 'active'
+        ? `/api/v1/hub/${encodeURIComponent(target.name)}/activate`
+        : `/api/v1/hub/${encodeURIComponent(target.name)}/deactivate`;
+      await requestWithToken(page, 'POST', desiredPath).catch(() => {});
+    }
+  }
+});
+
+test('live risky suite supports pack deploy and teardown for an installed pack', async ({ page }) => {
+  let target: { name: string } | null = null;
+
+  try {
+    await page.goto('/admin/hub');
+    const initialized = await expectSetupOrInitialized(page);
+    if (!initialized) {
+      return;
+    }
+
+    const packs = await getJSONWithToken<Array<{ name: string; kind?: string }>>(page, '/api/v1/hub/instances?kind=pack');
+    target = (packs ?? []).find((pack) => !!pack.name) ?? null;
+    test.skip(!target, 'No installed pack available for deploy/teardown coverage');
+
+    await page.getByRole('tab', { name: /^Deploy$/ }).click();
+    await page.locator('select').selectOption(target!.name);
+    await page.getByRole('button', { name: /^Deploy$/ }).first().click();
+    await settle(page);
+
+    await expect(page.locator('pre')).toContainText(/status|deployed|pack/i);
+
+    const packRow = page.locator('tr').filter({ has: page.getByText(target!.name, { exact: true }) }).first();
+    await expect(packRow).toBeVisible();
+    await packRow.getByRole('button', { name: /^Teardown$/ }).click();
+    await page.getByRole('button', { name: /^Teardown$/ }).last().click();
+    await settle(page);
+    await expect(page.locator('pre')).toContainText(new RegExp(target!.name));
+  } finally {
+    if (target?.name) {
+      await requestWithToken(page, 'POST', `/api/v1/hub/teardown/${encodeURIComponent(target.name)}`).catch(() => {});
+    }
   }
 });
 

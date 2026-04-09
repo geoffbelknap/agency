@@ -911,19 +911,33 @@ func registerAdminTools(reg *MCPToolRegistry) {
 				}
 				raw, err = kp.Post(ctx, "/curation/unflag", map[string]string{"node_id": nodeID})
 			case "ontology_candidates":
-				raw, err = kp.Get(ctx, "/ontology/candidates")
+				var candidates []knowledge.OntologyCandidate
+				candidates, err = knowledge.ListOntologyCandidates(ctx, kp)
+				if err == nil {
+					raw, err = json.Marshal(map[string]interface{}{"candidates": candidates})
+				}
 			case "ontology_promote":
 				val := mapStr(args, "value")
-				if val == "" {
-					return "Error: value is required for ontology_promote action", true
+				nodeID := mapStr(args, "node_id")
+				if val == "" && nodeID == "" {
+					return "Error: node_id or value is required for ontology_promote action", true
 				}
-				raw, err = kp.Post(ctx, "/ontology/promote", map[string]string{"value": val})
+				var resolved string
+				resolved, err = knowledge.ResolveOntologyCandidateID(ctx, kp, nodeID, val)
+				if err == nil {
+					raw, err = kp.Post(ctx, "/ontology/promote", map[string]string{"node_id": resolved})
+				}
 			case "ontology_reject":
 				val := mapStr(args, "value")
-				if val == "" {
-					return "Error: value is required for ontology_reject action", true
+				nodeID := mapStr(args, "node_id")
+				if val == "" && nodeID == "" {
+					return "Error: node_id or value is required for ontology_reject action", true
 				}
-				raw, err = kp.Post(ctx, "/ontology/reject", map[string]string{"value": val})
+				var resolved string
+				resolved, err = knowledge.ResolveOntologyCandidateID(ctx, kp, nodeID, val)
+				if err == nil {
+					raw, err = kp.Post(ctx, "/ontology/reject", map[string]string{"node_id": resolved})
+				}
 			default:
 				return "Error: unknown action: " + action, true
 			}
