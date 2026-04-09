@@ -82,6 +82,8 @@ Suite location:
 - Risky live channel create / send / archive
 - Risky live notification test-send to a contained local sink
 - Risky live hub install / remove for an eligible local catalog component
+- Risky live mission create / update / delete for an unassigned mission
+- Risky live agent create / start / delete with observable post-start state
 - Ontology candidate contract normalized across web, REST, CLI, and MCP paths
 
 ### Conditionally exercised when the local stack has prerequisites
@@ -99,8 +101,7 @@ Suite location:
 
 - Knowledge ontology promote/reject until the knowledge service exposes a restore or delete path for promoted and rejected candidates. The runtime contract now correctly uses `node_id`, but the mutation remains one-way.
 - Team create/read cleanup flow until core delete support exists.
-- Mission create/update/delete until backend cleanup is stable immediately after UI-created missions.
-- Agent create/start/stop/delete until startup convergence is observable through the API/UI.
+- Assigned mission lifecycle cleanup until pause/complete/delete semantics are proven stable end-to-end.
 
 ### Explicitly excluded from default live suite
 

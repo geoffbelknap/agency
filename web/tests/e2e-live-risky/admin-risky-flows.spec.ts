@@ -29,24 +29,26 @@ function uniqueName(prefix: string) {
 }
 
 async function requestWithToken(page: Page, method: 'DELETE' | 'POST', path: string) {
-  const configResponse = await page.request.get('/__agency/config');
-  const config = configResponse.ok() ? await configResponse.json() : {};
-  const token = (config as { token?: string })?.token ?? '';
+  const headers = await authHeaders(page);
   const response = method === 'DELETE'
-    ? await page.request.delete(path, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-    : await page.request.post(path, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    ? await page.request.delete(path, { headers })
+    : await page.request.post(path, { headers });
   return response.status();
 }
 
 async function getJSONWithToken<T>(page: Page, path: string): Promise<T | null> {
-  const configResponse = await page.request.get('/__agency/config');
-  const config = configResponse.ok() ? await configResponse.json() : {};
-  const token = (config as { token?: string })?.token ?? '';
-  const response = await page.request.get(path, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  const response = await page.request.get(path, { headers: await authHeaders(page) });
   if (!response.ok()) {
     return null;
   }
   return response.json() as Promise<T>;
+}
+
+async function authHeaders(page: Page): Promise<Record<string, string>> {
+  const configResponse = await page.request.get('/__agency/config');
+  const config = configResponse.ok() ? await configResponse.json() : {};
+  const token = (config as { token?: string })?.token ?? '';
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 async function channelExists(page: Page, channelName: string) {
@@ -75,6 +77,22 @@ async function bestEffortArchiveChannel(page: Page, channelName: string) {
     return;
   }
   throw new Error(`channel archive failed for ${channelName}: ${status}`);
+}
+
+async function bestEffortDeleteMission(page: Page, missionName: string) {
+  const status = await requestWithToken(page, 'DELETE', `/api/v1/missions/${encodeURIComponent(missionName)}`);
+  if (status === 200 || status === 204 || status === 404) {
+    return;
+  }
+  throw new Error(`mission delete failed for ${missionName}: ${status}`);
+}
+
+async function bestEffortDeleteAgent(page: Page, agentName: string) {
+  const status = await requestWithToken(page, 'DELETE', `/api/v1/agents/${encodeURIComponent(agentName)}`);
+  if (status === 200 || status === 204 || status === 404) {
+    return;
+  }
+  throw new Error(`agent delete failed for ${agentName}: ${status}`);
 }
 
 async function clearBlockingToasts(page: Page) {
@@ -348,12 +366,99 @@ test('live risky suite supports pack deploy and teardown for an installed pack',
   }
 });
 
-test.skip('live risky mission CRUD flow is blocked on mission lifecycle cleanup instability', async () => {
-  // UI-created mission flows currently hit backend cleanup failures (DELETE returns 502)
-  // and are tracked in the workspace follow-up note.
+test('live risky suite supports mission create, update, and delete for an unassigned mission', async ({ page }) => {
+  const missionName = uniqueName('playwright-mission');
+  const description = `Live mission ${missionName}`;
+  const updatedDescription = `${description} updated`;
+  const headers = await authHeaders(page);
+
+  try {
+    await page.goto('/missions');
+    const initialized = await expectSetupOrInitialized(page);
+    if (!initialized) {
+      return;
+    }
+
+    await bestEffortDeleteMission(page, missionName);
+
+    await page.getByRole('button', { name: /new mission|create mission/i }).click();
+    await page.getByPlaceholder('my-mission').fill(missionName);
+    await page.getByPlaceholder('What does this mission do?').fill(description);
+    await page.getByRole('button', { name: /^Next$/ }).click();
+    await page.getByPlaceholder(/Describe what the agent should do when this mission is active/).fill(`Monitor ${missionName} and summarize findings.`);
+    await page.getByRole('button', { name: /^Next$/ }).click();
+    await page.getByRole('button', { name: /^Next$/ }).click();
+    await page.getByRole('button', { name: /^Next$/ }).click();
+    await page.getByRole('button', { name: /^Next$/ }).click();
+    await page.getByRole('button', { name: /^Create Mission$/ }).last().click();
+    await settle(page);
+
+    const missionCard = page.locator('div.bg-card').filter({ has: page.getByText(missionName, { exact: true }) }).first();
+    await expect(missionCard).toBeVisible();
+    await expect(missionCard).toContainText('unassigned');
+
+    await missionCard.click();
+    await settle(page);
+    await expect(page.getByRole('button', { name: 'Delete mission' })).toBeVisible();
+
+    const descriptionSection = page.locator('span').filter({ hasText: 'Description' }).first().locator('xpath=ancestor::div[1]/..');
+    await descriptionSection.getByText(/^edit$/).click();
+    const descriptionInput = descriptionSection.locator('input').first();
+    await descriptionInput.fill(updatedDescription);
+    await descriptionInput.blur();
+    await settle(page);
+    await expect(page.getByText(updatedDescription, { exact: false })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Delete mission' }).click();
+    await page.getByRole('button', { name: /^Delete$/ }).last().click();
+    await settle(page);
+    await expect(page).toHaveURL(/\/missions$/);
+    await expect(page.getByText(missionName, { exact: true })).toHaveCount(0);
+  } finally {
+    const response = await page.request.delete(`/api/v1/missions/${encodeURIComponent(missionName)}`, { headers }).catch(() => null);
+    if (response && ![200, 204, 404].includes(response.status())) {
+      throw new Error(`mission delete failed for ${missionName}: ${response.status()}`);
+    }
+  }
 });
 
-test.skip('live risky agent lifecycle flow is blocked on slow or missing start-state convergence', async () => {
-  // UI start enters "Starting..." but the backend does not converge to a post-start state
-  // quickly enough for reliable live coverage yet.
+test('live risky suite supports agent create, start, and delete with observable post-start state', async ({ page }) => {
+  const agentName = uniqueName('playwright-agent');
+  const headers = await authHeaders(page);
+
+  try {
+    await page.goto('/agents');
+    const initialized = await expectSetupOrInitialized(page);
+    if (!initialized) {
+      return;
+    }
+
+    await bestEffortDeleteAgent(page, agentName);
+
+    await page.getByRole('button', { name: /^Create$/ }).click();
+    await page.getByLabel('Name').fill(agentName);
+    await page.getByLabel('Start agent immediately').uncheck();
+    await page.getByRole('button', { name: /^Create$/ }).last().click();
+    await settle(page);
+
+    const agentRow = page.getByRole('button', { name: new RegExp(agentName) }).first();
+    await expect(agentRow).toBeVisible();
+    await agentRow.click();
+    await settle(page);
+
+    await expect(page.getByRole('button', { name: /^Start$/ })).toBeVisible();
+    await page.getByRole('button', { name: /^Start$/ }).click();
+    await settle(page);
+
+    await expect.poll(async () => {
+      const response = await page.request.get(`/api/v1/agents/${encodeURIComponent(agentName)}`, { headers });
+      if (!response.ok()) return 'missing';
+      const detail = await response.json() as { status?: string };
+      return detail.status ?? 'unknown';
+    }, { timeout: 30_000 }).not.toBe('stopped');
+
+    await expect(page.getByRole('button', { name: /^Start$/ })).toHaveCount(0);
+  } finally {
+    await bestEffortDeleteAgent(page, agentName);
+  }
 });
