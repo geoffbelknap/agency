@@ -3,6 +3,8 @@ import { expect, test, type Page } from '@playwright/test';
 const APP_ERROR_PATTERN = /Application Error|Something went wrong/;
 const SETUP_HEADING_PATTERN = /Welcome to Agency|Re-configure Agency|Preparing your platform/;
 
+test.describe.configure({ timeout: 60_000 });
+
 async function settle(page: Page) {
   await page.waitForLoadState('domcontentloaded');
   await page.waitForTimeout(1500);
@@ -25,23 +27,25 @@ function uniqueName(prefix: string) {
 }
 
 async function bestEffortDelete(page: Page, path: string) {
-  if (page.isClosed()) {
-    return;
-  }
-  const status = await page.evaluate(async (requestPath) => {
-    const configResponse = await fetch('/__agency/config');
-    const config = configResponse.ok ? await configResponse.json() : {};
-    const token = config?.token ?? '';
-    const response = await fetch(requestPath, {
-      method: 'DELETE',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    return response.status;
-  }, path);
+  const configResponse = await page.request.get('/__agency/config');
+  const config = configResponse.ok() ? await configResponse.json() : {};
+  const token = (config as { token?: string })?.token ?? '';
+  const response = await page.request.delete(path, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  const status = response.status();
   if (status === 200 || status === 204 || status === 404) {
     return;
   }
   throw new Error(`cleanup failed for ${path}: ${status}`);
+}
+
+async function clearBlockingToasts(page: Page) {
+  const closeButtons = page.getByRole('button', { name: 'Close toast' });
+  const count = await closeButtons.count();
+  for (let i = 0; i < count; i += 1) {
+    await closeButtons.nth(i).click({ force: true }).catch(() => {});
+  }
 }
 
 test('live stack supports profile create, edit, and delete flow', async ({ page }) => {
@@ -119,5 +123,90 @@ test('live stack supports webhook create, rotate, and delete flow', async ({ pag
     await expect(page.getByRole('cell', { name: webhookName })).toHaveCount(0);
   } finally {
     await bestEffortDelete(page, `/api/v1/events/webhooks/${encodeURIComponent(webhookName)}`);
+  }
+});
+
+test('live stack supports notification destination add and remove flow', async ({ page }) => {
+  const destinationName = uniqueName('playwright-notify');
+  const destinationUrl = `https://ntfy.sh/${destinationName}`;
+
+  try {
+    await page.goto('/admin/notifications');
+    const initialized = await expectSetupOrInitialized(page);
+    if (!initialized) {
+      return;
+    }
+
+    await bestEffortDelete(page, `/api/v1/events/notifications/${encodeURIComponent(destinationName)}`);
+
+    await page.getByRole('button', { name: 'Add destination' }).click();
+    await page.getByPlaceholder('name').fill(destinationName);
+    await page.getByPlaceholder(/url \(e\.g\./).fill(destinationUrl);
+    await page.getByRole('button', { name: /^Add$/ }).click();
+    await settle(page);
+
+    const notificationRow = page.locator('tr').filter({ has: page.getByText(destinationName, { exact: true }) }).first();
+    await expect(notificationRow).toBeVisible();
+    await expect(notificationRow).toContainText('ntfy');
+    await expect(notificationRow).toContainText(destinationUrl);
+
+    await clearBlockingToasts(page);
+    await notificationRow.getByRole('button', { name: 'Remove destination' }).click();
+    await settle(page);
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    await settle(page);
+    await expect(notificationRow).toHaveCount(0);
+  } finally {
+    await bestEffortDelete(page, `/api/v1/events/notifications/${encodeURIComponent(destinationName)}`);
+  }
+});
+
+test('live stack supports custom preset create, edit, and delete flow', async ({ page }) => {
+  const presetName = uniqueName('playwright-preset');
+  const updatedDescription = 'Updated by live Playwright coverage';
+  const updatedPurpose = 'Validate live preset editing';
+  const updatedBody = 'You are a temporary live test preset.';
+
+  try {
+    await page.goto('/admin/presets');
+    const initialized = await expectSetupOrInitialized(page);
+    if (!initialized) {
+      return;
+    }
+
+    await bestEffortDelete(page, `/api/v1/hub/presets/${encodeURIComponent(presetName)}`);
+
+    await page.getByRole('button', { name: 'New Preset' }).click();
+    await page.locator('input').nth(0).fill(presetName);
+    await page.locator('input').nth(1).fill('Live preset created by Playwright');
+    await page.locator('input').nth(2).fill('bash, git');
+    await page.getByPlaceholder('One-line purpose statement').fill('Temporary test preset');
+    await page.getByPlaceholder('Agent personality prompt...').fill('You are a temporary live test preset.');
+    await page.getByRole('button', { name: /^Save$/ }).click();
+    await settle(page);
+
+    await expect(page.getByRole('heading', { name: presetName })).toBeVisible();
+    await expect(page.getByText(/Live preset created by Playwright · standard · user/)).toBeVisible();
+
+    await page.getByRole('button', { name: 'Edit' }).click();
+    await page.locator('input').nth(1).fill(updatedDescription);
+    await page.getByPlaceholder('One-line purpose statement').fill(updatedPurpose);
+    await page.getByPlaceholder('Agent personality prompt...').fill(updatedBody);
+    await page.getByRole('button', { name: /^Save$/ }).click();
+    await settle(page);
+
+    await expect(page.getByText(new RegExp(`${updatedDescription} · standard · user`))).toBeVisible();
+    await expect(page.getByText(updatedPurpose)).toBeVisible();
+    await expect(page.getByText(updatedBody)).toBeVisible();
+
+    await clearBlockingToasts(page);
+    await page.locator('button:has(svg.lucide-trash2)').first().click({ force: true });
+    await page.getByRole('button', { name: 'Delete' }).click();
+    await settle(page);
+
+    await expect(page.getByRole('button', { name: presetName })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: presetName })).toHaveCount(0);
+  } finally {
+    await bestEffortDelete(page, `/api/v1/hub/presets/${encodeURIComponent(presetName)}`);
   }
 });
