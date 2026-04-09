@@ -3,11 +3,13 @@ package hub
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"gopkg.in/yaml.v3"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/file"
 	"oras.land/oras-go/v2/registry/remote"
@@ -19,6 +21,7 @@ const (
 	// OCI media types for hub components.
 	MediaTypeComponent = "application/vnd.agency.hub.component.v1+yaml"
 	MediaTypeMetadata  = "application/vnd.agency.hub.metadata.v1+yaml"
+	MediaTypeIndex     = "application/vnd.agency.hub.index.v1+yaml"
 
 	// Annotation keys.
 	AnnotationKind       = "agency.hub.kind"
@@ -28,6 +31,21 @@ const (
 // ociClient wraps an OCI registry base URL for pulling hub components.
 type ociClient struct {
 	registry string // e.g. "ghcr.io/geoffbelknap/agency-hub"
+}
+
+type ociIndex struct {
+	SchemaVersion int                 `yaml:"schema_version"`
+	Registry      string              `yaml:"registry"`
+	Components    []ociIndexComponent `yaml:"components"`
+}
+
+type ociIndexComponent struct {
+	Kind         string `yaml:"kind"`
+	Name         string `yaml:"name"`
+	Version      string `yaml:"version"`
+	Ref          string `yaml:"ref"`
+	Path         string `yaml:"path"`
+	MetadataPath string `yaml:"metadata_path"`
 }
 
 // newOCIClient creates a new OCI client for the given registry base.
@@ -43,20 +61,10 @@ func (c *ociClient) pullComponent(ctx context.Context, kind, name, version, cach
 		version = "latest"
 	}
 
-	// Build the full OCI reference: {registry}/{kind}/{name}:{version}
-	ref := c.registry + "/" + kind + "/" + name + ":" + version
-
-	host := extractRegistryHost(c.registry)
-	repo, err := remote.NewRepository(ref)
+	repoRef := c.registry + "/" + kind + "/" + name
+	repo, err := c.newRepository(repoRef)
 	if err != nil {
-		return fmt.Errorf("oci: invalid reference %q: %w", ref, err)
-	}
-
-	// Configure auth client for GHCR compatibility (anonymous pull for public repos).
-	repo.Client = &auth.Client{
-		Client: retry.DefaultClient,
-		Cache:  auth.DefaultCache,
-		Credential: auth.StaticCredential(host, auth.Credential{}),
+		return fmt.Errorf("oci: invalid reference %q:%s: %w", repoRef, version, err)
 	}
 
 	// Destination directory matching git cache structure.
@@ -75,25 +83,104 @@ func (c *ociClient) pullComponent(ctx context.Context, kind, name, version, cach
 	// Pull the artifact from the remote repository to the file store.
 	_, err = oras.Copy(ctx, repo, version, fs, version, oras.DefaultCopyOptions)
 	if err != nil {
-		return fmt.Errorf("oci: pull %s: %w", ref, err)
+		return fmt.Errorf("oci: pull %s:%s: %w", repoRef, version, err)
 	}
 
 	return nil
 }
 
+// pullComponentEntry pulls one catalog-indexed component and writes it back to
+// its hub-relative path. This avoids depending on registry catalog APIs and
+// normalizes whatever title/path the registry stores for pulled layers.
+func (c *ociClient) pullComponentEntry(ctx context.Context, entry ociIndexComponent, cacheDir, sourceName string) error {
+	if entry.Kind == "" || entry.Name == "" || entry.Path == "" {
+		return fmt.Errorf("oci: invalid catalog entry for %s/%s", entry.Kind, entry.Name)
+	}
+	version := entry.Version
+	if version == "" {
+		version = "latest"
+	}
+	ref := entry.Ref
+	if ref == "" {
+		ref = c.registry + "/" + entry.Kind + "/" + entry.Name + ":" + version
+	}
+
+	tmpDir, err := os.MkdirTemp("", "agency-hub-oci-*")
+	if err != nil {
+		return fmt.Errorf("oci: create temp pull dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	repoRef, reference, err := splitOCIRef(ref)
+	if err != nil {
+		return err
+	}
+	if reference == "" {
+		reference = version
+	}
+	if err := c.pullArtifact(ctx, repoRef, reference, tmpDir); err != nil {
+		return err
+	}
+
+	destBase := filepath.Join(cacheDir, sourceName)
+	componentDest, err := safeCachePath(destBase, entry.Path)
+	if err != nil {
+		return err
+	}
+	if err := copyPulledFile(tmpDir, entry.Path, componentDest); err != nil {
+		return fmt.Errorf("oci: copy component %s: %w", entry.Path, err)
+	}
+	if entry.MetadataPath != "" {
+		metadataDest, err := safeCachePath(destBase, entry.MetadataPath)
+		if err != nil {
+			return err
+		}
+		if err := copyPulledFile(tmpDir, entry.MetadataPath, metadataDest); err != nil {
+			return fmt.Errorf("oci: copy metadata %s: %w", entry.MetadataPath, err)
+		}
+	}
+	return nil
+}
+
+func (c *ociClient) pullArtifact(ctx context.Context, repoRef, reference, destDir string) error {
+	repo, err := c.newRepository(repoRef)
+	if err != nil {
+		return fmt.Errorf("oci: invalid reference %q: %w", repoRef, err)
+	}
+
+	fs, err := file.New(destDir)
+	if err != nil {
+		return fmt.Errorf("oci: create file store: %w", err)
+	}
+	defer fs.Close()
+
+	_, err = oras.Copy(ctx, repo, reference, fs, reference, oras.DefaultCopyOptions)
+	if err != nil {
+		return fmt.Errorf("oci: pull %s:%s: %w", repoRef, reference, err)
+	}
+	return nil
+}
+
+func (c *ociClient) newRepository(repoRef string) (*remote.Repository, error) {
+	repo, err := remote.NewRepository(repoRef)
+	if err != nil {
+		return nil, err
+	}
+	host := extractRegistryHost(repoRef)
+	repo.Client = &auth.Client{
+		Client:     retry.DefaultClient,
+		Cache:      auth.DefaultCache,
+		Credential: auth.StaticCredential(host, auth.Credential{}),
+	}
+	return repo, nil
+}
+
 // listTags returns available tags for a component in the registry.
 func (c *ociClient) listTags(ctx context.Context, kind, name string) ([]string, error) {
 	ref := c.registry + "/" + kind + "/" + name
-	repo, err := remote.NewRepository(ref)
+	repo, err := c.newRepository(ref)
 	if err != nil {
 		return nil, fmt.Errorf("oci: invalid reference %q: %w", ref, err)
-	}
-
-	host := extractRegistryHost(c.registry)
-	repo.Client = &auth.Client{
-		Client: retry.DefaultClient,
-		Cache:  auth.DefaultCache,
-		Credential: auth.StaticCredential(host, auth.Credential{}),
 	}
 
 	var tags []string
@@ -108,9 +195,21 @@ func (c *ociClient) listTags(ctx context.Context, kind, name string) ([]string, 
 }
 
 // syncOCISource syncs all components from an OCI registry source into
-// the hub cache. It uses the registry catalog API to enumerate repositories
-// and pulls the latest version of each.
+// the hub cache. It prefers the Agency Hub catalog artifact because GHCR does
+// not expose registry catalog enumeration reliably for package namespaces.
+// Registry catalog enumeration remains as a fallback for compatible registries.
 func (c *ociClient) syncOCISource(ctx context.Context, cacheDir, sourceName string) error {
+	if index, err := c.pullIndex(ctx); err == nil {
+		for _, entry := range index.Components {
+			if err := c.pullComponentEntry(ctx, entry, cacheDir, sourceName); err != nil {
+				fmt.Fprintf(os.Stderr, "oci: warning: failed to pull %s/%s: %v\n", entry.Kind, entry.Name, err)
+			}
+		}
+		return nil
+	} else {
+		fmt.Fprintf(os.Stderr, "oci: warning: failed to pull catalog index: %v\n", err)
+	}
+
 	host := extractRegistryHost(c.registry)
 	prefix := extractRepoPrefix(c.registry)
 
@@ -120,8 +219,8 @@ func (c *ociClient) syncOCISource(ctx context.Context, cacheDir, sourceName stri
 	}
 
 	reg.Client = &auth.Client{
-		Client: retry.DefaultClient,
-		Cache:  auth.DefaultCache,
+		Client:     retry.DefaultClient,
+		Cache:      auth.DefaultCache,
 		Credential: auth.StaticCredential(host, auth.Credential{}),
 	}
 
@@ -158,6 +257,118 @@ func (c *ociClient) syncOCISource(ctx context.Context, cacheDir, sourceName stri
 	}
 
 	return nil
+}
+
+func (c *ociClient) pullIndex(ctx context.Context) (*ociIndex, error) {
+	tmpDir, err := os.MkdirTemp("", "agency-hub-index-*")
+	if err != nil {
+		return nil, fmt.Errorf("oci: create temp index dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	repoRef := c.registry + "/index/catalog"
+	if err := c.pullArtifact(ctx, repoRef, "latest", tmpDir); err != nil {
+		return nil, err
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmpDir, "oci-index.yaml"))
+	if err != nil {
+		data, err = findFirstYAML(tmpDir)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("oci: read catalog index: %w", err)
+	}
+
+	var index ociIndex
+	if err := yaml.Unmarshal(data, &index); err != nil {
+		return nil, fmt.Errorf("oci: parse catalog index: %w", err)
+	}
+	if index.SchemaVersion != 1 {
+		return nil, fmt.Errorf("oci: unsupported catalog index schema_version %d", index.SchemaVersion)
+	}
+	return &index, nil
+}
+
+func findFirstYAML(root string) ([]byte, error) {
+	var found string
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || found != "" {
+			return nil
+		}
+		if strings.HasSuffix(info.Name(), ".yaml") || strings.HasSuffix(info.Name(), ".yml") {
+			found = path
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if found == "" {
+		return nil, os.ErrNotExist
+	}
+	return os.ReadFile(found)
+}
+
+func copyPulledFile(srcRoot, relativePath, destPath string) error {
+	safeSourcePath, err := safeCachePath(srcRoot, relativePath)
+	if err != nil {
+		return err
+	}
+	candidates := []string{
+		safeSourcePath,
+		filepath.Join(srcRoot, filepath.Base(relativePath)),
+	}
+	for _, candidate := range candidates {
+		if err := copyFile(candidate, destPath); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("pulled file not found")
+}
+
+func safeCachePath(root, relativePath string) (string, error) {
+	if filepath.IsAbs(relativePath) {
+		return "", fmt.Errorf("oci: absolute catalog path %q is not allowed", relativePath)
+	}
+	clean := filepath.Clean(filepath.FromSlash(relativePath))
+	if clean == "." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) || clean == ".." {
+		return "", fmt.Errorf("oci: catalog path %q escapes cache root", relativePath)
+	}
+	return filepath.Join(root, clean), nil
+}
+
+func copyFile(src, dest string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+		return err
+	}
+	out, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+func splitOCIRef(ref string) (repoRef, reference string, err error) {
+	lastSlash := strings.LastIndex(ref, "/")
+	lastColon := strings.LastIndex(ref, ":")
+	if lastColon <= lastSlash {
+		return ref, "", nil
+	}
+	reference = ref[lastColon+1:]
+	if reference == "" {
+		return "", "", fmt.Errorf("oci: invalid empty tag in %q", ref)
+	}
+	return ref[:lastColon], reference, nil
 }
 
 // verifySignature checks the cosign keyless signature on an OCI artifact.
