@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -26,22 +27,22 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	agencylog "github.com/geoffbelknap/agency/internal/logging"
 	"github.com/geoffbelknap/agency/internal/api"
 	"github.com/geoffbelknap/agency/internal/apiclient"
-	"github.com/geoffbelknap/agency/internal/update"
 	auditpkg "github.com/geoffbelknap/agency/internal/audit"
 	agencyCLI "github.com/geoffbelknap/agency/internal/cli"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/daemon"
-	"github.com/geoffbelknap/agency/internal/pkg/envfile"
 	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/events"
+	agencylog "github.com/geoffbelknap/agency/internal/logging"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/models"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
+	"github.com/geoffbelknap/agency/internal/pkg/envfile"
 	"github.com/geoffbelknap/agency/internal/registry"
 	"github.com/geoffbelknap/agency/internal/routing"
+	"github.com/geoffbelknap/agency/internal/update"
 	"github.com/geoffbelknap/agency/internal/ws"
 )
 
@@ -95,6 +96,23 @@ func pad(s string, n int) string {
 		s += " "
 	}
 	return s
+}
+
+func activeAgencyHome() string {
+	if home := os.Getenv("AGENCY_HOME"); home != "" {
+		return home
+	}
+	return filepath.Join(os.Getenv("HOME"), ".agency")
+}
+
+func gatewayPortFromConfig() int {
+	cfg := config.Load()
+	if _, port, err := net.SplitHostPort(cfg.GatewayAddr); err == nil {
+		if p, err := strconv.Atoi(port); err == nil {
+			return p
+		}
+	}
+	return 8200
 }
 
 func customHelp(cmd *cobra.Command, _ []string) {
@@ -200,10 +218,10 @@ func subcommandHelp(cmd *cobra.Command) {
 
 func main() {
 	root := &cobra.Command{
-		Use:          "agency",
-		Short:        "Agency — An operating system for AI agents",
-		Version:      fmt.Sprintf("%s (%s, %s)", version, buildID, date),
-		SilenceUsage: true,
+		Use:               "agency",
+		Short:             "Agency — An operating system for AI agents",
+		Version:           fmt.Sprintf("%s (%s, %s)", version, buildID, date),
+		SilenceUsage:      true,
 		CompletionOptions: cobra.CompletionOptions{HiddenDefaultCmd: true},
 	}
 	root.SetHelpFunc(customHelp)
@@ -237,7 +255,7 @@ func main() {
 	root.AddCommand(&initAlias)
 
 	// Start background update check (non-blocking, cached 24h, fail-silent)
-	agencyHome := filepath.Join(os.Getenv("HOME"), ".agency")
+	agencyHome := activeAgencyHome()
 	waitForUpdate := update.Check(version, agencyHome)
 
 	if err := root.Execute(); err != nil {
@@ -381,7 +399,8 @@ func daemonStopCmd() *cobra.Command {
 		Use:   "stop",
 		Short: "Stop the gateway daemon",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !daemon.IsRunning(8200) {
+			port := gatewayPortFromConfig()
+			if !daemon.IsRunning(port) {
 				fmt.Println("Daemon is not running.")
 				return nil
 			}
@@ -399,7 +418,8 @@ func daemonRestartCmd() *cobra.Command {
 		Use:   "restart",
 		Short: "Restart the gateway daemon",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if daemon.IsRunning(8200) {
+			port := gatewayPortFromConfig()
+			if daemon.IsRunning(port) {
 				fmt.Println("Stopping daemon...")
 				if err := daemon.Stop(); err != nil {
 					// Stop may fail if the PID file is missing (e.g., after
@@ -410,13 +430,13 @@ func daemonRestartCmd() *cobra.Command {
 				// Wait for process to exit
 				for i := 0; i < 20; i++ {
 					time.Sleep(250 * time.Millisecond)
-					if !daemon.IsRunning(8200) {
+					if !daemon.IsRunning(port) {
 						break
 					}
 				}
 			}
 			fmt.Println("Starting daemon...")
-			if err := daemon.Start(8200); err != nil {
+			if err := daemon.Start(port); err != nil {
 				return fmt.Errorf("start: %w", err)
 			}
 			fmt.Println("Daemon restarted.")
@@ -430,7 +450,7 @@ func daemonStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Check if the gateway daemon is running",
 		Run: func(cmd *cobra.Command, args []string) {
-			if daemon.IsRunning(8200) {
+			if daemon.IsRunning(gatewayPortFromConfig()) {
 				fmt.Println("Daemon is running.")
 			} else {
 				fmt.Println("Daemon is not running.")
@@ -477,7 +497,6 @@ func isWSL() bool {
 	s := string(data)
 	return strings.Contains(s, "microsoft") || strings.Contains(s, "WSL")
 }
-
 
 // webHost derives the web UI hostname from the gateway address config.
 // Returns "localhost" if the gateway binds to 0.0.0.0 or if the address
@@ -541,12 +560,6 @@ func checkDocker() error {
 }
 
 func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser bool) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("cannot determine home directory: %w", err)
-	}
-	agencyHome := filepath.Join(home, ".agency")
-
 	pendingKeys, err := config.RunInit(config.InitOptions{
 		Provider:  provider,
 		APIKey:    apiKey,
@@ -556,12 +569,14 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser bo
 		return err
 	}
 
+	cfg := config.Load()
+	agencyHome := cfg.Home
 	fmt.Println("Agency platform initialized at", agencyHome)
 	fmt.Println()
 
 	// Start the daemon
 	fmt.Println("Starting daemon...")
-	if err := daemon.Start(8200); err != nil {
+	if err := daemon.Start(gatewayPortFromConfig()); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: daemon did not start: %v\n", err)
 		fmt.Println()
 		fmt.Println("Next steps:")
@@ -573,7 +588,6 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser bo
 
 	// Store LLM credentials in the encrypted credential store
 	if len(pendingKeys) > 0 {
-		cfg := config.Load()
 		c := apiclient.NewClient("http://" + cfg.GatewayAddr)
 		for _, key := range pendingKeys {
 			fmt.Printf("  Storing %s credential...\n", key.Provider)
@@ -1007,11 +1021,11 @@ func runServe(httpAddr string) error {
 	r.Use(corsMiddleware)
 	r.Use(api.BearerAuth(cfg.Token, cfg.EgressToken, reg))
 	routeOpts := api.RouteOptions{
-		Hub:          wsHub,
-		EventBus:     eventBus,
-		Scheduler:    scheduler,
-		WebhookMgr:   webhookMgr,
-		NotifStore:   notifStore,
+		Hub:             wsHub,
+		EventBus:        eventBus,
+		Scheduler:       scheduler,
+		WebhookMgr:      webhookMgr,
+		NotifStore:      notifStore,
 		StopSuppress:    stopSuppress,
 		AuditSummarizer: auditSummarizer,
 		Registry:        reg,
@@ -1082,7 +1096,7 @@ func runServe(httpAddr string) error {
 	// Proxy-safe socket — bridged to TCP by the gateway-proxy container.
 	// Does NOT include credential resolution endpoints.
 	sockPath := filepath.Join(sockDir, "gateway.sock")
-	os.Remove(sockPath)                              // clean up stale socket
+	os.Remove(sockPath)                                // clean up stale socket
 	os.Remove(filepath.Join(cfg.Home, "gateway.sock")) // clean up legacy location
 	unixListener, err := net.Listen("unix", sockPath)
 	if err != nil {

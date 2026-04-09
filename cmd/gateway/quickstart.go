@@ -414,7 +414,7 @@ func runQuickstart(opts quickstartOptions) error {
 	}
 
 	if !gatewayRunning {
-		if err := daemon.Start(8200); err != nil {
+		if err := daemon.Start(gatewayPortFromConfig()); err != nil {
 			fmt.Printf("  %s infrastructure  failed to start daemon: %s\n", qsRed.Render("✗"), err)
 			return fmt.Errorf("daemon start: %w", err)
 		}

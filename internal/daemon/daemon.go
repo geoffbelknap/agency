@@ -13,13 +13,24 @@ import (
 	"time"
 )
 
-// PIDFile returns the path to ~/.agency/gateway.pid
-func PIDFile() string {
+func agencyHome() string {
+	if home := os.Getenv("AGENCY_HOME"); home != "" {
+		return home
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".agency", "gateway.pid")
+	return filepath.Join(home, ".agency")
+}
+
+// PIDFile returns the path to the Agency home gateway pid file.
+func PIDFile() string {
+	home := agencyHome()
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, "gateway.pid")
 }
 
 // IsRunning checks if a daemon is running by:

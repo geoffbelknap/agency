@@ -23,7 +23,7 @@ type Client struct {
 }
 
 // NewClient creates a client for the given gateway base URL.
-// It loads the operator token from ~/.agency/config.yaml if present.
+// It loads the operator token from the active Agency home config if present.
 func NewClient(baseURL string) *Client {
 	c := &Client{
 		BaseURL: baseURL,
@@ -33,13 +33,17 @@ func NewClient(baseURL string) *Client {
 	return c
 }
 
-// loadToken reads the operator token from ~/.agency/config.yaml.
+// loadToken reads the operator token from the active Agency home config.
 func loadToken() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
+	agencyHome := os.Getenv("AGENCY_HOME")
+	if agencyHome == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		agencyHome = filepath.Join(home, ".agency")
 	}
-	data, err := os.ReadFile(filepath.Join(home, ".agency", "config.yaml"))
+	data, err := os.ReadFile(filepath.Join(agencyHome, "config.yaml"))
 	if err != nil {
 		return ""
 	}
@@ -315,14 +319,14 @@ func (c *Client) ArchiveChannel(name string) error {
 
 // InfraStatusResponse wraps infrastructure status with gateway build info.
 type InfraStatusResponse struct {
-	Version             string              `json:"version"`
-	BuildID             string              `json:"build_id"`
-	GatewayURL          string              `json:"gateway_url"`
-	WebURL              string              `json:"web_url"`
-	Docker              string              `json:"docker,omitempty"`
-	Components          []map[string]string `json:"components"`
-	InfraLLMDailyUsed   float64             `json:"infra_llm_daily_used"`
-	InfraLLMDailyLimit  float64             `json:"infra_llm_daily_limit"`
+	Version            string              `json:"version"`
+	BuildID            string              `json:"build_id"`
+	GatewayURL         string              `json:"gateway_url"`
+	WebURL             string              `json:"web_url"`
+	Docker             string              `json:"docker,omitempty"`
+	Components         []map[string]string `json:"components"`
+	InfraLLMDailyUsed  float64             `json:"infra_llm_daily_used"`
+	InfraLLMDailyLimit float64             `json:"infra_llm_daily_limit"`
 }
 
 func (c *Client) InfraStatus() (*InfraStatusResponse, error) {

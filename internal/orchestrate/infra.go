@@ -7,21 +7,22 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"log/slog"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	"log/slog"
 
-	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/comms"
 	"github.com/geoffbelknap/agency/internal/config"
+	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/images"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/orchestrate/containers"
@@ -46,15 +47,15 @@ const (
 )
 
 var defaultImages = map[string]string{
-	"egress":    "agency-egress:latest",
-	"comms":     "agency-comms:latest",
-	"knowledge": "agency-knowledge:latest",
-	"intake":    "agency-intake:latest",
-	"web-fetch": "agency-web-fetch:latest",
-	"web":            "agency-web:latest",
-	"relay":          "agency-relay:latest",
-	"embeddings":     "agency-embeddings:latest",
-	"gateway-proxy":  "agency-gateway-proxy:latest",
+	"egress":        "agency-egress:latest",
+	"comms":         "agency-comms:latest",
+	"knowledge":     "agency-knowledge:latest",
+	"intake":        "agency-intake:latest",
+	"web-fetch":     "agency-web-fetch:latest",
+	"web":           "agency-web:latest",
+	"relay":         "agency-relay:latest",
+	"embeddings":    "agency-embeddings:latest",
+	"gateway-proxy": "agency-gateway-proxy:latest",
 }
 
 var defaultHealthChecks = map[string]*container.HealthConfig{
@@ -146,16 +147,16 @@ type Infra struct {
 	Version      string
 	SourceDir    string
 	BuildID      string
-	GatewayAddr   string // e.g. "127.0.0.1:8200"
-	GatewayToken  string // full auth token from config.yaml
-	EgressToken   string // scoped token for egress credential resolution
+	GatewayAddr  string // e.g. "127.0.0.1:8200"
+	GatewayToken string // full auth token from config.yaml
+	EgressToken  string // scoped token for egress credential resolution
 	Registry     *registry.Registry
 	Optimizer    *routing.RoutingOptimizer
 	Docker       *agencyDocker.Client
 	Comms        comms.Client
-	cli        *client.Client
-	log        *slog.Logger
-	hmacKey    []byte
+	cli          *client.Client
+	log          *slog.Logger
+	hmacKey      []byte
 }
 
 // NewInfra creates a new infrastructure manager.
@@ -254,8 +255,8 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 	progress("gateway-proxy", "Started gateway-proxy")
 
 	components := []struct {
-		name string
-		desc string
+		name   string
+		desc   string
 		ensure func(ctx context.Context) error
 	}{
 		{"egress", "Starting egress proxy (credential swap, network mediation)", inf.ensureEgress},
@@ -731,7 +732,6 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 	return inf.waitHealthy(ctx, name, 30*time.Second)
 }
 
-
 func (inf *Infra) ensureComms(ctx context.Context) error {
 	if err := images.Resolve(ctx, inf.cli, "comms", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve comms image: %w", err)
@@ -898,10 +898,10 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 	env := map[string]string{
 		"HTTP_PROXY":    "http://egress:3128",
 		"HTTPS_PROXY":   "http://egress:3128",
-		"NO_PROXY":       "gateway,localhost,127.0.0.1",
-		"GATEWAY_URL":    "http://gateway:8200",
-		"GATEWAY_TOKEN":  inf.GatewayToken,
-		"AGENCY_CALLER":  "intake",
+		"NO_PROXY":      "gateway,localhost,127.0.0.1",
+		"GATEWAY_URL":   "http://gateway:8200",
+		"GATEWAY_TOKEN": inf.GatewayToken,
+		"AGENCY_CALLER": "intake",
 	}
 
 	// Load operator config vars (LC_ORG_ID, etc.) from config.yaml and .env (legacy)
@@ -1053,13 +1053,13 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 		"/tmp":                "rw,noexec,nosuid,size=1m",
 	}
 	hc.PortBindings = nat.PortMap{
-		"8280/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8280"}},
+		"8280/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.webPort()}},
 	}
 	// Web container needs the full gateway API (not the restricted socket proxy),
 	// so route to the host's TCP listener instead of the mediation-net gateway-proxy.
 	hc.ExtraHosts = []string{"gateway:host-gateway"}
-	hc.Resources.Memory = 64 * 1024 * 1024     // 64MB — nginx serving static files
-	hc.Resources.NanoCPUs = 500_000_000         // 0.5 CPU
+	hc.Resources.Memory = 64 * 1024 * 1024 // 64MB — nginx serving static files
+	hc.Resources.NanoCPUs = 500_000_000    // 0.5 CPU
 	pidsLimit := int64(64)
 	hc.Resources.PidsLimit = &pidsLimit
 
@@ -1069,10 +1069,10 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 			Image:    defaultImages["web"],
 			Hostname: "web",
 			Labels: map[string]string{
-				"agency.managed":      "true",
-				"agency.role":         "infra",
-				"agency.component":    "web",
-				"agency.build.id":     images.ImageBuildLabel(ctx, inf.cli, defaultImages["web"]),
+				"agency.managed":       "true",
+				"agency.role":          "infra",
+				"agency.component":     "web",
+				"agency.build.id":      images.ImageBuildLabel(ctx, inf.cli, defaultImages["web"]),
 				"agency.build.gateway": inf.BuildID,
 			},
 			Healthcheck:  defaultHealthChecks["web"],
@@ -1113,7 +1113,7 @@ func (inf *Infra) ensureRelay(ctx context.Context) error {
 	}
 	hc.ExtraHosts = []string{"gateway:host-gateway"}
 	hc.Resources.Memory = 32 * 1024 * 1024 // 32MB — lightweight tunnel
-	hc.Resources.NanoCPUs = 250_000_000     // 0.25 CPU
+	hc.Resources.NanoCPUs = 250_000_000    // 0.25 CPU
 	pidsLimit := int64(32)
 	hc.Resources.PidsLimit = &pidsLimit
 
@@ -1493,6 +1493,17 @@ func (inf *Infra) gatewayPort() string {
 		return inf.GatewayAddr[idx+1:]
 	}
 	return "8200"
+}
+
+// webPort returns the host port for the web container. Defaults to 8280 but
+// can be overridden for isolated local stacks.
+func (inf *Infra) webPort() string {
+	if raw := os.Getenv("AGENCY_WEB_PORT"); raw != "" {
+		if p, err := strconv.Atoi(raw); err == nil && p > 0 && p < 65536 {
+			return raw
+		}
+	}
+	return "8280"
 }
 
 // enforceAuditDirPerms walks the audit directory tree and sets 0700 on every
