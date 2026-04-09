@@ -6,6 +6,17 @@ import (
 	"strings"
 )
 
+func isSharedInfraNetwork(name string) bool {
+	return name == "agency-gateway" ||
+		strings.HasPrefix(name, "agency-gateway-") ||
+		name == "agency-egress-int" ||
+		strings.HasPrefix(name, "agency-egress-int-") ||
+		name == "agency-egress-ext" ||
+		strings.HasPrefix(name, "agency-egress-ext-") ||
+		name == "agency-operator" ||
+		strings.HasPrefix(name, "agency-operator-")
+}
+
 // dockerCheckResult holds the result of a single infrastructure Docker hygiene check.
 type dockerCheckResult struct {
 	Name   string `json:"name"`
@@ -82,15 +93,9 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 		}
 		// Shared infrastructure networks are expected to be empty when
 		// no agents are running — they're created by infra up, not orphans.
-		infraNets := map[string]bool{
-			"agency-gateway":    true,
-			"agency-egress-int": true,
-			"agency-egress-ext": true,
-			"agency-operator":   true,
-		}
 		var orphans []string
 		for _, n := range nets {
-			if len(n.Containers) == 0 && !infraNets[n.Name] {
+			if len(n.Containers) == 0 && !isSharedInfraNetwork(n.Name) {
 				orphans = append(orphans, n.Name)
 			}
 		}

@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"log/slog"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	dockerclient "github.com/docker/docker/client"
+	"log/slog"
 
 	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/images"
@@ -33,10 +33,10 @@ type MeeseeksStartSequence struct {
 	ParentConstraintsPath string
 
 	// Internal state
-	cli           *dockerclient.Client
+	cli            *dockerclient.Client
 	networkCreated bool
-	enforcerID    string
-	workspaceID   string
+	enforcerID     string
+	workspaceID    string
 }
 
 // Run executes the 5-phase abbreviated startup:
@@ -216,12 +216,12 @@ func (ms *MeeseeksStartSequence) phase2Enforcement(ctx context.Context) error {
 	}
 
 	// Connect to gateway network (hub — service access, signals, budget)
-	_ = ms.cli.NetworkConnect(ctx, gatewayNet, enforcerContainerID, &network.EndpointSettings{
+	_ = ms.cli.NetworkConnect(ctx, gatewayNetName(), enforcerContainerID, &network.EndpointSettings{
 		Aliases: []string{"enforcer"},
 	})
 
 	// Connect to egress network (LLM proxy)
-	_ = ms.cli.NetworkConnect(ctx, egressIntNet, enforcerContainerID, &network.EndpointSettings{
+	_ = ms.cli.NetworkConnect(ctx, egressIntNetName(), enforcerContainerID, &network.EndpointSettings{
 		Aliases: []string{"enforcer"},
 	})
 
@@ -282,7 +282,7 @@ func (ms *MeeseeksStartSequence) phase4Workspace(ctx context.Context) error {
 
 	binds := []string{
 		ms.ParentConstraintsPath + ":/agency/constraints.yaml:ro", // Tenet 1 + 11: parent's constraints, read-only
-		auditDir + ":/var/lib/agency/audit:ro",                     // Tenet 2: read-only audit
+		auditDir + ":/var/lib/agency/audit:ro",                    // Tenet 2: read-only audit
 	}
 
 	// CA certs

@@ -11,12 +11,12 @@ import (
 
 	"strings"
 
-	"log/slog"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/images"
 	"github.com/geoffbelknap/agency/internal/orchestrate/containers"
@@ -224,12 +224,12 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 	}
 
 	// Connect to gateway network (hub — service access, signals, budget)
-	_ = e.cli.NetworkConnect(ctx, gatewayNet, containerID, &network.EndpointSettings{
+	_ = e.cli.NetworkConnect(ctx, gatewayNetName(), containerID, &network.EndpointSettings{
 		Aliases: []string{"enforcer"},
 	})
 
 	// Connect to egress network (LLM proxy)
-	_ = e.cli.NetworkConnect(ctx, egressIntNet, containerID, &network.EndpointSettings{
+	_ = e.cli.NetworkConnect(ctx, egressIntNetName(), containerID, &network.EndpointSettings{
 		Aliases: []string{"enforcer"},
 	})
 

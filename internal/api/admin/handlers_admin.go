@@ -147,7 +147,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 			}
 			var forbidden []string
 			for _, net := range ws.Networks {
-				if strings.Contains(net, "egress") || net == "agency-gateway" {
+				if strings.Contains(net, "egress") || strings.HasPrefix(net, "agency-gateway") {
 					forbidden = append(forbidden, net)
 				}
 			}

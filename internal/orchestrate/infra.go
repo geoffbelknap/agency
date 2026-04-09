@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,11 +40,11 @@ type dockerNetworkAPI interface {
 }
 
 const (
-	prefix       = "agency"
-	gatewayNet   = "agency-gateway"
-	egressIntNet = "agency-egress-int"
-	egressExtNet = "agency-egress-ext"
-	operatorNet  = "agency-operator"
+	prefix           = "agency"
+	baseGatewayNet   = "agency-gateway"
+	baseEgressIntNet = "agency-egress-int"
+	baseEgressExtNet = "agency-egress-ext"
+	baseOperatorNet  = "agency-operator"
 )
 
 var defaultImages = map[string]string{
@@ -114,9 +115,7 @@ var defaultHealthChecks = map[string]*container.HealthConfig{
 	// exhaustion under concurrent health probes from other containers.
 }
 
-func containerName(role string) string {
-	return fmt.Sprintf("%s-infra-%s", prefix, role)
-}
+var infraNameSanitizer = regexp.MustCompile(`[^a-z0-9-]+`)
 
 // loggingEnv returns standard logging environment variables for a container.
 // Every agency container gets these so structured logging works by default.
@@ -144,6 +143,7 @@ func mergeEnv(dst, src map[string]string) {
 // Infra manages shared infrastructure containers.
 type Infra struct {
 	Home         string
+	Instance     string
 	Version      string
 	SourceDir    string
 	BuildID      string
@@ -177,18 +177,89 @@ func NewInfra(home, version string, dc *agencyDocker.Client, logger *slog.Logger
 		return nil, fmt.Errorf("open principal registry: %w", err)
 	}
 
-	return &Infra{Home: home, Version: version, Docker: dc, Registry: reg, Comms: dc, cli: cli, log: logger, hmacKey: hmacKey}, nil
+	return &Infra{
+		Home:     home,
+		Instance: infraInstanceName(),
+		Version:  version,
+		Docker:   dc,
+		Registry: reg,
+		Comms:    dc,
+		cli:      cli,
+		log:      logger,
+		hmacKey:  hmacKey,
+	}, nil
+}
+
+func infraInstanceName() string {
+	instance := strings.TrimSpace(strings.ToLower(os.Getenv("AGENCY_INFRA_INSTANCE")))
+	if instance == "" {
+		return ""
+	}
+	instance = infraNameSanitizer.ReplaceAllString(instance, "-")
+	instance = strings.Trim(instance, "-")
+	return instance
+}
+
+func scopedInfraName(base string) string {
+	instance := infraInstanceName()
+	if instance == "" {
+		return base
+	}
+	return fmt.Sprintf("%s-%s", base, instance)
+}
+
+func gatewayNetName() string {
+	return scopedInfraName(baseGatewayNet)
+}
+
+func egressIntNetName() string {
+	return scopedInfraName(baseEgressIntNet)
+}
+
+func egressExtNetName() string {
+	return scopedInfraName(baseEgressExtNet)
+}
+
+func operatorNetName() string {
+	return scopedInfraName(baseOperatorNet)
+}
+
+func (inf *Infra) scopedName(base string) string {
+	if inf.Instance == "" {
+		return base
+	}
+	return fmt.Sprintf("%s-%s", base, inf.Instance)
+}
+
+func (inf *Infra) containerName(role string) string {
+	return inf.scopedName(fmt.Sprintf("%s-infra-%s", prefix, role))
+}
+
+func (inf *Infra) gatewayNetName() string {
+	return inf.scopedName(baseGatewayNet)
+}
+
+func (inf *Infra) egressIntNetName() string {
+	return inf.scopedName(baseEgressIntNet)
+}
+
+func (inf *Infra) egressExtNetName() string {
+	return inf.scopedName(baseEgressExtNet)
+}
+
+func (inf *Infra) operatorNetName() string {
+	return inf.scopedName(baseOperatorNet)
 }
 
 // serviceLabels returns Docker labels for service discovery.
 func (inf *Infra) serviceLabels(ctx context.Context, imageRef, serviceName, port string) map[string]string {
-	cname := containerName(serviceName)
+	cname := inf.containerName(serviceName)
 	return map[string]string{
 		services.LabelServiceEnabled: "true",
 		services.LabelServiceName:    serviceName,
 		services.LabelServicePort:    port,
 		services.LabelServiceHealth:  "/health",
-		services.LabelServiceNetwork: gatewayNet,
+		services.LabelServiceNetwork: inf.gatewayNetName(),
 		services.LabelServiceHMAC:    services.GenerateHMAC(cname, inf.hmacKey),
 		"agency.build.id":            images.ImageBuildLabel(ctx, inf.cli, imageRef),
 		"agency.build.gateway":       inf.BuildID,
@@ -328,7 +399,7 @@ func (inf *Infra) TeardownWithProgress(ctx context.Context, onProgress ProgressF
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			name := containerName(role)
+			name := inf.containerName(role)
 			if err := inf.stopAndRemove(ctx, name, stopTimeoutFor(role)); err != nil {
 				inf.log.Warn("teardown", "container", name, "err", err)
 			}
@@ -397,7 +468,7 @@ func (inf *Infra) RestartComponentWithProgress(ctx context.Context, component st
 	if onProgress != nil {
 		onProgress(component, "Stopping "+component)
 	}
-	name := containerName(component)
+	name := inf.containerName(component)
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor(component))
 
 	if onProgress != nil {
@@ -517,28 +588,28 @@ func (inf *Infra) ensureNetworks(ctx context.Context) error {
 	// ASK Tenet 3: mediation is complete. Internal networks have no default
 	// route to the host — containers can only reach peers on the same network.
 	// Hub-and-spoke topology:
-	// - gatewayNet: Internal — hub for all services and enforcers
-	// - egressIntNet: Internal — services that need outbound proxy access
-	// - egressExtNet: NOT internal — egress proxy reaches internet
-	// - operatorNet: NOT internal — operator tools (web, relay)
+	// - inf.gatewayNetName(): Internal — hub for all services and enforcers
+	// - inf.egressIntNetName(): Internal — services that need outbound proxy access
+	// - inf.egressExtNetName(): NOT internal — egress proxy reaches internet
+	// - inf.operatorNetName(): NOT internal — operator tools (web, relay)
 	type netSpec struct {
 		name     string
 		internal bool
 	}
 	nets := []netSpec{
-		{gatewayNet, true},    // Hub — all services and enforcers
-		{egressIntNet, true},  // Services → egress proxy
-		{egressExtNet, false}, // Egress proxy → internet
-		{operatorNet, false},  // Operator tools (web, relay)
+		{inf.gatewayNetName(), true},    // Hub — all services and enforcers
+		{inf.egressIntNetName(), true},  // Services → egress proxy
+		{inf.egressExtNetName(), false}, // Egress proxy → internet
+		{inf.operatorNetName(), false},  // Operator tools (web, relay)
 	}
 	for _, n := range nets {
 		_, inspectErr := inf.cli.NetworkInspect(ctx, n.name, network.InspectOptions{})
 		if inspectErr != nil {
 			var err error
 			switch {
-			case n.name == gatewayNet || n.name == egressIntNet:
+			case n.name == inf.gatewayNetName() || n.name == inf.egressIntNetName():
 				err = containers.CreateMediationNetwork(ctx, inf.cli, n.name, nil)
-			case n.name == operatorNet:
+			case n.name == inf.operatorNetName():
 				err = containers.CreateOperatorNetwork(ctx, inf.cli, n.name, nil)
 			default:
 				err = containers.CreateEgressNetwork(ctx, inf.cli, n.name, nil)
@@ -558,14 +629,14 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	if err := images.Resolve(ctx, inf.cli, "gateway-proxy", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve gateway-proxy image: %w", err)
 	}
-	name := containerName("gateway-proxy")
+	name := inf.containerName("gateway-proxy")
 	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
 		return nil
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("gateway-proxy"))
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
-	hc.NetworkMode = container.NetworkMode(gatewayNet)
+	hc.NetworkMode = container.NetworkMode(inf.gatewayNetName())
 	hc.ReadonlyRootfs = true
 	hc.Resources.Memory = 64 * 1024 * 1024
 	hc.Resources.NanoCPUs = 500_000_000
@@ -576,9 +647,9 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	// Reverse bridges: host gateway reaches services through published ports.
 	// Ports must publish to the host for macOS Docker Desktop compatibility.
 	hc.PortBindings = nat.PortMap{
-		"8202/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8202"}},
-		"8204/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8204"}},
-		"8205/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8205"}},
+		"8202/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8202")}},
+		"8204/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8204")}},
+		"8205/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8205")}},
 	}
 	// Mount the run directory so socat can reach the gateway Unix socket.
 	// Mount the directory (not the socket file) so new sockets from daemon
@@ -588,10 +659,10 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 
 	netCfg := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
-			gatewayNet: {
+			inf.gatewayNetName(): {
 				Aliases: []string{"gateway"},
 			},
-			operatorNet: {},
+			inf.operatorNetName(): {},
 		},
 	}
 
@@ -630,7 +701,7 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 	if err := images.Resolve(ctx, inf.cli, "egress", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve egress image: %w", err)
 	}
-	name := containerName("egress")
+	name := inf.containerName("egress")
 	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) && inf.hasContainerEnv(ctx, name, "GATEWAY_TOKEN", inf.EgressToken) {
 		return nil
 	}
@@ -701,7 +772,7 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
-	hc.NetworkMode = container.NetworkMode(egressIntNet)
+	hc.NetworkMode = container.NetworkMode(inf.egressIntNetName())
 
 	mergeEnv(env, inf.loggingEnv("egress"))
 	id, err := containers.CreateAndStart(ctx, inf.cli,
@@ -724,10 +795,10 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 	}
 
 	// Connect to egress-ext network (internet access)
-	inf.connectIfNeeded(ctx, id, egressExtNet, []string{"egress"})
+	inf.connectIfNeeded(ctx, id, inf.egressExtNetName(), []string{"egress"})
 
 	// Connect to gateway network (hub — service access)
-	inf.connectIfNeeded(ctx, id, gatewayNet, []string{"egress"})
+	inf.connectIfNeeded(ctx, id, inf.gatewayNetName(), []string{"egress"})
 
 	return inf.waitHealthy(ctx, name, 30*time.Second)
 }
@@ -736,7 +807,7 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 	if err := images.Resolve(ctx, inf.cli, "comms", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve comms image: %w", err)
 	}
-	name := containerName("comms")
+	name := inf.containerName("comms")
 	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
 		if err := inf.ensureSystemChannels(ctx); err != nil {
 			return fmt.Errorf("system channels: %w", err)
@@ -759,7 +830,7 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 		commsData + ":/app/data:rw",
 		agentsDir + ":/app/agents:rw",
 	}
-	hc.NetworkMode = container.NetworkMode(gatewayNet)
+	hc.NetworkMode = container.NetworkMode(inf.gatewayNetName())
 	// No host port binding — comms is reached via Docker container IP.
 	// Host port publishing is unreliable on some hosts with user-defined networks.
 
@@ -797,7 +868,7 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 	if err := images.Resolve(ctx, inf.cli, "knowledge", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve knowledge image: %w", err)
 	}
-	name := containerName("knowledge")
+	name := inf.containerName("knowledge")
 	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) && inf.hasContainerEnv(ctx, name, "AGENCY_GATEWAY_TOKEN", inf.GatewayToken) {
 		return nil
 	}
@@ -810,7 +881,7 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 
 	env := map[string]string{
 		"HTTPS_PROXY":          "http://egress:3128",
-		"NO_PROXY":             "agency-infra-embeddings,localhost,127.0.0.1,gateway",
+		"NO_PROXY":             inf.containerName("embeddings") + ",localhost,127.0.0.1,gateway",
 		"AGENCY_GATEWAY_TOKEN": inf.GatewayToken,
 		"AGENCY_GATEWAY_URL":   "http://gateway:8200",
 		"AGENCY_CALLER":        "knowledge",
@@ -834,9 +905,9 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
-	hc.NetworkMode = container.NetworkMode(gatewayNet)
+	hc.NetworkMode = container.NetworkMode(inf.gatewayNetName())
 	hc.PortBindings = nat.PortMap{
-		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8204"}},
+		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.knowledgePort()}},
 	}
 
 	mergeEnv(env, inf.loggingEnv("knowledge"))
@@ -864,7 +935,7 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 	}
 
 	// Connect knowledge to egress-int network for outbound proxy access
-	inf.connectIfNeeded(ctx, id, egressIntNet, []string{"knowledge"})
+	inf.connectIfNeeded(ctx, id, inf.egressIntNetName(), []string{"knowledge"})
 	return nil
 }
 
@@ -872,7 +943,7 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 	if err := images.Resolve(ctx, inf.cli, "intake", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve intake image: %w", err)
 	}
-	name := containerName("intake")
+	name := inf.containerName("intake")
 	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) && inf.hasContainerEnv(ctx, name, "GATEWAY_TOKEN", inf.GatewayToken) {
 		return nil
 	}
@@ -922,10 +993,10 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
-	hc.NetworkMode = container.NetworkMode(gatewayNet)
+	hc.NetworkMode = container.NetworkMode(inf.gatewayNetName())
 	hc.Resources.Memory = 128 * 1024 * 1024 // 128MB — intake is lightweight
 	hc.PortBindings = nat.PortMap{
-		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8205"}},
+		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.intakePort()}},
 	}
 
 	mergeEnv(env, inf.loggingEnv("intake"))
@@ -950,7 +1021,7 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 	}
 
 	// Connect intake to egress-int network for outbound proxy access
-	inf.connectIfNeeded(ctx, id, egressIntNet, []string{"intake"})
+	inf.connectIfNeeded(ctx, id, inf.egressIntNetName(), []string{"intake"})
 
 	return inf.waitHealthy(ctx, name, 30*time.Second)
 }
@@ -959,7 +1030,7 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 	if err := images.Resolve(ctx, inf.cli, "web-fetch", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve web-fetch image: %w", err)
 	}
-	name := containerName("web-fetch")
+	name := inf.containerName("web-fetch")
 	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
 		return nil
 	}
@@ -996,9 +1067,9 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
-	hc.NetworkMode = container.NetworkMode(gatewayNet)
+	hc.NetworkMode = container.NetworkMode(inf.gatewayNetName())
 	hc.PortBindings = nat.PortMap{
-		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "8206"}},
+		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.webFetchPort()}},
 	}
 
 	mergeEnv(env, inf.loggingEnv("web-fetch"))
@@ -1023,7 +1094,7 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 	}
 
 	// Connect web-fetch to egress-int network for outbound proxy access
-	inf.connectIfNeeded(ctx, id, egressIntNet, []string{"web-fetch"})
+	inf.connectIfNeeded(ctx, id, inf.egressIntNetName(), []string{"web-fetch"})
 
 	return inf.waitHealthy(ctx, name, 30*time.Second)
 }
@@ -1035,14 +1106,14 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 		inf.log.Warn("agency-web image not available, skipping", "err", err)
 		return nil // non-fatal — web UI is optional
 	}
-	name := containerName("web")
+	name := inf.containerName("web")
 	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
 		return nil
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("web"))
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
-	hc.NetworkMode = container.NetworkMode(operatorNet)
+	hc.NetworkMode = container.NetworkMode(inf.operatorNetName())
 	hc.ReadonlyRootfs = true
 	hc.Tmpfs = map[string]string{
 		"/var/cache/nginx":    "rw,noexec,nosuid,size=16m",
@@ -1068,6 +1139,7 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 		&container.Config{
 			Image:    defaultImages["web"],
 			Hostname: "web",
+			Env:      mapToEnv(map[string]string{"AGENCY_GATEWAY_PORT": inf.gatewayPort()}),
 			Labels: map[string]string{
 				"agency.managed":       "true",
 				"agency.role":          "infra",
@@ -1100,14 +1172,14 @@ func (inf *Infra) ensureRelay(ctx context.Context) error {
 		inf.log.Warn("agency-relay image not available, skipping", "err", err)
 		return nil // non-fatal — relay is optional
 	}
-	name := containerName("relay")
+	name := inf.containerName("relay")
 	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) {
 		return nil
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("relay"))
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
-	hc.NetworkMode = container.NetworkMode(operatorNet)
+	hc.NetworkMode = container.NetworkMode(inf.operatorNetName())
 	hc.Binds = []string{
 		inf.Home + ":/home/relay/.agency:rw",
 	}
@@ -1146,7 +1218,7 @@ func (inf *Infra) ensureEmbeddings(ctx context.Context) error {
 	// If provider changed away from ollama, clean up any running container.
 	provider := os.Getenv("KNOWLEDGE_EMBED_PROVIDER")
 	if provider != "" && provider != "ollama" {
-		name := containerName("embeddings")
+		name := inf.containerName("embeddings")
 		if inf.isRunning(ctx, name) {
 			inf.log.Info("embeddings provider changed, stopping container", "provider", provider)
 			_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("embeddings"))
@@ -1158,7 +1230,7 @@ func (inf *Infra) ensureEmbeddings(ctx context.Context) error {
 	if err := images.ResolveUpstream(ctx, inf.cli, "embeddings", inf.Version, upstreamRef, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve embeddings image: %w", err)
 	}
-	name := containerName("embeddings")
+	name := inf.containerName("embeddings")
 	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
 		return nil
 	}
@@ -1175,7 +1247,7 @@ func (inf *Infra) ensureEmbeddings(ctx context.Context) error {
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
-	hc.NetworkMode = container.NetworkMode(gatewayNet)
+	hc.NetworkMode = container.NetworkMode(inf.gatewayNetName())
 	// Override memory: 3GB for model inference
 	hc.Resources.Memory = 3 * 1024 * 1024 * 1024
 
@@ -1498,12 +1570,41 @@ func (inf *Infra) gatewayPort() string {
 // webPort returns the host port for the web container. Defaults to 8280 but
 // can be overridden for isolated local stacks.
 func (inf *Infra) webPort() string {
-	if raw := os.Getenv("AGENCY_WEB_PORT"); raw != "" {
+	return envPort("AGENCY_WEB_PORT", "8280")
+}
+
+func (inf *Infra) gatewayProxyPort(port string) string {
+	switch port {
+	case "8202":
+		return envPort("AGENCY_GATEWAY_PROXY_PORT", "8202")
+	case "8204":
+		return envPort("AGENCY_GATEWAY_PROXY_KNOWLEDGE_PORT", "8204")
+	case "8205":
+		return envPort("AGENCY_GATEWAY_PROXY_INTAKE_PORT", "8205")
+	default:
+		return port
+	}
+}
+
+func (inf *Infra) knowledgePort() string {
+	return envPort("AGENCY_KNOWLEDGE_PORT", "8204")
+}
+
+func (inf *Infra) intakePort() string {
+	return envPort("AGENCY_INTAKE_PORT", "8205")
+}
+
+func (inf *Infra) webFetchPort() string {
+	return envPort("AGENCY_WEB_FETCH_PORT", "8206")
+}
+
+func envPort(envKey, fallback string) string {
+	if raw := os.Getenv(envKey); raw != "" {
 		if p, err := strconv.Atoi(raw); err == nil && p > 0 && p < 65536 {
 			return raw
 		}
 	}
-	return "8280"
+	return fallback
 }
 
 // enforceAuditDirPerms walks the audit directory tree and sets 0700 on every

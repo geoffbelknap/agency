@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,14 +21,15 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/geoffbelknap/agency/internal/apiclient"
+	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/daemon"
 	"github.com/geoffbelknap/agency/internal/update"
 )
 
 var (
-	bold  = lipgloss.NewStyle().Bold(true)
-	dim   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	green = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	bold   = lipgloss.NewStyle().Bold(true)
+	dim    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	green  = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
 	red    = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 	yellow = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
 	cyan   = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
@@ -36,11 +39,11 @@ var (
 
 // spinner displays an animated spinner with a status message on the current line.
 type spinner struct {
-	mu      sync.Mutex
-	msg     string
-	stop    chan struct{}
-	done    chan struct{}
-	frames  []string
+	mu     sync.Mutex
+	msg    string
+	stop   chan struct{}
+	done   chan struct{}
+	frames []string
 }
 
 func newSpinner() *spinner {
@@ -107,7 +110,16 @@ func gatewayURL() string {
 	if url != "" {
 		return url
 	}
-	return "http://127.0.0.1:8200"
+	return "http://" + config.Load().GatewayAddr
+}
+
+func gatewayPort() int {
+	if _, port, err := net.SplitHostPort(config.Load().GatewayAddr); err == nil {
+		if p, err := strconv.Atoi(port); err == nil {
+			return p
+		}
+	}
+	return 8200
 }
 
 func newClient() *Client {
@@ -130,7 +142,7 @@ func requireGateway() (*Client, error) {
 
 	// Gateway not reachable — try to auto-start the daemon
 	fmt.Println("Daemon not running, starting...")
-	if err := daemon.EnsureRunning(8200); err != nil {
+	if err := daemon.EnsureRunning(gatewayPort()); err != nil {
 		return nil, fmt.Errorf("gateway not running and auto-start failed: %w\nStart manually with: agency serve", err)
 	}
 
@@ -161,7 +173,7 @@ func checkDaemonVersion(c *Client) {
 		return
 	}
 	time.Sleep(500 * time.Millisecond)
-	if err := daemon.Start(8200); err != nil {
+	if err := daemon.Start(gatewayPort()); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not restart daemon: %v\n", err)
 		return
 	}
@@ -2027,7 +2039,7 @@ func hubCmd() *cobra.Command {
 
 			// Description
 			if desc, _ := doc["description"].(string); desc == "" {
-				fmt.Printf("  %s Missing description\n", yellow.Render("!"), )
+				fmt.Printf("  %s Missing description\n", yellow.Render("!"))
 				issues++
 			}
 
@@ -2149,7 +2161,10 @@ func hubCmd() *cobra.Command {
 			gitDir := cacheDir
 
 			// Create branch, add, commit, push, create PR
-			cmds := []struct{ args []string; desc string }{
+			cmds := []struct {
+				args []string
+				desc string
+			}{
 				{[]string{"git", "-C", gitDir, "checkout", "main"}, "checkout main"},
 				{[]string{"git", "-C", gitDir, "pull", "--ff-only"}, "pull latest"},
 				{[]string{"git", "-C", gitDir, "checkout", "-b", branchName}, "create branch"},

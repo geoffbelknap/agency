@@ -4,11 +4,11 @@ import (
 	"context"
 	"strings"
 
-	"log/slog"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"log/slog"
 
 	containers "github.com/geoffbelknap/agency/internal/orchestrate/containers"
 )
@@ -75,8 +75,8 @@ func Reconcile(ctx context.Context, cli *client.Client, knownAgents []string, lo
 	// Shared infrastructure networks are created by infra up and are expected
 	// to be empty when no agents are running — they are not orphans.
 	infraNets := map[string]bool{
-		gatewayNet: true, egressIntNet: true,
-		egressExtNet: true, operatorNet: true,
+		gatewayNetName(): true, egressIntNetName(): true,
+		egressExtNetName(): true, operatorNetName(): true,
 	}
 	for _, net := range nets {
 		if len(net.Containers) == 0 && !infraNets[net.Name] {
