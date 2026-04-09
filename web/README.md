@@ -91,6 +91,17 @@ API requests to `/api/v1` and WebSocket connections on `/ws` are automatically p
 | `npm run test:e2e:live:risky` | Run opt-in live flows with higher operational risk |
 | `npm run test:e2e:live:danger` | Run explicit opt-in destructive live flows |
 
+Repo-root shortcuts:
+
+| Command | Description |
+| ------- | ----------- |
+| `make web-test-unit` | Run the web Vitest suite from repo root |
+| `make web-test-e2e` | Run the mocked Playwright suite from repo root |
+| `make web-test-all` | Run both default web verification tiers |
+| `make e2e-live-web-safe` | Run the default live-safe Playwright tier |
+| `make e2e-live-web-risky` | Run the opt-in live-risky tier |
+| `make e2e-live-web-danger` | Run the explicit live-danger tier |
+
 ## Browser E2E
 
 Install Playwright locally:
@@ -106,6 +117,12 @@ Mocked browser smoke:
 ```bash
 cd web
 npm run test:e2e
+```
+
+Or from the repo root:
+
+```bash
+make web-test-e2e
 ```
 
 Live local stack safe suite:
@@ -138,6 +155,16 @@ See [tests/COVERAGE_TIERS.md](tests/COVERAGE_TIERS.md) for the current inventory
 The live harness now reuses an already-healthy local gateway, shared infra, and web container by default. To force the old cold-start behavior, use `--force-restart` and optionally `--force-infra-up`.
 
 The live harness is dev-only. It lives in repo test paths and scripts, uses `devDependencies`, and is not part of the shipped runtime or container images.
+
+## CI Coverage
+
+GitHub Actions runs the default web verification stack on every push and pull request:
+
+- `npm run build`
+- `npm test`
+- `npm run test:e2e`
+
+The live tiers remain local opt-in workflows because they depend on a real Agency stack and shared runtime state.
 
 ## Project Structure
 
