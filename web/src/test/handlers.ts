@@ -153,6 +153,8 @@ export const handlers = [
   http.get(`${BASE}/graph/context`, () => HttpResponse.json({})),
   http.get(`${BASE}/graph/pending`, () => HttpResponse.json({ pending: [] })),
   http.post(`${BASE}/graph/review/:id`, () => HttpResponse.json({ ok: true })),
+  http.get(`${BASE}/graph/quarantine`, () => HttpResponse.json({ nodes: [] })),
+  http.post(`${BASE}/graph/quarantine/release`, () => HttpResponse.json({ ok: true })),
 
   // Capabilities
   http.get(`${BASE}/admin/capabilities`, () => HttpResponse.json([])),

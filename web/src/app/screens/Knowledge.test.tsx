@@ -12,10 +12,12 @@ function mockOntologyReviewData({
   candidates = [],
   curationEntries = [],
   pending = [],
+  quarantined = [],
 }: {
   candidates?: unknown[];
   curationEntries?: unknown[];
   pending?: unknown[];
+  quarantined?: unknown[];
 } = {}) {
   server.use(
     http.get(`${BASE}/graph/ontology/candidates`, () =>
@@ -26,6 +28,9 @@ function mockOntologyReviewData({
     ),
     http.get(`${BASE}/graph/pending`, () =>
       HttpResponse.json({ pending }),
+    ),
+    http.get(`${BASE}/graph/quarantine`, () =>
+      HttpResponse.json({ nodes: quarantined }),
     ),
   );
 }
@@ -226,6 +231,58 @@ describe('Knowledge', () => {
     await waitFor(() => {
       expect(reviewed).toBe('approve');
       expect(screen.getByText('No pending structural contributions')).toBeInTheDocument();
+    });
+  });
+
+  it('lists and releases quarantined knowledge', async () => {
+    let quarantined = [
+      {
+        node_id: 'node-1',
+        label: 'stale device record',
+        agent: 'sensor-agent',
+        type: 'device',
+        reason: 'Source boundary changed',
+        quarantined_at: '2026-04-09T10:00:00Z',
+      },
+    ];
+    let released = '';
+
+    server.use(
+      http.get(`${BASE}/graph/stats`, () =>
+        HttpResponse.json({ node_count: 0, edge_count: 0 }),
+      ),
+      http.get(`${BASE}/graph/ontology/candidates`, () =>
+        HttpResponse.json({ candidates: [] }),
+      ),
+      http.get(`${BASE}/graph/curation-log`, () =>
+        HttpResponse.json({ entries: [] }),
+      ),
+      http.get(`${BASE}/graph/pending`, () =>
+        HttpResponse.json({ pending: [] }),
+      ),
+      http.get(`${BASE}/graph/quarantine`, () =>
+        HttpResponse.json({ nodes: quarantined }),
+      ),
+      http.post(`${BASE}/graph/quarantine/release`, async ({ request }) => {
+        const body = await request.json() as { node_id?: string };
+        released = body.node_id ?? '';
+        quarantined = [];
+        return HttpResponse.json({ ok: true, released: 1 });
+      }),
+    );
+
+    renderWithRouter(<Knowledge />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Quarantine')).toBeInTheDocument();
+      expect(screen.getByText('stale device record')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /release/i }));
+
+    await waitFor(() => {
+      expect(released).toBe('node-1');
+      expect(screen.getByText('No quarantined knowledge')).toBeInTheDocument();
     });
   });
 });
