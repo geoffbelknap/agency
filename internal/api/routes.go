@@ -104,9 +104,10 @@ func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, l
 	})
 
 	apicomms.RegisterRoutes(r, apicomms.Deps{
-		Comms:  dc,
-		Config: cfg,
-		Logger: logger,
+		Comms:        dc,
+		AgentManager: startup.AgentManager,
+		Config:       cfg,
+		Logger:       logger,
 	})
 
 	// Knowledge graph routes on the socket — used by intake for graph ingest.
@@ -282,9 +283,10 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 
 	// Comms routes (extracted module) — channel/messaging proxy to comms container
 	apicomms.RegisterRoutes(r, apicomms.Deps{
-		Comms:  dc,
-		Config: cfg,
-		Logger: logger,
+		Comms:        dc,
+		AgentManager: startup.AgentManager,
+		Config:       cfg,
+		Logger:       logger,
 	})
 
 	// Infra, internal LLM, routing, providers, and setup routes (extracted module)

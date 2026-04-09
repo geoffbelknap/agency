@@ -1,6 +1,7 @@
 package comms
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -9,13 +10,19 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/config"
 	commsClient "github.com/geoffbelknap/agency/internal/comms"
+	"github.com/geoffbelknap/agency/internal/orchestrate"
 )
+
+type agentLister interface {
+	List(ctx context.Context) ([]orchestrate.AgentDetail, error)
+}
 
 // Deps holds the dependencies required by the comms module.
 type Deps struct {
-	Comms  commsClient.Client
-	Config *config.Config
-	Logger *slog.Logger
+	Comms        commsClient.Client
+	AgentManager agentLister
+	Config       *config.Config
+	Logger       *slog.Logger
 }
 
 type handler struct {
