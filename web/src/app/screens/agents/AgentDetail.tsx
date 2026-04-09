@@ -173,7 +173,9 @@ export function AgentDetail({ agent, infraBuildId, capabilities: initialCapabili
             knowledge={data.knowledge}
             meeseeksList={data.meeseeksList}
             economics={data.economics}
+            refreshMeeseeks={data.refreshMeeseeks}
             handleKillMeeseeks={data.handleKillMeeseeks}
+            handleKillAllMeeseeks={data.handleKillAllMeeseeks}
             handleClearCache={data.handleClearCache}
             subTab={opsSubTab}
             onSubTabChange={setOpsSubTab}
