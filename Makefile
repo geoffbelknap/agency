@@ -1,5 +1,6 @@
 .PHONY: all build install deploy test clean images python-base \
        body enforcer comms knowledge intake egress workspace web-fetch web relay \
+       web-test-unit web-test-e2e web-test-all \
        e2e-live-web e2e-live-web-safe e2e-live-web-risky e2e-live-web-danger
 
 VERSION  ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo 0.0.0)
@@ -118,6 +119,14 @@ relay:
 
 e2e-live-web:
 	@./scripts/e2e-live-web.sh
+
+web-test-unit:
+	@cd "$(AGENCY_WEB_DIR)" && npm test
+
+web-test-e2e:
+	@cd "$(AGENCY_WEB_DIR)" && npm run test:e2e
+
+web-test-all: web-test-unit web-test-e2e
 
 e2e-live-web-safe:
 	@./scripts/e2e-live-web.sh tests/e2e-live
