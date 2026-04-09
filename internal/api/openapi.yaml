@@ -2963,7 +2963,8 @@ paths:
       description: |
         Actions: stats, health, flags, log, query, neighbors, path, changes,
         export, graph, reset, restore, unflag, ontology_candidates,
-        ontology_promote, ontology_reject.
+        ontology_promote, ontology_reject, ontology_restore,
+        ontology_seed_kind_candidate, delete_by_kind.
       tags: [Admin]
       requestBody:
         required: true

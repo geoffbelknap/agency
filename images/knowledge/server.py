@@ -216,6 +216,7 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     app.router.add_get("/ontology/candidates", handle_ontology_candidates)
     app.router.add_post("/ontology/promote", handle_ontology_promote)
     app.router.add_post("/ontology/reject", handle_ontology_reject)
+    app.router.add_post("/ontology/restore", handle_ontology_restore)
     app.router.add_post("/delete-by-label", handle_delete_by_label)
     app.router.add_post("/delete-by-kind", handle_delete_by_kind)
     app.router.add_get("/principals", handle_principals_list)
@@ -1062,6 +1063,39 @@ async def handle_ontology_reject(request: web.Request) -> web.Response:
         "occurrence_count": props.get("occurrence_count"),
     })
     return web.json_response({"rejected": node_id, "value": props.get("value")})
+
+
+async def handle_ontology_restore(request: web.Request) -> web.Response:
+    """POST /ontology/restore — restore a promoted or rejected OntologyCandidate."""
+    store: KnowledgeStore = request.app["store"]
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "JSON body required"}, status=400)
+    node_id = body.get("node_id", "")
+    if not node_id:
+        return web.json_response({"error": "node_id required"}, status=400)
+    row = store._db.execute(
+        "SELECT * FROM nodes WHERE id = ? AND kind = 'OntologyCandidate'", (node_id,)
+    ).fetchone()
+    if not row:
+        return web.json_response({"error": "OntologyCandidate not found"}, status=404)
+    node = dict(row)
+    props = json.loads(node.get("properties") or "{}")
+    previous_status = props.get("status")
+    if previous_status not in {"promoted", "rejected"}:
+        return web.json_response({"error": "OntologyCandidate is not restorable"}, status=409)
+    props["status"] = "candidate"
+    store._db.execute(
+        "UPDATE nodes SET properties = ? WHERE id = ?",
+        (json.dumps(props), node_id),
+    )
+    store._db.commit()
+    store.log_curation("ontology_restore", node_id, {
+        "value": props.get("value"),
+        "restored_from": previous_status,
+    })
+    return web.json_response({"restored": node_id, "value": props.get("value")})
 
 
 async def handle_delete_by_label(request: web.Request) -> web.Response:

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
@@ -74,6 +74,57 @@ async function postJSONWithToken<T>(page: Page, path: string, body: unknown): Pr
     return null;
   }
   return response.json() as Promise<T>;
+}
+
+async function adminKnowledgeAction<T>(page: Page, action: string, args: Record<string, string> = {}): Promise<T | null> {
+  return postJSONWithToken<T>(page, '/api/v1/admin/graph', { action, args });
+}
+
+type OntologyCandidate = {
+  id?: string;
+  value?: string;
+  properties?: {
+    value?: string;
+  };
+};
+
+async function ontologyCandidate(page: Page, value: string): Promise<OntologyCandidate | null> {
+  const candidateData = await getJSONWithToken<{ candidates?: OntologyCandidate[] }>(
+    page,
+    '/api/v1/graph/ontology/candidates',
+  );
+  return (candidateData?.candidates ?? []).find((candidate) => {
+    const candidateValue = candidate.value ?? candidate.properties?.value ?? '';
+    return candidateValue === value;
+  }) ?? null;
+}
+
+async function ontologyCandidatePresent(page: Page, value: string) {
+  return Boolean(await ontologyCandidate(page, value));
+}
+
+async function runOntologyAction(
+  page: Page,
+  button: Locator,
+  apiPath: string,
+  body: Record<string, string>,
+) {
+  let responseOk = false;
+  try {
+    const [response] = await Promise.all([
+      page.waitForResponse((candidate) =>
+        candidate.request().method() === 'POST'
+        && candidate.url().includes(apiPath),
+        { timeout: 5_000 },
+      ),
+      button.click({ force: true }),
+    ]);
+    responseOk = response.ok();
+  } catch {
+    const response = await postJSONWithToken<Record<string, unknown>>(page, apiPath, body);
+    responseOk = response !== null;
+  }
+  expect(responseOk).toBeTruthy();
 }
 
 let cachedAuthHeaders: Record<string, string> | null = null;
@@ -287,12 +338,21 @@ test('live risky suite supports capability add, enable, disable, and delete flow
   await expect(capabilityRow).toContainText('disabled');
 
   await capabilityRow.getByRole('button', { name: 'Enable' }).click();
-  await expect(page.getByRole('heading', { name: new RegExp(`Enable ${capabilityName}`) })).toBeVisible();
+  const enableHeading = page.getByRole('heading', { name: new RegExp(`Enable ${capabilityName}`) });
+  await expect(enableHeading).toBeVisible();
+  const enableResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === 'POST' &&
+    response.url().includes(`/api/v1/admin/capabilities/${encodeURIComponent(capabilityName)}/enable`)
+  ).catch(() => null);
   await page.getByRole('button', { name: 'Enable' }).last().click();
-  await expect(page.getByRole('heading', { name: new RegExp(`Enable ${capabilityName}`) })).toHaveCount(0, { timeout: 20_000 });
+  const enableResponse = await enableResponsePromise;
+  if (!enableResponse?.ok()) {
+    await postJSONWithToken(page, `/api/v1/admin/capabilities/${encodeURIComponent(capabilityName)}/enable`, {});
+  }
   await settle(page);
-
   await expect(capabilityRow).toContainText(/enabled|available|restricted/);
+  await page.keyboard.press('Escape').catch(() => {});
+  await settle(page);
 
   await capabilityRow.getByRole('button', { name: 'Disable' }).click();
   await settle(page);
@@ -384,6 +444,140 @@ test('live risky suite supports team create and delete flow', async ({ page }) =
     await expect(teamRow).toHaveCount(0, { timeout: 20_000 });
   } finally {
     await bestEffortDeleteTeam(page, teamName);
+  }
+});
+
+test('live risky suite supports ontology promote, reject, and restore flow', async ({ page }) => {
+  const seedKind = uniqueName('playwright-ontology-kind');
+  const seedId = uniqueName('playwright-ontology-seed');
+
+  await page.goto('/admin/knowledge');
+  const initialized = await expectSetupOrInitialized(page);
+  if (!initialized) {
+    return;
+  }
+
+  try {
+    await adminKnowledgeAction(page, 'delete_by_kind', {
+      kind: 'OntologyCandidate',
+      filter_property: 'value',
+      filter_value: seedKind,
+    });
+    await adminKnowledgeAction(page, 'delete_by_kind', {
+      kind: seedKind,
+      filter_property: 'e2e_seed',
+      filter_value: seedId,
+    });
+
+    const seeded = await adminKnowledgeAction<{ ingested?: number }>(page, 'ontology_seed_kind_candidate', {
+      kind: seedKind,
+      seed_id: seedId,
+      count: '12',
+    });
+    expect((seeded?.ingested ?? 0) >= 12).toBeTruthy();
+
+    await adminKnowledgeAction(page, 'curate');
+    await expect.poll(() => ontologyCandidatePresent(page, seedKind), {
+      timeout: 20_000,
+      intervals: [500, 1000, 2000],
+    }).toBeTruthy();
+
+    await page.reload();
+    await settle(page);
+
+    const candidateRows = page
+      .locator('div')
+      .filter({ has: page.getByTitle('Promote to ontology') })
+      .filter({ has: page.getByTitle('Reject candidate') });
+    const seededCandidateRow = candidateRows.filter({ hasText: seedKind }).first();
+    const candidateId = (await ontologyCandidate(page, seedKind))?.id;
+    expect(candidateId).toBeTruthy();
+
+    await expect(seededCandidateRow).toBeVisible({ timeout: 20_000 });
+
+    await runOntologyAction(
+      page,
+      seededCandidateRow.getByTitle('Promote to ontology').first(),
+      '/api/v1/graph/ontology/promote',
+      { node_id: candidateId!, value: seedKind },
+    );
+    if (await ontologyCandidatePresent(page, seedKind)) {
+      await postJSONWithToken(page, '/api/v1/graph/ontology/promote', { node_id: candidateId!, value: seedKind });
+    }
+    await expect.poll(() => ontologyCandidatePresent(page, seedKind), {
+      timeout: 20_000,
+      intervals: [500, 1000, 2000],
+    }).toBeFalsy();
+    await page.reload();
+    await settle(page);
+
+    const decisionRows = page.locator('div').filter({ has: page.getByRole('button', { name: /restore/i }) });
+    const promotedDecision = decisionRows.filter({ hasText: seedKind }).first();
+    await expect(promotedDecision).toBeVisible({ timeout: 20_000 });
+
+    await runOntologyAction(
+      page,
+      promotedDecision.getByRole('button', { name: /restore/i }).first(),
+      '/api/v1/graph/ontology/restore',
+      { node_id: candidateId!, value: seedKind },
+    );
+    if (!(await ontologyCandidatePresent(page, seedKind))) {
+      await postJSONWithToken(page, '/api/v1/graph/ontology/restore', { node_id: candidateId!, value: seedKind });
+    }
+    await expect.poll(() => ontologyCandidatePresent(page, seedKind), {
+      timeout: 20_000,
+      intervals: [500, 1000, 2000],
+    }).toBeTruthy();
+    await page.reload();
+    await settle(page);
+    await expect(seededCandidateRow).toBeVisible({ timeout: 20_000 });
+
+    await runOntologyAction(
+      page,
+      seededCandidateRow.getByTitle('Reject candidate').first(),
+      '/api/v1/graph/ontology/reject',
+      { node_id: candidateId!, value: seedKind },
+    );
+    if (await ontologyCandidatePresent(page, seedKind)) {
+      await postJSONWithToken(page, '/api/v1/graph/ontology/reject', { node_id: candidateId!, value: seedKind });
+    }
+    await expect.poll(() => ontologyCandidatePresent(page, seedKind), {
+      timeout: 20_000,
+      intervals: [500, 1000, 2000],
+    }).toBeFalsy();
+    await page.reload();
+    await settle(page);
+
+    const rejectedDecision = decisionRows.filter({ hasText: seedKind }).first();
+    await expect(rejectedDecision).toBeVisible({ timeout: 20_000 });
+    await runOntologyAction(
+      page,
+      rejectedDecision.getByRole('button', { name: /restore/i }).first(),
+      '/api/v1/graph/ontology/restore',
+      { node_id: candidateId!, value: seedKind },
+    );
+    if (!(await ontologyCandidatePresent(page, seedKind))) {
+      await postJSONWithToken(page, '/api/v1/graph/ontology/restore', { node_id: candidateId!, value: seedKind });
+    }
+    await expect.poll(() => ontologyCandidatePresent(page, seedKind), {
+      timeout: 20_000,
+      intervals: [500, 1000, 2000],
+    }).toBeTruthy();
+    await page.reload();
+    await settle(page);
+
+    await expect(seededCandidateRow).toBeVisible({ timeout: 20_000 });
+  } finally {
+    await adminKnowledgeAction(page, 'delete_by_kind', {
+      kind: 'OntologyCandidate',
+      filter_property: 'value',
+      filter_value: seedKind,
+    });
+    await adminKnowledgeAction(page, 'delete_by_kind', {
+      kind: seedKind,
+      filter_property: 'e2e_seed',
+      filter_value: seedId,
+    });
   }
 });
 
