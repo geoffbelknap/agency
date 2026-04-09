@@ -164,6 +164,57 @@ describe('Agents', () => {
     });
   });
 
+  it('shows economics and clears semantic cache from operations', async () => {
+    let cacheCleared = false;
+    server.use(
+      http.get(`${BASE}/agents`, () => HttpResponse.json(defaultAgents)),
+      http.get(`${BASE}/agents/alice/logs`, () => HttpResponse.json([])),
+      http.get(`${BASE}/agents/alice/budget`, () =>
+        HttpResponse.json({ daily_limit: 0, monthly_limit: 0, daily_used: 0, monthly_used: 0, today_llm_calls: 0, today_input_tokens: 0, today_output_tokens: 0 }),
+      ),
+      http.get(`${BASE}/agents/alice/economics`, () =>
+        HttpResponse.json({
+          agent: 'alice',
+          period: '2026-04-09',
+          total_cost_usd: 0.125,
+          requests: 7,
+          input_tokens: 1200,
+          output_tokens: 300,
+          cache_hits: 2,
+          cache_hit_rate: 0.25,
+          retry_waste_usd: 0.01,
+          tool_hallucination_rate: 0,
+          by_model: {},
+        }),
+      ),
+      http.delete(`${BASE}/agents/alice/cache`, () => {
+        cacheCleared = true;
+        return HttpResponse.json({ deleted: 3 });
+      }),
+    );
+
+    renderAgents();
+    await waitFor(() => {
+      expect(screen.getByText('alice')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByText('alice'));
+    await userEvent.click(screen.getByRole('tab', { name: /operations/i }));
+    await userEvent.click(screen.getByRole('tab', { name: /economics/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('$0.1250')).toBeInTheDocument();
+      expect(screen.getByText('7')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole('tab', { name: /knowledge/i }));
+    await userEvent.click(screen.getByRole('button', { name: /clear cache/i }));
+
+    await waitFor(() => {
+      expect(cacheCleared).toBe(true);
+      expect(toastSuccess).toHaveBeenCalledWith('Cache cleared for alice (3 deleted)');
+    });
+  });
+
   it('shows Resume for halted agent', async () => {
     server.use(
       http.get(`${BASE}/agents`, () =>

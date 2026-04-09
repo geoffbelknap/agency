@@ -11,7 +11,7 @@ import { AgentSystemTab } from './AgentSystemTab';
 import { formatDateTimeShort } from '../../lib/time';
 
 type PrimaryTab = 'overview' | 'activity' | 'operations' | 'system';
-type OperationsSubTab = 'channels' | 'knowledge' | 'meeseeks';
+type OperationsSubTab = 'channels' | 'knowledge' | 'meeseeks' | 'economics';
 type SystemSubTab = 'config' | 'logs';
 
 interface Props {
@@ -172,7 +172,9 @@ export function AgentDetail({ agent, infraBuildId, capabilities: initialCapabili
             channels={data.channels}
             knowledge={data.knowledge}
             meeseeksList={data.meeseeksList}
+            economics={data.economics}
             handleKillMeeseeks={data.handleKillMeeseeks}
+            handleClearCache={data.handleClearCache}
             subTab={opsSubTab}
             onSubTabChange={setOpsSubTab}
           />
