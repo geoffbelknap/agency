@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { formatDateTimeShort } from '../lib/time';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
-import { Search, Database, Sparkles, Check, X, RotateCcw, ShieldCheck } from 'lucide-react';
+import { Search, Database, Sparkles, Check, X, RotateCcw, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface QueryResult {
@@ -56,6 +56,15 @@ interface PendingContribution {
   proposed?: string;
   reason?: string;
   createdAt?: string;
+}
+
+interface QuarantinedNode {
+  id: string;
+  label: string;
+  agent?: string;
+  type?: string;
+  reason?: string;
+  quarantinedAt?: string;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -202,6 +211,34 @@ function parsePendingContributions(raw: unknown): PendingContribution[] {
   });
 }
 
+function parseQuarantinedNodes(raw: unknown): QuarantinedNode[] {
+  const record = asRecord(raw);
+  const entries = Array.isArray(raw)
+    ? raw
+    : Array.isArray(record.nodes)
+      ? record.nodes
+      : Array.isArray(record.items)
+        ? record.items
+        : Array.isArray(record.quarantined)
+          ? record.quarantined
+          : [];
+
+  return entries.map((entry, index) => {
+    const item = asRecord(entry);
+    const data = asRecord(item.data);
+    const merged = { ...data, ...item };
+    const id = firstString(merged, ['id', 'node_id', 'uuid']) ?? `quarantine-${index}`;
+    return {
+      id,
+      label: firstString(merged, ['label', 'name', 'title', 'subject', 'kind']) ?? id,
+      agent: firstString(merged, ['agent', 'source_agent', 'author']),
+      type: firstString(merged, ['type', 'kind', 'source_type']),
+      reason: firstString(merged, ['reason', 'quarantine_reason', 'summary']),
+      quarantinedAt: firstString(merged, ['quarantined_at', 'timestamp', 'created_at']),
+    };
+  });
+}
+
 export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string, kind: string) => void }) {
   const [queryText, setQueryText] = useState('');
   const [queryResults, setQueryResults] = useState<QueryResult[]>([]);
@@ -223,6 +260,9 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
   const [pendingContributions, setPendingContributions] = useState<PendingContribution[]>([]);
   const [pendingLoading, setPendingLoading] = useState(false);
   const [reviewActionLoading, setReviewActionLoading] = useState<string | null>(null);
+  const [quarantinedNodes, setQuarantinedNodes] = useState<QuarantinedNode[]>([]);
+  const [quarantineLoading, setQuarantineLoading] = useState(false);
+  const [quarantineActionLoading, setQuarantineActionLoading] = useState<string | null>(null);
 
   const loadPendingContributions = async () => {
     try {
@@ -233,6 +273,18 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
       setPendingContributions([]);
     } finally {
       setPendingLoading(false);
+    }
+  };
+
+  const loadQuarantinedNodes = async () => {
+    try {
+      setQuarantineLoading(true);
+      const data = await api.knowledge.quarantineList();
+      setQuarantinedNodes(parseQuarantinedNodes(data));
+    } catch {
+      setQuarantinedNodes([]);
+    } finally {
+      setQuarantineLoading(false);
     }
   };
 
@@ -306,9 +358,23 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
     }
   };
 
+  const handleReleaseQuarantine = async (node: QuarantinedNode) => {
+    try {
+      setQuarantineActionLoading(node.id);
+      await api.knowledge.quarantineRelease({ node_id: node.id });
+      toast.success(`Released "${node.label}" from quarantine`);
+      await loadQuarantinedNodes();
+    } catch (e: any) {
+      toast.error(e.message || 'Release failed');
+    } finally {
+      setQuarantineActionLoading(null);
+    }
+  };
+
   useEffect(() => {
     loadOntologyReviewData();
     loadPendingContributions();
+    loadQuarantinedNodes();
     const loadStats = async () => {
       try {
         setStatsLoading(true);
@@ -585,6 +651,63 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
                       Reject
                     </Button>
                   </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Quarantine */}
+      <div className="bg-card border border-border rounded p-4 md:p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-foreground/80 flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4" />
+            Quarantine
+          </h2>
+          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={loadQuarantinedNodes} disabled={quarantineLoading}>
+            {quarantineLoading ? '...' : 'Refresh'}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground mb-3">
+          Review knowledge that has been isolated from active graph use. Release only when the source and boundary are understood.
+        </p>
+        {quarantinedNodes.length === 0 ? (
+          <div className="text-sm text-muted-foreground text-center py-8">
+            No quarantined knowledge
+          </div>
+        ) : (
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {quarantinedNodes.map((node) => (
+              <div key={node.id} className="bg-background border border-border rounded p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-medium text-foreground">{node.label}</span>
+                      {node.type && (
+                        <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                          {node.type}
+                        </span>
+                      )}
+                    </div>
+                    {node.reason && (
+                      <div className="mt-2 text-xs text-muted-foreground/80">{node.reason}</div>
+                    )}
+                    <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground/70">
+                      <code>{node.id}</code>
+                      {node.agent && <span>agent: {node.agent}</span>}
+                      {node.quarantinedAt && <span>{formatDateTimeShort(node.quarantinedAt)}</span>}
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-amber-600 hover:text-amber-500 hover:bg-amber-950/20"
+                    onClick={() => handleReleaseQuarantine(node)}
+                    disabled={quarantineActionLoading === node.id}
+                  >
+                    Release
+                  </Button>
                 </div>
               </div>
             ))}

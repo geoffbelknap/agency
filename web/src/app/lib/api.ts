@@ -731,6 +731,10 @@ export const api = {
     pending: () => req<unknown>('/graph/pending'),
     review: (id: string, action: 'approve' | 'reject', reason = '') =>
       req<Record<string, unknown>>(`/graph/review/${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify({ action, reason }) }),
+    quarantineList: (agent?: string) =>
+      req<unknown>(`/graph/quarantine${agent ? `?agent=${encodeURIComponent(agent)}` : ''}`),
+    quarantineRelease: (opts: { node_id?: string; agent?: string }) =>
+      req<Record<string, unknown>>('/graph/quarantine/release', { method: 'POST', body: JSON.stringify(opts) }),
   },
 
   capabilities: {

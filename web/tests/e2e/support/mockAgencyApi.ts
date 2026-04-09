@@ -579,6 +579,14 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
       await route.fulfill(json({ ok: true }));
       return;
     }
+    if (method === 'GET' && pathname === '/api/v1/graph/quarantine') {
+      await route.fulfill(json({ nodes: [] }));
+      return;
+    }
+    if (method === 'POST' && pathname === '/api/v1/graph/quarantine/release') {
+      await route.fulfill(json({ ok: true }));
+      return;
+    }
     if (method === 'POST' && /^\/api\/v1\/graph\/ontology\/(promote|reject|restore)$/.test(pathname)) {
       const bodyText = request.postData() || '{}';
       const body = JSON.parse(bodyText) as { node_id?: string; value?: string };
