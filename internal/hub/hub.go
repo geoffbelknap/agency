@@ -1070,7 +1070,7 @@ func (m *Manager) discover() []Component {
 			continue
 		}
 		for _, kind := range KnownKinds {
-			kindDir := filepath.Join(srcDir, kind+"s")
+			kindDir := filepath.Join(srcDir, cacheDirNameForKind(kind))
 			if _, err := os.Stat(kindDir); err != nil {
 				continue
 			}
@@ -1119,6 +1119,13 @@ func (m *Manager) discover() []Component {
 		}
 	}
 	return results
+}
+
+func cacheDirNameForKind(kind string) string {
+	if kind == "setup" {
+		return "setup"
+	}
+	return kind + "s"
 }
 
 func isDiscoverableComponentFile(kind, name string) bool {
@@ -1257,8 +1264,8 @@ func (m *Manager) syncSourceWithReport(src Source, cacheDir string) (SourceUpdat
 	return su, err
 }
 
-// migrateDefaultSourceToOCI checks if the "official" source is still git-based
-// and migrates it to OCI. Returns true if migration occurred.
+// migrateDefaultSourceToOCI checks if the official agency-hub source is still
+// git-based and migrates it to OCI. Returns true if migration occurred.
 func (m *Manager) migrateDefaultSourceToOCI() bool {
 	cfgPath := filepath.Join(m.Home, "config.yaml")
 	data, err := os.ReadFile(cfgPath)
@@ -1266,17 +1273,28 @@ func (m *Manager) migrateDefaultSourceToOCI() bool {
 		return false
 	}
 
-	var cfg hubConfig
-	if yaml.Unmarshal(data, &cfg) != nil {
+	var doc yaml.Node
+	if yaml.Unmarshal(data, &doc) != nil {
+		return false
+	}
+
+	sourcesNode := hubSourcesNode(&doc)
+	if sourcesNode == nil || sourcesNode.Kind != yaml.SequenceNode {
 		return false
 	}
 
 	migrated := false
-	for i, src := range cfg.Hub.Sources {
-		if src.Name == "official" && src.EffectiveType() == "git" &&
-			strings.Contains(src.URL, "agency-hub") {
-			cfg.Hub.Sources[i] = DefaultSource
-			migrated = true
+	for _, sourceNode := range sourcesNode.Content {
+		var src Source
+		if sourceNode.Decode(&src) != nil {
+			continue
+		}
+		if isLegacyOfficialHubSource(src) {
+			migratedSource := DefaultSource
+			migratedSource.Name = src.Name
+			if replaceSourceNode(sourceNode, migratedSource) {
+				migrated = true
+			}
 		}
 	}
 
@@ -1284,12 +1302,64 @@ func (m *Manager) migrateDefaultSourceToOCI() bool {
 		return false
 	}
 
-	out, err := yaml.Marshal(cfg)
+	out, err := yaml.Marshal(&doc)
 	if err != nil {
 		return false
 	}
 	os.WriteFile(cfgPath, out, 0644)
 	return true
+}
+
+func hubSourcesNode(doc *yaml.Node) *yaml.Node {
+	root := doc
+	if root.Kind == yaml.DocumentNode && len(root.Content) > 0 {
+		root = root.Content[0]
+	}
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+
+	hubNode := mappingValueNode(root, "hub")
+	if hubNode == nil || hubNode.Kind != yaml.MappingNode {
+		return nil
+	}
+	return mappingValueNode(hubNode, "sources")
+}
+
+func mappingValueNode(node *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1]
+		}
+	}
+	return nil
+}
+
+func replaceSourceNode(node *yaml.Node, src Source) bool {
+	data, err := yaml.Marshal(src)
+	if err != nil {
+		return false
+	}
+
+	var replacement yaml.Node
+	if err := yaml.Unmarshal(data, &replacement); err != nil {
+		return false
+	}
+	if replacement.Kind == yaml.DocumentNode && len(replacement.Content) > 0 {
+		*node = *replacement.Content[0]
+		return true
+	}
+	return false
+}
+
+func isLegacyOfficialHubSource(src Source) bool {
+	if src.EffectiveType() != "git" {
+		return false
+	}
+	if src.Name != "official" && src.Name != "default" {
+		return false
+	}
+	return strings.Contains(src.URL, "agency-hub")
 }
 
 func (m *Manager) loadConfig() hubConfig {
