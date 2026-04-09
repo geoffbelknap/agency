@@ -318,6 +318,19 @@ const egressDomainDetail = {
   active_dependents: ['alice'],
 };
 
+const initialOntologyCandidates = [
+  { id: 'candidate-rollout-readiness', value: 'rollout-readiness', count: 4, source: 'agent', status: 'candidate' },
+  { id: 'candidate-policy-drift', value: 'policy-drift', count: 2, source: 'operator', status: 'candidate' },
+];
+
+const initialOntologyDecisions: Array<{
+  id: string;
+  action: string;
+  node_id: string;
+  value: string;
+  timestamp: string;
+}> = [];
+
 const policyData = {
   valid: true,
   violations: [],
@@ -337,6 +350,8 @@ function json(body: unknown, status = 200) {
 
 export async function installAgencyMocks(page: Page): Promise<RouteController> {
   const unhandled: string[] = [];
+  let ontologyCandidates = initialOntologyCandidates.map((candidate) => ({ ...candidate }));
+  let ontologyDecisions = initialOntologyDecisions.map((entry) => ({ ...entry }));
 
   await page.route('**/__agency/config', async (route) => {
     await route.fulfill(json({ token: '', gateway: '', via: 'local', authenticated: true }));
@@ -524,25 +539,43 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
       return;
     }
     if (method === 'GET' && pathname === '/api/v1/graph/ontology/candidates') {
-      await route.fulfill(json({ candidates: [{ id: 'candidate-rollout-readiness', value: 'rollout-readiness', count: 4, source: 'agent' }] }));
+      await route.fulfill(json({ candidates: ontologyCandidates }));
       return;
     }
     if (method === 'GET' && pathname === '/api/v1/graph/curation-log') {
-      await route.fulfill(json({
-        entries: [
-          {
-            id: 'curation-1',
-            action: 'ontology_reject',
-            node_id: 'candidate-rollout-readiness',
-            value: 'rollout-readiness',
-            timestamp: '2026-04-08T18:05:00Z',
-          },
-        ],
-      }));
+      await route.fulfill(json({ entries: ontologyDecisions }));
       return;
     }
     if (method === 'POST' && /^\/api\/v1\/graph\/ontology\/(promote|reject|restore)$/.test(pathname)) {
-      await route.fulfill(json({ ok: true }));
+      const bodyText = request.postData() || '{}';
+      const body = JSON.parse(bodyText) as { node_id?: string; value?: string };
+      const action = pathname.split('/').pop() || 'unknown';
+      const nodeId = body.node_id || body.value || `candidate-${Date.now()}`;
+      const value = body.value || nodeId;
+
+      if (action === 'restore') {
+        if (!ontologyCandidates.some((candidate) => candidate.id === nodeId)) {
+          ontologyCandidates = [
+            { id: nodeId, value, count: 1, source: 'curation', status: 'candidate' },
+            ...ontologyCandidates,
+          ];
+        }
+      } else {
+        ontologyCandidates = ontologyCandidates.filter((candidate) => candidate.id !== nodeId);
+      }
+
+      ontologyDecisions = [
+        {
+          id: `curation-${action}-${nodeId}-${ontologyDecisions.length + 1}`,
+          action: `ontology_${action}`,
+          node_id: nodeId,
+          value,
+          timestamp: `2026-04-09T15:${String(10 + ontologyDecisions.length).padStart(2, '0')}:00Z`,
+        },
+        ...ontologyDecisions,
+      ];
+
+      await route.fulfill(json({ ok: true, node_id: nodeId, value }));
       return;
     }
 
