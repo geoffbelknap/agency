@@ -127,15 +127,6 @@ if [ -z "${AGENCY_DISPOSABLE_WEB_FETCH_PORT:-}" ] && port_in_use "$WEB_FETCH_POR
   WEB_FETCH_PORT="$(pick_free_port)"
 fi
 
-cleanup() {
-  if [ "${KEEP_HOME}" = "1" ]; then
-    echo "Keeping disposable Agency home at $DISPOSABLE_HOME"
-    return
-  fi
-  rm -rf "$DISPOSABLE_HOME"
-}
-trap cleanup EXIT
-
 mkdir -p "$DISPOSABLE_HOME"
 cp -R "$SOURCE_HOME"/. "$DISPOSABLE_HOME"/
 rm -f "$DISPOSABLE_HOME/gateway.pid" "$DISPOSABLE_HOME/gateway.log"
@@ -155,6 +146,48 @@ export AGENCY_WEB_FETCH_PORT="$WEB_FETCH_PORT"
 export AGENCY_WEB_BASE_URL="https://127.0.0.1:${WEB_PORT}"
 export AGENCY_GATEWAY_HEALTH_URL="http://127.0.0.1:${GATEWAY_PORT}/api/v1/health"
 export AGENCY_DISPOSABLE_GATEWAY_PORT="$GATEWAY_PORT"
+
+stop_pid() {
+  local pid="$1"
+  local waited=0
+
+  if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+    return 0
+  fi
+
+  kill -TERM "$pid" 2>/dev/null || true
+  while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 10 ]; do
+    waited=$((waited + 1))
+    sleep 1
+  done
+
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+}
+
+cleanup() {
+  local status="$?"
+  trap - EXIT INT TERM HUP
+
+  echo "==> Cleaning up disposable Agency runtime"
+  AGENCY_HOME="$DISPOSABLE_HOME" AGENCY_INFRA_INSTANCE="$AGENCY_INFRA_INSTANCE" "$AGENCY_BIN" -q infra down >/dev/null 2>&1 || true
+  AGENCY_HOME="$DISPOSABLE_HOME" "$AGENCY_BIN" serve stop >/dev/null 2>&1 || true
+
+  if [ -f "$DISPOSABLE_HOME/gateway.pid" ]; then
+    stop_pid "$(cat "$DISPOSABLE_HOME/gateway.pid" 2>/dev/null || true)"
+    rm -f "$DISPOSABLE_HOME/gateway.pid"
+  fi
+
+  if [ "${KEEP_HOME}" = "1" ]; then
+    echo "Keeping disposable Agency home at $DISPOSABLE_HOME"
+  else
+    rm -rf "$DISPOSABLE_HOME"
+  fi
+
+  exit "$status"
+}
+trap cleanup EXIT INT TERM HUP
 
 python3 - <<'PY'
 import os
