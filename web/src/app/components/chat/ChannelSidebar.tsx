@@ -47,6 +47,10 @@ function dmDisplayName(name: string): string {
   return name.startsWith('dm-') ? name.slice(3) : name;
 }
 
+function hasKnownDmStatus(dmStatuses: Record<string, DmStatus> | undefined, dmName: string) {
+  return !!dmStatuses && Object.prototype.hasOwnProperty.call(dmStatuses, dmName);
+}
+
 interface SidebarSectionProps {
   title: string;
   defaultOpen?: boolean;
@@ -140,6 +144,7 @@ function SidebarContent({
               {grouped.dms.map((ch) => {
                 const isActive = ch.id === selectedChannel?.id;
                 const dmName = dmDisplayName(ch.name);
+                const knownAgent = hasKnownDmStatus(dmStatuses, dmName);
                 return (
                   <button
                     key={ch.id}
@@ -150,7 +155,15 @@ function SidebarContent({
                       isActive && 'bg-accent',
                     )}
                   >
-                    <AgentStatusDot status={dmStatuses?.[dmName] ?? 'unknown'} className="shrink-0" />
+                    {knownAgent ? (
+                      <AgentStatusDot status={dmStatuses?.[dmName] ?? 'unknown'} className="shrink-0" />
+                    ) : (
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/30"
+                        aria-label="Unavailable"
+                        title="Agent unavailable"
+                      />
+                    )}
                     <span className={cn('flex-1 truncate font-medium', ch.unreadCount > 0 && 'text-white')}>
                       {dmName}
                     </span>
@@ -161,7 +174,7 @@ function SidebarContent({
                         </span>
                       )}
                       <span className="text-[10px] bg-secondary px-1 py-0.5 rounded text-muted-foreground">
-                        AGENT
+                        {knownAgent ? 'AGENT' : 'UNAVAILABLE'}
                       </span>
                     </div>
                   </button>
