@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router';
-import { Hash, Brain, DatabaseZap } from 'lucide-react';
+import { Hash, Brain, DatabaseZap, RefreshCw } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { type RawChannel, type RawEconomicsResponse, type RawMeeseeks } from '../../lib/api';
 import { formatDateTimeShort } from '../../lib/time';
@@ -19,7 +19,9 @@ interface Props {
   knowledge: Record<string, any>[];
   meeseeksList: RawMeeseeks[];
   economics: RawEconomicsResponse | null;
+  refreshMeeseeks: (agentName: string) => Promise<void>;
   handleKillMeeseeks: (agentName: string, meeseeksId: string) => Promise<void>;
+  handleKillAllMeeseeks: (agentName: string) => Promise<void>;
   handleClearCache: (agentName: string) => Promise<void>;
   subTab: OperationsSubTab;
   onSubTabChange: (tab: OperationsSubTab) => void;
@@ -163,15 +165,39 @@ function EconomicsContent({ economics }: { economics: RawEconomicsResponse | nul
   );
 }
 
-function MeeseeksContent({ agentName, meeseeksList, handleKillMeeseeks }: {
+function MeeseeksContent({ agentName, meeseeksList, refreshMeeseeks, handleKillMeeseeks, handleKillAllMeeseeks }: {
   agentName: string;
   meeseeksList: RawMeeseeks[];
+  refreshMeeseeks: (agentName: string) => Promise<void>;
   handleKillMeeseeks: (agentName: string, meeseeksId: string) => Promise<void>;
+  handleKillAllMeeseeks: (agentName: string) => Promise<void>;
 }) {
   return (
     <div className="space-y-2 p-4">
-      <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
-        Meeseeks ({meeseeksList.length})
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <div className="text-xs uppercase tracking-wide text-muted-foreground">
+          Meeseeks ({meeseeksList.length})
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => refreshMeeseeks(agentName)}
+          >
+            <RefreshCw className="w-3 h-3 mr-1" />
+            Refresh Meeseeks
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs text-red-400 hover:text-red-300"
+            disabled={meeseeksList.length === 0}
+            onClick={() => handleKillAllMeeseeks(agentName)}
+          >
+            Kill all
+          </Button>
+        </div>
       </div>
       {meeseeksList.length === 0 ? (
         <div className="text-xs text-muted-foreground/70">No active meeseeks.</div>
@@ -216,7 +242,7 @@ function MeeseeksContent({ agentName, meeseeksList, handleKillMeeseeks }: {
   );
 }
 
-export function AgentOperationsTab({ agentName, channels, knowledge, meeseeksList, economics, handleKillMeeseeks, handleClearCache, subTab, onSubTabChange }: Props) {
+export function AgentOperationsTab({ agentName, channels, knowledge, meeseeksList, economics, refreshMeeseeks, handleKillMeeseeks, handleKillAllMeeseeks, handleClearCache, subTab, onSubTabChange }: Props) {
   return (
     <div className="flex flex-col h-full">
       <div role="tablist" className="flex gap-2 px-2 py-1 border-b border-border">
@@ -232,7 +258,15 @@ export function AgentOperationsTab({ agentName, channels, knowledge, meeseeksLis
       <div role="tabpanel" id={`ops-panel-${subTab}`} className="flex-1 overflow-auto">
         {subTab === 'channels' && <ChannelsContent channels={channels} />}
         {subTab === 'knowledge' && <KnowledgeContent agentName={agentName} knowledge={knowledge} handleClearCache={handleClearCache} />}
-        {subTab === 'meeseeks' && <MeeseeksContent agentName={agentName} meeseeksList={meeseeksList} handleKillMeeseeks={handleKillMeeseeks} />}
+        {subTab === 'meeseeks' && (
+          <MeeseeksContent
+            agentName={agentName}
+            meeseeksList={meeseeksList}
+            refreshMeeseeks={refreshMeeseeks}
+            handleKillMeeseeks={handleKillMeeseeks}
+            handleKillAllMeeseeks={handleKillAllMeeseeks}
+          />
+        )}
         {subTab === 'economics' && <EconomicsContent economics={economics} />}
       </div>
     </div>

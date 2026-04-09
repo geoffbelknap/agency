@@ -25,7 +25,9 @@ export interface AgentDetailData {
   handleGrant: (agentName: string, capability: string) => Promise<void>;
   handleRevoke: (agentName: string, capability: string) => Promise<void>;
   handleSaveConfig: (agentName: string, identity: string) => Promise<Record<string, any> | null>;
+  refreshMeeseeks: (agentName: string) => Promise<void>;
   handleKillMeeseeks: (agentName: string, meeseeksId: string) => Promise<void>;
+  handleKillAllMeeseeks: (agentName: string) => Promise<void>;
   handleClearCache: (agentName: string) => Promise<void>;
 }
 
@@ -162,15 +164,35 @@ export function useAgentDetailData(
     }
   }, []);
 
+  const refreshMeeseeks = useCallback(async (name: string) => {
+    try {
+      const data = await api.meeseeks.list(name);
+      setMeeseeksList(data ?? []);
+    } catch {
+      setMeeseeksList([]);
+    }
+  }, []);
+
   const handleKillMeeseeks = useCallback(async (name: string, meeseeksId: string) => {
     try {
       await api.meeseeks.kill(meeseeksId);
       toast.success(`Killed ${meeseeksId}`);
-      api.meeseeks.list(name).then(d => setMeeseeksList(d ?? [])).catch(() => {});
+      refreshMeeseeks(name);
     } catch (e: any) {
       toast.error(e.message || 'Kill failed');
     }
-  }, []);
+  }, [refreshMeeseeks]);
+
+  const handleKillAllMeeseeks = useCallback(async (name: string) => {
+    try {
+      const result = await api.meeseeks.killByParent(name);
+      const count = result.killed?.length ?? 0;
+      toast.success(`Killed ${count} meeseeks for ${name}`);
+      await refreshMeeseeks(name);
+    } catch (e: any) {
+      toast.error(e.message || 'Kill all failed');
+    }
+  }, [refreshMeeseeks]);
 
   const handleClearCache = useCallback(async (name: string) => {
     try {
@@ -200,7 +222,9 @@ export function useAgentDetailData(
     handleGrant,
     handleRevoke,
     handleSaveConfig,
+    refreshMeeseeks,
     handleKillMeeseeks,
+    handleKillAllMeeseeks,
     handleClearCache,
   };
 }
