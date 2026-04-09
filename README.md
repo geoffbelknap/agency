@@ -6,9 +6,9 @@
 
 An operating system for AI agents.
 
-Most organizations want to use AI agents. What stops them is everything around the agent: credential isolation, audit trails, cost control, network mediation, governance. The problems that don't show up in the demo but kill you in production.
+Most organizations want to use AI agents. What stops them is everything around the agent: Compliance, Security, and Operational readiness (governance, audit trails, policy seurface, detection surface, isolation, network mediation, cost controls, resilience). The problems that don't show up in experimentation but kill you in production.
 
-Agency handles all of it. You focus on the work — one personal assistant or a hundred agents running at scale. Agency handles the security, the infrastructure, and the operational overhead so the agents can do real work with real data in real organizations.
+Agency handles all of it. You focus on the work — one personal assistant or a hundreds agents running at scale. Agency handles the security, the infrastructure, and the operational overhead so the agents can do real work with real data in real organizations.
 
 The reference implementation of [ASK](https://askframework.org), the open framework for agent security.
 
