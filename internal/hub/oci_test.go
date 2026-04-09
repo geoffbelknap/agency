@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,7 +10,6 @@ import (
 )
 
 func TestMigrateGitSourceToOCI(t *testing.T) {
-	t.Skip("OCI migration disabled until artifacts are published to GHCR")
 	tmpDir := t.TempDir()
 
 	// Simulate old git-based config
@@ -52,7 +52,6 @@ func TestMigrateNoOpForOCISource(t *testing.T) {
 }
 
 func TestMigratePreservesOtherSources(t *testing.T) {
-	t.Skip("OCI migration disabled until artifacts are published to GHCR")
 	tmpDir := t.TempDir()
 
 	// Official (git) + custom source — only official should migrate
@@ -81,7 +80,6 @@ func TestMigratePreservesOtherSources(t *testing.T) {
 }
 
 func TestDefaultSourceIsOCI(t *testing.T) {
-	t.Skip("OCI default disabled until artifacts are published to GHCR")
 	tmpDir := t.TempDir()
 	os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(""), 0644)
 
@@ -191,5 +189,20 @@ func TestCopyPulledFilePreservesCatalogPath(t *testing.T) {
 	}
 	if string(data) != "name: limacharlie\n" {
 		t.Fatalf("dest data = %q", string(data))
+	}
+}
+
+func TestOCILivePullCatalogIndex(t *testing.T) {
+	if os.Getenv("AGENCY_TEST_OCI_LIVE") != "1" {
+		t.Skip("set AGENCY_TEST_OCI_LIVE=1 to pull the live GHCR hub catalog")
+	}
+
+	client := newOCIClient("ghcr.io/geoffbelknap/agency-hub")
+	index, err := client.pullIndex(context.Background())
+	if err != nil {
+		t.Fatalf("pull live OCI catalog: %v", err)
+	}
+	if len(index.Components) == 0 {
+		t.Fatal("live OCI catalog has no components")
 	}
 }

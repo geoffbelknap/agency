@@ -27,8 +27,8 @@ var allowedAPIDomains = map[string]bool{
 	"api.deepseek.com":                  true,
 	"api.github.com":                    true,
 	"api.search.brave.com":              true,
-	"slack.com":                          true,
-	"localhost":                          true, // local models (ollama, etc.)
+	"slack.com":                         true,
+	"localhost":                         true, // local models (ollama, etc.)
 }
 
 // allowedAuthEnvVars is the set of known-good credential env var names.
@@ -74,11 +74,10 @@ func (s Source) ComponentRef(kind, name, version string) string {
 }
 
 // DefaultSource is the official Agency hub.
-// Uses git until OCI artifacts are published to GHCR.
 var DefaultSource = Source{
-	Name:   "official",
-	URL:    "https://github.com/geoffbelknap/agency-hub.git",
-	Branch: "main",
+	Name:     "official",
+	Type:     "oci",
+	Registry: "ghcr.io/geoffbelknap/agency-hub",
 }
 
 // Component represents a discovered hub component.
@@ -132,10 +131,9 @@ func NewManager(home string) *Manager {
 // Does NOT sync managed files or upgrade components — use Upgrade() for that.
 func (m *Manager) Update() (*UpdateReport, error) {
 	// One-time migration: official source git → OCI
-	// Disabled until OCI artifacts are published to GHCR.
-	// if m.migrateDefaultSourceToOCI() {
-	// 	fmt.Println("[hub] Migrated official source from git to OCI")
-	// }
+	if m.migrateDefaultSourceToOCI() {
+		fmt.Println("[hub] Migrated official source from git to OCI")
+	}
 
 	cfg := m.loadConfig()
 	cacheDir := filepath.Join(m.Home, "hub-cache")
