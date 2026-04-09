@@ -78,7 +78,7 @@ Suite location:
 - Read-only direct entity drill-downs
 - Interactive non-mutating browser flows
 - Safe live CRUD flows for profiles, webhooks, notifications, and presets
-- Risky live capability add / enable / disable
+- Risky live capability add / enable / disable / delete
 - Risky live channel create / send / archive
 - Risky live notification test-send to a contained local sink
 - Risky live hub install / remove for an eligible local catalog component
@@ -99,7 +99,6 @@ Suite location:
 
 ### Blocked `live-risky` targets
 
-- Capability delete until the live delete path stops hanging through the real gateway/runtime during end-to-end runs.
 - Knowledge ontology promote/reject until the knowledge service exposes a restore or delete path for promoted and rejected candidates. The runtime contract now correctly uses `node_id`, but the mutation remains one-way.
 - Team create/read cleanup flow until core delete support exists.
 - Assigned mission lifecycle cleanup until pause/complete/delete semantics are proven stable end-to-end.
