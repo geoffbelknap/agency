@@ -7,6 +7,8 @@ import type { Channel } from '../../types';
 const channels: Channel[] = [
   { id: 'general', name: 'general', topic: 'General chat', unreadCount: 3, mentionCount: 0, lastActivity: '', members: ['scout'] },
   { id: 'ops', name: 'ops', topic: 'Operations', unreadCount: 0, mentionCount: 0, lastActivity: '', members: [] },
+  { id: 'dm-alice', name: 'dm-alice', topic: 'Direct messages with alice', unreadCount: 0, mentionCount: 0, lastActivity: '', members: ['alice', 'operator'] },
+  { id: 'dm-retired-agent', name: 'dm-retired-agent', topic: 'Legacy DM', unreadCount: 0, mentionCount: 0, lastActivity: '', members: ['operator'] },
 ];
 
 describe('ChannelSidebar', () => {
@@ -41,5 +43,21 @@ describe('ChannelSidebar', () => {
     const buttons = screen.getAllByRole('button');
     const generalButton = buttons.find((btn) => btn.textContent?.includes('general'));
     expect(generalButton).toHaveClass('bg-accent');
+  });
+
+  it('shows agent DM status only for known agents', () => {
+    render(
+      <ChannelSidebar
+        channels={channels}
+        selectedChannel={null}
+        onSelect={() => {}}
+        dmStatuses={{ alice: 'running' }}
+      />,
+    );
+
+    expect(screen.getByLabelText('Running')).toBeInTheDocument();
+    expect(screen.getByText('AGENT')).toBeInTheDocument();
+    expect(screen.getByLabelText('Unavailable')).toBeInTheDocument();
+    expect(screen.getByText('UNAVAILABLE')).toBeInTheDocument();
   });
 });

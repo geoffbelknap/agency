@@ -64,6 +64,34 @@ describe('Channels', () => {
     });
   });
 
+  it('marks DM targets without a live backing agent as unavailable', async () => {
+    server.use(
+      http.get(`${BASE}/comms/channels`, () =>
+        HttpResponse.json([
+          { name: 'general', topic: 'General chat', state: 'active' },
+          { name: 'dm-retired-agent', topic: 'Legacy DM', type: 'dm', state: 'active' },
+        ]),
+      ),
+      http.get(`${BASE}/comms/channels/general/messages`, () =>
+        HttpResponse.json([
+          { id: 'm1', author: 'steve', content: 'Hello world', timestamp: '2026-03-16T10:00:00Z' },
+        ]),
+      ),
+      http.get(`${BASE}/agents`, () =>
+        HttpResponse.json([
+          { name: 'alice', status: 'running' },
+        ]),
+      ),
+    );
+
+    renderWithRouter(<Channels />);
+    await waitFor(() => {
+      expect(screen.getAllByText('general').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText('UNAVAILABLE')).toBeInTheDocument();
+      expect(screen.getByLabelText('Unavailable')).toBeInTheDocument();
+    });
+  });
+
   it('sends a message', async () => {
     let sent = false;
     server.use(
