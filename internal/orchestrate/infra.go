@@ -930,7 +930,7 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 	if err := inf.waitRunning(ctx, name, 10*time.Second); err != nil {
 		return err
 	}
-	if err := inf.waitHealthy(ctx, name, 30*time.Second); err != nil {
+	if err := inf.waitHealthy(ctx, name, 90*time.Second); err != nil {
 		return err
 	}
 
@@ -1023,7 +1023,7 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 	// Connect intake to egress-int network for outbound proxy access
 	inf.connectIfNeeded(ctx, id, inf.egressIntNetName(), []string{"intake"})
 
-	return inf.waitHealthy(ctx, name, 30*time.Second)
+	return inf.waitHealthy(ctx, name, 90*time.Second)
 }
 
 func (inf *Infra) ensureWebFetch(ctx context.Context) error {
@@ -1096,7 +1096,7 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 	// Connect web-fetch to egress-int network for outbound proxy access
 	inf.connectIfNeeded(ctx, id, inf.egressIntNetName(), []string{"web-fetch"})
 
-	return inf.waitHealthy(ctx, name, 30*time.Second)
+	return inf.waitHealthy(ctx, name, 90*time.Second)
 }
 
 func (inf *Infra) ensureWeb(ctx context.Context) error {
@@ -1461,38 +1461,29 @@ func (inf *Infra) waitRunning(ctx context.Context, name string, timeout time.Dur
 }
 
 func (inf *Infra) waitHealthy(ctx context.Context, name string, timeout time.Duration) error {
-	// Quick check — already healthy?
-	if info, err := inf.cli.ContainerInspect(ctx, name); err == nil {
-		if info.State.Health != nil && info.State.Health.Status == "healthy" {
-			return nil
-		}
-	}
-
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	eventCh, errCh := inf.cli.Events(ctx, events.ListOptions{
-		Filters: filters.NewArgs(
-			filters.Arg("container", name),
-			filters.Arg("event", "health_status"),
-		),
-	})
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
 
 	for {
-		select {
-		case ev := <-eventCh:
-			status := ev.Actor.Attributes["health_status"]
-			if status == "" {
-				status = ev.Status
-			}
-			if strings.Contains(status, "healthy") && !strings.Contains(status, "unhealthy") {
+		info, err := inf.cli.ContainerInspect(ctx, name)
+		if err == nil {
+			if info.State.Health == nil {
 				return nil
 			}
-		case err := <-errCh:
-			if ctx.Err() != nil {
-				return fmt.Errorf("container %s did not become healthy within %v", name, timeout)
+			if info.State.Health.Status == "healthy" {
+				return nil
 			}
-			return fmt.Errorf("event stream error for %s: %w", name, err)
+			if info.State.Status == "exited" || info.State.Status == "dead" {
+				return fmt.Errorf("container %s exited before becoming healthy", name)
+			}
+		}
+
+		select {
+		case <-ticker.C:
+			continue
 		case <-ctx.Done():
 			return fmt.Errorf("container %s did not become healthy within %v", name, timeout)
 		}

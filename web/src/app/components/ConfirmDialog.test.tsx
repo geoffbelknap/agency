@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ConfirmDialog } from './ConfirmDialog';
 
@@ -32,6 +32,35 @@ describe('ConfirmDialog', () => {
     );
     await userEvent.click(screen.getByText('Yes, delete'));
     expect(onConfirm).toHaveBeenCalledOnce();
+  });
+
+  it('keeps async confirmations pending until they finish', async () => {
+    const onOpenChange = vi.fn();
+    let resolveConfirm!: () => void;
+    const onConfirm = vi.fn(() => new Promise<void>((resolve) => { resolveConfirm = resolve; }));
+
+    render(
+      <ConfirmDialog
+        open={true}
+        onOpenChange={onOpenChange}
+        title="Destroy?"
+        description="This cannot be undone."
+        confirmLabel="Destroy Everything"
+        onConfirm={onConfirm}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Destroy Everything' }));
+
+    expect(onConfirm).toHaveBeenCalledOnce();
+    expect(screen.getByRole('button', { name: 'Working...' })).toBeDisabled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    resolveConfirm();
+
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
   });
 
   it('does not render when closed', () => {
