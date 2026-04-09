@@ -118,6 +118,7 @@ export function Capabilities() {
     try {
       setError(null);
       await api.capabilities.delete(name);
+      setCapabilities((prev) => prev.filter((cap) => cap.name !== name));
       await new Promise((r) => setTimeout(r, 500));
       await loadCapabilities(false);
       setDeleteTarget(null);

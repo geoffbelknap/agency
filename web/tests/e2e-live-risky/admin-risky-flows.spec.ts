@@ -113,7 +113,7 @@ async function bestEffortDeleteMission(page: Page, missionName: string) {
 
 async function bestEffortDeleteAgent(page: Page, agentName: string) {
   const status = await requestWithToken(page, 'DELETE', `/api/v1/agents/${encodeURIComponent(agentName)}`);
-  if (status === 200 || status === 204 || status === 404) {
+  if (status === 200 || status === 204 || status === 404 || status === 598) {
     return;
   }
   throw new Error(`agent delete failed for ${agentName}: ${status}`);
@@ -164,7 +164,7 @@ async function ensureInstalledHubComponent(page: Page, kind: 'connector' | 'pack
   return { component: null, installedByTest: false };
 }
 
-test('live risky suite supports capability add, enable, and disable flow', async ({ page }) => {
+test('live risky suite supports capability add, enable, disable, and delete flow', async ({ page }) => {
   const capabilityName = uniqueName('playwright-capability');
 
   await page.goto('/admin/capabilities');
@@ -193,6 +193,20 @@ test('live risky suite supports capability add, enable, and disable flow', async
   await capabilityRow.getByRole('button', { name: 'Disable' }).click();
   await settle(page);
   await expect(capabilityRow).toContainText('disabled');
+
+  await clearBlockingToasts(page);
+  await capabilityRow.getByRole('button', { name: 'Delete' }).click();
+  const deleteDialog = page.getByRole('alertdialog');
+  await expect(deleteDialog).toBeVisible();
+  const deleteResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === 'DELETE' &&
+    response.url().includes(`/api/v1/admin/capabilities/${encodeURIComponent(capabilityName)}`)
+  );
+  await deleteDialog.getByRole('button', { name: /^Delete$/ }).click();
+  const deleteResponse = await deleteResponsePromise;
+  expect(deleteResponse.ok()).toBeTruthy();
+  await settle(page);
+  await expect(capabilityRow).toHaveCount(0, { timeout: 20_000 });
 });
 
 test('live risky suite supports channel create, message send, and archive flow', async ({ page }) => {
