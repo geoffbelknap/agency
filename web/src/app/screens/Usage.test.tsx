@@ -25,11 +25,12 @@ const metrics = {
   by_source: {},
 };
 
-function mockUsageData(suggestions: unknown[] = []) {
+function mockUsageData(suggestions: unknown[] = [], stats: unknown[] = []) {
   server.use(
     http.get('*/__agency/config', () => HttpResponse.json({ gateway: 'http://localhost:8200' })),
     http.get(`${BASE}/infra/routing/metrics`, () => HttpResponse.json(metrics)),
     http.get(`${BASE}/infra/routing/suggestions`, () => HttpResponse.json(suggestions)),
+    http.get(`${BASE}/infra/routing/stats`, () => HttpResponse.json(stats)),
   );
 }
 
@@ -88,5 +89,30 @@ describe('Usage', () => {
     await waitFor(() => {
       expect(screen.getByText('No pending routing suggestions')).toBeInTheDocument();
     });
+  });
+
+  it('renders routing optimizer stats', async () => {
+    mockUsageData([], [
+      {
+        model: 'claude-haiku',
+        task_type: 'summarization',
+        total_calls: 28,
+        retries: 0,
+        success_rate: 0.96,
+        avg_latency_ms: 620,
+        avg_input_tokens: 880,
+        avg_output_tokens: 210,
+        total_cost_usd: 0.18,
+        cost_per_1k: 0.012,
+      },
+    ]);
+
+    renderWithRouter(<Usage />);
+
+    expect(await screen.findByText('Routing Model Stats')).toBeInTheDocument();
+    expect(screen.getByText('summarization')).toBeInTheDocument();
+    expect(screen.getByText('claude-haiku')).toBeInTheDocument();
+    expect(screen.getByText('96%')).toBeInTheDocument();
+    expect(screen.getByText('$0.0120')).toBeInTheDocument();
   });
 });

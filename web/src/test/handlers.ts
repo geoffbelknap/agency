@@ -108,6 +108,7 @@ export const handlers = [
   http.post(`${BASE}/infra/routing/suggestions/:id/reject`, ({ params }) =>
     HttpResponse.json({ id: params.id, status: 'rejected' }),
   ),
+  http.get(`${BASE}/infra/routing/stats`, () => HttpResponse.json([])),
   http.get(`${BASE}/infra/setup/config`, () =>
     HttpResponse.json({
       capability_tiers: {

@@ -5,7 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popove
 import { RefreshCw, CalendarIcon, Check, X } from 'lucide-react';
 import type { DateRange } from 'react-day-picker';
 import { toast } from 'sonner';
-import { api, type RawRoutingSuggestion } from '../lib/api';
+import { api, type RawRoutingStat, type RawRoutingSuggestion } from '../lib/api';
 
 // Approximate pricing per million tokens (USD)
 const PRICING: Record<string, { input: number; output: number }> = {
@@ -111,7 +111,9 @@ async function fetchMetrics(since?: string, until?: string): Promise<RoutingMetr
 export function Usage() {
   const [metrics, setMetrics] = useState<RoutingMetrics | null>(null);
   const [suggestions, setSuggestions] = useState<RawRoutingSuggestion[]>([]);
+  const [routingStats, setRoutingStats] = useState<RawRoutingStat[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(true);
   const [suggestionAction, setSuggestionAction] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -160,6 +162,17 @@ export function Usage() {
     }
   }, []);
 
+  const loadRoutingStats = useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      setRoutingStats(await api.routing.stats());
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to load routing stats');
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
+
   async function handleSuggestionAction(id: string, action: 'approve' | 'reject') {
     setSuggestionAction(`${action}:${id}`);
     try {
@@ -181,6 +194,7 @@ export function Usage() {
   useEffect(() => {
     load();
     loadSuggestions();
+    loadRoutingStats();
   }, []);
 
   function handlePreset(p: RangePreset) {
@@ -372,6 +386,55 @@ export function Usage() {
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-card border border-border rounded overflow-hidden">
+            <div className="px-4 py-3 border-b border-border flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Routing Model Stats</h3>
+                <p className="text-[10px] text-muted-foreground/70 mt-0.5">Per-model optimizer telemetry by task type</p>
+              </div>
+              <Button variant="outline" size="sm" className="h-7 px-2 text-xs gap-1" onClick={loadRoutingStats} disabled={statsLoading}>
+                <RefreshCw className={`w-3 h-3 ${statsLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+            </div>
+            {statsLoading ? (
+              <div className="px-4 py-6 text-sm text-muted-foreground text-center">Loading routing stats...</div>
+            ) : routingStats.length === 0 ? (
+              <div className="px-4 py-6 text-sm text-muted-foreground text-center">No routing stats available</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[720px]">
+                  <thead>
+                    <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
+                      <th className="text-left p-3 font-medium">Task</th>
+                      <th className="text-left p-3 font-medium">Model</th>
+                      <th className="text-right p-3 font-medium">Calls</th>
+                      <th className="text-right p-3 font-medium">Retries</th>
+                      <th className="text-right p-3 font-medium">Success</th>
+                      <th className="text-right p-3 font-medium">Avg Latency</th>
+                      <th className="text-right p-3 font-medium">Avg Tokens</th>
+                      <th className="text-right p-3 font-medium">Cost / 1K</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {routingStats.map((s) => (
+                      <tr key={`${s.task_type}:${s.model}`} className="border-b border-border hover:bg-secondary/50">
+                        <td className="p-3"><code className="text-foreground">{s.task_type || 'unknown'}</code></td>
+                        <td className="p-3"><code className="text-muted-foreground">{s.model || 'unknown'}</code></td>
+                        <td className="p-3 text-right text-foreground/80">{s.total_calls}</td>
+                        <td className="p-3 text-right text-foreground/80">{s.retries}</td>
+                        <td className="p-3 text-right text-green-400">{Math.round((s.success_rate || 0) * 100)}%</td>
+                        <td className="p-3 text-right text-muted-foreground">{((s.avg_latency_ms || 0) / 1000).toFixed(1)}s</td>
+                        <td className="p-3 text-right text-muted-foreground">{formatTokens((s.avg_input_tokens || 0) + (s.avg_output_tokens || 0))}</td>
+                        <td className="p-3 text-right text-green-400">${(s.cost_per_1k || 0).toFixed(4)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
