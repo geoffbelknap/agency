@@ -137,3 +137,38 @@ func TestListChannelsIncludesOrphanDMsWhenArchivedRequested(t *testing.T) {
 		t.Fatalf("expected orphan DM to be included with include_archived=true, got %d: %s", len(got), rec.Body.String())
 	}
 }
+
+func TestListChannelsIncludesUnavailableDMsWhenRequested(t *testing.T) {
+	h := &handler{deps: Deps{
+		Comms: &stubCommsClient{responses: map[string][]byte{
+			"GET /channels":               []byte(`[{"name":"general","state":"active"}]`),
+			"GET /channels?member=_operator": []byte(`[{"name":"dm-retired-agent","state":"active"}]`),
+		}},
+		AgentManager: &stubAgentLister{},
+	}}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/comms/channels?include_unavailable=true", nil)
+	rec := httptest.NewRecorder()
+	h.listChannels(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var got []map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected unavailable DM to be included, got %d: %s", len(got), rec.Body.String())
+	}
+	for _, channel := range got {
+		if channel["name"] == "dm-retired-agent" {
+			if channel["availability"] != "unavailable" {
+				t.Fatalf("expected unavailable DM to be tagged, got %v", channel)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected unavailable DM to be present, got %s", rec.Body.String())
+}

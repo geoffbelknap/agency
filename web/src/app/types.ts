@@ -72,6 +72,7 @@ export interface Channel {
   topic?: string;
   type?: string;
   state?: string;
+  availability?: string;
   unreadCount: number;
   mentionCount: number;
   lastActivity: string;

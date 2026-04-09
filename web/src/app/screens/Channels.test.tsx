@@ -17,10 +17,18 @@ beforeAll(() => {
 });
 
 const BASE = 'http://localhost:8200/api/v1';
+const operatorProfilesHandler = http.get(`${BASE}/admin/profiles`, ({ request }) => {
+  const url = new URL(request.url);
+  if (url.searchParams.get('type') === 'operator') {
+    return HttpResponse.json([]);
+  }
+  return HttpResponse.json([]);
+});
 
 describe('Channels', () => {
   it('renders channel list and auto-selects first', async () => {
     server.use(
+      operatorProfilesHandler,
       http.get(`${BASE}/comms/channels`, () =>
         HttpResponse.json([
           { name: 'general', topic: 'General chat' },
@@ -44,6 +52,7 @@ describe('Channels', () => {
 
   it('hides archived channels from the default sidebar', async () => {
     server.use(
+      operatorProfilesHandler,
       http.get(`${BASE}/comms/channels`, () =>
         HttpResponse.json([
           { name: 'general', topic: 'General chat', state: 'active' },
@@ -65,13 +74,27 @@ describe('Channels', () => {
   });
 
   it('marks DM targets without a live backing agent as unavailable', async () => {
+    let channelListCalls = 0;
     server.use(
-      http.get(`${BASE}/comms/channels`, () =>
-        HttpResponse.json([
+      operatorProfilesHandler,
+      http.get(`${BASE}/comms/channels`, () => {
+        channelListCalls += 1;
+        if (channelListCalls > 1) {
+          return HttpResponse.json([
+            { name: 'general', topic: 'General chat', state: 'active' },
+            {
+              name: 'dm-retired-agent',
+              topic: 'Legacy DM',
+              type: 'dm',
+              state: 'active',
+              availability: 'unavailable',
+            },
+          ]);
+        }
+        return HttpResponse.json([
           { name: 'general', topic: 'General chat', state: 'active' },
-          { name: 'dm-retired-agent', topic: 'Legacy DM', type: 'dm', state: 'active' },
-        ]),
-      ),
+        ]);
+      }),
       http.get(`${BASE}/comms/channels/general/messages`, () =>
         HttpResponse.json([
           { id: 'm1', author: 'steve', content: 'Hello world', timestamp: '2026-03-16T10:00:00Z' },
@@ -87,7 +110,13 @@ describe('Channels', () => {
     renderWithRouter(<Channels />);
     await waitFor(() => {
       expect(screen.getAllByText('general').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText('UNAVAILABLE')).toBeInTheDocument();
+      expect(screen.queryByText('UNAVAILABLE')).not.toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /show inactive/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('retired-agent')).toBeInTheDocument();
       expect(screen.getByLabelText('Unavailable')).toBeInTheDocument();
     });
   });
@@ -95,6 +124,7 @@ describe('Channels', () => {
   it('sends a message', async () => {
     let sent = false;
     server.use(
+      operatorProfilesHandler,
       http.get(`${BASE}/comms/channels`, () =>
         HttpResponse.json([{ name: 'general' }]),
       ),
@@ -119,6 +149,7 @@ describe('Channels', () => {
   it('sends message via send button click', async () => {
     let sent = false;
     server.use(
+      operatorProfilesHandler,
       http.get(`${BASE}/comms/channels`, () =>
         HttpResponse.json([{ name: 'general' }]),
       ),
