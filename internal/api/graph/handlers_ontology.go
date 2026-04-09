@@ -142,46 +142,37 @@ func (h *handler) knowledgeOntologyMigrate(w http.ResponseWriter, r *http.Reques
 // that don't match the current ontology schema.
 func (h *handler) listOntologyCandidates(w http.ResponseWriter, r *http.Request) {
 	kp := knowledge.NewProxy()
-	data, err := kp.Get(r.Context(), "/ontology/candidates")
+	candidates, err := knowledge.ListOntologyCandidates(r.Context(), kp)
 	if err != nil {
 		writeJSON(w, 502, map[string]string{"error": "knowledge service unavailable: " + err.Error()})
 		return
 	}
-
-	// Wrap raw response in the spec envelope if it isn't already
-	var parsed map[string]interface{}
-	if json.Unmarshal(data, &parsed) == nil {
-		if _, hasCandidates := parsed["candidates"]; hasCandidates {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(200)
-			w.Write(data)
-			return
-		}
-	}
-
-	// If the knowledge service returned a bare array or different shape, wrap it
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	w.Write(data)
+	writeJSON(w, 200, map[string]interface{}{"candidates": candidates})
 }
 
 // promoteOntologyCandidate handles POST /api/v1/graph/ontology/promote
 // Proxies to the knowledge service to promote a candidate value into the base ontology.
 func (h *handler) promoteOntologyCandidate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
+		NodeID string `json:"node_id"`
 		Value string `json:"value"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, 400, map[string]string{"error": "invalid request body"})
 		return
 	}
-	if body.Value == "" {
-		writeJSON(w, 400, map[string]string{"error": "value is required"})
+	if body.NodeID == "" && body.Value == "" {
+		writeJSON(w, 400, map[string]string{"error": "node_id or value is required"})
 		return
 	}
 
 	kp := knowledge.NewProxy()
-	data, err := kp.Post(r.Context(), "/ontology/promote", map[string]string{"value": body.Value})
+	nodeID, err := knowledge.ResolveOntologyCandidateID(r.Context(), kp, body.NodeID, body.Value)
+	if err != nil {
+		writeJSON(w, 404, map[string]string{"error": err.Error()})
+		return
+	}
+	data, err := kp.Post(r.Context(), "/ontology/promote", map[string]string{"node_id": nodeID})
 	if err != nil {
 		writeJSON(w, 502, map[string]string{"error": "knowledge service unavailable: " + err.Error()})
 		return
@@ -196,19 +187,25 @@ func (h *handler) promoteOntologyCandidate(w http.ResponseWriter, r *http.Reques
 // Proxies to the knowledge service to reject a candidate value.
 func (h *handler) rejectOntologyCandidate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
+		NodeID string `json:"node_id"`
 		Value string `json:"value"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, 400, map[string]string{"error": "invalid request body"})
 		return
 	}
-	if body.Value == "" {
-		writeJSON(w, 400, map[string]string{"error": "value is required"})
+	if body.NodeID == "" && body.Value == "" {
+		writeJSON(w, 400, map[string]string{"error": "node_id or value is required"})
 		return
 	}
 
 	kp := knowledge.NewProxy()
-	data, err := kp.Post(r.Context(), "/ontology/reject", map[string]string{"value": body.Value})
+	nodeID, err := knowledge.ResolveOntologyCandidateID(r.Context(), kp, body.NodeID, body.Value)
+	if err != nil {
+		writeJSON(w, 404, map[string]string{"error": err.Error()})
+		return
+	}
+	data, err := kp.Post(r.Context(), "/ontology/reject", map[string]string{"node_id": nodeID})
 	if err != nil {
 		writeJSON(w, 502, map[string]string{"error": "knowledge service unavailable: " + err.Error()})
 		return

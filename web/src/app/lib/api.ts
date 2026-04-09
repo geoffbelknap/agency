@@ -534,9 +534,9 @@ export const api = {
 
   deploy: {
     deploy: (pack: string) =>
-      req<OkResponse>('/deploy', { method: 'POST', body: JSON.stringify({ pack }) }),
+      req<OkResponse>('/hub/deploy', { method: 'POST', body: JSON.stringify({ pack_name: pack }) }),
     teardown: (pack: string, del = false) =>
-      req<OkResponse>(`/teardown/${pack}`, { method: 'POST', body: JSON.stringify({ delete: del }) }),
+      req<OkResponse>(`/hub/teardown/${encodeURIComponent(pack)}`, { method: 'POST', body: JSON.stringify({ delete: del }) }),
   },
 
   missions: {
@@ -683,11 +683,11 @@ export const api = {
     neighbors: (nodeId: string) => req<Record<string, unknown>>(`/graph/neighbors?node_id=${encodeURIComponent(nodeId)}`),
     context: (subject: string) => req<Record<string, unknown>>(`/graph/context?subject=${encodeURIComponent(subject)}`),
     ontologyCandidates: () =>
-      req<{ candidates: unknown[] }>('/graph/ontology/candidates'),
-    ontologyPromote: (value: string) =>
-      req<{ promoted: boolean; value: string }>('/graph/ontology/promote', { method: 'POST', body: JSON.stringify({ value }) }),
-    ontologyReject: (value: string) =>
-      req<{ rejected: boolean; value: string }>('/graph/ontology/reject', { method: 'POST', body: JSON.stringify({ value }) }),
+      req<{ candidates: Array<{ id: string; value: string; count?: number; source?: string; status?: string }> }>('/graph/ontology/candidates'),
+    ontologyPromote: (nodeId: string, value: string) =>
+      req<{ promoted: string; value: string }>('/graph/ontology/promote', { method: 'POST', body: JSON.stringify({ node_id: nodeId, value }) }),
+    ontologyReject: (nodeId: string, value: string) =>
+      req<{ rejected: string; value: string }>('/graph/ontology/reject', { method: 'POST', body: JSON.stringify({ node_id: nodeId, value }) }),
   },
 
   capabilities: {

@@ -267,16 +267,16 @@ export const handlers = [
   http.get(`${BASE}/graph/ontology/candidates`, () =>
     HttpResponse.json({
       candidates: [
-        { value: 'deployment_pipeline', count: 12, source: 'graph_ingest' },
-        { value: 'api_endpoint', count: 8, source: 'graph_ingest' },
+        { id: 'candidate-deployment-pipeline', value: 'deployment_pipeline', count: 12, source: 'graph_ingest' },
+        { id: 'candidate-api-endpoint', value: 'api_endpoint', count: 8, source: 'graph_ingest' },
       ],
     }),
   ),
   http.post(`${BASE}/graph/ontology/promote`, () =>
-    HttpResponse.json({ promoted: true, value: 'deployment_pipeline' }),
+    HttpResponse.json({ promoted: 'candidate-deployment-pipeline', value: 'deployment_pipeline' }),
   ),
   http.post(`${BASE}/graph/ontology/reject`, () =>
-    HttpResponse.json({ rejected: true, value: 'api_endpoint' }),
+    HttpResponse.json({ rejected: 'candidate-api-endpoint', value: 'api_endpoint' }),
   ),
 
   // Egress domains with provenance

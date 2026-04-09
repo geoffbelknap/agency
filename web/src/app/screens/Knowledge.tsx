@@ -20,6 +20,21 @@ interface KnowledgeStats {
   edge_count: number;
 }
 
+interface OntologyCandidate {
+  id: string;
+  value?: string;
+  label?: string;
+  name?: string;
+  count?: number;
+  source?: string;
+  properties?: {
+    value?: string;
+    occurrence_count?: number;
+    source_count?: number;
+    status?: string;
+  };
+}
+
 export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string, kind: string) => void }) {
   const [queryText, setQueryText] = useState('');
   const [queryResults, setQueryResults] = useState<QueryResult[]>([]);
@@ -34,7 +49,7 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
   const [stats, setStats] = useState<KnowledgeStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
-  const [ontologyCandidates, setOntologyCandidates] = useState<any[]>([]);
+  const [ontologyCandidates, setOntologyCandidates] = useState<OntologyCandidate[]>([]);
   const [ontologyLoading, setOntologyLoading] = useState(false);
 
   const loadOntologyCandidates = async () => {
@@ -49,21 +64,23 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
     }
   };
 
-  const handlePromote = async (value: string) => {
+  const handlePromote = async (candidate: OntologyCandidate) => {
+    const value = candidate.value || candidate.properties?.value || candidate.label || candidate.name || candidate.id;
     try {
-      await api.knowledge.ontologyPromote(value);
+      await api.knowledge.ontologyPromote(candidate.id, value);
       toast.success(`Promoted "${value}" to ontology`);
-      setOntologyCandidates((prev) => prev.filter((c) => (c.value || c.label || c.name) !== value));
+      setOntologyCandidates((prev) => prev.filter((c) => c.id !== candidate.id));
     } catch (e: any) {
       toast.error(e.message || 'Promote failed');
     }
   };
 
-  const handleReject = async (value: string) => {
+  const handleReject = async (candidate: OntologyCandidate) => {
+    const value = candidate.value || candidate.properties?.value || candidate.label || candidate.name || candidate.id;
     try {
-      await api.knowledge.ontologyReject(value);
+      await api.knowledge.ontologyReject(candidate.id, value);
       toast.success(`Rejected "${value}"`);
-      setOntologyCandidates((prev) => prev.filter((c) => (c.value || c.label || c.name) !== value));
+      setOntologyCandidates((prev) => prev.filter((c) => c.id !== candidate.id));
     } catch (e: any) {
       toast.error(e.message || 'Reject failed');
     }
@@ -295,16 +312,23 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
           </p>
           <div className="space-y-2 max-h-80 overflow-y-auto">
             {ontologyCandidates.map((candidate, idx) => {
-              const val = candidate.value || candidate.label || candidate.name || `candidate_${idx}`;
+              const val =
+                candidate.value ||
+                candidate.properties?.value ||
+                candidate.label ||
+                candidate.name ||
+                `candidate_${idx}`;
+              const count = candidate.count ?? candidate.properties?.occurrence_count;
+              const source = candidate.source ?? (candidate.properties?.source_count ? 'knowledge' : undefined);
               return (
-                <div key={val} className="flex items-center justify-between bg-background border border-border rounded px-3 py-2">
+                <div key={candidate.id || val} className="flex items-center justify-between bg-background border border-border rounded px-3 py-2">
                   <div className="flex-1 min-w-0">
                     <span className="text-sm text-foreground font-mono">{val}</span>
-                    {candidate.count != null && (
-                      <span className="text-xs text-muted-foreground ml-2">({candidate.count} occurrences)</span>
+                    {count != null && (
+                      <span className="text-xs text-muted-foreground ml-2">({count} occurrences)</span>
                     )}
-                    {candidate.source && (
-                      <span className="text-xs text-muted-foreground/70 ml-2">from {candidate.source}</span>
+                    {source && (
+                      <span className="text-xs text-muted-foreground/70 ml-2">from {source}</span>
                     )}
                   </div>
                   <div className="flex gap-1 ml-2 shrink-0">
@@ -312,7 +336,7 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
                       variant="ghost"
                       size="sm"
                       className="h-7 w-7 p-0 text-green-500 hover:text-green-400 hover:bg-green-950/30"
-                      onClick={() => handlePromote(val)}
+                      onClick={() => handlePromote(candidate)}
                       title="Promote to ontology"
                     >
                       <Check className="w-4 h-4" />
@@ -321,7 +345,7 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
                       variant="ghost"
                       size="sm"
                       className="h-7 w-7 p-0 text-red-500 hover:text-red-400 hover:bg-red-950/30"
-                      onClick={() => handleReject(val)}
+                      onClick={() => handleReject(candidate)}
                       title="Reject candidate"
                     >
                       <X className="w-4 h-4" />

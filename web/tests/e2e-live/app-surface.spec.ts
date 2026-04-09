@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 const APP_ERROR_PATTERN = /Application Error|Something went wrong/;
 const SETUP_HEADING_PATTERN = /Welcome to Agency|Re-configure Agency|Preparing your platform/;
@@ -20,12 +20,10 @@ async function expectSetupOrInitialized(page: Page) {
   return true;
 }
 
-async function fetchJson<T>(page: Page, path: string): Promise<T | null> {
-  return page.evaluate(async (requestPath) => {
-    const response = await fetch(requestPath);
-    if (!response.ok) return null;
-    return response.json();
-  }, path);
+async function fetchJson<T>(request: APIRequestContext, path: string): Promise<T | null> {
+  const response = await request.get(path);
+  if (!response.ok()) return null;
+  return response.json();
 }
 
 async function expectAnyVisible(page: Page, candidates: string[]) {
@@ -74,14 +72,14 @@ test('live admin tabs render across the real stack', async ({ page }) => {
   }
 });
 
-test('live stack supports read-only direct routes for available entities', async ({ page }) => {
+test('live stack supports read-only direct routes for available entities', async ({ page, request }) => {
   await page.goto('/');
   const initialized = await expectSetupOrInitialized(page);
   if (!initialized) {
     return;
   }
 
-  const agents = await fetchJson<Array<{ name?: string }>>(page, '/api/v1/agents');
+  const agents = await fetchJson<Array<{ name?: string }>>(request, '/api/v1/agents');
   const firstAgent = Array.isArray(agents) ? agents.find((agent) => agent?.name)?.name : null;
   if (firstAgent) {
     await page.goto(`/agents/${encodeURIComponent(firstAgent)}`);
@@ -90,7 +88,7 @@ test('live stack supports read-only direct routes for available entities', async
     await expect(page.getByRole('tab', { name: 'System' })).toBeVisible();
   }
 
-  const profiles = await fetchJson<Array<{ id?: string }>>(page, '/api/v1/admin/profiles');
+  const profiles = await fetchJson<Array<{ id?: string }>>(request, '/api/v1/admin/profiles');
   const firstProfile = Array.isArray(profiles) ? profiles.find((profile) => profile?.id)?.id : null;
   if (firstProfile) {
     await page.goto(`/profiles/${encodeURIComponent(firstProfile)}`);
@@ -99,7 +97,7 @@ test('live stack supports read-only direct routes for available entities', async
     await expect(page.getByRole('button', { name: /Refresh profiles|Refreshing profiles/ })).toBeVisible();
   }
 
-  const missions = await fetchJson<Array<{ name?: string }>>(page, '/api/v1/missions');
+  const missions = await fetchJson<Array<{ name?: string }>>(request, '/api/v1/missions');
   const firstMission = Array.isArray(missions) ? missions.find((mission) => mission?.name)?.name : null;
   if (firstMission) {
     await page.goto(`/missions/${encodeURIComponent(firstMission)}`);
@@ -107,7 +105,7 @@ test('live stack supports read-only direct routes for available entities', async
     await expect(page.getByRole('button', { name: /Visual Editor|Open in Wizard/ }).first()).toBeVisible();
   }
 
-  const channels = await fetchJson<Array<{ name?: string }>>(page, '/api/v1/comms/channels');
+  const channels = await fetchJson<Array<{ name?: string }>>(request, '/api/v1/comms/channels');
   const firstChannel = Array.isArray(channels)
     ? channels.find((channel) => channel?.name && !channel.name.startsWith('_'))?.name ?? channels.find((channel) => channel?.name)?.name
     : null;

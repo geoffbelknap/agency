@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"gopkg.in/yaml.v3"
 
+	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 )
@@ -859,21 +860,35 @@ func (h *handler) adminKnowledge(w http.ResponseWriter, r *http.Request) {
 	case "curate":
 		raw, err = kp.Post(ctx, "/curation/run", nil)
 	case "ontology_candidates":
-		raw, err = kp.Get(ctx, "/ontology/candidates")
+		var candidates []knowledge.OntologyCandidate
+		candidates, err = knowledge.ListOntologyCandidates(ctx, kp)
+		if err == nil {
+			raw, err = json.Marshal(map[string]interface{}{"candidates": candidates})
+		}
 	case "ontology_promote":
 		val := args["value"]
-		if val == "" {
-			writeJSON(w, 400, map[string]string{"error": "value is required"})
+		nodeID := args["node_id"]
+		if val == "" && nodeID == "" {
+			writeJSON(w, 400, map[string]string{"error": "node_id or value is required"})
 			return
 		}
-		raw, err = kp.Post(ctx, "/ontology/promote", map[string]string{"value": val})
+		var resolved string
+		resolved, err = knowledge.ResolveOntologyCandidateID(ctx, kp, nodeID, val)
+		if err == nil {
+			raw, err = kp.Post(ctx, "/ontology/promote", map[string]string{"node_id": resolved})
+		}
 	case "ontology_reject":
 		val := args["value"]
-		if val == "" {
-			writeJSON(w, 400, map[string]string{"error": "value is required"})
+		nodeID := args["node_id"]
+		if val == "" && nodeID == "" {
+			writeJSON(w, 400, map[string]string{"error": "node_id or value is required"})
 			return
 		}
-		raw, err = kp.Post(ctx, "/ontology/reject", map[string]string{"value": val})
+		var resolved string
+		resolved, err = knowledge.ResolveOntologyCandidateID(ctx, kp, nodeID, val)
+		if err == nil {
+			raw, err = kp.Post(ctx, "/ontology/reject", map[string]string{"node_id": resolved})
+		}
 	default:
 		writeJSON(w, 400, map[string]string{"error": "unknown action: " + body.Action})
 		return

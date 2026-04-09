@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 const APP_ERROR_PATTERN = /Application Error|Something went wrong/;
 const SETUP_HEADING_PATTERN = /Welcome to Agency|Re-configure Agency|Preparing your platform/;
@@ -21,6 +21,12 @@ async function expectSetupOrInitialized(page: Page) {
     return false;
   }
   return true;
+}
+
+async function fetchJson<T>(request: APIRequestContext, path: string): Promise<T | null> {
+  const response = await request.get(path);
+  if (!response.ok()) return null;
+  return response.json();
 }
 
 test('live stack serves health and renders a top-level UI shell', async ({ page, request }) => {
@@ -138,4 +144,56 @@ test('live stack supports read-only drill-downs for key initialized views', asyn
   await page.goto('/admin/events');
   await settle(page);
   await expect(page.getByRole('button', { name: 'Refresh' })).toBeVisible();
+});
+
+test('live stack supports interactive navigation without mutating state', async ({ page, request }) => {
+  await page.goto('/');
+  const initialized = await expectSetupOrInitialized(page);
+  if (!initialized) {
+    return;
+  }
+
+  await page.getByRole('link', { name: 'Agents' }).click();
+  await settle(page);
+  await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible();
+
+  const agents = await fetchJson<Array<{ name?: string }>>(request, '/api/v1/agents');
+  const firstAgent = Array.isArray(agents) ? agents.find((agent) => agent?.name)?.name : null;
+
+  if (firstAgent && await page.locator('tr[role="button"]').count()) {
+    await page.locator('tr[role="button"]').first().click();
+    await settle(page);
+
+    await page.getByRole('tab', { name: 'Activity' }).click();
+    await expect(page.getByRole('tab', { name: 'Activity' })).toHaveAttribute('aria-selected', 'true');
+
+    await page.getByRole('tab', { name: 'Operations' }).click();
+    await expect(page.getByRole('tab', { name: 'Operations' })).toHaveAttribute('aria-selected', 'true');
+    await page.getByRole('tab', { name: 'Knowledge' }).click();
+    await expect(page.getByRole('tab', { name: 'Knowledge' })).toHaveAttribute('aria-selected', 'true');
+
+    await page.getByRole('tab', { name: 'System' }).click();
+    await expect(page.getByRole('tab', { name: 'System' })).toHaveAttribute('aria-selected', 'true');
+    await page.getByRole('tab', { name: 'Logs' }).click();
+    await expect(page.getByRole('tab', { name: 'Logs' })).toHaveAttribute('aria-selected', 'true');
+
+    await page.goBack();
+    await settle(page);
+    await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible();
+  }
+
+  await page.getByRole('link', { name: 'Knowledge' }).click();
+  await settle(page);
+  await expect(page.getByRole('heading', { name: 'Knowledge' })).toBeVisible();
+  await page.getByRole('button', { name: 'Graph' }).click();
+  await settle(page);
+  await expect(page.getByRole('button', { name: 'Radial (clusters)' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Search' }).click();
+  await settle(page);
+  await expect(page.getByText(/Query Knowledge|Knowledge graph is empty/)).toBeVisible();
+
+  await page.goBack();
+  await settle(page);
+  await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible();
 });

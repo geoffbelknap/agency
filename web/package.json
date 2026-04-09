@@ -17,7 +17,13 @@
     "test:e2e": "playwright test -c playwright.config.ts",
     "test:e2e:headed": "playwright test -c playwright.config.ts --headed",
     "test:e2e:live": "playwright test -c playwright.live.config.ts",
-    "test:e2e:live:headed": "playwright test -c playwright.live.config.ts --headed"
+    "test:e2e:live:headed": "playwright test -c playwright.live.config.ts --headed",
+    "test:e2e:live:safe": "playwright test -c playwright.live.config.ts",
+    "test:e2e:live:safe:headed": "playwright test -c playwright.live.config.ts --headed",
+    "test:e2e:live:risky": "playwright test -c playwright.live.risky.config.ts",
+    "test:e2e:live:risky:headed": "playwright test -c playwright.live.risky.config.ts --headed",
+    "test:e2e:live:danger": "playwright test -c playwright.live.danger.config.ts",
+    "test:e2e:live:danger:headed": "playwright test -c playwright.live.danger.config.ts --headed"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",
