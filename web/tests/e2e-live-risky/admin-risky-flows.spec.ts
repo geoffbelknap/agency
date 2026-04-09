@@ -150,3 +150,13 @@ test('live risky suite supports channel create, message send, and archive flow',
     await bestEffortArchiveChannel(page, channelName);
   }
 });
+
+test.skip('live risky mission CRUD flow is blocked on mission lifecycle cleanup instability', async () => {
+  // UI-created mission flows currently hit backend cleanup failures (DELETE returns 502)
+  // and are tracked in the workspace follow-up note.
+});
+
+test.skip('live risky agent lifecycle flow is blocked on slow or missing start-state convergence', async () => {
+  // UI start enters "Starting..." but the backend does not converge to a post-start state
+  // quickly enough for reliable live coverage yet.
+});

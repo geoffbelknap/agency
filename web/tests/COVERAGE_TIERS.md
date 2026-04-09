@@ -85,8 +85,8 @@ Suite location:
 
 - Team create/read cleanup flow once delete exists in core
 - Knowledge ontology promote/reject with cleanup
-- Mission create/update/delete in an isolated test mission
-- Agent create/start/stop/delete in an isolated test agent
+- Mission create/update/delete once backend cleanup is stable
+- Agent create/start/stop/delete once startup convergence is observable
 - Notification test-send with a contained local target
 
 ### Explicitly excluded from default live suite
