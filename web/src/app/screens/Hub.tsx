@@ -24,6 +24,20 @@ const HUB_KIND_FILTERS: Array<ComponentKind | 'all'> = [
   'setup',
 ];
 
+const INSTALLABLE_HUB_KINDS = new Set<ComponentKind>([
+  'pack',
+  'preset',
+  'connector',
+  'service',
+  'mission',
+  'skill',
+  'workspace',
+  'policy',
+  'provider',
+]);
+
+const isInstallableHubKind = (kind: ComponentKind) => INSTALLABLE_HUB_KINDS.has(kind);
+
 const kindBadgeClass = (kind: ComponentKind) => {
   switch (kind) {
     case 'pack':
@@ -375,7 +389,7 @@ export function Hub() {
                         <Trash2 className="w-3 h-3 mr-1" />
                         Remove
                       </Button>
-                    ) : (
+                    ) : isInstallableHubKind(component.kind) ? (
                       <Button
                         variant="default"
                         size="sm"
@@ -384,6 +398,15 @@ export function Hub() {
                       >
                         <Download className="w-3 h-3 mr-1" />
                         Install
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openInfo(component)}
+                        className="w-full h-7 text-xs"
+                      >
+                        View Hub-Managed Info
                       </Button>
                     )}
                   </div>

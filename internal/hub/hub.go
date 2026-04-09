@@ -47,6 +47,11 @@ var allowedAuthEnvVars = map[string]bool{
 // Component kinds supported by the hub.
 var KnownKinds = []string{"pack", "preset", "connector", "service", "mission", "skill", "workspace", "policy", "ontology", "provider", "setup"}
 
+var nonInstallableKinds = map[string]bool{
+	"ontology": true,
+	"setup":    true,
+}
+
 // Source represents a hub registry source (OCI or git).
 type Source struct {
 	Name     string `yaml:"name" json:"name"`
@@ -374,6 +379,9 @@ func (m *Manager) Install(componentName, kind, source, instanceName string) (*In
 
 	if !isValidKind(kind) {
 		return nil, fmt.Errorf("unknown kind: %s", kind)
+	}
+	if !IsInstallableKind(kind) {
+		return nil, fmt.Errorf("kind %q is hub-managed and cannot be installed directly", kind)
 	}
 
 	if instanceName == "" {
@@ -1365,4 +1373,10 @@ func isValidKind(kind string) bool {
 		}
 	}
 	return false
+}
+
+// IsInstallableKind reports whether a hub kind can be installed as an operator
+// component instance. Managed kinds are synced by hub update/upgrade instead.
+func IsInstallableKind(kind string) bool {
+	return isValidKind(kind) && !nonInstallableKinds[kind]
 }

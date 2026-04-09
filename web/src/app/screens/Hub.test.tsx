@@ -81,6 +81,31 @@ describe('Hub', () => {
     expect(screen.queryByText('github')).not.toBeInTheDocument();
   });
 
+  it('does not offer install actions for hub-managed kinds', async () => {
+    server.use(
+      http.get(`${BASE}/hub/instances`, () => HttpResponse.json([])),
+      http.get(`${BASE}/hub/search`, () =>
+        HttpResponse.json([
+          { name: 'base-ontology', kind: 'ontology', description: 'Managed ontology' },
+          { name: 'default-wizard', kind: 'setup', description: 'Setup config' },
+          { name: 'openai', kind: 'provider', description: 'Installable provider' },
+        ]),
+      ),
+      http.get(`${BASE}/hub/info/:name`, ({ params }) =>
+        HttpResponse.json({ name: params.name, kind: params.name === 'openai' ? 'provider' : 'ontology' }),
+      ),
+    );
+
+    renderWithRouter(<Hub />);
+
+    await waitFor(() => {
+      expect(screen.getByText('base-ontology')).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('button', { name: /install/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /view hub-managed info/i })).toHaveLength(2);
+  });
+
   it('installs a component', async () => {
     server.use(
       http.get(`${BASE}/hub/instances`, () => HttpResponse.json([])),

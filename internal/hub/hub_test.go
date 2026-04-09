@@ -146,6 +146,42 @@ func TestUpgradeSpecificComponent(t *testing.T) {
 	}
 }
 
+func TestInstallRejectsManagedKinds(t *testing.T) {
+	home := t.TempDir()
+	mgr := NewManager(home)
+
+	os.WriteFile(filepath.Join(home, "config.yaml"), []byte("hub:\n  sources:\n    - name: default\n      url: https://example.com\n"), 0644)
+
+	setupDir := filepath.Join(home, "hub-cache", "default", "setups", "default-wizard")
+	os.MkdirAll(setupDir, 0755)
+	os.WriteFile(filepath.Join(setupDir, "setup.yaml"), []byte("name: default-wizard\nkind: setup\nversion: \"1.0\"\n"), 0644)
+
+	if _, err := mgr.Install("default-wizard", "setup", "", ""); err == nil {
+		t.Fatal("expected setup install to be rejected")
+	} else if !strings.Contains(err.Error(), "hub-managed") {
+		t.Fatalf("expected hub-managed error, got %v", err)
+	}
+
+	if _, err := mgr.Install("base-ontology", "ontology", "", ""); err == nil {
+		t.Fatal("expected ontology install to be rejected")
+	} else if !strings.Contains(err.Error(), "hub-managed") {
+		t.Fatalf("expected hub-managed error, got %v", err)
+	}
+}
+
+func TestInstallableKindSemantics(t *testing.T) {
+	for _, kind := range []string{"pack", "preset", "connector", "service", "mission", "skill", "workspace", "policy", "provider"} {
+		if !IsInstallableKind(kind) {
+			t.Fatalf("expected %s to be installable", kind)
+		}
+	}
+	for _, kind := range []string{"ontology", "setup", "unknown"} {
+		if IsInstallableKind(kind) {
+			t.Fatalf("expected %s to be non-installable", kind)
+		}
+	}
+}
+
 func TestOutdatedNoChangeWhenVersionsMatch(t *testing.T) {
 	home := t.TempDir()
 	mgr := NewManager(home)
