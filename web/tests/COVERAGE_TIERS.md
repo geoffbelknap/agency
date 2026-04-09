@@ -52,7 +52,7 @@ Suite location:
 ### Risky
 
 - Notification test-send
-- Channel create/send flows that may notify or alter shared comms history
+- Channel create/send/archive flows that alter shared comms history
 - Agent create/start/pause/resume/restart
 - Mission create, update, assign, pause, resume, complete, delete
 - Capability add, enable, disable, delete
@@ -78,15 +78,16 @@ Suite location:
 - Read-only direct entity drill-downs
 - Interactive non-mutating browser flows
 - Safe live CRUD flows for profiles, webhooks, notifications, and presets
+- Risky live capability add / enable / disable / delete
+- Risky live channel create / send / archive
 
 ### Next `live-risky` targets
 
-- Capabilities add/enable/disable/delete
-- Team create/read cleanup flow
+- Team create/read cleanup flow once delete exists in core
 - Knowledge ontology promote/reject with cleanup
-- Channel create/send in an isolated test channel
 - Mission create/update/delete in an isolated test mission
 - Agent create/start/stop/delete in an isolated test agent
+- Notification test-send with a contained local target
 
 ### Explicitly excluded from default live suite
 
