@@ -44,6 +44,20 @@ async function getJSONWithToken<T>(page: Page, path: string): Promise<T | null> 
   return response.json() as Promise<T>;
 }
 
+async function postJSONWithToken<T>(page: Page, path: string, body: unknown): Promise<T | null> {
+  const response = await page.request.post(path, {
+    headers: {
+      ...(await authHeaders(page)),
+      'Content-Type': 'application/json',
+    },
+    data: body,
+  });
+  if (!response.ok()) {
+    return null;
+  }
+  return response.json() as Promise<T>;
+}
+
 async function authHeaders(page: Page): Promise<Record<string, string>> {
   const configResponse = await page.request.get('/__agency/config');
   const config = configResponse.ok() ? await configResponse.json() : {};
@@ -108,6 +122,36 @@ type HubComponent = {
   kind: string;
   source?: string;
 };
+
+async function ensureInstalledHubComponent(page: Page, kind: 'connector' | 'pack') {
+  const [searchResults, installedResults] = await Promise.all([
+    getJSONWithToken<HubComponent[]>(page, '/api/v1/hub/search?q='),
+    getJSONWithToken<Array<{ name?: string }>>(page, `/api/v1/hub/instances?kind=${kind}`),
+  ]);
+
+  const installedNames = new Set((installedResults ?? []).map((item) => item.name).filter(Boolean) as string[]);
+  const candidates = (searchResults ?? []).filter((component) => component.kind === kind);
+  const existing = candidates.find((component) => installedNames.has(component.name));
+  if (existing) {
+    return { component: existing, installedByTest: false };
+  }
+
+  const target = candidates.find((component) => !!component.name) ?? null;
+  if (!target) {
+    return { component: null, installedByTest: false };
+  }
+
+  const installed = await postJSONWithToken<{ name?: string }>(page, '/api/v1/hub/install', {
+    component: target.name,
+    kind: target.kind,
+    source: target.source ?? '',
+  });
+  if (!installed?.name) {
+    return { component: null, installedByTest: false };
+  }
+
+  return { component: target, installedByTest: true };
+}
 
 test('live risky suite supports capability add, enable, disable, and delete flow', async ({ page }) => {
   const capabilityName = uniqueName('playwright-capability');
@@ -286,8 +330,14 @@ test('live risky suite supports hub install and remove for an eligible catalog c
 
 test('live risky suite supports connector deactivate and reactivate for a ready installed connector', async ({ page }) => {
   let target: { name: string; state?: string } | null = null;
+  let installedByTest = false;
 
   try {
+    const ensured = await ensureInstalledHubComponent(page, 'connector');
+    target = ensured.component;
+    installedByTest = ensured.installedByTest;
+    test.skip(!target, 'No connector component was available in the local catalog');
+
     await page.goto('/admin/intake');
     const initialized = await expectSetupOrInitialized(page);
     if (!initialized) {
@@ -295,17 +345,9 @@ test('live risky suite supports connector deactivate and reactivate for a ready 
     }
 
     const connectors = await getJSONWithToken<Array<{ name: string; state?: string }>>(page, '/api/v1/hub/instances?kind=connector');
-    test.skip(!connectors || connectors.length === 0, 'No installed connectors available for toggle coverage');
-
-    for (const connector of connectors ?? []) {
-      const requirements = await getJSONWithToken<{ ready?: boolean }>(page, `/api/v1/hub/connectors/${encodeURIComponent(connector.name)}/requirements`);
-      if (requirements?.ready) {
-        target = connector;
-        break;
-      }
-    }
-
-    test.skip(!target, 'No ready connector was available for reversible toggle coverage');
+    const runtimeTarget = (connectors ?? []).find((connector) => connector.name === target!.name) ?? null;
+    test.skip(!runtimeTarget, 'Installed connector did not appear in intake list');
+    target = runtimeTarget;
 
     const connectorButton = page.getByRole('button', { name: new RegExp(target!.name) }).first();
     await expect(connectorButton).toBeVisible();
@@ -328,14 +370,23 @@ test('live risky suite supports connector deactivate and reactivate for a ready 
         ? `/api/v1/hub/${encodeURIComponent(target.name)}/activate`
         : `/api/v1/hub/${encodeURIComponent(target.name)}/deactivate`;
       await requestWithToken(page, 'POST', desiredPath).catch(() => {});
+      if (installedByTest) {
+        await requestWithToken(page, 'DELETE', `/api/v1/hub/${encodeURIComponent(target.name)}`).catch(() => {});
+      }
     }
   }
 });
 
 test('live risky suite supports pack deploy and teardown for an installed pack', async ({ page }) => {
   let target: { name: string } | null = null;
+  let installedByTest = false;
 
   try {
+    const ensured = await ensureInstalledHubComponent(page, 'pack');
+    target = ensured.component ? { name: ensured.component.name } : null;
+    installedByTest = ensured.installedByTest;
+    test.skip(!target, 'No pack component was available in the local catalog');
+
     await page.goto('/admin/hub');
     const initialized = await expectSetupOrInitialized(page);
     if (!initialized) {
@@ -343,8 +394,8 @@ test('live risky suite supports pack deploy and teardown for an installed pack',
     }
 
     const packs = await getJSONWithToken<Array<{ name: string; kind?: string }>>(page, '/api/v1/hub/instances?kind=pack');
-    target = (packs ?? []).find((pack) => !!pack.name) ?? null;
-    test.skip(!target, 'No installed pack available for deploy/teardown coverage');
+    target = (packs ?? []).find((pack) => pack.name === target!.name) ?? null;
+    test.skip(!target, 'Installed pack did not appear in the instance list');
 
     await page.getByRole('tab', { name: /^Deploy$/ }).click();
     await page.locator('select').selectOption(target!.name);
@@ -362,6 +413,9 @@ test('live risky suite supports pack deploy and teardown for an installed pack',
   } finally {
     if (target?.name) {
       await requestWithToken(page, 'POST', `/api/v1/hub/teardown/${encodeURIComponent(target.name)}`).catch(() => {});
+      if (installedByTest) {
+        await requestWithToken(page, 'DELETE', `/api/v1/hub/${encodeURIComponent(target.name)}`).catch(() => {});
+      }
     }
   }
 });

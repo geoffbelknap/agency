@@ -84,11 +84,11 @@ Suite location:
 - Risky live hub install / remove for an eligible local catalog component
 - Risky live mission create / update / delete for an unassigned mission
 - Risky live agent create / start / delete with observable post-start state
+- Risky live connector install / deactivate / reactivate with cleanup
 - Ontology candidate contract normalized across web, REST, CLI, and MCP paths
 
 ### Conditionally exercised when the local stack has prerequisites
 
-- Connector deactivate / reactivate for a ready installed connector
 - Pack deploy / teardown for an installed pack
 
 ### Next `live-risky` targets
