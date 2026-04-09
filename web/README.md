@@ -114,6 +114,14 @@ Live local stack safe suite:
 ./scripts/e2e-live-web.sh
 ```
 
+Useful flag-driven variants:
+
+```bash
+./scripts/e2e-live-web.sh --skip-build tests/e2e-live
+./scripts/e2e-live-web.sh --skip-build --config playwright.live.risky.config.ts tests/e2e-live-risky
+./scripts/e2e-live-web.sh --help
+```
+
 The mocked suite covers the full UI route surface with deterministic fixtures. The default live suite covers the real stack without destructive or outbound side effects. It verifies setup-vs-initialized routing, top-level app navigation, representative drill-downs, interactive browser flows, and safe CRUD coverage against a local Agency stack.
 
 ## Live Suite Tiers
@@ -127,7 +135,7 @@ The mocked suite covers the full UI route surface with deterministic fixtures. T
 
 See [tests/COVERAGE_TIERS.md](tests/COVERAGE_TIERS.md) for the current inventory and classification.
 
-The live harness now reuses an already-healthy local gateway, shared infra, and web container by default. To force the old cold-start behavior, set `AGENCY_E2E_FORCE_RESTART=1` and optionally `AGENCY_E2E_FORCE_INFRA_UP=1`.
+The live harness now reuses an already-healthy local gateway, shared infra, and web container by default. To force the old cold-start behavior, use `--force-restart` and optionally `--force-infra-up`.
 
 The live harness is dev-only. It lives in repo test paths and scripts, uses `devDependencies`, and is not part of the shipped runtime or container images.
 

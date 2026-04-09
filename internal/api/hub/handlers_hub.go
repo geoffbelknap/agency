@@ -808,6 +808,7 @@ func (h *handler) regenerateSwapConfig() {
 func (h *handler) deployPack(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		PackPath    string               `json:"pack_path"`
+		PackName    string               `json:"pack_name"`
 		Pack        *orchestrate.PackDef `json:"pack"`
 		DryRun      bool                 `json:"dry_run"`
 		Credentials map[string]string    `json:"credentials"`
@@ -825,10 +826,24 @@ func (h *handler) deployPack(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]string{"error": err.Error()})
 			return
 		}
+	} else if body.PackName != "" {
+		mgr := hubpkg.NewManager(h.deps.Config.Home)
+		inst := mgr.Registry.Resolve(body.PackName)
+		if inst == nil || inst.Kind != "pack" {
+			writeJSON(w, 404, map[string]string{"error": fmt.Sprintf("pack %q not found", body.PackName)})
+			return
+		}
+		packPath := filepath.Join(mgr.Registry.InstanceDir(inst.Name), "pack.yaml")
+		pack, err = orchestrate.LoadPack(packPath)
+		if err != nil {
+			writeJSON(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		body.PackPath = packPath
 	} else if body.Pack != nil {
 		pack = body.Pack
 	} else {
-		writeJSON(w, 400, map[string]string{"error": "pack_path or pack required"})
+		writeJSON(w, 400, map[string]string{"error": "pack_path, pack_name, or pack required"})
 		return
 	}
 

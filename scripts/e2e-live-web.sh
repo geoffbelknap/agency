@@ -6,6 +6,72 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WEB_DIR="$ROOT_DIR/web"
 AGENCY_BIN="${AGENCY_BIN:-}"
 PLAYWRIGHT_CONFIG="${AGENCY_PLAYWRIGHT_CONFIG:-playwright.live.config.ts}"
+SKIP_BUILD="${AGENCY_E2E_SKIP_BUILD:-0}"
+SKIP_INFRA="${AGENCY_E2E_SKIP_INFRA:-0}"
+FORCE_RESTART="${AGENCY_E2E_FORCE_RESTART:-0}"
+FORCE_INFRA_UP="${AGENCY_E2E_FORCE_INFRA_UP:-0}"
+
+usage() {
+  cat <<'EOF'
+Usage: ./scripts/e2e-live-web.sh [options] [playwright test filters...]
+
+Options:
+  --skip-build         Reuse the current local Agency binary and images
+  --skip-infra         Skip infra up and health orchestration
+  --force-restart      Force a gateway restart even if health checks pass
+  --force-infra-up     Force infra up even if shared services already look healthy
+  --config <path>      Playwright config file relative to web/
+  -h, --help           Show this help
+
+Any remaining arguments are passed through to:
+  npx playwright test -c <config> ...
+EOF
+}
+
+PLAYWRIGHT_ARGS=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --skip-build)
+      SKIP_BUILD=1
+      shift
+      ;;
+    --skip-infra)
+      SKIP_INFRA=1
+      shift
+      ;;
+    --force-restart)
+      FORCE_RESTART=1
+      shift
+      ;;
+    --force-infra-up)
+      FORCE_INFRA_UP=1
+      shift
+      ;;
+    --config)
+      if [ "$#" -lt 2 ]; then
+        echo "--config requires a path"
+        exit 1
+      fi
+      PLAYWRIGHT_CONFIG="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      while [ "$#" -gt 0 ]; do
+        PLAYWRIGHT_ARGS+=("$1")
+        shift
+      done
+      ;;
+    *)
+      PLAYWRIGHT_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
 
 if [ -z "$AGENCY_BIN" ]; then
   if command -v agency >/dev/null 2>&1; then
@@ -88,7 +154,7 @@ web_health_url() {
   printf '%s' "${AGENCY_WEB_BASE_URL:-https://127.0.0.1:8280}/health"
 }
 
-if [ "${AGENCY_E2E_SKIP_BUILD:-0}" != "1" ]; then
+if [ "$SKIP_BUILD" != "1" ]; then
   echo "==> Building local Agency binary and images"
   make -C "$ROOT_DIR" all
 fi
@@ -96,7 +162,7 @@ fi
 GATEWAY_HEALTH_URL="$(gateway_health_url)"
 WEB_HEALTH_URL="$(web_health_url)"
 
-if [ "${AGENCY_E2E_FORCE_RESTART:-0}" = "1" ]; then
+if [ "$FORCE_RESTART" = "1" ]; then
   echo "==> Ensuring gateway is running (forced restart)"
   "$AGENCY_BIN" serve restart >/dev/null 2>&1 || true
   wait_for_url "$GATEWAY_HEALTH_URL" 60
@@ -108,8 +174,8 @@ else
   wait_for_url "$GATEWAY_HEALTH_URL" 60
 fi
 
-if [ "${AGENCY_E2E_SKIP_INFRA:-0}" != "1" ]; then
-  if [ "${AGENCY_E2E_FORCE_INFRA_UP:-0}" = "1" ]; then
+if [ "$SKIP_INFRA" != "1" ]; then
+  if [ "$FORCE_INFRA_UP" = "1" ]; then
     echo "==> Ensuring shared infrastructure is up (forced)"
     if ! "$AGENCY_BIN" -q infra up; then
       echo "agency infra up reported a startup failure; waiting for services to settle..."
@@ -135,4 +201,4 @@ fi
 
 echo "==> Running live Playwright suite"
 cd "$WEB_DIR"
-npx playwright test -c "$PLAYWRIGHT_CONFIG" "$@"
+npx playwright test -c "$PLAYWRIGHT_CONFIG" "${PLAYWRIGHT_ARGS[@]}"

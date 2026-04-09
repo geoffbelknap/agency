@@ -123,7 +123,7 @@ e2e-live-web-safe:
 	@./scripts/e2e-live-web.sh tests/e2e-live
 
 e2e-live-web-risky:
-	@AGENCY_PLAYWRIGHT_CONFIG=playwright.live.risky.config.ts ./scripts/e2e-live-web.sh
+	@./scripts/e2e-live-web.sh --config playwright.live.risky.config.ts
 
 e2e-live-web-danger:
-	@AGENCY_PLAYWRIGHT_CONFIG=playwright.live.danger.config.ts ./scripts/e2e-live-web.sh
+	@./scripts/e2e-live-web.sh --config playwright.live.danger.config.ts

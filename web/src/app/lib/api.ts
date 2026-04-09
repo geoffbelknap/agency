@@ -534,9 +534,9 @@ export const api = {
 
   deploy: {
     deploy: (pack: string) =>
-      req<OkResponse>('/deploy', { method: 'POST', body: JSON.stringify({ pack }) }),
+      req<OkResponse>('/hub/deploy', { method: 'POST', body: JSON.stringify({ pack_name: pack }) }),
     teardown: (pack: string, del = false) =>
-      req<OkResponse>(`/teardown/${pack}`, { method: 'POST', body: JSON.stringify({ delete: del }) }),
+      req<OkResponse>(`/hub/teardown/${encodeURIComponent(pack)}`, { method: 'POST', body: JSON.stringify({ delete: del }) }),
   },
 
   missions: {

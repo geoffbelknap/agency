@@ -78,27 +78,28 @@ Suite location:
 - Read-only direct entity drill-downs
 - Interactive non-mutating browser flows
 - Safe live CRUD flows for profiles, webhooks, notifications, and presets
-- Risky live capability add / enable / disable / delete
+- Risky live capability add / enable / disable
 - Risky live channel create / send / archive
 - Risky live notification test-send to a contained local sink
 - Risky live hub install / remove for an eligible local catalog component
 - Risky live mission create / update / delete for an unassigned mission
 - Risky live agent create / start / delete with observable post-start state
 - Risky live connector install / deactivate / reactivate with cleanup
+- Risky live pack deploy / teardown for an installed pack
 - Ontology candidate contract normalized across web, REST, CLI, and MCP paths
 
 ### Conditionally exercised when the local stack has prerequisites
 
-- Pack deploy / teardown for an installed pack
+- Connector configure / activate against a real local target only when credentials and requirements are present
 
 ### Next `live-risky` targets
 
 - Team create/read cleanup flow once delete exists in core
-- Mission create/update/delete once backend cleanup is stable
-- Agent create/start/stop/delete once startup convergence is observable
+- Agent pause / resume / restart after confirmed running state
 
 ### Blocked `live-risky` targets
 
+- Capability delete until the live delete path stops hanging through the real gateway/runtime during end-to-end runs.
 - Knowledge ontology promote/reject until the knowledge service exposes a restore or delete path for promoted and rejected candidates. The runtime contract now correctly uses `node_id`, but the mutation remains one-way.
 - Team create/read cleanup flow until core delete support exists.
 - Assigned mission lifecycle cleanup until pause/complete/delete semantics are proven stable end-to-end.
