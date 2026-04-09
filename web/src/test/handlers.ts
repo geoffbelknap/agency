@@ -51,6 +51,15 @@ export const handlers = [
   http.post(`${BASE}/infra/down`, () => HttpResponse.json({ ok: true })),
   http.post(`${BASE}/infra/rebuild/:component`, () => HttpResponse.json({ ok: true })),
   http.post(`${BASE}/infra/reload`, () => HttpResponse.json({ ok: true })),
+  http.get(`${BASE}/infra/providers`, () => HttpResponse.json([])),
+  http.get(`${BASE}/infra/setup/config`, () =>
+    HttpResponse.json({
+      capability_tiers: {
+        minimal: { display_name: 'Minimal', description: 'LLM access only.', capabilities: [] },
+        standard: { display_name: 'Standard', description: 'Common tools.', capabilities: [] },
+      },
+    }),
+  ),
 
   // Hub
   http.get(`${BASE}/hub/search`, () => HttpResponse.json([])),
@@ -73,8 +82,8 @@ export const handlers = [
   http.delete(`${BASE}/hub/presets/:name`, () => HttpResponse.json({ ok: true })),
 
   // Deploy
-  http.post(`${BASE}/deploy`, () => HttpResponse.json({ agents_created: [] })),
-  http.post(`${BASE}/teardown/:pack`, () => HttpResponse.json({ ok: true })),
+  http.post(`${BASE}/hub/deploy`, () => HttpResponse.json({ agents_created: [] })),
+  http.post(`${BASE}/hub/teardown/:pack`, () => HttpResponse.json({ ok: true })),
 
   // Missions
   http.get(`${BASE}/missions`, () => HttpResponse.json([])),
@@ -102,7 +111,7 @@ export const handlers = [
   // Events
   http.get(`${BASE}/events`, () => HttpResponse.json([])),
   http.get(`${BASE}/events/:id`, () => HttpResponse.json({ id: 'evt-1', source_type: 'platform', source_name: 'system', event_type: 'test', timestamp: new Date().toISOString() })),
-  http.get(`${BASE}/subscriptions`, () => HttpResponse.json([])),
+  http.get(`${BASE}/events/subscriptions`, () => HttpResponse.json([])),
 
   // Meeseeks
   http.get(`${BASE}/agents/meeseeks`, () => HttpResponse.json([])),
@@ -127,8 +136,8 @@ export const handlers = [
   http.delete(`${BASE}/admin/capabilities/:name`, () => HttpResponse.json({ ok: true })),
 
   // Policy
-  http.get(`${BASE}/policy/:agent`, () => HttpResponse.json({ rules: [] })),
-  http.post(`${BASE}/policy/:agent/validate`, () => HttpResponse.json({ valid: true })),
+  http.get(`${BASE}/admin/policy/:agent`, () => HttpResponse.json({ rules: [] })),
+  http.post(`${BASE}/admin/policy/:agent/validate`, () => HttpResponse.json({ valid: true })),
 
   // Webhooks
   http.get(`${BASE}/events/webhooks`, () => HttpResponse.json([])),
@@ -242,7 +251,7 @@ export const handlers = [
   ),
 
   // Connector setup
-  http.get(`${BASE}/connectors/:name/requirements`, () =>
+  http.get(`${BASE}/hub/connectors/:name/requirements`, () =>
     HttpResponse.json({
       connector: 'github',
       version: '1.0.0',
@@ -254,7 +263,7 @@ export const handlers = [
       egress_domains: ['api.github.com'],
     }),
   ),
-  http.post(`${BASE}/connectors/:name/configure`, () =>
+  http.post(`${BASE}/hub/connectors/:name/configure`, () =>
     HttpResponse.json({
       configured: ['GITHUB_TOKEN'],
       auth_configured: true,
@@ -280,7 +289,7 @@ export const handlers = [
   ),
 
   // Egress domains with provenance
-  http.get(`${BASE}/egress/domains`, () =>
+  http.get(`${BASE}/hub/egress/domains`, () =>
     HttpResponse.json([
       {
         domain: 'api.github.com',
@@ -294,7 +303,7 @@ export const handlers = [
       },
     ]),
   ),
-  http.get(`${BASE}/egress/domains/:domain/provenance`, () =>
+  http.get(`${BASE}/hub/egress/domains/:domain/provenance`, () =>
     HttpResponse.json({
       domain: 'api.github.com',
       sources: [{ type: 'connector', name: 'github', added_at: '2026-03-28T10:00:00Z' }],
@@ -304,7 +313,7 @@ export const handlers = [
   ),
 
   // Audit summarize
-  http.post(`${BASE}/audit/summarize`, () =>
+  http.post(`${BASE}/admin/audit/summarize`, () =>
     HttpResponse.json({
       metrics: [
         { agent: 'alice', total_tasks: 15, success_rate: 0.87, avg_duration_minutes: 8 },
