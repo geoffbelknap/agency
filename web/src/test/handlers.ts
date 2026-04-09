@@ -105,8 +105,10 @@ export const handlers = [
   http.get(`${BASE}/hub/:name`, () => HttpResponse.json({ state: 'active' })),
 
   // Intake
-  http.get(`${BASE}/intake/items`, () => HttpResponse.json([])),
-  http.get(`${BASE}/intake/stats`, () => HttpResponse.json({ pending: 0, processing: 0, done: 0, failed: 0 })),
+  http.get(`${BASE}/events/intake/items`, () => HttpResponse.json([])),
+  http.get(`${BASE}/events/intake/stats`, () => HttpResponse.json({ pending: 0, processing: 0, done: 0, failed: 0 })),
+  http.get(`${BASE}/hub/intake/poll-health`, () => HttpResponse.json({ connectors: {} })),
+  http.post(`${BASE}/hub/intake/poll/:connector`, () => HttpResponse.json({ ok: true })),
 
   // Events
   http.get(`${BASE}/events`, () => HttpResponse.json([])),
