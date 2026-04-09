@@ -1278,6 +1278,7 @@ func (m *Manager) loadConfig() hubConfig {
 	var cfg hubConfig
 	data, err := os.ReadFile(filepath.Join(m.Home, "config.yaml"))
 	if err != nil {
+		cfg.Hub.Sources = []Source{DefaultSource}
 		return cfg
 	}
 	yaml.Unmarshal(data, &cfg)
