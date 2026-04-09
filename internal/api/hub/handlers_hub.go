@@ -340,11 +340,22 @@ func (h *handler) hubDoctor(w http.ResponseWriter, r *http.Request) {
 func (h *handler) hubRemove(w http.ResponseWriter, r *http.Request) {
 	nameOrID := chi.URLParam(r, "nameOrID")
 	mgr := hubpkg.NewManager(h.deps.Config.Home)
+	inst := mgr.Registry.Resolve(nameOrID)
+	if inst == nil {
+		writeJSON(w, 404, map[string]string{"error": fmt.Sprintf("component %q not found", nameOrID)})
+		return
+	}
+	if inst.Kind == "provider" {
+		if err := hubpkg.RemoveProviderRouting(h.deps.Config.Home, inst.Name); err != nil {
+			writeJSON(w, 500, map[string]string{"error": fmt.Sprintf("remove provider routing: %v", err)})
+			return
+		}
+	}
 	if err := mgr.Registry.Remove(nameOrID); err != nil {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, 200, map[string]string{"status": "removed", "name": nameOrID})
+	writeJSON(w, 200, map[string]string{"status": "removed", "name": inst.Name})
 }
 
 func (h *handler) hubInstalled(w http.ResponseWriter, r *http.Request) {
