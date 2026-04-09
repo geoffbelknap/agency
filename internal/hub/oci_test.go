@@ -36,6 +36,49 @@ func TestMigrateGitSourceToOCI(t *testing.T) {
 	}
 }
 
+func TestMigrateDefaultNamedGitSourceToOCI(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	config := []byte("token: existing-token\ngateway_addr: 127.0.0.1:18232\nhub:\n  sources:\n    - name: default\n      url: https://github.com/geoffbelknap/agency-hub.git\n      branch: main\n")
+	os.WriteFile(filepath.Join(tmpDir, "config.yaml"), config, 0644)
+
+	m := NewManager(tmpDir)
+	migrated := m.migrateDefaultSourceToOCI()
+
+	if !migrated {
+		t.Error("expected migration to occur")
+	}
+
+	cfg := m.loadConfig()
+	if len(cfg.Hub.Sources) != 1 {
+		t.Fatalf("expected 1 source, got %d", len(cfg.Hub.Sources))
+	}
+	if cfg.Hub.Sources[0].Name != "default" {
+		t.Errorf("expected source name default, got %s", cfg.Hub.Sources[0].Name)
+	}
+	if cfg.Hub.Sources[0].EffectiveType() != "oci" {
+		t.Errorf("expected oci, got %s", cfg.Hub.Sources[0].EffectiveType())
+	}
+	if cfg.Hub.Sources[0].Registry != "ghcr.io/geoffbelknap/agency-hub" {
+		t.Errorf("unexpected registry: %s", cfg.Hub.Sources[0].Registry)
+	}
+
+	var fullConfig map[string]interface{}
+	data, err := os.ReadFile(filepath.Join(tmpDir, "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := yaml.Unmarshal(data, &fullConfig); err != nil {
+		t.Fatal(err)
+	}
+	if fullConfig["token"] != "existing-token" {
+		t.Fatalf("token was not preserved: %+v", fullConfig)
+	}
+	if fullConfig["gateway_addr"] != "127.0.0.1:18232" {
+		t.Fatalf("gateway_addr was not preserved: %+v", fullConfig)
+	}
+}
+
 func TestMigrateNoOpForOCISource(t *testing.T) {
 	tmpDir := t.TempDir()
 

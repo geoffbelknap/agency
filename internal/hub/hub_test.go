@@ -455,6 +455,29 @@ func TestDiscoverFindsProviderComponent(t *testing.T) {
 	}
 }
 
+func TestDiscoverFindsSetupComponent(t *testing.T) {
+	home := t.TempDir()
+	mgr := NewManager(home)
+
+	os.WriteFile(filepath.Join(home, "config.yaml"), []byte("hub:\n  sources:\n    - name: default\n      url: https://example.com\n"), 0644)
+
+	setupDir := filepath.Join(home, "hub-cache", "default", "setup", "default-wizard")
+	os.MkdirAll(setupDir, 0755)
+	os.WriteFile(filepath.Join(setupDir, "setup.yaml"),
+		[]byte("name: default-wizard\nkind: setup\nversion: \"1.0\"\ndescription: Setup wizard\n"), 0644)
+
+	results := mgr.Search("default-wizard", "setup")
+	if len(results) != 1 {
+		t.Fatalf("expected one setup search result, got %+v", results)
+	}
+	if results[0].Name != "default-wizard" || results[0].Kind != "setup" {
+		t.Fatalf("unexpected setup result: %+v", results[0])
+	}
+	if !strings.HasSuffix(results[0].Path, filepath.Join("setup", "default-wizard", "setup.yaml")) {
+		t.Fatalf("path = %q, want setup.yaml path", results[0].Path)
+	}
+}
+
 func TestDiscoverFindsMarkdownSkillComponent(t *testing.T) {
 	home := t.TempDir()
 	mgr := NewManager(home)
