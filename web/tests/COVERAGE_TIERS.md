@@ -80,6 +80,7 @@ Suite location:
 - Safe live CRUD flows for profiles, webhooks, notifications, and presets
 - Risky live capability add / enable / disable / delete
 - Risky live channel create / send / archive
+- Risky live notification test-send to a contained local sink
 
 ### Next `live-risky` targets
 
@@ -87,7 +88,6 @@ Suite location:
 - Knowledge ontology promote/reject with cleanup
 - Mission create/update/delete once backend cleanup is stable
 - Agent create/start/stop/delete once startup convergence is observable
-- Notification test-send with a contained local target
 
 ### Explicitly excluded from default live suite
 

@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 
 const APP_ERROR_PATTERN = /Application Error|Something went wrong/;
 const SETUP_HEADING_PATTERN = /Welcome to Agency|Re-configure Agency|Preparing your platform/;
@@ -148,6 +150,53 @@ test('live risky suite supports channel create, message send, and archive flow',
     await expect(page.getByText(messageText)).toBeVisible();
   } finally {
     await bestEffortArchiveChannel(page, channelName);
+  }
+});
+
+test('live risky suite supports notification test-send to a contained local sink', async ({ page }) => {
+  const destinationName = uniqueName('playwright-notify-send');
+  const receivedBodies: string[] = [];
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += String(chunk);
+    });
+    req.on('end', () => {
+      receivedBodies.push(body);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"status":"ok"}');
+    });
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  const destinationUrl = `http://127.0.0.1:${port}/alerts`;
+
+  try {
+    await page.goto('/admin/notifications');
+    const initialized = await expectSetupOrInitialized(page);
+    if (!initialized) {
+      return;
+    }
+
+    await bestEffortDelete(page, `/api/v1/events/notifications/${encodeURIComponent(destinationName)}`);
+
+    await page.getByRole('button', { name: 'Add destination' }).click();
+    await page.getByPlaceholder('name').fill(destinationName);
+    await page.getByPlaceholder(/url \(e\.g\./).fill(destinationUrl);
+    await page.getByRole('button', { name: /^Add$/ }).click();
+    await settle(page);
+
+    const notificationRow = page.locator('tr').filter({ has: page.getByText(destinationName, { exact: true }) }).first();
+    await expect(notificationRow).toBeVisible();
+
+    await notificationRow.getByRole('button', { name: 'Send test notification' }).click();
+    await expect.poll(() => receivedBodies.length, { timeout: 15_000 }).toBeGreaterThan(0);
+    await expect.poll(() => receivedBodies[0] ?? '', { timeout: 5_000 }).toContain('operator_alert');
+    await expect.poll(() => receivedBodies[0] ?? '', { timeout: 5_000 }).toContain('Test notification from agency');
+  } finally {
+    await bestEffortDelete(page, `/api/v1/events/notifications/${encodeURIComponent(destinationName)}`);
+    await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
   }
 });
 
