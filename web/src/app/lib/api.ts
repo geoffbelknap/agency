@@ -771,7 +771,7 @@ export const api = {
     department: (action: string, name?: string) =>
       req<OkResponse>('/admin/department', { method: 'POST', body: JSON.stringify({ action, name }) }),
     knowledge: (action: string) =>
-      req<OkResponse>(`/admin/knowledge/${action}`, { method: 'POST', body: '{}' }),
+      req<OkResponse>('/admin/graph', { method: 'POST', body: JSON.stringify({ action }) }),
     model: (action: string, name?: string) =>
       req<OkResponse>('/admin/model', { method: 'POST', body: JSON.stringify({ action, name }) }),
     egressDomains: async () => {

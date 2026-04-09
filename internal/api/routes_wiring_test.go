@@ -196,7 +196,7 @@ func TestOpenAPIPathsHaveRoutes(t *testing.T) {
 	// - enable/disable: spawn background goroutines with nil deps → unrecoverable panic
 	// - ontology subroutes: shadowed by a second r.Route("/api/v1/graph/ontology") in graph/routes.go
 	//   (chi routes the test request to the second subrouter which only has candidates/promote/reject)
-	// - admin/knowledge, admin/audit/summarize: conditionally registered (need non-nil deps)
+	// - admin/audit/summarize: conditionally registered (needs non-nil deps)
 	skipRoutes := map[string]bool{
 		"POST /admin/capabilities/{name}/enable":  true,
 		"POST /admin/capabilities/{name}/disable": true,
@@ -205,7 +205,6 @@ func TestOpenAPIPathsHaveRoutes(t *testing.T) {
 		"GET /graph/ontology/relationships":       true,
 		"POST /graph/ontology/validate":           true,
 		"POST /graph/ontology/migrate":            true,
-		"POST /admin/knowledge":                   true,
 		"POST /admin/audit/summarize":             true,
 		"POST /events/intake/webhook":             true,
 	}

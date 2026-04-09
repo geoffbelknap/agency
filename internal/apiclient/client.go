@@ -885,7 +885,7 @@ func (c *Client) AdminEgress(agent string) (map[string]interface{}, error) {
 func (c *Client) AdminKnowledge(action string, args map[string]string) (map[string]interface{}, error) {
 	body := map[string]interface{}{"action": action, "args": args}
 	var result map[string]interface{}
-	err := c.PostJSON("/api/v1/admin/knowledge", body, &result)
+	err := c.PostJSON("/api/v1/admin/graph", body, &result)
 	return result, err
 }
 
