@@ -728,6 +728,9 @@ export const api = {
     ontologyRestore: (nodeId: string, value = '') =>
       req<Record<string, unknown>>('/graph/ontology/restore', { method: 'POST', body: JSON.stringify({ node_id: nodeId, value }) }),
     curationLog: () => req<unknown>('/graph/curation-log'),
+    pending: () => req<unknown>('/graph/pending'),
+    review: (id: string, action: 'approve' | 'reject', reason = '') =>
+      req<Record<string, unknown>>(`/graph/review/${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify({ action, reason }) }),
   },
 
   capabilities: {

@@ -11,9 +11,11 @@ const BASE = 'http://localhost:8200/api/v1';
 function mockOntologyReviewData({
   candidates = [],
   curationEntries = [],
+  pending = [],
 }: {
   candidates?: unknown[];
   curationEntries?: unknown[];
+  pending?: unknown[];
 } = {}) {
   server.use(
     http.get(`${BASE}/graph/ontology/candidates`, () =>
@@ -21,6 +23,9 @@ function mockOntologyReviewData({
     ),
     http.get(`${BASE}/graph/curation-log`, () =>
       HttpResponse.json({ entries: curationEntries }),
+    ),
+    http.get(`${BASE}/graph/pending`, () =>
+      HttpResponse.json({ pending }),
     ),
   );
 }
@@ -170,6 +175,57 @@ describe('Knowledge', () => {
       expect(screen.getByText('Recent Decisions')).toBeInTheDocument();
       expect(screen.getByText('mystery_kind')).toBeInTheDocument();
       expect(screen.getByText('promote')).toBeInTheDocument();
+    });
+  });
+
+  it('reviews pending structural contributions', async () => {
+    let pending = [
+      {
+        id: 'contrib-1',
+        type: 'team_membership',
+        subject: 'alice',
+        proposed: 'platform',
+        summary: 'Alice appears to work on platform operations.',
+        agent: 'synthesizer',
+        confidence: 0.91,
+        created_at: '2026-04-09T10:00:00Z',
+      },
+    ];
+    let reviewed = '';
+
+    server.use(
+      http.get(`${BASE}/graph/stats`, () =>
+        HttpResponse.json({ node_count: 0, edge_count: 0 }),
+      ),
+      http.get(`${BASE}/graph/ontology/candidates`, () =>
+        HttpResponse.json({ candidates: [] }),
+      ),
+      http.get(`${BASE}/graph/curation-log`, () =>
+        HttpResponse.json({ entries: [] }),
+      ),
+      http.get(`${BASE}/graph/pending`, () =>
+        HttpResponse.json({ pending }),
+      ),
+      http.post(`${BASE}/graph/review/contrib-1`, async ({ request }) => {
+        const body = await request.json() as { action?: string };
+        reviewed = body.action ?? '';
+        pending = [];
+        return HttpResponse.json({ ok: true, reviewed: 'contrib-1' });
+      }),
+    );
+
+    renderWithRouter(<Knowledge />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Structural Review')).toBeInTheDocument();
+      expect(screen.getByText('Alice appears to work on platform operations.')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /approve/i }));
+
+    await waitFor(() => {
+      expect(reviewed).toBe('approve');
+      expect(screen.getByText('No pending structural contributions')).toBeInTheDocument();
     });
   });
 });
