@@ -13,11 +13,19 @@ function mockOntologyReviewData({
   curationEntries = [],
   pending = [],
   quarantined = [],
+  classification = { tiers: [] },
+  principals = [],
+  communities = { communities: [] },
+  hubs = { hubs: [] },
 }: {
   candidates?: unknown[];
   curationEntries?: unknown[];
   pending?: unknown[];
   quarantined?: unknown[];
+  classification?: unknown;
+  principals?: unknown;
+  communities?: unknown;
+  hubs?: unknown;
 } = {}) {
   server.use(
     http.get(`${BASE}/graph/ontology/candidates`, () =>
@@ -31,6 +39,18 @@ function mockOntologyReviewData({
     ),
     http.get(`${BASE}/graph/quarantine`, () =>
       HttpResponse.json({ nodes: quarantined }),
+    ),
+    http.get(`${BASE}/graph/classification`, () =>
+      HttpResponse.json(classification),
+    ),
+    http.get(`${BASE}/graph/principals`, () =>
+      HttpResponse.json(principals),
+    ),
+    http.get(`${BASE}/graph/communities`, () =>
+      HttpResponse.json(communities),
+    ),
+    http.get(`${BASE}/graph/hubs`, () =>
+      HttpResponse.json(hubs),
     ),
   );
 }
@@ -283,6 +303,30 @@ describe('Knowledge', () => {
     await waitFor(() => {
       expect(released).toBe('node-1');
       expect(screen.getByText('No quarantined knowledge')).toBeInTheDocument();
+    });
+  });
+
+  it('renders graph topology summaries', async () => {
+    server.use(
+      http.get(`${BASE}/graph/stats`, () =>
+        HttpResponse.json({ node_count: 0, edge_count: 0 }),
+      ),
+    );
+    mockOntologyReviewData({
+      classification: { tiers: [{ tier: 'restricted', description: 'Operator-only facts' }] },
+      principals: [{ uuid: 'agent:alice', type: 'agent', name: 'alice' }],
+      communities: { communities: [{ id: 'community-1', label: 'Platform Ops', node_count: 4 }] },
+      hubs: { hubs: [{ id: 'hub-1', label: 'release process', degree: 9 }] },
+    });
+
+    renderWithRouter(<Knowledge />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Graph Topology')).toBeInTheDocument();
+      expect(screen.getByText('restricted')).toBeInTheDocument();
+      expect(screen.getByText('alice')).toBeInTheDocument();
+      expect(screen.getByText('Platform Ops')).toBeInTheDocument();
+      expect(screen.getByText('release process')).toBeInTheDocument();
     });
   });
 });

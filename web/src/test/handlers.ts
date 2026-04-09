@@ -155,6 +155,10 @@ export const handlers = [
   http.post(`${BASE}/graph/review/:id`, () => HttpResponse.json({ ok: true })),
   http.get(`${BASE}/graph/quarantine`, () => HttpResponse.json({ nodes: [] })),
   http.post(`${BASE}/graph/quarantine/release`, () => HttpResponse.json({ ok: true })),
+  http.get(`${BASE}/graph/classification`, () => HttpResponse.json({ tiers: [] })),
+  http.get(`${BASE}/graph/principals`, () => HttpResponse.json([])),
+  http.get(`${BASE}/graph/communities`, () => HttpResponse.json({ communities: [] })),
+  http.get(`${BASE}/graph/hubs`, () => HttpResponse.json({ hubs: [] })),
 
   // Capabilities
   http.get(`${BASE}/admin/capabilities`, () => HttpResponse.json([])),

@@ -735,6 +735,11 @@ export const api = {
       req<unknown>(`/graph/quarantine${agent ? `?agent=${encodeURIComponent(agent)}` : ''}`),
     quarantineRelease: (opts: { node_id?: string; agent?: string }) =>
       req<Record<string, unknown>>('/graph/quarantine/release', { method: 'POST', body: JSON.stringify(opts) }),
+    classification: () => req<unknown>('/graph/classification'),
+    principals: (type?: string) =>
+      req<unknown>(`/graph/principals${type ? `?type=${encodeURIComponent(type)}` : ''}`),
+    communities: () => req<unknown>('/graph/communities'),
+    hubs: (limit?: number) => req<unknown>(`/graph/hubs${limit ? `?limit=${limit}` : ''}`),
   },
 
   capabilities: {
