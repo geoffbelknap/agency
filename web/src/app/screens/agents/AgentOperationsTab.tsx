@@ -1,15 +1,16 @@
 import { useNavigate } from 'react-router';
-import { Hash, Brain } from 'lucide-react';
+import { Hash, Brain, DatabaseZap } from 'lucide-react';
 import { Button } from '../../components/ui/button';
-import { type RawChannel, type RawMeeseeks } from '../../lib/api';
+import { type RawChannel, type RawEconomicsResponse, type RawMeeseeks } from '../../lib/api';
 import { formatDateTimeShort } from '../../lib/time';
 
-type OperationsSubTab = 'channels' | 'knowledge' | 'meeseeks';
+type OperationsSubTab = 'channels' | 'knowledge' | 'meeseeks' | 'economics';
 
 const OPERATIONS_TABS: { id: OperationsSubTab; label: string }[] = [
   { id: 'channels', label: 'Channels' },
   { id: 'knowledge', label: 'Knowledge' },
   { id: 'meeseeks', label: 'Meeseeks' },
+  { id: 'economics', label: 'Economics' },
 ];
 
 interface Props {
@@ -17,7 +18,9 @@ interface Props {
   channels: RawChannel[];
   knowledge: Record<string, any>[];
   meeseeksList: RawMeeseeks[];
+  economics: RawEconomicsResponse | null;
   handleKillMeeseeks: (agentName: string, meeseeksId: string) => Promise<void>;
+  handleClearCache: (agentName: string) => Promise<void>;
   subTab: OperationsSubTab;
   onSubTabChange: (tab: OperationsSubTab) => void;
 }
@@ -56,11 +59,26 @@ function ChannelsContent({ channels }: { channels: RawChannel[] }) {
   );
 }
 
-function KnowledgeContent({ knowledge }: { knowledge: Record<string, any>[] }) {
+function KnowledgeContent({ agentName, knowledge, handleClearCache }: {
+  agentName: string;
+  knowledge: Record<string, any>[];
+  handleClearCache: (agentName: string) => Promise<void>;
+}) {
   return (
     <div className="space-y-2 p-4">
-      <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
-        Knowledge Contributions
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <div className="text-xs uppercase tracking-wide text-muted-foreground">
+          Knowledge Contributions
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => handleClearCache(agentName)}
+        >
+          <DatabaseZap className="w-3 h-3 mr-1" />
+          Clear cache
+        </Button>
       </div>
       {knowledge.length === 0 ? (
         <div className="text-xs text-muted-foreground/70">No knowledge contributions found.</div>
@@ -82,6 +100,64 @@ function KnowledgeContent({ knowledge }: { knowledge: Record<string, any>[] }) {
             )}
           </div>
         ))
+      )}
+    </div>
+  );
+}
+
+function fmtCurrency(value?: number) {
+  return `$${(value ?? 0).toFixed(4)}`;
+}
+
+function fmtNumber(value?: number) {
+  return (value ?? 0).toLocaleString();
+}
+
+function fmtPercent(value?: number) {
+  return `${Math.round((value ?? 0) * 100)}%`;
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded bg-secondary p-3">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">{label}</div>
+      <div className="text-sm font-medium text-foreground">{value}</div>
+    </div>
+  );
+}
+
+function EconomicsContent({ economics }: { economics: RawEconomicsResponse | null }) {
+  if (!economics) {
+    return (
+      <div className="p-4 text-xs text-muted-foreground/70">
+        No economics metrics available for this agent yet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 p-4">
+      <div>
+        <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Today</div>
+        <div className="text-xs text-muted-foreground/70">{economics.period ?? 'Current UTC day'}</div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <MetricCard label="Cost" value={fmtCurrency(economics.total_cost_usd)} />
+        <MetricCard label="Requests" value={fmtNumber(economics.requests)} />
+        <MetricCard label="Input Tokens" value={fmtNumber(economics.input_tokens)} />
+        <MetricCard label="Output Tokens" value={fmtNumber(economics.output_tokens)} />
+        <MetricCard label="Cache Hits" value={fmtNumber(economics.cache_hits)} />
+        <MetricCard label="Cache Hit Rate" value={fmtPercent(economics.cache_hit_rate)} />
+        <MetricCard label="Retry Waste" value={fmtCurrency(economics.retry_waste_usd)} />
+        <MetricCard label="Tool Hallucination Rate" value={fmtPercent(economics.tool_hallucination_rate)} />
+      </div>
+      {economics.by_model && Object.keys(economics.by_model).length > 0 && (
+        <div>
+          <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">By Model</div>
+          <pre className="font-mono text-[11px] bg-secondary rounded p-3 overflow-x-auto whitespace-pre-wrap break-all">
+            {JSON.stringify(economics.by_model, null, 2)}
+          </pre>
+        </div>
       )}
     </div>
   );
@@ -140,7 +216,7 @@ function MeeseeksContent({ agentName, meeseeksList, handleKillMeeseeks }: {
   );
 }
 
-export function AgentOperationsTab({ agentName, channels, knowledge, meeseeksList, handleKillMeeseeks, subTab, onSubTabChange }: Props) {
+export function AgentOperationsTab({ agentName, channels, knowledge, meeseeksList, economics, handleKillMeeseeks, handleClearCache, subTab, onSubTabChange }: Props) {
   return (
     <div className="flex flex-col h-full">
       <div role="tablist" className="flex gap-2 px-2 py-1 border-b border-border">
@@ -155,8 +231,9 @@ export function AgentOperationsTab({ agentName, channels, knowledge, meeseeksLis
       </div>
       <div role="tabpanel" id={`ops-panel-${subTab}`} className="flex-1 overflow-auto">
         {subTab === 'channels' && <ChannelsContent channels={channels} />}
-        {subTab === 'knowledge' && <KnowledgeContent knowledge={knowledge} />}
+        {subTab === 'knowledge' && <KnowledgeContent agentName={agentName} knowledge={knowledge} handleClearCache={handleClearCache} />}
         {subTab === 'meeseeks' && <MeeseeksContent agentName={agentName} meeseeksList={meeseeksList} handleKillMeeseeks={handleKillMeeseeks} />}
+        {subTab === 'economics' && <EconomicsContent economics={economics} />}
       </div>
     </div>
   );

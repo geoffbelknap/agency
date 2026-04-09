@@ -358,6 +358,29 @@ export interface RawBudgetResponse {
   task_usage?: RawTaskUsage[];
 }
 
+export interface RawEconomicsResponse {
+  agent?: string;
+  period?: string;
+  total_cost_usd?: number;
+  requests?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  ttft_p50_ms?: number;
+  ttft_p95_ms?: number;
+  tpot_p50_ms?: number;
+  tpot_p95_ms?: number;
+  avg_latency_ms?: number;
+  p95_latency_ms?: number;
+  tool_calls?: number;
+  tool_hallucinations?: number;
+  tool_hallucination_rate?: number;
+  retry_waste_usd?: number;
+  cache_hits?: number;
+  cache_hit_rate?: number;
+  cache_saved_usd?: number;
+  by_model?: Record<string, unknown>;
+}
+
 export interface RawNotification {
   name: string;
   type: string;
@@ -427,6 +450,9 @@ export const api = {
     resultDownloadUrl: (name: string, taskId: string) =>
       `${BASE}/agents/${name}/results/${taskId}?download=true`,
     budget: (name: string) => req<RawBudgetResponse>(`/agents/${name}/budget`),
+    economics: (name: string) => req<RawEconomicsResponse>(`/agents/${name}/economics`),
+    economicsSummary: () => req<RawEconomicsResponse>('/agents/economics/summary'),
+    clearCache: (name: string) => req<Record<string, unknown>>(`/agents/${name}/cache`, { method: 'DELETE' }),
     procedures: async (name: string, params?: { mission?: string; outcome?: string }) => {
       const qs = new URLSearchParams();
       if (params?.mission) qs.set('mission', params.mission);

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
-import { api, type RawAuditEntry, type RawChannel, type RawCapability, type RawPolicyValidation, type RawMeeseeks, type RawBudgetResponse } from '../../lib/api';
+import { api, type RawAuditEntry, type RawChannel, type RawCapability, type RawPolicyValidation, type RawMeeseeks, type RawBudgetResponse, type RawEconomicsResponse } from '../../lib/api';
 
 export interface AgentDetailData {
   // Data
@@ -13,6 +13,7 @@ export interface AgentDetailData {
   meeseeksList: RawMeeseeks[];
   agentConfig: Record<string, any> | null;
   budget: RawBudgetResponse | null;
+  economics: RawEconomicsResponse | null;
 
   // Loading states
   capLoading: string | null;
@@ -25,6 +26,7 @@ export interface AgentDetailData {
   handleRevoke: (agentName: string, capability: string) => Promise<void>;
   handleSaveConfig: (agentName: string, identity: string) => Promise<Record<string, any> | null>;
   handleKillMeeseeks: (agentName: string, meeseeksId: string) => Promise<void>;
+  handleClearCache: (agentName: string) => Promise<void>;
 }
 
 export function useAgentDetailData(
@@ -44,6 +46,7 @@ export function useAgentDetailData(
   const [meeseeksList, setMeeseeksList] = useState<RawMeeseeks[]>([]);
   const [agentConfig, setAgentConfig] = useState<Record<string, any> | null>(null);
   const [budget, setBudget] = useState<RawBudgetResponse | null>(null);
+  const [economics, setEconomics] = useState<RawEconomicsResponse | null>(null);
 
   // Loading states
   const [capLoading, setCapLoading] = useState<string | null>(null);
@@ -85,6 +88,8 @@ export function useAgentDetailData(
       }).catch(() => setKnowledge([]));
     } else if (effectiveDataTab === 'meeseeks') {
       api.meeseeks.list(name).then(data => setMeeseeksList(data ?? [])).catch(() => setMeeseeksList([]));
+    } else if (effectiveDataTab === 'economics') {
+      api.agents.economics(name).then(setEconomics).catch(() => setEconomics(null));
     } else if (effectiveDataTab === 'config') {
       Promise.all([
         api.capabilities.list().catch(() => []),
@@ -167,6 +172,17 @@ export function useAgentDetailData(
     }
   }, []);
 
+  const handleClearCache = useCallback(async (name: string) => {
+    try {
+      const result = await api.agents.clearCache(name);
+      const deleted = typeof result.deleted === 'number' ? ` (${result.deleted} deleted)` : '';
+      toast.success(`Cache cleared for ${name}${deleted}`);
+      api.agents.economics(name).then(setEconomics).catch(() => {});
+    } catch (e: any) {
+      toast.error(e.message || 'Cache clear failed');
+    }
+  }, []);
+
   return {
     logs,
     channels,
@@ -176,6 +192,7 @@ export function useAgentDetailData(
     meeseeksList,
     agentConfig,
     budget,
+    economics,
     capLoading,
     refreshingLogs,
     refreshLogs,
@@ -184,5 +201,6 @@ export function useAgentDetailData(
     handleRevoke,
     handleSaveConfig,
     handleKillMeeseeks,
+    handleClearCache,
   };
 }

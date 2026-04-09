@@ -388,7 +388,11 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
       await route.fulfill(json(agents));
       return;
     }
-    if (method === 'GET' && pathname.startsWith('/api/v1/agents/') && !pathname.endsWith('/logs') && !pathname.endsWith('/budget') && !pathname.endsWith('/channels') && !pathname.endsWith('/knowledge') && !pathname.endsWith('/results') && !pathname.endsWith('/procedures') && !pathname.endsWith('/episodes') && !pathname.endsWith('/trajectory') && !pathname.endsWith('/config')) {
+    if (method === 'GET' && pathname === '/api/v1/agents/economics/summary') {
+      await route.fulfill(json({ period: '2026-04-09', total_cost_usd: 0.13, requests: 3, by_agent: {}, by_model: {} }));
+      return;
+    }
+    if (method === 'GET' && pathname.startsWith('/api/v1/agents/') && !pathname.endsWith('/logs') && !pathname.endsWith('/budget') && !pathname.endsWith('/channels') && !pathname.endsWith('/knowledge') && !pathname.endsWith('/economics') && !pathname.endsWith('/results') && !pathname.endsWith('/procedures') && !pathname.endsWith('/episodes') && !pathname.endsWith('/trajectory') && !pathname.endsWith('/config')) {
       const name = decodeURIComponent(pathname.split('/')[4] || '');
       await route.fulfill(json(agents.find((agent) => agent.name === name) ?? agents[0]));
       return;
@@ -416,6 +420,27 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
           { task_id: 'task-1', cost_usd: 0.13, input_tokens: 4000, output_tokens: 800, llm_calls: 3 },
         ],
       }));
+      return;
+    }
+    if (method === 'GET' && pathname.endsWith('/economics') && pathname.startsWith('/api/v1/agents/')) {
+      const name = decodeURIComponent(pathname.split('/')[4] || '');
+      await route.fulfill(json({
+        agent: name,
+        period: '2026-04-09',
+        total_cost_usd: 0.13,
+        requests: 3,
+        input_tokens: 4000,
+        output_tokens: 800,
+        retry_waste_usd: 0,
+        tool_hallucination_rate: 0,
+        cache_hits: 1,
+        cache_hit_rate: 0.25,
+        by_model: {},
+      }));
+      return;
+    }
+    if (method === 'DELETE' && pathname.endsWith('/cache') && pathname.startsWith('/api/v1/agents/')) {
+      await route.fulfill(json({ deleted: 1 }));
       return;
     }
     if (method === 'GET' && pathname.endsWith('/channels') && pathname.startsWith('/api/v1/agents/')) {
