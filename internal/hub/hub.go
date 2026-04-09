@@ -1067,7 +1067,7 @@ func (m *Manager) discover() []Component {
 				continue
 			}
 			filepath.Walk(kindDir, func(path string, info os.FileInfo, err error) error {
-				if err != nil || info.IsDir() || !strings.HasSuffix(path, ".yaml") {
+				if err != nil || info.IsDir() || !isDiscoverableComponentFile(kind, info.Name()) {
 					return nil
 				}
 				// Skip metadata files — they're CI-stamped, not components
@@ -1111,6 +1111,16 @@ func (m *Manager) discover() []Component {
 		}
 	}
 	return results
+}
+
+func isDiscoverableComponentFile(kind, name string) bool {
+	if name == "metadata.yaml" {
+		return false
+	}
+	if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
+		return true
+	}
+	return kind == "skill" && strings.EqualFold(name, "SKILL.md")
 }
 
 // FindInCache returns the first cached component matching name, kind, and source.

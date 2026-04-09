@@ -9,6 +9,42 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { ComponentInfoDialog } from './hub/ComponentInfoDialog';
 import { DeploySection } from './hub/DeploySection';
 
+const HUB_KIND_FILTERS: Array<ComponentKind | 'all'> = [
+  'all',
+  'pack',
+  'preset',
+  'connector',
+  'service',
+  'mission',
+  'skill',
+  'workspace',
+  'policy',
+  'ontology',
+  'provider',
+  'setup',
+];
+
+const kindBadgeClass = (kind: ComponentKind) => {
+  switch (kind) {
+    case 'pack':
+      return 'bg-violet-50 dark:bg-purple-950 text-violet-700 dark:text-purple-400';
+    case 'preset':
+      return 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-400';
+    case 'connector':
+      return 'bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-400';
+    case 'service':
+      return 'bg-cyan-50 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-400';
+    case 'mission':
+      return 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-400';
+    case 'provider':
+      return 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400';
+    case 'setup':
+      return 'bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300';
+    default:
+      return 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400';
+  }
+};
+
 export function Hub() {
   const [allResults, setAllResults] = useState<Component[]>([]);
   const [installedComponents, setInstalledComponents] = useState<Component[]>([]);
@@ -199,15 +235,12 @@ export function Hub() {
     }
   }, [installedLoading, handleSearch]);
 
-  const kindCounts = {
-    all: allResults.length,
-    pack: allResults.filter((c) => c.kind === 'pack').length,
-    preset: allResults.filter((c) => c.kind === 'preset').length,
-    connector: allResults.filter((c) => c.kind === 'connector').length,
-    skill: allResults.filter((c) => c.kind === 'skill').length,
-    policy: allResults.filter((c) => c.kind === 'policy').length,
-    workspace: allResults.filter((c) => c.kind === 'workspace').length,
-  };
+  const kindCounts = Object.fromEntries(
+    HUB_KIND_FILTERS.map((kind) => [
+      kind,
+      kind === 'all' ? allResults.length : allResults.filter((c) => c.kind === kind).length,
+    ]),
+  ) as Record<ComponentKind | 'all', number>;
 
   return (
     <div className="space-y-4">
@@ -281,20 +314,18 @@ export function Hub() {
 
           {/* Kind Filters */}
           <div className="flex flex-wrap gap-2">
-            {(['all', 'pack', 'preset', 'connector', 'skill', 'policy', 'workspace'] as const).map(
-              (kind) => (
-                <Button
-                  key={kind}
-                  variant={filterKind === kind ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setFilterKind(kind)}
-                  className="capitalize text-xs"
-                >
-                  {kind}
-                  <span className="ml-1.5 opacity-70">({kindCounts[kind]})</span>
-                </Button>
-              )
-            )}
+            {HUB_KIND_FILTERS.map((kind) => (
+              <Button
+                key={kind}
+                variant={filterKind === kind ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setFilterKind(kind)}
+                className="capitalize text-xs"
+              >
+                {kind}
+                <span className="ml-1.5 opacity-70">({kindCounts[kind]})</span>
+              </Button>
+            ))}
           </div>
 
           {/* Results Grid */}
@@ -321,15 +352,7 @@ export function Hub() {
                       </div>
                       <div className="flex items-center gap-2 text-xs">
                         <span
-                          className={`px-2 py-0.5 rounded ${
-                            component.kind === 'pack'
-                              ? 'bg-violet-50 dark:bg-purple-950 text-violet-700 dark:text-purple-400'
-                              : component.kind === 'preset'
-                              ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-400'
-                              : component.kind === 'connector'
-                              ? 'bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-400'
-                              : 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400'
-                          }`}
+                          className={`px-2 py-0.5 rounded ${kindBadgeClass(component.kind)}`}
                         >
                           {component.kind}
                         </span>

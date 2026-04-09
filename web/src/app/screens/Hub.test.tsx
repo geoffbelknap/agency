@@ -46,6 +46,41 @@ describe('Hub', () => {
     });
   });
 
+  it('filters every backend hub kind exposed by OCI catalog search', async () => {
+    server.use(
+      http.get(`${BASE}/hub/instances`, () => HttpResponse.json([])),
+      http.get(`${BASE}/hub/search`, () =>
+        HttpResponse.json([
+          { name: 'security-ops', kind: 'pack', description: 'Pack' },
+          { name: 'security-triage', kind: 'preset', description: 'Preset' },
+          { name: 'limacharlie', kind: 'connector', description: 'Connector' },
+          { name: 'github', kind: 'service', description: 'Service' },
+          { name: 'alert-triage', kind: 'mission', description: 'Mission' },
+          { name: 'code-review', kind: 'skill', description: 'Skill' },
+          { name: 'default-workspace', kind: 'workspace', description: 'Workspace' },
+          { name: 'approval-policy', kind: 'policy', description: 'Policy' },
+          { name: 'base-ontology', kind: 'ontology', description: 'Ontology' },
+          { name: 'openai', kind: 'provider', description: 'Provider' },
+          { name: 'default-wizard', kind: 'setup', description: 'Setup' },
+        ]),
+      ),
+    );
+
+    renderWithRouter(<Hub />);
+
+    await waitFor(() => {
+      expect(screen.getByText('code-review')).toBeInTheDocument();
+    });
+
+    for (const kind of ['service', 'mission', 'ontology', 'provider', 'setup']) {
+      expect(screen.getByRole('button', { name: new RegExp(`${kind}\\(1\\)`, 'i') })).toBeInTheDocument();
+    }
+
+    await userEvent.click(screen.getByRole('button', { name: /provider\(1\)/i }));
+    expect(screen.getByText('openai')).toBeInTheDocument();
+    expect(screen.queryByText('github')).not.toBeInTheDocument();
+  });
+
   it('installs a component', async () => {
     server.use(
       http.get(`${BASE}/hub/instances`, () => HttpResponse.json([])),
