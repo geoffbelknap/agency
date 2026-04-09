@@ -69,7 +69,19 @@ function parseOntologyDecisions(raw: unknown): OntologyDecision[] {
   return entries
     .map((entry, index) => {
       const record = (entry ?? {}) as Record<string, unknown>;
-      const data = (record.data ?? {}) as Record<string, unknown>;
+      const detail = typeof record.detail === 'string'
+        ? (() => {
+            try {
+              return JSON.parse(record.detail) as Record<string, unknown>;
+            } catch {
+              return {};
+            }
+          })()
+        : {};
+      const data = {
+        ...detail,
+        ...((record.data ?? {}) as Record<string, unknown>),
+      };
       const actionText = String(record.action ?? record.event ?? record.type ?? '');
       const normalizedAction = actionText.toLowerCase();
       const action: OntologyDecision['action'] =

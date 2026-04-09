@@ -61,7 +61,7 @@ Suite location:
 - Setup wizard steps that store credentials, install providers, or sync hub content
 - Infrastructure rebuild, reload, start, stop
 - Team create and membership changes
-- Knowledge ontology promote/reject
+- Knowledge ontology promote/reject/restore
 - Audit summarize if it mutates server-side summaries or caches
 
 ### Danger
@@ -87,6 +87,7 @@ Suite location:
 - Risky live agent create / start / pause / resume / restart / delete with observable lifecycle state
 - Risky live connector install / deactivate / reactivate with cleanup
 - Risky live pack deploy / teardown for an installed pack
+- Risky live ontology promote / reject / restore with deterministic seed and cleanup
 - Ontology candidate contract normalized across web, REST, CLI, and MCP paths
 
 ### Conditionally exercised when the local stack has prerequisites
@@ -95,7 +96,6 @@ Suite location:
 
 ### Blocked `live-risky` targets
 
-- Knowledge ontology promote/reject until the knowledge service exposes a restore or delete path for promoted and rejected candidates. The runtime contract now correctly uses `node_id`, but the mutation remains one-way.
 - Assigned mission lifecycle cleanup until pause/complete/delete semantics are proven stable end-to-end.
 
 ### Explicitly excluded from default live suite

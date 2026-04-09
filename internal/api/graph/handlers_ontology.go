@@ -155,7 +155,7 @@ func (h *handler) listOntologyCandidates(w http.ResponseWriter, r *http.Request)
 func (h *handler) promoteOntologyCandidate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		NodeID string `json:"node_id"`
-		Value string `json:"value"`
+		Value  string `json:"value"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, 400, map[string]string{"error": "invalid request body"})
@@ -188,7 +188,7 @@ func (h *handler) promoteOntologyCandidate(w http.ResponseWriter, r *http.Reques
 func (h *handler) rejectOntologyCandidate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		NodeID string `json:"node_id"`
-		Value string `json:"value"`
+		Value  string `json:"value"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, 400, map[string]string{"error": "invalid request body"})
@@ -239,7 +239,7 @@ func (h *handler) restoreOntologyCandidate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	data, err := kp.Restore(r.Context(), nodeID)
+	data, err := kp.Post(r.Context(), "/ontology/restore", map[string]string{"node_id": nodeID})
 	if err != nil {
 		writeJSON(w, 502, map[string]string{"error": "knowledge service unavailable: " + err.Error()})
 		return

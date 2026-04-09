@@ -145,4 +145,31 @@ describe('Knowledge', () => {
       expect(screen.getByText('candidate')).toBeInTheDocument();
     });
   });
+
+  it('parses ontology decisions from curation log detail payloads', async () => {
+    server.use(
+      http.get(`${BASE}/graph/stats`, () =>
+        HttpResponse.json({ node_count: 0, edge_count: 0 }),
+      ),
+    );
+    mockOntologyReviewData({
+      curationEntries: [
+        {
+          id: 'entry-detail-1',
+          action: 'ontology_promote',
+          node_id: 'cand-detail-1',
+          detail: JSON.stringify({ value: 'mystery_kind', occurrence_count: 12 }),
+          timestamp: '2026-04-09T10:10:00Z',
+        },
+      ],
+    });
+
+    renderWithRouter(<Knowledge />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Recent Decisions')).toBeInTheDocument();
+      expect(screen.getByText('mystery_kind')).toBeInTheDocument();
+      expect(screen.getByText('promote')).toBeInTheDocument();
+    });
+  });
 });

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -360,7 +361,9 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Get required vs optional from preset
-		var agentCfg struct{ Preset string `yaml:"preset"` }
+		var agentCfg struct {
+			Preset string `yaml:"preset"`
+		}
 		if data, err := os.ReadFile(filepath.Join(agentsDir, agentName, "agent.yaml")); err == nil {
 			yaml.Unmarshal(data, &agentCfg)
 		}
@@ -899,8 +902,55 @@ func (h *handler) adminKnowledge(w http.ResponseWriter, r *http.Request) {
 		var resolved string
 		resolved, err = knowledge.ResolveOntologyCandidateID(ctx, kp, nodeID, val)
 		if err == nil {
-			raw, err = kp.Restore(ctx, resolved)
+			raw, err = kp.Post(ctx, "/ontology/restore", map[string]string{"node_id": resolved})
 		}
+	case "ontology_seed_kind_candidate":
+		kind := args["kind"]
+		if !requireNameStr(kind) {
+			writeJSON(w, 400, map[string]string{"error": "valid kind is required"})
+			return
+		}
+		seedID := args["seed_id"]
+		if !requireNameStr(seedID) {
+			writeJSON(w, 400, map[string]string{"error": "valid seed_id is required"})
+			return
+		}
+		count := 10
+		if rawCount := args["count"]; rawCount != "" {
+			count, err = strconv.Atoi(rawCount)
+			if err != nil || count < 3 {
+				writeJSON(w, 400, map[string]string{"error": "count must be an integer >= 3"})
+				return
+			}
+		}
+		nodes := make([]map[string]interface{}, 0, count)
+		for i := 0; i < count; i++ {
+			nodes = append(nodes, map[string]interface{}{
+				"label":           fmt.Sprintf("%s-%02d", kind, i+1),
+				"kind":            kind,
+				"summary":         "Playwright ontology candidate seed",
+				"source_type":     "test",
+				"source_channels": []string{fmt.Sprintf("%s-source-%d", seedID, (i%3)+1)},
+				"properties": map[string]string{
+					"e2e_seed": seedID,
+				},
+			})
+		}
+		raw, err = kp.Post(ctx, "/ingest/nodes", map[string]interface{}{"nodes": nodes})
+	case "delete_by_kind":
+		kind := args["kind"]
+		filterProp := args["filter_property"]
+		filterValue := args["filter_value"]
+		if kind == "" || filterProp == "" || filterValue == "" {
+			writeJSON(w, 400, map[string]string{"error": "kind, filter_property, and filter_value are required"})
+			return
+		}
+		raw, err = kp.Post(ctx, "/delete-by-kind", map[string]interface{}{
+			"kind": kind,
+			"filter": map[string]string{
+				filterProp: filterValue,
+			},
+		})
 	default:
 		writeJSON(w, 400, map[string]string{"error": "unknown action: " + body.Action})
 		return
