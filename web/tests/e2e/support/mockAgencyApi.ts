@@ -369,6 +369,33 @@ const routingSuggestions = [
   },
 ];
 
+const routingStats = [
+  {
+    model: 'claude-sonnet',
+    task_type: 'summarization',
+    total_calls: 32,
+    retries: 1,
+    success_rate: 0.97,
+    avg_latency_ms: 1100,
+    avg_input_tokens: 900,
+    avg_output_tokens: 220,
+    total_cost_usd: 0.44,
+    cost_per_1k: 0.021,
+  },
+  {
+    model: 'claude-haiku',
+    task_type: 'summarization',
+    total_calls: 28,
+    retries: 0,
+    success_rate: 0.96,
+    avg_latency_ms: 620,
+    avg_input_tokens: 880,
+    avg_output_tokens: 210,
+    total_cost_usd: 0.18,
+    cost_per_1k: 0.012,
+  },
+];
+
 function json(body: unknown, status = 200) {
   return {
     status,
@@ -912,6 +939,10 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
     }
     if (method === 'GET' && pathname === '/api/v1/infra/routing/suggestions') {
       await route.fulfill(json(routingSuggestions));
+      return;
+    }
+    if (method === 'GET' && pathname === '/api/v1/infra/routing/stats') {
+      await route.fulfill(json(routingStats));
       return;
     }
     if (method === 'POST' && /^\/api\/v1\/infra\/routing\/suggestions\/[^/]+\/approve$/.test(pathname)) {

@@ -133,6 +133,19 @@ export interface RawRoutingSuggestion {
   suggested_stats?: Record<string, unknown>;
 }
 
+export interface RawRoutingStat {
+  model: string;
+  task_type: string;
+  total_calls: number;
+  retries: number;
+  success_rate: number;
+  avg_latency_ms: number;
+  avg_input_tokens: number;
+  avg_output_tokens: number;
+  total_cost_usd: number;
+  cost_per_1k: number;
+}
+
 export interface RawTeam {
   name: string;
   members?: string[];
@@ -815,6 +828,8 @@ export const api = {
       req<RawRoutingSuggestion>(`/infra/routing/suggestions/${encodeURIComponent(id)}/approve`, { method: 'POST', body: '{}' }),
     rejectSuggestion: (id: string) =>
       req<OkResponse>(`/infra/routing/suggestions/${encodeURIComponent(id)}/reject`, { method: 'POST', body: '{}' }),
+    stats: (taskType?: string) =>
+      req<RawRoutingStat[]>(`/infra/routing/stats${taskType ? `?task_type=${encodeURIComponent(taskType)}` : ''}`),
   },
 
   policy: {
