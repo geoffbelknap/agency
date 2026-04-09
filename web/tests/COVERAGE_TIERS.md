@@ -29,6 +29,12 @@ Opt-in live suite for flows that can talk to outside systems, install or remove 
 Suite location:
 - `tests/e2e-live-risky/`
 
+Related operator-path live scripts:
+- `./scripts/test-live-hub-oci.sh`
+- `./scripts/test-live-hub-operator-oci.sh`
+
+`test-live-hub-operator-oci.sh` uses a disposable Agency home and isolated gateway port to validate the normal operator CLI/API path against the published GHCR hub catalog. It verifies that connector, service, provider, routing, and skill artifacts sync from OCI; Markdown skills are searchable; and hub-managed routing remains update/upgrade surface rather than an installable search result.
+
 ### `live-danger`
 
 Explicit opt-in only. Covers high-blast-radius actions that can destroy shared state or tear down the environment.
@@ -94,6 +100,7 @@ The disposable runner clones the current Agency home, assigns an isolated infra 
 - Risky live pack deploy / teardown for an installed pack
 - Risky live ontology promote / reject / restore with deterministic seed and cleanup
 - Ontology candidate contract normalized across web, REST, CLI, and MCP paths
+- Live Hub OCI manager and operator-path catalog coverage against GHCR
 
 ### Conditionally exercised when the local stack has prerequisites
 
