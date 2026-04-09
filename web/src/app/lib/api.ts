@@ -119,6 +119,20 @@ export interface RawMessage {
   reactions?: Array<{ emoji: string; author: string }>;
 }
 
+export interface RawRoutingSuggestion {
+  id: string;
+  task_type: string;
+  current_model: string;
+  suggested_model: string;
+  reason: string;
+  savings_percent: number;
+  savings_usd_per_1k: number;
+  status: 'pending' | 'approved' | 'rejected' | string;
+  created_at?: string;
+  current_stats?: Record<string, unknown>;
+  suggested_stats?: Record<string, unknown>;
+}
+
 export interface RawTeam {
   name: string;
   members?: string[];
@@ -779,6 +793,12 @@ export const api = {
 
   routing: {
     config: () => req<{ configured: boolean; version: string; [key: string]: unknown }>('/infra/routing/config'),
+    suggestions: (status?: string) =>
+      req<RawRoutingSuggestion[]>(`/infra/routing/suggestions${status ? `?status=${encodeURIComponent(status)}` : ''}`),
+    approveSuggestion: (id: string) =>
+      req<RawRoutingSuggestion>(`/infra/routing/suggestions/${encodeURIComponent(id)}/approve`, { method: 'POST', body: '{}' }),
+    rejectSuggestion: (id: string) =>
+      req<OkResponse>(`/infra/routing/suggestions/${encodeURIComponent(id)}/reject`, { method: 'POST', body: '{}' }),
   },
 
   policy: {
