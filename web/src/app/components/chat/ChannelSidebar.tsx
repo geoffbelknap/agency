@@ -18,6 +18,8 @@ interface ChannelSidebarProps {
   dmStatuses?: Record<string, DmStatus>;
   onCreateChannel?: () => void;
   onBrowseChannels?: () => void;
+  showInactive?: boolean;
+  onToggleInactive?: () => void;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
 }
@@ -93,6 +95,8 @@ function SidebarContent({
   onSelect,
   dmStatuses,
   onCreateChannel,
+  showInactive,
+  onToggleInactive,
 }: Omit<ChannelSidebarProps, 'mobileOpen' | 'onMobileClose' | 'onBrowseChannels'> & { onBrowseChannels?: () => void }) {
   const [filter, setFilter] = useState('');
 
@@ -127,13 +131,28 @@ function SidebarContent({
             />
           ))}
           {onCreateChannel && (
-            <button
-              onClick={onCreateChannel}
-              className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-            >
-              <Plus className="h-3.5 w-3.5 shrink-0" />
-              <span className="text-xs">Add channel</span>
-            </button>
+            <div className="mt-1 flex items-center gap-1">
+              <button
+                onClick={onCreateChannel}
+                className="flex flex-1 items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+              >
+                <Plus className="h-3.5 w-3.5 shrink-0" />
+                <span className="text-xs">Add channel</span>
+              </button>
+              {onToggleInactive && (
+                <button
+                  onClick={onToggleInactive}
+                  className={cn(
+                    'rounded-md px-2 py-1.5 text-[10px] uppercase tracking-[0.14em] transition-colors',
+                    showInactive
+                      ? 'bg-accent text-foreground'
+                      : 'text-muted-foreground/60 hover:text-muted-foreground',
+                  )}
+                >
+                  {showInactive ? 'Hide inactive' : 'Show inactive'}
+                </button>
+              )}
+            </div>
           )}
         </SidebarSection>
 
@@ -174,7 +193,7 @@ function SidebarContent({
                         </span>
                       )}
                       <span className="text-[10px] bg-secondary px-1 py-0.5 rounded text-muted-foreground">
-                        {knownAgent ? 'AGENT' : 'UNAVAILABLE'}
+                        {knownAgent ? 'AGENT' : ch.availability === 'unavailable' ? 'UNAVAILABLE' : 'LEGACY'}
                       </span>
                     </div>
                   </button>
@@ -226,6 +245,8 @@ export function ChannelSidebar({
   onSelect,
   dmStatuses,
   onCreateChannel,
+  showInactive,
+  onToggleInactive,
   onBrowseChannels,
   mobileOpen,
   onMobileClose,
@@ -242,6 +263,8 @@ export function ChannelSidebar({
           onSelect={onSelect}
           dmStatuses={dmStatuses}
           onCreateChannel={onCreateChannel}
+          showInactive={showInactive}
+          onToggleInactive={onToggleInactive}
           onBrowseChannels={onBrowseChannels}
         />
         </SheetContent>
@@ -257,6 +280,8 @@ export function ChannelSidebar({
         onSelect={onSelect}
         dmStatuses={dmStatuses}
         onCreateChannel={onCreateChannel}
+        showInactive={showInactive}
+        onToggleInactive={onToggleInactive}
         onBrowseChannels={onBrowseChannels}
       />
     </div>

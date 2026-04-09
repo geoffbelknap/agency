@@ -105,6 +105,7 @@ export interface RawChannel {
   members?: string[];
   state?: string;
   type?: string;
+  availability?: string;
 }
 
 export interface RawMessage {
@@ -459,7 +460,13 @@ export const api = {
   },
 
   channels: {
-    list: () => req<RawChannel[]>('/comms/channels'),
+    list: (opts?: { includeArchived?: boolean; includeUnavailable?: boolean }) => {
+      const params = new URLSearchParams();
+      if (opts?.includeArchived) params.set('include_archived', 'true');
+      if (opts?.includeUnavailable) params.set('include_unavailable', 'true');
+      const query = params.toString();
+      return req<RawChannel[]>(`/comms/channels${query ? `?${query}` : ''}`);
+    },
     read: (name: string, limit = 50) => req<RawMessage[]>(`/comms/channels/${name}/messages?limit=${limit}&reader=operator`),
     send: (name: string, content: string, replyTo?: string, flags?: Record<string, boolean>) =>
       req<OkResponse>(`/comms/channels/${name}/messages`, {

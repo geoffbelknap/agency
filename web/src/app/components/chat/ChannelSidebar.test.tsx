@@ -8,7 +8,7 @@ const channels: Channel[] = [
   { id: 'general', name: 'general', topic: 'General chat', unreadCount: 3, mentionCount: 0, lastActivity: '', members: ['scout'] },
   { id: 'ops', name: 'ops', topic: 'Operations', unreadCount: 0, mentionCount: 0, lastActivity: '', members: [] },
   { id: 'dm-alice', name: 'dm-alice', topic: 'Direct messages with alice', unreadCount: 0, mentionCount: 0, lastActivity: '', members: ['alice', 'operator'] },
-  { id: 'dm-retired-agent', name: 'dm-retired-agent', topic: 'Legacy DM', unreadCount: 0, mentionCount: 0, lastActivity: '', members: ['operator'] },
+  { id: 'dm-retired-agent', name: 'dm-retired-agent', topic: 'Legacy DM', availability: 'unavailable', unreadCount: 0, mentionCount: 0, lastActivity: '', members: ['operator'] },
 ];
 
 describe('ChannelSidebar', () => {
@@ -59,5 +59,22 @@ describe('ChannelSidebar', () => {
     expect(screen.getByText('AGENT')).toBeInTheDocument();
     expect(screen.getByLabelText('Unavailable')).toBeInTheDocument();
     expect(screen.getByText('UNAVAILABLE')).toBeInTheDocument();
+  });
+
+  it('can toggle the inactive conversation view', async () => {
+    const onToggleInactive = vi.fn();
+    render(
+      <ChannelSidebar
+        channels={channels}
+        selectedChannel={null}
+        onSelect={() => {}}
+        onCreateChannel={() => {}}
+        onToggleInactive={onToggleInactive}
+        showInactive={false}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: /show inactive/i }));
+    expect(onToggleInactive).toHaveBeenCalled();
   });
 });

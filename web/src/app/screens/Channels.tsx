@@ -33,6 +33,7 @@ export function Channels() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
 
   // Agent detail overlay
   const [agentDetailName, setAgentDetailName] = useState<string | null>(null);
@@ -63,12 +64,12 @@ export function Channels() {
     setAgentBudget(null);
     api.agents.show(agentName).then(setAgentDetail).catch(() => setAgentDetail(null));
     api.agents.budget(agentName).then(setAgentBudget).catch(() => setAgentBudget(null));
-  }, []);
+  }, [showInactive]);
 
   const loadChannels = useCallback(async () => {
     try {
       const [data, agents] = await Promise.all([
-        api.channels.list(),
+        api.channels.list({ includeArchived: showInactive, includeUnavailable: showInactive }),
         api.agents.list().catch(() => [] as RawAgent[]),
       ]);
       const mapped: Channel[] = data.map((c: RawChannel) => ({
@@ -77,11 +78,12 @@ export function Channels() {
         topic: c.topic || '',
         type: c.type,
         state: c.state,
+        availability: c.availability,
         unreadCount: c.unread || 0,
         mentionCount: c.mentions || 0,
         lastActivity: '',
         members: (c.members || []).filter((m: string) => m !== '_operator'),
-      })).filter((channel) => channel.state !== 'archived');
+      })).filter((channel) => showInactive || channel.state !== 'archived');
       const nextStatuses: Record<string, 'running' | 'idle' | 'halted' | 'unknown'> = {};
       for (const agent of agents ?? []) {
         if (agent.status === 'running') {
@@ -124,7 +126,7 @@ export function Channels() {
       }
     });
     return () => { active = false; };
-  }, [urlChannelName]);
+  }, [urlChannelName, showInactive]);
 
   // Stable callbacks for useChannelSocket
   const handleAppendMessage = useCallback((msg: Message) => {
@@ -346,6 +348,8 @@ export function Channels() {
           dmStatuses={agentStatuses}
           onBrowseChannels={() => setBrowserOpen(true)}
           onCreateChannel={() => setCreateChannelOpen(true)}
+          showInactive={showInactive}
+          onToggleInactive={() => setShowInactive((prev) => !prev)}
           mobileOpen={mobileSidebarOpen}
           onMobileClose={() => setMobileSidebarOpen(false)}
         />

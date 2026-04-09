@@ -15,6 +15,7 @@ func (h *handler) listChannels(w http.ResponseWriter, r *http.Request) {
 	// DMs require a member filter.
 	ctx := r.Context()
 	includeArchived := r.URL.Query().Get("include_archived") == "true"
+	includeUnavailable := r.URL.Query().Get("include_unavailable") == "true"
 	openData, err := h.deps.Comms.CommsRequest(ctx, "GET", "/channels", nil)
 	if err != nil {
 		writeJSON(w, 502, map[string]string{"error": err.Error()})
@@ -43,7 +44,11 @@ func (h *handler) listChannels(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		name, _ := ch["name"].(string)
-		if !includeArchived && isOrphanDMChannel(name, knownAgents) {
+		orphaned := isOrphanDMChannel(name, knownAgents)
+		if orphaned {
+			ch["availability"] = "unavailable"
+		}
+		if orphaned && !includeArchived && !includeUnavailable {
 			continue
 		}
 		if !seen[name] {
