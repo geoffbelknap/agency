@@ -5,7 +5,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { EmptyState } from '../components/EmptyState';
-import { Cable, ClipboardList, Settings, CheckCircle, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import { Cable, ClipboardList, Settings, CheckCircle, XCircle, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
 function mapConnector(raw: any): Connector {
@@ -49,12 +49,43 @@ function workItemStatusBadge(status: string) {
   return 'bg-secondary text-muted-foreground';
 }
 
+function connectorPollStatus(health: Record<string, unknown> | null, connectorName: string): Record<string, unknown> | null {
+  const connectors = health?.connectors;
+  if (connectors && typeof connectors === 'object' && !Array.isArray(connectors)) {
+    const value = (connectors as Record<string, unknown>)[connectorName];
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  }
+  const direct = health?.[connectorName];
+  return direct && typeof direct === 'object' && !Array.isArray(direct) ? direct as Record<string, unknown> : null;
+}
+
 export function Intake() {
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
+  const [pollHealth, setPollHealth] = useState<Record<string, unknown> | null>(null);
+  const [pollHealthLoading, setPollHealthLoading] = useState(false);
+  const [pollingConnector, setPollingConnector] = useState<string | null>(null);
 
   const [expandedConnector, setExpandedConnector] = useState<string | null>(null);
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
+
+  const loadWorkItems = async () => {
+    const data = await api.intake.items();
+    setWorkItems((data ?? []).map(mapWorkItem));
+  };
+
+  const loadPollHealth = async () => {
+    setPollHealthLoading(true);
+    try {
+      const data = await api.intake.pollHealth();
+      setPollHealth(data ?? {});
+    } catch (err: any) {
+      setPollHealth(null);
+      toast.error(`Failed to load polling health: ${err.message}`);
+    } finally {
+      setPollHealthLoading(false);
+    }
+  };
 
   useEffect(() => {
     api.connectors
@@ -62,10 +93,8 @@ export function Intake() {
       .then((data) => setConnectors((data ?? []).map(mapConnector)))
       .catch((err) => toast.error(`Failed to load connectors: ${err.message}`));
 
-    api.intake
-      .items()
-      .then((data) => setWorkItems((data ?? []).map(mapWorkItem)))
-      .catch((err) => toast.error(`Failed to load work items: ${err.message}`));
+    loadWorkItems().catch((err) => toast.error(`Failed to load work items: ${err.message}`));
+    loadPollHealth();
   }, []);
 
   const handleToggle = async (connector: Connector) => {
@@ -94,6 +123,22 @@ export function Intake() {
       toast.info(`"${connector.name}" status: ${result.state ?? JSON.stringify(result)}`);
     } catch (err: any) {
       toast.error(`Failed to get status: ${err.message}`);
+    }
+  };
+
+  const handlePollNow = async (connector: Connector) => {
+    try {
+      setPollingConnector(connector.name);
+      await api.intake.triggerPoll(connector.name);
+      toast.success(`Poll triggered for "${connector.name}"`);
+      await Promise.all([
+        loadWorkItems().catch((err) => toast.error(`Failed to refresh work items: ${err.message}`)),
+        loadPollHealth(),
+      ]);
+    } catch (err: any) {
+      toast.error(`Failed to trigger poll: ${err.message}`);
+    } finally {
+      setPollingConnector(null);
     }
   };
 
@@ -156,6 +201,27 @@ export function Intake() {
 
         {/* ── Connectors Tab ── */}
         <TabsContent value="connectors">
+          <div className="bg-card border border-border rounded p-3 mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-sm font-medium text-foreground">Polling health</div>
+              <div className="text-xs text-muted-foreground">
+                {pollHealth
+                  ? 'Intake polling status is available for configured connectors.'
+                  : 'Polling status is unavailable until the intake service responds.'}
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs self-start sm:self-auto"
+              onClick={loadPollHealth}
+              disabled={pollHealthLoading}
+            >
+              <RefreshCw className={`w-3 h-3 mr-1 ${pollHealthLoading ? 'animate-spin' : ''}`} />
+              Refresh health
+            </Button>
+          </div>
+
           <div className="bg-card border border-border rounded overflow-hidden">
             {connectors.length === 0 ? (
               <EmptyState
@@ -167,6 +233,8 @@ export function Intake() {
               <div className="divide-y divide-border">
                 {connectors.map((connector) => {
                   const isExpanded = expandedConnector === connector.id;
+                  const pollStatus = connectorPollStatus(pollHealth, connector.name);
+                  const pollStatusText = String(pollStatus?.status ?? pollStatus?.state ?? 'unknown');
                   return (
                     <div key={connector.id}>
                       {/* Collapsed row — clickable button */}
@@ -231,10 +299,15 @@ export function Intake() {
                               </div>
                             </div>
                             <div>
-                              <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Version</div>
-                              <span className="text-xs text-foreground/80">{connector.version ?? '—'}</span>
+                              <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Poll Health</div>
+                              <span className="text-xs text-foreground/80 capitalize">{pollStatusText}</span>
                             </div>
                           </div>
+                          {pollStatus && (
+                            <pre className="font-mono text-[11px] bg-secondary/40 border border-border rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">
+                              {JSON.stringify(pollStatus, null, 2)}
+                            </pre>
+                          )}
                           <div className="flex gap-2">
                             <Button
                               variant="outline"
@@ -249,9 +322,27 @@ export function Intake() {
                               variant="outline"
                               size="sm"
                               className="h-7 text-xs"
+                              onClick={() => handleStatus(connector)}
+                            >
+                              Status
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs"
                               onClick={() => handleToggle(connector)}
                             >
                               {connector.state === 'active' ? 'Deactivate' : 'Activate'}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs"
+                              onClick={() => handlePollNow(connector)}
+                              disabled={pollingConnector === connector.name}
+                            >
+                              <RefreshCw className={`w-3 h-3 mr-1 ${pollingConnector === connector.name ? 'animate-spin' : ''}`} />
+                              {pollingConnector === connector.name ? 'Polling...' : 'Poll now'}
                             </Button>
                           </div>
                         </div>

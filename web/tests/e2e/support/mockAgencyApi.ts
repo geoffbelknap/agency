@@ -688,12 +688,20 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
       return;
     }
 
-    if (method === 'GET' && pathname === '/api/v1/intake/items') {
+    if (method === 'GET' && pathname === '/api/v1/events/intake/items') {
       await route.fulfill(json(workItems));
       return;
     }
-    if (method === 'GET' && pathname === '/api/v1/intake/stats') {
+    if (method === 'GET' && pathname === '/api/v1/events/intake/stats') {
       await route.fulfill(json({ total: 1, routed: 1 }));
+      return;
+    }
+    if (method === 'GET' && pathname === '/api/v1/hub/intake/poll-health') {
+      await route.fulfill(json({ connectors: {} }));
+      return;
+    }
+    if (method === 'POST' && pathname.startsWith('/api/v1/hub/intake/poll/')) {
+      await route.fulfill(json({ ok: true }));
       return;
     }
 

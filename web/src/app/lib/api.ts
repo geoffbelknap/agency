@@ -632,9 +632,12 @@ export const api = {
   intake: {
     items: (connector?: string) => {
       const params = connector ? `?connector=${connector}` : '';
-      return req<RawWorkItem[]>(`/intake/items${params}`);
+      return req<RawWorkItem[]>(`/events/intake/items${params}`);
     },
-    stats: () => req<Record<string, unknown>>('/intake/stats'),
+    stats: () => req<Record<string, unknown>>('/events/intake/stats'),
+    pollHealth: () => req<Record<string, unknown>>('/hub/intake/poll-health'),
+    triggerPoll: (connector: string) =>
+      req<Record<string, unknown>>(`/hub/intake/poll/${encodeURIComponent(connector)}`, { method: 'POST', body: '{}' }),
   },
 
   notifications: {

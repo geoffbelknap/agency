@@ -25,13 +25,13 @@ describe('Intake', () => {
 
   it('renders work items from API with stats', async () => {
     server.use(
-      http.get(`${BASE}/intake/items`, () =>
+      http.get(`${BASE}/events/intake/items`, () =>
         HttpResponse.json([
           { id: 'wi-1', status: 'unrouted', connector: 'github', source: 'github', summary: 'PR #42', created_at: '2026-03-16' },
           { id: 'wi-2', status: 'routed', connector: 'slack', source: 'slack', summary: 'Thread reply', created_at: '2026-03-16' },
         ]),
       ),
-      http.get(`${BASE}/intake/stats`, () =>
+      http.get(`${BASE}/events/intake/stats`, () =>
         HttpResponse.json({ pending: 1, processing: 0, done: 1, failed: 0 }),
       ),
     );
@@ -91,6 +91,36 @@ describe('Intake', () => {
     await userEvent.click(screen.getByRole('button', { name: /activate/i }));
     await waitFor(() => {
       expect(activated).toBe(true);
+    });
+  });
+
+  it('manually triggers connector polling', async () => {
+    let triggered = false;
+    server.use(
+      http.get(`${BASE}/hub/instances`, () =>
+        HttpResponse.json([
+          { id: 'c3', name: 'github-poll', kind: 'connector', source: 'hub:github-poll', state: 'active' },
+        ]),
+      ),
+      http.get(`${BASE}/hub/intake/poll-health`, () =>
+        HttpResponse.json({ connectors: { 'github-poll': { status: 'healthy', last_poll: '2026-04-09T20:00:00Z' } } }),
+      ),
+      http.post(`${BASE}/hub/intake/poll/github-poll`, () => {
+        triggered = true;
+        return HttpResponse.json({ ok: true, connector: 'github-poll' });
+      }),
+    );
+
+    renderWithRouter(<Intake />);
+    await waitFor(() => {
+      expect(screen.getByText('github-poll')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /github-poll/i }));
+    await userEvent.click(screen.getByRole('button', { name: /poll now/i }));
+
+    await waitFor(() => {
+      expect(triggered).toBe(true);
     });
   });
 });

@@ -125,7 +125,7 @@ Replace the flat table with expandable rows.
 ### Data Sources
 
 - Connectors: `GET /hub/instances?kind=connector` for state/version, connector YAML for routes/graph_ingest (via `/connectors/{name}/requirements` or `/hub/{nameOrID}` info)
-- Work items: `GET /intake/items` for work item list, `GET /intake/stats` for totals
+- Work items: `GET /events/intake/items` for work item list, `GET /events/intake/stats` for totals
 
 ### Files
 

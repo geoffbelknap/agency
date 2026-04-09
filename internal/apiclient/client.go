@@ -1030,7 +1030,7 @@ func (c *Client) ContextStatus(agent string) (map[string]interface{}, error) {
 // ── Intake ──────────────────────────────────────────────────────────────────
 
 func (c *Client) IntakeItems(connector string) ([]map[string]interface{}, error) {
-	path := "/api/v1/intake/items"
+	path := "/api/v1/events/intake/items"
 	if connector != "" {
 		path += "?connector=" + url.QueryEscape(connector)
 	}
@@ -1041,7 +1041,7 @@ func (c *Client) IntakeItems(connector string) ([]map[string]interface{}, error)
 
 func (c *Client) IntakeStats() (map[string]interface{}, error) {
 	var stats map[string]interface{}
-	err := c.GetJSON("/api/v1/intake/stats", &stats)
+	err := c.GetJSON("/api/v1/events/intake/stats", &stats)
 	return stats, err
 }
 
