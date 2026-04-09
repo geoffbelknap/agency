@@ -657,16 +657,16 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
       return;
     }
 
-    if (method === 'POST' && pathname === '/api/v1/deploy') {
+    if (method === 'POST' && pathname === '/api/v1/hub/deploy') {
       await route.fulfill(json({ ok: true, pack: 'agency-slack' }));
       return;
     }
-    if (method === 'POST' && pathname.startsWith('/api/v1/teardown/')) {
+    if (method === 'POST' && pathname.startsWith('/api/v1/hub/teardown/')) {
       await route.fulfill(json({ ok: true }));
       return;
     }
 
-    if (method === 'GET' && pathname.startsWith('/api/v1/connectors/') && pathname.endsWith('/requirements')) {
+    if (method === 'GET' && pathname.startsWith('/api/v1/hub/connectors/') && pathname.endsWith('/requirements')) {
       await route.fulfill(json({
         connector: 'slack-intake',
         ready: true,
@@ -675,7 +675,7 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
       }));
       return;
     }
-    if (method === 'POST' && pathname.startsWith('/api/v1/connectors/') && pathname.endsWith('/configure')) {
+    if (method === 'POST' && pathname.startsWith('/api/v1/hub/connectors/') && pathname.endsWith('/configure')) {
       await route.fulfill(json({ configured: [], auth_configured: true, egress_domains_added: [], ready: true }));
       return;
     }
@@ -727,7 +727,7 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
       await route.fulfill(json(events));
       return;
     }
-    if (method === 'GET' && pathname === '/api/v1/subscriptions') {
+    if (method === 'GET' && pathname === '/api/v1/events/subscriptions') {
       await route.fulfill(json([{ topic: 'mission.updated', destination: 'agency-geoff' }]));
       return;
     }
@@ -770,11 +770,11 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
       return;
     }
 
-    if (method === 'GET' && pathname === '/api/v1/egress/domains') {
+    if (method === 'GET' && pathname === '/api/v1/hub/egress/domains') {
       await route.fulfill(json(egressDomains));
       return;
     }
-    if (method === 'GET' && pathname.startsWith('/api/v1/egress/domains/')) {
+    if (method === 'GET' && pathname.startsWith('/api/v1/hub/egress/domains/')) {
       await route.fulfill(json(egressDomainDetail));
       return;
     }
@@ -782,19 +782,19 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
       await route.fulfill(json({ allowed_domains: ['api.anthropic.com', 'slack.com'] }));
       return;
     }
-    if (method === 'POST' && pathname === '/api/v1/audit/summarize') {
+    if (method === 'POST' && pathname === '/api/v1/admin/audit/summarize') {
       await route.fulfill(json({ metrics: [{ event: 'LLM_DIRECT', count: 1 }], count: 1 }));
       return;
     }
 
-    if (method === 'GET' && pathname === '/api/v1/providers') {
+    if (method === 'GET' && pathname === '/api/v1/infra/providers') {
       await route.fulfill(json([
         { id: 'anthropic', name: 'Anthropic', configured: true, validated: true },
         { id: 'openai', name: 'OpenAI', configured: false, validated: false },
       ]));
       return;
     }
-    if (method === 'GET' && pathname === '/api/v1/setup/config') {
+    if (method === 'GET' && pathname === '/api/v1/infra/setup/config') {
       await route.fulfill(json({
         providers: {
           anthropic: { configured: true, validated: true },
