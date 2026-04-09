@@ -151,6 +151,8 @@ export const handlers = [
   http.get(`${BASE}/graph/export`, () => HttpResponse.json([])),
   http.get(`${BASE}/graph/neighbors`, () => HttpResponse.json({ neighbors: [], edges: [] })),
   http.get(`${BASE}/graph/context`, () => HttpResponse.json({})),
+  http.get(`${BASE}/graph/pending`, () => HttpResponse.json({ pending: [] })),
+  http.post(`${BASE}/graph/review/:id`, () => HttpResponse.json({ ok: true })),
 
   // Capabilities
   http.get(`${BASE}/admin/capabilities`, () => HttpResponse.json([])),

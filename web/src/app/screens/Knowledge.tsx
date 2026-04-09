@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { formatDateTimeShort } from '../lib/time';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
-import { Search, Database, Sparkles, Check, X, RotateCcw } from 'lucide-react';
+import { Search, Database, Sparkles, Check, X, RotateCcw, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface QueryResult {
@@ -43,6 +43,39 @@ interface OntologyDecision {
   value: string;
   action: 'promote' | 'reject' | 'restore' | 'unknown';
   timestamp?: string;
+}
+
+interface PendingContribution {
+  id: string;
+  title: string;
+  subject?: string;
+  type?: string;
+  agent?: string;
+  confidence?: number;
+  summary?: string;
+  proposed?: string;
+  reason?: string;
+  createdAt?: string;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function firstString(record: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return undefined;
+}
+
+function firstNumber(record: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'number') return value;
+  }
+  return undefined;
 }
 
 function candidateValue(candidate: OntologyCandidate, fallback = 'candidate') {
@@ -133,6 +166,42 @@ function parseOntologyDecisions(raw: unknown): OntologyDecision[] {
     .filter((entry): entry is OntologyDecision => entry !== null);
 }
 
+function parsePendingContributions(raw: unknown): PendingContribution[] {
+  const record = asRecord(raw);
+  const entries = Array.isArray(raw)
+    ? raw
+    : Array.isArray(record.pending)
+      ? record.pending
+      : Array.isArray(record.items)
+        ? record.items
+        : Array.isArray(record.contributions)
+          ? record.contributions
+          : [];
+
+  return entries.map((entry, index) => {
+    const item = asRecord(entry);
+    const data = asRecord(item.data);
+    const proposal = asRecord(item.proposal);
+    const merged = { ...data, ...proposal, ...item };
+    const id = firstString(merged, ['id', 'uuid', 'contribution_id', 'node_id']) ?? `pending-${index}`;
+    const title = firstString(merged, ['title', 'name', 'label', 'subject', 'relation', 'kind']) ?? id;
+    const proposedValue = firstString(merged, ['proposed', 'value', 'object', 'target', 'content']);
+
+    return {
+      id,
+      title,
+      subject: firstString(merged, ['subject', 'source', 'node']),
+      type: firstString(merged, ['type', 'kind', 'relation']),
+      agent: firstString(merged, ['agent', 'source_agent', 'created_by', 'author']),
+      confidence: firstNumber(merged, ['confidence', 'score']),
+      summary: firstString(merged, ['summary', 'description', 'rationale']),
+      proposed: proposedValue,
+      reason: firstString(merged, ['reason', 'evidence']),
+      createdAt: firstString(merged, ['created_at', 'timestamp', 'created']),
+    };
+  });
+}
+
 export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string, kind: string) => void }) {
   const [queryText, setQueryText] = useState('');
   const [queryResults, setQueryResults] = useState<QueryResult[]>([]);
@@ -151,6 +220,21 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
   const [ontologyLoading, setOntologyLoading] = useState(false);
   const [ontologyDecisions, setOntologyDecisions] = useState<OntologyDecision[]>([]);
   const [ontologyActionLoading, setOntologyActionLoading] = useState<string | null>(null);
+  const [pendingContributions, setPendingContributions] = useState<PendingContribution[]>([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [reviewActionLoading, setReviewActionLoading] = useState<string | null>(null);
+
+  const loadPendingContributions = async () => {
+    try {
+      setPendingLoading(true);
+      const data = await api.knowledge.pending();
+      setPendingContributions(parsePendingContributions(data));
+    } catch {
+      setPendingContributions([]);
+    } finally {
+      setPendingLoading(false);
+    }
+  };
 
   const loadOntologyReviewData = async () => {
     try {
@@ -209,8 +293,22 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
     }
   };
 
+  const handleReviewContribution = async (contribution: PendingContribution, action: 'approve' | 'reject') => {
+    try {
+      setReviewActionLoading(`${contribution.id}:${action}`);
+      await api.knowledge.review(contribution.id, action);
+      toast.success(`${action === 'approve' ? 'Approved' : 'Rejected'} "${contribution.title}"`);
+      await loadPendingContributions();
+    } catch (e: any) {
+      toast.error(e.message || 'Review failed');
+    } finally {
+      setReviewActionLoading(null);
+    }
+  };
+
   useEffect(() => {
     loadOntologyReviewData();
+    loadPendingContributions();
     const loadStats = async () => {
       try {
         setStatsLoading(true);
@@ -416,6 +514,82 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
             )}
           </div>
         </div>
+      </div>
+
+      {/* Structural Review */}
+      <div className="bg-card border border-border rounded p-4 md:p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-foreground/80 flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4" />
+            Structural Review
+          </h2>
+          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={loadPendingContributions} disabled={pendingLoading}>
+            {pendingLoading ? '...' : 'Refresh'}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground mb-3">
+          Operator-owned review for proposed organizational knowledge changes before they affect structure, trust, or routing.
+        </p>
+        {pendingContributions.length === 0 ? (
+          <div className="text-sm text-muted-foreground text-center py-8">
+            No pending structural contributions
+          </div>
+        ) : (
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {pendingContributions.map((item) => (
+              <div key={item.id} className="bg-background border border-border rounded p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-medium text-foreground">{item.title}</span>
+                      {item.type && (
+                        <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                          {item.type}
+                        </span>
+                      )}
+                      {item.confidence != null && (
+                        <span className="text-[10px] text-muted-foreground">{Math.round(item.confidence * 100)}%</span>
+                      )}
+                    </div>
+                    {(item.subject || item.proposed) && (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {[item.subject, item.proposed].filter(Boolean).join(' -> ')}
+                      </div>
+                    )}
+                    {item.summary && (
+                      <div className="mt-2 text-xs text-muted-foreground/80">{item.summary}</div>
+                    )}
+                    <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground/70">
+                      <code>{item.id}</code>
+                      {item.agent && <span>agent: {item.agent}</span>}
+                      {item.createdAt && <span>{formatDateTimeShort(item.createdAt)}</span>}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-green-500 hover:text-green-400 hover:bg-green-950/30"
+                      onClick={() => handleReviewContribution(item, 'approve')}
+                      disabled={reviewActionLoading === `${item.id}:approve`}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-red-500 hover:text-red-400 hover:bg-red-950/30"
+                      onClick={() => handleReviewContribution(item, 'reject')}
+                      disabled={reviewActionLoading === `${item.id}:reject`}
+                    >
+                      Reject
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Ontology Candidates */}
