@@ -938,6 +938,17 @@ func registerAdminTools(reg *MCPToolRegistry) {
 				if err == nil {
 					raw, err = kp.Post(ctx, "/ontology/reject", map[string]string{"node_id": resolved})
 				}
+			case "ontology_restore":
+				val := mapStr(args, "value")
+				nodeID := mapStr(args, "node_id")
+				if val == "" && nodeID == "" {
+					return "Error: node_id or value is required for ontology_restore action", true
+				}
+				var resolved string
+				resolved, err = knowledge.ResolveOntologyCandidateID(ctx, kp, nodeID, val)
+				if err == nil {
+					raw, err = kp.Restore(ctx, resolved)
+				}
 			default:
 				return "Error: unknown action: " + action, true
 			}

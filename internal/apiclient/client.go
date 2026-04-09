@@ -764,6 +764,43 @@ func (c *Client) KnowledgeOntologyMigrate(from, to string) ([]byte, error) {
 	})
 }
 
+func (c *Client) KnowledgeOntologyCandidates() ([]byte, error) {
+	return c.Get("/api/v1/graph/ontology/candidates")
+}
+
+func (c *Client) KnowledgeOntologyPromote(nodeID, value string) ([]byte, error) {
+	body := map[string]string{}
+	if nodeID != "" {
+		body["node_id"] = nodeID
+	}
+	if value != "" {
+		body["value"] = value
+	}
+	return c.Post("/api/v1/graph/ontology/promote", body)
+}
+
+func (c *Client) KnowledgeOntologyReject(nodeID, value string) ([]byte, error) {
+	body := map[string]string{}
+	if nodeID != "" {
+		body["node_id"] = nodeID
+	}
+	if value != "" {
+		body["value"] = value
+	}
+	return c.Post("/api/v1/graph/ontology/reject", body)
+}
+
+func (c *Client) KnowledgeOntologyRestore(nodeID, value string) ([]byte, error) {
+	body := map[string]string{}
+	if nodeID != "" {
+		body["node_id"] = nodeID
+	}
+	if value != "" {
+		body["value"] = value
+	}
+	return c.Post("/api/v1/graph/ontology/restore", body)
+}
+
 // ── Policy ──────────────────────────────────────────────────────────────────
 
 func (c *Client) PolicyShow(agent string) (map[string]interface{}, error) {
@@ -927,6 +964,12 @@ func (c *Client) TeamShow(name string) (map[string]interface{}, error) {
 	var team map[string]interface{}
 	err := c.GetJSON("/api/v1/admin/teams/"+name, &team)
 	return team, err
+}
+
+func (c *Client) TeamDelete(name string) (map[string]string, error) {
+	var result map[string]string
+	err := c.DeleteJSON("/api/v1/admin/teams/"+name, &result)
+	return result, err
 }
 
 func (c *Client) TeamActivity(name string) ([]map[string]interface{}, error) {

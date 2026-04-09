@@ -5,8 +5,9 @@
 VERSION  ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo 0.0.0)
 COMMIT   := $(shell git rev-parse --short HEAD)
 DATE     := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-DIRTY    := $(shell git diff --quiet && git diff --cached --quiet || echo "-dirty")
-BUILD_ID := $(COMMIT)$(DIRTY)
+DIRTY_HASH := $(shell (git diff --no-ext-diff --binary; git diff --cached --no-ext-diff --binary) | shasum -a 256 | cut -c1-12)
+DIRTY_SUFFIX := $(shell git diff --quiet && git diff --cached --quiet || echo "-dirty.$(DIRTY_HASH)")
+BUILD_ID := $(COMMIT)$(DIRTY_SUFFIX)
 SOURCE_DIR := $(shell pwd)
 LDFLAGS  := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE) -X main.buildID=$(BUILD_ID) -X main.sourceDir=$(SOURCE_DIR)
 IMAGE_DIR = images

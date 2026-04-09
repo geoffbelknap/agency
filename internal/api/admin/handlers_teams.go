@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -99,6 +100,31 @@ func (h *handler) showTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, team)
+}
+
+func (h *handler) deleteTeam(w http.ResponseWriter, r *http.Request) {
+	name, ok := requireName(w, chi.URLParam(r, "name"))
+	if !ok {
+		return
+	}
+
+	teamDir := filepath.Join(h.deps.Config.Home, "teams", name)
+	if _, err := os.Stat(filepath.Join(teamDir, "team.yaml")); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			writeJSON(w, 404, map[string]string{"error": "team not found: " + name})
+			return
+		}
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if err := os.RemoveAll(teamDir); err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+
+	h.deps.Logger.Info("team deleted", "name", name)
+	writeJSON(w, 200, map[string]string{"status": "deleted", "name": name})
 }
 
 func (h *handler) teamActivity(w http.ResponseWriter, r *http.Request) {

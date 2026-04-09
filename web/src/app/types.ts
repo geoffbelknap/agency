@@ -70,6 +70,8 @@ export interface Channel {
   id: string;
   name: string;
   topic?: string;
+  type?: string;
+  state?: string;
   unreadCount: number;
   mentionCount: number;
   lastActivity: string;

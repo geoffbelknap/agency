@@ -7,11 +7,15 @@ import { Sheet, SheetContent } from '../ui/sheet';
 import { useIsMobile } from '../ui/use-mobile';
 import type { Channel } from '../../types';
 import { cn } from '../ui/utils';
+import { AgentStatusDot } from './AgentStatusDot';
+
+type DmStatus = 'running' | 'idle' | 'halted' | 'unknown';
 
 interface ChannelSidebarProps {
   channels: Channel[];
   selectedChannel: Channel | null;
   onSelect: (channel: Channel) => void;
+  dmStatuses?: Record<string, DmStatus>;
   onCreateChannel?: () => void;
   onBrowseChannels?: () => void;
   mobileOpen?: boolean;
@@ -83,6 +87,7 @@ function SidebarContent({
   channels,
   selectedChannel,
   onSelect,
+  dmStatuses,
   onCreateChannel,
 }: Omit<ChannelSidebarProps, 'mobileOpen' | 'onMobileClose' | 'onBrowseChannels'> & { onBrowseChannels?: () => void }) {
   const [filter, setFilter] = useState('');
@@ -134,6 +139,7 @@ function SidebarContent({
             <SidebarSection title="Direct Messages">
               {grouped.dms.map((ch) => {
                 const isActive = ch.id === selectedChannel?.id;
+                const dmName = dmDisplayName(ch.name);
                 return (
                   <button
                     key={ch.id}
@@ -144,11 +150,9 @@ function SidebarContent({
                       isActive && 'bg-accent',
                     )}
                   >
-                    <span className="relative shrink-0">
-                      <span className="block h-2 w-2 rounded-full bg-emerald-500" />
-                    </span>
+                    <AgentStatusDot status={dmStatuses?.[dmName] ?? 'unknown'} className="shrink-0" />
                     <span className={cn('flex-1 truncate font-medium', ch.unreadCount > 0 && 'text-white')}>
-                      {dmDisplayName(ch.name)}
+                      {dmName}
                     </span>
                     <div className="flex items-center gap-1 shrink-0">
                       {ch.unreadCount > 0 && (
@@ -207,6 +211,7 @@ export function ChannelSidebar({
   channels,
   selectedChannel,
   onSelect,
+  dmStatuses,
   onCreateChannel,
   onBrowseChannels,
   mobileOpen,
@@ -218,13 +223,14 @@ export function ChannelSidebar({
     return (
       <Sheet open={mobileOpen} onOpenChange={(open) => { if (!open) onMobileClose?.(); }}>
         <SheetContent side="left" className="p-0 w-72 bg-sidebar border-border">
-          <SidebarContent
-            channels={channels}
-            selectedChannel={selectedChannel}
-            onSelect={onSelect}
-            onCreateChannel={onCreateChannel}
-            onBrowseChannels={onBrowseChannels}
-          />
+        <SidebarContent
+          channels={channels}
+          selectedChannel={selectedChannel}
+          onSelect={onSelect}
+          dmStatuses={dmStatuses}
+          onCreateChannel={onCreateChannel}
+          onBrowseChannels={onBrowseChannels}
+        />
         </SheetContent>
       </Sheet>
     );
@@ -236,6 +242,7 @@ export function ChannelSidebar({
         channels={channels}
         selectedChannel={selectedChannel}
         onSelect={onSelect}
+        dmStatuses={dmStatuses}
         onCreateChannel={onCreateChannel}
         onBrowseChannels={onBrowseChannels}
       />

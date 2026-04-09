@@ -78,6 +78,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 		r.Get("/candidates", h.listOntologyCandidates)
 		r.Post("/promote", h.promoteOntologyCandidate)
 		r.Post("/reject", h.rejectOntologyCandidate)
+		r.Post("/restore", h.restoreOntologyCandidate)
 	})
 }
 

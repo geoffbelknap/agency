@@ -107,6 +107,15 @@ func TestRemoveNetwork_IgnoresNotFound(t *testing.T) {
 	}
 }
 
+func TestIsNetworkAlreadyExists(t *testing.T) {
+	if !IsNetworkAlreadyExists(errors.New("network with name agency-test already exists")) {
+		t.Fatal("expected already-exists error to match")
+	}
+	if IsNetworkAlreadyExists(errors.New("some other error")) {
+		t.Fatal("unexpected match for unrelated error")
+	}
+}
+
 func TestRemoveNetwork_PropagatesOtherErrors(t *testing.T) {
 	otherErr := errors.New("internal docker error")
 	mock := &mockNetworkAPI{

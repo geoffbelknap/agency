@@ -454,6 +454,7 @@ export const api = {
     show: (name: string) => req<RawTeam>(`/admin/teams/${name}`),
     create: (name: string, agents: string[]) =>
       req<OkResponse>('/admin/teams', { method: 'POST', body: JSON.stringify({ name, agents }) }),
+    delete: (name: string) => req<OkResponse>(`/admin/teams/${name}`, { method: 'DELETE' }),
     activity: (name: string) => req<RawAuditEntry[]>(`/admin/teams/${name}/activity`),
   },
 
@@ -683,11 +684,14 @@ export const api = {
     neighbors: (nodeId: string) => req<Record<string, unknown>>(`/graph/neighbors?node_id=${encodeURIComponent(nodeId)}`),
     context: (subject: string) => req<Record<string, unknown>>(`/graph/context?subject=${encodeURIComponent(subject)}`),
     ontologyCandidates: () =>
-      req<{ candidates: Array<{ id: string; value: string; count?: number; source?: string; status?: string }> }>('/graph/ontology/candidates'),
+      req<{ candidates: Array<{ id: string; value: string; count?: number; source?: string; status?: string; candidate_type?: string }> }>('/graph/ontology/candidates'),
     ontologyPromote: (nodeId: string, value: string) =>
       req<{ promoted: string; value: string }>('/graph/ontology/promote', { method: 'POST', body: JSON.stringify({ node_id: nodeId, value }) }),
     ontologyReject: (nodeId: string, value: string) =>
       req<{ rejected: string; value: string }>('/graph/ontology/reject', { method: 'POST', body: JSON.stringify({ node_id: nodeId, value }) }),
+    ontologyRestore: (nodeId: string, value = '') =>
+      req<Record<string, unknown>>('/graph/ontology/restore', { method: 'POST', body: JSON.stringify({ node_id: nodeId, value }) }),
+    curationLog: () => req<unknown>('/graph/curation-log'),
   },
 
   capabilities: {

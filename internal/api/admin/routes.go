@@ -61,6 +61,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Get("/api/v1/admin/teams", h.listTeams)
 	r.Post("/api/v1/admin/teams", h.createTeam)
 	r.Get("/api/v1/admin/teams/{name}", h.showTeam)
+	r.Delete("/api/v1/admin/teams/{name}", h.deleteTeam)
 	r.Get("/api/v1/admin/teams/{name}/activity", h.teamActivity)
 
 	// Capabilities

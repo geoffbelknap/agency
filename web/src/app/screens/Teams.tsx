@@ -3,7 +3,8 @@ import { api } from '../lib/api';
 import { Team } from '../types';
 import { formatDateTimeShort } from '../lib/time';
 import { Button } from '../components/ui/button';
-import { Plus, Users } from 'lucide-react';
+import { ConfirmDialog } from '../components/ConfirmDialog';
+import { Plus, Trash2, Users } from 'lucide-react';
 
 interface TeamActivity {
   id: string;
@@ -23,6 +24,8 @@ export function Teams() {
   const [newTeamName, setNewTeamName] = useState('');
   const [creating, setCreating] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [teamToDelete, setTeamToDelete] = useState<string | null>(null);
+  const [deletingTeam, setDeletingTeam] = useState(false);
 
   const loadTeams = async () => {
     try {
@@ -92,6 +95,26 @@ export function Teams() {
     }
   };
 
+  const handleDeleteTeam = async () => {
+    if (!teamToDelete) return;
+    try {
+      setDeletingTeam(true);
+      setError(null);
+      await api.teams.delete(teamToDelete);
+      setTeams((current) => current.filter((team) => team.name !== teamToDelete));
+      if (selectedTeam === teamToDelete) {
+        setSelectedTeam(null);
+        setActivity([]);
+        setMembers([]);
+      }
+      setTeamToDelete(null);
+    } catch (e: any) {
+      setError(e.message || 'Failed to delete team');
+    } finally {
+      setDeletingTeam(false);
+    }
+  };
+
   useEffect(() => {
     loadTeams();
   }, []);
@@ -154,12 +177,13 @@ export function Teams() {
                   <th className="text-left p-4 font-medium">Name</th>
                   <th className="text-left p-4 font-medium">Members</th>
                   <th className="text-left p-4 font-medium">Created</th>
+                  <th className="text-left p-4 font-medium sr-only">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {teams.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="p-12 text-center">
+                    <td colSpan={4} className="p-12 text-center">
                       <Users className="w-8 h-8 text-muted-foreground/70 mx-auto mb-3" />
                       <div className="text-sm text-muted-foreground mb-1">No teams yet</div>
                       <div className="text-xs text-muted-foreground/70">Create a team to group agents and coordinate work.</div>
@@ -186,10 +210,25 @@ export function Teams() {
                         <td className="p-4">
                           <span className="text-muted-foreground text-xs">{team.created}</span>
                         </td>
+                        <td className="p-4 w-0">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-muted-foreground hover:text-red-600"
+                            aria-label={`Delete team ${team.name}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setTeamToDelete(team.name);
+                            }}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </td>
                       </tr>
                       {selectedTeam === team.name && (
                         <tr className="border-b border-border">
-                          <td colSpan={3} className="p-4 bg-background">
+                          <td colSpan={4} className="p-4 bg-background">
                             {members.length > 0 && (
                               <div className="mb-3">
                                 <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Members</div>
@@ -229,6 +268,18 @@ export function Teams() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={teamToDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && !deletingTeam) setTeamToDelete(null);
+        }}
+        title={teamToDelete ? `Delete team "${teamToDelete}"?` : 'Delete team'}
+        description="This removes the team definition and any live test cleanup path that depends on it. This action cannot be undone."
+        confirmLabel={deletingTeam ? 'Deleting...' : 'Delete'}
+        variant="destructive"
+        onConfirm={handleDeleteTeam}
+      />
     </div>
   );
 }
