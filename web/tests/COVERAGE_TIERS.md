@@ -106,3 +106,10 @@ Suite location:
 - Infrastructure lifecycle actions
 - Setup wizard side effects
 - Danger Zone execution
+
+## Danger Guardrails
+
+- `live-danger` only runs with explicit opt-in.
+- Harness guard: `./scripts/e2e-live-web.sh --allow-danger --danger-confirm destroy-all --config playwright.live.danger.config.ts`
+- Direct Playwright guard: `AGENCY_E2E_ALLOW_DANGER=1 AGENCY_E2E_DANGER_CONFIRM=destroy-all`
+- The first destructive flow is `Destroy All`, and it is intended for disposable local stacks only.
