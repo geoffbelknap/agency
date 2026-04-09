@@ -2,7 +2,18 @@ export type AgentStatus = 'running' | 'stopped' | 'halted' | 'paused' | 'unhealt
 export type AgentMode = 'assisted' | 'autonomous';
 export type HealthStatus = 'healthy' | 'unhealthy' | 'idle' | 'starting' | 'stopping' | 'restarting';
 export type ServiceState = 'running' | 'stopped' | 'missing' | 'created' | 'restarting' | 'starting' | 'stopping' | 'exited' | 'dead';
-export type ComponentKind = 'pack' | 'preset' | 'connector' | 'skill' | 'policy' | 'workspace' | 'provider' | 'setup';
+export type ComponentKind =
+  | 'pack'
+  | 'preset'
+  | 'connector'
+  | 'service'
+  | 'mission'
+  | 'skill'
+  | 'workspace'
+  | 'policy'
+  | 'ontology'
+  | 'provider'
+  | 'setup';
 export type MessageFlag = 'DECISION' | 'BLOCKER' | 'QUESTION' | null;
 export type ConnectorState = 'active' | 'inactive';
 export type WorkItemState = 'pending' | 'processing' | 'done' | 'failed';

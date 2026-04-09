@@ -418,3 +418,35 @@ func TestDiscoverFindsProviderComponent(t *testing.T) {
 		t.Errorf("expected version 1.0.0, got %s", found.Version)
 	}
 }
+
+func TestDiscoverFindsMarkdownSkillComponent(t *testing.T) {
+	home := t.TempDir()
+	mgr := NewManager(home)
+
+	os.WriteFile(filepath.Join(home, "config.yaml"), []byte("hub:\n  sources:\n    - name: default\n      url: https://example.com\n"), 0644)
+
+	skillDir := filepath.Join(home, "hub-cache", "default", "skills", "code-review")
+	os.MkdirAll(skillDir, 0755)
+	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+name: code-review
+version: "1.0"
+description: Review code changes
+---
+
+# Code Review
+`), 0644)
+
+	results := mgr.Search("code-review", "skill")
+	if len(results) != 1 {
+		t.Fatalf("expected one skill search result, got %+v", results)
+	}
+	if results[0].Name != "code-review" || results[0].Kind != "skill" {
+		t.Fatalf("unexpected skill result: %+v", results[0])
+	}
+	if results[0].Version != "1.0" {
+		t.Fatalf("version = %q, want 1.0", results[0].Version)
+	}
+	if !strings.HasSuffix(results[0].Path, filepath.Join("skills", "code-review", "SKILL.md")) {
+		t.Fatalf("path = %q, want SKILL.md path", results[0].Path)
+	}
+}
