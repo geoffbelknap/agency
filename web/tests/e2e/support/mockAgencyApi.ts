@@ -527,7 +527,21 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
       await route.fulfill(json({ candidates: [{ id: 'candidate-rollout-readiness', value: 'rollout-readiness', count: 4, source: 'agent' }] }));
       return;
     }
-    if (method === 'POST' && /^\/api\/v1\/graph\/ontology\/(promote|reject)$/.test(pathname)) {
+    if (method === 'GET' && pathname === '/api/v1/graph/curation-log') {
+      await route.fulfill(json({
+        entries: [
+          {
+            id: 'curation-1',
+            action: 'ontology_reject',
+            node_id: 'candidate-rollout-readiness',
+            value: 'rollout-readiness',
+            timestamp: '2026-04-08T18:05:00Z',
+          },
+        ],
+      }));
+      return;
+    }
+    if (method === 'POST' && /^\/api\/v1\/graph\/ontology\/(promote|reject|restore)$/.test(pathname)) {
       await route.fulfill(json({ ok: true }));
       return;
     }
