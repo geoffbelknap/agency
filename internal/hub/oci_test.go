@@ -249,6 +249,12 @@ func TestOCILiveHubUpdateSearchInstallFlow(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, "hub-cache", "official", "connectors", "limacharlie", "connector.yaml")); err != nil {
 		t.Fatalf("expected cached connector file: %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(home, "hub-cache", "official", "pricing", "routing.yaml")); err != nil {
+		t.Fatalf("expected cached hub-managed routing file: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "hub-cache", "official", "skills", "code-review", "SKILL.md")); err != nil {
+		t.Fatalf("expected cached skill file: %v", err)
+	}
 
 	t.Run("install", func(t *testing.T) {
 		if !cosignInstalled() {
