@@ -136,4 +136,4 @@ e2e-live-web-risky:
 	@./scripts/e2e-live-web.sh --config playwright.live.risky.config.ts
 
 e2e-live-web-danger:
-	@./scripts/e2e-live-web.sh --config playwright.live.danger.config.ts
+	@./scripts/e2e-live-web.sh --allow-danger --danger-confirm destroy-all --config playwright.live.danger.config.ts

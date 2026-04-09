@@ -10,6 +10,8 @@ SKIP_BUILD="${AGENCY_E2E_SKIP_BUILD:-0}"
 SKIP_INFRA="${AGENCY_E2E_SKIP_INFRA:-0}"
 FORCE_RESTART="${AGENCY_E2E_FORCE_RESTART:-0}"
 FORCE_INFRA_UP="${AGENCY_E2E_FORCE_INFRA_UP:-0}"
+ALLOW_DANGER="${AGENCY_E2E_ALLOW_DANGER:-0}"
+DANGER_CONFIRM="${AGENCY_E2E_DANGER_CONFIRM:-}"
 
 usage() {
   cat <<'EOF'
@@ -20,6 +22,9 @@ Options:
   --skip-infra         Skip infra up and health orchestration
   --force-restart      Force a gateway restart even if health checks pass
   --force-infra-up     Force infra up even if shared services already look healthy
+  --allow-danger       Allow live-danger execution
+  --danger-confirm <token>
+                       Confirmation token for live-danger runs (expected: destroy-all)
   --config <path>      Playwright config file relative to web/
   -h, --help           Show this help
 
@@ -47,6 +52,18 @@ while [ "$#" -gt 0 ]; do
       FORCE_INFRA_UP=1
       shift
       ;;
+    --allow-danger)
+      ALLOW_DANGER=1
+      shift
+      ;;
+    --danger-confirm)
+      if [ "$#" -lt 2 ]; then
+        echo "--danger-confirm requires a confirmation token"
+        exit 1
+      fi
+      DANGER_CONFIRM="$2"
+      shift 2
+      ;;
     --config)
       if [ "$#" -lt 2 ]; then
         echo "--config requires a path"
@@ -72,6 +89,17 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+if [ "$PLAYWRIGHT_CONFIG" = "playwright.live.danger.config.ts" ]; then
+  if [ "$ALLOW_DANGER" != "1" ]; then
+    echo "Refusing to run live-danger without --allow-danger (or AGENCY_E2E_ALLOW_DANGER=1)."
+    exit 1
+  fi
+  if [ "$DANGER_CONFIRM" != "destroy-all" ]; then
+    echo "Refusing to run live-danger without --danger-confirm destroy-all."
+    exit 1
+  fi
+fi
 
 if [ -z "$AGENCY_BIN" ]; then
   if command -v agency >/dev/null 2>&1; then

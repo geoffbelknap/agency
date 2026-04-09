@@ -89,7 +89,7 @@ API requests to `/api/v1` and WebSocket connections on `/ws` are automatically p
 | `npm run test:e2e:live:headed` | Run live-stack Playwright with a visible browser |
 | `npm run test:e2e:live:safe` | Run the default safe live-stack suite |
 | `npm run test:e2e:live:risky` | Run opt-in live flows with higher operational risk |
-| `npm run test:e2e:live:danger` | Run explicit opt-in destructive live flows |
+| `npm run test:e2e:live:danger` | Run explicit opt-in destructive live flows with confirmation guards |
 
 Repo-root shortcuts:
 
@@ -100,7 +100,7 @@ Repo-root shortcuts:
 | `make web-test-all` | Run both default web verification tiers |
 | `make e2e-live-web-safe` | Run the default live-safe Playwright tier |
 | `make e2e-live-web-risky` | Run the opt-in live-risky tier |
-| `make e2e-live-web-danger` | Run the explicit live-danger tier |
+| `make e2e-live-web-danger` | Run the explicit live-danger tier with destroy confirmation guards |
 
 ## Browser E2E
 
@@ -136,6 +136,7 @@ Useful flag-driven variants:
 ```bash
 ./scripts/e2e-live-web.sh --skip-build tests/e2e-live
 ./scripts/e2e-live-web.sh --skip-build --config playwright.live.risky.config.ts tests/e2e-live-risky
+./scripts/e2e-live-web.sh --allow-danger --danger-confirm destroy-all --config playwright.live.danger.config.ts tests/e2e-live-danger
 ./scripts/e2e-live-web.sh --help
 ```
 
@@ -149,6 +150,7 @@ The mocked suite covers the full UI route surface with deterministic fixtures. T
   Opt-in coverage for flows like installs, connector activation, outbound notification sends, or other shared-environment mutations.
 - `live-danger`
   Explicit opt-in only for high-blast-radius flows such as full resets or destructive admin operations.
+  It requires `AGENCY_E2E_ALLOW_DANGER=1` and `AGENCY_E2E_DANGER_CONFIRM=destroy-all`, or the equivalent `--allow-danger --danger-confirm destroy-all` harness flags.
 
 See [tests/COVERAGE_TIERS.md](tests/COVERAGE_TIERS.md) for the current inventory and classification.
 
