@@ -155,6 +155,21 @@ export interface RawInfraStatus {
   components: RawInfraService[];
 }
 
+export interface RawInfraCapacity {
+  host_memory_mb: number;
+  host_cpu_cores: number;
+  system_reserve_mb: number;
+  infra_overhead_mb: number;
+  max_agents: number;
+  max_concurrent_meesks: number;
+  agent_slot_mb: number;
+  meeseeks_slot_mb: number;
+  network_pool_configured: boolean;
+  running_agents: number;
+  running_meeseeks: number;
+  available_slots: number;
+}
+
 export interface RawHubComponent {
   name?: string;
   component?: string;
@@ -553,6 +568,7 @@ export const api = {
     rebuild: (component: string) =>
       req<OkResponse>(`/infra/rebuild/${component}`, { method: 'POST', body: '{}' }),
     reload: () => req<OkResponse>('/infra/reload', { method: 'POST', body: '{}' }),
+    capacity: () => req<RawInfraCapacity>('/infra/capacity'),
   },
 
   hub: {

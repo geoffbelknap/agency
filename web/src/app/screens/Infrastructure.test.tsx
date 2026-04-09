@@ -42,6 +42,38 @@ describe('Infrastructure', () => {
     });
   });
 
+  it('renders host capacity from API', async () => {
+    server.use(
+      http.get(`${BASE}/infra/status`, () => HttpResponse.json(wrapInfra(infraServices))),
+      http.get(`${BASE}/infra/capacity`, () =>
+        HttpResponse.json({
+          host_memory_mb: 32768,
+          host_cpu_cores: 10,
+          system_reserve_mb: 4096,
+          infra_overhead_mb: 2048,
+          max_agents: 8,
+          max_concurrent_meesks: 3,
+          agent_slot_mb: 4096,
+          meeseeks_slot_mb: 2048,
+          network_pool_configured: true,
+          running_agents: 2,
+          running_meeseeks: 1,
+          available_slots: 5,
+        }),
+      ),
+    );
+
+    renderWithRouter(<Infrastructure />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Host Capacity')).toBeInTheDocument();
+      expect(screen.getByText('3 / 8')).toBeInTheDocument();
+      expect(screen.getByText('5 available')).toBeInTheDocument();
+      expect(screen.getByText('Configured')).toBeInTheDocument();
+      expect(screen.getByText('10 CPU cores')).toBeInTheDocument();
+    });
+  });
+
   it('restarts a service', async () => {
     let rebuilt = false;
     server.use(

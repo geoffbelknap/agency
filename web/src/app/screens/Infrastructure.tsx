@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { StatusIndicator } from '../components/StatusIndicator';
 import { InfrastructureService } from '../types';
 import { Button } from '../components/ui/button';
-import { api } from '../lib/api';
+import { api, type RawInfraCapacity } from '../lib/api';
 import { socket } from '../lib/ws';
 
 type InfraAction = 'start' | 'stop' | 'restart';
@@ -50,8 +50,21 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function formatGB(mb: number) {
+  if (!Number.isFinite(mb) || mb <= 0) return '0 GB';
+  return `${(mb / 1024).toFixed(1)} GB`;
+}
+
+function capacityPercent(capacity: RawInfraCapacity) {
+  if (!capacity.max_agents) return 0;
+  return Math.min(100, Math.round(((capacity.running_agents + capacity.running_meeseeks) / capacity.max_agents) * 100));
+}
+
 export function Infrastructure() {
   const [services, setServices] = useState<InfrastructureService[]>([]);
+  const [capacity, setCapacity] = useState<RawInfraCapacity | null>(null);
+  const [capacityError, setCapacityError] = useState<string | null>(null);
+  const [capacityLoading, setCapacityLoading] = useState(true);
   const [restarting, setRestarting] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [globalAction, setGlobalAction] = useState<InfraAction | null>(null);
@@ -82,11 +95,25 @@ export function Infrastructure() {
     }
   }, []);
 
+  const loadCapacity = useCallback(async () => {
+    setCapacityLoading(true);
+    try {
+      setCapacity(await api.infra.capacity());
+      setCapacityError(null);
+    } catch (err: any) {
+      setCapacity(null);
+      setCapacityError(err.message || 'Capacity config not available');
+    } finally {
+      setCapacityLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     load();
+    loadCapacity();
     const unsub = socket.on('infra_status', load);
     return () => { unsub(); };
-  }, [load]);
+  }, [load, loadCapacity]);
 
   const handleRestart = async (serviceId: string) => {
     setRestarting(serviceId);
@@ -134,6 +161,7 @@ export function Infrastructure() {
   };
 
   const healthyCount = services.filter((s) => s.health === 'healthy').length;
+  const usedSlots = capacity ? capacity.running_agents + capacity.running_meeseeks : 0;
   const hasRunningServices = services.some((service) => isRunningState(service.state));
   const primaryAction: InfraAction = hasRunningServices ? 'restart' : 'start';
   const primaryActionLabel =
@@ -167,12 +195,12 @@ export function Infrastructure() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => load()}
-            disabled={globalAction !== null || refreshing}
-            aria-label={refreshing ? 'Refreshing infrastructure' : 'Refresh infrastructure'}
+            onClick={() => { load(); loadCapacity(); }}
+            disabled={globalAction !== null || refreshing || capacityLoading}
+            aria-label={refreshing || capacityLoading ? 'Refreshing infrastructure' : 'Refresh infrastructure'}
           >
-            <RefreshCw className={`w-3 h-3 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
-            {refreshing ? 'Refreshing...' : 'Refresh'}
+            <RefreshCw className={`w-3 h-3 mr-1 ${refreshing || capacityLoading ? 'animate-spin' : ''}`} />
+            {refreshing || capacityLoading ? 'Refreshing...' : 'Refresh'}
           </Button>
           <Button
             variant="outline"
@@ -193,6 +221,55 @@ export function Infrastructure() {
             {globalAction === 'stop' ? 'Stopping...' : 'Stop All'}
           </Button>
         </div>
+      </div>
+
+      <div className="bg-card border border-border rounded overflow-hidden">
+        <div className="px-4 py-3 border-b border-border">
+          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Host Capacity</h3>
+          <p className="text-[10px] text-muted-foreground/70 mt-0.5">Agent and meeseeks slot budget enforced by the runtime</p>
+        </div>
+        {capacityLoading ? (
+          <div className="px-4 py-6 text-sm text-muted-foreground text-center">Loading capacity...</div>
+        ) : capacityError ? (
+          <div className="px-4 py-4 text-sm text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/20">
+            {capacityError}
+          </div>
+        ) : capacity && (
+          <div className="p-4 space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Slots Used</div>
+                <div className="text-lg font-semibold text-foreground">{usedSlots} / {capacity.max_agents}</div>
+                <div className="text-[10px] text-muted-foreground">{capacity.available_slots} available</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Agents</div>
+                <div className="text-lg font-semibold text-foreground">{capacity.running_agents}</div>
+                <div className="text-[10px] text-muted-foreground">{formatGB(capacity.agent_slot_mb)} each</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Meeseeks</div>
+                <div className="text-lg font-semibold text-foreground">{capacity.running_meeseeks}</div>
+                <div className="text-[10px] text-muted-foreground">{capacity.max_concurrent_meesks} max concurrent</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Memory</div>
+                <div className="text-lg font-semibold text-foreground">{formatGB(capacity.host_memory_mb)}</div>
+                <div className="text-[10px] text-muted-foreground">{formatGB(capacity.system_reserve_mb + capacity.infra_overhead_mb)} reserved</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Networks</div>
+                <div className={capacity.network_pool_configured ? 'text-lg font-semibold text-green-400' : 'text-lg font-semibold text-amber-400'}>
+                  {capacity.network_pool_configured ? 'Configured' : 'Default'}
+                </div>
+                <div className="text-[10px] text-muted-foreground">{capacity.host_cpu_cores} CPU cores</div>
+              </div>
+            </div>
+            <div className="h-2 rounded bg-secondary overflow-hidden" aria-label={`Capacity ${capacityPercent(capacity)}% used`}>
+              <div className="h-full bg-green-500" style={{ width: `${capacityPercent(capacity)}%` }} />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Services Table */}
