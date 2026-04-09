@@ -1,6 +1,7 @@
 package comms
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -25,6 +26,7 @@ func (h *handler) listChannels(w http.ResponseWriter, r *http.Request) {
 	var openChannels, dmChannels []map[string]interface{}
 	json.Unmarshal(openData, &openChannels)   //nolint:errcheck
 	json.Unmarshal(dmData, &dmChannels)        //nolint:errcheck
+	knownAgents := h.knownAgentNames(ctx)
 
 	seen := make(map[string]bool)
 	var merged []map[string]interface{}
@@ -41,6 +43,9 @@ func (h *handler) listChannels(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		name, _ := ch["name"].(string)
+		if !includeArchived && isOrphanDMChannel(name, knownAgents) {
+			continue
+		}
 		if !seen[name] {
 			merged = append(merged, ch)
 		}
@@ -52,6 +57,36 @@ func (h *handler) listChannels(w http.ResponseWriter, r *http.Request) {
 func channelState(ch map[string]interface{}) string {
 	state, _ := ch["state"].(string)
 	return strings.ToLower(state)
+}
+
+func (h *handler) knownAgentNames(ctx context.Context) map[string]struct{} {
+	known := make(map[string]struct{})
+	if h.deps.AgentManager == nil {
+		return known
+	}
+	agents, err := h.deps.AgentManager.List(ctx)
+	if err != nil {
+		return known
+	}
+	for _, agent := range agents {
+		if agent.Name == "" {
+			continue
+		}
+		known[agent.Name] = struct{}{}
+	}
+	return known
+}
+
+func isOrphanDMChannel(name string, knownAgents map[string]struct{}) bool {
+	if !strings.HasPrefix(name, "dm-") {
+		return false
+	}
+	agentName := strings.TrimPrefix(name, "dm-")
+	if agentName == "" {
+		return false
+	}
+	_, ok := knownAgents[agentName]
+	return !ok
 }
 
 func (h *handler) createChannel(w http.ResponseWriter, r *http.Request) {
