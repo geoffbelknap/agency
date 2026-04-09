@@ -340,6 +340,20 @@ const policyData = {
   },
 };
 
+const routingSuggestions = [
+  {
+    id: 'route-suggestion-1',
+    task_type: 'summarization',
+    current_model: 'claude-sonnet',
+    suggested_model: 'claude-haiku',
+    reason: 'claude-haiku costs 42.0% less than claude-sonnet for summarization tasks with 96% success rate',
+    savings_percent: 0.42,
+    savings_usd_per_1k: 0.018,
+    status: 'pending',
+    created_at: '2026-04-08T20:00:00Z',
+  },
+];
+
 function json(body: unknown, status = 200) {
   return {
     status,
@@ -875,6 +889,18 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
 
     if (method === 'GET' && pathname === '/api/v1/infra/routing/metrics') {
       await route.fulfill(json(usageMetrics));
+      return;
+    }
+    if (method === 'GET' && pathname === '/api/v1/infra/routing/suggestions') {
+      await route.fulfill(json(routingSuggestions));
+      return;
+    }
+    if (method === 'POST' && /^\/api\/v1\/infra\/routing\/suggestions\/[^/]+\/approve$/.test(pathname)) {
+      await route.fulfill(json({ ...routingSuggestions[0], status: 'approved' }));
+      return;
+    }
+    if (method === 'POST' && /^\/api\/v1\/infra\/routing\/suggestions\/[^/]+\/reject$/.test(pathname)) {
+      await route.fulfill(json({ id: 'route-suggestion-1', status: 'rejected' }));
       return;
     }
 

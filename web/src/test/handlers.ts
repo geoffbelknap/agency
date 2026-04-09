@@ -75,6 +75,23 @@ export const handlers = [
   http.post(`${BASE}/infra/rebuild/:component`, () => HttpResponse.json({ ok: true })),
   http.post(`${BASE}/infra/reload`, () => HttpResponse.json({ ok: true })),
   http.get(`${BASE}/infra/providers`, () => HttpResponse.json([])),
+  http.get(`${BASE}/infra/routing/metrics`, () =>
+    HttpResponse.json({
+      period: { since: '2026-04-08T00:00:00Z', until: '2026-04-09T00:00:00Z' },
+      totals: { requests: 0, input_tokens: 0, output_tokens: 0, total_tokens: 0, est_cost_usd: 0, errors: 0, avg_latency_ms: 0 },
+      by_agent: {},
+      by_model: {},
+      by_provider: {},
+      by_source: {},
+    }),
+  ),
+  http.get(`${BASE}/infra/routing/suggestions`, () => HttpResponse.json([])),
+  http.post(`${BASE}/infra/routing/suggestions/:id/approve`, ({ params }) =>
+    HttpResponse.json({ id: params.id, status: 'approved' }),
+  ),
+  http.post(`${BASE}/infra/routing/suggestions/:id/reject`, ({ params }) =>
+    HttpResponse.json({ id: params.id, status: 'rejected' }),
+  ),
   http.get(`${BASE}/infra/setup/config`, () =>
     HttpResponse.json({
       capability_tiers: {

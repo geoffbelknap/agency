@@ -2,8 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { Button } from '../components/ui/button';
 import { Calendar } from '../components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
-import { RefreshCw, CalendarIcon } from 'lucide-react';
+import { RefreshCw, CalendarIcon, Check, X } from 'lucide-react';
 import type { DateRange } from 'react-day-picker';
+import { toast } from 'sonner';
+import { api, type RawRoutingSuggestion } from '../lib/api';
 
 // Approximate pricing per million tokens (USD)
 const PRICING: Record<string, { input: number; output: number }> = {
@@ -76,6 +78,16 @@ function formatDateShort(d: Date): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+function formatSavingsPercent(value: number): string {
+  if (!Number.isFinite(value)) return '0%';
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatSavingsUSD(value: number): string {
+  if (!Number.isFinite(value)) return '$0.0000';
+  return `$${value.toFixed(4)}`;
+}
+
 async function fetchMetrics(since?: string, until?: string): Promise<RoutingMetrics> {
   const configRes = await fetch('/__agency/config');
   let base = '/api/v1';
@@ -98,6 +110,9 @@ async function fetchMetrics(since?: string, until?: string): Promise<RoutingMetr
 
 export function Usage() {
   const [metrics, setMetrics] = useState<RoutingMetrics | null>(null);
+  const [suggestions, setSuggestions] = useState<RawRoutingSuggestion[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(true);
+  const [suggestionAction, setSuggestionAction] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -134,7 +149,39 @@ export function Usage() {
     }
   }, [preset, dateRange]);
 
-  useEffect(() => { load(); }, []);
+  const loadSuggestions = useCallback(async () => {
+    setSuggestionsLoading(true);
+    try {
+      setSuggestions(await api.routing.suggestions('pending'));
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to load routing suggestions');
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  }, []);
+
+  async function handleSuggestionAction(id: string, action: 'approve' | 'reject') {
+    setSuggestionAction(`${action}:${id}`);
+    try {
+      if (action === 'approve') {
+        await api.routing.approveSuggestion(id);
+        toast.success('Routing suggestion approved');
+      } else {
+        await api.routing.rejectSuggestion(id);
+        toast.success('Routing suggestion rejected');
+      }
+      await loadSuggestions();
+    } catch (err: any) {
+      toast.error(err.message || `Failed to ${action} suggestion`);
+    } finally {
+      setSuggestionAction(null);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    loadSuggestions();
+  }, []);
 
   function handlePreset(p: RangePreset) {
     setPreset(p);
@@ -260,6 +307,73 @@ export function Usage() {
               <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Est. Cost</div>
               <div className="text-lg md:text-xl font-semibold text-green-400">{displayCost(t)}</div>
             </div>
+          </div>
+
+          <div className="bg-card border border-border rounded overflow-hidden">
+            <div className="px-4 py-3 border-b border-border flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Routing Suggestions</h3>
+                <p className="text-[10px] text-muted-foreground/70 mt-0.5">Pending optimizer recommendations for lower-cost model routing</p>
+              </div>
+              <Button variant="outline" size="sm" className="h-7 px-2 text-xs gap-1" onClick={loadSuggestions} disabled={suggestionsLoading}>
+                <RefreshCw className={`w-3 h-3 ${suggestionsLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+            </div>
+            {suggestionsLoading ? (
+              <div className="px-4 py-6 text-sm text-muted-foreground text-center">Loading routing suggestions...</div>
+            ) : suggestions.length === 0 ? (
+              <div className="px-4 py-6 text-sm text-muted-foreground text-center">No pending routing suggestions</div>
+            ) : (
+              <div className="divide-y divide-border">
+                {suggestions.map((s) => (
+                  <div key={s.id} className="px-4 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <code className="text-foreground">{s.task_type || 'unknown-task'}</code>
+                        <span className="text-muted-foreground/70">route</span>
+                        <code className="text-muted-foreground">{s.current_model || 'current'}</code>
+                        <span className="text-muted-foreground/70">to</span>
+                        <code className="text-green-400">{s.suggested_model || 'suggested'}</code>
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground break-words">{s.reason || 'No reason supplied.'}</div>
+                      <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-wide">
+                        <span className="rounded bg-green-950/40 text-green-300 border border-green-900/40 px-2 py-0.5">
+                          {formatSavingsPercent(s.savings_percent)} savings
+                        </span>
+                        <span className="rounded bg-secondary text-muted-foreground px-2 py-0.5">
+                          {formatSavingsUSD(s.savings_usd_per_1k)} / 1K calls
+                        </span>
+                        <span className="rounded bg-secondary text-muted-foreground px-2 py-0.5">{s.status}</span>
+                      </div>
+                    </div>
+                    {s.status === 'pending' && (
+                      <div className="flex gap-2 shrink-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-1"
+                          onClick={() => handleSuggestionAction(s.id, 'reject')}
+                          disabled={suggestionAction !== null}
+                        >
+                          <X className="w-3 h-3" />
+                          Reject
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="h-8 gap-1"
+                          onClick={() => handleSuggestionAction(s.id, 'approve')}
+                          disabled={suggestionAction !== null}
+                        >
+                          <Check className="w-3 h-3" />
+                          Approve
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Per-agent */}
