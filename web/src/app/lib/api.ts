@@ -621,9 +621,9 @@ export const api = {
     deactivate: (name: string) => req<OkResponse>(`/hub/${name}/deactivate`, { method: 'POST', body: '{}' }),
     status: (name: string) => req<RawConnector>(`/hub/${name}`),
     requirements: (name: string) =>
-      req<{ connector: string; version?: string; ready: boolean; credentials: unknown[]; auth?: unknown; egress_domains?: string[] }>(`/connectors/${name}/requirements`),
+      req<{ connector: string; version?: string; ready: boolean; credentials: unknown[]; auth?: unknown; egress_domains?: string[] }>(`/hub/connectors/${name}/requirements`),
     configure: (name: string, credentials: Record<string, string>) =>
-      req<{ configured: string[]; auth_configured: boolean; egress_domains_added: string[]; ready: boolean }>(`/connectors/${name}/configure`, {
+      req<{ configured: string[]; auth_configured: boolean; egress_domains_added: string[]; ready: boolean }>(`/hub/connectors/${name}/configure`, {
         method: 'POST',
         body: JSON.stringify({ credentials }),
       }),
@@ -659,7 +659,7 @@ export const api = {
       return req<RawEvent[]>(`/events?${params}`);
     },
     show: (id: string) => req<RawEvent>(`/events/${id}`),
-    subscriptions: () => req<Record<string, unknown>[]>('/subscriptions'),
+    subscriptions: () => req<Record<string, unknown>[]>('/events/subscriptions'),
   },
 
   meeseeks: {
@@ -726,11 +726,11 @@ export const api = {
   },
 
   providers: {
-    list: () => req<import('../types').Provider[]>('/providers'),
+    list: () => req<import('../types').Provider[]>('/infra/providers'),
   },
 
   setup: {
-    config: () => req<import('../types').SetupConfig>('/setup/config'),
+    config: () => req<import('../types').SetupConfig>('/infra/setup/config'),
   },
 
   init: (opts: { operator: string; force?: boolean; anthropic_api_key?: string; openai_api_key?: string }) =>
@@ -775,12 +775,12 @@ export const api = {
     model: (action: string, name?: string) =>
       req<OkResponse>('/admin/model', { method: 'POST', body: JSON.stringify({ action, name }) }),
     egressDomains: async () => {
-      const data = await req<{ domains: Array<{ domain: string; sources: Array<{ type: string; name: string; added_at?: string }>; auto_managed: boolean }> } | Array<unknown>>('/egress/domains');
+      const data = await req<{ domains: Array<{ domain: string; sources: Array<{ type: string; name: string; added_at?: string }>; auto_managed: boolean }> } | Array<unknown>>('/hub/egress/domains');
       return Array.isArray(data) ? data : (data as any).domains || [];
     },
     egressDomainProvenance: (domain: string) =>
-      req<{ domain: string; sources: Array<{ type: string; name: string; added_at?: string }>; auto_managed: boolean; active_dependents?: string[] }>(`/egress/domains/${encodeURIComponent(domain)}/provenance`),
+      req<{ domain: string; sources: Array<{ type: string; name: string; added_at?: string }>; auto_managed: boolean; active_dependents?: string[] }>(`/hub/egress/domains/${encodeURIComponent(domain)}/provenance`),
     auditSummarize: () =>
-      req<{ metrics: unknown[]; count: number }>('/audit/summarize', { method: 'POST', body: '{}' }),
+      req<{ metrics: unknown[]; count: number }>('/admin/audit/summarize', { method: 'POST', body: '{}' }),
   },
 };
