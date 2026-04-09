@@ -2956,7 +2956,7 @@ paths:
                 type: object
                 additionalProperties: true
 
-  /admin/knowledge:
+  /admin/graph:
     post:
       operationId: adminKnowledge
       summary: Administrative knowledge graph operations
@@ -5026,6 +5026,41 @@ paths:
       responses:
         "200":
           description: JSON snapshot of all principals
+    post:
+      operationId: registryRegister
+      summary: Register a principal
+      tags: [Admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, name]
+              properties:
+                type:
+                  type: string
+                name:
+                  type: string
+                parent:
+                  type: string
+                metadata:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "201":
+          description: Principal registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uuid:
+                    type: string
+                  type:
+                    type: string
+                  name:
+                    type: string
 
   /admin/registry/resolve:
     get:

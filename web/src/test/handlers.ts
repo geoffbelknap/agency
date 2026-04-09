@@ -328,6 +328,6 @@ export const handlers = [
   http.get(`${BASE}/admin/egress`, () => HttpResponse.json({ agent: 'test', domains: [] })),
   http.post(`${BASE}/admin/destroy`, () => HttpResponse.json({ ok: true })),
   http.post(`${BASE}/admin/department`, () => HttpResponse.json({ ok: true })),
-  http.post(`${BASE}/admin/knowledge/:action`, () => HttpResponse.json({ ok: true })),
+  http.post(`${BASE}/admin/graph`, () => HttpResponse.json({ ok: true })),
   http.post(`${BASE}/admin/model`, () => HttpResponse.json({ ok: true })),
 ];
