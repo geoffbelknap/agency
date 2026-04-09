@@ -139,6 +139,7 @@ Useful flag-driven variants:
 ./scripts/e2e-live-web.sh --skip-build --config playwright.live.risky.config.ts tests/e2e-live-risky
 ./scripts/e2e-live-web.sh --allow-danger --danger-confirm destroy-all --config playwright.live.danger.config.ts tests/e2e-live-danger
 ./scripts/e2e-live-danger-disposable.sh
+./scripts/e2e-live-danger-disposable.sh --skip-build tests/e2e-live-danger/destroy-all.spec.ts
 ./scripts/e2e-live-web.sh --help
 ```
 
@@ -153,7 +154,8 @@ The mocked suite covers the full UI route surface with deterministic fixtures. T
 - `live-danger`
   Explicit opt-in only for high-blast-radius flows such as full resets or destructive admin operations.
   It requires `AGENCY_E2E_ALLOW_DANGER=1` and `AGENCY_E2E_DANGER_CONFIRM=destroy-all`, or the equivalent `--allow-danger --danger-confirm destroy-all` harness flags.
-  For safer local execution, prefer `./scripts/e2e-live-danger-disposable.sh`, which clones the current Agency home to a temporary directory and runs the danger suite on alternate host ports.
+  For safer local execution, prefer `./scripts/e2e-live-danger-disposable.sh`, which clones the current Agency home to a temporary directory and runs the danger suite with an isolated infra namespace and alternate host ports.
+  Use `--skip-build` after rebuilding the local binary and images when iterating on the destructive flow itself.
 
 See [tests/COVERAGE_TIERS.md](tests/COVERAGE_TIERS.md) for the current inventory and classification.
 

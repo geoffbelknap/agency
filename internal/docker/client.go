@@ -47,7 +47,9 @@ func NewClient() (*Client, error) {
 
 // TryNewClient attempts to create a Docker client. Returns nil (not an error)
 // if Docker is unavailable — the gateway can start in degraded mode.
-func TryNewClient(logger interface{ Warn(msg string, keyvals ...any) }) *Client {
+func TryNewClient(logger interface {
+	Warn(msg string, keyvals ...any)
+}) *Client {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		logger.Warn("Docker client unavailable, starting in degraded mode", "err", err)
@@ -119,6 +121,7 @@ type InfraComponent struct {
 
 func (c *Client) InfraStatus(ctx context.Context) ([]InfraComponent, error) {
 	components := []string{"egress", "comms", "knowledge", "intake", "web-fetch", "web", "embeddings"}
+	instance := strings.Trim(strings.ToLower(os.Getenv("AGENCY_INFRA_INSTANCE")), "-")
 
 	// Single ContainerList call is ~50ms vs seconds for individual inspects on WSL2
 	containers, err := c.cli.ContainerList(ctx, container.ListOptions{
@@ -140,7 +143,11 @@ func (c *Client) InfraStatus(ctx context.Context) ([]InfraComponent, error) {
 		for _, n := range ctr.Names {
 			n = strings.TrimPrefix(n, "/")
 			for _, comp := range components {
-				if n == prefix+"-infra-"+comp {
+				expected := prefix + "-infra-" + comp
+				if instance != "" {
+					expected += "-" + instance
+				}
+				if n == expected {
 					ic := InfraComponent{Name: comp, State: ctr.State}
 					if ctr.Status != "" && strings.Contains(ctr.Status, "healthy") {
 						ic.Health = "healthy"

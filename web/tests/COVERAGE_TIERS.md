@@ -36,6 +36,11 @@ Explicit opt-in only. Covers high-blast-radius actions that can destroy shared s
 Suite location:
 - `tests/e2e-live-danger/`
 
+Recommended runner:
+- `./scripts/e2e-live-danger-disposable.sh`
+
+The disposable runner clones the current Agency home, assigns an isolated infra namespace, binds alternate host ports, and then runs the guarded danger suite. `Destroy All` tears down the web proxy serving the browser, so live-danger browser assertions verify the explicit confirmation and resulting web shutdown rather than expecting a same-origin response body to survive teardown.
+
 ## Classification
 
 ### Safe

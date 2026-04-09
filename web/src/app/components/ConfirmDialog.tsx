@@ -8,6 +8,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from './ui/alert-dialog';
+import { useState } from 'react';
+import type { MouseEvent } from 'react';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -16,7 +18,7 @@ interface ConfirmDialogProps {
   description: string;
   confirmLabel?: string;
   variant?: 'default' | 'destructive';
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
 }
 
 export function ConfirmDialog({
@@ -28,6 +30,21 @@ export function ConfirmDialog({
   variant = 'default',
   onConfirm,
 }: ConfirmDialogProps) {
+  const [pending, setPending] = useState(false);
+
+  const handleConfirm = async (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    if (pending) return;
+
+    setPending(true);
+    try {
+      await onConfirm();
+      onOpenChange(false);
+    } finally {
+      setPending(false);
+    }
+  };
+
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent className="bg-card border-border">
@@ -42,14 +59,15 @@ export function ConfirmDialog({
             Cancel
           </AlertDialogCancel>
           <AlertDialogAction
-            onClick={onConfirm}
+            onClick={handleConfirm}
+            disabled={pending}
             className={
               variant === 'destructive'
                 ? 'bg-red-600 text-white hover:bg-red-700'
                 : undefined
             }
           >
-            {confirmLabel}
+            {pending ? 'Working...' : confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

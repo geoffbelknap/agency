@@ -41,9 +41,9 @@ func TestNetworkConstantsInDocs(t *testing.T) {
 
 	// These are the network constants from infra.go that should appear in docs.
 	networks := map[string]string{
-		"gatewayNet":   gatewayNet,
-		"egressIntNet": egressIntNet,
-		"egressExtNet": egressExtNet,
+		"baseGatewayNet":   baseGatewayNet,
+		"baseEgressIntNet": baseEgressIntNet,
+		"baseEgressExtNet": baseEgressExtNet,
 	}
 
 	for constName, netName := range networks {
