@@ -1,6 +1,7 @@
 package knowledge
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+//go:embed base-ontology.yaml
+var defaultBaseOntologyYAML []byte
 
 // EntityType defines a kind of entity in the knowledge graph.
 type EntityType struct {
@@ -36,9 +40,9 @@ type OntologyConfig struct {
 	Name              string                      `yaml:"name" json:"name"`
 	Description       string                      `yaml:"description,omitempty" json:"description,omitempty"`
 	LastModified      string                      `yaml:"last_modified,omitempty" json:"last_modified,omitempty"`
-	EntityTypes       map[string]EntityType        `yaml:"entity_types" json:"entity_types"`
-	RelationshipTypes map[string]RelationshipType  `yaml:"relationship_types" json:"relationship_types"`
-	Changelog         []ChangelogEntry             `yaml:"changelog,omitempty" json:"changelog,omitempty"`
+	EntityTypes       map[string]EntityType       `yaml:"entity_types" json:"entity_types"`
+	RelationshipTypes map[string]RelationshipType `yaml:"relationship_types" json:"relationship_types"`
+	Changelog         []ChangelogEntry            `yaml:"changelog,omitempty" json:"changelog,omitempty"`
 }
 
 // OntologyExtension is a hub-distributed ontology extension.
@@ -47,8 +51,8 @@ type OntologyExtension struct {
 	Kind              string                      `yaml:"kind"`
 	Description       string                      `yaml:"description,omitempty"`
 	Extends           string                      `yaml:"extends"`
-	EntityTypes       map[string]EntityType        `yaml:"entity_types,omitempty"`
-	RelationshipTypes map[string]RelationshipType  `yaml:"relationship_types,omitempty"`
+	EntityTypes       map[string]EntityType       `yaml:"entity_types,omitempty"`
+	RelationshipTypes map[string]RelationshipType `yaml:"relationship_types,omitempty"`
 }
 
 // LoadOntology reads the base ontology and merges any extensions from ontology.d/.
@@ -61,6 +65,10 @@ func LoadOntology(home string) (*OntologyConfig, error) {
 	data, err := os.ReadFile(basePath)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("read base ontology: %w", err)
+	}
+	if os.IsNotExist(err) {
+		data = defaultBaseOntologyYAML
+		err = nil
 	}
 	if err == nil {
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
@@ -133,17 +141,57 @@ func LoadOntology(home string) (*OntologyConfig, error) {
 	return &cfg, nil
 }
 
+// EnsureBaseOntology writes the embedded base ontology if the operator does not
+// already have one. Existing files are operator-owned and are never overwritten.
+func EnsureBaseOntology(home string) error {
+	knowledgeDir := filepath.Join(home, "knowledge")
+	if err := os.MkdirAll(knowledgeDir, 0755); err != nil {
+		return fmt.Errorf("create knowledge dir: %w", err)
+	}
+
+	basePath := filepath.Join(knowledgeDir, "base-ontology.yaml")
+	if info, err := os.Stat(basePath); err == nil {
+		if info.IsDir() {
+			return fmt.Errorf("base ontology path %s is a directory", basePath)
+		}
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect base ontology: %w", err)
+	}
+
+	if err := os.WriteFile(basePath, defaultBaseOntologyYAML, 0644); err != nil {
+		return fmt.Errorf("write base ontology: %w", err)
+	}
+	return nil
+}
+
 // WriteOntology writes the merged ontology to ~/.agency/knowledge/ontology.yaml.
 func WriteOntology(home string, cfg *OntologyConfig) error {
 	knowledgeDir := filepath.Join(home, "knowledge")
 	os.MkdirAll(knowledgeDir, 0755)
+	ontologyPath := filepath.Join(knowledgeDir, "ontology.yaml")
 
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("marshal ontology: %w", err)
 	}
 
-	return os.WriteFile(filepath.Join(knowledgeDir, "ontology.yaml"), data, 0644)
+	if info, err := os.Stat(ontologyPath); err == nil && info.IsDir() {
+		entries, err := os.ReadDir(ontologyPath)
+		if err != nil {
+			return fmt.Errorf("inspect ontology path: %w", err)
+		}
+		if len(entries) > 0 {
+			return fmt.Errorf("ontology path %s is a non-empty directory", ontologyPath)
+		}
+		if err := os.Remove(ontologyPath); err != nil {
+			return fmt.Errorf("repair ontology path: %w", err)
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("inspect ontology path: %w", err)
+	}
+
+	return os.WriteFile(ontologyPath, data, 0644)
 }
 
 // ValidateNode checks if a kind string matches the ontology. Returns:
@@ -164,68 +212,68 @@ func ValidateNode(kind string, ontology *OntologyConfig) (string, bool) {
 
 	// Common aliases / fuzzy matches
 	aliases := map[string]string{
-		"agent":       "system",
-		"application": "system",
-		"app":         "software",
-		"platform":    "system",
-		"database":    "system",
-		"repository":  "system",
-		"repo":        "system",
-		"topic":       "concept",
-		"idea":        "concept",
-		"notion":      "concept",
-		"observation": "finding",
-		"discovery":   "finding",
-		"insight":     "finding",
-		"issue":       "incident",
-		"bug":         "incident",
-		"problem":     "incident",
-		"choice":      "decision",
+		"agent":               "system",
+		"application":         "system",
+		"app":                 "software",
+		"platform":            "system",
+		"database":            "system",
+		"repository":          "system",
+		"repo":                "system",
+		"topic":               "concept",
+		"idea":                "concept",
+		"notion":              "concept",
+		"observation":         "finding",
+		"discovery":           "finding",
+		"insight":             "finding",
+		"issue":               "incident",
+		"bug":                 "incident",
+		"problem":             "incident",
+		"choice":              "decision",
 		"resolution_decision": "decision",
-		"company":     "organization",
-		"org":         "organization",
-		"vendor":      "organization",
-		"department":  "organization",
-		"member":      "person",
-		"user":        "person",
-		"operator":    "person",
-		"customer":    "person",
-		"workflow":    "process",
-		"runbook":     "process",
-		"sop":         "process",
-		"ticket":      "task",
-		"pr":          "task",
-		"pull_request": "task",
-		"meeting":     "event",
-		"deadline":    "event",
-		"release":     "event",
-		"milestone":   "event",
-		"fix":         "resolution",
-		"patch":       "resolution",
-		"hotfix":      "resolution",
-		"hack":        "workaround",
-		"temp_fix":    "workaround",
-		"doc":         "document",
-		"spec":        "document",
-		"report":      "document",
-		"wiki":        "document",
-		"policy":      "rule",
-		"kpi":         "metric",
-		"sla":         "metric",
-		"link":        "url",
-		"reference":   "url",
-		"file":        "artifact",
-		"dashboard":   "artifact",
-		"api":         "service",
-		"endpoint":    "service",
-		"term":        "terminology",
-		"jargon":      "terminology",
-		"concern":     "risk",
-		"threat":      "risk",
-		"note":        "fact",
-		"info":        "fact",
-		"information": "fact",
-		"data":        "fact",
+		"company":             "organization",
+		"org":                 "organization",
+		"vendor":              "organization",
+		"department":          "organization",
+		"member":              "person",
+		"user":                "person",
+		"operator":            "person",
+		"customer":            "person",
+		"workflow":            "process",
+		"runbook":             "process",
+		"sop":                 "process",
+		"ticket":              "task",
+		"pr":                  "task",
+		"pull_request":        "task",
+		"meeting":             "event",
+		"deadline":            "event",
+		"release":             "event",
+		"milestone":           "event",
+		"fix":                 "resolution",
+		"patch":               "resolution",
+		"hotfix":              "resolution",
+		"hack":                "workaround",
+		"temp_fix":            "workaround",
+		"doc":                 "document",
+		"spec":                "document",
+		"report":              "document",
+		"wiki":                "document",
+		"policy":              "rule",
+		"kpi":                 "metric",
+		"sla":                 "metric",
+		"link":                "url",
+		"reference":           "url",
+		"file":                "artifact",
+		"dashboard":           "artifact",
+		"api":                 "service",
+		"endpoint":            "service",
+		"term":                "terminology",
+		"jargon":              "terminology",
+		"concern":             "risk",
+		"threat":              "risk",
+		"note":                "fact",
+		"info":                "fact",
+		"information":         "fact",
+		"data":                "fact",
 		// Asset inventory aliases
 		"package":   "software",
 		"library":   "software",

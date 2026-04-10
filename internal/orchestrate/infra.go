@@ -1652,6 +1652,10 @@ tiers:
 
 // mergeOntology loads the base ontology + extensions and writes the merged result.
 func (inf *Infra) mergeOntology() {
+	if err := knowledge.EnsureBaseOntology(inf.Home); err != nil {
+		inf.log.Warn("base ontology seed failed", "err", err)
+		return
+	}
 	cfg, err := knowledge.LoadOntology(inf.Home)
 	if err != nil {
 		inf.log.Warn("ontology merge failed", "err", err)
