@@ -252,19 +252,47 @@ func (inf *Infra) operatorNetName() string {
 	return inf.scopedName(baseOperatorNet)
 }
 
+func (inf *Infra) instanceLabel() string {
+	if inf.Instance == "" {
+		return "default"
+	}
+	return inf.Instance
+}
+
+func (inf *Infra) infraLabels(ctx context.Context, imageRef, component string) map[string]string {
+	buildID := ""
+	if inf.cli != nil {
+		buildID = images.ImageBuildLabel(ctx, inf.cli, imageRef)
+	}
+	return map[string]string{
+		"agency.managed":       "true",
+		"agency.role":          "infra",
+		"agency.component":     component,
+		"agency.instance":      inf.instanceLabel(),
+		"agency.build.id":      buildID,
+		"agency.build.gateway": inf.BuildID,
+	}
+}
+
+func (inf *Infra) infraNetworkLabels(component string) map[string]string {
+	return map[string]string{
+		"agency.role":      "infra",
+		"agency.component": component,
+		"agency.instance":  inf.instanceLabel(),
+	}
+}
+
 // serviceLabels returns Docker labels for service discovery.
 func (inf *Infra) serviceLabels(ctx context.Context, imageRef, serviceName, port string) map[string]string {
 	cname := inf.containerName(serviceName)
-	return map[string]string{
-		services.LabelServiceEnabled: "true",
-		services.LabelServiceName:    serviceName,
-		services.LabelServicePort:    port,
-		services.LabelServiceHealth:  "/health",
-		services.LabelServiceNetwork: inf.gatewayNetName(),
-		services.LabelServiceHMAC:    services.GenerateHMAC(cname, inf.hmacKey),
-		"agency.build.id":            images.ImageBuildLabel(ctx, inf.cli, imageRef),
-		"agency.build.gateway":       inf.BuildID,
-	}
+	labels := inf.infraLabels(ctx, imageRef, serviceName)
+	labels[services.LabelServiceEnabled] = "true"
+	labels[services.LabelServiceName] = serviceName
+	labels[services.LabelServicePort] = port
+	labels[services.LabelServiceHealth] = "/health"
+	labels[services.LabelServiceNetwork] = inf.gatewayNetName()
+	labels[services.LabelServiceHMAC] = services.GenerateHMAC(cname, inf.hmacKey)
+	return labels
 }
 
 // ProgressFunc is called with component name and status during infrastructure startup.
@@ -609,11 +637,11 @@ func (inf *Infra) ensureNetworks(ctx context.Context) error {
 			var err error
 			switch {
 			case n.name == inf.gatewayNetName() || n.name == inf.egressIntNetName():
-				err = containers.CreateMediationNetwork(ctx, inf.cli, n.name, nil)
+				err = containers.CreateMediationNetwork(ctx, inf.cli, n.name, inf.infraNetworkLabels(n.name))
 			case n.name == inf.operatorNetName():
-				err = containers.CreateOperatorNetwork(ctx, inf.cli, n.name, nil)
+				err = containers.CreateOperatorNetwork(ctx, inf.cli, n.name, inf.infraNetworkLabels(n.name))
 			default:
-				err = containers.CreateEgressNetwork(ctx, inf.cli, n.name, nil)
+				err = containers.CreateEgressNetwork(ctx, inf.cli, n.name, inf.infraNetworkLabels(n.name))
 			}
 			if err != nil {
 				return fmt.Errorf("create network %s: %w", n.name, err)
@@ -678,13 +706,7 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 				"8204/tcp": struct{}{},
 				"8205/tcp": struct{}{},
 			},
-			Labels: map[string]string{
-				"agency.managed":       "true",
-				"agency.role":          "infra",
-				"agency.component":     "gateway-proxy",
-				"agency.build.id":      images.ImageBuildLabel(ctx, inf.cli, defaultImages["gateway-proxy"]),
-				"agency.build.gateway": inf.BuildID,
-			},
+			Labels: inf.infraLabels(ctx, defaultImages["gateway-proxy"], "gateway-proxy"),
 		},
 		hc, netCfg,
 	); err != nil {
@@ -1153,13 +1175,7 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 				"AGENCY_GATEWAY_PORT": inf.gatewayPort(),
 				"AGENCY_WEB_LISTEN":   inf.webListenAddr(),
 			}),
-			Labels: map[string]string{
-				"agency.managed":       "true",
-				"agency.role":          "infra",
-				"agency.component":     "web",
-				"agency.build.id":      images.ImageBuildLabel(ctx, inf.cli, defaultImages["web"]),
-				"agency.build.gateway": inf.BuildID,
-			},
+			Labels: inf.infraLabels(ctx, defaultImages["web"], "web"),
 			Healthcheck:  inf.webHealthCheck(),
 			ExposedPorts: nat.PortSet{"8280/tcp": struct{}{}},
 		},
@@ -1210,13 +1226,7 @@ func (inf *Infra) ensureRelay(ctx context.Context) error {
 			Env: []string{
 				"AGENCY_HOME=/home/relay/.agency",
 			},
-			Labels: map[string]string{
-				"agency.managed":       "true",
-				"agency.role":          "infra",
-				"agency.component":     "relay",
-				"agency.build.id":      images.ImageBuildLabel(ctx, inf.cli, defaultImages["relay"]),
-				"agency.build.gateway": inf.BuildID,
-			},
+			Labels: inf.infraLabels(ctx, defaultImages["relay"], "relay"),
 		},
 		hc, nil,
 	); err != nil {
@@ -1264,17 +1274,12 @@ func (inf *Infra) ensureEmbeddings(ctx context.Context) error {
 	// Override memory: 3GB for model inference
 	hc.Resources.Memory = 3 * 1024 * 1024 * 1024
 
-	labels := map[string]string{
-		"agency.managed":       "true",
-		"agency.build.gateway": inf.BuildID,
-	}
-
 	if _, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
 		&container.Config{
 			Image:       defaultImages["embeddings"],
 			Hostname:    "embeddings",
-			Labels:      labels,
+			Labels:      inf.infraLabels(ctx, defaultImages["embeddings"], "embeddings"),
 			Healthcheck: defaultHealthChecks["embeddings"],
 		},
 		hc, nil,

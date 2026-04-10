@@ -1,6 +1,7 @@
 package orchestrate
 
 import (
+	"context"
 	"runtime"
 	"testing"
 )
@@ -36,6 +37,42 @@ func TestInfraContainerNameUsesInstance(t *testing.T) {
 	inf := &Infra{Instance: infraInstanceName()}
 	if got, want := inf.containerName("web"), "agency-infra-web-danger-home-abc"; got != want {
 		t.Fatalf("containerName(web) = %q, want %q", got, want)
+	}
+}
+
+func TestInfraInstanceLabelDefaultsWithoutInstance(t *testing.T) {
+	inf := &Infra{}
+	if got, want := inf.instanceLabel(), "default"; got != want {
+		t.Fatalf("instanceLabel() = %q, want %q", got, want)
+	}
+}
+
+func TestInfraLabelsIncludeInstanceAndComponent(t *testing.T) {
+	t.Setenv("AGENCY_INFRA_INSTANCE", "danger-home-abc")
+
+	inf := &Infra{Instance: infraInstanceName(), BuildID: "build-123"}
+	labels := inf.infraLabels(context.Background(), "agency-web:latest", "web")
+	if got, want := labels["agency.instance"], "danger-home-abc"; got != want {
+		t.Fatalf("agency.instance = %q, want %q", got, want)
+	}
+	if got, want := labels["agency.component"], "web"; got != want {
+		t.Fatalf("agency.component = %q, want %q", got, want)
+	}
+	if got, want := labels["agency.role"], "infra"; got != want {
+		t.Fatalf("agency.role = %q, want %q", got, want)
+	}
+}
+
+func TestServiceLabelsIncludeInfraInstance(t *testing.T) {
+	t.Setenv("AGENCY_INFRA_INSTANCE", "danger-home-abc")
+
+	inf := &Infra{Instance: infraInstanceName(), BuildID: "build-123", hmacKey: []byte("test")}
+	labels := inf.serviceLabels(context.Background(), "agency-comms:latest", "comms", "8080")
+	if got, want := labels["agency.instance"], "danger-home-abc"; got != want {
+		t.Fatalf("agency.instance = %q, want %q", got, want)
+	}
+	if got, want := labels["agency.managed"], "true"; got != want {
+		t.Fatalf("agency.managed = %q, want %q", got, want)
 	}
 }
 
