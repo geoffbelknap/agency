@@ -74,12 +74,15 @@ CLI commands use animated spinners (e.g., `⠋ Starting enforcement containers`)
 
 ### 6. `creds set` requires flags not documented in runbooks
 
+**Status:** Resolved in code after discovery.
 **Severity:** Medium
 **Location:** `internal/cli/commands.go`, `credsSetCmd()`
 
-Runbooks (initial-setup.md, validation-checklist.md) show `agency creds set <name> --value <value>` but the actual command requires `--name`, `--kind`, `--protocol`, and `--scope` flags. Provider credentials need: `--name ANTHROPIC_API_KEY --value sk-ant-... --kind provider --protocol api-key --scope platform`.
+Runbooks (initial-setup.md, validation-checklist.md) show `agency creds set <name> --value <value>` but the actual command required `--name`, `--kind`, `--protocol`, and `--scope` flags. Provider credentials needed: `--name ANTHROPIC_API_KEY --value sk-ant-... --kind provider --protocol api-key --scope platform`.
 
 **Impact:** Operators following the runbooks will get errors on credential setup.
+
+**Resolution:** `agency creds set <name> --value <value>` now works using provider/platform/api-key defaults. `--name`, `--kind`, `--scope`, and `--protocol` remain available for explicit advanced use.
 
 ---
 
@@ -109,10 +112,13 @@ Validation checklist says `agency hub search` (bare) should return results or em
 
 ### 9. Gateway PID file not written
 
+**Status:** Resolved in code after discovery.
 **Severity:** Low
 **Location:** Daemon startup code
 
 `~/.agency/gateway.pid` doesn't exist even though the daemon is running (PID 51214 on :8200). Multiple runbooks reference this file for health checks and shutdown. Either the PID file location changed or it's not being written.
+
+**Resolution:** The daemon and gateway both write `~/.agency/gateway.pid`, and daemon stop/status paths read or repair that file when possible.
 
 ---
 

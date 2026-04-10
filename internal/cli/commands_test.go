@@ -69,3 +69,78 @@ func TestWriteAgentListRejectsUnknownFormat(t *testing.T) {
 		t.Fatalf("error = %q, want unsupported format", err.Error())
 	}
 }
+
+func TestBuildCredentialSetBodyUsesPositionalName(t *testing.T) {
+	body, err := buildCredentialSetBody(credentialSetInput{
+		NameArg:  "GEMINI_API_KEY",
+		Value:    "secret",
+		Kind:     "provider",
+		Scope:    "platform",
+		Protocol: "api-key",
+	})
+	if err != nil {
+		t.Fatalf("buildCredentialSetBody returned error: %v", err)
+	}
+
+	if got := body["name"]; got != "GEMINI_API_KEY" {
+		t.Fatalf("name = %v, want GEMINI_API_KEY", got)
+	}
+	if got := body["kind"]; got != "provider" {
+		t.Fatalf("kind = %v, want provider", got)
+	}
+	if got := body["scope"]; got != "platform" {
+		t.Fatalf("scope = %v, want platform", got)
+	}
+	if got := body["protocol"]; got != "api-key" {
+		t.Fatalf("protocol = %v, want api-key", got)
+	}
+}
+
+func TestBuildCredentialSetBodyAllowsMatchingNameFlag(t *testing.T) {
+	body, err := buildCredentialSetBody(credentialSetInput{
+		NameArg:        "github-token",
+		NameFlag:       "github-token",
+		Value:          "secret",
+		Kind:           "service",
+		Scope:          "agent:henry",
+		Protocol:       "bearer",
+		Service:        "github",
+		Group:          "github-readonly",
+		ExternalScopes: "repo:read, issues:write",
+		Requires:       "GITHUB_APP_ID, GITHUB_PRIVATE_KEY",
+		ExpiresAt:      "2026-05-01T00:00:00Z",
+	})
+	if err != nil {
+		t.Fatalf("buildCredentialSetBody returned error: %v", err)
+	}
+
+	if got := body["service"]; got != "github" {
+		t.Fatalf("service = %v, want github", got)
+	}
+	if got := body["external_scopes"]; strings.Join(got.([]string), ",") != "repo:read,issues:write" {
+		t.Fatalf("external_scopes = %v, want trimmed scope list", got)
+	}
+	if got := body["requires"]; strings.Join(got.([]string), ",") != "GITHUB_APP_ID,GITHUB_PRIVATE_KEY" {
+		t.Fatalf("requires = %v, want trimmed dependency list", got)
+	}
+}
+
+func TestBuildCredentialSetBodyRejectsConflictingNames(t *testing.T) {
+	_, err := buildCredentialSetBody(credentialSetInput{
+		NameArg:  "one",
+		NameFlag: "two",
+		Value:    "secret",
+	})
+	if err == nil {
+		t.Fatal("expected conflicting names to fail")
+	}
+}
+
+func TestBuildCredentialSetBodyRequiresNameAndValue(t *testing.T) {
+	if _, err := buildCredentialSetBody(credentialSetInput{Value: "secret"}); err == nil {
+		t.Fatal("expected missing name to fail")
+	}
+	if _, err := buildCredentialSetBody(credentialSetInput{NameArg: "GEMINI_API_KEY"}); err == nil {
+		t.Fatal("expected missing value to fail")
+	}
+}
