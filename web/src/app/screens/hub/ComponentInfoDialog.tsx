@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { Component } from '../../types';
 import { Button } from '../../components/ui/button';
@@ -9,7 +10,37 @@ interface ComponentInfoDialogProps {
   onClose: () => void;
 }
 
+const value = (infoData: any, ...keys: string[]) => {
+  for (const key of keys) {
+    const found = infoData?.[key];
+    if (found !== undefined && found !== null && found !== '') return String(found);
+  }
+  return '';
+};
+
+const Row = ({ label, children }: { label: string; children?: ReactNode }) => {
+  if (!children) return null;
+  return (
+    <div className="grid grid-cols-[110px_1fr] gap-3 text-sm">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="text-foreground break-words">{children}</dd>
+    </div>
+  );
+};
+
 export function ComponentInfoDialog({ component, infoData, infoLoading, onClose }: ComponentInfoDialogProps) {
+  const name = value(infoData, 'name', 'component') || component.name;
+  const kind = value(infoData, '_kind', 'kind') || component.kind;
+  const source = value(infoData, '_source', 'source') || component.source;
+  const description = value(infoData, 'description');
+  const version = value(infoData, 'version');
+  const author = value(infoData, 'author');
+  const license = value(infoData, 'license');
+  const path = value(infoData, '_path');
+  const installedAt = value(infoData, '_installed_at', 'installed_at');
+  const installedSource = value(infoData, '_installed_source');
+  const isHubManaged = kind === 'setup' || kind === 'ontology';
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="fixed inset-0 bg-black/60" onClick={onClose} />
@@ -26,9 +57,31 @@ export function ComponentInfoDialog({ component, infoData, infoLoading, onClose 
         {infoLoading ? (
           <div className="text-sm text-muted-foreground py-4 text-center">Loading...</div>
         ) : infoData ? (
-          <pre className="font-mono text-xs text-muted-foreground bg-background rounded p-4 overflow-x-auto whitespace-pre-wrap">
-            {JSON.stringify(infoData, null, 2)}
-          </pre>
+          <div className="space-y-5">
+            <section className="rounded-lg border border-border bg-background/60 p-4">
+              <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">Component</h4>
+              <dl className="space-y-2">
+                <Row label="Name"><code>{name}</code></Row>
+                <Row label="Kind"><span className="capitalize">{kind}</span></Row>
+                <Row label="Version">{version || 'Not declared'}</Row>
+                <Row label="Description">{description}</Row>
+                <Row label="Author">{author}</Row>
+                <Row label="License">{license}</Row>
+              </dl>
+            </section>
+
+            <section className="rounded-lg border border-border bg-background/60 p-4">
+              <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">Trust & Provenance</h4>
+              <dl className="space-y-2">
+                <Row label="Source"><code>{source || 'Unknown'}</code></Row>
+                <Row label="Installed">{infoData._installed ? 'Yes' : 'No'}</Row>
+                <Row label="Installed At">{installedAt}</Row>
+                <Row label="Install Source">{installedSource}</Row>
+                <Row label="Management">{isHubManaged ? 'Managed by hub update/upgrade, not directly installed.' : 'Operator installable component.'}</Row>
+                <Row label="Cache Path"><code className="text-xs">{path}</code></Row>
+              </dl>
+            </section>
+          </div>
         ) : (
           <div className="text-sm text-muted-foreground py-4 text-center">No additional info available</div>
         )}

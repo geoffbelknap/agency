@@ -91,7 +91,7 @@ describe('Hub', () => {
           { name: 'openai', kind: 'provider', description: 'Installable provider' },
         ]),
       ),
-      http.get(`${BASE}/hub/info/:name`, ({ params }) =>
+      http.get(`${BASE}/hub/:name/info`, ({ params }) =>
         HttpResponse.json({ name: params.name, kind: params.name === 'openai' ? 'provider' : 'ontology' }),
       ),
     );
@@ -104,6 +104,41 @@ describe('Hub', () => {
 
     expect(screen.getByRole('button', { name: /install/i })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /view hub-managed info/i })).toHaveLength(2);
+  });
+
+  it('shows readable hub component provenance from the backend info route', async () => {
+    server.use(
+      http.get(`${BASE}/hub/instances`, () => HttpResponse.json([])),
+      http.get(`${BASE}/hub/search`, () =>
+        HttpResponse.json([
+          { name: 'default-wizard', kind: 'setup', description: 'Setup config', source: 'default' },
+        ]),
+      ),
+      http.get(`${BASE}/hub/:name/info`, ({ params }) =>
+        HttpResponse.json({
+          name: params.name,
+          kind: 'setup',
+          version: '1.0.0',
+          description: 'Setup config',
+          _source: 'default',
+          _kind: 'setup',
+          _path: '/tmp/agency/hub-cache/default/setup/default-wizard/setup.yaml',
+        }),
+      ),
+    );
+
+    renderWithRouter(<Hub />);
+
+    await waitFor(() => {
+      expect(screen.getByText('default-wizard')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('button', { name: /view hub-managed info/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Trust & Provenance')).toBeInTheDocument();
+      expect(screen.getByText('Managed by hub update/upgrade, not directly installed.')).toBeInTheDocument();
+      expect(screen.getByText('/tmp/agency/hub-cache/default/setup/default-wizard/setup.yaml')).toBeInTheDocument();
+    });
   });
 
   it('installs a component', async () => {

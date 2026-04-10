@@ -478,6 +478,34 @@ func TestDiscoverFindsSetupComponent(t *testing.T) {
 	}
 }
 
+func TestInfoIncludesInstalledProvenance(t *testing.T) {
+	home := t.TempDir()
+	mgr := NewManager(home)
+
+	os.WriteFile(filepath.Join(home, "config.yaml"), []byte("hub:\n  sources:\n    - name: default\n      url: https://example.com\n"), 0644)
+
+	setupDir := filepath.Join(home, "hub-cache", "default", "setup", "default-wizard")
+	os.MkdirAll(setupDir, 0755)
+	os.WriteFile(filepath.Join(setupDir, "setup.yaml"),
+		[]byte("name: default-wizard\nkind: setup\nversion: \"1.0\"\ndescription: Setup wizard\n"), 0644)
+	os.WriteFile(filepath.Join(home, "hub-installed.json"),
+		[]byte(`[{"name":"default-wizard","kind":"setup","source":"default","installed_at":"2026-04-10T17:00:00Z"}]`), 0644)
+
+	info, err := mgr.Info("default-wizard", "setup")
+	if err != nil {
+		t.Fatalf("Info returned error: %v", err)
+	}
+	if info["_installed"] != true {
+		t.Fatalf("expected installed provenance, got %+v", info)
+	}
+	if info["_installed_at"] != "2026-04-10T17:00:00Z" {
+		t.Fatalf("unexpected installed_at: %+v", info["_installed_at"])
+	}
+	if info["_installed_source"] != "default" {
+		t.Fatalf("unexpected installed source: %+v", info["_installed_source"])
+	}
+}
+
 func TestDiscoverFindsMarkdownSkillComponent(t *testing.T) {
 	home := t.TempDir()
 	mgr := NewManager(home)

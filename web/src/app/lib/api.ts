@@ -187,6 +187,7 @@ export interface RawHubComponent {
   name?: string;
   component?: string;
   kind: string;
+  version?: string;
   description?: string;
   source?: string;
   installed_at?: string;
@@ -605,7 +606,7 @@ export const api = {
     outdated: () => req<unknown[]>('/hub/outdated'),
     info: (name: string, kind?: string) => {
       const params = kind ? `?kind=${kind}` : '';
-      return req<RawHubComponent>(`/hub/info/${name}${params}`);
+      return req<RawHubComponent>(`/hub/${encodeURIComponent(name)}/info${params}`);
     },
   },
 
