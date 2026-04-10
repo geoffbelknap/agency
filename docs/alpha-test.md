@@ -28,10 +28,11 @@ Quickstart will:
 5. Create and start your first agent.
 6. Send a short demo task so you can see a response.
 
-When it finishes, open the Web UI:
+When it finishes, quickstart opens the browser directly to your new agent's chat and prints both the Web UI URL and the direct chat URL:
 
 ```text
-http://localhost:8280
+Web UI: http://localhost:8280
+Chat:   http://localhost:8280/channels/dm-henry
 ```
 
 After this point, stay in the Web UI unless the guide explicitly says to use the terminal. Developers, security operators, and advanced users can use the CLI heavily; basic alpha testers should treat it as setup and recovery tooling.
@@ -40,8 +41,8 @@ After this point, stay in the Web UI unless the guide explicitly says to use the
 
 In the Web UI:
 
-1. Open **Channels**.
-2. Find your agent under **Direct Messages**.
+1. Use the agent chat that quickstart opened, or open the printed **Chat** URL.
+2. If you are starting from `http://localhost:8280`, open **Channels** and find your agent under **Direct Messages**.
 3. Send one of these messages:
 
 ```text
@@ -64,8 +65,8 @@ agency send henry "What can you help me with? Give me three practical things to 
 
 ## What Good Looks Like
 
-- The Web UI opens at `http://localhost:8280`.
-- Your agent appears as running.
+- The browser opens to your first agent's chat, or the printed chat URL works.
+- Your agent appears as running and has an **AGENT** badge in Direct Messages.
 - The agent answers in its direct-message channel.
 - You can stop the agent from the Web UI.
 - If asked to check the terminal, `agency status` shows infrastructure running.
