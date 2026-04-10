@@ -155,10 +155,39 @@ stop_pid() {
   fi
 }
 
+setup_api_request() {
+  local method="$1"
+  local path="$2"
+  if [ -z "${AGENCY_GATEWAY_URL:-}" ]; then
+    return 1
+  fi
+  if [ -n "${AGENCY_SETUP_API_TOKEN:-}" ]; then
+    curl -fsS -X "$method" \
+      -H "Authorization: Bearer ${AGENCY_SETUP_API_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d '{}' \
+      "${AGENCY_GATEWAY_URL}/api/v1${path}" >/dev/null
+  else
+    curl -fsS -X "$method" \
+      -H "Content-Type: application/json" \
+      -d '{}' \
+      "${AGENCY_GATEWAY_URL}/api/v1${path}" >/dev/null
+  fi
+}
+
+cleanup_setup_agent() {
+  if [ -z "${AGENCY_SETUP_AGENT_NAME:-}" ]; then
+    return 0
+  fi
+  setup_api_request "DELETE" "/agents/${AGENCY_SETUP_AGENT_NAME}" >/dev/null 2>&1 || true
+  setup_api_request "POST" "/comms/channels/dm-${AGENCY_SETUP_AGENT_NAME}/archive" >/dev/null 2>&1 || true
+}
+
 cleanup() {
   local status="$?"
   trap - EXIT INT TERM HUP
   echo "==> Cleaning up setup wizard runtime"
+  cleanup_setup_agent
   if [ -n "${AGENCY_SETUP_AGENT_NAME:-}" ]; then
     docker rm -f "agency-${AGENCY_SETUP_AGENT_NAME}-workspace" "agency-${AGENCY_SETUP_AGENT_NAME}-enforcer" >/dev/null 2>&1 || true
     docker network rm "agency-${AGENCY_SETUP_AGENT_NAME}-internal" >/dev/null 2>&1 || true

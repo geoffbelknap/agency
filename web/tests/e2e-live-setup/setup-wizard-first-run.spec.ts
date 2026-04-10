@@ -37,6 +37,16 @@ async function waitForAgentReply(request: APIRequestContext, channel: string, ti
   throw new Error(`agent did not respond in ${channel} within ${timeoutMs}ms`);
 }
 
+async function cleanupSetupAgent(request: APIRequestContext) {
+  const channel = `dm-${agentName}`;
+  await request.delete(apiPath(`/agents/${agentName}`), { headers: apiHeaders }).catch(() => undefined);
+  await request.post(apiPath(`/comms/channels/${channel}/archive`), { headers: apiHeaders, data: {} }).catch(() => undefined);
+}
+
+test.afterEach(async ({ request }) => {
+  await cleanupSetupAgent(request);
+});
+
 test('first-run setup wizard reaches a live agent chat', async ({ page, request }) => {
   test.skip(!providerKey, 'AGENCY_SETUP_PROVIDER_API_KEY is required for the live setup wizard check');
 
@@ -85,7 +95,4 @@ test('first-run setup wizard reaches a live agent chat', async ({ page, request 
   }
 
   await expect(page.getByText(/Application Error|Something went wrong/)).toHaveCount(0);
-
-  await request.delete(apiPath(`/agents/${agentName}`), { headers: apiHeaders }).catch(() => undefined);
-  await request.post(apiPath(`/comms/channels/${channel}/archive`), { headers: apiHeaders, data: {} }).catch(() => undefined);
 });
