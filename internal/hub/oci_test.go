@@ -122,6 +122,42 @@ func TestMigratePreservesOtherSources(t *testing.T) {
 	}
 }
 
+func TestPruneLegacyOfficialCache(t *testing.T) {
+	cacheDir := t.TempDir()
+	officialDir := filepath.Join(cacheDir, "official")
+	if err := os.MkdirAll(filepath.Join(officialDir, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(officialDir, ".git", "config"), []byte("[remote \"origin\"]\n\turl = https://github.com/geoffbelknap/agency-hub.git\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := pruneLegacyOfficialCache(cacheDir, []Source{{Name: "default", Type: "oci", Registry: DefaultSource.Registry}}); err != nil {
+		t.Fatalf("prune legacy official cache: %v", err)
+	}
+	if _, err := os.Stat(officialDir); !os.IsNotExist(err) {
+		t.Fatalf("expected official cache to be removed, stat err=%v", err)
+	}
+}
+
+func TestPruneLegacyOfficialCacheKeepsConfiguredSource(t *testing.T) {
+	cacheDir := t.TempDir()
+	officialDir := filepath.Join(cacheDir, "official")
+	if err := os.MkdirAll(filepath.Join(officialDir, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(officialDir, ".git", "config"), []byte("[remote \"origin\"]\n\turl = https://github.com/geoffbelknap/agency-hub.git\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := pruneLegacyOfficialCache(cacheDir, []Source{{Name: "official", Type: "git", URL: "https://github.com/geoffbelknap/agency-hub.git"}}); err != nil {
+		t.Fatalf("prune legacy official cache: %v", err)
+	}
+	if _, err := os.Stat(officialDir); err != nil {
+		t.Fatalf("expected configured official cache to remain: %v", err)
+	}
+}
+
 func TestDefaultSourceIsOCI(t *testing.T) {
 	tmpDir := t.TempDir()
 	os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(""), 0644)
@@ -248,6 +284,31 @@ func TestCopyPulledFilePreservesCatalogPath(t *testing.T) {
 	}
 	if string(data) != "name: limacharlie\n" {
 		t.Fatalf("dest data = %q", string(data))
+	}
+}
+
+func TestRemoveLegacyGitMetadata(t *testing.T) {
+	sourceDir := t.TempDir()
+	gitDir := filepath.Join(sourceDir, ".git")
+	if err := os.MkdirAll(filepath.Join(gitDir, "objects"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	componentDir := filepath.Join(sourceDir, "providers", "gemini")
+	if err := os.MkdirAll(componentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(componentDir, "provider.yaml"), []byte("name: gemini\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := removeLegacyGitMetadata(sourceDir); err != nil {
+		t.Fatalf("remove legacy git metadata: %v", err)
+	}
+	if _, err := os.Stat(gitDir); !os.IsNotExist(err) {
+		t.Fatalf("expected .git to be removed, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(componentDir, "provider.yaml")); err != nil {
+		t.Fatalf("expected component cache to remain: %v", err)
 	}
 }
 

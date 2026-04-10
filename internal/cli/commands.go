@@ -1941,12 +1941,20 @@ func hubCmd() *cobra.Command {
 				fmt.Println(dim.Render("No hub sources configured"))
 				return nil
 			}
-			fmt.Printf("  %-15s %s\n", bold.Render("NAME"), bold.Render("URL"))
+			fmt.Printf("  %-15s %-8s %s\n", bold.Render("NAME"), bold.Render("TYPE"), bold.Render("LOCATION"))
 			for _, s := range sources {
 				sm, _ := s.(map[string]interface{})
 				name, _ := sm["name"].(string)
+				sourceType, _ := sm["type"].(string)
+				if sourceType == "" {
+					sourceType = "git"
+				}
 				url, _ := sm["url"].(string)
-				fmt.Printf("  %-15s %s\n", name, url)
+				location := url
+				if sourceType == "oci" {
+					location, _ = sm["registry"].(string)
+				}
+				fmt.Printf("  %-15s %-8s %s\n", name, sourceType, location)
 			}
 			return nil
 		},

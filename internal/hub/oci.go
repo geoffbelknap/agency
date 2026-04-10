@@ -199,6 +199,10 @@ func (c *ociClient) listTags(ctx context.Context, kind, name string) ([]string, 
 // not expose registry catalog enumeration reliably for package namespaces.
 // Registry catalog enumeration remains as a fallback for compatible registries.
 func (c *ociClient) syncOCISource(ctx context.Context, cacheDir, sourceName string) error {
+	if err := removeLegacyGitMetadata(filepath.Join(cacheDir, sourceName)); err != nil {
+		return err
+	}
+
 	if index, err := c.pullIndex(ctx); err == nil {
 		for _, entry := range index.Components {
 			if err := c.pullComponentEntry(ctx, entry, cacheDir, sourceName); err != nil {
@@ -256,6 +260,20 @@ func (c *ociClient) syncOCISource(ctx context.Context, cacheDir, sourceName stri
 		}
 	}
 
+	return nil
+}
+
+func removeLegacyGitMetadata(sourceDir string) error {
+	gitDir := filepath.Join(sourceDir, ".git")
+	if _, err := os.Stat(gitDir); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("oci: inspect legacy git metadata: %w", err)
+	}
+	if err := os.RemoveAll(gitDir); err != nil {
+		return fmt.Errorf("oci: remove legacy git metadata: %w", err)
+	}
 	return nil
 }
 

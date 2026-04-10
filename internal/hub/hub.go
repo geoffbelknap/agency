@@ -146,6 +146,9 @@ func (m *Manager) Update() (*UpdateReport, error) {
 	os.MkdirAll(cacheDir, 0755)
 
 	report := &UpdateReport{}
+	if err := pruneLegacyOfficialCache(cacheDir, cfg.Hub.Sources); err != nil {
+		report.Warnings = append(report.Warnings, err.Error())
+	}
 	for _, src := range cfg.Hub.Sources {
 		switch src.EffectiveType() {
 		case "oci":
@@ -1361,6 +1364,31 @@ func isLegacyOfficialHubSource(src Source) bool {
 		return false
 	}
 	return strings.Contains(src.URL, "agency-hub")
+}
+
+func pruneLegacyOfficialCache(cacheDir string, sources []Source) error {
+	for _, src := range sources {
+		if src.Name == "official" {
+			return nil
+		}
+	}
+
+	officialDir := filepath.Join(cacheDir, "official")
+	gitConfig := filepath.Join(officialDir, ".git", "config")
+	data, err := os.ReadFile(gitConfig)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("official: inspect legacy hub cache: %w", err)
+	}
+	if !strings.Contains(string(data), "github.com/geoffbelknap/agency-hub") {
+		return nil
+	}
+	if err := os.RemoveAll(officialDir); err != nil {
+		return fmt.Errorf("official: remove legacy hub cache: %w", err)
+	}
+	return nil
 }
 
 func (m *Manager) loadConfig() hubConfig {
