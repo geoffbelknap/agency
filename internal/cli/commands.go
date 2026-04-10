@@ -880,14 +880,20 @@ func showCmd() *cobra.Command {
 func channelCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "comms", Short: "Channel operations"}
 
-	cmd.AddCommand(&cobra.Command{
+	listCmd := &cobra.Command{
 		Use: "list", Short: "List channels",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
 				return err
 			}
-			channels, err := c.ListChannels()
+			includeArchived, _ := cmd.Flags().GetBool("include-archived")
+			includeUnavailable, _ := cmd.Flags().GetBool("include-unavailable")
+			includeInactive, _ := cmd.Flags().GetBool("include-inactive")
+			channels, err := c.ListChannelsWithOptions(
+				includeArchived || includeInactive,
+				includeUnavailable || includeInactive,
+			)
 			if err != nil {
 				return err
 			}
@@ -902,7 +908,11 @@ func channelCmd() *cobra.Command {
 			}
 			return nil
 		},
-	})
+	}
+	listCmd.Flags().Bool("include-archived", false, "Include archived channels")
+	listCmd.Flags().Bool("include-unavailable", false, "Include unavailable orphan DMs")
+	listCmd.Flags().Bool("include-inactive", false, "Include archived channels and unavailable orphan DMs")
+	cmd.AddCommand(listCmd)
 
 	readCmd := &cobra.Command{
 		Use: "read <name>", Short: "Read channel messages", Args: cobra.ExactArgs(1),

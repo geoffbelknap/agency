@@ -3,6 +3,16 @@ set -euo pipefail
 
 APPLY=0
 QUIET=0
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+if [ -n "${AGENCY_BIN:-}" ]; then
+  AGENCY_CLI="$AGENCY_BIN"
+elif [ -x "$ROOT_DIR/agency" ]; then
+  AGENCY_CLI="$ROOT_DIR/agency"
+else
+  AGENCY_CLI="agency"
+fi
 
 usage() {
   cat <<'EOF'
@@ -14,7 +24,9 @@ agency-oci-home.*, agency-operator-oci-home.*, or agency-setup-home.*.
 
 By default this is a dry run. Pass --apply to terminate only matched test
 runtime processes and remove scoped disposable infra/agent containers and
-networks.
+networks. When a local Agency gateway is available, it also archives matched
+disposable direct-message channels and deletes matching disposable agent
+records.
 EOF
 }
 
@@ -44,6 +56,10 @@ log() {
   if [ "$QUIET" != "1" ]; then
     printf '%s\n' "$*"
   fi
+}
+
+is_disposable_agent_name() {
+  printf '%s\n' "$1" | grep -Eq '^(alpha-(setup|readiness)-[0-9]+|playwright-agent-[0-9]+|e2e-test-agent)$'
 }
 
 is_test_runtime() {
@@ -140,5 +156,63 @@ if command -v docker >/dev/null 2>&1; then
       log "matched disposable infra networks: ${disposable_networks[*]}"
       log "Dry run only. Re-run with --apply to remove matched networks."
     fi
+  fi
+fi
+
+disposable_agents=()
+
+add_disposable_agent() {
+  local value="$1"
+  local existing
+  if [ "${#disposable_agents[@]}" -gt 0 ]; then
+    for existing in "${disposable_agents[@]}"; do
+      if [ "$existing" = "$value" ]; then
+        return 0
+      fi
+    done
+  fi
+  disposable_agents+=("$value")
+}
+
+if command -v docker >/dev/null 2>&1; then
+  while IFS= read -r name; do
+    agent="$(printf '%s\n' "$name" | sed -E 's/^agency-//; s/-(workspace|enforcer)$//')"
+    if is_disposable_agent_name "$agent"; then
+      add_disposable_agent "$agent"
+    fi
+  done < <(
+    docker ps -a --format '{{.Names}}' 2>/dev/null |
+      grep -E '^agency-(alpha-(setup|readiness)-[0-9]+|playwright-agent-[0-9]+|e2e-test-agent)-(workspace|enforcer)$' || true
+  )
+fi
+
+if command -v "$AGENCY_CLI" >/dev/null 2>&1; then
+  while IFS= read -r channel; do
+    agent="${channel#dm-}"
+    if is_disposable_agent_name "$agent"; then
+      add_disposable_agent "$agent"
+    fi
+  done < <(
+    "$AGENCY_CLI" -q comms list --include-inactive |
+      awk '/^[[:space:]]/{print $1}' |
+      grep -E '^dm-(alpha-(setup|readiness)-[0-9]+|playwright-agent-[0-9]+|e2e-test-agent)$' || true
+  )
+fi
+
+if [ "${#disposable_agents[@]}" -gt 0 ]; then
+  if [ "$APPLY" = "1" ]; then
+    if command -v "$AGENCY_CLI" >/dev/null 2>&1; then
+      for agent in "${disposable_agents[@]}"; do
+        log "deleting disposable agent state: $agent"
+        "$AGENCY_CLI" -q delete "$agent" >/dev/null 2>&1 || true
+        log "archiving disposable DM channel: dm-$agent"
+        "$AGENCY_CLI" -q comms archive "dm-$agent" >/dev/null 2>&1 || true
+      done
+    else
+      log "agency binary not found; cannot clean Agency agent/channel state"
+    fi
+  else
+    log "matched disposable Agency agents/DMs: ${disposable_agents[*]}"
+    log "Dry run only. Re-run with --apply to delete matched agent records and archive matched DMs."
   fi
 fi
