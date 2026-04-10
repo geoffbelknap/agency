@@ -32,6 +32,34 @@ func makeTestAgent(t *testing.T, home, agentName string) {
 	}
 }
 
+func makeTestTeam(t *testing.T, home string, cfg models.TeamConfig) {
+	t.Helper()
+	dir := filepath.Join(home, "teams", cfg.Name)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("makeTestTeam mkdir %s: %v", cfg.Name, err)
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("makeTestTeam marshal %s: %v", cfg.Name, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "team.yaml"), data, 0644); err != nil {
+		t.Fatalf("makeTestTeam write team.yaml %s: %v", cfg.Name, err)
+	}
+}
+
+func readAgentMissionCopy(t *testing.T, mm *MissionManager, agentName string) models.Mission {
+	t.Helper()
+	data, err := os.ReadFile(mm.agentMissionPath(agentName))
+	if err != nil {
+		t.Fatalf("read agent copy for %s: %v", agentName, err)
+	}
+	var agentM models.Mission
+	if err := yaml.Unmarshal(data, &agentM); err != nil {
+		t.Fatalf("parse agent copy for %s: %v", agentName, err)
+	}
+	return agentM
+}
+
 func TestMissionCreate(t *testing.T) {
 	mm := NewMissionManager(t.TempDir())
 
@@ -430,6 +458,100 @@ func TestMissionCompletePaused(t *testing.T) {
 	}
 }
 
+func TestMissionDeletePausedAssignedRemovesAgentCopy(t *testing.T) {
+	mm := NewMissionManager(t.TempDir())
+
+	m := newTestMission("paused-delete")
+	if err := mm.Create(m); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	makeTestAgent(t, mm.Home, "agent-delete")
+	if err := mm.Assign("paused-delete", "agent-delete", "agent"); err != nil {
+		t.Fatalf("Assign: %v", err)
+	}
+	if err := mm.Pause("paused-delete", "cleanup"); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	if err := mm.Delete("paused-delete"); err != nil {
+		t.Fatalf("Delete paused assigned mission: %v", err)
+	}
+	if _, err := os.Stat(mm.agentMissionPath("agent-delete")); err == nil {
+		t.Error("agent copy should have been removed when deleting paused assigned mission")
+	}
+}
+
+func TestMissionTeamLifecycleUpdatesMemberCopies(t *testing.T) {
+	mm := NewMissionManager(t.TempDir())
+
+	for _, agentName := range []string{"member-a", "member-b"} {
+		makeTestAgent(t, mm.Home, agentName)
+	}
+	makeTestTeam(t, mm.Home, models.TeamConfig{
+		Name: "team-alpha",
+		Members: []models.TeamMember{
+			{Name: "member-a", Type: "agent"},
+			{Name: "member-b", Type: "agent"},
+		},
+	})
+
+	m := newTestMission("team-lifecycle")
+	if err := mm.Create(m); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	teamCfg, err := mm.LoadTeamConfig("team-alpha")
+	if err != nil {
+		t.Fatalf("LoadTeamConfig: %v", err)
+	}
+	if err := mm.AssignToTeam("team-lifecycle", "team-alpha", teamCfg); err != nil {
+		t.Fatalf("AssignToTeam: %v", err)
+	}
+
+	for _, agentName := range []string{"member-a", "member-b"} {
+		if got := readAgentMissionCopy(t, mm, agentName); got.Status != "active" {
+			t.Errorf("expected active copy for %s, got %q", agentName, got.Status)
+		}
+	}
+
+	if err := mm.Pause("team-lifecycle", "hold"); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	for _, agentName := range []string{"member-a", "member-b"} {
+		if got := readAgentMissionCopy(t, mm, agentName); got.Status != "paused" {
+			t.Errorf("expected paused copy for %s, got %q", agentName, got.Status)
+		}
+	}
+
+	if err := mm.Resume("team-lifecycle"); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	for _, agentName := range []string{"member-a", "member-b"} {
+		if got := readAgentMissionCopy(t, mm, agentName); got.Status != "active" {
+			t.Errorf("expected resumed copy for %s, got %q", agentName, got.Status)
+		}
+	}
+
+	updated := newTestMission("team-lifecycle")
+	updated.Description = "Updated team lifecycle"
+	if err := mm.Update("team-lifecycle", updated); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	for _, agentName := range []string{"member-a", "member-b"} {
+		if got := readAgentMissionCopy(t, mm, agentName); got.Description != "Updated team lifecycle" {
+			t.Errorf("expected updated copy for %s, got description %q", agentName, got.Description)
+		}
+	}
+
+	if err := mm.Complete("team-lifecycle"); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	for _, agentName := range []string{"member-a", "member-b"} {
+		if _, err := os.Stat(mm.agentMissionPath(agentName)); err == nil {
+			t.Errorf("agent copy for %s should have been removed on complete", agentName)
+		}
+	}
+}
+
 func TestMissionCompleteUnassigned(t *testing.T) {
 	mm := NewMissionManager(t.TempDir())
 
@@ -475,6 +597,43 @@ func TestMissionGetActiveForAgent(t *testing.T) {
 	}
 	if got := mm.GetActiveForAgent("worker"); got != nil {
 		t.Errorf("expected nil after pause, got %v", got)
+	}
+}
+
+func TestMissionGetActiveForAgentIncludesTeamAssignments(t *testing.T) {
+	mm := NewMissionManager(t.TempDir())
+
+	for _, agentName := range []string{"team-worker-a", "team-worker-b"} {
+		makeTestAgent(t, mm.Home, agentName)
+	}
+	makeTestTeam(t, mm.Home, models.TeamConfig{
+		Name: "active-team",
+		Members: []models.TeamMember{
+			{Name: "team-worker-a", Type: "agent"},
+			{Name: "team-worker-b", Type: "agent"},
+		},
+	})
+
+	m := newTestMission("team-active")
+	if err := mm.Create(m); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	teamCfg, err := mm.LoadTeamConfig("active-team")
+	if err != nil {
+		t.Fatalf("LoadTeamConfig: %v", err)
+	}
+	if err := mm.AssignToTeam("team-active", "active-team", teamCfg); err != nil {
+		t.Fatalf("AssignToTeam: %v", err)
+	}
+
+	for _, agentName := range []string{"team-worker-a", "team-worker-b"} {
+		got := mm.GetActiveForAgent(agentName)
+		if got == nil {
+			t.Fatalf("expected active team mission for %s, got nil", agentName)
+		}
+		if got.Name != "team-active" {
+			t.Errorf("expected team-active for %s, got %q", agentName, got.Name)
+		}
 	}
 }
 

@@ -47,6 +47,55 @@ func (mm *MissionManager) agentMissionPath(agentName string) string {
 	return filepath.Join(mm.Home, "agents", agentName, "mission.yaml")
 }
 
+func (mm *MissionManager) assignedAgentNames(m *models.Mission) ([]string, error) {
+	if m.AssignedTo == "" {
+		return nil, nil
+	}
+	if m.AssignedType != "team" {
+		return []string{m.AssignedTo}, nil
+	}
+
+	teamCfg, err := mm.LoadTeamConfig(m.AssignedTo)
+	if err != nil {
+		return nil, err
+	}
+	if teamCfg.Coordinator != "" {
+		return []string{teamCfg.Coordinator}, nil
+	}
+
+	var agents []string
+	for _, member := range teamCfg.Members {
+		if member.Type == "" || member.Type == "agent" {
+			agents = append(agents, member.Name)
+		}
+	}
+	return agents, nil
+}
+
+func (mm *MissionManager) writeAssignedAgentCopies(m *models.Mission) error {
+	agents, err := mm.assignedAgentNames(m)
+	if err != nil {
+		return err
+	}
+	for _, agentName := range agents {
+		if err := mm.writeAgentCopy(agentName, m); err != nil {
+			return fmt.Errorf("write agent copy for %s: %w", agentName, err)
+		}
+	}
+	return nil
+}
+
+func (mm *MissionManager) removeAssignedAgentCopies(m *models.Mission) error {
+	agents, err := mm.assignedAgentNames(m)
+	if err != nil {
+		return err
+	}
+	for _, agentName := range agents {
+		mm.RemoveMissionFromAgent(agentName)
+	}
+	return nil
+}
+
 // Create validates and persists a new mission.
 // If ID is empty a UUID is generated. Version is set to 1 and status to unassigned.
 func (mm *MissionManager) Create(m *models.Mission) error {
@@ -160,17 +209,14 @@ func (mm *MissionManager) Update(name string, updated *models.Mission) error {
 		return fmt.Errorf("write mission: %w", err)
 	}
 
-	// If the mission is assigned, update the agent's copy too
-	if existing.AssignedTo != "" {
-		if err := mm.writeAgentCopy(existing.AssignedTo, updated); err != nil {
-			return fmt.Errorf("update agent copy: %w", err)
-		}
+	if err := mm.writeAssignedAgentCopies(updated); err != nil {
+		return fmt.Errorf("update assigned agent copies: %w", err)
 	}
 
 	return nil
 }
 
-// Delete removes the named mission. Only unassigned missions can be deleted.
+// Delete removes the named mission. Active missions must be paused or completed first.
 func (mm *MissionManager) Delete(name string) error {
 	m, err := mm.Get(name)
 	if err != nil {
@@ -178,6 +224,9 @@ func (mm *MissionManager) Delete(name string) error {
 	}
 	if m.Status == "active" {
 		return fmt.Errorf("mission %q cannot be deleted while active — pause or complete it first", name)
+	}
+	if err := mm.removeAssignedAgentCopies(m); err != nil {
+		return fmt.Errorf("remove assigned agent copies: %w", err)
 	}
 	return os.Remove(mm.missionPath(name))
 }
@@ -415,10 +464,8 @@ func (mm *MissionManager) Pause(name, reason string) error {
 		return fmt.Errorf("write mission: %w", err)
 	}
 
-	if m.AssignedTo != "" {
-		if err := mm.writeAgentCopy(m.AssignedTo, m); err != nil {
-			return fmt.Errorf("update agent copy: %w", err)
-		}
+	if err := mm.writeAssignedAgentCopies(m); err != nil {
+		return fmt.Errorf("update assigned agent copies: %w", err)
 	}
 	return nil
 }
@@ -439,10 +486,8 @@ func (mm *MissionManager) Resume(name string) error {
 		return fmt.Errorf("write mission: %w", err)
 	}
 
-	if m.AssignedTo != "" {
-		if err := mm.writeAgentCopy(m.AssignedTo, m); err != nil {
-			return fmt.Errorf("update agent copy: %w", err)
-		}
+	if err := mm.writeAssignedAgentCopies(m); err != nil {
+		return fmt.Errorf("update assigned agent copies: %w", err)
 	}
 	return nil
 }
@@ -458,18 +503,14 @@ func (mm *MissionManager) Complete(name string) error {
 		return fmt.Errorf("mission %q cannot be completed: status is %q (must be active or paused)", name, m.Status)
 	}
 
-	agentName := m.AssignedTo
 	m.Status = "completed"
 
 	if err := writeMissionYAML(mm.missionPath(name), m); err != nil {
 		return fmt.Errorf("write mission: %w", err)
 	}
 
-	if agentName != "" {
-		agentCopy := mm.agentMissionPath(agentName)
-		if _, err := os.Stat(agentCopy); err == nil {
-			os.Remove(agentCopy)
-		}
+	if err := mm.removeAssignedAgentCopies(m); err != nil {
+		return fmt.Errorf("remove assigned agent copies: %w", err)
 	}
 	return nil
 }
@@ -482,8 +523,17 @@ func (mm *MissionManager) GetActiveForAgent(agentName string) *models.Mission {
 		return nil
 	}
 	for _, m := range missions {
-		if m.AssignedTo == agentName && m.Status == "active" {
-			return m
+		if m.Status != "active" {
+			continue
+		}
+		agents, err := mm.assignedAgentNames(m)
+		if err != nil {
+			continue
+		}
+		for _, assignedAgent := range agents {
+			if assignedAgent == agentName {
+				return m
+			}
 		}
 	}
 	return nil
