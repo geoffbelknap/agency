@@ -49,22 +49,25 @@ func CreateAndStart(
 // Ignores "not found" errors so it is safe to call on already-removed containers.
 func StopAndRemove(ctx context.Context, cli DockerAPI, name string, timeoutSecs int) error {
 	stopErr := cli.ContainerStop(ctx, name, container.StopOptions{Timeout: &timeoutSecs})
-
-	removeErr := cli.ContainerRemove(ctx, name, container.RemoveOptions{Force: true})
-	if isNotFound(stopErr) && isNotFound(removeErr) {
+	if isNotFound(stopErr) {
 		return nil
 	}
-	if removeErr != nil && !isNotFound(removeErr) {
+
+	removeErr := removeUntilGone(ctx, cli, name, 5*time.Second)
+	if removeErr != nil {
 		if stopErr != nil && !isNotFound(stopErr) {
 			return errors.Join(stopErr, removeErr)
 		}
 		return removeErr
 	}
 
-	return waitUntilRemoved(ctx, cli, name, 5*time.Second)
+	if stopErr != nil && !isIgnorableStopError(stopErr) {
+		return stopErr
+	}
+	return nil
 }
 
-func waitUntilRemoved(ctx context.Context, cli DockerAPI, name string, timeout time.Duration) error {
+func removeUntilGone(ctx context.Context, cli DockerAPI, name string, timeout time.Duration) error {
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -72,12 +75,22 @@ func waitUntilRemoved(ctx context.Context, cli DockerAPI, name string, timeout t
 	defer ticker.Stop()
 
 	for {
-		_, err := cli.ContainerInspect(waitCtx, name)
-		if isNotFound(err) {
+		err := cli.ContainerRemove(waitCtx, name, container.RemoveOptions{Force: true})
+		switch {
+		case err == nil:
+		case isNotFound(err):
+			return nil
+		case isRetryableRemoveError(err):
+		default:
+			return err
+		}
+
+		_, inspectErr := cli.ContainerInspect(waitCtx, name)
+		if isNotFound(inspectErr) {
 			return nil
 		}
-		if err != nil {
-			return err
+		if inspectErr != nil {
+			return inspectErr
 		}
 
 		select {
@@ -99,4 +112,23 @@ func isNotFound(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "no such container") ||
 		strings.Contains(msg, "not found")
+}
+
+func isRetryableRemoveError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "removal of container") ||
+		strings.Contains(msg, "already in progress") ||
+		strings.Contains(msg, "is restarting") ||
+		strings.Contains(msg, "cannot remove container")
+}
+
+func isIgnorableStopError(err error) bool {
+	if err == nil || isNotFound(err) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "already stopped")
 }
