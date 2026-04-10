@@ -206,7 +206,7 @@ func readPID(path string) (int, error) {
 func findDaemonProcess() (int, error) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		return 0, err
+		return findDaemonProcessWithPS()
 	}
 	self := os.Getpid()
 	for _, e := range entries {
@@ -221,6 +221,33 @@ func findDaemonProcess() (int, error) {
 		// cmdline is null-separated; check for "agency" and "serve"
 		s := string(cmdline)
 		if strings.Contains(s, "agency") && strings.Contains(s, "serve") {
+			return pid, nil
+		}
+	}
+	return 0, nil
+}
+
+func findDaemonProcessWithPS() (int, error) {
+	out, err := exec.Command("ps", "-axo", "pid=,command=").Output()
+	if err != nil {
+		return 0, err
+	}
+	self := os.Getpid()
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil || pid == self {
+			continue
+		}
+		command := strings.Join(fields[1:], " ")
+		if strings.Contains(command, "agency") && strings.Contains(command, "serve") {
 			return pid, nil
 		}
 	}

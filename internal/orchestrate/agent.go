@@ -218,6 +218,9 @@ func (am *AgentManager) Create(ctx context.Context, name, preset string) error {
 	if resp, ok := presetData["responsiveness"]; ok {
 		agentYAML["responsiveness"] = resp
 	}
+	if tier, ok := presetData["model_tier"]; ok {
+		agentYAML["model_tier"] = tier
+	}
 	if err := writeYAML(filepath.Join(agentDir, "agent.yaml"), agentYAML); err != nil {
 		return err
 	}

@@ -38,7 +38,7 @@ When Docker goes away after startup:
 ```
 Agency v0.1.6 (abc1234, 2026-04-02)
   Gateway: http://127.0.0.1:8200
-  Web UI:  https://127.0.0.1:8280
+  Web UI:  http://127.0.0.1:8280
   Docker:  unavailable ⚠
 
 Infrastructure:

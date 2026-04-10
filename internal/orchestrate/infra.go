@@ -96,7 +96,7 @@ var defaultHealthChecks = map[string]*container.HealthConfig{
 		Retries:     3,
 	},
 	"web": {
-		Test:        []string{"CMD", "wget", "--no-check-certificate", "-q", "-O-", "https://127.0.0.1:8280/health"},
+		Test:        []string{"CMD", "wget", "-q", "-O-", "http://127.0.0.1:8280/health"},
 		Interval:    10 * time.Second,
 		Timeout:     3 * time.Second,
 		StartPeriod: 5 * time.Second,

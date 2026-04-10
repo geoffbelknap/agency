@@ -10,16 +10,17 @@ import (
 	"strings"
 	"time"
 
-	"log/slog"
 	"gopkg.in/yaml.v3"
+	"log/slog"
 
 	dockerclient "github.com/docker/docker/client"
 
-	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
 
 	"github.com/geoffbelknap/agency/internal/comms"
+	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/models"
@@ -41,11 +42,11 @@ type StartSequence struct {
 	Audit       *logs.Writer // optional — capacity rejection audit logging
 
 	// Resolved state
-	agentConfig      map[string]interface{}
-	constraintsData  map[string]interface{}
-	model            string
-	adminModel       string
-	scopedKey        string
+	agentConfig     map[string]interface{}
+	constraintsData map[string]interface{}
+	model           string
+	adminModel      string
+	scopedKey       string
 }
 
 // PhaseCallback is called as each phase starts.
@@ -53,10 +54,10 @@ type PhaseCallback func(phase int, name, description string)
 
 // StartResult contains the outcome of a start sequence.
 type StartResult struct {
-	Agent    string `json:"agent"`
-	Model    string `json:"model"`
-	TaskID   string `json:"task_id,omitempty"`
-	Phases   int    `json:"phases_completed"`
+	Agent  string `json:"agent"`
+	Model  string `json:"model"`
+	TaskID string `json:"task_id,omitempty"`
+	Phases int    `json:"phases_completed"`
 }
 
 // Run executes the full seven-phase start sequence.
@@ -144,8 +145,8 @@ func (ss *StartSequence) phase1Verify() error {
 	// os.MkdirAll does not update perms on an existing directory, so we call
 	// os.Chmod explicitly to cover dirs created before the 0700 fix.
 	auditDir := filepath.Join(ss.Home, "audit", ss.AgentName)
-	os.MkdirAll(auditDir, 0700)  //nolint:errcheck
-	os.Chmod(auditDir, 0700)     //nolint:errcheck
+	os.MkdirAll(auditDir, 0700) //nolint:errcheck
+	os.Chmod(auditDir, 0700)    //nolint:errcheck
 	// Enforcer audit subdirectory needs to be writable by the container's
 	// root user (uid 0). The parent audit dir stays 0700 (host-user only),
 	// but the enforcer subdir is 0777 so the bind mount is writable.
@@ -260,16 +261,21 @@ func (ss *StartSequence) phase3Constraints() error {
 		agentType = t
 	}
 
-	// Resolve model
-	ss.model = "claude-sonnet"
+	// Resolve model. Prefer an explicit model, then the agent's requested tier,
+	// then routing.yaml's default tier. The tier resolver honors llm_provider so
+	// a Gemini quickstart does not silently route first-run agents to Anthropic.
 	if m, ok := ss.agentConfig["model"].(string); ok && m != "" {
 		ss.model = m
-	}
-	if tier, ok := ss.agentConfig["model_tier"].(string); ok && tier != "" {
+	} else if tier, ok := ss.agentConfig["model_tier"].(string); ok && tier != "" {
 		resolved := ss.resolveModelTier(tier)
 		if resolved != "" {
 			ss.model = resolved
 		}
+	} else if resolved := ss.resolveModelTier(ss.defaultModelTier()); resolved != "" {
+		ss.model = resolved
+	}
+	if ss.model == "" {
+		ss.model = "claude-sonnet"
 	}
 
 	// Resolve admin model (mini tier)
@@ -607,52 +613,126 @@ func (ss *StartSequence) resolveModelTier(tier string) string {
 	if err != nil {
 		return ""
 	}
-	var rc map[string]interface{}
+	var rc models.RoutingConfig
 	if err := yaml.Unmarshal(data, &rc); err != nil {
 		return ""
 	}
 
-	// Credential check helper
-	hasCredential := func(authEnv string) bool {
-		if authEnv == "" {
-			return true
-		}
-		if os.Getenv(authEnv) != "" {
-			return true
-		}
-		if ss.CredStore != nil {
-			if entry, err := ss.CredStore.Get(authEnv); err == nil && entry.Value != "" {
-				return true
-			}
-		}
-		return false
+	entries := tierEntries(rc.Tiers, tier)
+	if len(entries) == 0 {
+		return ""
 	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		return entries[i].Preference < entries[j].Preference
+	})
 
-	// Simple tier resolution: look for tier in providers
-	providers, _ := rc["providers"].([]interface{})
-	for _, p := range providers {
-		pm, ok := p.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		models, _ := pm["models"].([]interface{})
-		for _, m := range models {
-			mm, ok := m.(map[string]interface{})
+	configuredProvider := ss.configuredLLMProvider()
+	if configuredProvider != "" {
+		for _, entry := range entries {
+			mc, ok := rc.Models[entry.Model]
+			if !ok || mc.Provider != configuredProvider {
+				continue
+			}
+			pc, ok := rc.Providers[mc.Provider]
 			if !ok {
 				continue
 			}
-			mTier, _ := mm["tier"].(string)
-			if mTier == tier {
-				alias, _ := mm["alias"].(string)
-				// Check if provider has credentials
-				authEnv, _ := pm["auth_env"].(string)
-				if hasCredential(authEnv) {
-					return alias
-				}
+			if ss.hasProviderCredential(mc.Provider, pc.AuthEnv) {
+				return entry.Model
 			}
 		}
 	}
+
+	for _, entry := range entries {
+		mc, ok := rc.Models[entry.Model]
+		if !ok {
+			continue
+		}
+		pc, ok := rc.Providers[mc.Provider]
+		if !ok {
+			continue
+		}
+		if ss.hasProviderCredential(mc.Provider, pc.AuthEnv) {
+			return entry.Model
+		}
+	}
 	return ""
+}
+
+func tierEntries(tiers models.TierConfig, tier string) []models.TierEntry {
+	switch tier {
+	case "frontier":
+		return append([]models.TierEntry(nil), tiers.Frontier...)
+	case "standard":
+		return append([]models.TierEntry(nil), tiers.Standard...)
+	case "fast":
+		return append([]models.TierEntry(nil), tiers.Fast...)
+	case "mini":
+		return append([]models.TierEntry(nil), tiers.Mini...)
+	case "nano":
+		return append([]models.TierEntry(nil), tiers.Nano...)
+	case "batch":
+		return append([]models.TierEntry(nil), tiers.Batch...)
+	default:
+		return nil
+	}
+}
+
+func (ss *StartSequence) defaultModelTier() string {
+	routingPath := filepath.Join(ss.Home, "infrastructure", "routing.yaml")
+	data, err := os.ReadFile(routingPath)
+	if err != nil {
+		return "standard"
+	}
+	var rc models.RoutingConfig
+	if err := yaml.Unmarshal(data, &rc); err != nil {
+		return "standard"
+	}
+	if rc.Settings.DefaultTier != "" {
+		return rc.Settings.DefaultTier
+	}
+	return "standard"
+}
+
+func (ss *StartSequence) configuredLLMProvider() string {
+	configPath := filepath.Join(ss.Home, "config.yaml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return ""
+	}
+	var cfg map[string]interface{}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return ""
+	}
+	provider, _ := cfg["llm_provider"].(string)
+	return strings.ToLower(strings.TrimSpace(provider))
+}
+
+func (ss *StartSequence) hasProviderCredential(provider, authEnv string) bool {
+	candidates := []string{}
+	if authEnv != "" {
+		candidates = append(candidates, authEnv, strings.ToLower(strings.ReplaceAll(authEnv, "_", "-")))
+	}
+	if provider != "" {
+		candidates = append(candidates, config.ProviderCredentialName(provider))
+	}
+
+	seen := map[string]bool{}
+	for _, candidate := range candidates {
+		if candidate == "" || seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		if os.Getenv(candidate) != "" {
+			return true
+		}
+		if ss.CredStore != nil {
+			if entry, err := ss.CredStore.Get(candidate); err == nil && entry.Value != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // -- AGENTS.md generation --

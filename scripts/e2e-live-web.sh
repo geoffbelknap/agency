@@ -223,7 +223,7 @@ gateway_health_url() {
 }
 
 web_health_url() {
-  printf '%s' "${AGENCY_WEB_BASE_URL:-https://127.0.0.1:8280}/health"
+  printf '%s' "${AGENCY_WEB_BASE_URL:-http://127.0.0.1:8280}/health"
 }
 
 if [ "$SKIP_BUILD" != "1" ]; then
