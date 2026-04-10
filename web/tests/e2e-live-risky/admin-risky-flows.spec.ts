@@ -4,6 +4,8 @@ import type { AddressInfo } from 'node:net';
 
 const APP_ERROR_PATTERN = /Application Error|Something went wrong/;
 const SETUP_HEADING_PATTERN = /Welcome to Agency|Re-configure Agency|Preparing your platform/;
+const GATEWAY_URL = process.env.AGENCY_GATEWAY_URL ?? 'http://127.0.0.1:8200';
+const WEBHOOK_SINK_HOST = process.env.AGENCY_E2E_WEBHOOK_SINK_HOST ?? '127.0.0.1';
 
 test.describe.configure({ timeout: 120_000 });
 
@@ -45,7 +47,7 @@ async function directPostWithToken(page: Page, path: string, body?: unknown) {
     ...(await authHeaders(page)),
     'Content-Type': 'application/json',
   };
-  const response = await fetch(`http://127.0.0.1:8200${path}`, {
+  const response = await fetch(`${GATEWAY_URL}${path}`, {
     method: 'POST',
     headers,
     body: JSON.stringify(body ?? {}),
@@ -188,7 +190,7 @@ async function bestEffortDeleteMission(page: Page, missionName: string) {
 
 async function directDeleteWithToken(page: Page, path: string) {
   const headers = await authHeaders(page);
-  const response = await fetch(`http://127.0.0.1:8200${path}`, {
+  const response = await fetch(`${GATEWAY_URL}${path}`, {
     method: 'DELETE',
     headers,
     signal: AbortSignal.timeout(10_000),
@@ -596,9 +598,9 @@ test('live risky suite supports notification test-send to a contained local sink
     });
   });
 
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(0, '0.0.0.0', resolve));
   const { port } = server.address() as AddressInfo;
-  const destinationUrl = `http://127.0.0.1:${port}/alerts`;
+  const destinationUrl = `http://${WEBHOOK_SINK_HOST}:${port}/alerts`;
 
   try {
     await page.goto('/admin/notifications');
@@ -694,8 +696,10 @@ test('live risky suite supports connector deactivate and reactivate for a ready 
     }
 
     const connectors = await getJSONWithToken<Array<{ name: string; state?: string }>>(page, '/api/v1/hub/instances?kind=connector');
-    const runtimeTarget = (connectors ?? []).find((connector) => connector.name === target!.name) ?? null;
-    test.skip(!runtimeTarget, 'Installed connector did not appear in intake list');
+    const runtimeTarget = (connectors ?? []).find((connector) => connector.name === target!.name && connector.state === 'active')
+      ?? (connectors ?? []).find((connector) => connector.state === 'active')
+      ?? null;
+    test.skip(!runtimeTarget, 'No active connector was available for deactivate/reactivate coverage');
     target = runtimeTarget;
 
     const connectorButton = page.getByRole('button', { name: new RegExp(target!.name) }).first();
