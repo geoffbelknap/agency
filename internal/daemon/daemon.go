@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -11,6 +12,11 @@ import (
 	"strings"
 	"syscall"
 	"time"
+)
+
+const (
+	startLockWaitTimeout = 15 * time.Second
+	startLockStaleAfter  = 30 * time.Second
 )
 
 func agencyHome() string {
@@ -31,6 +37,14 @@ func PIDFile() string {
 		return ""
 	}
 	return filepath.Join(home, "gateway.pid")
+}
+
+func startupLockFile() string {
+	home := agencyHome()
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, "gateway.start.lock")
 }
 
 // IsRunning checks if a daemon is running by:
@@ -89,6 +103,19 @@ func Start(port int) error {
 	agencyDir := filepath.Dir(pidFile)
 	if err := os.MkdirAll(agencyDir, 0755); err != nil {
 		return fmt.Errorf("create agency dir: %w", err)
+	}
+
+	releaseLock, alreadyStarting, err := acquireStartLock(func() bool { return IsRunning(port) }, startLockWaitTimeout)
+	if err != nil {
+		return err
+	}
+	if alreadyStarting {
+		return nil
+	}
+	defer releaseLock()
+
+	if IsRunning(port) {
+		return nil
 	}
 
 	// Get current executable path
@@ -273,6 +300,49 @@ func EnsureRunning(port int) error {
 		return nil
 	}
 	return Start(port)
+}
+
+func acquireStartLock(waitForHealthy func() bool, timeout time.Duration) (release func(), alreadyStarted bool, err error) {
+	lockFile := startupLockFile()
+	if lockFile == "" {
+		return nil, false, fmt.Errorf("cannot determine daemon startup lock path")
+	}
+
+	deadline := time.Now().Add(timeout)
+	for {
+		f, err := os.OpenFile(lockFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		if err == nil {
+			_, _ = fmt.Fprintf(f, "%d\n", os.Getpid())
+			_ = f.Close()
+			return func() {
+				_ = os.Remove(lockFile)
+			}, false, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, false, fmt.Errorf("create daemon startup lock: %w", err)
+		}
+
+		if waitForHealthy != nil && waitForHealthy() {
+			return func() {}, true, nil
+		}
+
+		info, statErr := os.Stat(lockFile)
+		if statErr == nil && time.Since(info.ModTime()) > startLockStaleAfter {
+			_ = os.Remove(lockFile)
+			continue
+		}
+		if statErr != nil && errors.Is(statErr, os.ErrNotExist) {
+			continue
+		}
+
+		if time.Now().After(deadline) {
+			if waitForHealthy != nil && waitForHealthy() {
+				return func() {}, true, nil
+			}
+			return nil, false, fmt.Errorf("timed out waiting for daemon startup lock")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // isHealthy checks if the health endpoint responds with 200.
