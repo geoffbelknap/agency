@@ -5104,8 +5104,9 @@ func credentialCmd() *cobra.Command {
 
 	// agency credential set
 	setCmd := &cobra.Command{
-		Use:   "set",
+		Use:   "set [name]",
 		Short: "Create or update a credential",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
@@ -5122,27 +5123,25 @@ func credentialCmd() *cobra.Command {
 			requires, _ := cmd.Flags().GetString("requires")
 			expiresAt, _ := cmd.Flags().GetString("expires")
 
-			body := map[string]interface{}{
-				"name":     name,
-				"value":    value,
-				"kind":     kind,
-				"scope":    scope,
-				"protocol": protocol,
+			nameArg := ""
+			if len(args) > 0 {
+				nameArg = args[0]
 			}
-			if service != "" {
-				body["service"] = service
-			}
-			if group != "" {
-				body["group"] = group
-			}
-			if externalScopes != "" {
-				body["external_scopes"] = strings.Split(externalScopes, ",")
-			}
-			if requires != "" {
-				body["requires"] = strings.Split(requires, ",")
-			}
-			if expiresAt != "" {
-				body["expires_at"] = expiresAt
+			body, err := buildCredentialSetBody(credentialSetInput{
+				NameArg:        nameArg,
+				NameFlag:       name,
+				Value:          value,
+				Kind:           kind,
+				Scope:          scope,
+				Protocol:       protocol,
+				Service:        service,
+				Group:          group,
+				ExternalScopes: externalScopes,
+				Requires:       requires,
+				ExpiresAt:      expiresAt,
+			})
+			if err != nil {
+				return err
 			}
 
 			result, err := c.CredentialSet(body)
@@ -5154,7 +5153,7 @@ func credentialCmd() *cobra.Command {
 			return nil
 		},
 	}
-	setCmd.Flags().String("name", "", "Credential name (required)")
+	setCmd.Flags().String("name", "", "Credential name (optional when provided as positional argument)")
 	setCmd.Flags().String("value", "", "Secret value (required)")
 	setCmd.Flags().String("kind", "provider", "Kind: provider, service, gateway, internal")
 	setCmd.Flags().String("scope", "platform", "Scope: platform, team:<name>, agent:<name>")
@@ -5164,7 +5163,6 @@ func credentialCmd() *cobra.Command {
 	setCmd.Flags().String("external-scopes", "", "Comma-separated external scopes")
 	setCmd.Flags().String("requires", "", "Comma-separated dependency credential names")
 	setCmd.Flags().String("expires", "", "Expiration in RFC3339 format")
-	setCmd.MarkFlagRequired("name")
 	setCmd.MarkFlagRequired("value")
 
 	// agency credential list
@@ -5398,6 +5396,72 @@ func credentialCmd() *cobra.Command {
 
 	cmd.AddCommand(setCmd, listCmd, credShowCmd, credDeleteCmd, rotateCmd, testCmd, groupCmd)
 	return cmd
+}
+
+type credentialSetInput struct {
+	NameArg        string
+	NameFlag       string
+	Value          string
+	Kind           string
+	Scope          string
+	Protocol       string
+	Service        string
+	Group          string
+	ExternalScopes string
+	Requires       string
+	ExpiresAt      string
+}
+
+func buildCredentialSetBody(input credentialSetInput) (map[string]interface{}, error) {
+	name := input.NameFlag
+	if input.NameArg != "" {
+		if name != "" && name != input.NameArg {
+			return nil, fmt.Errorf("credential name %q conflicts with --name %q", input.NameArg, name)
+		}
+		name = input.NameArg
+	}
+	if name == "" {
+		return nil, fmt.Errorf("credential name is required: use agency creds set <name> --value <secret>")
+	}
+	if input.Value == "" {
+		return nil, fmt.Errorf("credential value is required")
+	}
+
+	body := map[string]interface{}{
+		"name":     name,
+		"value":    input.Value,
+		"kind":     input.Kind,
+		"scope":    input.Scope,
+		"protocol": input.Protocol,
+	}
+	if input.Service != "" {
+		body["service"] = input.Service
+	}
+	if input.Group != "" {
+		body["group"] = input.Group
+	}
+	if input.ExternalScopes != "" {
+		body["external_scopes"] = splitCommaList(input.ExternalScopes)
+	}
+	if input.Requires != "" {
+		body["requires"] = splitCommaList(input.Requires)
+	}
+	if input.ExpiresAt != "" {
+		body["expires_at"] = input.ExpiresAt
+	}
+	return body, nil
+}
+
+func splitCommaList(value string) []string {
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 // ════════════════════════════════════════════════════════════════════════════
