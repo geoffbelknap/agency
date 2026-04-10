@@ -690,7 +690,14 @@ export const api = {
     deactivate: (name: string) => req<OkResponse>(`/hub/${name}/deactivate`, { method: 'POST', body: '{}' }),
     status: (name: string) => req<RawConnector>(`/hub/${name}`),
     requirements: (name: string) =>
-      req<{ connector: string; version?: string; ready: boolean; credentials: unknown[]; auth?: unknown; egress_domains?: string[] }>(`/hub/connectors/${name}/requirements`),
+      req<{
+        connector: string;
+        version?: string;
+        ready: boolean;
+        credentials: unknown[];
+        auth?: unknown;
+        egress_domains?: Array<string | { domain: string; allowed: boolean }>;
+      }>(`/hub/connectors/${name}/requirements`),
     configure: (name: string, credentials: Record<string, string>) =>
       req<{ configured: string[]; auth_configured: boolean; egress_domains_added: string[]; ready: boolean }>(`/hub/connectors/${name}/configure`, {
         method: 'POST',
