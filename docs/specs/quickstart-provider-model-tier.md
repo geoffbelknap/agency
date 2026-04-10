@@ -2,7 +2,7 @@
 
 ## Problem
 
-`agency quickstart --provider google` installs Gemini and its routing config, but the agent starts with `claude-sonnet` and gets a 401 because only Gemini credentials are available.
+`agency quickstart --provider gemini` installs Gemini and its routing config, but the agent starts with `claude-sonnet` and gets a 401 because only Gemini credentials are available.
 
 Three bugs combine:
 

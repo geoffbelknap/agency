@@ -184,7 +184,7 @@ Choice-specific additions to "What's next":
 agency quickstart [flags]
 
 Flags:
-  --provider string    Skip provider prompt (anthropic, openai, google)
+  --provider string    Skip provider prompt (anthropic, openai, gemini)
   --key string         Skip key prompt (requires --provider)
   --preset string      Skip agent choice prompt (use this preset)
   --name string        Override default agent name

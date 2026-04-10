@@ -28,7 +28,7 @@ This takes ~2 minutes and you can start for free with Google Gemini.
 Have your key ready? Press Enter to continue...
 ```
 
-The setup wizard (`agency setup`) auto-detects keys from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`) and offers to use them. If none are found, it links to the guide and prompts for manual entry with provider selection.
+The setup wizard (`agency setup`) auto-detects keys from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`) and offers to use them. If none are found, it links to the guide and prompts for manual entry with provider selection.
 
 **Key design choice:** Lead with Google Gemini as the free option for cost-sensitive users. Recommend Anthropic for best agent quality. The getting-api-keys guide already covers all three providers — see [getting-api-keys.md](/getting-api-keys).
 
@@ -117,7 +117,7 @@ Step 1: Welcome
   "Let's get your Agency running. This takes about 5 minutes."
 
 Step 2: API Key Configuration
-  → Auto-detect from env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY)
+  → Auto-detect from env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY)
   → "Found ANTHROPIC_API_KEY in environment. Use it? [Y/n]"
   → Or: provider picker → "Paste your API key:" → validate with test call
   → Link to getting-api-keys.md if no key found

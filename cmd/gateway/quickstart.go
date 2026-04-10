@@ -158,11 +158,16 @@ func normalizeProvider(provider string) string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "":
 		return ""
-	case "google", "gemini", "google-gemini":
+	case "gemini":
 		return "gemini"
 	default:
 		return strings.ToLower(strings.TrimSpace(provider))
 	}
+}
+
+func isSupportedQuickstartProvider(provider string) bool {
+	_, ok := providerDisplayNames[provider]
+	return ok
 }
 
 // detectProvider reads ~/.agency/config.yaml and returns the configured llm_provider.
@@ -185,6 +190,16 @@ func detectProvider() string {
 		return p
 	}
 	return ""
+}
+
+func quickstartConfigExists() bool {
+	home := os.Getenv("AGENCY_HOME")
+	if home == "" {
+		userHome, _ := os.UserHomeDir()
+		home = filepath.Join(userHome, ".agency")
+	}
+	_, err := os.Stat(filepath.Join(home, "config.yaml"))
+	return err == nil
 }
 
 // promptProvider displays a numbered menu and returns the chosen provider key.
@@ -285,6 +300,20 @@ func validateAPIKey(provider, key string) error {
 	}
 }
 
+func shouldPromptForQuickstartKey(providerName, apiKey string, providerExplicit bool) bool {
+	if providerName == "" {
+		return true
+	}
+	if apiKey != "" {
+		return false
+	}
+	return providerExplicit
+}
+
+func shouldRestartGatewayForQuickstart(gatewayRunning, configExistedBefore bool, pendingKeys []config.KeyEntry) bool {
+	return gatewayRunning && (!configExistedBefore || len(pendingKeys) > 0)
+}
+
 func runQuickstart(opts quickstartOptions) error {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt)
@@ -300,6 +329,7 @@ func runQuickstart(opts quickstartOptions) error {
 	fmt.Println()
 
 	var pendingKeys []config.KeyEntry
+	configExistedBefore := quickstartConfigExists()
 
 	// Phase 1: Environment — check Docker
 	if err := checkDocker(); err != nil {
@@ -317,9 +347,13 @@ func runQuickstart(opts quickstartOptions) error {
 	providerName := normalizeProvider(opts.provider)
 	apiKey := opts.key
 	needsPrompt := false
+	keyValidated := false
 
 	if providerName == "" {
 		providerName = normalizeProvider(detectProvider())
+	}
+	if providerName != "" && !isSupportedQuickstartProvider(providerName) {
+		return fmt.Errorf("unsupported provider %q; use anthropic, openai, or gemini", providerName)
 	}
 
 	if providerName != "" && apiKey == "" && !providerExplicit {
@@ -330,14 +364,30 @@ func runQuickstart(opts quickstartOptions) error {
 		}
 		fmt.Printf("  %s provider        %s already configured\n", qsGreen.Render("✓"), displayName)
 	} else {
-		needsPrompt = (providerName == "" || apiKey == "")
+		needsPrompt = shouldPromptForQuickstartKey(providerName, apiKey, providerExplicit)
 	}
 
 	if needsPrompt {
 		if providerName == "" {
 			providerName = promptProvider()
 		}
+		if providerName != "" && !isSupportedQuickstartProvider(providerName) {
+			return fmt.Errorf("unsupported provider %q; use anthropic, openai, or gemini", providerName)
+		}
 
+		if apiKey != "" {
+			fmt.Printf("  %s Validating key...", qsDim.Render("…"))
+			if err := validateAPIKey(providerName, apiKey); err != nil {
+				fmt.Printf("\r  %s Validation failed: %s\n", qsRed.Render("✗"), err)
+				return fmt.Errorf("provider validation failed")
+			}
+			fmt.Printf("\r  %s Key validated.                \n", qsGreen.Render("✓"))
+			keyValidated = true
+			needsPrompt = false
+		}
+	}
+
+	if needsPrompt {
 		const maxAttempts = 3
 		validated := false
 		for attempt := 1; attempt <= maxAttempts; attempt++ {
@@ -361,6 +411,7 @@ func runQuickstart(opts quickstartOptions) error {
 			}
 
 			fmt.Printf("\r  %s Key validated.                \n", qsGreen.Render("✓"))
+			keyValidated = true
 			validated = true
 			break
 		}
@@ -371,6 +422,13 @@ func runQuickstart(opts quickstartOptions) error {
 			fmt.Println("  See: https://github.com/geoffbelknap/agency#provider-setup")
 			return fmt.Errorf("provider validation failed")
 		}
+	} else if apiKey != "" && !keyValidated {
+		fmt.Printf("  %s Validating key...", qsDim.Render("…"))
+		if err := validateAPIKey(providerName, apiKey); err != nil {
+			fmt.Printf("\r  %s Validation failed: %s\n", qsRed.Render("✗"), err)
+			return fmt.Errorf("provider validation failed")
+		}
+		fmt.Printf("\r  %s Key validated.                \n", qsGreen.Render("✓"))
 	}
 
 	// Run config init to set up ~/.agency/ and collect pending keys
@@ -415,10 +473,11 @@ func runQuickstart(opts quickstartOptions) error {
 	// runs RunInit). Restart so it picks up the new tokens and egress_token.
 	// Without this, the daemon runs with empty auth tokens and containers
 	// (especially egress) get empty GATEWAY_TOKEN — breaking credential swap.
-	if gatewayRunning {
+	if shouldRestartGatewayForQuickstart(gatewayRunning, configExistedBefore, pendingKeys) {
 		daemon.Stop()
 		time.Sleep(1 * time.Second)
 		gatewayRunning = false
+		fmt.Printf("  %s infrastructure  restarted daemon with updated config\n", qsGreen.Render("✓"))
 	}
 
 	if !gatewayRunning {
@@ -449,7 +508,7 @@ func runQuickstart(opts quickstartOptions) error {
 	// but credentials not yet stored, e.g. after make install)
 	for _, key := range pendingKeys {
 		if _, err := c.CredentialSet(map[string]interface{}{
-			"name":     key.EnvVar,
+			"name":     config.ProviderCredentialName(key.Provider),
 			"value":    key.Key,
 			"kind":     "provider",
 			"scope":    "platform",
@@ -498,10 +557,17 @@ func runQuickstart(opts quickstartOptions) error {
 	// After infra is up and credentials are stored, install the provider
 	// so routing.yaml and egress config are populated.
 	if providerName != "" {
-		c.HubUpdate()
-		c.Post("/api/v1/hub/install", map[string]interface{}{
+		if _, err := c.Post("/api/v1/hub/update", nil); err != nil {
+			fmt.Printf("  %s hub             update failed: %s\n", qsRed.Render("✗"), err)
+			return fmt.Errorf("hub update: %w", err)
+		}
+		if _, err := c.Post("/api/v1/hub/install", map[string]interface{}{
 			"component": providerName,
-		})
+		}); err != nil {
+			fmt.Printf("  %s hub             provider install failed: %s\n", qsRed.Render("✗"), err)
+			return fmt.Errorf("hub install provider: %w", err)
+		}
+		fmt.Printf("  %s hub             %s provider installed\n", qsGreen.Render("✓"), providerName)
 	}
 
 	// Phase 4: Agent — create and start first agent
@@ -651,10 +717,11 @@ func runQuickstart(opts quickstartOptions) error {
 	fmt.Println()
 	fmt.Println("  " + qsDim.Render("────────────────────────────────────────"))
 	fmt.Println("  Agent is running. What's next:")
-	if runningAgent != "" {
-		fmt.Printf("    • Send tasks:  %s\n", qsBold.Render(fmt.Sprintf("agency send %s \"your task here\"", runningAgent)))
-	}
 	fmt.Printf("    • Web UI:      %s\n", qsBold.Render(localWebURL))
+	if runningAgent != "" {
+		fmt.Printf("    • Chat:        %s\n", qsBold.Render(fmt.Sprintf("open Channels → Direct Messages → %s", runningAgent)))
+		fmt.Printf("    • CLI:         %s\n", qsBold.Render(fmt.Sprintf("agency send %s \"your task here\"", runningAgent)))
+	}
 	fmt.Printf("    • Alpha guide: %s\n", qsBold.Render("docs/alpha-test.md"))
 	fmt.Printf("    • Status:      %s\n", qsBold.Render("agency status"))
 	fmt.Printf("    • More agents: %s\n", qsBold.Render("agency hub search"))

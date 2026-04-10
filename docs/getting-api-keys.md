@@ -66,8 +66,6 @@ export GEMINI_API_KEY="AI..."
 agency quickstart
 ```
 
-`GOOGLE_API_KEY` is still accepted for older local setups, but new Agency installs use `GEMINI_API_KEY` because the Hub provider component is named `gemini`.
-
 ### Notes
 
 - The free tier is rate-limited but sufficient for 1-3 agents doing light work
