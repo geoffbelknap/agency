@@ -36,6 +36,13 @@ const FIRST_TASK_PROMPTS = [
   },
 ];
 
+const INITIAL_PROMPT_RETRIES = 5;
+const INITIAL_PROMPT_RETRY_DELAY_MS = 1500;
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function ChatStep({ agentName, operatorName, onFinish, onBack }: ChatStepProps) {
   const [channelName, setChannelName] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -116,12 +123,46 @@ export function ChatStep({ agentName, operatorName, onFinish, onBack }: ChatStep
   useEffect(() => {
     if (!channelName || !agentReady || sentInitialPromptRef.current) return;
     sentInitialPromptRef.current = true;
+    let cancelled = false;
 
     const greeting = `Hey ${agentName}, I just set up Agency. What can you help me with?`;
 
-    api.channels.send(channelName, greeting).catch(() => {});
-    setAgentTyping(true);
-  }, [channelName, agentReady, agentName]);
+    const sendInitialPrompt = async () => {
+      setAgentTyping(true);
+      for (let attempt = 1; attempt <= INITIAL_PROMPT_RETRIES; attempt++) {
+        try {
+          await api.channels.send(channelName, greeting);
+          if (cancelled) return;
+          setError('');
+          setMessages((prev) => {
+            if (prev.some((message) => isOperatorMsg(message.author) && message.content === greeting)) {
+              return prev;
+            }
+            return [...prev, {
+              id: `initial-${Date.now()}`,
+              author: operatorName || 'operator',
+              content: greeting,
+              timestamp: new Date().toISOString(),
+              flags: {},
+            }];
+          });
+          return;
+        } catch (e: any) {
+          if (attempt === INITIAL_PROMPT_RETRIES) {
+            if (!cancelled) {
+              setAgentTyping(false);
+              setError(e.message || 'Failed to send the initial prompt');
+            }
+            return;
+          }
+          await wait(INITIAL_PROMPT_RETRY_DELAY_MS);
+        }
+      }
+    };
+
+    sendInitialPrompt();
+    return () => { cancelled = true; };
+  }, [channelName, agentReady, agentName, operatorName]);
 
   // Poll for new messages
   useEffect(() => {

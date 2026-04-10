@@ -1,4 +1,8 @@
 FROM debian:bookworm-slim
+ARG BUILD_ID=unknown
+ARG SOURCE_HASH=unknown
+LABEL agency.build.id=${BUILD_ID}
+LABEL agency.source.hash=${SOURCE_HASH}
 
 # Minimal agent workspace — curl, jq, bash only.
 # Execution-layer confinement via custom seccomp profile on workspace container.

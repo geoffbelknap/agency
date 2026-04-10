@@ -80,6 +80,9 @@ func TestGatewayProxyNotSelfLoop(t *testing.T) {
 	if !strings.Contains(content, "host.docker.internal") {
 		t.Error("gateway-proxy entrypoint missing host.docker.internal (macOS path)")
 	}
+	if !strings.Contains(content, "AGENCY_HOST_GATEWAY_PORT") {
+		t.Error("gateway-proxy entrypoint must use AGENCY_HOST_GATEWAY_PORT for disposable gateways")
+	}
 }
 
 // TestDefaultImagesHaveHealthChecks verifies that every infra image in

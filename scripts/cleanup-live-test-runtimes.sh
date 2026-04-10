@@ -123,7 +123,7 @@ if command -v docker >/dev/null 2>&1; then
     disposable_containers+=("$name")
   done < <(
     docker ps -a --format '{{.Names}}' 2>/dev/null |
-      grep -E '^agency-infra-(egress|comms|knowledge|intake|web-fetch|web|embeddings)-(agency-(live|danger|oci|operator-oci)-home-|agency-setup-home-)' || true
+      grep -E '^agency-infra-(gateway-proxy|egress|comms|knowledge|intake|web-fetch|web|embeddings)-(agency-(live|danger|oci|operator-oci)-home-|agency-setup-home-)' || true
     docker ps -a --format '{{.Names}}' 2>/dev/null |
       grep -E '^agency-(alpha-(setup|readiness)-[0-9]+|playwright-agent-[0-9]+|e2e-test-agent)-(workspace|enforcer)$' || true
   )

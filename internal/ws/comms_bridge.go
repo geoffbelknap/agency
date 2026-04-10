@@ -2,19 +2,28 @@ package ws
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
 	"strings"
 	"time"
 
-	"log/slog"
 	"github.com/gorilla/websocket"
+	"log/slog"
 )
 
 const (
-	commsURL            = "ws://localhost:8202/ws?agent=_gateway"
-	commsReconnectMin   = 1 * time.Second
-	commsReconnectMax   = 30 * time.Second
-	commsReconnectMult  = 2
+	commsReconnectMin  = 1 * time.Second
+	commsReconnectMax  = 30 * time.Second
+	commsReconnectMult = 2
 )
+
+func commsBridgeURL() string {
+	port := os.Getenv("AGENCY_GATEWAY_PROXY_PORT")
+	if port == "" {
+		port = "8202"
+	}
+	return fmt.Sprintf("ws://localhost:%s/ws?agent=_gateway", port)
+}
 
 // promotableSignals are signal types that should be promoted to platform
 // events for operator notification delivery. These represent conditions
@@ -58,13 +67,14 @@ func commsBridgeLoop(hub *Hub, logger *slog.Logger) {
 }
 
 func commsBridgeOnce(hub *Hub, logger *slog.Logger) error {
-	conn, _, err := websocket.DefaultDialer.Dial(commsURL, nil)
+	url := commsBridgeURL()
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	logger.Info("comms bridge connected", "url", commsURL)
+	logger.Info("comms bridge connected", "url", url)
 
 	for {
 		_, raw, err := conn.ReadMessage()

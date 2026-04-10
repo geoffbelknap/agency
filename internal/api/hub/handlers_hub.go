@@ -114,12 +114,26 @@ func (h *handler) hubInstall(w http.ResponseWriter, r *http.Request) {
 	// Auto-activate: provision egress domains, JWT swap, and publish resolved YAML.
 	// This merges the old install + activate two-step into a single operation.
 	h.autoActivate(mgr, inst)
+	h.signalInfraComponent("egress")
 
 	writeJSON(w, 200, map[string]interface{}{
 		"name":   inst.Name,
 		"id":     inst.ID,
 		"status": inst.State,
 	})
+}
+
+func (h *handler) signalInfraComponent(component string) {
+	if h.deps.Signal == nil {
+		return
+	}
+	name := "agency-infra-" + component
+	if instance := strings.TrimSpace(os.Getenv("AGENCY_INFRA_INSTANCE")); instance != "" {
+		name += "-" + instance
+	}
+	if err := h.deps.Signal.SignalContainer(context.Background(), name, "SIGHUP"); err != nil && h.deps.Logger != nil {
+		h.deps.Logger.Debug("hub: infra component SIGHUP failed", "component", component, "container", name, "err", err)
+	}
 }
 
 // installDependencies resolves and installs required services and connectors.

@@ -822,7 +822,11 @@ func runServe(httpAddr string) error {
 	eventBus := events.NewBus(logger, auditFn)
 
 	// Register delivery handlers
-	agentDelivery := events.NewAgentDelivery("http://localhost:8202")
+	commsPort := os.Getenv("AGENCY_GATEWAY_PROXY_PORT")
+	if commsPort == "" {
+		commsPort = "8202"
+	}
+	agentDelivery := events.NewAgentDelivery("http://localhost:" + commsPort)
 	outboundDelivery := events.NewOutboundDelivery()
 	ntfyDelivery := events.NewNtfyDelivery()
 	eventBus.RegisterDelivery(events.DestAgent, agentDelivery.Deliver)
@@ -857,9 +861,15 @@ func runServe(httpAddr string) error {
 
 	// Wire channel events from the comms bridge to the event bus.
 	wsHub.SetEventPublisher(func(channel, messageID, content, author string) {
+		metadata := map[string]interface{}{"author": author, "channel": channel}
+		if strings.HasPrefix(channel, models.DMChannelPrefix) {
+			target := strings.TrimPrefix(channel, models.DMChannelPrefix)
+			metadata["channel_type"] = "direct"
+			metadata["dm_target"] = target
+		}
 		event := models.NewChannelEvent(channel, messageID,
 			map[string]interface{}{"content": content},
-			map[string]interface{}{"author": author, "channel": channel},
+			metadata,
 		)
 		eventBus.Publish(event)
 	})

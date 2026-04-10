@@ -630,7 +630,7 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 		return fmt.Errorf("resolve gateway-proxy image: %w", err)
 	}
 	name := inf.containerName("gateway-proxy")
-	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
+	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) && inf.hasContainerEnv(ctx, name, "AGENCY_HOST_GATEWAY_PORT", inf.gatewayPort()) {
 		return nil
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("gateway-proxy"))
@@ -671,6 +671,7 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 		&container.Config{
 			Image:    defaultImages["gateway-proxy"],
 			Hostname: "gateway-proxy",
+			Env:      mapToEnv(map[string]string{"AGENCY_HOST_GATEWAY_PORT": inf.gatewayPort()}),
 			ExposedPorts: nat.PortSet{
 				"8202/tcp": struct{}{},
 				"8204/tcp": struct{}{},

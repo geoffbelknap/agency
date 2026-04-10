@@ -208,3 +208,52 @@ func TestDirtyBuildIDIncludesContentHash(t *testing.T) {
 		t.Fatal("Makefile dirty BUILD_ID suffix must include the diff hash")
 	}
 }
+
+func TestMakefileDoesNotForceCacheBust(t *testing.T) {
+	makefilePath := filepath.Join(repoRoot(t), "Makefile")
+	data, err := os.ReadFile(makefilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "CACHE_BUST=$$$$(date +%s)") || strings.Contains(string(data), "CACHE_BUST=$(date +%s)") {
+		t.Fatal("Makefile image builds must not force timestamp cache busts")
+	}
+}
+
+func TestSourceFingerprintIgnoresUncopiedFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\nCOPY app.py /app.py\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app.py"), []byte("print('one')\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "unrelated.txt"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := sourceFingerprint(dir, "Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "unrelated.txt"), []byte("two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	second, err := sourceFingerprint(dir, "Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatal("source fingerprint changed for a file not copied by the Dockerfile")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app.py"), []byte("print('two')\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	third, err := sourceFingerprint(dir, "Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third == first {
+		t.Fatal("source fingerprint did not change for a copied file")
+	}
+}

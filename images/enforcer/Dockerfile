@@ -9,7 +9,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.buildID=${BUILD_ID
 
 FROM debian:bookworm-slim
 ARG BUILD_ID=unknown
+ARG SOURCE_HASH=unknown
 LABEL agency.build.id=${BUILD_ID}
+LABEL agency.source.hash=${SOURCE_HASH}
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /enforcer /usr/local/bin/enforcer
 EXPOSE 3128 8081

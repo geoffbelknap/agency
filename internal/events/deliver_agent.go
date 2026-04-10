@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -32,34 +33,40 @@ func NewAgentDelivery(commsURL string) *AgentDelivery {
 func (ad *AgentDelivery) Deliver(sub *Subscription, event *models.Event) error {
 	message := formatAgentMessage(sub, event)
 
-	// DM channel name must match the channel created during agent start
-	// (phase7Session in start.go creates "dm-{agent}").
 	agentName := sub.Destination.Target
-	channel := "dm-" + agentName
 
 	body, err := json.Marshal(map[string]interface{}{
-		"content": message,
-		"author":  "_gateway",
-		"metadata": map[string]interface{}{
-			"event_id": event.ID,
-		},
+		"task_content": message,
+		"work_item_id": event.ID,
+		"priority":     "normal",
+		"source":       fmt.Sprintf("%s:%s", event.SourceType, event.SourceName),
 	})
 	if err != nil {
-		return fmt.Errorf("marshal comms message: %w", err)
+		return fmt.Errorf("marshal task delivery: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/channels/%s/messages", ad.CommsURL, channel)
-	resp, err := ad.Client.Post(url, "application/json", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("post to comms: %w", err)
-	}
-	defer resp.Body.Close()
+	url := fmt.Sprintf("%s/tasks/%s", ad.CommsURL, agentName)
+	var lastErr error
+	for attempt := 1; attempt <= 60; attempt++ {
+		resp, err := ad.Client.Post(url, "application/json", bytes.NewReader(body))
+		if err != nil {
+			lastErr = fmt.Errorf("post task to comms: %w", err)
+		} else {
+			respBody, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode < 400 {
+				return nil
+			}
+			lastErr = fmt.Errorf("comms returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+			if resp.StatusCode != http.StatusNotFound {
+				break
+			}
+		}
 
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("comms returned status %d", resp.StatusCode)
+		time.Sleep(500 * time.Millisecond)
 	}
 
-	return nil
+	return lastErr
 }
 
 // formatAgentMessage builds the task message delivered to agents.

@@ -7,7 +7,8 @@ set -e
 # Determine how to reach the gateway daemon.
 # On Linux: Unix socket works through bind mount (native filesystem).
 # On macOS Docker Desktop: Unix sockets don't work through bind mounts
-# (VM boundary), so we use host.docker.internal:8200 instead.
+# (VM boundary), so we use host.docker.internal:${AGENCY_HOST_GATEWAY_PORT}.
+HOST_GATEWAY_PORT="${AGENCY_HOST_GATEWAY_PORT:-8200}"
 GATEWAY_TARGET=""
 if [ -S /run/gateway.sock ]; then
     # Test if the socket is actually connectable (fails on macOS Docker Desktop)
@@ -18,7 +19,7 @@ fi
 if [ -z "$GATEWAY_TARGET" ]; then
     # Socket not usable — try host.docker.internal (macOS Docker Desktop)
     if ping -c1 -W1 host.docker.internal >/dev/null 2>&1; then
-        GATEWAY_TARGET="TCP:host.docker.internal:8200"
+        GATEWAY_TARGET="TCP:host.docker.internal:${HOST_GATEWAY_PORT}"
         echo "gateway-proxy: using host.docker.internal (macOS Docker Desktop)"
     fi
 fi

@@ -2,10 +2,10 @@ package context
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
-	"log/slog"
 	"github.com/gorilla/websocket"
 )
 
@@ -31,6 +31,8 @@ type WSClient struct {
 	reconnectMin  time.Duration
 	reconnectMax  time.Duration
 	reconnectMult int
+	pingInterval  time.Duration
+	writeTimeout  time.Duration
 
 	onDisconnect func(agent string)
 	onReconnect  func(agent string)
@@ -50,6 +52,8 @@ func NewWSClient(agent, url string, logger *slog.Logger) *WSClient {
 		reconnectMin:  1 * time.Second,
 		reconnectMax:  30 * time.Second,
 		reconnectMult: 2,
+		pingInterval:  15 * time.Second,
+		writeTimeout:  5 * time.Second,
 	}
 }
 
@@ -122,13 +126,9 @@ func (c *WSClient) ConnectWithReconnect() {
 	}
 }
 
-// readUntilClose detects connection loss by sending WebSocket pings and
-// waiting for pongs. It blocks until the connection drops or Close() is called,
-// then clears c.conn so ConnectWithReconnect can install a fresh one.
-//
-// Using pings avoids any read/write race with the Push method's synchronous
-// ReadJSON call — gorilla only allows one concurrent reader, so we must not
-// compete with Push for reads.
+// readUntilClose keeps the connection alive with ping writes. It deliberately
+// does not read pongs: gorilla handles pong frames through control handlers,
+// not as data messages returned by ReadMessage, and Push owns response reads.
 func (c *WSClient) readUntilClose() {
 	c.mu.Lock()
 	conn := c.conn
@@ -146,10 +146,7 @@ func (c *WSClient) readUntilClose() {
 		c.mu.Unlock()
 	}()
 
-	// pingInterval controls how often we probe the connection.
-	const pingInterval = 100 * time.Millisecond
-
-	ticker := time.NewTicker(pingInterval)
+	ticker := time.NewTicker(c.pingInterval)
 	defer ticker.Stop()
 
 	for {
@@ -157,28 +154,10 @@ func (c *WSClient) readUntilClose() {
 		case <-c.done:
 			return
 		case <-ticker.C:
-			// SetWriteDeadline on the ping write.
-			conn.SetWriteDeadline(time.Now().Add(pingInterval))
-			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			deadline := time.Now().Add(c.writeTimeout)
+			if err := conn.WriteControl(websocket.PingMessage, nil, deadline); err != nil {
 				// Write failed — connection is gone.
 				c.log.Warn("ws_client: connection lost (ping)", "agent", c.agent, "err", err)
-				return
-			}
-			conn.SetWriteDeadline(time.Time{})
-
-			// Wait briefly for pong.
-			conn.SetReadDeadline(time.Now().Add(pingInterval * 2))
-			_, _, err := conn.ReadMessage()
-			conn.SetReadDeadline(time.Time{})
-			if err != nil {
-				if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
-					c.log.Warn("ws_client: pong timeout", "agent", c.agent)
-					return
-				}
-				// Normal close or other disconnect.
-				if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-					c.log.Warn("ws_client: connection lost", "agent", c.agent, "err", err)
-				}
 				return
 			}
 		}

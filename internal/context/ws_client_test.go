@@ -101,6 +101,8 @@ func TestWSClientReconnect(t *testing.T) {
 	client := NewWSClient("test-agent", wsURL, nil)
 	client.reconnectMin = 100 * time.Millisecond
 	client.reconnectMax = 200 * time.Millisecond
+	client.pingInterval = 50 * time.Millisecond
+	client.writeTimeout = 50 * time.Millisecond
 	go client.ConnectWithReconnect()
 	defer client.Close()
 
@@ -111,4 +113,43 @@ func TestWSClientReconnect(t *testing.T) {
 		t.Errorf("connect count = %d, want >= 2", connectCount)
 	}
 	mu.Unlock()
+}
+
+func TestWSClientKeepaliveDoesNotReconnectOnNormalPongs(t *testing.T) {
+	connectCount := 0
+	var mu sync.Mutex
+	upgrader := websocket.Upgrader{}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		connectCount++
+		mu.Unlock()
+
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		conn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+		_, _, _ = conn.ReadMessage()
+	}))
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
+	client := NewWSClient("test-agent", wsURL, nil)
+	client.reconnectMin = 25 * time.Millisecond
+	client.reconnectMax = 25 * time.Millisecond
+	client.pingInterval = 25 * time.Millisecond
+	client.writeTimeout = 25 * time.Millisecond
+	go client.ConnectWithReconnect()
+	defer client.Close()
+
+	time.Sleep(200 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if connectCount != 1 {
+		t.Fatalf("connect count = %d, want 1", connectCount)
+	}
 }

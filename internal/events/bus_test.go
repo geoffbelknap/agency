@@ -5,8 +5,8 @@ import (
 	"sync"
 	"testing"
 
-	"log/slog"
 	"github.com/geoffbelknap/agency/internal/models"
+	"log/slog"
 )
 
 type auditEntry struct {
@@ -148,12 +148,33 @@ func TestBusDMRouting(t *testing.T) {
 		map[string]interface{}{
 			"channel_type": "direct",
 			"dm_target":    "agent-x",
+			"author":       "_operator",
 		},
 	)
 	bus.Publish(e)
 
 	if len(*delivered) != 1 || (*delivered)[0] != "agent-x" {
 		t.Errorf("expected DM delivery to agent-x, got %v", *delivered)
+	}
+}
+
+func TestBusDMRoutingIgnoresGatewayAndTargetMessages(t *testing.T) {
+	for _, author := range []string{"_gateway", "agent-x"} {
+		bus, _, delivered := newTestBus()
+
+		e := models.NewChannelEvent("dm-agent-x", "msg-"+author,
+			map[string]interface{}{"content": "hello"},
+			map[string]interface{}{
+				"channel_type": "direct",
+				"dm_target":    "agent-x",
+				"author":       author,
+			},
+		)
+		bus.Publish(e)
+
+		if len(*delivered) != 0 {
+			t.Fatalf("author %s should not be delivered back to agent-x, got %v", author, *delivered)
+		}
 	}
 }
 

@@ -103,31 +103,21 @@ func TestAgentDelivery_Deliver(t *testing.T) {
 	}
 
 	// Verify path
-	expected := "/channels/dm-deployer/messages"
+	expected := "/tasks/deployer"
 	if receivedPath != expected {
 		t.Errorf("expected path %s, got %s", expected, receivedPath)
 	}
 
-	// Verify author
-	author, _ := receivedBody["author"].(string)
-	if author != "_gateway" {
-		t.Errorf("expected author _gateway, got %s", author)
+	// Verify task fields
+	workItemID, _ := receivedBody["work_item_id"].(string)
+	if workItemID != "evt-xyz789" {
+		t.Errorf("expected work_item_id evt-xyz789, got %s", workItemID)
 	}
 
 	// Verify content contains trigger info
-	content, _ := receivedBody["content"].(string)
+	content, _ := receivedBody["task_content"].(string)
 	if !strings.Contains(content, "[Mission trigger:") {
 		t.Errorf("content missing trigger header: %s", content)
-	}
-
-	// Verify metadata contains event_id
-	metadata, ok := receivedBody["metadata"].(map[string]interface{})
-	if !ok {
-		t.Fatal("expected metadata field in body")
-	}
-	eventID, _ := metadata["event_id"].(string)
-	if eventID != "evt-xyz789" {
-		t.Errorf("expected event_id evt-xyz789, got %s", eventID)
 	}
 }
 
@@ -157,6 +147,41 @@ func TestAgentDelivery_CommsError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "500") {
 		t.Errorf("expected 500 in error, got: %v", err)
+	}
+}
+
+func TestAgentDelivery_RetriesStartupRace(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"error":"Agent not found"}`)) //nolint:errcheck
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	ad := NewAgentDelivery(server.URL)
+
+	sub := &Subscription{
+		Destination: Destination{Type: DestAgent, Target: "test-agent"},
+	}
+	event := &models.Event{
+		ID:         "evt-race",
+		SourceType: "channel",
+		SourceName: "dm-test-agent",
+		EventType:  "message",
+		Timestamp:  time.Now().UTC(),
+		Data:       map[string]interface{}{"content": "hello"},
+	}
+
+	if err := ad.Deliver(sub, event); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("expected 2 attempts, got %d", attempts)
 	}
 }
 

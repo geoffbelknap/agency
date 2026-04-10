@@ -9,7 +9,9 @@ RUN CGO_ENABLED=0 go build -ldflags "-X main.buildID=${BUILD_ID}" -o /web-fetch 
 
 FROM alpine:3.23
 ARG BUILD_ID=dev
+ARG SOURCE_HASH=unknown
 LABEL agency.build.id=${BUILD_ID}
+LABEL agency.source.hash=${SOURCE_HASH}
 RUN apk add --no-cache ca-certificates wget
 COPY --from=builder /web-fetch /usr/local/bin/web-fetch
 EXPOSE 8080

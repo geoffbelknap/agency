@@ -1,6 +1,8 @@
 FROM agency-python-base:latest
 ARG BUILD_ID=unknown
+ARG SOURCE_HASH=unknown
 LABEL agency.build.id=${BUILD_ID}
+LABEL agency.source.hash=${SOURCE_HASH}
 WORKDIR /app
 
 # Extra deps not in the shared base
