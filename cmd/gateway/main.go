@@ -407,8 +407,14 @@ func daemonStopCmd() *cobra.Command {
 			if err := daemon.Stop(); err != nil {
 				return err
 			}
-			fmt.Println("Daemon stopped.")
-			return nil
+			for i := 0; i < 20; i++ {
+				time.Sleep(250 * time.Millisecond)
+				if !daemon.IsRunning(port) {
+					fmt.Println("Daemon stopped.")
+					return nil
+				}
+			}
+			return fmt.Errorf("daemon stop requested, but gateway is still responding on port %d", port)
 		},
 	}
 }

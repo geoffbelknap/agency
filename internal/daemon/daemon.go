@@ -183,6 +183,19 @@ func Stop() error {
 		return fmt.Errorf("send SIGTERM: %w", err)
 	}
 
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := proc.Signal(syscall.Signal(0)); err != nil {
+			os.Remove(pidFile)
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if err := proc.Signal(syscall.SIGKILL); err != nil {
+		os.Remove(pidFile)
+		return fmt.Errorf("daemon did not exit after SIGTERM and SIGKILL failed: %w", err)
+	}
+
 	os.Remove(pidFile)
 	return nil
 }
