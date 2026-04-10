@@ -26,7 +26,8 @@ func getPrincipal(r *http.Request) *registry.Principal {
 // BearerAuth returns a middleware that validates the Authorization: Bearer <token>
 // or X-Agency-Token header using constant-time comparison.
 //
-// If token is empty, all requests are allowed (dev/local mode).
+// Empty tokens are rejected. config.Load() should generate and persist a
+// non-empty token before the gateway starts, including on clean first run.
 // Paths ending in "/health" are always allowed without authentication.
 //
 // The egressToken parameter is a scoped token that only grants access to

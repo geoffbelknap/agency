@@ -12,23 +12,23 @@ import (
 
 // Config holds gateway configuration derived from the Agency home directory.
 type Config struct {
-	Home          string               // ~/.agency
-	HMACKey       []byte               // 32-byte HMAC signing key
-	GatewayAddr   string               // listen address, default 127.0.0.1:8200
-	Token         string               // auth token for gateway API (full access)
-	EgressToken        string               // scoped token for egress proxy (credential resolve only)
-	AutoRestoreInfra   bool                 // auto-run infra up when Docker reconnects (default false)
-	Version       string               // build version (set by ldflags, e.g. "0.1.0")
-	BuildID       string               // content-aware build ID: {short_commit} or {short_commit}-dirty
-	SourceDir     string               // repo source tree root (agency_core/), empty for release installs
-	Notifications []NotificationConfig // outbound notification destinations
-	ConfigVars    map[string]string    // platform config values from config.yaml (LC_ORG_ID, etc.)
+	Home             string               // ~/.agency
+	HMACKey          []byte               // 32-byte HMAC signing key
+	GatewayAddr      string               // listen address, default 127.0.0.1:8200
+	Token            string               // auth token for gateway API (full access)
+	EgressToken      string               // scoped token for egress proxy (credential resolve only)
+	AutoRestoreInfra bool                 // auto-run infra up when Docker reconnects (default false)
+	Version          string               // build version (set by ldflags, e.g. "0.1.0")
+	BuildID          string               // content-aware build ID: {short_commit} or {short_commit}-dirty
+	SourceDir        string               // repo source tree root (agency_core/), empty for release installs
+	Notifications    []NotificationConfig // outbound notification destinations
+	ConfigVars       map[string]string    // platform config values from config.yaml (LC_ORG_ID, etc.)
 }
 
 // NotificationConfig defines an outbound notification destination.
 type NotificationConfig struct {
 	Name    string            `yaml:"name"`
-	Type    string            `yaml:"type"`    // ntfy, webhook
+	Type    string            `yaml:"type"` // ntfy, webhook
 	URL     string            `yaml:"url"`
 	Events  []string          `yaml:"events"`
 	Headers map[string]string `yaml:"headers,omitempty"`
@@ -36,14 +36,14 @@ type NotificationConfig struct {
 
 // configFile mirrors the fields we care about in config.yaml.
 type configFile struct {
-	Token         string               `yaml:"token"`
-	EgressToken        string               `yaml:"egress_token,omitempty"`
-	AutoRestoreInfra   bool                 `yaml:"auto_restore_infra,omitempty"`
-	HMACKey       string               `yaml:"hmac_key,omitempty"`
-	GatewayAddr   string               `yaml:"gateway_addr,omitempty"`
-	SourceDir     string               `yaml:"source_dir,omitempty"`
-	Notifications []NotificationConfig `yaml:"notifications,omitempty"`
-	ConfigVars    map[string]string    `yaml:"config,omitempty"` // platform config values (LC_ORG_ID, etc.)
+	Token            string               `yaml:"token"`
+	EgressToken      string               `yaml:"egress_token,omitempty"`
+	AutoRestoreInfra bool                 `yaml:"auto_restore_infra,omitempty"`
+	HMACKey          string               `yaml:"hmac_key,omitempty"`
+	GatewayAddr      string               `yaml:"gateway_addr,omitempty"`
+	SourceDir        string               `yaml:"source_dir,omitempty"`
+	Notifications    []NotificationConfig `yaml:"notifications,omitempty"`
+	ConfigVars       map[string]string    `yaml:"config,omitempty"` // platform config values (LC_ORG_ID, etc.)
 }
 
 // Load returns the gateway config, resolving the agency home directory.
@@ -61,14 +61,14 @@ func Load() *Config {
 
 	configPath := filepath.Join(home, "config.yaml")
 	data, err := os.ReadFile(configPath)
-	if err != nil {
-		// config.yaml doesn't exist yet (first run before agency init); use defaults.
-		return cfg
-	}
-
 	var cf configFile
-	if err := yaml.Unmarshal(data, &cf); err != nil {
-		// Unparseable config — use defaults.
+	if err == nil {
+		if err := yaml.Unmarshal(data, &cf); err != nil {
+			// Unparseable config — use defaults.
+			return cfg
+		}
+	} else if !os.IsNotExist(err) {
+		// Unreadable config — use defaults.
 		return cfg
 	}
 
@@ -130,6 +130,7 @@ func Load() *Config {
 
 	if dirty {
 		if out, err := yaml.Marshal(&cf); err == nil {
+			_ = os.MkdirAll(home, 0700)
 			_ = os.WriteFile(configPath, out, 0600)
 		}
 	}

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+WORKSPACE_ENV_FILE="${AGENCY_WORKSPACE_ENV_FILE:-$(cd "$ROOT_DIR/.." && pwd)/.env-agency}"
 SOURCE_HOME="${AGENCY_SOURCE_HOME:-${HOME}/.agency}"
 DISPOSABLE_HOME="${AGENCY_SETUP_HOME:-}"
 GATEWAY_PORT="${AGENCY_SETUP_GATEWAY_PORT:-18300}"
@@ -102,6 +103,15 @@ resolve_agency_bin() {
     return 0
   fi
   return 1
+}
+
+load_workspace_env() {
+  if [ -f "$WORKSPACE_ENV_FILE" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$WORKSPACE_ENV_FILE"
+    set +a
+  fi
 }
 
 extract_credential_value() {
@@ -216,6 +226,11 @@ if ! AGENCY_BIN="$(resolve_agency_bin)"; then
   exit 1
 fi
 
+load_workspace_env
+
+if [ -z "$PROVIDER_API_KEY" ]; then
+  PROVIDER_API_KEY="${!PROVIDER_CREDENTIAL:-}"
+fi
 if [ -z "$PROVIDER_API_KEY" ]; then
   if [ -d "$SOURCE_HOME" ]; then
     PROVIDER_API_KEY="$(extract_credential_value)"
