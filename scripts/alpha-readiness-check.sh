@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-AGENCY_BIN="${AGENCY_BIN:-agency}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+AGENCY_BIN="${AGENCY_BIN:-}"
 AGENCY_HOME_DIR="${AGENCY_HOME:-$HOME/.agency}"
 AGENT_NAME="alpha-readiness-$(date +%s)"
 DM_CHANNEL="dm-${AGENT_NAME}"
@@ -21,6 +23,22 @@ fail() {
   exit 1
 }
 
+resolve_agency_bin() {
+  if [ -n "$AGENCY_BIN" ]; then
+    printf '%s\n' "$AGENCY_BIN"
+    return 0
+  fi
+  if [ -x "$ROOT_DIR/agency" ]; then
+    printf '%s\n' "$ROOT_DIR/agency"
+    return 0
+  fi
+  if command -v agency >/dev/null 2>&1; then
+    command -v agency
+    return 0
+  fi
+  return 1
+}
+
 run_agency() {
   "$AGENCY_BIN" -q "$@"
 }
@@ -35,6 +53,10 @@ cleanup() {
   fi
 }
 trap cleanup EXIT INT TERM HUP
+
+if ! AGENCY_BIN="$(resolve_agency_bin)"; then
+  fail "Could not find agency binary. Run make build or install agency first."
+fi
 
 provider_from_config() {
   local config_path="$AGENCY_HOME_DIR/config.yaml"
@@ -96,7 +118,8 @@ diagnose_agent_failure() {
 
 log "Checking daemon and infrastructure"
 run_agency serve restart >/dev/null
-run_agency infra up >/dev/null
+log "Starting infrastructure; this can take several minutes when images are stale"
+run_agency infra up
 
 status="$(run_agency status)"
 printf '%s\n' "$status" | grep -q 'Web UI:  http://127.0.0.1:8280' ||
