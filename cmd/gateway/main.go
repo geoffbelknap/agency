@@ -339,7 +339,7 @@ func setupCmd() *cobra.Command {
 					fmt.Println("LLM Provider:")
 					fmt.Println("  1. Anthropic (recommended)")
 					fmt.Println("  2. OpenAI")
-					fmt.Println("  3. Google")
+					fmt.Println("  3. Google Gemini")
 					fmt.Println("  4. Skip (configure later)")
 					fmt.Println()
 					fmt.Print("Select [1-4, default 1]: ")
@@ -357,7 +357,7 @@ func setupCmd() *cobra.Command {
 					case "2":
 						provider = "openai"
 					case "3":
-						provider = "google"
+						provider = "gemini"
 					case "4":
 						provider = ""
 					default:
@@ -384,7 +384,7 @@ func setupCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&name, "name", "", "Agent name (quick setup)")
 	cmd.Flags().StringVar(&preset, "preset", "", "Agent preset (quick setup)")
-	cmd.Flags().StringVar(&provider, "provider", "", "LLM provider (anthropic, openai, google)")
+	cmd.Flags().StringVar(&provider, "provider", "", "LLM provider (anthropic, openai, gemini)")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "LLM provider API key")
 	cmd.Flags().StringVar(&notifyURL, "notify-url", "", "Notification URL (ntfy or webhook) for operator alerts")
 	cmd.Flags().BoolVar(&noInfra, "no-infra", false, "Skip Docker check and infrastructure startup")
@@ -560,6 +560,7 @@ func checkDocker() error {
 }
 
 func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser bool) error {
+	provider = normalizeProvider(provider)
 	pendingKeys, err := config.RunInit(config.InitOptions{
 		Provider:  provider,
 		APIKey:    apiKey,
@@ -620,6 +621,7 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser bo
 				"anthropic": "ANTHROPIC_API_KEY",
 				"openai":    "OPENAI_API_KEY",
 				"google":    "GOOGLE_API_KEY",
+				"gemini":    "GEMINI_API_KEY",
 			}
 			cfg := config.Load()
 			c := apiclient.NewClient("http://" + cfg.GatewayAddr)

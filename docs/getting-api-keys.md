@@ -60,11 +60,13 @@ Google AI Studio offers a free tier with generous rate limits — a great way to
 ### Set it
 
 ```bash
-export GOOGLE_API_KEY="AI..."
+export GEMINI_API_KEY="AI..."
 
-# Or pass during setup
-agency setup
+# Or pass it during first-run setup
+agency quickstart
 ```
+
+`GOOGLE_API_KEY` is still accepted for older local setups, but new Agency installs use `GEMINI_API_KEY` because the Hub provider component is named `gemini`.
 
 ### Notes
 

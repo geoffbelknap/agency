@@ -67,17 +67,15 @@ The install script downloads the binary, checks Docker, and runs setup. Alternat
 ### Set up and run
 
 ```bash
-agency setup
+agency quickstart
 ```
 
-This walks you through choosing a provider, setting your API key, starts the daemon, and brings up all infrastructure (including the web UI on `localhost:8280`).
+This walks you through choosing a provider, setting your API key, starting infrastructure, creating a first agent, and sending a demo task. The web UI is available at `http://localhost:8280`.
 
-Then create an agent and give it work:
+Then give the agent more work:
 
 ```bash
-agency create my-agent
-agency start my-agent
-agency send my-agent "summarize the open issues in this repo"
+agency send henry "summarize the open issues in this repo"
 agency status
 agency admin doctor    # verify all security guarantees are holding
 ```

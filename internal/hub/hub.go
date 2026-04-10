@@ -38,6 +38,7 @@ var allowedAuthEnvVars = map[string]bool{
 	"ANTHROPIC_API_KEY": true,
 	"OPENAI_API_KEY":    true,
 	"GOOGLE_API_KEY":    true,
+	"GEMINI_API_KEY":    true,
 	"XAI_API_KEY":       true,
 	"DEEPSEEK_API_KEY":  true,
 	"GITHUB_TOKEN":      true,

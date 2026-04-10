@@ -55,7 +55,12 @@ type KeyEntry struct {
 
 // providerEnvVar returns the environment variable name for a given provider.
 func providerEnvVar(provider string) string {
-	return strings.ToUpper(provider) + "_API_KEY"
+	switch strings.ToLower(provider) {
+	case "google", "gemini":
+		return "GEMINI_API_KEY"
+	default:
+		return strings.ToUpper(provider) + "_API_KEY"
+	}
 }
 
 // ProviderDomains returns the API domains for well-known LLM providers.
@@ -67,7 +72,7 @@ func ProviderDomains(provider string) []string {
 		return []string{"api.anthropic.com"}
 	case "openai":
 		return []string{"api.openai.com"}
-	case "google":
+	case "google", "gemini":
 		return []string{"generativelanguage.googleapis.com"}
 	default:
 		return nil
@@ -350,6 +355,7 @@ func ReadExistingKeys(agencyHome string) []string {
 		"ANTHROPIC_API_KEY": "anthropic",
 		"OPENAI_API_KEY":    "openai",
 		"GOOGLE_API_KEY":    "google",
+		"GEMINI_API_KEY":    "gemini",
 	}
 	var providers []string
 	for _, line := range strings.Split(string(data), "\n") {
@@ -362,4 +368,3 @@ func ReadExistingKeys(agencyHome string) []string {
 	}
 	return providers
 }
-
