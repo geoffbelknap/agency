@@ -9,6 +9,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { ComponentInfoDialog } from './hub/ComponentInfoDialog';
 import { DeploySection } from './hub/DeploySection';
 
+type HubAvailableUpgrade = {
+  name: string;
+  kind: string;
+  category?: string;
+  installed_version?: string;
+  available_version?: string;
+  summary?: string;
+};
+
 const HUB_KIND_FILTERS: Array<ComponentKind | 'all'> = [
   'all',
   'pack',
@@ -71,7 +80,8 @@ export function Hub() {
   const [deploying, setDeploying] = useState(false);
   const [deployResult, setDeployResult] = useState<string | null>(null);
   const [updatingSources, setUpdatingSources] = useState(false);
-  const [updateReport, setUpdateReport] = useState<any>(null);
+  const [availableUpgrades, setAvailableUpgrades] = useState<HubAvailableUpgrade[]>([]);
+  const [outdatedLoading, setOutdatedLoading] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
   const [teardownTarget, setTeardownTarget] = useState<string | null>(null);
   const [infoTarget, setInfoTarget] = useState<Component | null>(null);
@@ -98,6 +108,18 @@ export function Hub() {
       setError(e.message || 'Failed to load installed components');
     } finally {
       setInstalledLoading(false);
+    }
+  }, []);
+
+  const loadOutdated = useCallback(async () => {
+    try {
+      setOutdatedLoading(true);
+      const upgrades = await api.hub.outdated() as HubAvailableUpgrade[];
+      setAvailableUpgrades(upgrades ?? []);
+    } catch {
+      setAvailableUpgrades([]);
+    } finally {
+      setOutdatedLoading(false);
     }
   }, []);
 
@@ -130,6 +152,7 @@ export function Hub() {
       setError(null);
       await api.hub.install(component.name, component.kind, component.source || undefined);
       await loadInstalled();
+      await loadOutdated();
       // Re-search to refresh installed status across all results
       if (allResults.length > 0) {
         handleSearch();
@@ -145,6 +168,7 @@ export function Hub() {
       setError(null);
       await api.hub.remove(component.name, component.kind);
       await loadInstalled();
+      await loadOutdated();
       if (allResults.length > 0) {
         handleSearch();
       }
@@ -158,9 +182,10 @@ export function Hub() {
     try {
       setUpdatingSources(true);
       const report = await api.hub.update();
-      setUpdateReport(report);
-      if ((report as any)?.available?.length > 0) {
-        toast.success(`${(report as any).available.length} upgrade(s) available`);
+      const available = ((report as any)?.available ?? []) as HubAvailableUpgrade[];
+      setAvailableUpgrades(available);
+      if (available.length > 0) {
+        toast.success(`${available.length} upgrade(s) available`);
       } else {
         toast.success('Hub sources up to date');
       }
@@ -177,13 +202,16 @@ export function Hub() {
       setUpgrading(true);
       const report = await api.hub.upgrade(components);
       const upgraded = (report.components || []).filter((c: any) => c.status === 'upgraded');
+      const files = (report.files || []).filter((f: any) => f.status === 'upgraded' || f.status === 'added');
       if (upgraded.length > 0) {
         toast.success(`Upgraded ${upgraded.length} component(s)`);
+      } else if (files.length > 0) {
+        toast.success(`Upgraded ${files.length} managed file(s)`);
       } else {
         toast.success('Everything up to date');
       }
-      setUpdateReport(null);
       await loadInstalled();
+      await loadOutdated();
       await handleSearch();
     } catch (e: any) {
       toast.error(e.message || 'Upgrade failed');
@@ -238,7 +266,8 @@ export function Hub() {
 
   useEffect(() => {
     loadInstalled();
-  }, [loadInstalled]);
+    loadOutdated();
+  }, [loadInstalled, loadOutdated]);
 
   // Fetch browse results after installed list is loaded (so we can mark installed items)
   const initialSearchDone = useRef(false);
@@ -255,6 +284,10 @@ export function Hub() {
       kind === 'all' ? allResults.length : allResults.filter((c) => c.kind === kind).length,
     ]),
   ) as Record<ComponentKind | 'all', number>;
+
+  const componentUpgrade = (component: Component) =>
+    availableUpgrades.find((upgrade) => upgrade.kind !== 'managed' && upgrade.name === component.name);
+  const managedUpgrades = availableUpgrades.filter((upgrade) => upgrade.kind === 'managed');
 
   return (
     <div className="space-y-4">
@@ -308,14 +341,14 @@ export function Hub() {
           </div>
 
           {/* Upgrade Banner */}
-          {updateReport?.available?.length > 0 && (
+          {availableUpgrades.length > 0 && (
             <div className="bg-green-950/30 border border-green-900/50 rounded-lg px-4 py-3 flex items-center gap-3">
               <div className="flex-1">
                 <span className="text-emerald-400 font-medium text-sm">
-                  {updateReport.available.length} upgrade{updateReport.available.length > 1 ? 's' : ''} available
+                  {availableUpgrades.length} upgrade{availableUpgrades.length > 1 ? 's' : ''} available
                 </span>
                 <span className="text-muted-foreground text-xs ml-2">
-                  {updateReport.available.map((u: any) =>
+                  {availableUpgrades.map((u) =>
                     u.kind === 'managed' ? `${u.name} ${u.summary}` : `${u.name} ${u.installed_version} → ${u.available_version}`
                   ).join(', ')}
                 </span>
@@ -420,71 +453,119 @@ export function Hub() {
           {installedLoading ? (
             <div className="text-sm text-muted-foreground text-center py-12">Loading installed components...</div>
           ) : (
-            <div className="bg-card border border-border rounded overflow-x-auto">
-              <table className="w-full text-sm min-w-[560px]">
-                <thead>
-                  <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
-                    <th className="text-left p-3 md:p-4 font-medium">Name</th>
-                    <th className="text-left p-3 md:p-4 font-medium">Kind</th>
-                    <th className="text-left p-3 md:p-4 font-medium">Source</th>
-                    <th className="text-left p-3 md:p-4 font-medium">Installed At</th>
-                    <th className="text-left p-3 md:p-4 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {installedComponents.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="p-8 text-center text-muted-foreground text-sm">
-                        No components installed
-                      </td>
+            <div className="space-y-4">
+              {outdatedLoading && (
+                <div className="text-xs text-muted-foreground">Checking installed component versions...</div>
+              )}
+              {availableUpgrades.length > 0 && (
+                <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg px-4 py-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                        {availableUpgrades.length} Hub upgrade{availableUpgrades.length > 1 ? 's' : ''} available
+                      </div>
+                      {managedUpgrades.length > 0 && (
+                        <div className="text-xs text-muted-foreground mt-1">
+                          Managed files: {managedUpgrades.map((u) => u.category || u.name).join(', ')}
+                        </div>
+                      )}
+                    </div>
+                    <Button size="sm" onClick={() => handleUpgrade()} disabled={upgrading}>
+                      {upgrading ? 'Upgrading...' : 'Upgrade All'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <div className="bg-card border border-border rounded overflow-x-auto">
+                <table className="w-full text-sm min-w-[640px]">
+                  <thead>
+                    <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
+                      <th className="text-left p-3 md:p-4 font-medium">Name</th>
+                      <th className="text-left p-3 md:p-4 font-medium">Kind</th>
+                      <th className="text-left p-3 md:p-4 font-medium">Source</th>
+                      <th className="text-left p-3 md:p-4 font-medium">Version</th>
+                      <th className="text-left p-3 md:p-4 font-medium">Installed At</th>
+                      <th className="text-left p-3 md:p-4 font-medium">Actions</th>
                     </tr>
-                  ) : (
-                    installedComponents.map((component) => (
-                      <tr
-                        key={component.id}
-                        className="border-b border-border hover:bg-secondary/50 transition-colors"
-                      >
-                        <td className="p-4">
-                          <code className="text-foreground">{component.name}</code>
-                        </td>
-                        <td className="p-4">
-                          <span className="text-xs bg-secondary text-muted-foreground px-2 py-0.5 rounded capitalize">
-                            {component.kind}
-                          </span>
-                        </td>
-                        <td className="p-4">
-                          <span className="text-muted-foreground text-xs">{component.source}</span>
-                        </td>
-                        <td className="p-4">
-                          <span className="text-muted-foreground text-xs">
-                            {(component as any).installedAt || '—'}
-                          </span>
-                        </td>
-                        <td className="p-4">
-                          <div className="flex gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => openInfo(component)}
-                              className="h-7 text-xs"
-                            >
-                              Info
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleRemove(component)}
-                              className="h-7 text-xs"
-                            >
-                              Remove
-                            </Button>
-                          </div>
+                  </thead>
+                  <tbody>
+                    {installedComponents.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="p-8 text-center text-muted-foreground text-sm">
+                          No components installed
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : (
+                      installedComponents.map((component) => {
+                        const upgrade = componentUpgrade(component);
+                        return (
+                          <tr
+                            key={component.id}
+                            className="border-b border-border hover:bg-secondary/50 transition-colors"
+                          >
+                            <td className="p-4">
+                              <code className="text-foreground">{component.name}</code>
+                            </td>
+                            <td className="p-4">
+                              <span className="text-xs bg-secondary text-muted-foreground px-2 py-0.5 rounded capitalize">
+                                {component.kind}
+                              </span>
+                            </td>
+                            <td className="p-4">
+                              <span className="text-muted-foreground text-xs">{component.source}</span>
+                            </td>
+                            <td className="p-4">
+                              {upgrade ? (
+                                <span className="text-xs text-amber-700 dark:text-amber-300">
+                                  {upgrade.installed_version || 'current'} → {upgrade.available_version || 'available'}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground text-xs">{component.version || '—'}</span>
+                              )}
+                            </td>
+                            <td className="p-4">
+                              <span className="text-muted-foreground text-xs">
+                                {(component as any).installedAt || '—'}
+                              </span>
+                            </td>
+                            <td className="p-4">
+                              <div className="flex gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => openInfo(component)}
+                                  className="h-7 text-xs"
+                                >
+                                  Info
+                                </Button>
+                                {upgrade && (
+                                  <Button
+                                    variant="default"
+                                    size="sm"
+                                    onClick={() => handleUpgrade([component.name])}
+                                    disabled={upgrading}
+                                    className="h-7 text-xs"
+                                  >
+                                    Upgrade
+                                  </Button>
+                                )}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleRemove(component)}
+                                  className="h-7 text-xs"
+                                >
+                                  Remove
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </TabsContent>

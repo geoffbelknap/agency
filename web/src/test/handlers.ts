@@ -124,6 +124,7 @@ export const handlers = [
   http.post(`${BASE}/hub/install`, () => HttpResponse.json({ ok: true })),
   http.delete(`${BASE}/hub/:name`, () => HttpResponse.json({ ok: true })),
   http.post(`${BASE}/hub/update`, () => HttpResponse.json({ ok: true })),
+  http.post(`${BASE}/hub/upgrade`, () => HttpResponse.json({ components: [], files: [] })),
   http.get(`${BASE}/hub/info/:name`, () => HttpResponse.json({})),
   http.get(`${BASE}/hub/outdated`, () => HttpResponse.json([])),
   http.get(`${BASE}/hub/presets`, () =>
