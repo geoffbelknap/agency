@@ -10,10 +10,11 @@ Usage: ./scripts/cleanup-live-test-runtimes.sh [--apply] [-q|--quiet]
 
 Find and optionally stop Agency live-test runtimes that are attached to
 temporary homes such as agency-live-home.*, agency-danger-home.*,
-agency-oci-home.*, or agency-operator-oci-home.*.
+agency-oci-home.*, agency-operator-oci-home.*, or agency-setup-home.*.
 
 By default this is a dry run. Pass --apply to terminate only matched test
-runtime processes and remove scoped disposable infra containers and networks.
+runtime processes and remove scoped disposable infra/agent containers and
+networks.
 EOF
 }
 
@@ -47,7 +48,7 @@ log() {
 
 is_test_runtime() {
   local pid="$1"
-  lsof -nP -p "$pid" 2>/dev/null | grep -Eq '/agency-(live|danger|oci|operator-oci)-home\.'
+  lsof -nP -p "$pid" 2>/dev/null | grep -Eq '/agency-((live|danger|oci|operator-oci)-home|setup-home)\.'
 }
 
 stop_pid() {
@@ -106,7 +107,9 @@ if command -v docker >/dev/null 2>&1; then
     disposable_containers+=("$name")
   done < <(
     docker ps -a --format '{{.Names}}' 2>/dev/null |
-      grep -E '^agency-infra-(egress|comms|knowledge|intake|web-fetch|web|embeddings)-agency-(live|danger|oci|operator-oci)-home-' || true
+      grep -E '^agency-infra-(egress|comms|knowledge|intake|web-fetch|web|embeddings)-(agency-(live|danger|oci|operator-oci)-home-|agency-setup-home-)' || true
+    docker ps -a --format '{{.Names}}' 2>/dev/null |
+      grep -E '^agency-(alpha-(setup|readiness)-[0-9]+|playwright-agent-[0-9]+|e2e-test-agent)-(workspace|enforcer)$' || true
   )
 
   if [ "${#disposable_containers[@]}" -gt 0 ]; then
@@ -124,7 +127,9 @@ if command -v docker >/dev/null 2>&1; then
     disposable_networks+=("$name")
   done < <(
     docker network ls --format '{{.Name}}' 2>/dev/null |
-      grep -E '^agency-(gateway|egress-int|egress-ext|operator)-agency-(live|danger|oci|operator-oci)-home-' || true
+      grep -E '^agency-(gateway|egress-int|egress-ext|operator)-(agency-(live|danger|oci|operator-oci)-home-|agency-setup-home-)' || true
+    docker network ls --format '{{.Name}}' 2>/dev/null |
+      grep -E '^agency-(alpha-(setup|readiness)-[0-9]+|playwright-agent-[0-9]+|e2e-test-agent)-internal$' || true
   )
 
   if [ "${#disposable_networks[@]}" -gt 0 ]; then
