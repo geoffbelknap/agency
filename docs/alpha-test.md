@@ -104,6 +104,18 @@ agency stop henry --immediate
 agency start henry
 ```
 
+If test runs leave temporary agents, containers, or networks behind, inspect the matched cleanup set first:
+
+```bash
+./scripts/cleanup-live-test-runtimes.sh
+```
+
+If the dry run only lists disposable `alpha-*`, `playwright-*`, `e2e-*`, or temporary-home resources, remove them:
+
+```bash
+./scripts/cleanup-live-test-runtimes.sh --apply
+```
+
 If you want to start the alpha test over:
 
 ```bash
