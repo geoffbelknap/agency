@@ -68,7 +68,7 @@ test('first-run setup wizard reaches a live agent chat', async ({ page, request 
   await expect(page.getByRole('heading', { name: 'Your First Agent' })).toBeVisible();
   const nameInput = page.locator('input').first();
   await nameInput.fill(agentName);
-  await page.getByRole('button', { name: 'Create & Start' }).click();
+  await page.getByRole('button', { name: /Create (&|or) Start/ }).click();
 
   await expect(page.getByRole('heading', { name: 'What should your agents be able to do?' })).toBeVisible({ timeout: 300_000 });
   await page.getByRole('button', { name: 'Continue' }).click();

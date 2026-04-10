@@ -2,6 +2,7 @@ package containers
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/docker/docker/api/types/container"
@@ -46,13 +47,19 @@ func CreateAndStart(
 // Ignores "not found" errors so it is safe to call on already-removed containers.
 func StopAndRemove(ctx context.Context, cli DockerAPI, name string, timeoutSecs int) error {
 	stopErr := cli.ContainerStop(ctx, name, container.StopOptions{Timeout: &timeoutSecs})
-	if stopErr != nil && !isNotFound(stopErr) {
-		return stopErr
-	}
 
 	removeErr := cli.ContainerRemove(ctx, name, container.RemoveOptions{Force: true})
+	if isNotFound(stopErr) && isNotFound(removeErr) {
+		return nil
+	}
 	if removeErr != nil && !isNotFound(removeErr) {
+		if stopErr != nil && !isNotFound(stopErr) {
+			return errors.Join(stopErr, removeErr)
+		}
 		return removeErr
+	}
+	if stopErr != nil && !isNotFound(stopErr) {
+		return nil
 	}
 
 	return nil

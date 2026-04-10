@@ -158,3 +158,39 @@ func TestStopAndRemove_IgnoresNotFoundOnRemove(t *testing.T) {
 		t.Errorf("expected nil error for not-found remove, got: %v", err)
 	}
 }
+
+func TestStopAndRemove_RemovesWhenStopReportsAlreadyStopped(t *testing.T) {
+	removeCalled := false
+	mock := &mockDockerAPI{
+		stopFn: func(_ context.Context, _ string, _ container.StopOptions) error {
+			return errors.New("container is already stopped")
+		},
+		removeFn: func(_ context.Context, _ string, _ container.RemoveOptions) error {
+			removeCalled = true
+			return nil
+		},
+	}
+
+	if err := StopAndRemove(context.Background(), mock, "exited-container", 5); err != nil {
+		t.Fatalf("expected remove success to clear stop error, got: %v", err)
+	}
+	if !removeCalled {
+		t.Fatal("ContainerRemove was not called")
+	}
+}
+
+func TestStopAndRemove_ReturnsRemoveErrorAfterStopError(t *testing.T) {
+	removeErr := errors.New("remove failed")
+	mock := &mockDockerAPI{
+		stopFn: func(_ context.Context, _ string, _ container.StopOptions) error {
+			return errors.New("container is already stopped")
+		},
+		removeFn: func(_ context.Context, _ string, _ container.RemoveOptions) error {
+			return removeErr
+		},
+	}
+
+	if err := StopAndRemove(context.Background(), mock, "stuck-container", 5); !errors.Is(err, removeErr) {
+		t.Fatalf("expected remove error, got: %v", err)
+	}
+}
