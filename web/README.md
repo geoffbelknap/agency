@@ -7,7 +7,6 @@ The web frontend for [Agency](https://github.com/geoffbelknap/agency). Built wit
 
 - **Node.js** v22 or later
 - **npm** v10 or later
-- **mkcert** for local HTTPS (`brew install mkcert` on macOS, `sudo apt install mkcert` on Linux)
 - A running Agency gateway (defaults to `127.0.0.1:8200`)
 
 ## Quick Start
@@ -16,11 +15,11 @@ The web frontend for [Agency](https://github.com/geoffbelknap/agency). Built wit
 # Install dependencies
 npm install
 
-# Start the web UI (builds, generates TLS certs, and serves on port 8280)
+# Start the web UI (builds and serves on port 8280)
 npx agency-web
 ```
 
-The app will be available at `https://localhost:8280`.
+The app will be available at `http://localhost:8280`.
 
 ## Features
 

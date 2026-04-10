@@ -24,17 +24,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var providerEnvVars = map[string]string{
-	"anthropic": "ANTHROPIC_API_KEY",
-	"openai":    "OPENAI_API_KEY",
-	"google":    "GEMINI_API_KEY",
-}
-
 var providerDisplayNames = map[string]string{
 	"anthropic": "Anthropic",
 	"openai":    "OpenAI",
-	"google":    "Google Gemini",
+	"gemini":    "Google Gemini",
 }
+
+const localWebURL = "http://localhost:8280"
 
 var (
 	qsBold  = lipgloss.NewStyle().Bold(true)
@@ -148,7 +144,7 @@ Run with --no-demo to skip the demo task.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.provider, "provider", "", "LLM provider (anthropic, openai, gemini, ollama)")
+	cmd.Flags().StringVar(&opts.provider, "provider", "", "LLM provider (anthropic, openai, gemini)")
 	cmd.Flags().StringVar(&opts.key, "key", "", "API key for the provider")
 	cmd.Flags().StringVar(&opts.preset, "preset", "", "Agent preset to use")
 	cmd.Flags().StringVar(&opts.name, "name", "", "Name for the first agent")
@@ -156,6 +152,17 @@ Run with --no-demo to skip the demo task.`,
 	cmd.Flags().BoolVar(&opts.verbose, "verbose", false, "Show detailed output")
 
 	return cmd
+}
+
+func normalizeProvider(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "":
+		return ""
+	case "google", "gemini", "google-gemini":
+		return "gemini"
+	default:
+		return strings.ToLower(strings.TrimSpace(provider))
+	}
 }
 
 // detectProvider reads ~/.agency/config.yaml and returns the configured llm_provider.
@@ -199,7 +206,7 @@ func promptProvider() string {
 	case "2":
 		return "openai"
 	case "3":
-		return "google"
+		return "gemini"
 	default:
 		return "anthropic"
 	}
@@ -250,7 +257,7 @@ func validateAPIKey(provider, key string) error {
 			return err
 		}
 		req.Header.Set("Authorization", "Bearer "+key)
-	case "google":
+	case "gemini":
 		req, err = http.NewRequest("GET", "https://generativelanguage.googleapis.com/v1beta/openai/models", nil)
 		if err != nil {
 			return err
@@ -306,15 +313,16 @@ func runQuickstart(opts quickstartOptions) error {
 	fmt.Printf("  %s environment     Docker running\n", qsGreen.Render("✓"))
 
 	// Phase 2: Provider — detect or prompt for LLM provider and API key
-	providerName := opts.provider
+	providerExplicit := strings.TrimSpace(opts.provider) != ""
+	providerName := normalizeProvider(opts.provider)
 	apiKey := opts.key
 	needsPrompt := false
 
 	if providerName == "" {
-		providerName = detectProvider()
+		providerName = normalizeProvider(detectProvider())
 	}
 
-	if providerName != "" && apiKey == "" {
+	if providerName != "" && apiKey == "" && !providerExplicit {
 		// Provider already configured, no new key needed
 		displayName := providerDisplayNames[providerName]
 		if displayName == "" {
@@ -635,7 +643,7 @@ func runQuickstart(opts quickstartOptions) error {
 			fmt.Println()
 			fmt.Println()
 			fmt.Println("  Agent started but the first task is taking a while.")
-			fmt.Printf("  Check %s or open %s\n", qsBold.Render("agency status"), qsBold.Render("https://localhost:8280"))
+			fmt.Printf("  Check %s or open %s\n", qsBold.Render("agency status"), qsBold.Render(localWebURL))
 		}
 	}
 
@@ -646,7 +654,8 @@ func runQuickstart(opts quickstartOptions) error {
 	if runningAgent != "" {
 		fmt.Printf("    • Send tasks:  %s\n", qsBold.Render(fmt.Sprintf("agency send %s \"your task here\"", runningAgent)))
 	}
-	fmt.Printf("    • Web UI:      %s\n", qsBold.Render("https://localhost:8280"))
+	fmt.Printf("    • Web UI:      %s\n", qsBold.Render(localWebURL))
+	fmt.Printf("    • Alpha guide: %s\n", qsBold.Render("docs/alpha-test.md"))
 	fmt.Printf("    • Status:      %s\n", qsBold.Render("agency status"))
 	fmt.Printf("    • More agents: %s\n", qsBold.Render("agency hub search"))
 	if choice.preset == "engineer" {

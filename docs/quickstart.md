@@ -35,28 +35,27 @@ irm https://raw.githubusercontent.com/geoffbelknap/agency/main/install.ps1 | iex
 
 ## Setup
 
-Run the setup wizard:
+Run the quickstart wizard:
 
 ```bash
-agency setup
+agency quickstart
 ```
 
-It walks you through three things:
+It walks you through five things:
 
 1. **Pick your LLM provider** — Anthropic (recommended), OpenAI, or Google
 2. **Paste your API key** — input is masked, stored in an encrypted credential store
 3. **Start infrastructure** — builds container images and launches shared services
+4. **Create your first agent** — choose a starter role and name
+5. **Run a demo task** — verifies the agent can respond
 
 When it finishes, you'll see:
 
 ```
-You're ready to go:
-
-  agency create my-agent  # Create an agent
-  agency start my-agent   # Start an agent
-  agency status           # Check platform status
-
-  Open https://localhost:8280 for the web UI
+Agent is running. What's next:
+  • Send tasks:  agency send henry "your task here"
+  • Web UI:      http://localhost:8280
+  • Status:      agency status
 ```
 
 Verify everything is healthy:
@@ -65,9 +64,11 @@ Verify everything is healthy:
 agency status
 ```
 
-You should see all infrastructure components running. The web UI is live at `https://localhost:8280` — open it now if you want to follow along with the web path below.
+You should see all infrastructure components running. The web UI is live at `http://localhost:8280` — open it now if you want to follow along with the web path below.
 
-> **Remote access:** Agency-web runs with TLS on localhost. To reach it from another machine or your phone, we recommend tunneling solutions with built-in authentication: [Cloudflare Named Tunnels](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) with Access policies, [ngrok](https://ngrok.com/) with OAuth or basic auth, [Tailscale Serve](https://tailscale.com/kb/1312/serve) for tailnet members, or [Defined Networking](https://www.defined.net/) overlay networks. Don't expose agency-web to the open internet without authentication.
+> **Remote access:** Agency-web is intended for local access during alpha testing. To reach it from another machine or your phone, use a tunnel or overlay network with built-in authentication: [Cloudflare Named Tunnels](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) with Access policies, [ngrok](https://ngrok.com/) with OAuth or basic auth, [Tailscale Serve](https://tailscale.com/kb/1312/serve) for tailnet members, or [Defined Networking](https://www.defined.net/) overlay networks. Don't expose agency-web to the open internet without authentication.
+
+`agency setup` is still available for idempotent infrastructure setup, but `agency quickstart` is the recommended first-run path.
 
 ## Create Your First Agent
 
@@ -96,10 +97,10 @@ Agent assistant is running.
 
 ### Web UI
 
-1. Open `https://localhost:8280`
+1. Open `http://localhost:8280`
 2. Click **Agents** in the left sidebar
 3. Click the **Create** button in the top-right corner of the Agents screen
-4. In the dialog, enter a name (e.g., `assistant`), select the **generalist** preset, and leave the mode set to **assisted** — this means the agent will ask for clarification when tasks are ambiguous, which is what you want while getting started. (The other option, **autonomous**, makes the agent push forward without asking — better for unattended workflows like missions.)
+4. In the dialog, enter a name (e.g., `assistant`) and select the **generalist** preset.
 5. Check **Start agent immediately** and click **Create**
 
 You'll see the agent appear in the list with a green running status.
