@@ -70,30 +70,15 @@ You should see all infrastructure components running. The web UI is live at `htt
 
 `agency setup` is still available for idempotent infrastructure setup, but `agency quickstart` is the recommended first-run path.
 
+## Choose Your Path
+
+For basic users, the Web UI is the primary experience. Use the terminal for initial setup and recovery only.
+
+For developers, security operators, and other power users, the CLI exposes the same platform primitives directly and is useful for scripting, debugging, and advanced workflows.
+
 ## Create Your First Agent
 
 Agency ships with built-in presets — pre-configured agent templates for common roles. We'll use `generalist`, a broad-purpose assistant with file access, shell, and web tools.
-
-### CLI
-
-```bash
-agency create assistant --preset generalist
-agency start assistant
-```
-
-The start sequence runs through seven verified phases (enforcement, constraints, workspace, identity, and more). You'll see each phase complete:
-
-```
-Starting assistant...
-  ✓ verify
-  ✓ enforcement
-  ✓ constraints
-  ✓ workspace
-  ✓ identity
-  ✓ body
-  ✓ session
-Agent assistant is running.
-```
 
 ### Web UI
 
@@ -105,40 +90,46 @@ Agent assistant is running.
 
 You'll see the agent appear in the list with a green running status.
 
+### CLI
+
+If you prefer the terminal or need a fallback:
+
+```bash
+agency create assistant --preset generalist
+agency start assistant
+```
+
+The start sequence runs through seven verified phases: enforcement, constraints, workspace, identity, body, session, and related checks.
+
 ## Talk to Your Agent
 
 Now send your agent some work.
 
+### Web UI
+
+1. Click **Channels** in the left sidebar.
+2. Under **Direct Messages**, find your agent. It shows up as **assistant** with a green dot and an **AGENT** badge.
+3. Click it to open the DM channel.
+4. Type a message in the compose bar: *"What files are in my workspace? List them and describe what you see."*
+5. Watch the activity indicator. You'll see what the agent is doing as it works.
+6. When it responds, send a follow-up: *"Create a file called notes.md with a summary of what you found."*
+
+The DM view shows your full conversation history. To see the raw audit log, go back to **Agents**, click your agent, and open the **Activity** tab.
+
 ### CLI
+
+If you prefer the terminal or need a fallback:
 
 ```bash
 agency send assistant "What files are in my workspace? List them and describe what you see."
+agency send assistant "Create a file called notes.md with a summary of what you found."
 ```
 
-The agent explores its workspace and responds. To see the full audit trail — every tool call, every decision:
+To see the full audit trail:
 
 ```bash
 agency log assistant
 ```
-
-Send a follow-up that builds on what it already knows:
-
-```bash
-agency send assistant "Create a file called notes.md with a summary of what you found."
-```
-
-The agent remembers context within a session. It knows what it found in the first task and builds on it.
-
-### Web UI
-
-1. Click **Channels** in the left sidebar
-2. Under **Direct Messages**, find your agent — it shows up as **assistant** with a green dot and an **AGENT** badge
-3. Click it to open the DM channel
-4. Type a message in the compose bar: *"What files are in my workspace? List them and describe what you see."*
-5. Watch the activity indicator — you'll see what the agent is doing as it works (reading files, running commands)
-6. When it responds, send a follow-up: *"Create a file called notes.md with a summary of what you found."*
-
-The DM view shows your full conversation history. To see the raw audit log, go back to **Agents**, click your agent, and open the **Activity** tab.
 
 ### Channels
 
