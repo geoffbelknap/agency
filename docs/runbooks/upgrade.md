@@ -7,14 +7,14 @@ New Agency version available. Applies to both Homebrew installs and source build
 ## Prerequisites
 
 - Current installation working (`agency admin doctor` passes)
-- No agents actively processing critical tasks (check `agency status`)
+- No agents actively processing critical tasks (check `agency list`)
 
 ## Steps
 
 ### 1. Stop all agents
 
 ```bash
-agency status
+agency list --format text
 # For each running agent:
 agency stop <agent-name>
 ```

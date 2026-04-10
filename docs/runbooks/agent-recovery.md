@@ -74,8 +74,7 @@ If OOMKilled: the agent exceeded its memory limit. Check if the task requires mo
 
 ```bash
 # Force halt then stop
-agency halt <agent-name> --tier immediate --reason "restart loop"
-agency stop <agent-name>
+agency stop <agent-name> --force
 
 # Check logs for the crash cause
 agency log <agent-name>
@@ -104,8 +103,7 @@ agency start <agent-name>
 agency admin rebuild <agent-name>
 
 # If that doesn't fix it, recreate the agent
-agency halt <agent-name> --tier immediate --reason "corrupted state"
-agency stop <agent-name>
+agency stop <agent-name> --force
 agency delete <agent-name>
 agency create <agent-name> --preset <original-preset>
 agency start <agent-name>

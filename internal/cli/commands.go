@@ -2950,10 +2950,22 @@ For URLs: passes the URL as filename (the knowledge service handles URL classifi
 	}
 	cmd.AddCommand(exportCmd)
 
-	// Import knowledge graph
-	importCmd := &cobra.Command{
-		Use:   "import <file>",
-		Short: "Import knowledge graph from a JSON export",
+	importCmd := knowledgeGraphImportCmd("import", "Import knowledge graph from a JSON export")
+	cmd.AddCommand(importCmd)
+	cmd.AddCommand(knowledgeGraphImportCmd("restore", "Restore knowledge graph from a JSON export"))
+
+	cmd.AddCommand(knowledgeOntologyCmd())
+	cmd.AddCommand(knowledgeReviewCmd())
+	cmd.AddCommand(knowledgePrincipalsCmd())
+	cmd.AddCommand(knowledgeClassificationCmd())
+
+	return cmd
+}
+
+func knowledgeGraphImportCmd(use, short string) *cobra.Command {
+	return &cobra.Command{
+		Use:   use + " <file>",
+		Short: short,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
@@ -2971,14 +2983,6 @@ For URLs: passes the URL as filename (the knowledge service handles URL classifi
 			return nil
 		},
 	}
-	cmd.AddCommand(importCmd)
-
-	cmd.AddCommand(knowledgeOntologyCmd())
-	cmd.AddCommand(knowledgeReviewCmd())
-	cmd.AddCommand(knowledgePrincipalsCmd())
-	cmd.AddCommand(knowledgeClassificationCmd())
-
-	return cmd
 }
 
 func knowledgeClassificationCmd() *cobra.Command {

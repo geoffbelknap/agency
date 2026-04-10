@@ -183,10 +183,10 @@ agency admin knowledge quarantine-release --node <node-id>
 agency graph export /path/to/backup.json
 ```
 
-### Import
+### Restore
 
 ```bash
-agency graph import /path/to/backup.json
+agency graph restore /path/to/backup.json
 agency graph stats   # verify counts
 ```
 

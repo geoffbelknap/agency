@@ -27,8 +27,8 @@ Scheduled backup, migration to new machine, disaster recovery, or state preserva
 BACKUP_DIR="/path/to/backups/agency-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$BACKUP_DIR"
 
-# Stop agents to ensure consistent state (check agency status for running agents)
-agency status
+# Stop agents to ensure consistent state
+agency list --format text
 # For each running agent:
 # agency stop <agent-name>
 
@@ -106,7 +106,7 @@ agency admin doctor
 ### Restore knowledge graph only
 
 ```bash
-agency graph import /path/to/backups/knowledge-YYYYMMDD.json
+agency graph restore /path/to/backups/knowledge-YYYYMMDD.json
 agency graph stats
 ```
 

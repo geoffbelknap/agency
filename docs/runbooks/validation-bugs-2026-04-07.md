@@ -20,14 +20,15 @@ There was no top-level `agency list` command to list agents. `agency status` (no
 
 ### 2. No `knowledge export` / `knowledge restore` commands
 
+**Status:** Resolved in code after discovery.
 **Severity:** Medium
 **Location:** `internal/cli/commands.go` — knowledge subcommands
 
-The knowledge graph has `query`, `stats`, `ingest`, `review`, `ontology`, etc. but no `export` or `restore` commands for backup/restore workflows.
+The knowledge graph had `query`, `stats`, `ingest`, `review`, `ontology`, etc. but no clearly documented export/restore command pair for backup/restore workflows.
 
 **Impact:** Operators must fall back to filesystem-level `cp -r ~/.agency/knowledge/` for backups, which requires stopping the daemon first to ensure consistency. A proper export/restore would allow hot backups and cross-machine migration.
 
-**Suggested fix:** Add `agency knowledge export` (dump graph to JSON/YAML) and `agency knowledge import` (load from dump). The export should include nodes, edges, ontology, and classification config.
+**Resolution:** `agency graph export [file]` and `agency graph import <file>` exist, and `agency graph restore <file>` is available as a restore-oriented alias for import.
 
 ---
 
@@ -129,7 +130,7 @@ All runbooks were updated to match the actual CLI:
 | File | Issue | Fix |
 |------|-------|-----|
 | agent-recovery.md | `--type`, `stop --immediate` | `--tier`, two-step halt+stop |
-| backup-restore.md | `agency list`, `knowledge export/restore` | `agency status`, filesystem-level backup |
+| backup-restore.md | `agency list`, `knowledge export/restore` | `agency list`, `agency graph export/import/restore` |
 | credential-rotation.md | `creds list --groups` | `creds list --group <name>` |
 | security-incident-response.md | `--type`, `stop --immediate` | `--tier`, two-step halt+stop |
 | upgrade.md | `agency list` | `agency status` |
