@@ -70,9 +70,9 @@ The install script downloads the binary, checks Docker, and runs setup. Alternat
 agency quickstart
 ```
 
-This walks you through choosing a provider, setting your API key, starting infrastructure, creating a first agent, and sending a demo task. The web UI is available at `http://localhost:8280`.
+This walks you through choosing a provider, setting your API key, starting infrastructure, creating a first agent, and sending a demo task. For basic users, the Web UI is the primary experience after setup: `http://localhost:8280`.
 
-Then give the agent more work:
+Then open the Web UI, go to **Channels**, and message your agent in its direct-message thread. If you prefer the terminal or need a fallback:
 
 ```bash
 agency send henry "summarize the open issues in this repo"

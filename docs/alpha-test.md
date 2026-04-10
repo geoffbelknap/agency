@@ -3,7 +3,7 @@ title: "Alpha Test Guide"
 description: "A short first-run guide for early Agency alpha testers."
 ---
 
-Use this guide when you are trying Agency for the first time. The goal is not to learn every feature. The goal is to get one useful agent running, understand what it is doing, and know how to recover if something gets confusing.
+Use this guide when you are trying Agency for the first time. The goal is not to learn every feature or become a command-line user. The goal is to get one useful agent running in the Web UI, understand what it is doing, and know the few recovery commands to use if something gets confusing.
 
 ## What You Need
 
@@ -13,7 +13,7 @@ Use this guide when you are trying Agency for the first time. The goal is not to
 
 ## Start Agency
 
-Run:
+Run this one terminal command:
 
 ```bash
 agency quickstart
@@ -34,9 +34,15 @@ When it finishes, open the Web UI:
 http://localhost:8280
 ```
 
+After this point, stay in the Web UI unless the guide explicitly says to use the terminal. Developers, security operators, and advanced users can use the CLI heavily; basic alpha testers should treat it as setup and recovery tooling.
+
 ## What To Try First
 
-In the Web UI, open **Channels**, find your agent under **Direct Messages**, and send one of these:
+In the Web UI:
+
+1. Open **Channels**.
+2. Find your agent under **Direct Messages**.
+3. Send one of these messages:
 
 ```text
 What can you help me with? Give me three practical things to try.
@@ -50,7 +56,7 @@ Look at your current workspace and summarize what you can see.
 Create a short notes.md file explaining what you found.
 ```
 
-You can also use the terminal:
+If the Web UI is not working, you can send the same message from the terminal:
 
 ```bash
 agency send henry "What can you help me with? Give me three practical things to try."
@@ -58,11 +64,11 @@ agency send henry "What can you help me with? Give me three practical things to 
 
 ## What Good Looks Like
 
-- `agency status` shows infrastructure running.
 - The Web UI opens at `http://localhost:8280`.
 - Your agent appears as running.
 - The agent answers in its direct-message channel.
-- You can stop the agent from the UI or with `agency stop <agent-name>`.
+- You can stop the agent from the Web UI.
+- If asked to check the terminal, `agency status` shows infrastructure running.
 
 ## If Something Breaks
 
