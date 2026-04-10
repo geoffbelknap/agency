@@ -1,0 +1,273 @@
+# Managed by Agency. Operator-local copies are written to
+# ~/.agency/knowledge/base-ontology.yaml and can be upgraded from agency-hub.
+version: 2
+name: default
+description: General-purpose ontology for knowledge worker agents
+last_modified: "2026-03-28T00:00:00Z"
+
+entity_types:
+  person:
+    description: An individual, operator, stakeholder, customer, or team member
+    attributes: [name, role, location, timezone, preferences, contact]
+  organization:
+    description: A company, department, vendor, customer, or group
+    attributes: [name, type, industry, location]
+  team:
+    description: A group of people who work together
+    attributes: [name, purpose, members]
+  role:
+    description: A job function, responsibility, or expertise area
+    attributes: [title, scope, authority]
+  stakeholder:
+    description: Someone with interest or authority in a project or domain
+    attributes: [name, interest, influence, organization]
+  contact:
+    description: How to reach someone, such as email, Slack handle, phone, or timezone
+    attributes: [person, type, value, preferred]
+  system:
+    description: An application, platform, database, or repository
+    attributes: [name, type, owner, status, environment]
+  service:
+    description: An API, endpoint, or integration
+    attributes: [name, url, provider, status]
+  environment:
+    description: A deployment context, such as prod, staging, dev, or region
+    attributes: [name, type, region]
+  configuration:
+    description: Settings, thresholds, or parameters that matter
+    attributes: [name, system, value, reason]
+  product:
+    description: A software product, hardware, or computing tool
+    attributes: [name, vendor, version, purpose]
+  credential:
+    description: Access-grant metadata only; never the credential value
+    attributes: [name, type, scope, expiry, owner]
+  project:
+    description: An ongoing initiative or body of work
+    attributes: [name, status, owner, deadline, stakeholders]
+  task:
+    description: A specific unit of work, ticket, issue, pull request, or request
+    attributes: [title, status, assignee, priority, source]
+  process:
+    description: How things actually get done, including runbooks, workflows, and SOPs
+    attributes: [name, steps, owner, frequency]
+  requirement:
+    description: Something that must be true, such as a constraint or acceptance criterion
+    attributes: [description, source, priority]
+  goal:
+    description: An objective, milestone, or target
+    attributes: [description, owner, deadline, status]
+  decision:
+    description: A choice that was made, including rationale and who decided
+    attributes: [description, rationale, decided_by, date, alternatives_considered]
+  finding:
+    description: Something learned through investigation or research
+    attributes: [description, source, confidence, date]
+  preference:
+    description: How someone likes things done, including communication style and priorities
+    attributes: [person, description, strength]
+  fact:
+    description: Verified information about the domain
+    attributes: [description, source, verified_date]
+  concept:
+    description: Domain terminology, mental models, or abstractions
+    attributes: [name, definition, context]
+  opinion:
+    description: Someone's stated position; not a fact, but important context
+    attributes: [person, description, strength]
+  assumption:
+    description: Something believed true but not verified
+    attributes: [description, basis, risk_if_wrong]
+  terminology:
+    description: Domain jargon with definitions to prevent agent misinterpretation
+    attributes: [term, definition, context, common_confusion]
+  incident:
+    description: Something that went wrong
+    attributes: [title, severity, status, root_cause, resolution, date]
+  change:
+    description: A modification to a system, process, or configuration
+    attributes: [description, system, author, date, impact]
+  risk:
+    description: A potential problem to watch for
+    attributes: [description, likelihood, impact, mitigation]
+  event:
+    description: A meeting, deadline, release, or milestone
+    attributes: [name, date, participants, outcome]
+  schedule:
+    description: A recurring event or window, such as maintenance, on-call, or business hours
+    attributes: [name, pattern, scope]
+  pattern:
+    description: A recurring theme agents have noticed
+    attributes: [description, frequency, significance, examples]
+  lesson:
+    description: Something learned from experience
+    attributes: [description, context, source_incident]
+  resolution:
+    description: How something was fixed
+    attributes: [description, incident, effectiveness]
+  workaround:
+    description: A temporary fix still in use
+    attributes: [description, for_issue, expiry, permanent_fix]
+  cause:
+    description: Why something happened, such as root cause analysis
+    attributes: [description, event, confidence]
+  narrative:
+    description: The ongoing story of a project, team, or initiative
+    attributes: [subject, current_state, last_updated]
+  priority:
+    description: What matters most right now and to whom
+    attributes: [description, owner, scope, expiry]
+  constraint:
+    description: A real-world limitation, such as budget, timeline, or policy
+    attributes: [description, source, non_negotiable]
+  context:
+    description: Situational information, such as code freeze, reorg, or incident in progress
+    attributes: [description, scope, expiry]
+  status:
+    description: Current state of something important
+    attributes: [subject, state, since, expected_resolution]
+  tension:
+    description: A known conflict or disagreement
+    attributes: [description, parties, impact]
+  document:
+    description: A spec, report, runbook, wiki page, or policy doc
+    attributes: [title, url, type, owner, last_updated]
+  artifact:
+    description: A file, repo, dashboard, board, or deliverable
+    attributes: [name, url, type, owner]
+  template:
+    description: A reusable pattern for a deliverable
+    attributes: [name, purpose, format]
+  rule:
+    description: A business rule, policy, or hard constraint
+    attributes: [description, source, scope, exceptions]
+  metric:
+    description: Something measured and tracked, such as an SLA, KPI, or threshold
+    attributes: [name, value, target, unit, scope]
+  standard:
+    description: A compliance requirement, framework, or best practice
+    attributes: [name, source, scope, requirements]
+  location:
+    description: A physical or virtual place
+    attributes: [name, type, address, coordinates, timezone]
+  skill:
+    description: An ability or competency useful for expertise matching
+    attributes: [name, level, person]
+  quantity:
+    description: A notable amount, budget, cost, or measurement
+    attributes: [value, unit, context]
+  url:
+    description: A web address for reference
+    attributes: [url, description, type]
+  software:
+    description: An application, library, package, or firmware installed on an asset
+    attributes: [name, version, vendor, install_date, install_path, hash]
+  config_item:
+    description: A configuration setting, parameter, or policy applied to an asset or service
+    attributes: [key, value, asset, service, last_changed, changed_by]
+  behavior_pattern:
+    description: An observed behavioral pattern on an asset or between assets
+    attributes: [description, asset, first_seen, last_seen, frequency, anomaly_score, baseline]
+
+relationship_types:
+  owns:
+    description: Has ownership of
+    inverse: owned_by
+  manages:
+    description: Manages or oversees
+    inverse: managed_by
+  responsible_for:
+    description: Is responsible for
+    inverse: responsibility_of
+  escalate_to:
+    description: Should escalate issues to
+    inverse: escalation_target_for
+  works_on:
+    description: Is working on
+    inverse: worked_on_by
+  assigned_to:
+    description: Is assigned to
+    inverse: assigned_from
+  created_by:
+    description: Was created by
+    inverse: created
+  contributed_to:
+    description: Contributed to
+    inverse: received_contribution_from
+  depends_on:
+    description: Depends on
+    inverse: depended_on_by
+  blocked_by:
+    description: Is blocked by
+    inverse: blocks
+  part_of:
+    description: Is part of
+    inverse: contains
+  relates_to:
+    description: Is related to
+    inverse: relates_to
+  supersedes:
+    description: Replaces or supersedes
+    inverse: superseded_by
+  knows_about:
+    description: Has knowledge of
+    inverse: known_by
+  decided:
+    description: Made a decision about
+    inverse: decided_by
+  caused:
+    description: Caused or led to
+    inverse: caused_by
+  resolved_by:
+    description: Was resolved by
+    inverse: resolved
+  learned_from:
+    description: Was learned from
+    inverse: taught
+  triggered_by:
+    description: Was triggered by
+    inverse: triggers
+  documented_in:
+    description: Is documented in
+    inverse: documents
+  reported_by:
+    description: Was reported by
+    inverse: reported
+  located_in:
+    description: Is located in
+    inverse: location_of
+  uses:
+    description: Uses or employs
+    inverse: used_by
+  prefers:
+    description: Prefers or favors
+    inverse: preferred_by
+  scheduled_for:
+    description: Is scheduled for
+    inverse: schedule_of
+  has_software:
+    description: Asset or system has software installed
+    inverse: installed_on
+  has_config:
+    description: Asset or service has a configuration item applied
+    inverse: config_of
+  exhibited:
+    description: Asset exhibited or displayed a behavior pattern
+    inverse: exhibited_by
+  similar_to:
+    description: Structurally or behaviorally similar to
+    inverse: similar_to
+  preceded:
+    description: This pattern or event preceded another event or incident
+    inverse: preceded_by
+  communicates_with:
+    description: Asset communicates with another asset over the network
+    inverse: communicates_with
+
+changelog:
+  - version: 2
+    date: "2026-03-28"
+    changes: "Add asset inventory types and relations"
+  - version: 1
+    date: "2026-03-24"
+    changes: Initial default ontology

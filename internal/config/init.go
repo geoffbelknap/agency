@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/geoffbelknap/agency/internal/hub"
+	"github.com/geoffbelknap/agency/internal/knowledge"
 	"gopkg.in/yaml.v3"
 )
 
@@ -170,6 +171,9 @@ func RunInit(opts InitOptions) ([]KeyEntry, error) {
 	// Seed agentic-memory ontology extension if not already present.
 	// Defines procedure, episode, and cached_result entity types used by
 	// the body runtime for procedural/episodic memory and semantic caching.
+	if err := knowledge.EnsureBaseOntology(agencyHome); err != nil {
+		return nil, fmt.Errorf("seed base ontology: %w", err)
+	}
 	seedAgenticMemoryOntology(filepath.Join(knowledgeDir, "ontology.d"))
 
 	// Create infrastructure and registry directories.

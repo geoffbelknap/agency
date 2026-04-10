@@ -3,6 +3,7 @@ package knowledge
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -51,6 +52,45 @@ changelog:
 	}
 	if cfg.EntityTypes["person"].Description != "A person" {
 		t.Errorf("wrong person description: %s", cfg.EntityTypes["person"].Description)
+	}
+}
+
+func TestLoadOntologyUsesEmbeddedDefaultWhenBaseMissing(t *testing.T) {
+	home := t.TempDir()
+
+	cfg, err := LoadOntology(home)
+	if err != nil {
+		t.Fatalf("LoadOntology: %v", err)
+	}
+
+	if cfg.Name != "default" {
+		t.Fatalf("expected default ontology, got %q", cfg.Name)
+	}
+	if len(cfg.EntityTypes) == 0 {
+		t.Fatal("expected embedded entity types")
+	}
+	if len(cfg.RelationshipTypes) == 0 {
+		t.Fatal("expected embedded relationship types")
+	}
+}
+
+func TestEnsureBaseOntologyWritesMissingDefault(t *testing.T) {
+	home := t.TempDir()
+	if err := EnsureBaseOntology(home); err != nil {
+		t.Fatalf("EnsureBaseOntology: %v", err)
+	}
+
+	path := filepath.Join(home, "knowledge", "base-ontology.yaml")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("base ontology not written: %v", err)
+	}
+
+	cfg, err := LoadOntology(home)
+	if err != nil {
+		t.Fatalf("LoadOntology: %v", err)
+	}
+	if cfg.Name != "default" {
+		t.Fatalf("expected default ontology, got %q", cfg.Name)
 	}
 }
 
@@ -161,6 +201,62 @@ func TestWriteOntology(t *testing.T) {
 	path := filepath.Join(home, "knowledge", "ontology.yaml")
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("ontology.yaml not created: %v", err)
+	}
+}
+
+func TestWriteOntologyRepairsEmptyDirectoryPath(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, "knowledge", "ontology.yaml")
+	if err := os.MkdirAll(path, 0755); err != nil {
+		t.Fatalf("mkdir ontology path: %v", err)
+	}
+
+	cfg := &OntologyConfig{
+		Version:           1,
+		Name:              "test",
+		EntityTypes:       map[string]EntityType{"fact": {Description: "A fact"}},
+		RelationshipTypes: map[string]RelationshipType{},
+	}
+
+	if err := WriteOntology(home, cfg); err != nil {
+		t.Fatalf("WriteOntology: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("ontology.yaml not created: %v", err)
+	}
+	if info.IsDir() {
+		t.Fatal("ontology.yaml is still a directory")
+	}
+}
+
+func TestWriteOntologyDoesNotRemoveNonEmptyDirectoryPath(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, "knowledge", "ontology.yaml")
+	if err := os.MkdirAll(path, 0755); err != nil {
+		t.Fatalf("mkdir ontology path: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "keep.txt"), []byte("operator data"), 0644); err != nil {
+		t.Fatalf("write nested file: %v", err)
+	}
+
+	cfg := &OntologyConfig{
+		Version:           1,
+		Name:              "test",
+		EntityTypes:       map[string]EntityType{"fact": {Description: "A fact"}},
+		RelationshipTypes: map[string]RelationshipType{},
+	}
+
+	err := WriteOntology(home, cfg)
+	if err == nil {
+		t.Fatal("expected error for non-empty ontology directory")
+	}
+	if !strings.Contains(err.Error(), "non-empty directory") {
+		t.Fatalf("expected non-empty directory error, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(path, "keep.txt")); err != nil {
+		t.Fatalf("nested file was removed: %v", err)
 	}
 }
 
