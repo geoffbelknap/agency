@@ -59,8 +59,8 @@ export function AgentStep({
     setCreating(true);
     setPhase('creating');
     setError('');
+    const selectedPreset = expert ? 'platform-expert' : preset;
     try {
-      const selectedPreset = expert ? 'platform-expert' : preset;
       await api.agents.create(name, selectedPreset, 'assisted');
       setPhase('starting');
       // Start can take longer than the Web proxy timeout on first-run image
@@ -69,14 +69,20 @@ export function AgentStep({
       onUpdate(name, selectedPreset);
       onNext();
     } catch (e: any) {
-      if (e.message?.includes('already exists')) {
-        setError(`An agent named "${name}" already exists. Please choose a different name.`);
+      if ((e.message || '').toLowerCase().includes('already exists')) {
+        setPhase('starting');
+        // Repeat setup should be safe: reuse the existing agent and let ChatStep
+        // wait for runtime readiness instead of forcing a new name.
+        api.agents.start(name).catch(() => {});
+        onUpdate(name, selectedPreset);
+        onNext();
       } else if (e.message?.includes('Docker') || e.message?.includes('docker')) {
         setError('Docker is required to run agents. Please start Docker and try again.');
+        setCreating(false);
       } else {
         setError(e.message || 'Failed to create agent');
+        setCreating(false);
       }
-      setCreating(false);
     }
   };
 
@@ -92,7 +98,9 @@ export function AgentStep({
     <div className="space-y-8">
       <div className="text-center space-y-2">
         <h2 className="text-2xl font-semibold text-foreground">Your First Agent</h2>
-        <p className="text-muted-foreground text-sm">Give your agent a name and it'll be ready to chat.</p>
+        <p className="text-muted-foreground text-sm">
+          Give your agent a name. If it already exists, setup will reuse it and continue.
+        </p>
       </div>
 
       <div className="space-y-5 max-w-sm mx-auto">
@@ -161,7 +169,7 @@ export function AgentStep({
             Skip
           </button>
           <Button onClick={handleCreate} disabled={!isValid || creating}>
-            {creating ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> {phase === 'starting' ? 'Starting agent...' : 'Creating agent...'}</> : 'Create & Start'}
+            {creating ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> {phase === 'starting' ? 'Starting agent...' : 'Creating agent...'}</> : 'Create or Start'}
           </Button>
         </div>
       </div>
