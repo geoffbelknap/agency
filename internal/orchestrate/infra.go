@@ -420,7 +420,9 @@ func (inf *Infra) TeardownWithProgress(ctx context.Context, onProgress ProgressF
 	if onProgress != nil {
 		onProgress("infra", "Stopping all services")
 	}
-	roles := []string{"relay", "web", "web-fetch", "intake", "knowledge", "comms", "egress", "embeddings", "gateway-proxy"}
+	// Teardown runs in reverse dependency order. Services depend on the gateway
+	// proxy, so remove them first and tear down the proxy last.
+	roles := []string{"relay", "web", "web-fetch", "intake", "knowledge", "comms", "egress", "embeddings"}
 
 	var wg sync.WaitGroup
 	for _, role := range roles {
@@ -438,6 +440,13 @@ func (inf *Infra) TeardownWithProgress(ctx context.Context, onProgress ProgressF
 		}()
 	}
 	wg.Wait()
+
+	if err := inf.stopAndRemove(ctx, inf.containerName("gateway-proxy"), stopTimeoutFor("gateway-proxy")); err != nil {
+		inf.log.Warn("teardown", "container", inf.containerName("gateway-proxy"), "err", err)
+	}
+	if onProgress != nil {
+		onProgress("gateway-proxy", "Stopped gateway-proxy")
+	}
 
 	// Clean up agency-managed networks after all containers are stopped
 	inf.cleanNetworks(ctx)
