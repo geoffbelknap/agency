@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"log/slog"
 	"github.com/geoffbelknap/agency/internal/models"
+	"log/slog"
 )
 
 // DeliveryFunc is called for each matching subscription. Implementations
@@ -165,6 +165,10 @@ func (b *Bus) handleDM(e *models.Event) int {
 	}
 	target, _ := e.Metadata["dm_target"].(string)
 	if target == "" {
+		return 0
+	}
+	author, _ := e.Metadata["author"].(string)
+	if author == target || author == "_gateway" || strings.HasPrefix(author, "_system") {
 		return 0
 	}
 	sub := &Subscription{

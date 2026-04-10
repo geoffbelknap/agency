@@ -90,9 +90,9 @@ define IMAGE_RULE
 $(1):
 	@echo "Building agency-$(1)..."
 	$$(if $$(filter $(1),$(REPO_CONTEXT_IMAGES)),\
-		docker build --build-arg BUILD_ID=$(BUILD_ID) --build-arg CACHE_BUST=$$$$(date +%s) \
+		docker build --build-arg BUILD_ID=$(BUILD_ID) \
 			-f $(IMAGE_DIR)/$(1)/Dockerfile -t agency-$(1):latest .,\
-		docker build --build-arg BUILD_ID=$(BUILD_ID) --build-arg CACHE_BUST=$$$$(date +%s) \
+		docker build --build-arg BUILD_ID=$(BUILD_ID) \
 			-f $(IMAGE_DIR)/$(1)/Dockerfile -t agency-$(1):latest $(IMAGE_DIR)/$(1))
 endef
 

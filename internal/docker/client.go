@@ -219,7 +219,11 @@ func (c *Client) ExecInContainer(ctx context.Context, containerName string, cmd 
 //
 // Platform-only endpoints (grant-access, archive) get the X-Agency-Platform header.
 func (c *Client) CommsRequest(ctx context.Context, method, path string, body interface{}) ([]byte, error) {
-	url := "http://localhost:8202" + path
+	port := os.Getenv("AGENCY_GATEWAY_PROXY_PORT")
+	if port == "" {
+		port = "8202"
+	}
+	url := "http://localhost:" + port + path
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 
 	var req *http.Request

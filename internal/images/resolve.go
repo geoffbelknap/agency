@@ -2,19 +2,23 @@ package images
 
 import (
 	"archive/tar"
+	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
-	"log/slog"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
+	"log/slog"
 )
 
 const registry = "ghcr.io/geoffbelknap"
@@ -31,13 +35,34 @@ const (
 //  2. GHCR pull (release mode)
 func Resolve(ctx context.Context, cli *client.Client, name, version, sourceDir, buildID string, logger *slog.Logger) error {
 	localTag := fmt.Sprintf("agency-%s:latest", name)
+	var sourceHash string
+
+	if sourceDir != "" {
+		spec, err := sourceBuildSpec(name, sourceDir)
+		if err != nil {
+			return err
+		}
+		hash, err := sourceFingerprint(spec.contextDir, spec.dockerfilePath)
+		if err != nil {
+			return fmt.Errorf("fingerprint image %s source: %w", localTag, err)
+		}
+		sourceHash = hash
+	}
 
 	// Check if existing local image is current — skip rebuild if buildID matches.
 	exists, err := imageExists(ctx, cli, localTag)
 	if err != nil {
 		return fmt.Errorf("check local image %s: %w", localTag, err)
 	}
-	if exists && buildID != "" {
+	if exists && sourceHash != "" {
+		imgSourceHash := ImageLabel(ctx, cli, localTag, "agency.source.hash")
+		if imgSourceHash != "" && imgSourceHash == sourceHash {
+			return nil // Image source is current — skip rebuild even if gateway build ID changed.
+		}
+		if imgSourceHash != "" {
+			logger.Info("image source stale, rebuilding", "image", localTag, "current", imgSourceHash, "want", sourceHash)
+		}
+	} else if exists && buildID != "" {
 		imgBuildID := ImageBuildLabel(ctx, cli, localTag)
 		// BUILD_ID is content-aware for dirty trees, so an exact match means the
 		// local image already reflects the current working copy.
@@ -61,7 +86,7 @@ func Resolve(ctx context.Context, cli *client.Client, name, version, sourceDir, 
 
 	// Dev mode: rebuild from source tree. Failure is fatal — no silent fallback.
 	if sourceDir != "" {
-		if err := buildFromSource(ctx, cli, name, sourceDir, localTag, buildID, logger); err != nil {
+		if err := buildFromSource(ctx, cli, name, sourceDir, localTag, buildID, sourceHash, logger); err != nil {
 			return fmt.Errorf("image %s: source build failed: %w", localTag, err)
 		}
 		// Also tag with buildID so old images are identifiable for cleanup
@@ -154,45 +179,173 @@ func ResolveUpstream(ctx context.Context, cli *client.Client, name, version, ups
 	return fmt.Errorf("image %s: upstream resolution failed (ghcr version=%q, upstream=%q)", localTag, version, upstreamRef)
 }
 
-// buildFromSource builds an image directly from the source tree.
-// This is the dev-mode path — always builds fresh from current source.
-func buildFromSource(ctx context.Context, cli *client.Client, name, sourceDir, tag, buildID string, logger *slog.Logger) error {
+type buildSpec struct {
+	contextDir     string
+	dockerfilePath string
+}
+
+func sourceBuildSpec(name, sourceDir string) (buildSpec, error) {
 	// Services that need the repo root as build context
 	// (they COPY agency_core/models/ and agency_core/exceptions.py)
 	repoContextNames := map[string]bool{
 		"body": true, "comms": true, "knowledge": true, "intake": true, "egress": true,
 	}
 
-	var contextDir, dockerfilePath string
+	var spec buildSpec
 
 	switch {
 	case repoContextNames[name]:
 		// Build context is repo root; Dockerfile is in images/{name}/
-		contextDir = sourceDir
-		dockerfilePath = filepath.Join("images", name, "Dockerfile")
+		spec.contextDir = sourceDir
+		spec.dockerfilePath = filepath.Join("images", name, "Dockerfile")
 	case name == "web":
 		// agency-web lives in the top-level web/ directory rather than images/.
-		contextDir = filepath.Join(sourceDir, "web")
-		dockerfilePath = "Dockerfile"
+		spec.contextDir = filepath.Join(sourceDir, "web")
+		spec.dockerfilePath = "Dockerfile"
 	default:
 		// Self-contained: build context is the image directory itself
-		contextDir = filepath.Join(sourceDir, "images", name)
-		dockerfilePath = "Dockerfile"
+		spec.contextDir = filepath.Join(sourceDir, "images", name)
+		spec.dockerfilePath = "Dockerfile"
 	}
 
-	if _, err := os.Stat(filepath.Join(contextDir, dockerfilePath)); err != nil {
-		return fmt.Errorf("source build for %s: Dockerfile not found at %s/%s", name, contextDir, dockerfilePath)
+	if _, err := os.Stat(filepath.Join(spec.contextDir, spec.dockerfilePath)); err != nil {
+		return buildSpec{}, fmt.Errorf("source build for %s: Dockerfile not found at %s/%s", name, spec.contextDir, spec.dockerfilePath)
 	}
 
-	logger.Info("building image from source", "image", tag, "context", contextDir)
-	// CACHE_BUST forces layer invalidation even when BuildKit ignores NoCache.
-	// Using unix timestamp ensures the COPY and RUN layers always rebuild.
-	cacheBust := fmt.Sprintf("%d", time.Now().Unix())
-	buildArgs := map[string]*string{"CACHE_BUST": &cacheBust}
+	return spec, nil
+}
+
+// buildFromSource builds an image directly from the source tree.
+func buildFromSource(ctx context.Context, cli *client.Client, name, sourceDir, tag, buildID, sourceHash string, logger *slog.Logger) error {
+	spec, err := sourceBuildSpec(name, sourceDir)
+	if err != nil {
+		return err
+	}
+
+	logger.Info("building image from source", "image", tag, "context", spec.contextDir, "source_hash", sourceHash)
+	buildArgs := map[string]*string{}
 	if buildID != "" {
 		buildArgs["BUILD_ID"] = &buildID
 	}
-	return dockerBuild(ctx, cli, contextDir, dockerfilePath, tag, buildArgs)
+	if sourceHash != "" {
+		buildArgs["SOURCE_HASH"] = &sourceHash
+	}
+	return dockerBuild(ctx, cli, spec.contextDir, spec.dockerfilePath, tag, buildArgs)
+}
+
+func sourceFingerprint(contextDir, dockerfilePath string) (string, error) {
+	dockerfileFullPath := filepath.Join(contextDir, dockerfilePath)
+	sources, err := dockerfileSources(dockerfileFullPath)
+	if err != nil {
+		return "", err
+	}
+	paths := []string{dockerfilePath}
+	for _, source := range sources {
+		paths = append(paths, source)
+	}
+	files, err := expandFingerprintPaths(contextDir, paths)
+	if err != nil {
+		return "", err
+	}
+	sort.Strings(files)
+
+	h := sha256.New()
+	for _, file := range files {
+		rel, err := filepath.Rel(contextDir, file)
+		if err != nil {
+			return "", err
+		}
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return "", err
+		}
+		h.Write([]byte(rel))
+		h.Write([]byte{0})
+		h.Write(data)
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16], nil
+}
+
+func dockerfileSources(path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var sources []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		instruction := strings.ToUpper(fields[0])
+		if instruction != "COPY" && instruction != "ADD" {
+			continue
+		}
+		if strings.HasPrefix(fields[1], "--from=") {
+			continue
+		}
+		for _, source := range fields[1 : len(fields)-1] {
+			if strings.HasPrefix(source, "--") {
+				continue
+			}
+			sources = append(sources, strings.Trim(source, `"'`))
+		}
+	}
+	return sources, scanner.Err()
+}
+
+func expandFingerprintPaths(contextDir string, paths []string) ([]string, error) {
+	seen := map[string]bool{}
+	var files []string
+	for _, p := range paths {
+		full := filepath.Clean(filepath.Join(contextDir, p))
+		if !strings.HasPrefix(full, filepath.Clean(contextDir)+string(os.PathSeparator)) && full != filepath.Clean(contextDir) {
+			return nil, fmt.Errorf("path %q escapes build context", p)
+		}
+		matches := []string{full}
+		if strings.ContainsAny(p, "*?[") {
+			globMatches, err := filepath.Glob(full)
+			if err != nil {
+				return nil, err
+			}
+			matches = globMatches
+		}
+		for _, match := range matches {
+			if err := filepath.WalkDir(match, func(path string, d os.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				base := d.Name()
+				if d.IsDir() {
+					switch base {
+					case ".git", "node_modules", "__pycache__", "dist", "coverage", "test-results", "playwright-report":
+						return filepath.SkipDir
+					}
+					return nil
+				}
+				if seen[path] {
+					return nil
+				}
+				seen[path] = true
+				files = append(files, path)
+				return nil
+			}); err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return nil, err
+			}
+		}
+	}
+	return files, nil
 }
 
 func imageExists(ctx context.Context, cli *client.Client, ref string) (bool, error) {
@@ -224,15 +377,20 @@ func pullAndTag(ctx context.Context, cli *client.Client, remoteRef, localTag str
 	return cli.ImageTag(ctx, remoteRef, localTag)
 }
 
-
 // ImageBuildLabel reads the agency.build.id label from a Docker image.
 // Returns empty string if the image cannot be inspected or the label is absent.
 func ImageBuildLabel(ctx context.Context, cli *client.Client, ref string) string {
+	return ImageLabel(ctx, cli, ref, "agency.build.id")
+}
+
+// ImageLabel reads a Docker image label. Returns empty string if the image
+// cannot be inspected or the label is absent.
+func ImageLabel(ctx context.Context, cli *client.Client, ref, key string) string {
 	inspect, _, err := cli.ImageInspectWithRaw(ctx, ref)
 	if err != nil {
 		return ""
 	}
-	return inspect.Config.Labels["agency.build.id"]
+	return inspect.Config.Labels[key]
 }
 
 func dockerBuild(ctx context.Context, cli *client.Client, contextDir, dockerfile, tag string, buildArgs map[string]*string) error {

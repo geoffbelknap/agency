@@ -64,7 +64,7 @@ class SocketKeyResolver:
             url = f"{self._gateway_url}/api/v1/creds/internal/resolve?{params}"
             req = urllib.request.Request(url)
             if self._gateway_token:
-                req.add_header("X-Agency-Token", self._gateway_token)
+                req.add_header("Authorization", f"Bearer {self._gateway_token}")
             with urllib.request.urlopen(req, timeout=5) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read())
@@ -103,4 +103,3 @@ class SocketKeyResolver:
 
     def reload(self) -> None:
         self._cache.clear()
-

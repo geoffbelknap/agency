@@ -1846,6 +1846,11 @@ class Body:
                 break
             elif finish_reason == "stop":
                 # Agent generated text without calling complete_task.
+                if content and self._is_direct_channel_task(task):
+                    log.info("Task %s: direct channel reply auto-posted (turn %d)", task_id, turn + 1)
+                    self._post_task_response(task, content, has_artifact=False)
+                    self._finalize_task(task_id, turn)
+                    break
                 # For idle replies (lightweight channel responses), auto-finalize
                 # instead of nudging — the nudge causes the agent to re-read the
                 # channel and send a duplicate reply.
@@ -2670,6 +2675,12 @@ class Body:
             )
         except Exception as e:
             log.warning("Failed to post task response to %s: %s", channel, e)
+
+    def _is_direct_channel_task(self, task: dict) -> bool:
+        source = task.get("source", "")
+        if source.startswith("channel:dm-"):
+            return True
+        return source.startswith("idle_direct:")
 
     # -- Notification queue --
 

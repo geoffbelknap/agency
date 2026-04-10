@@ -10,7 +10,9 @@ RUN npm run build
 FROM alpine:3.21
 
 ARG BUILD_ID=unknown
+ARG SOURCE_HASH=unknown
 LABEL agency.build.id="${BUILD_ID}"
+LABEL agency.source.hash="${SOURCE_HASH}"
 
 RUN apk add --no-cache nginx \
     && addgroup -g 101 -S nginx 2>/dev/null || true \
