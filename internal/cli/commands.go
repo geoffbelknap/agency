@@ -516,7 +516,8 @@ func statusCmd() *cobra.Command {
 }
 
 func listCmd() *cobra.Command {
-	return &cobra.Command{
+	var outputFormat string
+	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List agents",
 		Args:  cobra.NoArgs,
@@ -529,28 +530,52 @@ func listCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if len(agents) == 0 {
-				fmt.Println("No agents")
-				return nil
-			}
-			fmt.Printf("  %-20s %-12s %-12s %-20s\n", "NAME", "STATUS", "PRESET", "LAST ACTIVE")
-			for _, a := range agents {
-				name, _ := a["name"].(string)
-				status, _ := a["status"].(string)
-				preset, _ := a["preset"].(string)
-				lastActive, _ := a["last_active"].(string)
-
-				icon := dim.Render("○")
-				if status == "running" {
-					icon = green.Render("●")
-				} else if status == "paused" {
-					icon = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("●")
-				}
-				fmt.Printf("%s %-20s %-12s %-12s %-20s\n", icon, bold.Render(name), status, preset, dim.Render(lastActive))
-			}
-			return nil
+			return writeAgentList(os.Stdout, agents, outputFormat)
 		},
 	}
+	cmd.Flags().StringVarP(&outputFormat, "format", "f", "table", "Output format: table, text, or json")
+	return cmd
+}
+
+func writeAgentList(w io.Writer, agents []map[string]interface{}, outputFormat string) error {
+	switch outputFormat {
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(agents)
+	case "text":
+		for _, a := range agents {
+			name, _ := a["name"].(string)
+			status, _ := a["status"].(string)
+			preset, _ := a["preset"].(string)
+			lastActive, _ := a["last_active"].(string)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", name, status, preset, lastActive)
+		}
+		return nil
+	case "table":
+	default:
+		return fmt.Errorf("unsupported format %q (expected table, text, or json)", outputFormat)
+	}
+	if len(agents) == 0 {
+		fmt.Fprintln(w, "No agents")
+		return nil
+	}
+	fmt.Fprintf(w, "  %-20s %-12s %-12s %-20s\n", "NAME", "STATUS", "PRESET", "LAST ACTIVE")
+	for _, a := range agents {
+		name, _ := a["name"].(string)
+		status, _ := a["status"].(string)
+		preset, _ := a["preset"].(string)
+		lastActive, _ := a["last_active"].(string)
+
+		icon := dim.Render("○")
+		if status == "running" {
+			icon = green.Render("●")
+		} else if status == "paused" {
+			icon = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("●")
+		}
+		fmt.Fprintf(w, "%s %-20s %-12s %-12s %-20s\n", icon, bold.Render(name), status, preset, dim.Render(lastActive))
+	}
+	return nil
 }
 
 func logCmd() *cobra.Command {
@@ -818,7 +843,7 @@ func revokeCmd() *cobra.Command {
 	}
 }
 
-// showCmd is kept as an alias for "status <agent>".
+// showCmd displays agent details and budget information.
 func showCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <agent>",

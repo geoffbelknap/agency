@@ -6,14 +6,15 @@ Discovered 2026-04-07 while validating `agency/docs/runbooks/` against the actua
 
 ### 1. No `agency list` command for agents
 
+**Status:** Resolved in code after discovery.
 **Severity:** Medium
 **Location:** `internal/cli/commands.go`
 
-There is no top-level `agency list` command to list agents. `agency status` (no args) shows a platform overview that includes agents, but it's not scriptable — you can't pipe it to `grep running | awk '{print $1}'` to get agent names for batch operations.
+There was no top-level `agency list` command to list agents. `agency status` (no args) shows a platform overview that includes agents, but it is human-oriented and not appropriate for scripts.
 
 **Impact:** The backup runbook needed a way to stop all running agents before backup. Without a scriptable list command, operators must manually inspect `agency status` output.
 
-**Suggested fix:** Add a top-level `agency list` command (or `agency agent list`) that outputs a machine-parseable list of agents with their states. Support `--format` or at minimum output one agent per line with name and state.
+**Resolution:** `agency list` exists and supports table output for humans plus `--format text` and `--format json` for scripts.
 
 ---
 
@@ -32,41 +33,42 @@ The knowledge graph has `query`, `stats`, `ingest`, `review`, `ontology`, etc. b
 
 ### 3. `stop` command has no `--immediate` or `--force` flag
 
+**Status:** Resolved in code after discovery.
 **Severity:** Low
 **Location:** `internal/cli/commands.go`, `stopCmd()` (~line 277)
 
-The `stop` command takes only an agent name — no flags at all. The three-tier halt system (`--tier supervised/immediate/emergency`) only exists on `halt`. If an agent is in a restart loop, operators must run `halt --tier immediate` followed by `stop` as two separate commands.
+The `stop` command originally took only an agent name. The three-tier halt system (`--tier supervised/immediate/emergency`) exists on `halt`. If an agent is in a restart loop, operators previously had to run `halt --tier immediate` followed by `stop` as two separate commands.
 
 **Impact:** Minor UX friction. The two-step process is correct (halt then stop), but a `--force` flag on `stop` that internally does `halt immediate + stop` would simplify the restart-loop recovery procedure.
 
-**Suggested fix:** Either add `--force` to `stop` that chains halt+stop, or document the two-step pattern more prominently. The runbooks have been updated to use the two-step approach.
+**Resolution:** `agency stop --force` now performs an immediate halt before stopping the agent.
 
 ---
 
 ### 4. `status` and `show` have overlapping/confused responsibilities
 
+**Status:** Resolved in code after discovery.
 **Severity:** Low
 **Location:** `internal/cli/commands.go`, `statusCmd()` (~line 367), `showCmd()` (~line 770)
 
-`agency status [agent]` does double duty — platform overview with no args, agent detail with an arg. `agency show <agent>` is hidden but actually does more than `status <agent>` (includes budget info). These should be cleanly separated:
+`agency status [agent]` did double duty — platform overview with no args, agent detail with an arg. `agency show <agent>` was hidden but actually did more than `status <agent>` (includes budget info). These should be cleanly separated:
 
 - `agency status` — platform/infra overview only (no agent arg)
 - `agency show <agent>` — agent detail including budget (unhide it)
 
-Currently `show` is hidden and marked as an alias for `status <agent>`, but it's not — it has extra budget display logic that `status <agent>` lacks.
-
-**Suggested fix:** Remove the agent-detail branch from `statusCmd()`, unhide `showCmd()`, and make `status <agent>` a deprecated alias that points to `show`.
+**Resolution:** `agency status` is now a no-argument platform overview. `agency show <agent>` is visible and owns agent detail plus budget output.
 
 ---
 
 ### 5. No `--quiet` / `--no-spinner` flag for machine-readable output
 
+**Status:** Resolved in code after discovery.
 **Severity:** Medium
 **Location:** `internal/cli/commands.go` — all commands that use spinners
 
 CLI commands use animated spinners (e.g., `⠋ Starting enforcement containers`) that produce massive output when run by AI agents or in non-interactive contexts. A single `agency start` generated hundreds of spinner characters in context.
 
-**Suggested fix:** Add a global `--quiet` or `--machine` flag that suppresses spinners and progress animations. Could also auto-detect non-TTY and suppress automatically. This would make CLI output AI-friendly and scriptable.
+**Resolution:** Global `--quiet` / `-q` suppresses spinners and progress animations.
 
 ---
 
@@ -83,19 +85,25 @@ Runbooks (initial-setup.md, validation-checklist.md) show `agency creds set <nam
 
 ### 7. `knowledge ontology show` fails — missing base-ontology.yaml
 
+**Status:** Resolved in code after discovery.
 **Severity:** Medium
 **Location:** Knowledge graph ontology loader
 
 `agency knowledge ontology show` errors with: `open ~/.agency/knowledge/base-ontology.yaml: no such file or directory`. The knowledge directory only has `data/` and `ontology.d/` — no base ontology file. Either `setup` should create it, or the ontology loader should handle its absence gracefully.
 
+**Resolution:** The ontology loader now falls back to the embedded base ontology when `base-ontology.yaml` is absent, and `EnsureBaseOntology` can write the default file when needed.
+
 ---
 
 ### 8. `hub search` requires an argument (runbook says it doesn't)
 
+**Status:** Resolved in code after discovery.
 **Severity:** Low
 **Location:** `internal/cli/commands.go`, hub search command
 
 Validation checklist says `agency hub search` (bare) should return results or empty. Actual: `Error: accepts 1 arg(s), received 0`. Needs a query argument.
+
+**Resolution:** `agency hub search` now accepts zero or one query argument.
 
 ---
 
