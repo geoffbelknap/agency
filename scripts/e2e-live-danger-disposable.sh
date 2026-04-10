@@ -171,24 +171,24 @@ cleanup_scoped_infra_runtime() {
     return 0
   fi
 
-  docker rm -f \
-    "agency-infra-gateway-proxy-${AGENCY_INFRA_INSTANCE}" \
-    "agency-infra-egress-${AGENCY_INFRA_INSTANCE}" \
-    "agency-infra-comms-${AGENCY_INFRA_INSTANCE}" \
-    "agency-infra-knowledge-${AGENCY_INFRA_INSTANCE}" \
-    "agency-infra-intake-${AGENCY_INFRA_INSTANCE}" \
-    "agency-infra-web-fetch-${AGENCY_INFRA_INSTANCE}" \
-    "agency-infra-web-${AGENCY_INFRA_INSTANCE}" \
-    "agency-infra-relay-${AGENCY_INFRA_INSTANCE}" \
-    "agency-infra-embeddings-${AGENCY_INFRA_INSTANCE}" \
-    >/dev/null 2>&1 || true
+  local container_ids
+  local network_ids
 
-  docker network rm \
-    "agency-gateway-${AGENCY_INFRA_INSTANCE}" \
-    "agency-egress-int-${AGENCY_INFRA_INSTANCE}" \
-    "agency-egress-ext-${AGENCY_INFRA_INSTANCE}" \
-    "agency-operator-${AGENCY_INFRA_INSTANCE}" \
-    >/dev/null 2>&1 || true
+  container_ids="$(docker ps -aq \
+    --filter label=agency.managed=true \
+    --filter label=agency.role=infra \
+    --filter "label=agency.instance=${AGENCY_INFRA_INSTANCE}")"
+  if [ -n "$container_ids" ]; then
+    docker rm -f $container_ids >/dev/null 2>&1 || true
+  fi
+
+  network_ids="$(docker network ls -q \
+    --filter label=agency.managed=true \
+    --filter label=agency.role=infra \
+    --filter "label=agency.instance=${AGENCY_INFRA_INSTANCE}")"
+  if [ -n "$network_ids" ]; then
+    docker network rm $network_ids >/dev/null 2>&1 || true
+  fi
 }
 
 cleanup() {
