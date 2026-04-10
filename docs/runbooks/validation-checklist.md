@@ -55,7 +55,7 @@ Run through each section. Mark each item as you verify it.
 
 ### Credentials
 
-- [ ] `agency creds set --name validation-test-key --value test123 --kind internal --protocol api-key --scope platform` — stored
+- [ ] `agency creds set validation-test-key --value test123 --kind internal` — stored
 - [ ] `agency creds list` — shows the key
 - [ ] `agency creds show validation-test-key` — retrievable
 - [ ] `agency creds delete validation-test-key` — removed

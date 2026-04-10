@@ -28,7 +28,7 @@ The setup wizard prompts for provider and API key. Stores the key in the encrypt
 
 ```bash
 # Store the API key
-agency creds set --name ANTHROPIC_API_KEY --value sk-ant-... --kind provider --protocol api-key --scope platform
+agency creds set ANTHROPIC_API_KEY --value sk-ant-...
 
 # For OpenAI-compatible providers, discover models
 agency hub provider add my-provider https://api.my-provider.com/v1

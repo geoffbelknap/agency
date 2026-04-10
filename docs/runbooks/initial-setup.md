@@ -62,7 +62,7 @@ Expected: all checks pass including `host_capacity` and `network_pool`. No agent
 ### 7. Configure provider
 
 ```bash
-agency creds set --name ANTHROPIC_API_KEY --value sk-ant-... --kind provider --protocol api-key --scope platform
+agency creds set ANTHROPIC_API_KEY --value sk-ant-...
 ```
 
 ### 8. Create and start a test agent

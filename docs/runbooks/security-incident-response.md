@@ -141,8 +141,7 @@ agency resume <agent-name>
 
 ```bash
 # Stop and delete the compromised agent
-agency halt <agent-name> --tier immediate --reason "confirmed compromise"
-agency stop <agent-name>
+agency stop <agent-name> --force
 agency delete <agent-name>
 
 # Rotate any credentials the agent had access to
