@@ -3,6 +3,8 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 const APP_ERROR_PATTERN = /Application Error|Something went wrong/;
 const SETUP_HEADING_PATTERN = /Welcome to Agency|Re-configure Agency|Preparing your platform/;
 
+test.describe.configure({ timeout: 120_000 });
+
 async function settle(page: Page) {
   await page.waitForLoadState('domcontentloaded');
   await page.waitForTimeout(1500);

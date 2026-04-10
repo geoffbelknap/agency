@@ -22,12 +22,18 @@ Current suites:
 - `tests/e2e-live/app-surface.spec.ts`
 - `tests/e2e-live/mutable-flows.spec.ts`
 
+Recommended disposable runner:
+- `./scripts/e2e-live-disposable.sh --skip-build`
+
 ### `live-risky`
 
 Opt-in live suite for flows that can talk to outside systems, install or remove shared components, toggle connectors, or otherwise perturb a developer environment beyond simple CRUD cleanup.
 
 Suite location:
 - `tests/e2e-live-risky/`
+
+Recommended disposable runner:
+- `./scripts/e2e-live-disposable.sh --skip-build --risky`
 
 Related operator-path live scripts:
 - `./scripts/test-live-hub-oci.sh`

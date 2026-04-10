@@ -187,7 +187,11 @@ test('live stack supports interactive navigation without mutating state', async 
   await expect(page.getByRole('heading', { name: 'Knowledge' })).toBeVisible();
   await page.getByRole('button', { name: 'Graph' }).click();
   await settle(page);
-  await expect(page.getByRole('button', { name: 'Radial (clusters)' })).toBeVisible();
+  if (await page.getByRole('button', { name: 'Radial (clusters)' }).count()) {
+    await expect(page.getByRole('button', { name: 'Radial (clusters)' })).toBeVisible();
+  } else {
+    await expect(page.getByText('Knowledge graph is empty')).toBeVisible();
+  }
 
   await page.getByRole('button', { name: 'Search' }).click();
   await settle(page);

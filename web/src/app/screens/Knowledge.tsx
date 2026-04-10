@@ -349,14 +349,10 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
   const loadOntologyReviewData = async () => {
     try {
       setOntologyLoading(true);
-      const [candidateData, curationLog] = await Promise.all([
-        api.knowledge.ontologyCandidates(),
-        api.knowledge.curationLog().catch(() => null),
-      ]);
-      setOntologyCandidates(candidateData.candidates || []);
+      const candidateData = await api.knowledge.ontologyCandidates().catch(() => null);
+      const curationLog = await api.knowledge.curationLog().catch(() => null);
+      setOntologyCandidates(candidateData?.candidates || []);
       setOntologyDecisions(parseOntologyDecisions(curationLog));
-    } catch {
-      // Ontology may not be available — ignore
     } finally {
       setOntologyLoading(false);
     }
