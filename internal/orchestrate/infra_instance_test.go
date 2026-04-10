@@ -102,3 +102,20 @@ func TestInfraWebGatewayRoutingDefaults(t *testing.T) {
 		t.Fatalf("webListenAddr() = %q, want %q", got, want)
 	}
 }
+
+func TestInfraWebNetworkModeOverride(t *testing.T) {
+	inf := &Infra{GatewayAddr: "127.0.0.1:18300"}
+
+	t.Setenv("AGENCY_WEB_NETWORK_MODE", "bridge")
+	if inf.webUsesHostNetwork() {
+		t.Fatal("AGENCY_WEB_NETWORK_MODE=bridge should disable host networking")
+	}
+
+	t.Setenv("AGENCY_WEB_NETWORK_MODE", "host")
+	if runtime.GOOS == "linux" && !inf.webUsesHostNetwork() {
+		t.Fatal("AGENCY_WEB_NETWORK_MODE=host should enable host networking on Linux")
+	}
+	if runtime.GOOS != "linux" && inf.webUsesHostNetwork() {
+		t.Fatal("AGENCY_WEB_NETWORK_MODE=host should not force unsupported non-Linux host networking")
+	}
+}

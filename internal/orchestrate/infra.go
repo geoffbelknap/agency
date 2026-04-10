@@ -1587,6 +1587,16 @@ func (inf *Infra) gatewayHostIsLoopback() bool {
 }
 
 func (inf *Infra) webUsesHostNetwork() bool {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("AGENCY_WEB_NETWORK_MODE")))
+	if mode == "bridge" {
+		return false
+	}
+	if mode == "host" {
+		return runtime.GOOS == "linux"
+	}
+	// Linux containers cannot reach a host process bound only to 127.0.0.1 via
+	// host-gateway. Use host networking as a compatibility shim while preserving
+	// the same external contract: both gateway and web remain loopback-only.
 	return runtime.GOOS == "linux" && inf.gatewayHostIsLoopback()
 }
 
