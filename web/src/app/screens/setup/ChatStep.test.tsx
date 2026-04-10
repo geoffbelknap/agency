@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
@@ -6,10 +6,36 @@ import { server } from '../../../test/server';
 import { ChatStep } from './ChatStep';
 
 const BASE = 'http://localhost:8200/api/v1';
+const wsHandlers: Record<string, ((event: any) => void)[]> = {};
+
+vi.mock('../../lib/ws', () => ({
+  socket: {
+    on: (type: string, handler: (event: any) => void) => {
+      wsHandlers[type] ??= [];
+      wsHandlers[type].push(handler);
+      return () => {
+        wsHandlers[type] = (wsHandlers[type] || []).filter((h) => h !== handler);
+      };
+    },
+    connect: () => {},
+    disconnect: () => {},
+    connected: true,
+  },
+}));
 
 beforeAll(() => {
   window.HTMLElement.prototype.scrollIntoView = () => {};
 });
+
+beforeEach(() => {
+  Object.keys(wsHandlers).forEach((key) => delete wsHandlers[key]);
+});
+
+function emitSocket(type: string, event: any) {
+  for (const handler of wsHandlers[type] || []) {
+    handler(event);
+  }
+}
 
 describe('ChatStep', () => {
   it('offers guided first-task prompts and finishes into the agent DM', async () => {
@@ -112,5 +138,32 @@ describe('ChatStep', () => {
     expect(await screen.findByText('Agent is not ready yet')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Check Again' })).toBeInTheDocument();
     expect(initialPromptSent).toBe(false);
+  });
+
+  it('marks the setup chat ready from an agent_status event', async () => {
+    server.use(
+      http.get(`${BASE}/agents/henry`, () => HttpResponse.json({ name: 'henry', status: 'stopped' })),
+      http.get(`${BASE}/comms/channels`, () => HttpResponse.json([{ name: 'dm-henry', type: 'dm' }])),
+      http.get(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json([])),
+      http.post(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json({ ok: true })),
+    );
+
+    render(
+      <ChatStep
+        agentName="henry"
+        operatorName="Geoff"
+        onFinish={() => {}}
+        onBack={() => {}}
+        agentReadyPolls={100}
+        agentReadyPollDelayMs={1000}
+      />,
+    );
+
+    expect(await screen.findByText(/Starting henry/)).toBeInTheDocument();
+    emitSocket('agent_status', { agent: 'henry', status: 'running' });
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/what can you help me with/i)).toBeEnabled();
+    });
   });
 });
