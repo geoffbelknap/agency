@@ -211,9 +211,23 @@ cleanup() {
   if [ "$KEEP_HOME" = "1" ]; then
     echo "Keeping setup wizard home at $DISPOSABLE_HOME"
   else
+    fix_home_permissions "$DISPOSABLE_HOME"
     rm -rf "$DISPOSABLE_HOME"
   fi
   exit "$status"
+}
+
+fix_home_permissions() {
+  local target="$1"
+  if [ -z "$target" ] || [ ! -d "$target" ] || ! command -v docker >/dev/null 2>&1; then
+    return 0
+  fi
+  docker run --rm --entrypoint sh \
+    -v "$target:/target" \
+    --user 0:0 \
+    alpine:3.21 \
+    -c "chown -R $(id -u):$(id -g) /target 2>/dev/null || true; chmod -R u+rwX /target 2>/dev/null || true" \
+    >/dev/null 2>&1 || true
 }
 
 if [ "$SKIP_BUILD" != "1" ]; then
@@ -223,6 +237,13 @@ fi
 
 if ! AGENCY_BIN="$(resolve_agency_bin)"; then
   echo "agency binary not found. Set AGENCY_BIN or build the local repo binary first." >&2
+  exit 1
+fi
+
+if ! command -v cosign >/dev/null 2>&1; then
+  echo "cosign is required for OCI Hub signature verification during setup." >&2
+  echo "Install cosign, then rerun this check." >&2
+  echo "See: https://docs.sigstore.dev/cosign/system_config/installation/" >&2
   exit 1
 fi
 
