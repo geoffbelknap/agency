@@ -19,6 +19,8 @@ interface ChatStepProps {
   operatorName?: string;
   onFinish: (channelName?: string) => void;
   onBack: () => void;
+  agentReadyPolls?: number;
+  agentReadyPollDelayMs?: number;
 }
 
 const FIRST_TASK_PROMPTS = [
@@ -38,12 +40,21 @@ const FIRST_TASK_PROMPTS = [
 
 const INITIAL_PROMPT_RETRIES = 5;
 const INITIAL_PROMPT_RETRY_DELAY_MS = 1500;
+const AGENT_READY_POLLS = 40;
+const AGENT_READY_POLL_DELAY_MS = 1500;
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export function ChatStep({ agentName, operatorName, onFinish, onBack }: ChatStepProps) {
+export function ChatStep({
+  agentName,
+  operatorName,
+  onFinish,
+  onBack,
+  agentReadyPolls = AGENT_READY_POLLS,
+  agentReadyPollDelayMs = AGENT_READY_POLL_DELAY_MS,
+}: ChatStepProps) {
   const [channelName, setChannelName] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -51,7 +62,9 @@ export function ChatStep({ agentName, operatorName, onFinish, onBack }: ChatStep
   const [sending, setSending] = useState(false);
   const [agentTyping, setAgentTyping] = useState(false);
   const [agentReady, setAgentReady] = useState(false);
+  const [agentReadyError, setAgentReadyError] = useState('');
   const [error, setError] = useState('');
+  const [agentPollAttempt, setAgentPollAttempt] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const userScrolledUpRef = useRef(false);
@@ -78,24 +91,28 @@ export function ChatStep({ agentName, operatorName, onFinish, onBack }: ChatStep
   useEffect(() => {
     if (!agentName) return;
     let cancelled = false;
+    setAgentReady(false);
+    setAgentReadyError('');
     const poll = async () => {
-      for (let i = 0; i < 40; i++) { // up to ~60s
+      for (let i = 0; i < agentReadyPolls; i++) {
         if (cancelled) return;
         try {
           const agent = await api.agents.show(agentName);
           if (agent.status === 'running') {
             setAgentReady(true);
+            setAgentReadyError('');
             return;
           }
         } catch { /* agent may not exist yet */ }
-        await new Promise(r => setTimeout(r, 1500));
+        await wait(agentReadyPollDelayMs);
       }
-      // Timed out — proceed anyway, agent may still come up
-      setAgentReady(true);
+      if (!cancelled) {
+        setAgentReadyError(`${agentName} did not report ready. It may still be building, or startup may have failed.`);
+      }
     };
     poll();
     return () => { cancelled = true; };
-  }, [agentName]);
+  }, [agentName, agentPollAttempt, agentReadyPolls, agentReadyPollDelayMs]);
 
   // Find or create DM channel (can happen in parallel with agent polling)
   useEffect(() => {
@@ -254,7 +271,9 @@ export function ChatStep({ agentName, operatorName, onFinish, onBack }: ChatStep
       <div className="text-center space-y-2">
         <h2 className="text-2xl font-semibold text-foreground">Talk to {agentName}</h2>
         <p className="text-muted-foreground text-sm">
-          {operatorName ? `${operatorName}, your` : 'Your'} agent is ready to chat.
+          {agentReady
+            ? `${operatorName ? `${operatorName}, your` : 'Your'} agent is ready to chat.`
+            : `Waiting for ${agentName} to finish starting.`}
         </p>
       </div>
 
@@ -321,7 +340,7 @@ export function ChatStep({ agentName, operatorName, onFinish, onBack }: ChatStep
             })}
 
             {/* Agent starting indicator */}
-            {!agentReady && (
+            {!agentReady && !agentReadyError && (
               <div className="flex gap-3 py-1.5">
                 <div className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0 bg-primary">
                   <span className="text-xs font-semibold text-white uppercase">{agentName.charAt(0)}</span>
@@ -329,6 +348,26 @@ export function ChatStep({ agentName, operatorName, onFinish, onBack }: ChatStep
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Loader2 className="w-3 h-3 animate-spin" />
                   Starting {agentName}...
+                </div>
+              </div>
+            )}
+
+            {/* Startup recovery */}
+            {agentReadyError && (
+              <div className="rounded-lg border border-amber-900/50 bg-amber-950/30 p-4 text-sm text-amber-100">
+                <div className="font-medium">Agent is not ready yet</div>
+                <p className="mt-1 text-xs text-amber-100/80">{agentReadyError}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setAgentPollAttempt((attempt) => attempt + 1)}
+                  >
+                    Check Again
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={finishSetup}>
+                    Open Channels
+                  </Button>
                 </div>
               </div>
             )}

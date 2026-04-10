@@ -83,4 +83,34 @@ describe('ChatStep', () => {
     }, { timeout: 5_000 });
     expect(await screen.findByText(/Hey henry, I just set up Agency/)).toBeInTheDocument();
   });
+
+  it('does not mark chat ready when agent startup polling times out', async () => {
+    let initialPromptSent = false;
+
+    server.use(
+      http.get(`${BASE}/agents/henry`, () => HttpResponse.json({ name: 'henry', status: 'stopped' })),
+      http.get(`${BASE}/comms/channels`, () => HttpResponse.json([{ name: 'dm-henry', type: 'dm' }])),
+      http.get(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json([])),
+      http.post(`${BASE}/comms/channels/dm-henry/messages`, () => {
+        initialPromptSent = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+
+    render(
+      <ChatStep
+        agentName="henry"
+        operatorName="Geoff"
+        onFinish={() => {}}
+        onBack={() => {}}
+        agentReadyPolls={2}
+        agentReadyPollDelayMs={1}
+      />,
+    );
+
+    expect(await screen.findByText(/Starting henry/)).toBeInTheDocument();
+    expect(await screen.findByText('Agent is not ready yet')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Check Again' })).toBeInTheDocument();
+    expect(initialPromptSent).toBe(false);
+  });
 });
