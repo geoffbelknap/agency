@@ -187,12 +187,38 @@ stop_pid() {
   fi
 }
 
+cleanup_scoped_infra_runtime() {
+  if [ -z "${AGENCY_INFRA_INSTANCE:-}" ] || ! command -v docker >/dev/null 2>&1; then
+    return 0
+  fi
+
+  docker rm -f \
+    "agency-infra-gateway-proxy-${AGENCY_INFRA_INSTANCE}" \
+    "agency-infra-egress-${AGENCY_INFRA_INSTANCE}" \
+    "agency-infra-comms-${AGENCY_INFRA_INSTANCE}" \
+    "agency-infra-knowledge-${AGENCY_INFRA_INSTANCE}" \
+    "agency-infra-intake-${AGENCY_INFRA_INSTANCE}" \
+    "agency-infra-web-fetch-${AGENCY_INFRA_INSTANCE}" \
+    "agency-infra-web-${AGENCY_INFRA_INSTANCE}" \
+    "agency-infra-relay-${AGENCY_INFRA_INSTANCE}" \
+    "agency-infra-embeddings-${AGENCY_INFRA_INSTANCE}" \
+    >/dev/null 2>&1 || true
+
+  docker network rm \
+    "agency-gateway-${AGENCY_INFRA_INSTANCE}" \
+    "agency-egress-int-${AGENCY_INFRA_INSTANCE}" \
+    "agency-egress-ext-${AGENCY_INFRA_INSTANCE}" \
+    "agency-operator-${AGENCY_INFRA_INSTANCE}" \
+    >/dev/null 2>&1 || true
+}
+
 cleanup() {
   local status="$?"
   trap - EXIT INT TERM HUP
 
   echo "==> Cleaning up disposable Agency runtime"
   AGENCY_HOME="$DISPOSABLE_HOME" AGENCY_INFRA_INSTANCE="$AGENCY_INFRA_INSTANCE" "$AGENCY_BIN" -q infra down >/dev/null 2>&1 || true
+  cleanup_scoped_infra_runtime
   AGENCY_HOME="$DISPOSABLE_HOME" "$AGENCY_BIN" serve stop >/dev/null 2>&1 || true
 
   if [ -f "$DISPOSABLE_HOME/gateway.pid" ]; then
