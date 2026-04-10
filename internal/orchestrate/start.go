@@ -275,7 +275,11 @@ func (ss *StartSequence) phase3Constraints() error {
 		ss.model = resolved
 	}
 	if ss.model == "" {
-		ss.model = "claude-sonnet"
+		requestedTier := ss.defaultModelTier()
+		if tier, ok := ss.agentConfig["model_tier"].(string); ok && tier != "" {
+			requestedTier = tier
+		}
+		return fmt.Errorf("no credentialed model is available for tier %q; configure a provider with `agency quickstart` or `agency creds set <provider-key> --value <secret>`", requestedTier)
 	}
 
 	// Resolve admin model (mini tier)
