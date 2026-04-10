@@ -33,7 +33,7 @@ Related operator-path live scripts:
 - `./scripts/test-live-hub-oci.sh`
 - `./scripts/test-live-hub-operator-oci.sh`
 
-`test-live-hub-operator-oci.sh` uses a disposable Agency home and isolated gateway port to validate the normal operator CLI/API path against the published GHCR hub catalog. It verifies that connector, service, provider, routing, and skill artifacts sync from OCI; Markdown skills are searchable; and hub-managed routing remains update/upgrade surface rather than an installable search result.
+`test-live-hub-operator-oci.sh` uses a disposable Agency home and isolated gateway port to validate the normal operator CLI/API path against the published GHCR hub catalog. It verifies that connector, service, provider, routing, setup, and skill artifacts sync from OCI; Markdown skills and the default setup wizard are searchable; setup config is served from the OCI cache; hub-managed routing remains update/upgrade surface rather than an installable search result; and, when `cosign` is installed, provider install/remove verifies signatures and cleans routing.
 
 ### `live-danger`
 
