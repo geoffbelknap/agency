@@ -504,6 +504,14 @@ func (m *Manager) Info(name, kind string) (map[string]interface{}, error) {
 	content["_source"] = comp.Source
 	content["_kind"] = comp.Kind
 	content["_path"] = comp.Path
+	for _, installed := range m.List() {
+		if installed.DisplayName() == comp.Name && installed.Kind == comp.Kind {
+			content["_installed"] = true
+			content["_installed_at"] = installed.InstalledAt
+			content["_installed_source"] = installed.Source
+			break
+		}
+	}
 
 	return content, nil
 }

@@ -114,6 +114,7 @@ export interface Component {
   source: string;
   installed: boolean;
   installedAt?: string;
+  version?: string;
 }
 
 export interface DoctorCheck {
