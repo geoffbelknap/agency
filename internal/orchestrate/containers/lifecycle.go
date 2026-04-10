@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
@@ -14,6 +15,7 @@ import (
 // Defined as an interface so callers can inject mocks in tests.
 type DockerAPI interface {
 	ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *specs.Platform, containerName string) (container.CreateResponse, error)
+	ContainerInspect(ctx context.Context, containerID string) (container.InspectResponse, error)
 	ContainerStart(ctx context.Context, containerID string, options container.StartOptions) error
 	ContainerStop(ctx context.Context, containerID string, options container.StopOptions) error
 	ContainerRemove(ctx context.Context, containerID string, options container.RemoveOptions) error
@@ -62,7 +64,34 @@ func StopAndRemove(ctx context.Context, cli DockerAPI, name string, timeoutSecs 
 		return nil
 	}
 
-	return nil
+	return waitUntilRemoved(ctx, cli, name, 5*time.Second)
+}
+
+func waitUntilRemoved(ctx context.Context, cli DockerAPI, name string, timeout time.Duration) error {
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		_, err := cli.ContainerInspect(waitCtx, name)
+		if isNotFound(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		select {
+		case <-waitCtx.Done():
+			if errors.Is(waitCtx.Err(), context.DeadlineExceeded) {
+				return errors.New("timed out waiting for container removal")
+			}
+			return waitCtx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 // isNotFound returns true for Docker "no such container" / "not found" errors.
