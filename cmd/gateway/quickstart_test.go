@@ -108,3 +108,25 @@ func TestLocalWebURLForHost(t *testing.T) {
 		}
 	}
 }
+
+func TestQuickstartDMURLForAgent(t *testing.T) {
+	tests := []struct {
+		name      string
+		baseURL   string
+		agentName string
+		want      string
+	}{
+		{name: "empty agent falls back to channels", baseURL: "http://localhost:8280", want: "http://localhost:8280/channels"},
+		{name: "agent dm", baseURL: "http://localhost:8280", agentName: "henry", want: "http://localhost:8280/channels/dm-henry"},
+		{name: "trims trailing slash", baseURL: "http://localhost:8280/", agentName: "security-analyst", want: "http://localhost:8280/channels/dm-security-analyst"},
+		{name: "escapes unsafe names defensively", baseURL: "http://localhost:8280", agentName: "bad name", want: "http://localhost:8280/channels/dm-bad%20name"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := quickstartDMURLForAgent(tt.baseURL, tt.agentName); got != tt.want {
+				t.Fatalf("quickstartDMURLForAgent(%q, %q) = %q, want %q", tt.baseURL, tt.agentName, got, tt.want)
+			}
+		})
+	}
+}

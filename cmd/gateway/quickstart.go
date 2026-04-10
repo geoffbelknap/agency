@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -26,8 +27,6 @@ var providerDisplayNames = map[string]string{
 	"openai":    "OpenAI",
 	"gemini":    "Google Gemini",
 }
-
-const localWebURL = "http://localhost:8280"
 
 var (
 	qsBold  = lipgloss.NewStyle().Bold(true)
@@ -113,12 +112,13 @@ var agentChoices = []agentChoice{
 }
 
 type quickstartOptions struct {
-	provider string
-	key      string
-	preset   string
-	name     string
-	noDemo   bool
-	verbose  bool
+	provider  string
+	key       string
+	preset    string
+	name      string
+	noDemo    bool
+	noBrowser bool
+	verbose   bool
 }
 
 func quickstartCmd() *cobra.Command {
@@ -135,7 +135,8 @@ func quickstartCmd() *cobra.Command {
   4. Creates your first agent
   5. Sends a demo task to verify everything works
 
-Run with --no-demo to skip the demo task.`,
+Run with --no-demo to skip the demo task.
+Run with --no-browser to print the Web UI URL without opening it.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runQuickstart(opts)
 		},
@@ -146,6 +147,7 @@ Run with --no-demo to skip the demo task.`,
 	cmd.Flags().StringVar(&opts.preset, "preset", "", "Agent preset to use")
 	cmd.Flags().StringVar(&opts.name, "name", "", "Name for the first agent")
 	cmd.Flags().BoolVar(&opts.noDemo, "no-demo", false, "Skip the demo task")
+	cmd.Flags().BoolVar(&opts.noBrowser, "no-browser", false, "Don't open the web UI in a browser (also respected via AGENCY_NO_BROWSER=1)")
 	cmd.Flags().BoolVar(&opts.verbose, "verbose", false, "Show detailed output")
 
 	return cmd
@@ -313,6 +315,14 @@ func shouldRestartGatewayForQuickstart(gatewayRunning, configExistedBefore bool,
 
 func isHubInstallAlreadyExists(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "already exists")
+}
+
+func quickstartDMURLForAgent(baseURL, agentName string) string {
+	baseURL = strings.TrimRight(baseURL, "/")
+	if strings.TrimSpace(agentName) == "" {
+		return baseURL + "/channels"
+	}
+	return baseURL + "/channels/" + url.PathEscape("dm-"+agentName)
 }
 
 func runQuickstart(opts quickstartOptions) error {
@@ -719,17 +729,19 @@ func runQuickstart(opts quickstartOptions) error {
 			fmt.Println()
 			fmt.Println()
 			fmt.Println("  Agent started but the first task is taking a while.")
-			fmt.Printf("  Check %s or open %s\n", qsBold.Render("agency status"), qsBold.Render(localWebURL))
+			fmt.Printf("  Check %s or open %s\n", qsBold.Render("agency status"), qsBold.Render(localWebURLForHost(webHost())))
 		}
 	}
 
 	// What's next footer
+	webURL := localWebURLForHost(webHost())
+	chatURL := quickstartDMURLForAgent(webURL, runningAgent)
 	fmt.Println()
 	fmt.Println("  " + qsDim.Render("────────────────────────────────────────"))
 	fmt.Println("  Agent is running. What's next:")
-	fmt.Printf("    • Web UI:      %s\n", qsBold.Render(localWebURL))
+	fmt.Printf("    • Web UI:      %s\n", qsBold.Render(webURL))
 	if runningAgent != "" {
-		fmt.Printf("    • Chat:        %s\n", qsBold.Render(fmt.Sprintf("open Channels → Direct Messages → %s", runningAgent)))
+		fmt.Printf("    • Chat:        %s\n", qsBold.Render(chatURL))
 		fmt.Printf("    • CLI:         %s\n", qsBold.Render(fmt.Sprintf("agency send %s \"your task here\"", runningAgent)))
 	}
 	fmt.Printf("    • Alpha guide: %s\n", qsBold.Render("docs/alpha-test.md"))
@@ -742,6 +754,10 @@ func runQuickstart(opts quickstartOptions) error {
 		fmt.Printf("    • Review PRs:  %s\n", qsBold.Render(fmt.Sprintf("agency send %s \"review my latest commit\"", runningAgent)))
 	}
 	fmt.Println()
+
+	if !opts.noBrowser {
+		_ = openBrowser(chatURL)
+	}
 
 	return nil
 }
