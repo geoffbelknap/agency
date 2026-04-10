@@ -3,6 +3,7 @@ package infra
 import (
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"gopkg.in/yaml.v3"
@@ -88,7 +89,13 @@ func (h *handler) routingConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	configured := len(rc.Providers) > 0 || len(rc.Models) > 0
+	configured := false
+	for _, p := range rc.Providers {
+		if h.credentialConfigured(p.AuthEnv) {
+			configured = true
+			break
+		}
+	}
 	writeJSON(w, 200, map[string]interface{}{
 		"configured": configured,
 		"version":    rc.Version,
@@ -129,16 +136,16 @@ func (h *handler) listProviders(w http.ResponseWriter, r *http.Request) {
 	available := hubMgr.Search("", "provider")
 
 	type providerResponse struct {
-		Name                string `json:"name"`
-		DisplayName         string `json:"display_name"`
-		Description         string `json:"description"`
-		Category            string `json:"category"`
-		Installed           bool   `json:"installed"`
-		CredentialName      string `json:"credential_name,omitempty"`
-		CredentialLabel     string `json:"credential_label,omitempty"`
-		APIKeyURL           string `json:"api_key_url,omitempty"`
-		APIBaseConfigurable bool   `json:"api_base_configurable,omitempty"`
-		CredentialConfigured bool  `json:"credential_configured"`
+		Name                 string `json:"name"`
+		DisplayName          string `json:"display_name"`
+		Description          string `json:"description"`
+		Category             string `json:"category"`
+		Installed            bool   `json:"installed"`
+		CredentialName       string `json:"credential_name,omitempty"`
+		CredentialLabel      string `json:"credential_label,omitempty"`
+		APIKeyURL            string `json:"api_key_url,omitempty"`
+		APIBaseConfigurable  bool   `json:"api_base_configurable,omitempty"`
+		CredentialConfigured bool   `json:"credential_configured"`
 	}
 
 	// Check which providers are installed
@@ -173,10 +180,15 @@ func (h *handler) listProviders(w http.ResponseWriter, r *http.Request) {
 			pr.CredentialName = strField(cred, "name")
 			pr.CredentialLabel = strField(cred, "label")
 			pr.APIKeyURL = strField(cred, "api_key_url")
+			credentialNames := []string{pr.CredentialName}
+			if envVar := strField(cred, "env_var"); envVar != "" {
+				credentialNames = append(credentialNames, envVar)
+			}
 
-			if pr.CredentialName != "" && h.deps.CredStore != nil {
-				if _, err := h.deps.CredStore.Get(pr.CredentialName); err == nil {
+			for _, name := range credentialNames {
+				if h.credentialConfigured(name) {
 					pr.CredentialConfigured = true
+					break
 				}
 			}
 		}
@@ -197,6 +209,29 @@ func (h *handler) listProviders(w http.ResponseWriter, r *http.Request) {
 func strField(m map[string]interface{}, key string) string {
 	v, _ := m[key].(string)
 	return v
+}
+
+func (h *handler) credentialConfigured(name string) bool {
+	if name == "" {
+		return true
+	}
+	if h.deps.CredStore == nil {
+		return false
+	}
+	for _, candidate := range credentialNameCandidates(name) {
+		if _, err := h.deps.CredStore.Get(candidate); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func credentialNameCandidates(name string) []string {
+	normalized := strings.ToLower(strings.ReplaceAll(name, "_", "-"))
+	if normalized == name {
+		return []string{name}
+	}
+	return []string{name, normalized}
 }
 
 // setupConfig returns the wizard configuration (capability tiers) from the hub cache.

@@ -36,7 +36,7 @@ func ValidateOperatorName(name string) error {
 
 // InitOptions holds the parameters for initializing the Agency platform.
 type InitOptions struct {
-	Provider        string // e.g. "anthropic", "openai", "google"
+	Provider        string // e.g. "anthropic", "openai", "gemini"
 	APIKey          string // primary provider API key
 	AnthropicAPIKey string // explicit Anthropic key (overrides APIKey when Provider=="anthropic")
 	OpenAIAPIKey    string // explicit OpenAI key
@@ -56,10 +56,27 @@ type KeyEntry struct {
 // providerEnvVar returns the environment variable name for a given provider.
 func providerEnvVar(provider string) string {
 	switch strings.ToLower(provider) {
-	case "google", "gemini":
+	case "gemini":
 		return "GEMINI_API_KEY"
 	default:
 		return strings.ToUpper(provider) + "_API_KEY"
+	}
+}
+
+// ProviderCredentialName returns the canonical credential-store name used by
+// Hub provider components. Credential resolution still accepts env-var names
+// through normalization, but storing canonical names keeps Web setup status
+// aligned with Hub metadata.
+func ProviderCredentialName(provider string) string {
+	switch strings.ToLower(provider) {
+	case "anthropic":
+		return "anthropic-api-key"
+	case "openai":
+		return "openai-api-key"
+	case "gemini":
+		return "gemini-api-key"
+	default:
+		return providerEnvVar(provider)
 	}
 }
 
@@ -72,7 +89,7 @@ func ProviderDomains(provider string) []string {
 		return []string{"api.anthropic.com"}
 	case "openai":
 		return []string{"api.openai.com"}
-	case "google", "gemini":
+	case "gemini":
 		return []string{"generativelanguage.googleapis.com"}
 	default:
 		return nil
@@ -354,7 +371,6 @@ func ReadExistingKeys(agencyHome string) []string {
 	providerMap := map[string]string{
 		"ANTHROPIC_API_KEY": "anthropic",
 		"OPENAI_API_KEY":    "openai",
-		"GOOGLE_API_KEY":    "google",
 		"GEMINI_API_KEY":    "gemini",
 	}
 	var providers []string

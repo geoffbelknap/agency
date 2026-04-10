@@ -511,6 +511,13 @@ func webHost() string {
 	return "localhost"
 }
 
+func localWebURLForHost(host string) string {
+	if strings.TrimSpace(host) == "" {
+		host = "localhost"
+	}
+	return fmt.Sprintf("http://%s:8280", host)
+}
+
 func checkDocker() error {
 	wsl := isWSL()
 
@@ -620,7 +627,6 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser bo
 			providerEnvMap := map[string]string{
 				"anthropic": "ANTHROPIC_API_KEY",
 				"openai":    "OPENAI_API_KEY",
-				"google":    "GOOGLE_API_KEY",
 				"gemini":    "GEMINI_API_KEY",
 			}
 			cfg := config.Load()
@@ -745,9 +751,9 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser bo
 		fmt.Println("  agency start my-agent   # Start an agent")
 		fmt.Println("  agency status           # Check platform status")
 		fmt.Println()
-		fmt.Printf("  Open https://%s:8280 for the web UI\n", webHost())
+		fmt.Printf("  Open %s for the web UI\n", localWebURLForHost(webHost()))
 	} else {
-		setupURL := fmt.Sprintf("https://%s:8280/setup", webHost())
+		setupURL := localWebURLForHost(webHost()) + "/setup"
 		if !noBrowser {
 			_ = openBrowser(setupURL)
 		}
