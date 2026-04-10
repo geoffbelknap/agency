@@ -100,6 +100,9 @@ Repo-root shortcuts:
 | `make web-test-all` | Run both default web verification tiers |
 | `make e2e-live-web-safe` | Run the default live-safe Playwright tier |
 | `make e2e-live-web-risky` | Run the opt-in live-risky tier |
+| `make e2e-live-web-disposable` | Run the default live-safe tier against a disposable cloned Agency home |
+| `make e2e-live-web-safe-disposable` | Run the default live-safe tier against a disposable cloned Agency home |
+| `make e2e-live-web-risky-disposable` | Run the opt-in live-risky tier against a disposable cloned Agency home |
 | `make e2e-live-web-danger` | Run the explicit live-danger tier with destroy confirmation guards |
 | `make e2e-live-web-danger-disposable` | Run live-danger against a disposable cloned Agency home on alternate ports |
 
@@ -129,12 +132,14 @@ make web-test-e2e
 Live local stack safe suite:
 
 ```bash
-./scripts/e2e-live-web.sh
+./scripts/e2e-live-disposable.sh --skip-build
 ```
 
 Useful flag-driven variants:
 
 ```bash
+./scripts/e2e-live-disposable.sh --skip-build
+./scripts/e2e-live-disposable.sh --skip-build --risky
 ./scripts/e2e-live-web.sh --skip-build tests/e2e-live
 ./scripts/e2e-live-web.sh --skip-build --config playwright.live.risky.config.ts tests/e2e-live-risky
 ./scripts/e2e-live-web.sh --allow-danger --danger-confirm destroy-all --config playwright.live.danger.config.ts tests/e2e-live-danger
@@ -148,9 +153,9 @@ The mocked suite covers the full UI route surface with deterministic fixtures. T
 ## Live Suite Tiers
 
 - `live-safe`
-  Default. Real-stack coverage that may create temporary data but must clean up after itself and avoid external or destructive side effects.
+  Default. Real-stack coverage that may create temporary data but must clean up after itself and avoid external or destructive side effects. Prefer `./scripts/e2e-live-disposable.sh --skip-build` for local usability testing because it clones the current Agency home, assigns an isolated infra namespace, and binds alternate host ports.
 - `live-risky`
-  Opt-in coverage for flows like installs, connector activation, outbound notification sends, or other shared-environment mutations.
+  Opt-in coverage for flows like installs, connector activation, outbound notification sends, or other shared-environment mutations. Prefer `./scripts/e2e-live-disposable.sh --skip-build --risky` unless the test intentionally needs to mutate the operator's active home.
 - `live-danger`
   Explicit opt-in only for high-blast-radius flows such as full resets or destructive admin operations.
   It requires `AGENCY_E2E_ALLOW_DANGER=1` and `AGENCY_E2E_DANGER_CONFIRM=destroy-all`, or the equivalent `--allow-danger --danger-confirm destroy-all` harness flags.

@@ -9,7 +9,8 @@ usage() {
 Usage: ./scripts/cleanup-live-test-runtimes.sh [--apply] [-q|--quiet]
 
 Find and optionally stop Agency live-test runtimes that are attached to
-temporary homes such as agency-danger-home.* or agency-oci-home.*.
+temporary homes such as agency-live-home.*, agency-danger-home.*,
+agency-oci-home.*, or agency-operator-oci-home.*.
 
 By default this is a dry run. Pass --apply to terminate only matched test
 runtime processes and remove scoped disposable infra containers and networks.
@@ -46,7 +47,7 @@ log() {
 
 is_test_runtime() {
   local pid="$1"
-  lsof -nP -p "$pid" 2>/dev/null | grep -Eq '/agency-(danger|oci)-home\.'
+  lsof -nP -p "$pid" 2>/dev/null | grep -Eq '/agency-(live|danger|oci|operator-oci)-home\.'
 }
 
 stop_pid() {
@@ -105,7 +106,7 @@ if command -v docker >/dev/null 2>&1; then
     disposable_containers+=("$name")
   done < <(
     docker ps -a --format '{{.Names}}' 2>/dev/null |
-      grep -E '^agency-infra-(egress|comms|knowledge|intake|web-fetch|web|embeddings)-agency-(danger|oci)-home-' || true
+      grep -E '^agency-infra-(egress|comms|knowledge|intake|web-fetch|web|embeddings)-agency-(live|danger|oci|operator-oci)-home-' || true
   )
 
   if [ "${#disposable_containers[@]}" -gt 0 ]; then
@@ -123,7 +124,7 @@ if command -v docker >/dev/null 2>&1; then
     disposable_networks+=("$name")
   done < <(
     docker network ls --format '{{.Name}}' 2>/dev/null |
-      grep -E '^agency-(gateway|egress-int|egress-ext|operator)-agency-(danger|oci)-home-' || true
+      grep -E '^agency-(gateway|egress-int|egress-ext|operator)-agency-(live|danger|oci|operator-oci)-home-' || true
   )
 
   if [ "${#disposable_networks[@]}" -gt 0 ]; then
