@@ -9,8 +9,7 @@ export default defineConfig({
   retries: 0,
   reporter: 'list',
   use: {
-    baseURL: process.env.AGENCY_WEB_BASE_URL || 'https://127.0.0.1:8280',
-    ignoreHTTPSErrors: true,
+    baseURL: process.env.AGENCY_WEB_BASE_URL || 'http://127.0.0.1:8280',
     trace: 'on-first-retry',
   },
   projects: [

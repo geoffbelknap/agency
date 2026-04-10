@@ -3,10 +3,8 @@ package main
 import (
 	"bufio"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,7 +17,6 @@ import (
 	"github.com/geoffbelknap/agency/internal/apiclient"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/daemon"
-	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -314,6 +311,10 @@ func shouldRestartGatewayForQuickstart(gatewayRunning, configExistedBefore bool,
 	return gatewayRunning && (!configExistedBefore || len(pendingKeys) > 0)
 }
 
+func isHubInstallAlreadyExists(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "already exists")
+}
+
 func runQuickstart(opts quickstartOptions) error {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt)
@@ -564,10 +565,15 @@ func runQuickstart(opts quickstartOptions) error {
 		if _, err := c.Post("/api/v1/hub/install", map[string]interface{}{
 			"component": providerName,
 		}); err != nil {
-			fmt.Printf("  %s hub             provider install failed: %s\n", qsRed.Render("✗"), err)
-			return fmt.Errorf("hub install provider: %w", err)
+			if isHubInstallAlreadyExists(err) {
+				fmt.Printf("  %s hub             %s provider already installed\n", qsGreen.Render("✓"), providerName)
+			} else {
+				fmt.Printf("  %s hub             provider install failed: %s\n", qsRed.Render("✗"), err)
+				return fmt.Errorf("hub install provider: %w", err)
+			}
+		} else {
+			fmt.Printf("  %s hub             %s provider installed\n", qsGreen.Render("✓"), providerName)
 		}
-		fmt.Printf("  %s hub             %s provider installed\n", qsGreen.Render("✓"), providerName)
 	}
 
 	// Phase 4: Agent — create and start first agent
@@ -695,6 +701,10 @@ func runQuickstart(opts quickstartOptions) error {
 
 	// Phase 5: Demo
 	if !opts.noDemo && runningAgent != "" {
+		// Start returns when containers are up, but the body runtime may need a
+		// moment to subscribe to comms. Avoid sending the first task into that
+		// startup race.
+		time.Sleep(2 * time.Second)
 		demoTask := choice.task
 		if demoTask == "" {
 			demoTask = "What are you capable of? Give me three things I should try first."
@@ -705,7 +715,7 @@ func runQuickstart(opts quickstartOptions) error {
 		fmt.Println()
 		fmt.Printf("  > %s is thinking...", qsBold.Render(runningAgent))
 
-		if err := streamDemoResponse(c, c.BaseURL, runningAgent, demoTask); err != nil {
+		if err := streamDemoResponse(c, runningAgent, demoTask); err != nil {
 			fmt.Println()
 			fmt.Println()
 			fmt.Println("  Agent started but the first task is taking a while.")
@@ -736,84 +746,76 @@ func runQuickstart(opts quickstartOptions) error {
 	return nil
 }
 
-func streamDemoResponse(client *apiclient.Client, baseURL, agentName, task string) error {
+func streamDemoResponse(client *apiclient.Client, agentName, task string) (err error) {
 	dmChannel := "dm-" + agentName
 
-	// Connect WebSocket
-	wsURL := strings.Replace(baseURL, "http://", "ws://", 1) + "/ws"
-	header := http.Header{}
-	if client.Token != "" {
-		header.Set("X-Agency-Token", client.Token)
-	}
-
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
+	before, err := countAgentMessages(client, dmChannel)
 	if err != nil {
-		return fmt.Errorf("WebSocket connect: %w", err)
+		return fmt.Errorf("read demo channel: %w", err)
 	}
-	defer conn.Close()
-
-	// Subscribe to the DM channel
-	sub := map[string]interface{}{
-		"type":     "subscribe",
-		"channels": []string{dmChannel},
-	}
-	conn.WriteJSON(sub)
 
 	// Send the task
-	client.SendMessage(dmChannel, task)
-
-	// Listen for agent response with timeout.
-	// Recover from gorilla/websocket panics on failed connections.
-	defer func() {
-		if r := recover(); r != nil {
-			// WebSocket panic — swallow it, the caller handles the timeout fallback
-		}
-	}()
-
-	deadline := time.Now().Add(60 * time.Second)
-	var connFailed bool
-
-	for time.Now().Before(deadline) && !connFailed {
-		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-		_, msgBytes, err := conn.ReadMessage()
-		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				continue // read timeout, retry
-			}
-			connFailed = true
-			break // any other error — stop reading
-		}
-
-		var event map[string]interface{}
-		if json.Unmarshal(msgBytes, &event) != nil {
-			continue
-		}
-
-		eventType, _ := event["type"].(string)
-		if eventType != "message" {
-			continue
-		}
-
-		msg, _ := event["message"].(map[string]interface{})
-		author, _ := msg["author"].(string)
-		if author == "_operator" || author == "" {
-			continue
-		}
-
-		content, _ := msg["content"].(string)
-		if content == "" {
-			continue
-		}
-
-		// Clear the "thinking" line and print response
-		fmt.Print("\r                                          \r")
-		fmt.Println()
-		lines := strings.Split(content, "\n")
-		for _, line := range lines {
-			fmt.Printf("  %s\n", line)
-		}
-		return nil
+	if _, err := client.SendMessage(dmChannel, task); err != nil {
+		return fmt.Errorf("send demo message: %w", err)
 	}
 
+	deadline := time.Now().Add(60 * time.Second)
+	var lastErr error
+
+	for time.Now().Before(deadline) {
+		messages, err := client.ReadChannel(dmChannel, 100)
+		if err != nil {
+			lastErr = err
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		seen := 0
+		for _, msg := range messages {
+			author, _ := msg["author"].(string)
+			if author == "_operator" || author == "" {
+				continue
+			}
+			content, _ := msg["content"].(string)
+			if content == "" {
+				continue
+			}
+			seen++
+			if seen <= before {
+				continue
+			}
+
+			// Clear the "thinking" line and print response
+			fmt.Print("\r                                          \r")
+			fmt.Println()
+			lines := strings.Split(content, "\n")
+			for _, line := range lines {
+				fmt.Printf("  %s\n", line)
+			}
+			return nil
+		}
+
+		time.Sleep(1 * time.Second)
+	}
+
+	if lastErr != nil {
+		return lastErr
+	}
 	return fmt.Errorf("timeout")
+}
+
+func countAgentMessages(client *apiclient.Client, channel string) (int, error) {
+	messages, err := client.ReadChannel(channel, 100)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, msg := range messages {
+		author, _ := msg["author"].(string)
+		content, _ := msg["content"].(string)
+		if author != "" && author != "_operator" && content != "" {
+			count++
+		}
+	}
+	return count, nil
 }

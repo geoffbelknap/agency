@@ -82,6 +82,19 @@ func TestQuickstartRestartDecision(t *testing.T) {
 	}
 }
 
+func TestHubInstallAlreadyExists(t *testing.T) {
+	if !isHubInstallAlreadyExists(assertErr("create instance: instance with name \"gemini\" already exists (id=9ac2cbab)")) {
+		t.Fatal("already exists hub install error should be treated as idempotent success")
+	}
+	if isHubInstallAlreadyExists(assertErr("hub cache unavailable")) {
+		t.Fatal("unrelated hub install errors should still fail")
+	}
+}
+
+type assertErr string
+
+func (e assertErr) Error() string { return string(e) }
+
 func TestLocalWebURLForHost(t *testing.T) {
 	tests := map[string]string{
 		"":          "http://localhost:8280",

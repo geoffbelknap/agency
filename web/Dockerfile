@@ -12,7 +12,7 @@ FROM alpine:3.21
 ARG BUILD_ID=unknown
 LABEL agency.build.id="${BUILD_ID}"
 
-RUN apk add --no-cache nginx openssl \
+RUN apk add --no-cache nginx \
     && addgroup -g 101 -S nginx 2>/dev/null || true \
     && adduser -S -D -H -u 101 -h /var/cache/nginx -s /sbin/nologin -G nginx nginx 2>/dev/null || true \
     && mkdir -p /etc/nginx/conf.d /var/cache/nginx \
@@ -45,6 +45,6 @@ USER nginx
 EXPOSE 8280
 
 HEALTHCHECK --interval=5s --timeout=2s --start-period=2s --retries=3 \
-    CMD wget --no-check-certificate -q -O /dev/null https://127.0.0.1:8280/health || exit 1
+    CMD wget -q -O /dev/null http://127.0.0.1:8280/health || exit 1
 
 ENTRYPOINT ["/agency-entrypoint.sh"]
