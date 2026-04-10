@@ -43,7 +43,7 @@ agency quickstart
 
 It walks you through five things:
 
-1. **Pick your LLM provider** — Anthropic (recommended), OpenAI, or Google
+1. **Pick your LLM provider** — Google Gemini (recommended for alpha), Anthropic, or OpenAI
 2. **Paste your API key** — input is masked, stored in an encrypted credential store
 3. **Start infrastructure** — builds container images and launches shared services
 4. **Create your first agent** — choose a starter role and name
@@ -52,11 +52,11 @@ It walks you through five things:
 When it finishes, you'll see:
 
 ```
-Agent is running.
+Agent is running. Use the Web UI first.
 
 Web UI:   http://localhost:8280
 Chat:     http://localhost:8280/channels/dm-henry
-CLI:      agency send henry "your task here"
+CLI fallback: agency send henry "your task here"
 ```
 
 Verify everything is healthy:

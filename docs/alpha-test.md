@@ -22,7 +22,7 @@ agency quickstart
 Quickstart will:
 
 1. Check that Docker is running.
-2. Ask which LLM provider to use.
+2. Ask which LLM provider to use. For alpha testing, choose Google Gemini unless you already have another provider key ready.
 3. Store your API key in Agency's encrypted credential store.
 4. Start the local infrastructure.
 5. Create and start your first agent.
@@ -79,7 +79,7 @@ Before handing an alpha build to a tester, run the local readiness check:
 ./scripts/alpha-readiness-check.sh
 ```
 
-This is an operator/developer check, not a user-facing command. It verifies the daemon, infrastructure, Web UI, configured provider, provider credential, temporary agent startup, live DM response, and cleanup path. It uses the current local Agency profile and deletes its temporary `alpha-readiness-*` agent when finished.
+This is an operator/developer check, not a user-facing command. It verifies the daemon, infrastructure, Web UI, direct chat route, configured provider, provider credential, temporary agent startup, live DM response, and cleanup path. It uses the current local Agency profile and deletes its temporary `alpha-readiness-*` agent when finished.
 
 The first run can take several minutes if local agent images need to be built. The check fails if the temporary agent does not reach `running` within 7 minutes or does not answer within 2 minutes.
 

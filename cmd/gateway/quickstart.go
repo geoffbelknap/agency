@@ -206,23 +206,25 @@ func promptProvider() string {
 	fmt.Println()
 	fmt.Println(qsBold.Render("  Choose an LLM provider:"))
 	fmt.Println()
-	fmt.Printf("    1. Anthropic %s\n", qsDim.Render("(recommended)"))
-	fmt.Println("    2. OpenAI")
-	fmt.Println("    3. Google Gemini")
+	fmt.Printf("    1. Google Gemini %s\n", qsDim.Render("(recommended for alpha; free tier available)"))
+	fmt.Println("    2. Anthropic")
+	fmt.Println("    3. OpenAI")
 	fmt.Println()
 	fmt.Print("  Enter choice [1]: ")
 
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Scan()
-	choice := strings.TrimSpace(scanner.Text())
+	return quickstartProviderForChoice(scanner.Text())
+}
 
-	switch choice {
+func quickstartProviderForChoice(choice string) string {
+	switch strings.TrimSpace(choice) {
 	case "2":
-		return "openai"
-	case "3":
-		return "gemini"
-	default:
 		return "anthropic"
+	case "3":
+		return "openai"
+	default:
+		return "gemini"
 	}
 }
 
@@ -738,11 +740,11 @@ func runQuickstart(opts quickstartOptions) error {
 	chatURL := quickstartDMURLForAgent(webURL, runningAgent)
 	fmt.Println()
 	fmt.Println("  " + qsDim.Render("────────────────────────────────────────"))
-	fmt.Println("  Agent is running. What's next:")
+	fmt.Println("  Agent is running. Use the Web UI first:")
 	fmt.Printf("    • Web UI:      %s\n", qsBold.Render(webURL))
 	if runningAgent != "" {
 		fmt.Printf("    • Chat:        %s\n", qsBold.Render(chatURL))
-		fmt.Printf("    • CLI:         %s\n", qsBold.Render(fmt.Sprintf("agency send %s \"your task here\"", runningAgent)))
+		fmt.Printf("    • CLI fallback:%s\n", qsBold.Render(fmt.Sprintf(" agency send %s \"your task here\"", runningAgent)))
 	}
 	fmt.Printf("    • Alpha guide: %s\n", qsBold.Render("docs/alpha-test.md"))
 	fmt.Printf("    • Status:      %s\n", qsBold.Render("agency status"))

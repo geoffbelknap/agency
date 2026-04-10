@@ -57,6 +57,22 @@ func TestQuickstartPromptDecision(t *testing.T) {
 	}
 }
 
+func TestPromptProviderChoiceMapping(t *testing.T) {
+	tests := map[string]string{
+		"":  "gemini",
+		"1": "gemini",
+		"2": "anthropic",
+		"3": "openai",
+		"9": "gemini",
+	}
+
+	for input, want := range tests {
+		if got := quickstartProviderForChoice(input); got != want {
+			t.Fatalf("quickstartProviderForChoice(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestQuickstartRestartDecision(t *testing.T) {
 	key := config.KeyEntry{Provider: "anthropic", EnvVar: "ANTHROPIC_API_KEY", Key: "sk-test"}
 	tests := []struct {
