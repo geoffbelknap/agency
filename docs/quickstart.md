@@ -52,10 +52,11 @@ It walks you through five things:
 When it finishes, you'll see:
 
 ```
-Agent is running. What's next:
-  • Send tasks:  agency send henry "your task here"
-  • Web UI:      http://localhost:8280
-  • Status:      agency status
+Agent is running.
+
+Web UI:   http://localhost:8280
+Chat:     http://localhost:8280/channels/dm-henry
+CLI:      agency send henry "your task here"
 ```
 
 Verify everything is healthy:
@@ -64,7 +65,7 @@ Verify everything is healthy:
 agency status
 ```
 
-You should see all infrastructure components running. The web UI is live at `http://localhost:8280` — open it now if you want to follow along with the web path below.
+You should see all infrastructure components running. Quickstart opens the browser directly to the first agent's chat by default. If the browser does not open, use the printed **Chat** URL, or open `http://localhost:8280` and select the agent under **Direct Messages**.
 
 > **Remote access:** Agency-web is intended for local access during alpha testing. To reach it from another machine or your phone, use a tunnel or overlay network with built-in authentication: [Cloudflare Named Tunnels](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) with Access policies, [ngrok](https://ngrok.com/) with OAuth or basic auth, [Tailscale Serve](https://tailscale.com/kb/1312/serve) for tailnet members, or [Defined Networking](https://www.defined.net/) overlay networks. Don't expose agency-web to the open internet without authentication.
 
@@ -76,16 +77,16 @@ For basic users, the Web UI is the primary experience. Use the terminal for init
 
 For developers, security operators, and other power users, the CLI exposes the same platform primitives directly and is useful for scripting, debugging, and advanced workflows.
 
-## Create Your First Agent
+## Add Another Agent
 
-Agency ships with built-in presets — pre-configured agent templates for common roles. We'll use `generalist`, a broad-purpose assistant with file access, shell, and web tools.
+Quickstart already creates and starts your first agent. If you want another one, Agency ships with built-in presets — pre-configured agent templates for common roles. The `generalist` preset is a broad-purpose assistant with file access, shell, and web tools.
 
 ### Web UI
 
 1. Open `http://localhost:8280`
 2. Click **Agents** in the left sidebar
 3. Click the **Create** button in the top-right corner of the Agents screen
-4. In the dialog, enter a name (e.g., `assistant`) and select the **generalist** preset.
+4. In the dialog, enter a name (e.g., `researcher`) and select the **generalist** preset.
 5. Check **Start agent immediately** and click **Create**
 
 You'll see the agent appear in the list with a green running status.
@@ -95,8 +96,8 @@ You'll see the agent appear in the list with a green running status.
 If you prefer the terminal or need a fallback:
 
 ```bash
-agency create assistant --preset generalist
-agency start assistant
+agency create researcher --preset generalist
+agency start researcher
 ```
 
 The start sequence runs through seven verified phases: enforcement, constraints, workspace, identity, body, session, and related checks.
@@ -107,12 +108,11 @@ Now send your agent some work.
 
 ### Web UI
 
-1. Click **Channels** in the left sidebar.
-2. Under **Direct Messages**, find your agent. It shows up as **assistant** with a green dot and an **AGENT** badge.
-3. Click it to open the DM channel.
-4. Type a message in the compose bar: *"What files are in my workspace? List them and describe what you see."*
-5. Watch the activity indicator. You'll see what the agent is doing as it works.
-6. When it responds, send a follow-up: *"Create a file called notes.md with a summary of what you found."*
+1. Use the agent chat that quickstart opened, or open the printed **Chat** URL.
+2. If you are starting from `http://localhost:8280`, click **Channels** and select your agent under **Direct Messages**. It has an **AGENT** badge.
+3. Type a message in the compose bar: *"What files are in my workspace? List them and describe what you see."*
+4. Watch the activity indicator. You'll see what the agent is doing as it works.
+5. When it responds, send a follow-up: *"Create a file called notes.md with a summary of what you found."*
 
 The DM view shows your full conversation history. To see the raw audit log, go back to **Agents**, click your agent, and open the **Activity** tab.
 
@@ -121,14 +121,14 @@ The DM view shows your full conversation history. To see the raw audit log, go b
 If you prefer the terminal or need a fallback:
 
 ```bash
-agency send assistant "What files are in my workspace? List them and describe what you see."
-agency send assistant "Create a file called notes.md with a summary of what you found."
+agency send henry "What files are in my workspace? List them and describe what you see."
+agency send henry "Create a file called notes.md with a summary of what you found."
 ```
 
 To see the full audit trail:
 
 ```bash
-agency log assistant
+agency log henry
 ```
 
 ### Channels
@@ -153,19 +153,19 @@ You'll need a [Brave Search API key](https://brave.com/search/api/) — the free
 
 ```bash
 agency cap add brave-search
-agency cap enable brave-search --key <YOUR_BRAVE_API_KEY> --agents assistant
+agency cap enable brave-search --key <YOUR_BRAVE_API_KEY> --agents henry
 ```
 
 Now ask it something that requires looking things up:
 
 ```bash
-agency send assistant "What are the top mass transit systems in the world? Compare their ridership."
+agency send henry "What are the top mass transit systems in the world? Compare their ridership."
 ```
 
 Check the log to see it using web search:
 
 ```bash
-agency log assistant
+agency log henry
 ```
 
 You'll see `brave_search` tool calls in the audit trail.
@@ -175,7 +175,7 @@ You'll see `brave_search` tool calls in the audit trail.
 1. Go to the **Capabilities** screen (in the admin sidebar)
 2. Click **Add Capability**, enter `brave-search`, and click **Add**
 3. Click **Enable** on the new capability
-4. Paste your Brave API key and select **assistant** under agent access
+4. Paste your Brave API key and select **henry** under agent access
 5. Click **Enable**
 
 Now go back to the chat with your agent and ask something that needs web search. You'll see it research and respond with current information.
