@@ -34,6 +34,8 @@ agency hub remove-source my-corp
 
 Signature verification is mandatory — unsigned artifacts are rejected (ASK Tenet 23).
 
+OCI component installs require `cosign` on the operator machine because install verifies the artifact signature before activation. `agency hub update` and catalog browsing can run without `cosign`, but `agency hub install ...` for OCI-sourced components will fail if signature verification cannot run.
+
 ## Installing Components
 
 ### Search
