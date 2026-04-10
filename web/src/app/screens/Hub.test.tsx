@@ -13,7 +13,7 @@ describe('Hub', () => {
     server.use(
       http.get(`${BASE}/hub/instances`, () =>
         HttpResponse.json([
-          { name: 'ops-pack', kind: 'pack', source: 'github' },
+          { name: 'ops-pack', kind: 'pack', source: 'github', version: '1.0.0' },
         ]),
       ),
       http.get(`${BASE}/hub/search`, () => HttpResponse.json([])),
@@ -158,7 +158,7 @@ describe('Hub', () => {
         ]),
       ),
       http.get(`${BASE}/hub/search`, () => HttpResponse.json([])),
-      http.post(`${BASE}/deploy`, () =>
+      http.post(`${BASE}/hub/deploy`, () =>
         HttpResponse.json({ agents_created: ['agent-1'] }),
       ),
     );
@@ -185,7 +185,7 @@ describe('Hub', () => {
         ]),
       ),
       http.get(`${BASE}/hub/search`, () => HttpResponse.json([])),
-      http.post(`${BASE}/teardown/:pack`, () => HttpResponse.json({ ok: true })),
+      http.post(`${BASE}/hub/teardown/:pack`, () => HttpResponse.json({ ok: true })),
     );
     renderWithRouter(<Hub />);
     await userEvent.click(screen.getByRole('tab', { name: /deploy/i }));
@@ -215,6 +215,48 @@ describe('Hub', () => {
     await userEvent.click(updateButton);
     await waitFor(() => {
       expect(screen.queryByText(/failed to update/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows installed component upgrades and upgrades a single component', async () => {
+    let upgradeBody: unknown = null;
+    server.use(
+      http.get(`${BASE}/hub/instances`, () =>
+        HttpResponse.json([
+          { name: 'base-pack', kind: 'pack', source: 'local', installed_at: '2026-03-10', version: '1.0.0' },
+        ]),
+      ),
+      http.get(`${BASE}/hub/search`, () => HttpResponse.json([])),
+      http.get(`${BASE}/hub/outdated`, () =>
+        HttpResponse.json([
+          {
+            name: 'base-pack',
+            kind: 'pack',
+            installed_version: '1.0.0',
+            available_version: '1.1.0',
+          },
+        ]),
+      ),
+      http.post(`${BASE}/hub/upgrade`, async ({ request }) => {
+        upgradeBody = await request.json();
+        return HttpResponse.json({
+          components: [{ name: 'base-pack', kind: 'pack', old_version: '1.0.0', new_version: '1.1.0', status: 'upgraded' }],
+        });
+      }),
+    );
+
+    renderWithRouter(<Hub />);
+    await userEvent.click(screen.getByRole('tab', { name: /installed/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/1 Hub upgrade available/i)).toBeInTheDocument();
+      expect(screen.getByText(/1.0.0 → 1.1.0/i)).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /^upgrade$/i }));
+
+    await waitFor(() => {
+      expect(upgradeBody).toEqual({ components: ['base-pack'] });
     });
   });
 });
