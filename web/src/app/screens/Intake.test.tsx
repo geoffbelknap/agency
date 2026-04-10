@@ -123,4 +123,67 @@ describe('Intake', () => {
       expect(triggered).toBe(true);
     });
   });
+
+  it('configures and activates a connector from setup', async () => {
+    let configured = false;
+    let activated = false;
+    server.use(
+      http.get(`${BASE}/hub/instances`, () =>
+        HttpResponse.json([
+          { id: 'c4', name: 'linear-poll', kind: 'connector', source: 'hub:linear-poll', state: activated ? 'active' : 'inactive' },
+        ]),
+      ),
+      http.get(`${BASE}/hub/connectors/linear-poll/requirements`, () =>
+        HttpResponse.json({
+          connector: 'linear-poll',
+          ready: false,
+          credentials: [
+            {
+              name: 'LINEAR_API_KEY',
+              description: 'Linear API key',
+              required: true,
+              configured: false,
+              setup_url: 'https://linear.app/settings/api',
+            },
+          ],
+          egress_domains: [{ domain: 'api.linear.app', allowed: false }],
+        }),
+      ),
+      http.post(`${BASE}/hub/connectors/linear-poll/configure`, async ({ request }) => {
+        const body = await request.json() as { credentials?: Record<string, string> };
+        configured = body.credentials?.LINEAR_API_KEY === 'lin_test';
+        return HttpResponse.json({
+          configured: ['LINEAR_API_KEY'],
+          auth_configured: false,
+          egress_domains_added: ['api.linear.app'],
+          ready: true,
+        });
+      }),
+      http.post(`${BASE}/hub/linear-poll/activate`, () => {
+        activated = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+
+    renderWithRouter(<Intake />);
+    await waitFor(() => {
+      expect(screen.getByText('linear-poll')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /linear-poll/i }));
+    await userEvent.click(screen.getByRole('button', { name: /setup/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/get key/i)).toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: /configure and activate/i })).toBeDisabled();
+
+    await userEvent.type(screen.getByPlaceholderText('LINEAR_API_KEY'), 'lin_test');
+    await userEvent.click(screen.getByRole('button', { name: /configure and activate/i }));
+
+    await waitFor(() => {
+      expect(configured).toBe(true);
+      expect(activated).toBe(true);
+    });
+  });
 });

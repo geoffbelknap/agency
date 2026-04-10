@@ -8,6 +8,27 @@ import { EmptyState } from '../components/EmptyState';
 import { Cable, ClipboardList, Settings, CheckCircle, XCircle, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
+type ConnectorCredentialRequirement = {
+  name?: string;
+  key?: string;
+  description?: string;
+  required?: boolean;
+  configured?: boolean;
+  setup_url?: string;
+  placeholder?: string;
+};
+
+type ConnectorEgressDomainRequirement = string | { domain?: string; allowed?: boolean };
+
+type ConnectorSetupData = {
+  connector: string;
+  version?: string;
+  ready: boolean;
+  credentials?: ConnectorCredentialRequirement[];
+  auth?: { type?: string; configured?: boolean };
+  egress_domains?: ConnectorEgressDomainRequirement[];
+};
+
 function mapConnector(raw: any): Connector {
   return {
     id: raw.id ?? raw.name,
@@ -144,7 +165,7 @@ export function Intake() {
 
   // Connector setup
   const [setupConnector, setSetupConnector] = useState<string | null>(null);
-  const [setupData, setSetupData] = useState<any>(null);
+  const [setupData, setSetupData] = useState<ConnectorSetupData | null>(null);
   const [setupLoading, setSetupLoading] = useState(false);
   const [credValues, setCredValues] = useState<Record<string, string>>({});
   const [configuring, setConfiguring] = useState(false);
@@ -170,7 +191,8 @@ export function Intake() {
       setConfiguring(true);
       const result = await api.connectors.configure(setupConnector, credValues);
       if (result.ready) {
-        toast.success(`Connector "${setupConnector}" configured and ready`);
+        await api.connectors.activate(setupConnector);
+        toast.success(`Connector "${setupConnector}" configured and activated`);
       } else {
         toast.success(`Configured: ${result.configured.join(', ')}`);
       }
@@ -184,6 +206,32 @@ export function Intake() {
       setConfiguring(false);
     }
   };
+
+  const handleActivateFromSetup = async () => {
+    if (!setupConnector) return;
+    try {
+      setConfiguring(true);
+      await api.connectors.activate(setupConnector);
+      toast.success(`Connector "${setupConnector}" activated`);
+      setSetupConnector(null);
+      setSetupData(null);
+      const data = await api.connectors.list();
+      setConnectors((data ?? []).map(mapConnector));
+    } catch (err: any) {
+      toast.error(`Activation failed: ${err.message}`);
+    } finally {
+      setConfiguring(false);
+    }
+  };
+
+  const missingCredentialNames = (setupData?.credentials ?? [])
+    .filter((cred) => {
+      const name = cred.name || cred.key;
+      if (!name || cred.configured) return false;
+      return cred.required !== false && !credValues[name]?.trim();
+    })
+    .map((cred) => cred.name || cred.key)
+    .filter(Boolean) as string[];
 
   // Work item stats derived from items
   const totalItems = workItems.length;
@@ -385,6 +433,9 @@ export function Intake() {
                       <span className="text-xs text-muted-foreground ml-2">v{setupData.version}</span>
                     )}
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    Setup saves required credentials, applies connector egress rules, and activates the connector when it is ready.
+                  </p>
 
                   {setupData.egress_domains && setupData.egress_domains.length > 0 && (
                     <div>
@@ -410,31 +461,53 @@ export function Intake() {
                         const name = cred.name || cred.key || `credential_${i}`;
                         return (
                           <div key={name} className="space-y-1">
-                            <label className="text-xs text-foreground/80 flex items-center gap-1.5">
+                            <label className="text-xs text-foreground/80 flex flex-wrap items-center gap-1.5">
                               <code>{name}</code>
                               {cred.required && <span className="text-red-400">*</span>}
+                              {cred.configured && <span className="text-emerald-400">configured</span>}
                               {cred.description && (
                                 <span className="text-muted-foreground/70 font-normal">— {cred.description}</span>
+                              )}
+                              {cred.setup_url && (
+                                <a
+                                  className="text-cyan-400 hover:underline"
+                                  href={cred.setup_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  get key
+                                </a>
                               )}
                             </label>
                             <Input
                               type="password"
                               value={credValues[name] || ''}
                               onChange={(e) => setCredValues((prev) => ({ ...prev, [name]: e.target.value }))}
-                              placeholder={cred.placeholder || name}
+                              placeholder={cred.configured ? 'Already configured' : cred.placeholder || name}
                               className="bg-background border-border text-foreground h-8 text-sm font-mono"
+                              disabled={cred.configured}
                             />
                           </div>
                         );
                       })}
-                      <Button size="sm" onClick={handleConfigure} disabled={configuring}>
-                        {configuring ? 'Configuring...' : 'Configure'}
+                      {missingCredentialNames.length > 0 && (
+                        <div className="text-xs text-amber-400">
+                          Missing: {missingCredentialNames.join(', ')}
+                        </div>
+                      )}
+                      <Button size="sm" onClick={handleConfigure} disabled={configuring || missingCredentialNames.length > 0}>
+                        {configuring ? 'Configuring...' : 'Configure and activate'}
                       </Button>
                     </div>
                   )}
 
                   {(!setupData.credentials || setupData.credentials.length === 0) && setupData.ready && (
-                    <div className="text-sm text-muted-foreground">No credentials required — connector is ready.</div>
+                    <div className="space-y-3">
+                      <div className="text-sm text-muted-foreground">No credentials required — connector is ready.</div>
+                      <Button size="sm" onClick={handleActivateFromSetup} disabled={configuring}>
+                        {configuring ? 'Activating...' : 'Activate connector'}
+                      </Button>
+                    </div>
                   )}
                 </>
               )}
