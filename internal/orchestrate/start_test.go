@@ -1,8 +1,10 @@
 package orchestrate
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -49,6 +51,56 @@ func TestDefaultModelTier(t *testing.T) {
 	ss := &StartSequence{Home: home}
 	if got := ss.defaultModelTier(); got != "fast" {
 		t.Fatalf("defaultModelTier() = %q, want fast", got)
+	}
+}
+
+func TestPhase3ConstraintsFailsWhenNoCredentialedModelResolves(t *testing.T) {
+	home := t.TempDir()
+	agentName := "alpha"
+	writeFile(t, filepath.Join(home, "config.yaml"), "llm_provider: gemini\n")
+	writeFile(t, filepath.Join(home, "infrastructure", "routing.yaml"), `providers:
+  anthropic:
+    api_base: https://api.anthropic.com/v1
+    auth_env: ANTHROPIC_API_KEY
+  gemini:
+    api_base: https://generativelanguage.googleapis.com/v1beta/openai
+    auth_env: GEMINI_API_KEY
+models:
+  claude-sonnet:
+    provider: anthropic
+    provider_model: claude-sonnet-4-20250514
+  gemini-2.5-pro:
+    provider: gemini
+    provider_model: gemini-2.5-pro
+tiers:
+  standard:
+    - model: claude-sonnet
+      preference: 0
+    - model: gemini-2.5-pro
+      preference: 1
+settings:
+  default_tier: standard
+`)
+	if err := os.MkdirAll(filepath.Join(home, "agents", agentName), 0755); err != nil {
+		t.Fatalf("mkdir agent dir: %v", err)
+	}
+
+	ss := &StartSequence{
+		Home:            home,
+		AgentName:       agentName,
+		Log:             slog.Default(),
+		agentConfig:     map[string]interface{}{"model_tier": "standard"},
+		constraintsData: map[string]interface{}{},
+	}
+	err := ss.phase3Constraints()
+	if err == nil {
+		t.Fatal("phase3Constraints returned nil error")
+	}
+	if !strings.Contains(err.Error(), "no credentialed model is available") {
+		t.Fatalf("phase3Constraints error = %q, want credentialed model error", err.Error())
+	}
+	if ss.model == "claude-sonnet" {
+		t.Fatal("phase3Constraints fell back to claude-sonnet")
 	}
 }
 

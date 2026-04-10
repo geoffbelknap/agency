@@ -1,8 +1,10 @@
 # Quickstart Provider Model Tier
 
+Status: Implemented.
+
 ## Problem
 
-`agency quickstart --provider gemini` installs Gemini and its routing config, but the agent starts with `claude-sonnet` and gets a 401 because only Gemini credentials are available.
+`agency quickstart --provider gemini` installed Gemini and its routing config, but the agent could start with `claude-sonnet` and get a 401 because only Gemini credentials were available.
 
 Three bugs combine:
 
@@ -14,11 +16,11 @@ Three bugs combine:
 
 ### A. Copy `model_tier` in agent creation
 
-`internal/orchestrate/agent.go:183-190` — add `model_tier` to the fields copied from preset to agent.yaml, same pattern as expertise and responsiveness.
+`internal/orchestrate/agent.go` copies `model_tier` to the generated `agent.yaml`, same pattern as expertise and responsiveness.
 
 ### B. Rewrite `resolveModelTier()`
 
-`internal/orchestrate/start.go:529-584` — replace the broken untyped map walk with proper `models.RoutingConfig` struct parsing:
+`internal/orchestrate/start.go` resolves tiers against `routing.yaml`, prefers the configured `llm_provider`, and verifies provider credentials before selecting a model:
 
 1. Unmarshal routing.yaml into `models.RoutingConfig`
 2. Call `rc.ResolveTier(tier, nil)` — returns `(*ProviderConfig, *ModelConfig)` or nil
@@ -29,15 +31,15 @@ The `RoutingConfig` struct and `ResolveTier()` method already exist in `internal
 
 ### C. Fix the default fallback
 
-`internal/orchestrate/start.go:249` — replace hardcoded `claude-sonnet` with:
+`internal/orchestrate/start.go` no longer falls back to `claude-sonnet` when tier resolution fails:
 
 1. Resolve `model_tier` from agent.yaml (already handled by existing code at lines 253-258, once bug A is fixed)
 2. If no `model_tier` in agent.yaml, resolve the default tier from routing settings (`settings.default_tier`, defaults to "standard")
-3. If nothing resolves, log an error — don't silently pick a model that might not have credentials
+3. If nothing resolves, fail startup with a clear setup/routing error instead of silently picking a model that might not have credentials
 
 ## Fail-Closed Behavior
 
-When no model resolves (no tiers have credentialed providers), the agent must fail to start with a clear error message. Starting with a broken or empty model is not acceptable — this is the correct fail-closed behavior per ASK Tenet 4.
+When no model resolves (no tiers have credentialed providers), the agent fails to start with a clear error message. Starting with a broken or empty model is not acceptable — this is the correct fail-closed behavior per ASK Tenet 4.
 
 ## Credential Store Ordering
 
