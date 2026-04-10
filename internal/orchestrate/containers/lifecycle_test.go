@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
@@ -12,10 +13,11 @@ import (
 
 // mockDockerAPI is a test double for DockerAPI with injectable function fields.
 type mockDockerAPI struct {
-	createFn func(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *specs.Platform, containerName string) (container.CreateResponse, error)
-	startFn  func(ctx context.Context, containerID string, options container.StartOptions) error
-	stopFn   func(ctx context.Context, containerID string, options container.StopOptions) error
-	removeFn func(ctx context.Context, containerID string, options container.RemoveOptions) error
+	createFn  func(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *specs.Platform, containerName string) (container.CreateResponse, error)
+	inspectFn func(ctx context.Context, containerID string) (container.InspectResponse, error)
+	startFn   func(ctx context.Context, containerID string, options container.StartOptions) error
+	stopFn    func(ctx context.Context, containerID string, options container.StopOptions) error
+	removeFn  func(ctx context.Context, containerID string, options container.RemoveOptions) error
 }
 
 func (m *mockDockerAPI) ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *specs.Platform, containerName string) (container.CreateResponse, error) {
@@ -30,6 +32,13 @@ func (m *mockDockerAPI) ContainerStart(ctx context.Context, containerID string, 
 		return m.startFn(ctx, containerID, options)
 	}
 	return nil
+}
+
+func (m *mockDockerAPI) ContainerInspect(ctx context.Context, containerID string) (container.InspectResponse, error) {
+	if m.inspectFn != nil {
+		return m.inspectFn(ctx, containerID)
+	}
+	return container.InspectResponse{}, errors.New("no such container: missing")
 }
 
 func (m *mockDockerAPI) ContainerStop(ctx context.Context, containerID string, options container.StopOptions) error {
@@ -112,6 +121,7 @@ func TestCreateAndStart_ReturnsCreateError(t *testing.T) {
 func TestStopAndRemove_Success(t *testing.T) {
 	stopCalled := false
 	removeCalled := false
+	inspectCalls := 0
 
 	mock := &mockDockerAPI{
 		stopFn: func(_ context.Context, _ string, _ container.StopOptions) error {
@@ -121,6 +131,10 @@ func TestStopAndRemove_Success(t *testing.T) {
 		removeFn: func(_ context.Context, _ string, _ container.RemoveOptions) error {
 			removeCalled = true
 			return nil
+		},
+		inspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
+			inspectCalls++
+			return container.InspectResponse{}, errors.New("no such container: missing")
 		},
 	}
 
@@ -133,12 +147,18 @@ func TestStopAndRemove_Success(t *testing.T) {
 	if !removeCalled {
 		t.Error("ContainerRemove was not called")
 	}
+	if inspectCalls != 1 {
+		t.Errorf("ContainerInspect calls = %d, want 1", inspectCalls)
+	}
 }
 
 func TestStopAndRemove_IgnoresNotFoundOnStop(t *testing.T) {
 	mock := &mockDockerAPI{
 		stopFn: func(_ context.Context, _ string, _ container.StopOptions) error {
 			return errors.New("no such container: missing")
+		},
+		inspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
+			return container.InspectResponse{}, errors.New("no such container: missing")
 		},
 	}
 
@@ -151,6 +171,9 @@ func TestStopAndRemove_IgnoresNotFoundOnRemove(t *testing.T) {
 	mock := &mockDockerAPI{
 		removeFn: func(_ context.Context, _ string, _ container.RemoveOptions) error {
 			return errors.New("no such container: already-gone")
+		},
+		inspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
+			return container.InspectResponse{}, errors.New("no such container: missing")
 		},
 	}
 
@@ -168,6 +191,9 @@ func TestStopAndRemove_RemovesWhenStopReportsAlreadyStopped(t *testing.T) {
 		removeFn: func(_ context.Context, _ string, _ container.RemoveOptions) error {
 			removeCalled = true
 			return nil
+		},
+		inspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
+			return container.InspectResponse{}, errors.New("no such container: missing")
 		},
 	}
 
@@ -192,5 +218,55 @@ func TestStopAndRemove_ReturnsRemoveErrorAfterStopError(t *testing.T) {
 
 	if err := StopAndRemove(context.Background(), mock, "stuck-container", 5); !errors.Is(err, removeErr) {
 		t.Fatalf("expected remove error, got: %v", err)
+	}
+}
+
+func TestStopAndRemove_WaitsUntilContainerIsGone(t *testing.T) {
+	inspectCalls := 0
+	mock := &mockDockerAPI{
+		removeFn: func(_ context.Context, _ string, _ container.RemoveOptions) error {
+			return nil
+		},
+		inspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
+			inspectCalls++
+			if inspectCalls < 3 {
+				return container.InspectResponse{}, nil
+			}
+			return container.InspectResponse{}, errors.New("no such container: missing")
+		},
+	}
+
+	if err := StopAndRemove(context.Background(), mock, "lingering-container", 5); err != nil {
+		t.Fatalf("expected wait-for-removal success, got: %v", err)
+	}
+	if inspectCalls != 3 {
+		t.Fatalf("ContainerInspect calls = %d, want 3", inspectCalls)
+	}
+}
+
+func TestWaitUntilRemoved_TimesOutWhenContainerPersists(t *testing.T) {
+	mock := &mockDockerAPI{
+		inspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
+			return container.InspectResponse{}, nil
+		},
+	}
+
+	err := waitUntilRemoved(context.Background(), mock, "stuck-container", 50*time.Millisecond)
+	if err == nil || err.Error() != "timed out waiting for container removal" {
+		t.Fatalf("expected timeout waiting for removal, got: %v", err)
+	}
+}
+
+func TestWaitUntilRemoved_ReturnsInspectError(t *testing.T) {
+	inspectErr := errors.New("docker connection lost")
+	mock := &mockDockerAPI{
+		inspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
+			return container.InspectResponse{}, inspectErr
+		},
+	}
+
+	err := waitUntilRemoved(context.Background(), mock, "broken-container", time.Second)
+	if !errors.Is(err, inspectErr) {
+		t.Fatalf("expected inspect error, got: %v", err)
 	}
 }
