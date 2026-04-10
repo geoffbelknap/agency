@@ -70,6 +70,18 @@ agency send henry "What can you help me with? Give me three practical things to 
 - You can stop the agent from the Web UI.
 - If asked to check the terminal, `agency status` shows infrastructure running.
 
+## Operator Readiness Check
+
+Before handing an alpha build to a tester, run the local readiness check:
+
+```bash
+./scripts/alpha-readiness-check.sh
+```
+
+This is an operator/developer check, not a user-facing command. It verifies the daemon, infrastructure, Web UI, configured provider, provider credential, temporary agent startup, live DM response, and cleanup path. It uses the current local Agency profile and deletes its temporary `alpha-readiness-*` agent when finished.
+
+The first run can take several minutes if local agent images need to be built. The check fails if the temporary agent does not reach `running` within 7 minutes or does not answer within 2 minutes.
+
 ## If Something Breaks
 
 First check:
