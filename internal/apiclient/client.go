@@ -267,8 +267,23 @@ func (c *Client) RevokeAgent(name, capability string) (map[string]string, error)
 // ── Channels ────────────────────────────────────────────────────────────────
 
 func (c *Client) ListChannels() ([]map[string]interface{}, error) {
+	return c.ListChannelsWithOptions(false, false)
+}
+
+func (c *Client) ListChannelsWithOptions(includeArchived, includeUnavailable bool) ([]map[string]interface{}, error) {
 	var channels []map[string]interface{}
-	err := c.GetJSON("/api/v1/comms/channels", &channels)
+	params := url.Values{}
+	if includeArchived {
+		params.Set("include_archived", "true")
+	}
+	if includeUnavailable {
+		params.Set("include_unavailable", "true")
+	}
+	path := "/api/v1/comms/channels"
+	if encoded := params.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	err := c.GetJSON(path, &channels)
 	return channels, err
 }
 

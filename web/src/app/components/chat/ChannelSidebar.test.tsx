@@ -45,7 +45,7 @@ describe('ChannelSidebar', () => {
     expect(generalButton).toHaveClass('bg-accent');
   });
 
-  it('shows agent DM status only for known agents', () => {
+  it('labels visible DMs as agent conversations', () => {
     render(
       <ChannelSidebar
         channels={channels}
@@ -56,9 +56,10 @@ describe('ChannelSidebar', () => {
     );
 
     expect(screen.getByLabelText('Running')).toBeInTheDocument();
-    expect(screen.getByText('AGENT')).toBeInTheDocument();
+    expect(screen.getAllByText('AGENT')).toHaveLength(2);
     expect(screen.getByLabelText('Unavailable')).toBeInTheDocument();
-    expect(screen.getByText('UNAVAILABLE')).toBeInTheDocument();
+    expect(screen.queryByText('LEGACY')).not.toBeInTheDocument();
+    expect(screen.queryByText('UNAVAILABLE')).not.toBeInTheDocument();
   });
 
   it('can toggle the inactive conversation view', async () => {

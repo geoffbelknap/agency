@@ -193,7 +193,7 @@ function SidebarContent({
                         </span>
                       )}
                       <span className="text-[10px] bg-secondary px-1 py-0.5 rounded text-muted-foreground">
-                        {knownAgent ? 'AGENT' : ch.availability === 'unavailable' ? 'UNAVAILABLE' : 'LEGACY'}
+                        AGENT
                       </span>
                     </div>
                   </button>
