@@ -3,6 +3,7 @@ import { Loader2, Send } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from '../../lib/api';
+import { socket } from '../../lib/ws';
 import { Button } from '../../components/ui/button';
 import { ALLOWED_ELEMENTS, markdownComponents } from '../../components/chat/StructuredOutput';
 
@@ -40,8 +41,8 @@ const FIRST_TASK_PROMPTS = [
 
 const INITIAL_PROMPT_RETRIES = 5;
 const INITIAL_PROMPT_RETRY_DELAY_MS = 1500;
-const AGENT_READY_POLLS = 40;
-const AGENT_READY_POLL_DELAY_MS = 1500;
+const AGENT_READY_POLLS = 120;
+const AGENT_READY_POLL_DELAY_MS = 3000;
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -70,6 +71,14 @@ export function ChatStep({
   const userScrolledUpRef = useRef(false);
   const lastAgentMsgCountRef = useRef(0);
   const sentInitialPromptRef = useRef(false);
+  const agentReadyRef = useRef(false);
+
+  const markAgentReady = useCallback(() => {
+    if (agentReadyRef.current) return;
+    agentReadyRef.current = true;
+    setAgentReady(true);
+    setAgentReadyError('');
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     if (!userScrolledUpRef.current && scrollContainerRef.current) {
@@ -87,20 +96,29 @@ export function ChatStep({
   const isOperatorMsg = (author: string) =>
     author === 'operator' || author === '_operator' || author === operatorName;
 
-  // Poll agent status until running
+  // Prefer lifecycle events for readiness; keep polling as a fallback for
+  // missed events or socket reconnects.
   useEffect(() => {
     if (!agentName) return;
     let cancelled = false;
+    agentReadyRef.current = false;
     setAgentReady(false);
     setAgentReadyError('');
+
+    const unsub = socket.on('agent_status', (event: any) => {
+      if (event?.agent !== agentName) return;
+      if (event?.status === 'running') {
+        markAgentReady();
+      }
+    });
+
     const poll = async () => {
       for (let i = 0; i < agentReadyPolls; i++) {
         if (cancelled) return;
         try {
           const agent = await api.agents.show(agentName);
           if (agent.status === 'running') {
-            setAgentReady(true);
-            setAgentReadyError('');
+            markAgentReady();
             return;
           }
         } catch { /* agent may not exist yet */ }
@@ -111,8 +129,11 @@ export function ChatStep({
       }
     };
     poll();
-    return () => { cancelled = true; };
-  }, [agentName, agentPollAttempt, agentReadyPolls, agentReadyPollDelayMs]);
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, [agentName, agentPollAttempt, agentReadyPolls, agentReadyPollDelayMs, markAgentReady]);
 
   // Find or create DM channel (can happen in parallel with agent polling)
   useEffect(() => {
