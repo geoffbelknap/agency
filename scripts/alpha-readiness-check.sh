@@ -174,6 +174,10 @@ wait_for_agent_running ||
 # first message before it subscribes to comms.
 sleep 2
 
+log "Checking Web UI chat route"
+curl -fsS "${WEB_URL}/channels/${DM_CHANNEL}" >/dev/null ||
+  fail "Web UI did not serve the direct-message route for $AGENT_NAME"
+
 before="$(agent_message_count || true)"
 log "Sending live DM task"
 run_agency send "$AGENT_NAME" "$MESSAGE" >/dev/null
