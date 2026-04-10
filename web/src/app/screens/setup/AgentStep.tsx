@@ -63,7 +63,8 @@ export function AgentStep({
       const selectedPreset = expert ? 'platform-expert' : preset;
       await api.agents.create(name, selectedPreset, 'assisted');
       setPhase('starting');
-      // Start the agent in the background — don't wait for it
+      // Start can take longer than the Web proxy timeout on first-run image
+      // builds. Kick it off and let ChatStep wait for runtime readiness.
       api.agents.start(name).catch(() => {});
       onUpdate(name, selectedPreset);
       onNext();

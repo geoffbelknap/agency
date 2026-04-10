@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/images"
@@ -168,8 +170,15 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 
 	enforcerHostConfig := containers.HostConfigDefaults(containers.RoleEnforcer)
 	enforcerHostConfig.Binds = binds
-	enforcerHostConfig.NetworkMode = container.NetworkMode(internalNet)
+	enforcerHostConfig.NetworkMode = container.NetworkMode(operatorNetName())
 	enforcerHostConfig.Tmpfs = map[string]string{"/tmp": "size=64M", "/run": "size=32M"}
+	constraintHostPort, err := pickLoopbackPort()
+	if err != nil {
+		return "", fmt.Errorf("allocate enforcer constraint port: %w", err)
+	}
+	enforcerHostConfig.PortBindings = nat.PortMap{
+		"8081/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: constraintHostPort}},
+	}
 
 	// Inject standard logging env vars
 	logFormat := os.Getenv("AGENCY_LOG_FORMAT")
@@ -182,12 +191,21 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 		env["BUILD_ID"] = e.BuildID
 	}
 
+	netCfg := &network.NetworkingConfig{
+		EndpointsConfig: map[string]*network.EndpointSettings{
+			operatorNetName(): {},
+		},
+	}
+
 	containerID, err := containers.CreateAndStart(ctx, e.cli,
 		e.ContainerName,
 		&container.Config{
 			Image:    enforcerImage,
 			Hostname: "enforcer",
 			Env:      mapToEnv(env),
+			ExposedPorts: nat.PortSet{
+				"8081/tcp": struct{}{},
+			},
 			Labels: map[string]string{
 				services.LabelServiceEnabled:         "true",
 				services.LabelServiceName:            e.AgentName + "/enforcer",
@@ -212,7 +230,7 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 			},
 		},
 		enforcerHostConfig,
-		nil,
+		netCfg,
 	)
 	if err != nil {
 		return "", fmt.Errorf("create/start enforcer: %w", err)
@@ -222,6 +240,12 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 	if err := waitContainerRunning(ctx, e.cli, e.ContainerName, 10*time.Second); err != nil {
 		return "", err
 	}
+
+	// Connect to the private agent network before the workspace starts so the
+	// body can only reach external services through its paired enforcer.
+	_ = e.cli.NetworkConnect(ctx, internalNet, containerID, &network.EndpointSettings{
+		Aliases: []string{"enforcer"},
+	})
 
 	// Connect to gateway network (hub — service access, signals, budget)
 	_ = e.cli.NetworkConnect(ctx, gatewayNetName(), containerID, &network.EndpointSettings{
@@ -234,6 +258,15 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 	})
 
 	return e.readAPIKey(), nil
+}
+
+func pickLoopbackPort() (string, error) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
+	defer listener.Close()
+	return fmt.Sprintf("%d", listener.Addr().(*net.TCPAddr).Port), nil
 }
 
 // HealthCheck waits for the enforcer to become healthy.

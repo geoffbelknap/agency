@@ -33,7 +33,7 @@ interface CapabilitiesStepProps {
 export function CapabilitiesStep({ capabilities, onUpdate, onNext, onBack }: CapabilitiesStepProps) {
   const [available, setAvailable] = useState<CapabilityItem[]>([]);
   const [setupConfig, setSetupConfig] = useState<SetupConfig | null>(null);
-  const [tier, setTier] = useState<TierChoice>('standard');
+  const [tier, setTier] = useState<TierChoice>('minimal');
   const [selected, setSelected] = useState<Set<string>>(new Set(capabilities));
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
@@ -56,8 +56,7 @@ export function CapabilitiesStep({ capabilities, onUpdate, onNext, onBack }: Cap
       setAvailable(mapped);
       setSetupConfig(config);
 
-      const standardCaps = config?.capability_tiers?.standard?.capabilities || [];
-      setSelected(new Set(standardCaps));
+      setSelected(new Set());
       // Mark already-enabled capabilities as having credentials
       const alreadyEnabled = new Set(mapped.filter(c => c.state === 'enabled' || c.state === 'available').map(c => c.name));
       setCredSaved(alreadyEnabled);
