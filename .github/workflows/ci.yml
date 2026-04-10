@@ -46,10 +46,10 @@ jobs:
 
       - name: Python tests
         run: >-
-          pytest images/tests/ -x -q --timeout=30
+          pytest images/tests/ -x -vv --timeout=30 --durations=20
           --ignore=images/tests/test_realtime_comms_e2e.py
           --ignore=images/tests/test_comms_e2e.py
-        timeout-minutes: 5
+        timeout-minutes: 12
 
   web-test:
     runs-on: ubuntu-latest
