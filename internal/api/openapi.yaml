@@ -1394,7 +1394,14 @@ paths:
                   egress_domains:
                     type: array
                     items:
-                      type: string
+                      oneOf:
+                        - type: string
+                        - type: object
+                          properties:
+                            domain:
+                              type: string
+                            allowed:
+                              type: boolean
         "404":
           $ref: "#/components/responses/NotFound"
 

@@ -70,3 +70,34 @@ func TestHubRemoveProviderCleansRouting(t *testing.T) {
 		t.Fatalf("providers = %+v, want empty", providers)
 	}
 }
+
+func TestIsLocalOrTLSAllowsLocalHostBehindProxy(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:18200/api/v1/hub/connectors/example/configure", nil)
+	req.RemoteAddr = "172.18.0.2:54321"
+
+	if !isLocalOrTLS(req) {
+		t.Fatal("local host request should be allowed even when remote addr is a local proxy")
+	}
+}
+
+func TestIsLocalOrTLSAllowsLocalOriginBehindProxy(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "http://agency-gateway:8200/api/v1/hub/connectors/example/configure", nil)
+	req.RemoteAddr = "172.18.0.2:54321"
+	req.Host = "agency-gateway:8200"
+	req.Header.Set("Origin", "http://localhost:18280")
+
+	if !isLocalOrTLS(req) {
+		t.Fatal("local browser origin should be allowed behind the local web proxy")
+	}
+}
+
+func TestIsLocalOrTLSRejectsExternalPlaintext(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "http://agency.example.com/api/v1/hub/connectors/example/configure", nil)
+	req.RemoteAddr = "203.0.113.10:54321"
+	req.Host = "agency.example.com"
+	req.Header.Set("Origin", "http://evil.example")
+
+	if isLocalOrTLS(req) {
+		t.Fatal("external plaintext request should be rejected")
+	}
+}

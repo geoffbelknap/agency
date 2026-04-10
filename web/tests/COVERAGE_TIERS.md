@@ -104,14 +104,11 @@ The disposable runner clones the current Agency home, assigns an isolated infra 
 - Risky live assigned mission pause / resume / complete / delete with cleanup
 - Risky live agent create / start / pause / resume / restart / delete with observable lifecycle state
 - Risky live connector install / deactivate / reactivate with cleanup
+- Risky disposable live connector setup / configure / activate with cleanup
 - Risky live pack deploy / teardown for an installed pack
 - Risky live ontology promote / reject / restore with deterministic seed and cleanup
 - Ontology candidate contract normalized across web, REST, CLI, and MCP paths
 - Live Hub OCI manager and operator-path catalog coverage against GHCR
-
-### Conditionally exercised when the local stack has prerequisites
-
-- Connector configure / activate against a real local target only when credentials and requirements are present
 
 ### Explicitly excluded from default live suite
 

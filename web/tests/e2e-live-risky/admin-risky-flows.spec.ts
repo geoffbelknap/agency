@@ -298,6 +298,20 @@ type HubComponent = {
   source?: string;
 };
 
+type ConnectorRequirement = {
+  name?: string;
+  configured?: boolean;
+};
+
+type ConnectorSetupRequirements = {
+  ready?: boolean;
+  credentials?: ConnectorRequirement[];
+};
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 async function ensureInstalledHubComponent(page: Page, kind: 'connector' | 'pack') {
   const [searchResults, installedResults] = await Promise.all([
     getJSONWithToken<HubComponent[]>(page, '/api/v1/hub/search?q='),
@@ -327,6 +341,43 @@ async function ensureInstalledHubComponent(page: Page, kind: 'connector' | 'pack
   }
 
   return { component: null, installedByTest: false };
+}
+
+async function installConnectorWithMissingCredentials(page: Page) {
+  const [searchResults, installedResults] = await Promise.all([
+    getJSONWithToken<HubComponent[]>(page, '/api/v1/hub/search?q='),
+    getJSONWithToken<Array<{ name?: string }>>(page, '/api/v1/hub/instances?kind=connector'),
+  ]);
+
+  const installedNames = new Set((installedResults ?? []).map((item) => item.name).filter(Boolean) as string[]);
+  const candidates = (searchResults ?? [])
+    .filter((component) => component.kind === 'connector' && component.name && !installedNames.has(component.name));
+
+  for (const candidate of candidates) {
+    const installed = await postJSONWithToken<{ name?: string }>(page, '/api/v1/hub/install', {
+      component: candidate.name,
+      kind: candidate.kind,
+      source: candidate.source ?? '',
+    });
+    if (!installed?.name) {
+      continue;
+    }
+
+    const requirements = await getJSONWithToken<ConnectorSetupRequirements>(
+      page,
+      `/api/v1/hub/connectors/${encodeURIComponent(candidate.name)}/requirements`,
+    );
+    const missingCredentials = (requirements?.credentials ?? []).filter((credential) =>
+      credential.name && !credential.configured,
+    );
+    if (missingCredentials.length > 0) {
+      return { component: candidate, requirements, installedByTest: true };
+    }
+
+    await requestWithToken(page, 'DELETE', `/api/v1/hub/${encodeURIComponent(candidate.name)}`).catch(() => {});
+  }
+
+  return { component: null, requirements: null, installedByTest: false };
 }
 
 test('live risky suite supports capability add, enable, disable, and delete flow', async ({ page }) => {
@@ -731,6 +782,68 @@ test('live risky suite supports connector deactivate and reactivate for a ready 
         ? `/api/v1/hub/${encodeURIComponent(target.name)}/activate`
         : `/api/v1/hub/${encodeURIComponent(target.name)}/deactivate`;
       await requestWithToken(page, 'POST', desiredPath).catch(() => {});
+      if (installedByTest) {
+        await requestWithToken(page, 'DELETE', `/api/v1/hub/${encodeURIComponent(target.name)}`).catch(() => {});
+      }
+    }
+  }
+});
+
+test('live risky suite configures and activates a connector through setup guidance', async ({ page }) => {
+  test.skip(process.env.AGENCY_E2E_DISPOSABLE !== '1', 'Connector credential setup must run in a disposable Agency home');
+
+  let target: HubComponent | null = null;
+  let installedByTest = false;
+
+  try {
+    const ensured = await installConnectorWithMissingCredentials(page);
+    target = ensured.component;
+    installedByTest = ensured.installedByTest;
+    test.skip(!target || !ensured.requirements, 'No uninstalled connector with missing credentials was available');
+
+    await page.goto('/admin/intake');
+    const initialized = await expectSetupOrInitialized(page);
+    if (!initialized) {
+      return;
+    }
+
+    const connectorButton = page.getByRole('button', { name: new RegExp(escapeRegExp(target!.name)) }).first();
+    await expect(connectorButton).toBeVisible();
+    await connectorButton.click();
+    await settle(page);
+    await page.getByRole('button', { name: /^Setup$/ }).click();
+    await expect(page.getByRole('heading', { name: new RegExp(`Setup:.*${escapeRegExp(target!.name)}`) })).toBeVisible();
+    await expect(page.getByText('Not configured')).toBeVisible();
+
+    const credentialInputs = page.locator('input[type="password"]');
+    await expect(credentialInputs).toHaveCount((ensured.requirements!.credentials ?? []).length);
+    const credentialInputCount = await credentialInputs.count();
+    for (let i = 0; i < credentialInputCount; i += 1) {
+      const input = credentialInputs.nth(i);
+      if (await input.isEnabled()) {
+        await input.fill(`playwright-connector-secret-${Date.now()}-${i}`);
+      }
+    }
+
+    const configureButton = page.getByRole('button', { name: /^Configure and activate$/ });
+    await expect(configureButton).toBeEnabled();
+    const [configureResponse] = await Promise.all([
+      page.waitForResponse((response) =>
+        response.request().method() === 'POST'
+        && response.url().includes(`/api/v1/hub/connectors/${encodeURIComponent(target!.name)}/configure`),
+        { timeout: 15_000 },
+      ),
+      configureButton.click(),
+    ]);
+    expect(configureResponse.ok()).toBeTruthy();
+    await expect(page.getByRole('button', { name: /^Configuring\.\.\.$/ })).toHaveCount(0, { timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: new RegExp(`Setup:.*${escapeRegExp(target!.name)}`) })).toHaveCount(0);
+
+    const connectors = await getJSONWithToken<Array<{ name?: string; state?: string }>>(page, '/api/v1/hub/instances?kind=connector');
+    expect((connectors ?? []).find((connector) => connector.name === target!.name)?.state).toBe('active');
+  } finally {
+    if (target?.name) {
+      await requestWithToken(page, 'POST', `/api/v1/hub/${encodeURIComponent(target.name)}/deactivate`).catch(() => {});
       if (installedByTest) {
         await requestWithToken(page, 'DELETE', `/api/v1/hub/${encodeURIComponent(target.name)}`).catch(() => {});
       }

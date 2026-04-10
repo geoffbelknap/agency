@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -88,7 +89,7 @@ func (h *handler) connectorRequirements(w http.ResponseWriter, r *http.Request) 
 // POST /api/v1/hub/connectors/{name}/configure
 func (h *handler) connectorConfigure(w http.ResponseWriter, r *http.Request) {
 	// Localhost enforcement (ASK Tenet 3 — secrets only via local path)
-	if !isLoopback(r) {
+	if !isLocalOrTLS(r) {
 		writeJSON(w, 403, map[string]string{"error": "configure endpoint requires localhost or TLS"})
 		return
 	}
@@ -502,14 +503,42 @@ func findServiceName(requires *models.ConnectorRequires) string {
 	return ""
 }
 
-// isLoopback checks if the request originates from localhost or uses TLS.
-func isLoopback(r *http.Request) bool {
+// isLocalOrTLS checks if the request is local operator traffic or uses TLS.
+func isLocalOrTLS(r *http.Request) bool {
 	if r.TLS != nil {
 		return true
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if isLoopbackHostPort(r.RemoteAddr) || isLoopbackHostPort(r.Host) {
+		return true
+	}
+	return isLoopbackURLHeader(r.Header.Get("Origin")) || isLoopbackURLHeader(r.Header.Get("Referer"))
+}
+
+func isLoopbackURLHeader(value string) bool {
+	if value == "" {
+		return false
+	}
+	parsed, err := url.Parse(value)
 	if err != nil {
-		host = r.RemoteAddr
+		return false
+	}
+	return isLoopbackHostPort(parsed.Host)
+}
+
+func isLoopbackHostPort(value string) bool {
+	if value == "" {
+		return false
+	}
+	host := value
+	hostPart, _, err := net.SplitHostPort(value)
+	if err != nil {
+		host = value
+	} else {
+		host = hostPart
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
 	}
 	ip := net.ParseIP(host)
 	if ip == nil {
