@@ -18,6 +18,7 @@ PROVIDER_LABEL="${AGENCY_SETUP_PROVIDER_LABEL:-Google Gemini}"
 PROVIDER_CREDENTIAL="${AGENCY_SETUP_PROVIDER_CREDENTIAL:-GEMINI_API_KEY}"
 PROVIDER_API_KEY="${AGENCY_SETUP_PROVIDER_API_KEY:-}"
 KEEP_HOME="${AGENCY_SETUP_KEEP_HOME:-0}"
+KEEP_HOME_ON_FAILURE="${AGENCY_SETUP_KEEP_HOME_ON_FAILURE:-1}"
 WAIT_FOR_REPLY="${AGENCY_SETUP_WAIT_FOR_REPLY:-0}"
 SKIP_BUILD="${AGENCY_E2E_SKIP_BUILD:-0}"
 
@@ -43,6 +44,8 @@ Environment:
   AGENCY_SETUP_PROVIDER_CREDENTIAL   Source credential to copy when API key is unset (default: GEMINI_API_KEY)
   AGENCY_SOURCE_HOME                 Source home for credential copy (default: ~/.agency)
   AGENCY_SETUP_KEEP_HOME=1           Preserve disposable home
+  AGENCY_SETUP_KEEP_HOME_ON_FAILURE=1
+                                     Preserve disposable home automatically when the check fails (default: 1)
   AGENCY_SETUP_WAIT_FOR_REPLY=1      Wait for a real agent reply
 EOF
 }
@@ -220,6 +223,7 @@ cleanup_setup_agent() {
 
 cleanup() {
   local status="$?"
+  local keep_home="${KEEP_HOME}"
   trap - EXIT INT TERM HUP
   echo "==> Cleaning up setup wizard runtime"
   cleanup_setup_agent
@@ -234,7 +238,11 @@ cleanup() {
     stop_pid "$(cat "$DISPOSABLE_HOME/gateway.pid" 2>/dev/null || true)"
     rm -f "$DISPOSABLE_HOME/gateway.pid"
   fi
-  if [ "$KEEP_HOME" = "1" ]; then
+  if [ "$status" -ne 0 ] && [ "$KEEP_HOME_ON_FAILURE" = "1" ]; then
+    keep_home=1
+    echo "Setup wizard check failed; preserving disposable home for debugging."
+  fi
+  if [ "$keep_home" = "1" ]; then
     echo "Keeping setup wizard home at $DISPOSABLE_HOME"
   else
     fix_home_permissions "$DISPOSABLE_HOME"
