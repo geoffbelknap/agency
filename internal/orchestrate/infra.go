@@ -433,6 +433,7 @@ func (inf *Infra) TeardownWithProgress(ctx context.Context, onProgress ProgressF
 			name := inf.containerName(role)
 			if err := inf.stopAndRemove(ctx, name, stopTimeoutFor(role)); err != nil {
 				inf.log.Warn("teardown", "container", name, "err", err)
+				inf.logTeardownContainerState(ctx, name)
 			}
 			if onProgress != nil {
 				onProgress(role, "Stopped "+role)
@@ -443,6 +444,7 @@ func (inf *Infra) TeardownWithProgress(ctx context.Context, onProgress ProgressF
 
 	if err := inf.stopAndRemove(ctx, inf.containerName("gateway-proxy"), stopTimeoutFor("gateway-proxy")); err != nil {
 		inf.log.Warn("teardown", "container", inf.containerName("gateway-proxy"), "err", err)
+		inf.logTeardownContainerState(ctx, inf.containerName("gateway-proxy"))
 	}
 	if onProgress != nil {
 		onProgress("gateway-proxy", "Stopped gateway-proxy")
@@ -1439,6 +1441,39 @@ func (inf *Infra) hasContainerEnv(ctx context.Context, containerName, key, want 
 
 func (inf *Infra) stopAndRemove(ctx context.Context, name string, timeoutSecs int) error {
 	return containers.StopAndRemove(ctx, inf.cli, name, timeoutSecs)
+}
+
+func (inf *Infra) logTeardownContainerState(ctx context.Context, name string) {
+	inspect, err := inf.cli.ContainerInspect(ctx, name)
+	if err != nil {
+		inf.log.Warn("teardown inspect failed", "container", name, "err", err, "home", inf.Home, "instance", inf.instanceLabel())
+		return
+	}
+
+	state := "unknown"
+	running := false
+	restarting := false
+	dead := false
+	exitCode := 0
+	if inspect.State != nil {
+		state = inspect.State.Status
+		running = inspect.State.Running
+		restarting = inspect.State.Restarting
+		dead = inspect.State.Dead
+		exitCode = inspect.State.ExitCode
+	}
+
+	inf.log.Warn(
+		"teardown container still present",
+		"container", name,
+		"home", inf.Home,
+		"instance", inf.instanceLabel(),
+		"state", state,
+		"running", running,
+		"restarting", restarting,
+		"dead", dead,
+		"exit_code", exitCode,
+	)
 }
 
 // stopTimeoutFor returns the appropriate stop timeout for a given component role.
