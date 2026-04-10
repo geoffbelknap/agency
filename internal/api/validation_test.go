@@ -175,9 +175,8 @@ func TestAuth_Validation(t *testing.T) {
 // TestConfig_TokenAutoGeneration verifies that config.Load() auto-generates
 // tokens when they are absent and persists them to disk.
 //
-// config.Load() only performs auto-generation when config.yaml already exists —
-// it returns early (with empty token) if the file is missing. This test
-// therefore creates a minimal config.yaml before calling Load().
+// config.Load() performs auto-generation for both missing and incomplete
+// config.yaml files so first-run CLI and daemon auth stay in sync.
 func TestConfig_TokenAutoGeneration(t *testing.T) {
 	t.Run("empty config.yaml produces non-empty Token", func(t *testing.T) {
 		home := t.TempDir()
@@ -276,18 +275,23 @@ func TestConfig_TokenAutoGeneration(t *testing.T) {
 		}
 	})
 
-	t.Run("missing config.yaml returns cfg with empty token (no panic)", func(t *testing.T) {
-		home := t.TempDir()
+	t.Run("missing config.yaml creates persisted non-empty tokens", func(t *testing.T) {
+		home := filepath.Join(t.TempDir(), "new-agency-home")
 		t.Setenv("AGENCY_HOME", home)
 
-		// No config.yaml — Load() should return early with empty token, no panic.
 		cfg := config.Load()
 		if cfg == nil {
 			t.Fatal("config.Load() returned nil")
 		}
-		// Token is legitimately empty here — this is not a failure, just a
-		// documentation of the current behavior so it doesn't regress silently.
-		_ = cfg.Token
+		if cfg.Token == "" {
+			t.Fatal("expected non-empty token on first run")
+		}
+		if cfg.EgressToken == "" {
+			t.Fatal("expected non-empty egress token on first run")
+		}
+		if _, err := os.Stat(filepath.Join(home, "config.yaml")); err != nil {
+			t.Fatalf("expected config.yaml to be created: %v", err)
+		}
 	})
 }
 

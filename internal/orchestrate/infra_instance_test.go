@@ -1,6 +1,9 @@
 package orchestrate
 
-import "testing"
+import (
+	"runtime"
+	"testing"
+)
 
 func TestScopedInfraNameUsesInstance(t *testing.T) {
 	t.Setenv("AGENCY_INFRA_INSTANCE", "danger-home-123")
@@ -66,5 +69,36 @@ func TestInfraHostPortsRespectOverrides(t *testing.T) {
 	}
 	if got, want := inf.webPort(), "19280"; got != want {
 		t.Fatalf("webPort() = %q, want %q", got, want)
+	}
+}
+
+func TestInfraWebGatewayRoutingDefaults(t *testing.T) {
+	inf := &Infra{GatewayAddr: "127.0.0.1:18300"}
+	t.Setenv("AGENCY_WEB_PORT", "18380")
+
+	if runtime.GOOS == "linux" {
+		if !inf.webUsesHostNetwork() {
+			t.Fatal("Linux loopback gateway should use host networking for agency-web")
+		}
+		if got, want := inf.webGatewayHost(), "127.0.0.1"; got != want {
+			t.Fatalf("webGatewayHost() = %q, want %q", got, want)
+		}
+		if got, want := inf.webListenAddr(), "127.0.0.1:18380"; got != want {
+			t.Fatalf("webListenAddr() = %q, want %q", got, want)
+		}
+		if got, want := inf.webHealthCheck().Test[4], "http://127.0.0.1:18380/health"; got != want {
+			t.Fatalf("web health URL = %q, want %q", got, want)
+		}
+		return
+	}
+
+	if inf.webUsesHostNetwork() {
+		t.Fatal("non-Linux web should keep bridge networking")
+	}
+	if got, want := inf.webGatewayHost(), "gateway"; got != want {
+		t.Fatalf("webGatewayHost() = %q, want %q", got, want)
+	}
+	if got, want := inf.webListenAddr(), "8280"; got != want {
+		t.Fatalf("webListenAddr() = %q, want %q", got, want)
 	}
 }

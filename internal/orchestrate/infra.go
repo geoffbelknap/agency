@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -1114,7 +1115,12 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("web"))
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
-	hc.NetworkMode = container.NetworkMode(inf.operatorNetName())
+	useHostNetwork := inf.webUsesHostNetwork()
+	if useHostNetwork {
+		hc.NetworkMode = container.NetworkMode("host")
+	} else {
+		hc.NetworkMode = container.NetworkMode(inf.operatorNetName())
+	}
 	hc.ReadonlyRootfs = true
 	hc.Tmpfs = map[string]string{
 		"/var/cache/nginx":    "rw,noexec,nosuid,size=16m",
@@ -1124,12 +1130,14 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 		"/var/run":            "rw,noexec,nosuid,size=1m",
 		"/tmp":                "rw,noexec,nosuid,size=1m",
 	}
-	hc.PortBindings = nat.PortMap{
-		"8280/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.webPort()}},
+	if !useHostNetwork {
+		hc.PortBindings = nat.PortMap{
+			"8280/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.webPort()}},
+		}
+		// Web container needs the full gateway API (not the restricted socket proxy),
+		// so route to the host's TCP listener instead of the mediation-net gateway-proxy.
+		hc.ExtraHosts = []string{"gateway:host-gateway"}
 	}
-	// Web container needs the full gateway API (not the restricted socket proxy),
-	// so route to the host's TCP listener instead of the mediation-net gateway-proxy.
-	hc.ExtraHosts = []string{"gateway:host-gateway"}
 	hc.Resources.Memory = 64 * 1024 * 1024 // 64MB — nginx serving static files
 	hc.Resources.NanoCPUs = 500_000_000    // 0.5 CPU
 	pidsLimit := int64(64)
@@ -1140,7 +1148,11 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 		&container.Config{
 			Image:    defaultImages["web"],
 			Hostname: "web",
-			Env:      mapToEnv(map[string]string{"AGENCY_GATEWAY_PORT": inf.gatewayPort()}),
+			Env: mapToEnv(map[string]string{
+				"AGENCY_GATEWAY_HOST": inf.webGatewayHost(),
+				"AGENCY_GATEWAY_PORT": inf.gatewayPort(),
+				"AGENCY_WEB_LISTEN":   inf.webListenAddr(),
+			}),
 			Labels: map[string]string{
 				"agency.managed":       "true",
 				"agency.role":          "infra",
@@ -1148,7 +1160,7 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 				"agency.build.id":      images.ImageBuildLabel(ctx, inf.cli, defaultImages["web"]),
 				"agency.build.gateway": inf.BuildID,
 			},
-			Healthcheck:  defaultHealthChecks["web"],
+			Healthcheck:  inf.webHealthCheck(),
 			ExposedPorts: nat.PortSet{"8280/tcp": struct{}{}},
 		},
 		hc, nil,
@@ -1557,6 +1569,53 @@ func (inf *Infra) gatewayPort() string {
 		return inf.GatewayAddr[idx+1:]
 	}
 	return "8200"
+}
+
+func (inf *Infra) gatewayHost() string {
+	if inf.GatewayAddr == "" {
+		return "127.0.0.1"
+	}
+	if host, _, err := net.SplitHostPort(inf.GatewayAddr); err == nil && host != "" {
+		return host
+	}
+	return "127.0.0.1"
+}
+
+func (inf *Infra) gatewayHostIsLoopback() bool {
+	host := inf.gatewayHost()
+	return host == "localhost" || strings.HasPrefix(host, "127.") || host == "::1"
+}
+
+func (inf *Infra) webUsesHostNetwork() bool {
+	return runtime.GOOS == "linux" && inf.gatewayHostIsLoopback()
+}
+
+func (inf *Infra) webGatewayHost() string {
+	if inf.webUsesHostNetwork() {
+		return "127.0.0.1"
+	}
+	return "gateway"
+}
+
+func (inf *Infra) webListenAddr() string {
+	if inf.webUsesHostNetwork() {
+		return "127.0.0.1:" + inf.webPort()
+	}
+	return "8280"
+}
+
+func (inf *Infra) webHealthCheck() *container.HealthConfig {
+	url := "http://127.0.0.1:8280/health"
+	if inf.webUsesHostNetwork() {
+		url = "http://127.0.0.1:" + inf.webPort() + "/health"
+	}
+	return &container.HealthConfig{
+		Test:        []string{"CMD", "wget", "-q", "-O-", url},
+		Interval:    10 * time.Second,
+		Timeout:     3 * time.Second,
+		StartPeriod: 5 * time.Second,
+		Retries:     3,
+	}
 }
 
 // webPort returns the host port for the web container. Defaults to 8280 but
