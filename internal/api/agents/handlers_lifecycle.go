@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/docker/go-connections/nat"
 	"github.com/go-chi/chi/v5"
 
 	apimissions "github.com/geoffbelknap/agency/internal/api/missions"
@@ -274,7 +275,7 @@ func (h *handler) startAgent(w http.ResponseWriter, r *http.Request) {
 // registerEnforcerWSClient creates a WebSocket client to the agent's enforcer
 // and registers it with the ContextManager for constraint delivery.
 func (h *handler) registerEnforcerWSClient(agentName string) {
-	enforcerWSURL := fmt.Sprintf("ws://agency-%s-enforcer:8081/ws", agentName)
+	enforcerWSURL := h.enforcerWSURL(context.Background(), agentName)
 	wsClient := agencyctx.NewWSClient(agentName, enforcerWSURL, h.deps.Logger)
 	wsClient.SetCallbacks(
 		func(agent string) { h.deps.CtxMgr.HandleEnforcerDisconnect(agent) },
@@ -283,6 +284,26 @@ func (h *handler) registerEnforcerWSClient(agentName string) {
 	go wsClient.ConnectWithReconnect()
 	h.deps.CtxMgr.RegisterWSClient(agentName, wsClient)
 	h.deps.Logger.Info("enforcer ws client registered", "agent", agentName, "url", enforcerWSURL)
+}
+
+func (h *handler) enforcerWSURL(ctx context.Context, agentName string) string {
+	defaultURL := fmt.Sprintf("ws://agency-%s-enforcer:8081/ws", agentName)
+	if h.deps.RawDocker == nil {
+		return defaultURL
+	}
+	inspect, err := h.deps.RawDocker.RawClient().ContainerInspect(ctx, fmt.Sprintf("agency-%s-enforcer", agentName))
+	if err != nil || inspect.NetworkSettings == nil {
+		return defaultURL
+	}
+	bindings := inspect.NetworkSettings.Ports[nat.Port("8081/tcp")]
+	if len(bindings) == 0 || bindings[0].HostPort == "" {
+		return defaultURL
+	}
+	hostIP := bindings[0].HostIP
+	if hostIP == "" || hostIP == "0.0.0.0" {
+		hostIP = "127.0.0.1"
+	}
+	return fmt.Sprintf("ws://%s:%s/ws", hostIP, bindings[0].HostPort)
 }
 
 // unregisterEnforcerWSClient closes and removes the WebSocket client for an agent.

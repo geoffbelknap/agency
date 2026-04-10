@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/docker/go-connections/nat"
 	"github.com/go-chi/chi/v5"
 	"log/slog"
 
@@ -347,7 +348,7 @@ type mcpDeps struct {
 // and registers it with the ContextManager for constraint delivery.
 // Used by MCP start/restart tools.
 func (d *mcpDeps) registerEnforcerWSClient(agentName string) {
-	enforcerWSURL := fmt.Sprintf("ws://agency-%s-enforcer:8081/ws", agentName)
+	enforcerWSURL := d.enforcerWSURL(context.Background(), agentName)
 	wsClient := agencyctx.NewWSClient(agentName, enforcerWSURL, d.log)
 	wsClient.SetCallbacks(
 		func(agent string) { d.ctxMgr.HandleEnforcerDisconnect(agent) },
@@ -356,6 +357,26 @@ func (d *mcpDeps) registerEnforcerWSClient(agentName string) {
 	go wsClient.ConnectWithReconnect()
 	d.ctxMgr.RegisterWSClient(agentName, wsClient)
 	d.log.Info("enforcer ws client registered", "agent", agentName, "url", enforcerWSURL)
+}
+
+func (d *mcpDeps) enforcerWSURL(ctx context.Context, agentName string) string {
+	defaultURL := fmt.Sprintf("ws://agency-%s-enforcer:8081/ws", agentName)
+	if d.dc == nil {
+		return defaultURL
+	}
+	inspect, err := d.dc.RawClient().ContainerInspect(ctx, fmt.Sprintf("agency-%s-enforcer", agentName))
+	if err != nil || inspect.NetworkSettings == nil {
+		return defaultURL
+	}
+	bindings := inspect.NetworkSettings.Ports[nat.Port("8081/tcp")]
+	if len(bindings) == 0 || bindings[0].HostPort == "" {
+		return defaultURL
+	}
+	hostIP := bindings[0].HostIP
+	if hostIP == "" || hostIP == "0.0.0.0" {
+		hostIP = "127.0.0.1"
+	}
+	return fmt.Sprintf("ws://%s:%s/ws", hostIP, bindings[0].HostPort)
 }
 
 // unregisterEnforcerWSClient closes and removes the WebSocket client for an agent.

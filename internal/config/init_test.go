@@ -8,6 +8,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestMain(m *testing.M) {
+	os.Setenv("AGENCY_SKIP_HUB_SYNC", "1")
+	os.Exit(m.Run())
+}
+
 func TestRunInit_NotificationConfig(t *testing.T) {
 	origHome := os.Getenv("HOME")
 	tmpDir := t.TempDir()
@@ -87,6 +92,63 @@ func TestRunInit_NoNotificationURL(t *testing.T) {
 
 	if _, ok := cfg["notifications"]; ok {
 		t.Error("expected no notifications key when URL not provided")
+	}
+}
+
+func TestRunInit_UsesAgencyHomeOverride(t *testing.T) {
+	origAgencyHome := os.Getenv("AGENCY_HOME")
+	origHome := os.Getenv("HOME")
+	tmpDir := t.TempDir()
+	realHome := filepath.Join(tmpDir, "real-home")
+	agencyHome := filepath.Join(tmpDir, "custom-agency-home")
+	os.Setenv("HOME", realHome)
+	os.Setenv("AGENCY_HOME", agencyHome)
+	defer os.Setenv("HOME", origHome)
+	defer os.Setenv("AGENCY_HOME", origAgencyHome)
+
+	_, err := RunInit(InitOptions{Operator: "alice"})
+	if err != nil {
+		t.Fatalf("RunInit failed: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(agencyHome, "config.yaml")); err != nil {
+		t.Fatalf("expected config in AGENCY_HOME: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(realHome, ".agency", "config.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("expected HOME/.agency to be untouched, stat err=%v", err)
+	}
+}
+
+func TestRunInit_DefaultHubSourceIsOCI(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	_, err := RunInit(InitOptions{})
+	if err != nil {
+		t.Fatalf("RunInit failed: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmpDir, ".agency", "config.yaml"))
+	if err != nil {
+		t.Fatalf("failed to read config: %v", err)
+	}
+	var cfg map[string]interface{}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	hubCfg, _ := cfg["hub"].(map[string]interface{})
+	sources, _ := hubCfg["sources"].([]interface{})
+	if len(sources) != 1 {
+		t.Fatalf("sources = %d, want 1", len(sources))
+	}
+	source, _ := sources[0].(map[string]interface{})
+	if source["type"] != "oci" {
+		t.Fatalf("source type = %v, want oci", source["type"])
+	}
+	if source["registry"] != "ghcr.io/geoffbelknap/agency-hub" {
+		t.Fatalf("source registry = %v", source["registry"])
 	}
 }
 

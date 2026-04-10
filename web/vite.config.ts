@@ -7,10 +7,11 @@ import { execSync } from 'child_process'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 
-/** Read the gateway address and token from ~/.agency/config.yaml. */
+/** Read the gateway address and token from AGENCY_HOME or ~/.agency/config.yaml. */
 function readAgencyConfig() {
   try {
-    const configPath = path.join(os.homedir(), '.agency', 'config.yaml')
+    const agencyHome = process.env.AGENCY_HOME || path.join(os.homedir(), '.agency')
+    const configPath = path.join(agencyHome, 'config.yaml')
     const raw = fs.readFileSync(configPath, 'utf-8')
     const tokenMatch = raw.match(/^token:\s*(.+)$/m)
     const addrMatch = raw.match(/^gateway_addr:\s*(.+)$/m)

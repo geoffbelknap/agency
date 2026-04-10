@@ -116,12 +116,10 @@ func RunInit(opts InitOptions) ([]KeyEntry, error) {
 		}
 	}
 
-	home, err := os.UserHomeDir()
+	agencyHome, err := resolveAgencyHome()
 	if err != nil {
-		return nil, fmt.Errorf("cannot determine home directory: %w", err)
+		return nil, err
 	}
-
-	agencyHome := filepath.Join(home, ".agency")
 
 	// Create directory structure
 	dirs := []string{
@@ -194,9 +192,9 @@ func RunInit(opts InitOptions) ([]KeyEntry, error) {
 		cfg["hub"] = map[string]interface{}{
 			"sources": []map[string]string{
 				{
-					"name":   "default",
-					"url":    "https://github.com/geoffbelknap/agency-hub.git",
-					"branch": "main",
+					"name":     "default",
+					"type":     "oci",
+					"registry": "ghcr.io/geoffbelknap/agency-hub",
 				},
 			},
 		}
@@ -323,8 +321,22 @@ func RunInit(opts InitOptions) ([]KeyEntry, error) {
 // syncHubCatalog pulls the latest hub source catalog so hub search works
 // immediately after init. Best-effort — failures are silently ignored.
 func syncHubCatalog(agencyHome string) {
+	if os.Getenv("AGENCY_SKIP_HUB_SYNC") == "1" {
+		return
+	}
 	mgr := hub.NewManager(agencyHome)
 	mgr.Update() //nolint:errcheck
+}
+
+func resolveAgencyHome() (string, error) {
+	if home := os.Getenv("AGENCY_HOME"); home != "" {
+		return home, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine home directory: %w", err)
+	}
+	return filepath.Join(home, ".agency"), nil
 }
 
 // seedAgenticMemoryOntology writes the agentic-memory ontology extension to
