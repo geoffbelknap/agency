@@ -52,6 +52,8 @@ var (
 	date      = "unknown"
 	buildID   = "unknown"
 	sourceDir = "" // stamped by Makefile ldflags for dev builds
+
+	agencyHomeFlag string
 )
 
 // isLocalhostOrigin checks whether the given Origin URL refers to a localhost
@@ -103,6 +105,71 @@ func activeAgencyHome() string {
 		return home
 	}
 	return filepath.Join(os.Getenv("HOME"), ".agency")
+}
+
+func normalizeAgencyHomeFlag(home string) (string, error) {
+	home = strings.TrimSpace(home)
+	if home == "" {
+		return "", nil
+	}
+	if home == "~" || strings.HasPrefix(home, "~/") {
+		userHome, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		if home == "~" {
+			home = userHome
+		} else {
+			home = filepath.Join(userHome, strings.TrimPrefix(home, "~/"))
+		}
+	}
+	if !filepath.IsAbs(home) {
+		abs, err := filepath.Abs(home)
+		if err != nil {
+			return "", err
+		}
+		home = abs
+	}
+	return filepath.Clean(home), nil
+}
+
+func applyAgencyHomeFlag(home string) error {
+	normalized, err := normalizeAgencyHomeFlag(home)
+	if err != nil {
+		return err
+	}
+	if normalized == "" {
+		return nil
+	}
+	return os.Setenv("AGENCY_HOME", normalized)
+}
+
+func agencyHomeFlagFromArgs(args []string) string {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			return ""
+		}
+		if arg == "--agency-home" {
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+			return ""
+		}
+		if strings.HasPrefix(arg, "--agency-home=") {
+			return strings.TrimPrefix(arg, "--agency-home=")
+		}
+		if arg == "-H" {
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+			return ""
+		}
+		if strings.HasPrefix(arg, "-H") && len(arg) > len("-H") {
+			return strings.TrimPrefix(arg, "-H")
+		}
+	}
+	return ""
 }
 
 func gatewayPortFromConfig() int {
@@ -226,6 +293,17 @@ func main() {
 	}
 	root.SetHelpFunc(customHelp)
 	root.SetUsageFunc(func(cmd *cobra.Command) error { customHelp(cmd, nil); return nil })
+	root.PersistentFlags().StringVarP(&agencyHomeFlag, "agency-home", "H", "", "use an alternate Agency home directory")
+	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		return applyAgencyHomeFlag(agencyHomeFlag)
+	}
+
+	if home := agencyHomeFlagFromArgs(os.Args[1:]); home != "" {
+		if err := applyAgencyHomeFlag(home); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid --agency-home: %v\n", err)
+			os.Exit(1)
+		}
+	}
 
 	// RegisterCommands sets up groups — must be called first
 	agencyCLI.RegisterCommands(root)

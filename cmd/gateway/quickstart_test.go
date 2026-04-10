@@ -1,10 +1,58 @@
 package main
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/geoffbelknap/agency/internal/config"
 )
+
+func TestAgencyHomeFlagFromArgs(t *testing.T) {
+	tests := map[string]struct {
+		args []string
+		want string
+	}{
+		"long separate":  {args: []string{"--agency-home", "/tmp/agency-home", "infra", "status"}, want: "/tmp/agency-home"},
+		"long equals":    {args: []string{"infra", "status", "--agency-home=/tmp/agency-home"}, want: "/tmp/agency-home"},
+		"short separate": {args: []string{"-H", "/tmp/agency-home", "-q", "list"}, want: "/tmp/agency-home"},
+		"short joined":   {args: []string{"list", "-H/tmp/agency-home"}, want: "/tmp/agency-home"},
+		"none":           {args: []string{"list"}, want: ""},
+		"after terminator": {
+			args: []string{"--", "--agency-home", "/tmp/agency-home"},
+			want: "",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := agencyHomeFlagFromArgs(tt.args); got != tt.want {
+				t.Fatalf("agencyHomeFlagFromArgs() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeAgencyHomeFlag(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	got, err := normalizeAgencyHomeFlag("relative-home")
+	if err != nil {
+		t.Fatalf("normalize relative: %v", err)
+	}
+	if !filepath.IsAbs(got) {
+		t.Fatalf("relative home normalized to non-absolute path %q", got)
+	}
+
+	got, err = normalizeAgencyHomeFlag("~/agency-home")
+	if err != nil {
+		t.Fatalf("normalize tilde: %v", err)
+	}
+	want := filepath.Join(tmp, "agency-home")
+	if got != want {
+		t.Fatalf("tilde home = %q, want %q", got, want)
+	}
+}
 
 func TestNormalizeQuickstartProvider(t *testing.T) {
 	tests := map[string]string{
