@@ -188,6 +188,14 @@ async function bestEffortDeleteMission(page: Page, missionName: string) {
   throw new Error(`mission delete failed for ${missionName}: ${status}`);
 }
 
+async function bestEffortCompleteMission(page: Page, missionName: string) {
+  const status = await directPostWithToken(page, `/api/v1/missions/${encodeURIComponent(missionName)}/complete`);
+  if (status === 200 || status === 204 || status === 400 || status === 404 || status === 598) {
+    return;
+  }
+  throw new Error(`mission complete failed for ${missionName}: ${status}`);
+}
+
 async function directDeleteWithToken(page: Page, path: string) {
   const headers = await authHeaders(page);
   const response = await fetch(`${GATEWAY_URL}${path}`, {
@@ -826,6 +834,83 @@ test('live risky suite supports mission create, update, and delete for an unassi
     if (response && ![200, 204, 404].includes(response.status())) {
       throw new Error(`mission delete failed for ${missionName}: ${response.status()}`);
     }
+  }
+});
+
+test('live risky suite supports assigned mission pause, resume, complete, and cleanup', async ({ page }) => {
+  const agentName = uniqueName('playwright-mission-agent');
+  const missionName = uniqueName('playwright-assigned-mission');
+  const description = `Assigned live mission ${missionName}`;
+
+  try {
+    await page.goto('/agents');
+    const initialized = await expectSetupOrInitialized(page);
+    if (!initialized) {
+      return;
+    }
+
+    await archiveDMsByAgentPrefix(page, 'playwright-mission-agent-');
+    await deleteAgentsByPrefix(page, 'playwright-mission-agent-');
+    await bestEffortCompleteMission(page, missionName);
+    await bestEffortDeleteMission(page, missionName);
+    await bestEffortDeleteAgent(page, agentName);
+
+    await page.getByRole('button', { name: /^Create$/ }).click();
+    await page.getByLabel('Name').fill(agentName);
+    await page.getByLabel('Start agent immediately').uncheck();
+    await page.getByRole('button', { name: /^Create$/ }).last().click();
+    await settle(page);
+    await expect(page.getByRole('button', { name: new RegExp(agentName) }).first()).toBeVisible();
+
+    await page.goto('/missions');
+    await settle(page);
+    await page.getByRole('button', { name: /new mission|create mission/i }).click();
+    await page.getByPlaceholder('my-mission').fill(missionName);
+    await page.getByPlaceholder('What does this mission do?').fill(description);
+    await page.getByRole('button', { name: /^Next$/ }).click();
+    await page.getByPlaceholder(/Describe what the agent should do when this mission is active/).fill(`Coordinate work for ${agentName}.`);
+    await page.getByRole('button', { name: /^Next$/ }).click();
+    await page.getByRole('button', { name: /^Next$/ }).click();
+    await page.getByRole('button', { name: /^Next$/ }).click();
+    await page.getByRole('button', { name: /^Next$/ }).click();
+    await page.getByPlaceholder('Agent or team name').fill(agentName);
+    await page.getByRole('button', { name: /^Create Mission$/ }).last().click();
+    await settle(page);
+
+    const missionCard = page.locator('div.bg-card').filter({ has: page.getByText(missionName, { exact: true }) }).first();
+    await expect(missionCard).toBeVisible();
+    await expect(missionCard).toContainText('active');
+    await expect(missionCard).toContainText(agentName);
+
+    await missionCard.click();
+    await settle(page);
+    await expect(page.getByText(agentName, { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Pause$/ })).toBeVisible();
+
+    await page.getByRole('button', { name: /^Pause$/ }).click();
+    await settle(page);
+    await expect(page.getByText('paused', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Resume$/ })).toBeVisible();
+
+    await page.getByRole('button', { name: /^Resume$/ }).click();
+    await settle(page);
+    await expect(page.getByText('active', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Complete$/ })).toBeVisible();
+
+    await page.getByRole('button', { name: /^Complete$/ }).click();
+    await settle(page);
+    await expect(page.getByText('completed', { exact: true })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Delete mission' }).click();
+    await page.getByRole('button', { name: /^Delete$/ }).last().click();
+    await settle(page);
+    await expect(page).toHaveURL(/\/missions$/);
+    await expect(page.getByText(missionName, { exact: true })).toHaveCount(0);
+  } finally {
+    await bestEffortCompleteMission(page, missionName);
+    await bestEffortDeleteMission(page, missionName);
+    await bestEffortDeleteAgent(page, agentName);
+    await bestEffortArchiveChannel(page, `dm-${agentName}`);
   }
 });
 
