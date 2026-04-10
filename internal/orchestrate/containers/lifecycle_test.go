@@ -184,6 +184,7 @@ func TestStopAndRemove_IgnoresNotFoundOnRemove(t *testing.T) {
 
 func TestStopAndRemove_RemovesWhenStopReportsAlreadyStopped(t *testing.T) {
 	removeCalled := false
+	inspectCalls := 0
 	mock := &mockDockerAPI{
 		stopFn: func(_ context.Context, _ string, _ container.StopOptions) error {
 			return errors.New("container is already stopped")
@@ -193,6 +194,7 @@ func TestStopAndRemove_RemovesWhenStopReportsAlreadyStopped(t *testing.T) {
 			return nil
 		},
 		inspectFn: func(_ context.Context, _ string) (container.InspectResponse, error) {
+			inspectCalls++
 			return container.InspectResponse{}, errors.New("no such container: missing")
 		},
 	}
@@ -202,6 +204,9 @@ func TestStopAndRemove_RemovesWhenStopReportsAlreadyStopped(t *testing.T) {
 	}
 	if !removeCalled {
 		t.Fatal("ContainerRemove was not called")
+	}
+	if inspectCalls != 1 {
+		t.Fatalf("ContainerInspect calls = %d, want 1", inspectCalls)
 	}
 }
 

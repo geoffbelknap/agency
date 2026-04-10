@@ -60,9 +60,6 @@ func StopAndRemove(ctx context.Context, cli DockerAPI, name string, timeoutSecs 
 		}
 		return removeErr
 	}
-	if stopErr != nil && !isNotFound(stopErr) {
-		return nil
-	}
 
 	return waitUntilRemoved(ctx, cli, name, 5*time.Second)
 }
