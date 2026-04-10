@@ -1,7 +1,9 @@
 .PHONY: all build install deploy test clean images python-base \
        body enforcer comms knowledge intake egress workspace web-fetch web relay \
        web-test-unit web-test-e2e web-test-all \
-       e2e-live-web e2e-live-web-safe e2e-live-web-risky e2e-live-web-danger e2e-live-web-danger-disposable
+       e2e-live-web e2e-live-web-safe e2e-live-web-risky \
+       e2e-live-web-disposable e2e-live-web-safe-disposable e2e-live-web-risky-disposable \
+       e2e-live-web-danger e2e-live-web-danger-disposable
 
 VERSION  ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo 0.0.0)
 COMMIT   := $(shell git rev-parse --short HEAD)
@@ -134,6 +136,14 @@ e2e-live-web-safe:
 
 e2e-live-web-risky:
 	@./scripts/e2e-live-web.sh --config playwright.live.risky.config.ts
+
+e2e-live-web-disposable: e2e-live-web-safe-disposable
+
+e2e-live-web-safe-disposable:
+	@./scripts/e2e-live-disposable.sh --skip-build
+
+e2e-live-web-risky-disposable:
+	@./scripts/e2e-live-disposable.sh --skip-build --risky
 
 e2e-live-web-danger:
 	@./scripts/e2e-live-web.sh --allow-danger --danger-confirm destroy-all --config playwright.live.danger.config.ts
