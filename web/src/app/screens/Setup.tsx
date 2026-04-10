@@ -80,8 +80,8 @@ export function Setup() {
     }
   }, [currentIdx]);
 
-  const finish = useCallback(() => {
-    navigate('/channels', { replace: true });
+  const finish = useCallback((channelName?: string) => {
+    navigate(channelName ? `/channels/${encodeURIComponent(channelName)}` : '/channels', { replace: true });
   }, [navigate]);
 
   return (
@@ -159,4 +159,3 @@ export function Setup() {
     </div>
   );
 }
-

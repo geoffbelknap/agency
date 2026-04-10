@@ -17,9 +17,24 @@ interface ChatMessage {
 interface ChatStepProps {
   agentName: string;
   operatorName?: string;
-  onFinish: () => void;
+  onFinish: (channelName?: string) => void;
   onBack: () => void;
 }
+
+const FIRST_TASK_PROMPTS = [
+  {
+    label: 'Explain Agency',
+    prompt: 'Give me a short tour of Agency. What should I use first, and what should I avoid until I understand the system better?',
+  },
+  {
+    label: 'Check My Setup',
+    prompt: 'Check whether my local Agency setup looks healthy. Tell me what you can verify from inside Agency and what I should check manually.',
+  },
+  {
+    label: 'Plan A First Task',
+    prompt: 'Help me turn a real goal into a safe first Agency task. Ask me for the goal, then suggest the smallest useful next step.',
+  },
+];
 
 export function ChatStep({ agentName, operatorName, onFinish, onBack }: ChatStepProps) {
   const [channelName, setChannelName] = useState<string | null>(null);
@@ -170,6 +185,10 @@ export function ChatStep({ agentName, operatorName, onFinish, onBack }: ChatStep
     }
   };
 
+  const finishSetup = () => {
+    onFinish(channelName ?? undefined);
+  };
+
   if (loading) {
     return (
       <div className="text-center space-y-4">
@@ -184,7 +203,7 @@ export function ChatStep({ agentName, operatorName, onFinish, onBack }: ChatStep
       <div className="text-center space-y-4">
         <h2 className="text-2xl font-semibold text-foreground">Chat</h2>
         <p className="text-sm text-red-400">{error}</p>
-        <Button onClick={onFinish}>Finish Setup</Button>
+        <Button onClick={finishSetup}>Finish Setup</Button>
       </div>
     );
   }
@@ -196,6 +215,27 @@ export function ChatStep({ agentName, operatorName, onFinish, onBack }: ChatStep
         <p className="text-muted-foreground text-sm">
           {operatorName ? `${operatorName}, your` : 'Your'} agent is ready to chat.
         </p>
+      </div>
+
+      <div className="rounded-lg border border-border bg-card/70 p-3 space-y-3">
+        <div>
+          <div className="text-sm font-medium text-foreground">Try a first task</div>
+          <p className="text-xs text-muted-foreground">
+            Pick a prompt, edit it if needed, then send it. You can also finish setup and keep this DM open in Channels.
+          </p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {FIRST_TASK_PROMPTS.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              onClick={() => setInput(item.prompt)}
+              className="rounded-md border border-border bg-background px-3 py-2 text-left text-xs text-foreground transition-colors hover:bg-accent"
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Chat area */}
@@ -292,7 +332,7 @@ export function ChatStep({ agentName, operatorName, onFinish, onBack }: ChatStep
         <button onClick={onBack} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
           Back
         </button>
-        <Button onClick={onFinish}>Finish Setup</Button>
+        <Button onClick={finishSetup}>Finish Setup</Button>
       </div>
     </div>
   );
