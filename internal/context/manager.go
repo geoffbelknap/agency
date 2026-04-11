@@ -27,7 +27,7 @@ type Manager struct {
 	alertFunc func(agent, message string)
 
 	wsMu      sync.RWMutex
-	wsClients map[string]*WSClient                          // agent → WS client
+	wsClients map[string]DeliveryClient                     // agent → WS client
 	haltFunc  func(agent, changeID, reason string) error    // injected halt callback
 }
 
@@ -36,7 +36,7 @@ func NewManager(audit *logs.Writer) *Manager {
 	return &Manager{
 		agents:    make(map[string]*agentState),
 		audit:     audit,
-		wsClients: make(map[string]*WSClient),
+		wsClients: make(map[string]DeliveryClient),
 	}
 }
 
@@ -290,17 +290,37 @@ func (m *Manager) HandleEnforcerReconnect(agent string) {
 }
 
 // RegisterWSClient associates a WebSocket client with an agent for constraint delivery.
-func (m *Manager) RegisterWSClient(agent string, client *WSClient) {
+func (m *Manager) RegisterWSClient(agent string, client DeliveryClient) {
 	m.wsMu.Lock()
-	defer m.wsMu.Unlock()
+	prev := m.wsClients[agent]
 	m.wsClients[agent] = client
+	m.wsMu.Unlock()
+	if prev != nil && prev != client {
+		prev.Close()
+	}
 }
 
 // UnregisterWSClient removes the WebSocket client for an agent.
 func (m *Manager) UnregisterWSClient(agent string) {
 	m.wsMu.Lock()
-	defer m.wsMu.Unlock()
+	prev := m.wsClients[agent]
 	delete(m.wsClients, agent)
+	m.wsMu.Unlock()
+	if prev != nil {
+		prev.Close()
+	}
+}
+
+// UnregisterWSClientMatch removes the WebSocket client for an agent only if it
+// still matches the provided client reference. This avoids tearing down a newer
+// connection when an older one disconnects later.
+func (m *Manager) UnregisterWSClientMatch(agent string, client DeliveryClient) {
+	m.wsMu.Lock()
+	current := m.wsClients[agent]
+	if current == client {
+		delete(m.wsClients, agent)
+	}
+	m.wsMu.Unlock()
 }
 
 // SetHaltFunc registers a callback invoked when an agent must be halted due to

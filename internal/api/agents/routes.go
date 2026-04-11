@@ -119,6 +119,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 		r.Get("/changes", ctxH.getChanges)
 		r.Post("/push", ctxH.push)
 		r.Get("/status", ctxH.getStatus)
+		r.Get("/ws", h.connectContextWS)
 	})
 
 	r.Get("/api/v1/agents/{name}/logs", h.agentLogs)
