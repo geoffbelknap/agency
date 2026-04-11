@@ -33,6 +33,13 @@ class PackCredential(BaseModel):
     required: bool = True
 
 
+class PackMissionAssignment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mission: str
+    agent: str
+
+
 class PackRequires(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -79,8 +86,10 @@ class PackConfig(BaseModel):
     version: str = "1.0.0"
     description: str = ""
     author: str = ""
+    license: str = ""
     requires: PackRequires = Field(default_factory=PackRequires)
     team: PackTeam
     credentials: list[PackCredential] = Field(default_factory=list)
     policy: dict | None = None
     recommended_connectors: list[str] = Field(default_factory=list)
+    mission_assignments: list[PackMissionAssignment] = Field(default_factory=list)

@@ -116,6 +116,10 @@ func detectSchema(path string) (interface{}, error) {
 		return detectWorkspaceSchema(path)
 	case "constraints.yaml":
 		return &ConstraintsConfig{}, nil
+	case "preset.yaml":
+		return &PresetConfig{}, nil
+	case "mission.yaml":
+		return &Mission{}, nil
 	case "pack.yaml":
 		return &PackConfig{}, nil
 	case "connector.yaml":

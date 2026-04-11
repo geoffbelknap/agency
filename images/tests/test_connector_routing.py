@@ -1,9 +1,11 @@
 """Tests for connector routing engine."""
 
 import pytest
+import yaml
 from datetime import timedelta
+from pathlib import Path
 
-from images.models.connector import ConnectorRoute
+from images.models.connector import ConnectorConfig, ConnectorRoute
 from images.intake.router import match_route, evaluate_routes, render_template, parse_sla_duration
 
 
@@ -113,3 +115,191 @@ class TestParseSLADuration:
 
     def test_invalid(self):
         assert parse_sla_duration("bad") is None
+
+
+class TestSlackConnectorExamples:
+    def _load_connector(self, relative_path: str) -> ConnectorConfig:
+        repo_root = Path(__file__).resolve().parents[2]
+        path = repo_root.parent / "agency-hub" / relative_path
+        return ConnectorConfig.model_validate(yaml.safe_load(path.read_text()))
+
+    def test_slack_events_mention_route_matches_real_payload(self):
+        config = self._load_connector("connectors/slack-events/connector.yaml")
+        payload = {
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "user": "U123",
+                "text": "hello <@U0YOURBOTUSERID>",
+                "ts": "1712860000.1234",
+                "channel": "C123",
+            },
+        }
+        result = evaluate_routes(config.routes, payload)
+        assert result is not None
+        _, route = result
+        rendered = render_template(route.brief, payload)
+        assert "U123" in rendered
+        assert "C123" in rendered
+
+    def test_slack_events_urgent_regex_route_matches_text(self):
+        config = self._load_connector("connectors/slack-events/connector.yaml")
+        payload = {
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "user": "U123",
+                "text": "urgent incident in prod",
+                "ts": "1712860000.1234",
+                "channel": "C123",
+            },
+        }
+        result = evaluate_routes(config.routes[1:], payload)
+        assert result is not None
+
+    def test_slack_interactivity_view_submission_route_matches_real_payload(self):
+        config = self._load_connector("connectors/slack-interactivity/connector.yaml")
+        payload = {
+            "type": "view_submission",
+            "user": {"id": "U123"},
+            "view": {"callback_id": "nomination_form"},
+        }
+        result = evaluate_routes(config.routes, payload)
+        assert result is not None
+        _, route = result
+        rendered = render_template(route.brief, payload)
+        assert "U123" in rendered
+        assert "nomination_form" in rendered
+
+    def test_slack_commands_route_matches_real_payload(self):
+        config = self._load_connector("connectors/slack-commands/connector.yaml")
+        payload = {
+            "command": "/agency",
+            "user_id": "U123",
+            "channel_id": "C123",
+            "text": "summarize this thread",
+        }
+        result = evaluate_routes(config.routes, payload)
+        assert result is not None
+        _, route = result
+        rendered = render_template(route.brief, payload)
+        assert "U123" in rendered
+        assert "C123" in rendered
+
+    def test_slack_webhook_connectors_configure_200_empty_ack(self):
+        for relpath in (
+            "connectors/slack-events/connector.yaml",
+            "connectors/slack-interactivity/connector.yaml",
+            "connectors/slack-commands/connector.yaml",
+        ):
+            config = self._load_connector(relpath)
+            assert config.source.response_status == 200
+            assert config.source.response_body == ""
+            assert config.source.response_content_type == "text/plain"
+
+    def test_slack_bridge_ingress_connectors_target_slack_bridge(self):
+        expected = {
+            "connectors/slack-events/connector.yaml": {"slack-bridge"},
+            "connectors/slack-interactivity/connector.yaml": {"slack-bridge"},
+            "connectors/slack-commands/connector.yaml": {"slack-bridge"},
+        }
+        for relpath, targets in expected.items():
+            config = self._load_connector(relpath)
+            assert {route.target.get("agent") for route in config.routes} == targets
+
+    def test_comms_to_slack_renders_author_from_channel_watch_payload(self):
+        config = self._load_connector("connectors/comms-to-slack/connector.yaml")
+        route = config.routes[0]
+        payload = {
+            "channel": "general",
+            "author": "slack-bridge",
+            "content": "hello from agency",
+        }
+        rendered = render_template(route.relay.body, payload)
+        assert "slack-bridge" in rendered
+        assert "hello from agency" in rendered
+
+    def test_agency_bridge_slack_outbound_renders_slack_channel_and_thread(self):
+        config = self._load_connector("connectors/agency-bridge-slack-outbound/connector.yaml")
+        route = config.routes[0]
+        payload = {
+            "author": "slack-bridge",
+            "content": "reply from agency",
+            "metadata": {
+                "source_payload": {
+                    "event": {
+                        "channel": "C123",
+                        "ts": "1712860000.1234",
+                    }
+                }
+            },
+        }
+        rendered = render_template(route.relay.body, payload)
+        assert '"channel": "C123"' in rendered
+        assert '"thread_ts": "1712860000.1234"' in rendered
+
+    def test_agency_bridge_slack_events_outbound_renders_slack_channel_and_thread(self):
+        config = self._load_connector("connectors/agency-bridge-slack-events-outbound/connector.yaml")
+        route = config.routes[0]
+        payload = {
+            "author": "slack-bridge",
+            "content": "reply from agency",
+            "metadata": {
+                "bridge": {
+                    "channel_id": "C123",
+                    "thread_ts": "1712860000.1234",
+                },
+            },
+        }
+        rendered = render_template(route.relay.body, payload)
+        assert '"channel": "C123"' in rendered
+        assert '"thread_ts": "1712860000.1234"' in rendered
+
+    def test_agency_bridge_slack_events_outbound_renders_artifact_link_text(self):
+        config = self._load_connector("connectors/agency-bridge-slack-events-outbound/connector.yaml")
+        route = config.routes[0]
+        payload = {
+            "author": "slack-bridge",
+            "content": "reply from agency",
+            "metadata": {
+                "bridge": {
+                    "channel_id": "C123",
+                    "thread_ts": "1712860000.1234",
+                },
+                "has_artifact": True,
+                "attachment_id": "task-123",
+            },
+        }
+        rendered = render_template(route.relay.body, payload)
+        assert "Attachment: task-123" in rendered
+
+    def test_agency_bridge_slack_interactivity_outbound_renders_slack_channel_and_thread(self):
+        config = self._load_connector("connectors/agency-bridge-slack-interactivity-outbound/connector.yaml")
+        route = config.routes[0]
+        payload = {
+            "author": "slack-bridge",
+            "content": "reply from agency",
+            "metadata": {
+                "source_payload": {
+                    "container": {"channel_id": "C123", "message_ts": "1712860000.1234"},
+                }
+            },
+        }
+        rendered = render_template(route.relay.body, payload)
+        assert '"channel": "C123"' in rendered
+        assert '"thread_ts": "1712860000.1234"' in rendered
+
+    def test_agency_bridge_slack_commands_outbound_renders_slack_channel(self):
+        config = self._load_connector("connectors/agency-bridge-slack-commands-outbound/connector.yaml")
+        route = config.routes[0]
+        payload = {
+            "author": "slack-bridge",
+            "content": "reply from agency",
+            "metadata": {
+                "source_payload": {
+                    "channel_id": "C123",
+                }
+            },
+        }
+        rendered = render_template(route.relay.body, payload)
+        assert '"channel": "C123"' in rendered

@@ -17,12 +17,12 @@ Receives HTTP push events from external services. Best for real-time integration
 ```yaml
 source:
   type: webhook
-  config:
-    path: /hooks/slack-events
+  path: /webhooks/slack-events
+  body_format: json
+  webhook_auth:
+    type: hmac_sha256
     secret_env: SLACK_SIGNING_SECRET
-    verification:
-      type: hmac-sha256
-      header: X-Slack-Signature
+    header: X-Slack-Signature
 ```
 
 **Use cases:** Slack Events API, GitHub webhooks, PagerDuty alerts, custom webhook endpoints.
@@ -36,11 +36,8 @@ Periodically checks an API for changes. Uses SHA-256 change detection to avoid p
 ```yaml
 source:
   type: poll
-  config:
-    url: https://api.example.com/issues
-    interval: 5m
-    auth_env: API_TOKEN
-    change_detection: sha256
+  url: https://api.example.com/issues
+  interval: 5m
 ```
 
 **Use cases:** Jira ticket monitoring, RSS feeds, API endpoints without webhook support.
@@ -54,9 +51,7 @@ Triggers tasks on a cron schedule. Includes double-fire prevention to avoid dupl
 ```yaml
 source:
   type: schedule
-  config:
-    cron: "0 9 * * 1-5"    # Weekdays at 9am
-    task_template: "Run the daily security scan"
+  cron: "0 9 * * 1-5"    # Weekdays at 9am
 ```
 
 **Use cases:** Daily reports, periodic scans, scheduled maintenance tasks.
@@ -68,13 +63,8 @@ Matches regex patterns in agent communication channels. Creates work items when 
 ```yaml
 source:
   type: channel-watch
-  config:
-    channel: escalations
-    patterns:
-      - regex: "CRITICAL|URGENT"
-        priority: high
-      - regex: "review requested"
-        priority: normal
+  channel: escalations
+  pattern: "CRITICAL|URGENT|review requested"
 ```
 
 **Use cases:** Escalation detection, keyword-triggered workflows, inter-agent coordination.
@@ -184,15 +174,15 @@ name: slack-events
 description: "Slack Events API integration"
 source:
   type: webhook
-  config:
-    path: /hooks/slack
+  path: /webhooks/slack-events
+  body_format: json
+  webhook_auth:
+    type: hmac_sha256
     secret_env: SLACK_SIGNING_SECRET
-    verification:
-      type: hmac-sha256
-      header: X-Slack-Signature
-      timestamp_header: X-Slack-Request-Timestamp
+    header: X-Slack-Signature
+    timestamp_header: X-Slack-Request-Timestamp
 routing:
-  default_target: slack-ops
+  default_target: slack-responder
   rules:
     - match:
         field: event.type

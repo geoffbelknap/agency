@@ -1,8 +1,12 @@
 """Tests for comms task delivery endpoint."""
 
 import json
+import os
+import sys
 
 import pytest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from images.comms.server import create_app
 
@@ -32,6 +36,30 @@ class TestTaskDelivery:
             "work_item_id": "wi-20260310-abc12345",
             "priority": "high",
             "source": "connector:splunk-soc",
+            "metadata": {
+                "event_id": "evt-abc12345",
+                "connector_name": "slack-events",
+                "source_payload": {"event": {"channel": "C123", "ts": "1712860000.1234"}},
+                "bridge": {
+                    "platform": "slack",
+                    "workspace_id": "T123",
+                    "user_id": "U123",
+                    "channel_id": "C123",
+                    "message_ts": "1712860000.1234",
+                    "thread_ts": "1712860000.1234",
+                    "root_ts": "1712860000.1234",
+                    "conversation_key": "slack:C123:1712860000.1234",
+                    "conversation_kind": "thread",
+                },
+                "principal": {
+                    "platform": "slack",
+                    "workspace_id": "T123",
+                    "user_id": "U123",
+                    "channel_id": "C123",
+                    "conversation_key": "slack:C123:1712860000.1234",
+                    "is_dm": False,
+                },
+            },
         })
         assert resp.status == 200
         data = await resp.json()
@@ -46,6 +74,10 @@ class TestTaskDelivery:
         assert updated["current_task"]["content"] == "Triage alert A123"
         assert updated["current_task"]["work_item_id"] == "wi-20260310-abc12345"
         assert updated["current_task"]["priority"] == "high"
+        assert updated["current_task"]["event_id"] == "evt-abc12345"
+        assert updated["current_task"]["metadata"]["connector_name"] == "slack-events"
+        assert updated["current_task"]["metadata"]["bridge"]["conversation_key"] == "slack:C123:1712860000.1234"
+        assert updated["current_task"]["metadata"]["principal"]["user_id"] == "U123"
 
     async def test_deliver_task_unknown_agent(self, aiohttp_client, delivery_app):
         client = await aiohttp_client(delivery_app)

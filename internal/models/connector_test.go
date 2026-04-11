@@ -169,6 +169,101 @@ func TestConnectorSource_Validate_Webhook(t *testing.T) {
 			t.Errorf("expected poll fields error, got: %v", err)
 		}
 	})
+
+	t.Run("with_custom_path_and_body_format", func(t *testing.T) {
+		path := "/hooks/example"
+		bodyFormat := "form_urlencoded_payload_json_field"
+		payloadField := "payload"
+		responseStatus := 200
+		responseBody := ""
+		responseContentType := "text/plain"
+		cs := &ConnectorSource{
+			Type:                "webhook",
+			Method:              "GET",
+			Path:                &path,
+			BodyFormat:          &bodyFormat,
+			PayloadField:        &payloadField,
+			ResponseStatus:      &responseStatus,
+			ResponseBody:        &responseBody,
+			ResponseContentType: &responseContentType,
+		}
+		if err := cs.Validate(); err != nil {
+			t.Errorf("expected valid webhook config, got: %v", err)
+		}
+	})
+
+	t.Run("invalid_path", func(t *testing.T) {
+		path := "hooks/example"
+		cs := &ConnectorSource{
+			Type:   "webhook",
+			Method: "GET",
+			Path:   &path,
+		}
+		err := cs.Validate()
+		if err == nil {
+			t.Fatal("expected error for invalid webhook path, got nil")
+		}
+		if !strings.Contains(err.Error(), "path") {
+			t.Errorf("expected path error, got: %v", err)
+		}
+	})
+
+	t.Run("payload_field_requires_wrapped_body_format", func(t *testing.T) {
+		payloadField := "payload"
+		cs := &ConnectorSource{
+			Type:         "webhook",
+			Method:       "GET",
+			PayloadField: &payloadField,
+		}
+		err := cs.Validate()
+		if err == nil {
+			t.Fatal("expected error for payload_field without wrapped body format, got nil")
+		}
+		if !strings.Contains(err.Error(), "payload_field") {
+			t.Errorf("expected payload_field error, got: %v", err)
+		}
+	})
+
+	t.Run("invalid_response_status", func(t *testing.T) {
+		responseStatus := 500
+		cs := &ConnectorSource{
+			Type:           "webhook",
+			Method:         "GET",
+			ResponseStatus: &responseStatus,
+		}
+		err := cs.Validate()
+		if err == nil {
+			t.Fatal("expected error for invalid webhook response status, got nil")
+		}
+		if !strings.Contains(err.Error(), "response_status") {
+			t.Errorf("expected response_status error, got: %v", err)
+		}
+	})
+}
+
+func TestConnectorSource_Validate_None(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		cs := &ConnectorSource{
+			Type: "none",
+		}
+		if err := cs.Validate(); err != nil {
+			t.Errorf("expected valid none source, got: %v", err)
+		}
+	})
+
+	t.Run("with_webhook_fields", func(t *testing.T) {
+		cs := &ConnectorSource{
+			Type:        "none",
+			WebhookAuth: &ConnectorWebhookAuth{Type: "hmac_sha256", SecretEnv: "X"},
+		}
+		err := cs.Validate()
+		if err == nil {
+			t.Fatal("expected error for none source with webhook fields, got nil")
+		}
+		if !strings.Contains(err.Error(), "none source does not accept") {
+			t.Errorf("expected none source field error, got: %v", err)
+		}
+	})
 }
 
 // TestConnectorRoute_Validate tests route validation.
@@ -230,6 +325,7 @@ func TestConnectorConfig_Fixtures(t *testing.T) {
 	}{
 		{"valid_webhook.yaml", ""},
 		{"valid_poll.yaml", ""},
+		{"valid_none_mcp.yaml", ""},
 		{"invalid_poll_no_url.yaml", "url"},
 	}
 

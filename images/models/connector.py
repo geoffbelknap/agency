@@ -1,6 +1,7 @@
 """Pydantic models for connector schema — external system bindings."""
 
 import re
+from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Optional, Literal, Union
 
@@ -35,9 +36,15 @@ class ConnectorWebhookAuth(BaseModel):
 class ConnectorSource(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    type: Literal["webhook", "poll", "schedule", "channel-watch"]
+    type: Literal["webhook", "poll", "schedule", "channel-watch", "none"]
     payload_schema: Optional[dict] = Field(default=None, alias="schema")
     webhook_auth: Optional[ConnectorWebhookAuth] = None  # HMAC auth for webhook sources
+    path: Optional[str] = None
+    body_format: Optional[Literal["json", "form_urlencoded", "form_urlencoded_payload_json_field"]] = None
+    payload_field: Optional[str] = None
+    response_status: Optional[int] = None
+    response_body: Optional[str] = None
+    response_content_type: Optional[str] = None
     # poll fields
     url: Optional[str] = None
     method: str = "GET"
@@ -57,7 +64,32 @@ class ConnectorSource(BaseModel):
 
     @model_validator(mode="after")
     def validate_source_fields(self) -> "ConnectorSource":
-        if self.type == "poll":
+        if self.type == "none":
+            fields = [
+                self.webhook_auth,
+                self.path,
+                self.body_format,
+                self.payload_field,
+                self.response_status,
+                self.response_body,
+                self.response_content_type,
+                self.url,
+                self.interval,
+                self.response_key,
+                self.cron,
+                self.channel,
+                self.pattern,
+                self.transform,
+                self.auth,
+                self.follow_up,
+            ]
+            if self.headers is not None:
+                fields.append("set")
+            if self.method != "GET":
+                fields.append("set")
+            if any(f is not None for f in fields):
+                raise ValueError("none source does not accept webhook/poll/schedule/channel-watch fields")
+        elif self.type == "poll":
             if not self.url:
                 raise ValueError("poll source requires 'url'")
             if self.interval and self.cron:
@@ -75,6 +107,14 @@ class ConnectorSource(BaseModel):
             if not self.pattern:
                 raise ValueError("channel-watch source requires 'pattern'")
         elif self.type == "webhook":
+            if self.path:
+                parts = urlsplit(self.path)
+                if not self.path.startswith("/") or parts.scheme or parts.netloc or parts.query or parts.fragment:
+                    raise ValueError("webhook source path must be an absolute path without query or fragment")
+            if self.payload_field and self.body_format != "form_urlencoded_payload_json_field":
+                raise ValueError("payload_field is only valid with body_format 'form_urlencoded_payload_json_field'")
+            if self.response_status is not None and not 200 <= self.response_status <= 299:
+                raise ValueError("webhook response_status must be a 2xx status code")
             poll_fields = [self.url, self.interval, self.response_key, self.cron, self.channel, self.pattern, self.transform, self.auth]
             if self.headers is not None:
                 poll_fields.append("set")
@@ -82,6 +122,8 @@ class ConnectorSource(BaseModel):
                 poll_fields.append("set")
             if any(f is not None for f in poll_fields):
                 raise ValueError("webhook source does not accept poll/schedule/channel-watch fields")
+        elif self.path or self.body_format or self.payload_field or self.response_status is not None or self.response_body is not None or self.response_content_type is not None:
+            raise ValueError(f"{self.type} source does not accept webhook body/path fields")
         return self
 
 
@@ -226,6 +268,8 @@ class ConnectorConfig(BaseModel):
 
     @model_validator(mode="after")
     def _routes_or_graph_ingest(self) -> "ConnectorConfig":
-        if not self.routes and not self.graph_ingest:
-            raise ValueError("Connector must define at least one route or graph_ingest rule")
+        if not self.routes and not self.graph_ingest and self.mcp is None:
+            raise ValueError("Connector must define at least one route, graph_ingest rule, or MCP tool")
+        if self.source.type == "none" and self.routes:
+            raise ValueError("none source connectors cannot define routes")
         return self
