@@ -5,12 +5,17 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/gorilla/websocket"
 
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
 )
 
 type contextHandler struct {
 	mgr *agencyctx.Manager
+}
+
+var enforcerWSUpgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
 // getConstraints returns the current (acked) constraints for the agent.
@@ -108,4 +113,35 @@ func (h *contextHandler) getStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, change)
+}
+
+// connectContextWS upgrades an enforcer-initiated websocket connection and
+// registers it as the live constraint-delivery transport for the agent.
+func (h *handler) connectContextWS(w http.ResponseWriter, r *http.Request) {
+	agent := chi.URLParam(r, "name")
+	if _, err := h.deps.AgentManager.Show(r.Context(), agent); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+
+	conn, err := enforcerWSUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		if h.deps.Logger != nil {
+			h.deps.Logger.Warn("enforcer ws upgrade failed", "agent", agent, "err", err)
+		}
+		return
+	}
+
+	client := agencyctx.NewInboundWSClient(agent, conn, h.deps.Logger)
+	client.SetDisconnectCallback(func(agent string) {
+		h.deps.CtxMgr.UnregisterWSClientMatch(agent, client)
+		h.deps.CtxMgr.HandleEnforcerDisconnect(agent)
+	})
+	h.deps.CtxMgr.RegisterWSClient(agent, client)
+	h.deps.CtxMgr.HandleEnforcerReconnect(agent)
+	if h.deps.Logger != nil {
+		h.deps.Logger.Info("enforcer ws client connected", "agent", agent)
+	}
+
+	<-client.Done()
 }

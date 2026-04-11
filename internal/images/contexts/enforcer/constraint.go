@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -95,7 +96,54 @@ func (ch *ConstraintHandler) handleWS(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	log.Printf("constraint: gateway connected via WebSocket")
+	ch.serveConn(conn)
+}
 
+// ConnectGateway dials the gateway's authenticated websocket endpoint and
+// reuses the same push/ack protocol used by the legacy inbound /ws listener.
+func (ch *ConstraintHandler) ConnectGateway(gatewayURL, gatewayToken string) {
+	if gatewayURL == "" || gatewayToken == "" {
+		return
+	}
+
+	wsURL := gatewayConstraintWSURL(gatewayURL, ch.agent)
+	headers := http.Header{}
+	headers.Set("Authorization", "Bearer "+gatewayToken)
+
+	backoff := time.Second
+	for {
+		conn, _, err := websocket.DefaultDialer.Dial(wsURL, headers)
+		if err != nil {
+			log.Printf("constraint: gateway ws dial failed: %v", err)
+			time.Sleep(backoff)
+			if backoff < 30*time.Second {
+				backoff *= 2
+				if backoff > 30*time.Second {
+					backoff = 30 * time.Second
+				}
+			}
+			continue
+		}
+
+		log.Printf("constraint: connected to gateway websocket")
+		backoff = time.Second
+		ch.serveConn(conn)
+		conn.Close()
+	}
+}
+
+func gatewayConstraintWSURL(gatewayURL, agent string) string {
+	switch {
+	case strings.HasPrefix(gatewayURL, "https://"):
+		return "wss://" + strings.TrimPrefix(gatewayURL, "https://") + "/api/v1/agents/" + agent + "/context/ws"
+	case strings.HasPrefix(gatewayURL, "http://"):
+		return "ws://" + strings.TrimPrefix(gatewayURL, "http://") + "/api/v1/agents/" + agent + "/context/ws"
+	default:
+		return "ws://" + strings.TrimPrefix(gatewayURL, "ws://") + "/api/v1/agents/" + agent + "/context/ws"
+	}
+}
+
+func (ch *ConstraintHandler) serveConn(conn *websocket.Conn) {
 	for {
 		var push wsPushMessage
 		if err := conn.ReadJSON(&push); err != nil {
@@ -104,67 +152,61 @@ func (ch *ConstraintHandler) handleWS(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-
-		log.Printf("constraint: received push change_id=%s version=%d severity=%s",
-			push.ChangeID, push.Version, push.Severity)
-
-		// Verify hash matches constraints.
-		computed := hashConstraints(push.Constraints)
-		if computed != push.Hash {
-			log.Printf("constraint: hash mismatch on push: computed=%s received=%s", computed, push.Hash)
-			ack := ackReport{
-				Type:     "constraint_ack",
-				Agent:    ch.agent,
-				ChangeID: push.ChangeID,
-				Version:  push.Version,
-				Status:   "hash_mismatch",
-				BodyHash: computed,
-			}
-			conn.WriteJSON(ack)
-
-			ch.audit.Log(AuditEntry{
-				Type:  "CONSTRAINT_HASH_MISMATCH",
-				Agent: ch.agent,
-			})
-			continue
-		}
-
-		// Atomic swap of constraint state (ASK tenet 6).
-		newState := &ConstraintState{
-			Version:     push.Version,
-			Constraints: push.Constraints,
-			Hash:        push.Hash,
-			UpdatedAt:   time.Now().UTC(),
-		}
-		ch.state.Store(newState)
-
-		// Track for Body ack.
-		ch.mu.Lock()
-		ch.latestChangeID = push.ChangeID
-		ch.latestVersion = push.Version
-		ch.mu.Unlock()
-
-		// Ack back to gateway.
-		ack := ackReport{
-			Type:     "constraint_ack",
-			Agent:    ch.agent,
-			ChangeID: push.ChangeID,
-			Version:  push.Version,
-			Status:   "acked",
-			BodyHash: push.Hash,
-		}
+		ack := ch.applyPush(push)
 		if err := conn.WriteJSON(ack); err != nil {
 			log.Printf("constraint: ws write ack error: %v", err)
 			return
 		}
+	}
+}
 
+func (ch *ConstraintHandler) applyPush(push wsPushMessage) ackReport {
+	log.Printf("constraint: received push change_id=%s version=%d severity=%s",
+		push.ChangeID, push.Version, push.Severity)
+
+	computed := hashConstraints(push.Constraints)
+	if computed != push.Hash {
+		log.Printf("constraint: hash mismatch on push: computed=%s received=%s", computed, push.Hash)
 		ch.audit.Log(AuditEntry{
-			Type:  "CONSTRAINT_APPLIED",
+			Type:  "CONSTRAINT_HASH_MISMATCH",
 			Agent: ch.agent,
 		})
+		return ackReport{
+			Type:     "constraint_ack",
+			Agent:    ch.agent,
+			ChangeID: push.ChangeID,
+			Version:  push.Version,
+			Status:   "hash_mismatch",
+			BodyHash: computed,
+		}
+	}
 
-		// Notify Body asynchronously.
-		go ch.notifyBody(push.ChangeID, push.Version)
+	newState := &ConstraintState{
+		Version:     push.Version,
+		Constraints: push.Constraints,
+		Hash:        push.Hash,
+		UpdatedAt:   time.Now().UTC(),
+	}
+	ch.state.Store(newState)
+
+	ch.mu.Lock()
+	ch.latestChangeID = push.ChangeID
+	ch.latestVersion = push.Version
+	ch.mu.Unlock()
+
+	ch.audit.Log(AuditEntry{
+		Type:  "CONSTRAINT_APPLIED",
+		Agent: ch.agent,
+	})
+	go ch.notifyBody(push.ChangeID, push.Version)
+
+	return ackReport{
+		Type:     "constraint_ack",
+		Agent:    ch.agent,
+		ChangeID: push.ChangeID,
+		Version:  push.Version,
+		Status:   "acked",
+		BodyHash: push.Hash,
 	}
 }
 
@@ -281,4 +323,3 @@ func hashConstraints(constraints map[string]interface{}) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
-

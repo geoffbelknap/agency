@@ -343,31 +343,13 @@ type mcpDeps struct {
 	profileStore  *profiles.Store
 }
 
-// registerEnforcerWSClient creates a WebSocket client to the agent's enforcer
-// and registers it with the ContextManager for constraint delivery.
-// Used by MCP start/restart tools.
+// registerEnforcerWSClient no longer dials the enforcer from the host. The
+// enforcer connects back into the gateway via the authenticated context/ws
+// route once its constraint server is ready. Used by MCP start/restart tools.
 func (d *mcpDeps) registerEnforcerWSClient(agentName string) {
-	enforcerWSURL := d.enforcerWSURL(context.Background(), agentName)
-	wsClient := agencyctx.NewWSClient(agentName, enforcerWSURL, d.log)
-	wsClient.SetCallbacks(
-		func(agent string) { d.ctxMgr.HandleEnforcerDisconnect(agent) },
-		func(agent string) { d.ctxMgr.HandleEnforcerReconnect(agent) },
-	)
-	go wsClient.ConnectWithReconnect()
-	d.ctxMgr.RegisterWSClient(agentName, wsClient)
-	d.log.Info("enforcer ws client registered", "agent", agentName, "url", enforcerWSURL)
-}
-
-func (d *mcpDeps) enforcerWSURL(ctx context.Context, agentName string) string {
-	defaultURL := fmt.Sprintf("ws://agency-%s-enforcer:8081/ws", agentName)
-	if d.dc == nil {
-		return defaultURL
+	if d.log != nil {
+		d.log.Info("waiting for enforcer ws connection", "agent", agentName)
 	}
-	inspect, err := d.dc.RawClient().ContainerInspect(ctx, fmt.Sprintf("agency-%s-enforcer", agentName))
-	if err != nil || inspect.NetworkSettings == nil {
-		return defaultURL
-	}
-	return enforcerWSURLFromBindings(defaultURL, inspect.HostConfig.PortBindings, inspect.NetworkSettings.Ports)
 }
 
 // unregisterEnforcerWSClient closes and removes the WebSocket client for an agent.

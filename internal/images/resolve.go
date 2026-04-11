@@ -28,6 +28,13 @@ const (
 	OllamaVersion  = "0.9.3"
 )
 
+var sourceImageDependencies = map[string][]string{
+	"body":      {"python-base"},
+	"comms":     {"python-base"},
+	"knowledge": {"python-base"},
+	"intake":    {"python-base"},
+}
+
 // Resolve ensures the Docker image for the named service is available locally.
 //
 // Resolution order:
@@ -86,6 +93,11 @@ func Resolve(ctx context.Context, cli *client.Client, name, version, sourceDir, 
 
 	// Dev mode: rebuild from source tree. Failure is fatal — no silent fallback.
 	if sourceDir != "" {
+		for _, dep := range sourceImageDependencies[name] {
+			if err := Resolve(ctx, cli, dep, version, sourceDir, buildID, logger); err != nil {
+				return fmt.Errorf("resolve source dependency %s for %s: %w", dep, localTag, err)
+			}
+		}
 		if err := buildFromSource(ctx, cli, name, sourceDir, localTag, buildID, sourceHash, logger); err != nil {
 			return fmt.Errorf("image %s: source build failed: %w", localTag, err)
 		}

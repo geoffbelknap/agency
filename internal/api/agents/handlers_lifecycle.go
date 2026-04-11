@@ -10,7 +10,6 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	apimissions "github.com/geoffbelknap/agency/internal/api/missions"
-	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/events"
 	"github.com/geoffbelknap/agency/internal/models"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -316,30 +315,13 @@ func (h *handler) startAgent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, result)
 }
 
-// registerEnforcerWSClient creates a WebSocket client to the agent's enforcer
-// and registers it with the ContextManager for constraint delivery.
+// registerEnforcerWSClient no longer dials the enforcer from the host. The
+// enforcer connects back into the gateway via the authenticated context/ws
+// route once its constraint server is ready.
 func (h *handler) registerEnforcerWSClient(agentName string) {
-	enforcerWSURL := h.enforcerWSURL(context.Background(), agentName)
-	wsClient := agencyctx.NewWSClient(agentName, enforcerWSURL, h.deps.Logger)
-	wsClient.SetCallbacks(
-		func(agent string) { h.deps.CtxMgr.HandleEnforcerDisconnect(agent) },
-		func(agent string) { h.deps.CtxMgr.HandleEnforcerReconnect(agent) },
-	)
-	go wsClient.ConnectWithReconnect()
-	h.deps.CtxMgr.RegisterWSClient(agentName, wsClient)
-	h.deps.Logger.Info("enforcer ws client registered", "agent", agentName, "url", enforcerWSURL)
-}
-
-func (h *handler) enforcerWSURL(ctx context.Context, agentName string) string {
-	defaultURL := fmt.Sprintf("ws://agency-%s-enforcer:8081/ws", agentName)
-	if h.deps.RawDocker == nil {
-		return defaultURL
+	if h.deps.Logger != nil {
+		h.deps.Logger.Info("waiting for enforcer ws connection", "agent", agentName)
 	}
-	inspect, err := h.deps.RawDocker.RawClient().ContainerInspect(ctx, fmt.Sprintf("agency-%s-enforcer", agentName))
-	if err != nil || inspect.NetworkSettings == nil {
-		return defaultURL
-	}
-	return enforcerWSURLFromBindings(defaultURL, inspect.HostConfig.PortBindings, inspect.NetworkSettings.Ports)
 }
 
 // unregisterEnforcerWSClient closes and removes the WebSocket client for an agent.
