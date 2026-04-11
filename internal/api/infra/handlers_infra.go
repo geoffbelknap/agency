@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -94,7 +95,10 @@ func (h *handler) infraUp(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(200)
 
 	enc := json.NewEncoder(w)
+	var writeMu sync.Mutex
 	onProgress := func(component, status string) {
+		writeMu.Lock()
+		defer writeMu.Unlock()
 		enc.Encode(map[string]string{
 			"type":      "progress",
 			"component": component,
@@ -107,8 +111,10 @@ func (h *handler) infraUp(w http.ResponseWriter, r *http.Request) {
 		if h.deps.DockerStatus != nil {
 			h.deps.DockerStatus.RecordError(err)
 		}
+		writeMu.Lock()
 		enc.Encode(map[string]string{"type": "error", "error": err.Error()})
 		flusher.Flush()
+		writeMu.Unlock()
 		return
 	}
 	if h.deps.DockerStatus != nil {
@@ -116,8 +122,10 @@ func (h *handler) infraUp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	events.EmitInfraEvent(h.deps.EventBus, "infra_up", nil)
+	writeMu.Lock()
 	enc.Encode(map[string]string{"type": "done", "status": "running"})
 	flusher.Flush()
+	writeMu.Unlock()
 }
 
 // ── Infrastructure Down ──────────────────────────────────────────────────────
@@ -150,18 +158,25 @@ func (h *handler) infraDown(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.WriteHeader(200)
 	enc := json.NewEncoder(w)
+	var writeMu sync.Mutex
 
 	onProgress := func(component, status string) {
+		writeMu.Lock()
+		defer writeMu.Unlock()
 		enc.Encode(map[string]string{"type": "progress", "component": component, "status": status})
 		flusher.Flush()
 	}
 	if err := h.deps.Infra.TeardownWithProgress(r.Context(), onProgress); err != nil {
+		writeMu.Lock()
 		enc.Encode(map[string]string{"type": "error", "error": err.Error()})
 		flusher.Flush()
+		writeMu.Unlock()
 		return
 	}
+	writeMu.Lock()
 	enc.Encode(map[string]string{"type": "done", "status": "stopped"})
 	flusher.Flush()
+	writeMu.Unlock()
 }
 
 // ── Infrastructure Rebuild ───────────────────────────────────────────────────
@@ -197,18 +212,25 @@ func (h *handler) infraRebuild(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.WriteHeader(200)
 	enc := json.NewEncoder(w)
+	var writeMu sync.Mutex
 
 	onProgress := func(comp, status string) {
+		writeMu.Lock()
+		defer writeMu.Unlock()
 		enc.Encode(map[string]string{"type": "progress", "component": comp, "status": status})
 		flusher.Flush()
 	}
 	if err := h.deps.Infra.RestartComponentWithProgress(ctx, component, onProgress); err != nil {
+		writeMu.Lock()
 		enc.Encode(map[string]string{"type": "error", "error": err.Error()})
 		flusher.Flush()
+		writeMu.Unlock()
 		return
 	}
+	writeMu.Lock()
 	enc.Encode(map[string]string{"type": "done", "status": "restarted", "component": component})
 	flusher.Flush()
+	writeMu.Unlock()
 }
 
 // ── Infrastructure Reload ────────────────────────────────────────────────────
