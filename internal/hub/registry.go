@@ -16,13 +16,15 @@ import (
 
 // Instance represents an installed hub component with a unique identity.
 type Instance struct {
-	ID      string `yaml:"id" json:"id"`
-	Name    string `yaml:"name" json:"name"`
-	Kind    string `yaml:"kind" json:"kind"`
-	Version string `yaml:"version,omitempty" json:"version,omitempty"`
-	Source  string `yaml:"source" json:"source"`
-	State   string `yaml:"state" json:"state"`
-	Created string `yaml:"created" json:"created"`
+	ID            string   `yaml:"id" json:"id"`
+	Name          string   `yaml:"name" json:"name"`
+	Kind          string   `yaml:"kind" json:"kind"`
+	Version       string   `yaml:"version,omitempty" json:"version,omitempty"`
+	Source        string   `yaml:"source" json:"source"`
+	State         string   `yaml:"state" json:"state"`
+	Created       string   `yaml:"created" json:"created"`
+	AutoInstalled bool     `yaml:"auto_installed,omitempty" json:"auto_installed,omitempty"`
+	RequiredBy    []string `yaml:"required_by,omitempty" json:"required_by,omitempty"`
 }
 
 type registryFile struct {
@@ -259,6 +261,77 @@ func (r *Registry) SetVersion(nameOrID, version string) error {
 	return r.save(rf)
 }
 
+// MarkAutoInstalled records whether an instance was auto-installed as a dependency.
+func (r *Registry) MarkAutoInstalled(nameOrID string, autoInstalled bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	rf, err := r.load()
+	if err != nil {
+		return err
+	}
+
+	inst := r.resolve(rf, nameOrID)
+	if inst == nil {
+		return fmt.Errorf("instance %q not found", nameOrID)
+	}
+
+	inst.AutoInstalled = autoInstalled
+	rf.Instances[inst.Name] = *inst
+	return r.save(rf)
+}
+
+// AddRequiredBy records that parentName depends on the instance identified by nameOrID.
+func (r *Registry) AddRequiredBy(nameOrID, parentName string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	rf, err := r.load()
+	if err != nil {
+		return err
+	}
+
+	inst := r.resolve(rf, nameOrID)
+	if inst == nil {
+		return fmt.Errorf("instance %q not found", nameOrID)
+	}
+
+	for _, existing := range inst.RequiredBy {
+		if existing == parentName {
+			return nil
+		}
+	}
+	inst.RequiredBy = append(inst.RequiredBy, parentName)
+	rf.Instances[inst.Name] = *inst
+	return r.save(rf)
+}
+
+// RemoveRequiredBy removes parentName from the dependency owners for nameOrID.
+func (r *Registry) RemoveRequiredBy(nameOrID, parentName string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	rf, err := r.load()
+	if err != nil {
+		return err
+	}
+
+	inst := r.resolve(rf, nameOrID)
+	if inst == nil {
+		return fmt.Errorf("instance %q not found", nameOrID)
+	}
+
+	filtered := inst.RequiredBy[:0]
+	for _, existing := range inst.RequiredBy {
+		if existing != parentName {
+			filtered = append(filtered, existing)
+		}
+	}
+	inst.RequiredBy = filtered
+	rf.Instances[inst.Name] = *inst
+	return r.save(rf)
+}
+
 // InstanceDir returns the filesystem path for the instance identified by
 // nameOrID. Returns an empty string if the instance is not found.
 func (r *Registry) InstanceDir(nameOrID string) string {
@@ -277,9 +350,41 @@ func (r *Registry) InstanceDir(nameOrID string) string {
 	return filepath.Join(r.home, inst.Kind+"s", inst.ID)
 }
 
+func normalizeRuntimeComponentYAML(data []byte, runtimeName string) ([]byte, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("parse resolved yaml: %w", err)
+	}
+	if len(doc.Content) == 0 {
+		return data, nil
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return data, nil
+	}
+	filtered := make([]*yaml.Node, 0, len(root.Content))
+	for i := 0; i < len(root.Content); i += 2 {
+		key := root.Content[i]
+		value := root.Content[i+1]
+		if key.Value == "config" {
+			continue
+		}
+		if key.Value == "name" && runtimeName != "" && value.Kind == yaml.ScalarNode {
+			value.Value = runtimeName
+		}
+		filtered = append(filtered, key, value)
+	}
+	root.Content = filtered
+	out, err := yaml.Marshal(&doc)
+	if err != nil {
+		return nil, fmt.Errorf("marshal resolved yaml: %w", err)
+	}
+	return out, nil
+}
+
 // ResolvedYAML reads the component template and config, substitutes
 // all ${...} placeholders, and returns the resolved YAML bytes.
-// If no config.yaml exists, the template is returned as-is.
+// Hub-only config schema is stripped before runtime publication.
 func (r *Registry) ResolvedYAML(nameOrID string) ([]byte, error) {
 	inst := r.Resolve(nameOrID)
 	if inst == nil {
@@ -296,12 +401,12 @@ func (r *Registry) ResolvedYAML(nameOrID string) ([]byte, error) {
 
 	cv, err := ReadConfig(instDir)
 	if err != nil {
-		// No config.yaml — return template as-is
-		return templateData, nil
+		// No config.yaml — return the template without the hub-only config schema.
+		return normalizeRuntimeComponentYAML(templateData, inst.Name)
 	}
 
 	resolved := ResolvePlaceholders(string(templateData), cv.Values)
-	return []byte(resolved), nil
+	return normalizeRuntimeComponentYAML([]byte(resolved), inst.Name)
 }
 
 // oldProvenance is the legacy hub-installed.json entry format.
