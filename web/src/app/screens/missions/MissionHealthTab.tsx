@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { Link } from 'react-router';
 import {
   AreaChart,
   Area,
@@ -11,7 +12,8 @@ import {
   Cell,
   Legend,
 } from 'recharts';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, Wrench } from 'lucide-react';
+import { Button } from '@/app/components/ui/button';
 import { Badge } from '@/app/components/ui/badge';
 import { api } from '@/app/lib/api';
 import type { EvaluationResult, ProcedureRecord, EpisodeRecord } from '@/app/types';
@@ -145,6 +147,13 @@ function InfraHealthPanel({ missionName }: { missionName: string }) {
 
   const statusColor = health.status === 'healthy' ? 'text-emerald-400' : health.status === 'degraded' ? 'text-amber-400' : 'text-red-400';
   const borderColor = health.status === 'healthy' ? 'border-emerald-900/50' : health.status === 'degraded' ? 'border-amber-900/50' : 'border-red-900/50';
+  const recommendedFixes = Array.from(
+    new Set(
+      (health.checks as Array<{ status?: string; fix?: string }>)
+        .filter((check) => (check.status === 'fail' || check.status === 'warn') && typeof check.fix === 'string' && check.fix.trim().length > 0)
+        .map((check) => check.fix!.trim()),
+    ),
+  );
 
   return (
     <div className={`bg-card border ${borderColor} rounded-lg p-4 mb-6`}>
@@ -172,6 +181,39 @@ function InfraHealthPanel({ missionName }: { missionName: string }) {
           </div>
         ))}
       </div>
+      {health.status !== 'healthy' && (
+        <div className="mt-4 rounded-lg border border-border/70 bg-secondary/30 p-3">
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-foreground/80">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Recommended Next Steps
+          </div>
+          {recommendedFixes.length > 0 ? (
+            <ul className="mt-2 space-y-1.5 text-xs text-muted-foreground">
+              {recommendedFixes.map((fix) => (
+                <li key={fix} className="flex items-start gap-2">
+                  <Wrench className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-400" />
+                  <span>{fix}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Review infrastructure health, then run Doctor if the issue spans multiple agents or services.
+            </p>
+          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+              <Link to="/admin/infrastructure">Open Infrastructure</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+              <Link to="/admin/doctor">Open Doctor</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+              <Link to={`/missions/${missionName}`}>Open Mission Overview</Link>
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

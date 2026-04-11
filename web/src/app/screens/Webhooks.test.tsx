@@ -32,9 +32,12 @@ describe('Webhooks', () => {
     server.use(
       http.get(`${BASE}/events/webhooks`, () => HttpResponse.json([])),
     );
-    renderWithRouter(<Webhooks />);
+    renderWithRouter(<Webhooks />, { route: '/admin/webhooks' });
     await waitFor(() => {
       expect(screen.getByText(/no webhooks/i)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Open Notifications' })).toHaveAttribute('href', '/admin/notifications');
+      expect(screen.getByRole('link', { name: 'Review Events' })).toHaveAttribute('href', '/admin/events');
+      expect(screen.getByText(/use webhooks when another system needs a signed inbound endpoint/i)).toBeInTheDocument();
     });
   });
 

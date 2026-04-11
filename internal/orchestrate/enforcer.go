@@ -170,7 +170,11 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 
 	enforcerHostConfig := containers.HostConfigDefaults(containers.RoleEnforcer)
 	enforcerHostConfig.Binds = binds
-	enforcerHostConfig.NetworkMode = container.NetworkMode(operatorNetName())
+	// The enforcer must live on the internal gateway mediation plane, not on
+	// the external-facing operator network. We still publish the constraint
+	// port to loopback so the host gateway can reach it without widening the
+	// enforcer's container network exposure.
+	enforcerHostConfig.NetworkMode = container.NetworkMode(gatewayNetName())
 	enforcerHostConfig.Tmpfs = map[string]string{"/tmp": "size=64M", "/run": "size=32M"}
 	constraintHostPort, err := pickLoopbackPort()
 	if err != nil {
@@ -193,7 +197,7 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 
 	netCfg := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
-			operatorNetName(): {},
+			gatewayNetName(): {},
 		},
 	}
 
@@ -247,10 +251,7 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 		Aliases: []string{"enforcer"},
 	})
 
-	// Connect to gateway network (hub — service access, signals, budget)
-	_ = e.cli.NetworkConnect(ctx, gatewayNetName(), containerID, &network.EndpointSettings{
-		Aliases: []string{"enforcer"},
-	})
+	// Already started on the gateway network (hub — service access, signals, budget)
 
 	// Connect to egress network (LLM proxy)
 	_ = e.cli.NetworkConnect(ctx, egressIntNetName(), containerID, &network.EndpointSettings{

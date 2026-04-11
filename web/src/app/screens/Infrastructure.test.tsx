@@ -129,6 +129,24 @@ describe('Infrastructure', () => {
     });
   });
 
+  it('shows recovery guidance when services are unhealthy', async () => {
+    server.use(
+      http.get(`${BASE}/infra/status`, () =>
+        HttpResponse.json(wrapInfra([
+          { name: 'gateway', state: 'running', health: 'unhealthy', container_id: 'abc123', uptime: '2h' },
+        ])),
+      ),
+    );
+
+    renderWithRouter(<Infrastructure />);
+
+    await waitFor(() => {
+      expect(screen.getByText('1 service is unhealthy')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Open Doctor' })).toHaveAttribute('href', '/admin/doctor');
+      expect(screen.getByRole('button', { name: 'Restart infrastructure' })).toBeInTheDocument();
+    });
+  });
+
   it('stops all services', async () => {
     let stopped = false;
     server.use(

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router';
-import { Plus, RefreshCw, Workflow } from 'lucide-react';
+import { Link, useNavigate } from 'react-router';
+import { AlertTriangle, Plus, RefreshCw, Workflow } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { api, type RawMission, type MissionHealthResponse } from '../lib/api';
@@ -66,6 +66,10 @@ export function MissionList() {
     .map(([status, count]) => `${count} ${status}`)
     .join(', ');
 
+  const degradedMissions = missions.filter((mission) => healthMap[mission.name]?.status === 'degraded');
+  const unhealthyMissions = missions.filter((mission) => healthMap[mission.name]?.status === 'unhealthy');
+  const attentionMissions = [...unhealthyMissions, ...degradedMissions];
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
@@ -98,6 +102,33 @@ export function MissionList() {
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-4 md:p-8">
+        {attentionMissions.length > 0 && (
+          <div className="mb-4 rounded-lg border border-amber-900/50 bg-amber-950/20 p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-sm font-medium text-amber-300">
+                  <AlertTriangle className="h-4 w-4" />
+                  {attentionMissions.length} mission{attentionMissions.length !== 1 ? 's' : ''} need attention
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {unhealthyMissions.length > 0 && `${unhealthyMissions.length} unhealthy`}
+                  {unhealthyMissions.length > 0 && degradedMissions.length > 0 && ' · '}
+                  {degradedMissions.length > 0 && `${degradedMissions.length} degraded`}
+                  {' · '}
+                  Review mission health details, then use Doctor or Infrastructure if the issue is platform-wide.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                  <Link to="/admin/doctor">Open Doctor</Link>
+                </Button>
+                <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                  <Link to="/admin/infrastructure">Open Infrastructure</Link>
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
         {missions.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-muted-foreground gap-4">
             <p>No missions yet. Create one to get started.</p>
@@ -162,8 +193,12 @@ export function MissionList() {
                       {mission.triggers.length} trigger{mission.triggers.length !== 1 ? 's' : ''}
                     </span>
                   )}
-                  {healthMap[mission.name]?.status === 'unhealthy' && (
-                    <span className="text-red-400 text-[11px]">{healthMap[mission.name].summary}</span>
+                  {healthMap[mission.name] && healthMap[mission.name].status !== 'healthy' && (
+                    <span
+                      className={healthMap[mission.name].status === 'unhealthy' ? 'text-red-400 text-[11px]' : 'text-amber-400 text-[11px]'}
+                    >
+                      {healthMap[mission.name].status}: {healthMap[mission.name].summary}
+                    </span>
                   )}
                 </div>
               </div>

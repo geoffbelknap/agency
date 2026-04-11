@@ -8,7 +8,7 @@ import { CreateAgentDialog } from '../app/components/CreateAgentDialog';
 import { toast } from 'sonner';
 
 vi.mock('../app/lib/ws', () => ({ socket: { on: () => () => {} } }));
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
 const BASE = 'http://localhost:8200/api/v1';
 
@@ -92,6 +92,29 @@ describe('CreateAgentDialog', () => {
       expect(onCreated).toHaveBeenCalled();
     });
     expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('created'));
+  });
+
+  it('reports create success separately when auto-start fails', async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(`${BASE}/agents`, async ({ request }) => {
+        const body = await request.json() as any;
+        return HttpResponse.json({ status: 'created', name: body.name }, { status: 201 });
+      }),
+      http.post(`${BASE}/agents/test-agent/start`, () =>
+        HttpResponse.json({ error: 'agent failed to start' }, { status: 500 }),
+      ),
+    );
+    const { onCreated, onOpenChange } = renderDialog();
+    const nameInput = await screen.findByLabelText(/name/i);
+    await user.type(nameInput, 'test-agent');
+    await user.click(screen.getByRole('button', { name: /create/i }));
+    await waitFor(() => {
+      expect(onCreated).toHaveBeenCalled();
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+    expect(toast.success).toHaveBeenCalledWith('Agent "test-agent" created');
+    expect(toast.info).toHaveBeenCalledWith('Agent "test-agent" was created, but did not start. Start it from the agent detail view.');
   });
 
   it('shows error toast on API failure', async () => {

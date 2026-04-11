@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router';
 import { toast } from 'sonner';
 import { api } from '../lib/api';
 import { Button } from '../components/ui/button';
-import { Plus, Copy, Trash2, X, Save, FileText } from 'lucide-react';
+import { AlertTriangle, Copy, FileText, Plus, Save, Trash2, X } from 'lucide-react';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 
 interface PresetSummary {
@@ -178,6 +179,25 @@ export function Presets() {
         </Button>
       </div>
 
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1">
+            <div className="text-sm font-medium text-foreground">Use presets to standardize agent behavior before enabling tools</div>
+            <p className="text-xs text-muted-foreground">
+              Start from a built-in preset when the role already exists, then duplicate it only when your team needs a custom identity, limits, or escalation rules.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+              <Link to="/admin/capabilities">Open Capabilities</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+              <Link to="/agents">Open Agents</Link>
+            </Button>
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Preset list */}
         <div className="space-y-3">
@@ -225,8 +245,14 @@ export function Presets() {
         {/* Detail / Editor panel */}
         <div className="lg:col-span-2">
           {!editing && !selected ? (
-            <div className="bg-card border border-border rounded p-8 text-center text-sm text-muted-foreground">
-              Select a preset to view, or create a new one.
+            <div className="bg-card border border-border rounded p-8 text-center">
+              <div className="flex items-center justify-center gap-2 text-sm font-medium text-amber-300">
+                <AlertTriangle className="h-4 w-4" />
+                Select a preset to review before creating a custom one
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Built-in presets are the fastest path for alpha users. Create a custom preset only when the built-ins no longer match the role you need.
+              </p>
             </div>
           ) : editing ? (
             /* Editor form */

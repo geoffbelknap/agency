@@ -121,4 +121,123 @@ test('live stack supports read-only direct routes for available entities', async
       await expect(page.getByText(/Loading\.\.\.|No channels available/)).toBeVisible();
     }
   }
+
+  const connectors = await fetchJson<Array<{ name?: string; id?: string }>>(request, '/api/v1/hub/instances?kind=connector');
+  const firstConnector = Array.isArray(connectors) ? connectors.find((connector) => connector?.name)?.name : null;
+  if (firstConnector) {
+    await page.goto('/admin/intake');
+    await settle(page);
+    await expect(page.getByRole('tab', { name: 'Connectors' })).toBeVisible();
+    await expect(page.getByText('Healthy Polling')).toBeVisible();
+    await expect(page.getByText('Needs Review')).toBeVisible();
+
+    await page.getByRole('button', { name: new RegExp(firstConnector) }).first().click();
+    await expect(page.getByRole('button', { name: 'Setup' })).toBeVisible();
+    await expect(page.getByText(/Ready to ingest|Inactive connector|No poll health yet|Needs connector review/)).toBeVisible();
+    await page.getByRole('button', { name: 'Setup' }).click();
+
+    await expect(page.getByText(`Setup: ${firstConnector}`)).toBeVisible();
+    await expect(page.getByText(/Setup saves required credentials, applies connector egress rules, and activates the connector when it is ready\./)).toBeVisible();
+    await expect(page.getByText(/Ready|Not configured|No requirements data/)).toBeVisible();
+  }
+});
+
+test('live stack supports non-destructive operator diagnostics and recovery actions', async ({ page }) => {
+  await page.goto('/');
+  const initialized = await expectSetupOrInitialized(page);
+  if (!initialized) {
+    return;
+  }
+
+  await page.goto('/admin/doctor');
+  await settle(page);
+  const runDoctorButton = page.getByRole('button', { name: /Run Doctor|Running\.\.\./ });
+  await expect(runDoctorButton).toBeVisible();
+  if (await page.getByRole('button', { name: 'Run Doctor' }).count()) {
+    await page.getByRole('button', { name: 'Run Doctor' }).click();
+  }
+  await expectAnyVisible(page, ['Run Doctor', 'Running...', 'Running doctor checks...', 'No checks returned']);
+
+  const platformGroup = page.getByText('(platform)');
+  if (await platformGroup.count()) {
+    await platformGroup.click();
+    await expect(page.getByText(/checks/i)).toBeVisible();
+  }
+
+  await page.goto('/admin/infrastructure');
+  await settle(page);
+  await expect(page.getByRole('heading', { name: 'Infrastructure' })).toBeVisible();
+  const refreshButton = page.getByRole('button', { name: /Refresh infrastructure|Refreshing infrastructure/ });
+  await expect(refreshButton).toBeVisible();
+  if (await page.getByRole('button', { name: 'Refresh infrastructure' }).count()) {
+    await page.getByRole('button', { name: 'Refresh infrastructure' }).click();
+  }
+  await expect(page.getByRole('button', { name: /Refresh infrastructure|Refreshing infrastructure/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Start All|Restart All/ })).toBeVisible();
+});
+
+test('live recovery surfaces expose likely next steps when recent failures exist', async ({ page }) => {
+  await page.goto('/');
+  const initialized = await expectSetupOrInitialized(page);
+  if (!initialized) {
+    return;
+  }
+
+  await page.goto('/admin/events');
+  await settle(page);
+  await expect(page.getByRole('button', { name: 'Refresh' })).toBeVisible();
+
+  if (await page.getByText(/recent event.*need attention/i).count()) {
+    await expect(page.getByText(/recent event.*need attention/i)).toBeVisible();
+    const firstAttentionRow = page.locator('text=/error|warning/i').first();
+    if (await firstAttentionRow.count()) {
+      await firstAttentionRow.click();
+      await expect(page.getByText('Likely next step')).toBeVisible();
+      await expect(page.getByRole('link', { name: /Open (Intake|Infrastructure|Webhooks|Channel)/ }).first()).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Open Doctor' }).first()).toBeVisible();
+    }
+  }
+
+  await page.goto('/admin/usage');
+  await settle(page);
+  await expect(page.getByText('LLM usage and estimated spend')).toBeVisible();
+
+  if (await page.getByText(/recent routing error.*need attention/i).count()) {
+    await expect(page.getByText(/recent routing error.*need attention/i)).toBeVisible();
+    await expect(page.getByText('Likely next step').first()).toBeVisible();
+    await expect(page.getByRole('link', { name: /Open Agent:/ }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open Doctor' }).first()).toBeVisible();
+  }
+});
+
+test('live hub surfaces source trust and provenance guidance without mutating state', async ({ page }) => {
+  await page.goto('/');
+  const initialized = await expectSetupOrInitialized(page);
+  if (!initialized) {
+    return;
+  }
+
+  await page.goto('/admin/hub');
+  await settle(page);
+  await expect(page.getByText('Trust and update behavior')).toBeVisible();
+  await expect(page.getByText(/verify the source before installing/i)).toBeVisible();
+  await page.getByRole('tab', { name: 'Installed' }).click();
+  await expect(page.getByText('Installed component hygiene')).toBeVisible();
+  await expect(page.getByText('Operator-Installable', { exact: true })).toBeVisible();
+  await expect(page.getByText('Hub-Managed', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Browse' }).click();
+
+  const infoButton = page.getByRole('button', { name: /view hub-managed info|info/i }).first();
+  if (await infoButton.count()) {
+    await infoButton.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    if (await dialog.getByText('Trust & Provenance').count()) {
+      await expect(dialog.getByText('Trust & Provenance')).toBeVisible();
+      await expect(dialog.getByText(/OCI content from the official Agency Hub source\.|Local content under direct operator control on this machine\.|Review source ownership and trust before installing or upgrading\.|Verify the source before relying on this component\./)).toBeVisible();
+      await expect(dialog.getByText(/updated through source refresh and upgrade|operator-installable content/i)).toBeVisible();
+    } else {
+      await expect(dialog.getByText(/Loading\.\.\.|No additional info available/)).toBeVisible();
+    }
+  }
 });

@@ -32,9 +32,12 @@ describe('Notifications', () => {
     server.use(
       http.get(`${BASE}/events/notifications`, () => HttpResponse.json([])),
     );
-    renderWithRouter(<Notifications />);
+    renderWithRouter(<Notifications />, { route: '/admin/notifications' });
     await waitFor(() => {
       expect(screen.getByText(/no notification destinations/i)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Open Webhooks' })).toHaveAttribute('href', '/admin/webhooks');
+      expect(screen.getByRole('link', { name: 'Review Events' })).toHaveAttribute('href', '/admin/events');
+      expect(screen.getByText(/use notifications for operator alerts/i)).toBeInTheDocument();
     });
   });
 

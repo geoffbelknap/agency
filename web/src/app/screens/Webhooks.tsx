@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router';
 import { toast } from 'sonner';
 import { api, RawWebhook } from '../lib/api';
 import { Button } from '../components/ui/button';
-import { RefreshCw, Plus, Trash2, RotateCw, Copy } from 'lucide-react';
+import { AlertTriangle, Copy, Plus, RefreshCw, RotateCw, Trash2 } from 'lucide-react';
 import { formatDateTime } from '../lib/time';
 
 export function Webhooks() {
@@ -95,6 +96,25 @@ export function Webhooks() {
         </div>
       </div>
 
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1">
+            <div className="text-sm font-medium text-foreground">Use webhooks when another system needs a signed inbound endpoint</div>
+            <p className="text-xs text-muted-foreground">
+              Webhooks are for external delivery into Agency. Use notifications for operator-facing alerts like ntfy topics and outbound paging.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+              <Link to="/admin/notifications">Open Notifications</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+              <Link to="/admin/events">Review Events</Link>
+            </Button>
+          </div>
+        </div>
+      </div>
+
       {error && (
         <div className="text-sm text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded px-3 py-2">
           {error}
@@ -157,7 +177,15 @@ export function Webhooks() {
         {loading ? (
           <div className="text-muted-foreground text-center py-8 text-sm">Loading webhooks...</div>
         ) : webhooks.length === 0 ? (
-          <div className="text-muted-foreground text-center py-8 text-sm">No webhooks registered</div>
+          <div className="py-8 px-4 text-center">
+            <div className="flex items-center justify-center gap-2 text-sm font-medium text-amber-300">
+              <AlertTriangle className="h-4 w-4" />
+              No webhooks registered
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Create a webhook when an external system needs to push signed events into Agency or verify delivery end to end.
+            </p>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[500px]">

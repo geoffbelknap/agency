@@ -23,6 +23,7 @@ const metrics = {
   by_model: {},
   by_provider: {},
   by_source: {},
+  recent_errors: [],
 };
 
 function mockUsageData(suggestions: unknown[] = [], stats: unknown[] = []) {
@@ -114,5 +115,38 @@ describe('Usage', () => {
     expect(screen.getByText('claude-haiku')).toBeInTheDocument();
     expect(screen.getByText('96%')).toBeInTheDocument();
     expect(screen.getByText('$0.0120')).toBeInTheDocument();
+  });
+
+  it('shows recovery guidance when recent routing errors exist', async () => {
+    server.use(
+      http.get('*/__agency/config', () => HttpResponse.json({ gateway: 'http://localhost:8200' })),
+      http.get(`${BASE}/infra/routing/metrics`, () =>
+        HttpResponse.json({
+          ...metrics,
+          totals: { ...metrics.totals, errors: 2 },
+          recent_errors: [
+            {
+              ts: '2026-04-09T12:00:00Z',
+              agent: 'alice',
+              model: 'claude-sonnet',
+              status: 429,
+              error: 'Rate limit exceeded',
+            },
+          ],
+        }),
+      ),
+      http.get(`${BASE}/infra/routing/suggestions`, () => HttpResponse.json([])),
+      http.get(`${BASE}/infra/routing/stats`, () => HttpResponse.json([])),
+    );
+
+    renderWithRouter(<Usage />, { route: '/admin/usage' });
+
+    await waitFor(() => {
+      expect(screen.getByText(/recent routing error/)).toBeInTheDocument();
+      expect(screen.getAllByRole('link', { name: 'Open Agent: alice' }).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole('link', { name: 'Open Doctor' }).length).toBeGreaterThan(0);
+      expect(screen.getByText('Rate limit exceeded')).toBeInTheDocument();
+      expect(screen.getByText(/looks like a provider or rate-limit issue/i)).toBeInTheDocument();
+    });
   });
 });

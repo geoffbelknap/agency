@@ -88,10 +88,22 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
 
     try {
       await api.agents.create(name, preset, mode);
+      let startFailed = false;
       if (autoStart) {
-        try { await api.agents.start(name); } catch { /* best effort */ }
+        try {
+          await api.agents.start(name);
+        } catch {
+          startFailed = true;
+        }
       }
-      toast.success(`Agent "${name}" ${autoStart ? 'created and started' : 'created'}`);
+      if (autoStart && !startFailed) {
+        toast.success(`Agent "${name}" created and started`);
+      } else {
+        toast.success(`Agent "${name}" created`);
+        if (autoStart) {
+          toast.info(`Agent "${name}" was created, but did not start. Start it from the agent detail view.`);
+        }
+      }
       onCreated();
       onOpenChange(false);
     } catch (err) {

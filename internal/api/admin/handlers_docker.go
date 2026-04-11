@@ -95,7 +95,13 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 		// no agents are running — they're created by infra up, not orphans.
 		var orphans []string
 		for _, n := range nets {
-			if len(n.Containers) == 0 && !isSharedInfraNetwork(n.Name) {
+			inspect, err := h.deps.DC.NetworkInspectRaw(ctx, n.Name)
+			if err != nil {
+				results = append(results, warn("docker_orphan_networks",
+					"Cannot inspect network "+n.Name+": "+err.Error()))
+				return
+			}
+			if len(inspect.Containers) == 0 && !isSharedInfraNetwork(n.Name) {
 				orphans = append(orphans, n.Name)
 			}
 		}
@@ -111,28 +117,15 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 
 	// ── 3. Dangling images ────────────────────────────────────────────────────
 	func() {
-		imgs, err := h.deps.DC.ListAgencyImages(ctx)
+		imgs, err := h.deps.DC.ListDanglingAgencyImages(ctx)
 		if err != nil {
 			results = append(results, warn("docker_dangling_images",
 				"Cannot list images: "+err.Error()))
 			return
 		}
-		var dangling []string
-		for _, img := range imgs {
-			for _, tag := range img.RepoTags {
-				// Dangling = has an agency- prefix but is NOT tagged :latest
-				if !strings.HasSuffix(tag, ":latest") {
-					dangling = append(dangling, tag)
-				}
-			}
-			// Untagged images (RepoTags is empty) are also dangling
-			if len(img.RepoTags) == 0 {
-				dangling = append(dangling, "<untagged>")
-			}
-		}
-		if len(dangling) > 0 {
+		if len(imgs) > 0 {
 			results = append(results, warn("docker_dangling_images",
-				fmt.Sprintf("%d dangling agency image(s)", len(dangling))))
+				fmt.Sprintf("%d true dangling agency image(s)", len(imgs))))
 		} else {
 			results = append(results, pass("docker_dangling_images",
 				"No dangling agency images"))

@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation, useNavigate } from 'react-router';
-import { Bot, MessageSquare, Settings, Menu, X, Sun, Moon, Monitor, Pin, PinOff, Brain, Target, UserCircle, LogOut } from 'lucide-react';
+import { Bot, MessageSquare, Settings, Menu, X, Sun, Moon, Monitor, Pin, PinOff, Brain, Target, UserCircle, LogOut, Package, Cable, Users } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { socket } from '../lib/ws';
 import { api, ensureConfig, getVia, getAuthenticated } from '../lib/api';
@@ -11,8 +11,11 @@ const primaryNav = [
   { name: 'Channels', path: '/channels', icon: MessageSquare },
   { name: 'Agents', path: '/agents', icon: Bot },
   { name: 'Missions', path: '/missions', icon: Target },
+  { name: 'Teams', path: '/teams', icon: Users },
   { name: 'Knowledge', path: '/knowledge', icon: Brain },
   { name: 'Profiles', path: '/profiles', icon: UserCircle },
+  { name: 'Hub', path: '/admin/hub', icon: Package },
+  { name: 'Intake', path: '/admin/intake', icon: Cable },
 ];
 
 const secondaryNav = [

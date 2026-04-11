@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { StatusIndicator } from '../components/StatusIndicator';
 import { Agent, InfrastructureService, AuditEvent } from '../types';
 import { Button } from '../components/ui/button';
@@ -154,6 +154,7 @@ export function Overview() {
 
   const hasRunningServices = infrastructure.some((service) => isRunningState(service.state));
   const primaryAction: InfraAction = hasRunningServices ? 'restart' : 'start';
+  const hasAgents = agents.length > 0;
 
   const handleInfraAction = async (action: InfraAction) => {
     setInfraAction(action);
@@ -238,6 +239,56 @@ export function Overview() {
       <div className="flex-1 p-4 md:p-8 grid grid-cols-1 lg:grid-cols-3 gap-6 overflow-auto">
         {/* Agent Summary */}
         <div className="lg:col-span-2">
+          <div className="mb-4 rounded-lg border border-border bg-card p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-1">
+                <div className="text-sm font-medium text-foreground">Suggested next steps</div>
+                <p className="text-xs text-muted-foreground">
+                  {!hasRunningServices
+                    ? 'Start infrastructure first so the web UI, comms, and gateway services are available.'
+                    : !hasAgents
+                      ? 'Infrastructure is up. Create your first agent, then open a DM to verify the stack is working.'
+                      : 'Your platform is running. Move into direct messages, missions, or intake depending on the next operator task.'}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {!hasRunningServices ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => handleInfraAction('start')}
+                    disabled={infraAction !== null}
+                  >
+                    <Play className="w-3 h-3 mr-1" />
+                    {infraAction === 'start' ? 'Starting infra...' : 'Start infrastructure'}
+                  </Button>
+                ) : !hasAgents ? (
+                  <>
+                    <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                      <Link to="/agents">Create an agent</Link>
+                    </Button>
+                    <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                      <Link to="/setup">Open setup wizard</Link>
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                      <Link to="/channels">Open channels</Link>
+                    </Button>
+                    <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                      <Link to="/missions">Open missions</Link>
+                    </Button>
+                    <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                      <Link to="/admin/intake">Open intake</Link>
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
           <h2 className="text-xs font-bold text-foreground/80 uppercase tracking-widest mb-3">
             Agents ({agents.length})
           </h2>

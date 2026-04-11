@@ -746,9 +746,10 @@ func runQuickstart(opts quickstartOptions) error {
 		fmt.Printf("    • Chat:        %s\n", qsBold.Render(chatURL))
 		fmt.Printf("    • CLI fallback:%s\n", qsBold.Render(fmt.Sprintf(" agency send %s \"your task here\"", runningAgent)))
 	}
+	fmt.Printf("    • Agents:      %s\n", qsBold.Render(webURL+"/agents"))
+	fmt.Printf("    • Missions:    %s\n", qsBold.Render(webURL+"/missions"))
 	fmt.Printf("    • Alpha guide: %s\n", qsBold.Render("docs/alpha-test.md"))
 	fmt.Printf("    • Status:      %s\n", qsBold.Render("agency status"))
-	fmt.Printf("    • More agents: %s\n", qsBold.Render("agency hub search"))
 	if choice.preset == "engineer" {
 		fmt.Printf("    • Full team:   %s\n", qsBold.Render("agency hub install security-ops"))
 	}

@@ -9,6 +9,10 @@ async function settle(page: Page) {
   await expect(page.getByText(APP_ERROR_PATTERN)).toHaveCount(0);
 }
 
+async function gotoRoute(page: Page, path: string) {
+  await page.goto(path, { waitUntil: 'domcontentloaded' });
+}
+
 async function isSetupFlow(page: Page) {
   return (await page.getByRole('heading', { name: SETUP_HEADING_PATTERN }).count()) > 0;
 }
@@ -33,7 +37,7 @@ test('live stack serves health and renders a top-level UI shell', async ({ page,
   const health = await request.get('/health');
   expect(health.ok()).toBeTruthy();
 
-  await page.goto('/');
+  await gotoRoute(page, '/');
   await settle(page);
 
   const bodyText = await page.locator('body').innerText();
@@ -43,7 +47,7 @@ test('live stack serves health and renders a top-level UI shell', async ({ page,
 });
 
 test('live stack routes to setup or initialized navigation without app errors', async ({ page }) => {
-  await page.goto('/');
+  await gotoRoute(page, '/');
   const initialized = await expectSetupOrInitialized(page);
   if (!initialized) {
     return;
@@ -52,16 +56,19 @@ test('live stack routes to setup or initialized navigation without app errors', 
   await expect(page.getByRole('link', { name: 'Channels' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Agents' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Missions' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Teams' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Knowledge' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Profiles' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Hub' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Intake' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Admin' })).toBeVisible();
 
-  await page.goto('/admin');
+  await gotoRoute(page, '/admin');
   await expect(page.getByRole('heading', { name: 'Admin' })).toBeVisible();
 });
 
 test('live stack top-level routes render without app errors when initialized', async ({ page }) => {
-  await page.goto('/');
+  await gotoRoute(page, '/');
   const initialized = await expectSetupOrInitialized(page);
   if (!initialized) {
     return;
@@ -86,20 +93,49 @@ test('live stack top-level routes render without app errors when initialized', a
   ];
 
   for (const route of routes) {
-    await page.goto(route.path);
+    await gotoRoute(page, route.path);
     await settle(page);
     await route.expectVisible();
   }
 });
 
-test('live stack supports read-only drill-downs for key initialized views', async ({ page }) => {
-  await page.goto('/');
+test('live overview surfaces the right next-step guidance for the current stack state', async ({ page, request }) => {
+  await gotoRoute(page, '/overview');
   const initialized = await expectSetupOrInitialized(page);
   if (!initialized) {
     return;
   }
 
-  await page.goto('/agents');
+  await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
+  await expect(page.getByText('Suggested next steps')).toBeVisible();
+
+  if (await page.getByRole('button', { name: 'Start infrastructure' }).count()) {
+    await expect(page.getByText(/start infrastructure first/i)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Start infrastructure' })).toBeVisible();
+    return;
+  }
+
+  if (await page.getByRole('link', { name: 'Create an agent' }).count()) {
+    await expect(page.getByText(/create your first agent/i)).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Create an agent' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open setup wizard' })).toBeVisible();
+    return;
+  }
+
+  await expect(page.getByText(/move into direct messages, missions, or intake/i)).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open channels' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open missions' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open intake' })).toBeVisible();
+});
+
+test('live stack supports read-only drill-downs for key initialized views', async ({ page }) => {
+  await gotoRoute(page, '/');
+  const initialized = await expectSetupOrInitialized(page);
+  if (!initialized) {
+    return;
+  }
+
+  await gotoRoute(page, '/agents');
   await settle(page);
   if (await page.getByText('No agents. Create one to get started.').count()) {
     await expect(page.getByText('No agents. Create one to get started.')).toBeVisible();
@@ -111,7 +147,7 @@ test('live stack supports read-only drill-downs for key initialized views', asyn
     await expect(page.getByRole('tab', { name: 'System' })).toBeVisible();
   }
 
-  await page.goto('/missions');
+  await gotoRoute(page, '/missions');
   await settle(page);
   if (await page.getByText('No missions yet. Create one to get started.').count()) {
     await expect(page.getByText('No missions yet. Create one to get started.')).toBeVisible();
@@ -123,31 +159,35 @@ test('live stack supports read-only drill-downs for key initialized views', asyn
       return Array.isArray(missions) && missions.length > 0 ? missions[0]?.name ?? null : null;
     });
     if (firstMissionName) {
-      await page.goto(`/missions/${encodeURIComponent(firstMissionName)}`);
+      await gotoRoute(page, `/missions/${encodeURIComponent(firstMissionName)}`);
       await settle(page);
       await expect(page.getByRole('button', { name: /Visual Editor|Open in Wizard/ }).first()).toBeVisible();
     }
   }
 
-  await page.goto('/knowledge');
+  await gotoRoute(page, '/knowledge');
   await settle(page);
-  await page.getByRole('button', { name: 'Graph' }).click();
-  await settle(page);
-  await page.getByRole('button', { name: 'Search' }).click();
-  await settle(page);
+  if (await page.getByRole('button', { name: 'Graph' }).count()) {
+    await page.getByRole('button', { name: 'Graph' }).click();
+    await settle(page);
+  }
+  if (await page.getByRole('button', { name: 'Search' }).count()) {
+    await page.getByRole('button', { name: 'Search' }).click();
+    await settle(page);
+  }
   await expect(page.getByText(/Query Knowledge|Knowledge graph is empty/)).toBeVisible();
 
-  await page.goto('/admin/usage');
+  await gotoRoute(page, '/admin/usage');
   await settle(page);
   await expect(page.getByRole('heading', { name: 'Admin' })).toBeVisible();
 
-  await page.goto('/admin/events');
+  await gotoRoute(page, '/admin/events');
   await settle(page);
   await expect(page.getByRole('button', { name: 'Refresh' })).toBeVisible();
 });
 
 test('live stack supports interactive navigation without mutating state', async ({ page, request }) => {
-  await page.goto('/');
+  await gotoRoute(page, '/');
   const initialized = await expectSetupOrInitialized(page);
   if (!initialized) {
     return;

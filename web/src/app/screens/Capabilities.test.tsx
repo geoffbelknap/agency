@@ -44,11 +44,22 @@ describe('Capabilities', () => {
 
   it('has correct kind options in add form', async () => {
     server.use(http.get(`${BASE}/admin/capabilities`, () => HttpResponse.json([])));
-    renderWithRouter(<Capabilities />);
+    renderWithRouter(<Capabilities />, { route: '/admin/capabilities' });
     await userEvent.click(screen.getByRole('button', { name: /add capability/i }));
     // The add-form select should have service as default value
     const select = screen.getByDisplayValue('service');
     expect(select).toBeInTheDocument();
+  });
+
+  it('shows operator guidance and cross-links when empty', async () => {
+    server.use(http.get(`${BASE}/admin/capabilities`, () => HttpResponse.json([])));
+    renderWithRouter(<Capabilities />, { route: '/admin/capabilities' });
+    await waitFor(() => {
+      expect(screen.getByText(/use capabilities to control what agents can touch/i)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Open Presets' })).toHaveAttribute('href', '/admin/presets');
+      expect(screen.getByRole('link', { name: 'Review Policy' })).toHaveAttribute('href', '/admin/policy');
+      expect(screen.getByText(/add a capability only when you need to expose a new tool/i)).toBeInTheDocument();
+    });
   });
 
   it('enables a disabled capability', async () => {

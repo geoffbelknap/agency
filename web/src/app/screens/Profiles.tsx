@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router';
-import { RefreshCw, Plus } from 'lucide-react';
+import { Link, useParams, useNavigate } from 'react-router';
+import { AlertTriangle, Plus, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Profile, ProfileType } from '../types';
 import { Button } from '../components/ui/button';
@@ -132,6 +132,27 @@ export function Profiles() {
 
       {/* Master-Detail split */}
       <div className="flex-1 min-h-0 flex flex-col">
+        <div className="shrink-0 px-4 md:px-8 pb-4">
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-1">
+                <div className="text-sm font-medium text-foreground">Use profiles to separate operator identity from agent identity</div>
+                <p className="text-xs text-muted-foreground">
+                  Operator profiles are for people and their preferences. Agent profiles are for long-lived personas or system actors that need their own visible identity in channels and history.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                  <Link to="/channels">Open Channels</Link>
+                </Button>
+                <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                  <Link to="/agents">Open Agents</Link>
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Profile List — top portion */}
         <div className="shrink-0 max-h-[30vh] min-h-[120px] overflow-auto border-b border-border px-4 md:px-8">
           {loading ? (
@@ -155,8 +176,14 @@ export function Profiles() {
               onDeleted={handleDeleted}
             />
           ) : (
-            <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-              Select a profile to view details
+            <div className="flex flex-col items-center justify-center h-full text-sm text-muted-foreground gap-2">
+              <div className="flex items-center gap-2 text-sm font-medium text-amber-300">
+                <AlertTriangle className="h-4 w-4" />
+                Select a profile to view details
+              </div>
+              <p className="max-w-md text-center text-xs text-muted-foreground/80">
+                Start with the operator profile you use most often, then create agent profiles only for assistants that need a persistent identity across chats and missions.
+              </p>
             </div>
           )}
         </div>

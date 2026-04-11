@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../../test/server';
@@ -13,7 +13,7 @@ describe('Hub', () => {
     server.use(
       http.get(`${BASE}/hub/instances`, () =>
         HttpResponse.json([
-          { name: 'ops-pack', kind: 'pack', source: 'github', version: '1.0.0' },
+          { name: 'ops-pack', kind: 'pack', source: 'official', version: '1.0.0' },
         ]),
       ),
       http.get(`${BASE}/hub/search`, () => HttpResponse.json([])),
@@ -22,6 +22,7 @@ describe('Hub', () => {
     await userEvent.click(screen.getByRole('tab', { name: /installed/i }));
     await waitFor(() => {
       expect(screen.getByText('ops-pack')).toBeInTheDocument();
+      expect(screen.getAllByText('Official Hub').length).toBeGreaterThan(0);
     });
   });
 
@@ -135,10 +136,66 @@ describe('Hub', () => {
     await userEvent.click(screen.getByRole('button', { name: /view hub-managed info/i }));
 
     await waitFor(() => {
+      const dialog = screen.getByRole('dialog');
       expect(screen.getByText('Trust & Provenance')).toBeInTheDocument();
-      expect(screen.getByText('Managed by hub update/upgrade, not directly installed.')).toBeInTheDocument();
-      expect(screen.getByText('/tmp/agency/hub-cache/default/setup/default-wizard/setup.yaml')).toBeInTheDocument();
+      expect(within(dialog).getByText('Official Hub')).toBeInTheDocument();
+      expect(within(dialog).getByText('OCI content from the official Agency Hub source.')).toBeInTheDocument();
+      expect(within(dialog).getByText('Hub-managed content updated through source refresh and upgrade.')).toBeInTheDocument();
+      expect(within(dialog).getByText('This kind is curated through hub source sync, not direct install.')).toBeInTheDocument();
+      expect(within(dialog).getByText('/tmp/agency/hub-cache/default/setup/default-wizard/setup.yaml')).toBeInTheDocument();
     });
+  });
+
+  it('shows local operator content clearly in the installed view', async () => {
+    server.use(
+      http.get(`${BASE}/hub/instances`, () =>
+        HttpResponse.json([
+          { name: 'base-pack', kind: 'pack', source: 'local', installed_at: '2026-03-10', version: '1.0.0' },
+        ]),
+      ),
+      http.get(`${BASE}/hub/search`, () => HttpResponse.json([])),
+      http.get(`${BASE}/hub/outdated`, () => HttpResponse.json([])),
+    );
+
+    renderWithRouter(<Hub />);
+    await userEvent.click(screen.getByRole('tab', { name: /installed/i }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Local Operator Content').length).toBeGreaterThan(0);
+      expect(screen.getByText('Local content under direct operator control on this machine.')).toBeInTheDocument();
+    });
+  });
+
+  it('summarizes installed components by source trust and management mode', async () => {
+    server.use(
+      http.get(`${BASE}/hub/instances`, () =>
+        HttpResponse.json([
+          { name: 'official-pack', kind: 'pack', source: 'official', installed_at: '2026-03-10', version: '1.0.0' },
+          { name: 'local-pack', kind: 'pack', source: 'local', installed_at: '2026-03-10', version: '1.0.0' },
+          { name: 'custom-policy', kind: 'policy', source: 'partner', installed_at: '2026-03-10', version: '1.0.0' },
+          { name: 'base-ontology', kind: 'ontology', source: 'official', installed_at: '2026-03-10', version: '1.0.0' },
+        ]),
+      ),
+      http.get(`${BASE}/hub/search`, () => HttpResponse.json([])),
+      http.get(`${BASE}/hub/outdated`, () => HttpResponse.json([])),
+    );
+
+    renderWithRouter(<Hub />);
+    await userEvent.click(screen.getByRole('tab', { name: /installed/i }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Official Hub').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Local Operator Content').length).toBeGreaterThan(0);
+      expect(screen.getByText('Custom Sources')).toBeInTheDocument();
+      expect(screen.getByText('Operator-Installable')).toBeInTheDocument();
+      expect(screen.getByText('Hub-Managed')).toBeInTheDocument();
+      expect(screen.getByText('official-pack')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Upgradeable from the configured OCI catalog.')).toBeInTheDocument();
+    expect(screen.getByText('Machine-scoped content you manage directly.')).toBeInTheDocument();
+    expect(screen.getByText('Review ownership and trust before upgrading.')).toBeInTheDocument();
+    expect(screen.getByText('Updated through source refresh and upgrade.')).toBeInTheDocument();
   });
 
   it('installs a component', async () => {

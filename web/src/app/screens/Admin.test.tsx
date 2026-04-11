@@ -186,6 +186,31 @@ describe('Admin — Doctor tab', () => {
       expect(screen.getByText('config')).toBeInTheDocument();
     });
   });
+
+  it('shows recovery shortcuts when doctor finds issues', async () => {
+    server.use(
+      http.get(`${BASE}/agents`, () =>
+        HttpResponse.json([
+          { name: 'alice', status: 'running', trust_level: 3, restrictions: [] },
+        ]),
+      ),
+      http.get(`${BASE}/admin/doctor`, () =>
+        HttpResponse.json({
+          checks: [
+            { name: 'comms', agent: null, status: 'fail', detail: 'Comms is unavailable' },
+            { name: 'workspace', agent: 'alice', status: 'warn', detail: 'Workspace drift detected' },
+          ],
+        }),
+      ),
+    );
+    renderAdmin('doctor');
+
+    await waitFor(() => {
+      expect(screen.getByText('2 issues need attention')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Open Infrastructure' })).toHaveAttribute('href', '/admin/infrastructure');
+      expect(screen.getByRole('link', { name: 'Open Agent: alice' })).toHaveAttribute('href', '/agents/alice');
+    });
+  });
 });
 
 describe('Admin — Trust tab', () => {

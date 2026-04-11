@@ -77,9 +77,9 @@ describe('Overview', () => {
     renderWithRouter(<Overview />);
     await waitFor(() => {
       expect(screen.getByText('steve')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /start infra/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^start infra$/i })).toBeInTheDocument();
     });
-    await userEvent.click(screen.getByRole('button', { name: /start infra/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^start infra$/i }));
     await waitFor(() => {
       expect(started).toBe(true);
     });
@@ -100,6 +100,69 @@ describe('Overview', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /restart infra/i })).toBeInTheDocument();
+    });
+  });
+
+  it('shows start guidance when infrastructure is down', async () => {
+    server.use(
+      http.get(`${BASE}/agents`, () => HttpResponse.json([])),
+      http.get(`${BASE}/infra/status`, () =>
+        HttpResponse.json(wrapInfra([
+          { name: 'gateway', state: 'missing', health: 'none' },
+        ])),
+      ),
+    );
+
+    renderWithRouter(<Overview />, { route: '/' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Suggested next steps')).toBeInTheDocument();
+      expect(screen.getByText(/start infrastructure first/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /start infrastructure/i })).toBeInTheDocument();
+    });
+  });
+
+  it('shows agent creation guidance when infrastructure is up but no agents exist', async () => {
+    server.use(
+      http.get(`${BASE}/agents`, () => HttpResponse.json([])),
+      http.get(`${BASE}/infra/status`, () =>
+        HttpResponse.json(wrapInfra([
+          { name: 'gateway', state: 'running', health: 'healthy' },
+        ])),
+      ),
+    );
+
+    renderWithRouter(<Overview />, { route: '/' });
+
+    await waitFor(() => {
+      expect(screen.getByText(/create your first agent/i)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Create an agent' })).toHaveAttribute('href', '/agents');
+      expect(screen.getByRole('link', { name: 'Open setup wizard' })).toHaveAttribute('href', '/setup');
+    });
+  });
+
+  it('shows operator flow shortcuts when infrastructure and agents are available', async () => {
+    server.use(
+      http.get(`${BASE}/agents`, () =>
+        HttpResponse.json([
+          { name: 'steve', status: 'running', mode: 'autonomous', team: 'alpha', preset: 'ops', enforcer: 'active' },
+        ]),
+      ),
+      http.get(`${BASE}/infra/status`, () =>
+        HttpResponse.json(wrapInfra([
+          { name: 'gateway', state: 'running', health: 'healthy' },
+        ])),
+      ),
+      http.get(`${BASE}/agents/steve/logs`, () => HttpResponse.json([])),
+    );
+
+    renderWithRouter(<Overview />, { route: '/' });
+
+    await waitFor(() => {
+      expect(screen.getByText(/move into direct messages, missions, or intake/i)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Open channels' })).toHaveAttribute('href', '/channels');
+      expect(screen.getByRole('link', { name: 'Open missions' })).toHaveAttribute('href', '/missions');
+      expect(screen.getByRole('link', { name: 'Open intake' })).toHaveAttribute('href', '/admin/intake');
     });
   });
 

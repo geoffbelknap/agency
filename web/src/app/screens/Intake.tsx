@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router';
 import { api } from '../lib/api';
 import { Connector, WorkItem } from '../types';
 import { Button } from '../components/ui/button';
@@ -78,6 +79,122 @@ function connectorPollStatus(health: Record<string, unknown> | null, connectorNa
   }
   const direct = health?.[connectorName];
   return direct && typeof direct === 'object' && !Array.isArray(direct) ? direct as Record<string, unknown> : null;
+}
+
+function connectorSourceLabel(source?: string) {
+  const normalized = (source || '').trim().toLowerCase();
+  if (!normalized) return 'Unknown source';
+  if (normalized === 'local') return 'Local operator content';
+  if (normalized.startsWith('hub:') || normalized === 'official' || normalized === 'default') return 'Hub catalog';
+  return `Custom source: ${source}`;
+}
+
+function connectorReadiness(connector: Connector, pollStatus: Record<string, unknown> | null) {
+  const pollState = String(pollStatus?.status ?? pollStatus?.state ?? '').toLowerCase();
+  if (connector.state !== 'active') {
+    return {
+      tone: 'amber' as const,
+      title: 'Inactive connector',
+      detail: 'This connector is installed but not currently ingesting work. Activate it after verifying setup and egress requirements.',
+    };
+  }
+  if (!pollStatus) {
+    return {
+      tone: 'muted' as const,
+      title: 'No poll health yet',
+      detail: 'This connector is active, but intake has not reported polling health yet. Refresh health or trigger a manual poll if this is a poll-based connector.',
+    };
+  }
+  if (pollState === 'healthy' || pollState === 'ok' || pollState === 'ready') {
+    return {
+      tone: 'emerald' as const,
+      title: 'Ready to ingest',
+      detail: 'Connector state and intake health both look good. Use Poll now or inspect work items if you need to confirm delivery.',
+    };
+  }
+  return {
+    tone: 'amber' as const,
+    title: 'Needs connector review',
+    detail: 'Connector is active but intake health is degraded or unknown. Inspect setup, credentials, egress, and recent work-item behavior.',
+  };
+}
+
+function targetHref(targetType?: string, targetName?: string): string | null {
+  if (!targetType || !targetName) return null;
+  if (targetType === 'agent') return `/agents/${encodeURIComponent(targetName)}`;
+  if (targetType === 'mission') return `/missions/${encodeURIComponent(targetName)}`;
+  if (targetType === 'channel') return `/channels/${encodeURIComponent(targetName)}`;
+  return null;
+}
+
+function workItemGuidance(item: WorkItem) {
+  if (item.status === 'unrouted') {
+    return {
+      tone: 'amber' as const,
+      title: 'Needs routing',
+      detail: 'No route target has been assigned yet. Inspect the payload and connector config, then check whether a mission or routing rule should claim this item.',
+    };
+  }
+  if (item.status === 'relayed') {
+    return {
+      tone: 'cyan' as const,
+      title: 'Relayed downstream',
+      detail: item.target_name
+        ? 'This item was relayed to another target. Open the route target to continue the workflow there.'
+        : 'This item was relayed downstream. Inspect the payload and event history if you need to confirm where it went.',
+    };
+  }
+  if (item.status === 'routed' || item.status === 'assigned') {
+    return {
+      tone: 'emerald' as const,
+      title: 'Route target assigned',
+      detail: item.target_name
+        ? 'Continue in the assigned route target to see handling and follow-up work.'
+        : 'This item has already been routed and is waiting on the target workflow.',
+    };
+  }
+  return {
+    tone: 'muted' as const,
+    title: 'Pending review',
+    detail: 'This item is still in intake. Refresh after polling or inspect the payload for routing context.',
+  };
+}
+
+function workItemAttribution(item: WorkItem, connectors: Connector[]) {
+  const connector = connectors.find((candidate) => candidate.name === item.connector);
+  if (!connector) {
+    return {
+      tone: 'amber' as const,
+      title: 'Connector definition missing',
+      detail: 'This work item references a connector that is not currently present in Intake. Refresh connectors or inspect hub state before debugging routing.',
+    };
+  }
+  if (connector.state !== 'active') {
+    return {
+      tone: 'amber' as const,
+      title: 'Connector is inactive',
+      detail: 'The connector that produced this item is not active now. Re-check setup, activation, and poll health before assuming the route logic is broken.',
+    };
+  }
+  if (!item.target_name && (item.status === 'unrouted' || item.status === 'pending')) {
+    return {
+      tone: 'muted' as const,
+      title: 'Route rule likely missing',
+      detail: 'The connector delivered the item, but no mission, agent, or channel claimed it. Inspect routing rules and mission triggers next.',
+    };
+  }
+  if (item.target_name && !targetHref(item.target_type, item.target_name)) {
+    return {
+      tone: 'amber' as const,
+      title: 'Target type needs review',
+      detail: 'This item has a route target, but the UI does not know how to open it directly. Check the recorded target type and the downstream workflow.',
+    };
+  }
+  return {
+    tone: 'emerald' as const,
+    title: 'Connector-to-route chain looks intact',
+    detail: 'The connector and route target metadata line up. Continue in the target workflow or inspect payload details if handling still looks wrong.',
+  };
 }
 
 export function Intake() {
@@ -238,6 +355,16 @@ export function Intake() {
   const routedItems = workItems.filter((i) => i.status === 'routed' || i.status === 'assigned').length;
   const relayedItems = workItems.filter((i) => i.status === 'relayed').length;
   const unroutedItems = workItems.filter((i) => i.status !== 'routed' && i.status !== 'assigned' && i.status !== 'relayed').length;
+  const activeConnectors = connectors.filter((connector) => connector.state === 'active').length;
+  const inactiveConnectors = connectors.filter((connector) => connector.state !== 'active').length;
+  const healthyConnectors = connectors.filter((connector) => {
+    const pollState = String(connectorPollStatus(pollHealth, connector.name)?.status ?? connectorPollStatus(pollHealth, connector.name)?.state ?? '').toLowerCase();
+    return pollState === 'healthy' || pollState === 'ok' || pollState === 'ready';
+  }).length;
+  const connectorsNeedingAttention = connectors.filter((connector) => {
+    const readiness = connectorReadiness(connector, connectorPollStatus(pollHealth, connector.name));
+    return readiness.tone !== 'emerald';
+  }).length;
 
   return (
     <div className="space-y-4">
@@ -249,6 +376,29 @@ export function Intake() {
 
         {/* ── Connectors Tab ── */}
         <TabsContent value="connectors">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="bg-card border border-border rounded p-3">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Active</div>
+              <div className="text-2xl font-semibold text-emerald-400">{activeConnectors}</div>
+              <div className="text-xs text-muted-foreground">Currently able to ingest work.</div>
+            </div>
+            <div className="bg-card border border-border rounded p-3">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Inactive</div>
+              <div className="text-2xl font-semibold text-muted-foreground">{inactiveConnectors}</div>
+              <div className="text-xs text-muted-foreground">Installed but not ingesting yet.</div>
+            </div>
+            <div className="bg-card border border-border rounded p-3">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Healthy Polling</div>
+              <div className="text-2xl font-semibold text-cyan-400">{healthyConnectors}</div>
+              <div className="text-xs text-muted-foreground">Connectors with healthy intake status.</div>
+            </div>
+            <div className="bg-card border border-border rounded p-3">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Needs Review</div>
+              <div className="text-2xl font-semibold text-amber-400">{connectorsNeedingAttention}</div>
+              <div className="text-xs text-muted-foreground">Inactive or degraded connectors worth checking.</div>
+            </div>
+          </div>
+
           <div className="bg-card border border-border rounded p-3 mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="text-sm font-medium text-foreground">Polling health</div>
@@ -283,6 +433,7 @@ export function Intake() {
                   const isExpanded = expandedConnector === connector.id;
                   const pollStatus = connectorPollStatus(pollHealth, connector.name);
                   const pollStatusText = String(pollStatus?.status ?? pollStatus?.state ?? 'unknown');
+                  const readiness = connectorReadiness(connector, pollStatus);
                   return (
                     <div key={connector.id}>
                       {/* Collapsed row — clickable button */}
@@ -333,7 +484,8 @@ export function Intake() {
                           <div className="grid grid-cols-3 gap-4">
                             <div>
                               <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Source</div>
-                              <code className="text-xs text-foreground/80 break-all">{connector.source || '—'}</code>
+                              <div className="text-xs text-foreground/80">{connectorSourceLabel(connector.source)}</div>
+                              <code className="text-[11px] text-muted-foreground break-all">{connector.source || '—'}</code>
                             </div>
                             <div>
                               <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">State</div>
@@ -350,6 +502,16 @@ export function Intake() {
                               <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Poll Health</div>
                               <span className="text-xs text-foreground/80 capitalize">{pollStatusText}</span>
                             </div>
+                          </div>
+                          <div
+                            className={`rounded border px-3 py-2 text-xs ${
+                              readiness.tone === 'amber' ? 'border-amber-900/50 bg-amber-950/20 text-amber-300' :
+                              readiness.tone === 'emerald' ? 'border-emerald-900/50 bg-emerald-950/20 text-emerald-300' :
+                              'border-border bg-secondary/40 text-muted-foreground'
+                            }`}
+                          >
+                            <div className="font-medium">{readiness.title}</div>
+                            <div className="mt-1">{readiness.detail}</div>
                           </div>
                           {pollStatus && (
                             <pre className="font-mono text-[11px] bg-secondary/40 border border-border rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">
@@ -517,6 +679,35 @@ export function Intake() {
 
         {/* ── Work Items Tab ── */}
         <TabsContent value="work-items" className="space-y-4">
+          <div className="bg-card border border-border rounded p-3 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium text-foreground">Inbound work queue</div>
+              <div className="text-xs text-muted-foreground">
+                Review connector-delivered work, inspect payloads, and jump to the current route target when one exists.
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => loadWorkItems().catch((err) => toast.error(`Failed to refresh work items: ${err.message}`))}
+            >
+              <RefreshCw className="w-3 h-3 mr-1" />
+              Refresh work items
+            </Button>
+          </div>
+
+          {unroutedItems > 0 && (
+            <div className="bg-card border border-border rounded p-4 space-y-2">
+              <div className="text-sm font-medium text-amber-400">
+                {unroutedItems === 1 ? '1 item needs routing' : `${unroutedItems} items need routing`}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Unrouted intake usually means the connector delivered work successfully, but no mission or route target matched it yet.
+              </div>
+            </div>
+          )}
+
           {/* Stats bar */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="bg-card border border-border rounded p-3">
@@ -554,6 +745,9 @@ export function Intake() {
                       ? `${item.target_type}: ${item.target_name}`
                       : item.target_name
                     : '—';
+                  const routeHref = targetHref(item.target_type, item.target_name);
+                  const guidance = workItemGuidance(item);
+                  const attribution = workItemAttribution(item, connectors);
 
                   // payload preview: first 80 chars of JSON
                   const payloadPreview = item.payload
@@ -561,6 +755,7 @@ export function Intake() {
                       ? item.payload.slice(0, 80) + '…'
                       : item.payload
                     : null;
+                  const summaryText = item.summary || item.brief_content || 'No summary';
 
                   return (
                     <div key={item.id}>
@@ -578,8 +773,12 @@ export function Intake() {
                           {item.status}
                         </span>
 
+                        <span className="text-xs text-foreground/80 flex-1 min-w-0 truncate">
+                          {summaryText}
+                        </span>
+
                         {/* Route target */}
-                        <span className="text-xs text-muted-foreground flex-1 min-w-0 truncate hidden sm:block">
+                        <span className="text-xs text-muted-foreground flex-shrink-0 truncate max-w-[220px] hidden lg:block">
                           {routeTarget}
                         </span>
 
@@ -608,6 +807,10 @@ export function Intake() {
                         <div className="bg-background border-t border-border px-4 py-3 space-y-3">
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                             <div>
+                              <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">Summary</div>
+                              <span className="text-foreground/80">{summaryText}</span>
+                            </div>
+                            <div>
                               <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">Connector</div>
                               <span className="text-foreground/80">{item.connector || '—'}</span>
                             </div>
@@ -617,13 +820,65 @@ export function Intake() {
                             </div>
                             <div>
                               <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">Route Target</div>
-                              <span className="text-foreground/80">{routeTarget}</span>
+                              {routeHref ? (
+                                <Link className="text-cyan-400 hover:underline" to={routeHref}>
+                                  {routeTarget}
+                                </Link>
+                              ) : (
+                                <span className="text-foreground/80">{routeTarget}</span>
+                              )}
                             </div>
                             <div>
                               <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">Created</div>
                               <span className="text-foreground/80">{item.created_at || '—'}</span>
                             </div>
                           </div>
+                          <div
+                            className={`rounded border px-3 py-2 text-xs ${
+                              guidance.tone === 'amber' ? 'border-amber-900/50 bg-amber-950/20 text-amber-300' :
+                              guidance.tone === 'cyan' ? 'border-cyan-900/50 bg-cyan-950/20 text-cyan-300' :
+                              guidance.tone === 'emerald' ? 'border-emerald-900/50 bg-emerald-950/20 text-emerald-300' :
+                              'border-border bg-secondary/40 text-muted-foreground'
+                            }`}
+                          >
+                            <div className="font-medium">{guidance.title}</div>
+                            <div className="mt-1">{guidance.detail}</div>
+                            {item.route_index != null && (
+                              <div className="mt-1 text-[11px] opacity-80">Matched route index: {item.route_index}</div>
+                            )}
+                          </div>
+                          <div
+                            className={`rounded border px-3 py-2 text-xs ${
+                              attribution.tone === 'amber' ? 'border-amber-900/50 bg-amber-950/20 text-amber-300' :
+                              attribution.tone === 'emerald' ? 'border-emerald-900/50 bg-emerald-950/20 text-emerald-300' :
+                              'border-border bg-secondary/40 text-muted-foreground'
+                            }`}
+                          >
+                            <div className="font-medium">{attribution.title}</div>
+                            <div className="mt-1">{attribution.detail}</div>
+                          </div>
+                          {(item.route_index != null || item.target_name) && (
+                            <div className="flex flex-wrap gap-2">
+                              {routeHref && (
+                                <Button asChild variant="outline" size="sm" className="h-7 text-xs">
+                                  <Link to={routeHref}>Open route target</Link>
+                                </Button>
+                              )}
+                              {item.connector && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 text-xs"
+                                  onClick={() => {
+                                    setExpandedConnector(item.connector);
+                                    setExpandedItem(item.id);
+                                  }}
+                                >
+                                  Open connector
+                                </Button>
+                              )}
+                            </div>
+                          )}
                           {item.payload ? (
                             <div>
                               <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Payload</div>

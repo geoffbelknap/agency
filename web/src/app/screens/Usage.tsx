@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router';
 import { Button } from '../components/ui/button';
 import { Calendar } from '../components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
-import { RefreshCw, CalendarIcon, Check, X } from 'lucide-react';
+import { AlertTriangle, CalendarIcon, Check, RefreshCw, X } from 'lucide-react';
 import type { DateRange } from 'react-day-picker';
 import { toast } from 'sonner';
 import { api, type RawRoutingStat, type RawRoutingSuggestion } from '../lib/api';
@@ -42,6 +43,17 @@ interface RoutingMetrics {
   by_provider: Record<string, MetricsBucket>;
   by_source?: Record<string, MetricsBucket>;
   recent_errors?: RecentError[];
+}
+
+function routingErrorHint(error: RecentError): string {
+  const text = `${error.status} ${error.error}`.toLowerCase();
+  if (error.status === 429 || text.includes('rate limit')) {
+    return 'Looks like a provider or rate-limit issue. Check the affected agent first, then review model/provider usage and retry pressure.';
+  }
+  if (error.status === 401 || error.status === 403 || text.includes('auth')) {
+    return 'Looks like an authentication or permission issue. Check credentials and provider setup before changing routing policy.';
+  }
+  return 'Start with the affected agent path, then use Doctor if the failure looks broader than one model or task route.';
 }
 
 function estimateCost(model: string, input: number, output: number): number {
@@ -218,6 +230,8 @@ export function Usage() {
   const byModel = metrics?.by_model ? Object.entries(metrics.by_model) : [];
   const byProvider = metrics?.by_provider ? Object.entries(metrics.by_provider) : [];
   const bySource = metrics?.by_source ? Object.entries(metrics.by_source) : [];
+  const recentErrors = metrics?.recent_errors ?? [];
+  const primaryErroredAgent = recentErrors.find((entry) => entry.agent)?.agent;
 
   // Use gateway cost if available, otherwise estimate client-side
   function displayCost(bucket: MetricsBucket, model?: string): string {
@@ -293,6 +307,32 @@ export function Usage() {
         <div className="text-sm text-muted-foreground text-center py-12">No metrics available</div>
       ) : (
         <>
+          {recentErrors.length > 0 && (
+            <div className="rounded-lg border border-red-900/40 bg-red-950/20 p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm font-medium text-red-300">
+                    <AlertTriangle className="h-4 w-4" />
+                    {recentErrors.length} recent routing error{recentErrors.length !== 1 ? 's' : ''} need attention
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Review the affected agent path first, then use Doctor if the failure is broader than one route or model.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {primaryErroredAgent && (
+                    <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                      <Link to={`/agents/${primaryErroredAgent}`}>Open Agent: {primaryErroredAgent}</Link>
+                    </Button>
+                  )}
+                  <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                    <Link to="/admin/doctor">Open Doctor</Link>
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Summary cards */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-3">
             <div className="bg-card border border-border rounded p-3 md:p-4">
@@ -585,13 +625,13 @@ export function Usage() {
           )}
 
           {/* Recent Errors */}
-          {metrics?.recent_errors && metrics.recent_errors.length > 0 && (
+          {recentErrors.length > 0 && (
             <div className="bg-card border border-red-900/30 rounded overflow-hidden">
               <div className="px-4 py-3 border-b border-border">
                 <h3 className="text-xs font-medium text-red-400 uppercase tracking-wide">Recent Errors</h3>
               </div>
               <div className="divide-y divide-border">
-                {metrics.recent_errors.map((e, i) => (
+                {recentErrors.map((e, i) => (
                   <div key={i} className="px-4 py-3">
                     <div className="flex items-center gap-3 text-sm">
                       <span className="text-muted-foreground text-xs whitespace-nowrap">
@@ -604,6 +644,18 @@ export function Usage() {
                       )}
                     </div>
                     <div className="mt-1 text-xs text-red-400/80 font-mono break-all">{e.error}</div>
+                    <div className="mt-2 rounded border border-red-900/30 bg-red-950/20 px-3 py-2 text-xs">
+                      <div className="font-medium text-red-300">Likely next step</div>
+                      <div className="mt-1 text-muted-foreground">{routingErrorHint(e)}</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Button asChild variant="outline" size="sm" className="h-7 text-xs">
+                          <Link to={`/agents/${e.agent}`}>Open Agent: {e.agent}</Link>
+                        </Button>
+                        <Button asChild variant="outline" size="sm" className="h-7 text-xs">
+                          <Link to="/admin/doctor">Open Doctor</Link>
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
