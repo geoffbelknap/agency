@@ -387,14 +387,18 @@ func TestResolvedYAML_NoConfig(t *testing.T) {
 	reg.Create("no-config", "connector", "default/test")
 
 	instDir := reg.InstanceDir("no-config")
-	os.WriteFile(filepath.Join(instDir, "connector.yaml"), []byte("name: test\n"), 0644)
+	os.WriteFile(filepath.Join(instDir, "connector.yaml"), []byte("name: test\nconfig:\n  - name: api_key\n"), 0644)
 
 	resolved, err := reg.ResolvedYAML("no-config")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(resolved), "name: test") {
-		t.Error("template not returned when no config exists")
+	content := string(resolved)
+	if !strings.Contains(content, "name: no-config") {
+		t.Error("runtime name not applied when no config exists")
+	}
+	if strings.Contains(content, "\nconfig:") {
+		t.Error("hub config schema should be stripped when no config exists")
 	}
 }
 
