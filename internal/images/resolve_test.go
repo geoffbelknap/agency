@@ -169,6 +169,52 @@ func TestRepoContextMatchesMakefile(t *testing.T) {
 	}
 }
 
+func TestPythonBaseDependenciesMatchMakefile(t *testing.T) {
+	root := repoRoot(t)
+	makefile := filepath.Join(root, "Makefile")
+
+	data, err := os.ReadFile(makefile)
+	if err != nil {
+		t.Fatal("read Makefile:", err)
+	}
+
+	re := regexp.MustCompile(`(?m)^([^\n:]+):\s+python-base\s*$`)
+	matches := re.FindAllStringSubmatch(string(data), -1)
+	if len(matches) == 0 {
+		t.Fatal("python-base dependencies not found in Makefile")
+	}
+
+	makeDeps := map[string]bool{}
+	for _, match := range matches {
+		for _, name := range strings.Fields(match[1]) {
+			makeDeps[name] = true
+		}
+	}
+
+	goDeps := map[string]bool{}
+	for _, name := range sourceImageDependencies["body"] {
+		_ = name
+	}
+	for imageName, deps := range sourceImageDependencies {
+		for _, dep := range deps {
+			if dep == "python-base" {
+				goDeps[imageName] = true
+			}
+		}
+	}
+
+	for name := range makeDeps {
+		if !goDeps[name] {
+			t.Errorf("Makefile declares %q depends on python-base, but resolve.go does not", name)
+		}
+	}
+	for name := range goDeps {
+		if !makeDeps[name] {
+			t.Errorf("resolve.go declares %q depends on python-base, but Makefile does not", name)
+		}
+	}
+}
+
 func TestResolveUpstream_SkipsIfCurrent(t *testing.T) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {

@@ -23,6 +23,12 @@ func getPrincipal(r *http.Request) *registry.Principal {
 	return p
 }
 
+// GetPrincipal returns the resolved principal from request context.
+// Exported for resource-scoped authorization checks in subpackages.
+func GetPrincipal(r *http.Request) *registry.Principal {
+	return getPrincipal(r)
+}
+
 // BearerAuth returns a middleware that validates the Authorization: Bearer <token>
 // or X-Agency-Token header using constant-time comparison.
 //
@@ -40,8 +46,9 @@ func getPrincipal(r *http.Request) *registry.Principal {
 func BearerAuth(token, egressToken string, reg *registry.Registry) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Allow health checks, web UI config, and WebSocket without auth.
-			// WebSocket auth is handled by the handler itself (first message).
+			// Allow health checks, web UI config, and the platform event bus at
+			// root /ws without auth. Agent-scoped websocket routes must still
+			// authenticate normally.
 			if strings.HasSuffix(r.URL.Path, "/health") || r.URL.Path == "/__agency/config" || r.URL.Path == "/ws" {
 				next.ServeHTTP(w, r)
 				return
