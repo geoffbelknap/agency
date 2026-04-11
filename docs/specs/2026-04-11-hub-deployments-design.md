@@ -252,7 +252,7 @@ type DeploymentStore interface {
 }
 ```
 
-**Default backend: filesystem.** Root at `$AGENCY_STATE/hub/deployments/<id>/`:
+**Default backend: filesystem.** Root at `$AGENCY_STATE/hub/deployments/<id>/`. The deployment store is gateway-process-local state and is never mounted, bind-mounted, exposed, or otherwise reachable from any agent workspace or enforcer container. Every agent-initiated path to the deployment store goes through the gateway REST API, which does not expose deployment mutation routes to agent principals. ASK tenet 1 — enforcement machinery lives outside the agent's isolation boundary.
 
 ```
 $AGENCY_STATE/hub/deployments/<uuid>/
@@ -298,6 +298,8 @@ agency hub deployment rebind <name-or-id>
 agency hub deployment destroy <name-or-id>
     [--keep-instances]                              # default: also destroys child hub instances
 ```
+
+**All `agency hub deployment` subcommands are CLI-only and operator-exercised.** No subcommand is callable by any agent runtime, directly or via any mediation path. The gateway REST API exposes deployment *read* routes for operator tooling but no deployment *mutation* routes to agent-scoped principals. ASK tenet 9 — halt and configuration authority are exercised only by principals with at least operator trust level.
 
 `create` is the canonical entry point. It:
 
