@@ -782,6 +782,7 @@ async def handle_deliver_task(request: web.Request) -> web.Response:
     work_item_id = body.get("work_item_id", "")
     priority = body.get("priority", "normal")
     source = body.get("source", "")
+    metadata = body.get("metadata", {})
 
     if not agent_name or not task_content:
         return web.json_response({"error": "agent_name and task_content required"}, status=400)
@@ -808,7 +809,11 @@ async def handle_deliver_task(request: web.Request) -> web.Response:
             "unexpected_finding",
             "ambiguous_case",
         ],
+        "metadata": metadata,
     }
+
+    if metadata.get("event_id"):
+        task["event_id"] = metadata["event_id"]
 
     # Update context file
     try:
@@ -956,6 +961,7 @@ async def handle_deliver_task_v2(request: web.Request) -> web.Response:
     work_item_id = body.get("work_item_id", "")
     priority = body.get("priority", "normal")
     source = body.get("source", "")
+    metadata = body.get("metadata", {})
 
     agents_dir: Path = request.app["agents_dir"]
     state_dir = agents_dir / agent_name / "state"
@@ -979,7 +985,11 @@ async def handle_deliver_task_v2(request: web.Request) -> web.Response:
             "unexpected_finding",
             "ambiguous_case",
         ],
+        "metadata": metadata,
     }
+
+    if metadata.get("event_id"):
+        task["event_id"] = metadata["event_id"]
 
     # Write to context file for durability
     try:

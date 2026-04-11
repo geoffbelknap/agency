@@ -12,6 +12,8 @@ from agency_core.models.policy import AgentPolicyConfig, PolicyConfig
 from agency_core.models.principal import PrincipalsConfig
 from agency_core.models.pack import PackConfig
 from agency_core.models.connector import ConnectorConfig
+from agency_core.models.mission import Mission
+from agency_core.models.preset import PresetConfig
 from agency_core.models.workspace import AgentWorkspaceConfig, WorkspaceConfig
 from agency_core.models.hub import AgencyConfig, HubConfig, HubInstalledEntry, HubSource
 
@@ -21,6 +23,8 @@ SCHEMA_MAP = {
     "principals.yaml": PrincipalsConfig,
     "agent.yaml": AgentConfig,
     "constraints.yaml": ConstraintsConfig,
+    "preset.yaml": PresetConfig,
+    "mission.yaml": Mission,
     "workspace.yaml": None,  # determined by context
     "pack.yaml": PackConfig,
     "connector.yaml": ConnectorConfig,
@@ -36,6 +40,10 @@ def _detect_schema(path: Path, data: dict):
         return AgentConfig
     if name == "constraints.yaml":
         return ConstraintsConfig
+    if name == "preset.yaml":
+        return PresetConfig
+    if name == "mission.yaml":
+        return Mission
     if name == "policy.yaml":
         # Use path context: files under agents/ are agent-level
         parts = path.resolve().parts
@@ -115,6 +123,8 @@ __all__ = [
     "PrincipalsConfig",
     "AgentConfig",
     "ConstraintsConfig",
+    "PresetConfig",
+    "Mission",
     "WorkspaceConfig",
     "AgentWorkspaceConfig",
     "ConnectorConfig",

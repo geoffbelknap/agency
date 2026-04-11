@@ -1,0 +1,77 @@
+kind: connector
+name: slack-events
+version: "1.0.0"
+description: >
+  Receives Slack Events API webhooks for real-time message delivery.
+  Receives events immediately via push — no polling delay, no duplicate
+  detection needed, scales cleanly.
+
+  Requires:
+    - A public HTTPS endpoint pointing to this intake server
+      (e.g. ngrok, Cloudflare Tunnel, or a reverse proxy)
+    - Slack app configured with Events API URL:
+        https://<your-host>/webhooks/slack-events
+    - Event subscriptions: message.channels (and message.groups if needed)
+    - SLACK_SIGNING_SECRET env var set to the app's signing secret
+
+  The intake handles the Slack URL verification challenge automatically.
+  HMAC-SHA256 signature verification is enforced on all events.
+author: geoffbelknap
+license: Apache-2.0
+
+requires:
+  services:
+    - slack
+
+source:
+  type: webhook
+  path: /webhooks/slack-events
+  body_format: json
+  response_status: 200
+  response_body: ""
+  response_content_type: text/plain
+  webhook_auth:
+    type: hmac_sha256
+    secret_env: SLACK_SIGNING_SECRET
+    header: X-Slack-Signature
+    timestamp_header: X-Slack-Request-Timestamp
+    prefix: "v0="
+    challenge_field: challenge
+
+routes:
+  - match:
+      type: event_callback
+      event.type: message
+      event.bot_id: null
+      event.subtype: null
+      event.text: "re:<@U0YOURBOTUSERID>"
+    target:
+      agent: slack-bridge
+    brief: >
+      A Slack message mentioning the bot.
+      From user: {{ event.user }}
+      Message: {{ event.text }}
+      Thread timestamp: {{ event.ts }}
+      Channel: {{ event.channel }}
+
+      Respond in the same thread:
+        channel: {{ event.channel }}
+        thread_ts: {{ event.ts }}
+
+  - match:
+      type: event_callback
+      event.type: message
+      event.bot_id: null
+      event.subtype: null
+      event.text: "re:(?i)\\b(urgent|incident|outage)\\b"
+    target:
+      agent: slack-bridge
+    brief: >
+      Urgent Slack message: {{ event.text }}
+      From: {{ event.user }} in {{ event.channel }}
+    priority: high
+    sla: 15m
+
+rate_limits:
+  max_per_hour: 1000
+  max_concurrent: 20

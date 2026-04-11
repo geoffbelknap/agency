@@ -19,6 +19,23 @@ class TestConnectorSource:
         assert src.type == "webhook"
         assert src.payload_schema is None
 
+    def test_webhook_with_custom_path_and_wrapped_body(self):
+        src = ConnectorSource(
+            type="webhook",
+            path="/hooks/example",
+            body_format="form_urlencoded_payload_json_field",
+            payload_field="payload",
+            response_status=200,
+            response_body="",
+            response_content_type="text/plain",
+        )
+        assert src.path == "/hooks/example"
+        assert src.body_format == "form_urlencoded_payload_json_field"
+
+    def test_none_source(self):
+        src = ConnectorSource(type="none")
+        assert src.type == "none"
+
     def test_with_schema(self):
         src = ConnectorSource(
             type="webhook",
@@ -198,6 +215,33 @@ class TestConnectorConfig:
                 routes=[],
             )
 
+    def test_mcp_only_connector_allowed(self):
+        config = ConnectorConfig(
+            name="mcp-only",
+            source=ConnectorSource(type="none"),
+            mcp=ConnectorMCP(
+                name="custom",
+                credential="svc",
+                tools=[
+                    ConnectorMCPTool(
+                        name="ping",
+                        method="GET",
+                        path="/ping",
+                    ),
+                ],
+            ),
+        )
+        assert config.mcp is not None
+
+    def test_none_source_with_routes_rejected(self):
+        with pytest.raises(Exception):
+            ConnectorConfig(
+                name="bad-none",
+                source=ConnectorSource(type="none"),
+                routes=[ConnectorRoute(match={"x": "*"}, target={"agent": "a"})],
+                mcp=ConnectorMCP(name="custom", credential="svc"),
+            )
+
     def test_load_from_yaml_file(self, tmp_path):
         connector_yaml = tmp_path / "connector.yaml"
         connector_yaml.write_text(yaml.dump({
@@ -276,6 +320,18 @@ class TestConnectorSourceAdvanced:
     def test_webhook_rejects_method(self):
         with pytest.raises(Exception):
             ConnectorSource(type="webhook", method="POST")
+
+    def test_webhook_invalid_path_rejected(self):
+        with pytest.raises(Exception):
+            ConnectorSource(type="webhook", path="hooks/example")
+
+    def test_payload_field_requires_wrapped_body_format(self):
+        with pytest.raises(Exception):
+            ConnectorSource(type="webhook", payload_field="payload")
+
+    def test_webhook_response_status_must_be_2xx(self):
+        with pytest.raises(Exception):
+            ConnectorSource(type="webhook", response_status=500)
 
     def test_interval_seconds_accepted(self):
         src = ConnectorSource(type="poll", url="https://example.com", interval="15s")

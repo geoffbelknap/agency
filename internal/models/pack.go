@@ -29,6 +29,12 @@ type PackCredential struct {
 	Required    bool   `yaml:"required" default:"true"`
 }
 
+// PackMissionAssignment binds a mission to an agent within a pack.
+type PackMissionAssignment struct {
+	Mission string `yaml:"mission" validate:"required"`
+	Agent   string `yaml:"agent" validate:"required"`
+}
+
 // PackRequires lists the dependencies of a pack.
 type PackRequires struct {
 	Connectors []string `yaml:"connectors"`
@@ -85,6 +91,7 @@ type PackConfig struct {
 	Credentials          []PackCredential `yaml:"credentials"`
 	Policy               map[string]interface{} `yaml:"policy"`
 	RecommendedConnectors []string        `yaml:"recommended_connectors"`
+	MissionAssignments   []PackMissionAssignment `yaml:"mission_assignments"`
 }
 
 // Validate implements cross-field validation for PackConfig.

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestDetectSchemaAll tests basic schema detection for all 10 file types.
+// TestDetectSchemaAll tests basic schema detection for all supported file types.
 // Verifies that detectSchema returns appropriate schema types for all required file names.
 func TestDetectSchemaAll(t *testing.T) {
 	tests := []struct {
@@ -16,6 +16,8 @@ func TestDetectSchemaAll(t *testing.T) {
 		{"agent.yaml", "*models.AgentConfig"},
 		{"constraints.yaml", "*models.ConstraintsConfig"},
 		{"principals.yaml", "*models.PrincipalsConfig"},
+		{"preset.yaml", "*models.PresetConfig"},
+		{"mission.yaml", "*models.Mission"},
 		{"pack.yaml", "*models.PackConfig"},
 		{"connector.yaml", "*models.ConnectorConfig"},
 		{"routing.yaml", "*models.RoutingConfig"},
@@ -63,6 +65,10 @@ func TestDetectSchemaCaseSensitivity(t *testing.T) {
 		{"Constraints.yaml", true},
 		{"principals.yaml", false},
 		{"Principals.yaml", true},
+		{"preset.yaml", false},
+		{"Preset.yaml", true},
+		{"mission.yaml", false},
+		{"Mission.yaml", true},
 		{"pack.yaml", false},
 		{"Pack.yaml", true},
 		{"connector.yaml", false},
@@ -89,11 +95,13 @@ func TestDetectSchemaCaseSensitivity(t *testing.T) {
 	}
 }
 
-// TestDetectSchemaCompletenessCoverage verifies all 10 Python SCHEMA_MAP entries are covered.
+// TestDetectSchemaCompletenessCoverage verifies all Python SCHEMA_MAP entries are covered.
 // Python SCHEMA_MAP (from models/__init__.py):
 // - principals.yaml → PrincipalsConfig
 // - agent.yaml → AgentConfig
 // - constraints.yaml → ConstraintsConfig
+// - preset.yaml → PresetConfig
+// - mission.yaml → Mission
 // - policy.yaml → PolicyConfig or AgentPolicyConfig (path-aware, tested in policy_schema_test.go)
 // - pack.yaml → PackConfig
 // - connector.yaml → ConnectorConfig
@@ -106,6 +114,8 @@ func TestDetectSchemaCompletenessCoverage(t *testing.T) {
 		"principals.yaml",
 		"agent.yaml",
 		"constraints.yaml",
+		"preset.yaml",
+		"mission.yaml",
 		"policy.yaml",
 		"pack.yaml",
 		"connector.yaml",

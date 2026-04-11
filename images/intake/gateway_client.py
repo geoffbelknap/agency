@@ -90,10 +90,19 @@ class GatewayClient:
         channel_name: str,
         content: str,
         author: str,
+        reply_to: str | None = None,
+        metadata: dict | None = None,
+        flags: dict | None = None,
     ) -> dict | None:
         """Post a message to a comms channel via the gateway."""
         url = f"{self.base_url}/api/v1/comms/channels/{channel_name}/messages"
         payload = {"content": content, "author": author}
+        if reply_to:
+            payload["reply_to"] = reply_to
+        if metadata:
+            payload["metadata"] = metadata
+        if flags:
+            payload["flags"] = flags
         try:
             async with aiohttp.ClientSession() as session:
                 resp = await session.post(

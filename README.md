@@ -168,11 +168,16 @@ Connectors bring external work into Agency. Published to [agency-hub](https://gi
 | `limacharlie` | LimaCharlie detections and sensor inventory |
 | `nextdns-blocked` | NextDNS blocked DNS queries |
 | `unifi` | UniFi Site Manager infrastructure devices |
-| `slack-ops` | Slack channel polling, bidirectional |
+| `slack-admin` | Slack admin-scoped operations |
+| `slack-app-home` | Slack App Home publishing |
+| `slack-canvas` | Slack Canvas publishing |
+| `slack-commands` | Slack slash command ingress |
 | `slack-events` | Slack Events API webhooks, real-time |
+| `slack-interactivity` | Slack interactivity and modal lifecycle |
+| `google-drive-admin` | Google Drive sharing and permission administration |
 | `jira-ops` | Jira Cloud issues, routed by type and priority |
 
-Plus companion connectors for additional data sources (`limacharlie-sensors`, `nextdns-analytics`, `unifi-hosts`, `unifi-sites`) and Slack bridges (`comms-to-slack`, `red-team-escalations-to-slack`).
+Plus companion connectors for additional data sources (`limacharlie-sensors`, `nextdns-analytics`, `unifi-hosts`, `unifi-sites`) and Slack bridges (`agency-bridge-slack-events-outbound`, `agency-bridge-slack-interactivity-outbound`, `agency-bridge-slack-commands-outbound`, `comms-to-slack`, `red-team-escalations-to-slack`).
 
 ```bash
 agency hub install limacharlie --kind connector

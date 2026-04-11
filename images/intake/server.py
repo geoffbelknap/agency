@@ -13,6 +13,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from string import Template
+from urllib.parse import parse_qs
 
 import yaml
 from aiohttp import web, ClientSession
@@ -42,8 +43,179 @@ from images.intake.work_items import WorkItemStore
 from images.intake.poller import PollStateStore, hash_blob, hash_items, extract_items, parse_interval, apply_transform
 from images.intake.scheduler import ScheduleStateStore, should_fire
 from images.intake.channel_watcher import ChannelWatchStateStore, matches_pattern
+from images.intake.bridge_state import BridgeStateStore
 
 logger = logging.getLogger("intake")
+
+
+def _webhook_path_for_connector(connector: ConnectorConfig) -> str:
+    """Return the inbound webhook path for a connector."""
+    return connector.source.path or f"/webhooks/{connector.name}"
+
+
+def _collapse_form_data(form_values: dict[str, list[str]]) -> dict:
+    """Collapse parse_qs-style values into scalars when single-valued."""
+    payload: dict[str, object] = {}
+    for key, values in form_values.items():
+        if len(values) == 1:
+            payload[key] = values[0]
+        else:
+            payload[key] = values
+    return payload
+
+
+def _parse_webhook_payload(body_bytes: bytes, connector: ConnectorConfig) -> dict:
+    """Parse a webhook request body according to the connector's configured body format."""
+    body_format = connector.source.body_format or "json"
+
+    if body_format == "json":
+        payload = json.loads(body_bytes)
+    elif body_format == "form_urlencoded":
+        payload = _collapse_form_data(parse_qs(body_bytes.decode("utf-8", errors="replace"), keep_blank_values=True))
+    elif body_format == "form_urlencoded_payload_json_field":
+        form_data = _collapse_form_data(parse_qs(body_bytes.decode("utf-8", errors="replace"), keep_blank_values=True))
+        payload_field = connector.source.payload_field or "payload"
+        wrapped_payload = form_data.get(payload_field)
+        if not isinstance(wrapped_payload, str) or not wrapped_payload:
+            raise ValueError(f"Missing form field: {payload_field}")
+        payload = json.loads(wrapped_payload)
+    else:
+        raise ValueError(f"Unsupported body format: {body_format}")
+
+    if not isinstance(payload, dict):
+        raise ValueError("Payload must be a JSON object")
+
+    return payload
+
+
+def _expand_route_target(target_value: str) -> str:
+    """Expand ${ENV} placeholders in route target values."""
+    return Template(target_value).safe_substitute(os.environ)
+
+
+def _build_route_task_text(route, payload: dict) -> str:
+    """Build the task text for an agent/team/mission route."""
+    if route.brief:
+        return render_template(route.brief, payload)
+    return json.dumps(payload, default=str, indent=2)
+
+
+def _build_channel_text(route, payload: dict, source_label: str) -> str:
+    """Build the channel message text for a channel route."""
+    if route.brief:
+        return render_template(route.brief, payload)
+    return _format_channel_message(payload, source_label)
+
+
+def _build_bridge_metadata(connector_name: str, payload: dict) -> dict:
+    """Build normalized bridge metadata for chat-oriented connectors."""
+    metadata: dict[str, object] = {
+        "connector_name": connector_name,
+        "source_payload": payload,
+    }
+
+    if connector_name != "slack-events":
+        return metadata
+
+    event = payload.get("event")
+    if not isinstance(event, dict):
+        return metadata
+
+    channel_id = event.get("channel")
+    message_ts = event.get("ts")
+    thread_ts = event.get("thread_ts") or message_ts
+    user_id = event.get("user")
+    team_id = payload.get("team_id")
+
+    if not isinstance(channel_id, str) or not isinstance(thread_ts, str):
+        return metadata
+
+    metadata["bridge"] = {
+        "platform": "slack",
+        "workspace_id": team_id if isinstance(team_id, str) else None,
+        "user_id": user_id if isinstance(user_id, str) else None,
+        "channel_id": channel_id,
+        "message_ts": message_ts if isinstance(message_ts, str) else None,
+        "thread_ts": thread_ts,
+        "root_ts": thread_ts,
+        "conversation_key": f"slack:{channel_id}:{thread_ts}",
+        "conversation_kind": "dm" if channel_id.startswith("D") else "thread",
+    }
+    metadata["principal"] = {
+        "platform": "slack",
+        "workspace_id": team_id if isinstance(team_id, str) else None,
+        "user_id": user_id if isinstance(user_id, str) else None,
+        "channel_id": channel_id,
+        "conversation_key": f"slack:{channel_id}:{thread_ts}",
+        "is_dm": channel_id.startswith("D"),
+    }
+    return metadata
+
+
+def _apply_bridge_state(
+    bridge_state: Optional[BridgeStateStore],
+    bridge_metadata: dict,
+    target_type: str,
+    target_name: str,
+) -> tuple[dict, str]:
+    """Enrich bridge metadata and routing from existing bridge state."""
+    if bridge_state is None:
+        return bridge_metadata, target_name
+
+    bridge = bridge_metadata.get("bridge")
+    if not isinstance(bridge, dict):
+        return bridge_metadata, target_name
+
+    conversation_key = bridge.get("conversation_key")
+    if not isinstance(conversation_key, str) or not conversation_key:
+        return bridge_metadata, target_name
+
+    existing = bridge_state.get_conversation(conversation_key)
+    if not existing:
+        return bridge_metadata, target_name
+
+    bridge["known"] = True
+    if isinstance(existing.get("target_agent"), str) and existing["target_agent"]:
+        bridge["target_agent"] = existing["target_agent"]
+        if target_type != "channel":
+            target_name = existing["target_agent"]
+
+    principal = bridge_metadata.get("principal")
+    if isinstance(principal, dict):
+        principal["known"] = True
+
+    return bridge_metadata, target_name
+
+
+def _connector_from_request(request: web.Request) -> tuple[Optional[str], Optional[ConnectorConfig]]:
+    """Resolve the target connector from a request path."""
+    connectors = request.app["connectors"]
+    connector_name = request.match_info.get("connector_name")
+    if connector_name:
+        connector = connectors.get(connector_name)
+        if connector is None:
+            return connector_name, None
+        if _webhook_path_for_connector(connector) != request.path:
+            return connector_name, None
+        return connector_name, connector
+
+    connector_paths: dict[str, str] = request.app.get("connector_paths", {})
+    resolved_name = connector_paths.get(request.path)
+    if not resolved_name:
+        return None, None
+    return resolved_name, connectors.get(resolved_name)
+
+
+def _webhook_success_response(connector: ConnectorConfig, delivered: bool) -> web.Response:
+    """Build the success response for a webhook connector."""
+    status = connector.source.response_status or 202
+    body = connector.source.response_body
+    content_type = connector.source.response_content_type or "application/json"
+
+    if body is None:
+        return web.json_response({"status": "ok", "delivered": delivered}, status=status)
+
+    return web.Response(status=status, text=body, content_type=content_type)
 
 
 def _load_connectors(connectors_dir: Path) -> dict[str, ConnectorConfig]:
@@ -75,6 +247,7 @@ async def _deliver_task(
     work_item_id: str,
     priority: str,
     source: str,
+    metadata: Optional[dict] = None,
 ) -> bool:
     """Deliver task to agent via gateway event bus."""
     await gateway.publish_event(
@@ -87,6 +260,7 @@ async def _deliver_task(
             "priority": priority,
             "source": source,
         },
+        metadata=metadata,
     )
     return True
 
@@ -145,6 +319,21 @@ async def _execute_relay(relay: ConnectorRelayTarget, payload: dict, connector_n
     No agent is spawned. Used for comms→Slack mirroring, webhook forwarding, etc.
     Routes through egress proxy when HTTPS_PROXY / HTTP_PROXY env vars are set.
     """
+    def _prune_empty_json(value):
+        if isinstance(value, dict):
+            pruned = {}
+            for k, v in value.items():
+                pv = _prune_empty_json(v)
+                if pv is None:
+                    continue
+                pruned[k] = pv
+            return pruned
+        if isinstance(value, list):
+            return [pv for item in value if (pv := _prune_empty_json(item)) is not None]
+        if value == "" or value is None:
+            return None
+        return value
+
     env = os.environ
     url = Template(relay.url).safe_substitute(env)
     headers = {k: Template(v).safe_substitute(env) for k, v in (relay.headers or {}).items()}
@@ -160,8 +349,21 @@ async def _execute_relay(relay: ConnectorRelayTarget, payload: dict, connector_n
 
     async with ClientSession() as session:
         try:
+            request_kwargs = {
+                "headers": headers,
+                "proxy": proxy,
+                "ssl": ssl_ctx,
+            }
+            if relay.content_type == "application/json":
+                try:
+                    body_obj = json.loads(body_str)
+                    request_kwargs["json"] = _prune_empty_json(body_obj)
+                except json.JSONDecodeError:
+                    request_kwargs["data"] = body_str
+            else:
+                request_kwargs["data"] = body_str
             async with session.request(
-                relay.method, url, data=body_str, headers=headers, proxy=proxy, ssl=ssl_ctx
+                relay.method, url, **request_kwargs
             ) as resp:
                 if resp.status in (200, 201, 202, 204):
                     return True
@@ -178,6 +380,7 @@ async def _route_and_deliver(
     payload: dict,
     store: WorkItemStore,
     gateway: GatewayClient,
+    bridge_state: Optional[BridgeStateStore],
     source_label: str,
     knowledge_url: Optional[str] = None,
     event_buffer: Optional[EventBuffer] = None,
@@ -222,16 +425,16 @@ async def _route_and_deliver(
     target = route.target
     if "channel" in target:
         target_type = "channel"
-        target_name = target["channel"]
+        target_name = _expand_route_target(target["channel"])
     elif "mission" in target:
         target_type = "mission"
-        target_name = target["mission"]
+        target_name = _expand_route_target(target["mission"])
     elif "team" in target:
         target_type = "team"
-        target_name = target["team"]
+        target_name = _expand_route_target(target["team"])
     else:
         target_type = "agent"
-        target_name = target.get("agent")
+        target_name = _expand_route_target(target.get("agent"))
 
     sla_delta = parse_sla_duration(route.sla)
     sla_deadline = (datetime.now(timezone.utc) + sla_delta) if sla_delta else None
@@ -246,12 +449,14 @@ async def _route_and_deliver(
         sla_deadline=sla_deadline,
     )
 
-    # Build task content from payload summary
-    task_text = json.dumps(payload, default=str, indent=2)
+    # Build task content from route brief or raw payload
+    task_text = _build_route_task_text(route, payload)
+    bridge_metadata = _build_bridge_metadata(connector_name, payload)
+    bridge_metadata, target_name = _apply_bridge_state(bridge_state, bridge_metadata, target_type, target_name)
 
     # Channel routes: post formatted summary to comms channel
     if target_type == "channel":
-        channel_text = _format_channel_message(payload, source_label)
+        channel_text = _build_channel_text(route, payload, source_label)
         delivered = await _deliver_to_channel(
             gateway=gateway,
             channel_name=target_name,
@@ -268,9 +473,27 @@ async def _route_and_deliver(
             work_item_id=wi.id,
             priority=route.priority,
             source=source_label,
+            metadata=bridge_metadata,
         )
     if delivered:
         store.update_status(wi.id, status="assigned", task_content=task_text)
+        bridge = bridge_metadata.get("bridge")
+        if bridge_state is not None and isinstance(bridge, dict):
+            conversation_key = bridge.get("conversation_key")
+            if isinstance(conversation_key, str) and conversation_key:
+                bridge_state.upsert_conversation(
+                    conversation_key,
+                    platform=str(bridge.get("platform") or ""),
+                    workspace_id=bridge.get("workspace_id") if isinstance(bridge.get("workspace_id"), str) else None,
+                    channel_id=bridge.get("channel_id") if isinstance(bridge.get("channel_id"), str) else None,
+                    root_ts=bridge.get("root_ts") if isinstance(bridge.get("root_ts"), str) else None,
+                    thread_ts=bridge.get("thread_ts") if isinstance(bridge.get("thread_ts"), str) else None,
+                    conversation_kind=bridge.get("conversation_kind") if isinstance(bridge.get("conversation_kind"), str) else None,
+                    user_id=bridge.get("user_id") if isinstance(bridge.get("user_id"), str) else None,
+                    target_agent=deliver_to if target_type != "channel" else None,
+                    connector_name=connector_name,
+                    metadata=bridge_metadata,
+                )
 
     return delivered
 
@@ -380,6 +603,7 @@ async def _poll_once(
     store: WorkItemStore,
     poll_state: PollStateStore,
     gateway: GatewayClient,
+    bridge_state: Optional[BridgeStateStore] = None,
     knowledge_url: Optional[str] = None,
     event_buffer: Optional[EventBuffer] = None,
 ) -> int:
@@ -439,7 +663,7 @@ async def _poll_once(
     for item in new_items:
         payload = item if isinstance(item, dict) else {"data": item}
         await _route_and_deliver(
-            connector.name, connector, payload, store, gateway,
+            connector.name, connector, payload, store, gateway, bridge_state,
             source_label=f"poll:{connector.name}",
             knowledge_url=knowledge_url,
             event_buffer=event_buffer,
@@ -500,7 +724,7 @@ async def _poll_once(
             for fu_item in fu_new_items:
                 fu_payload = fu_item if isinstance(fu_item, dict) else {"data": fu_item}
                 await _route_and_deliver(
-                    connector.name, connector, fu_payload, store, gateway,
+                    connector.name, connector, fu_payload, store, gateway, bridge_state,
                     source_label=f"poll:{connector.name}:reply",
                     knowledge_url=knowledge_url,
                     event_buffer=event_buffer,
@@ -516,6 +740,7 @@ async def _schedule_once(
     schedule_state: ScheduleStateStore,
     gateway: GatewayClient,
     poll_state: Optional[PollStateStore] = None,
+    bridge_state: Optional[BridgeStateStore] = None,
     knowledge_url: Optional[str] = None,
     event_buffer: Optional[EventBuffer] = None,
 ) -> int:
@@ -533,7 +758,7 @@ async def _schedule_once(
         schedule_state.set_last_fired(name, now)
 
         await _route_and_deliver(
-            name, connector, payload, store, gateway,
+            name, connector, payload, store, gateway, bridge_state,
             source_label=f"schedule:{name}",
             knowledge_url=knowledge_url,
             event_buffer=event_buffer,
@@ -548,7 +773,15 @@ async def _schedule_once(
             if not should_fire(connector.source.cron, schedule_state.get_last_fired(name)):
                 continue
             try:
-                created = await _poll_once(connector, store, poll_state, gateway, knowledge_url=knowledge_url, event_buffer=event_buffer)
+                created = await _poll_once(
+                    connector,
+                    store,
+                    poll_state,
+                    gateway,
+                    bridge_state=bridge_state,
+                    knowledge_url=knowledge_url,
+                    event_buffer=event_buffer,
+                )
                 schedule_state.set_last_fired(name, datetime.now(timezone.utc))
                 if created:
                     logger.info(f"Cron-poll {name}: created {created} work items")
@@ -564,14 +797,16 @@ async def _channel_watch_once(
     store: WorkItemStore,
     watch_state: ChannelWatchStateStore,
     gateway: GatewayClient,
+    bridge_state: Optional[BridgeStateStore] = None,
     knowledge_url: Optional[str] = None,
     event_buffer: Optional[EventBuffer] = None,
 ) -> int:
     """Check one channel-watch connector for new matching messages. Returns match count."""
     last_seen = watch_state.get_last_seen(connector.name)
     since = last_seen.isoformat() if last_seen else None
+    watched_channel = Template(connector.source.channel).safe_substitute(os.environ)
 
-    messages = await _fetch_channel_messages(gateway, connector.source.channel, since=since)
+    messages = await _fetch_channel_messages(gateway, watched_channel, since=since)
     if not messages:
         return 0
 
@@ -586,14 +821,17 @@ async def _channel_watch_once(
         if not matches_pattern(msg.get("content", ""), connector.source.pattern):
             continue
         payload = {
-            "channel": connector.source.channel,
+            "channel": watched_channel,
             "content": msg.get("content", ""),
-            "sender": msg.get("sender", ""),
+            "author": msg.get("author", msg.get("sender", "")),
             "message_id": msg.get("id", ""),
             "timestamp": msg["timestamp"],
+            "reply_to": msg.get("reply_to"),
+            "metadata": msg.get("metadata", {}),
+            "flags": msg.get("flags", {}),
         }
         await _route_and_deliver(
-            connector.name, connector, payload, store, gateway,
+            connector.name, connector, payload, store, gateway, bridge_state,
             source_label=f"channel-watch:{connector.name}",
             knowledge_url=knowledge_url,
             event_buffer=event_buffer,
@@ -658,7 +896,15 @@ async def _poll_loop(app: web.Application) -> None:
 
                 last_poll[name] = now
                 try:
-                    created = await _poll_once(connector, app["store"], poll_state, app["gateway"], knowledge_url=app.get("knowledge_url"), event_buffer=app.get("event_buffer"))
+                    created = await _poll_once(
+                        connector,
+                        app["store"],
+                        poll_state,
+                        app["gateway"],
+                        bridge_state=app.get("bridge_state"),
+                        knowledge_url=app.get("knowledge_url"),
+                        event_buffer=app.get("event_buffer"),
+                    )
                     if created:
                         logger.info(f"Poll {name}: created {created} work items")
                 except Exception as e:
@@ -680,7 +926,16 @@ async def _schedule_loop(app: web.Application) -> None:
             continue
 
         try:
-            fired = await _schedule_once(app["connectors"], app["store"], schedule_state, app["gateway"], poll_state=poll_state, knowledge_url=app.get("knowledge_url"), event_buffer=app.get("event_buffer"))
+            fired = await _schedule_once(
+                app["connectors"],
+                app["store"],
+                schedule_state,
+                app["gateway"],
+                poll_state=poll_state,
+                bridge_state=app.get("bridge_state"),
+                knowledge_url=app.get("knowledge_url"),
+                event_buffer=app.get("event_buffer"),
+            )
             if fired:
                 logger.info(f"Schedule: fired {fired} connectors")
         except Exception as e:
@@ -700,7 +955,15 @@ async def _channel_watch_loop(app: web.Application) -> None:
                 if connector.source.type != "channel-watch":
                     continue
                 try:
-                    created = await _channel_watch_once(connector, app["store"], watch_state, app["gateway"], knowledge_url=app.get("knowledge_url"), event_buffer=app.get("event_buffer"))
+                    created = await _channel_watch_once(
+                        connector,
+                        app["store"],
+                        watch_state,
+                        app["gateway"],
+                        bridge_state=app.get("bridge_state"),
+                        knowledge_url=app.get("knowledge_url"),
+                        event_buffer=app.get("event_buffer"),
+                    )
                     if created:
                         logger.info(f"Channel-watch {name}: created {created} work items")
                 except Exception as e:
@@ -779,12 +1042,20 @@ async def handle_poll_trigger(request: web.Request) -> web.Response:
     store: WorkItemStore = request.app["store"]
     poll_state = PollStateStore(store.data_dir)
     gateway = request.app["gateway"]
+    bridge_state = request.app.get("bridge_state")
     knowledge_url = request.app.get("knowledge_url")
     event_buffer = request.app.get("event_buffer")
 
     try:
-        created = await _poll_once(connector, store, poll_state, gateway,
-                                   knowledge_url=knowledge_url, event_buffer=event_buffer)
+        created = await _poll_once(
+            connector,
+            store,
+            poll_state,
+            gateway,
+            bridge_state=bridge_state,
+            knowledge_url=knowledge_url,
+            event_buffer=event_buffer,
+        )
         return web.json_response({"connector": connector_name, "work_items_created": created})
     except Exception as e:
         logger.error(f"Manual poll trigger for {connector_name} failed: {e}")
@@ -865,15 +1136,14 @@ def _verify_webhook_auth(request: web.Request, body_bytes: bytes, connector) -> 
 
 
 async def handle_webhook(request: web.Request) -> web.Response:
-    connector_name = request.match_info["connector_name"]
-    connectors = request.app["connectors"]
+    connector_name, connector = _connector_from_request(request)
     store: WorkItemStore = request.app["store"]
 
     # Find connector
-    if connector_name not in connectors:
-        return web.json_response({"error": f"Unknown connector: {connector_name}"}, status=404)
-
-    connector = connectors[connector_name]
+    if connector is None:
+        if connector_name:
+            return web.json_response({"error": f"Unknown connector: {connector_name}"}, status=404)
+        return web.json_response({"error": "Unknown webhook path"}, status=404)
 
     # Read raw body once (needed for HMAC verification before JSON parsing)
     body_bytes = await request.read()
@@ -886,8 +1156,7 @@ async def handle_webhook(request: web.Request) -> web.Response:
         # (Slack sends the challenge as plain JSON without a valid signature on first contact)
         if auth.challenge_field:
             try:
-                import json as _json
-                pre_body = _json.loads(body_bytes)
+                pre_body = _parse_webhook_payload(body_bytes, connector)
                 if isinstance(pre_body, dict) and auth.challenge_field in pre_body:
                     logger.info(f"Webhook {connector_name}: responding to challenge handshake")
                     return web.json_response({auth.challenge_field: pre_body[auth.challenge_field]})
@@ -898,15 +1167,13 @@ async def handle_webhook(request: web.Request) -> web.Response:
         if err:
             return err
 
-    # Parse JSON body
+    # Parse body according to connector source format
     try:
-        import json as _json
-        payload = _json.loads(body_bytes)
+        payload = _parse_webhook_payload(body_bytes, connector)
+    except ValueError as exc:
+        return web.json_response({"error": str(exc)}, status=400)
     except Exception:
-        return web.json_response({"error": "Invalid JSON"}, status=400)
-
-    if not isinstance(payload, dict):
-        return web.json_response({"error": "Payload must be a JSON object"}, status=400)
+        return web.json_response({"error": "Invalid request body"}, status=400)
 
     # Validate against schema (if defined)
     if connector.source.payload_schema:
@@ -928,15 +1195,16 @@ async def handle_webhook(request: web.Request) -> web.Response:
 
     # Route and deliver (handles both agent/team and relay targets)
     gateway = request.app["gateway"]
+    bridge_state = request.app.get("bridge_state")
     knowledge_url = request.app.get("knowledge_url")
     event_buffer = request.app.get("event_buffer")
     delivered = await _route_and_deliver(
-        connector_name, connector, payload, store, gateway,
+        connector_name, connector, payload, store, gateway, bridge_state,
         source_label=f"connector:{connector_name}",
         knowledge_url=knowledge_url,
         event_buffer=event_buffer,
     )
-    return web.json_response({"status": "ok", "delivered": delivered}, status=202)
+    return _webhook_success_response(connector, delivered)
 
 
 
@@ -950,8 +1218,14 @@ def create_app(
     app = web.Application(middlewares=[correlation_middleware()])
     app["connectors_dir"] = connectors_dir or Path("/app/connectors")
     app["connectors"] = _load_connectors(app["connectors_dir"])
+    app["connector_paths"] = {
+        _webhook_path_for_connector(connector): connector.name
+        for connector in app["connectors"].values()
+        if connector.source.type == "webhook"
+    }
     app["store"] = WorkItemStore(data_dir=data_dir or Path("/app/data"))
     app["gateway"] = GatewayClient(base_url=gateway_url, token=gateway_token)
+    app["bridge_state"] = BridgeStateStore(data_dir=data_dir or Path("/app/data"))
     app["knowledge_url"] = os.environ.get("KNOWLEDGE_URL")
     app["event_buffer"] = EventBuffer()
 
@@ -961,6 +1235,7 @@ def create_app(
     app.router.add_post("/poll/{connector_name}", handle_poll_trigger)
     app.router.add_get("/items", handle_items)
     app.router.add_post("/webhooks/{connector_name}", handle_webhook)
+    app.router.add_post("/{tail:.*}", handle_webhook)
 
     async def _log_intake_shutdown(app: web.Application) -> None:
         logger.info("Intake server shutting down")
@@ -979,6 +1254,11 @@ def _setup_sighup_handler(app: web.Application) -> None:
         logger.info("SIGHUP received, reloading connectors...")
         old_names = set(app["connectors"].keys())
         app["connectors"] = _load_connectors(app["connectors_dir"])
+        app["connector_paths"] = {
+            _webhook_path_for_connector(connector): connector.name
+            for connector in app["connectors"].values()
+            if connector.source.type == "webhook"
+        }
         new_names = set(app["connectors"].keys())
         # Drop event buffers for connectors that were removed
         removed = old_names - new_names

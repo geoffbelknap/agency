@@ -136,3 +136,38 @@ def test_validate_agent_workspace_ref(tmp_path):
         "workspace_ref": "ubuntu-default",
     }))
     validate_file(f)  # should not raise
+
+
+def test_validate_valid_preset_yaml(tmp_path):
+    f = tmp_path / "preset.yaml"
+    f.write_text(yaml.dump({
+        "name": "community-administrator",
+        "type": "coordinator",
+        "model_tier": "standard",
+        "description": "Community admin preset",
+        "tools": ["python3"],
+        "capabilities": ["file_read"],
+        "identity": {
+            "purpose": "Run community administration",
+            "body": "You administer the community.",
+        },
+        "hard_limits": [],
+        "escalation": {
+            "always_escalate": [],
+            "flag_before_proceeding": [],
+        },
+    }))
+    validate_file(f)
+
+
+def test_validate_valid_mission_yaml(tmp_path):
+    f = tmp_path / "mission.yaml"
+    f.write_text(yaml.dump({
+        "name": "community-vote-close",
+        "description": "Close expired votes",
+        "instructions": "Review pending votes and post the result.",
+        "triggers": [
+            {"source": "schedule", "cron": "*/5 * * * *"},
+        ],
+    }))
+    validate_file(f)
