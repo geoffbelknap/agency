@@ -2,9 +2,6 @@
 
 import os
 import sys
-from pathlib import Path
-
-import yaml
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "body"))
@@ -12,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "body"))
 from body import Body  # noqa: E402
 from images.intake.router import render_template  # noqa: E402
 from images.models.connector import ConnectorConfig  # noqa: E402
+from images.tests.support.agency_hub_fixtures import load_agency_hub_connector  # noqa: E402
 
 
 class _FakeHTTPClient:
@@ -24,9 +22,7 @@ class _FakeHTTPClient:
 
 class TestSlackBridgeV1:
     def _load_connector(self, relative_path: str) -> ConnectorConfig:
-        repo_root = Path(__file__).resolve().parents[2]
-        path = repo_root.parent / "agency-hub" / relative_path
-        return ConnectorConfig.model_validate(yaml.safe_load(path.read_text()))
+        return load_agency_hub_connector(relative_path)
 
     def test_task_response_posts_bridge_metadata_and_renders_for_slack(self, monkeypatch):
         monkeypatch.setenv("AGENCY_COMMS_URL", "http://comms:18091")
@@ -72,4 +68,5 @@ class TestSlackBridgeV1:
         rendered = render_template(config.routes[0].relay.body, payload)
         assert '"channel": "D123"' in rendered
         assert '"thread_ts": "1712860000.1234"' in rendered
-        assert "Attachment: task-123" in rendered
+        assert "Bridge reply" in rendered
+        assert "task-123" not in rendered

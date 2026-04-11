@@ -1,12 +1,11 @@
 """Tests for connector routing engine."""
 
 import pytest
-import yaml
 from datetime import timedelta
-from pathlib import Path
 
 from images.models.connector import ConnectorConfig, ConnectorRoute
 from images.intake.router import match_route, evaluate_routes, render_template, parse_sla_duration
+from images.tests.support.agency_hub_fixtures import load_agency_hub_connector
 
 
 class TestMatchRoute:
@@ -119,9 +118,7 @@ class TestParseSLADuration:
 
 class TestSlackConnectorExamples:
     def _load_connector(self, relative_path: str) -> ConnectorConfig:
-        repo_root = Path(__file__).resolve().parents[2]
-        path = repo_root.parent / "agency-hub" / relative_path
-        return ConnectorConfig.model_validate(yaml.safe_load(path.read_text()))
+        return load_agency_hub_connector(relative_path)
 
     def test_slack_events_mention_route_matches_real_payload(self):
         config = self._load_connector("connectors/slack-events/connector.yaml")
@@ -255,7 +252,7 @@ class TestSlackConnectorExamples:
         assert '"channel": "C123"' in rendered
         assert '"thread_ts": "1712860000.1234"' in rendered
 
-    def test_agency_bridge_slack_events_outbound_renders_artifact_link_text(self):
+    def test_agency_bridge_slack_events_outbound_ignores_artifact_metadata_in_rendering(self):
         config = self._load_connector("connectors/agency-bridge-slack-events-outbound/connector.yaml")
         route = config.routes[0]
         payload = {
@@ -271,7 +268,8 @@ class TestSlackConnectorExamples:
             },
         }
         rendered = render_template(route.relay.body, payload)
-        assert "Attachment: task-123" in rendered
+        assert "reply from agency" in rendered
+        assert "task-123" not in rendered
 
     def test_agency_bridge_slack_interactivity_outbound_renders_slack_channel_and_thread(self):
         config = self._load_connector("connectors/agency-bridge-slack-interactivity-outbound/connector.yaml")

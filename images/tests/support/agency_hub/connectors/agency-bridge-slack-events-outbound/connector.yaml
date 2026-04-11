@@ -1,0 +1,35 @@
+kind: connector
+name: agency-bridge-slack-events-outbound
+version: "0.1.0"
+description: >
+  Relays agent replies posted on the `slack-events` bridge channel back into
+  the originating Slack channel and thread.
+author: geoffbelknap
+license: Apache-2.0
+
+requires:
+  services:
+    - slack
+
+source:
+  type: channel-watch
+  channel: slack-events
+  pattern: ".*"
+
+routes:
+  - match: {}
+    relay:
+      url: "https://slack.com/api/chat.postMessage"
+      method: POST
+      headers:
+        Authorization: "Bearer ${SLACK_BOT_TOKEN}"
+        Content-Type: application/json
+      body: >
+        {"channel": "{{ metadata.bridge.channel_id }}",
+         "text": "*{{ author }}*: {{ content }}",
+         "thread_ts": "{{ metadata.bridge.thread_ts }}",
+         "unfurl_links": false}
+
+rate_limits:
+  max_per_hour: 1000
+  max_concurrent: 20

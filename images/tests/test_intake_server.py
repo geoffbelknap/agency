@@ -10,12 +10,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import yaml
+from images.tests.support.agency_hub_fixtures import load_agency_hub_connector
 
-# Intake server imports scheduler at module import time; stub croniter so these
-# focused webhook tests do not depend on the optional scheduler dependency.
-croniter_stub = types.ModuleType("croniter")
-croniter_stub.croniter = type("Croniter", (), {"match": staticmethod(lambda expr, dt: False)})
-sys.modules.setdefault("croniter", croniter_stub)
+# Intake server imports scheduler at module import time. In lean local envs
+# croniter may be absent, so provide a narrow stub only in that case.
+try:
+    import croniter  # noqa: F401
+except ModuleNotFoundError:
+    croniter_stub = types.ModuleType("croniter")
+    croniter_stub.croniter = type("Croniter", (), {"match": staticmethod(lambda expr, dt: False)})
+    sys.modules.setdefault("croniter", croniter_stub)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from images.intake.server import create_app, _load_connectors
@@ -191,9 +195,7 @@ class TestWebhookEndpoint:
             assert resp.status == 202
 
     async def test_slack_events_delivery_builds_normalized_bridge_metadata(self, aiohttp_client, connectors_dir, data_dir):
-        repo_root = Path(__file__).resolve().parents[2]
-        slack_connector = repo_root.parent / "agency-hub" / "connectors" / "slack-events" / "connector.yaml"
-        slack_data = yaml.safe_load(slack_connector.read_text())
+        slack_data = load_agency_hub_connector("connectors/slack-events/connector.yaml").model_dump(mode="json", exclude_none=True)
         slack_data["source"].pop("webhook_auth", None)
         (connectors_dir / "slack-events.yaml").write_text(yaml.safe_dump(slack_data))
         app = create_app(connectors_dir=connectors_dir, data_dir=data_dir)
@@ -244,9 +246,7 @@ class TestWebhookEndpoint:
         assert stored["metadata"]["principal"]["user_id"] == "U123"
 
     async def test_slack_events_known_conversation_enriches_bridge_metadata(self, aiohttp_client, connectors_dir, data_dir):
-        repo_root = Path(__file__).resolve().parents[2]
-        slack_connector = repo_root.parent / "agency-hub" / "connectors" / "slack-events" / "connector.yaml"
-        slack_data = yaml.safe_load(slack_connector.read_text())
+        slack_data = load_agency_hub_connector("connectors/slack-events/connector.yaml").model_dump(mode="json", exclude_none=True)
         slack_data["source"].pop("webhook_auth", None)
         (connectors_dir / "slack-events.yaml").write_text(yaml.safe_dump(slack_data))
         app = create_app(connectors_dir=connectors_dir, data_dir=data_dir)

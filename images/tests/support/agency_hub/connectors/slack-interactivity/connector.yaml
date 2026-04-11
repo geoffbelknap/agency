@@ -1,0 +1,151 @@
+kind: connector
+name: slack-interactivity
+version: "1.0.0"
+description: >
+  Receives Slack Interactivity & Shortcuts payloads, verifies signed
+  requests, normalizes interactive events, and routes them into Agency.
+  Provides generic modal lifecycle MCP tools for Slack-native structured
+  interaction flows.
+author: geoffbelknap
+license: Apache-2.0
+
+requires:
+  services:
+    - slack
+  credentials:
+    - name: SLACK_SIGNING_SECRET
+      description: Slack app signing secret for Interactivity & Shortcuts
+      type: secret
+      scope: env-var
+      setup_url: "https://api.slack.com/apps"
+  egress_domains:
+    - slack.com
+
+source:
+  type: webhook
+  path: /webhooks/slack-interactivity
+  body_format: form_urlencoded_payload_json_field
+  payload_field: payload
+  response_status: 200
+  response_body: ""
+  response_content_type: text/plain
+  webhook_auth:
+    type: hmac_sha256
+    secret_env: SLACK_SIGNING_SECRET
+    header: X-Slack-Signature
+    timestamp_header: X-Slack-Request-Timestamp
+    prefix: "v0="
+
+routes:
+  - match:
+      type: block_actions
+    target:
+      agent: slack-bridge
+    brief: >
+      Slack block action received from {{ user.id }}.
+      Actions: {{ actions }}
+
+  - match:
+      type: view_submission
+    target:
+      agent: slack-bridge
+    brief: >
+      Slack modal submission received from {{ user.id }}.
+      Callback: {{ view.callback_id }}
+
+  - match:
+      type: shortcut
+    target:
+      agent: slack-bridge
+    brief: >
+      Slack shortcut invoked by {{ user.id }}.
+      Callback: {{ callback_id }}
+
+  - match:
+      type: message_action
+    target:
+      agent: slack-bridge
+    brief: >
+      Slack message action invoked by {{ user.id }}.
+      Callback: {{ callback_id }}
+
+  - match:
+      type: view_closed
+    target:
+      agent: slack-bridge
+    brief: >
+      Slack modal closed by {{ user.id }}.
+      Callback: {{ view.callback_id }}
+
+mcp:
+  name: slack-interactivity
+  credential: slack
+  api_base: "https://slack.com"
+  tools:
+    - name: slack_view_open
+      method: POST
+      path: /api/views.open
+      description: Open a Slack modal view from a valid trigger_id.
+      parameters:
+        trigger_id:
+          type: string
+          description: Slack trigger ID
+          required: true
+        view:
+          type: object
+          description: Slack modal view payload
+          required: true
+
+    - name: slack_view_update
+      method: POST
+      path: /api/views.update
+      description: Update an existing Slack modal view.
+      parameters:
+        view_id:
+          type: string
+          description: Slack view ID
+          required: true
+        view:
+          type: object
+          description: Slack modal view payload
+          required: true
+        hash:
+          type: string
+          description: Optional optimistic concurrency hash
+
+    - name: slack_view_push
+      method: POST
+      path: /api/views.push
+      description: Push a new view onto an existing Slack modal stack.
+      parameters:
+        trigger_id:
+          type: string
+          description: Slack trigger ID
+          required: true
+        view:
+          type: object
+          description: Slack modal view payload
+          required: true
+
+    - name: slack_interaction_response
+      method: POST
+      path: /api/chat.postMessage
+      description: >
+        Best-effort fallback response tool for posting an interaction follow-up
+        into a channel when modal lifecycle APIs are not appropriate.
+      parameters:
+        channel:
+          type: string
+          description: Slack channel ID
+          required: true
+        text:
+          type: string
+          description: Message body
+          required: true
+        thread_ts:
+          type: string
+          description: Optional thread timestamp for threaded replies
+
+rate_limits:
+  max_per_hour: 2000
+  max_concurrent: 20

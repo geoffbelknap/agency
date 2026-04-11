@@ -8,9 +8,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-croniter_stub = types.ModuleType("croniter")
-croniter_stub.croniter = type("Croniter", (), {"match": staticmethod(lambda expr, dt: False)})
-sys.modules.setdefault("croniter", croniter_stub)
+try:
+    import croniter  # noqa: F401
+except ModuleNotFoundError:
+    croniter_stub = types.ModuleType("croniter")
+    croniter_stub.croniter = type("Croniter", (), {"match": staticmethod(lambda expr, dt: False)})
+    sys.modules.setdefault("croniter", croniter_stub)
 
 from images.intake.server import _channel_watch_once
 

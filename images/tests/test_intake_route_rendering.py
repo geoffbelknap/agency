@@ -10,9 +10,12 @@ from images.models.connector import ConnectorRoute
 
 # Intake server imports scheduler at module import time; stub croniter so these
 # focused helper tests do not depend on the optional scheduler dependency.
-croniter_stub = types.ModuleType("croniter")
-croniter_stub.croniter = type("Croniter", (), {"match": staticmethod(lambda expr, dt: False)})
-sys.modules.setdefault("croniter", croniter_stub)
+try:
+    import croniter  # noqa: F401
+except ModuleNotFoundError:
+    croniter_stub = types.ModuleType("croniter")
+    croniter_stub.croniter = type("Croniter", (), {"match": staticmethod(lambda expr, dt: False)})
+    sys.modules.setdefault("croniter", croniter_stub)
 
 from images.intake.server import _build_channel_text, _build_route_task_text, _expand_route_target, _execute_relay  # noqa: E402
 

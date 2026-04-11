@@ -603,6 +603,7 @@ async def _poll_once(
     store: WorkItemStore,
     poll_state: PollStateStore,
     gateway: GatewayClient,
+    bridge_state: Optional[BridgeStateStore] = None,
     knowledge_url: Optional[str] = None,
     event_buffer: Optional[EventBuffer] = None,
 ) -> int:
@@ -662,7 +663,7 @@ async def _poll_once(
     for item in new_items:
         payload = item if isinstance(item, dict) else {"data": item}
         await _route_and_deliver(
-            connector.name, connector, payload, store, gateway,
+            connector.name, connector, payload, store, gateway, bridge_state,
             source_label=f"poll:{connector.name}",
             knowledge_url=knowledge_url,
             event_buffer=event_buffer,
@@ -723,7 +724,7 @@ async def _poll_once(
             for fu_item in fu_new_items:
                 fu_payload = fu_item if isinstance(fu_item, dict) else {"data": fu_item}
                 await _route_and_deliver(
-                    connector.name, connector, fu_payload, store, gateway,
+                    connector.name, connector, fu_payload, store, gateway, bridge_state,
                     source_label=f"poll:{connector.name}:reply",
                     knowledge_url=knowledge_url,
                     event_buffer=event_buffer,
@@ -739,6 +740,7 @@ async def _schedule_once(
     schedule_state: ScheduleStateStore,
     gateway: GatewayClient,
     poll_state: Optional[PollStateStore] = None,
+    bridge_state: Optional[BridgeStateStore] = None,
     knowledge_url: Optional[str] = None,
     event_buffer: Optional[EventBuffer] = None,
 ) -> int:
@@ -756,7 +758,7 @@ async def _schedule_once(
         schedule_state.set_last_fired(name, now)
 
         await _route_and_deliver(
-            name, connector, payload, store, gateway,
+            name, connector, payload, store, gateway, bridge_state,
             source_label=f"schedule:{name}",
             knowledge_url=knowledge_url,
             event_buffer=event_buffer,
@@ -771,7 +773,15 @@ async def _schedule_once(
             if not should_fire(connector.source.cron, schedule_state.get_last_fired(name)):
                 continue
             try:
-                created = await _poll_once(connector, store, poll_state, gateway, knowledge_url=knowledge_url, event_buffer=event_buffer)
+                created = await _poll_once(
+                    connector,
+                    store,
+                    poll_state,
+                    gateway,
+                    bridge_state=bridge_state,
+                    knowledge_url=knowledge_url,
+                    event_buffer=event_buffer,
+                )
                 schedule_state.set_last_fired(name, datetime.now(timezone.utc))
                 if created:
                     logger.info(f"Cron-poll {name}: created {created} work items")
@@ -787,6 +797,7 @@ async def _channel_watch_once(
     store: WorkItemStore,
     watch_state: ChannelWatchStateStore,
     gateway: GatewayClient,
+    bridge_state: Optional[BridgeStateStore] = None,
     knowledge_url: Optional[str] = None,
     event_buffer: Optional[EventBuffer] = None,
 ) -> int:
@@ -820,7 +831,7 @@ async def _channel_watch_once(
             "flags": msg.get("flags", {}),
         }
         await _route_and_deliver(
-            connector.name, connector, payload, store, gateway,
+            connector.name, connector, payload, store, gateway, bridge_state,
             source_label=f"channel-watch:{connector.name}",
             knowledge_url=knowledge_url,
             event_buffer=event_buffer,
@@ -885,7 +896,15 @@ async def _poll_loop(app: web.Application) -> None:
 
                 last_poll[name] = now
                 try:
-                    created = await _poll_once(connector, app["store"], poll_state, app["gateway"], knowledge_url=app.get("knowledge_url"), event_buffer=app.get("event_buffer"))
+                    created = await _poll_once(
+                        connector,
+                        app["store"],
+                        poll_state,
+                        app["gateway"],
+                        bridge_state=app.get("bridge_state"),
+                        knowledge_url=app.get("knowledge_url"),
+                        event_buffer=app.get("event_buffer"),
+                    )
                     if created:
                         logger.info(f"Poll {name}: created {created} work items")
                 except Exception as e:
@@ -907,7 +926,16 @@ async def _schedule_loop(app: web.Application) -> None:
             continue
 
         try:
-            fired = await _schedule_once(app["connectors"], app["store"], schedule_state, app["gateway"], poll_state=poll_state, knowledge_url=app.get("knowledge_url"), event_buffer=app.get("event_buffer"))
+            fired = await _schedule_once(
+                app["connectors"],
+                app["store"],
+                schedule_state,
+                app["gateway"],
+                poll_state=poll_state,
+                bridge_state=app.get("bridge_state"),
+                knowledge_url=app.get("knowledge_url"),
+                event_buffer=app.get("event_buffer"),
+            )
             if fired:
                 logger.info(f"Schedule: fired {fired} connectors")
         except Exception as e:
@@ -927,7 +955,15 @@ async def _channel_watch_loop(app: web.Application) -> None:
                 if connector.source.type != "channel-watch":
                     continue
                 try:
-                    created = await _channel_watch_once(connector, app["store"], watch_state, app["gateway"], knowledge_url=app.get("knowledge_url"), event_buffer=app.get("event_buffer"))
+                    created = await _channel_watch_once(
+                        connector,
+                        app["store"],
+                        watch_state,
+                        app["gateway"],
+                        bridge_state=app.get("bridge_state"),
+                        knowledge_url=app.get("knowledge_url"),
+                        event_buffer=app.get("event_buffer"),
+                    )
                     if created:
                         logger.info(f"Channel-watch {name}: created {created} work items")
                 except Exception as e:
@@ -1006,12 +1042,20 @@ async def handle_poll_trigger(request: web.Request) -> web.Response:
     store: WorkItemStore = request.app["store"]
     poll_state = PollStateStore(store.data_dir)
     gateway = request.app["gateway"]
+    bridge_state = request.app.get("bridge_state")
     knowledge_url = request.app.get("knowledge_url")
     event_buffer = request.app.get("event_buffer")
 
     try:
-        created = await _poll_once(connector, store, poll_state, gateway,
-                                   knowledge_url=knowledge_url, event_buffer=event_buffer)
+        created = await _poll_once(
+            connector,
+            store,
+            poll_state,
+            gateway,
+            bridge_state=bridge_state,
+            knowledge_url=knowledge_url,
+            event_buffer=event_buffer,
+        )
         return web.json_response({"connector": connector_name, "work_items_created": created})
     except Exception as e:
         logger.error(f"Manual poll trigger for {connector_name} failed: {e}")

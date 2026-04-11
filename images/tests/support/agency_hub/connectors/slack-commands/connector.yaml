@@ -1,0 +1,68 @@
+kind: connector
+name: slack-commands
+version: "1.0.0"
+description: >
+  Receives Slack slash command invocations, verifies signed requests,
+  normalizes command payloads, and routes them into Agency. Provides
+  command-oriented modal entry support through Slack Web API MCP tools.
+author: geoffbelknap
+license: Apache-2.0
+
+requires:
+  services:
+    - slack
+  credentials:
+    - name: SLACK_SIGNING_SECRET
+      description: Slack app signing secret for slash commands
+      type: secret
+      scope: env-var
+      setup_url: "https://api.slack.com/apps"
+  egress_domains:
+    - slack.com
+
+source:
+  type: webhook
+  path: /webhooks/slack-commands
+  body_format: form_urlencoded
+  response_status: 200
+  response_body: ""
+  response_content_type: text/plain
+  webhook_auth:
+    type: hmac_sha256
+    secret_env: SLACK_SIGNING_SECRET
+    header: X-Slack-Signature
+    timestamp_header: X-Slack-Request-Timestamp
+    prefix: "v0="
+
+routes:
+  - match:
+      command: /agency
+    target:
+      agent: slack-bridge
+    brief: >
+      Slack slash command invoked by {{ user_id }} in {{ channel_id }}.
+      Command: {{ command }}
+      Text: {{ text }}
+
+mcp:
+  name: slack-commands
+  credential: slack
+  api_base: "https://slack.com"
+  tools:
+    - name: slack_command_open_modal
+      method: POST
+      path: /api/views.open
+      description: Open a Slack modal from a command payload trigger_id.
+      parameters:
+        trigger_id:
+          type: string
+          description: Slack trigger ID
+          required: true
+        view:
+          type: object
+          description: Slack modal view payload
+          required: true
+
+rate_limits:
+  max_per_hour: 1000
+  max_concurrent: 20
