@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router';
 import { toast } from 'sonner';
 import { api } from '../lib/api';
 import { Capability, Agent } from '../types';
 import { Button } from '../components/ui/button';
-import { Plus, Shield } from 'lucide-react';
+import { AlertTriangle, Plus, Shield } from 'lucide-react';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 
 function stateColor(state: string) {
@@ -175,6 +176,25 @@ export function Capabilities() {
         </Button>
       </div>
 
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1">
+            <div className="text-sm font-medium text-foreground">Use capabilities to control what agents can touch</div>
+            <p className="text-xs text-muted-foreground">
+              Enable a capability only when an agent or mission needs it. Leave access platform-wide only for shared operator tools; otherwise scope it to the smallest useful set of agents.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+              <Link to="/admin/presets">Open Presets</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+              <Link to="/admin/policy">Review Policy</Link>
+            </Button>
+          </div>
+        </div>
+      </div>
+
       <div className="flex flex-wrap gap-2">
         <input
           type="text"
@@ -255,7 +275,17 @@ export function Capabilities() {
                 {filteredCapabilities.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="p-8 text-center text-muted-foreground text-sm">
-                      {capabilities.length === 0 ? 'No capabilities found' : 'No capabilities match your filter'}
+                      {capabilities.length === 0 ? (
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="flex items-center gap-2 text-sm font-medium text-amber-300">
+                            <AlertTriangle className="h-4 w-4" />
+                            No capabilities found
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Add a capability only when you need to expose a new tool, service, or integration to agents.
+                          </p>
+                        </div>
+                      ) : 'No capabilities match your filter'}
                     </td>
                   </tr>
                 ) : (

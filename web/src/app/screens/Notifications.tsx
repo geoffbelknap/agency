@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router';
 import { toast } from 'sonner';
 import { api, RawNotification } from '../lib/api';
 import { Button } from '../components/ui/button';
-import { RefreshCw, Plus, Trash2, Bell, Send } from 'lucide-react';
+import { AlertTriangle, Bell, Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
 
 export function Notifications() {
   const [destinations, setDestinations] = useState<RawNotification[]>([]);
@@ -85,6 +86,25 @@ export function Notifications() {
         </div>
       </div>
 
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1">
+            <div className="text-sm font-medium text-foreground">Use notifications for operator alerts</div>
+            <p className="text-xs text-muted-foreground">
+              Notifications are the fast path for ntfy and outbound alert delivery. Use webhooks when another system needs a signed inbound endpoint instead.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+              <Link to="/admin/webhooks">Open Webhooks</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+              <Link to="/admin/events">Review Events</Link>
+            </Button>
+          </div>
+        </div>
+      </div>
+
       {error && (
         <div className="text-sm text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded px-3 py-2">
           {error}
@@ -128,7 +148,15 @@ export function Notifications() {
         {loading ? (
           <div className="text-muted-foreground text-center py-8 text-sm">Loading notification destinations...</div>
         ) : destinations.length === 0 ? (
-          <div className="text-muted-foreground text-center py-8 text-sm">No notification destinations configured</div>
+          <div className="py-8 px-4 text-center">
+            <div className="flex items-center justify-center gap-2 text-sm font-medium text-amber-300">
+              <AlertTriangle className="h-4 w-4" />
+              No notification destinations configured
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Add an ntfy topic or webhook destination so operator alerts and enforcer exits do not stay local-only.
+            </p>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[500px]">

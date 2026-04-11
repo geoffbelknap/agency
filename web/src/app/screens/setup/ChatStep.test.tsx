@@ -45,6 +45,7 @@ describe('ChatStep', () => {
       http.get(`${BASE}/agents/henry`, () => HttpResponse.json({ name: 'henry', status: 'running' })),
       http.get(`${BASE}/comms/channels`, () => HttpResponse.json([{ name: 'dm-henry', type: 'dm' }])),
       http.get(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json([])),
+      http.post(`${BASE}/agents/henry/dm`, () => HttpResponse.json({ status: 'ready', channel: 'dm-henry' })),
       http.post(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json({ ok: true })),
     );
 
@@ -78,6 +79,7 @@ describe('ChatStep', () => {
       http.get(`${BASE}/agents/henry`, () => HttpResponse.json({ name: 'henry', status: 'running' })),
       http.get(`${BASE}/comms/channels`, () => HttpResponse.json([{ name: 'dm-henry', type: 'dm' }])),
       http.get(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json(messages)),
+      http.post(`${BASE}/agents/henry/dm`, () => HttpResponse.json({ status: 'ready', channel: 'dm-henry' })),
       http.post(`${BASE}/comms/channels/dm-henry/messages`, async ({ request }) => {
         postAttempts += 1;
         if (postAttempts === 1) {
@@ -117,6 +119,7 @@ describe('ChatStep', () => {
       http.get(`${BASE}/agents/henry`, () => HttpResponse.json({ name: 'henry', status: 'stopped' })),
       http.get(`${BASE}/comms/channels`, () => HttpResponse.json([{ name: 'dm-henry', type: 'dm' }])),
       http.get(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json([])),
+      http.post(`${BASE}/agents/henry/dm`, () => HttpResponse.json({ status: 'ready', channel: 'dm-henry' })),
       http.post(`${BASE}/comms/channels/dm-henry/messages`, () => {
         initialPromptSent = true;
         return HttpResponse.json({ ok: true });
@@ -143,7 +146,8 @@ describe('ChatStep', () => {
   it('marks the setup chat ready from an agent_status event', async () => {
     server.use(
       http.get(`${BASE}/agents/henry`, () => HttpResponse.json({ name: 'henry', status: 'stopped' })),
-      http.get(`${BASE}/comms/channels`, () => HttpResponse.json([{ name: 'dm-henry', type: 'dm' }])),
+      http.get(`${BASE}/comms/channels`, () => HttpResponse.json([])),
+      http.post(`${BASE}/agents/henry/dm`, () => HttpResponse.json({ status: 'ready', channel: 'dm-henry' })),
       http.get(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json([])),
       http.post(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json({ ok: true })),
     );
@@ -164,6 +168,35 @@ describe('ChatStep', () => {
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText(/what can you help me with/i)).toBeEnabled();
+    });
+  });
+
+  it('ensures the DM channel through the agent endpoint when no DM exists yet', async () => {
+    let ensured = false;
+
+    server.use(
+      http.get(`${BASE}/agents/henry`, () => HttpResponse.json({ name: 'henry', status: 'running' })),
+      http.get(`${BASE}/comms/channels`, () => HttpResponse.json([])),
+      http.post(`${BASE}/agents/henry/dm`, () => {
+        ensured = true;
+        return HttpResponse.json({ status: 'ready', channel: 'dm-henry' });
+      }),
+      http.get(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json([])),
+      http.post(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json({ ok: true })),
+    );
+
+    render(
+      <ChatStep
+        agentName="henry"
+        operatorName="Geoff"
+        onFinish={() => {}}
+        onBack={() => {}}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(ensured).toBe(true);
+      expect(screen.getByPlaceholderText(/what can you help me with/i)).toBeInTheDocument();
     });
   });
 });

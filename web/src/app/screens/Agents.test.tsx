@@ -10,7 +10,8 @@ vi.mock('../../lib/ws', () => ({ socket: { on: () => () => {}, connect: () => {}
 
 const toastSuccess = vi.fn();
 const toastError = vi.fn();
-vi.mock('sonner', () => ({ toast: { success: (...args: any[]) => toastSuccess(...args), error: (...args: any[]) => toastError(...args) } }));
+const toastInfo = vi.fn();
+vi.mock('sonner', () => ({ toast: { success: (...args: any[]) => toastSuccess(...args), error: (...args: any[]) => toastError(...args), info: (...args: any[]) => toastInfo(...args) } }));
 
 const BASE = 'http://localhost:8200/api/v1';
 
@@ -35,6 +36,7 @@ describe('Agents', () => {
   beforeEach(() => {
     toastSuccess.mockClear();
     toastError.mockClear();
+    toastInfo.mockClear();
   });
 
   it('renders agents from API', async () => {
@@ -143,6 +145,7 @@ describe('Agents', () => {
       ),
       http.get(`${BASE}/agents/alice/logs`, () => HttpResponse.json([])),
       http.get(`${BASE}/agents/alice/budget`, () => HttpResponse.json({ daily_limit: 0, monthly_limit: 0, daily_used: 0, monthly_used: 0, today_llm_calls: 0, today_input_tokens: 0, today_output_tokens: 0 })),
+      http.post(`${BASE}/agents/alice/dm`, () => HttpResponse.json({ status: 'ready', channel: 'dm-alice' })),
     );
     renderAgents();
     await waitFor(() => {
@@ -161,6 +164,40 @@ describe('Agents', () => {
     await userEvent.click(screen.getByRole('button', { name: /send to dm/i }));
     await waitFor(() => {
       expect(toastSuccess).toHaveBeenCalledWith('Message sent to DM');
+    });
+  });
+
+  it('shows a specific error when the DM channel is not ready yet', async () => {
+    server.use(
+      http.get(`${BASE}/agents`, () =>
+        HttpResponse.json(defaultAgents)
+      ),
+      http.get(`${BASE}/agents/alice/logs`, () => HttpResponse.json([])),
+      http.get(`${BASE}/agents/alice/budget`, () => HttpResponse.json({ daily_limit: 0, monthly_limit: 0, daily_used: 0, monthly_used: 0, today_llm_calls: 0, today_input_tokens: 0, today_output_tokens: 0 })),
+      http.post(`${BASE}/agents/alice/dm`, () =>
+        HttpResponse.json({ error: 'channel create failed' }, { status: 502 })
+      ),
+      http.post(`${BASE}/comms/channels/dm-alice/messages`, () =>
+        HttpResponse.json({ error: 'channel not found' }, { status: 404 })
+      ),
+      http.get(`${BASE}/agents/alice/channels`, () => HttpResponse.json([])),
+    );
+    renderAgents();
+    await waitFor(() => {
+      expect(screen.getByText('alice')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByText('alice'));
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /activity/i })).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('tab', { name: /activity/i }));
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/describe the task/i)).toBeInTheDocument();
+    });
+    await userEvent.type(screen.getByPlaceholderText(/describe the task/i), 'do the thing');
+    await userEvent.click(screen.getByRole('button', { name: /send to dm/i }));
+    await waitFor(() => {
+      expect(toastError).toHaveBeenCalledWith('DM for "alice" is not ready yet. Start the agent and wait for its conversation to appear, then try again.');
     });
   });
 

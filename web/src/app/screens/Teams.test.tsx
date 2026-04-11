@@ -9,6 +9,21 @@ import { Teams } from './Teams';
 const BASE = 'http://localhost:8200/api/v1';
 
 describe('Teams', () => {
+  it('shows operator guidance and next-step links', async () => {
+    server.use(
+      http.get(`${BASE}/admin/teams`, () => HttpResponse.json([])),
+    );
+
+    renderWithRouter(<Teams />, { route: '/teams' });
+
+    await waitFor(() => {
+      expect(screen.getByText(/use teams for shared ownership, not just naming/i)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Open Agents' })).toHaveAttribute('href', '/agents');
+      expect(screen.getByRole('link', { name: 'Open Missions' })).toHaveAttribute('href', '/missions');
+      expect(screen.getByText(/create a team only when multiple agents should share ownership or mission context/i)).toBeInTheDocument();
+    });
+  });
+
   it('renders teams from API', async () => {
     server.use(
       http.get(`${BASE}/admin/teams`, () =>

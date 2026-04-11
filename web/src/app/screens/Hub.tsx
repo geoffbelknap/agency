@@ -8,6 +8,7 @@ import { Button } from '../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { ComponentInfoDialog } from './hub/ComponentInfoDialog';
 import { DeploySection } from './hub/DeploySection';
+import { hubManagementLabel, hubSourceGuidance, hubSourceLabel, isHubManagedKind } from './hub/sourceMeta';
 
 type HubAvailableUpgrade = {
   name: string;
@@ -66,6 +67,20 @@ const kindBadgeClass = (kind: ComponentKind) => {
     default:
       return 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400';
   }
+};
+
+const sourceBadgeClass = (source?: string) => {
+  const normalized = (source || '').trim().toLowerCase();
+  if (normalized === 'official' || normalized === 'default') {
+    return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300';
+  }
+  if (normalized === 'local') {
+    return 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300';
+  }
+  if (normalized) {
+    return 'bg-sky-50 text-sky-700 dark:bg-sky-950 dark:text-sky-300';
+  }
+  return 'bg-slate-100 text-slate-700 dark:bg-slate-900 dark:text-slate-300';
 };
 
 export function Hub() {
@@ -146,6 +161,14 @@ export function Hub() {
   }, [searchQuery, installedComponents]);
 
   const searchResults = filterKind === 'all' ? allResults : allResults.filter((c) => c.kind === filterKind);
+  const officialInstalled = installedComponents.filter((component) => hubSourceLabel(component.source) === 'Official Hub').length;
+  const localInstalled = installedComponents.filter((component) => hubSourceLabel(component.source) === 'Local Operator Content').length;
+  const customInstalled = installedComponents.filter((component) => {
+    const label = hubSourceLabel(component.source);
+    return label !== 'Official Hub' && label !== 'Local Operator Content' && label !== 'Unknown Source';
+  }).length;
+  const hubManagedInstalled = installedComponents.filter((component) => isHubManagedKind(component.kind)).length;
+  const operatorManagedInstalled = installedComponents.filter((component) => !isHubManagedKind(component.kind)).length;
 
   const handleInstall = async (component: Component) => {
     try {
@@ -305,6 +328,13 @@ export function Hub() {
         </TabsList>
 
         <TabsContent value="browse" className="space-y-4">
+          <div className="rounded-lg border border-border bg-card/70 px-4 py-3 text-sm">
+            <div className="font-medium text-foreground">Trust and update behavior</div>
+            <div className="mt-1 text-muted-foreground">
+              Verify the source before installing. Official Hub content is the default OCI catalog, local content is machine-scoped, and custom sources should be reviewed before use.
+            </div>
+          </div>
+
           {/* Search and Filter */}
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex-1 relative">
@@ -403,13 +433,16 @@ export function Hub() {
                         >
                           {component.kind}
                         </span>
-                        <span className="text-muted-foreground/70">·</span>
-                        <span className="text-muted-foreground">{component.source}</span>
+                        <span className={`px-2 py-0.5 rounded ${sourceBadgeClass(component.source)}`}>
+                          {hubSourceLabel(component.source)}
+                        </span>
                       </div>
                     </div>
                   </div>
 
                   <p className="text-xs text-muted-foreground mb-3 line-clamp-2">{component.description}</p>
+                  <p className="text-xs text-muted-foreground mb-3">{hubSourceGuidance(component.source)}</p>
+                  <p className="text-[11px] text-muted-foreground mb-3">{hubManagementLabel(component.kind)}</p>
 
                   <div>
                     {component.installed ? (
@@ -454,6 +487,39 @@ export function Hub() {
             <div className="text-sm text-muted-foreground text-center py-12">Loading installed components...</div>
           ) : (
             <div className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                <div className="rounded-lg border border-border bg-card/70 px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Official Hub</div>
+                  <div className="mt-1 text-2xl font-semibold text-foreground">{officialInstalled}</div>
+                  <div className="text-xs text-muted-foreground">Upgradeable from the configured OCI catalog.</div>
+                </div>
+                <div className="rounded-lg border border-border bg-card/70 px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Local Operator Content</div>
+                  <div className="mt-1 text-2xl font-semibold text-foreground">{localInstalled}</div>
+                  <div className="text-xs text-muted-foreground">Machine-scoped content you manage directly.</div>
+                </div>
+                <div className="rounded-lg border border-border bg-card/70 px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Custom Sources</div>
+                  <div className="mt-1 text-2xl font-semibold text-foreground">{customInstalled}</div>
+                  <div className="text-xs text-muted-foreground">Review ownership and trust before upgrading.</div>
+                </div>
+                <div className="rounded-lg border border-border bg-card/70 px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Operator-Installable</div>
+                  <div className="mt-1 text-2xl font-semibold text-foreground">{operatorManagedInstalled}</div>
+                  <div className="text-xs text-muted-foreground">Directly added and removed from this UI.</div>
+                </div>
+                <div className="rounded-lg border border-border bg-card/70 px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Hub-Managed</div>
+                  <div className="mt-1 text-2xl font-semibold text-foreground">{hubManagedInstalled}</div>
+                  <div className="text-xs text-muted-foreground">Updated through source refresh and upgrade.</div>
+                </div>
+              </div>
+              <div className="rounded-lg border border-border bg-card/70 px-4 py-3 text-sm">
+                <div className="font-medium text-foreground">Installed component hygiene</div>
+                <div className="mt-1 text-muted-foreground">
+                  Keep track of source trust and management mode before upgrading. Official Hub entries follow the configured OCI catalog, local entries are operator-managed, and hub-managed kinds update through source refresh rather than direct install.
+                </div>
+              </div>
               {outdatedLoading && (
                 <div className="text-xs text-muted-foreground">Checking installed component versions...</div>
               )}
@@ -512,7 +578,14 @@ export function Hub() {
                               </span>
                             </td>
                             <td className="p-4">
-                              <span className="text-muted-foreground text-xs">{component.source}</span>
+                              <div className="space-y-1">
+                                <span className={`inline-flex px-2 py-0.5 rounded text-xs ${sourceBadgeClass(component.source)}`}>
+                                  {hubSourceLabel(component.source)}
+                                </span>
+                                <div className="text-[11px] text-muted-foreground">
+                                  {hubSourceGuidance(component.source)}
+                                </div>
+                              </div>
                             </td>
                             <td className="p-4">
                               {upgrade ? (
@@ -536,7 +609,7 @@ export function Hub() {
                                   onClick={() => openInfo(component)}
                                   className="h-7 text-xs"
                                 >
-                                  Info
+                                  {isHubManagedKind(component.kind) ? 'View Hub-Managed Info' : 'Info'}
                                 </Button>
                                 {upgrade && (
                                   <Button

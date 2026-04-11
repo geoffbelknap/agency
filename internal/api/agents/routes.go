@@ -89,6 +89,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Post("/api/v1/agents/{name}/grant", h.grantAgent)
 	r.Post("/api/v1/agents/{name}/revoke", h.revokeAgent)
 	r.Get("/api/v1/agents/{name}/channels", h.agentChannels)
+	r.Post("/api/v1/agents/{name}/dm", h.ensureAgentDM)
 	r.Get("/api/v1/agents/{name}/results", h.listResults)
 	r.Get("/api/v1/agents/{name}/results/{taskId}", h.getResult)
 	r.Get("/api/v1/agents/{name}/config", h.agentConfig)

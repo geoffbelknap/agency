@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 
 	"github.com/geoffbelknap/agency/internal/capabilities"
+	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -199,19 +200,17 @@ func registerAdminTools(reg *MCPToolRegistry) {
 						checks = append(checks, checkResult{"operator_override", agentName, "FAIL", "Cannot inspect enforcer: " + err.Error()})
 						return
 					}
-					onMediation := false
-					for _, net := range enf.Networks {
-						if strings.Contains(net, "mediation") {
-							onMediation = true
-							break
-						}
-					}
-					if onMediation {
-						checks = append(checks, checkResult{"operator_override", agentName, "PASS", "Enforcer reachable on mediation network"})
-					} else {
+					if !docker.EnforcerHasOperatorOverridePath(enf.Networks) {
 						allPassed = false
-						checks = append(checks, checkResult{"operator_override", agentName, "FAIL", "Enforcer not on mediation network: " + strings.Join(enf.Networks, ", ")})
+						checks = append(checks, checkResult{"operator_override", agentName, "FAIL", "Enforcer missing gateway mediation network: " + strings.Join(enf.Networks, ", ")})
+						return
 					}
+					if unexpected := docker.EnforcerUnexpectedExternalNetworks(enf.Networks); len(unexpected) > 0 {
+						allPassed = false
+						checks = append(checks, checkResult{"operator_override", agentName, "FAIL", "Enforcer attached to external network(s): " + strings.Join(unexpected, ", ")})
+						return
+					}
+					checks = append(checks, checkResult{"operator_override", agentName, "PASS", "Enforcer reachable on gateway mediation network"})
 				}()
 			}
 

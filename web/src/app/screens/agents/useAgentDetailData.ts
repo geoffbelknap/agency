@@ -107,12 +107,24 @@ export function useAgentDetailData(
 
   const handleSendDM = useCallback(async (name: string, dmText: string): Promise<boolean> => {
     if (!dmText.trim()) return false;
+    const channelName = `dm-${name}`;
     try {
-      await api.channels.send('dm-' + name, dmText.trim());
+      await api.agents.ensureDM(name);
+      await api.channels.send(channelName, dmText.trim());
       toast.success('Message sent to DM');
-      navigate(`/channels/dm-${name}`);
+      navigate(`/channels/${channelName}`);
       return true;
     } catch (e: any) {
+      try {
+        const channels = await api.agents.channels(name);
+        const hasDM = channels.some((channel) => channel.name === channelName);
+        if (!hasDM) {
+          toast.error(`DM for "${name}" is not ready yet. Start the agent and wait for its conversation to appear, then try again.`);
+          return false;
+        }
+      } catch {
+        // Fall through to the original API error when channel discovery also fails.
+      }
       toast.error(e.message || 'Failed to send message');
       return false;
     }

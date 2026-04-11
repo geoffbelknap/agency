@@ -1,10 +1,11 @@
 import { useState, useEffect, Fragment } from 'react';
+import { Link } from 'react-router';
 import { api } from '../lib/api';
 import { Team } from '../types';
 import { formatDateTimeShort } from '../lib/time';
 import { Button } from '../components/ui/button';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { Plus, Trash2, Users } from 'lucide-react';
+import { AlertTriangle, Plus, Trash2, Users } from 'lucide-react';
 
 interface TeamActivity {
   id: string;
@@ -135,6 +136,25 @@ export function Teams() {
 
       {/* Content */}
       <div className="flex-1 p-4 md:p-8 overflow-auto">
+        <div className="mb-4 rounded-lg border border-border bg-card p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="space-y-1">
+              <div className="text-sm font-medium text-foreground">Use teams for shared ownership, not just naming</div>
+              <p className="text-xs text-muted-foreground">
+                Teams are most useful when several agents should share a mission area, activity view, or operator workflow. If an agent is standalone, keep it ungrouped until a real collaboration need appears.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                <Link to="/agents">Open Agents</Link>
+              </Button>
+              <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                <Link to="/missions">Open Missions</Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+
         {showCreateForm && (
           <div className="mb-4 flex gap-2 items-center bg-card border border-border rounded p-3">
             <input
@@ -184,9 +204,9 @@ export function Teams() {
                 {teams.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="p-12 text-center">
-                      <Users className="w-8 h-8 text-muted-foreground/70 mx-auto mb-3" />
+                      <AlertTriangle className="w-8 h-8 text-muted-foreground/70 mx-auto mb-3" />
                       <div className="text-sm text-muted-foreground mb-1">No teams yet</div>
-                      <div className="text-xs text-muted-foreground/70">Create a team to group agents and coordinate work.</div>
+                      <div className="text-xs text-muted-foreground/70">Create a team only when multiple agents should share ownership or mission context.</div>
                     </td>
                   </tr>
                 ) : (

@@ -486,6 +486,7 @@ export const api = {
       return req<RawAuditEntry[]>(`/agents/${name}/logs?${params}`);
     },
     channels: (name: string) => req<RawChannel[]>(`/agents/${name}/channels`),
+    ensureDM: (name: string) => req<{ status: string; channel: string }>(`/agents/${name}/dm`, { method: 'POST', body: '{}' }),
     knowledge: (name: string) => req<{ nodes?: unknown[] } | unknown[]>(`/agents/${name}/knowledge`),
     results: (name: string) => req<Array<Record<string, unknown>>>(`/agents/${name}/results`),
     resultUrl: (name: string, taskId: string) =>

@@ -37,6 +37,8 @@ Chat:   http://localhost:8280/channels/dm-henry
 
 After this point, stay in the Web UI unless the guide explicitly says to use the terminal. Developers, security operators, and advanced users can use the CLI heavily; basic alpha testers should treat it as setup and recovery tooling.
 
+If you need to re-run guided setup later, open `/setup` in the Web UI or use **Admin → Setup Wizard**. That is the recovery and reconfiguration path after quickstart, not a separate onboarding flow.
+
 ## What To Try First
 
 In the Web UI:

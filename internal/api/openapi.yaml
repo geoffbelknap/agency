@@ -405,6 +405,29 @@ paths:
                 items:
                   type: object
 
+  /agents/{name}/dm:
+    post:
+      operationId: ensureAgentDM
+      summary: Ensure the dedicated direct-message channel for an agent
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+      responses:
+        "200":
+          description: Dedicated DM channel is ready for use
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, channel]
+                properties:
+                  status:
+                    type: string
+                    example: ready
+                  channel:
+                    type: string
+                    example: dm-henry
+
   /agents/{name}/results:
     get:
       operationId: listResults

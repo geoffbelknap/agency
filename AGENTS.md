@@ -37,6 +37,9 @@ Primary areas:
 - Preserve fail-closed behavior during startup, enforcement, mediation, and teardown.
 - Do not loosen container, network, credential, or capability boundaries casually.
 - Hub-managed files must not be edited directly when the expected customization point is elsewhere.
+- Enforcers must remain on the internal mediation plane only: per-agent internal network + `agency-gateway` + `agency-egress-int`. They must not attach to `agency-operator` or any other external-facing network.
+- `agency admin doctor` is authoritative for current deployment safety, but read its Docker hygiene checks precisely: orphan networks are based on full network inspect, and dangling images means true untagged Agency build leftovers, not intentional version-tagged images.
+- Agent DM establishment is a first-class backend contract at `POST /api/v1/agents/{name}/dm`; UI flows should use it instead of reconstructing DM channel state ad hoc.
 
 ## Build And Test
 
@@ -48,6 +51,7 @@ Common commands:
 go test ./...
 go build ./cmd/gateway/
 pytest images/tests/
+./agency admin doctor
 ```
 
 Repo-specific end-to-end paths also exist and should be used when the change warrants them.

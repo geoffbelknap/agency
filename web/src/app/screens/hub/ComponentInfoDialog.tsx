@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { Component } from '../../types';
 import { Button } from '../../components/ui/button';
+import { hubManagementLabel, hubSourceGuidance, hubSourceLabel, isHubManagedKind } from './sourceMeta';
 
 interface ComponentInfoDialogProps {
   component: Component;
@@ -39,16 +40,24 @@ export function ComponentInfoDialog({ component, infoData, infoLoading, onClose 
   const path = value(infoData, '_path');
   const installedAt = value(infoData, '_installed_at', 'installed_at');
   const installedSource = value(infoData, '_installed_source');
-  const isHubManaged = kind === 'setup' || kind === 'ontology';
+  const sourceLabel = hubSourceLabel(source);
+  const sourceGuidance = hubSourceGuidance(source);
+  const isHubManaged = isHubManagedKind(kind);
+  const managementLabel = hubManagementLabel(kind);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="fixed inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative bg-card border border-border rounded-lg p-6 w-full max-w-lg space-y-4 shadow-xl max-h-[80vh] overflow-y-auto">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${component.name} component info`}
+        className="relative bg-card border border-border rounded-lg p-6 w-full max-w-lg space-y-4 shadow-xl max-h-[80vh] overflow-y-auto"
+      >
         <div className="flex items-start justify-between">
           <div>
             <h3 className="text-lg font-semibold text-foreground">{component.name}</h3>
-            <span className="text-xs text-muted-foreground capitalize">{component.kind} · {component.source}</span>
+            <span className="text-xs text-muted-foreground capitalize">{component.kind} · {sourceLabel}</span>
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1">
             <X className="w-4 h-4" />
@@ -73,11 +82,14 @@ export function ComponentInfoDialog({ component, infoData, infoLoading, onClose 
             <section className="rounded-lg border border-border bg-background/60 p-4">
               <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">Trust & Provenance</h4>
               <dl className="space-y-2">
-                <Row label="Source"><code>{source || 'Unknown'}</code></Row>
+                <Row label="Source">{sourceLabel}</Row>
+                <Row label="Trust">{sourceGuidance}</Row>
+                <Row label="Raw Source"><code>{source || 'Unknown'}</code></Row>
                 <Row label="Installed">{infoData._installed ? 'Yes' : 'No'}</Row>
                 <Row label="Installed At">{installedAt}</Row>
                 <Row label="Install Source">{installedSource}</Row>
-                <Row label="Management">{isHubManaged ? 'Managed by hub update/upgrade, not directly installed.' : 'Operator installable component.'}</Row>
+                <Row label="Management">{managementLabel}</Row>
+                {isHubManaged && <Row label="Installability">This kind is curated through hub source sync, not direct install.</Row>}
                 <Row label="Cache Path"><code className="text-xs">{path}</code></Row>
               </dl>
             </section>

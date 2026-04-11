@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router';
 import { RefreshCw, Activity, Play, Square, RotateCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { StatusIndicator } from '../components/StatusIndicator';
@@ -163,6 +164,8 @@ export function Infrastructure() {
   const healthyCount = services.filter((s) => s.health === 'healthy').length;
   const usedSlots = capacity ? capacity.running_agents + capacity.running_meeseeks : 0;
   const hasRunningServices = services.some((service) => isRunningState(service.state));
+  const unhealthyServices = services.filter((service) => service.health === 'unhealthy');
+  const stoppedServices = services.filter((service) => isStoppedState(service.state));
   const primaryAction: InfraAction = hasRunningServices ? 'restart' : 'start';
   const primaryActionLabel =
     globalAction === 'start' ? 'Starting...' :
@@ -222,6 +225,36 @@ export function Infrastructure() {
           </Button>
         </div>
       </div>
+
+      {!loading && (unhealthyServices.length > 0 || (!hasRunningServices && services.length > 0)) && (
+        <div className="bg-card border border-border rounded p-4 space-y-3">
+          <div className="flex items-center gap-2 text-sm text-amber-400">
+            <Activity className="w-4 h-4" />
+            <span>
+              {unhealthyServices.length > 0
+                ? `${unhealthyServices.length} ${unhealthyServices.length === 1 ? 'service is' : 'services are'} unhealthy`
+                : `${stoppedServices.length} ${stoppedServices.length === 1 ? 'service is' : 'services are'} not running`}
+            </span>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Use infrastructure controls first. If services still do not recover cleanly, run Doctor to identify whether the problem is platform-wide or isolated to one agent.
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => handleGlobalAction(primaryAction)}
+              disabled={globalAction !== null}
+            >
+              {hasRunningServices ? 'Restart infrastructure' : 'Start infrastructure'}
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+              <Link to="/admin/doctor">Open Doctor</Link>
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="bg-card border border-border rounded overflow-hidden">
         <div className="px-4 py-3 border-b border-border">

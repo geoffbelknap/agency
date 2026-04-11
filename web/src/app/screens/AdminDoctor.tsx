@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router';
 import { api } from '../lib/api';
 import { DoctorCheck } from '../types';
 import { Button } from '../components/ui/button';
@@ -65,6 +66,8 @@ export function AdminDoctor() {
 
   const totalAgents = groups.length;
   const issueCount = groups.filter((g) => !g.allPass).length;
+  const platformIssues = groups.find((group) => group.name === '(platform)' && !group.allPass) ?? null;
+  const firstAgentIssue = groups.find((group) => group.name !== '(platform)' && !group.allPass) ?? null;
 
   const summaryText =
     totalAgents === 0
@@ -104,6 +107,33 @@ export function AdminDoctor() {
       {error && (
         <div className="text-sm text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded px-3 py-2">
           {error}
+        </div>
+      )}
+
+      {!loading && !error && issueCount > 0 && (
+        <div className="bg-card border border-border rounded p-4 space-y-3">
+          <div className="flex items-center gap-2 text-sm text-amber-400">
+            <AlertTriangle className="w-4 h-4" />
+            <span>{issueCount === 1 ? '1 issue needs attention' : `${issueCount} issues need attention`}</span>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Start with the shared platform if infrastructure checks are failing. If the issue is scoped to one agent, jump straight into that agent’s detail view.
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {platformIssues && (
+              <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                <Link to="/admin/infrastructure">Open Infrastructure</Link>
+              </Button>
+            )}
+            {firstAgentIssue && (
+              <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                <Link to={`/agents/${encodeURIComponent(firstAgentIssue.name)}`}>Open Agent: {firstAgentIssue.name}</Link>
+              </Button>
+            )}
+            <Button size="sm" className="h-8 text-xs" onClick={runDoctor} disabled={loading}>
+              Re-run checks
+            </Button>
+          </div>
         </div>
       )}
 

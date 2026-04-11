@@ -71,6 +71,8 @@ You should see all infrastructure components running. Quickstart opens the brows
 
 `agency setup` is still available for idempotent infrastructure setup, but `agency quickstart` is the recommended first-run path.
 
+If you later need to update providers, rerun guided setup, or recover from a partial first-run, use the Web UI setup wizard at `/setup` or open it from **Admin → Setup Wizard**. Treat that as a continuation of quickstart, not a separate onboarding path.
+
 ## Choose Your Path
 
 For basic users, the Web UI is the primary experience. Use the terminal for initial setup and recovery only.
@@ -114,7 +116,9 @@ Now send your agent some work.
 4. Watch the activity indicator. You'll see what the agent is doing as it works.
 5. When it responds, send a follow-up: *"Create a file called notes.md with a summary of what you found."*
 
-The DM view shows your full conversation history. To see the raw audit log, go back to **Agents**, click your agent, and open the **Activity** tab.
+The DM view shows your full conversation history. To add more agents, go to **Agents** in the left sidebar. To define standing work, go to **Missions**.
+
+To see the raw audit log, go back to **Agents**, click your agent, and open the **Activity** tab.
 
 ### CLI
 

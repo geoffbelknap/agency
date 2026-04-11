@@ -500,11 +500,41 @@ func (c *Client) ListNetworksByLabel(ctx context.Context, label string) ([]netwo
 	})
 }
 
+// NetworkInspectRaw returns the full Docker inspect response for a network.
+func (c *Client) NetworkInspectRaw(ctx context.Context, name string) (*network.Inspect, error) {
+	info, err := c.cli.NetworkInspect(ctx, name, network.InspectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return &info, nil
+}
+
 // ListAgencyImages returns images whose repository name starts with "agency-".
 func (c *Client) ListAgencyImages(ctx context.Context) ([]image.Summary, error) {
 	return c.cli.ImageList(ctx, image.ListOptions{
 		Filters: filters.NewArgs(filters.Arg("reference", "agency-*")),
 	})
+}
+
+// ListDanglingAgencyImages returns true dangling Docker images that still carry
+// Agency build labels. Intentional version-tagged images are excluded.
+func (c *Client) ListDanglingAgencyImages(ctx context.Context) ([]image.Summary, error) {
+	imgs, err := c.cli.ImageList(ctx, image.ListOptions{
+		Filters: filters.NewArgs(filters.Arg("dangling", "true")),
+	})
+	if err != nil {
+		return nil, err
+	}
+	var result []image.Summary
+	for _, img := range imgs {
+		if img.Labels == nil {
+			continue
+		}
+		if _, ok := img.Labels["agency.build.id"]; ok {
+			result = append(result, img)
+		}
+	}
+	return result, nil
 }
 
 // RemoveImage removes a Docker image by tag or ID.

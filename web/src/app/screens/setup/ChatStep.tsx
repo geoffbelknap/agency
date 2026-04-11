@@ -145,8 +145,8 @@ export function ChatStep({
         if (existing) {
           setChannelName(existing.name);
         } else {
-          await api.channels.create(dmName);
-          setChannelName(dmName);
+          const ensured = await api.agents.ensureDM(agentName);
+          setChannelName(ensured.channel || dmName);
         }
       } catch (e: any) {
         setError(e.message || 'Could not open chat');

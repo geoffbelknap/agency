@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"gopkg.in/yaml.v3"
 
+	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -300,25 +302,26 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 				})
 				return
 			}
-			onMediation := false
-			for _, net := range enf.Networks {
-				if strings.Contains(net, "mediation") {
-					onMediation = true
-					break
-				}
-			}
-			if onMediation {
-				report.Checks = append(report.Checks, checkResult{
-					Name: "operator_override", Agent: agentName, Status: "pass",
-					Detail: "Enforcer reachable on mediation network",
-				})
-			} else {
+			if !docker.EnforcerHasOperatorOverridePath(enf.Networks) {
 				report.AllPassed = false
 				report.Checks = append(report.Checks, checkResult{
 					Name: "operator_override", Agent: agentName, Status: "fail",
-					Detail: "Enforcer not on mediation network: " + strings.Join(enf.Networks, ", "),
+					Detail: "Enforcer missing gateway mediation network: " + strings.Join(enf.Networks, ", "),
 				})
+				return
 			}
+			if unexpected := docker.EnforcerUnexpectedExternalNetworks(enf.Networks); len(unexpected) > 0 {
+				report.AllPassed = false
+				report.Checks = append(report.Checks, checkResult{
+					Name: "operator_override", Agent: agentName, Status: "fail",
+					Detail: "Enforcer attached to external network(s): " + strings.Join(unexpected, ", "),
+				})
+				return
+			}
+			report.Checks = append(report.Checks, checkResult{
+				Name: "operator_override", Agent: agentName, Status: "pass",
+				Detail: "Enforcer reachable on gateway mediation network",
+			})
 		}()
 	}
 
@@ -445,19 +448,23 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Network pool check
-	if capErr == nil {
-		if capCfg.NetworkPoolConfigured {
-			report.Checks = append(report.Checks, checkResult{
-				Name: "network_pool", Status: "pass",
-				Detail: "Docker network pool configured for /24 subnets",
-			})
-		} else {
-			report.Checks = append(report.Checks, checkResult{
-				Name: "network_pool", Status: "warn",
-				Detail: "Default Docker pool (limited to ~15 networks) — run agency setup to configure",
-			})
+		if capErr == nil {
+			if capCfg.NetworkPoolConfigured {
+				report.Checks = append(report.Checks, checkResult{
+					Name: "network_pool", Status: "pass",
+					Detail: "Docker network pool configured for /24 subnets",
+				})
+			} else {
+				detail := "Default Docker address pool still in use (limits agent-network fan-out)"
+				if runtime.GOOS == "darwin" {
+					detail += " — on Docker Desktop this must be configured in the daemon settings, not by Agency at runtime"
+				}
+				report.Checks = append(report.Checks, checkResult{
+					Name: "network_pool", Status: "warn",
+					Detail: detail,
+				})
+			}
 		}
-	}
 
 	writeJSON(w, 200, report)
 }
@@ -484,28 +491,18 @@ func (h *handler) adminDestroy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": "destroyed"})
 }
 
-// pruneDanglingImages removes agency-prefixed images that are not tagged :latest.
+// pruneDanglingImages removes true dangling untagged Agency build images.
 func (h *handler) pruneDanglingImages(ctx context.Context) {
-	imgs, err := h.deps.DC.ListAgencyImages(ctx)
+	imgs, err := h.deps.DC.ListDanglingAgencyImages(ctx)
 	if err != nil {
 		h.deps.Logger.Warn("prune images: list failed", "err", err)
 		return
 	}
 	for _, img := range imgs {
-		for _, tag := range img.RepoTags {
-			if !strings.HasSuffix(tag, ":latest") {
-				if _, err := h.deps.DC.RemoveImage(ctx, tag); err != nil {
-					h.deps.Logger.Debug("prune image skip", "tag", tag, "err", err)
-				} else {
-					h.deps.Logger.Info("pruned dangling image", "tag", tag)
-				}
-			}
-		}
-		// Remove untagged images
-		if len(img.RepoTags) == 0 {
-			if _, err := h.deps.DC.RemoveImage(ctx, img.ID); err != nil {
-				h.deps.Logger.Debug("prune untagged image skip", "id", img.ID, "err", err)
-			}
+		if _, err := h.deps.DC.RemoveImage(ctx, img.ID); err != nil {
+			h.deps.Logger.Debug("prune untagged image skip", "id", img.ID, "err", err)
+		} else {
+			h.deps.Logger.Info("pruned dangling image", "id", img.ID)
 		}
 	}
 }

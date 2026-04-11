@@ -13,6 +13,7 @@ import (
 	apimissions "github.com/geoffbelknap/agency/internal/api/missions"
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/events"
+	"github.com/geoffbelknap/agency/internal/models"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 )
 
@@ -177,6 +178,50 @@ func (h *handler) agentChannels(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
 	w.Write(data)
+}
+
+func (h *handler) ensureAgentDM(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if strings.TrimSpace(name) == "" {
+		writeJSON(w, 400, map[string]string{"error": "name required"})
+		return
+	}
+
+	channelName, err := h.ensureDirectChannel(r.Context(), name)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]string{
+		"status":  "ready",
+		"channel": channelName,
+	})
+}
+
+func (h *handler) ensureDirectChannel(ctx context.Context, agentName string) (string, error) {
+	dmChannel := models.DMChannelName(agentName)
+	dmBody := map[string]interface{}{
+		"name":       dmChannel,
+		"topic":      "DM channel for " + agentName,
+		"type":       models.ChannelTypeDirect,
+		"visibility": "private",
+		"members":    []string{agentName, "_operator"},
+	}
+	if _, err := h.deps.Comms.CommsRequest(ctx, "POST", "/channels", dmBody); err != nil {
+		if !strings.Contains(err.Error(), "409") {
+			return "", fmt.Errorf("create DM channel %s: %w", dmChannel, err)
+		}
+	}
+
+	dmGrant := map[string]interface{}{"agent": agentName}
+	if _, err := h.deps.Comms.CommsRequest(ctx, "POST", "/channels/"+dmChannel+"/grant-access", dmGrant); err != nil {
+		return "", fmt.Errorf("grant agent access to %s: %w", dmChannel, err)
+	}
+	opGrant := map[string]interface{}{"agent": "_operator"}
+	if _, err := h.deps.Comms.CommsRequest(ctx, "POST", "/channels/"+dmChannel+"/grant-access", opGrant); err != nil {
+		return "", fmt.Errorf("grant operator access to %s: %w", dmChannel, err)
+	}
+	return dmChannel, nil
 }
 
 // containerInstanceID returns the short Docker container ID (first 12 hex chars)

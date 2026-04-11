@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 const APP_ERROR_PATTERN = /Application Error|Something went wrong/;
 const SETUP_HEADING_PATTERN = /Welcome to Agency|Re-configure Agency|Preparing your platform/;
 
-test.describe.configure({ timeout: 60_000 });
+test.describe.configure({ timeout: 180_000 });
 
 async function settle(page: Page) {
   await page.waitForLoadState('domcontentloaded');
@@ -27,17 +27,154 @@ function uniqueName(prefix: string) {
 }
 
 async function bestEffortDelete(page: Page, path: string) {
-  const configResponse = await page.request.get('/__agency/config');
-  const config = configResponse.ok() ? await configResponse.json() : {};
-  const token = (config as { token?: string })?.token ?? '';
-  const response = await page.request.delete(path, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const headers = await authHeaders(page);
+  const response = await page.request.delete(path, { headers });
   const status = response.status();
   if (status === 200 || status === 204 || status === 404) {
     return;
   }
   throw new Error(`cleanup failed for ${path}: ${status}`);
+}
+
+async function authHeaders(page: Page) {
+  const configResponse = await page.request.get('/__agency/config');
+  const config = configResponse.ok() ? await configResponse.json() : {};
+  const token = (config as { token?: string })?.token ?? '';
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function prunePlaywrightArtifacts(page: Page) {
+  const headers = await authHeaders(page);
+
+  const missionsResponse = await page.request.get('/api/v1/missions', { headers });
+  if (missionsResponse.ok()) {
+    const missions = await missionsResponse.json() as Array<{ name?: string }>;
+    for (const mission of missions) {
+      const name = mission?.name ?? '';
+      if (!name.startsWith('playwright-mission-')) continue;
+      await cleanupMission(page, name);
+    }
+  }
+
+  const agentsResponse = await page.request.get('/api/v1/agents', { headers });
+  if (agentsResponse.ok()) {
+    const agents = await agentsResponse.json() as Array<{ name?: string }>;
+    for (const agent of agents) {
+      const name = agent?.name ?? '';
+      if (!name.startsWith('playwright-agent-')) continue;
+      await bestEffortDelete(page, `/api/v1/agents/${encodeURIComponent(name)}`);
+    }
+  }
+}
+
+async function createMissionViaApi(page: Page, name: string, description: string, instructions: string) {
+  const response = await page.request.post('/api/v1/missions', {
+    headers: {
+      ...(await authHeaders(page)),
+      'Content-Type': 'application/x-yaml',
+    },
+    data: `name: ${name}
+description: ${JSON.stringify(description)}
+instructions: ${JSON.stringify(instructions)}
+`,
+  });
+  if (!response.ok()) {
+    throw new Error(`mission create failed for ${name}: ${response.status()}`);
+  }
+}
+
+async function createAgentViaApi(page: Page, name: string) {
+  const response = await page.request.post('/api/v1/agents', {
+    headers: {
+      ...(await authHeaders(page)),
+      'Content-Type': 'application/json',
+    },
+    data: { name, preset: 'generalist', mode: 'assisted' },
+  });
+  if (!response.ok()) {
+    throw new Error(`agent create failed for ${name}: ${response.status()}`);
+  }
+  const startResponse = await page.request.post(`/api/v1/agents/${encodeURIComponent(name)}/start`, {
+    headers: {
+      ...(await authHeaders(page)),
+      'Content-Type': 'application/json',
+    },
+    data: {},
+  });
+  if (!startResponse.ok()) {
+    throw new Error(`agent start failed for ${name}: ${startResponse.status()}`);
+  }
+}
+
+async function waitForAgentDmReady(page: Page, name: string, timeout = 60_000) {
+  const headers = await authHeaders(page);
+  await expect.poll(async () => {
+    const [agentResponse, channelsResponse] = await Promise.all([
+      page.request.get(`/api/v1/agents/${encodeURIComponent(name)}`, { headers }),
+      page.request.get(`/api/v1/agents/${encodeURIComponent(name)}/channels`, { headers }),
+    ]);
+    if (!agentResponse.ok() || !channelsResponse.ok()) {
+      return false;
+    }
+    const agent = await agentResponse.json() as { status?: string };
+    const channels = await channelsResponse.json() as Array<{ name?: string }>;
+    return agent.status === 'running' && channels.some((channel) => channel.name === `dm-${name}`);
+  }, {
+    timeout,
+    message: `expected ${name} to be running with a DM channel`,
+  }).toBe(true);
+
+  // Give the runtime a moment to transition from "running" to actually processing DM work.
+  await page.waitForTimeout(3000);
+}
+
+async function cleanupMission(page: Page, name: string) {
+  const headers = {
+    ...(await authHeaders(page)),
+    'Content-Type': 'application/json',
+  };
+  const deleteResponse = await page.request.delete(`/api/v1/missions/${encodeURIComponent(name)}`, { headers });
+  if (deleteResponse.status() === 200 || deleteResponse.status() === 204 || deleteResponse.status() === 404) {
+    return;
+  }
+  if (deleteResponse.status() !== 400) {
+    throw new Error(`cleanup failed for /api/v1/missions/${encodeURIComponent(name)}: ${deleteResponse.status()}`);
+  }
+
+  const completeResponse = await page.request.post(`/api/v1/missions/${encodeURIComponent(name)}/complete`, {
+    headers,
+    data: {},
+  });
+  if (!(completeResponse.status() === 200 || completeResponse.status() === 400 || completeResponse.status() === 404)) {
+    throw new Error(`mission completion failed for ${name}: ${completeResponse.status()}`);
+  }
+
+  const retryDeleteResponse = await page.request.delete(`/api/v1/missions/${encodeURIComponent(name)}`, { headers });
+  if (retryDeleteResponse.status() === 200 || retryDeleteResponse.status() === 204 || retryDeleteResponse.status() === 404) {
+    return;
+  }
+  throw new Error(`cleanup failed for /api/v1/missions/${encodeURIComponent(name)} after complete: ${retryDeleteResponse.status()}`);
+}
+
+async function sendChannelMessageViaApi(page: Page, channelName: string, content: string) {
+  const response = await page.request.post(`/api/v1/comms/channels/${encodeURIComponent(channelName)}/messages`, {
+    headers: {
+      ...(await authHeaders(page)),
+      'Content-Type': 'application/json',
+    },
+    data: { content },
+  });
+  if (!response.ok()) {
+    throw new Error(`message send failed for ${channelName}: ${response.status()}`);
+  }
+}
+
+async function expectAgentReply(page: Page, agentName: string, expectedText: string, timeout = 120_000) {
+  const reply = page.locator('div.group').filter({
+    has: page.getByText('AGENT', { exact: true }),
+    has: page.getByText(agentName, { exact: true }),
+  }).filter({ hasText: expectedText }).first();
+  await expect(reply).toBeVisible({ timeout });
 }
 
 async function clearBlockingToasts(page: Page) {
@@ -208,5 +345,170 @@ test('live stack supports custom preset create, edit, and delete flow', async ({
     await expect(page.getByRole('heading', { name: presetName })).toHaveCount(0);
   } finally {
     await bestEffortDelete(page, `/api/v1/hub/presets/${encodeURIComponent(presetName)}`);
+  }
+});
+
+test('live stack supports agent create flow from the agents screen', async ({ page }) => {
+  const agentName = uniqueName('playwright-agent');
+
+  try {
+    await page.goto('/agents');
+    const initialized = await expectSetupOrInitialized(page);
+    if (!initialized) {
+      return;
+    }
+
+    await prunePlaywrightArtifacts(page);
+    await bestEffortDelete(page, `/api/v1/agents/${encodeURIComponent(agentName)}`);
+
+    await page.getByRole('button', { name: 'Create' }).click();
+    await expect(page.getByRole('heading', { name: 'Create Agent' })).toBeVisible();
+    await page.getByPlaceholder('my-agent').fill(agentName);
+    await page.getByRole('button', { name: /^Create$/ }).click();
+    await settle(page);
+
+    await page.goto(`/agents/${encodeURIComponent(agentName)}`);
+    await settle(page);
+    await expect(page.getByRole('code').filter({ hasText: agentName })).toBeVisible();
+    await expect(page.getByText(/Mode: assisted|Mode: autonomous/).first()).toBeVisible();
+  } finally {
+    await bestEffortDelete(page, `/api/v1/agents/${encodeURIComponent(agentName)}`);
+  }
+});
+
+test('live stack supports first useful DM reply flow for a running agent', async ({ page }) => {
+  const agentName = uniqueName('playwright-agent');
+  const replyToken = uniqueName('alpha-ready');
+  const taskPrompt = `Reply with exactly this token and nothing else: ${replyToken}`;
+
+  try {
+    await page.goto('/agents');
+    const initialized = await expectSetupOrInitialized(page);
+    if (!initialized) {
+      return;
+    }
+
+    await prunePlaywrightArtifacts(page);
+    await bestEffortDelete(page, `/api/v1/agents/${encodeURIComponent(agentName)}`);
+    await createAgentViaApi(page, agentName);
+    await waitForAgentDmReady(page, agentName);
+    await sendChannelMessageViaApi(page, `dm-${agentName}`, taskPrompt);
+
+    await page.goto(`/channels/dm-${encodeURIComponent(agentName)}`);
+    await settle(page);
+    await expect(page).toHaveURL(new RegExp(`/channels/dm-${agentName}$`));
+    await expect(page.getByText(taskPrompt, { exact: true })).toBeVisible();
+    await expectAgentReply(page, agentName, replyToken);
+  } finally {
+    await bestEffortDelete(page, `/api/v1/agents/${encodeURIComponent(agentName)}`);
+  }
+});
+
+test('live stack supports team create and delete flow', async ({ page }) => {
+  const teamName = uniqueName('playwright-team');
+
+  try {
+    await page.goto('/teams');
+    const initialized = await expectSetupOrInitialized(page);
+    if (!initialized) {
+      return;
+    }
+
+    await prunePlaywrightArtifacts(page);
+    await bestEffortDelete(page, `/api/v1/admin/teams/${encodeURIComponent(teamName)}`);
+
+    await page.getByRole('button', { name: 'Create Team' }).click();
+    await page.getByPlaceholder('Team name...').fill(teamName);
+    await page.getByRole('button', { name: /^Create$/ }).click();
+    await settle(page);
+
+    await expect(page.getByText(teamName, { exact: true })).toBeVisible();
+
+    await page.getByRole('button', { name: `Delete team ${teamName}` }).click();
+    await page.getByRole('button', { name: /^Delete$/ }).click();
+    await settle(page);
+
+    await expect(page.getByText(teamName, { exact: true })).toHaveCount(0);
+  } finally {
+    await bestEffortDelete(page, `/api/v1/admin/teams/${encodeURIComponent(teamName)}`);
+  }
+});
+
+test('live stack supports mission assignment from mission detail', async ({ page }) => {
+  const agentName = uniqueName('playwright-agent');
+  const missionName = uniqueName('playwright-mission');
+  const missionDescription = 'Mission assigned from detail page during live coverage';
+  const missionInstructions = 'Acknowledge assignment and report status back to the operator.';
+
+  try {
+    await page.goto('/missions');
+    const initialized = await expectSetupOrInitialized(page);
+    if (!initialized) {
+      return;
+    }
+
+    await prunePlaywrightArtifacts(page);
+    await cleanupMission(page, missionName);
+    await bestEffortDelete(page, `/api/v1/agents/${encodeURIComponent(agentName)}`);
+
+    await createAgentViaApi(page, agentName);
+    await createMissionViaApi(page, missionName, missionDescription, missionInstructions);
+
+    await page.goto(`/missions/${encodeURIComponent(missionName)}`);
+    await settle(page);
+    await expect(page.getByText('unassigned', { exact: true }).first()).toBeVisible();
+
+    await page.getByRole('button', { name: 'assign', exact: true }).click();
+    await page.getByLabel('Assign target').fill(agentName);
+    await page.getByRole('button', { name: 'Assign' }).last().click();
+    await settle(page);
+
+    await expect(page.getByText('Assigned To', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(agentName, { exact: true })).toBeVisible();
+    await expect(page.getByText('(agent)', { exact: true })).toBeVisible();
+  } finally {
+    await cleanupMission(page, missionName);
+    await bestEffortDelete(page, `/api/v1/agents/${encodeURIComponent(agentName)}`);
+  }
+});
+
+test('live stack supports mission create flow from the wizard', async ({ page }) => {
+  const missionName = uniqueName('playwright-mission');
+  const missionDescription = 'Live mission created by Playwright coverage';
+  const missionInstructions = 'Check the platform shell and report whether the operator-facing surfaces look healthy.';
+
+  try {
+    await page.goto('/missions');
+    const initialized = await expectSetupOrInitialized(page);
+    if (!initialized) {
+      return;
+    }
+
+    await prunePlaywrightArtifacts(page);
+    await bestEffortDelete(page, `/api/v1/missions/${encodeURIComponent(missionName)}`);
+
+    const createButton = page.getByRole('button', { name: /New Mission|Create Mission/ }).first();
+    await createButton.click();
+    await expect(page.getByRole('heading', { name: 'New Mission' })).toBeVisible();
+
+    await page.getByPlaceholder('my-mission').fill(missionName);
+    await page.getByPlaceholder('What does this mission do?').fill(missionDescription);
+    await page.getByRole('button', { name: 'Next' }).click();
+
+    await page.getByPlaceholder(/Describe what the agent should do when this mission is active/).fill(missionInstructions);
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByRole('button', { name: 'Next' }).click();
+
+    const createMissionButton = page.getByRole('button', { name: 'Create Mission' }).last();
+    await expect(createMissionButton).toBeVisible();
+    await createMissionButton.click();
+    await settle(page);
+
+    await expect(page.getByText(missionName, { exact: true })).toBeVisible();
+    await expect(page.getByText(missionDescription)).toBeVisible();
+  } finally {
+    await bestEffortDelete(page, `/api/v1/missions/${encodeURIComponent(missionName)}`);
   }
 });
