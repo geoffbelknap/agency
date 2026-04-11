@@ -396,30 +396,18 @@ func TestResolvedYAML_NoConfig(t *testing.T) {
 	reg.Create("no-config", "connector", "default/test")
 
 	instDir := reg.InstanceDir("no-config")
-	os.WriteFile(filepath.Join(instDir, "connector.yaml"), []byte(`
-name: template-name
-kind: connector
-config:
-  - name: target_agent
-    required: true
-source:
-  type: webhook
-routes:
-  - match:
-      kind: test
-    target:
-      agent: ${target_agent}
-`), 0644)
+	os.WriteFile(filepath.Join(instDir, "connector.yaml"), []byte("name: test\nconfig:\n  - name: api_key\n"), 0644)
 
 	resolved, err := reg.ResolvedYAML("no-config")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(resolved), "name: no-config") {
-		t.Error("runtime connector yaml should use the installed instance name when no config exists")
+	content := string(resolved)
+	if !strings.Contains(content, "name: no-config") {
+		t.Error("runtime name not applied when no config exists")
 	}
-	if strings.Contains(string(resolved), "\nconfig:") {
-		t.Error("runtime connector yaml should not include hub config schema")
+	if strings.Contains(content, "\nconfig:") {
+		t.Error("hub config schema should be stripped when no config exists")
 	}
 }
 
