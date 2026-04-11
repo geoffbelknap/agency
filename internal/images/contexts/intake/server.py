@@ -74,6 +74,41 @@ async def _deliver_task(
             return False
 
 
+async def _deliver_channel_message(
+    comms_url: str,
+    channel_name: str,
+    task_content: str,
+) -> bool:
+    """Deliver connector output directly into a channel."""
+    gateway_url = os.environ.get("GATEWAY_URL", "").rstrip("/")
+    gateway_token = os.environ.get("GATEWAY_TOKEN", "")
+    target_url = f"{comms_url}/channels/{channel_name}/messages"
+    headers = {}
+    expected_status = 201
+    if gateway_url and gateway_token:
+        target_url = f"{gateway_url}/api/v1/comms/channels/{channel_name}/messages"
+        headers["Authorization"] = f"Bearer {gateway_token}"
+        expected_status = 200
+
+    async with ClientSession() as session:
+        try:
+            async with session.post(
+                target_url,
+                json={
+                    "author": "_operator",
+                    "content": task_content,
+                },
+                headers=headers,
+            ) as resp:
+                if resp.status == expected_status:
+                    return True
+                logger.warning(f"channel message failed: {resp.status} {(await resp.text())[:400]}")
+                return False
+        except Exception as e:
+            logger.error(f"Channel delivery failed: {e}")
+            return False
+
+
 def _make_ssl_context():
     """Build an SSL context that trusts the egress (mitmproxy) CA cert."""
     import ssl
@@ -182,11 +217,19 @@ async def _route_and_deliver(
         store.update_status(wi.id, status="relayed" if ok else "relay_failed")
         return ok
 
-    # Agent/team route
-    target_name = route.target.get("team") or route.target.get("agent")
+    # Channel/agent/team route
+    target_name = route.target.get("channel") or route.target.get("team") or route.target.get("agent")
+    if not target_name:
+        store.update_status(wi.id, status="unrouted")
+        return False
     sla_delta = parse_sla_duration(route.sla)
     sla_deadline = (datetime.now(timezone.utc) + sla_delta) if sla_delta else None
-    target_type = "team" if "team" in route.target else "agent"
+    if "channel" in route.target:
+        target_type = "channel"
+    elif "team" in route.target:
+        target_type = "team"
+    else:
+        target_type = "agent"
 
     store.update_status(
         wi.id,
@@ -200,14 +243,21 @@ async def _route_and_deliver(
 
     # Build task content from payload summary
     task_text = json.dumps(payload, default=str, indent=2)
-    delivered = await _deliver_task(
-        comms_url=comms_url,
-        agent_name=target_name,
-        task_content=task_text,
-        work_item_id=wi.id,
-        priority=route.priority,
-        source=source_label,
-    )
+    if target_type == "channel":
+        delivered = await _deliver_channel_message(
+            comms_url=comms_url,
+            channel_name=target_name,
+            task_content=task_text,
+        )
+    else:
+        delivered = await _deliver_task(
+            comms_url=comms_url,
+            agent_name=target_name,
+            task_content=task_text,
+            work_item_id=wi.id,
+            priority=route.priority,
+            source=source_label,
+        )
     if delivered:
         store.update_status(wi.id, status="assigned", task_content=task_text)
     return delivered

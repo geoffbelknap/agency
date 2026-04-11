@@ -344,7 +344,7 @@ func TestResolvedYAML(t *testing.T) {
 
 	// Write template with placeholders
 	instDir := reg.InstanceDir("test-conn")
-	template := `name: test
+	template := `name: source-template-name
 source:
   url: "https://api.example.com?key=${api_key}&channel=${channel}"
 config:
@@ -370,6 +370,12 @@ config:
 		t.Fatal(err)
 	}
 	content := string(resolved)
+	if !strings.Contains(content, "name: test-conn") {
+		t.Error("resolved connector yaml should use the installed instance name")
+	}
+	if strings.Contains(content, "name: source-template-name") {
+		t.Error("resolved connector yaml should not retain the source component name")
+	}
 	if strings.Contains(content, "${api_key}") {
 		t.Error("api_key placeholder not resolved")
 	}
@@ -378,6 +384,9 @@ config:
 	}
 	if !strings.Contains(content, "C0123") {
 		t.Error("channel not resolved")
+	}
+	if strings.Contains(content, "\nconfig:") {
+		t.Error("resolved connector yaml should not include hub config schema")
 	}
 }
 

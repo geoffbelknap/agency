@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/go-chi/chi/v5"
 	"log/slog"
 
@@ -368,15 +367,7 @@ func (d *mcpDeps) enforcerWSURL(ctx context.Context, agentName string) string {
 	if err != nil || inspect.NetworkSettings == nil {
 		return defaultURL
 	}
-	bindings := inspect.NetworkSettings.Ports[nat.Port("8081/tcp")]
-	if len(bindings) == 0 || bindings[0].HostPort == "" {
-		return defaultURL
-	}
-	hostIP := bindings[0].HostIP
-	if hostIP == "" || hostIP == "0.0.0.0" {
-		hostIP = "127.0.0.1"
-	}
-	return fmt.Sprintf("ws://%s:%s/ws", hostIP, bindings[0].HostPort)
+	return enforcerWSURLFromBindings(defaultURL, inspect.HostConfig.PortBindings, inspect.NetworkSettings.Ports)
 }
 
 // unregisterEnforcerWSClient closes and removes the WebSocket client for an agent.
