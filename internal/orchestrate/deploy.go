@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"log/slog"
 	"gopkg.in/yaml.v3"
+	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/comms"
 	"github.com/geoffbelknap/agency/internal/credstore"
@@ -77,8 +77,8 @@ type PackDef struct {
 }
 
 type PackTeamDef struct {
-	Name     string          `yaml:"name" json:"name"`
-	Agents   []PackAgentDef  `yaml:"agents" json:"agents"`
+	Name     string           `yaml:"name" json:"name"`
+	Agents   []PackAgentDef   `yaml:"agents" json:"agents"`
 	Channels []PackChannelDef `yaml:"channels,omitempty" json:"channels,omitempty"`
 }
 
@@ -99,14 +99,14 @@ type PackChannelDef struct {
 
 // DeployResult tracks what was created during deployment.
 type DeployResult struct {
-	PackName           string   `json:"pack_name"`
-	TeamName           string   `json:"team_name"`
-	AgentsCreated      []string `json:"agents_created"`
-	AgentsStarted      []string `json:"agents_started"`
-	ChannelsCreated    []string `json:"channels_created"`
-	ConnectorsCreated  []string `json:"connectors_created,omitempty"`
-	DeploymentID       string   `json:"deployment_id"`
-	DryRun             bool     `json:"dry_run,omitempty"`
+	PackName          string   `json:"pack_name"`
+	TeamName          string   `json:"team_name"`
+	AgentsCreated     []string `json:"agents_created"`
+	AgentsStarted     []string `json:"agents_started"`
+	ChannelsCreated   []string `json:"channels_created"`
+	ConnectorsCreated []string `json:"connectors_created,omitempty"`
+	DeploymentID      string   `json:"deployment_id"`
+	DryRun            bool     `json:"dry_run,omitempty"`
 }
 
 // Deployer manages pack deployment and teardown.
@@ -124,6 +124,14 @@ type Deployer struct {
 
 func NewDeployer(home, version string, dc *agencyDocker.Client, logger *slog.Logger) *Deployer {
 	return &Deployer{Home: home, Version: version, Docker: dc, Comms: dc, Log: logger}
+}
+
+func infraContainerName(component string) string {
+	name := "agency-infra-" + component
+	if instance := strings.TrimSpace(os.Getenv("AGENCY_INFRA_INSTANCE")); instance != "" {
+		name += "-" + instance
+	}
+	return name
 }
 
 // LoadPack reads and parses a pack YAML file.
@@ -416,6 +424,7 @@ func (d *Deployer) Teardown(ctx context.Context, packName string, deleteResource
 	// Deactivate and remove connector instances
 	if connectors, ok := manifest["connectors"].([]interface{}); ok {
 		hubMgr := hub.NewManager(d.Home)
+		needsIntakeSignal := false
 		for _, c := range connectors {
 			connName, _ := c.(string)
 			if connName == "" {
@@ -444,8 +453,22 @@ func (d *Deployer) Teardown(ctx context.Context, packName string, deleteResource
 				hub.RemoveSecrets(d.Home, connName, secretFields, d.deploySecretDeleter())
 			}
 
-			// Remove instance
-			hubMgr.Registry.Remove(connName)
+			removed, err := hubMgr.RemoveWithDependencies(connName)
+			if err != nil {
+				d.Log.Warn("connector remove failed", "connector", connName, "err", err)
+				continue
+			}
+			for _, removedInst := range removed {
+				if removedInst.Kind == "connector" {
+					_ = os.Remove(filepath.Join(d.Home, "connectors", removedInst.Name+".yaml"))
+					needsIntakeSignal = true
+				}
+			}
+		}
+		if needsIntakeSignal && d.Docker != nil {
+			if err := d.Docker.SignalContainer(ctx, infraContainerName("intake"), "SIGHUP"); err != nil {
+				d.Log.Warn("intake SIGHUP failed after connector teardown", "err", err)
+			}
 		}
 	}
 

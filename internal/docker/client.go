@@ -214,6 +214,14 @@ func (c *Client) ExecInContainer(ctx context.Context, containerName string, cmd 
 	return buf.String(), nil
 }
 
+// SignalContainer sends an OS signal to a running container.
+func (c *Client) SignalContainer(ctx context.Context, containerName, signal string) error {
+	if c == nil || c.cli == nil {
+		return fmt.Errorf("docker client unavailable")
+	}
+	return c.cli.ContainerKill(ctx, containerName, signal)
+}
+
 // CommsRequest makes an HTTP request to the comms service via the gateway-proxy.
 // The proxy bridges localhost:8202 → comms:8080 on the internal Docker network.
 //

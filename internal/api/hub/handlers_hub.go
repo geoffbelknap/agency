@@ -102,7 +102,11 @@ func (h *handler) hubInstall(w http.ResponseWriter, r *http.Request) {
 	// requires.connectors, install those first.
 	comp := mgr.FindInCache(body.Component, body.Kind, body.Source)
 	if comp != nil {
-		h.installDependencies(mgr, comp)
+		parentName := body.Component
+		if body.As != "" {
+			parentName = body.As
+		}
+		h.installDependencies(mgr, parentName, comp)
 	}
 
 	inst, err := mgr.Install(body.Component, body.Kind, body.Source, body.As)
@@ -115,6 +119,9 @@ func (h *handler) hubInstall(w http.ResponseWriter, r *http.Request) {
 	// This merges the old install + activate two-step into a single operation.
 	h.autoActivate(mgr, inst)
 	h.signalInfraComponent("egress")
+	if inst.Kind == "connector" {
+		h.signalInfraComponent("intake")
+	}
 
 	writeJSON(w, 200, map[string]interface{}{
 		"name":   inst.Name,
@@ -136,113 +143,34 @@ func (h *handler) signalInfraComponent(component string) {
 	}
 }
 
+func (h *handler) ensureDependencyInstalled(mgr *hubpkg.Manager, parentName string, dep hubpkg.DependencyRef) {
+	if existing := mgr.Registry.Resolve(dep.Name); existing != nil {
+		_ = mgr.Registry.AddRequiredBy(existing.Name, parentName)
+		return
+	}
+
+	inst, err := mgr.Install(dep.Name, dep.Kind, "", "")
+	if err != nil {
+		log.Printf("[hub] auto-install dependency %s (%s): %s", dep.Name, dep.Kind, err)
+		return
+	}
+	_ = mgr.Registry.MarkAutoInstalled(inst.Name, true)
+	_ = mgr.Registry.AddRequiredBy(inst.Name, parentName)
+	log.Printf("[hub] auto-installed dependency: %s (%s)", dep.Name, dep.Kind)
+	if dep.Kind == "connector" {
+		h.autoActivate(mgr, inst)
+	}
+}
+
 // installDependencies resolves and installs required services and connectors.
-func (h *handler) installDependencies(mgr *hubpkg.Manager, comp *hubpkg.Component) {
+func (h *handler) installDependencies(mgr *hubpkg.Manager, parentName string, comp *hubpkg.Component) {
 	data, err := os.ReadFile(comp.Path)
 	if err != nil {
 		return
 	}
-	var doc map[string]interface{}
-	if yaml.Unmarshal(data, &doc) != nil {
-		return
-	}
-	requires, ok := doc["requires"].(map[string]interface{})
-	if !ok {
-		return
-	}
 
-	// Install required services
-	if services, ok := requires["services"].([]interface{}); ok {
-		for _, s := range services {
-			svcName, _ := s.(string)
-			if svcName == "" {
-				continue
-			}
-			// Skip if already installed
-			if existing := mgr.Registry.Resolve(svcName); existing != nil {
-				continue
-			}
-			if _, err := mgr.Install(svcName, "service", "", ""); err != nil {
-				log.Printf("[hub] auto-install dependency %s (service): %s", svcName, err)
-			} else {
-				log.Printf("[hub] auto-installed dependency: %s (service)", svcName)
-			}
-		}
-	}
-
-	// Install required presets
-	if presets, ok := requires["presets"].([]interface{}); ok {
-		for _, p := range presets {
-			presetName, _ := p.(string)
-			if presetName == "" {
-				continue
-			}
-			if existing := mgr.Registry.Resolve(presetName); existing != nil {
-				continue
-			}
-			if _, err := mgr.Install(presetName, "preset", "", ""); err != nil {
-				log.Printf("[hub] auto-install dependency %s (preset): %s", presetName, err)
-			} else {
-				log.Printf("[hub] auto-installed dependency: %s (preset)", presetName)
-			}
-		}
-	}
-
-	// Install required missions
-	if missions, ok := requires["missions"].([]interface{}); ok {
-		for _, m := range missions {
-			missionName, _ := m.(string)
-			if missionName == "" {
-				continue
-			}
-			if existing := mgr.Registry.Resolve(missionName); existing != nil {
-				continue
-			}
-			if _, err := mgr.Install(missionName, "mission", "", ""); err != nil {
-				log.Printf("[hub] auto-install dependency %s (mission): %s", missionName, err)
-			} else {
-				log.Printf("[hub] auto-installed dependency: %s (mission)", missionName)
-			}
-		}
-	}
-
-	// Install required connectors
-	if connectors, ok := requires["connectors"].([]interface{}); ok {
-		for _, c := range connectors {
-			connName, _ := c.(string)
-			if connName == "" {
-				continue
-			}
-			if existing := mgr.Registry.Resolve(connName); existing != nil {
-				continue
-			}
-			inst, err := mgr.Install(connName, "connector", "", "")
-			if err != nil {
-				log.Printf("[hub] auto-install dependency %s (connector): %s", connName, err)
-			} else {
-				log.Printf("[hub] auto-installed dependency: %s (connector)", connName)
-				h.autoActivate(mgr, inst)
-			}
-		}
-	}
-
-	// Also check mission_assignments in pack YAML
-	if assignments, ok := doc["mission_assignments"].([]interface{}); ok {
-		for _, a := range assignments {
-			am, _ := a.(map[string]interface{})
-			missionName, _ := am["mission"].(string)
-			if missionName == "" {
-				continue
-			}
-			if existing := mgr.Registry.Resolve(missionName); existing != nil {
-				continue
-			}
-			if _, err := mgr.Install(missionName, "mission", "", ""); err != nil {
-				log.Printf("[hub] auto-install mission %s: %s", missionName, err)
-			} else {
-				log.Printf("[hub] auto-installed mission: %s", missionName)
-			}
-		}
+	for _, dep := range hubpkg.DependencyRefsFromYAML(data) {
+		h.ensureDependencyInstalled(mgr, parentName, dep)
 	}
 }
 
@@ -365,9 +293,23 @@ func (h *handler) hubRemove(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := mgr.Registry.Remove(nameOrID); err != nil {
+	if inst.Kind == "connector" {
+		_ = os.Remove(filepath.Join(h.deps.Config.Home, "connectors", inst.Name+".yaml"))
+	}
+	removed, err := mgr.RemoveWithDependencies(nameOrID)
+	if err != nil {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
 		return
+	}
+	needsIntakeSignal := false
+	for _, removedInst := range removed {
+		if removedInst.Kind == "connector" {
+			_ = os.Remove(filepath.Join(h.deps.Config.Home, "connectors", removedInst.Name+".yaml"))
+			needsIntakeSignal = true
+		}
+	}
+	if needsIntakeSignal {
+		h.signalInfraComponent("intake")
 	}
 	writeJSON(w, 200, map[string]string{"status": "removed", "name": inst.Name})
 }
@@ -686,6 +628,11 @@ func (h *handler) hubConfigure(w http.ResponseWriter, r *http.Request) {
 	// Write resolved.yaml for intake
 	if resolved, err := mgr.Registry.ResolvedYAML(nameOrID); err == nil && resolved != nil {
 		os.WriteFile(filepath.Join(instDir, "resolved.yaml"), resolved, 0644)
+		if inst.Kind == "connector" {
+			connectorsDir := filepath.Join(h.deps.Config.Home, "connectors")
+			os.MkdirAll(connectorsDir, 0755)
+			os.WriteFile(filepath.Join(connectorsDir, inst.Name+".yaml"), resolved, 0644)
+		}
 	}
 
 	// Write secrets to credential store
@@ -695,13 +642,7 @@ func (h *handler) hubConfigure(w http.ResponseWriter, r *http.Request) {
 
 	// If instance is active, SIGHUP intake to pick up new config
 	if inst.State == "active" {
-		ctx := context.Background()
-		intakeName := "agency-intake"
-		if h.deps.Signal != nil {
-			if err := h.deps.Signal.SignalContainer(ctx, intakeName, "SIGHUP"); err != nil {
-				h.deps.Logger.Debug("hubConfigure: intake SIGHUP failed (may not be running)", "err", err)
-			}
-		}
+		h.signalInfraComponent("intake")
 	}
 
 	// Audit
@@ -734,6 +675,7 @@ func (h *handler) hubDeactivate(w http.ResponseWriter, r *http.Request) {
 	// Remove published connector YAML so intake stops polling
 	if inst != nil && inst.Kind == "connector" {
 		os.Remove(filepath.Join(h.deps.Config.Home, "connectors", inst.Name+".yaml"))
+		h.signalInfraComponent("intake")
 	}
 	name := nameOrID
 	if inst != nil {
