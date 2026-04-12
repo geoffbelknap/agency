@@ -156,6 +156,14 @@ routes:
 		Version: "1.0.0",
 		Trust:   "verified",
 		Path:    pkgPath,
+		Spec: map[string]any{
+			"runtime": map[string]any{
+				"executor": map[string]any{
+					"kind":     "http_json",
+					"base_url": "https://slack.com",
+				},
+			},
+		},
 	}); err != nil {
 		t.Fatalf("PutPackage(): %v", err)
 	}
@@ -172,6 +180,9 @@ routes:
 	}
 	if !strings.Contains(rec.Body.String(), `"connector.ingress"`) {
 		t.Fatalf("missing ingress node: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"connector.authority"`) {
+		t.Fatalf("missing authority node: %s", rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), `"interactivity_target_agent":"slack-bridge"`) {
 		t.Fatalf("missing instance config: %s", rec.Body.String())

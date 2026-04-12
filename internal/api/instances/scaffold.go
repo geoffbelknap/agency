@@ -45,8 +45,14 @@ func scaffoldConnectorInstance(pkg hub.InstalledPackage, req packageInstantiateR
 	mergeMap(instConfig, connectorDefaultInstanceConfig(cfg))
 	mergeMap(instConfig, req.Config)
 
-	nodeKind := "connector.ingress"
+	nodes := []instancepkg.Node{}
+	packageRef := instancepkg.PackageRef{
+		Kind:    pkg.Kind,
+		Name:    pkg.Name,
+		Version: pkg.Version,
+	}
 	nodeConfig := map[string]any{}
+	nodeKind := "connector.ingress"
 	if cfg.Source.Type == "none" {
 		if pkg.Spec == nil {
 			return nil, fmt.Errorf("connector %q does not have installed runtime package metadata", cfg.Name)
@@ -57,28 +63,37 @@ func scaffoldConnectorInstance(pkg hub.InstalledPackage, req packageInstantiateR
 		}
 		nodeKind = "connector.authority"
 		nodeConfig = connectorDefaultAuthorityNodeConfig(cfg)
+		mergeMap(nodeConfig, req.NodeConfig)
+		nodes = append(nodes, instancepkg.Node{
+			ID:      nodeID,
+			Kind:    nodeKind,
+			Package: packageRef,
+			Config:  nodeConfig,
+		})
+	} else {
+		mergeMap(nodeConfig, req.NodeConfig)
+		nodes = append(nodes, instancepkg.Node{
+			ID:      nodeID,
+			Kind:    nodeKind,
+			Package: packageRef,
+			Config:  nodeConfig,
+		})
+		if packageHasAuthorityRuntime(pkg) {
+			nodes = append(nodes, instancepkg.Node{
+				ID:      nodeID + "_authority",
+				Kind:    "connector.authority",
+				Package: packageRef,
+				Config:  connectorDefaultAuthorityNodeConfig(cfg),
+			})
+		}
 	}
-	mergeMap(nodeConfig, req.NodeConfig)
 
 	inst := &instancepkg.Instance{
 		Name: instanceName,
 		Source: instancepkg.InstanceSource{
-			Package: instancepkg.PackageRef{
-				Kind:    pkg.Kind,
-				Name:    pkg.Name,
-				Version: pkg.Version,
-			},
+			Package: packageRef,
 		},
-		Nodes: []instancepkg.Node{{
-			ID:   nodeID,
-			Kind: nodeKind,
-			Package: instancepkg.PackageRef{
-				Kind:    pkg.Kind,
-				Name:    pkg.Name,
-				Version: pkg.Version,
-			},
-			Config: nodeConfig,
-		}},
+		Nodes:       nodes,
 		Credentials: connectorDefaultBindings(cfg),
 		Config:      instConfig,
 	}
@@ -168,4 +183,12 @@ func sanitizeNodeID(name string) string {
 		return "node"
 	}
 	return name
+}
+
+func packageHasAuthorityRuntime(pkg hub.InstalledPackage) bool {
+	if pkg.Spec == nil {
+		return false
+	}
+	runtimeSpec, _ := pkg.Spec["runtime"].(map[string]any)
+	return runtimeSpec != nil && runtimeSpec["executor"] != nil
 }
