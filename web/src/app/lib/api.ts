@@ -207,6 +207,9 @@ export interface RawInstalledPackage {
   installed?: string;
   path?: string;
   spec?: Record<string, unknown>;
+  assurance?: string[];
+  publisher?: string;
+  review_scope?: string;
 }
 
 export interface RawPackageListResponse {

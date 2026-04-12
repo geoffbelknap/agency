@@ -20,6 +20,7 @@ describe('Hub', () => {
               version: '1.0.0',
               trust: 'official',
               path: '/tmp/.agency/packages/connector/google-drive-admin.json',
+              assurance: ['publisher_verified', 'ask_partial'],
             },
           ],
         }),
@@ -59,6 +60,7 @@ describe('Hub', () => {
               version: '1.0.0',
               trust: 'official',
               path: '/tmp/.agency/packages/connector/google-drive-admin.json',
+              assurance: ['publisher_verified', 'ask_partial'],
             },
           ],
         }),
@@ -160,5 +162,37 @@ describe('Hub', () => {
       expect(screen.getByText('Last apply reconciled 1 runtime node(s).')).toBeInTheDocument();
       expect(screen.getByText('add_viewer')).toBeInTheDocument();
     });
+  });
+
+  it('shows assurance state and disables instance creation when policy is not met', async () => {
+    server.use(
+      http.get(`${BASE}/packages`, () =>
+        HttpResponse.json({
+          packages: [
+            {
+              kind: 'connector',
+              name: 'google-drive-admin',
+              version: '1.0.0',
+              trust: 'verified',
+              publisher: 'example-publisher',
+              path: '/tmp/.agency/packages/connector/google-drive-admin.json',
+              assurance: ['publisher_verified'],
+            },
+          ],
+        }),
+      ),
+      http.get(`${BASE}/instances`, () => HttpResponse.json({ instances: [] })),
+    );
+
+    renderWithRouter(<Hub />);
+
+    await waitFor(() => {
+      expect(screen.getByText('More assurance required')).toBeInTheDocument();
+      expect(screen.getByText(/This package cannot be instantiated yet because it does not meet the local assurance policy./i)).toBeInTheDocument();
+      expect(screen.getByText(/Assurance:/i)).toBeInTheDocument();
+      expect(screen.getByText(/publisher_verified/i)).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('button', { name: /create instance/i })).toBeDisabled();
   });
 });
