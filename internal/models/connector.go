@@ -20,18 +20,23 @@ type ConnectorFollowUp struct {
 // ConnectorWebhookAuth defines HMAC-based webhook authentication.
 type ConnectorWebhookAuth struct {
 	Type            string  `yaml:"type" default:"hmac_sha256"`
-	SecretEnv       string  `yaml:"secret_env" validate:"required"`
+	SecretEnv       string  `yaml:"secret_env"`
+	SecretCredref   string  `yaml:"secret_credref"`
 	Header          string  `yaml:"header" default:"X-Slack-Signature"`
 	TimestampHeader *string `yaml:"timestamp_header"`
 	Prefix          string  `yaml:"prefix" default:"v0="`
 	ChallengeField  *string `yaml:"challenge_field"`
+	MaxSkewSeconds  int     `yaml:"max_skew_seconds" default:"300"`
 }
 
 // ConnectorSource defines the inbound event source for a connector.
 type ConnectorSource struct {
-	Type          string                 `yaml:"type" validate:"required,oneof=webhook poll schedule channel-watch"`
+	Type          string                 `yaml:"type" validate:"required,oneof=webhook poll schedule channel-watch none"`
 	PayloadSchema map[string]interface{} `yaml:"schema"`
 	WebhookAuth   *ConnectorWebhookAuth  `yaml:"webhook_auth"`
+	Path          *string                `yaml:"path"`
+	BodyFormat    *string                `yaml:"body_format"`
+	AckStrategy   *string                `yaml:"ack_strategy"`
 	URL           *string                `yaml:"url"`
 	Method        string                 `yaml:"method" default:"GET"`
 	Headers       map[string]string      `yaml:"headers"`
@@ -47,6 +52,22 @@ type ConnectorSource struct {
 // Validate implements cross-field validation for ConnectorSource.
 func (cs *ConnectorSource) Validate() error {
 	switch cs.Type {
+	case "none":
+		hasInboundFields := cs.WebhookAuth != nil ||
+			cs.Path != nil ||
+			cs.BodyFormat != nil ||
+			cs.AckStrategy != nil ||
+			cs.URL != nil ||
+			cs.Interval != nil ||
+			cs.ResponseKey != nil ||
+			cs.Cron != nil ||
+			cs.Channel != nil ||
+			cs.Pattern != nil ||
+			cs.Headers != nil ||
+			(cs.Method != "" && cs.Method != "GET")
+		if hasInboundFields {
+			return fmt.Errorf("source type none does not accept inbound source fields")
+		}
 	case "poll":
 		if cs.URL == nil || *cs.URL == "" {
 			return fmt.Errorf("poll source requires 'url'")
@@ -76,10 +97,13 @@ func (cs *ConnectorSource) Validate() error {
 			cs.Channel != nil ||
 			cs.Pattern != nil ||
 			cs.Headers != nil ||
-			cs.Method != "GET"
+			(cs.Method != "" && cs.Method != "GET")
 		if hasPollFields {
 			return fmt.Errorf("webhook source does not accept poll/schedule/channel-watch fields")
 		}
+	}
+	if cs.WebhookAuth != nil && cs.WebhookAuth.SecretEnv == "" && cs.WebhookAuth.SecretCredref == "" {
+		return fmt.Errorf("webhook_auth requires either secret_env or secret_credref")
 	}
 	return nil
 }
@@ -121,16 +145,26 @@ func (cr *ConnectorRoute) Validate() error {
 type ConnectorMCPTool struct {
 	Name                 string                 `yaml:"name" validate:"required"`
 	Method               string                 `yaml:"method" default:"GET"`
-	Path                 string                 `yaml:"path" validate:"required"`
+	Path                 string                 `yaml:"path"`
 	Parameters           map[string]interface{} `yaml:"parameters"`
+	InputSchema          map[string]interface{} `yaml:"input_schema"`
+	Returns              map[string]interface{} `yaml:"returns"`
 	Description          string                 `yaml:"description"`
+	RequiresConfig       string                 `yaml:"requires_config,omitempty"`
 	WhitelistCheck       string                 `yaml:"whitelist_check,omitempty"`
 	RequiresConsentToken *ConsentRequirement    `yaml:"requires_consent_token,omitempty"`
 }
 
 func (ct *ConnectorMCPTool) Validate() error {
-	params := make(map[string]bool, len(ct.Parameters))
-	for name := range ct.Parameters {
+	if ct.Path == "" && len(ct.Parameters) == 0 && len(ct.InputSchema) == 0 {
+		return fmt.Errorf("tool %q requires path, parameters, or input_schema", ct.Name)
+	}
+	schema := ct.Parameters
+	if len(schema) == 0 {
+		schema = ct.InputSchema
+	}
+	params := make(map[string]bool, len(schema))
+	for name := range schema {
 		params[name] = true
 	}
 	if ct.WhitelistCheck != "" && !params[ct.WhitelistCheck] {
@@ -202,27 +236,34 @@ type ConnectorRateLimits struct {
 
 // ConnectorConfig is the schema for connector YAML files.
 type ConnectorConfig struct {
-	Kind        string              `yaml:"kind" validate:"required,oneof=connector" default:"connector"`
-	Name        string              `yaml:"name" validate:"required"`
-	Version     string              `yaml:"version" default:"1.0.0"`
-	Description string              `yaml:"description"`
-	Author      string              `yaml:"author"`
-	License     string              `yaml:"license,omitempty"`
-	Requires    *ConnectorRequires  `yaml:"requires"`
-	Source      ConnectorSource     `yaml:"source" validate:"required"`
-	Routes      []ConnectorRoute    `yaml:"routes" validate:"required"`
-	MCP         *ConnectorMCP       `yaml:"mcp"`
-	RateLimits  ConnectorRateLimits `yaml:"rate_limits"`
+	Kind        string                 `yaml:"kind" validate:"required,oneof=connector" default:"connector"`
+	Name        string                 `yaml:"name" validate:"required"`
+	Version     string                 `yaml:"version" default:"1.0.0"`
+	Description string                 `yaml:"description"`
+	Author      string                 `yaml:"author"`
+	License     string                 `yaml:"license,omitempty"`
+	Requires    *ConnectorRequires     `yaml:"requires"`
+	Source      ConnectorSource        `yaml:"source" validate:"required"`
+	Config      map[string]interface{} `yaml:"config,omitempty"`
+	Routes      []ConnectorRoute       `yaml:"routes"`
+	MCP         *ConnectorMCP          `yaml:"mcp"`
+	Tools       []ConnectorMCPTool     `yaml:"tools,omitempty"`
+	RateLimits  ConnectorRateLimits    `yaml:"rate_limits"`
 }
 
 // Validate implements cross-field validation for ConnectorConfig.
 func (cc *ConnectorConfig) Validate() error {
-	if len(cc.Routes) == 0 {
-		return fmt.Errorf("Connector must define at least one route")
-	}
-
 	if err := cc.Source.Validate(); err != nil {
 		return err
+	}
+	if len(cc.Routes) == 0 && cc.Source.Type != "none" {
+		return fmt.Errorf("Connector must define at least one route")
+	}
+	if cc.Source.Type == "none" && len(cc.Routes) != 0 {
+		return fmt.Errorf("tool-only connectors must not define routes")
+	}
+	if len(cc.Routes) == 0 && cc.Source.Type == "none" && cc.MCP == nil && len(cc.Tools) == 0 {
+		return fmt.Errorf("tool-only connectors must define at least one tool")
 	}
 
 	for i := range cc.Routes {
@@ -235,6 +276,11 @@ func (cc *ConnectorConfig) Validate() error {
 			if err := cc.MCP.Tools[i].Validate(); err != nil {
 				return err
 			}
+		}
+	}
+	for i := range cc.Tools {
+		if err := cc.Tools[i].Validate(); err != nil {
+			return err
 		}
 	}
 

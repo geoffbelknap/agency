@@ -169,6 +169,25 @@ func TestConnectorSource_Validate_Webhook(t *testing.T) {
 			t.Errorf("expected poll fields error, got: %v", err)
 		}
 	})
+
+	t.Run("secret_credref_only", func(t *testing.T) {
+		cs := &ConnectorSource{
+			Type: "webhook",
+			WebhookAuth: &ConnectorWebhookAuth{
+				SecretCredref: "slack_signing_secret",
+			},
+		}
+		if err := cs.Validate(); err != nil {
+			t.Errorf("expected valid webhook auth via credref, got: %v", err)
+		}
+	})
+}
+
+func TestConnectorSource_Validate_None(t *testing.T) {
+	cs := &ConnectorSource{Type: "none"}
+	if err := cs.Validate(); err != nil {
+		t.Fatalf("expected valid tool-only source, got %v", err)
+	}
 }
 
 // TestConnectorRoute_Validate tests route validation.
@@ -298,5 +317,41 @@ func TestConnectorMCPToolValidateConsentDirectiveRejectsUnknownField(t *testing.
 	err := tool.Validate()
 	if err == nil || !strings.Contains(err.Error(), "token_input_field") {
 		t.Fatalf("expected token_input_field validation error, got %v", err)
+	}
+}
+
+func TestConnectorMCPToolValidateInputSchemaOnly(t *testing.T) {
+	tool := &ConnectorMCPTool{
+		Name: "slack_view_open",
+		InputSchema: map[string]interface{}{
+			"trigger_id": map[string]interface{}{"type": "string"},
+			"view":       map[string]interface{}{"type": "object"},
+		},
+		Returns: map[string]interface{}{
+			"view_id": map[string]interface{}{"type": "string"},
+		},
+	}
+	if err := tool.Validate(); err != nil {
+		t.Fatalf("expected valid tool, got %v", err)
+	}
+}
+
+func TestConnectorConfigValidateToolOnlyConnector(t *testing.T) {
+	cc := &ConnectorConfig{
+		Name:   "google-drive-admin",
+		Source: ConnectorSource{Type: "none"},
+		Tools: []ConnectorMCPTool{
+			{
+				Name: "drive_share_file",
+				InputSchema: map[string]interface{}{
+					"file_id": map[string]interface{}{"type": "string"},
+					"email":   map[string]interface{}{"type": "string"},
+				},
+				WhitelistCheck: "file_id",
+			},
+		},
+	}
+	if err := cc.Validate(); err != nil {
+		t.Fatalf("expected valid tool-only connector, got %v", err)
 	}
 }

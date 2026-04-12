@@ -4,10 +4,12 @@ import argparse
 import asyncio
 import hashlib
 import hmac
+import json
 import logging
 import os
 import signal
 import time
+from urllib.parse import parse_qs
 from datetime import datetime, timezone
 from pathlib import Path
 from string import Template
@@ -23,6 +25,67 @@ from agency_core.images.intake.scheduler import ScheduleStateStore, should_fire
 from agency_core.images.intake.channel_watcher import ChannelWatchStateStore, matches_pattern
 
 logger = logging.getLogger("intake")
+
+
+def _resolve_webhook_secret(auth) -> str:
+    if auth.secret_env:
+        secret = os.environ.get(auth.secret_env, "")
+        if secret:
+            return secret
+    if auth.secret_credref:
+        for key in (
+            auth.secret_credref,
+            auth.secret_credref.upper(),
+            auth.secret_credref.upper().replace("-", "_"),
+        ):
+            secret = os.environ.get(key, "")
+            if secret:
+                return secret
+    return ""
+
+
+def _parse_webhook_payload(body_bytes: bytes, connector) -> dict:
+    body_format = connector.source.body_format or "json"
+    if body_format == "form_urlencoded_payload":
+        decoded = body_bytes.decode("utf-8", errors="replace")
+        form = parse_qs(decoded, keep_blank_values=True)
+        raw_payload = form.get("payload", [None])[0]
+        if raw_payload is None:
+            raise ValueError("Missing payload field")
+        payload = json.loads(raw_payload)
+    else:
+        payload = json.loads(body_bytes)
+    if not isinstance(payload, dict):
+        raise ValueError("Payload must be a JSON object")
+    return payload
+
+
+def _normalize_webhook_payload(payload: dict, connector_name: str, request: web.Request) -> dict:
+    payload_type = payload.get("type")
+    if payload_type:
+        payload["payload_type"] = payload_type
+    if payload_type == "block_actions":
+        actions = payload.get("actions") or []
+        if actions and isinstance(actions[0], dict):
+            payload.setdefault("action_id", actions[0].get("action_id"))
+            payload.setdefault("block_id", actions[0].get("block_id"))
+    elif payload_type == "view_submission":
+        flat_values: dict[str, object] = {}
+        values = (((payload.get("view") or {}).get("state") or {}).get("values") or {})
+        if isinstance(values, dict):
+            for block_id, action_map in values.items():
+                if not isinstance(action_map, dict):
+                    continue
+                for action_id, action_value in action_map.items():
+                    flat_values[f"{block_id}.{action_id}"] = action_value
+        payload["flat_values"] = flat_values
+    payload["_webhook"] = {
+        "connector": connector_name,
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "request_id": request.headers.get("X-Request-ID", ""),
+        "verified_signature": True,
+    }
+    return payload
 
 
 def _load_connectors(connectors_dir: Path) -> dict[str, ConnectorConfig]:
@@ -519,7 +582,7 @@ def _verify_webhook_auth(request: web.Request, body_bytes: bytes, connector) -> 
     if not auth:
         return None
 
-    secret = os.environ.get(auth.secret_env, "")
+    secret = _resolve_webhook_secret(auth)
     if not secret:
         logger.warning("Webhook auth configured but required secret env var is not set")
         return web.json_response({"error": "Webhook auth misconfigured"}, status=500)
@@ -530,7 +593,7 @@ def _verify_webhook_auth(request: web.Request, body_bytes: bytes, connector) -> 
         ts = request.headers.get(auth.timestamp_header, "")
         try:
             age = abs(time.time() - int(ts))
-            if age > 300:
+            if age > auth.max_skew_seconds:
                 return web.json_response({"error": "Request timestamp too old"}, status=401)
         except (ValueError, TypeError):
             return web.json_response({"error": "Invalid or missing timestamp header"}, status=401)
@@ -583,15 +646,13 @@ async def handle_webhook(request: web.Request) -> web.Response:
         if err:
             return err
 
-    # Parse JSON body
     try:
-        import json as _json
-        payload = _json.loads(body_bytes)
+        payload = _parse_webhook_payload(body_bytes, connector)
+    except ValueError as exc:
+        return web.json_response({"error": str(exc)}, status=400)
     except Exception:
         return web.json_response({"error": "Invalid JSON"}, status=400)
-
-    if not isinstance(payload, dict):
-        return web.json_response({"error": "Payload must be a JSON object"}, status=400)
+    payload = _normalize_webhook_payload(payload, connector_name, request)
 
     # Validate against schema (if defined)
     if connector.source.payload_schema:
@@ -617,6 +678,8 @@ async def handle_webhook(request: web.Request) -> web.Response:
         connector_name, connector, payload, store, comms_url,
         source_label=f"connector:{connector_name}",
     )
+    if connector.source.ack_strategy == "immediate_empty_200":
+        return web.Response(status=200, text="")
     return web.json_response({"status": "ok", "delivered": delivered}, status=202)
 
 

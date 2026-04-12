@@ -19,6 +19,20 @@ class TestConnectorSource:
         assert src.type == "webhook"
         assert src.payload_schema is None
 
+    def test_webhook_secret_credref(self):
+        src = ConnectorSource(
+            type="webhook",
+            webhook_auth={
+                "type": "hmac_sha256",
+                "secret_credref": "slack_signing_secret",
+            },
+        )
+        assert src.webhook_auth.secret_credref == "slack_signing_secret"
+
+    def test_tool_only_source(self):
+        src = ConnectorSource(type="none")
+        assert src.type == "none"
+
     def test_with_schema(self):
         src = ConnectorSource(
             type="webhook",
@@ -111,6 +125,17 @@ class TestConnectorMCP:
             },
         )
         assert tool.requires_consent_token["operation_kind"] == "add_managed_doc"
+
+    def test_tool_with_input_schema(self):
+        tool = ConnectorMCPTool(
+            name="slack_view_open",
+            input_schema={
+                "trigger_id": {"type": "string"},
+                "view": {"type": "object"},
+            },
+            returns={"view_id": {"type": "string"}},
+        )
+        assert tool.input_schema["trigger_id"]["type"] == "string"
 
     def test_rejects_unknown_consent_field(self):
         with pytest.raises(Exception):
@@ -241,6 +266,27 @@ class TestConnectorConfig:
         data = yaml.safe_load(connector_yaml.read_text())
         config = ConnectorConfig.model_validate(data)
         assert config.name == "file-test"
+
+    def test_tool_only_connector(self):
+        config = ConnectorConfig.model_validate(
+            {
+                "kind": "connector",
+                "name": "google-drive-admin",
+                "source": {"type": "none"},
+                "tools": [
+                    {
+                        "name": "drive_share_file",
+                        "input_schema": {
+                            "file_id": {"type": "string"},
+                            "email": {"type": "string"},
+                        },
+                        "whitelist_check": "file_id",
+                    }
+                ],
+            }
+        )
+        assert config.source.type == "none"
+        assert config.tools[0].name == "drive_share_file"
 
 
 class TestConnectorSourceAdvanced:
