@@ -8,10 +8,11 @@ func TestPackageRegistry_StoresInstalledPackage(t *testing.T) {
 	dir := t.TempDir()
 	reg := NewRegistry(dir)
 	pkg := InstalledPackage{
-		Kind:    "connector",
-		Name:    "slack-interactivity",
-		Version: "1.0.0",
-		Trust:   "verified",
+		Kind:      "connector",
+		Name:      "slack-interactivity",
+		Version:   "1.0.0",
+		Trust:     "verified",
+		Assurance: []string{"publisher_verified", "ask_partial"},
 		Spec: map[string]any{
 			"runtime": map[string]any{
 				"executor": map[string]any{"kind": "http_json"},
@@ -27,6 +28,9 @@ func TestPackageRegistry_StoresInstalledPackage(t *testing.T) {
 	}
 	if got.Version != "1.0.0" {
 		t.Fatalf("Version = %q, want 1.0.0", got.Version)
+	}
+	if len(got.Assurance) != 2 || got.Assurance[0] != "publisher_verified" {
+		t.Fatalf("Assurance = %#v", got.Assurance)
 	}
 	if runtimeSpec, ok := got.Spec["runtime"].(map[string]any); !ok || runtimeSpec["executor"] == nil {
 		t.Fatalf("Spec = %#v", got.Spec)

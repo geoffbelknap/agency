@@ -44,6 +44,9 @@ func TestPackagesShow_ReturnsInstalledPackage(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "\"runtime\"") {
 		t.Fatalf("missing package spec in response: %s", rec.Body.String())
 	}
+	if !strings.Contains(rec.Body.String(), "\"assurance\"") {
+		t.Fatalf("missing package assurance in response: %s", rec.Body.String())
+	}
 }
 
 func testPackageRegistry(t *testing.T) *hub.Registry {
@@ -57,6 +60,7 @@ func testPackageRegistry(t *testing.T) *hub.Registry {
 		Trust:     "verified",
 		Installed: time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC),
 		Path:      "/tmp/slack-interactivity",
+		Assurance: []string{"publisher_verified", "ask_partial"},
 		Spec: map[string]any{
 			"runtime": map[string]any{
 				"executor": map[string]any{"kind": "http_json"},
