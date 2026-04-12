@@ -55,6 +55,21 @@ func TestPackageConfig_Validate_RejectsInvalidKind(t *testing.T) {
 	}
 }
 
+func TestPackageConfig_Validate_RejectsInvalidTrustTier(t *testing.T) {
+	cfg := PackageConfig{
+		APIVersion: "hub.agency/v2",
+		Kind:       "connector",
+		Metadata: PackageMetadata{
+			Name:    "slack-interactivity",
+			Version: "1.0.0",
+		},
+		Trust: PackageTrust{Tier: "banana"},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected validation error for invalid trust tier")
+	}
+}
+
 func TestPackageConfig_Validate_RejectsMissingTrust(t *testing.T) {
 	cfg := PackageConfig{
 		APIVersion: "hub.agency/v2",
@@ -108,5 +123,27 @@ trust:
 	}
 	if cfg.Compatibility.Agency != ">=2.0.0" {
 		t.Fatalf("unexpected compatibility: %#v", cfg.Compatibility)
+	}
+}
+
+func TestPackageLoadAndValidate_RejectsInvalidDependencyShape(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "package.yaml")
+	if err := os.WriteFile(path, []byte(`api_version: hub.agency/v2
+kind: connector
+metadata:
+  name: slack-interactivity
+  version: 1.0.0
+dependencies:
+  widgets: [bogus]
+trust:
+  tier: verified
+`), 0o644); err != nil {
+		t.Fatalf("write package.yaml: %v", err)
+	}
+
+	var cfg PackageConfig
+	if err := Load(path, &cfg); err == nil {
+		t.Fatal("expected load error for invalid dependency shape")
 	}
 }

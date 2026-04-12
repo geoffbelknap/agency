@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestDetectSchemaAll tests basic schema detection for all 10 file types.
+// TestDetectSchemaAll tests basic schema detection for all 11 file types.
 // Verifies that detectSchema returns appropriate schema types for all required file names.
 func TestDetectSchemaAll(t *testing.T) {
 	tests := []struct {
@@ -68,6 +68,8 @@ func TestDetectSchemaCaseSensitivity(t *testing.T) {
 		{"Pack.yaml", true},
 		{"connector.yaml", false},
 		{"Connector.yaml", true},
+		{"package.yaml", false},
+		{"Package.yaml", true},
 		{"routing.yaml", false},
 		{"Routing.yaml", true},
 		{"egress-domains.yaml", false},
@@ -90,7 +92,7 @@ func TestDetectSchemaCaseSensitivity(t *testing.T) {
 	}
 }
 
-// TestDetectSchemaCompletenessCoverage verifies all 10 Python SCHEMA_MAP entries are covered.
+// TestDetectSchemaCompletenessCoverage verifies all required schema files are covered.
 // Python SCHEMA_MAP (from models/__init__.py):
 // - principals.yaml → PrincipalsConfig
 // - agent.yaml → AgentConfig
@@ -102,6 +104,7 @@ func TestDetectSchemaCaseSensitivity(t *testing.T) {
 // - org.yaml → OrgConfig
 // - egress-domains.yaml → AgentEgressConfig
 // - routing.yaml → RoutingConfig
+// package.yaml is the new package envelope schema and is validated separately.
 func TestDetectSchemaCompletenessCoverage(t *testing.T) {
 	expectedFiles := []string{
 		"principals.yaml",

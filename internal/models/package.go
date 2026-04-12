@@ -18,6 +18,12 @@ var packageKinds = map[string]struct{}{
 	"ontology":  {},
 }
 
+var packageTrustTiers = map[string]struct{}{
+	"verified":  {},
+	"community": {},
+	"local":     {},
+}
+
 type PackageConfig struct {
 	APIVersion    string               `yaml:"api_version" json:"api_version"`
 	Kind          string               `yaml:"kind" json:"kind"`
@@ -68,8 +74,9 @@ func (p *PackageConfig) Validate() error {
 }
 
 func (t *PackageTrust) Validate() error {
-	if strings.TrimSpace(t.Tier) == "" {
-		return fmt.Errorf("trust.tier is required")
+	tier := strings.TrimSpace(t.Tier)
+	if _, ok := packageTrustTiers[tier]; !ok {
+		return fmt.Errorf("trust.tier must be one of: verified, community, local")
 	}
 	return nil
 }
