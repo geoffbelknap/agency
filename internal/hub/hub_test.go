@@ -169,6 +169,32 @@ func TestInstallRejectsManagedKinds(t *testing.T) {
 	}
 }
 
+func TestInstallRejectsPackageEnvelopeComponents(t *testing.T) {
+	home := t.TempDir()
+	mgr := NewManager(home)
+
+	os.WriteFile(filepath.Join(home, "config.yaml"), []byte("hub:\n  sources:\n    - name: default\n      url: https://example.com\n"), 0644)
+
+	pkgDir := filepath.Join(home, "hub-cache", "default", "connectors", "slack-interactivity")
+	os.MkdirAll(pkgDir, 0755)
+	os.WriteFile(filepath.Join(pkgDir, "package.yaml"), []byte(`api_version: hub.agency/v2
+kind: connector
+metadata:
+  name: slack-interactivity
+  version: 1.0.0
+trust:
+  tier: verified
+  signature_required: true
+  executable: true
+`), 0644)
+
+	if _, err := mgr.Install("slack-interactivity", "connector", "", ""); err == nil {
+		t.Fatal("expected package-envelope install to be rejected")
+	} else if !strings.Contains(err.Error(), "package envelope") {
+		t.Fatalf("expected package envelope error, got %v", err)
+	}
+}
+
 func TestInstallableKindSemantics(t *testing.T) {
 	for _, kind := range []string{"pack", "preset", "connector", "service", "mission", "skill", "workspace", "policy", "provider"} {
 		if !IsInstallableKind(kind) {

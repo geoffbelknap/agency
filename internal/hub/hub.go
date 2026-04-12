@@ -398,6 +398,9 @@ func (m *Manager) Install(componentName, kind, source, instanceName string) (*In
 	if comp == nil {
 		return nil, fmt.Errorf("component %q (kind=%s) not found in hub cache", componentName, kind)
 	}
+	if filepath.Base(comp.Path) == "package.yaml" {
+		return nil, fmt.Errorf("component %q (kind=%s) is a package envelope and cannot be installed via the legacy path", componentName, kind)
+	}
 
 	// Read source file
 	data, err := os.ReadFile(comp.Path)
