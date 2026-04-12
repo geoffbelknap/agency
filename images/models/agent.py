@@ -41,6 +41,18 @@ class AgentPolicyRef(BaseModel):
     ref: Optional[str] = None
 
 
+class AgentInstanceAttachment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    instance_id: str
+    node_id: str
+    actions: list[str] = []
+
+
+class AgentInstancesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    attach: list[AgentInstanceAttachment] = []
+
+
 class AgentTriageConfig(BaseModel):
     """Triage configuration for notification classification."""
     model_config = ConfigDict(extra="forbid")
@@ -87,6 +99,7 @@ class AgentConfig(BaseModel):
     workspace: AgentWorkspaceRef
     requires: AgentRequires = AgentRequires()
     policy: AgentPolicyRef = AgentPolicyRef()
+    instances: AgentInstancesConfig = AgentInstancesConfig()
     triage: Optional[AgentTriageConfig] = None
     responsiveness: ResponsivenessConfig = ResponsivenessConfig()
     expertise: ExpertiseConfig = ExpertiseConfig()

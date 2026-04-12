@@ -38,6 +38,18 @@ type AgentPolicyRef struct {
 	Ref          *string `yaml:"ref"`
 }
 
+// AgentInstanceAttachment binds an agent to a specific instance node.
+type AgentInstanceAttachment struct {
+	InstanceID string   `yaml:"instance_id" validate:"required"`
+	NodeID     string   `yaml:"node_id" validate:"required"`
+	Actions    []string `yaml:"actions"`
+}
+
+// AgentInstancesConfig defines attached instance nodes projected into the agent.
+type AgentInstancesConfig struct {
+	Attach []AgentInstanceAttachment `yaml:"attach"`
+}
+
 // AgentTriageConfig controls how the agent triages incoming work.
 type AgentTriageConfig struct {
 	Domains []string `yaml:"domains"`
@@ -71,6 +83,7 @@ type AgentConfig struct {
 	Workspace      AgentWorkspaceRef         `yaml:"workspace" validate:"required"`
 	Requires       AgentRequires             `yaml:"requires"`
 	Policy         AgentPolicyRef            `yaml:"policy"`
+	Instances      AgentInstancesConfig      `yaml:"instances"`
 	Triage         *AgentTriageConfig        `yaml:"triage"`
 	Responsiveness AgentResponsivenessConfig `yaml:"responsiveness"`
 	Expertise      AgentExpertiseConfig      `yaml:"expertise"`
@@ -140,6 +153,21 @@ func (a *AgentConfig) Validate() error {
 		if !valid {
 			return fmt.Errorf("model_tier must be one of %v, got %q", VALID_TIERS, *a.ModelTier)
 		}
+	}
+
+	seenAttachments := map[string]bool{}
+	for _, attachment := range a.Instances.Attach {
+		if attachment.InstanceID == "" {
+			return fmt.Errorf("instances.attach.instance_id is required")
+		}
+		if attachment.NodeID == "" {
+			return fmt.Errorf("instances.attach.node_id is required")
+		}
+		key := attachment.InstanceID + "/" + attachment.NodeID
+		if seenAttachments[key] {
+			return fmt.Errorf("duplicate instance attachment %q", key)
+		}
+		seenAttachments[key] = true
 	}
 
 	return nil

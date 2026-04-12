@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/geoffbelknap/agency/internal/config"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
 	runpkg "github.com/geoffbelknap/agency/internal/runtime"
 	"github.com/go-chi/chi/v5"
@@ -140,6 +141,87 @@ func TestInstancesCompileShowAndReconcileRuntimeManifest(t *testing.T) {
 	}
 	if !strings.Contains(stopRec.Body.String(), `"stopped"`) {
 		t.Fatalf("expected stopped status: %s", stopRec.Body.String())
+	}
+}
+
+func TestCompileRuntimeManifestRefreshesAttachedAgentManifest(t *testing.T) {
+	home := t.TempDir()
+	s := instancepkg.NewStore(filepath.Join(home, "instances"))
+	inst := &instancepkg.Instance{
+		ID:   "inst_123",
+		Name: "community-admin",
+		Source: instancepkg.InstanceSource{
+			Template: instancepkg.PackageRef{Kind: "template", Name: "community-admin", Version: "1.0.0"},
+		},
+		Nodes: []instancepkg.Node{{
+			ID:   "drive_admin",
+			Kind: "connector.authority",
+			Package: instancepkg.PackageRef{
+				Kind:    "connector",
+				Name:    "google-drive-admin",
+				Version: "1.0.0",
+			},
+			Config: map[string]any{
+				"tools": []any{"list_permissions"},
+				"executor": map[string]any{
+					"kind":     "http_json",
+					"base_url": "https://drive.example.test",
+					"actions": map[string]any{
+						"list_permissions": map[string]any{"path": "/permissions/list", "method": "POST"},
+					},
+				},
+			},
+		}},
+	}
+	if err := s.Create(t.Context(), inst); err != nil {
+		t.Fatalf("Create(): %v", err)
+	}
+
+	agentDir := filepath.Join(home, "agents", "coordinator")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "constraints.yaml"), []byte("agent: coordinator\ngranted_capabilities: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	agentYAML := `
+version: "0.1"
+name: coordinator
+role: test
+body:
+  runtime: body
+  version: "1.0"
+workspace:
+  ref: default
+instances:
+  attach:
+    - instance_id: inst_123
+      node_id: drive_admin
+`
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte(agentYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{
+		Store:          s,
+		Config:         &config.Config{Home: home},
+		RuntimeManager: stubRuntimeManager{},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/instances/inst_123/runtime/manifest", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("compile code = %d, want 201; body = %s", rec.Code, rec.Body.String())
+	}
+
+	data, err := os.ReadFile(filepath.Join(agentDir, "services-manifest.json"))
+	if err != nil {
+		t.Fatalf("read services-manifest.json: %v", err)
+	}
+	if !strings.Contains(string(data), "instance_community_admin_drive_admin_list_permissions") {
+		t.Fatalf("expected projected runtime tool in services-manifest.json: %s", string(data))
 	}
 }
 

@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
+	"github.com/geoffbelknap/agency/internal/manifestgen"
 	runpkg "github.com/geoffbelknap/agency/internal/runtime"
 	"github.com/go-chi/chi/v5"
 )
@@ -154,6 +156,7 @@ func (h *handler) compileRuntimeManifest(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	h.refreshAttachedAgentManifests(id)
 	writeJSON(w, http.StatusCreated, manifest)
 }
 
@@ -381,4 +384,33 @@ func generateInstanceID() (string, error) {
 		return "", fmt.Errorf("generate instance id: %w", err)
 	}
 	return "inst_" + hex.EncodeToString(b), nil
+}
+
+func (h *handler) refreshAttachedAgentManifests(instanceID string) {
+	if h.deps.Config == nil {
+		return
+	}
+	gen := manifestgen.Generator{
+		Home:   h.deps.Config.Home,
+		Logger: h.deps.Logger,
+	}
+	logger := h.deps.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	agents, err := gen.AttachedAgents(instanceID)
+	if err != nil {
+		logger.Warn("failed to discover attached agents",
+			"instance_id", instanceID,
+			"err", err)
+		return
+	}
+	for _, agentName := range agents {
+		if err := gen.GenerateAgentManifest(agentName); err != nil {
+			logger.Warn("failed to refresh attached agent manifest",
+				"instance_id", instanceID,
+				"agent", agentName,
+				"err", err)
+		}
+	}
 }

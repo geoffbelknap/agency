@@ -68,6 +68,7 @@ class ServiceToolDispatcher:
                 # Build parameters schema from tool definition
                 properties = {}
                 required = []
+                passthrough = bool(tool.get("passthrough"))
                 for param in tool.get("parameters", []):
                     properties[param["name"]] = {
                         "type": param.get("type", "string"),
@@ -85,6 +86,7 @@ class ServiceToolDispatcher:
                             "type": "object",
                             "properties": properties,
                             "required": required,
+                            "additionalProperties": passthrough,
                         },
                     },
                     "_service": service["service"],

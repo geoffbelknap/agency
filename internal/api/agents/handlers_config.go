@@ -138,6 +138,12 @@ func (h *handler) updateAgentConfig(w http.ResponseWriter, r *http.Request) {
 	if containsString(fieldsChanged, "constraints") || containsString(fieldsChanged, "identity") {
 		h.signalConfigReload(name)
 	}
+	if containsString(fieldsChanged, "agent_yaml") {
+		if err := h.generateAgentManifest(name); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "failed to regenerate services manifest: " + err.Error()})
+			return
+		}
+	}
 
 	// Return updated config bundle.
 	bundle := agentConfigBundle{}
