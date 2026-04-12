@@ -3,6 +3,8 @@ package instances
 import (
 	"fmt"
 	"strings"
+
+	agencyconsent "github.com/geoffbelknap/agency/internal/consent"
 )
 
 func ValidateInstance(inst *Instance) error {
@@ -37,6 +39,23 @@ func ValidateInstance(inst *Instance) error {
 		}
 		seenNodeIDs[node.ID] = struct{}{}
 	}
+	consentDeploymentID := strings.TrimSpace(stringValue(inst.Config["consent_deployment_id"]))
+	for i, grant := range inst.Grants {
+		if strings.TrimSpace(grant.Principal) == "" {
+			return fmt.Errorf("grants[%d].principal is required", i)
+		}
+		if strings.TrimSpace(grant.Action) == "" {
+			return fmt.Errorf("grants[%d].action is required", i)
+		}
+		if req, ok := consentRequirementFromGrant(grant.Config); ok {
+			if err := req.Validate(); err != nil {
+				return fmt.Errorf("grants[%d] consent requirement: %w", i, err)
+			}
+			if consentDeploymentID == "" {
+				return fmt.Errorf("config.consent_deployment_id is required for consent-gated grants")
+			}
+		}
+	}
 	return nil
 }
 
@@ -59,4 +78,36 @@ func isEmptyPackageRef(ref PackageRef) bool {
 	return strings.TrimSpace(ref.Kind) == "" &&
 		strings.TrimSpace(ref.Name) == "" &&
 		strings.TrimSpace(ref.Version) == ""
+}
+
+func consentRequirementFromGrant(cfg map[string]any) (agencyconsent.Requirement, bool) {
+	if len(cfg) == 0 {
+		return agencyconsent.Requirement{}, false
+	}
+	raw := cfg
+	if nested, ok := cfg["requires_consent_token"].(map[string]any); ok {
+		raw = nested
+	}
+	req := agencyconsent.Requirement{
+		OperationKind:    strings.TrimSpace(stringValue(raw["operation_kind"])),
+		TokenInputField:  strings.TrimSpace(stringValue(raw["token_input_field"])),
+		TargetInputField: strings.TrimSpace(stringValue(raw["target_input_field"])),
+	}
+	switch v := raw["min_witnesses"].(type) {
+	case int:
+		req.MinWitnesses = v
+	case int64:
+		req.MinWitnesses = int(v)
+	case float64:
+		req.MinWitnesses = int(v)
+	}
+	if req.OperationKind == "" && req.TokenInputField == "" && req.TargetInputField == "" {
+		return agencyconsent.Requirement{}, false
+	}
+	return req, true
+}
+
+func stringValue(v any) string {
+	s, _ := v.(string)
+	return s
 }

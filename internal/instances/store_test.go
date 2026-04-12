@@ -22,6 +22,53 @@ func TestStore_ValidateRejectsDuplicateNodeIDs(t *testing.T) {
 	}
 }
 
+func TestStore_ValidateRejectsConsentGrantWithoutDeploymentID(t *testing.T) {
+	inst := &Instance{
+		ID:   "inst_123",
+		Name: "community-admin",
+		Source: InstanceSource{
+			Template: PackageRef{Kind: "template", Name: "community-admin", Version: "1.0.0"},
+		},
+		Grants: []GrantBinding{{
+			Principal: "agent:community-admin/coordinator",
+			Action:    "add_viewer",
+			Resource:  "drive_admin",
+			Config: map[string]any{
+				"operation_kind":     "grant_drive_viewer",
+				"token_input_field":  "consent_token",
+				"target_input_field": "drive_id",
+			},
+		}},
+	}
+	if err := ValidateInstance(inst); err == nil {
+		t.Fatal("expected consent deployment id validation error")
+	}
+}
+
+func TestStore_ValidateAcceptsConsentGrantWithDeploymentID(t *testing.T) {
+	inst := &Instance{
+		ID:   "inst_123",
+		Name: "community-admin",
+		Source: InstanceSource{
+			Template: PackageRef{Kind: "template", Name: "community-admin", Version: "1.0.0"},
+		},
+		Config: map[string]any{"consent_deployment_id": "dep-123"},
+		Grants: []GrantBinding{{
+			Principal: "agent:community-admin/coordinator",
+			Action:    "add_viewer",
+			Resource:  "drive_admin",
+			Config: map[string]any{
+				"operation_kind":     "grant_drive_viewer",
+				"token_input_field":  "consent_token",
+				"target_input_field": "drive_id",
+			},
+		}},
+	}
+	if err := ValidateInstance(inst); err != nil {
+		t.Fatalf("ValidateInstance(): %v", err)
+	}
+}
+
 func TestStore_CreateAndGetInstance(t *testing.T) {
 	s := NewStore(t.TempDir())
 	inst := &Instance{
