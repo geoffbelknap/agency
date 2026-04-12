@@ -1,5 +1,7 @@
 package hub
 
+import "github.com/geoffbelknap/agency/internal/hubclient"
+
 import "time"
 
 // UpdateReport is returned by hub update.
@@ -50,14 +52,15 @@ type ComponentUpgrade struct {
 
 // InstalledPackage records a package installed into the local hub registry.
 type InstalledPackage struct {
-	Kind       string         `json:"kind"`
-	Name       string         `json:"name"`
-	Version    string         `json:"version"`
-	Trust      string         `json:"trust"`
-	Installed  time.Time      `json:"installed"`
-	Path       string         `json:"path"`
-	Spec       map[string]any `json:"spec,omitempty"`
-	Assurance  []string       `json:"assurance,omitempty"`
-	Publisher  string         `json:"publisher,omitempty"`
-	ReviewScope string        `json:"review_scope,omitempty"`
+	Kind                string                         `json:"kind"`
+	Name                string                         `json:"name"`
+	Version             string                         `json:"version"`
+	Trust               string                         `json:"trust"`
+	Installed           time.Time                      `json:"installed"`
+	Path                string                         `json:"path"`
+	Spec                map[string]any                 `json:"spec,omitempty"`
+	Assurance           []string                       `json:"assurance,omitempty"`
+	AssuranceStatements []hubclient.AssuranceStatement `json:"assurance_statements,omitempty"`
+	Publisher           string                         `json:"publisher,omitempty"`
+	ReviewScope         string                         `json:"review_scope,omitempty"`
 }

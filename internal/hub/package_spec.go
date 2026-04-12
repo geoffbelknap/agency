@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/geoffbelknap/agency/internal/hubclient"
 	"github.com/geoffbelknap/agency/internal/models"
 )
 
@@ -206,20 +207,53 @@ func installedPackageAssurance(kind, source string) []string {
 	}
 }
 
-func buildInstalledPackage(name, kind, version, source, destPath string) (InstalledPackage, error) {
+func installedPackageAssuranceFromStatements(statements []hubclient.AssuranceStatement) []string {
+	if len(statements) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(statements))
+	appendIfMissing := func(value string) {
+		for _, existing := range out {
+			if existing == value {
+				return
+			}
+		}
+		out = append(out, value)
+	}
+	for _, stmt := range statements {
+		switch {
+		case stmt.StatementType == "source_verified" && stmt.Result == "verified":
+			appendIfMissing("official_source")
+		case stmt.StatementType == "publisher_verified" && stmt.Result == "verified":
+			appendIfMissing("publisher_verified")
+		case stmt.StatementType == "ask_reviewed" && stmt.Result == "ASK-Partial":
+			appendIfMissing("ask_partial")
+		case stmt.StatementType == "ask_reviewed" && stmt.Result == "ASK-Pass":
+			appendIfMissing("ask_pass")
+		}
+	}
+	return out
+}
+
+func buildInstalledPackage(name, kind, version, source, destPath string, statements []hubclient.AssuranceStatement) (InstalledPackage, error) {
 	spec, err := deriveInstalledPackageSpec(kind, destPath)
 	if err != nil {
 		return InstalledPackage{}, err
 	}
+	assurance := installedPackageAssuranceFromStatements(statements)
+	if len(assurance) == 0 {
+		assurance = installedPackageAssurance(kind, source)
+	}
 	return InstalledPackage{
-		Kind:        kind,
-		Name:        name,
-		Version:     version,
-		Trust:       installedPackageTrust(source),
-		Path:        destPath,
-		Spec:        spec,
-		Assurance:   installedPackageAssurance(kind, source),
-		Publisher:   source,
-		ReviewScope: "package-change",
+		Kind:                kind,
+		Name:                name,
+		Version:             version,
+		Trust:               installedPackageTrust(source),
+		Path:                destPath,
+		Spec:                spec,
+		Assurance:           assurance,
+		AssuranceStatements: statements,
+		Publisher:           source,
+		ReviewScope:         "package-change",
 	}, nil
 }

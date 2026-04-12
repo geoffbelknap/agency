@@ -12,6 +12,13 @@ type AssuranceStatement struct {
 	Evidence        map[string]interface{} `json:"evidence,omitempty"`
 }
 
+type AssuranceSummary struct {
+	SchemaVersion int                  `json:"schema_version"`
+	HubID         string               `json:"hub_id"`
+	GeneratedAt   string               `json:"generated_at"`
+	Statements    []AssuranceStatement `json:"statements"`
+}
+
 type PublisherRecord struct {
 	PublisherID string `json:"publisher_id"`
 	Kind        string `json:"kind"`

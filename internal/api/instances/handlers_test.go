@@ -13,6 +13,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/events"
 	"github.com/geoffbelknap/agency/internal/hub"
+	"github.com/geoffbelknap/agency/internal/hubclient"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
 	runpkg "github.com/geoffbelknap/agency/internal/runtime"
 	"github.com/go-chi/chi/v5"
@@ -281,6 +282,63 @@ func TestInstancesUpdate(t *testing.T) {
 	}
 	if got.Config["consent_deployment_id"] != "dep-123" {
 		t.Fatalf("config = %#v", got.Config)
+	}
+}
+
+func TestCreateInstanceFromPackageAllowsStructuredAssurance(t *testing.T) {
+	home := t.TempDir()
+	s := instancepkg.NewStore(filepath.Join(home, "instances"))
+	reg := hub.NewRegistry(filepath.Join(home, "hub-registry"))
+
+	pkgDir := filepath.Join(home, "hub-registry", "connectors", "google-drive-admin")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(): %v", err)
+	}
+	pkgPath := filepath.Join(pkgDir, "connector.yaml")
+	if err := os.WriteFile(pkgPath, []byte("kind: connector\nname: google-drive-admin\nversion: \"1.0.0\"\nsource:\n  type: none\nmcp:\n  name: google-drive-admin\n  credential: google-drive-admin\n  api_base: https://www.googleapis.com\n  tools:\n    - name: drive_list_file_permissions\n      method: GET\n      path: /drive/v3/files/{file_id}/permissions\n      parameters:\n        file_id: {type: string}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(): %v", err)
+	}
+	if err := reg.PutPackage(hub.InstalledPackage{
+		Kind:    "connector",
+		Name:    "google-drive-admin",
+		Version: "1.0.0",
+		Trust:   "verified",
+		Path:    pkgPath,
+		Spec: map[string]any{
+			"runtime": map[string]any{
+				"executor": map[string]any{
+					"kind":     "http_json",
+					"base_url": "https://www.googleapis.com",
+					"actions": map[string]any{
+						"drive_list_file_permissions": map[string]any{
+							"method": "GET",
+							"path":   "/drive/v3/files/{file_id}/permissions",
+						},
+					},
+				},
+			},
+		},
+		AssuranceStatements: []hubclient.AssuranceStatement{
+			{
+				StatementType: "ask_reviewed",
+				Result:        "ASK-Partial",
+				ReviewScope:   "package-change",
+				ReviewerType:  "automated",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("PutPackage(): %v", err)
+	}
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{Store: s, Registry: reg})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/instances/from-package", strings.NewReader(`{"kind":"connector","name":"google-drive-admin"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("code = %d, want 201; body = %s", rec.Code, rec.Body.String())
 	}
 }
 

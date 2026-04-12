@@ -365,7 +365,14 @@ func (h *handler) requireInstancePackageAssurance(inst *instancepkg.Instance) er
 }
 
 func (h *handler) requirePackageAssurance(kind string, pkg hub.InstalledPackage) error {
-	if !hubpolicy.DefaultPolicy().AllowsInstall(kind, pkg.Assurance) {
+	policy := hubpolicy.DefaultPolicy()
+	allowed := false
+	if len(pkg.AssuranceStatements) > 0 {
+		allowed = policy.AllowsInstallStatements(kind, pkg.AssuranceStatements)
+	} else {
+		allowed = policy.AllowsInstall(kind, pkg.Assurance)
+	}
+	if !allowed {
 		return fmt.Errorf("insufficient package assurance for %s", kind)
 	}
 	return nil
