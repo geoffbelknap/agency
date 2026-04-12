@@ -159,6 +159,7 @@ func (h *handler) ensureDependencyInstalled(mgr *hubpkg.Manager, parentName stri
 	log.Printf("[hub] auto-installed dependency: %s (%s)", dep.Name, dep.Kind)
 	if dep.Kind == "connector" {
 		h.autoActivate(mgr, inst)
+		h.signalInfraComponent("intake")
 	}
 }
 

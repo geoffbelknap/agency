@@ -299,6 +299,94 @@ requires:
 	}
 }
 
+func TestInstallDependenciesAutoActivatesConnectorAndSignalsIntake(t *testing.T) {
+	home := t.TempDir()
+	sourceName := "local"
+	cacheDir := filepath.Join(home, "hub-cache", sourceName)
+	if err := os.MkdirAll(filepath.Join(cacheDir, "connectors", "slack-events"), 0755); err != nil {
+		t.Fatalf("mkdir connector cache: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(cacheDir, "packs", "community-admin"), 0755); err != nil {
+		t.Fatalf("mkdir pack cache: %v", err)
+	}
+	configYAML := []byte("hub:\n  sources:\n    - name: local\n      url: https://example.com/hub.git\n      branch: main\n")
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), configYAML, 0644); err != nil {
+		t.Fatalf("write config.yaml: %v", err)
+	}
+
+	connectorYAML := `kind: connector
+name: slack-events
+version: "1.0.0"
+description: Slack events
+source:
+  type: webhook
+  path: /webhooks/slack-events
+routes:
+  - match:
+      type: message
+    target:
+      agent: slack-bridge
+`
+	if err := os.WriteFile(filepath.Join(cacheDir, "connectors", "slack-events", "connector.yaml"), []byte(connectorYAML), 0644); err != nil {
+		t.Fatalf("write connector.yaml: %v", err)
+	}
+
+	packYAML := `kind: pack
+name: community-admin
+description: test pack
+requires:
+  connectors:
+    - slack-events
+team:
+  name: community-admin
+  agents:
+    - name: admin-coordinator
+      preset: community-administrator
+`
+	packPath := filepath.Join(cacheDir, "packs", "community-admin", "pack.yaml")
+	if err := os.WriteFile(packPath, []byte(packYAML), 0644); err != nil {
+		t.Fatalf("write pack.yaml: %v", err)
+	}
+
+	mgr := hubpkg.NewManager(home)
+	signal := &recordingSignalSender{}
+	h := &handler{deps: Deps{
+		Config: &config.Config{Home: home},
+		Signal: signal,
+		Audit:  logs.NewWriter(home),
+		Logger: slog.Default(),
+	}}
+	comp := &hubpkg.Component{
+		Name:   "community-admin",
+		Kind:   "pack",
+		Source: sourceName,
+		Path:   packPath,
+	}
+
+	h.installDependencies(mgr, "community-admin", comp)
+
+	inst := mgr.Registry.Resolve("slack-events")
+	if inst == nil {
+		t.Fatal("expected connector dependency to be installed")
+	}
+	if !inst.AutoInstalled {
+		t.Fatal("expected connector dependency to be marked auto-installed")
+	}
+	if inst.State != "active" {
+		t.Fatalf("connector state = %q, want active", inst.State)
+	}
+	published := filepath.Join(home, "connectors", "slack-events.yaml")
+	if _, err := os.Stat(published); err != nil {
+		t.Fatalf("expected published connector yaml, stat err = %v", err)
+	}
+	if len(signal.calls) != 1 {
+		t.Fatalf("expected 1 intake signal, got %d", len(signal.calls))
+	}
+	if signal.calls[0].container != "agency-infra-intake" || signal.calls[0].signal != "SIGHUP" {
+		t.Fatalf("unexpected signal call: %+v", signal.calls[0])
+	}
+}
+
 func TestHubConfigureActiveConnectorSignalsIntakeAndWritesResolvedYAML(t *testing.T) {
 	home := t.TempDir()
 	mgr := hubpkg.NewManager(home)
