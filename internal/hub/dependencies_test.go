@@ -110,3 +110,43 @@ requires:
 		t.Fatalf("required_by = %v, want empty", child.RequiredBy)
 	}
 }
+
+func TestDependencyRefsFromYAMLIncludesPackMissionAssignmentsAndRequires(t *testing.T) {
+	data := []byte(`kind: pack
+name: community-admin
+requires:
+  services:
+    - slack
+  presets:
+    - community-administrator
+  connectors:
+    - slack-events
+    - slack-interactivity
+    - google-drive-admin
+mission_assignments:
+  - mission: community-vote-close
+    agent: admin-coordinator
+  - mission: community-memory-distill
+    agent: admin-coordinator
+`)
+
+	deps := DependencyRefsFromYAML(data)
+	got := map[string]string{}
+	for _, dep := range deps {
+		got[dep.Kind+":"+dep.Name] = dep.Kind
+	}
+
+	for _, key := range []string{
+		"service:slack",
+		"preset:community-administrator",
+		"connector:slack-events",
+		"connector:slack-interactivity",
+		"connector:google-drive-admin",
+		"mission:community-vote-close",
+		"mission:community-memory-distill",
+	} {
+		if _, ok := got[key]; !ok {
+			t.Fatalf("missing dependency ref %s in %#v", key, deps)
+		}
+	}
+}
