@@ -31,6 +31,15 @@ func TestInstanceRuntimeSubcommandExists(t *testing.T) {
 		t.Fatal("missing instance root command")
 	}
 	instance := root.Commands()[instanceIndex]
+	instanceNames := []string{}
+	for _, cmd := range instance.Commands() {
+		instanceNames = append(instanceNames, cmd.Name())
+	}
+	for _, want := range []string{"list", "show", "validate", "update", "apply", "runtime"} {
+		if !slices.Contains(instanceNames, want) {
+			t.Fatalf("missing instance command %q in %v", want, instanceNames)
+		}
+	}
 	runtimeIndex := slices.IndexFunc(instance.Commands(), func(c *cobra.Command) bool { return c.Name() == "runtime" })
 	if runtimeIndex < 0 {
 		t.Fatal("missing instance runtime subcommand")

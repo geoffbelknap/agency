@@ -77,6 +77,66 @@ func (h *handler) showInstance(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, inst)
 }
 
+func (h *handler) updateInstance(w http.ResponseWriter, r *http.Request) {
+	store := h.store()
+	if store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "instance store not available"})
+		return
+	}
+
+	type updateRequest struct {
+		Name          *string                         `json:"name"`
+		Source        *instancepkg.InstanceSource     `json:"source"`
+		Nodes         *[]instancepkg.Node             `json:"nodes"`
+		Grants        *[]instancepkg.GrantBinding     `json:"grants"`
+		Credentials   *map[string]instancepkg.Binding `json:"credentials"`
+		Config        *map[string]any                 `json:"config"`
+		Relationships *[]instancepkg.Relationship     `json:"relationships"`
+	}
+
+	var body updateRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if err := store.Update(r.Context(), id, func(inst *instancepkg.Instance) error {
+		if body.Name != nil {
+			inst.Name = *body.Name
+		}
+		if body.Source != nil {
+			inst.Source = *body.Source
+		}
+		if body.Nodes != nil {
+			inst.Nodes = *body.Nodes
+		}
+		if body.Grants != nil {
+			inst.Grants = *body.Grants
+		}
+		if body.Credentials != nil {
+			inst.Credentials = *body.Credentials
+		}
+		if body.Config != nil {
+			inst.Config = *body.Config
+		}
+		if body.Relationships != nil {
+			inst.Relationships = *body.Relationships
+		}
+		return nil
+	}); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	inst, err := store.Get(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, inst)
+}
+
 func (h *handler) validateInstance(w http.ResponseWriter, r *http.Request) {
 	store := h.store()
 	if store == nil {
@@ -94,6 +154,40 @@ func (h *handler) validateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "valid"})
+}
+
+func (h *handler) applyInstance(w http.ResponseWriter, r *http.Request) {
+	store := h.store()
+	if store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "instance store not available"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	inst, err := store.Get(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	manifest, rtStore, err := h.compileManifestForInstance(id, inst)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := (runpkg.Reconciler{}).Reconcile(rtStore, manifest); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	statuses, err := rtStore.ListNodeStatuses()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":   "applied",
+		"instance": inst,
+		"manifest": manifest,
+		"nodes":    statuses,
+	})
 }
 
 func (h *handler) claimInstance(w http.ResponseWriter, r *http.Request) {
@@ -142,22 +236,33 @@ func (h *handler) compileRuntimeManifest(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}
-	manifest, err := runpkg.Planner{}.Compile(inst)
+	manifest, _, err := h.compileManifestForInstance(id, inst)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
+	}
+	writeJSON(w, http.StatusCreated, manifest)
+}
+
+func (h *handler) compileManifestForInstance(id string, inst *instancepkg.Instance) (*runpkg.Manifest, *runpkg.Store, error) {
+	manifest, err := runpkg.Planner{}.Compile(inst)
+	if err != nil {
+		return nil, nil, err
+	}
+	store := h.store()
+	if store == nil {
+		return nil, nil, fmt.Errorf("instance store not available")
 	}
 	instanceDir, err := store.InstanceDir(id)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
+		return nil, nil, err
 	}
-	if err := runpkg.NewStore(instanceDir).SaveManifest(manifest); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
+	rtStore := runpkg.NewStore(instanceDir)
+	if err := rtStore.SaveManifest(manifest); err != nil {
+		return nil, nil, err
 	}
 	h.refreshAttachedAgentManifests(id)
-	writeJSON(w, http.StatusCreated, manifest)
+	return manifest, rtStore, nil
 }
 
 func (h *handler) showRuntimeManifest(w http.ResponseWriter, r *http.Request) {

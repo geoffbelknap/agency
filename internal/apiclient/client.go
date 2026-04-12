@@ -169,6 +169,11 @@ func (c *Client) Put(path string, body interface{}) ([]byte, error) {
 	return data, err
 }
 
+func (c *Client) Patch(path string, body interface{}) ([]byte, error) {
+	data, _, err := c.do("PATCH", path, body)
+	return data, err
+}
+
 func (c *Client) ListPackages(ctx context.Context) ([]hub.InstalledPackage, error) {
 	_ = ctx
 	var resp struct {
@@ -185,6 +190,34 @@ func (c *Client) ListInstances(ctx context.Context) ([]instancepkg.Instance, err
 	}
 	err := c.GetJSON("/api/v1/instances", &resp)
 	return resp.Instances, err
+}
+
+func (c *Client) ShowInstance(ctx context.Context, instanceID string) (instancepkg.Instance, error) {
+	_ = ctx
+	var inst instancepkg.Instance
+	err := c.GetJSON("/api/v1/instances/"+url.PathEscape(instanceID), &inst)
+	return inst, err
+}
+
+func (c *Client) UpdateInstance(ctx context.Context, instanceID string, body map[string]any) (instancepkg.Instance, error) {
+	_ = ctx
+	var inst instancepkg.Instance
+	err := c.PatchJSON("/api/v1/instances/"+url.PathEscape(instanceID), body, &inst)
+	return inst, err
+}
+
+func (c *Client) ValidateInstance(ctx context.Context, instanceID string) (map[string]any, error) {
+	_ = ctx
+	var result map[string]any
+	err := c.PostJSON("/api/v1/instances/"+url.PathEscape(instanceID)+"/validate", nil, &result)
+	return result, err
+}
+
+func (c *Client) ApplyInstance(ctx context.Context, instanceID string) (map[string]any, error) {
+	_ = ctx
+	var result map[string]any
+	err := c.PostJSON("/api/v1/instances/"+url.PathEscape(instanceID)+"/apply", nil, &result)
+	return result, err
 }
 
 func (c *Client) ResolveAuthz(ctx context.Context, req authzcore.Request) (authzcore.Decision, error) {
@@ -251,6 +284,17 @@ func (c *Client) GetJSON(path string, v interface{}) error {
 // PostJSON performs a POST and unmarshals the response into result.
 func (c *Client) PostJSON(path string, body, result interface{}) error {
 	data, err := c.Post(path, body)
+	if err != nil {
+		return err
+	}
+	if result != nil {
+		return json.Unmarshal(data, result)
+	}
+	return nil
+}
+
+func (c *Client) PatchJSON(path string, body, result interface{}) error {
+	data, err := c.Patch(path, body)
 	if err != nil {
 		return err
 	}

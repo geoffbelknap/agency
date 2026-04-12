@@ -311,6 +311,80 @@ func instanceCmd() *cobra.Command {
 			return nil
 		},
 	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "show <instance>",
+		Short: "Show a V2 instance",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			inst, err := c.ShowInstance(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(inst)
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "validate <instance>",
+		Short: "Validate a V2 instance",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.ValidateInstance(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	})
+	var updateJSON string
+	updateCmd := &cobra.Command{
+		Use:   "update <instance>",
+		Short: "Patch a V2 instance with a JSON object",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(updateJSON) == "" {
+				return fmt.Errorf("--json is required")
+			}
+			var body map[string]any
+			if err := json.Unmarshal([]byte(updateJSON), &body); err != nil {
+				return fmt.Errorf("--json must be valid JSON object: %w", err)
+			}
+			result, err := c.UpdateInstance(cmd.Context(), args[0], body)
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	}
+	updateCmd.Flags().StringVar(&updateJSON, "json", "", "JSON object patch body")
+	cmd.AddCommand(updateCmd)
+	cmd.AddCommand(&cobra.Command{
+		Use:   "apply <instance>",
+		Short: "Compile, refresh, and reconcile a V2 instance",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.ApplyInstance(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	})
 	runtimeCmd := &cobra.Command{
 		Use:   "runtime",
 		Short: "Manage V2 instance runtime state",

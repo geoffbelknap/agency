@@ -41,6 +41,41 @@ func TestInstancesCreateAndShow(t *testing.T) {
 	}
 }
 
+func TestInstancesUpdate(t *testing.T) {
+	s := instancepkg.NewStore(t.TempDir())
+	inst := &instancepkg.Instance{
+		ID:   "inst_123",
+		Name: "community-admin",
+		Source: instancepkg.InstanceSource{
+			Template: instancepkg.PackageRef{Kind: "template", Name: "community-admin", Version: "1.0.0"},
+		},
+	}
+	if err := s.Create(t.Context(), inst); err != nil {
+		t.Fatalf("Create(): %v", err)
+	}
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{Store: s})
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/instances/inst_123", strings.NewReader(`{"name":"community-admin-v2","config":{"consent_deployment_id":"dep-123"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update code = %d, want 200; body = %s", rec.Code, rec.Body.String())
+	}
+	got, err := s.Get(t.Context(), "inst_123")
+	if err != nil {
+		t.Fatalf("Get(): %v", err)
+	}
+	if got.Name != "community-admin-v2" {
+		t.Fatalf("name = %q", got.Name)
+	}
+	if got.Config["consent_deployment_id"] != "dep-123" {
+		t.Fatalf("config = %#v", got.Config)
+	}
+}
+
 func TestInstancesCompileShowAndReconcileRuntimeManifest(t *testing.T) {
 	s := instancepkg.NewStore(t.TempDir())
 	inst := &instancepkg.Instance{
@@ -141,6 +176,62 @@ func TestInstancesCompileShowAndReconcileRuntimeManifest(t *testing.T) {
 	}
 	if !strings.Contains(stopRec.Body.String(), `"stopped"`) {
 		t.Fatalf("expected stopped status: %s", stopRec.Body.String())
+	}
+}
+
+func TestApplyInstance(t *testing.T) {
+	home := t.TempDir()
+	s := instancepkg.NewStore(filepath.Join(home, "instances"))
+	inst := &instancepkg.Instance{
+		ID:   "inst_123",
+		Name: "community-admin",
+		Source: instancepkg.InstanceSource{
+			Template: instancepkg.PackageRef{Kind: "template", Name: "community-admin", Version: "1.0.0"},
+		},
+		Nodes: []instancepkg.Node{
+			{
+				ID:   "drive_admin",
+				Kind: "connector.authority",
+				Package: instancepkg.PackageRef{
+					Kind:    "connector",
+					Name:    "google-drive-admin",
+					Version: "1.0.0",
+				},
+				Config: map[string]any{
+					"tools": []any{"list_permissions"},
+					"executor": map[string]any{
+						"kind":     "http_json",
+						"base_url": "https://drive.example.test",
+						"actions": map[string]any{
+							"list_permissions": map[string]any{"path": "/permissions/list", "method": "POST"},
+						},
+					},
+				},
+			},
+		},
+	}
+	if err := s.Create(t.Context(), inst); err != nil {
+		t.Fatalf("Create(): %v", err)
+	}
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{
+		Store:          s,
+		Config:         &config.Config{Home: home},
+		RuntimeManager: stubRuntimeManager{},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/instances/inst_123/apply", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("apply code = %d, want 200; body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"status":"applied"`) {
+		t.Fatalf("unexpected apply response: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"materialized"`) {
+		t.Fatalf("expected materialized node state: %s", rec.Body.String())
 	}
 }
 
