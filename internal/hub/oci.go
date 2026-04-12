@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 	"oras.land/oras-go/v2"
@@ -408,18 +409,49 @@ func verifySignature(ctx context.Context, ref string) error {
 		ref,
 	}
 
-	cmd := exec.CommandContext(ctx, cosignPath, args...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("signature verification failed for %s: %s", ref, string(output))
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		cmd := exec.CommandContext(ctx, cosignPath, args...)
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			return nil
+		}
+		lastErr = fmt.Errorf("signature verification failed for %s: %s", ref, string(output))
+		if !isTransientCosignVerifyError(string(output)) || attempt == 2 {
+			return lastErr
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt+1) * time.Second):
+		}
 	}
-	return nil
+	return lastErr
 }
 
 // cosignInstalled returns true if the cosign CLI is available.
 func cosignInstalled() bool {
 	_, err := exec.LookPath("cosign")
 	return err == nil
+}
+
+func isTransientCosignVerifyError(output string) bool {
+	lower := strings.ToLower(output)
+	transientSignals := []string{
+		"i/o timeout",
+		"tls handshake timeout",
+		"temporary failure in name resolution",
+		"no such host",
+		"connection reset by peer",
+		"context deadline exceeded",
+		"net/http: timeout awaiting response headers",
+	}
+	for _, signal := range transientSignals {
+		if strings.Contains(lower, signal) {
+			return true
+		}
+	}
+	return false
 }
 
 // extractRegistryHost returns the hostname from a registry string.
