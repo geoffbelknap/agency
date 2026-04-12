@@ -71,6 +71,12 @@ func TestAuth_Validation(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
+			name:     "agent websocket path does not bypass auth",
+			cfgToken: testToken, egressTok: egressToken,
+			path: "/api/v1/agents/test-agent/context/ws", method: http.MethodGet,
+			wantCode: http.StatusUnauthorized,
+		},
+		{
 			name:     "agency config endpoint bypasses auth",
 			cfgToken: testToken, egressTok: egressToken,
 			path: "/__agency/config", method: http.MethodGet,

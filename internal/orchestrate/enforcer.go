@@ -200,10 +200,16 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 	netCfg := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
 			gatewayNetName(): {},
+			internalNet: {
+				Aliases: []string{"enforcer"},
+			},
+			egressIntNetName(): {
+				Aliases: []string{"enforcer"},
+			},
 		},
 	}
 
-	containerID, err := containers.CreateAndStart(ctx, e.cli,
+	_, err = containers.CreateAndStart(ctx, e.cli,
 		e.ContainerName,
 		&container.Config{
 			Image:    enforcerImage,
@@ -246,19 +252,6 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 	if err := waitContainerRunning(ctx, e.cli, e.ContainerName, 10*time.Second); err != nil {
 		return "", err
 	}
-
-	// Connect to the private agent network before the workspace starts so the
-	// body can only reach external services through its paired enforcer.
-	_ = e.cli.NetworkConnect(ctx, internalNet, containerID, &network.EndpointSettings{
-		Aliases: []string{"enforcer"},
-	})
-
-	// Already started on the gateway network (hub — service access, signals, budget)
-
-	// Connect to egress network (LLM proxy)
-	_ = e.cli.NetworkConnect(ctx, egressIntNetName(), containerID, &network.EndpointSettings{
-		Aliases: []string{"enforcer"},
-	})
 
 	return e.readAPIKey(), nil
 }

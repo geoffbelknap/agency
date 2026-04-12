@@ -1,4 +1,4 @@
-"""Shared test fixtures for knowledge server tests."""
+"""Shared fixtures and helpers for image tests."""
 
 
 PLATFORM_HEADERS = {"X-Agency-Platform": "true"}

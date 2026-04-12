@@ -2,6 +2,8 @@ package hub
 
 import (
 	"bytes"
+	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,7 +16,22 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/config"
 	hubpkg "github.com/geoffbelknap/agency/internal/hub"
+	"github.com/geoffbelknap/agency/internal/logs"
 )
+
+type signalCall struct {
+	container string
+	signal    string
+}
+
+type recordingSignalSender struct {
+	calls []signalCall
+}
+
+func (r *recordingSignalSender) SignalContainer(_ context.Context, containerName, signal string) error {
+	r.calls = append(r.calls, signalCall{container: containerName, signal: signal})
+	return nil
+}
 
 const testOpenAIProviderYAML = `
 name: openai
@@ -100,6 +117,210 @@ func TestIsLocalOrTLSRejectsExternalPlaintext(t *testing.T) {
 
 	if isLocalOrTLS(req) {
 		t.Fatal("external plaintext request should be rejected")
+	}
+}
+
+func TestHubDeactivateConnectorSignalsIntakeAndRemovesPublishedYAML(t *testing.T) {
+	home := t.TempDir()
+	mgr := hubpkg.NewManager(home)
+	inst, err := mgr.Registry.Create("fixture-connector", "connector", "local/fixture-connector")
+	if err != nil {
+		t.Fatalf("create connector instance: %v", err)
+	}
+	if err := mgr.Registry.SetState(inst.Name, "active"); err != nil {
+		t.Fatalf("activate connector instance: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "connectors"), 0o755); err != nil {
+		t.Fatalf("mkdir connectors: %v", err)
+	}
+	published := filepath.Join(home, "connectors", inst.Name+".yaml")
+	if err := os.WriteFile(published, []byte("kind: connector\nname: fixture-connector\n"), 0o644); err != nil {
+		t.Fatalf("write published connector: %v", err)
+	}
+
+	signal := &recordingSignalSender{}
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{
+		Config: &config.Config{Home: home},
+		Signal: signal,
+		Audit:  logs.NewWriter(home),
+		Logger: slog.Default(),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hub/"+inst.Name+"/deactivate", strings.NewReader("{}"))
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if _, err := os.Stat(published); !os.IsNotExist(err) {
+		t.Fatalf("published connector yaml should be removed, stat err = %v", err)
+	}
+	if len(signal.calls) != 1 {
+		t.Fatalf("expected 1 intake signal, got %d", len(signal.calls))
+	}
+	if signal.calls[0].container != "agency-infra-intake" || signal.calls[0].signal != "SIGHUP" {
+		t.Fatalf("unexpected signal call: %+v", signal.calls[0])
+	}
+}
+
+func TestHubRemoveConnectorSignalsIntakeAndRemovesPublishedYAML(t *testing.T) {
+	home := t.TempDir()
+	mgr := hubpkg.NewManager(home)
+	inst, err := mgr.Registry.Create("fixture-connector", "connector", "local/fixture-connector")
+	if err != nil {
+		t.Fatalf("create connector instance: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "connectors"), 0o755); err != nil {
+		t.Fatalf("mkdir connectors: %v", err)
+	}
+	published := filepath.Join(home, "connectors", inst.Name+".yaml")
+	if err := os.WriteFile(published, []byte("kind: connector\nname: fixture-connector\n"), 0o644); err != nil {
+		t.Fatalf("write published connector: %v", err)
+	}
+
+	signal := &recordingSignalSender{}
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{
+		Config: &config.Config{Home: home},
+		Signal: signal,
+		Audit:  logs.NewWriter(home),
+		Logger: slog.Default(),
+	})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/hub/"+inst.Name, nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if mgr.Registry.Resolve(inst.Name) != nil {
+		t.Fatal("connector instance should be removed")
+	}
+	if _, err := os.Stat(published); !os.IsNotExist(err) {
+		t.Fatalf("published connector yaml should be removed, stat err = %v", err)
+	}
+	if len(signal.calls) != 1 {
+		t.Fatalf("expected 1 intake signal, got %d", len(signal.calls))
+	}
+	if signal.calls[0].container != "agency-infra-intake" || signal.calls[0].signal != "SIGHUP" {
+		t.Fatalf("unexpected signal call: %+v", signal.calls[0])
+	}
+}
+
+func TestHubRemovePackCleansAutoInstalledConnectorDependencies(t *testing.T) {
+	home := t.TempDir()
+	mgr := hubpkg.NewManager(home)
+
+	pack, err := mgr.Registry.Create("fixture-pack", "pack", "local/fixture-pack")
+	if err != nil {
+		t.Fatalf("create pack instance: %v", err)
+	}
+	conn, err := mgr.Registry.Create("fixture-connector", "connector", "local/fixture-connector")
+	if err != nil {
+		t.Fatalf("create connector instance: %v", err)
+	}
+	svc, err := mgr.Registry.Create("fixture-service", "service", "local/fixture-service")
+	if err != nil {
+		t.Fatalf("create service instance: %v", err)
+	}
+
+	packDir := mgr.Registry.InstanceDir(pack.Name)
+	if err := os.WriteFile(filepath.Join(packDir, "pack.yaml"), []byte(`kind: pack
+name: fixture-pack
+requires:
+  connectors:
+    - fixture-connector
+  services:
+    - fixture-service
+`), 0o644); err != nil {
+		t.Fatalf("write pack template: %v", err)
+	}
+	connDir := mgr.Registry.InstanceDir(conn.Name)
+	if err := os.WriteFile(filepath.Join(connDir, "connector.yaml"), []byte("kind: connector\nname: fixture-connector\n"), 0o644); err != nil {
+		t.Fatalf("write connector template: %v", err)
+	}
+	svcDir := mgr.Registry.InstanceDir(svc.Name)
+	if err := os.WriteFile(filepath.Join(svcDir, "service.yaml"), []byte("kind: service\nname: fixture-service\n"), 0o644); err != nil {
+		t.Fatalf("write service template: %v", err)
+	}
+
+	if err := mgr.Registry.MarkAutoInstalled(conn.Name, true); err != nil {
+		t.Fatalf("mark connector auto-installed: %v", err)
+	}
+	if err := mgr.Registry.MarkAutoInstalled(svc.Name, true); err != nil {
+		t.Fatalf("mark service auto-installed: %v", err)
+	}
+	if err := mgr.Registry.AddRequiredBy(conn.Name, pack.Name); err != nil {
+		t.Fatalf("link connector dependency: %v", err)
+	}
+	if err := mgr.Registry.AddRequiredBy(svc.Name, pack.Name); err != nil {
+		t.Fatalf("link service dependency: %v", err)
+	}
+
+	signal := &recordingSignalSender{}
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{
+		Config: &config.Config{Home: home},
+		Signal: signal,
+		Audit:  logs.NewWriter(home),
+		Logger: slog.Default(),
+	})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/hub/"+pack.Name, nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if mgr.Registry.Resolve(pack.Name) != nil {
+		t.Fatal("pack instance should be removed")
+	}
+	if mgr.Registry.Resolve(conn.Name) != nil {
+		t.Fatal("auto-installed connector dependency should be removed")
+	}
+	if mgr.Registry.Resolve(svc.Name) != nil {
+		t.Fatal("auto-installed service dependency should be removed")
+	}
+}
+
+func TestHubRemovePackKeepsSharedDependencies(t *testing.T) {
+	home := t.TempDir()
+	mgr := hubpkg.NewManager(home)
+
+	packA, _ := mgr.Registry.Create("pack-a", "pack", "local/pack-a")
+	packB, _ := mgr.Registry.Create("pack-b", "pack", "local/pack-b")
+	conn, _ := mgr.Registry.Create("shared-connector", "connector", "local/shared-connector")
+	if err := mgr.Registry.MarkAutoInstalled(conn.Name, true); err != nil {
+		t.Fatalf("mark auto-installed: %v", err)
+	}
+	if err := mgr.Registry.AddRequiredBy(conn.Name, packA.Name); err != nil {
+		t.Fatalf("link packA: %v", err)
+	}
+	if err := mgr.Registry.AddRequiredBy(conn.Name, packB.Name); err != nil {
+		t.Fatalf("link packB: %v", err)
+	}
+
+	packADir := mgr.Registry.InstanceDir(packA.Name)
+	if err := os.WriteFile(filepath.Join(packADir, "pack.yaml"), []byte("kind: pack\nname: pack-a\n"), 0o644); err != nil {
+		t.Fatalf("write packA: %v", err)
+	}
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{Config: &config.Config{Home: home}})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/hub/"+packA.Name, nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if mgr.Registry.Resolve(conn.Name) == nil {
+		t.Fatal("shared dependency should remain installed")
 	}
 }
 

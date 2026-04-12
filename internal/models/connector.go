@@ -4,6 +4,7 @@ package models
 import (
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 var intervalPattern = regexp.MustCompile(`^\d+[smhd]$`)
@@ -31,31 +32,47 @@ type ConnectorWebhookAuth struct {
 
 // ConnectorSource defines the inbound event source for a connector.
 type ConnectorSource struct {
-	Type          string                 `yaml:"type" validate:"required,oneof=webhook poll schedule channel-watch none"`
-	PayloadSchema map[string]interface{} `yaml:"schema"`
-	WebhookAuth   *ConnectorWebhookAuth  `yaml:"webhook_auth"`
-	Path          *string                `yaml:"path"`
-	BodyFormat    *string                `yaml:"body_format"`
-	AckStrategy   *string                `yaml:"ack_strategy"`
-	URL           *string                `yaml:"url"`
-	Method        string                 `yaml:"method" default:"GET"`
-	Headers       map[string]string      `yaml:"headers"`
-	Interval      *string                `yaml:"interval"`
-	ResponseKey   *string                `yaml:"response_key"`
-	DedupKey      *string                `yaml:"dedup_key"`
-	FollowUp      *ConnectorFollowUp     `yaml:"follow_up"`
-	Cron          *string                `yaml:"cron"`
-	Channel       *string                `yaml:"channel"`
-	Pattern       *string                `yaml:"pattern"`
+	Type                string                 `yaml:"type" validate:"required,oneof=webhook poll schedule channel-watch none"`
+	PayloadSchema       map[string]interface{} `yaml:"schema"`
+	WebhookAuth         *ConnectorWebhookAuth  `yaml:"webhook_auth"`
+	Path                *string                `yaml:"path"`
+	BodyFormat          *string                `yaml:"body_format"`
+	PayloadField        *string                `yaml:"payload_field"`
+	ResponseStatus      *int                   `yaml:"response_status"`
+	ResponseBody        *string                `yaml:"response_body"`
+	ResponseContentType *string                `yaml:"response_content_type"`
+	AckStrategy         *string                `yaml:"ack_strategy"`
+	URL                 *string                `yaml:"url"`
+	Method              string                 `yaml:"method" default:"GET"`
+	Headers             map[string]string      `yaml:"headers"`
+	Interval            *string                `yaml:"interval"`
+	ResponseKey         *string                `yaml:"response_key"`
+	DedupKey            *string                `yaml:"dedup_key"`
+	FollowUp            *ConnectorFollowUp     `yaml:"follow_up"`
+	Cron                *string                `yaml:"cron"`
+	Channel             *string                `yaml:"channel"`
+	Pattern             *string                `yaml:"pattern"`
 }
 
 // Validate implements cross-field validation for ConnectorSource.
 func (cs *ConnectorSource) Validate() error {
+	if cs.BodyFormat != nil {
+		switch *cs.BodyFormat {
+		case "json", "form_urlencoded", "form_urlencoded_payload", "form_urlencoded_payload_json_field":
+		default:
+			return fmt.Errorf("unsupported body_format: %s", *cs.BodyFormat)
+		}
+	}
+
 	switch cs.Type {
 	case "none":
 		hasInboundFields := cs.WebhookAuth != nil ||
 			cs.Path != nil ||
 			cs.BodyFormat != nil ||
+			cs.PayloadField != nil ||
+			cs.ResponseStatus != nil ||
+			cs.ResponseBody != nil ||
+			cs.ResponseContentType != nil ||
 			cs.AckStrategy != nil ||
 			cs.URL != nil ||
 			cs.Interval != nil ||
@@ -64,6 +81,7 @@ func (cs *ConnectorSource) Validate() error {
 			cs.Channel != nil ||
 			cs.Pattern != nil ||
 			cs.Headers != nil ||
+			cs.FollowUp != nil ||
 			(cs.Method != "" && cs.Method != "GET")
 		if hasInboundFields {
 			return fmt.Errorf("source type none does not accept inbound source fields")
@@ -90,6 +108,17 @@ func (cs *ConnectorSource) Validate() error {
 			return fmt.Errorf("channel-watch source requires 'pattern'")
 		}
 	case "webhook":
+		if cs.Path != nil && (*cs.Path == "" || !strings.HasPrefix(*cs.Path, "/")) {
+			return fmt.Errorf("webhook source path must start with '/'")
+		}
+		if cs.ResponseStatus != nil && (*cs.ResponseStatus < 200 || *cs.ResponseStatus > 299) {
+			return fmt.Errorf("webhook response_status must be a 2xx status code")
+		}
+		if cs.PayloadField != nil {
+			if cs.BodyFormat == nil || (*cs.BodyFormat != "form_urlencoded_payload" && *cs.BodyFormat != "form_urlencoded_payload_json_field") {
+				return fmt.Errorf("payload_field is only valid with body_format 'form_urlencoded_payload_json_field'")
+			}
+		}
 		hasPollFields := cs.URL != nil ||
 			cs.Interval != nil ||
 			cs.ResponseKey != nil ||
@@ -100,6 +129,10 @@ func (cs *ConnectorSource) Validate() error {
 			(cs.Method != "" && cs.Method != "GET")
 		if hasPollFields {
 			return fmt.Errorf("webhook source does not accept poll/schedule/channel-watch fields")
+		}
+	default:
+		if cs.Path != nil || cs.BodyFormat != nil || cs.PayloadField != nil || cs.ResponseStatus != nil || cs.ResponseBody != nil || cs.ResponseContentType != nil || cs.AckStrategy != nil {
+			return fmt.Errorf("%s source does not accept webhook body/path fields", cs.Type)
 		}
 	}
 	if cs.WebhookAuth != nil && cs.WebhookAuth.SecretEnv == "" && cs.WebhookAuth.SecretCredref == "" {

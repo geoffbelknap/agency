@@ -18,6 +18,7 @@ import yaml
 from aiohttp import web, ClientSession
 
 from agency_core.models.connector import ConnectorConfig, ConnectorRelayTarget
+from agency_core.images.intake.bridge_state import BridgeStateStore
 from agency_core.images.intake.router import evaluate_routes, render_template, parse_sla_duration
 from agency_core.images.intake.work_items import WorkItemStore
 from agency_core.images.intake.poller import PollStateStore, hash_blob, hash_items, extract_items, parse_interval
@@ -25,6 +26,17 @@ from agency_core.images.intake.scheduler import ScheduleStateStore, should_fire
 from agency_core.images.intake.channel_watcher import ChannelWatchStateStore, matches_pattern
 
 logger = logging.getLogger("intake")
+
+
+def _webhook_path_for_connector(connector: ConnectorConfig) -> str:
+    return connector.source.path or f"/webhooks/{connector.name}"
+
+
+def _collapse_form_data(form_values: dict[str, list[str]]) -> dict:
+    payload: dict[str, object] = {}
+    for key, values in form_values.items():
+        payload[key] = values[0] if len(values) == 1 else values
+    return payload
 
 
 def _resolve_webhook_secret(auth) -> str:
@@ -46,15 +58,21 @@ def _resolve_webhook_secret(auth) -> str:
 
 def _parse_webhook_payload(body_bytes: bytes, connector) -> dict:
     body_format = connector.source.body_format or "json"
-    if body_format == "form_urlencoded_payload":
+    if body_format == "json":
+        payload = json.loads(body_bytes)
+    elif body_format == "form_urlencoded":
         decoded = body_bytes.decode("utf-8", errors="replace")
-        form = parse_qs(decoded, keep_blank_values=True)
-        raw_payload = form.get("payload", [None])[0]
-        if raw_payload is None:
-            raise ValueError("Missing payload field")
+        payload = _collapse_form_data(parse_qs(decoded, keep_blank_values=True))
+    elif body_format in {"form_urlencoded_payload", "form_urlencoded_payload_json_field"}:
+        decoded = body_bytes.decode("utf-8", errors="replace")
+        form = _collapse_form_data(parse_qs(decoded, keep_blank_values=True))
+        payload_field = connector.source.payload_field or "payload"
+        raw_payload = form.get(payload_field)
+        if not isinstance(raw_payload, str) or not raw_payload:
+            raise ValueError(f"Missing form field: {payload_field}")
         payload = json.loads(raw_payload)
     else:
-        payload = json.loads(body_bytes)
+        raise ValueError(f"Unsupported body format: {body_format}")
     if not isinstance(payload, dict):
         raise ValueError("Payload must be a JSON object")
     return payload
@@ -86,6 +104,32 @@ def _normalize_webhook_payload(payload: dict, connector_name: str, request: web.
         "verified_signature": True,
     }
     return payload
+
+
+def _connector_from_request(request: web.Request) -> tuple[str | None, ConnectorConfig | None]:
+    connectors = request.app["connectors"]
+    connector_name = request.match_info.get("connector_name")
+    if connector_name:
+        connector = connectors.get(connector_name)
+        if connector is None:
+            return connector_name, None
+        if _webhook_path_for_connector(connector) != request.path:
+            return connector_name, None
+        return connector_name, connector
+    connector_paths: dict[str, str] = request.app.get("connector_paths", {})
+    resolved_name = connector_paths.get(request.path)
+    if not resolved_name:
+        return None, None
+    return resolved_name, connectors.get(resolved_name)
+
+
+def _webhook_success_response(connector: ConnectorConfig, delivered: bool) -> web.Response:
+    status = connector.source.response_status or 202
+    body = connector.source.response_body
+    content_type = connector.source.response_content_type or "application/json"
+    if body is None:
+        return web.json_response({"status": "ok", "delivered": delivered}, status=status)
+    return web.Response(status=status, text=body, content_type=content_type)
 
 
 def _load_connectors(connectors_dir: Path) -> dict[str, ConnectorConfig]:
@@ -613,15 +657,11 @@ def _verify_webhook_auth(request: web.Request, body_bytes: bytes, connector) -> 
 
 
 async def handle_webhook(request: web.Request) -> web.Response:
-    connector_name = request.match_info["connector_name"]
-    connectors = request.app["connectors"]
+    connector_name, connector = _connector_from_request(request)
     store: WorkItemStore = request.app["store"]
 
-    # Find connector
-    if connector_name not in connectors:
+    if connector_name is None or connector is None:
         return web.json_response({"error": f"Unknown connector: {connector_name}"}, status=404)
-
-    connector = connectors[connector_name]
 
     # Read raw body once (needed for HMAC verification before JSON parsing)
     body_bytes = await request.read()
@@ -680,7 +720,7 @@ async def handle_webhook(request: web.Request) -> web.Response:
     )
     if connector.source.ack_strategy == "immediate_empty_200":
         return web.Response(status=200, text="")
-    return web.json_response({"status": "ok", "delivered": delivered}, status=202)
+    return _webhook_success_response(connector, delivered)
 
 
 
@@ -694,9 +734,18 @@ def create_app(
     app["connectors"] = _load_connectors(app["connectors_dir"])
     app["store"] = WorkItemStore(data_dir=data_dir or Path("/app/data"))
     app["comms_url"] = comms_url
+    app["bridge_state"] = BridgeStateStore(data_dir=data_dir or Path("/app/data"))
+    app["connector_paths"] = {
+        _webhook_path_for_connector(connector): name
+        for name, connector in app["connectors"].items()
+    }
 
     app.router.add_get("/health", handle_health)
     app.router.add_post("/webhooks/{connector_name}", handle_webhook)
+    for connector in app["connectors"].values():
+        path = _webhook_path_for_connector(connector)
+        if path != f"/webhooks/{connector.name}":
+            app.router.add_post(path, handle_webhook)
 
     app.on_startup.append(_start_background_tasks)
     app.on_cleanup.append(_cleanup_background_tasks)
@@ -709,6 +758,10 @@ def _setup_sighup_handler(app: web.Application) -> None:
     def reload_handler(signum, frame):
         logger.info("SIGHUP received, reloading connectors...")
         app["connectors"] = _load_connectors(app["connectors_dir"])
+        app["connector_paths"] = {
+            _webhook_path_for_connector(connector): name
+            for name, connector in app["connectors"].items()
+        }
         logger.info(f"Reloaded {len(app['connectors'])} connectors")
 
     signal.signal(signal.SIGHUP, reload_handler)

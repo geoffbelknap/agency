@@ -17,7 +17,7 @@ func newTestRegistry(t *testing.T) (*Registry, string) {
 func TestRegistry_CreateInstance(t *testing.T) {
 	r, _ := newTestRegistry(t)
 
-	inst, err := r.Create("slack-incidents", "connector", "default/slack-ops")
+	inst, err := r.Create("slack-incidents", "connector", "default/slack-events")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -28,8 +28,8 @@ func TestRegistry_CreateInstance(t *testing.T) {
 	if inst.Kind != "connector" {
 		t.Errorf("expected kind %q, got %q", "connector", inst.Kind)
 	}
-	if inst.Source != "default/slack-ops" {
-		t.Errorf("expected source %q, got %q", "default/slack-ops", inst.Source)
+	if inst.Source != "default/slack-events" {
+		t.Errorf("expected source %q, got %q", "default/slack-events", inst.Source)
 	}
 	if len(inst.ID) != 8 {
 		t.Errorf("expected 8-char ID, got %q (len=%d)", inst.ID, len(inst.ID))
@@ -45,7 +45,7 @@ func TestRegistry_CreateInstance(t *testing.T) {
 func TestRegistry_ResolveByName(t *testing.T) {
 	r, _ := newTestRegistry(t)
 
-	inst, err := r.Create("slack-incidents", "connector", "default/slack-ops")
+	inst, err := r.Create("slack-incidents", "connector", "default/slack-events")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestRegistry_ResolveByName(t *testing.T) {
 func TestRegistry_ResolveByID(t *testing.T) {
 	r, _ := newTestRegistry(t)
 
-	inst, err := r.Create("slack-incidents", "connector", "default/slack-ops")
+	inst, err := r.Create("slack-incidents", "connector", "default/slack-events")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -88,12 +88,12 @@ func TestRegistry_ResolveNotFound(t *testing.T) {
 func TestRegistry_DuplicateNameFails(t *testing.T) {
 	r, _ := newTestRegistry(t)
 
-	_, err := r.Create("slack-incidents", "connector", "default/slack-ops")
+	_, err := r.Create("slack-incidents", "connector", "default/slack-events")
 	if err != nil {
 		t.Fatalf("first Create failed: %v", err)
 	}
 
-	_, err = r.Create("slack-incidents", "connector", "default/slack-ops")
+	_, err = r.Create("slack-incidents", "connector", "default/slack-events")
 	if err == nil {
 		t.Error("expected error on duplicate name, got nil")
 	}
@@ -102,7 +102,7 @@ func TestRegistry_DuplicateNameFails(t *testing.T) {
 func TestRegistry_Remove(t *testing.T) {
 	r, home := newTestRegistry(t)
 
-	inst, err := r.Create("slack-incidents", "connector", "default/slack-ops")
+	inst, err := r.Create("slack-incidents", "connector", "default/slack-events")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestRegistry_RemoveNotFound(t *testing.T) {
 func TestRegistry_List(t *testing.T) {
 	r, _ := newTestRegistry(t)
 
-	r.Create("slack-incidents", "connector", "default/slack-ops")
+	r.Create("slack-incidents", "connector", "default/slack-events")
 	r.Create("github-prs", "connector", "default/github")
 	r.Create("my-preset", "preset", "default/base-preset")
 
@@ -154,7 +154,7 @@ func TestRegistry_List(t *testing.T) {
 func TestRegistry_ListFilterByKind(t *testing.T) {
 	r, _ := newTestRegistry(t)
 
-	r.Create("slack-incidents", "connector", "default/slack-ops")
+	r.Create("slack-incidents", "connector", "default/slack-events")
 	r.Create("github-prs", "connector", "default/github")
 	r.Create("my-preset", "preset", "default/base-preset")
 
@@ -189,7 +189,7 @@ func TestRegistry_ListEmpty(t *testing.T) {
 func TestRegistry_Persistence(t *testing.T) {
 	r, home := newTestRegistry(t)
 
-	inst, err := r.Create("slack-incidents", "connector", "default/slack-ops")
+	inst, err := r.Create("slack-incidents", "connector", "default/slack-events")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestRegistry_Persistence(t *testing.T) {
 func TestRegistry_SetState(t *testing.T) {
 	r, _ := newTestRegistry(t)
 
-	_, err := r.Create("slack-incidents", "connector", "default/slack-ops")
+	_, err := r.Create("slack-incidents", "connector", "default/slack-events")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestRegistry_SetState(t *testing.T) {
 func TestRegistry_SetStateByID(t *testing.T) {
 	r, _ := newTestRegistry(t)
 
-	inst, err := r.Create("slack-incidents", "connector", "default/slack-ops")
+	inst, err := r.Create("slack-incidents", "connector", "default/slack-events")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestRegistry_SetStateNotFound(t *testing.T) {
 func TestRegistry_InstanceDir(t *testing.T) {
 	r, home := newTestRegistry(t)
 
-	inst, err := r.Create("slack-incidents", "connector", "default/slack-ops")
+	inst, err := r.Create("slack-incidents", "connector", "default/slack-events")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -308,12 +308,12 @@ func TestRegistry_MigrateFromFlatFiles(t *testing.T) {
 	// Create flat connector file (old format)
 	connectorsDir := filepath.Join(dir, "connectors")
 	os.MkdirAll(connectorsDir, 0755)
-	os.WriteFile(filepath.Join(connectorsDir, "slack-ops.yaml"),
-		[]byte("name: slack-ops\nkind: connector\nactive: true\n"), 0644)
+	os.WriteFile(filepath.Join(connectorsDir, "slack-events.yaml"),
+		[]byte("name: slack-events\nkind: connector\nactive: true\n"), 0644)
 
 	// Create old provenance file
 	prov := []map[string]string{
-		{"name": "slack-ops", "kind": "connector", "source": "default", "installed_at": "2026-03-20T00:00:00Z"},
+		{"name": "slack-events", "kind": "connector", "source": "default", "installed_at": "2026-03-20T00:00:00Z"},
 	}
 	provJSON, _ := json.Marshal(prov)
 	os.WriteFile(filepath.Join(dir, "hub-installed.json"), provJSON, 0644)
@@ -328,7 +328,7 @@ func TestRegistry_MigrateFromFlatFiles(t *testing.T) {
 	}
 
 	// Instance exists in registry
-	inst := reg.Resolve("slack-ops")
+	inst := reg.Resolve("slack-events")
 	if inst == nil {
 		t.Fatal("migrated instance not found")
 	}
@@ -340,13 +340,13 @@ func TestRegistry_MigrateFromFlatFiles(t *testing.T) {
 	}
 
 	// File moved into instance directory
-	instDir := reg.InstanceDir("slack-ops")
+	instDir := reg.InstanceDir("slack-events")
 	if _, err := os.Stat(filepath.Join(instDir, "connector.yaml")); err != nil {
 		t.Error("connector.yaml not in instance directory")
 	}
 
 	// Old flat file removed
-	if _, err := os.Stat(filepath.Join(connectorsDir, "slack-ops.yaml")); err == nil {
+	if _, err := os.Stat(filepath.Join(connectorsDir, "slack-events.yaml")); err == nil {
 		t.Error("old flat file should be removed")
 	}
 
@@ -387,7 +387,7 @@ func TestRegistry_MigrateMultipleKinds(t *testing.T) {
 func TestRegistry_InstanceDirectoryCreated(t *testing.T) {
 	r, home := newTestRegistry(t)
 
-	inst, err := r.Create("slack-incidents", "connector", "default/slack-ops")
+	inst, err := r.Create("slack-incidents", "connector", "default/slack-events")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}

@@ -2620,10 +2620,16 @@ class Body:
         elif source.startswith("dm"):
             channel = f"_dm-{self.agent_name}"
 
-        metadata: dict = {"agent": self.agent_name, "task_id": task_id}
+        metadata: dict = dict(task.get("metadata", {}) or {})
+        metadata["agent"] = self.agent_name
+        metadata["task_id"] = task_id
         if has_artifact:
             metadata["has_artifact"] = True
             metadata["attachment_id"] = task_id
+
+        reply_to = metadata.get("reply_to")
+        if not isinstance(reply_to, str):
+            reply_to = None
 
         try:
             comms_url = os.environ.get("AGENCY_COMMS_URL", "http://enforcer:8081/mediation/comms")
@@ -2632,6 +2638,7 @@ class Body:
                 json={
                     "author": self.agent_name,
                     "content": content,
+                    "reply_to": reply_to,
                     "metadata": metadata,
                 },
                 timeout=5,
@@ -2657,10 +2664,16 @@ class Body:
         elif source.startswith("dm"):
             channel = f"_dm-{self.agent_name}"
 
-        metadata: dict = {"agent": self.agent_name, "task_id": task_id}
+        metadata: dict = dict(task.get("metadata", {}) or {})
+        metadata["agent"] = self.agent_name
+        metadata["task_id"] = task_id
         if has_artifact:
             metadata["has_artifact"] = True
             metadata["attachment_id"] = task_id
+
+        reply_to = metadata.get("reply_to")
+        if not isinstance(reply_to, str):
+            reply_to = None
 
         try:
             comms_url = os.environ.get("AGENCY_COMMS_URL", "http://enforcer:8081/mediation/comms")
@@ -2669,6 +2682,7 @@ class Body:
                 json={
                     "author": self.agent_name,
                     "content": content,
+                    "reply_to": reply_to,
                     "metadata": metadata,
                 },
                 timeout=5,

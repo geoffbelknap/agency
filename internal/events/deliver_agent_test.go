@@ -95,6 +95,9 @@ func TestAgentDelivery_Deliver(t *testing.T) {
 		EventType:  "push",
 		Timestamp:  time.Now().UTC(),
 		Data:       map[string]interface{}{"branch": "main"},
+		Metadata: map[string]interface{}{
+			"connector_name": "github-webhook",
+		},
 	}
 
 	err := ad.Deliver(sub, event)
@@ -118,6 +121,14 @@ func TestAgentDelivery_Deliver(t *testing.T) {
 	content, _ := receivedBody["task_content"].(string)
 	if !strings.Contains(content, "[Mission trigger:") {
 		t.Errorf("content missing trigger header: %s", content)
+	}
+
+	metadata, _ := receivedBody["metadata"].(map[string]interface{})
+	if metadata["event_id"] != "evt-xyz789" {
+		t.Errorf("expected event_id metadata, got %#v", metadata["event_id"])
+	}
+	if metadata["connector_name"] != "github-webhook" {
+		t.Errorf("expected connector_name metadata, got %#v", metadata["connector_name"])
 	}
 }
 

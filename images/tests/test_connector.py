@@ -1,7 +1,21 @@
 """Tests for connector schema validation."""
 
+import os
+import sys
+import types
+
 import pytest
 import yaml
+
+# Lean local envs may not have croniter available when importing connector-adjacent
+# intake modules through shared fixtures.
+try:
+    import croniter  # noqa: F401
+except ModuleNotFoundError:
+    croniter_stub = types.ModuleType("croniter")
+    croniter_stub.croniter = type("Croniter", (), {"match": staticmethod(lambda expr, dt: False)})
+    sys.modules.setdefault("croniter", croniter_stub)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from images.models.connector import (
     ConnectorConfig,
@@ -28,6 +42,19 @@ class TestConnectorSource:
             },
         )
         assert src.webhook_auth.secret_credref == "slack_signing_secret"
+
+    def test_webhook_with_custom_path_and_wrapped_body(self):
+        src = ConnectorSource(
+            type="webhook",
+            path="/hooks/example",
+            body_format="form_urlencoded_payload_json_field",
+            payload_field="payload",
+            response_status=200,
+            response_body="",
+            response_content_type="text/plain",
+        )
+        assert src.path == "/hooks/example"
+        assert src.body_format == "form_urlencoded_payload_json_field"
 
     def test_tool_only_source(self):
         src = ConnectorSource(type="none")
@@ -107,6 +134,24 @@ class TestConnectorMCP:
             server="/usr/local/bin/mcp-server",
         )
         assert mcp.server == "/usr/local/bin/mcp-server"
+
+    def test_mcp_only_connector_allowed(self):
+        config = ConnectorConfig(
+            name="mcp-only",
+            source=ConnectorSource(type="none"),
+            mcp=ConnectorMCP(
+                name="custom",
+                credential="svc",
+                tools=[
+                    ConnectorMCPTool(
+                        name="ping",
+                        method="GET",
+                        path="/ping",
+                    ),
+                ],
+            ),
+        )
+        assert config.mcp is not None
 
     def test_with_consent_directive(self):
         tool = ConnectorMCPTool(
@@ -257,6 +302,23 @@ class TestConnectorConfig:
                 source=ConnectorSource(type="webhook"),
                 routes=[ConnectorRoute(match={"x": "y"}, target={"agent": "a"})],
                 unknown_field="bad",
+            )
+
+    def test_empty_routes_rejected(self):
+        with pytest.raises(Exception):
+            ConnectorConfig(
+                name="test",
+                source=ConnectorSource(type="webhook"),
+                routes=[],
+            )
+
+    def test_none_source_with_routes_rejected(self):
+        with pytest.raises(Exception):
+            ConnectorConfig(
+                name="bad-none",
+                source=ConnectorSource(type="none"),
+                routes=[ConnectorRoute(match={"x": "*"}, target={"agent": "a"})],
+                mcp=ConnectorMCP(name="custom", credential="svc"),
             )
 
     def test_empty_routes_rejected(self):

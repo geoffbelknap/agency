@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestDetectSchemaAll tests basic schema detection for all 11 file types.
+// TestDetectSchemaAll tests basic schema detection for all supported file types.
 // Verifies that detectSchema returns appropriate schema types for all required file names.
 func TestDetectSchemaAll(t *testing.T) {
 	tests := []struct {
@@ -17,6 +17,8 @@ func TestDetectSchemaAll(t *testing.T) {
 		{"constraints.yaml", "*models.ConstraintsConfig"},
 		{"package.yaml", "*models.PackageConfig"},
 		{"principals.yaml", "*models.PrincipalsConfig"},
+		{"preset.yaml", "*models.PresetConfig"},
+		{"mission.yaml", "*models.Mission"},
 		{"pack.yaml", "*models.PackConfig"},
 		{"connector.yaml", "*models.ConnectorConfig"},
 		{"routing.yaml", "*models.RoutingConfig"},
@@ -64,6 +66,10 @@ func TestDetectSchemaCaseSensitivity(t *testing.T) {
 		{"Constraints.yaml", true},
 		{"principals.yaml", false},
 		{"Principals.yaml", true},
+		{"preset.yaml", false},
+		{"Preset.yaml", true},
+		{"mission.yaml", false},
+		{"Mission.yaml", true},
 		{"pack.yaml", false},
 		{"Pack.yaml", true},
 		{"connector.yaml", false},
@@ -92,11 +98,14 @@ func TestDetectSchemaCaseSensitivity(t *testing.T) {
 	}
 }
 
-// TestDetectSchemaCompletenessCoverage verifies all required schema files are covered.
+// TestDetectSchemaCompletenessCoverage verifies all Python SCHEMA_MAP entries are covered.
 // Python SCHEMA_MAP (from models/__init__.py):
 // - principals.yaml → PrincipalsConfig
 // - agent.yaml → AgentConfig
 // - constraints.yaml → ConstraintsConfig
+// - package.yaml → PackageConfig
+// - preset.yaml → PresetConfig
+// - mission.yaml → Mission
 // - policy.yaml → PolicyConfig or AgentPolicyConfig (path-aware, tested in policy_schema_test.go)
 // - pack.yaml → PackConfig
 // - connector.yaml → ConnectorConfig
@@ -104,13 +113,14 @@ func TestDetectSchemaCaseSensitivity(t *testing.T) {
 // - org.yaml → OrgConfig
 // - egress-domains.yaml → AgentEgressConfig
 // - routing.yaml → RoutingConfig
-// package.yaml is the new package envelope schema and is validated separately.
 func TestDetectSchemaCompletenessCoverage(t *testing.T) {
 	expectedFiles := []string{
 		"principals.yaml",
 		"agent.yaml",
 		"constraints.yaml",
 		"package.yaml",
+		"preset.yaml",
+		"mission.yaml",
 		"policy.yaml",
 		"pack.yaml",
 		"connector.yaml",

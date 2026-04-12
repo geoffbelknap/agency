@@ -133,11 +133,18 @@ class TestGatewayClient(unittest.TestCase):
                 channel_name="general",
                 content="hello",
                 author="bot",
+                reply_to="msg-parent",
+                metadata={"slack": {"thread_ts": "123.456"}},
+                flags={"decision": True},
             )
 
         assert result == {"id": "msg1"}
-        args, _ = mock_session_ctx.post.call_args
+        args, kwargs = mock_session_ctx.post.call_args
         assert args[0] == "http://gw:8200/api/v1/comms/channels/general/messages"
+        payload = kwargs["json"]
+        assert payload["reply_to"] == "msg-parent"
+        assert payload["metadata"] == {"slack": {"thread_ts": "123.456"}}
+        assert payload["flags"] == {"decision": True}
 
     # ---- get_channel_messages ----
 

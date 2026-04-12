@@ -1,0 +1,14 @@
+kind: connector
+name: slack-admin
+version: "1.0.0"
+source:
+  type: none
+mcp:
+  name: slack-admin
+  credential: slack
+  api_base: https://slack.com
+  tools:
+    - name: slack_admin_invite_user
+      method: POST
+      path: /api/users.admin.invite
+routes: []

@@ -34,12 +34,17 @@ func (ad *AgentDelivery) Deliver(sub *Subscription, event *models.Event) error {
 	message := formatAgentMessage(sub, event)
 
 	agentName := sub.Destination.Target
+	metadata := map[string]interface{}{"event_id": event.ID}
+	for k, v := range event.Metadata {
+		metadata[k] = v
+	}
 
 	body, err := json.Marshal(map[string]interface{}{
 		"task_content": message,
 		"work_item_id": event.ID,
 		"priority":     "normal",
 		"source":       fmt.Sprintf("%s:%s", event.SourceType, event.SourceName),
+		"metadata":     metadata,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal task delivery: %w", err)

@@ -1,6 +1,7 @@
 """Pydantic models for connector schema — external system bindings."""
 
 import re
+from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Literal
 
@@ -47,7 +48,11 @@ class ConnectorSource(BaseModel):
     payload_schema: dict | None = Field(default=None, alias="schema")
     webhook_auth: ConnectorWebhookAuth | None = None  # HMAC auth for webhook sources
     path: str | None = None
-    body_format: str | None = None
+    body_format: Literal["json", "form_urlencoded", "form_urlencoded_payload", "form_urlencoded_payload_json_field"] | None = None
+    payload_field: str | None = None
+    response_status: int | None = None
+    response_body: str | None = None
+    response_content_type: str | None = None
     ack_strategy: str | None = None
     # poll fields
     url: str | None = None
@@ -77,6 +82,10 @@ class ConnectorSource(BaseModel):
                 self.webhook_auth,
                 self.path,
                 self.body_format,
+                self.payload_field,
+                self.response_status,
+                self.response_body,
+                self.response_content_type,
                 self.ack_strategy,
                 self.url,
                 self.interval,
@@ -100,6 +109,14 @@ class ConnectorSource(BaseModel):
             if not self.pattern:
                 raise ValueError("channel-watch source requires 'pattern'")
         elif self.type == "webhook":
+            if self.path:
+                parts = urlsplit(self.path)
+                if not self.path.startswith("/") or parts.scheme or parts.netloc or parts.query or parts.fragment:
+                    raise ValueError("webhook source path must be an absolute path without query or fragment")
+            if self.payload_field and self.body_format not in {"form_urlencoded_payload", "form_urlencoded_payload_json_field"}:
+                raise ValueError("payload_field is only valid with body_format 'form_urlencoded_payload_json_field'")
+            if self.response_status is not None and not 200 <= self.response_status <= 299:
+                raise ValueError("webhook response_status must be a 2xx status code")
             poll_fields = [self.url, self.interval, self.response_key, self.cron, self.channel, self.pattern]
             if self.headers is not None:
                 poll_fields.append("set")
@@ -107,6 +124,8 @@ class ConnectorSource(BaseModel):
                 poll_fields.append("set")
             if any(f is not None for f in poll_fields):
                 raise ValueError("webhook source does not accept poll/schedule/channel-watch fields")
+        elif self.path or self.body_format or self.payload_field or self.response_status is not None or self.response_body is not None or self.response_content_type is not None or self.ack_strategy:
+            raise ValueError(f"{self.type} source does not accept webhook body/path fields")
         return self
 
 

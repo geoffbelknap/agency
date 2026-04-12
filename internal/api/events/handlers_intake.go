@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/geoffbelknap/agency/internal/models"
 )
+
+var intakeBaseURL = "http://localhost:8205"
 
 func (h *handler) intakeItems(w http.ResponseWriter, r *http.Request) {
 	connector := r.URL.Query().Get("connector")
@@ -47,7 +50,18 @@ func (h *handler) intakeWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	webhookURL := "http://localhost:8205/webhook"
+	var payload map[string]interface{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	connectorName, _ := payload["connector"].(string)
+	if connectorName == "" {
+		writeJSON(w, 400, map[string]string{"error": "connector required"})
+		return
+	}
+
+	webhookURL := intakeBaseURL + "/webhooks/" + url.PathEscape(connectorName)
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, webhookURL, bytes.NewReader(body))
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
@@ -67,12 +81,7 @@ func (h *handler) intakeWebhook(w http.ResponseWriter, r *http.Request) {
 
 	// Publish connector event to event bus (Task 13: connector source integration)
 	if resp.StatusCode < 400 && h.deps.EventBus != nil {
-		var payload map[string]interface{}
-		if json.Unmarshal(body, &payload) == nil {
-			connectorName, _ := payload["connector"].(string)
-			if connectorName == "" {
-				connectorName = "unknown"
-			}
+		if payload != nil {
 			eventType, _ := payload["event_type"].(string)
 			if eventType == "" {
 				eventType = "webhook_received"

@@ -143,7 +143,7 @@ async def fan_out_message(
         # Apply channel responsiveness filtering (skip for system observers)
         if not is_system:
             responsiveness = sub_manager.get_responsiveness(member) if sub_manager else {}
-            channel_mode = responsiveness.get(channel_name, responsiveness.get("default", "mention-only"))
+            channel_mode = responsiveness.get(channel_name, responsiveness.get("default", "active"))
             if channel_mode == "silent":
                 continue
             if channel_mode == "mention-only" and classification != "direct":
