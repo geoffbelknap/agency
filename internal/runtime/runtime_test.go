@@ -1,11 +1,15 @@
 package runtime
 
 import (
+	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	authzcore "github.com/geoffbelknap/agency/internal/authz"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
 )
 
@@ -118,6 +122,44 @@ func TestManagerStartStopAuthority(t *testing.T) {
 	}
 	if stopped.State != NodeStateStopped {
 		t.Fatalf("stopped state = %q, want stopped", stopped.State)
+	}
+}
+
+func TestAuthorityHandlerInvokeEnforcesConsent(t *testing.T) {
+	manifest, err := Planner{}.Compile(testInstance())
+	if err != nil {
+		t.Fatalf("Compile(): %v", err)
+	}
+	handler := AuthorityHandler{Manifest: manifest, Resolver: authzcore.Resolver{}}
+
+	req := httptest.NewRequest(http.MethodPost, "/invoke", bytes.NewBufferString(`{"subject":"agent:community-admin/coordinator","node_id":"drive_admin","action":"add_viewer"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("code = %d, want 403; body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"consent_needed":true`) {
+		t.Fatalf("expected consent_needed response: %s", rec.Body.String())
+	}
+}
+
+func TestAuthorityHandlerInvokeAllowsAuthorizedAction(t *testing.T) {
+	manifest, err := Planner{}.Compile(testInstance())
+	if err != nil {
+		t.Fatalf("Compile(): %v", err)
+	}
+	handler := AuthorityHandler{Manifest: manifest, Resolver: authzcore.Resolver{}}
+
+	req := httptest.NewRequest(http.MethodPost, "/invoke", bytes.NewBufferString(`{"subject":"agent:community-admin/coordinator","node_id":"drive_admin","action":"add_viewer","consent_provided":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("code = %d, want 501; body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"allowed":true`) {
+		t.Fatalf("expected allowed response: %s", rec.Body.String())
 	}
 }
 
