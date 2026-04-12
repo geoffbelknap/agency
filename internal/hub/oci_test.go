@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -376,4 +377,50 @@ func TestOCILiveHubUpdateSearchInstallFlow(t *testing.T) {
 			t.Fatalf("expected installed connector file: %v", err)
 		}
 	})
+}
+
+func TestIsTransientCosignVerifyError(t *testing.T) {
+	if !isTransientCosignVerifyError(`Error: Get "https://ghcr.io/v2/": dial tcp 140.82.116.34:443: i/o timeout`) {
+		t.Fatal("expected i/o timeout to be treated as transient")
+	}
+	if isTransientCosignVerifyError(`Error: no matching signatures`) {
+		t.Fatal("expected signature mismatch to remain non-transient")
+	}
+}
+
+func TestVerifySignatureRetriesTransientFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	counterPath := filepath.Join(tmpDir, "attempts.txt")
+	scriptPath := filepath.Join(tmpDir, "cosign")
+	script := strings.Join([]string{
+		"#!/bin/sh",
+		"count=0",
+		"if [ -f \"" + counterPath + "\" ]; then",
+		"  count=$(cat \"" + counterPath + "\")",
+		"fi",
+		"count=$((count + 1))",
+		"printf '%s' \"$count\" > \"" + counterPath + "\"",
+		"if [ \"$count\" -lt 3 ]; then",
+		"  echo 'Error: Get \"https://ghcr.io/v2/\": dial tcp 140.82.116.34:443: i/o timeout' >&2",
+		"  exit 1",
+		"fi",
+		"echo 'Verified OK'",
+		"exit 0",
+	}, "\n")
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write fake cosign: %v", err)
+	}
+	t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if err := verifySignature(context.Background(), "ghcr.io/geoffbelknap/agency-hub/provider/openai:latest"); err != nil {
+		t.Fatalf("verify signature with transient retry: %v", err)
+	}
+
+	attempts, err := os.ReadFile(counterPath)
+	if err != nil {
+		t.Fatalf("read attempts: %v", err)
+	}
+	if strings.TrimSpace(string(attempts)) != "3" {
+		t.Fatalf("attempt count = %q, want 3", string(attempts))
+	}
 }
