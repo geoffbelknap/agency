@@ -197,7 +197,56 @@ function workItemAttribution(item: WorkItem, connectors: Connector[]) {
   };
 }
 
+function intakeNextStepSummary(connectors: Connector[], workItems: WorkItem[], activeConnectors: number, unroutedItems: number) {
+  if (connectors.length === 0) {
+    return {
+      tone: 'muted' as const,
+      title: 'Start by adding a connector',
+      detail: 'Hub is the right next stop when Intake is empty. Install a connector, complete setup, then return here to verify work delivery.',
+      links: [
+        { label: 'Open Hub', href: '/admin/hub' },
+        { label: 'Open Missions', href: '/missions' },
+      ],
+    };
+  }
+  if (unroutedItems > 0) {
+    return {
+      tone: 'amber' as const,
+      title: 'Work is arriving but needs routing',
+      detail: 'Connectors are delivering items, but at least one item is not being claimed. Review mission triggers and recent routing events next.',
+      links: [
+        { label: 'Open Missions', href: '/missions' },
+        { label: 'Open Events', href: '/admin/events' },
+      ],
+    };
+  }
+  if (activeConnectors > 0 && workItems.length === 0) {
+    return {
+      tone: 'cyan' as const,
+      title: 'Connectors are ready, now verify delivery',
+      detail: 'At least one connector is active, but no work items are visible yet. Refresh health, poll where appropriate, or inspect recent events for delivery clues.',
+      links: [
+        { label: 'Open Events', href: '/admin/events' },
+        { label: 'Open Hub', href: '/admin/hub' },
+      ],
+    };
+  }
+  if (workItems.length > 0) {
+    return {
+      tone: 'emerald' as const,
+      title: 'Intake is delivering work',
+      detail: 'Follow routed items into their assigned mission, channel, or agent workflow, and use Events when handling looks wrong.',
+      links: [
+        { label: 'Open Missions', href: '/missions' },
+        { label: 'Open Channels', href: '/channels' },
+      ],
+    };
+  }
+  return null;
+}
+
 export function Intake() {
+  const [activeTab, setActiveTab] = useState<'connectors' | 'work-items'>('connectors');
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [pollHealth, setPollHealth] = useState<Record<string, unknown> | null>(null);
@@ -365,10 +414,31 @@ export function Intake() {
     const readiness = connectorReadiness(connector, connectorPollStatus(pollHealth, connector.name));
     return readiness.tone !== 'emerald';
   }).length;
+  const nextStepSummary = intakeNextStepSummary(connectors, workItems, activeConnectors, unroutedItems);
 
   return (
     <div className="space-y-4">
-      <Tabs defaultValue="connectors" className="space-y-6">
+      {nextStepSummary && (
+        <div
+          className={`rounded border px-4 py-3 ${
+            nextStepSummary.tone === 'amber' ? 'border-amber-900/50 bg-amber-950/20 text-amber-300' :
+            nextStepSummary.tone === 'cyan' ? 'border-cyan-900/50 bg-cyan-950/20 text-cyan-300' :
+            nextStepSummary.tone === 'emerald' ? 'border-emerald-900/50 bg-emerald-950/20 text-emerald-300' :
+            'border-border bg-card text-foreground'
+          }`}
+        >
+          <div className="text-sm font-medium">{nextStepSummary.title}</div>
+          <div className="mt-1 text-xs opacity-90">{nextStepSummary.detail}</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {nextStepSummary.links.map((link) => (
+              <Button key={link.href} asChild variant="outline" size="sm" className="h-7 text-xs">
+                <Link to={link.href}>{link.label}</Link>
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'connectors' | 'work-items')} className="space-y-6">
         <TabsList>
           <TabsTrigger value="connectors">Connectors</TabsTrigger>
           <TabsTrigger value="work-items">Work Items</TabsTrigger>
@@ -870,7 +940,9 @@ export function Intake() {
                                   size="sm"
                                   className="h-7 text-xs"
                                   onClick={() => {
-                                    setExpandedConnector(item.connector);
+                                    const connector = connectors.find((candidate) => candidate.name === item.connector);
+                                    setActiveTab('connectors');
+                                    setExpandedConnector(connector?.id ?? item.connector);
                                     setExpandedItem(item.id);
                                   }}
                                 >
