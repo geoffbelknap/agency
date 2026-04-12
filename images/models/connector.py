@@ -128,6 +128,29 @@ class ConnectorMCPTool(BaseModel):
     path: str
     parameters: Optional[dict] = None
     description: str = ""
+    whitelist_check: Optional[str] = None
+    requires_consent_token: Optional[dict] = None
+
+    @model_validator(mode="after")
+    def validate_tool_controls(self) -> "ConnectorMCPTool":
+        params = set((self.parameters or {}).keys())
+        if self.whitelist_check and self.whitelist_check not in params:
+            raise ValueError(f"whitelist_check references unknown parameter {self.whitelist_check!r}")
+        if self.requires_consent_token:
+            operation_kind = self.requires_consent_token.get("operation_kind")
+            token_field = self.requires_consent_token.get("token_input_field")
+            target_field = self.requires_consent_token.get("target_input_field")
+            if not operation_kind:
+                raise ValueError("requires_consent_token.operation_kind is required")
+            if not token_field:
+                raise ValueError("requires_consent_token.token_input_field is required")
+            if not target_field:
+                raise ValueError("requires_consent_token.target_input_field is required")
+            if token_field not in params:
+                raise ValueError(f"requires_consent_token references unknown token_input_field {token_field!r}")
+            if target_field not in params:
+                raise ValueError(f"requires_consent_token references unknown target_input_field {target_field!r}")
+        return self
 
 
 class ConnectorMCP(BaseModel):

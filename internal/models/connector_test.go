@@ -263,3 +263,40 @@ func TestConnectorConfig_Fixtures(t *testing.T) {
 		})
 	}
 }
+
+func TestConnectorMCPToolValidateConsentDirective(t *testing.T) {
+	tool := &ConnectorMCPTool{
+		Name: "drive_add_whitelist_entry",
+		Parameters: map[string]interface{}{
+			"drive_id":      map[string]interface{}{"type": "string"},
+			"consent_token": map[string]interface{}{"type": "string"},
+		},
+		WhitelistCheck: "drive_id",
+		RequiresConsentToken: &ConsentRequirement{
+			OperationKind:    "add_managed_doc",
+			TokenInputField:  "consent_token",
+			TargetInputField: "drive_id",
+		},
+	}
+	if err := tool.Validate(); err != nil {
+		t.Fatalf("expected valid tool, got %v", err)
+	}
+}
+
+func TestConnectorMCPToolValidateConsentDirectiveRejectsUnknownField(t *testing.T) {
+	tool := &ConnectorMCPTool{
+		Name: "drive_add_whitelist_entry",
+		Parameters: map[string]interface{}{
+			"drive_id": map[string]interface{}{"type": "string"},
+		},
+		RequiresConsentToken: &ConsentRequirement{
+			OperationKind:    "add_managed_doc",
+			TokenInputField:  "consent_token",
+			TargetInputField: "drive_id",
+		},
+	}
+	err := tool.Validate()
+	if err == nil || !strings.Contains(err.Error(), "token_input_field") {
+		t.Fatalf("expected token_input_field validation error, got %v", err)
+	}
+}

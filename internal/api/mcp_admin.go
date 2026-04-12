@@ -1855,6 +1855,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 			if _, err := os.Stat(filepath.Join(agentDir, "agent.yaml")); err != nil {
 				return fmt.Sprintf("Error: agent not found: %s", agent), true
 			}
+			deploymentDir := agencyconsent.DeploymentDir(d.cfg.Home, deploymentID)
 
 			maxTTL := mapInt(args, "max_ttl_seconds", 900)
 			if maxTTL <= 0 {
@@ -1871,7 +1872,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				ClockSkewMillis:  clockSkew,
 				VerificationKeys: map[string]string{},
 			}
-			if existing, err := agencyconsent.LoadVerificationConfig(agentDir); err == nil {
+			if existing, err := agencyconsent.LoadVerificationConfig(deploymentDir); err == nil {
 				cfg = existing
 				if cfg.DeploymentID != "" && cfg.DeploymentID != deploymentID {
 					return fmt.Sprintf("Error: agent %s already has consent keys for deployment_id=%s", agent, cfg.DeploymentID), true
@@ -1883,6 +1884,12 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				if clockSkew > 0 {
 					cfg.ClockSkewMillis = clockSkew
 				}
+			} else if existing, err := agencyconsent.LoadVerificationConfig(agentDir); err == nil {
+				cfg = existing
+				if cfg.DeploymentID != "" && cfg.DeploymentID != deploymentID {
+					return fmt.Sprintf("Error: agent %s already has consent keys for deployment_id=%s", agent, cfg.DeploymentID), true
+				}
+				cfg.DeploymentID = deploymentID
 			}
 			cfg.Normalize()
 
@@ -1892,8 +1899,11 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				return "Error: failed to generate signing key pair: " + err.Error(), true
 			}
 			cfg.VerificationKeys[keyID] = agencyconsent.EncodePublicKey(pub)
-			if err := cfg.Write(agentDir); err != nil {
-				return "Error: failed to write consent verification config: " + err.Error(), true
+			if err := cfg.Write(deploymentDir); err != nil {
+				return "Error: failed to write deployment consent verification config: " + err.Error(), true
+			}
+			if err := (&agencyconsent.DeploymentRef{DeploymentID: deploymentID}).Write(agentDir); err != nil {
+				return "Error: failed to write agent consent deployment reference: " + err.Error(), true
 			}
 
 			now := time.Now().UTC().Format(time.RFC3339)
@@ -1930,7 +1940,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				"max_ttl_seconds":   maxTTL,
 			})
 
-			return fmt.Sprintf("Consent keys updated for %s\n  deployment_id: %s\n  signing_key_id: %s\n  private_key_credref: %s\n  verification_config: %s\n  active_verification_keys: %s", agent, deploymentID, keyID, credName, filepath.Join(agentDir, agencyconsent.ConfigFileName), strings.Join(agencyconsent.SortedKeyIDs(cfg.VerificationKeys), ", ")), false
+			return fmt.Sprintf("Consent keys updated for %s\n  deployment_id: %s\n  signing_key_id: %s\n  private_key_credref: %s\n  deployment_verification_config: %s\n  deployment_ref: %s\n  active_verification_keys: %s", agent, deploymentID, keyID, credName, filepath.Join(deploymentDir, agencyconsent.ConfigFileName), agencyconsent.DeploymentRefPath(agentDir), strings.Join(agencyconsent.SortedKeyIDs(cfg.VerificationKeys), ", ")), false
 		},
 	)
 

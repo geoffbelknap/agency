@@ -49,6 +49,83 @@ func newTestProxyHandler(t *testing.T, dg *DomainGate, svc *ServiceRegistry) (*P
 	return ph, upstream
 }
 
+func TestProxySuspiciousConsentFailureEmitsSignal(t *testing.T) {
+	dg := NewDomainGate()
+	svc := NewServiceRegistry()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	now := time.Now().UTC()
+	token := consent.Token{
+		Version:         1,
+		DeploymentID:    "dep-123",
+		OperationKind:   "add_managed_doc",
+		OperationTarget: []byte("drive-abc"),
+		Issuer:          "slack-interactivity",
+		Witnesses:       []string{"U1"},
+		IssuedAt:        now.UnixMilli(),
+		ExpiresAt:       now.Add(5 * time.Minute).UnixMilli(),
+		Nonce:           []byte("0123456789abcdef"),
+		SigningKeyID:    "dep-123:v2",
+	}
+	raw, err := token.MarshalCanonical()
+	if err != nil {
+		t.Fatalf("marshal token: %v", err)
+	}
+	encoded, err := consent.EncodeSignedToken(consent.SignedToken{
+		Token:     token,
+		Signature: ed25519.Sign(priv, raw),
+	})
+	if err != nil {
+		t.Fatalf("encode token: %v", err)
+	}
+	svc.Register("drive", &ServiceCredential{
+		ToolConsent: map[string]consent.Requirement{
+			"drive_add_whitelist_entry": {
+				OperationKind:    "add_managed_doc",
+				TokenInputField:  "consent_token",
+				TargetInputField: "drive_id",
+			},
+		},
+	})
+	svc.consent = consent.NewValidator("dep-123", map[string]ed25519.PublicKey{
+		"dep-123:v1": pub,
+	}, 15*time.Minute, 30*time.Second)
+
+	ph, upstream := newTestProxyHandler(t, dg, svc)
+	defer upstream.Close()
+
+	signals := make(chan map[string]interface{}, 1)
+	ph.signal = func(signalType string, data map[string]interface{}) {
+		signals <- map[string]interface{}{
+			"signal_type": signalType,
+			"data":        data,
+		}
+	}
+
+	req := httptest.NewRequest("POST", "http://example.com/drive", bytes.NewBufferString(`{"drive_id":"drive-abc","consent_token":"`+encoded+`"}`))
+	req.Host = "example.com"
+	req.Header.Set("X-Agency-Service", "drive")
+	req.Header.Set("X-Agency-Tool", "drive_add_whitelist_entry")
+
+	rr := httptest.NewRecorder()
+	ph.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rr.Code)
+	}
+
+	select {
+	case sig := <-signals:
+		if sig["signal_type"] != "consent_validation_alert" {
+			t.Fatalf("unexpected signal type %v", sig["signal_type"])
+		}
+	default:
+		t.Fatal("expected suspicious consent failure to emit signal")
+	}
+}
+
 func TestProxyForwardedThroughEgress(t *testing.T) {
 	// Create a backend server
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

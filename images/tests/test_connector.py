@@ -94,6 +94,38 @@ class TestConnectorMCP:
         )
         assert mcp.server == "/usr/local/bin/mcp-server"
 
+    def test_with_consent_directive(self):
+        tool = ConnectorMCPTool(
+            name="drive_add_whitelist_entry",
+            method="POST",
+            path="/drive/v3/files",
+            parameters={
+                "drive_id": {"type": "string"},
+                "consent_token": {"type": "string"},
+            },
+            whitelist_check="drive_id",
+            requires_consent_token={
+                "operation_kind": "add_managed_doc",
+                "token_input_field": "consent_token",
+                "target_input_field": "drive_id",
+            },
+        )
+        assert tool.requires_consent_token["operation_kind"] == "add_managed_doc"
+
+    def test_rejects_unknown_consent_field(self):
+        with pytest.raises(Exception):
+            ConnectorMCPTool(
+                name="drive_add_whitelist_entry",
+                method="POST",
+                path="/drive/v3/files",
+                parameters={"drive_id": {"type": "string"}},
+                requires_consent_token={
+                    "operation_kind": "add_managed_doc",
+                    "token_input_field": "consent_token",
+                    "target_input_field": "drive_id",
+                },
+            )
+
 
 class TestConnectorRateLimits:
     def test_defaults(self):

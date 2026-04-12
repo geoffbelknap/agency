@@ -99,8 +99,9 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 	dataDir := filepath.Join(e.Home, "infrastructure", "enforcer", "data", e.AgentName)
 	auditDir := filepath.Join(e.Home, "audit", e.AgentName, "enforcer")
 	agentDir := filepath.Join(e.Home, "agents", e.AgentName)
+	deploymentsDir := filepath.Join(e.Home, "deployments")
 	servicesDir := filepath.Join(e.Home, "services")
-	for _, d := range []string{dataDir, auditDir, agentDir, servicesDir} {
+	for _, d := range []string{dataDir, auditDir, agentDir, deploymentsDir, servicesDir} {
 		os.MkdirAll(d, 0777)
 	}
 
@@ -146,6 +147,7 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 		dataDir + ":/agency/enforcer/data:rw",
 		auditDir + ":/agency/enforcer/audit:rw",
 		agentDir + ":/agency/agent:ro",
+		deploymentsDir + ":/agency/deployments:ro",
 		servicesDir + ":/agency/enforcer/services:ro",
 	}
 

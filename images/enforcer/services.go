@@ -15,6 +15,8 @@ import (
 	"github.com/agency-platform/enforcer/consent"
 )
 
+const defaultConsentDeploymentsDir = "/agency/deployments"
+
 // ServiceCredential holds the resolved credential for a service.
 type ServiceCredential struct {
 	Header        string                         // HTTP header to set
@@ -241,7 +243,19 @@ func (sr *ServiceRegistry) LoadFromFiles(servicesDir, agentDir string) error {
 		ClockSkewMillis  int               `json:"clock_skew_millis"`
 		VerificationKeys map[string]string `json:"verification_keys"`
 	}
-	data, err = os.ReadFile(filepath.Join(agentDir, "consent-verification-keys.json"))
+	data, err = os.ReadFile(filepath.Join(agentDir, "consent-deployment.json"))
+	if err == nil {
+		var ref struct {
+			DeploymentID string `json:"deployment_id"`
+		}
+		if json.Unmarshal(data, &ref) == nil && strings.TrimSpace(ref.DeploymentID) != "" {
+			deploymentsDir := envOr("CONSENT_DEPLOYMENTS_DIR", defaultConsentDeploymentsDir)
+			data, err = os.ReadFile(filepath.Join(deploymentsDir, ref.DeploymentID, "consent-verification-keys.json"))
+		}
+	}
+	if err != nil {
+		data, err = os.ReadFile(filepath.Join(agentDir, "consent-verification-keys.json"))
+	}
 	if err == nil {
 		var cfg consentConfigFile
 		if err := json.Unmarshal(data, &cfg); err == nil && cfg.DeploymentID != "" {

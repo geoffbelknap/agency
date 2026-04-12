@@ -19,12 +19,12 @@ type ConnectorFollowUp struct {
 
 // ConnectorWebhookAuth defines HMAC-based webhook authentication.
 type ConnectorWebhookAuth struct {
-	Type             string  `yaml:"type" default:"hmac_sha256"`
-	SecretEnv        string  `yaml:"secret_env" validate:"required"`
-	Header           string  `yaml:"header" default:"X-Slack-Signature"`
-	TimestampHeader  *string `yaml:"timestamp_header"`
-	Prefix           string  `yaml:"prefix" default:"v0="`
-	ChallengeField   *string `yaml:"challenge_field"`
+	Type            string  `yaml:"type" default:"hmac_sha256"`
+	SecretEnv       string  `yaml:"secret_env" validate:"required"`
+	Header          string  `yaml:"header" default:"X-Slack-Signature"`
+	TimestampHeader *string `yaml:"timestamp_header"`
+	Prefix          string  `yaml:"prefix" default:"v0="`
+	ChallengeField  *string `yaml:"challenge_field"`
 }
 
 // ConnectorSource defines the inbound event source for a connector.
@@ -95,12 +95,12 @@ type ConnectorRelayTarget struct {
 
 // ConnectorRoute defines a routing rule for matched events.
 type ConnectorRoute struct {
-	Match    map[string]interface{}  `yaml:"match" validate:"required"`
-	Target   map[string]string       `yaml:"target"`
-	Relay    *ConnectorRelayTarget   `yaml:"relay"`
-	Priority string                  `yaml:"priority" validate:"omitempty,oneof=high normal low" default:"normal"`
-	SLA      *string                 `yaml:"sla"`
-	Brief    *string                 `yaml:"brief"`
+	Match    map[string]interface{} `yaml:"match" validate:"required"`
+	Target   map[string]string      `yaml:"target"`
+	Relay    *ConnectorRelayTarget  `yaml:"relay"`
+	Priority string                 `yaml:"priority" validate:"omitempty,oneof=high normal low" default:"normal"`
+	SLA      *string                `yaml:"sla"`
+	Brief    *string                `yaml:"brief"`
 }
 
 // Validate implements target/relay mutual exclusion for ConnectorRoute.
@@ -119,20 +119,51 @@ func (cr *ConnectorRoute) Validate() error {
 
 // ConnectorMCPTool defines a single MCP tool exposed by a connector.
 type ConnectorMCPTool struct {
-	Name        string                 `yaml:"name" validate:"required"`
-	Method      string                 `yaml:"method" default:"GET"`
-	Path        string                 `yaml:"path" validate:"required"`
-	Parameters  map[string]interface{} `yaml:"parameters"`
-	Description string                 `yaml:"description"`
+	Name                 string                 `yaml:"name" validate:"required"`
+	Method               string                 `yaml:"method" default:"GET"`
+	Path                 string                 `yaml:"path" validate:"required"`
+	Parameters           map[string]interface{} `yaml:"parameters"`
+	Description          string                 `yaml:"description"`
+	WhitelistCheck       string                 `yaml:"whitelist_check,omitempty"`
+	RequiresConsentToken *ConsentRequirement    `yaml:"requires_consent_token,omitempty"`
+}
+
+func (ct *ConnectorMCPTool) Validate() error {
+	params := make(map[string]bool, len(ct.Parameters))
+	for name := range ct.Parameters {
+		params[name] = true
+	}
+	if ct.WhitelistCheck != "" && !params[ct.WhitelistCheck] {
+		return fmt.Errorf("tool %q whitelist_check references unknown parameter %q", ct.Name, ct.WhitelistCheck)
+	}
+	if ct.RequiresConsentToken == nil {
+		return nil
+	}
+	if ct.RequiresConsentToken.OperationKind == "" {
+		return fmt.Errorf("tool %q requires_consent_token.operation_kind is required", ct.Name)
+	}
+	if ct.RequiresConsentToken.TokenInputField == "" {
+		return fmt.Errorf("tool %q requires_consent_token.token_input_field is required", ct.Name)
+	}
+	if ct.RequiresConsentToken.TargetInputField == "" {
+		return fmt.Errorf("tool %q requires_consent_token.target_input_field is required", ct.Name)
+	}
+	if !params[ct.RequiresConsentToken.TokenInputField] {
+		return fmt.Errorf("tool %q requires_consent_token references unknown token_input_field %q", ct.Name, ct.RequiresConsentToken.TokenInputField)
+	}
+	if !params[ct.RequiresConsentToken.TargetInputField] {
+		return fmt.Errorf("tool %q requires_consent_token references unknown target_input_field %q", ct.Name, ct.RequiresConsentToken.TargetInputField)
+	}
+	return nil
 }
 
 // ConnectorMCP defines the MCP server configuration for a connector.
 type ConnectorMCP struct {
-	Name       string              `yaml:"name" validate:"required"`
-	Credential string              `yaml:"credential" validate:"required"`
-	APIBase    *string             `yaml:"api_base"`
-	Server     *string             `yaml:"server"`
-	Tools      []ConnectorMCPTool  `yaml:"tools"`
+	Name       string             `yaml:"name" validate:"required"`
+	Credential string             `yaml:"credential" validate:"required"`
+	APIBase    *string            `yaml:"api_base"`
+	Server     *string            `yaml:"server"`
+	Tools      []ConnectorMCPTool `yaml:"tools"`
 }
 
 // ConnectorCredential defines a credential required by a connector.
@@ -171,17 +202,17 @@ type ConnectorRateLimits struct {
 
 // ConnectorConfig is the schema for connector YAML files.
 type ConnectorConfig struct {
-	Kind        string               `yaml:"kind" validate:"required,oneof=connector" default:"connector"`
-	Name        string               `yaml:"name" validate:"required"`
-	Version     string               `yaml:"version" default:"1.0.0"`
-	Description string               `yaml:"description"`
-	Author      string               `yaml:"author"`
-	License     string               `yaml:"license,omitempty"`
-	Requires    *ConnectorRequires   `yaml:"requires"`
-	Source      ConnectorSource      `yaml:"source" validate:"required"`
-	Routes      []ConnectorRoute     `yaml:"routes" validate:"required"`
-	MCP         *ConnectorMCP        `yaml:"mcp"`
-	RateLimits  ConnectorRateLimits  `yaml:"rate_limits"`
+	Kind        string              `yaml:"kind" validate:"required,oneof=connector" default:"connector"`
+	Name        string              `yaml:"name" validate:"required"`
+	Version     string              `yaml:"version" default:"1.0.0"`
+	Description string              `yaml:"description"`
+	Author      string              `yaml:"author"`
+	License     string              `yaml:"license,omitempty"`
+	Requires    *ConnectorRequires  `yaml:"requires"`
+	Source      ConnectorSource     `yaml:"source" validate:"required"`
+	Routes      []ConnectorRoute    `yaml:"routes" validate:"required"`
+	MCP         *ConnectorMCP       `yaml:"mcp"`
+	RateLimits  ConnectorRateLimits `yaml:"rate_limits"`
 }
 
 // Validate implements cross-field validation for ConnectorConfig.
@@ -197,6 +228,13 @@ func (cc *ConnectorConfig) Validate() error {
 	for i := range cc.Routes {
 		if err := cc.Routes[i].Validate(); err != nil {
 			return err
+		}
+	}
+	if cc.MCP != nil {
+		for i := range cc.MCP.Tools {
+			if err := cc.MCP.Tools[i].Validate(); err != nil {
+				return err
+			}
 		}
 	}
 

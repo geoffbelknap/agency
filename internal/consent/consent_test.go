@@ -135,6 +135,28 @@ func TestVerificationConfigWriteAndLoad(t *testing.T) {
 	}
 }
 
+func TestDeploymentRefWriteAndLoad(t *testing.T) {
+	dir := t.TempDir()
+	ref := &DeploymentRef{DeploymentID: "dep-123"}
+	if err := ref.Write(dir); err != nil {
+		t.Fatalf("Write returned error: %v", err)
+	}
+	loaded, err := LoadDeploymentRef(dir)
+	if err != nil {
+		t.Fatalf("LoadDeploymentRef returned error: %v", err)
+	}
+	if loaded.DeploymentID != ref.DeploymentID {
+		t.Fatalf("deployment_id = %q, want %q", loaded.DeploymentID, ref.DeploymentID)
+	}
+}
+
+func TestDeploymentDir(t *testing.T) {
+	home := t.TempDir()
+	if got := DeploymentDir(home, "dep-123"); got != filepath.Join(home, "deployments", "dep-123") {
+		t.Fatalf("DeploymentDir = %q", got)
+	}
+}
+
 func TestNextKeyIDIncrementsVersion(t *testing.T) {
 	keys := map[string]string{
 		"dep-123:v1": "a",

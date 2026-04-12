@@ -71,10 +71,11 @@ type ProxyHandler struct {
 	audit       *AuditLogger
 	agentName   string
 	transport   *http.Transport
+	signal      func(string, map[string]interface{})
 }
 
 // NewProxyHandler creates a proxy handler for non-LLM traffic.
-func NewProxyHandler(domainGate *DomainGate, services *ServiceRegistry, audit *AuditLogger, agentName string) *ProxyHandler {
+func NewProxyHandler(domainGate *DomainGate, services *ServiceRegistry, audit *AuditLogger, agentName string, signal func(string, map[string]interface{})) *ProxyHandler {
 	egressProxy := os.Getenv("EGRESS_PROXY")
 	if egressProxy == "" {
 		egressProxy = defaultEgressProxy
@@ -93,6 +94,7 @@ func NewProxyHandler(domainGate *DomainGate, services *ServiceRegistry, audit *A
 		audit:       audit,
 		agentName:   agentName,
 		transport:   transport,
+		signal:      signal,
 	}
 }
 
@@ -191,6 +193,7 @@ func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				}
 				result, err := ph.services.ValidateConsent(svcName, toolName, tokenValue, targetValue, start.UTC())
 				if err != nil {
+					ph.maybeAlertConsentFailure(err, svcName, toolName, host)
 					ph.audit.Log(AuditEntry{
 						Type:    "CONSENT_TOKEN_DENIED",
 						EventID: eventID,
@@ -489,6 +492,30 @@ func (ph *ProxyHandler) HandleConnect(w http.ResponseWriter, r *http.Request) {
 		defer clientConn.Close()
 		io.Copy(clientConn, egressConn)
 	}()
+}
+
+func (ph *ProxyHandler) maybeAlertConsentFailure(err error, service, tool, host string) {
+	if ph == nil || ph.signal == nil || !isSuspiciousConsentError(err) {
+		return
+	}
+	ph.signal("consent_validation_alert", map[string]interface{}{
+		"severity": "warn",
+		"message":  fmt.Sprintf("Suspicious consent token validation failure for %s/%s: %s", service, tool, err.Error()),
+		"category": "consent_token",
+		"service":  service,
+		"tool":     tool,
+		"host":     host,
+		"error":    err.Error(),
+	})
+}
+
+func isSuspiciousConsentError(err error) bool {
+	switch err {
+	case consent.ErrUnknownKey, consent.ErrInvalidSignature, consent.ErrWrongDeployment, consent.ErrReplayed:
+		return true
+	default:
+		return false
+	}
 }
 
 func mustParseURL(rawURL string) *url.URL {

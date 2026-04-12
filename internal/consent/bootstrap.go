@@ -11,6 +11,7 @@ import (
 )
 
 const ConfigFileName = "consent-verification-keys.json"
+const DeploymentRefFileName = "consent-deployment.json"
 
 type VerificationConfig struct {
 	DeploymentID     string            `json:"deployment_id"`
@@ -19,8 +20,24 @@ type VerificationConfig struct {
 	VerificationKeys map[string]string `json:"verification_keys"`
 }
 
+type DeploymentRef struct {
+	DeploymentID string `json:"deployment_id"`
+}
+
+func ConfigPath(dir string) string {
+	return filepath.Join(dir, ConfigFileName)
+}
+
+func DeploymentRefPath(agentDir string) string {
+	return filepath.Join(agentDir, DeploymentRefFileName)
+}
+
+func DeploymentDir(home, deploymentID string) string {
+	return filepath.Join(home, "deployments", deploymentID)
+}
+
 func LoadVerificationConfig(agentDir string) (*VerificationConfig, error) {
-	path := filepath.Join(agentDir, ConfigFileName)
+	path := ConfigPath(agentDir)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -53,7 +70,33 @@ func (c *VerificationConfig) Write(agentDir string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(agentDir, ConfigFileName), data, 0o644)
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(ConfigPath(agentDir), data, 0o644)
+}
+
+func LoadDeploymentRef(agentDir string) (*DeploymentRef, error) {
+	data, err := os.ReadFile(DeploymentRefPath(agentDir))
+	if err != nil {
+		return nil, err
+	}
+	var ref DeploymentRef
+	if err := json.Unmarshal(data, &ref); err != nil {
+		return nil, err
+	}
+	return &ref, nil
+}
+
+func (r *DeploymentRef) Write(agentDir string) error {
+	data, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(DeploymentRefPath(agentDir), data, 0o644)
 }
 
 func NextKeyID(existing map[string]string, deploymentID string) string {
