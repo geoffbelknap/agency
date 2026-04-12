@@ -106,6 +106,10 @@ def _normalize_webhook_payload(payload: dict, connector_name: str, request: web.
     return payload
 
 
+def _expand_route_target(target_value: str) -> str:
+    return Template(target_value).safe_substitute(os.environ)
+
+
 def _connector_from_request(request: web.Request) -> tuple[str | None, ConnectorConfig | None]:
     connectors = request.app["connectors"]
     connector_name = request.match_info.get("connector_name")
@@ -232,6 +236,20 @@ async def _fetch_channel_messages(
             return []
 
 
+def _prune_empty_json_fields(value):
+    if isinstance(value, dict):
+        pruned = {}
+        for key, item in value.items():
+            child = _prune_empty_json_fields(item)
+            if child == "" or child is None:
+                continue
+            pruned[key] = child
+        return pruned
+    if isinstance(value, list):
+        return [_prune_empty_json_fields(item) for item in value]
+    return value
+
+
 async def _execute_relay(relay: ConnectorRelayTarget, payload: dict, connector_name: str) -> bool:
     """Execute a relay action: render body template and POST to a URL directly.
 
@@ -247,14 +265,25 @@ async def _execute_relay(relay: ConnectorRelayTarget, payload: dict, connector_n
     # Render body: expand ${ENV} first, then Jinja2 payload fields
     body_str = Template(relay.body).safe_substitute(env)
     body_str = render_template(body_str, payload)
-
     proxy = os.environ.get("HTTPS_PROXY") if url.startswith("https://") else os.environ.get("HTTP_PROXY")
     ssl_ctx = _make_ssl_context() if url.startswith("https://") else None
+    request_kwargs = {
+        "headers": headers,
+        "proxy": proxy,
+        "ssl": ssl_ctx,
+    }
+    if headers.get("Content-Type", "").split(";", 1)[0].strip().lower() == "application/json":
+        try:
+            request_kwargs["json"] = _prune_empty_json_fields(json.loads(body_str))
+        except json.JSONDecodeError:
+            request_kwargs["data"] = body_str
+    else:
+        request_kwargs["data"] = body_str
 
     async with ClientSession() as session:
         try:
             async with session.request(
-                relay.method, url, data=body_str, headers=headers, proxy=proxy, ssl=ssl_ctx
+                relay.method, url, **request_kwargs
             ) as resp:
                 if resp.status in (200, 201, 202, 204):
                     return True
@@ -506,13 +535,10 @@ async def _channel_watch_once(
             latest_ts = msg_ts
         if not matches_pattern(msg.get("content", ""), connector.source.pattern):
             continue
-        payload = {
-            "channel": connector.source.channel,
-            "content": msg.get("content", ""),
-            "sender": msg.get("sender", ""),
-            "message_id": msg.get("id", ""),
-            "timestamp": msg["timestamp"],
-        }
+        payload = dict(msg)
+        payload.setdefault("channel", connector.source.channel)
+        payload.setdefault("message_id", msg.get("id", ""))
+        payload.setdefault("sender", msg.get("sender") or msg.get("author", ""))
         await _route_and_deliver(
             connector.name, connector, payload, store, comms_url,
             source_label=f"channel-watch:{connector.name}",
