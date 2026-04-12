@@ -240,7 +240,7 @@ func (g Generator) projectRuntimeServices(agentName string) ([]map[string]interf
 		if node == nil || node.Kind != "connector.authority" || node.Executor == nil {
 			continue
 		}
-		actions := projectedActions(node, attachment.Actions)
+		actions := projectedActions(manifest, node, attachment.Actions)
 		if len(actions) == 0 {
 			continue
 		}
@@ -248,6 +248,21 @@ func (g Generator) projectRuntimeServices(agentName string) ([]map[string]interf
 		var tools []map[string]interface{}
 		for _, action := range actions {
 			toolName := sanitizeIdentifier("instance_" + manifest.Metadata.InstanceName + "_" + node.NodeID + "_" + action)
+			parameters := []interface{}{}
+			if requirement, ok := node.ConsentRequirements[action]; ok && manifest.Source.ConsentDeploymentID != "" {
+				parameters = append(parameters,
+					map[string]interface{}{
+						"name":        requirement.TokenInputField,
+						"type":        "string",
+						"description": "Consent token authorizing this action",
+					},
+					map[string]interface{}{
+						"name":        requirement.TargetInputField,
+						"type":        "string",
+						"description": "Consent target for this action",
+					},
+				)
+			}
 			tools = append(tools, map[string]interface{}{
 				"name":        toolName,
 				"description": fmt.Sprintf("Invoke %s on instance %s node %s", action, manifest.Metadata.InstanceName, node.NodeID),
@@ -258,7 +273,7 @@ func (g Generator) projectRuntimeServices(agentName string) ([]map[string]interf
 					node.NodeID,
 					action,
 				),
-				"parameters":  []interface{}{},
+				"parameters":  parameters,
 				"passthrough": true,
 			})
 		}
@@ -327,12 +342,18 @@ func (g Generator) AttachedAgents(instanceID string) ([]string, error) {
 	return attached, nil
 }
 
-func projectedActions(node *runpkg.RuntimeNode, requested []string) []string {
+func projectedActions(manifest *runpkg.Manifest, node *runpkg.RuntimeNode, requested []string) []string {
 	allowed := map[string]bool{}
 	for _, action := range node.Tools {
-		if !contains(node.ConsentActions, action) {
-			allowed[action] = true
+		if contains(node.ConsentActions, action) {
+			if manifest == nil || manifest.Source.ConsentDeploymentID == "" {
+				continue
+			}
+			if _, ok := node.ConsentRequirements[action]; !ok {
+				continue
+			}
 		}
+		allowed[action] = true
 	}
 	if node.Executor != nil {
 		for action := range allowed {

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	agencyconsent "github.com/geoffbelknap/agency/internal/consent"
 	runpkg "github.com/geoffbelknap/agency/internal/runtime"
 )
 
@@ -109,6 +110,105 @@ instances:
 	}
 	if tool["passthrough"] != true {
 		t.Fatalf("passthrough = %#v, want true", tool["passthrough"])
+	}
+}
+
+func TestGenerateAgentManifest_ProjectsConsentRuntimeToolsWhenConfigured(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, "agents", "coordinator")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "constraints.yaml"), []byte("agent: coordinator\ngranted_capabilities: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	agentYAML := `
+version: "0.1"
+name: coordinator
+role: test
+body:
+  runtime: body
+  version: "1.0"
+workspace:
+  ref: default
+instances:
+  attach:
+    - instance_id: inst_drive
+      node_id: drive_admin
+`
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte(agentYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	instanceDir := filepath.Join(home, "instances", "inst_drive")
+	rtStore := runpkg.NewStore(instanceDir)
+	if err := rtStore.SaveManifest(&runpkg.Manifest{
+		APIVersion: runpkg.ManifestAPIVersion,
+		Kind:       runpkg.ManifestKind,
+		Metadata: runpkg.ManifestMeta{
+			ManifestID:   "mf_test",
+			InstanceID:   "inst_drive",
+			InstanceName: "community-admin",
+			CompiledAt:   time.Now().UTC(),
+			Planner:      runpkg.PlannerVersion,
+		},
+		Source: runpkg.ManifestSource{
+			ConsentDeploymentID: "dep-123",
+		},
+		Runtime: runpkg.RuntimeSpec{
+			Nodes: []runpkg.RuntimeNode{{
+				NodeID:         "drive_admin",
+				Kind:           "connector.authority",
+				Tools:          []string{"add_viewer"},
+				ConsentActions: []string{"add_viewer"},
+				ConsentRequirements: map[string]agencyconsent.Requirement{
+					"add_viewer": {
+						OperationKind:    "grant_drive_viewer",
+						TokenInputField:  "consent_token",
+						TargetInputField: "drive_id",
+					},
+				},
+				Executor: &runpkg.RuntimeExecutor{
+					Kind:    "http_json",
+					BaseURL: "https://example.test",
+					Actions: map[string]runpkg.RuntimeHTTPAction{
+						"add_viewer": {Path: "/permissions/add", Method: "POST"},
+					},
+				},
+			}},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	gen := Generator{Home: home, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if err := gen.GenerateAgentManifest("coordinator"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(agentDir, "services-manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Services []struct {
+			Tools []struct {
+				Name       string `json:"name"`
+				Parameters []struct {
+					Name string `json:"name"`
+				} `json:"parameters"`
+			} `json:"tools"`
+		} `json:"services"`
+	}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Services) != 1 || len(got.Services[0].Tools) != 1 {
+		t.Fatalf("unexpected projected tools: %#v", got.Services)
+	}
+	if got.Services[0].Tools[0].Name != "instance_community_admin_drive_admin_add_viewer" {
+		t.Fatalf("tool name = %q", got.Services[0].Tools[0].Name)
+	}
+	if len(got.Services[0].Tools[0].Parameters) != 2 {
+		t.Fatalf("parameters = %#v", got.Services[0].Tools[0].Parameters)
 	}
 }
 
@@ -252,9 +352,37 @@ func TestProjectedActions_RequiresExecutableNonConsentAction(t *testing.T) {
 			},
 		},
 	}
-	got := projectedActions(node, nil)
+	got := projectedActions(&runpkg.Manifest{}, node, nil)
 	if len(got) != 1 || got[0] != "list_permissions" {
 		t.Fatalf("projectedActions() = %#v", got)
+	}
+}
+
+func TestProjectedActions_RequiresConsentMetadataForConsentAction(t *testing.T) {
+	node := &runpkg.RuntimeNode{
+		Tools:          []string{"add_viewer"},
+		ConsentActions: []string{"add_viewer"},
+		Executor: &runpkg.RuntimeExecutor{
+			Actions: map[string]runpkg.RuntimeHTTPAction{
+				"add_viewer": {Path: "/ok"},
+			},
+		},
+	}
+	if got := projectedActions(&runpkg.Manifest{}, node, nil); len(got) != 0 {
+		t.Fatalf("projectedActions() without deployment id = %#v", got)
+	}
+	node.ConsentRequirements = map[string]agencyconsent.Requirement{
+		"add_viewer": {
+			OperationKind:    "grant_drive_viewer",
+			TokenInputField:  "consent_token",
+			TargetInputField: "drive_id",
+		},
+	}
+	got := projectedActions(&runpkg.Manifest{
+		Source: runpkg.ManifestSource{ConsentDeploymentID: "dep-123"},
+	}, node, nil)
+	if len(got) != 1 || got[0] != "add_viewer" {
+		t.Fatalf("projectedActions() with requirement = %#v", got)
 	}
 }
 

@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,8 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	authzcore "github.com/geoffbelknap/agency/internal/authz"
+	agencyconsent "github.com/geoffbelknap/agency/internal/consent"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
 )
@@ -38,6 +42,9 @@ func TestPlannerCompileAuthorityNode(t *testing.T) {
 	if len(node.ConsentActions) != 1 || node.ConsentActions[0] != "add_viewer" {
 		t.Fatalf("consent_actions = %v", node.ConsentActions)
 	}
+	if req := node.ConsentRequirements["add_viewer"]; req.OperationKind != "" {
+		t.Fatalf("unexpected consent requirement without explicit metadata: %#v", req)
+	}
 	if node.Executor != nil {
 		t.Fatalf("expected no executor, got %#v", node.Executor)
 	}
@@ -62,6 +69,25 @@ func TestPlannerCompileAuthorityNodeWithExecutor(t *testing.T) {
 	}
 	if len(manifest.Runtime.Bindings) != 1 || manifest.Runtime.Bindings[0].Target != "credref:gdrive-admin" {
 		t.Fatalf("bindings = %#v", manifest.Runtime.Bindings)
+	}
+}
+
+func TestPlannerCompileAuthorityNodeWithConsentRequirement(t *testing.T) {
+	inst := testInstanceWithConsentRequirement()
+
+	manifest, err := Planner{}.Compile(inst)
+	if err != nil {
+		t.Fatalf("Compile(): %v", err)
+	}
+	if manifest.Source.ConsentDeploymentID != "dep-123" {
+		t.Fatalf("consent deployment id = %q", manifest.Source.ConsentDeploymentID)
+	}
+	req := manifest.Runtime.Nodes[0].ConsentRequirements["add_viewer"]
+	if req.OperationKind != "grant_drive_viewer" {
+		t.Fatalf("consent requirement = %#v", req)
+	}
+	if req.TokenInputField != "consent_token" || req.TargetInputField != "drive_id" {
+		t.Fatalf("consent requirement fields = %#v", req)
 	}
 }
 
@@ -248,6 +274,84 @@ func TestAuthorityHandlerInvokeExecutesHTTPJSON(t *testing.T) {
 	}
 }
 
+func TestAuthorityHandlerInvokeValidatesConsentToken(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	now := time.Now().UTC()
+	token := agencyconsent.Token{
+		Version:         1,
+		DeploymentID:    "dep-123",
+		OperationKind:   "grant_drive_viewer",
+		OperationTarget: []byte("drive-abc"),
+		Issuer:          "slack-interactivity",
+		Witnesses:       []string{"U1"},
+		IssuedAt:        now.UnixMilli(),
+		ExpiresAt:       now.Add(5 * time.Minute).UnixMilli(),
+		Nonce:           []byte("0123456789abcdef"),
+		SigningKeyID:    "dep-123:v1",
+	}
+	raw, err := token.MarshalCanonical()
+	if err != nil {
+		t.Fatalf("marshal token: %v", err)
+	}
+	encoded, err := agencyconsent.EncodeSignedToken(agencyconsent.SignedToken{
+		Token:     token,
+		Signature: ed25519.Sign(priv, raw),
+	})
+	if err != nil {
+		t.Fatalf("encode token: %v", err)
+	}
+
+	manifest := &Manifest{
+		APIVersion: ManifestAPIVersion,
+		Kind:       ManifestKind,
+		Metadata: ManifestMeta{
+			ManifestID:   "mf_test",
+			InstanceID:   "inst_123",
+			InstanceName: "community-admin",
+			CompiledAt:   now,
+			Planner:      PlannerVersion,
+		},
+		Source: ManifestSource{ConsentDeploymentID: "dep-123"},
+		Runtime: RuntimeSpec{
+			Nodes: []RuntimeNode{{
+				NodeID:         "drive_admin",
+				Kind:           "connector.authority",
+				Tools:          []string{"add_viewer"},
+				GrantSubjects:  []string{"agent:community-admin/coordinator"},
+				ConsentActions: []string{"add_viewer"},
+				ConsentRequirements: map[string]agencyconsent.Requirement{
+					"add_viewer": {
+						OperationKind:    "grant_drive_viewer",
+						TokenInputField:  "consent_token",
+						TargetInputField: "drive_id",
+					},
+				},
+			}},
+		},
+	}
+	handler := AuthorityHandler{
+		Manifest: manifest,
+		Resolver: authzcore.Resolver{},
+		ConsentValidator: agencyconsent.NewValidator("dep-123", map[string]ed25519.PublicKey{
+			"dep-123:v1": pub,
+		}, 15*time.Minute, 30*time.Second),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/invoke", bytes.NewBufferString(`{"subject":"agent:community-admin/coordinator","node_id":"drive_admin","action":"add_viewer","input":{"drive_id":"drive-abc","consent_token":"`+encoded+`"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("code = %d, want 501; body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"allowed":true`) {
+		t.Fatalf("expected allowed response: %s", rec.Body.String())
+	}
+}
+
 func testInstance() *instancepkg.Instance {
 	return testInstanceWithConfig(nil)
 }
@@ -308,6 +412,18 @@ func testInstanceWithConfig(extra map[string]any) *instancepkg.Instance {
 				Config:    map[string]any{"consent_required": true},
 			},
 		},
+	}
+	return inst
+}
+
+func testInstanceWithConsentRequirement() *instancepkg.Instance {
+	inst := testInstance()
+	inst.Config = map[string]any{"consent_deployment_id": "dep-123"}
+	inst.Grants[0].Config = map[string]any{
+		"consent_required":   true,
+		"operation_kind":     "grant_drive_viewer",
+		"token_input_field":  "consent_token",
+		"target_input_field": "drive_id",
 	}
 	return inst
 }

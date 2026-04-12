@@ -9,6 +9,7 @@ import (
 	"time"
 
 	authzcore "github.com/geoffbelknap/agency/internal/authz"
+	agencyconsent "github.com/geoffbelknap/agency/internal/consent"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
 )
 
@@ -35,7 +36,8 @@ func (p Planner) Compile(inst *instancepkg.Instance) (*Manifest, error) {
 			Planner:      PlannerVersion,
 		},
 		Source: ManifestSource{
-			InstanceRevision: inst.UpdatedAt,
+			InstanceRevision:    inst.UpdatedAt,
+			ConsentDeploymentID: plannerConsentDeploymentID(inst),
 		},
 		Status: ManifestStatus{
 			ReconcileState: ReconcileStatePending,
@@ -61,12 +63,13 @@ func (p Planner) Compile(inst *instancepkg.Instance) (*Manifest, error) {
 				Name:    node.Package.Name,
 				Version: node.Package.Version,
 			},
-			Tools:              stringList(node.Config["tools"]),
-			CredentialBindings: plannerCredentialBindings(node),
-			GrantSubjects:      plannerGrantSubjects(inst, node.ID),
-			ConsentActions:     plannerConsentActions(inst, node.ID),
-			Executor:           executor,
-			Materialization:    "authority/" + node.ID + ".yaml",
+			Tools:               stringList(node.Config["tools"]),
+			CredentialBindings:  plannerCredentialBindings(node),
+			GrantSubjects:       plannerGrantSubjects(inst, node.ID),
+			ConsentActions:      plannerConsentActions(inst, node.ID),
+			ConsentRequirements: plannerConsentRequirements(inst, node.ID),
+			Executor:            executor,
+			Materialization:     "authority/" + node.ID + ".yaml",
 		}
 		manifest.Runtime.Nodes = append(manifest.Runtime.Nodes, runtimeNode)
 		manifest.Runtime.Operations = append(manifest.Runtime.Operations, RuntimeOperation{
@@ -243,6 +246,66 @@ func plannerConsentActions(inst *instancepkg.Instance, nodeID string) []string {
 	}
 	sort.Strings(out)
 	return dedupe(out)
+}
+
+func plannerConsentRequirements(inst *instancepkg.Instance, nodeID string) map[string]agencyconsent.Requirement {
+	out := map[string]agencyconsent.Requirement{}
+	for _, grant := range inst.Grants {
+		if grant.Resource != nodeID && grant.Resource != "node:"+inst.Name+"/"+nodeID {
+			continue
+		}
+		requirement, ok := consentRequirementFromGrant(grant.Config)
+		if !ok {
+			continue
+		}
+		action := strings.TrimSpace(grant.Action)
+		if action == "" {
+			continue
+		}
+		out[action] = requirement.Normalize()
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func consentRequirementFromGrant(cfg map[string]any) (agencyconsent.Requirement, bool) {
+	if len(cfg) == 0 {
+		return agencyconsent.Requirement{}, false
+	}
+	raw := map[string]any(nil)
+	if nested, ok := cfg["requires_consent_token"].(map[string]any); ok {
+		raw = nested
+	} else {
+		raw = cfg
+	}
+	req := agencyconsent.Requirement{
+		OperationKind:    strings.TrimSpace(stringValue(raw["operation_kind"])),
+		TokenInputField:  strings.TrimSpace(stringValue(raw["token_input_field"])),
+		TargetInputField: strings.TrimSpace(stringValue(raw["target_input_field"])),
+	}
+	switch v := raw["min_witnesses"].(type) {
+	case int:
+		req.MinWitnesses = v
+	case int64:
+		req.MinWitnesses = int(v)
+	case float64:
+		req.MinWitnesses = int(v)
+	}
+	if err := req.Validate(); err != nil {
+		return agencyconsent.Requirement{}, false
+	}
+	return req.Normalize(), true
+}
+
+func plannerConsentDeploymentID(inst *instancepkg.Instance) string {
+	for _, key := range []string{"consent_deployment_id", "deployment_id"} {
+		if value := strings.TrimSpace(stringValue(inst.Config[key])); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func ResolveRequestAgainstManifest(m *Manifest, req authzcore.Request) authzcore.Request {

@@ -1,6 +1,10 @@
 package runtime
 
-import "time"
+import (
+	"time"
+
+	agencyconsent "github.com/geoffbelknap/agency/internal/consent"
+)
 
 const (
 	ManifestAPIVersion = "agency/v2"
@@ -36,7 +40,8 @@ type ManifestMeta struct {
 }
 
 type ManifestSource struct {
-	InstanceRevision time.Time `yaml:"instance_revision" json:"instance_revision"`
+	InstanceRevision    time.Time `yaml:"instance_revision" json:"instance_revision"`
+	ConsentDeploymentID string    `yaml:"consent_deployment_id,omitempty" json:"consent_deployment_id,omitempty"`
 }
 
 type RuntimeSpec struct {
@@ -46,15 +51,16 @@ type RuntimeSpec struct {
 }
 
 type RuntimeNode struct {
-	NodeID             string            `yaml:"node_id" json:"node_id"`
-	Kind               string            `yaml:"kind" json:"kind"`
-	Package            RuntimePackageRef `yaml:"package" json:"package"`
-	Tools              []string          `yaml:"tools,omitempty" json:"tools,omitempty"`
-	CredentialBindings []string          `yaml:"credential_bindings,omitempty" json:"credential_bindings,omitempty"`
-	GrantSubjects      []string          `yaml:"grant_subjects,omitempty" json:"grant_subjects,omitempty"`
-	ConsentActions     []string          `yaml:"consent_actions,omitempty" json:"consent_actions,omitempty"`
-	Executor           *RuntimeExecutor  `yaml:"executor,omitempty" json:"executor,omitempty"`
-	Materialization    string            `yaml:"materialization_path" json:"materialization_path"`
+	NodeID              string                               `yaml:"node_id" json:"node_id"`
+	Kind                string                               `yaml:"kind" json:"kind"`
+	Package             RuntimePackageRef                    `yaml:"package" json:"package"`
+	Tools               []string                             `yaml:"tools,omitempty" json:"tools,omitempty"`
+	CredentialBindings  []string                             `yaml:"credential_bindings,omitempty" json:"credential_bindings,omitempty"`
+	GrantSubjects       []string                             `yaml:"grant_subjects,omitempty" json:"grant_subjects,omitempty"`
+	ConsentActions      []string                             `yaml:"consent_actions,omitempty" json:"consent_actions,omitempty"`
+	ConsentRequirements map[string]agencyconsent.Requirement `yaml:"consent_requirements,omitempty" json:"consent_requirements,omitempty"`
+	Executor            *RuntimeExecutor                     `yaml:"executor,omitempty" json:"executor,omitempty"`
+	Materialization     string                               `yaml:"materialization_path" json:"materialization_path"`
 }
 
 type RuntimePackageRef struct {

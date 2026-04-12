@@ -18,9 +18,13 @@ func ServeAuthorityFromInstanceDir(ctx context.Context, instanceDir, nodeID stri
 	if _, err := findAuthorityNode(manifest, nodeID); err != nil {
 		return err
 	}
+	validator, err := LoadConsentValidator(instanceDir, manifest)
+	if err != nil {
+		return err
+	}
 	srv := &http.Server{
 		Addr:    fmt.Sprintf("127.0.0.1:%d", port),
-		Handler: AuthorityHandler{Manifest: manifest, Resolver: authzcore.Resolver{}},
+		Handler: AuthorityHandler{Manifest: manifest, Resolver: authzcore.Resolver{}, ConsentValidator: validator},
 	}
 	go func() {
 		<-ctx.Done()
