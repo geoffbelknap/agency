@@ -143,6 +143,9 @@ func (r *Registry) PutPackage(pkg InstalledPackage) error {
 
 // GetPackage returns the installed package metadata for the given kind/name.
 func (r *Registry) GetPackage(kind, name string) (InstalledPackage, bool) {
+	if r == nil {
+		return InstalledPackage{}, false
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

@@ -4,7 +4,11 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,6 +21,7 @@ import (
 	agencyconsent "github.com/geoffbelknap/agency/internal/consent"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
+	"golang.org/x/oauth2"
 )
 
 func TestPlannerCompileAuthorityNode(t *testing.T) {
@@ -66,6 +71,9 @@ func TestPlannerCompileAuthorityNodeWithExecutor(t *testing.T) {
 	}
 	if node.Executor.Auth == nil || node.Executor.Auth.Binding != "service_account_json" {
 		t.Fatalf("executor.auth = %#v", node.Executor.Auth)
+	}
+	if len(node.ResourceWhitelist) != 2 {
+		t.Fatalf("resource_whitelist = %#v", node.ResourceWhitelist)
 	}
 	if len(manifest.Runtime.Bindings) != 1 || manifest.Runtime.Bindings[0].Target != "credref:gdrive-admin" {
 		t.Fatalf("bindings = %#v", manifest.Runtime.Bindings)
@@ -274,6 +282,130 @@ func TestAuthorityHandlerInvokeExecutesHTTPJSON(t *testing.T) {
 	}
 }
 
+func TestAuthorityHandlerInvokeExecutesHTTPJSONWithPathQueryAndBodyMapping(t *testing.T) {
+	t.Setenv("AGENCY_HOME", t.TempDir())
+	putTestCredential(t, os.Getenv("AGENCY_HOME"), "gdrive-admin", "secret-token")
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer secret-token" {
+			t.Fatalf("Authorization = %q, want Bearer secret-token", got)
+		}
+		if r.URL.Path != "/drive/v3/files/folder-123/permissions" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("sendNotificationEmail"); got != "false" {
+			t.Fatalf("sendNotificationEmail = %q, want false", got)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if body["emailAddress"] != "person@example.com" || body["role"] != "commenter" || body["type"] != "user" {
+			t.Fatalf("body = %#v", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	defer upstream.Close()
+
+	manifest, err := Planner{}.Compile(testInstanceWithTemplatedExecutor(upstream.URL))
+	if err != nil {
+		t.Fatalf("Compile(): %v", err)
+	}
+	handler := AuthorityHandler{Manifest: manifest, Resolver: authzcore.Resolver{}}
+
+	req := httptest.NewRequest(http.MethodPost, "/invoke", bytes.NewBufferString(`{"subject":"agent:community-admin/coordinator","node_id":"drive_admin","action":"add_viewer","consent_provided":true,"input":{"folder_id":"folder-123","email":"person@example.com","role":"commenter","notify":false,"permission_type":"user"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200; body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAuthorityHandlerInvokeRejectsNonWhitelistedResource(t *testing.T) {
+	t.Setenv("AGENCY_HOME", t.TempDir())
+	putTestCredential(t, os.Getenv("AGENCY_HOME"), "gdrive-admin", "secret-token")
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("upstream should not be called for non-whitelisted resource")
+	}))
+	defer upstream.Close()
+
+	manifest, err := Planner{}.Compile(testInstanceWithWhitelistedExecutor(upstream.URL))
+	if err != nil {
+		t.Fatalf("Compile(): %v", err)
+	}
+	handler := AuthorityHandler{Manifest: manifest, Resolver: authzcore.Resolver{}}
+
+	req := httptest.NewRequest(http.MethodPost, "/invoke", bytes.NewBufferString(`{"subject":"agent:community-admin/coordinator","node_id":"drive_admin","action":"add_viewer","consent_provided":true,"input":{"file_id":"file-blocked"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("code = %d, want 502; body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "not whitelisted") {
+		t.Fatalf("expected whitelist error: %s", rec.Body.String())
+	}
+}
+
+func TestAuthorityHandlerInvokeExecutesHTTPJSONWithGoogleServiceAccountAuth(t *testing.T) {
+	t.Setenv("AGENCY_HOME", t.TempDir())
+	tokenSourceMu.Lock()
+	tokenSourceCache = map[string]oauth2.TokenSource{}
+	tokenSourceMu.Unlock()
+	serviceAccountJSON := mustGoogleServiceAccountJSON(t)
+
+	var tokenRequests int
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenRequests++
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm(): %v", err)
+		}
+		if got := r.Form.Get("grant_type"); got != "urn:ietf:params:oauth:grant-type:jwt-bearer" {
+			t.Fatalf("grant_type = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "google-access-token",
+			"token_type":   "Bearer",
+			"expires_in":   3600,
+		})
+	}))
+	defer tokenServer.Close()
+
+	serviceAccountJSON = strings.ReplaceAll(serviceAccountJSON, "__TOKEN_URI__", tokenServer.URL)
+	putTestCredential(t, os.Getenv("AGENCY_HOME"), "gdrive-admin", serviceAccountJSON)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer google-access-token" {
+			t.Fatalf("Authorization = %q, want Bearer google-access-token", got)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	manifest, err := Planner{}.Compile(testInstanceWithGoogleExecutor(upstream.URL))
+	if err != nil {
+		t.Fatalf("Compile(): %v", err)
+	}
+	handler := AuthorityHandler{Manifest: manifest, Resolver: authzcore.Resolver{}}
+
+	for range 2 {
+		req := httptest.NewRequest(http.MethodPost, "/invoke", bytes.NewBufferString(`{"subject":"agent:community-admin/coordinator","node_id":"drive_admin","action":"add_viewer","consent_provided":true,"input":{"file_id":"file-123"}}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("code = %d, want 200; body = %s", rec.Code, rec.Body.String())
+		}
+	}
+	if tokenRequests != 1 {
+		t.Fatalf("token requests = %d, want 1", tokenRequests)
+	}
+}
+
 func TestAuthorityHandlerInvokeValidatesConsentToken(t *testing.T) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -375,10 +507,81 @@ func testInstanceWithExecutor(baseURL string) *instancepkg.Instance {
 	})
 }
 
+func testInstanceWithTemplatedExecutor(baseURL string) *instancepkg.Instance {
+	return testInstanceWithConfig(map[string]any{
+		"executor": map[string]any{
+			"kind":     "http_json",
+			"base_url": baseURL,
+			"actions": map[string]any{
+				"add_viewer": map[string]any{
+					"method": "POST",
+					"path":   "/drive/v3/files/{folder_id}/permissions",
+					"query": map[string]any{
+						"sendNotificationEmail": "notify",
+					},
+					"body": map[string]any{
+						"emailAddress": "email",
+						"role":         "role",
+						"type":         "permission_type",
+					},
+				},
+			},
+			"auth": map[string]any{
+				"type":    "bearer",
+				"binding": "service_account_json",
+			},
+		},
+	})
+}
+
+func testInstanceWithWhitelistedExecutor(baseURL string) *instancepkg.Instance {
+	return testInstanceWithConfig(map[string]any{
+		"executor": map[string]any{
+			"kind":     "http_json",
+			"base_url": baseURL,
+			"actions": map[string]any{
+				"add_viewer": map[string]any{
+					"method":          "GET",
+					"path":            "/drive/v3/files/{file_id}",
+					"whitelist_field": "file_id",
+				},
+			},
+			"auth": map[string]any{
+				"type":    "bearer",
+				"binding": "service_account_json",
+			},
+		},
+	})
+}
+
+func testInstanceWithGoogleExecutor(baseURL string) *instancepkg.Instance {
+	return testInstanceWithConfig(map[string]any{
+		"executor": map[string]any{
+			"kind":     "http_json",
+			"base_url": baseURL,
+			"actions": map[string]any{
+				"add_viewer": map[string]any{
+					"method": "GET",
+					"path":   "/drive/v3/files/{file_id}",
+				},
+			},
+			"auth": map[string]any{
+				"type":    "google_service_account",
+				"binding": "service_account_json",
+				"scopes":  []any{"https://www.googleapis.com/auth/drive"},
+			},
+		},
+	})
+}
+
 func testInstanceWithConfig(extra map[string]any) *instancepkg.Instance {
 	config := map[string]any{
 		"tools":               []any{"add_viewer", "remove_viewer", "list_permissions"},
 		"credential_bindings": []any{"service_account_json"},
+		"resource_whitelist": []any{
+			map[string]any{"kind": "file", "drive_id": "file-123"},
+			map[string]any{"kind": "folder", "drive_id": "folder-123"},
+		},
 	}
 	for key, value := range extra {
 		config[key] = value
@@ -441,4 +644,26 @@ func putTestCredential(t *testing.T, home, name, value string) {
 	if err := store.Put(credstore.Entry{Name: name, Value: value}); err != nil {
 		t.Fatalf("Put(): %v", err)
 	}
+}
+
+func mustGoogleServiceAccountJSON(t *testing.T) string {
+	t.Helper()
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("GenerateKey(): %v", err)
+	}
+	pkcs8, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		t.Fatalf("MarshalPKCS8PrivateKey(): %v", err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8})
+	return fmt.Sprintf(`{
+  "type": "service_account",
+  "project_id": "agency-test",
+  "private_key_id": "test-key",
+  "private_key": %q,
+  "client_email": "agency-test@agency-test.iam.gserviceaccount.com",
+  "client_id": "1234567890",
+  "token_uri": "__TOKEN_URI__"
+}`, string(pemBytes))
 }

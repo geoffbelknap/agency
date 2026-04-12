@@ -55,6 +55,7 @@ type RuntimeNode struct {
 	Kind                string                               `yaml:"kind" json:"kind"`
 	Package             RuntimePackageRef                    `yaml:"package" json:"package"`
 	Tools               []string                             `yaml:"tools,omitempty" json:"tools,omitempty"`
+	ResourceWhitelist   []RuntimeResourceWhitelistEntry      `yaml:"resource_whitelist,omitempty" json:"resource_whitelist,omitempty"`
 	CredentialBindings  []string                             `yaml:"credential_bindings,omitempty" json:"credential_bindings,omitempty"`
 	GrantSubjects       []string                             `yaml:"grant_subjects,omitempty" json:"grant_subjects,omitempty"`
 	ConsentActions      []string                             `yaml:"consent_actions,omitempty" json:"consent_actions,omitempty"`
@@ -67,6 +68,11 @@ type RuntimePackageRef struct {
 	Kind    string `yaml:"kind" json:"kind"`
 	Name    string `yaml:"name" json:"name"`
 	Version string `yaml:"version,omitempty" json:"version,omitempty"`
+}
+
+type RuntimeResourceWhitelistEntry struct {
+	Kind string `yaml:"kind,omitempty" json:"kind,omitempty"`
+	ID   string `yaml:"id" json:"id"`
 }
 
 type RuntimeBinding struct {
@@ -83,16 +89,21 @@ type RuntimeExecutor struct {
 }
 
 type RuntimeHTTPAction struct {
-	Method  string            `yaml:"method,omitempty" json:"method,omitempty"`
-	Path    string            `yaml:"path" json:"path"`
-	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+	Method         string            `yaml:"method,omitempty" json:"method,omitempty"`
+	Path           string            `yaml:"path" json:"path"`
+	Headers        map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+	Query          map[string]string `yaml:"query,omitempty" json:"query,omitempty"`
+	Body           map[string]string `yaml:"body,omitempty" json:"body,omitempty"`
+	WhitelistField string            `yaml:"whitelist_field,omitempty" json:"whitelist_field,omitempty"`
+	WhitelistKind  string            `yaml:"whitelist_kind,omitempty" json:"whitelist_kind,omitempty"`
 }
 
 type RuntimeExecutorAuth struct {
-	Type    string `yaml:"type" json:"type"`
-	Binding string `yaml:"binding,omitempty" json:"binding,omitempty"`
-	Header  string `yaml:"header,omitempty" json:"header,omitempty"`
-	Prefix  string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
+	Type    string   `yaml:"type" json:"type"`
+	Binding string   `yaml:"binding,omitempty" json:"binding,omitempty"`
+	Header  string   `yaml:"header,omitempty" json:"header,omitempty"`
+	Prefix  string   `yaml:"prefix,omitempty" json:"prefix,omitempty"`
+	Scopes  []string `yaml:"scopes,omitempty" json:"scopes,omitempty"`
 }
 
 type RuntimeOperation struct {

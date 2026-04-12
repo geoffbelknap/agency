@@ -245,7 +245,11 @@ func (h *handler) compileRuntimeManifest(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *handler) compileManifestForInstance(id string, inst *instancepkg.Instance) (*runpkg.Manifest, *runpkg.Store, error) {
-	manifest, err := runpkg.Planner{}.Compile(inst)
+	planner := runpkg.Planner{}
+	if reg := h.packageRegistry(); reg != nil {
+		planner.Packages = reg
+	}
+	manifest, err := planner.Compile(inst)
 	if err != nil {
 		return nil, nil, err
 	}

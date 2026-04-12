@@ -50,10 +50,11 @@ type ComponentUpgrade struct {
 
 // InstalledPackage records a package installed into the local hub registry.
 type InstalledPackage struct {
-	Kind      string    `json:"kind"`
-	Name      string    `json:"name"`
-	Version   string    `json:"version"`
-	Trust     string    `json:"trust"`
-	Installed time.Time `json:"installed"`
-	Path      string    `json:"path"`
+	Kind      string         `json:"kind"`
+	Name      string         `json:"name"`
+	Version   string         `json:"version"`
+	Trust     string         `json:"trust"`
+	Installed time.Time      `json:"installed"`
+	Path      string         `json:"path"`
+	Spec      map[string]any `json:"spec,omitempty"`
 }

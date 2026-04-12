@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/geoffbelknap/agency/internal/config"
+	"github.com/geoffbelknap/agency/internal/hub"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
 	runpkg "github.com/geoffbelknap/agency/internal/runtime"
 	"github.com/go-chi/chi/v5"
@@ -232,6 +233,91 @@ func TestApplyInstance(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"materialized"`) {
 		t.Fatalf("expected materialized node state: %s", rec.Body.String())
+	}
+}
+
+func TestInstancesCompileManifestFromPackageRuntimeSpec(t *testing.T) {
+	home := t.TempDir()
+	s := instancepkg.NewStore(filepath.Join(home, "instances"))
+	reg := hub.NewRegistry(filepath.Join(home, "hub-registry"))
+	if err := reg.PutPackage(hub.InstalledPackage{
+		Kind:    "connector",
+		Name:    "google-drive-admin",
+		Version: "1.0.0",
+		Trust:   "verified",
+		Spec: map[string]any{
+			"runtime": map[string]any{
+				"executor": map[string]any{
+					"kind":     "http_json",
+					"base_url": "https://www.googleapis.com",
+					"actions": map[string]any{
+						"drive_list_file_permissions": map[string]any{
+							"method":          "GET",
+							"path":            "/drive/v3/files/{file_id}/permissions",
+							"whitelist_field": "file_id",
+						},
+					},
+					"auth": map[string]any{
+						"type":    "google_service_account",
+						"binding": "service_account_json",
+						"scopes":  []any{"https://www.googleapis.com/auth/drive"},
+					},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("PutPackage(): %v", err)
+	}
+
+	inst := &instancepkg.Instance{
+		ID:   "inst_123",
+		Name: "community-admin",
+		Source: instancepkg.InstanceSource{
+			Template: instancepkg.PackageRef{Kind: "template", Name: "community-admin", Version: "1.0.0"},
+		},
+		Nodes: []instancepkg.Node{
+			{
+				ID:   "drive_admin",
+				Kind: "connector.authority",
+				Package: instancepkg.PackageRef{
+					Kind:    "connector",
+					Name:    "google-drive-admin",
+					Version: "1.0.0",
+				},
+				Config: map[string]any{
+					"tools":               []any{"drive_list_file_permissions"},
+					"credential_bindings": []any{"service_account_json"},
+					"resource_whitelist": []any{
+						map[string]any{"kind": "file", "drive_id": "file-123"},
+					},
+				},
+			},
+		},
+		Credentials: map[string]instancepkg.Binding{
+			"service_account_json": {Type: "credref", Target: "credref:gdrive-admin"},
+		},
+		Grants: []instancepkg.GrantBinding{
+			{Principal: "agent:community-admin/coordinator", Action: "drive_list_file_permissions", Resource: "drive_admin"},
+		},
+	}
+	if err := s.Create(t.Context(), inst); err != nil {
+		t.Fatalf("Create(): %v", err)
+	}
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{Store: s, Registry: reg, RuntimeManager: stubRuntimeManager{}})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/instances/inst_123/runtime/manifest", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("compile code = %d, want 201; body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"google_service_account"`) {
+		t.Fatalf("missing package-backed executor auth: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"drive_list_file_permissions"`) {
+		t.Fatalf("missing package-backed action: %s", rec.Body.String())
 	}
 }
 

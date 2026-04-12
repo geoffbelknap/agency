@@ -8,6 +8,7 @@ import (
 	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/config"
+	"github.com/geoffbelknap/agency/internal/hub"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
 	runpkg "github.com/geoffbelknap/agency/internal/runtime"
 	"github.com/go-chi/chi/v5"
@@ -16,6 +17,7 @@ import (
 // Deps holds the dependencies required by the instances module.
 type Deps struct {
 	Store          *instancepkg.Store
+	Registry       *hub.Registry
 	Config         *config.Config
 	Logger         *slog.Logger
 	RuntimeManager runtimeManager
@@ -68,6 +70,16 @@ func (h *handler) runtimeManager() runtimeManager {
 		return h.deps.RuntimeManager
 	}
 	return runpkg.Manager{}
+}
+
+func (h *handler) packageRegistry() *hub.Registry {
+	if h.deps.Registry != nil {
+		return h.deps.Registry
+	}
+	if h.deps.Config == nil {
+		return nil
+	}
+	return hub.NewManager(h.deps.Config.Home).Registry
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

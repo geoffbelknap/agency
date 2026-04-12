@@ -284,9 +284,10 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 	})
 
 	apiinstances.RegisterRoutes(r, apiinstances.Deps{
-		Config: cfg,
-		Store:  startup.InstanceStore,
-		Logger: logger,
+		Config:   cfg,
+		Store:    startup.InstanceStore,
+		Registry: startup.HubRegistry,
+		Logger:   logger,
 	})
 	apiauthz.RegisterRoutes(r, apiauthz.Deps{
 		Resolver: derefResolver(startup.AuthzResolver),

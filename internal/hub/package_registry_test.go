@@ -12,6 +12,11 @@ func TestPackageRegistry_StoresInstalledPackage(t *testing.T) {
 		Name:    "slack-interactivity",
 		Version: "1.0.0",
 		Trust:   "verified",
+		Spec: map[string]any{
+			"runtime": map[string]any{
+				"executor": map[string]any{"kind": "http_json"},
+			},
+		},
 	}
 	if err := reg.PutPackage(pkg); err != nil {
 		t.Fatalf("PutPackage(): %v", err)
@@ -22,6 +27,9 @@ func TestPackageRegistry_StoresInstalledPackage(t *testing.T) {
 	}
 	if got.Version != "1.0.0" {
 		t.Fatalf("Version = %q, want 1.0.0", got.Version)
+	}
+	if runtimeSpec, ok := got.Spec["runtime"].(map[string]any); !ok || runtimeSpec["executor"] == nil {
+		t.Fatalf("Spec = %#v", got.Spec)
 	}
 }
 

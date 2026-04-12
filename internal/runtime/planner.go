@@ -10,10 +10,17 @@ import (
 
 	authzcore "github.com/geoffbelknap/agency/internal/authz"
 	agencyconsent "github.com/geoffbelknap/agency/internal/consent"
+	"github.com/geoffbelknap/agency/internal/hub"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
 )
 
-type Planner struct{}
+type packageResolver interface {
+	GetPackage(kind, name string) (hub.InstalledPackage, bool)
+}
+
+type Planner struct {
+	Packages packageResolver
+}
 
 func (p Planner) Compile(inst *instancepkg.Instance) (*Manifest, error) {
 	if err := instancepkg.ValidateInstance(inst); err != nil {
@@ -51,7 +58,7 @@ func (p Planner) Compile(inst *instancepkg.Instance) (*Manifest, error) {
 		if strings.TrimSpace(node.Package.Kind) == "" || strings.TrimSpace(node.Package.Name) == "" {
 			return nil, fmt.Errorf("node %q missing package reference", node.ID)
 		}
-		executor, err := plannerExecutor(node)
+		executor, err := p.plannerExecutor(node)
 		if err != nil {
 			return nil, fmt.Errorf("node %q executor: %w", node.ID, err)
 		}
@@ -64,6 +71,7 @@ func (p Planner) Compile(inst *instancepkg.Instance) (*Manifest, error) {
 				Version: node.Package.Version,
 			},
 			Tools:               stringList(node.Config["tools"]),
+			ResourceWhitelist:   plannerResourceWhitelist(node),
 			CredentialBindings:  plannerCredentialBindings(node),
 			GrantSubjects:       plannerGrantSubjects(inst, node.ID),
 			ConsentActions:      plannerConsentActions(inst, node.ID),
@@ -99,8 +107,16 @@ func (p Planner) Compile(inst *instancepkg.Instance) (*Manifest, error) {
 	return manifest, nil
 }
 
-func plannerExecutor(node instancepkg.Node) (*RuntimeExecutor, error) {
+func (p Planner) plannerExecutor(node instancepkg.Node) (*RuntimeExecutor, error) {
 	raw, ok := node.Config["executor"]
+	if (!ok || raw == nil) && p.Packages != nil {
+		if pkg, found := p.Packages.GetPackage(node.Package.Kind, node.Package.Name); found {
+			if runtimeSpec, foundRuntime := pkg.Spec["runtime"].(map[string]any); foundRuntime {
+				raw = runtimeSpec["executor"]
+				ok = raw != nil
+			}
+		}
+	}
 	if !ok || raw == nil {
 		return nil, nil
 	}
@@ -164,10 +180,24 @@ func plannerHTTPActions(raw any) (map[string]RuntimeHTTPAction, error) {
 		if err != nil {
 			return nil, fmt.Errorf("executor.actions.%s.headers: %w", name, err)
 		}
+		query, err := stringMap(cfg["query"])
+		if err != nil {
+			return nil, fmt.Errorf("executor.actions.%s.query: %w", name, err)
+		}
+		body, err := stringMap(cfg["body"])
+		if err != nil {
+			return nil, fmt.Errorf("executor.actions.%s.body: %w", name, err)
+		}
+		whitelistField := strings.TrimSpace(stringValue(cfg["whitelist_field"]))
+		whitelistKind := strings.TrimSpace(stringValue(cfg["whitelist_kind"]))
 		out[name] = RuntimeHTTPAction{
-			Method:  strings.ToUpper(strings.TrimSpace(method)),
-			Path:    path,
-			Headers: headers,
+			Method:         strings.ToUpper(strings.TrimSpace(method)),
+			Path:           path,
+			Headers:        headers,
+			Query:          query,
+			Body:           body,
+			WhitelistField: whitelistField,
+			WhitelistKind:  whitelistKind,
 		}
 	}
 	return out, nil
@@ -191,6 +221,7 @@ func plannerExecutorAuth(raw any) (*RuntimeExecutorAuth, error) {
 		Binding: strings.TrimSpace(stringValue(cfg["binding"])),
 		Header:  strings.TrimSpace(stringValue(cfg["header"])),
 		Prefix:  stringValue(cfg["prefix"]),
+		Scopes:  stringList(cfg["scopes"]),
 	}
 	if auth.Binding == "" {
 		return nil, fmt.Errorf("executor.auth.binding is required")
@@ -207,6 +238,16 @@ func plannerExecutorAuth(raw any) (*RuntimeExecutorAuth, error) {
 		if auth.Header == "" {
 			return nil, fmt.Errorf("executor.auth.header is required for header auth")
 		}
+	case "google_service_account":
+		if auth.Header == "" {
+			auth.Header = "Authorization"
+		}
+		if auth.Prefix == "" {
+			auth.Prefix = "Bearer "
+		}
+		if len(auth.Scopes) == 0 {
+			return nil, fmt.Errorf("executor.auth.scopes is required for google_service_account auth")
+		}
 	default:
 		return nil, fmt.Errorf("unsupported executor.auth.type %q", auth.Type)
 	}
@@ -217,6 +258,49 @@ func plannerCredentialBindings(node instancepkg.Node) []string {
 	keys := stringList(node.Config["credential_bindings"])
 	sort.Strings(keys)
 	return dedupe(keys)
+}
+
+func plannerResourceWhitelist(node instancepkg.Node) []RuntimeResourceWhitelistEntry {
+	raw, ok := node.Config["resource_whitelist"]
+	if !ok || raw == nil {
+		return nil
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]RuntimeResourceWhitelistEntry, 0, len(items))
+	for _, item := range items {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		id := strings.TrimSpace(firstString(entry["drive_id"], entry["id"], entry["resource_id"]))
+		if id == "" {
+			continue
+		}
+		out = append(out, RuntimeResourceWhitelistEntry{
+			Kind: strings.TrimSpace(stringValue(entry["kind"])),
+			ID:   id,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+func firstString(values ...any) string {
+	for _, value := range values {
+		s := strings.TrimSpace(stringValue(value))
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func plannerGrantSubjects(inst *instancepkg.Instance, nodeID string) []string {
