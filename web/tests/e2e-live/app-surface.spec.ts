@@ -128,6 +128,7 @@ test('live stack supports read-only direct routes for available entities', async
     await page.goto('/admin/intake');
     await settle(page);
     await expect(page.getByRole('tab', { name: 'Connectors' })).toBeVisible();
+    await expect(page.getByText(/Start by adding a connector|Work is arriving but needs routing|Connectors are ready, now verify delivery|Intake is delivering work/)).toBeVisible();
     await expect(page.getByText('Healthy Polling')).toBeVisible();
     await expect(page.getByText('Needs Review')).toBeVisible();
 
@@ -139,6 +140,33 @@ test('live stack supports read-only direct routes for available entities', async
     await expect(page.getByText(`Setup: ${firstConnector}`)).toBeVisible();
     await expect(page.getByText(/Setup saves required credentials, applies connector egress rules, and activates the connector when it is ready\./)).toBeVisible();
     await expect(page.getByText(/Ready|Not configured|No requirements data/)).toBeVisible();
+  }
+
+  const workItems = await fetchJson<Array<{ connector?: string; source?: string; summary?: string; brief_content?: string; id?: string }>>(request, '/api/v1/intake/items');
+  const firstWorkItem = Array.isArray(workItems) ? workItems.find((item) => item?.id) : null;
+  if (firstWorkItem) {
+    const rowLabel = firstWorkItem.summary ?? firstWorkItem.brief_content ?? firstWorkItem.connector ?? firstWorkItem.source ?? firstWorkItem.id ?? '';
+    await page.goto('/admin/intake');
+    await settle(page);
+    await page.getByRole('tab', { name: 'Work Items' }).click();
+    await expect(page.getByText('Inbound work queue')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Refresh work items' })).toBeVisible();
+
+    const rowButton = page.locator('button').filter({ hasText: rowLabel }).first();
+    if (await rowButton.count()) {
+      await rowButton.click();
+      await expect(page.getByText(/Needs routing|Relayed downstream|Route target assigned|Pending review/)).toBeVisible();
+      await expect(page.getByText(/Connector definition missing|Connector is inactive|Route rule likely missing|Target type needs review|Connector-to-route chain looks intact/)).toBeVisible();
+      const openTarget = page.getByRole('link', { name: 'Open route target' });
+      if (await openTarget.count()) {
+        await expect(openTarget.first()).toBeVisible();
+      }
+      const openConnector = page.getByRole('button', { name: 'Open connector' });
+      if (await openConnector.count()) {
+        await openConnector.first().click();
+        await expect(page.getByRole('tab', { name: 'Connectors' })).toHaveAttribute('aria-selected', 'true');
+      }
+    }
   }
 });
 

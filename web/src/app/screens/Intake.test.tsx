@@ -28,6 +28,22 @@ describe('Intake', () => {
     });
   });
 
+  it('shows next-step guidance when no connectors are configured', async () => {
+    server.use(
+      http.get(`${BASE}/hub/instances`, () => HttpResponse.json([])),
+      http.get(`${BASE}/events/intake/items`, () => HttpResponse.json([])),
+      http.get(`${BASE}/hub/intake/poll-health`, () => HttpResponse.json({})),
+    );
+
+    renderWithRouter(<Intake />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Start by adding a connector')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Open Hub' })).toHaveAttribute('href', '/admin/hub');
+      expect(screen.getByRole('link', { name: 'Open Missions' })).toHaveAttribute('href', '/missions');
+    });
+  });
+
   it('shows connector readiness guidance and source labeling', async () => {
     server.use(
       http.get(`${BASE}/hub/instances`, () =>
@@ -122,6 +138,53 @@ describe('Intake', () => {
     });
   });
 
+  it('switches to the connectors tab when opening a connector from a work item', async () => {
+    server.use(
+      http.get(`${BASE}/hub/instances`, () =>
+        HttpResponse.json([
+          { id: 'c1', name: 'github', kind: 'connector', source: 'hub:github', state: 'active' },
+        ]),
+      ),
+      http.get(`${BASE}/hub/intake/poll-health`, () =>
+        HttpResponse.json({ connectors: { github: { status: 'healthy' } } }),
+      ),
+      http.get(`${BASE}/events/intake/items`, () =>
+        HttpResponse.json([
+          {
+            id: 'wi-1',
+            status: 'routed',
+            connector: 'github',
+            source: 'github',
+            summary: 'PR #42 needs triage',
+            target_type: 'mission',
+            target_name: 'triage-inbound',
+            created_at: '2026-03-16',
+            payload: { number: 42 },
+            route_index: 0,
+          },
+        ]),
+      ),
+    );
+
+    renderWithRouter(<Intake />);
+    await userEvent.click(screen.getByRole('tab', { name: /work items/i }));
+    await waitFor(() => {
+      expect(screen.getByText('PR #42 needs triage')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /github/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Open connector' })).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Open connector' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /connectors/i })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByText('Ready to ingest')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /poll now/i })).toBeInTheDocument();
+    });
+  });
+
   it('shows routing guidance for unrouted work items', async () => {
     server.use(
       http.get(`${BASE}/hub/instances`, () =>
@@ -153,6 +216,9 @@ describe('Intake', () => {
     await waitFor(() => {
       expect(screen.getByText('1 item needs routing')).toBeInTheDocument();
       expect(screen.getByText('New bug report arrived')).toBeInTheDocument();
+      expect(screen.getByText('Work is arriving but needs routing')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Open Missions' })).toHaveAttribute('href', '/missions');
+      expect(screen.getByRole('link', { name: 'Open Events' })).toHaveAttribute('href', '/admin/events');
     });
 
     await userEvent.click(screen.getByRole('button', { name: /linear/i }));
