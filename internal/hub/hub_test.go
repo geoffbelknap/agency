@@ -1,6 +1,8 @@
 package hub
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -278,6 +280,82 @@ rate_limits:
 	if _, ok := action["body"].(map[string]any); !ok {
 		t.Fatalf("expected body mapping: %#v", action)
 	}
+}
+
+func TestInstallFetchesStructuredAssuranceFromHubAPI(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got, want := r.URL.Path, "/v1/hubs/default/artifacts/connector/google-drive-admin/1.0.0/assurance"; got != want {
+			t.Fatalf("path = %q, want %q", got, want)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+		  "schema_version": 1,
+		  "hub_id": "hub:default:test",
+		  "statements": [
+		    {
+		      "artifact_kind": "connector",
+		      "artifact_name": "google-drive-admin",
+		      "artifact_version": "1.0.0",
+		      "statement_type": "ask_reviewed",
+		      "result": "ASK-Partial",
+		      "review_scope": "package-change",
+		      "reviewer_type": "automated",
+		      "policy_version": "2026-04-12"
+		    }
+		  ]
+		}`))
+	}))
+	defer server.Close()
+
+	home := t.TempDir()
+	mgr := NewManager(home)
+
+	os.WriteFile(filepath.Join(home, "config.yaml"), []byte("hub:\n  sources:\n    - name: default\n      url: https://example.com\n      api: "+server.URL+"\n"), 0644)
+
+	cacheDir := filepath.Join(home, "hub-cache", "default", "connectors", "google-drive-admin")
+	os.MkdirAll(cacheDir, 0755)
+	os.WriteFile(filepath.Join(cacheDir, "connector.yaml"), []byte(`kind: connector
+name: google-drive-admin
+version: "1.0.0"
+source:
+  type: none
+mcp:
+  name: google-drive-admin
+  credential: google-drive-admin
+  api_base: https://www.googleapis.com
+  tools:
+    - name: drive_list_file_permissions
+      method: GET
+      path: /drive/v3/files/{file_id}/permissions
+      parameters:
+        file_id: {type: string}
+`), 0644)
+
+	if _, err := mgr.Install("google-drive-admin", "connector", "", ""); err != nil {
+		t.Fatalf("Install(): %v", err)
+	}
+	pkg, ok := mgr.Registry.GetPackage("connector", "google-drive-admin")
+	if !ok {
+		t.Fatal("expected installed package entry")
+	}
+	if len(pkg.AssuranceStatements) != 1 {
+		t.Fatalf("expected 1 structured assurance statement, got %#v", pkg.AssuranceStatements)
+	}
+	if pkg.AssuranceStatements[0].Result != "ASK-Partial" {
+		t.Fatalf("unexpected structured assurance: %#v", pkg.AssuranceStatements[0])
+	}
+	if !containsString(pkg.Assurance, "ask_partial") {
+		t.Fatalf("expected legacy assurance projection, got %#v", pkg.Assurance)
+	}
+}
+
+func containsString(items []string, target string) bool {
+	for _, item := range items {
+		if item == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestInstallableKindSemantics(t *testing.T) {

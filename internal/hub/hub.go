@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/geoffbelknap/agency/internal/hubclient"
 	"github.com/geoffbelknap/agency/internal/models"
 	"gopkg.in/yaml.v3"
 )
@@ -60,6 +61,7 @@ type Source struct {
 	Type     string `yaml:"type,omitempty" json:"type,omitempty"`         // "oci" or "git"; defaults to "git"
 	URL      string `yaml:"url,omitempty" json:"url,omitempty"`           // git URL (when type=git)
 	Registry string `yaml:"registry,omitempty" json:"registry,omitempty"` // OCI registry base (when type=oci)
+	API      string `yaml:"api,omitempty" json:"api,omitempty"`           // Hub assurance/metadata API base
 	Branch   string `yaml:"branch,omitempty" json:"branch,omitempty"`     // git branch (when type=git)
 }
 
@@ -441,7 +443,11 @@ func (m *Manager) Install(componentName, kind, source, instanceName string) (*In
 		return nil, fmt.Errorf("write component: %w", err)
 	}
 
-	pkg, err := buildInstalledPackage(componentName, kind, inst.Version, comp.Source, destPath)
+	assurance, err := m.fetchPackageAssurance(context.Background(), comp.Source, kind, componentName, inst.Version)
+	if err != nil {
+		return nil, fmt.Errorf("fetch package assurance: %w", err)
+	}
+	pkg, err := buildInstalledPackage(componentName, kind, inst.Version, comp.Source, destPath, assurance)
 	if err != nil {
 		return nil, fmt.Errorf("derive package spec: %w", err)
 	}
@@ -801,7 +807,19 @@ func (m *Manager) Upgrade(components []string) (*UpgradeReport, error) {
 
 		// Update version in registry
 		m.Registry.SetVersion(inst.Name, cached.Version)
-		pkg, err := buildInstalledPackage(inst.Name, inst.Kind, cached.Version, cached.Source, destPath)
+		assurance, err := m.fetchPackageAssurance(context.Background(), cached.Source, inst.Kind, inst.Name, cached.Version)
+		if err != nil {
+			report.Components = append(report.Components, ComponentUpgrade{
+				Name:       inst.Name,
+				Kind:       inst.Kind,
+				OldVersion: inst.Version,
+				NewVersion: cached.Version,
+				Status:     "error",
+				Error:      err.Error(),
+			})
+			continue
+		}
+		pkg, err := buildInstalledPackage(inst.Name, inst.Kind, cached.Version, cached.Source, destPath, assurance)
 		if err != nil {
 			report.Components = append(report.Components, ComponentUpgrade{
 				Name:       inst.Name,
@@ -1548,6 +1566,18 @@ func (m *Manager) findSourceByName(name string) *Source {
 		}
 	}
 	return nil
+}
+
+func (m *Manager) fetchPackageAssurance(ctx context.Context, sourceName, kind, name, version string) ([]hubclient.AssuranceStatement, error) {
+	src := m.findSourceByName(sourceName)
+	if src == nil || strings.TrimSpace(src.API) == "" || strings.TrimSpace(version) == "" {
+		return nil, nil
+	}
+	summary, err := (hubclient.Client{BaseURL: src.API}).FetchArtifactAssurance(ctx, src.Name, kind, name, version)
+	if err != nil {
+		return nil, err
+	}
+	return summary.Statements, nil
 }
 
 func (m *Manager) provenancePath() string {
