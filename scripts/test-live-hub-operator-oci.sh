@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SOURCE_HOME="${AGENCY_SOURCE_HOME:-${HOME}/.agency}"
 DISPOSABLE_HOME="${AGENCY_OPERATOR_OCI_HOME:-}"
-GATEWAY_PORT="${AGENCY_OPERATOR_OCI_GATEWAY_PORT:-18231}"
+GATEWAY_PORT="${AGENCY_OPERATOR_OCI_GATEWAY_PORT:-}"
 KEEP_HOME="${AGENCY_OPERATOR_OCI_KEEP_HOME:-0}"
 
 usage() {
@@ -25,7 +25,7 @@ The test verifies:
 Environment:
   AGENCY_SOURCE_HOME                  Source Agency home to clone (default: ~/.agency)
   AGENCY_OPERATOR_OCI_HOME            Disposable home path (default: mktemp)
-  AGENCY_OPERATOR_OCI_GATEWAY_PORT    Gateway host port (default: 18231)
+  AGENCY_OPERATOR_OCI_GATEWAY_PORT    Gateway host port (default: auto-selected free port)
   AGENCY_OPERATOR_OCI_KEEP_HOME=1     Preserve disposable home after the run
   AGENCY_BIN                          Agency binary to test (default: repo ./agency, then PATH)
 
@@ -65,6 +65,10 @@ else
   mkdir -p "$DISPOSABLE_HOME"
 fi
 
+if [ -z "$GATEWAY_PORT" ]; then
+  GATEWAY_PORT="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
+fi
+
 if [ -z "${AGENCY_BIN:-}" ]; then
   if [ -x "$ROOT_DIR/agency" ]; then
     AGENCY_BIN="$ROOT_DIR/agency"
@@ -97,21 +101,23 @@ rm -f "$DISPOSABLE_HOME/gateway.pid" "$DISPOSABLE_HOME/gateway.log"
 rm -rf "$DISPOSABLE_HOME/run" "$DISPOSABLE_HOME/hub-cache" "$DISPOSABLE_HOME/infrastructure/routing.yaml"
 
 export AGENCY_HOME="$DISPOSABLE_HOME"
+export HOME="$DISPOSABLE_HOME"
 export AGENCY_TEST_OCI_LIVE=1
 export AGENCY_OPERATOR_OCI_GATEWAY_PORT="$GATEWAY_PORT"
 
-python3 -c 'import os, yaml
-p = os.path.join(os.environ["AGENCY_HOME"], "config.yaml")
-data = {}
-if os.path.exists(p):
-    with open(p, encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-data["gateway_addr"] = "127.0.0.1:" + os.environ["AGENCY_OPERATOR_OCI_GATEWAY_PORT"]
-if not data.get("token"):
-    data["token"] = "agency-operator-oci-live-check-token"
-with open(p, "w", encoding="utf-8") as f:
-    yaml.safe_dump(data, f, sort_keys=False)
-'
+CONFIG_PATH="$AGENCY_HOME/config.yaml"
+if [ -f "$CONFIG_PATH" ]; then
+  grep -Ev '^(gateway_addr|token):' "$CONFIG_PATH" > "$CONFIG_PATH.tmp" || true
+else
+  : > "$CONFIG_PATH.tmp"
+fi
+printf 'gateway_addr: "127.0.0.1:%s"\n' "$AGENCY_OPERATOR_OCI_GATEWAY_PORT" >> "$CONFIG_PATH.tmp"
+if [ -f "$CONFIG_PATH" ] && grep -Eq '^token:' "$CONFIG_PATH"; then
+  grep -E '^token:' "$CONFIG_PATH" >> "$CONFIG_PATH.tmp"
+else
+  printf 'token: "agency-operator-oci-live-check-token"\n' >> "$CONFIG_PATH.tmp"
+fi
+mv "$CONFIG_PATH.tmp" "$CONFIG_PATH"
 
 echo "==> Disposable Agency home: $DISPOSABLE_HOME"
 echo "==> Gateway port:           $GATEWAY_PORT"
@@ -159,11 +165,7 @@ if ! printf '%s\n' "$setup_search" | grep -Eq 'default-wizard[[:space:]]+setup';
 fi
 echo "  ✓ default setup wizard is discoverable"
 
-token="$(python3 -c 'import os, yaml
-p = os.path.join(os.environ["AGENCY_HOME"], "config.yaml")
-with open(p, encoding="utf-8") as f:
-    print((yaml.safe_load(f) or {}).get("token", ""))
-')"
+token="$(sed -n 's/^token:[[:space:]]*"\{0,1\}\(.*[^"]\)\("\{0,1\}\)$/\1/p' "$CONFIG_PATH" | head -1)"
 
 curl -fsS \
   -H "X-Agency-Token: $token" \

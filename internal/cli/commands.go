@@ -1417,6 +1417,7 @@ func hubCmd() *cobra.Command {
 				creds[k] = v
 			}
 
+			agencyHome := config.Load().Home
 			packPath := args[0]
 			// If the arg doesn't look like a file path, resolve it as a hub instance name
 			if !strings.Contains(packPath, "/") && !strings.HasSuffix(packPath, ".yaml") {
@@ -1424,8 +1425,7 @@ func hubCmd() *cobra.Command {
 				if ierr == nil {
 					if id, ok := info["id"].(string); ok {
 						if kind, ok := info["kind"].(string); ok && kind == "pack" {
-							home, _ := os.UserHomeDir()
-							resolved := home + "/.agency/hub-registry/packs/" + id + "/pack.yaml"
+							resolved := filepath.Join(agencyHome, "hub-registry", "packs", id, "pack.yaml")
 							if _, ferr := os.Stat(resolved); ferr == nil {
 								packPath = resolved
 							}
@@ -1473,13 +1473,12 @@ func hubCmd() *cobra.Command {
 
 						// Ensure mission exists and is assigned to the right agent.
 						// Idempotent: handles create, reassign, and resume in all states.
-						home, _ := os.UserHomeDir()
 
 						// Find the hub mission YAML
 						var hubMissionData []byte
 						if info, err := c.HubShow(missionName); err == nil {
 							if id, ok := info["id"].(string); ok {
-								hubPath := home + "/.agency/hub-registry/missions/" + id + "/mission.yaml"
+								hubPath := filepath.Join(agencyHome, "hub-registry", "missions", id, "mission.yaml")
 								hubMissionData, _ = os.ReadFile(hubPath)
 							}
 						}
@@ -1503,8 +1502,8 @@ func hubCmd() *cobra.Command {
 
 							if assignedTo == agentName && status == "active" {
 								// Already active and assigned — just ensure agent has the file
-								missionFile := home + "/.agency/agents/" + agentName + "/mission.yaml"
-								srcFile := home + "/.agency/missions/" + missionName + ".yaml"
+								missionFile := filepath.Join(agencyHome, "agents", agentName, "mission.yaml")
+								srcFile := filepath.Join(agencyHome, "missions", missionName+".yaml")
 								if srcData, rerr := os.ReadFile(srcFile); rerr == nil {
 									os.WriteFile(missionFile, srcData, 0644)
 								}
