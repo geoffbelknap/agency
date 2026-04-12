@@ -33,13 +33,15 @@ var (
 	tokenSourceCache = map[string]oauth2.TokenSource{}
 )
 
-func ExecuteAuthority(ctx context.Context, manifest *Manifest, node *RuntimeNode, req AuthorityInvokeRequest) (*AuthorityExecutionResult, error) {
+func ExecuteAuthority(ctx context.Context, manifest *Manifest, instanceDir string, node *RuntimeNode, req AuthorityInvokeRequest) (*AuthorityExecutionResult, error) {
 	if node.Executor == nil {
 		return nil, nil
 	}
 	switch node.Executor.Kind {
 	case "http_json":
 		return executeHTTPJSON(ctx, manifest, node, req)
+	case "slack_interactivity":
+		return executeSlackInteractivity(ctx, manifest, instanceDir, node, req)
 	default:
 		return nil, fmt.Errorf("unsupported executor kind %q", node.Executor.Kind)
 	}

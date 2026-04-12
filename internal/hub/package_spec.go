@@ -25,11 +25,13 @@ func deriveConnectorPackageSpec(sourcePath string) (map[string]any, error) {
 	if err := models.Load(sourcePath, &cfg); err != nil {
 		return nil, err
 	}
-
-	tools := cfg.Tools
-	if len(tools) == 0 && cfg.MCP != nil {
-		tools = cfg.MCP.Tools
+	if len(cfg.Runtime) > 0 {
+		return map[string]any{
+			"runtime": cfg.Runtime,
+		}, nil
 	}
+
+	tools := connectorRuntimeTools(cfg)
 	if len(tools) == 0 || cfg.MCP == nil || cfg.MCP.APIBase == nil || strings.TrimSpace(*cfg.MCP.APIBase) == "" {
 		return nil, nil
 	}
@@ -80,6 +82,28 @@ func deriveConnectorPackageSpec(sourcePath string) (map[string]any, error) {
 			"executor": executor,
 		},
 	}, nil
+}
+
+func connectorRuntimeTools(cfg models.ConnectorConfig) []models.ConnectorMCPTool {
+	seen := map[string]bool{}
+	var tools []models.ConnectorMCPTool
+	for _, tool := range cfg.Tools {
+		if strings.TrimSpace(tool.Name) == "" || seen[tool.Name] {
+			continue
+		}
+		seen[tool.Name] = true
+		tools = append(tools, tool)
+	}
+	if cfg.MCP != nil {
+		for _, tool := range cfg.MCP.Tools {
+			if strings.TrimSpace(tool.Name) == "" || seen[tool.Name] {
+				continue
+			}
+			seen[tool.Name] = true
+			tools = append(tools, tool)
+		}
+	}
+	return tools
 }
 
 func deriveConnectorRuntimeAuth(cfg *models.ConnectorConfig) map[string]any {

@@ -255,6 +255,7 @@ type ConnectorConfig struct {
 	Routes      []ConnectorRoute       `yaml:"routes"`
 	MCP         *ConnectorMCP          `yaml:"mcp"`
 	Tools       []ConnectorMCPTool     `yaml:"tools,omitempty"`
+	Runtime     map[string]interface{} `yaml:"runtime,omitempty"`
 	RateLimits  ConnectorRateLimits    `yaml:"rate_limits"`
 }
 

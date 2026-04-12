@@ -11,10 +11,12 @@ import (
 	"time"
 
 	"github.com/geoffbelknap/agency/internal/config"
+	"github.com/geoffbelknap/agency/internal/events"
 	"github.com/geoffbelknap/agency/internal/hub"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
 	runpkg "github.com/geoffbelknap/agency/internal/runtime"
 	"github.com/go-chi/chi/v5"
+	"log/slog"
 )
 
 func TestInstancesCreateAndShow(t *testing.T) {
@@ -324,6 +326,109 @@ func TestInstancesCompileShowAndReconcileRuntimeManifest(t *testing.T) {
 	}
 	if !strings.Contains(stopRec.Body.String(), `"stopped"`) {
 		t.Fatalf("expected stopped status: %s", stopRec.Body.String())
+	}
+}
+
+func TestInstancesApplyRegistersRuntimeSubscriptions(t *testing.T) {
+	home := t.TempDir()
+	s := instancepkg.NewStore(filepath.Join(home, "instances"))
+	reg := hub.NewRegistry(filepath.Join(home, "hub-registry"))
+	bus := events.NewBus(slog.Default(), nil)
+
+	pkgDir := filepath.Join(home, "hub-registry", "connectors", "slack-interactivity")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(): %v", err)
+	}
+	pkgPath := filepath.Join(pkgDir, "connector.yaml")
+	if err := os.WriteFile(pkgPath, []byte(`kind: connector
+name: slack-interactivity
+version: "1.0.0"
+source:
+  type: webhook
+  path: /webhooks/slack-interactivity
+  webhook_auth:
+    type: hmac_sha256
+    secret_credref: slack_signing_secret
+routes:
+  - match:
+      payload_type: block_actions
+      action_id: consent_approve
+    target:
+      runtime_node: slack_authority
+      runtime_event: approval_action
+  - match:
+      payload_type: block_actions
+    target:
+      agent: "${interactivity_target_agent}"
+runtime:
+  executor:
+    kind: slack_interactivity
+    base_url: https://slack.com
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(): %v", err)
+	}
+	if err := reg.PutPackage(hub.InstalledPackage{
+		Kind:    "connector",
+		Name:    "slack-interactivity",
+		Version: "1.0.0",
+		Path:    pkgPath,
+		Spec: map[string]any{
+			"runtime": map[string]any{
+				"executor": map[string]any{
+					"kind":     "slack_interactivity",
+					"base_url": "https://slack.com",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("PutPackage(): %v", err)
+	}
+
+	inst := &instancepkg.Instance{
+		ID:   "inst_123",
+		Name: "slack-interactivity",
+		Source: instancepkg.InstanceSource{
+			Package: instancepkg.PackageRef{Kind: "connector", Name: "slack-interactivity", Version: "1.0.0"},
+		},
+		Config: map[string]any{"interactivity_target_agent": "slack-bridge"},
+		Nodes: []instancepkg.Node{
+			{ID: "slack_ingress", Kind: "connector.ingress", Package: instancepkg.PackageRef{Kind: "connector", Name: "slack-interactivity", Version: "1.0.0"}},
+			{ID: "slack_authority", Kind: "connector.authority", Package: instancepkg.PackageRef{Kind: "connector", Name: "slack-interactivity", Version: "1.0.0"}, Config: map[string]any{"tools": []any{"consent_open_approval_card"}}},
+		},
+	}
+	if err := s.Create(t.Context(), inst); err != nil {
+		t.Fatalf("Create(): %v", err)
+	}
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{
+		Config:   &config.Config{Home: home},
+		Store:    s,
+		Registry: reg,
+		EventBus: bus,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/instances/inst_123/apply", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("apply code = %d, want 200; body = %s", rec.Code, rec.Body.String())
+	}
+
+	var found bool
+	for _, sub := range bus.Subscriptions().List() {
+		if sub.Origin == events.OriginInstance && sub.OriginRef == "inst_123" {
+			found = true
+			if sub.Destination.Type != events.DestRuntime || sub.Destination.Target != "inst_123/slack_authority" {
+				t.Fatalf("subscription destination = %#v", sub.Destination)
+			}
+			if sub.EventType != "approval_action" || sub.SourceName != "slack-interactivity" {
+				t.Fatalf("subscription = %#v", sub)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected runtime subscription to be registered")
 	}
 }
 

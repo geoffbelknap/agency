@@ -45,9 +45,10 @@ type ManifestSource struct {
 }
 
 type RuntimeSpec struct {
-	Nodes      []RuntimeNode      `yaml:"nodes,omitempty" json:"nodes,omitempty"`
-	Bindings   []RuntimeBinding   `yaml:"bindings,omitempty" json:"bindings,omitempty"`
-	Operations []RuntimeOperation `yaml:"operations,omitempty" json:"operations,omitempty"`
+	Nodes         []RuntimeNode         `yaml:"nodes,omitempty" json:"nodes,omitempty"`
+	Bindings      []RuntimeBinding      `yaml:"bindings,omitempty" json:"bindings,omitempty"`
+	Operations    []RuntimeOperation    `yaml:"operations,omitempty" json:"operations,omitempty"`
+	Subscriptions []RuntimeSubscription `yaml:"subscriptions,omitempty" json:"subscriptions,omitempty"`
 }
 
 type RuntimeNode struct {
@@ -60,6 +61,7 @@ type RuntimeNode struct {
 	GrantSubjects       []string                             `yaml:"grant_subjects,omitempty" json:"grant_subjects,omitempty"`
 	ConsentActions      []string                             `yaml:"consent_actions,omitempty" json:"consent_actions,omitempty"`
 	ConsentRequirements map[string]agencyconsent.Requirement `yaml:"consent_requirements,omitempty" json:"consent_requirements,omitempty"`
+	Settings            map[string]any                       `yaml:"settings,omitempty" json:"settings,omitempty"`
 	Executor            *RuntimeExecutor                     `yaml:"executor,omitempty" json:"executor,omitempty"`
 	Ingress             *RuntimeIngressSpec                  `yaml:"ingress,omitempty" json:"ingress,omitempty"`
 	Materialization     string                               `yaml:"materialization_path" json:"materialization_path"`
@@ -116,6 +118,15 @@ type RuntimeOperation struct {
 	Type   string `yaml:"type" json:"type"`
 	NodeID string `yaml:"node_id" json:"node_id"`
 	Path   string `yaml:"path" json:"path"`
+}
+
+type RuntimeSubscription struct {
+	ID         string `yaml:"id" json:"id"`
+	SourceType string `yaml:"source_type" json:"source_type"`
+	SourceName string `yaml:"source_name" json:"source_name"`
+	EventType  string `yaml:"event_type" json:"event_type"`
+	InstanceID string `yaml:"instance_id" json:"instance_id"`
+	NodeID     string `yaml:"node_id" json:"node_id"`
 }
 
 type ManifestStatus struct {

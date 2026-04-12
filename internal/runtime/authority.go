@@ -6,16 +6,20 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	authzcore "github.com/geoffbelknap/agency/internal/authz"
 	agencyconsent "github.com/geoffbelknap/agency/internal/consent"
+	"github.com/geoffbelknap/agency/internal/models"
 )
 
 type AuthorityHandler struct {
 	Manifest         *Manifest
 	Resolver         authzcore.Resolver
 	ConsentValidator *agencyconsent.Validator
+	InstanceDir      string
+	NodeID           string
 }
 
 type AuthorityInvokeRequest struct {
@@ -42,9 +46,12 @@ func (h AuthorityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"status":      "ok",
 			"instance_id": h.Manifest.Metadata.InstanceID,
 			"manifest_id": h.Manifest.Metadata.ManifestID,
+			"node_id":     h.NodeID,
 		})
 	case r.Method == http.MethodGet && r.URL.Path == "/tools":
 		h.writeJSON(w, http.StatusOK, map[string]any{"nodes": h.Manifest.Runtime.Nodes})
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/events/"):
+		h.handleEvent(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/invoke":
 		h.invoke(w, r)
 	default:
@@ -57,6 +64,9 @@ func (h AuthorityHandler) invoke(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
 		return
+	}
+	if strings.TrimSpace(req.NodeID) == "" {
+		req.NodeID = h.NodeID
 	}
 	node, err := findAuthorityNode(h.Manifest, req.NodeID)
 	if err != nil {
@@ -95,7 +105,7 @@ func (h AuthorityHandler) invoke(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	executed, err := ExecuteAuthority(context.Background(), h.Manifest, node, req)
+	executed, err := ExecuteAuthority(context.Background(), h.Manifest, h.InstanceDir, node, req)
 	if err != nil {
 		h.writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
@@ -124,6 +134,36 @@ func (h AuthorityHandler) invoke(w http.ResponseWriter, r *http.Request) {
 			"input":   req.Input,
 		},
 	})
+}
+
+func (h AuthorityHandler) handleEvent(w http.ResponseWriter, r *http.Request) {
+	eventType := strings.TrimPrefix(r.URL.Path, "/events/")
+	eventType = strings.TrimSpace(eventType)
+	if eventType == "" {
+		h.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "event type is required"})
+		return
+	}
+	nodeID := strings.TrimSpace(h.NodeID)
+	if nodeID == "" {
+		h.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "runtime node is required"})
+		return
+	}
+	node, err := findAuthorityNode(h.Manifest, nodeID)
+	if err != nil {
+		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	var event models.Event
+	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	result, err := HandleAuthorityEvent(context.Background(), h.Manifest, h.InstanceDir, node, eventType, &event)
+	if err != nil {
+		h.writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	h.writeJSON(w, http.StatusOK, map[string]any{"status": "handled", "result": result})
 }
 
 var errConsentInputMalformed = errors.New("consent_input_malformed")

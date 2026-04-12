@@ -62,7 +62,7 @@ func scaffoldConnectorInstance(pkg hub.InstalledPackage, req packageInstantiateR
 			return nil, fmt.Errorf("connector %q does not expose an authority runtime executor", cfg.Name)
 		}
 		nodeKind = "connector.authority"
-		nodeConfig = connectorDefaultAuthorityNodeConfig(cfg)
+		nodeConfig = connectorDefaultAuthorityNodeConfig(cfg, instConfig)
 		mergeMap(nodeConfig, req.NodeConfig)
 		nodes = append(nodes, instancepkg.Node{
 			ID:      nodeID,
@@ -83,7 +83,7 @@ func scaffoldConnectorInstance(pkg hub.InstalledPackage, req packageInstantiateR
 				ID:      nodeID + "_authority",
 				Kind:    "connector.authority",
 				Package: packageRef,
-				Config:  connectorDefaultAuthorityNodeConfig(cfg),
+				Config:  connectorDefaultAuthorityNodeConfig(cfg, instConfig),
 			})
 		}
 	}
@@ -100,9 +100,9 @@ func scaffoldConnectorInstance(pkg hub.InstalledPackage, req packageInstantiateR
 	return inst, nil
 }
 
-func connectorDefaultAuthorityNodeConfig(cfg models.ConnectorConfig) map[string]any {
+func connectorDefaultAuthorityNodeConfig(cfg models.ConnectorConfig, instanceConfig map[string]any) map[string]any {
 	out := map[string]any{}
-	tools := connectorToolNames(cfg)
+	tools := connectorToolNames(cfg, instanceConfig)
 	if len(tools) > 0 {
 		items := make([]any, 0, len(tools))
 		for _, name := range tools {
@@ -152,21 +152,39 @@ func connectorDefaultBindings(cfg models.ConnectorConfig) map[string]instancepkg
 	return out
 }
 
-func connectorToolNames(cfg models.ConnectorConfig) []string {
-	var tools []models.ConnectorMCPTool
-	if len(cfg.Tools) > 0 {
-		tools = cfg.Tools
-	} else if cfg.MCP != nil {
-		tools = cfg.MCP.Tools
-	}
-	names := make([]string, 0, len(tools))
-	for _, tool := range tools {
-		if strings.TrimSpace(tool.Name) == "" {
+func connectorToolNames(cfg models.ConnectorConfig, instanceConfig map[string]any) []string {
+	seen := map[string]bool{}
+	names := make([]string, 0, len(cfg.Tools))
+	for _, tool := range cfg.Tools {
+		if !toolEnabled(tool.RequiresConfig, instanceConfig) || strings.TrimSpace(tool.Name) == "" || seen[tool.Name] {
 			continue
 		}
+		seen[tool.Name] = true
 		names = append(names, tool.Name)
 	}
+	if cfg.MCP != nil {
+		for _, tool := range cfg.MCP.Tools {
+			if !toolEnabled(tool.RequiresConfig, instanceConfig) || strings.TrimSpace(tool.Name) == "" || seen[tool.Name] {
+				continue
+			}
+			seen[tool.Name] = true
+			names = append(names, tool.Name)
+		}
+	}
 	return names
+}
+
+func toolEnabled(flag string, instanceConfig map[string]any) bool {
+	flag = strings.TrimSpace(flag)
+	if flag == "" {
+		return true
+	}
+	value, ok := instanceConfig[flag]
+	if !ok {
+		return false
+	}
+	enabled, ok := value.(bool)
+	return ok && enabled
 }
 
 func mergeMap(dst map[string]any, src map[string]any) {

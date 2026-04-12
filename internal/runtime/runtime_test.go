@@ -220,6 +220,82 @@ routes:
 	}
 }
 
+func TestPlannerCompileIngressRuntimeSubscription(t *testing.T) {
+	home := t.TempDir()
+	reg := hub.NewRegistry(filepath.Join(home, "hub-registry"))
+	pkgDir := filepath.Join(home, "hub-registry", "connectors", "slack-interactivity")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pkgPath := filepath.Join(pkgDir, "connector.yaml")
+	if err := os.WriteFile(pkgPath, []byte(`kind: connector
+name: slack-interactivity
+version: "1.0.0"
+source:
+  type: webhook
+  path: /webhooks/slack-interactivity
+  webhook_auth:
+    type: hmac_sha256
+    secret_credref: slack_signing_secret
+routes:
+  - match:
+      payload_type: block_actions
+      action_id: consent_approve
+    target:
+      runtime_node: slack_authority
+      runtime_event: approval_action
+  - match:
+      payload_type: block_actions
+    target:
+      agent: "${interactivity_target_agent}"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.PutPackage(hub.InstalledPackage{
+		Kind: "connector", Name: "slack-interactivity", Version: "1.0.0", Path: pkgPath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	inst := &instancepkg.Instance{
+		ID:   "inst_123",
+		Name: "slack-interactivity",
+		Source: instancepkg.InstanceSource{
+			Package: instancepkg.PackageRef{Kind: "connector", Name: "slack-interactivity", Version: "1.0.0"},
+		},
+		Config: map[string]any{"interactivity_target_agent": "slack-bridge"},
+		Nodes: []instancepkg.Node{
+			{
+				ID:      "slack_ingress",
+				Kind:    "connector.ingress",
+				Package: instancepkg.PackageRef{Kind: "connector", Name: "slack-interactivity", Version: "1.0.0"},
+			},
+			{
+				ID:      "slack_authority",
+				Kind:    "connector.authority",
+				Package: instancepkg.PackageRef{Kind: "connector", Name: "slack-interactivity", Version: "1.0.0"},
+				Config: map[string]any{
+					"tools": []any{"consent_open_approval_card", "consent_poll_approval", "consent_cancel_approval"},
+				},
+			},
+		},
+	}
+
+	manifest, err := Planner{Packages: reg}.Compile(inst)
+	if err != nil {
+		t.Fatalf("Compile(): %v", err)
+	}
+	if len(manifest.Runtime.Subscriptions) != 1 {
+		t.Fatalf("len(subscriptions) = %d, want 1", len(manifest.Runtime.Subscriptions))
+	}
+	sub := manifest.Runtime.Subscriptions[0]
+	if sub.SourceType != "connector" || sub.SourceName != "slack-interactivity" || sub.EventType != "approval_action" {
+		t.Fatalf("subscription = %#v", sub)
+	}
+	if sub.InstanceID != inst.ID || sub.NodeID != "slack_authority" {
+		t.Fatalf("subscription target = %#v", sub)
+	}
+}
+
 func TestReconcilerPublishesIngressConnector(t *testing.T) {
 	home := t.TempDir()
 	instanceDir := filepath.Join(home, "instances", "inst_123")
@@ -591,6 +667,203 @@ func TestAuthorityHandlerInvokeValidatesConsentToken(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"allowed":true`) {
 		t.Fatalf("expected allowed response: %s", rec.Body.String())
+	}
+}
+
+func TestAuthorityHandlerSlackConsentApprovalFlow(t *testing.T) {
+	home := t.TempDir()
+	cfgHome := filepath.Join(home, ".agency")
+	t.Setenv("AGENCY_HOME", cfgHome)
+
+	backend, err := credstore.NewFileBackend(
+		filepath.Join(cfgHome, "credentials", "store.enc"),
+		filepath.Join(cfgHome, "credentials", ".key"),
+	)
+	if err != nil {
+		t.Fatalf("NewFileBackend(): %v", err)
+	}
+	credStore := credstore.NewStore(backend, cfgHome)
+	if err := credStore.Put(credstore.Entry{Name: "slack-bot-token", Value: "xoxb-test-token"}); err != nil {
+		t.Fatalf("store slack bot token: %v", err)
+	}
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey(): %v", err)
+	}
+	if err := credStore.Put(credstore.Entry{Name: "consent-private-key", Value: agencyconsent.EncodePrivateKey(priv)}); err != nil {
+		t.Fatalf("store consent private key: %v", err)
+	}
+
+	var postedBodies []map[string]any
+	slackAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode slack request: %v", err)
+		}
+		postedBodies = append(postedBodies, body)
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/chat.postMessage":
+			_, _ = w.Write([]byte(`{"ok":true,"ts":"171.0001"}`))
+		case "/api/chat.update":
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			t.Fatalf("unexpected slack path %s", r.URL.Path)
+		}
+	}))
+	defer slackAPI.Close()
+
+	manifest := &Manifest{
+		APIVersion: ManifestAPIVersion,
+		Kind:       ManifestKind,
+		Metadata: ManifestMeta{
+			ManifestID:   "mf_slack",
+			InstanceID:   "inst_slack",
+			InstanceName: "slack-approval",
+			CompiledAt:   time.Now().UTC(),
+			Planner:      PlannerVersion,
+		},
+		Source: ManifestSource{
+			InstanceRevision:    time.Now().UTC(),
+			ConsentDeploymentID: "dep-123",
+		},
+		Runtime: RuntimeSpec{
+			Bindings: []RuntimeBinding{
+				{Name: "slack_bot_token", Type: "credref", Target: "credref:slack-bot-token"},
+			},
+			Nodes: []RuntimeNode{{
+				NodeID: "slack_authority",
+				Kind:   "connector.authority",
+				Package: RuntimePackageRef{
+					Kind: "connector", Name: "slack-interactivity", Version: "1.0.0",
+				},
+				Tools: []string{"consent_open_approval_card", "consent_poll_approval", "consent_cancel_approval"},
+				GrantSubjects: []string{"agent:slack-approval/coordinator"},
+				Settings: map[string]any{
+					"consent_issuer": true,
+					"consent_issuer_config": map[string]any{
+						"signing_key_credref":      "consent-private-key",
+						"signing_key_id":           "dep-123:v1",
+						"max_token_ttl_seconds":    900,
+						"eligible_witnesses_group": "admins",
+					},
+				},
+				Executor: &RuntimeExecutor{
+					Kind:    "slack_interactivity",
+					BaseURL: slackAPI.URL,
+					Auth: &RuntimeExecutorAuth{
+						Type:    "bearer",
+						Binding: "slack_bot_token",
+						Header:  "Authorization",
+						Prefix:  "Bearer ",
+					},
+					Actions: map[string]RuntimeHTTPAction{
+						"consent_open_approval_card": {Method: http.MethodPost, Path: "/api/chat.postMessage"},
+						"consent_cancel_approval":    {Method: http.MethodPost, Path: "/api/chat.update"},
+						"consent_poll_approval":      {Method: http.MethodGet, Path: "/local/poll"},
+					},
+				},
+				Materialization: "authority/slack_authority.yaml",
+			}},
+		},
+	}
+
+	handler := AuthorityHandler{
+		Manifest:    manifest,
+		Resolver:    authzcore.Resolver{},
+		InstanceDir: filepath.Join(home, "instances", "inst_slack"),
+		NodeID:      "slack_authority",
+	}
+
+	openReq := httptest.NewRequest(http.MethodPost, "/invoke", bytes.NewBufferString(`{
+		"subject":"agent:slack-approval/coordinator",
+		"action":"consent_open_approval_card",
+		"input":{
+			"channel":"C123",
+			"operation_kind":"grant_drive_viewer",
+			"operation_target":"file:abc",
+			"operation_description":"Grant viewer access",
+			"card_blocks":{"type":"section"}
+		}
+	}`))
+	openReq.Header.Set("Content-Type", "application/json")
+	openRec := httptest.NewRecorder()
+	handler.ServeHTTP(openRec, openReq)
+	if openRec.Code != http.StatusOK {
+		t.Fatalf("open status = %d body=%s", openRec.Code, openRec.Body.String())
+	}
+	var openResp AuthorityInvokeResponse
+	if err := json.Unmarshal(openRec.Body.Bytes(), &openResp); err != nil {
+		t.Fatalf("decode open response: %v", err)
+	}
+	resultMap, ok := openResp.Result.(map[string]any)
+	if !ok {
+		t.Fatalf("open result = %#v", openResp.Result)
+	}
+	pendingID, _ := resultMap["pending_approval_id"].(string)
+	if pendingID == "" {
+		t.Fatalf("pending_approval_id missing in %#v", resultMap)
+	}
+	if len(postedBodies) != 1 {
+		t.Fatalf("Slack post calls = %d, want 1", len(postedBodies))
+	}
+
+	eventReq := httptest.NewRequest(http.MethodPost, "/events/approval_action", bytes.NewBufferString(fmt.Sprintf(`{
+		"id":"evt_1",
+		"source_type":"connector",
+		"source_name":"slack-interactivity",
+		"event_type":"approval_action",
+		"data":{
+			"payload_type":"block_actions",
+			"action_id":"consent_approve",
+			"user":{"id":"U123"},
+			"channel":{"id":"C123"},
+			"container":{"message_ts":"171.0001"},
+			"actions":[{"action_id":"consent_approve","value":"%s"}]
+		}
+	}`, pendingID)))
+	eventRec := httptest.NewRecorder()
+	handler.ServeHTTP(eventRec, eventReq)
+	if eventRec.Code != http.StatusOK {
+		t.Fatalf("event status = %d body=%s", eventRec.Code, eventRec.Body.String())
+	}
+
+	pollReq := httptest.NewRequest(http.MethodPost, "/invoke", bytes.NewBufferString(fmt.Sprintf(`{
+		"subject":"agent:slack-approval/coordinator",
+		"action":"consent_poll_approval",
+		"input":{"pending_approval_id":"%s"}
+	}`, pendingID)))
+	pollReq.Header.Set("Content-Type", "application/json")
+	pollRec := httptest.NewRecorder()
+	handler.ServeHTTP(pollRec, pollReq)
+	if pollRec.Code != http.StatusOK {
+		t.Fatalf("poll status = %d body=%s", pollRec.Code, pollRec.Body.String())
+	}
+	var pollResp AuthorityInvokeResponse
+	if err := json.Unmarshal(pollRec.Body.Bytes(), &pollResp); err != nil {
+		t.Fatalf("decode poll response: %v", err)
+	}
+	pollResult, ok := pollResp.Result.(map[string]any)
+	if !ok {
+		t.Fatalf("poll result = %#v", pollResp.Result)
+	}
+	if status, _ := pollResult["status"].(string); status != "approved" {
+		t.Fatalf("poll status = %#v", pollResult)
+	}
+	tokenValue, _ := pollResult["consent_token"].(string)
+	if tokenValue == "" {
+		t.Fatalf("consent token missing: %#v", pollResult)
+	}
+	validator := agencyconsent.NewValidator("dep-123", map[string]ed25519.PublicKey{
+		"dep-123:v1": pub,
+	}, 15*time.Minute, 30*time.Second)
+	if _, err := validator.Validate(agencyconsent.Requirement{
+		OperationKind:    "grant_drive_viewer",
+		TokenInputField:  "consent_token",
+		TargetInputField: "target",
+	}, tokenValue, "file:abc", time.Now().UTC()); err != nil {
+		t.Fatalf("Validate() token: %v", err)
 	}
 }
 

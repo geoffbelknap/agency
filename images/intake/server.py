@@ -291,6 +291,9 @@ async def _route_and_deliver(
     elif "team" in target:
         target_type = "team"
         target_name = target["team"]
+    elif "runtime_node" in target:
+        target_type = "runtime"
+        target_name = target["runtime_node"]
     else:
         target_type = "agent"
         target_name = target.get("agent")
@@ -320,6 +323,20 @@ async def _route_and_deliver(
             content=channel_text,
             source=source_label,
         )
+    elif target_type == "runtime":
+        runtime_event = target.get("runtime_event") or payload.get("payload_type") or "connector_event"
+        metadata = {
+            "runtime_node": target_name,
+        }
+        if target.get("runtime_instance"):
+            metadata["runtime_instance"] = target["runtime_instance"]
+        await gateway.publish_event(
+            source_name=connector_name,
+            event_type=runtime_event,
+            data=payload,
+            metadata=metadata,
+        )
+        delivered = True
     else:
         # Agent, team, or mission routes: deliver as agent task
         deliver_to = target_name

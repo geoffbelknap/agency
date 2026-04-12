@@ -24,7 +24,13 @@ func ServeAuthorityFromInstanceDir(ctx context.Context, instanceDir, nodeID stri
 	}
 	srv := &http.Server{
 		Addr:    fmt.Sprintf("127.0.0.1:%d", port),
-		Handler: AuthorityHandler{Manifest: manifest, Resolver: authzcore.Resolver{}, ConsentValidator: validator},
+		Handler: AuthorityHandler{
+			Manifest:         manifest,
+			Resolver:         authzcore.Resolver{},
+			ConsentValidator: validator,
+			InstanceDir:      instanceDir,
+			NodeID:           nodeID,
+		},
 	}
 	go func() {
 		<-ctx.Done()

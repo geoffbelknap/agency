@@ -9,6 +9,7 @@ import (
 	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/config"
+	"github.com/geoffbelknap/agency/internal/events"
 	"github.com/geoffbelknap/agency/internal/hub"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
 	runpkg "github.com/geoffbelknap/agency/internal/runtime"
@@ -23,6 +24,7 @@ type Deps struct {
 	Logger         *slog.Logger
 	RuntimeManager runtimeManager
 	Signal         signalSender
+	EventBus       *events.Bus
 }
 
 type handler struct {

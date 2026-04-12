@@ -288,6 +288,7 @@ class ConnectorConfig(BaseModel):
     mcp: Optional[ConnectorMCP] = None
     config: dict = Field(default_factory=dict)
     tools: list[ConnectorMCPTool] = []
+    runtime: Optional[dict] = None
     rate_limits: ConnectorRateLimits = Field(default_factory=ConnectorRateLimits)
     graph_ingest: list[GraphIngestRule] = []
 

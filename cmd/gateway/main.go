@@ -1070,6 +1070,10 @@ func runServe(httpAddr string) error {
 		logger.Error("gateway startup failed", "err", err)
 		os.Exit(1)
 	}
+	if startup.InstanceStore != nil {
+		runtimeDelivery := events.NewRuntimeDelivery(startup.InstanceStore)
+		eventBus.RegisterDelivery(events.DestRuntime, runtimeDelivery.Deliver)
+	}
 
 	// Principal registry — shared instance for auth + permission middleware.
 	var reg *registry.Registry

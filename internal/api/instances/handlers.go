@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/geoffbelknap/agency/internal/events"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
 	"github.com/geoffbelknap/agency/internal/manifestgen"
 	runpkg "github.com/geoffbelknap/agency/internal/runtime"
@@ -225,6 +226,7 @@ func (h *handler) applyInstance(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	h.syncRuntimeSubscriptions(manifest)
 	h.reloadIngressIfNeeded(manifest)
 	statuses, err := rtStore.ListNodeStatuses()
 	if err != nil {
@@ -368,6 +370,7 @@ func (h *handler) reconcileRuntime(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	h.syncRuntimeSubscriptions(manifest)
 	h.reloadIngressIfNeeded(manifest)
 	writeJSON(w, http.StatusOK, manifest)
 }
@@ -553,6 +556,28 @@ func (h *handler) reloadIngressIfNeeded(manifest *runpkg.Manifest) {
 			_ = h.deps.Signal.SignalContainer(context.Background(), "agency-intake", "SIGHUP")
 			return
 		}
+	}
+}
+
+func (h *handler) syncRuntimeSubscriptions(manifest *runpkg.Manifest) {
+	if manifest == nil || h.deps.EventBus == nil {
+		return
+	}
+	h.deps.EventBus.Subscriptions().RemoveByOrigin(events.OriginInstance, manifest.Metadata.InstanceID)
+	for _, sub := range manifest.Runtime.Subscriptions {
+		h.deps.EventBus.Subscriptions().Add(&events.Subscription{
+			ID:         sub.ID,
+			SourceType: sub.SourceType,
+			SourceName: sub.SourceName,
+			EventType:  sub.EventType,
+			Origin:     events.OriginInstance,
+			OriginRef:  manifest.Metadata.InstanceID,
+			Active:     true,
+			Destination: events.Destination{
+				Type:   events.DestRuntime,
+				Target: sub.InstanceID + "/" + sub.NodeID,
+			},
+		})
 	}
 }
 

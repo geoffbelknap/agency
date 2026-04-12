@@ -78,6 +78,7 @@ func (p Planner) Compile(inst *instancepkg.Instance) (*Manifest, error) {
 				GrantSubjects:       plannerGrantSubjects(inst, node.ID),
 				ConsentActions:      plannerConsentActions(inst, node.ID),
 				ConsentRequirements: plannerConsentRequirements(inst, node.ID),
+				Settings:            plannerNodeSettings(inst, node),
 				Executor:            executor,
 				Materialization:     "authority/" + node.ID + ".yaml",
 			}
@@ -88,7 +89,7 @@ func (p Planner) Compile(inst *instancepkg.Instance) (*Manifest, error) {
 				Path:   runtimeNode.Materialization,
 			})
 		case "connector.ingress":
-			ingress, err := p.plannerIngress(inst, node)
+			ingress, subs, err := p.plannerIngress(inst, node)
 			if err != nil {
 				return nil, fmt.Errorf("node %q ingress: %w", node.ID, err)
 			}
@@ -105,6 +106,7 @@ func (p Planner) Compile(inst *instancepkg.Instance) (*Manifest, error) {
 				Materialization:    "ingress/" + node.ID + ".yaml",
 			}
 			manifest.Runtime.Nodes = append(manifest.Runtime.Nodes, runtimeNode)
+			manifest.Runtime.Subscriptions = append(manifest.Runtime.Subscriptions, subs...)
 			manifest.Runtime.Operations = append(manifest.Runtime.Operations, RuntimeOperation{
 				Type:   "publish_ingress",
 				NodeID: node.ID,
@@ -118,6 +120,15 @@ func (p Planner) Compile(inst *instancepkg.Instance) (*Manifest, error) {
 	})
 	sort.Slice(manifest.Runtime.Operations, func(i, j int) bool {
 		return manifest.Runtime.Operations[i].NodeID < manifest.Runtime.Operations[j].NodeID
+	})
+	sort.Slice(manifest.Runtime.Subscriptions, func(i, j int) bool {
+		if manifest.Runtime.Subscriptions[i].InstanceID != manifest.Runtime.Subscriptions[j].InstanceID {
+			return manifest.Runtime.Subscriptions[i].InstanceID < manifest.Runtime.Subscriptions[j].InstanceID
+		}
+		if manifest.Runtime.Subscriptions[i].NodeID != manifest.Runtime.Subscriptions[j].NodeID {
+			return manifest.Runtime.Subscriptions[i].NodeID < manifest.Runtime.Subscriptions[j].NodeID
+		}
+		return manifest.Runtime.Subscriptions[i].EventType < manifest.Runtime.Subscriptions[j].EventType
 	})
 	for key, binding := range inst.Credentials {
 		manifest.Runtime.Bindings = append(manifest.Runtime.Bindings, RuntimeBinding{
@@ -155,9 +166,6 @@ func (p Planner) plannerExecutor(node instancepkg.Node) (*RuntimeExecutor, error
 	if kind == "" {
 		return nil, fmt.Errorf("executor.kind is required")
 	}
-	if kind != "http_json" {
-		return nil, fmt.Errorf("unsupported executor kind %q", kind)
-	}
 	baseURL, _ := cfg["base_url"].(string)
 	baseURL = strings.TrimSpace(baseURL)
 	if baseURL == "" {
@@ -167,12 +175,17 @@ func (p Planner) plannerExecutor(node instancepkg.Node) (*RuntimeExecutor, error
 	if err != nil {
 		return nil, err
 	}
-	if len(actions) == 0 {
+	if kind == "http_json" && len(actions) == 0 {
 		return nil, fmt.Errorf("executor.actions is required")
 	}
 	auth, err := plannerExecutorAuth(cfg["auth"])
 	if err != nil {
 		return nil, err
+	}
+	switch kind {
+	case "http_json", "slack_interactivity":
+	default:
+		return nil, fmt.Errorf("unsupported executor kind %q", kind)
 	}
 	return &RuntimeExecutor{
 		Kind:    kind,
@@ -286,28 +299,28 @@ func plannerCredentialBindings(node instancepkg.Node) []string {
 	return dedupe(keys)
 }
 
-func (p Planner) plannerIngress(inst *instancepkg.Instance, node instancepkg.Node) (*RuntimeIngressSpec, error) {
+func (p Planner) plannerIngress(inst *instancepkg.Instance, node instancepkg.Node) (*RuntimeIngressSpec, []RuntimeSubscription, error) {
 	if p.Packages == nil {
-		return nil, fmt.Errorf("package registry required")
+		return nil, nil, fmt.Errorf("package registry required")
 	}
 	pkg, found := p.Packages.GetPackage(node.Package.Kind, node.Package.Name)
 	if !found {
-		return nil, fmt.Errorf("package %s/%s not found", node.Package.Kind, node.Package.Name)
+		return nil, nil, fmt.Errorf("package %s/%s not found", node.Package.Kind, node.Package.Name)
 	}
 	var cfg models.ConnectorConfig
 	if err := models.Load(pkg.Path, &cfg); err != nil {
-		return nil, fmt.Errorf("load connector package: %w", err)
+		return nil, nil, fmt.Errorf("load connector package: %w", err)
 	}
 	if cfg.Source.Type == "" || cfg.Source.Type == "none" {
-		return nil, fmt.Errorf("package %q does not define an ingress source", node.Package.Name)
+		return nil, nil, fmt.Errorf("package %q does not define an ingress source", node.Package.Name)
 	}
 	rendered, err := renderIngressConnectorYAML(pkg.Path, ingressTemplateValues(inst, node))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var renderedCfg models.ConnectorConfig
 	if err := yaml.Unmarshal(rendered, &renderedCfg); err != nil {
-		return nil, fmt.Errorf("parse rendered connector yaml: %w", err)
+		return nil, nil, fmt.Errorf("parse rendered connector yaml: %w", err)
 	}
 	publishedName := strings.TrimSpace(stringValue(node.Config["published_name"]))
 	if publishedName == "" {
@@ -320,12 +333,12 @@ func (p Planner) plannerIngress(inst *instancepkg.Instance, node instancepkg.Nod
 	}
 	finalYAML, err := yaml.Marshal(renderedCfg)
 	if err != nil {
-		return nil, fmt.Errorf("marshal rendered connector yaml: %w", err)
+		return nil, nil, fmt.Errorf("marshal rendered connector yaml: %w", err)
 	}
 	return &RuntimeIngressSpec{
 		PublishedName: publishedName,
 		ConnectorYAML: string(finalYAML),
-	}, nil
+	}, plannerIngressSubscriptions(inst, renderedCfg), nil
 }
 
 func renderIngressConnectorYAML(path string, values map[string]string) ([]byte, error) {
@@ -349,6 +362,56 @@ func ingressTemplateValues(inst *instancepkg.Instance, node instancepkg.Node) ma
 		}
 	}
 	return values
+}
+
+func plannerNodeSettings(inst *instancepkg.Instance, node instancepkg.Node) map[string]any {
+	settings := map[string]any{}
+	for key, value := range inst.Config {
+		settings[key] = value
+	}
+	for key, value := range node.Config {
+		if key == "tools" || key == "executor" || key == "credential_bindings" || key == "resource_whitelist" {
+			continue
+		}
+		settings[key] = value
+	}
+	if len(settings) == 0 {
+		return nil
+	}
+	return settings
+}
+
+func plannerIngressSubscriptions(inst *instancepkg.Instance, cfg models.ConnectorConfig) []RuntimeSubscription {
+	if len(cfg.Routes) == 0 {
+		return nil
+	}
+	var subs []RuntimeSubscription
+	for idx, route := range cfg.Routes {
+		if len(route.Target) == 0 {
+			continue
+		}
+		nodeID := strings.TrimSpace(route.Target["runtime_node"])
+		if nodeID == "" {
+			continue
+		}
+		eventType := strings.TrimSpace(route.Target["runtime_event"])
+		if eventType == "" {
+			continue
+		}
+		instanceID := strings.TrimSpace(route.Target["runtime_instance"])
+		if instanceID == "" {
+			instanceID = inst.ID
+		}
+		subs = append(subs, RuntimeSubscription{
+			ID:         fmt.Sprintf("runtime-%s-%s-%d", instanceID, nodeID, idx),
+			SourceType: models.EventSourceConnector,
+			SourceName: cfg.Name,
+			EventType:  eventType,
+			InstanceID: instanceID,
+			NodeID:     nodeID,
+		})
+	}
+	return subs
 }
 
 func plannerResourceWhitelist(node instancepkg.Node) []RuntimeResourceWhitelistEntry {

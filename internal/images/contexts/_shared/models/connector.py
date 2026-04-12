@@ -249,6 +249,7 @@ class ConnectorConfig(BaseModel):
     mcp: ConnectorMCP | None = None
     config: dict = Field(default_factory=dict)
     tools: list[ConnectorMCPTool] = []
+    runtime: dict | None = None
     rate_limits: ConnectorRateLimits = Field(default_factory=ConnectorRateLimits)
 
     @model_validator(mode="after")
