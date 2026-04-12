@@ -311,6 +311,126 @@ func instanceCmd() *cobra.Command {
 			return nil
 		},
 	})
+	runtimeCmd := &cobra.Command{
+		Use:   "runtime",
+		Short: "Manage V2 instance runtime state",
+	}
+	runtimeCmd.AddCommand(&cobra.Command{
+		Use:   "manifest <instance>",
+		Short: "Show the current runtime manifest for an instance",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.ShowRuntimeManifest(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	})
+	runtimeCmd.AddCommand(&cobra.Command{
+		Use:   "compile <instance>",
+		Short: "Compile and persist a runtime manifest for an instance",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.CompileRuntimeManifest(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	})
+	runtimeCmd.AddCommand(&cobra.Command{
+		Use:   "reconcile <instance>",
+		Short: "Reconcile an instance runtime manifest into runtime state",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.ReconcileRuntimeManifest(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	})
+	runtimeCmd.AddCommand(&cobra.Command{
+		Use:   "start <instance> <node>",
+		Short: "Start an authority runtime node",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.StartRuntimeNode(cmd.Context(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	})
+	runtimeCmd.AddCommand(&cobra.Command{
+		Use:   "stop <instance> <node>",
+		Short: "Stop an authority runtime node",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.StopRuntimeNode(cmd.Context(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	})
+	var subject, action, inputJSON string
+	var consent bool
+	invokeCmd := &cobra.Command{
+		Use:   "invoke <instance> <node>",
+		Short: "Invoke an active authority runtime node",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			input := map[string]any{}
+			if strings.TrimSpace(inputJSON) != "" {
+				if err := json.Unmarshal([]byte(inputJSON), &input); err != nil {
+					return fmt.Errorf("--input must be valid JSON object: %w", err)
+				}
+			}
+			result, err := c.InvokeRuntimeNode(cmd.Context(), args[0], args[1], map[string]any{
+				"subject":          subject,
+				"node_id":          args[1],
+				"action":           action,
+				"consent_provided": consent,
+				"input":            input,
+			})
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	}
+	invokeCmd.Flags().StringVar(&subject, "subject", "", "invoking subject")
+	invokeCmd.Flags().StringVar(&action, "action", "", "authority action to invoke")
+	invokeCmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input payload")
+	invokeCmd.Flags().BoolVar(&consent, "consent", false, "mark consent as already provided")
+	runtimeCmd.AddCommand(invokeCmd)
+	cmd.AddCommand(runtimeCmd)
 	return cmd
 }
 

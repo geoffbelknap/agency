@@ -194,6 +194,51 @@ func (c *Client) ResolveAuthz(ctx context.Context, req authzcore.Request) (authz
 	return decision, err
 }
 
+func (c *Client) CompileRuntimeManifest(ctx context.Context, instanceID string) (map[string]any, error) {
+	_ = ctx
+	var result map[string]any
+	err := c.PostJSON("/api/v1/instances/"+url.PathEscape(instanceID)+"/runtime/manifest", nil, &result)
+	return result, err
+}
+
+func (c *Client) ShowRuntimeManifest(ctx context.Context, instanceID string) (map[string]any, error) {
+	_ = ctx
+	var result map[string]any
+	err := c.GetJSON("/api/v1/instances/"+url.PathEscape(instanceID)+"/runtime/manifest", &result)
+	return result, err
+}
+
+func (c *Client) ReconcileRuntimeManifest(ctx context.Context, instanceID string) (map[string]any, error) {
+	_ = ctx
+	var result map[string]any
+	err := c.PostJSON("/api/v1/instances/"+url.PathEscape(instanceID)+"/runtime/reconcile", nil, &result)
+	return result, err
+}
+
+func (c *Client) StartRuntimeNode(ctx context.Context, instanceID, nodeID string) (map[string]any, error) {
+	_ = ctx
+	var result map[string]any
+	path := "/api/v1/instances/" + url.PathEscape(instanceID) + "/runtime/nodes/" + url.PathEscape(nodeID) + "/start"
+	err := c.PostJSON(path, nil, &result)
+	return result, err
+}
+
+func (c *Client) StopRuntimeNode(ctx context.Context, instanceID, nodeID string) (map[string]any, error) {
+	_ = ctx
+	var result map[string]any
+	path := "/api/v1/instances/" + url.PathEscape(instanceID) + "/runtime/nodes/" + url.PathEscape(nodeID) + "/stop"
+	err := c.PostJSON(path, nil, &result)
+	return result, err
+}
+
+func (c *Client) InvokeRuntimeNode(ctx context.Context, instanceID, nodeID string, body map[string]any) (map[string]any, error) {
+	_ = ctx
+	var result map[string]any
+	path := "/api/v1/instances/" + url.PathEscape(instanceID) + "/runtime/nodes/" + url.PathEscape(nodeID) + "/invoke"
+	err := c.PostJSON(path, body, &result)
+	return result, err
+}
+
 // GetJSON performs a GET and unmarshals the response into v.
 func (c *Client) GetJSON(path string, v interface{}) error {
 	data, err := c.Get(path)
