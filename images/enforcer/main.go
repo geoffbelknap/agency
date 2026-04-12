@@ -132,11 +132,20 @@ func NewEnforcer() *Enforcer {
 	commsURL := envOr("COMMS_URL", "http://comms:8080")
 	knowledgeURL := envOr("KNOWLEDGE_URL", "http://knowledge:8080")
 	webFetchURL := envOr("WEB_FETCH_URL", "http://web-fetch:8080")
+	gatewayURL := envOr("GATEWAY_URL", "http://gateway:8200")
+	mediationHeaders := map[string]map[string]string{}
+	if token := os.Getenv("GATEWAY_TOKEN"); token != "" {
+		mediationHeaders["runtime"] = map[string]string{
+			"Authorization":  "Bearer " + token,
+			"X-Agency-Agent": agentName,
+		}
+	}
 	mediationProxy := NewMediationProxy(map[string]string{
 		"comms":     commsURL,
 		"knowledge": knowledgeURL,
 		"web-fetch": webFetchURL,
-	}, audit)
+		"runtime":   gatewayURL,
+	}, mediationHeaders, audit)
 
 	enforcer.proxy = proxy
 	enforcer.llm = llm

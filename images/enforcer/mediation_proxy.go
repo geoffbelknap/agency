@@ -15,13 +15,14 @@ import (
 type MediationProxy struct {
 	proxies    map[string]*httputil.ReverseProxy
 	targets    map[string]string
+	headers    map[string]map[string]string
 	audit      *AuditLogger
 	reqCount   int64     // atomic counter
 	reqResetAt time.Time // reset every minute
 	reqLimit   int64     // max requests per minute (0 = unlimited)
 }
 
-func NewMediationProxy(serviceURLs map[string]string, audit *AuditLogger) *MediationProxy {
+func NewMediationProxy(serviceURLs map[string]string, headers map[string]map[string]string, audit *AuditLogger) *MediationProxy {
 	proxies := make(map[string]*httputil.ReverseProxy, len(serviceURLs))
 	targets := make(map[string]string, len(serviceURLs))
 	for name, rawURL := range serviceURLs {
@@ -39,6 +40,7 @@ func NewMediationProxy(serviceURLs map[string]string, audit *AuditLogger) *Media
 	return &MediationProxy{
 		proxies:    proxies,
 		targets:    targets,
+		headers:    headers,
 		audit:      audit,
 		reqResetAt: time.Now().Add(time.Minute),
 		reqLimit:   600,
@@ -108,6 +110,9 @@ func (mp *MediationProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	r.URL.Path = remainder
 	r.URL.RawPath = ""
+	for key, value := range mp.headers[service] {
+		r.Header.Set(key, value)
+	}
 	wrapped := &statusCapture{ResponseWriter: w, status: 200}
 	proxy.ServeHTTP(wrapped, r)
 

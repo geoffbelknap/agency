@@ -48,6 +48,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Post("/api/v1/instances/{id}/runtime/nodes/{nodeID}/start", h.startRuntimeNode)
 	r.Post("/api/v1/instances/{id}/runtime/nodes/{nodeID}/stop", h.stopRuntimeNode)
 	r.Post("/api/v1/instances/{id}/runtime/nodes/{nodeID}/invoke", h.invokeRuntimeNode)
+	r.Post("/api/v1/instances/{id}/runtime/nodes/{nodeID}/actions/{action}", h.invokeRuntimeAction)
 }
 
 func (h *handler) store() *instancepkg.Store {

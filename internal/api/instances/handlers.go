@@ -265,12 +265,74 @@ func (h *handler) invokeRuntimeNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payload, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "failed to read request body"})
+	var payload map[string]any
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&payload); err != nil && err != io.EOF {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
 		return
 	}
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, strings.TrimRight(status.URL, "/")+"/invoke", bytes.NewReader(payload))
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	h.forwardRuntimeInvoke(w, r, status.URL, payload)
+}
+
+func (h *handler) invokeRuntimeAction(w http.ResponseWriter, r *http.Request) {
+	rtStore, manifest, ok := h.runtimeContext(w, r)
+	if !ok {
+		return
+	}
+	nodeID := chi.URLParam(r, "nodeID")
+	action := chi.URLParam(r, "action")
+	status, err := h.runtimeManager().Status(rtStore, manifest, nodeID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	if status.State != runpkg.NodeStateActive || strings.TrimSpace(status.URL) == "" {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "runtime node is not active"})
+		return
+	}
+
+	var input map[string]any
+	if r.Body != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&input); err != nil && err != io.EOF {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+			return
+		}
+	}
+	if input == nil {
+		input = map[string]any{}
+	}
+	subject := strings.TrimSpace(r.Header.Get("X-Agency-Subject"))
+	if subject == "" {
+		if agentName := strings.TrimSpace(r.Header.Get("X-Agency-Agent")); agentName != "" {
+			subject = "agent:" + manifest.Metadata.InstanceName + "/" + agentName
+		}
+	}
+	if subject == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing invoking subject"})
+		return
+	}
+
+	payload := map[string]any{
+		"subject": subject,
+		"node_id": nodeID,
+		"action":  action,
+		"input":   input,
+	}
+	if consentProvided, ok := input["consent_provided"].(bool); ok {
+		payload["consent_provided"] = consentProvided
+	}
+	h.forwardRuntimeInvoke(w, r, status.URL, payload)
+}
+
+func (h *handler) forwardRuntimeInvoke(w http.ResponseWriter, r *http.Request, runtimeURL string, payload map[string]any) {
+	bodyData, err := json.Marshal(payload)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, strings.TrimRight(runtimeURL, "/")+"/invoke", bytes.NewReader(bodyData))
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return

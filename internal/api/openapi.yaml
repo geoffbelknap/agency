@@ -437,6 +437,43 @@ paths:
                 type: object
                 additionalProperties: true
 
+  /instances/{id}/runtime/nodes/{nodeID}/actions/{action}:
+    post:
+      operationId: invokeRuntimeAction
+      summary: Invoke a specific action on an active authority runtime node
+      tags: [Instances]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: nodeID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: action
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Runtime node action response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
   /authz/resolve:
     post:
       operationId: resolveAuthz

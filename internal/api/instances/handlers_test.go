@@ -228,6 +228,74 @@ func TestInvokeRuntimeNode(t *testing.T) {
 	}
 }
 
+func TestInvokeRuntimeActionDerivesSubjectFromAgentHeader(t *testing.T) {
+	s := instancepkg.NewStore(t.TempDir())
+	inst := &instancepkg.Instance{
+		ID:   "inst_123",
+		Name: "community-admin",
+		Source: instancepkg.InstanceSource{
+			Template: instancepkg.PackageRef{Kind: "template", Name: "community-admin", Version: "1.0.0"},
+		},
+		Nodes: []instancepkg.Node{
+			{
+				ID:   "drive_admin",
+				Kind: "connector.authority",
+				Package: instancepkg.PackageRef{
+					Kind:    "connector",
+					Name:    "google-drive-admin",
+					Version: "1.0.0",
+				},
+				Config: map[string]any{
+					"tools": []any{"add_viewer"},
+				},
+			},
+		},
+	}
+	if err := s.Create(t.Context(), inst); err != nil {
+		t.Fatalf("Create(): %v", err)
+	}
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if body["action"] != "add_viewer" {
+			t.Fatalf("body = %#v", body)
+		}
+		if body["subject"] != "agent:community-admin/coordinator" {
+			t.Fatalf("subject = %#v", body["subject"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"allowed": true, "execution": "executed"})
+	}))
+	defer upstream.Close()
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{Store: s, RuntimeManager: invokeStubRuntimeManager{url: upstream.URL}})
+
+	for _, path := range []string{
+		"/api/v1/instances/inst_123/runtime/manifest",
+		"/api/v1/instances/inst_123/runtime/reconcile",
+		"/api/v1/instances/inst_123/runtime/nodes/drive_admin/start",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code < 200 || rec.Code >= 300 {
+			t.Fatalf("%s code = %d body=%s", path, rec.Code, rec.Body.String())
+		}
+	}
+
+	invokeReq := httptest.NewRequest(http.MethodPost, "/api/v1/instances/inst_123/runtime/nodes/drive_admin/actions/add_viewer", strings.NewReader(`{"email":"person@example.com"}`))
+	invokeReq.Header.Set("Content-Type", "application/json")
+	invokeReq.Header.Set("X-Agency-Agent", "coordinator")
+	invokeRec := httptest.NewRecorder()
+	r.ServeHTTP(invokeRec, invokeReq)
+	if invokeRec.Code != http.StatusOK {
+		t.Fatalf("invoke code = %d, want 200; body = %s", invokeRec.Code, invokeRec.Body.String())
+	}
+}
+
 type stubRuntimeManager struct{}
 
 func (stubRuntimeManager) Status(store *runpkg.Store, manifest *runpkg.Manifest, nodeID string) (*runpkg.NodeStatus, error) {

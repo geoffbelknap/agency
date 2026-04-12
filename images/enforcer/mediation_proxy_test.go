@@ -15,7 +15,7 @@ func testMediationProxy(t *testing.T, serviceURLs map[string]string) *MediationP
 	auditDir := t.TempDir()
 	audit := NewAuditLogger(auditDir, "test-agent")
 	t.Cleanup(func() { audit.Close() })
-	return NewMediationProxy(serviceURLs, audit)
+	return NewMediationProxy(serviceURLs, nil, audit)
 }
 
 func TestMediationProxyRoutesToComms(t *testing.T) {
@@ -110,5 +110,37 @@ func TestMediationProxyWebSocketFullUpgrade(t *testing.T) {
 	}
 	if string(msg) != "ping" {
 		t.Fatalf("expected echo 'ping', got %q", string(msg))
+	}
+}
+
+func TestMediationProxyRuntimeInjectsGatewayHeaders(t *testing.T) {
+	runtimeTarget := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer gateway-token" {
+			t.Fatalf("Authorization = %q, want Bearer gateway-token", got)
+		}
+		if got := r.Header.Get("X-Agency-Agent"); got != "coordinator" {
+			t.Fatalf("X-Agency-Agent = %q, want coordinator", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer runtimeTarget.Close()
+
+	auditDir := t.TempDir()
+	audit := NewAuditLogger(auditDir, "test-agent")
+	t.Cleanup(func() { audit.Close() })
+	mp := NewMediationProxy(map[string]string{
+		"runtime": runtimeTarget.URL,
+	}, map[string]map[string]string{
+		"runtime": {
+			"Authorization":  "Bearer gateway-token",
+			"X-Agency-Agent": "coordinator",
+		},
+	}, audit)
+
+	req := httptest.NewRequest(http.MethodPost, "/mediation/runtime/instances/inst/runtime/nodes/drive/actions/add_viewer", strings.NewReader(`{"email":"person@example.com"}`))
+	w := httptest.NewRecorder()
+	mp.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
 	}
 }
