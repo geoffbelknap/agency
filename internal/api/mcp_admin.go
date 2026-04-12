@@ -12,6 +12,8 @@ import (
 	"encoding/json"
 
 	"github.com/geoffbelknap/agency/internal/capabilities"
+	agencyconsent "github.com/geoffbelknap/agency/internal/consent"
+	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
@@ -1812,6 +1814,123 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				lines = append(lines, "  ! "+e)
 			}
 			return strings.Join(lines, "\n"), len(regenerated) == 0
+		},
+	)
+
+	reg.Register(
+		"agency_admin_consent_keys",
+		"Bootstrap or rotate consent-token signing keys for an agent. Writes the agent verification config, stores the private key in credstore, and SIGHUPs the enforcer if running.",
+		map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"agent":             map[string]interface{}{"type": "string", "description": "Agent name"},
+				"deployment_id":     map[string]interface{}{"type": "string", "description": "Deployment ID to scope consent tokens to"},
+				"action":            map[string]interface{}{"type": "string", "description": "bootstrap or rotate"},
+				"max_ttl_seconds":   map[string]interface{}{"type": "integer", "description": "Maximum token TTL in seconds (default 900)"},
+				"clock_skew_millis": map[string]interface{}{"type": "integer", "description": "Clock skew tolerance in milliseconds (default 30000)"},
+			},
+			"required": []string{"agent", "deployment_id"},
+		},
+		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			agent := mapStr(args, "agent")
+			deploymentID := mapStr(args, "deployment_id")
+			action := mapStr(args, "action")
+			if action == "" {
+				action = "bootstrap"
+			}
+			if agent == "" || deploymentID == "" {
+				return "Error: agent and deployment_id are required", true
+			}
+			if action != "bootstrap" && action != "rotate" {
+				return "Error: action must be bootstrap or rotate", true
+			}
+			if d.credStore == nil {
+				return "Error: credential store is not available", true
+			}
+			if !requireNameStr(agent) {
+				return `{"error":"invalid agent"}`, true
+			}
+
+			agentDir := filepath.Join(d.cfg.Home, "agents", agent)
+			if _, err := os.Stat(filepath.Join(agentDir, "agent.yaml")); err != nil {
+				return fmt.Sprintf("Error: agent not found: %s", agent), true
+			}
+
+			maxTTL := mapInt(args, "max_ttl_seconds", 900)
+			if maxTTL <= 0 {
+				maxTTL = 900
+			}
+			clockSkew := mapInt(args, "clock_skew_millis", 30000)
+			if clockSkew <= 0 {
+				clockSkew = 30000
+			}
+
+			cfg := &agencyconsent.VerificationConfig{
+				DeploymentID:     deploymentID,
+				MaxTTLSeconds:    maxTTL,
+				ClockSkewMillis:  clockSkew,
+				VerificationKeys: map[string]string{},
+			}
+			if existing, err := agencyconsent.LoadVerificationConfig(agentDir); err == nil {
+				cfg = existing
+				if cfg.DeploymentID != "" && cfg.DeploymentID != deploymentID {
+					return fmt.Sprintf("Error: agent %s already has consent keys for deployment_id=%s", agent, cfg.DeploymentID), true
+				}
+				cfg.DeploymentID = deploymentID
+				if maxTTL > 0 {
+					cfg.MaxTTLSeconds = maxTTL
+				}
+				if clockSkew > 0 {
+					cfg.ClockSkewMillis = clockSkew
+				}
+			}
+			cfg.Normalize()
+
+			keyID := agencyconsent.NextKeyID(cfg.VerificationKeys, deploymentID)
+			pub, priv, err := agencyconsent.GenerateSigningKeyPair()
+			if err != nil {
+				return "Error: failed to generate signing key pair: " + err.Error(), true
+			}
+			cfg.VerificationKeys[keyID] = agencyconsent.EncodePublicKey(pub)
+			if err := cfg.Write(agentDir); err != nil {
+				return "Error: failed to write consent verification config: " + err.Error(), true
+			}
+
+			now := time.Now().UTC().Format(time.RFC3339)
+			credName := fmt.Sprintf("deployment:%s:consent_signing_private_key:%s", deploymentID, strings.TrimPrefix(keyID, deploymentID+":"))
+			if err := d.credStore.Put(credstore.Entry{
+				Name:  credName,
+				Value: agencyconsent.EncodePrivateKey(priv),
+				Metadata: credstore.Metadata{
+					Kind:      credstore.KindInternal,
+					Scope:     "platform",
+					Service:   agent,
+					Protocol:  credstore.ProtocolBearer,
+					Source:    "consent-bootstrap",
+					CreatedAt: now,
+					RotatedAt: now,
+				},
+			}); err != nil {
+				return "Error: failed to store consent private key in credstore: " + err.Error(), true
+			}
+
+			if d.dc != nil {
+				enforcerName := "agency-" + agent + "-enforcer"
+				if err := d.dc.RawClient().ContainerKill(context.Background(), enforcerName, "SIGHUP"); err != nil {
+					d.log.Debug("consent key bootstrap: enforcer SIGHUP failed", "agent", agent, "err", err)
+				}
+			}
+
+			d.audit.Write(agent, "consent_keys_updated", map[string]interface{}{
+				"deployment_id":     deploymentID,
+				"action":            action,
+				"signing_key_id":    keyID,
+				"private_credref":   credName,
+				"verification_keys": agencyconsent.SortedKeyIDs(cfg.VerificationKeys),
+				"max_ttl_seconds":   maxTTL,
+			})
+
+			return fmt.Sprintf("Consent keys updated for %s\n  deployment_id: %s\n  signing_key_id: %s\n  private_key_credref: %s\n  verification_config: %s\n  active_verification_keys: %s", agent, deploymentID, keyID, credName, filepath.Join(agentDir, agencyconsent.ConfigFileName), strings.Join(agencyconsent.SortedKeyIDs(cfg.VerificationKeys), ", ")), false
 		},
 	)
 

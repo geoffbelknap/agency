@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,6 +12,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/agency-platform/enforcer/consent"
 )
 
 func newTestProxyHandler(t *testing.T, dg *DomainGate, svc *ServiceRegistry) (*ProxyHandler, *httptest.Server) {
@@ -277,6 +283,129 @@ func TestProxyPostBody(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestProxyConsentTokenRequired(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	}))
+	defer backend.Close()
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	now := time.Now().UTC()
+	token := consent.Token{
+		Version:         1,
+		DeploymentID:    "dep-123",
+		OperationKind:   "add_managed_doc",
+		OperationTarget: []byte("drive-abc"),
+		Issuer:          "slack-interactivity",
+		Witnesses:       []string{"U1", "U2"},
+		IssuedAt:        now.UnixMilli(),
+		ExpiresAt:       now.Add(5 * time.Minute).UnixMilli(),
+		Nonce:           []byte("0123456789abcdef"),
+		SigningKeyID:    "dep-123:v1",
+	}
+	raw, _ := token.MarshalCanonical()
+	encoded, _ := consent.EncodeSignedToken(consent.SignedToken{
+		Token:     token,
+		Signature: ed25519.Sign(priv, raw),
+	})
+
+	auditDir := t.TempDir()
+	audit := NewAuditLogger(auditDir, "test-agent")
+	defer audit.Close()
+
+	dg := NewDomainGate()
+	svc := NewServiceRegistry()
+	svc.Register("drive", &ServiceCredential{
+		Header: "Authorization",
+		Value:  "enforcer-scope-only",
+		ToolConsent: map[string]consent.Requirement{
+			"drive_add_whitelist_entry": {
+				OperationKind:    "add_managed_doc",
+				TokenInputField:  "consent_token",
+				TargetInputField: "drive_id",
+				MinWitnesses:     2,
+			},
+		},
+	})
+	svc.consent = consent.NewValidator("dep-123", map[string]ed25519.PublicKey{
+		"dep-123:v1": pub,
+	}, 15*time.Minute, 30*time.Second)
+
+	ph := &ProxyHandler{
+		egressProxy: backend.URL,
+		domainGate:  dg,
+		services:    svc,
+		audit:       audit,
+		transport:   http.DefaultTransport.(*http.Transport).Clone(),
+	}
+
+	req := httptest.NewRequest("POST", "http://example.com/drive", bytes.NewBufferString(`{"drive_id":"drive-abc","consent_token":"`+encoded+`"}`))
+	req.Host = "example.com"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Agency-Service", "drive")
+	req.Header.Set("X-Agency-Tool", "drive_add_whitelist_entry")
+	rr := httptest.NewRecorder()
+	ph.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestProxyConsentTokenRejectedWhenVerifierUnavailable(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	}))
+	defer backend.Close()
+
+	auditDir := t.TempDir()
+	audit := NewAuditLogger(auditDir, "test-agent")
+	defer audit.Close()
+
+	dg := NewDomainGate()
+	svc := NewServiceRegistry()
+	svc.Register("drive", &ServiceCredential{
+		Header: "Authorization",
+		Value:  "enforcer-scope-only",
+		ToolConsent: map[string]consent.Requirement{
+			"drive_add_whitelist_entry": {
+				OperationKind:    "add_managed_doc",
+				TokenInputField:  "consent_token",
+				TargetInputField: "drive_id",
+				MinWitnesses:     2,
+			},
+		},
+	})
+
+	ph := &ProxyHandler{
+		egressProxy: backend.URL,
+		domainGate:  dg,
+		services:    svc,
+		audit:       audit,
+		transport:   http.DefaultTransport.(*http.Transport).Clone(),
+	}
+
+	req := httptest.NewRequest("POST", "http://example.com/drive", bytes.NewBufferString(`{"drive_id":"drive-abc"}`))
+	req.Host = "example.com"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Agency-Service", "drive")
+	req.Header.Set("X-Agency-Tool", "drive_add_whitelist_entry")
+	rr := httptest.NewRecorder()
+	ph.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "consent_token_verifier_unavailable") {
+		t.Fatalf("expected consent verifier failure, got %s", rr.Body.String())
 	}
 }
 

@@ -90,6 +90,7 @@ class ServiceToolDispatcher:
                     "_service": service["service"],
                     "_api_base": service["api_base"],
                     "_scoped_token": service["scoped_token"],
+                    "_tool_name": tool["name"],
                     "_endpoint": tool.get("path", tool.get("endpoint", "")),
                     "_method": tool.get("method", "GET"),
                     "_query_params": tool.get("query_params", {}),
@@ -138,6 +139,7 @@ class ServiceToolDispatcher:
         method = tool.get("_method", "GET").upper()
         headers = {
             "X-Agency-Service": tool["_service"],
+            "X-Agency-Tool": tool.get("_tool_name", name),
             "Authorization": f"Bearer {tool['_scoped_token']}",
             "Accept": "application/json",
         }
