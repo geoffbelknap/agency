@@ -693,6 +693,81 @@ func TestAuthorityHandlerInvokeValidatesConsentToken(t *testing.T) {
 	}
 }
 
+func TestAuthorityHandlerInvokeNestedConsentRequirement(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("AGENCY_HOME", home)
+	putTestCredential(t, home, "gdrive-admin", "test-bearer-token")
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	now := time.Now().UTC()
+	token := agencyconsent.Token{
+		Version:         1,
+		DeploymentID:    "dep-123",
+		OperationKind:   "grant_drive_viewer",
+		OperationTarget: []byte("file-123"),
+		Issuer:          "slack-interactivity",
+		Witnesses:       []string{"U1"},
+		IssuedAt:        now.UnixMilli(),
+		ExpiresAt:       now.Add(5 * time.Minute).UnixMilli(),
+		Nonce:           []byte("fedcba9876543210"),
+		SigningKeyID:    "dep-123:v1",
+	}
+	raw, err := token.MarshalCanonical()
+	if err != nil {
+		t.Fatalf("marshal token: %v", err)
+	}
+	encoded, err := agencyconsent.EncodeSignedToken(agencyconsent.SignedToken{
+		Token:     token,
+		Signature: ed25519.Sign(priv, raw),
+	})
+	if err != nil {
+		t.Fatalf("encode token: %v", err)
+	}
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	manifest, err := Planner{}.Compile(testInstanceWithNestedConsentRequirementForInvoke(upstream.URL))
+	if err != nil {
+		t.Fatalf("Compile(): %v", err)
+	}
+	handler := AuthorityHandler{
+		Manifest: manifest,
+		Resolver: authzcore.Resolver{},
+		ConsentValidator: agencyconsent.NewValidator("dep-123", map[string]ed25519.PublicKey{
+			"dep-123:v1": pub,
+		}, 15*time.Minute, 30*time.Second),
+	}
+
+	denyReq := httptest.NewRequest(http.MethodPost, "/invoke", bytes.NewBufferString(`{"subject":"agent:community-admin/coordinator","node_id":"drive_admin","action":"add_viewer","input":{"file_id":"file-123"}}`))
+	denyReq.Header.Set("Content-Type", "application/json")
+	denyRec := httptest.NewRecorder()
+	handler.ServeHTTP(denyRec, denyReq)
+	if denyRec.Code != http.StatusForbidden {
+		t.Fatalf("deny code = %d, want 403; body=%s", denyRec.Code, denyRec.Body.String())
+	}
+	if !strings.Contains(denyRec.Body.String(), `"consent_needed":true`) {
+		t.Fatalf("expected consent_needed response: %s", denyRec.Body.String())
+	}
+
+	allowReq := httptest.NewRequest(http.MethodPost, "/invoke", bytes.NewBufferString(`{"subject":"agent:community-admin/coordinator","node_id":"drive_admin","action":"add_viewer","input":{"file_id":"file-123","consent_token":"`+encoded+`"}}`))
+	allowReq.Header.Set("Content-Type", "application/json")
+	allowRec := httptest.NewRecorder()
+	handler.ServeHTTP(allowRec, allowReq)
+	if allowRec.Code != http.StatusOK {
+		t.Fatalf("allow code = %d, want 200; body=%s", allowRec.Code, allowRec.Body.String())
+	}
+	if !strings.Contains(allowRec.Body.String(), `"allowed":true`) {
+		t.Fatalf("expected allowed response: %s", allowRec.Body.String())
+	}
+}
+
 func TestAuthorityHandlerSlackConsentApprovalFlow(t *testing.T) {
 	home := t.TempDir()
 	cfgHome := filepath.Join(home, ".agency")
@@ -1033,6 +1108,34 @@ func testInstanceWithConsentRequirement() *instancepkg.Instance {
 		"operation_kind":     "grant_drive_viewer",
 		"token_input_field":  "consent_token",
 		"target_input_field": "drive_id",
+	}
+	return inst
+}
+
+func testInstanceWithNestedConsentRequirementForInvoke(baseURL string) *instancepkg.Instance {
+	inst := testInstanceWithConfig(map[string]any{
+		"executor": map[string]any{
+			"kind":     "http_json",
+			"base_url": baseURL,
+			"actions": map[string]any{
+				"add_viewer": map[string]any{
+					"method": "POST",
+					"path":   "/permissions/add",
+				},
+			},
+			"auth": map[string]any{
+				"type":    "bearer",
+				"binding": "service_account_json",
+			},
+		},
+	})
+	inst.Config = map[string]any{"consent_deployment_id": "dep-123"}
+	inst.Grants[0].Config = map[string]any{
+		"requires_consent_token": map[string]any{
+			"operation_kind":     "grant_drive_viewer",
+			"token_input_field":  "consent_token",
+			"target_input_field": "file_id",
+		},
 	}
 	return inst
 }

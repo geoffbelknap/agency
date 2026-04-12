@@ -108,7 +108,7 @@ mcp:
 	r := chi.NewRouter()
 	RegisterRoutes(r, Deps{Store: s, Registry: reg})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/instances/from-package", strings.NewReader(`{"kind":"connector","name":"google-drive-admin","instance_name":"community-drive","config":{"consent_deployment_id":"dep-123"},"node_config":{"resource_whitelist":[{"kind":"file","drive_id":"file-123"}]}}`))
+req := httptest.NewRequest(http.MethodPost, "/api/v1/instances/from-package", strings.NewReader(`{"kind":"connector","name":"google-drive-admin","instance_name":"community-drive","config":{"consent_deployment_id":"dep-123","whitelist":["file:file-123","folder:folder-456"]}}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -123,6 +123,9 @@ mcp:
 	}
 	if !strings.Contains(rec.Body.String(), `"google-drive-admin"`) {
 		t.Fatalf("missing package reference: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"resource_whitelist":[{"id":"file-123","kind":"file"},{"id":"folder-456","kind":"folder"}]`) {
+		t.Fatalf("missing derived resource whitelist: %s", rec.Body.String())
 	}
 }
 

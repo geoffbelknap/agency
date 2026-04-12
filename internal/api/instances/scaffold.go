@@ -113,6 +113,9 @@ func connectorDefaultAuthorityNodeConfig(cfg models.ConnectorConfig, instanceCon
 	if cfg.MCP != nil && strings.TrimSpace(cfg.MCP.Credential) != "" {
 		out["credential_bindings"] = []any{cfg.MCP.Credential}
 	}
+	if whitelist := connectorDefaultResourceWhitelist(instanceConfig); len(whitelist) > 0 {
+		out["resource_whitelist"] = whitelist
+	}
 	return out
 }
 
@@ -209,4 +212,40 @@ func packageHasAuthorityRuntime(pkg hub.InstalledPackage) bool {
 	}
 	runtimeSpec, _ := pkg.Spec["runtime"].(map[string]any)
 	return runtimeSpec != nil && runtimeSpec["executor"] != nil
+}
+
+func connectorDefaultResourceWhitelist(instanceConfig map[string]any) []any {
+	raw, ok := instanceConfig["whitelist"]
+	if !ok || raw == nil {
+		return nil
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]any, 0, len(items))
+	for _, item := range items {
+		s, ok := item.(string)
+		if !ok {
+			continue
+		}
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		kind, id, found := strings.Cut(s, ":")
+		if !found {
+			continue
+		}
+		kind = strings.TrimSpace(kind)
+		id = strings.TrimSpace(id)
+		if kind == "" || id == "" {
+			continue
+		}
+		out = append(out, map[string]any{
+			"kind": kind,
+			"id":   id,
+		})
+	}
+	return out
 }
