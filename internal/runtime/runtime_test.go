@@ -98,6 +98,29 @@ func TestPlannerCompileAuthorityNodeWithConsentRequirement(t *testing.T) {
 	if req.TokenInputField != "consent_token" || req.TargetInputField != "drive_id" {
 		t.Fatalf("consent requirement fields = %#v", req)
 	}
+	if len(manifest.Runtime.Nodes[0].ConsentActions) != 1 || manifest.Runtime.Nodes[0].ConsentActions[0] != "add_viewer" {
+		t.Fatalf("consent_actions = %v", manifest.Runtime.Nodes[0].ConsentActions)
+	}
+}
+
+func TestPlannerCompileAuthorityNodeWithNestedConsentRequirement(t *testing.T) {
+	inst := testInstance()
+	inst.Config = map[string]any{"consent_deployment_id": "dep-123"}
+	inst.Grants[0].Config = map[string]any{
+		"requires_consent_token": map[string]any{
+			"operation_kind":     "grant_drive_viewer",
+			"token_input_field":  "consent_token",
+			"target_input_field": "drive_id",
+		},
+	}
+
+	manifest, err := Planner{}.Compile(inst)
+	if err != nil {
+		t.Fatalf("Compile(): %v", err)
+	}
+	if len(manifest.Runtime.Nodes[0].ConsentActions) != 1 || manifest.Runtime.Nodes[0].ConsentActions[0] != "add_viewer" {
+		t.Fatalf("consent_actions = %v", manifest.Runtime.Nodes[0].ConsentActions)
+	}
 }
 
 func TestStoreSaveLoadManifest(t *testing.T) {

@@ -609,6 +609,9 @@ func consentRequired(cfg map[string]any) bool {
 	if cfg == nil {
 		return false
 	}
+	if _, ok := cfg["requires_consent_token"].(map[string]any); ok {
+		return true
+	}
 	for _, key := range []string{"consent_required", "requires_consent"} {
 		if v, ok := cfg[key].(bool); ok && v {
 			return true
