@@ -441,7 +441,12 @@ func (m *Manager) Install(componentName, kind, source, instanceName string) (*In
 		return nil, fmt.Errorf("write component: %w", err)
 	}
 
-	if err := m.publishInstalledPackage(componentName, kind, inst.Version, comp.Source, destPath); err != nil {
+	pkg, err := buildInstalledPackage(componentName, kind, inst.Version, comp.Source, destPath)
+	if err != nil {
+		return nil, fmt.Errorf("derive package spec: %w", err)
+	}
+
+	if err := m.Registry.PutPackage(pkg); err != nil {
 		return nil, fmt.Errorf("write installed package registry entry: %w", err)
 	}
 
@@ -796,7 +801,19 @@ func (m *Manager) Upgrade(components []string) (*UpgradeReport, error) {
 
 		// Update version in registry
 		m.Registry.SetVersion(inst.Name, cached.Version)
-		if err := m.publishInstalledPackage(inst.Name, inst.Kind, cached.Version, cached.Source, destPath); err != nil {
+		pkg, err := buildInstalledPackage(inst.Name, inst.Kind, cached.Version, cached.Source, destPath)
+		if err != nil {
+			report.Components = append(report.Components, ComponentUpgrade{
+				Name:       inst.Name,
+				Kind:       inst.Kind,
+				OldVersion: inst.Version,
+				NewVersion: cached.Version,
+				Status:     "error",
+				Error:      err.Error(),
+			})
+			continue
+		}
+		if err := m.Registry.PutPackage(pkg); err != nil {
 			report.Components = append(report.Components, ComponentUpgrade{
 				Name:       inst.Name,
 				Kind:       inst.Kind,

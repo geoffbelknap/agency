@@ -88,11 +88,12 @@ mcp:
 		t.Fatalf("WriteFile(): %v", err)
 	}
 	if err := reg.PutPackage(hub.InstalledPackage{
-		Kind:    "connector",
-		Name:    "google-drive-admin",
-		Version: "1.0.0",
-		Trust:   "verified",
-		Path:    pkgPath,
+		Kind:      "connector",
+		Name:      "google-drive-admin",
+		Version:   "1.0.0",
+		Trust:     "verified",
+		Path:      pkgPath,
+		Assurance: []string{"publisher_verified", "ask_partial"},
 		Spec: map[string]any{
 			"runtime": map[string]any{
 				"executor": map[string]any{
@@ -108,7 +109,7 @@ mcp:
 	r := chi.NewRouter()
 	RegisterRoutes(r, Deps{Store: s, Registry: reg})
 
-req := httptest.NewRequest(http.MethodPost, "/api/v1/instances/from-package", strings.NewReader(`{"kind":"connector","name":"google-drive-admin","instance_name":"community-drive","config":{"consent_deployment_id":"dep-123","whitelist":["file:file-123","folder:folder-456"]}}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/instances/from-package", strings.NewReader(`{"kind":"connector","name":"google-drive-admin","instance_name":"community-drive","config":{"consent_deployment_id":"dep-123","whitelist":["file:file-123","folder:folder-456"]}}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -156,11 +157,12 @@ routes:
 		t.Fatalf("WriteFile(): %v", err)
 	}
 	if err := reg.PutPackage(hub.InstalledPackage{
-		Kind:    "connector",
-		Name:    "slack-interactivity",
-		Version: "1.0.0",
-		Trust:   "verified",
-		Path:    pkgPath,
+		Kind:      "connector",
+		Name:      "slack-interactivity",
+		Version:   "1.0.0",
+		Trust:     "verified",
+		Path:      pkgPath,
+		Assurance: []string{"publisher_verified", "ask_partial"},
 		Spec: map[string]any{
 			"runtime": map[string]any{
 				"executor": map[string]any{
@@ -191,6 +193,59 @@ routes:
 	}
 	if !strings.Contains(rec.Body.String(), `"interactivity_target_agent":"slack-bridge"`) {
 		t.Fatalf("missing instance config: %s", rec.Body.String())
+	}
+}
+
+func TestCreateInstanceFromPackageRejectsInsufficientAssurance(t *testing.T) {
+	home := t.TempDir()
+	s := instancepkg.NewStore(filepath.Join(home, "instances"))
+	reg := hub.NewRegistry(filepath.Join(home, "hub-registry"))
+
+	pkgDir := filepath.Join(home, "hub-registry", "connectors", "google-drive-admin")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(): %v", err)
+	}
+	pkgPath := filepath.Join(pkgDir, "connector.yaml")
+	if err := os.WriteFile(pkgPath, []byte("kind: connector\nname: google-drive-admin\nversion: \"1.0.0\"\nsource:\n  type: none\nmcp:\n  name: google-drive-admin\n  credential: google-drive-admin\n  api_base: https://www.googleapis.com\n  tools:\n    - name: drive_list_file_permissions\n      method: GET\n      path: /drive/v3/files/{file_id}/permissions\n      parameters:\n        file_id: {type: string}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(): %v", err)
+	}
+	if err := reg.PutPackage(hub.InstalledPackage{
+		Kind:      "connector",
+		Name:      "google-drive-admin",
+		Version:   "1.0.0",
+		Trust:     "verified",
+		Path:      pkgPath,
+		Assurance: []string{"publisher_verified"},
+		Spec: map[string]any{
+			"runtime": map[string]any{
+				"executor": map[string]any{
+					"kind":     "http_json",
+					"base_url": "https://www.googleapis.com",
+					"actions": map[string]any{
+						"drive_list_file_permissions": map[string]any{
+							"method": "GET",
+							"path":   "/drive/v3/files/{file_id}/permissions",
+						},
+					},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("PutPackage(): %v", err)
+	}
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{Store: s, Registry: reg})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/instances/from-package", strings.NewReader(`{"kind":"connector","name":"google-drive-admin"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400; body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "insufficient package assurance") {
+		t.Fatalf("unexpected body: %s", rec.Body.String())
 	}
 }
 
@@ -371,10 +426,11 @@ runtime:
 		t.Fatalf("WriteFile(): %v", err)
 	}
 	if err := reg.PutPackage(hub.InstalledPackage{
-		Kind:    "connector",
-		Name:    "slack-interactivity",
-		Version: "1.0.0",
-		Path:    pkgPath,
+		Kind:      "connector",
+		Name:      "slack-interactivity",
+		Version:   "1.0.0",
+		Path:      pkgPath,
+		Assurance: []string{"publisher_verified", "ask_partial"},
 		Spec: map[string]any{
 			"runtime": map[string]any{
 				"executor": map[string]any{
@@ -488,6 +544,88 @@ func TestApplyInstance(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"materialized"`) {
 		t.Fatalf("expected materialized node state: %s", rec.Body.String())
+	}
+}
+
+func TestApplyInstanceRejectsInsufficientPackageAssurance(t *testing.T) {
+	home := t.TempDir()
+	s := instancepkg.NewStore(filepath.Join(home, "instances"))
+	reg := hub.NewRegistry(filepath.Join(home, "hub-registry"))
+	if err := reg.PutPackage(hub.InstalledPackage{
+		Kind:      "connector",
+		Name:      "google-drive-admin",
+		Version:   "1.0.0",
+		Trust:     "verified",
+		Path:      filepath.Join(home, "google-drive-admin.yaml"),
+		Assurance: []string{"publisher_verified"},
+		Spec: map[string]any{
+			"runtime": map[string]any{
+				"executor": map[string]any{
+					"kind":     "http_json",
+					"base_url": "https://www.googleapis.com",
+					"actions": map[string]any{
+						"drive_list_file_permissions": map[string]any{
+							"method": "GET",
+							"path":   "/drive/v3/files/{file_id}/permissions",
+						},
+					},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("PutPackage(): %v", err)
+	}
+	inst := &instancepkg.Instance{
+		ID:   "inst_123",
+		Name: "community-admin",
+		Source: instancepkg.InstanceSource{
+			Package: instancepkg.PackageRef{Kind: "connector", Name: "google-drive-admin", Version: "1.0.0"},
+		},
+		Nodes: []instancepkg.Node{
+			{
+				ID:   "drive_admin",
+				Kind: "connector.authority",
+				Package: instancepkg.PackageRef{
+					Kind:    "connector",
+					Name:    "google-drive-admin",
+					Version: "1.0.0",
+				},
+				Config: map[string]any{
+					"tools": []any{"drive_list_file_permissions"},
+					"executor": map[string]any{
+						"kind":     "http_json",
+						"base_url": "https://www.googleapis.com",
+						"actions": map[string]any{
+							"drive_list_file_permissions": map[string]any{
+								"method": "GET",
+								"path":   "/drive/v3/files/{file_id}/permissions",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	if err := s.Create(t.Context(), inst); err != nil {
+		t.Fatalf("Create(): %v", err)
+	}
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{
+		Store:          s,
+		Registry:       reg,
+		Config:         &config.Config{Home: home},
+		RuntimeManager: stubRuntimeManager{},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/instances/inst_123/apply", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("apply code = %d, want 400; body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "insufficient package assurance") {
+		t.Fatalf("unexpected body: %s", rec.Body.String())
 	}
 }
 
