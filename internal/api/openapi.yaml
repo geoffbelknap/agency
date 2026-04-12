@@ -405,6 +405,38 @@ paths:
               schema:
                 $ref: "#/components/schemas/RuntimeNodeStatus"
 
+  /instances/{id}/runtime/nodes/{nodeID}/invoke:
+    post:
+      operationId: invokeRuntimeNode
+      summary: Invoke an active authority runtime node
+      tags: [Instances]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: nodeID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Runtime node invoke response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
   /authz/resolve:
     post:
       operationId: resolveAuthz

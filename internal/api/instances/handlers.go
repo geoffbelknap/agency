@@ -1,10 +1,12 @@
 package instances
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -245,6 +247,50 @@ func (h *handler) stopRuntimeNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, status)
+}
+
+func (h *handler) invokeRuntimeNode(w http.ResponseWriter, r *http.Request) {
+	rtStore, manifest, ok := h.runtimeContext(w, r)
+	if !ok {
+		return
+	}
+	nodeID := chi.URLParam(r, "nodeID")
+	status, err := h.runtimeManager().Status(rtStore, manifest, nodeID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	if status.State != runpkg.NodeStateActive || strings.TrimSpace(status.URL) == "" {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "runtime node is not active"})
+		return
+	}
+
+	payload, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "failed to read request body"})
+		return
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, strings.TrimRight(status.URL, "/")+"/invoke", bytes.NewReader(payload))
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed to read runtime response"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = w.Write(body)
 }
 
 func (h *handler) runtimeContext(w http.ResponseWriter, r *http.Request) (*runpkg.Store, *runpkg.Manifest, bool) {

@@ -1,6 +1,7 @@
 package instances
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -142,6 +143,91 @@ func TestInstancesCompileShowAndReconcileRuntimeManifest(t *testing.T) {
 	}
 }
 
+func TestInvokeRuntimeNode(t *testing.T) {
+	s := instancepkg.NewStore(t.TempDir())
+	inst := &instancepkg.Instance{
+		ID:   "inst_123",
+		Name: "community-admin",
+		Source: instancepkg.InstanceSource{
+			Template: instancepkg.PackageRef{Kind: "template", Name: "community-admin", Version: "1.0.0"},
+		},
+		Nodes: []instancepkg.Node{
+			{
+				ID:   "drive_admin",
+				Kind: "connector.authority",
+				Package: instancepkg.PackageRef{
+					Kind:    "connector",
+					Name:    "google-drive-admin",
+					Version: "1.0.0",
+				},
+				Config: map[string]any{
+					"tools": []any{"add_viewer"},
+				},
+			},
+		},
+		Grants: []instancepkg.GrantBinding{
+			{
+				Principal: "agent:community-admin/coordinator",
+				Action:    "add_viewer",
+				Resource:  "drive_admin",
+			},
+		},
+	}
+	if err := s.Create(t.Context(), inst); err != nil {
+		t.Fatalf("Create(): %v", err)
+	}
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/invoke" {
+			t.Fatalf("path = %q, want /invoke", r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if body["action"] != "add_viewer" {
+			t.Fatalf("body = %#v", body)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"allowed": true, "execution": "executed"})
+	}))
+	defer upstream.Close()
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{Store: s, RuntimeManager: invokeStubRuntimeManager{url: upstream.URL}})
+
+	compileReq := httptest.NewRequest(http.MethodPost, "/api/v1/instances/inst_123/runtime/manifest", nil)
+	compileRec := httptest.NewRecorder()
+	r.ServeHTTP(compileRec, compileReq)
+	if compileRec.Code != http.StatusCreated {
+		t.Fatalf("compile code = %d, want 201; body = %s", compileRec.Code, compileRec.Body.String())
+	}
+
+	reconcileReq := httptest.NewRequest(http.MethodPost, "/api/v1/instances/inst_123/runtime/reconcile", nil)
+	reconcileRec := httptest.NewRecorder()
+	r.ServeHTTP(reconcileRec, reconcileReq)
+	if reconcileRec.Code != http.StatusOK {
+		t.Fatalf("reconcile code = %d, want 200; body = %s", reconcileRec.Code, reconcileRec.Body.String())
+	}
+
+	startReq := httptest.NewRequest(http.MethodPost, "/api/v1/instances/inst_123/runtime/nodes/drive_admin/start", nil)
+	startRec := httptest.NewRecorder()
+	r.ServeHTTP(startRec, startReq)
+	if startRec.Code != http.StatusOK {
+		t.Fatalf("start code = %d, want 200; body = %s", startRec.Code, startRec.Body.String())
+	}
+
+	invokeReq := httptest.NewRequest(http.MethodPost, "/api/v1/instances/inst_123/runtime/nodes/drive_admin/invoke", strings.NewReader(`{"subject":"agent:community-admin/coordinator","node_id":"drive_admin","action":"add_viewer"}`))
+	invokeReq.Header.Set("Content-Type", "application/json")
+	invokeRec := httptest.NewRecorder()
+	r.ServeHTTP(invokeRec, invokeReq)
+	if invokeRec.Code != http.StatusOK {
+		t.Fatalf("invoke code = %d, want 200; body = %s", invokeRec.Code, invokeRec.Body.String())
+	}
+	if !strings.Contains(invokeRec.Body.String(), `"execution":"executed"`) {
+		t.Fatalf("unexpected invoke response: %s", invokeRec.Body.String())
+	}
+}
+
 type stubRuntimeManager struct{}
 
 func (stubRuntimeManager) Status(store *runpkg.Store, manifest *runpkg.Manifest, nodeID string) (*runpkg.NodeStatus, error) {
@@ -179,6 +265,34 @@ func (stubRuntimeManager) StopAuthority(store *runpkg.Store, manifest *runpkg.Ma
 		return nil, err
 	}
 	return node, nil
+}
+
+type invokeStubRuntimeManager struct {
+	url string
+}
+
+func (m invokeStubRuntimeManager) Status(store *runpkg.Store, manifest *runpkg.Manifest, nodeID string) (*runpkg.NodeStatus, error) {
+	return runpkg.Manager{}.Status(store, manifest, nodeID)
+}
+
+func (m invokeStubRuntimeManager) StartAuthority(store *runpkg.Store, manifest *runpkg.Manifest, nodeID string) (*runpkg.NodeStatus, error) {
+	node, err := runpkg.Manager{}.Status(store, manifest, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	node.State = runpkg.NodeStateActive
+	node.UpdatedAt = now
+	node.StartedAt = &now
+	node.URL = m.url
+	if err := store.SaveNodeStatus(*node); err != nil {
+		return nil, err
+	}
+	return node, nil
+}
+
+func (m invokeStubRuntimeManager) StopAuthority(store *runpkg.Store, manifest *runpkg.Manifest, nodeID string) (*runpkg.NodeStatus, error) {
+	return stubRuntimeManager{}.StopAuthority(store, manifest, nodeID)
 }
 
 func extractID(body string) string {
