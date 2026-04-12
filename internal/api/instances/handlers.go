@@ -1,0 +1,217 @@
+package instances
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+
+	instancepkg "github.com/geoffbelknap/agency/internal/instances"
+	runpkg "github.com/geoffbelknap/agency/internal/runtime"
+	"github.com/go-chi/chi/v5"
+)
+
+func (h *handler) listInstances(w http.ResponseWriter, r *http.Request) {
+	store := h.store()
+	if store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "instance store not available"})
+		return
+	}
+
+	items, err := store.List(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if items == nil {
+		items = []*instancepkg.Instance{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"instances": items})
+}
+
+func (h *handler) createInstance(w http.ResponseWriter, r *http.Request) {
+	store := h.store()
+	if store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "instance store not available"})
+		return
+	}
+
+	var inst instancepkg.Instance
+	if err := json.NewDecoder(r.Body).Decode(&inst); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if strings.TrimSpace(inst.ID) == "" {
+		id, err := generateInstanceID()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		inst.ID = id
+	}
+	if err := store.Create(r.Context(), &inst); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusCreated, inst)
+}
+
+func (h *handler) showInstance(w http.ResponseWriter, r *http.Request) {
+	store := h.store()
+	if store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "instance store not available"})
+		return
+	}
+
+	inst, err := store.Get(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, inst)
+}
+
+func (h *handler) validateInstance(w http.ResponseWriter, r *http.Request) {
+	store := h.store()
+	if store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "instance store not available"})
+		return
+	}
+
+	inst, err := store.Get(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := instancepkg.ValidateInstance(inst); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "valid"})
+}
+
+func (h *handler) claimInstance(w http.ResponseWriter, r *http.Request) {
+	store := h.store()
+	if store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "instance store not available"})
+		return
+	}
+
+	var body struct {
+		Owner string `json:"owner"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if err := store.Claim(r.Context(), chi.URLParam(r, "id"), body.Owner); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "claimed"})
+}
+
+func (h *handler) releaseInstance(w http.ResponseWriter, r *http.Request) {
+	store := h.store()
+	if store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "instance store not available"})
+		return
+	}
+	if err := store.Release(r.Context(), chi.URLParam(r, "id")); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "released"})
+}
+
+func (h *handler) compileRuntimeManifest(w http.ResponseWriter, r *http.Request) {
+	store := h.store()
+	if store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "instance store not available"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	inst, err := store.Get(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	manifest, err := runpkg.Planner{}.Compile(inst)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	instanceDir, err := store.InstanceDir(id)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := runpkg.NewStore(instanceDir).SaveManifest(manifest); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusCreated, manifest)
+}
+
+func (h *handler) showRuntimeManifest(w http.ResponseWriter, r *http.Request) {
+	store := h.store()
+	if store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "instance store not available"})
+		return
+	}
+	instanceDir, err := store.InstanceDir(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	manifest, err := runpkg.NewStore(instanceDir).LoadManifest()
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, manifest)
+}
+
+func (h *handler) reconcileRuntime(w http.ResponseWriter, r *http.Request) {
+	store := h.store()
+	if store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "instance store not available"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	instanceDir, err := store.InstanceDir(id)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	rtStore := runpkg.NewStore(instanceDir)
+	manifest, err := rtStore.LoadManifest()
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	inst, err := store.Get(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	if manifest.Source.InstanceRevision.Before(inst.UpdatedAt) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "runtime manifest is stale"})
+		return
+	}
+	if err := (runpkg.Reconciler{}).Reconcile(rtStore, manifest); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, manifest)
+}
+
+func generateInstanceID() (string, error) {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate instance id: %w", err)
+	}
+	return "inst_" + hex.EncodeToString(b), nil
+}

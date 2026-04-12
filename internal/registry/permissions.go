@@ -29,6 +29,21 @@ func Permits(perms []string, required string) bool {
 	return false
 }
 
+// ApplyPermissionCeiling returns the subset of requested permissions permitted
+// by the parent ceiling.
+func ApplyPermissionCeiling(parentPerms, requested []string) []string {
+	var effective []string
+	for _, perm := range requested {
+		if Permits(parentPerms, perm) {
+			effective = append(effective, perm)
+		}
+	}
+	if effective == nil {
+		effective = []string{}
+	}
+	return effective
+}
+
 // EffectivePermissions resolves the effective permission set for a principal,
 // accounting for status, parent hierarchy, and ceiling enforcement.
 //
@@ -64,14 +79,5 @@ func (r *Registry) EffectivePermissions(uuid string) ([]string, error) {
 	}
 
 	// Intersection: keep only permissions the parent ceiling permits.
-	var effective []string
-	for _, perm := range p.Permissions {
-		if Permits(parentPerms, perm) {
-			effective = append(effective, perm)
-		}
-	}
-	if effective == nil {
-		effective = []string{}
-	}
-	return effective, nil
+	return ApplyPermissionCeiling(parentPerms, p.Permissions), nil
 }

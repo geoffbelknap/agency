@@ -2,6 +2,7 @@ package apiclient
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,9 @@ import (
 	"path/filepath"
 	"time"
 
+	authzcore "github.com/geoffbelknap/agency/internal/authz"
+	"github.com/geoffbelknap/agency/internal/hub"
+	instancepkg "github.com/geoffbelknap/agency/internal/instances"
 	"gopkg.in/yaml.v3"
 )
 
@@ -163,6 +167,31 @@ func (c *Client) Delete(path string) ([]byte, error) {
 func (c *Client) Put(path string, body interface{}) ([]byte, error) {
 	data, _, err := c.do("PUT", path, body)
 	return data, err
+}
+
+func (c *Client) ListPackages(ctx context.Context) ([]hub.InstalledPackage, error) {
+	_ = ctx
+	var resp struct {
+		Packages []hub.InstalledPackage `json:"packages"`
+	}
+	err := c.GetJSON("/api/v1/packages", &resp)
+	return resp.Packages, err
+}
+
+func (c *Client) ListInstances(ctx context.Context) ([]instancepkg.Instance, error) {
+	_ = ctx
+	var resp struct {
+		Instances []instancepkg.Instance `json:"instances"`
+	}
+	err := c.GetJSON("/api/v1/instances", &resp)
+	return resp.Instances, err
+}
+
+func (c *Client) ResolveAuthz(ctx context.Context, req authzcore.Request) (authzcore.Decision, error) {
+	_ = ctx
+	var decision authzcore.Decision
+	err := c.PostJSON("/api/v1/authz/resolve", req, &decision)
+	return decision, err
 }
 
 // GetJSON performs a GET and unmarshals the response into v.

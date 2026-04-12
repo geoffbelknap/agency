@@ -14,13 +14,16 @@ import (
 
 	apiadmin "github.com/geoffbelknap/agency/internal/api/admin"
 	apiagents "github.com/geoffbelknap/agency/internal/api/agents"
+	apiauthz "github.com/geoffbelknap/agency/internal/api/authz"
 	apicomms "github.com/geoffbelknap/agency/internal/api/comms"
 	"github.com/geoffbelknap/agency/internal/api/creds"
 	apievents "github.com/geoffbelknap/agency/internal/api/events"
 	"github.com/geoffbelknap/agency/internal/api/graph"
 	apihub "github.com/geoffbelknap/agency/internal/api/hub"
 	apiinfra "github.com/geoffbelknap/agency/internal/api/infra"
+	apiinstances "github.com/geoffbelknap/agency/internal/api/instances"
 	apimissions "github.com/geoffbelknap/agency/internal/api/missions"
+	apipackages "github.com/geoffbelknap/agency/internal/api/packages"
 	"github.com/geoffbelknap/agency/internal/api/platform"
 	"github.com/geoffbelknap/agency/internal/config"
 )
@@ -61,6 +64,15 @@ func TestRouteWiring_AllModulesRegistered(t *testing.T) {
 		Config: cfg,
 	})
 
+	// packages module — V2 package listing and inspection
+	apipackages.RegisterRoutes(r, apipackages.Deps{
+		Config: cfg,
+	})
+	apiinstances.RegisterRoutes(r, apiinstances.Deps{
+		Config: cfg,
+	})
+	apiauthz.RegisterRoutes(r, apiauthz.Deps{})
+
 	// comms module — channels, messages
 	apicomms.RegisterRoutes(r, apicomms.Deps{
 		Config: cfg,
@@ -99,6 +111,9 @@ func TestRouteWiring_AllModulesRegistered(t *testing.T) {
 		{"missions", "GET", "/api/v1/missions/"},
 		{"graph_query", "POST", "/api/v1/graph/query"},
 		{"hub_installed", "GET", "/api/v1/hub/installed"},
+		{"packages", "GET", "/api/v1/packages"},
+		{"instances", "GET", "/api/v1/instances"},
+		{"authz_resolve", "POST", "/api/v1/authz/resolve"},
 		{"channels", "GET", "/api/v1/comms/channels"},
 		{"credentials", "GET", "/api/v1/creds"},
 		{"events", "GET", "/api/v1/events"},
@@ -181,6 +196,9 @@ func TestOpenAPIPathsHaveRoutes(t *testing.T) {
 	apimissions.RegisterRoutes(r, apimissions.Deps{Config: cfg})
 	graph.RegisterRoutes(r, graph.Deps{Config: cfg})
 	apihub.RegisterRoutes(r, apihub.Deps{Config: cfg})
+	apipackages.RegisterRoutes(r, apipackages.Deps{Config: cfg})
+	apiinstances.RegisterRoutes(r, apiinstances.Deps{Config: cfg})
+	apiauthz.RegisterRoutes(r, apiauthz.Deps{})
 	apicomms.RegisterRoutes(r, apicomms.Deps{Config: cfg})
 	creds.RegisterRoutes(r, creds.Deps{Config: cfg})
 	apievents.RegisterRoutes(r, apievents.Deps{})

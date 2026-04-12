@@ -22,6 +22,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/geoffbelknap/agency/internal/apiclient"
+	authzcore "github.com/geoffbelknap/agency/internal/authz"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/daemon"
 	"github.com/geoffbelknap/agency/internal/update"
@@ -250,7 +251,7 @@ func RegisterCommands(root *cobra.Command) {
 		channelCmd(), infraCmd(), hubCmd(), teamCmd(), capCmd(),
 		intakeCmd(), knowledgeCmd(), policyCmd(), adminCmd(),
 		contextCmd(), missionCmd(), eventCmd(), webhookCmd(), meeseeksCmd(), notificationsCmd(), auditCmd(),
-		credentialCmd(), cacheCmd(), registryCmd(),
+		credentialCmd(), cacheCmd(), registryCmd(), packageCmd(), instanceCmd(), authzCmd(),
 	} {
 		cmd.GroupID = "manage"
 		root.AddCommand(cmd)
@@ -258,6 +259,95 @@ func RegisterCommands(root *cobra.Command) {
 
 	// ── Integration ─────────────────────────────────────────────────────
 	root.AddCommand(mcpServerCmd())
+}
+
+func packageCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "package",
+		Short: "Inspect V2 packages",
+	}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "list",
+		Short: "List installed V2 packages",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			items, err := c.ListPackages(cmd.Context())
+			if err != nil {
+				return err
+			}
+			for _, item := range items {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%s\n", item.Kind, item.Name, item.Version, item.Trust)
+			}
+			return nil
+		},
+	})
+	return cmd
+}
+
+func instanceCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "instance",
+		Short: "Inspect V2 instances",
+	}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "list",
+		Short: "List local V2 instances",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			items, err := c.ListInstances(cmd.Context())
+			if err != nil {
+				return err
+			}
+			for _, item := range items {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\n", item.ID, item.Name)
+			}
+			return nil
+		},
+	})
+	return cmd
+}
+
+func authzCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "authz",
+		Short: "Resolve V2 authz requests",
+	}
+	var subject, target, action, instance string
+	var consent bool
+	resolveCmd := &cobra.Command{
+		Use:   "resolve",
+		Short: "Resolve an authorization request",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			decision, err := c.ResolveAuthz(cmd.Context(), authzcore.Request{
+				Subject:         subject,
+				Target:          target,
+				Action:          action,
+				Instance:        instance,
+				ConsentProvided: consent,
+			})
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(decision)
+		},
+	}
+	resolveCmd.Flags().StringVar(&subject, "subject", "", "request subject")
+	resolveCmd.Flags().StringVar(&target, "target", "", "request target")
+	resolveCmd.Flags().StringVar(&action, "action", "", "requested action")
+	resolveCmd.Flags().StringVar(&instance, "instance", "", "instance scope")
+	resolveCmd.Flags().BoolVar(&consent, "consent", false, "mark consent as already provided")
+	cmd.AddCommand(resolveCmd)
+	return cmd
 }
 
 // ════════════════════════════════════════════════════════════════════════════

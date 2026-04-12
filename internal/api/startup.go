@@ -7,11 +7,13 @@ import (
 
 	"log/slog"
 
+	authzcore "github.com/geoffbelknap/agency/internal/authz"
 	"github.com/geoffbelknap/agency/internal/config"
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/hub"
+	instancepkg "github.com/geoffbelknap/agency/internal/instances"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -35,8 +37,11 @@ type StartupResult struct {
 	MCPReg          *MCPToolRegistry
 
 	// Optional — nil means feature disabled.
-	CredStore    *credstore.Store
-	ProfileStore *profiles.Store
+	CredStore     *credstore.Store
+	ProfileStore  *profiles.Store
+	HubRegistry   *hub.Registry
+	InstanceStore *instancepkg.Store
+	AuthzResolver *authzcore.Resolver
 }
 
 // Startup initializes all gateway components and returns a StartupResult.
@@ -120,6 +125,8 @@ func Startup(cfg *config.Config, dc *docker.Client, logger *slog.Logger) (*Start
 		}
 	}
 
+	v2deps := initV2Dependencies(cfg, hubMgr)
+
 	return &StartupResult{
 		Infra:           infra,
 		AgentManager:    agents,
@@ -133,5 +140,26 @@ func Startup(cfg *config.Config, dc *docker.Client, logger *slog.Logger) (*Start
 		MCPReg:          mcpReg,
 		CredStore:       cs,
 		ProfileStore:    ps,
+		HubRegistry:     v2deps.HubRegistry,
+		InstanceStore:   v2deps.InstanceStore,
+		AuthzResolver:   v2deps.AuthzResolver,
 	}, nil
+}
+
+type v2Dependencies struct {
+	HubRegistry   *hub.Registry
+	InstanceStore *instancepkg.Store
+	AuthzResolver *authzcore.Resolver
+}
+
+func initV2Dependencies(cfg *config.Config, hubMgr *hub.Manager) v2Dependencies {
+	var registry *hub.Registry
+	if hubMgr != nil {
+		registry = hubMgr.Registry
+	}
+	return v2Dependencies{
+		HubRegistry:   registry,
+		InstanceStore: instancepkg.NewStore(filepath.Join(cfg.Home, "instances")),
+		AuthzResolver: &authzcore.Resolver{},
+	}
 }
