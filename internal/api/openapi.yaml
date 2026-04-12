@@ -1168,6 +1168,251 @@ paths:
                 items:
                   $ref: "#/components/schemas/HubInstance"
 
+  /hub/deployments:
+    get:
+      operationId: hubDeploymentList
+      summary: List hub deployments
+      tags: [Hub]
+      responses:
+        "200":
+          description: Deployment list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HubDeployment"
+    post:
+      operationId: hubDeploymentCreate
+      summary: Create a hub deployment
+      tags: [Hub]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pack]
+              properties:
+                pack:
+                  type: string
+                name:
+                  type: string
+                config:
+                  type: object
+                  additionalProperties: true
+                credrefs:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        "200":
+          description: Deployment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HubDeployment"
+
+  /hub/deployments/import:
+    post:
+      operationId: hubDeploymentImport
+      summary: Import a hub deployment bundle
+      tags: [Hub]
+      parameters:
+        - name: name
+          in: query
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/gzip:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Deployment imported
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HubDeployment"
+
+  /hub/deployments/schema/{pack}:
+    get:
+      operationId: hubDeploymentSchema
+      summary: Get deployment schema for a pack
+      tags: [Hub]
+      parameters:
+        - name: pack
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Pack deployment schema
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pack:
+                    type: object
+                    additionalProperties: true
+                  schema:
+                    type: object
+                    additionalProperties: true
+
+  /hub/deployments/{nameOrID}:
+    get:
+      operationId: hubDeploymentShow
+      summary: Show a hub deployment
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+      responses:
+        "200":
+          description: Deployment detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deployment:
+                    $ref: "#/components/schemas/HubDeployment"
+                  schema:
+                    type: object
+                    additionalProperties: true
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: hubDeploymentDestroy
+      summary: Destroy a hub deployment
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+        - name: keep_instances
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Deployment destroyed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /hub/deployments/{nameOrID}/config:
+    put:
+      operationId: hubDeploymentConfigure
+      summary: Update deployment configuration
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                config:
+                  type: object
+                  additionalProperties: true
+                credrefs:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        "200":
+          description: Deployment configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /hub/deployments/{nameOrID}/validate:
+    post:
+      operationId: hubDeploymentValidate
+      summary: Validate deployment configuration
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+      responses:
+        "200":
+          description: Deployment valid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /hub/deployments/{nameOrID}/apply:
+    post:
+      operationId: hubDeploymentApply
+      summary: Apply deployment configuration to child hub instances
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+      responses:
+        "200":
+          description: Deployment applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /hub/deployments/{nameOrID}/export:
+    get:
+      operationId: hubDeploymentExport
+      summary: Export a hub deployment bundle
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+      responses:
+        "200":
+          description: Deployment bundle
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+
+  /hub/deployments/{nameOrID}/claim:
+    post:
+      operationId: hubDeploymentClaim
+      summary: Claim ownership of a hub deployment
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+        - name: force
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Deployment claimed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /hub/deployments/{nameOrID}/release:
+    post:
+      operationId: hubDeploymentRelease
+      summary: Release ownership of a hub deployment
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+      responses:
+        "200":
+          description: Deployment released
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
   /hub/{nameOrID}:
     get:
       operationId: hubShow
@@ -5606,6 +5851,47 @@ components:
         state:
           type: string
         created:
+          type: string
+        deployment_id:
+          type: string
+        deployment_role:
+          type: string
+        deployment_managed:
+          type: boolean
+
+    HubDeployment:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        pack:
+          type: object
+          additionalProperties: true
+        schema_version:
+          type: integer
+        config:
+          type: object
+          additionalProperties: true
+        credrefs:
+          type: object
+          additionalProperties: true
+        instances:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        owner:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        audit_log_path:
           type: string
 
     HubInstanceDetail:
