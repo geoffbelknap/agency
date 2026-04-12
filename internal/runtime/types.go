@@ -53,6 +53,7 @@ type RuntimeNode struct {
 	CredentialBindings []string          `yaml:"credential_bindings,omitempty" json:"credential_bindings,omitempty"`
 	GrantSubjects      []string          `yaml:"grant_subjects,omitempty" json:"grant_subjects,omitempty"`
 	ConsentActions     []string          `yaml:"consent_actions,omitempty" json:"consent_actions,omitempty"`
+	Executor           *RuntimeExecutor  `yaml:"executor,omitempty" json:"executor,omitempty"`
 	Materialization    string            `yaml:"materialization_path" json:"materialization_path"`
 }
 
@@ -63,8 +64,29 @@ type RuntimePackageRef struct {
 }
 
 type RuntimeBinding struct {
-	Name string `yaml:"name" json:"name"`
-	Type string `yaml:"type" json:"type"`
+	Name   string `yaml:"name" json:"name"`
+	Type   string `yaml:"type" json:"type"`
+	Target string `yaml:"target,omitempty" json:"target,omitempty"`
+}
+
+type RuntimeExecutor struct {
+	Kind    string                       `yaml:"kind" json:"kind"`
+	BaseURL string                       `yaml:"base_url,omitempty" json:"base_url,omitempty"`
+	Actions map[string]RuntimeHTTPAction `yaml:"actions,omitempty" json:"actions,omitempty"`
+	Auth    *RuntimeExecutorAuth         `yaml:"auth,omitempty" json:"auth,omitempty"`
+}
+
+type RuntimeHTTPAction struct {
+	Method  string            `yaml:"method,omitempty" json:"method,omitempty"`
+	Path    string            `yaml:"path" json:"path"`
+	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+}
+
+type RuntimeExecutorAuth struct {
+	Type    string `yaml:"type" json:"type"`
+	Binding string `yaml:"binding,omitempty" json:"binding,omitempty"`
+	Header  string `yaml:"header,omitempty" json:"header,omitempty"`
+	Prefix  string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
 }
 
 type RuntimeOperation struct {

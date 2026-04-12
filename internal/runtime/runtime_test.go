@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	authzcore "github.com/geoffbelknap/agency/internal/authz"
+	"github.com/geoffbelknap/agency/internal/credstore"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
 )
 
@@ -35,6 +37,31 @@ func TestPlannerCompileAuthorityNode(t *testing.T) {
 	}
 	if len(node.ConsentActions) != 1 || node.ConsentActions[0] != "add_viewer" {
 		t.Fatalf("consent_actions = %v", node.ConsentActions)
+	}
+	if node.Executor != nil {
+		t.Fatalf("expected no executor, got %#v", node.Executor)
+	}
+}
+
+func TestPlannerCompileAuthorityNodeWithExecutor(t *testing.T) {
+	inst := testInstanceWithExecutor("https://drive.example.test")
+
+	manifest, err := Planner{}.Compile(inst)
+	if err != nil {
+		t.Fatalf("Compile(): %v", err)
+	}
+	node := manifest.Runtime.Nodes[0]
+	if node.Executor == nil {
+		t.Fatal("expected executor")
+	}
+	if node.Executor.Kind != "http_json" {
+		t.Fatalf("executor.kind = %q, want http_json", node.Executor.Kind)
+	}
+	if node.Executor.Auth == nil || node.Executor.Auth.Binding != "service_account_json" {
+		t.Fatalf("executor.auth = %#v", node.Executor.Auth)
+	}
+	if len(manifest.Runtime.Bindings) != 1 || manifest.Runtime.Bindings[0].Target != "credref:gdrive-admin" {
+		t.Fatalf("bindings = %#v", manifest.Runtime.Bindings)
 	}
 }
 
@@ -177,8 +204,81 @@ func TestAuthorityHandlerInvokeAllowsAuthorizedAction(t *testing.T) {
 	}
 }
 
+func TestAuthorityHandlerInvokeExecutesHTTPJSON(t *testing.T) {
+	t.Setenv("AGENCY_HOME", t.TempDir())
+	putTestCredential(t, os.Getenv("AGENCY_HOME"), "gdrive-admin", "secret-token")
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer secret-token" {
+			t.Fatalf("Authorization = %q, want Bearer secret-token", got)
+		}
+		if r.URL.Path != "/permissions/add" {
+			t.Fatalf("path = %q, want /permissions/add", r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if body["email"] != "person@example.com" {
+			t.Fatalf("body = %#v", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	defer upstream.Close()
+
+	manifest, err := Planner{}.Compile(testInstanceWithExecutor(upstream.URL))
+	if err != nil {
+		t.Fatalf("Compile(): %v", err)
+	}
+	handler := AuthorityHandler{Manifest: manifest, Resolver: authzcore.Resolver{}}
+
+	req := httptest.NewRequest(http.MethodPost, "/invoke", bytes.NewBufferString(`{"subject":"agent:community-admin/coordinator","node_id":"drive_admin","action":"add_viewer","consent_provided":true,"input":{"email":"person@example.com"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200; body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"execution":"executed"`) {
+		t.Fatalf("expected executed response: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"status_code":200`) {
+		t.Fatalf("expected status code in response: %s", rec.Body.String())
+	}
+}
+
 func testInstance() *instancepkg.Instance {
-	store := instancepkg.NewStore("/tmp/unused")
+	return testInstanceWithConfig(nil)
+}
+
+func testInstanceWithExecutor(baseURL string) *instancepkg.Instance {
+	return testInstanceWithConfig(map[string]any{
+		"executor": map[string]any{
+			"kind":     "http_json",
+			"base_url": baseURL,
+			"actions": map[string]any{
+				"add_viewer": map[string]any{
+					"method": "POST",
+					"path":   "/permissions/add",
+				},
+			},
+			"auth": map[string]any{
+				"type":    "bearer",
+				"binding": "service_account_json",
+			},
+		},
+	})
+}
+
+func testInstanceWithConfig(extra map[string]any) *instancepkg.Instance {
+	config := map[string]any{
+		"tools":               []any{"add_viewer", "remove_viewer", "list_permissions"},
+		"credential_bindings": []any{"service_account_json"},
+	}
+	for key, value := range extra {
+		config[key] = value
+	}
 	inst := &instancepkg.Instance{
 		ID:   "inst_123",
 		Name: "community-admin",
@@ -194,10 +294,7 @@ func testInstance() *instancepkg.Instance {
 					Name:    "google-drive-admin",
 					Version: "1.0.0",
 				},
-				Config: map[string]any{
-					"tools":               []any{"add_viewer", "remove_viewer", "list_permissions"},
-					"credential_bindings": []any{"service_account_json"},
-				},
+				Config: config,
 			},
 		},
 		Credentials: map[string]instancepkg.Binding{
@@ -212,6 +309,20 @@ func testInstance() *instancepkg.Instance {
 			},
 		},
 	}
-	_ = store
 	return inst
+}
+
+func putTestCredential(t *testing.T, home, name, value string) {
+	t.Helper()
+	backend, err := credstore.NewFileBackend(
+		filepath.Join(home, "credentials", "store.enc"),
+		filepath.Join(home, "credentials", ".key"),
+	)
+	if err != nil {
+		t.Fatalf("NewFileBackend(): %v", err)
+	}
+	store := credstore.NewStore(backend, home)
+	if err := store.Put(credstore.Entry{Name: name, Value: value}); err != nil {
+		t.Fatalf("Put(): %v", err)
+	}
 }

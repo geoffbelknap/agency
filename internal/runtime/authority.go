@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -24,6 +25,8 @@ type AuthorityInvokeResponse struct {
 	Allowed    bool               `json:"allowed"`
 	Decision   authzcore.Decision `json:"decision"`
 	Execution  string             `json:"execution"`
+	StatusCode int                `json:"status_code,omitempty"`
+	Result     any                `json:"result,omitempty"`
 	Descriptor map[string]any     `json:"descriptor,omitempty"`
 }
 
@@ -71,6 +74,30 @@ func (h AuthorityHandler) invoke(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	node, err := findAuthorityNode(h.Manifest, req.NodeID)
+	if err != nil {
+		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	executed, err := ExecuteAuthority(context.Background(), h.Manifest, node, req)
+	if err != nil {
+		h.writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	if executed != nil {
+		h.writeJSON(w, http.StatusOK, AuthorityInvokeResponse{
+			Allowed:    true,
+			Decision:   decision,
+			Execution:  "executed",
+			StatusCode: executed.StatusCode,
+			Result:     firstNonNil(executed.Body, executed.RawBody),
+			Descriptor: map[string]any{
+				"node_id": req.NodeID,
+				"action":  req.Action,
+			},
+		})
+		return
+	}
 	h.writeJSON(w, http.StatusNotImplemented, AuthorityInvokeResponse{
 		Allowed:   true,
 		Decision:  decision,
@@ -81,6 +108,19 @@ func (h AuthorityHandler) invoke(w http.ResponseWriter, r *http.Request) {
 			"input":   req.Input,
 		},
 	})
+}
+
+func firstNonNil(values ...any) any {
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+		if s, ok := value.(string); ok && s == "" {
+			continue
+		}
+		return value
+	}
+	return nil
 }
 
 func (h AuthorityHandler) writeJSON(w http.ResponseWriter, status int, v interface{}) {

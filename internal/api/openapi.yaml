@@ -6016,6 +6016,8 @@ components:
           type: array
           items:
             type: string
+        executor:
+          $ref: "#/components/schemas/RuntimeExecutor"
         materialization_path:
           type: string
 
@@ -6025,6 +6027,46 @@ components:
         name:
           type: string
         type:
+          type: string
+        target:
+          type: string
+
+    RuntimeExecutor:
+      type: object
+      properties:
+        kind:
+          type: string
+        base_url:
+          type: string
+        actions:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/RuntimeHTTPAction"
+        auth:
+          $ref: "#/components/schemas/RuntimeExecutorAuth"
+
+    RuntimeHTTPAction:
+      type: object
+      properties:
+        method:
+          type: string
+        path:
+          type: string
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+
+    RuntimeExecutorAuth:
+      type: object
+      properties:
+        type:
+          type: string
+        binding:
+          type: string
+        header:
+          type: string
+        prefix:
           type: string
 
     RuntimeOperation:

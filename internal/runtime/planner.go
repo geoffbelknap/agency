@@ -49,6 +49,10 @@ func (p Planner) Compile(inst *instancepkg.Instance) (*Manifest, error) {
 		if strings.TrimSpace(node.Package.Kind) == "" || strings.TrimSpace(node.Package.Name) == "" {
 			return nil, fmt.Errorf("node %q missing package reference", node.ID)
 		}
+		executor, err := plannerExecutor(node)
+		if err != nil {
+			return nil, fmt.Errorf("node %q executor: %w", node.ID, err)
+		}
 		runtimeNode := RuntimeNode{
 			NodeID: node.ID,
 			Kind:   node.Kind,
@@ -61,6 +65,7 @@ func (p Planner) Compile(inst *instancepkg.Instance) (*Manifest, error) {
 			CredentialBindings: plannerCredentialBindings(node),
 			GrantSubjects:      plannerGrantSubjects(inst, node.ID),
 			ConsentActions:     plannerConsentActions(inst, node.ID),
+			Executor:           executor,
 			Materialization:    "authority/" + node.ID + ".yaml",
 		}
 		manifest.Runtime.Nodes = append(manifest.Runtime.Nodes, runtimeNode)
@@ -79,8 +84,9 @@ func (p Planner) Compile(inst *instancepkg.Instance) (*Manifest, error) {
 	})
 	for key, binding := range inst.Credentials {
 		manifest.Runtime.Bindings = append(manifest.Runtime.Bindings, RuntimeBinding{
-			Name: key,
-			Type: binding.Type,
+			Name:   key,
+			Type:   binding.Type,
+			Target: binding.Target,
 		})
 	}
 	sort.Slice(manifest.Runtime.Bindings, func(i, j int) bool {
@@ -88,6 +94,120 @@ func (p Planner) Compile(inst *instancepkg.Instance) (*Manifest, error) {
 	})
 
 	return manifest, nil
+}
+
+func plannerExecutor(node instancepkg.Node) (*RuntimeExecutor, error) {
+	raw, ok := node.Config["executor"]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	cfg, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("executor must be an object")
+	}
+	kind, _ := cfg["kind"].(string)
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		return nil, fmt.Errorf("executor.kind is required")
+	}
+	if kind != "http_json" {
+		return nil, fmt.Errorf("unsupported executor kind %q", kind)
+	}
+	baseURL, _ := cfg["base_url"].(string)
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		return nil, fmt.Errorf("executor.base_url is required")
+	}
+	actions, err := plannerHTTPActions(cfg["actions"])
+	if err != nil {
+		return nil, err
+	}
+	if len(actions) == 0 {
+		return nil, fmt.Errorf("executor.actions is required")
+	}
+	auth, err := plannerExecutorAuth(cfg["auth"])
+	if err != nil {
+		return nil, err
+	}
+	return &RuntimeExecutor{
+		Kind:    kind,
+		BaseURL: baseURL,
+		Actions: actions,
+		Auth:    auth,
+	}, nil
+}
+
+func plannerHTTPActions(raw any) (map[string]RuntimeHTTPAction, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	items, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("executor.actions must be an object")
+	}
+	out := make(map[string]RuntimeHTTPAction, len(items))
+	for name, entry := range items {
+		cfg, ok := entry.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("executor.actions.%s must be an object", name)
+		}
+		path, _ := cfg["path"].(string)
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return nil, fmt.Errorf("executor.actions.%s.path is required", name)
+		}
+		method, _ := cfg["method"].(string)
+		headers, err := stringMap(cfg["headers"])
+		if err != nil {
+			return nil, fmt.Errorf("executor.actions.%s.headers: %w", name, err)
+		}
+		out[name] = RuntimeHTTPAction{
+			Method:  strings.ToUpper(strings.TrimSpace(method)),
+			Path:    path,
+			Headers: headers,
+		}
+	}
+	return out, nil
+}
+
+func plannerExecutorAuth(raw any) (*RuntimeExecutorAuth, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	cfg, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("executor.auth must be an object")
+	}
+	authType, _ := cfg["type"].(string)
+	authType = strings.TrimSpace(authType)
+	if authType == "" {
+		return nil, fmt.Errorf("executor.auth.type is required")
+	}
+	auth := &RuntimeExecutorAuth{
+		Type:    authType,
+		Binding: strings.TrimSpace(stringValue(cfg["binding"])),
+		Header:  strings.TrimSpace(stringValue(cfg["header"])),
+		Prefix:  stringValue(cfg["prefix"]),
+	}
+	if auth.Binding == "" {
+		return nil, fmt.Errorf("executor.auth.binding is required")
+	}
+	switch auth.Type {
+	case "bearer":
+		if auth.Header == "" {
+			auth.Header = "Authorization"
+		}
+		if auth.Prefix == "" {
+			auth.Prefix = "Bearer "
+		}
+	case "header":
+		if auth.Header == "" {
+			return nil, fmt.Errorf("executor.auth.header is required for header auth")
+		}
+	default:
+		return nil, fmt.Errorf("unsupported executor.auth.type %q", auth.Type)
+	}
+	return auth, nil
 }
 
 func plannerCredentialBindings(node instancepkg.Node) []string {
@@ -194,4 +314,30 @@ func consentRequired(cfg map[string]any) bool {
 		}
 	}
 	return false
+}
+
+func stringMap(raw any) (map[string]string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	items, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("must be an object")
+	}
+	out := make(map[string]string, len(items))
+	for key, value := range items {
+		s, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("value for %q must be a string", key)
+		}
+		out[key] = s
+	}
+	return out, nil
+}
+
+func stringValue(raw any) string {
+	if s, ok := raw.(string); ok {
+		return s
+	}
+	return ""
 }
