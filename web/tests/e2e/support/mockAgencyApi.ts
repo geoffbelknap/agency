@@ -217,6 +217,52 @@ const hubSearch = [
   { name: 'platform-expert', kind: 'preset', description: 'Broad platform operations preset', source: 'hub://agency/presets' },
 ];
 
+const v2Packages = [
+  {
+    kind: 'connector',
+    name: 'slack-interactivity',
+    version: '1.0.0',
+    trust: 'official',
+    path: '/tmp/.agency/packages/connector/slack-interactivity.json',
+  },
+  {
+    kind: 'connector',
+    name: 'google-drive-admin',
+    version: '1.0.0',
+    trust: 'official',
+    path: '/tmp/.agency/packages/connector/google-drive-admin.json',
+  },
+];
+
+const v2InstanceSeed = [
+  {
+    id: 'inst_slack',
+    name: 'slack-community-admin',
+    source: { package: { kind: 'connector', name: 'slack-interactivity', version: '1.0.0' } },
+    nodes: [
+      { id: 'slack_ingress', kind: 'connector.ingress' },
+      { id: 'slack_authority', kind: 'connector.authority' },
+    ],
+    grants: [
+      { principal: 'agent:alice', action: 'consent_open_approval_card' },
+    ],
+    created_at: '2026-04-08T10:00:00Z',
+    updated_at: '2026-04-08T10:10:00Z',
+  },
+  {
+    id: 'inst_drive',
+    name: 'drive-admin',
+    source: { package: { kind: 'connector', name: 'google-drive-admin', version: '1.0.0' } },
+    nodes: [{ id: 'drive_admin', kind: 'connector.authority' }],
+    grants: [
+      { principal: 'agent:alice', action: 'drive_list_file_permissions' },
+      { principal: 'agent:alice', action: 'drive_share_file' },
+    ],
+    created_at: '2026-04-08T10:20:00Z',
+    updated_at: '2026-04-08T10:25:00Z',
+  },
+];
+
 const connectors = [
   { id: 'slack-intake', name: 'slack-intake', kind: 'connector', source: 'hub://agency/slack', state: 'active', version: '1.0.0' },
 ];
@@ -408,6 +454,7 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
   const unhandled: string[] = [];
   let ontologyCandidates = initialOntologyCandidates.map((candidate) => ({ ...candidate }));
   let ontologyDecisions = initialOntologyDecisions.map((entry) => ({ ...entry }));
+  let localInstances = v2InstanceSeed.map((instance) => JSON.parse(JSON.stringify(instance)));
 
   await page.route('**/__agency/config', async (route) => {
     await route.fulfill(json({ token: '', gateway: '', via: 'local', authenticated: true }));
@@ -433,6 +480,57 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
     }
     if (method === 'GET' && pathname === '/api/v1/infra/capacity') {
       await route.fulfill(json(infraCapacity));
+      return;
+    }
+    if (method === 'GET' && pathname === '/api/v1/packages') {
+      await route.fulfill(json({ packages: v2Packages }));
+      return;
+    }
+    if (method === 'GET' && pathname === '/api/v1/instances') {
+      await route.fulfill(json({ instances: localInstances }));
+      return;
+    }
+    if (method === 'POST' && pathname === '/api/v1/instances/from-package') {
+      const body = JSON.parse(request.postData() || '{}') as Record<string, unknown>;
+      const sourceKind = String(body.kind || 'connector');
+      const sourceName = String(body.name || 'package');
+      const instanceName = String(body.instance_name || `${sourceName}-instance`);
+      const created = {
+        id: `inst-${instanceName}`,
+        name: instanceName,
+        source: { package: { kind: sourceKind, name: sourceName, version: '1.0.0' } },
+        nodes: [{ id: sourceName.replaceAll('-', '_'), kind: 'connector.authority' }],
+        grants: [],
+        created_at: '2026-04-08T20:30:00Z',
+        updated_at: '2026-04-08T20:30:00Z',
+      };
+      localInstances = [created, ...localInstances];
+      await route.fulfill(json(created, 201));
+      return;
+    }
+    if (method === 'GET' && pathname.startsWith('/api/v1/instances/')) {
+      const parts = pathname.split('/');
+      if (parts.length === 5) {
+        const id = decodeURIComponent(parts[4] || '');
+        const instance = localInstances.find((item) => item.id === id);
+        if (instance) {
+          await route.fulfill(json(instance));
+          return;
+        }
+      }
+    }
+    if (method === 'POST' && pathname.endsWith('/validate') && pathname.startsWith('/api/v1/instances/')) {
+      await route.fulfill(json({ status: 'valid' }));
+      return;
+    }
+    if (method === 'POST' && pathname.endsWith('/apply') && pathname.startsWith('/api/v1/instances/')) {
+      const id = decodeURIComponent(pathname.split('/')[4] || '');
+      const instance = localInstances.find((item) => item.id === id);
+      await route.fulfill(json({
+        status: 'applied',
+        instance,
+        nodes: (instance?.nodes || []).map((node: any) => ({ node_id: node.id, state: 'running' })),
+      }));
       return;
     }
     if (method === 'POST' && ['/api/v1/infra/up', '/api/v1/infra/down', '/api/v1/infra/reload'].includes(pathname)) {

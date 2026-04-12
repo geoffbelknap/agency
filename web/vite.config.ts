@@ -127,6 +127,14 @@ function gatewayWsProxy(target: string): Plugin {
 
 const { addr: gatewayAddr } = readAgencyConfig()
 const gatewayTarget = `http://${gatewayAddr}`
+const localCertExists = fs.existsSync(path.resolve(__dirname, '.certs/localhost+2.pem'))
+const localHttpsConfig = localCertExists
+  ? {
+      cert: fs.readFileSync(path.resolve(__dirname, '.certs/localhost+2.pem')),
+      key: fs.readFileSync(path.resolve(__dirname, '.certs/localhost+2-key.pem')),
+    }
+  : undefined
+const devHttps = process.env.VITE_DISABLE_HTTPS ? undefined : localHttpsConfig
 
 const gitCommit = (() => {
   try { return execSync('git rev-parse --short HEAD').toString().trim() } catch { return 'unknown' }
@@ -185,12 +193,7 @@ export default defineConfig({
   },
 
   server: {
-    https: fs.existsSync(path.resolve(__dirname, '.certs/localhost+2.pem'))
-      ? {
-          cert: fs.readFileSync(path.resolve(__dirname, '.certs/localhost+2.pem')),
-          key: fs.readFileSync(path.resolve(__dirname, '.certs/localhost+2-key.pem')),
-        }
-      : undefined,
+    https: devHttps,
     proxy: {
       '/api/v1': {
         target: gatewayTarget,
@@ -201,12 +204,7 @@ export default defineConfig({
 
   preview: {
     port: 8280,
-    https: fs.existsSync(path.resolve(__dirname, '.certs/localhost+2.pem'))
-      ? {
-          cert: fs.readFileSync(path.resolve(__dirname, '.certs/localhost+2.pem')),
-          key: fs.readFileSync(path.resolve(__dirname, '.certs/localhost+2-key.pem')),
-        }
-      : undefined,
+    https: devHttps,
     proxy: {
       '/api/v1': {
         target: gatewayTarget,

@@ -18,15 +18,15 @@ import (
 var buildID = "unknown"
 
 const (
-	defaultPort            = "3128"
-	defaultConstraintPort  = "8081"
-	defaultRoutingCfg      = "/agency/enforcer/routing.yaml"
-	defaultAPIKeysFile     = "/agency/enforcer/auth/api_keys.yaml"
-	defaultAuditDir        = "/agency/enforcer/audit"
-	defaultServicesDir     = "/agency/enforcer/services"
-	defaultAgentDir        = "/agency/agent"
-	defaultDomainsFile     = "/agency/agent/egress-domains.yaml"
-	defaultBodyNotifyURL   = "http://workspace:8090/hooks/constraint-change"
+	defaultPort           = "3128"
+	defaultConstraintPort = "8081"
+	defaultRoutingCfg     = "/agency/enforcer/routing.yaml"
+	defaultAPIKeysFile    = "/agency/enforcer/auth/api_keys.yaml"
+	defaultAuditDir       = "/agency/enforcer/audit"
+	defaultServicesDir    = "/agency/enforcer/services"
+	defaultAgentDir       = "/agency/agent"
+	defaultDomainsFile    = "/agency/agent/egress-domains.yaml"
+	defaultBodyNotifyURL  = "http://workspace:8090/hooks/constraint-change"
 )
 
 func envOr(key, fallback string) string {
@@ -102,7 +102,15 @@ func NewEnforcer() *Enforcer {
 
 	egressProxy := envOr("EGRESS_PROXY", defaultEgressProxy)
 
-	proxy := NewProxyHandler(domains, services, audit, agentName)
+	enforcer := &Enforcer{
+		auth:     auth,
+		audit:    audit,
+		domains:  domains,
+		services: services,
+		routing:  routing,
+	}
+
+	proxy := NewProxyHandler(domains, services, audit, agentName, enforcer.emitSignal)
 	llm := NewLLMHandler(routing, egressProxy, audit)
 
 	rateLimiter := NewRateLimiter(50, 60) // 50 rpm default, 60s window
@@ -124,25 +132,69 @@ func NewEnforcer() *Enforcer {
 	commsURL := envOr("COMMS_URL", "http://comms:8080")
 	knowledgeURL := envOr("KNOWLEDGE_URL", "http://knowledge:8080")
 	webFetchURL := envOr("WEB_FETCH_URL", "http://web-fetch:8080")
+	gatewayURL := envOr("GATEWAY_URL", "http://gateway:8200")
+	mediationHeaders := map[string]map[string]string{}
+	if token := os.Getenv("GATEWAY_TOKEN"); token != "" {
+		mediationHeaders["runtime"] = map[string]string{
+			"Authorization":  "Bearer " + token,
+			"X-Agency-Agent": agentName,
+		}
+	}
 	mediationProxy := NewMediationProxy(map[string]string{
 		"comms":     commsURL,
 		"knowledge": knowledgeURL,
 		"web-fetch": webFetchURL,
-	}, audit)
+		"runtime":   gatewayURL,
+	}, mediationHeaders, audit)
 
-	return &Enforcer{
-		auth:       auth,
-		proxy:      proxy,
-		llm:        llm,
-		audit:      audit,
-		domains:    domains,
-		services:   services,
-		routing:    routing,
-		constraint: constraint,
-		budget:     budgetTracker,
-		mediation:  mediationProxy,
-		trajectory: trajectory,
+	enforcer.proxy = proxy
+	enforcer.llm = llm
+	enforcer.constraint = constraint
+	enforcer.budget = budgetTracker
+	enforcer.mediation = mediationProxy
+	enforcer.trajectory = trajectory
+	return enforcer
+}
+
+func (e *Enforcer) emitSignal(signalType string, data map[string]interface{}) {
+	if strings.TrimSpace(signalType) == "" {
+		return
 	}
+	body, err := json.Marshal(map[string]interface{}{
+		"signal_type": signalType,
+		"data":        data,
+	})
+	if err != nil {
+		return
+	}
+	e.relaySignal(body)
+}
+
+func (e *Enforcer) relaySignal(body []byte) {
+	agentName := os.Getenv("AGENT_NAME")
+	gatewayURL := os.Getenv("GATEWAY_URL")
+	if gatewayURL == "" {
+		gatewayURL = "http://gateway:8200"
+	}
+	url := fmt.Sprintf("%s/api/v1/agents/%s/signal", gatewayURL, agentName)
+
+	go func() {
+		client := &http.Client{Timeout: 3 * time.Second}
+		req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+		if err != nil {
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if token := os.Getenv("GATEWAY_TOKEN"); token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			slog.Warn("signal relay failed", "error", err)
+			return
+		}
+		resp.Body.Close()
+	}()
 }
 
 // Reload reloads all configuration files (triggered by SIGHUP).
@@ -236,32 +288,7 @@ func (e *Enforcer) handleSignalRelay(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body.Close()
 
-	agentName := os.Getenv("AGENT_NAME")
-	gatewayURL := os.Getenv("GATEWAY_URL")
-	if gatewayURL == "" {
-		gatewayURL = "http://gateway:8200"
-	}
-	url := fmt.Sprintf("%s/api/v1/agents/%s/signal", gatewayURL, agentName)
-
-	// Best-effort relay — don't block the body runtime
-	go func() {
-		client := &http.Client{Timeout: 3 * time.Second}
-		req, err := http.NewRequest("POST", url, bytes.NewReader(body))
-		if err != nil {
-			return
-		}
-		req.Header.Set("Content-Type", "application/json")
-		// Gateway auth token — passed via env var at container creation
-		if token := os.Getenv("GATEWAY_TOKEN"); token != "" {
-			req.Header.Set("Authorization", "Bearer "+token)
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			slog.Warn("signal relay failed", "error", err)
-			return
-		}
-		resp.Body.Close()
-	}()
+	e.relaySignal(body)
 
 	w.WriteHeader(http.StatusAccepted)
 	fmt.Fprint(w, `{"status":"accepted"}`)
@@ -373,7 +400,7 @@ func main() {
 		slog.Info("constraint server listening on :" + constraintPort + "")
 		if err := constraintServer.ListenAndServe(); err != http.ErrServerClosed {
 			slog.Error("constraint server error", "error", err)
-		os.Exit(1)
+			os.Exit(1)
 		}
 	}()
 

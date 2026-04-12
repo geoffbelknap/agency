@@ -1,5 +1,7 @@
 package hub
 
+import "time"
+
 // UpdateReport is returned by hub update.
 type UpdateReport struct {
 	Sources   []SourceUpdate     `json:"sources"`
@@ -44,4 +46,15 @@ type ComponentUpgrade struct {
 	NewVersion string `json:"new_version"`
 	Status     string `json:"status"` // "upgraded", "unchanged", "error"
 	Error      string `json:"error,omitempty"`
+}
+
+// InstalledPackage records a package installed into the local hub registry.
+type InstalledPackage struct {
+	Kind      string         `json:"kind"`
+	Name      string         `json:"name"`
+	Version   string         `json:"version"`
+	Trust     string         `json:"trust"`
+	Installed time.Time      `json:"installed"`
+	Path      string         `json:"path"`
+	Spec      map[string]any `json:"spec,omitempty"`
 }

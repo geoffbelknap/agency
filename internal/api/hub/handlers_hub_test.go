@@ -3,7 +3,6 @@ package hub
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -131,11 +130,11 @@ func TestHubDeactivateConnectorSignalsIntakeAndRemovesPublishedYAML(t *testing.T
 	if err := mgr.Registry.SetState(inst.Name, "active"); err != nil {
 		t.Fatalf("activate connector instance: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(home, "connectors"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, "connectors"), 0o755); err != nil {
 		t.Fatalf("mkdir connectors: %v", err)
 	}
 	published := filepath.Join(home, "connectors", inst.Name+".yaml")
-	if err := os.WriteFile(published, []byte("kind: connector\nname: fixture-connector\n"), 0644); err != nil {
+	if err := os.WriteFile(published, []byte("kind: connector\nname: fixture-connector\n"), 0o644); err != nil {
 		t.Fatalf("write published connector: %v", err)
 	}
 
@@ -173,11 +172,11 @@ func TestHubRemoveConnectorSignalsIntakeAndRemovesPublishedYAML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create connector instance: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(home, "connectors"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, "connectors"), 0o755); err != nil {
 		t.Fatalf("mkdir connectors: %v", err)
 	}
 	published := filepath.Join(home, "connectors", inst.Name+".yaml")
-	if err := os.WriteFile(published, []byte("kind: connector\nname: fixture-connector\n"), 0644); err != nil {
+	if err := os.WriteFile(published, []byte("kind: connector\nname: fixture-connector\n"), 0o644); err != nil {
 		t.Fatalf("write published connector: %v", err)
 	}
 
@@ -236,15 +235,15 @@ requires:
     - fixture-connector
   services:
     - fixture-service
-`), 0644); err != nil {
+`), 0o644); err != nil {
 		t.Fatalf("write pack template: %v", err)
 	}
 	connDir := mgr.Registry.InstanceDir(conn.Name)
-	if err := os.WriteFile(filepath.Join(connDir, "connector.yaml"), []byte("kind: connector\nname: fixture-connector\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(connDir, "connector.yaml"), []byte("kind: connector\nname: fixture-connector\n"), 0o644); err != nil {
 		t.Fatalf("write connector template: %v", err)
 	}
 	svcDir := mgr.Registry.InstanceDir(svc.Name)
-	if err := os.WriteFile(filepath.Join(svcDir, "service.yaml"), []byte("kind: service\nname: fixture-service\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(svcDir, "service.yaml"), []byte("kind: service\nname: fixture-service\n"), 0o644); err != nil {
 		t.Fatalf("write service template: %v", err)
 	}
 
@@ -259,14 +258,6 @@ requires:
 	}
 	if err := mgr.Registry.AddRequiredBy(svc.Name, pack.Name); err != nil {
 		t.Fatalf("link service dependency: %v", err)
-	}
-
-	if err := os.MkdirAll(filepath.Join(home, "connectors"), 0755); err != nil {
-		t.Fatalf("mkdir connectors: %v", err)
-	}
-	published := filepath.Join(home, "connectors", conn.Name+".yaml")
-	if err := os.WriteFile(published, []byte("kind: connector\nname: fixture-connector\n"), 0644); err != nil {
-		t.Fatalf("write published connector: %v", err)
 	}
 
 	signal := &recordingSignalSender{}
@@ -285,186 +276,152 @@ requires:
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
 	}
-	if mgr.Registry.Resolve(pack.Name) != nil || mgr.Registry.Resolve(conn.Name) != nil || mgr.Registry.Resolve(svc.Name) != nil {
-		t.Fatal("expected pack and auto-installed dependencies to be removed")
+	if mgr.Registry.Resolve(pack.Name) != nil {
+		t.Fatal("pack instance should be removed")
 	}
-	if _, err := os.Stat(published); !os.IsNotExist(err) {
-		t.Fatalf("published connector yaml should be removed, stat err = %v", err)
+	if mgr.Registry.Resolve(conn.Name) != nil {
+		t.Fatal("auto-installed connector dependency should be removed")
 	}
-	if len(signal.calls) != 1 {
-		t.Fatalf("expected 1 intake signal, got %d", len(signal.calls))
-	}
-	if signal.calls[0].container != "agency-infra-intake" || signal.calls[0].signal != "SIGHUP" {
-		t.Fatalf("unexpected signal call: %+v", signal.calls[0])
+	if mgr.Registry.Resolve(svc.Name) != nil {
+		t.Fatal("auto-installed service dependency should be removed")
 	}
 }
 
-func TestInstallDependenciesAutoActivatesConnectorAndSignalsIntake(t *testing.T) {
-	home := t.TempDir()
-	sourceName := "local"
-	cacheDir := filepath.Join(home, "hub-cache", sourceName)
-	if err := os.MkdirAll(filepath.Join(cacheDir, "connectors", "slack-events"), 0755); err != nil {
-		t.Fatalf("mkdir connector cache: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(cacheDir, "packs", "community-admin"), 0755); err != nil {
-		t.Fatalf("mkdir pack cache: %v", err)
-	}
-	configYAML := []byte("hub:\n  sources:\n    - name: local\n      url: https://example.com/hub.git\n      branch: main\n")
-	if err := os.WriteFile(filepath.Join(home, "config.yaml"), configYAML, 0644); err != nil {
-		t.Fatalf("write config.yaml: %v", err)
-	}
-
-	connectorYAML := `kind: connector
-name: slack-events
-version: "1.0.0"
-description: Slack events
-source:
-  type: webhook
-  path: /webhooks/slack-events
-routes:
-  - match:
-      type: message
-    target:
-      agent: slack-bridge
-`
-	if err := os.WriteFile(filepath.Join(cacheDir, "connectors", "slack-events", "connector.yaml"), []byte(connectorYAML), 0644); err != nil {
-		t.Fatalf("write connector.yaml: %v", err)
-	}
-
-	packYAML := `kind: pack
-name: community-admin
-description: test pack
-requires:
-  connectors:
-    - slack-events
-team:
-  name: community-admin
-  agents:
-    - name: admin-coordinator
-      preset: community-administrator
-`
-	packPath := filepath.Join(cacheDir, "packs", "community-admin", "pack.yaml")
-	if err := os.WriteFile(packPath, []byte(packYAML), 0644); err != nil {
-		t.Fatalf("write pack.yaml: %v", err)
-	}
-
-	mgr := hubpkg.NewManager(home)
-	signal := &recordingSignalSender{}
-	h := &handler{deps: Deps{
-		Config: &config.Config{Home: home},
-		Signal: signal,
-		Audit:  logs.NewWriter(home),
-		Logger: slog.Default(),
-	}}
-	comp := &hubpkg.Component{
-		Name:   "community-admin",
-		Kind:   "pack",
-		Source: sourceName,
-		Path:   packPath,
-	}
-
-	h.installDependencies(mgr, "community-admin", comp)
-
-	inst := mgr.Registry.Resolve("slack-events")
-	if inst == nil {
-		t.Fatal("expected connector dependency to be installed")
-	}
-	if !inst.AutoInstalled {
-		t.Fatal("expected connector dependency to be marked auto-installed")
-	}
-	if inst.State != "active" {
-		t.Fatalf("connector state = %q, want active", inst.State)
-	}
-	published := filepath.Join(home, "connectors", "slack-events.yaml")
-	if _, err := os.Stat(published); err != nil {
-		t.Fatalf("expected published connector yaml, stat err = %v", err)
-	}
-	if len(signal.calls) != 1 {
-		t.Fatalf("expected 1 intake signal, got %d", len(signal.calls))
-	}
-	if signal.calls[0].container != "agency-infra-intake" || signal.calls[0].signal != "SIGHUP" {
-		t.Fatalf("unexpected signal call: %+v", signal.calls[0])
-	}
-}
-
-func TestHubConfigureActiveConnectorSignalsIntakeAndWritesResolvedYAML(t *testing.T) {
+func TestHubRemovePackKeepsSharedDependencies(t *testing.T) {
 	home := t.TempDir()
 	mgr := hubpkg.NewManager(home)
-	inst, err := mgr.Registry.Create("fixture-connector", "connector", "local/fixture-connector")
-	if err != nil {
-		t.Fatalf("create connector instance: %v", err)
+
+	packA, _ := mgr.Registry.Create("pack-a", "pack", "local/pack-a")
+	packB, _ := mgr.Registry.Create("pack-b", "pack", "local/pack-b")
+	conn, _ := mgr.Registry.Create("shared-connector", "connector", "local/shared-connector")
+	if err := mgr.Registry.MarkAutoInstalled(conn.Name, true); err != nil {
+		t.Fatalf("mark auto-installed: %v", err)
 	}
-	if err := mgr.Registry.SetState(inst.Name, "active"); err != nil {
-		t.Fatalf("activate connector instance: %v", err)
+	if err := mgr.Registry.AddRequiredBy(conn.Name, packA.Name); err != nil {
+		t.Fatalf("link packA: %v", err)
 	}
-	instDir := mgr.Registry.InstanceDir(inst.Name)
-	template := `kind: connector
-name: fixture-connector
-config:
-  - name: target_agent
-    required: true
-source:
-  type: webhook
-routes:
-  - match:
-      kind: test
-    target:
-      agent: ${target_agent}
-`
-	if err := os.WriteFile(filepath.Join(instDir, "connector.yaml"), []byte(template), 0644); err != nil {
-		t.Fatalf("write connector template: %v", err)
+	if err := mgr.Registry.AddRequiredBy(conn.Name, packB.Name); err != nil {
+		t.Fatalf("link packB: %v", err)
 	}
 
-	signal := &recordingSignalSender{}
+	packADir := mgr.Registry.InstanceDir(packA.Name)
+	if err := os.WriteFile(filepath.Join(packADir, "pack.yaml"), []byte("kind: pack\nname: pack-a\n"), 0o644); err != nil {
+		t.Fatalf("write packA: %v", err)
+	}
+
 	r := chi.NewRouter()
-	RegisterRoutes(r, Deps{
-		Config: &config.Config{Home: home},
-		Signal: signal,
-		Audit:  logs.NewWriter(home),
-		Logger: slog.Default(),
-	})
+	RegisterRoutes(r, Deps{Config: &config.Config{Home: home}})
 
-	body, err := json.Marshal(map[string]map[string]string{
-		"config": {"target_agent": "fixture-agent"},
-	})
-	if err != nil {
-		t.Fatalf("marshal request: %v", err)
-	}
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/hub/"+inst.Name+"/config", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/hub/"+packA.Name, nil)
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
 	}
-	resolvedPath := filepath.Join(instDir, "resolved.yaml")
-	resolved, err := os.ReadFile(resolvedPath)
+	if mgr.Registry.Resolve(conn.Name) == nil {
+		t.Fatal("shared dependency should remain installed")
+	}
+}
+
+func TestHubInstallRejectsDeploymentEnabledPack(t *testing.T) {
+	home := t.TempDir()
+	writeHubConfig(t, home)
+	writeDeploymentEnabledPack(t, home, "community-admin")
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{Config: &config.Config{Home: home}})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hub/install", bytes.NewBufferString(`{"component":"community-admin","kind":"pack"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "deployment-enabled") {
+		t.Fatalf("body = %s, want deployment guidance", rr.Body.String())
+	}
+}
+
+func TestHubConfigureRejectsDeploymentManagedInstance(t *testing.T) {
+	home := t.TempDir()
+	mgr := hubpkg.NewManager(home)
+	inst, err := mgr.Registry.Create("slack-interactivity", "connector", "official/slack-interactivity")
 	if err != nil {
-		t.Fatalf("read resolved connector yaml: %v", err)
+		t.Fatalf("create instance: %v", err)
 	}
-	content := string(resolved)
-	if strings.Contains(content, "${target_agent}") {
-		t.Fatalf("connector placeholder should be resolved, got:\n%s", content)
+	if err := mgr.Registry.SetDeploymentBinding(inst.ID, "dep-123", "connector"); err != nil {
+		t.Fatalf("set deployment binding: %v", err)
 	}
-	if strings.Contains(content, "\nconfig:") {
-		t.Fatalf("runtime connector yaml should not include hub config schema, got:\n%s", content)
+	instDir := mgr.Registry.InstanceDir(inst.ID)
+	if err := os.WriteFile(filepath.Join(instDir, "connector.yaml"), []byte("name: slack-interactivity\n"), 0o644); err != nil {
+		t.Fatalf("write template: %v", err)
 	}
-	publishedPath := filepath.Join(home, "connectors", inst.Name+".yaml")
-	published, err := os.ReadFile(publishedPath)
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{Config: &config.Config{Home: home}})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/hub/"+inst.Name+"/config", bytes.NewBufferString(`{"config":{"foo":"bar"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "deployment") {
+		t.Fatalf("body = %s, want deployment guidance", rr.Body.String())
+	}
+}
+
+func TestHubRemoveRejectsDeploymentManagedInstance(t *testing.T) {
+	home := t.TempDir()
+	mgr := hubpkg.NewManager(home)
+	inst, err := mgr.Registry.Create("google-drive-admin", "connector", "official/google-drive-admin")
 	if err != nil {
-		t.Fatalf("read published connector yaml: %v", err)
+		t.Fatalf("create instance: %v", err)
 	}
-	publishedContent := string(published)
-	if strings.Contains(publishedContent, "${target_agent}") {
-		t.Fatalf("published connector placeholder should be resolved, got:\n%s", publishedContent)
+	if err := mgr.Registry.SetDeploymentBinding(inst.ID, "dep-456", "connector"); err != nil {
+		t.Fatalf("set deployment binding: %v", err)
 	}
-	if strings.Contains(publishedContent, "\nconfig:") {
-		t.Fatalf("published connector yaml should not include hub config schema, got:\n%s", publishedContent)
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{Config: &config.Config{Home: home}})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/hub/"+inst.Name, nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
 	}
-	if len(signal.calls) != 1 {
-		t.Fatalf("expected 1 intake signal, got %d", len(signal.calls))
+	if !strings.Contains(rr.Body.String(), "deployment") {
+		t.Fatalf("body = %s, want deployment guidance", rr.Body.String())
 	}
-	if signal.calls[0].container != "agency-infra-intake" || signal.calls[0].signal != "SIGHUP" {
-		t.Fatalf("unexpected signal call: %+v", signal.calls[0])
+}
+
+func writeHubConfig(t *testing.T, home string) {
+	t.Helper()
+	data := []byte("hub:\n  sources:\n    - name: official\n      type: oci\n      registry: ghcr.io/geoffbelknap/agency-hub\n")
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), data, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+}
+
+func writeDeploymentEnabledPack(t *testing.T, home, name string) {
+	t.Helper()
+	packDir := filepath.Join(home, "hub-cache", "official", "packs", name)
+	if err := os.MkdirAll(packDir, 0o755); err != nil {
+		t.Fatalf("mkdir pack dir: %v", err)
+	}
+	packYAML := "name: " + name + "\nversion: 1.0.0\ndescription: test pack\n"
+	if err := os.WriteFile(filepath.Join(packDir, "pack.yaml"), []byte(packYAML), 0o644); err != nil {
+		t.Fatalf("write pack.yaml: %v", err)
+	}
+	schemaYAML := "schema_version: 1\ndeployment:\n  name: " + name + "\ninstances:\n  pack:\n    component: " + name + "\n"
+	if err := os.WriteFile(filepath.Join(packDir, "deployment_schema.yaml"), []byte(schemaYAML), 0o644); err != nil {
+		t.Fatalf("write deployment schema: %v", err)
 	}
 }

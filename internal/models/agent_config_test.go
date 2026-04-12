@@ -366,3 +366,34 @@ workspace:
 		t.Errorf("LifecycleID = %q, want a1b2c3d4-e5f6-7890-abcd-ef1234567890", cfg.LifecycleID)
 	}
 }
+
+func TestAgentConfig_WithInstanceAttachment(t *testing.T) {
+	cfg := minimalAgentConfig()
+	cfg.Instances = AgentInstancesConfig{
+		Attach: []AgentInstanceAttachment{{
+			InstanceID: "inst_1234abcd",
+			NodeID:     "drive_admin",
+			Actions:    []string{"list_permissions"},
+		}},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected valid config with instance attachment, got %v", err)
+	}
+}
+
+func TestAgentConfig_DuplicateInstanceAttachment(t *testing.T) {
+	cfg := minimalAgentConfig()
+	cfg.Instances = AgentInstancesConfig{
+		Attach: []AgentInstanceAttachment{
+			{InstanceID: "inst_1234abcd", NodeID: "drive_admin"},
+			{InstanceID: "inst_1234abcd", NodeID: "drive_admin"},
+		},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected duplicate instance attachment error, got nil")
+	}
+	if !strings.Contains(err.Error(), "duplicate instance attachment") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

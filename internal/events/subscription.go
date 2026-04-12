@@ -14,12 +14,14 @@ const (
 	DestAgent   = "agent"
 	DestWebhook = "webhook"
 	DestChannel = "channel"
+	DestRuntime = "runtime"
 )
 
 // SubscriptionOrigin tracks why a subscription exists.
 const (
 	OriginMission      = "mission"
 	OriginNotification = "notification"
+	OriginInstance     = "instance"
 	OriginSystem       = "system" // hard-coded rules (@mention, DM)
 )
 

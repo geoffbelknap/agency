@@ -136,6 +136,7 @@ var knownAgentYAMLKeys = map[string]bool{
 	"team": true, "policy": true, "model": true,
 	"model_tier": true, "role": true, "workspace": true,
 	"expertise": true, "responsiveness": true, "lifecycle_id": true,
+	"body": true, "requires": true, "triage": true, "instances": true,
 }
 
 func (ss *StartSequence) phase1Verify() error {

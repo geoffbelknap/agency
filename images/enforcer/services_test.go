@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -231,5 +232,64 @@ grants:
 	}
 	if scope != "fp.ctrl" {
 		t.Errorf("expected required scope fp.ctrl, got: %s", scope)
+	}
+}
+
+func TestServiceLoadConsentFromDeploymentDir(t *testing.T) {
+	dir := t.TempDir()
+
+	servicesDir := filepath.Join(dir, "services")
+	agentDir := filepath.Join(dir, "agent")
+	deploymentsDir := filepath.Join(dir, "deployments")
+	os.MkdirAll(servicesDir, 0o755)
+	os.MkdirAll(agentDir, 0o755)
+	os.MkdirAll(filepath.Join(deploymentsDir, "dep-123"), 0o755)
+
+	os.WriteFile(filepath.Join(servicesDir, "drive.yaml"), []byte(`
+service: drive
+api_base: https://example.com
+credential:
+  header: Authorization
+  env_var: DRIVE_TOKEN
+  scoped_prefix: agency-scoped-drive
+tools:
+  - name: drive_add_whitelist_entry
+    requires_consent_token:
+      operation_kind: add_managed_doc
+      token_input_field: consent_token
+      target_input_field: drive_id
+`), 0o644)
+
+	os.WriteFile(filepath.Join(agentDir, "services.yaml"), []byte(`
+agent: test-agent
+grants:
+  - service: drive
+    granted_at: "2026-01-01T00:00:00Z"
+    granted_by: operator
+`), 0o644)
+
+	refData, _ := json.Marshal(map[string]string{"deployment_id": "dep-123"})
+	os.WriteFile(filepath.Join(agentDir, "consent-deployment.json"), refData, 0o644)
+
+	cfgData, _ := json.Marshal(map[string]interface{}{
+		"deployment_id":     "dep-123",
+		"max_ttl_seconds":   900,
+		"clock_skew_millis": 30000,
+		"verification_keys": map[string]string{},
+	})
+	os.WriteFile(filepath.Join(deploymentsDir, "dep-123", "consent-verification-keys.json"), cfgData, 0o644)
+	t.Setenv("CONSENT_DEPLOYMENTS_DIR", deploymentsDir)
+
+	sr := NewServiceRegistry()
+	if err := sr.LoadFromFiles(servicesDir, agentDir); err != nil {
+		t.Fatalf("load error: %v", err)
+	}
+
+	cred := sr.Lookup("drive")
+	if cred == nil {
+		t.Fatal("expected credential for drive")
+	}
+	if _, ok := cred.ToolConsent["drive_add_whitelist_entry"]; !ok {
+		t.Fatal("expected consent requirement to load from service definition")
 	}
 }

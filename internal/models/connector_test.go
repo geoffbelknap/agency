@@ -170,7 +170,19 @@ func TestConnectorSource_Validate_Webhook(t *testing.T) {
 		}
 	})
 
-	t.Run("with_custom_path_and_body_format", func(t *testing.T) {
+	t.Run("secret_credref_only", func(t *testing.T) {
+		cs := &ConnectorSource{
+			Type: "webhook",
+			WebhookAuth: &ConnectorWebhookAuth{
+				SecretCredref: "slack_signing_secret",
+			},
+		}
+		if err := cs.Validate(); err != nil {
+			t.Errorf("expected valid webhook auth via credref, got: %v", err)
+		}
+	})
+
+	t.Run("with_custom_path_and_wrapped_body", func(t *testing.T) {
 		path := "/hooks/example"
 		bodyFormat := "form_urlencoded_payload_json_field"
 		payloadField := "payload"
@@ -195,16 +207,12 @@ func TestConnectorSource_Validate_Webhook(t *testing.T) {
 	t.Run("invalid_path", func(t *testing.T) {
 		path := "hooks/example"
 		cs := &ConnectorSource{
-			Type:   "webhook",
-			Method: "GET",
-			Path:   &path,
+			Type: "webhook",
+			Path: &path,
 		}
 		err := cs.Validate()
-		if err == nil {
-			t.Fatal("expected error for invalid webhook path, got nil")
-		}
-		if !strings.Contains(err.Error(), "path") {
-			t.Errorf("expected path error, got: %v", err)
+		if err == nil || !strings.Contains(err.Error(), "path") {
+			t.Fatalf("expected path validation error, got %v", err)
 		}
 	})
 
@@ -212,15 +220,11 @@ func TestConnectorSource_Validate_Webhook(t *testing.T) {
 		payloadField := "payload"
 		cs := &ConnectorSource{
 			Type:         "webhook",
-			Method:       "GET",
 			PayloadField: &payloadField,
 		}
 		err := cs.Validate()
-		if err == nil {
-			t.Fatal("expected error for payload_field without wrapped body format, got nil")
-		}
-		if !strings.Contains(err.Error(), "payload_field") {
-			t.Errorf("expected payload_field error, got: %v", err)
+		if err == nil || !strings.Contains(err.Error(), "payload_field") {
+			t.Fatalf("expected payload_field validation error, got %v", err)
 		}
 	})
 
@@ -228,26 +232,20 @@ func TestConnectorSource_Validate_Webhook(t *testing.T) {
 		responseStatus := 500
 		cs := &ConnectorSource{
 			Type:           "webhook",
-			Method:         "GET",
 			ResponseStatus: &responseStatus,
 		}
 		err := cs.Validate()
-		if err == nil {
-			t.Fatal("expected error for invalid webhook response status, got nil")
-		}
-		if !strings.Contains(err.Error(), "response_status") {
-			t.Errorf("expected response_status error, got: %v", err)
+		if err == nil || !strings.Contains(err.Error(), "response_status") {
+			t.Fatalf("expected response_status validation error, got %v", err)
 		}
 	})
 }
 
 func TestConnectorSource_Validate_None(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		cs := &ConnectorSource{
-			Type: "none",
-		}
+		cs := &ConnectorSource{Type: "none"}
 		if err := cs.Validate(); err != nil {
-			t.Errorf("expected valid none source, got: %v", err)
+			t.Fatalf("expected valid tool-only source, got %v", err)
 		}
 	})
 
@@ -257,11 +255,8 @@ func TestConnectorSource_Validate_None(t *testing.T) {
 			WebhookAuth: &ConnectorWebhookAuth{Type: "hmac_sha256", SecretEnv: "X"},
 		}
 		err := cs.Validate()
-		if err == nil {
-			t.Fatal("expected error for none source with webhook fields, got nil")
-		}
-		if !strings.Contains(err.Error(), "none source does not accept") {
-			t.Errorf("expected none source field error, got: %v", err)
+		if err == nil || !strings.Contains(err.Error(), "inbound source fields") {
+			t.Fatalf("expected none-source validation error, got %v", err)
 		}
 	})
 }
@@ -325,7 +320,6 @@ func TestConnectorConfig_Fixtures(t *testing.T) {
 	}{
 		{"valid_webhook.yaml", ""},
 		{"valid_poll.yaml", ""},
-		{"valid_none_mcp.yaml", ""},
 		{"invalid_poll_no_url.yaml", "url"},
 	}
 
@@ -357,5 +351,115 @@ func TestConnectorConfig_Fixtures(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestConnectorMCPToolValidateConsentDirective(t *testing.T) {
+	tool := &ConnectorMCPTool{
+		Name: "drive_add_whitelist_entry",
+		Parameters: map[string]interface{}{
+			"drive_id":      map[string]interface{}{"type": "string"},
+			"consent_token": map[string]interface{}{"type": "string"},
+		},
+		WhitelistCheck: "drive_id",
+		RequiresConsentToken: &ConsentRequirement{
+			OperationKind:    "add_managed_doc",
+			TokenInputField:  "consent_token",
+			TargetInputField: "drive_id",
+		},
+	}
+	if err := tool.Validate(); err != nil {
+		t.Fatalf("expected valid tool, got %v", err)
+	}
+}
+
+func TestConnectorMCPToolValidateConsentDirectiveRejectsUnknownField(t *testing.T) {
+	tool := &ConnectorMCPTool{
+		Name: "drive_add_whitelist_entry",
+		Parameters: map[string]interface{}{
+			"drive_id": map[string]interface{}{"type": "string"},
+		},
+		RequiresConsentToken: &ConsentRequirement{
+			OperationKind:    "add_managed_doc",
+			TokenInputField:  "consent_token",
+			TargetInputField: "drive_id",
+		},
+	}
+	err := tool.Validate()
+	if err == nil || !strings.Contains(err.Error(), "token_input_field") {
+		t.Fatalf("expected token_input_field validation error, got %v", err)
+	}
+}
+
+func TestConnectorMCPToolValidateInputSchemaOnly(t *testing.T) {
+	tool := &ConnectorMCPTool{
+		Name: "slack_view_open",
+		InputSchema: map[string]interface{}{
+			"trigger_id": map[string]interface{}{"type": "string"},
+			"view":       map[string]interface{}{"type": "object"},
+		},
+		Returns: map[string]interface{}{
+			"view_id": map[string]interface{}{"type": "string"},
+		},
+	}
+	if err := tool.Validate(); err != nil {
+		t.Fatalf("expected valid tool, got %v", err)
+	}
+}
+
+func TestConnectorMCPToolValidateQueryParams(t *testing.T) {
+	tool := &ConnectorMCPTool{
+		Name: "drive_share_file",
+		Path: "/drive/v3/files/{file_id}/permissions",
+		Parameters: map[string]interface{}{
+			"file_id":               map[string]interface{}{"type": "string"},
+			"sendNotificationEmail": map[string]interface{}{"type": "boolean"},
+		},
+		QueryParams: []string{"sendNotificationEmail"},
+	}
+	if err := tool.Validate(); err != nil {
+		t.Fatalf("expected valid query_params, got %v", err)
+	}
+}
+
+func TestConnectorConfigValidateToolOnlyConnector(t *testing.T) {
+	cc := &ConnectorConfig{
+		Name:   "google-drive-admin",
+		Source: ConnectorSource{Type: "none"},
+		Tools: []ConnectorMCPTool{
+			{
+				Name: "drive_share_file",
+				InputSchema: map[string]interface{}{
+					"file_id": map[string]interface{}{"type": "string"},
+					"email":   map[string]interface{}{"type": "string"},
+				},
+				WhitelistCheck: "file_id",
+			},
+		},
+	}
+	if err := cc.Validate(); err != nil {
+		t.Fatalf("expected valid tool-only connector, got %v", err)
+	}
+}
+
+func TestConnectorConfigValidateGoogleServiceAccountAuth(t *testing.T) {
+	cc := &ConnectorConfig{
+		Name:   "google-drive-admin",
+		Source: ConnectorSource{Type: "none"},
+		Requires: &ConnectorRequires{
+			Auth: &ConnectorAuth{
+				Type:   "google_service_account",
+				Scopes: []string{"https://www.googleapis.com/auth/drive"},
+			},
+		},
+		Tools: []ConnectorMCPTool{
+			{
+				Name:        "drive_share_file",
+				InputSchema: map[string]interface{}{"file_id": map[string]interface{}{"type": "string"}},
+			},
+		},
+	}
+	if err := cc.Validate(); err != nil {
+		t.Fatalf("expected valid connector auth, got %v", err)
 	}
 }

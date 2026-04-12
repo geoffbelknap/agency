@@ -63,6 +63,16 @@ func TestPermitsWildcardRequiresPrefix(t *testing.T) {
 	}
 }
 
+func TestApplyPermissionCeiling(t *testing.T) {
+	got := ApplyPermissionCeiling([]string{"knowledge.*", "agent.read"}, []string{"knowledge.read", "agent.write", "agent.read"})
+	if len(got) != 2 {
+		t.Fatalf("len(got) = %d, want 2 (%v)", len(got), got)
+	}
+	if got[0] != "knowledge.read" || got[1] != "agent.read" {
+		t.Fatalf("got = %v, want [knowledge.read agent.read]", got)
+	}
+}
+
 // --- EffectivePermissions tests ---
 
 func TestEffectivePermissions_NoParent_OwnPerms(t *testing.T) {

@@ -194,6 +194,37 @@ class TestWebhookEndpoint:
             )
             assert resp.status == 202
 
+    async def test_slack_form_payload_ack_200(self, aiohttp_client, intake_app, connectors_dir):
+        (connectors_dir / "slack.yaml").write_text(yaml.dump({
+            "kind": "connector",
+            "name": "slack-interactivity",
+            "source": {
+                "type": "webhook",
+                "body_format": "form_urlencoded_payload",
+                "ack_strategy": "immediate_empty_200",
+            },
+            "routes": [{"match": {"payload_type": "block_actions"}, "target": {"agent": "handler"}}],
+        }))
+        intake_app["connectors"] = _load_connectors(connectors_dir)
+
+        client = await aiohttp_client(intake_app)
+        with patch("images.intake.server._deliver_task", new_callable=AsyncMock) as mock_deliver:
+            mock_deliver.return_value = True
+            resp = await client.post(
+                "/webhooks/slack-interactivity",
+                data="payload="
+                + json.dumps(
+                    {
+                        "type": "block_actions",
+                        "actions": [{"action_id": "approve", "block_id": "controls"}],
+                    }
+                ),
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            assert resp.status == 200
+            assert await resp.text() == ""
+            mock_deliver.assert_called_once()
+
     async def test_slack_events_delivery_builds_normalized_bridge_metadata(self, aiohttp_client, connectors_dir, data_dir):
         slack_data = load_agency_hub_connector("connectors/slack-events/connector.yaml").model_dump(mode="json", exclude_none=True)
         slack_data["source"].pop("webhook_auth", None)

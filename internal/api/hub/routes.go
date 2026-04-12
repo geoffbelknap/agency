@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"log/slog"
 	"github.com/go-chi/chi/v5"
+	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
@@ -50,6 +50,18 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Post("/api/v1/hub/install", h.hubInstall)
 	r.Get("/api/v1/hub/installed", h.hubInstalled)
 	r.Get("/api/v1/hub/instances", h.hubInstances)
+	r.Get("/api/v1/hub/deployments", h.deploymentList)
+	r.Post("/api/v1/hub/deployments", h.deploymentCreate)
+	r.Post("/api/v1/hub/deployments/import", h.deploymentImport)
+	r.Get("/api/v1/hub/deployments/schema/{pack}", h.deploymentSchema)
+	r.Get("/api/v1/hub/deployments/{nameOrID}", h.deploymentShow)
+	r.Put("/api/v1/hub/deployments/{nameOrID}/config", h.deploymentConfigure)
+	r.Post("/api/v1/hub/deployments/{nameOrID}/validate", h.deploymentValidate)
+	r.Post("/api/v1/hub/deployments/{nameOrID}/apply", h.deploymentApply)
+	r.Get("/api/v1/hub/deployments/{nameOrID}/export", h.deploymentExport)
+	r.Post("/api/v1/hub/deployments/{nameOrID}/claim", h.deploymentClaim)
+	r.Post("/api/v1/hub/deployments/{nameOrID}/release", h.deploymentRelease)
+	r.Delete("/api/v1/hub/deployments/{nameOrID}", h.deploymentDestroy)
 	r.Get("/api/v1/hub/doctor", h.hubDoctor)
 	r.Get("/api/v1/hub/intake/poll-health", h.intakePollHealth)
 	r.Post("/api/v1/hub/intake/poll/{connector}", h.intakePollTrigger)

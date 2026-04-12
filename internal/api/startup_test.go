@@ -3,7 +3,9 @@ package api
 import (
 	"testing"
 
+	authzcore "github.com/geoffbelknap/agency/internal/authz"
 	"github.com/geoffbelknap/agency/internal/config"
+	"github.com/geoffbelknap/agency/internal/hub"
 )
 
 // TestStartup_NilDocker_ReturnsError verifies that passing a nil Docker client
@@ -14,5 +16,28 @@ func TestStartup_NilDocker_ReturnsError(t *testing.T) {
 	_, err := Startup(cfg, nil, nil)
 	if err == nil {
 		t.Fatal("expected error when docker client is nil")
+	}
+}
+
+func TestInitV2Dependencies_RegistersV2Stores(t *testing.T) {
+	cfg := &config.Config{Home: t.TempDir(), Version: "test"}
+	hubMgr := hub.NewManager(cfg.Home)
+
+	deps := initV2Dependencies(cfg, hubMgr)
+	if deps.HubRegistry == nil {
+		t.Fatal("HubRegistry is nil")
+	}
+	if deps.InstanceStore == nil {
+		t.Fatal("InstanceStore is nil")
+	}
+	if deps.AuthzResolver == nil {
+		t.Fatal("AuthzResolver is nil")
+	}
+
+	if _, ok := interface{}(deps.AuthzResolver).(*authzcore.Resolver); !ok {
+		t.Fatal("AuthzResolver has wrong type")
+	}
+	if deps.HubRegistry != hubMgr.Registry {
+		t.Fatal("HubRegistry does not reuse startup hub manager registry")
 	}
 }

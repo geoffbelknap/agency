@@ -1,28 +1,37 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/agency-platform/enforcer/consent"
 )
+
+const defaultConsentDeploymentsDir = "/agency/deployments"
 
 // ServiceCredential holds the resolved credential for a service.
 type ServiceCredential struct {
-	Header        string            // HTTP header to set
-	Value         string            // Header value (the real API key)
-	APIBase       string            // Optional: override the target API base URL
-	ToolScopes    map[string]string // tool name → required scope
-	AllowedScopes map[string]bool   // scopes this agent has for this service
+	Header        string                         // HTTP header to set
+	Value         string                         // Header value (the real API key)
+	APIBase       string                         // Optional: override the target API base URL
+	ToolScopes    map[string]string              // tool name → required scope
+	AllowedScopes map[string]bool                // scopes this agent has for this service
+	ToolConsent   map[string]consent.Requirement // tool name → consent requirement
 }
 
 // ServiceToolDef represents a tool entry in a service definition (for scope parsing).
 type ServiceToolDef struct {
-	Name  string `yaml:"name"`
-	Scope string `yaml:"scope"`
+	Name                 string               `yaml:"name"`
+	Scope                string               `yaml:"scope"`
+	RequiresConsentToken *consent.Requirement `yaml:"requires_consent_token"`
 }
 
 // ServiceDefinition represents a service definition YAML file.
@@ -57,7 +66,7 @@ type ServiceGrant struct {
 // blockedHeaders are not allowed in service credential swap.
 var blockedHeaders = map[string]bool{
 	"host":                true,
-	"transfer-encoding":  true,
+	"transfer-encoding":   true,
 	"connection":          true,
 	"content-length":      true,
 	"te":                  true,
@@ -71,6 +80,7 @@ var blockedHeaders = map[string]bool{
 type ServiceRegistry struct {
 	mu       sync.RWMutex
 	services map[string]*ServiceCredential // service name -> credential
+	consent  *consent.Validator
 }
 
 // NewServiceRegistry creates an empty service registry.
@@ -92,6 +102,23 @@ func (sr *ServiceRegistry) Lookup(name string) *ServiceCredential {
 	sr.mu.RLock()
 	defer sr.mu.RUnlock()
 	return sr.services[name]
+}
+
+func (sr *ServiceRegistry) ValidateConsent(service, toolName, tokenEncoded, target string, now time.Time) (*consent.Result, error) {
+	sr.mu.RLock()
+	defer sr.mu.RUnlock()
+	cred, ok := sr.services[service]
+	if !ok {
+		return nil, fmt.Errorf("service not found")
+	}
+	requirement, ok := cred.ToolConsent[toolName]
+	if !ok {
+		return nil, nil
+	}
+	if sr.consent == nil {
+		return nil, consent.ErrVerifierUnavailable
+	}
+	return sr.consent.Validate(requirement, tokenEncoded, target, now)
 }
 
 // CheckScope validates that the agent has the required scope for the given tool.
@@ -183,9 +210,13 @@ func (sr *ServiceRegistry) LoadFromFiles(servicesDir, agentDir string) error {
 
 		// Build tool→scope mapping from service definition
 		toolScopes := make(map[string]string)
+		toolConsent := make(map[string]consent.Requirement)
 		for _, t := range def.Tools {
 			if t.Scope != "" {
 				toolScopes[t.Name] = t.Scope
+			}
+			if t.RequiresConsentToken != nil {
+				toolConsent[t.Name] = t.RequiresConsentToken.Normalize()
 			}
 		}
 
@@ -201,9 +232,60 @@ func (sr *ServiceRegistry) LoadFromFiles(servicesDir, agentDir string) error {
 			APIBase:       def.APIBase,
 			ToolScopes:    toolScopes,
 			AllowedScopes: allowedScopes,
+			ToolConsent:   toolConsent,
+		}
+	}
+
+	sr.consent = nil
+	type consentConfigFile struct {
+		DeploymentID     string            `json:"deployment_id"`
+		MaxTTLSeconds    int               `json:"max_ttl_seconds"`
+		ClockSkewMillis  int               `json:"clock_skew_millis"`
+		VerificationKeys map[string]string `json:"verification_keys"`
+	}
+	data, err = os.ReadFile(filepath.Join(agentDir, "consent-deployment.json"))
+	if err == nil {
+		var ref struct {
+			DeploymentID string `json:"deployment_id"`
+		}
+		if json.Unmarshal(data, &ref) == nil && strings.TrimSpace(ref.DeploymentID) != "" {
+			deploymentsDir := envOr("CONSENT_DEPLOYMENTS_DIR", defaultConsentDeploymentsDir)
+			data, err = os.ReadFile(filepath.Join(deploymentsDir, ref.DeploymentID, "consent-verification-keys.json"))
+		}
+	}
+	if err != nil {
+		data, err = os.ReadFile(filepath.Join(agentDir, "consent-verification-keys.json"))
+	}
+	if err == nil {
+		var cfg consentConfigFile
+		if err := json.Unmarshal(data, &cfg); err == nil && cfg.DeploymentID != "" {
+			keys := make(map[string]ed25519.PublicKey, len(cfg.VerificationKeys))
+			for keyID, encoded := range cfg.VerificationKeys {
+				pub, err := consent.ParsePublicKey(encoded)
+				if err != nil {
+					continue
+				}
+				keys[keyID] = pub
+			}
+			if len(keys) > 0 {
+				maxTTL := 15 * time.Minute
+				if cfg.MaxTTLSeconds > 0 {
+					maxTTL = time.Duration(cfg.MaxTTLSeconds) * time.Second
+				}
+				clockSkew := consent.DefaultClockSkew
+				if cfg.ClockSkewMillis > 0 {
+					clockSkew = time.Duration(cfg.ClockSkewMillis) * time.Millisecond
+				}
+				sr.consent = consent.NewPersistentValidator(
+					cfg.DeploymentID,
+					keys,
+					maxTTL,
+					clockSkew,
+					filepath.Join(servicesDir, ".consumed-consent-nonces.json"),
+				)
+			}
 		}
 	}
 
 	return nil
 }
-

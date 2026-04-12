@@ -39,6 +39,15 @@ class ServiceToolParameter(BaseModel):
     default: str | None = None
 
 
+class ConsentRequirement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation_kind: str
+    token_input_field: str
+    target_input_field: str
+    min_witnesses: int = 1
+
+
 class ServiceTool(BaseModel):
     """An MCP-exposed tool for a granted service."""
 
@@ -52,6 +61,7 @@ class ServiceTool(BaseModel):
     query_params: dict[str, str] | None = None
     body_template: dict | None = None
     response_path: str | None = None
+    requires_consent_token: ConsentRequirement | None = None
 
 
 class ServiceDefinition(BaseModel):

@@ -27,13 +27,16 @@ import (
 
 	apiadmin "github.com/geoffbelknap/agency/internal/api/admin"
 	apiagents "github.com/geoffbelknap/agency/internal/api/agents"
+	apiauthz "github.com/geoffbelknap/agency/internal/api/authz"
 	apicomms "github.com/geoffbelknap/agency/internal/api/comms"
 	"github.com/geoffbelknap/agency/internal/api/creds"
 	apievents "github.com/geoffbelknap/agency/internal/api/events"
 	"github.com/geoffbelknap/agency/internal/api/graph"
 	apihub "github.com/geoffbelknap/agency/internal/api/hub"
 	apiinfra "github.com/geoffbelknap/agency/internal/api/infra"
+	apiinstances "github.com/geoffbelknap/agency/internal/api/instances"
 	apimissions "github.com/geoffbelknap/agency/internal/api/missions"
+	apipackages "github.com/geoffbelknap/agency/internal/api/packages"
 	"github.com/geoffbelknap/agency/internal/api/platform"
 	"github.com/geoffbelknap/agency/internal/config"
 )
@@ -351,6 +354,27 @@ func TestModuleIsolation(t *testing.T) {
 			},
 		},
 		{
+			name: "packages — nil optional deps",
+			fn: func() {
+				r := chi.NewRouter()
+				apipackages.RegisterRoutes(r, apipackages.Deps{Config: cfg})
+			},
+		},
+		{
+			name: "instances — nil optional deps",
+			fn: func() {
+				r := chi.NewRouter()
+				apiinstances.RegisterRoutes(r, apiinstances.Deps{Config: cfg})
+			},
+		},
+		{
+			name: "authz — nil optional deps",
+			fn: func() {
+				r := chi.NewRouter()
+				apiauthz.RegisterRoutes(r, apiauthz.Deps{})
+			},
+		},
+		{
 			name: "comms — nil optional deps",
 			fn: func() {
 				r := chi.NewRouter()
@@ -522,6 +546,9 @@ func TestUnauthenticatedPaths(t *testing.T) {
 		{http.MethodGet, "/api/v1/admin/registry"},
 		{http.MethodGet, "/api/v1/infra/status"},
 		{http.MethodGet, "/api/v1/admin/doctor"},
+		{http.MethodGet, "/api/v1/packages"},
+		{http.MethodGet, "/api/v1/instances"},
+		{http.MethodPost, "/api/v1/authz/resolve"},
 	}
 
 	for _, pp := range protectedPaths {

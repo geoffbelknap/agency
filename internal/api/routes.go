@@ -11,15 +11,19 @@ import (
 
 	apiadmin "github.com/geoffbelknap/agency/internal/api/admin"
 	apiagents "github.com/geoffbelknap/agency/internal/api/agents"
+	apiauthz "github.com/geoffbelknap/agency/internal/api/authz"
 	apicomms "github.com/geoffbelknap/agency/internal/api/comms"
 	"github.com/geoffbelknap/agency/internal/api/creds"
 	apievents "github.com/geoffbelknap/agency/internal/api/events"
 	"github.com/geoffbelknap/agency/internal/api/graph"
 	apihub "github.com/geoffbelknap/agency/internal/api/hub"
 	apiinfra "github.com/geoffbelknap/agency/internal/api/infra"
+	apiinstances "github.com/geoffbelknap/agency/internal/api/instances"
 	apimissions "github.com/geoffbelknap/agency/internal/api/missions"
+	apipackages "github.com/geoffbelknap/agency/internal/api/packages"
 	"github.com/geoffbelknap/agency/internal/api/platform"
 	"github.com/geoffbelknap/agency/internal/audit"
+	authzcore "github.com/geoffbelknap/agency/internal/authz"
 	"github.com/geoffbelknap/agency/internal/config"
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/credstore"
@@ -271,6 +275,26 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 		DC:        dc,
 	})
 
+	// V2 package routes over the local hub package registry.
+	apipackages.RegisterRoutes(r, apipackages.Deps{
+		Config:   cfg,
+		Registry: startup.HubRegistry,
+		Logger:   logger,
+	})
+
+	apiinstances.RegisterRoutes(r, apiinstances.Deps{
+		Config:   cfg,
+		Store:    startup.InstanceStore,
+		Registry: startup.HubRegistry,
+		Logger:   logger,
+		Signal:   &DockerSignalSender{RawClient: dc.RawClient()},
+		EventBus: opts.EventBus,
+	})
+	apiauthz.RegisterRoutes(r, apiauthz.Deps{
+		Resolver: derefResolver(startup.AuthzResolver),
+		Logger:   logger,
+	})
+
 	// Credential routes (extracted module) — only if CredStore is initialized
 	if startup.CredStore != nil {
 		creds.RegisterRoutes(r, creds.Deps{
@@ -367,4 +391,11 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
+}
+
+func derefResolver(r *authzcore.Resolver) authzcore.Resolver {
+	if r == nil {
+		return authzcore.Resolver{}
+	}
+	return *r
 }

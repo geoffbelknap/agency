@@ -37,7 +37,7 @@ type EffectivePolicy struct {
 	HardFloors map[string]interface{}   `json:"hard_floors"`
 	Exceptions []ExceptionInfo          `json:"exceptions,omitempty"`
 	Chain      []PolicyStep             `json:"chain"`
-	Valid       bool                    `json:"valid"`
+	Valid      bool                     `json:"valid"`
 	Violations []string                 `json:"violations,omitempty"`
 }
 
@@ -57,7 +57,7 @@ func (e *Engine) Compute(agentName string) *EffectivePolicy {
 		Parameters: e.defaultParameters(),
 		Rules:      DefaultRules,
 		HardFloors: HardFloors,
-		Valid:       true,
+		Valid:      true,
 	}
 
 	// Step 1: Platform defaults
@@ -110,6 +110,20 @@ func (e *Engine) Validate(agentName string) *EffectivePolicy {
 // Show returns the effective policy for display.
 func (e *Engine) Show(agentName string) *EffectivePolicy {
 	return e.Compute(agentName)
+}
+
+// ComputeForScope returns the effective policy and records the additional
+// scoped context used by V2 instance-aware authorization.
+func (e *Engine) ComputeForScope(agentName, scope string) *EffectivePolicy {
+	ep := e.Compute(agentName)
+	if strings.TrimSpace(scope) != "" {
+		ep.Chain = append(ep.Chain, PolicyStep{
+			Level:  "instance_scope",
+			Status: "ok",
+			Detail: scope,
+		})
+	}
+	return ep
 }
 
 func (e *Engine) defaultParameters() map[string]interface{} {

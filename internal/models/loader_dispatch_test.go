@@ -15,6 +15,7 @@ func TestDetectSchemaAll(t *testing.T) {
 		{"org.yaml", "*models.OrgConfig"},
 		{"agent.yaml", "*models.AgentConfig"},
 		{"constraints.yaml", "*models.ConstraintsConfig"},
+		{"package.yaml", "*models.PackageConfig"},
 		{"principals.yaml", "*models.PrincipalsConfig"},
 		{"preset.yaml", "*models.PresetConfig"},
 		{"mission.yaml", "*models.Mission"},
@@ -73,6 +74,8 @@ func TestDetectSchemaCaseSensitivity(t *testing.T) {
 		{"Pack.yaml", true},
 		{"connector.yaml", false},
 		{"Connector.yaml", true},
+		{"package.yaml", false},
+		{"Package.yaml", true},
 		{"routing.yaml", false},
 		{"Routing.yaml", true},
 		{"egress-domains.yaml", false},
@@ -100,6 +103,7 @@ func TestDetectSchemaCaseSensitivity(t *testing.T) {
 // - principals.yaml → PrincipalsConfig
 // - agent.yaml → AgentConfig
 // - constraints.yaml → ConstraintsConfig
+// - package.yaml → PackageConfig
 // - preset.yaml → PresetConfig
 // - mission.yaml → Mission
 // - policy.yaml → PolicyConfig or AgentPolicyConfig (path-aware, tested in policy_schema_test.go)
@@ -114,6 +118,7 @@ func TestDetectSchemaCompletenessCoverage(t *testing.T) {
 		"principals.yaml",
 		"agent.yaml",
 		"constraints.yaml",
+		"package.yaml",
 		"preset.yaml",
 		"mission.yaml",
 		"policy.yaml",

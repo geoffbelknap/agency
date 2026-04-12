@@ -30,6 +30,12 @@ tags:
     description: Administrative operations — doctor, destroy, trust, audit, egress, capabilities, policy, teams, registry, profiles
   - name: Hub
     description: Component registry — search, install, configure, activate; presets, deploy, teardown, connectors, egress
+  - name: Packages
+    description: V2 local package registry — installed package listing and inspection
+  - name: Instances
+    description: V2 local instances — governed local realizations of installed packages
+  - name: AuthZ
+    description: V2 grant resolution and authorization decisions
   - name: Graph
     description: Knowledge graph queries, export, ontology, curation, communities, quarantine, classification, principals
   - name: Infra
@@ -97,6 +103,430 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StatusResponse"
+
+  # ── Packages ────────────────────────────────────────────────────────────────
+  /packages:
+    get:
+      operationId: listPackages
+      summary: List installed V2 packages
+      tags: [Packages]
+      parameters:
+        - name: kind
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional package kind filter
+      responses:
+        "200":
+          description: Installed package metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PackageListResponse"
+        "400":
+          $ref: "#/components/responses/NotFound"
+
+  /packages/{kind}/{name}:
+    get:
+      operationId: showPackage
+      summary: Show one installed V2 package
+      tags: [Packages]
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Installed package metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstalledPackage"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /instances:
+    get:
+      operationId: listInstances
+      summary: List local V2 instances
+      tags: [Instances]
+      responses:
+        "200":
+          description: Local instances
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstanceListResponse"
+    post:
+      operationId: createInstance
+      summary: Create a local V2 instance
+      tags: [Instances]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Instance"
+      responses:
+        "201":
+          description: Created instance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Instance"
+
+  /instances/from-package:
+    post:
+      operationId: createInstanceFromPackage
+      summary: Scaffold a local V2 instance from an installed package
+      tags: [Instances]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, name]
+              properties:
+                kind:
+                  type: string
+                name:
+                  type: string
+                instance_name:
+                  type: string
+                node_id:
+                  type: string
+                config:
+                  type: object
+                  additionalProperties: true
+                node_config:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "201":
+          description: Created instance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Instance"
+
+  /instances/{id}:
+    get:
+      operationId: showInstance
+      summary: Show a local V2 instance
+      tags: [Instances]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Instance detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Instance"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /instances/{id}/validate:
+    post:
+      operationId: validateInstance
+      summary: Validate a stored V2 instance
+      tags: [Instances]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /instances/{id}/claim:
+    post:
+      operationId: claimInstance
+      summary: Claim ownership of a local V2 instance
+      tags: [Instances]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                owner:
+                  type: string
+      responses:
+        "200":
+          description: Claim recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /instances/{id}/release:
+    post:
+      operationId: releaseInstance
+      summary: Release ownership of a local V2 instance
+      tags: [Instances]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Claim released
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /instances/{id}/runtime/manifest:
+    get:
+      operationId: showRuntimeManifest
+      summary: Show the persisted V2 runtime manifest for an instance
+      tags: [Instances]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Runtime manifest
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeManifest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: compileRuntimeManifest
+      summary: Compile and persist a V2 runtime manifest for an instance
+      tags: [Instances]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: Runtime manifest compiled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeManifest"
+
+  /instances/{id}/runtime/reconcile:
+    post:
+      operationId: reconcileRuntimeManifest
+      summary: Reconcile a persisted V2 runtime manifest
+      tags: [Instances]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Runtime manifest reconciled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeManifest"
+        "409":
+          description: Runtime manifest is stale
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /instances/{id}/runtime/nodes/{nodeID}:
+    get:
+      operationId: runtimeNodeStatus
+      summary: Show runtime status for a reconciled instance node
+      tags: [Instances]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: nodeID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Runtime node status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeNodeStatus"
+
+  /instances/{id}/runtime/nodes/{nodeID}/start:
+    post:
+      operationId: startRuntimeNode
+      summary: Mark a reconciled authority runtime node active
+      tags: [Instances]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: nodeID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Runtime node status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeNodeStatus"
+
+  /instances/{id}/runtime/nodes/{nodeID}/stop:
+    post:
+      operationId: stopRuntimeNode
+      summary: Mark a reconciled authority runtime node stopped
+      tags: [Instances]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: nodeID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Runtime node status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeNodeStatus"
+
+  /instances/{id}/runtime/nodes/{nodeID}/invoke:
+    post:
+      operationId: invokeRuntimeNode
+      summary: Invoke an active authority runtime node
+      tags: [Instances]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: nodeID
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Runtime node invoke response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /instances/{id}/runtime/nodes/{nodeID}/actions/{action}:
+    post:
+      operationId: invokeRuntimeAction
+      summary: Invoke a specific action on an active authority runtime node
+      tags: [Instances]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: nodeID
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: action
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Runtime node action response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /authz/resolve:
+    post:
+      operationId: resolveAuthz
+      summary: Resolve a V2 authorization request against explicit grants
+      tags: [AuthZ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthzRequest"
+      responses:
+        "200":
+          description: Authorization decision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthzDecision"
 
   # ── Agents ──────────────────────────────────────────────────────────────────
   /agents:
@@ -1167,6 +1597,251 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/HubInstance"
+
+  /hub/deployments:
+    get:
+      operationId: hubDeploymentList
+      summary: List hub deployments
+      tags: [Hub]
+      responses:
+        "200":
+          description: Deployment list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HubDeployment"
+    post:
+      operationId: hubDeploymentCreate
+      summary: Create a hub deployment
+      tags: [Hub]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pack]
+              properties:
+                pack:
+                  type: string
+                name:
+                  type: string
+                config:
+                  type: object
+                  additionalProperties: true
+                credrefs:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        "200":
+          description: Deployment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HubDeployment"
+
+  /hub/deployments/import:
+    post:
+      operationId: hubDeploymentImport
+      summary: Import a hub deployment bundle
+      tags: [Hub]
+      parameters:
+        - name: name
+          in: query
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/gzip:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Deployment imported
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HubDeployment"
+
+  /hub/deployments/schema/{pack}:
+    get:
+      operationId: hubDeploymentSchema
+      summary: Get deployment schema for a pack
+      tags: [Hub]
+      parameters:
+        - name: pack
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Pack deployment schema
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pack:
+                    type: object
+                    additionalProperties: true
+                  schema:
+                    type: object
+                    additionalProperties: true
+
+  /hub/deployments/{nameOrID}:
+    get:
+      operationId: hubDeploymentShow
+      summary: Show a hub deployment
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+      responses:
+        "200":
+          description: Deployment detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deployment:
+                    $ref: "#/components/schemas/HubDeployment"
+                  schema:
+                    type: object
+                    additionalProperties: true
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: hubDeploymentDestroy
+      summary: Destroy a hub deployment
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+        - name: keep_instances
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Deployment destroyed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /hub/deployments/{nameOrID}/config:
+    put:
+      operationId: hubDeploymentConfigure
+      summary: Update deployment configuration
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                config:
+                  type: object
+                  additionalProperties: true
+                credrefs:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        "200":
+          description: Deployment configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /hub/deployments/{nameOrID}/validate:
+    post:
+      operationId: hubDeploymentValidate
+      summary: Validate deployment configuration
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+      responses:
+        "200":
+          description: Deployment valid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /hub/deployments/{nameOrID}/apply:
+    post:
+      operationId: hubDeploymentApply
+      summary: Apply deployment configuration to child hub instances
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+      responses:
+        "200":
+          description: Deployment applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /hub/deployments/{nameOrID}/export:
+    get:
+      operationId: hubDeploymentExport
+      summary: Export a hub deployment bundle
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+      responses:
+        "200":
+          description: Deployment bundle
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+
+  /hub/deployments/{nameOrID}/claim:
+    post:
+      operationId: hubDeploymentClaim
+      summary: Claim ownership of a hub deployment
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+        - name: force
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Deployment claimed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /hub/deployments/{nameOrID}/release:
+    post:
+      operationId: hubDeploymentRelease
+      summary: Release ownership of a hub deployment
+      tags: [Hub]
+      parameters:
+        - $ref: "#/components/parameters/nameOrID"
+      responses:
+        "200":
+          description: Deployment released
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
 
   /hub/{nameOrID}:
     get:
@@ -5265,6 +5940,314 @@ components:
         error:
           type: string
 
+    InstalledPackage:
+      type: object
+      properties:
+        kind:
+          type: string
+        name:
+          type: string
+        version:
+          type: string
+        trust:
+          type: string
+        installed:
+          type: string
+          format: date-time
+        path:
+          type: string
+
+    PackageListResponse:
+      type: object
+      properties:
+        packages:
+          type: array
+          items:
+            $ref: "#/components/schemas/InstalledPackage"
+
+    PackageRef:
+      type: object
+      properties:
+        kind:
+          type: string
+        name:
+          type: string
+        version:
+          type: string
+
+    InstanceSource:
+      type: object
+      properties:
+        template:
+          $ref: "#/components/schemas/PackageRef"
+        package:
+          $ref: "#/components/schemas/PackageRef"
+
+    InstanceClaim:
+      type: object
+      properties:
+        owner:
+          type: string
+        claimed_at:
+          type: string
+          format: date-time
+
+    Instance:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        source:
+          $ref: "#/components/schemas/InstanceSource"
+        config:
+          type: object
+          additionalProperties: true
+        claim:
+          $ref: "#/components/schemas/InstanceClaim"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    InstanceListResponse:
+      type: object
+      properties:
+        instances:
+          type: array
+          items:
+            $ref: "#/components/schemas/Instance"
+
+    ConsentRequirement:
+      type: object
+      properties:
+        required_for:
+          type: array
+          items:
+            type: string
+
+    Grant:
+      type: object
+      properties:
+        subject:
+          type: string
+        target:
+          type: string
+        actions:
+          type: array
+          items:
+            type: string
+        consent:
+          $ref: "#/components/schemas/ConsentRequirement"
+
+    AuthzRequest:
+      type: object
+      properties:
+        subject:
+          type: string
+        target:
+          type: string
+        action:
+          type: string
+        instance:
+          type: string
+        consent_provided:
+          type: boolean
+        grants:
+          type: array
+          items:
+            $ref: "#/components/schemas/Grant"
+
+    AuthzDecision:
+      type: object
+      properties:
+        allow:
+          type: boolean
+        reasons:
+          type: array
+          items:
+            type: string
+        consent_needed:
+          type: boolean
+
+    RuntimeManifestMetadata:
+      type: object
+      properties:
+        manifest_id:
+          type: string
+        instance_id:
+          type: string
+        instance_name:
+          type: string
+        compiled_at:
+          type: string
+          format: date-time
+        planner_version:
+          type: string
+
+    RuntimeManifestSource:
+      type: object
+      properties:
+        instance_revision:
+          type: string
+          format: date-time
+
+    RuntimeNode:
+      type: object
+      properties:
+        node_id:
+          type: string
+        kind:
+          type: string
+        package:
+          $ref: "#/components/schemas/PackageRef"
+        tools:
+          type: array
+          items:
+            type: string
+        credential_bindings:
+          type: array
+          items:
+            type: string
+        grant_subjects:
+          type: array
+          items:
+            type: string
+        consent_actions:
+          type: array
+          items:
+            type: string
+        executor:
+          $ref: "#/components/schemas/RuntimeExecutor"
+        materialization_path:
+          type: string
+
+    RuntimeBinding:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        target:
+          type: string
+
+    RuntimeExecutor:
+      type: object
+      properties:
+        kind:
+          type: string
+        base_url:
+          type: string
+        actions:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/RuntimeHTTPAction"
+        auth:
+          $ref: "#/components/schemas/RuntimeExecutorAuth"
+
+    RuntimeHTTPAction:
+      type: object
+      properties:
+        method:
+          type: string
+        path:
+          type: string
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+
+    RuntimeExecutorAuth:
+      type: object
+      properties:
+        type:
+          type: string
+        binding:
+          type: string
+        header:
+          type: string
+        prefix:
+          type: string
+
+    RuntimeOperation:
+      type: object
+      properties:
+        type:
+          type: string
+        node_id:
+          type: string
+        path:
+          type: string
+
+    RuntimeManifestStatus:
+      type: object
+      properties:
+        reconcile_state:
+          type: string
+        last_reconciled_at:
+          type: string
+          format: date-time
+
+    RuntimeManifest:
+      type: object
+      properties:
+        api_version:
+          type: string
+        kind:
+          type: string
+        metadata:
+          $ref: "#/components/schemas/RuntimeManifestMetadata"
+        source:
+          $ref: "#/components/schemas/RuntimeManifestSource"
+        runtime:
+          type: object
+          properties:
+            nodes:
+              type: array
+              items:
+                $ref: "#/components/schemas/RuntimeNode"
+            bindings:
+              type: array
+              items:
+                $ref: "#/components/schemas/RuntimeBinding"
+            operations:
+              type: array
+              items:
+                $ref: "#/components/schemas/RuntimeOperation"
+        status:
+          $ref: "#/components/schemas/RuntimeManifestStatus"
+
+    RuntimeNodeStatus:
+      type: object
+      properties:
+        node_id:
+          type: string
+        state:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        stopped_at:
+          type: string
+          format: date-time
+        pid:
+          type: integer
+        port:
+          type: integer
+        url:
+          type: string
+        last_error:
+          type: string
+        runtime_path:
+          type: string
+
     CredentialEntry:
       type: object
       properties:
@@ -5606,6 +6589,47 @@ components:
         state:
           type: string
         created:
+          type: string
+        deployment_id:
+          type: string
+        deployment_role:
+          type: string
+        deployment_managed:
+          type: boolean
+
+    HubDeployment:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        pack:
+          type: object
+          additionalProperties: true
+        schema_version:
+          type: integer
+        config:
+          type: object
+          additionalProperties: true
+        credrefs:
+          type: object
+          additionalProperties: true
+        instances:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        owner:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        audit_log_path:
           type: string
 
     HubInstanceDetail:

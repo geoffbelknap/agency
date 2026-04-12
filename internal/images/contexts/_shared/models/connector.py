@@ -26,11 +26,19 @@ class ConnectorWebhookAuth(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["hmac_sha256"] = "hmac_sha256"
-    secret_env: str  # env var name containing the signing secret
+    secret_env: str | None = None  # env var name containing the signing secret
+    secret_credref: str | None = None  # credref name for the signing secret
     header: str = "X-Slack-Signature"  # header carrying the computed signature
     timestamp_header: str | None = "X-Slack-Request-Timestamp"  # for replay attack protection
     prefix: str = "v0="  # prefix on the signature value (Slack uses "v0=")
     challenge_field: str | None = "challenge"  # field name for URL verification handshake (Slack)
+    max_skew_seconds: int = 300
+
+    @model_validator(mode="after")
+    def validate_secret_source(self) -> "ConnectorWebhookAuth":
+        if not self.secret_env and not self.secret_credref:
+            raise ValueError("webhook_auth requires either secret_env or secret_credref")
+        return self
 
 
 class ConnectorSource(BaseModel):
@@ -40,11 +48,12 @@ class ConnectorSource(BaseModel):
     payload_schema: dict | None = Field(default=None, alias="schema")
     webhook_auth: ConnectorWebhookAuth | None = None  # HMAC auth for webhook sources
     path: str | None = None
-    body_format: Literal["json", "form_urlencoded", "form_urlencoded_payload_json_field"] | None = None
+    body_format: Literal["json", "form_urlencoded", "form_urlencoded_payload", "form_urlencoded_payload_json_field"] | None = None
     payload_field: str | None = None
     response_status: int | None = None
     response_body: str | None = None
     response_content_type: str | None = None
+    ack_strategy: str | None = None
     # poll fields
     url: str | None = None
     method: str = "GET"
@@ -61,8 +70,15 @@ class ConnectorSource(BaseModel):
 
     @model_validator(mode="after")
     def validate_source_fields(self) -> "ConnectorSource":
-        if self.type == "none":
-            fields = [
+        if self.type == "poll":
+            if not self.url:
+                raise ValueError("poll source requires 'url'")
+            if not self.interval:
+                raise ValueError("poll source requires 'interval'")
+            if not _INTERVAL_PATTERN.match(self.interval):
+                raise ValueError(f"Invalid interval format: {self.interval} (expected e.g. '30s', '5m', '1h', '1d')")
+        elif self.type == "none":
+            inbound_fields = [
                 self.webhook_auth,
                 self.path,
                 self.body_format,
@@ -70,27 +86,20 @@ class ConnectorSource(BaseModel):
                 self.response_status,
                 self.response_body,
                 self.response_content_type,
+                self.ack_strategy,
                 self.url,
                 self.interval,
                 self.response_key,
                 self.cron,
                 self.channel,
                 self.pattern,
-                self.follow_up,
             ]
             if self.headers is not None:
-                fields.append("set")
+                inbound_fields.append("set")
             if self.method != "GET":
-                fields.append("set")
-            if any(f is not None for f in fields):
-                raise ValueError("none source does not accept webhook/poll/schedule/channel-watch fields")
-        elif self.type == "poll":
-            if not self.url:
-                raise ValueError("poll source requires 'url'")
-            if not self.interval:
-                raise ValueError("poll source requires 'interval'")
-            if not _INTERVAL_PATTERN.match(self.interval):
-                raise ValueError(f"Invalid interval format: {self.interval} (expected e.g. '30s', '5m', '1h', '1d')")
+                inbound_fields.append("set")
+            if any(f is not None for f in inbound_fields):
+                raise ValueError("source type none does not accept inbound source fields")
         elif self.type == "schedule":
             if not self.cron:
                 raise ValueError("schedule source requires 'cron'")
@@ -104,7 +113,7 @@ class ConnectorSource(BaseModel):
                 parts = urlsplit(self.path)
                 if not self.path.startswith("/") or parts.scheme or parts.netloc or parts.query or parts.fragment:
                     raise ValueError("webhook source path must be an absolute path without query or fragment")
-            if self.payload_field and self.body_format != "form_urlencoded_payload_json_field":
+            if self.payload_field and self.body_format not in {"form_urlencoded_payload", "form_urlencoded_payload_json_field"}:
                 raise ValueError("payload_field is only valid with body_format 'form_urlencoded_payload_json_field'")
             if self.response_status is not None and not 200 <= self.response_status <= 299:
                 raise ValueError("webhook response_status must be a 2xx status code")
@@ -115,7 +124,7 @@ class ConnectorSource(BaseModel):
                 poll_fields.append("set")
             if any(f is not None for f in poll_fields):
                 raise ValueError("webhook source does not accept poll/schedule/channel-watch fields")
-        elif self.path or self.body_format or self.payload_field or self.response_status is not None or self.response_body is not None or self.response_content_type is not None:
+        elif self.path or self.body_format or self.payload_field or self.response_status is not None or self.response_body is not None or self.response_content_type is not None or self.ack_strategy:
             raise ValueError(f"{self.type} source does not accept webhook body/path fields")
         return self
 
@@ -159,9 +168,41 @@ class ConnectorMCPTool(BaseModel):
 
     name: str
     method: str = "GET"
-    path: str
+    path: str | None = None
     parameters: dict | None = None
+    input_schema: dict | None = None
+    returns: dict | None = None
     description: str = ""
+    requires_config: str | None = None
+    query_params: list[str] = Field(default_factory=list)
+    whitelist_check: str | None = None
+    requires_consent_token: dict | None = None
+
+    @model_validator(mode="after")
+    def validate_tool_controls(self) -> "ConnectorMCPTool":
+        if not self.path and not self.input_schema:
+            raise ValueError("tool requires either path or input_schema")
+        params = set((self.parameters or self.input_schema or {}).keys())
+        if self.whitelist_check and self.whitelist_check not in params:
+            raise ValueError(f"whitelist_check references unknown parameter {self.whitelist_check!r}")
+        for field in self.query_params:
+            if field not in params:
+                raise ValueError(f"query_params references unknown parameter {field!r}")
+        if self.requires_consent_token:
+            operation_kind = self.requires_consent_token.get("operation_kind")
+            token_field = self.requires_consent_token.get("token_input_field")
+            target_field = self.requires_consent_token.get("target_input_field")
+            if not operation_kind:
+                raise ValueError("requires_consent_token.operation_kind is required")
+            if not token_field:
+                raise ValueError("requires_consent_token.token_input_field is required")
+            if not target_field:
+                raise ValueError("requires_consent_token.target_input_field is required")
+            if token_field not in params:
+                raise ValueError(f"requires_consent_token references unknown token_input_field {token_field!r}")
+            if target_field not in params:
+                raise ValueError(f"requires_consent_token references unknown target_input_field {target_field!r}")
+        return self
 
 
 class ConnectorMCP(BaseModel):
@@ -174,10 +215,36 @@ class ConnectorMCP(BaseModel):
     tools: list[ConnectorMCPTool] | None = None
 
 
+class ConnectorCredential(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    description: str = ""
+    type: Literal["secret", "config"] = "secret"
+    scope: Literal["service-grant", "env-var", "file"] = "service-grant"
+    grant_name: str | None = None
+    setup_url: str | None = None
+    example: str | None = None
+
+
+class ConnectorAuth(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["none", "bearer", "jwt-exchange", "oauth2", "google_service_account"] = "none"
+    token_url: str | None = None
+    token_params: dict[str, str] | None = None
+    token_response_field: str = "access_token"
+    token_ttl_seconds: int = 3600
+    scopes: list[str] = Field(default_factory=list)
+
+
 class ConnectorRequires(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     services: list[str] = Field(default_factory=list)
+    credentials: list[ConnectorCredential] = Field(default_factory=list)
+    auth: ConnectorAuth | None = None
+    egress_domains: list[str] = Field(default_factory=list)
 
 
 class ConnectorRateLimits(BaseModel):
@@ -197,14 +264,21 @@ class ConnectorConfig(BaseModel):
     author: str = ""
     requires: ConnectorRequires | None = None
     source: ConnectorSource
-    routes: list[ConnectorRoute] = Field(default_factory=list)
+    routes: list[ConnectorRoute] = []
     mcp: ConnectorMCP | None = None
+    config: dict = Field(default_factory=dict)
+    tools: list[ConnectorMCPTool] = []
+    runtime: dict | None = None
     rate_limits: ConnectorRateLimits = Field(default_factory=ConnectorRateLimits)
 
     @model_validator(mode="after")
-    def _routes_or_mcp(self) -> "ConnectorConfig":
-        if not self.routes and self.mcp is None:
-            raise ValueError("Connector must define at least one route or MCP tool")
-        if self.source.type == "none" and self.routes:
-            raise ValueError("none source connectors cannot define routes")
+    def validate_shape(self) -> "ConnectorConfig":
+        if self.source.type == "none":
+            if self.routes:
+                raise ValueError("tool-only connectors must not define routes")
+            if not self.tools and not (self.mcp and self.mcp.tools):
+                raise ValueError("tool-only connectors must define at least one tool")
+            return self
+        if not self.routes:
+            raise ValueError("Connector must define at least one route")
         return self

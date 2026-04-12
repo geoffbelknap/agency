@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -16,15 +17,18 @@ import (
 
 // Instance represents an installed hub component with a unique identity.
 type Instance struct {
-	ID            string   `yaml:"id" json:"id"`
-	Name          string   `yaml:"name" json:"name"`
-	Kind          string   `yaml:"kind" json:"kind"`
-	Version       string   `yaml:"version,omitempty" json:"version,omitempty"`
-	Source        string   `yaml:"source" json:"source"`
-	State         string   `yaml:"state" json:"state"`
-	Created       string   `yaml:"created" json:"created"`
-	AutoInstalled bool     `yaml:"auto_installed,omitempty" json:"auto_installed,omitempty"`
-	RequiredBy    []string `yaml:"required_by,omitempty" json:"required_by,omitempty"`
+	ID                string   `yaml:"id" json:"id"`
+	Name              string   `yaml:"name" json:"name"`
+	Kind              string   `yaml:"kind" json:"kind"`
+	Version           string   `yaml:"version,omitempty" json:"version,omitempty"`
+	Source            string   `yaml:"source" json:"source"`
+	State             string   `yaml:"state" json:"state"`
+	Created           string   `yaml:"created" json:"created"`
+	DeploymentID      string   `yaml:"deployment_id,omitempty" json:"deployment_id,omitempty"`
+	DeploymentRole    string   `yaml:"deployment_role,omitempty" json:"deployment_role,omitempty"`
+	DeploymentManaged bool     `yaml:"deployment_managed,omitempty" json:"deployment_managed,omitempty"`
+	AutoInstalled     bool     `yaml:"auto_installed,omitempty" json:"auto_installed,omitempty"`
+	RequiredBy        []string `yaml:"required_by,omitempty" json:"required_by,omitempty"`
 }
 
 type registryFile struct {
@@ -48,6 +52,33 @@ func NewRegistry(home string) *Registry {
 // registryPath returns the path of the registry YAML file.
 func (r *Registry) registryPath() string {
 	return filepath.Join(r.home, "registry.yaml")
+}
+
+func (r *Registry) packageRoot() string {
+	return filepath.Join(r.home, "packages")
+}
+
+func validPackageSegment(segment string) bool {
+	if strings.TrimSpace(segment) == "" {
+		return false
+	}
+	if segment == "." || segment == ".." {
+		return false
+	}
+	if strings.ContainsAny(segment, `/\`) {
+		return false
+	}
+	return filepath.Base(segment) == segment
+}
+
+func (r *Registry) packagePath(kind, name string) (string, error) {
+	if !validPackageSegment(kind) {
+		return "", fmt.Errorf("invalid package kind %q", kind)
+	}
+	if !validPackageSegment(name) {
+		return "", fmt.Errorf("invalid package name %q", name)
+	}
+	return filepath.Join(r.packageRoot(), kind, name+".json"), nil
 }
 
 // load reads the registry from disk. Caller must hold r.mu.
@@ -83,6 +114,130 @@ func (r *Registry) save(rf registryFile) error {
 		return fmt.Errorf("write registry: %w", err)
 	}
 	return nil
+}
+
+// PutPackage stores local installed-package metadata in packages/<kind>/<name>.json.
+func (r *Registry) PutPackage(pkg InstalledPackage) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	path, err := r.packagePath(pkg.Kind, pkg.Name)
+	if err != nil {
+		return err
+	}
+	if pkg.Installed.IsZero() {
+		pkg.Installed = time.Now().UTC()
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("create package dir: %w", err)
+	}
+
+	data, err := json.MarshalIndent(pkg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal package: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("write package: %w", err)
+	}
+	return nil
+}
+
+// GetPackage returns the installed package metadata for the given kind/name.
+func (r *Registry) GetPackage(kind, name string) (InstalledPackage, bool) {
+	if r == nil {
+		return InstalledPackage{}, false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	path, err := r.packagePath(kind, name)
+	if err != nil {
+		return InstalledPackage{}, false
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return InstalledPackage{}, false
+	}
+	var pkg InstalledPackage
+	if err := json.Unmarshal(data, &pkg); err != nil {
+		return InstalledPackage{}, false
+	}
+	return pkg, true
+}
+
+// ListPackages returns installed packages, optionally filtered by kind.
+func (r *Registry) ListPackages(kind string) ([]InstalledPackage, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if kind != "" {
+		if !validPackageSegment(kind) {
+			return nil, fmt.Errorf("invalid package kind %q", kind)
+		}
+		return r.listPackagesInKind(kind)
+	}
+
+	var out []InstalledPackage
+	entries, err := os.ReadDir(r.packageRoot())
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read packages: %w", err)
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if !validPackageSegment(entry.Name()) {
+			continue
+		}
+		packages, err := r.listPackagesInKind(entry.Name())
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, packages...)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out, nil
+}
+
+func (r *Registry) listPackagesInKind(kind string) ([]InstalledPackage, error) {
+	root := filepath.Join(r.packageRoot(), kind)
+
+	entries, err := os.ReadDir(root)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read packages for kind %s: %w", kind, err)
+	}
+
+	var out []InstalledPackage
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(root, entry.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("read package %s/%s: %w", kind, entry.Name(), err)
+		}
+		var pkg InstalledPackage
+		if err := json.Unmarshal(data, &pkg); err != nil {
+			return nil, fmt.Errorf("parse package %s/%s: %w", kind, entry.Name(), err)
+		}
+		out = append(out, pkg)
+	}
+	return out, nil
 }
 
 // generateID returns a random 8-character lowercase hex string.
@@ -257,6 +412,28 @@ func (r *Registry) SetVersion(nameOrID, version string) error {
 	}
 
 	inst.Version = version
+	rf.Instances[inst.Name] = *inst
+	return r.save(rf)
+}
+
+// SetDeploymentBinding annotates an instance as managed by a hub deployment.
+func (r *Registry) SetDeploymentBinding(nameOrID, deploymentID, role string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	rf, err := r.load()
+	if err != nil {
+		return err
+	}
+
+	inst := r.resolve(rf, nameOrID)
+	if inst == nil {
+		return fmt.Errorf("instance %q not found", nameOrID)
+	}
+
+	inst.DeploymentID = deploymentID
+	inst.DeploymentRole = role
+	inst.DeploymentManaged = deploymentID != ""
 	rf.Instances[inst.Name] = *inst
 	return r.save(rf)
 }

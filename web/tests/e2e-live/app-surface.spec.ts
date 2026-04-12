@@ -48,7 +48,7 @@ test('live admin tabs render across the real stack', async ({ page }) => {
 
   const tabs = [
     { path: '/admin/infrastructure', assert: async () => expect(page.getByRole('heading', { name: 'Infrastructure' })).toBeVisible() },
-    { path: '/admin/hub', assert: async () => expect(page.getByRole('tab', { name: 'Browse' })).toBeVisible() },
+    { path: '/admin/hub', assert: async () => expect(page.getByRole('tab', { name: 'Packages' })).toBeVisible() },
     { path: '/admin/intake', assert: async () => expect(page.getByRole('tab', { name: 'Connectors' })).toBeVisible() },
     { path: '/admin/knowledge', assert: async () => expect(page.getByText(/Query Knowledge|Knowledge graph is empty/)).toBeVisible() },
     { path: '/admin/capabilities', assert: async () => expect(page.getByText('Platform capability registry')).toBeVisible() },
@@ -247,25 +247,10 @@ test('live hub surfaces source trust and provenance guidance without mutating st
 
   await page.goto('/admin/hub');
   await settle(page);
-  await expect(page.getByText('Trust and update behavior')).toBeVisible();
-  await expect(page.getByText(/verify the source before installing/i)).toBeVisible();
-  await page.getByRole('tab', { name: 'Installed' }).click();
-  await expect(page.getByText('Installed component hygiene')).toBeVisible();
-  await expect(page.getByText('Operator-Installable', { exact: true })).toBeVisible();
-  await expect(page.getByText('Hub-Managed', { exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: 'Browse' }).click();
-
-  const infoButton = page.getByRole('button', { name: /view hub-managed info|info/i }).first();
-  if (await infoButton.count()) {
-    await infoButton.click();
-    const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
-    if (await dialog.getByText('Trust & Provenance').count()) {
-      await expect(dialog.getByText('Trust & Provenance')).toBeVisible();
-      await expect(dialog.getByText(/OCI content from the official Agency Hub source\.|Local content under direct operator control on this machine\.|Review source ownership and trust before installing or upgrading\.|Verify the source before relying on this component\./)).toBeVisible();
-      await expect(dialog.getByText(/updated through source refresh and upgrade|operator-installable content/i)).toBeVisible();
-    } else {
-      await expect(dialog.getByText(/Loading\.\.\.|No additional info available/)).toBeVisible();
-    }
-  }
+  await expect(page.getByText('Packages and instances')).toBeVisible();
+  await expect(page.getByText(/Installed packages are reusable local building blocks/i)).toBeVisible();
+  await expect(page.getByText('Installed packages')).toBeVisible();
+  await page.getByRole('tab', { name: 'Instances' }).click();
+  await expect(page.getByText('Local instances')).toBeVisible();
+  await expect(page.getByText('Authority nodes')).toBeVisible();
 });

@@ -23,6 +23,7 @@ type Config struct {
 	SourceDir        string               // repo source tree root (agency_core/), empty for release installs
 	Notifications    []NotificationConfig // outbound notification destinations
 	ConfigVars       map[string]string    // platform config values from config.yaml (LC_ORG_ID, etc.)
+	Hub              HubConfig            // hub-specific operator config
 }
 
 // NotificationConfig defines an outbound notification destination.
@@ -32,6 +33,11 @@ type NotificationConfig struct {
 	URL     string            `yaml:"url"`
 	Events  []string          `yaml:"events"`
 	Headers map[string]string `yaml:"headers,omitempty"`
+}
+
+type HubConfig struct {
+	DeploymentBackend       string            `yaml:"deployment_backend,omitempty"`
+	DeploymentBackendConfig map[string]string `yaml:"deployment_backend_config,omitempty"`
 }
 
 // configFile mirrors the fields we care about in config.yaml.
@@ -44,6 +50,7 @@ type configFile struct {
 	SourceDir        string               `yaml:"source_dir,omitempty"`
 	Notifications    []NotificationConfig `yaml:"notifications,omitempty"`
 	ConfigVars       map[string]string    `yaml:"config,omitempty"` // platform config values (LC_ORG_ID, etc.)
+	Hub              HubConfig            `yaml:"hub,omitempty"`
 }
 
 // Load returns the gateway config, resolving the agency home directory.
@@ -83,6 +90,7 @@ func Load() *Config {
 	cfg.EgressToken = cf.EgressToken
 	cfg.AutoRestoreInfra = cf.AutoRestoreInfra
 	cfg.ConfigVars = cf.ConfigVars
+	cfg.Hub = cf.Hub
 
 	if cf.HMACKey != "" {
 		decoded, err := hex.DecodeString(cf.HMACKey)

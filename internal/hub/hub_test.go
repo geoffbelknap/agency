@@ -114,13 +114,13 @@ func TestUpgradeSpecificComponent(t *testing.T) {
 	// Write old YAML in instance dir
 	instDir := mgr.Registry.InstanceDir(inst.Name)
 	os.WriteFile(filepath.Join(instDir, "connector.yaml"),
-		[]byte("name: test-conn\nversion: \"0.1.0\"\n"), 0644)
+		[]byte("kind: connector\nname: test-conn\nversion: \"0.1.0\"\nsource:\n  type: webhook\nroutes:\n  - match: {}\n    target:\n      agent: tester\n"), 0644)
 
 	// Write new version in hub cache
 	cacheDir := filepath.Join(home, "hub-cache", "default", "connectors", "test-conn")
 	os.MkdirAll(cacheDir, 0755)
 	os.WriteFile(filepath.Join(cacheDir, "connector.yaml"),
-		[]byte("name: test-conn\nversion: \"0.2.0\"\n"), 0644)
+		[]byte("kind: connector\nname: test-conn\nversion: \"0.2.0\"\nsource:\n  type: webhook\nroutes:\n  - match: {}\n    target:\n      agent: tester\n"), 0644)
 
 	// Config
 	os.WriteFile(filepath.Join(home, "config.yaml"),
@@ -144,6 +144,13 @@ func TestUpgradeSpecificComponent(t *testing.T) {
 	if updated.Version != "0.2.0" {
 		t.Fatalf("expected version 0.2.0, got %s", updated.Version)
 	}
+	pkg, ok := mgr.Registry.GetPackage("connector", "test-conn")
+	if !ok {
+		t.Fatal("expected installed package entry after upgrade")
+	}
+	if pkg.Version != "0.2.0" {
+		t.Fatalf("expected installed package version 0.2.0, got %s", pkg.Version)
+	}
 }
 
 func TestInstallRejectsManagedKinds(t *testing.T) {
@@ -166,6 +173,107 @@ func TestInstallRejectsManagedKinds(t *testing.T) {
 		t.Fatal("expected ontology install to be rejected")
 	} else if !strings.Contains(err.Error(), "hub-managed") {
 		t.Fatalf("expected hub-managed error, got %v", err)
+	}
+}
+
+func TestInstallRejectsPackageEnvelopeComponents(t *testing.T) {
+	home := t.TempDir()
+	mgr := NewManager(home)
+
+	os.WriteFile(filepath.Join(home, "config.yaml"), []byte("hub:\n  sources:\n    - name: default\n      url: https://example.com\n"), 0644)
+
+	pkgDir := filepath.Join(home, "hub-cache", "default", "connectors", "slack-interactivity")
+	os.MkdirAll(pkgDir, 0755)
+	os.WriteFile(filepath.Join(pkgDir, "package.yaml"), []byte(`api_version: hub.agency/v2
+kind: connector
+metadata:
+  name: slack-interactivity
+  version: 1.0.0
+trust:
+  tier: verified
+  signature_required: true
+  executable: true
+`), 0644)
+
+	if _, err := mgr.Install("slack-interactivity", "connector", "", ""); err == nil {
+		t.Fatal("expected package-envelope install to be rejected")
+	} else if !strings.Contains(err.Error(), "package envelope") {
+		t.Fatalf("expected package envelope error, got %v", err)
+	}
+}
+
+func TestInstallConnectorPublishesPackageSpec(t *testing.T) {
+	home := t.TempDir()
+	mgr := NewManager(home)
+
+	os.WriteFile(filepath.Join(home, "config.yaml"), []byte("hub:\n  sources:\n    - name: default\n      url: https://example.com\n"), 0644)
+
+	cacheDir := filepath.Join(home, "hub-cache", "default", "connectors", "google-drive-admin")
+	os.MkdirAll(cacheDir, 0755)
+	os.WriteFile(filepath.Join(cacheDir, "connector.yaml"), []byte(`kind: connector
+name: google-drive-admin
+version: "1.0.0"
+requires:
+  credentials:
+    - name: google-drive-admin
+      scope: service-grant
+  auth:
+    type: google_service_account
+    scopes:
+      - https://www.googleapis.com/auth/drive
+source:
+  type: none
+mcp:
+  name: google-drive-admin
+  credential: google-drive-admin
+  api_base: https://www.googleapis.com
+  tools:
+    - name: drive_share_file
+      method: POST
+      path: /drive/v3/files/{file_id}/permissions
+      query_params: [sendNotificationEmail]
+      parameters:
+        file_id: {type: string}
+        emailAddress: {type: string}
+        role: {type: string}
+        sendNotificationEmail: {type: boolean}
+rate_limits:
+  max_per_hour: 100
+  max_concurrent: 10
+`), 0644)
+
+	if _, err := mgr.Install("google-drive-admin", "connector", "", ""); err != nil {
+		t.Fatalf("Install(): %v", err)
+	}
+	pkg, ok := mgr.Registry.GetPackage("connector", "google-drive-admin")
+	if !ok {
+		t.Fatal("expected installed package entry")
+	}
+	runtimeSpec, ok := pkg.Spec["runtime"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing runtime spec: %#v", pkg.Spec)
+	}
+	executor, ok := runtimeSpec["executor"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing executor: %#v", runtimeSpec)
+	}
+	auth, ok := executor["auth"].(map[string]any)
+	if !ok || auth["type"] != "google_service_account" {
+		t.Fatalf("unexpected auth: %#v", executor["auth"])
+	}
+	actions, ok := executor["actions"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing actions: %#v", executor)
+	}
+	action, ok := actions["drive_share_file"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing drive_share_file action: %#v", actions)
+	}
+	if _, ok := action["query"].(map[string]any); !ok {
+		t.Fatalf("expected query mapping: %#v", action)
+	}
+	if _, ok := action["body"].(map[string]any); !ok {
+		t.Fatalf("expected body mapping: %#v", action)
 	}
 }
 
@@ -452,6 +560,40 @@ func TestDiscoverFindsProviderComponent(t *testing.T) {
 	}
 	if found.Version != "1.0.0" {
 		t.Errorf("expected version 1.0.0, got %s", found.Version)
+	}
+}
+
+func TestDiscoverFindsPackageEnvelope(t *testing.T) {
+	home := t.TempDir()
+	mgr := NewManager(home)
+
+	os.WriteFile(filepath.Join(home, "config.yaml"), []byte("hub:\n  sources:\n    - name: default\n      url: https://example.com\n"), 0644)
+
+	pkgDir := filepath.Join(home, "hub-cache", "default", "connectors", "slack-interactivity")
+	os.MkdirAll(pkgDir, 0755)
+	os.WriteFile(filepath.Join(pkgDir, "package.yaml"), []byte(`api_version: hub.agency/v2
+kind: connector
+metadata:
+  name: slack-interactivity
+  version: 1.0.0
+trust:
+  tier: verified
+  signature_required: true
+  executable: true
+`), 0644)
+
+	results := mgr.Search("slack-interactivity", "connector")
+	if len(results) != 1 {
+		t.Fatalf("expected one connector search result, got %+v", results)
+	}
+	if results[0].Name != "slack-interactivity" || results[0].Kind != "connector" {
+		t.Fatalf("unexpected package result: %+v", results[0])
+	}
+	if results[0].Version != "1.0.0" {
+		t.Fatalf("version = %q, want 1.0.0", results[0].Version)
+	}
+	if !strings.HasSuffix(results[0].Path, filepath.Join("connectors", "slack-interactivity", "package.yaml")) {
+		t.Fatalf("path = %q, want package.yaml path", results[0].Path)
 	}
 }
 

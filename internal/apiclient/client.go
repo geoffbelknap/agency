@@ -2,6 +2,7 @@ package apiclient
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,9 @@ import (
 	"path/filepath"
 	"time"
 
+	authzcore "github.com/geoffbelknap/agency/internal/authz"
+	"github.com/geoffbelknap/agency/internal/hub"
+	instancepkg "github.com/geoffbelknap/agency/internal/instances"
 	"gopkg.in/yaml.v3"
 )
 
@@ -109,6 +113,38 @@ func (c *Client) do(method, path string, body interface{}) ([]byte, int, error) 
 	return data, resp.StatusCode, nil
 }
 
+func (c *Client) doReader(method, path, contentType string, body io.Reader) ([]byte, int, error) {
+	req, err := http.NewRequest(method, c.BaseURL+path, body)
+	if err != nil {
+		return nil, 0, err
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	if c.Token != "" {
+		req.Header.Set("X-Agency-Token", c.Token)
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("gateway unreachable at %s: %w", c.BaseURL, err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, resp.StatusCode, err
+	}
+	if resp.StatusCode >= 400 {
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(data, &errResp) == nil && errResp.Error != "" {
+			return data, resp.StatusCode, fmt.Errorf("%s", errResp.Error)
+		}
+		return data, resp.StatusCode, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(data))
+	}
+	return data, resp.StatusCode, nil
+}
+
 // Get performs a GET request and returns the raw response body.
 func (c *Client) Get(path string) ([]byte, error) {
 	data, _, err := c.do("GET", path, nil)
@@ -133,6 +169,116 @@ func (c *Client) Put(path string, body interface{}) ([]byte, error) {
 	return data, err
 }
 
+func (c *Client) Patch(path string, body interface{}) ([]byte, error) {
+	data, _, err := c.do("PATCH", path, body)
+	return data, err
+}
+
+func (c *Client) ListPackages(ctx context.Context) ([]hub.InstalledPackage, error) {
+	_ = ctx
+	var resp struct {
+		Packages []hub.InstalledPackage `json:"packages"`
+	}
+	err := c.GetJSON("/api/v1/packages", &resp)
+	return resp.Packages, err
+}
+
+func (c *Client) ListInstances(ctx context.Context) ([]instancepkg.Instance, error) {
+	_ = ctx
+	var resp struct {
+		Instances []instancepkg.Instance `json:"instances"`
+	}
+	err := c.GetJSON("/api/v1/instances", &resp)
+	return resp.Instances, err
+}
+
+func (c *Client) CreateInstanceFromPackage(ctx context.Context, body map[string]any) (instancepkg.Instance, error) {
+	_ = ctx
+	var inst instancepkg.Instance
+	err := c.PostJSON("/api/v1/instances/from-package", body, &inst)
+	return inst, err
+}
+
+func (c *Client) ShowInstance(ctx context.Context, instanceID string) (instancepkg.Instance, error) {
+	_ = ctx
+	var inst instancepkg.Instance
+	err := c.GetJSON("/api/v1/instances/"+url.PathEscape(instanceID), &inst)
+	return inst, err
+}
+
+func (c *Client) UpdateInstance(ctx context.Context, instanceID string, body map[string]any) (instancepkg.Instance, error) {
+	_ = ctx
+	var inst instancepkg.Instance
+	err := c.PatchJSON("/api/v1/instances/"+url.PathEscape(instanceID), body, &inst)
+	return inst, err
+}
+
+func (c *Client) ValidateInstance(ctx context.Context, instanceID string) (map[string]any, error) {
+	_ = ctx
+	var result map[string]any
+	err := c.PostJSON("/api/v1/instances/"+url.PathEscape(instanceID)+"/validate", nil, &result)
+	return result, err
+}
+
+func (c *Client) ApplyInstance(ctx context.Context, instanceID string) (map[string]any, error) {
+	_ = ctx
+	var result map[string]any
+	err := c.PostJSON("/api/v1/instances/"+url.PathEscape(instanceID)+"/apply", nil, &result)
+	return result, err
+}
+
+func (c *Client) ResolveAuthz(ctx context.Context, req authzcore.Request) (authzcore.Decision, error) {
+	_ = ctx
+	var decision authzcore.Decision
+	err := c.PostJSON("/api/v1/authz/resolve", req, &decision)
+	return decision, err
+}
+
+func (c *Client) CompileRuntimeManifest(ctx context.Context, instanceID string) (map[string]any, error) {
+	_ = ctx
+	var result map[string]any
+	err := c.PostJSON("/api/v1/instances/"+url.PathEscape(instanceID)+"/runtime/manifest", nil, &result)
+	return result, err
+}
+
+func (c *Client) ShowRuntimeManifest(ctx context.Context, instanceID string) (map[string]any, error) {
+	_ = ctx
+	var result map[string]any
+	err := c.GetJSON("/api/v1/instances/"+url.PathEscape(instanceID)+"/runtime/manifest", &result)
+	return result, err
+}
+
+func (c *Client) ReconcileRuntimeManifest(ctx context.Context, instanceID string) (map[string]any, error) {
+	_ = ctx
+	var result map[string]any
+	err := c.PostJSON("/api/v1/instances/"+url.PathEscape(instanceID)+"/runtime/reconcile", nil, &result)
+	return result, err
+}
+
+func (c *Client) StartRuntimeNode(ctx context.Context, instanceID, nodeID string) (map[string]any, error) {
+	_ = ctx
+	var result map[string]any
+	path := "/api/v1/instances/" + url.PathEscape(instanceID) + "/runtime/nodes/" + url.PathEscape(nodeID) + "/start"
+	err := c.PostJSON(path, nil, &result)
+	return result, err
+}
+
+func (c *Client) StopRuntimeNode(ctx context.Context, instanceID, nodeID string) (map[string]any, error) {
+	_ = ctx
+	var result map[string]any
+	path := "/api/v1/instances/" + url.PathEscape(instanceID) + "/runtime/nodes/" + url.PathEscape(nodeID) + "/stop"
+	err := c.PostJSON(path, nil, &result)
+	return result, err
+}
+
+func (c *Client) InvokeRuntimeNode(ctx context.Context, instanceID, nodeID string, body map[string]any) (map[string]any, error) {
+	_ = ctx
+	var result map[string]any
+	path := "/api/v1/instances/" + url.PathEscape(instanceID) + "/runtime/nodes/" + url.PathEscape(nodeID) + "/invoke"
+	err := c.PostJSON(path, body, &result)
+	return result, err
+}
+
 // GetJSON performs a GET and unmarshals the response into v.
 func (c *Client) GetJSON(path string, v interface{}) error {
 	data, err := c.Get(path)
@@ -145,6 +291,17 @@ func (c *Client) GetJSON(path string, v interface{}) error {
 // PostJSON performs a POST and unmarshals the response into result.
 func (c *Client) PostJSON(path string, body, result interface{}) error {
 	data, err := c.Post(path, body)
+	if err != nil {
+		return err
+	}
+	if result != nil {
+		return json.Unmarshal(data, result)
+	}
+	return nil
+}
+
+func (c *Client) PatchJSON(path string, body, result interface{}) error {
+	data, err := c.Patch(path, body)
 	if err != nil {
 		return err
 	}
@@ -581,6 +738,115 @@ func (c *Client) HubInstances(kind string) ([]map[string]interface{}, error) {
 	}
 	var result []map[string]interface{}
 	err := c.GetJSON(path, &result)
+	return result, err
+}
+
+func (c *Client) HubDeploymentList() ([]map[string]interface{}, error) {
+	var result []map[string]interface{}
+	err := c.GetJSON("/api/v1/hub/deployments", &result)
+	return result, err
+}
+
+func (c *Client) HubDeploymentShow(nameOrID string) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	err := c.GetJSON("/api/v1/hub/deployments/"+url.PathEscape(nameOrID), &result)
+	return result, err
+}
+
+func (c *Client) HubDeploymentSchema(pack string) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	err := c.GetJSON("/api/v1/hub/deployments/schema/"+url.PathEscape(pack), &result)
+	return result, err
+}
+
+func (c *Client) HubDeploymentCreate(pack, name string, config map[string]interface{}, credrefs map[string]string) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	body := map[string]interface{}{
+		"pack":     pack,
+		"name":     name,
+		"config":   config,
+		"credrefs": credrefs,
+	}
+	err := c.PostJSON("/api/v1/hub/deployments", body, &result)
+	return result, err
+}
+
+func (c *Client) HubDeploymentConfigure(nameOrID string, config map[string]interface{}, credrefs map[string]string) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	body := map[string]interface{}{
+		"config":   config,
+		"credrefs": credrefs,
+	}
+	err := c.PutJSON("/api/v1/hub/deployments/"+url.PathEscape(nameOrID)+"/config", body, &result)
+	return result, err
+}
+
+func (c *Client) PutJSON(path string, body, result interface{}) error {
+	data, err := c.Put(path, body)
+	if err != nil {
+		return err
+	}
+	if result != nil {
+		return json.Unmarshal(data, result)
+	}
+	return nil
+}
+
+func (c *Client) HubDeploymentValidate(nameOrID string) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	err := c.PostJSON("/api/v1/hub/deployments/"+url.PathEscape(nameOrID)+"/validate", nil, &result)
+	return result, err
+}
+
+func (c *Client) HubDeploymentApply(nameOrID string) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	err := c.PostJSON("/api/v1/hub/deployments/"+url.PathEscape(nameOrID)+"/apply", nil, &result)
+	return result, err
+}
+
+func (c *Client) HubDeploymentExport(nameOrID string) ([]byte, error) {
+	return c.Get("/api/v1/hub/deployments/" + url.PathEscape(nameOrID) + "/export")
+}
+
+func (c *Client) HubDeploymentImport(bundle []byte, name string) (map[string]interface{}, error) {
+	var path = "/api/v1/hub/deployments/import"
+	if name != "" {
+		path += "?name=" + url.QueryEscape(name)
+	}
+	data, _, err := c.doReader("POST", path, "application/gzip", bytes.NewReader(bundle))
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) HubDeploymentClaim(nameOrID string, force bool) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	path := "/api/v1/hub/deployments/" + url.PathEscape(nameOrID) + "/claim"
+	if force {
+		path += "?force=true"
+	}
+	err := c.PostJSON(path, nil, &result)
+	return result, err
+}
+
+func (c *Client) HubDeploymentRelease(nameOrID string) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	err := c.PostJSON("/api/v1/hub/deployments/"+url.PathEscape(nameOrID)+"/release", nil, &result)
+	return result, err
+}
+
+func (c *Client) HubDeploymentDestroy(nameOrID string, keepInstances bool) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	path := "/api/v1/hub/deployments/" + url.PathEscape(nameOrID)
+	if keepInstances {
+		path += "?keep_instances=true"
+	}
+	err := c.DeleteJSON(path, &result)
 	return result, err
 }
 

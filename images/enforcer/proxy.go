@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,6 +13,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/agency-platform/enforcer/consent"
 )
 
 const defaultEgressProxy = "http://egress:3128"
@@ -67,10 +71,11 @@ type ProxyHandler struct {
 	audit       *AuditLogger
 	agentName   string
 	transport   *http.Transport
+	signal      func(string, map[string]interface{})
 }
 
 // NewProxyHandler creates a proxy handler for non-LLM traffic.
-func NewProxyHandler(domainGate *DomainGate, services *ServiceRegistry, audit *AuditLogger, agentName string) *ProxyHandler {
+func NewProxyHandler(domainGate *DomainGate, services *ServiceRegistry, audit *AuditLogger, agentName string, signal func(string, map[string]interface{})) *ProxyHandler {
 	egressProxy := os.Getenv("EGRESS_PROXY")
 	if egressProxy == "" {
 		egressProxy = defaultEgressProxy
@@ -89,12 +94,14 @@ func NewProxyHandler(domainGate *DomainGate, services *ServiceRegistry, audit *A
 		audit:       audit,
 		agentName:   agentName,
 		transport:   transport,
+		signal:      signal,
 	}
 }
 
 // ServeHTTP handles regular HTTP proxy requests (non-CONNECT).
 func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
+	var requestBody []byte
 
 	// Extract target host
 	host := r.Host
@@ -166,6 +173,61 @@ func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						Status:  200,
 					})
 				}
+				tokenValue, targetValue, err := extractConsentInputs(r, &requestBody, cred.ToolConsent[toolName])
+				if err != nil {
+					ph.audit.Log(AuditEntry{
+						Type:    "CONSENT_TOKEN_DENIED",
+						EventID: eventID,
+						Method:  r.Method,
+						URL:     r.URL.String(),
+						Host:    host,
+						Status:  400,
+						Error:   err.Error(),
+						Extra: map[string]string{
+							"service": svcName,
+							"tool":    toolName,
+						},
+					})
+					http.Error(w, fmt.Sprintf(`{"error":"consent_token_malformed","detail":%q}`, err.Error()), http.StatusBadRequest)
+					return
+				}
+				result, err := ph.services.ValidateConsent(svcName, toolName, tokenValue, targetValue, start.UTC())
+				if err != nil {
+					ph.maybeAlertConsentFailure(err, svcName, toolName, host)
+					ph.audit.Log(AuditEntry{
+						Type:    "CONSENT_TOKEN_DENIED",
+						EventID: eventID,
+						Method:  r.Method,
+						URL:     r.URL.String(),
+						Host:    host,
+						Status:  403,
+						Error:   err.Error(),
+						Extra: map[string]string{
+							"service": svcName,
+							"tool":    toolName,
+						},
+					})
+					http.Error(w, fmt.Sprintf(`{"error":%q,"tool":%q,"service":%q}`, err.Error(), toolName, svcName), http.StatusForbidden)
+					return
+				}
+				if result != nil {
+					ph.audit.Log(AuditEntry{
+						Type:    "CONSENT_TOKEN_CONSUMED",
+						EventID: eventID,
+						Method:  r.Method,
+						URL:     r.URL.String(),
+						Host:    host,
+						Status:  200,
+						Extra: map[string]string{
+							"service":        svcName,
+							"tool":           toolName,
+							"operation_kind": result.Token.OperationKind,
+							"token_nonce":    result.NonceEncoded,
+							"signing_key_id": result.Token.SigningKeyID,
+							"witness_count":  fmt.Sprintf("%d", len(result.Token.Witnesses)),
+						},
+					})
+				}
 				// Log scope pass — no credential injection (egress handles that)
 				ph.audit.Log(AuditEntry{
 					Type:    "SERVICE_SCOPE_PASSED",
@@ -230,8 +292,16 @@ func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		outURL = "http://" + host + r.URL.RequestURI()
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
-	outReq, err := http.NewRequestWithContext(r.Context(), r.Method, outURL, r.Body)
+	var err error
+	if requestBody == nil && r.Body != nil {
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
+		requestBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, `{"error":"bad request body"}`, http.StatusBadRequest)
+			return
+		}
+	}
+	outReq, err := http.NewRequestWithContext(r.Context(), r.Method, outURL, bytes.NewReader(requestBody))
 	if err != nil {
 		http.Error(w, `{"error":"bad request"}`, http.StatusBadRequest)
 		return
@@ -298,6 +368,38 @@ func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Status:     resp.StatusCode,
 		DurationMs: time.Since(start).Milliseconds(),
 	})
+}
+
+func extractConsentInputs(r *http.Request, requestBody *[]byte, requirement consent.Requirement) (string, string, error) {
+	requirement = requirement.Normalize()
+	if requirement.OperationKind == "" {
+		return "", "", nil
+	}
+	if r.Method == http.MethodGet {
+		query := r.URL.Query()
+		return query.Get(requirement.TokenInputField), query.Get(requirement.TargetInputField), nil
+	}
+	if *requestBody == nil && r.Body != nil {
+		limited := io.LimitReader(r.Body, maxRequestBodySize)
+		body, err := io.ReadAll(limited)
+		if err != nil {
+			return "", "", err
+		}
+		*requestBody = body
+	}
+	if len(*requestBody) == 0 {
+		return "", "", nil
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(*requestBody, &payload); err != nil {
+		return "", "", err
+	}
+	tokenValue, _ := payload[requirement.TokenInputField].(string)
+	targetRaw, ok := payload[requirement.TargetInputField]
+	if !ok || targetRaw == nil {
+		return tokenValue, "", nil
+	}
+	return tokenValue, fmt.Sprintf("%v", targetRaw), nil
 }
 
 // HandleConnect handles CONNECT tunneling for HTTPS traffic.
@@ -390,6 +492,30 @@ func (ph *ProxyHandler) HandleConnect(w http.ResponseWriter, r *http.Request) {
 		defer clientConn.Close()
 		io.Copy(clientConn, egressConn)
 	}()
+}
+
+func (ph *ProxyHandler) maybeAlertConsentFailure(err error, service, tool, host string) {
+	if ph == nil || ph.signal == nil || !isSuspiciousConsentError(err) {
+		return
+	}
+	ph.signal("consent_validation_alert", map[string]interface{}{
+		"severity": "warn",
+		"message":  fmt.Sprintf("Suspicious consent token validation failure for %s/%s: %s", service, tool, err.Error()),
+		"category": "consent_token",
+		"service":  service,
+		"tool":     tool,
+		"host":     host,
+		"error":    err.Error(),
+	})
+}
+
+func isSuspiciousConsentError(err error) bool {
+	switch err {
+	case consent.ErrUnknownKey, consent.ErrInvalidSignature, consent.ErrWrongDeployment, consent.ErrReplayed:
+		return true
+	default:
+		return false
+	}
 }
 
 func mustParseURL(rawURL string) *url.URL {

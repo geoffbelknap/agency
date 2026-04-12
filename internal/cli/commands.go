@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/geoffbelknap/agency/internal/apiclient"
+	authzcore "github.com/geoffbelknap/agency/internal/authz"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/daemon"
 	"github.com/geoffbelknap/agency/internal/update"
@@ -249,7 +251,7 @@ func RegisterCommands(root *cobra.Command) {
 		channelCmd(), infraCmd(), hubCmd(), teamCmd(), capCmd(),
 		intakeCmd(), knowledgeCmd(), policyCmd(), adminCmd(),
 		contextCmd(), missionCmd(), eventCmd(), webhookCmd(), meeseeksCmd(), notificationsCmd(), auditCmd(),
-		credentialCmd(), cacheCmd(), registryCmd(),
+		credentialCmd(), cacheCmd(), registryCmd(), packageCmd(), instanceCmd(), authzCmd(),
 	} {
 		cmd.GroupID = "manage"
 		root.AddCommand(cmd)
@@ -257,6 +259,341 @@ func RegisterCommands(root *cobra.Command) {
 
 	// ── Integration ─────────────────────────────────────────────────────
 	root.AddCommand(mcpServerCmd())
+	root.AddCommand(runtimeAuthorityServeCmd())
+}
+
+func packageCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "package",
+		Short: "Inspect V2 packages",
+	}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "list",
+		Short: "List installed V2 packages",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			items, err := c.ListPackages(cmd.Context())
+			if err != nil {
+				return err
+			}
+			for _, item := range items {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%s\n", item.Kind, item.Name, item.Version, item.Trust)
+			}
+			return nil
+		},
+	})
+	return cmd
+}
+
+func instanceCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "instance",
+		Short: "Inspect V2 instances",
+	}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "list",
+		Short: "List local V2 instances",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			items, err := c.ListInstances(cmd.Context())
+			if err != nil {
+				return err
+			}
+			for _, item := range items {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\n", item.ID, item.Name)
+			}
+			return nil
+		},
+	})
+	var fromPackageKind, fromPackageName, fromPackageInstanceName, fromPackageNodeID string
+	var fromPackageConfigJSON, fromPackageNodeConfigJSON string
+	createFromPackageCmd := &cobra.Command{
+		Use:   "create-from-package",
+		Short: "Scaffold a V2 instance from an installed package",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(fromPackageKind) == "" || strings.TrimSpace(fromPackageName) == "" {
+				return fmt.Errorf("--kind and --package are required")
+			}
+			body := map[string]any{
+				"kind": fromPackageKind,
+				"name": fromPackageName,
+			}
+			if strings.TrimSpace(fromPackageInstanceName) != "" {
+				body["instance_name"] = fromPackageInstanceName
+			}
+			if strings.TrimSpace(fromPackageNodeID) != "" {
+				body["node_id"] = fromPackageNodeID
+			}
+			if strings.TrimSpace(fromPackageConfigJSON) != "" {
+				var cfg map[string]any
+				if err := json.Unmarshal([]byte(fromPackageConfigJSON), &cfg); err != nil {
+					return fmt.Errorf("--config must be valid JSON object: %w", err)
+				}
+				body["config"] = cfg
+			}
+			if strings.TrimSpace(fromPackageNodeConfigJSON) != "" {
+				var cfg map[string]any
+				if err := json.Unmarshal([]byte(fromPackageNodeConfigJSON), &cfg); err != nil {
+					return fmt.Errorf("--node-config must be valid JSON object: %w", err)
+				}
+				body["node_config"] = cfg
+			}
+			inst, err := c.CreateInstanceFromPackage(cmd.Context(), body)
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(inst)
+		},
+	}
+	createFromPackageCmd.Flags().StringVar(&fromPackageKind, "kind", "", "Installed package kind")
+	createFromPackageCmd.Flags().StringVar(&fromPackageName, "package", "", "Installed package name")
+	createFromPackageCmd.Flags().StringVar(&fromPackageInstanceName, "name", "", "Instance name override")
+	createFromPackageCmd.Flags().StringVar(&fromPackageNodeID, "node-id", "", "Node ID override")
+	createFromPackageCmd.Flags().StringVar(&fromPackageConfigJSON, "config", "", "JSON object to merge into instance config")
+	createFromPackageCmd.Flags().StringVar(&fromPackageNodeConfigJSON, "node-config", "", "JSON object to merge into scaffolded node config")
+	cmd.AddCommand(createFromPackageCmd)
+	cmd.AddCommand(&cobra.Command{
+		Use:   "show <instance>",
+		Short: "Show a V2 instance",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			inst, err := c.ShowInstance(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(inst)
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "validate <instance>",
+		Short: "Validate a V2 instance",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.ValidateInstance(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	})
+	var updateJSON string
+	updateCmd := &cobra.Command{
+		Use:   "update <instance>",
+		Short: "Patch a V2 instance with a JSON object",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(updateJSON) == "" {
+				return fmt.Errorf("--json is required")
+			}
+			var body map[string]any
+			if err := json.Unmarshal([]byte(updateJSON), &body); err != nil {
+				return fmt.Errorf("--json must be valid JSON object: %w", err)
+			}
+			result, err := c.UpdateInstance(cmd.Context(), args[0], body)
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	}
+	updateCmd.Flags().StringVar(&updateJSON, "json", "", "JSON object patch body")
+	cmd.AddCommand(updateCmd)
+	cmd.AddCommand(&cobra.Command{
+		Use:   "apply <instance>",
+		Short: "Compile, refresh, and reconcile a V2 instance",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.ApplyInstance(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	})
+	runtimeCmd := &cobra.Command{
+		Use:   "runtime",
+		Short: "Manage V2 instance runtime state",
+	}
+	runtimeCmd.AddCommand(&cobra.Command{
+		Use:   "manifest <instance>",
+		Short: "Show the current runtime manifest for an instance",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.ShowRuntimeManifest(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	})
+	runtimeCmd.AddCommand(&cobra.Command{
+		Use:   "compile <instance>",
+		Short: "Compile and persist a runtime manifest for an instance",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.CompileRuntimeManifest(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	})
+	runtimeCmd.AddCommand(&cobra.Command{
+		Use:   "reconcile <instance>",
+		Short: "Reconcile an instance runtime manifest into runtime state",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.ReconcileRuntimeManifest(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	})
+	runtimeCmd.AddCommand(&cobra.Command{
+		Use:   "start <instance> <node>",
+		Short: "Start an authority runtime node",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.StartRuntimeNode(cmd.Context(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	})
+	runtimeCmd.AddCommand(&cobra.Command{
+		Use:   "stop <instance> <node>",
+		Short: "Stop an authority runtime node",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.StopRuntimeNode(cmd.Context(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	})
+	var subject, action, inputJSON string
+	var consent bool
+	invokeCmd := &cobra.Command{
+		Use:   "invoke <instance> <node>",
+		Short: "Invoke an active authority runtime node",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			input := map[string]any{}
+			if strings.TrimSpace(inputJSON) != "" {
+				if err := json.Unmarshal([]byte(inputJSON), &input); err != nil {
+					return fmt.Errorf("--input must be valid JSON object: %w", err)
+				}
+			}
+			result, err := c.InvokeRuntimeNode(cmd.Context(), args[0], args[1], map[string]any{
+				"subject":          subject,
+				"node_id":          args[1],
+				"action":           action,
+				"consent_provided": consent,
+				"input":            input,
+			})
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	}
+	invokeCmd.Flags().StringVar(&subject, "subject", "", "invoking subject")
+	invokeCmd.Flags().StringVar(&action, "action", "", "authority action to invoke")
+	invokeCmd.Flags().StringVar(&inputJSON, "input", "", "JSON object input payload")
+	invokeCmd.Flags().BoolVar(&consent, "consent", false, "mark consent as already provided")
+	runtimeCmd.AddCommand(invokeCmd)
+	cmd.AddCommand(runtimeCmd)
+	return cmd
+}
+
+func authzCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "authz",
+		Short: "Resolve V2 authz requests",
+	}
+	var subject, target, action, instance string
+	var consent bool
+	resolveCmd := &cobra.Command{
+		Use:   "resolve",
+		Short: "Resolve an authorization request",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			decision, err := c.ResolveAuthz(cmd.Context(), authzcore.Request{
+				Subject:         subject,
+				Target:          target,
+				Action:          action,
+				Instance:        instance,
+				ConsentProvided: consent,
+			})
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(decision)
+		},
+	}
+	resolveCmd.Flags().StringVar(&subject, "subject", "", "request subject")
+	resolveCmd.Flags().StringVar(&target, "target", "", "request target")
+	resolveCmd.Flags().StringVar(&action, "action", "", "requested action")
+	resolveCmd.Flags().StringVar(&instance, "instance", "", "instance scope")
+	resolveCmd.Flags().BoolVar(&consent, "consent", false, "mark consent as already provided")
+	cmd.AddCommand(resolveCmd)
+	return cmd
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1379,6 +1716,7 @@ func hubCmd() *cobra.Command {
 	installCmd.Flags().StringVar(&installAs, "as", "", "Instance name (defaults to component name)")
 	installCmd.Flags().Bool("yes", false, "Skip consent prompt")
 	cmd.AddCommand(installCmd)
+	cmd.AddCommand(hubDeploymentCmd())
 
 	deployCmd := &cobra.Command{
 		Use: "deploy <pack>", Short: "Deploy a pack",
@@ -2450,6 +2788,403 @@ func hubCmd() *cobra.Command {
 	cmd.AddCommand(providerCmd)
 
 	return cmd
+}
+
+func hubDeploymentCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "deployment", Short: "Manage durable hub deployments"}
+
+	var createName string
+	var createFromFile string
+	var createNonInteractive bool
+	createCmd := &cobra.Command{
+		Use:  "create <pack>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			configVals, credRefs, err := loadDeploymentInput(createFromFile)
+			if err != nil {
+				return err
+			}
+			if !createNonInteractive {
+				schemaResp, err := c.HubDeploymentSchema(args[0])
+				if err != nil {
+					return err
+				}
+				configVals, credRefs = promptForDeploymentValues(schemaResp["schema"], configVals, credRefs)
+			}
+			result, err := c.HubDeploymentCreate(args[0], createName, configVals, credRefs)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%s Created deployment %s (%s)\n", green.Render("✓"), valueString(result["name"]), valueString(result["id"]))
+			return nil
+		},
+	}
+	createCmd.Flags().StringVar(&createName, "name", "", "Deployment name override")
+	createCmd.Flags().StringVar(&createFromFile, "from-file", "", "YAML file with config and credrefs")
+	createCmd.Flags().BoolVar(&createNonInteractive, "non-interactive", false, "Require all values via --from-file")
+	cmd.AddCommand(createCmd)
+
+	var configureFromFile string
+	configureCmd := &cobra.Command{
+		Use:  "configure <name-or-id>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			show, err := c.HubDeploymentShow(args[0])
+			if err != nil {
+				return err
+			}
+			deployment, _ := show["deployment"].(map[string]interface{})
+			configVals := map[string]interface{}{}
+			credRefs := map[string]string{}
+			for k, v := range mapValue(deployment["config"]) {
+				configVals[k] = v
+			}
+			for k, v := range mapValue(deployment["credrefs"]) {
+				if vm, ok := v.(map[string]interface{}); ok {
+					if id, ok := vm["credstore_id"].(string); ok {
+						credRefs[k] = id
+					}
+				}
+			}
+			fileConfig, fileCredRefs, err := loadDeploymentInput(configureFromFile)
+			if err != nil {
+				return err
+			}
+			for k, v := range fileConfig {
+				configVals[k] = v
+			}
+			for k, v := range fileCredRefs {
+				credRefs[k] = v
+			}
+			if configureFromFile == "" {
+				configVals, credRefs = promptForDeploymentValues(show["schema"], configVals, credRefs)
+			}
+			if _, err := c.HubDeploymentConfigure(args[0], configVals, credRefs); err != nil {
+				return err
+			}
+			fmt.Printf("%s Configured deployment %s\n", green.Render("✓"), bold.Render(args[0]))
+			return nil
+		},
+	}
+	configureCmd.Flags().StringVar(&configureFromFile, "from-file", "", "YAML file with config and credrefs")
+	cmd.AddCommand(configureCmd)
+
+	cmd.AddCommand(&cobra.Command{
+		Use:  "list",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			items, err := c.HubDeploymentList()
+			if err != nil {
+				return err
+			}
+			if len(items) == 0 {
+				fmt.Println(dim.Render("No deployments"))
+				return nil
+			}
+			fmt.Printf("  %-24s %-12s %-20s %s\n", bold.Render("NAME"), bold.Render("PACK"), bold.Render("OWNER"), bold.Render("ID"))
+			for _, item := range items {
+				owner := "-"
+				if om, ok := item["owner"].(map[string]interface{}); ok {
+					owner = valueString(om["agency_name"])
+					if owner == "" {
+						owner = "-"
+					}
+				}
+				pack := "-"
+				if pm, ok := item["pack"].(map[string]interface{}); ok {
+					pack = valueString(pm["name"])
+				}
+				fmt.Printf("  %-24s %-12s %-20s %s\n", valueString(item["name"]), pack, owner, valueString(item["id"]))
+			}
+			return nil
+		},
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:  "show <name-or-id>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.HubDeploymentShow(args[0])
+			if err != nil {
+				return err
+			}
+			out, _ := yaml.Marshal(result)
+			fmt.Print(string(out))
+			return nil
+		},
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:  "validate <name-or-id>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			if _, err := c.HubDeploymentValidate(args[0]); err != nil {
+				return err
+			}
+			fmt.Printf("%s Deployment %s is valid\n", green.Render("✓"), bold.Render(args[0]))
+			return nil
+		},
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:  "apply <name-or-id>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			if _, err := c.HubDeploymentApply(args[0]); err != nil {
+				return err
+			}
+			fmt.Printf("%s Applied deployment %s\n", green.Render("✓"), bold.Render(args[0]))
+			return nil
+		},
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:  "export <name-or-id> <path>",
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			data, err := c.HubDeploymentExport(args[0])
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(args[1], data, 0o644); err != nil {
+				return err
+			}
+			fmt.Printf("%s Exported deployment %s to %s\n", green.Render("✓"), bold.Render(args[0]), args[1])
+			return nil
+		},
+	})
+
+	var importName string
+	importCmd := &cobra.Command{
+		Use:  "import <path>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			data, err := os.ReadFile(args[0])
+			if err != nil {
+				return err
+			}
+			result, err := c.HubDeploymentImport(data, importName)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%s Imported deployment %s (%s)\n", green.Render("✓"), valueString(result["name"]), valueString(result["id"]))
+			return nil
+		},
+	}
+	importCmd.Flags().StringVar(&importName, "name", "", "Override deployment name on import")
+	cmd.AddCommand(importCmd)
+
+	var claimForce bool
+	claimCmd := &cobra.Command{
+		Use:  "claim <name-or-id>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			if _, err := c.HubDeploymentClaim(args[0], claimForce); err != nil {
+				return err
+			}
+			fmt.Printf("%s Claimed deployment %s\n", green.Render("✓"), bold.Render(args[0]))
+			return nil
+		},
+	}
+	claimCmd.Flags().BoolVar(&claimForce, "force", false, "Force-claim a stale deployment")
+	cmd.AddCommand(claimCmd)
+
+	cmd.AddCommand(&cobra.Command{
+		Use:  "release <name-or-id>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			if _, err := c.HubDeploymentRelease(args[0]); err != nil {
+				return err
+			}
+			fmt.Printf("%s Released deployment %s\n", green.Render("✓"), bold.Render(args[0]))
+			return nil
+		},
+	})
+
+	var keepInstances bool
+	destroyCmd := &cobra.Command{
+		Use:  "destroy <name-or-id>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			if _, err := c.HubDeploymentDestroy(args[0], keepInstances); err != nil {
+				return err
+			}
+			fmt.Printf("%s Destroyed deployment %s\n", green.Render("✓"), bold.Render(args[0]))
+			return nil
+		},
+	}
+	destroyCmd.Flags().BoolVar(&keepInstances, "keep-instances", false, "Retain child hub instances and clear ownership bindings")
+	cmd.AddCommand(destroyCmd)
+
+	return cmd
+}
+
+func loadDeploymentInput(path string) (map[string]interface{}, map[string]string, error) {
+	configVals := map[string]interface{}{}
+	credRefs := map[string]string{}
+	if strings.TrimSpace(path) == "" {
+		return configVals, credRefs, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	var body map[string]interface{}
+	if err := yaml.Unmarshal(data, &body); err != nil {
+		return nil, nil, err
+	}
+	if cfg, ok := body["config"].(map[string]interface{}); ok {
+		configVals = cfg
+	}
+	if rawCreds, ok := body["credrefs"].(map[string]interface{}); ok {
+		for k, v := range rawCreds {
+			credRefs[k] = valueString(v)
+		}
+	}
+	return configVals, credRefs, nil
+}
+
+func promptForDeploymentValues(schema interface{}, configVals map[string]interface{}, credRefs map[string]string) (map[string]interface{}, map[string]string) {
+	reader := bufio.NewReader(os.Stdin)
+	schemaMap, _ := schema.(map[string]interface{})
+	if cfgFields, ok := schemaMap["config"].(map[string]interface{}); ok {
+		keys := make([]string, 0, len(cfgFields))
+		for k := range cfgFields {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			field, _ := cfgFields[key].(map[string]interface{})
+			if _, ok := configVals[key]; ok {
+				continue
+			}
+			desc := valueString(field["description"])
+			prompt := key
+			if desc != "" {
+				prompt += " (" + desc + ")"
+			}
+			if def, ok := field["default"]; ok && def != nil {
+				prompt += fmt.Sprintf(" [%v]", def)
+			}
+			fmt.Printf("%s: ", prompt)
+			line, _ := reader.ReadString('\n')
+			line = strings.TrimSpace(line)
+			if line == "" {
+				if def, ok := field["default"]; ok {
+					configVals[key] = def
+				}
+				continue
+			}
+			switch valueString(field["type"]) {
+			case "int":
+				if n, err := strconv.Atoi(line); err == nil {
+					configVals[key] = n
+				}
+			case "bool":
+				configVals[key] = strings.EqualFold(line, "true") || strings.EqualFold(line, "yes") || line == "1"
+			case "list":
+				parts := strings.Split(line, ",")
+				items := make([]string, 0, len(parts))
+				for _, part := range parts {
+					part = strings.TrimSpace(part)
+					if part != "" {
+						items = append(items, part)
+					}
+				}
+				configVals[key] = items
+			default:
+				configVals[key] = line
+			}
+		}
+	}
+	if credFields, ok := schemaMap["credentials"].(map[string]interface{}); ok {
+		keys := make([]string, 0, len(credFields))
+		for k := range credFields {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			if _, ok := credRefs[key]; ok {
+				continue
+			}
+			field, _ := credFields[key].(map[string]interface{})
+			desc := valueString(field["description"])
+			prompt := key + " credstore key"
+			if desc != "" {
+				prompt += " (" + desc + ")"
+			}
+			fmt.Printf("%s: ", prompt)
+			line, _ := reader.ReadString('\n')
+			line = strings.TrimSpace(line)
+			if line != "" {
+				credRefs[key] = line
+			}
+		}
+	}
+	return configVals, credRefs
+}
+
+func valueString(v interface{}) string {
+	switch typed := v.(type) {
+	case string:
+		return typed
+	default:
+		return fmt.Sprintf("%v", typed)
+	}
+}
+
+func mapValue(v interface{}) map[string]interface{} {
+	if v == nil {
+		return map[string]interface{}{}
+	}
+	if m, ok := v.(map[string]interface{}); ok {
+		return m
+	}
+	return map[string]interface{}{}
 }
 
 // ════════════════════════════════════════════════════════════════════════════

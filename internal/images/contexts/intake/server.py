@@ -9,162 +9,108 @@ import logging
 import os
 import signal
 import time
+from urllib.parse import parse_qs
 from datetime import datetime, timezone
 from pathlib import Path
 from string import Template
-from urllib.parse import parse_qs
 
 import yaml
 from aiohttp import web, ClientSession
 
 from agency_core.models.connector import ConnectorConfig, ConnectorRelayTarget
+from agency_core.images.intake.bridge_state import BridgeStateStore
 from agency_core.images.intake.router import evaluate_routes, render_template, parse_sla_duration
 from agency_core.images.intake.work_items import WorkItemStore
 from agency_core.images.intake.poller import PollStateStore, hash_blob, hash_items, extract_items, parse_interval
 from agency_core.images.intake.scheduler import ScheduleStateStore, should_fire
 from agency_core.images.intake.channel_watcher import ChannelWatchStateStore, matches_pattern
-from agency_core.images.intake.bridge_state import BridgeStateStore
 
 logger = logging.getLogger("intake")
 
 
 def _webhook_path_for_connector(connector: ConnectorConfig) -> str:
-    """Return the inbound webhook path for a connector."""
     return connector.source.path or f"/webhooks/{connector.name}"
 
 
 def _collapse_form_data(form_values: dict[str, list[str]]) -> dict:
-    """Collapse parse_qs-style values into scalars when single-valued."""
     payload: dict[str, object] = {}
     for key, values in form_values.items():
         payload[key] = values[0] if len(values) == 1 else values
     return payload
 
 
-def _parse_webhook_payload(body_bytes: bytes, connector: ConnectorConfig) -> dict:
-    """Parse a webhook body according to the configured body format."""
-    body_format = connector.source.body_format or "json"
+def _resolve_webhook_secret(auth) -> str:
+    if auth.secret_env:
+        secret = os.environ.get(auth.secret_env, "")
+        if secret:
+            return secret
+    if auth.secret_credref:
+        for key in (
+            auth.secret_credref,
+            auth.secret_credref.upper(),
+            auth.secret_credref.upper().replace("-", "_"),
+        ):
+            secret = os.environ.get(key, "")
+            if secret:
+                return secret
+    return ""
 
+
+def _parse_webhook_payload(body_bytes: bytes, connector) -> dict:
+    body_format = connector.source.body_format or "json"
     if body_format == "json":
         payload = json.loads(body_bytes)
     elif body_format == "form_urlencoded":
-        payload = _collapse_form_data(parse_qs(body_bytes.decode("utf-8", errors="replace"), keep_blank_values=True))
-    elif body_format == "form_urlencoded_payload_json_field":
-        form_data = _collapse_form_data(parse_qs(body_bytes.decode("utf-8", errors="replace"), keep_blank_values=True))
+        decoded = body_bytes.decode("utf-8", errors="replace")
+        payload = _collapse_form_data(parse_qs(decoded, keep_blank_values=True))
+    elif body_format in {"form_urlencoded_payload", "form_urlencoded_payload_json_field"}:
+        decoded = body_bytes.decode("utf-8", errors="replace")
+        form = _collapse_form_data(parse_qs(decoded, keep_blank_values=True))
         payload_field = connector.source.payload_field or "payload"
-        wrapped_payload = form_data.get(payload_field)
-        if not isinstance(wrapped_payload, str) or not wrapped_payload:
+        raw_payload = form.get(payload_field)
+        if not isinstance(raw_payload, str) or not raw_payload:
             raise ValueError(f"Missing form field: {payload_field}")
-        payload = json.loads(wrapped_payload)
+        payload = json.loads(raw_payload)
     else:
         raise ValueError(f"Unsupported body format: {body_format}")
-
     if not isinstance(payload, dict):
         raise ValueError("Payload must be a JSON object")
     return payload
 
 
+def _normalize_webhook_payload(payload: dict, connector_name: str, request: web.Request) -> dict:
+    payload_type = payload.get("type")
+    if payload_type:
+        payload["payload_type"] = payload_type
+    if payload_type == "block_actions":
+        actions = payload.get("actions") or []
+        if actions and isinstance(actions[0], dict):
+            payload.setdefault("action_id", actions[0].get("action_id"))
+            payload.setdefault("block_id", actions[0].get("block_id"))
+    elif payload_type == "view_submission":
+        flat_values: dict[str, object] = {}
+        values = (((payload.get("view") or {}).get("state") or {}).get("values") or {})
+        if isinstance(values, dict):
+            for block_id, action_map in values.items():
+                if not isinstance(action_map, dict):
+                    continue
+                for action_id, action_value in action_map.items():
+                    flat_values[f"{block_id}.{action_id}"] = action_value
+        payload["flat_values"] = flat_values
+    payload["_webhook"] = {
+        "connector": connector_name,
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "request_id": request.headers.get("X-Request-ID", ""),
+        "verified_signature": True,
+    }
+    return payload
+
+
 def _expand_route_target(target_value: str) -> str:
-    """Expand ${ENV} placeholders in route target values."""
     return Template(target_value).safe_substitute(os.environ)
 
 
-def _build_route_task_text(route, payload: dict) -> str:
-    """Build the task text for an agent/team route."""
-    if route.brief:
-        return render_template(route.brief, payload)
-    return json.dumps(payload, default=str, indent=2)
-
-
-def _build_channel_text(route, payload: dict, source_label: str) -> str:
-    """Build the channel message text for a channel route."""
-    if route.brief:
-        return render_template(route.brief, payload)
-    return _format_channel_message(payload, source_label)
-
-
-def _build_bridge_metadata(connector_name: str, payload: dict) -> dict:
-    """Build normalized bridge metadata for chat-oriented connectors."""
-    metadata: dict[str, object] = {
-        "connector_name": connector_name,
-        "source_payload": payload,
-    }
-
-    if connector_name != "slack-events":
-        return metadata
-
-    event = payload.get("event")
-    if not isinstance(event, dict):
-        return metadata
-
-    channel_id = event.get("channel")
-    message_ts = event.get("ts")
-    thread_ts = event.get("thread_ts") or message_ts
-    user_id = event.get("user")
-    team_id = payload.get("team_id")
-
-    if not isinstance(channel_id, str) or not isinstance(thread_ts, str):
-        return metadata
-
-    metadata["bridge"] = {
-        "platform": "slack",
-        "workspace_id": team_id if isinstance(team_id, str) else None,
-        "user_id": user_id if isinstance(user_id, str) else None,
-        "channel_id": channel_id,
-        "message_ts": message_ts if isinstance(message_ts, str) else None,
-        "thread_ts": thread_ts,
-        "root_ts": thread_ts,
-        "conversation_key": f"slack:{channel_id}:{thread_ts}",
-        "conversation_kind": "dm" if channel_id.startswith("D") else "thread",
-    }
-    metadata["principal"] = {
-        "platform": "slack",
-        "workspace_id": team_id if isinstance(team_id, str) else None,
-        "user_id": user_id if isinstance(user_id, str) else None,
-        "channel_id": channel_id,
-        "conversation_key": f"slack:{channel_id}:{thread_ts}",
-        "is_dm": channel_id.startswith("D"),
-    }
-    return metadata
-
-
-def _apply_bridge_state(
-    bridge_state: Optional[BridgeStateStore],
-    bridge_metadata: dict,
-    target_type: str,
-    target_name: str,
-) -> tuple[dict, str]:
-    """Enrich bridge metadata and routing from existing bridge state."""
-    if bridge_state is None:
-        return bridge_metadata, target_name
-
-    bridge = bridge_metadata.get("bridge")
-    if not isinstance(bridge, dict):
-        return bridge_metadata, target_name
-
-    conversation_key = bridge.get("conversation_key")
-    if not isinstance(conversation_key, str) or not conversation_key:
-        return bridge_metadata, target_name
-
-    existing = bridge_state.get_conversation(conversation_key)
-    if not existing:
-        return bridge_metadata, target_name
-
-    bridge["known"] = True
-    if isinstance(existing.get("target_agent"), str) and existing["target_agent"]:
-        bridge["target_agent"] = existing["target_agent"]
-        if target_type != "channel":
-            target_name = existing["target_agent"]
-
-    principal = bridge_metadata.get("principal")
-    if isinstance(principal, dict):
-        principal["known"] = True
-
-    return bridge_metadata, target_name
-
-
 def _connector_from_request(request: web.Request) -> tuple[str | None, ConnectorConfig | None]:
-    """Resolve the target connector from the request path."""
     connectors = request.app["connectors"]
     connector_name = request.match_info.get("connector_name")
     if connector_name:
@@ -174,7 +120,6 @@ def _connector_from_request(request: web.Request) -> tuple[str | None, Connector
         if _webhook_path_for_connector(connector) != request.path:
             return connector_name, None
         return connector_name, connector
-
     connector_paths: dict[str, str] = request.app.get("connector_paths", {})
     resolved_name = connector_paths.get(request.path)
     if not resolved_name:
@@ -183,14 +128,11 @@ def _connector_from_request(request: web.Request) -> tuple[str | None, Connector
 
 
 def _webhook_success_response(connector: ConnectorConfig, delivered: bool) -> web.Response:
-    """Build the success response for a webhook connector."""
     status = connector.source.response_status or 202
     body = connector.source.response_body
     content_type = connector.source.response_content_type or "application/json"
-
     if body is None:
         return web.json_response({"status": "ok", "delivered": delivered}, status=status)
-
     return web.Response(status=status, text=body, content_type=content_type)
 
 
@@ -223,7 +165,6 @@ async def _deliver_task(
     work_item_id: str,
     priority: str,
     source: str,
-    metadata: dict | None = None,
 ) -> bool:
     """Deliver task to agent via comms service."""
     async with ClientSession() as session:
@@ -236,47 +177,11 @@ async def _deliver_task(
                     "work_item_id": work_item_id,
                     "priority": priority,
                     "source": source,
-                    "metadata": metadata or {},
                 },
             ) as resp:
                 return resp.status == 200
         except Exception as e:
             logger.error(f"Task delivery failed: {e}")
-            return False
-
-
-async def _deliver_channel_message(
-    comms_url: str,
-    channel_name: str,
-    task_content: str,
-) -> bool:
-    """Deliver connector output directly into a channel."""
-    gateway_url = os.environ.get("GATEWAY_URL", "").rstrip("/")
-    gateway_token = os.environ.get("GATEWAY_TOKEN", "")
-    target_url = f"{comms_url}/channels/{channel_name}/messages"
-    headers = {}
-    expected_status = 201
-    if gateway_url and gateway_token:
-        target_url = f"{gateway_url}/api/v1/comms/channels/{channel_name}/messages"
-        headers["Authorization"] = f"Bearer {gateway_token}"
-        expected_status = 200
-
-    async with ClientSession() as session:
-        try:
-            async with session.post(
-                target_url,
-                json={
-                    "author": "_operator",
-                    "content": task_content,
-                },
-                headers=headers,
-            ) as resp:
-                if resp.status == expected_status:
-                    return True
-                logger.warning(f"channel message failed: {resp.status} {(await resp.text())[:400]}")
-                return False
-        except Exception as e:
-            logger.error(f"Channel delivery failed: {e}")
             return False
 
 
@@ -331,27 +236,26 @@ async def _fetch_channel_messages(
             return []
 
 
+def _prune_empty_json_fields(value):
+    if isinstance(value, dict):
+        pruned = {}
+        for key, item in value.items():
+            child = _prune_empty_json_fields(item)
+            if child == "" or child is None:
+                continue
+            pruned[key] = child
+        return pruned
+    if isinstance(value, list):
+        return [_prune_empty_json_fields(item) for item in value]
+    return value
+
+
 async def _execute_relay(relay: ConnectorRelayTarget, payload: dict, connector_name: str) -> bool:
     """Execute a relay action: render body template and POST to a URL directly.
 
     No agent is spawned. Used for comms→Slack mirroring, webhook forwarding, etc.
     Routes through egress proxy when HTTPS_PROXY / HTTP_PROXY env vars are set.
     """
-    def _prune_empty_json(value):
-        if isinstance(value, dict):
-            pruned = {}
-            for k, v in value.items():
-                pv = _prune_empty_json(v)
-                if pv is None:
-                    continue
-                pruned[k] = pv
-            return pruned
-        if isinstance(value, list):
-            return [pv for item in value if (pv := _prune_empty_json(item)) is not None]
-        if value == "" or value is None:
-            return None
-        return value
-
     env = os.environ
     url = Template(relay.url).safe_substitute(env)
     headers = {k: Template(v).safe_substitute(env) for k, v in (relay.headers or {}).items()}
@@ -361,25 +265,23 @@ async def _execute_relay(relay: ConnectorRelayTarget, payload: dict, connector_n
     # Render body: expand ${ENV} first, then Jinja2 payload fields
     body_str = Template(relay.body).safe_substitute(env)
     body_str = render_template(body_str, payload)
-
     proxy = os.environ.get("HTTPS_PROXY") if url.startswith("https://") else os.environ.get("HTTP_PROXY")
     ssl_ctx = _make_ssl_context() if url.startswith("https://") else None
+    request_kwargs = {
+        "headers": headers,
+        "proxy": proxy,
+        "ssl": ssl_ctx,
+    }
+    if headers.get("Content-Type", "").split(";", 1)[0].strip().lower() == "application/json":
+        try:
+            request_kwargs["json"] = _prune_empty_json_fields(json.loads(body_str))
+        except json.JSONDecodeError:
+            request_kwargs["data"] = body_str
+    else:
+        request_kwargs["data"] = body_str
 
     async with ClientSession() as session:
         try:
-            request_kwargs = {
-                "headers": headers,
-                "proxy": proxy,
-                "ssl": ssl_ctx,
-            }
-            if relay.content_type == "application/json":
-                try:
-                    body_obj = json.loads(body_str)
-                    request_kwargs["json"] = _prune_empty_json(body_obj)
-                except json.JSONDecodeError:
-                    request_kwargs["data"] = body_str
-            else:
-                request_kwargs["data"] = body_str
             async with session.request(
                 relay.method, url, **request_kwargs
             ) as resp:
@@ -398,7 +300,6 @@ async def _route_and_deliver(
     payload: dict,
     store: WorkItemStore,
     comms_url: str,
-    bridge_state: Optional[BridgeStateStore],
     source_label: str,
 ) -> bool:
     """Shared routing and delivery logic for all source types."""
@@ -417,20 +318,11 @@ async def _route_and_deliver(
         store.update_status(wi.id, status="relayed" if ok else "relay_failed")
         return ok
 
-    # Channel/agent/team route
-    raw_target_name = route.target.get("channel") or route.target.get("team") or route.target.get("agent")
-    target_name = _expand_route_target(raw_target_name) if raw_target_name else ""
-    if not target_name:
-        store.update_status(wi.id, status="unrouted")
-        return False
+    # Agent/team route
+    target_name = route.target.get("team") or route.target.get("agent")
     sla_delta = parse_sla_duration(route.sla)
     sla_deadline = (datetime.now(timezone.utc) + sla_delta) if sla_delta else None
-    if "channel" in route.target:
-        target_type = "channel"
-    elif "team" in route.target:
-        target_type = "team"
-    else:
-        target_type = "agent"
+    target_type = "team" if "team" in route.target else "agent"
 
     store.update_status(
         wi.id,
@@ -442,45 +334,18 @@ async def _route_and_deliver(
         sla_deadline=sla_deadline,
     )
 
-    # Build task content from route brief or raw payload
-    task_text = _build_route_task_text(route, payload)
-    bridge_metadata = _build_bridge_metadata(connector_name, payload)
-    bridge_metadata, target_name = _apply_bridge_state(bridge_state, bridge_metadata, target_type, target_name)
-    if target_type == "channel":
-        delivered = await _deliver_channel_message(
-            comms_url=comms_url,
-            channel_name=target_name,
-            task_content=_build_channel_text(route, payload, source_label),
-        )
-    else:
-        delivered = await _deliver_task(
-            comms_url=comms_url,
-            agent_name=target_name,
-            task_content=task_text,
-            work_item_id=wi.id,
-            priority=route.priority,
-            source=source_label,
-            metadata=bridge_metadata,
-        )
+    # Build task content from payload summary
+    task_text = json.dumps(payload, default=str, indent=2)
+    delivered = await _deliver_task(
+        comms_url=comms_url,
+        agent_name=target_name,
+        task_content=task_text,
+        work_item_id=wi.id,
+        priority=route.priority,
+        source=source_label,
+    )
     if delivered:
         store.update_status(wi.id, status="assigned", task_content=task_text)
-        bridge = bridge_metadata.get("bridge")
-        if bridge_state is not None and isinstance(bridge, dict):
-            conversation_key = bridge.get("conversation_key")
-            if isinstance(conversation_key, str) and conversation_key:
-                bridge_state.upsert_conversation(
-                    conversation_key,
-                    platform=str(bridge.get("platform") or ""),
-                    workspace_id=bridge.get("workspace_id") if isinstance(bridge.get("workspace_id"), str) else None,
-                    channel_id=bridge.get("channel_id") if isinstance(bridge.get("channel_id"), str) else None,
-                    root_ts=bridge.get("root_ts") if isinstance(bridge.get("root_ts"), str) else None,
-                    thread_ts=bridge.get("thread_ts") if isinstance(bridge.get("thread_ts"), str) else None,
-                    conversation_kind=bridge.get("conversation_kind") if isinstance(bridge.get("conversation_kind"), str) else None,
-                    user_id=bridge.get("user_id") if isinstance(bridge.get("user_id"), str) else None,
-                    target_agent=target_name if "channel" not in route.target else None,
-                    connector_name=connector_name,
-                    metadata=bridge_metadata,
-                )
     return delivered
 
 
@@ -655,9 +520,8 @@ async def _channel_watch_once(
     """Check one channel-watch connector for new matching messages. Returns match count."""
     last_seen = watch_state.get_last_seen(connector.name)
     since = last_seen.isoformat() if last_seen else None
-    watched_channel = Template(connector.source.channel).safe_substitute(os.environ)
 
-    messages = await _fetch_channel_messages(comms_url, watched_channel, since=since)
+    messages = await _fetch_channel_messages(comms_url, connector.source.channel, since=since)
     if not messages:
         return 0
 
@@ -671,16 +535,10 @@ async def _channel_watch_once(
             latest_ts = msg_ts
         if not matches_pattern(msg.get("content", ""), connector.source.pattern):
             continue
-        payload = {
-            "channel": watched_channel,
-            "content": msg.get("content", ""),
-            "author": msg.get("author", msg.get("sender", "")),
-            "message_id": msg.get("id", ""),
-            "timestamp": msg["timestamp"],
-            "reply_to": msg.get("reply_to"),
-            "metadata": msg.get("metadata", {}),
-            "flags": msg.get("flags", {}),
-        }
+        payload = dict(msg)
+        payload.setdefault("channel", connector.source.channel)
+        payload.setdefault("message_id", msg.get("id", ""))
+        payload.setdefault("sender", msg.get("sender") or msg.get("author", ""))
         await _route_and_deliver(
             connector.name, connector, payload, store, comms_url,
             source_label=f"channel-watch:{connector.name}",
@@ -794,7 +652,7 @@ def _verify_webhook_auth(request: web.Request, body_bytes: bytes, connector) -> 
     if not auth:
         return None
 
-    secret = os.environ.get(auth.secret_env, "")
+    secret = _resolve_webhook_secret(auth)
     if not secret:
         logger.warning("Webhook auth configured but required secret env var is not set")
         return web.json_response({"error": "Webhook auth misconfigured"}, status=500)
@@ -805,7 +663,7 @@ def _verify_webhook_auth(request: web.Request, body_bytes: bytes, connector) -> 
         ts = request.headers.get(auth.timestamp_header, "")
         try:
             age = abs(time.time() - int(ts))
-            if age > 300:
+            if age > auth.max_skew_seconds:
                 return web.json_response({"error": "Request timestamp too old"}, status=401)
         except (ValueError, TypeError):
             return web.json_response({"error": "Invalid or missing timestamp header"}, status=401)
@@ -828,11 +686,8 @@ async def handle_webhook(request: web.Request) -> web.Response:
     connector_name, connector = _connector_from_request(request)
     store: WorkItemStore = request.app["store"]
 
-    # Find connector
-    if connector is None:
-        if connector_name:
-            return web.json_response({"error": f"Unknown connector: {connector_name}"}, status=404)
-        return web.json_response({"error": "Unknown webhook path"}, status=404)
+    if connector_name is None or connector is None:
+        return web.json_response({"error": f"Unknown connector: {connector_name}"}, status=404)
 
     # Read raw body once (needed for HMAC verification before JSON parsing)
     body_bytes = await request.read()
@@ -845,7 +700,8 @@ async def handle_webhook(request: web.Request) -> web.Response:
         # (Slack sends the challenge as plain JSON without a valid signature on first contact)
         if auth.challenge_field:
             try:
-                pre_body = _parse_webhook_payload(body_bytes, connector)
+                import json as _json
+                pre_body = _json.loads(body_bytes)
                 if isinstance(pre_body, dict) and auth.challenge_field in pre_body:
                     logger.info(f"Webhook {connector_name}: responding to challenge handshake")
                     return web.json_response({auth.challenge_field: pre_body[auth.challenge_field]})
@@ -856,13 +712,13 @@ async def handle_webhook(request: web.Request) -> web.Response:
         if err:
             return err
 
-    # Parse body according to connector source format
     try:
         payload = _parse_webhook_payload(body_bytes, connector)
     except ValueError as exc:
         return web.json_response({"error": str(exc)}, status=400)
     except Exception:
-        return web.json_response({"error": "Invalid request body"}, status=400)
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+    payload = _normalize_webhook_payload(payload, connector_name, request)
 
     # Validate against schema (if defined)
     if connector.source.payload_schema:
@@ -884,11 +740,12 @@ async def handle_webhook(request: web.Request) -> web.Response:
 
     # Route and deliver (handles both agent/team and relay targets)
     comms_url = request.app["comms_url"]
-    bridge_state = request.app.get("bridge_state")
     delivered = await _route_and_deliver(
-        connector_name, connector, payload, store, comms_url, bridge_state,
+        connector_name, connector, payload, store, comms_url,
         source_label=f"connector:{connector_name}",
     )
+    if connector.source.ack_strategy == "immediate_empty_200":
+        return web.Response(status=200, text="")
     return _webhook_success_response(connector, delivered)
 
 
@@ -901,18 +758,20 @@ def create_app(
     app = web.Application()
     app["connectors_dir"] = connectors_dir or Path("/app/connectors")
     app["connectors"] = _load_connectors(app["connectors_dir"])
-    app["connector_paths"] = {
-        _webhook_path_for_connector(connector): connector.name
-        for connector in app["connectors"].values()
-        if connector.source.type == "webhook"
-    }
     app["store"] = WorkItemStore(data_dir=data_dir or Path("/app/data"))
-    app["bridge_state"] = BridgeStateStore(data_dir=data_dir or Path("/app/data"))
     app["comms_url"] = comms_url
+    app["bridge_state"] = BridgeStateStore(data_dir=data_dir or Path("/app/data"))
+    app["connector_paths"] = {
+        _webhook_path_for_connector(connector): name
+        for name, connector in app["connectors"].items()
+    }
 
     app.router.add_get("/health", handle_health)
     app.router.add_post("/webhooks/{connector_name}", handle_webhook)
-    app.router.add_post("/{tail:.*}", handle_webhook)
+    for connector in app["connectors"].values():
+        path = _webhook_path_for_connector(connector)
+        if path != f"/webhooks/{connector.name}":
+            app.router.add_post(path, handle_webhook)
 
     app.on_startup.append(_start_background_tasks)
     app.on_cleanup.append(_cleanup_background_tasks)
@@ -926,9 +785,8 @@ def _setup_sighup_handler(app: web.Application) -> None:
         logger.info("SIGHUP received, reloading connectors...")
         app["connectors"] = _load_connectors(app["connectors_dir"])
         app["connector_paths"] = {
-            _webhook_path_for_connector(connector): connector.name
-            for connector in app["connectors"].values()
-            if connector.source.type == "webhook"
+            _webhook_path_for_connector(connector): name
+            for name, connector in app["connectors"].items()
         }
         logger.info(f"Reloaded {len(app['connectors'])} connectors")
 

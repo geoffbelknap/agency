@@ -172,3 +172,67 @@ func TestAgentServiceGrants_EmptyGrants(t *testing.T) {
 		t.Errorf("len(Grants) = %d, want 0", len(grants.Grants))
 	}
 }
+
+func TestServiceDefinition_Validate_ConsentRequirementValid(t *testing.T) {
+	s := ServiceDefinition{
+		Service:     "drive-admin",
+		DisplayName: "Drive Admin",
+		APIBase:     "https://api.example.com",
+		Credential: ServiceCredentialConfig{
+			EnvVar:       "KEY",
+			Header:       "Authorization",
+			ScopedPrefix: "agency-scoped-drive-admin",
+		},
+		Tools: []ServiceTool{
+			{
+				Name:        "drive_add_whitelist_entry",
+				Description: "Add whitelist entry",
+				Path:        "/drive",
+				Parameters: []ServiceToolParameter{
+					{Name: "drive_id", Description: "Drive ID"},
+					{Name: "consent_token", Description: "Consent token"},
+				},
+				RequiresConsentToken: &ConsentRequirement{
+					OperationKind:    "add_managed_doc",
+					TokenInputField:  "consent_token",
+					TargetInputField: "drive_id",
+					MinWitnesses:     2,
+				},
+			},
+		},
+	}
+	if err := s.Validate(); err != nil {
+		t.Fatalf("Validate() returned unexpected error: %v", err)
+	}
+}
+
+func TestServiceDefinition_Validate_ConsentRequirementRejectsUnknownField(t *testing.T) {
+	s := ServiceDefinition{
+		Service:     "drive-admin",
+		DisplayName: "Drive Admin",
+		APIBase:     "https://api.example.com",
+		Credential: ServiceCredentialConfig{
+			EnvVar:       "KEY",
+			Header:       "Authorization",
+			ScopedPrefix: "agency-scoped-drive-admin",
+		},
+		Tools: []ServiceTool{
+			{
+				Name:        "drive_add_whitelist_entry",
+				Description: "Add whitelist entry",
+				Path:        "/drive",
+				Parameters: []ServiceToolParameter{
+					{Name: "drive_id", Description: "Drive ID"},
+				},
+				RequiresConsentToken: &ConsentRequirement{
+					OperationKind:    "add_managed_doc",
+					TokenInputField:  "consent_token",
+					TargetInputField: "drive_id",
+				},
+			},
+		},
+	}
+	if err := s.Validate(); err == nil {
+		t.Fatal("Validate() expected error for unknown consent token field, got nil")
+	}
+}

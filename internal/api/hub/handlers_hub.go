@@ -17,6 +17,7 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/credstore"
 	hubpkg "github.com/geoffbelknap/agency/internal/hub"
+	deploymentspkg "github.com/geoffbelknap/agency/internal/hub/deployments"
 	"github.com/geoffbelknap/agency/internal/models"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 )
@@ -97,6 +98,12 @@ func (h *handler) hubInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mgr := hubpkg.NewManager(h.deps.Config.Home)
+	if body.Kind == "pack" && h.isDeploymentEnabledPack(body.Component, body.Source) {
+		writeJSON(w, 400, map[string]string{
+			"error": fmt.Sprintf("pack %q is deployment-enabled; use 'agency hub deployment create %s' instead", body.Component, body.Component),
+		})
+		return
+	}
 
 	// Resolve dependencies: if the component has requires.services or
 	// requires.connectors, install those first.
@@ -288,6 +295,12 @@ func (h *handler) hubRemove(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": fmt.Sprintf("component %q not found", nameOrID)})
 		return
 	}
+	if inst.DeploymentManaged {
+		writeJSON(w, 409, map[string]string{
+			"error": fmt.Sprintf("instance %q is managed by deployment %s; use 'agency hub deployment destroy %s' instead", inst.Name, inst.DeploymentID, inst.DeploymentID),
+		})
+		return
+	}
 	if inst.Kind == "provider" {
 		if err := hubpkg.RemoveProviderRouting(h.deps.Config.Home, inst.Name); err != nil {
 			writeJSON(w, 500, map[string]string{"error": fmt.Sprintf("remove provider routing: %v", err)})
@@ -399,6 +412,18 @@ func (h *handler) hubActivate(w http.ResponseWriter, r *http.Request) {
 	inst := mgr.Registry.Resolve(nameOrID)
 	if inst == nil {
 		writeJSON(w, 404, map[string]string{"error": "instance not found"})
+		return
+	}
+	if inst.DeploymentManaged {
+		writeJSON(w, 409, map[string]string{
+			"error": fmt.Sprintf("instance %q is managed by deployment %s; use 'agency hub deployment apply %s' instead", inst.Name, inst.DeploymentID, inst.DeploymentID),
+		})
+		return
+	}
+	if inst.Kind == "pack" && h.isDeploymentEnabledInstance(inst) {
+		writeJSON(w, 400, map[string]string{
+			"error": fmt.Sprintf("pack %q is deployment-enabled; use 'agency hub deployment create %s' instead", inst.Name, componentNameFromSource(inst.Source)),
+		})
 		return
 	}
 
@@ -555,6 +580,12 @@ func (h *handler) hubConfigure(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": "instance not found"})
 		return
 	}
+	if inst.DeploymentManaged {
+		writeJSON(w, 409, map[string]string{
+			"error": fmt.Sprintf("instance %q is managed by deployment %s; use 'agency hub deployment configure %s' instead", inst.Name, inst.DeploymentID, inst.DeploymentID),
+		})
+		return
+	}
 
 	// Parse config from request body
 	var body struct {
@@ -668,6 +699,12 @@ func (h *handler) hubDeactivate(w http.ResponseWriter, r *http.Request) {
 	nameOrID := chi.URLParam(r, "nameOrID")
 	mgr := hubpkg.NewManager(h.deps.Config.Home)
 	inst := mgr.Registry.Resolve(nameOrID)
+	if inst != nil && inst.DeploymentManaged {
+		writeJSON(w, 409, map[string]string{
+			"error": fmt.Sprintf("instance %q is managed by deployment %s; use 'agency hub deployment destroy %s --keep-instances' or 'agency hub deployment apply %s' instead", inst.Name, inst.DeploymentID, inst.DeploymentID, inst.DeploymentID),
+		})
+		return
+	}
 	if err := mgr.Registry.SetState(nameOrID, "inactive"); err != nil {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
 		return
@@ -683,6 +720,23 @@ func (h *handler) hubDeactivate(w http.ResponseWriter, r *http.Request) {
 		name = inst.Name
 	}
 	writeJSON(w, 200, map[string]string{"status": "inactive", "name": name})
+}
+
+func (h *handler) isDeploymentEnabledPack(component, source string) bool {
+	mgr := hubpkg.NewManager(h.deps.Config.Home)
+	comp := mgr.FindInCache(component, "pack", source)
+	if comp == nil {
+		return false
+	}
+	_, err := deploymentspkg.LoadSchema(filepath.Join(filepath.Dir(comp.Path), "deployment_schema.yaml"))
+	return err == nil
+}
+
+func (h *handler) isDeploymentEnabledInstance(inst *hubpkg.Instance) bool {
+	if inst == nil || inst.Kind != "pack" {
+		return false
+	}
+	return h.isDeploymentEnabledPack(componentNameFromSource(inst.Source), "")
 }
 
 // hubSecretPutter returns a hub.SecretPutter that writes service credentials

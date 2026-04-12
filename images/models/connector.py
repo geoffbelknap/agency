@@ -26,11 +26,19 @@ class ConnectorWebhookAuth(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["hmac_sha256"] = "hmac_sha256"
-    secret_env: str  # env var name containing the signing secret
+    secret_env: Optional[str] = None  # env var name containing the signing secret
+    secret_credref: Optional[str] = None  # credref name for the signing secret
     header: str = "X-Slack-Signature"  # header carrying the computed signature
     timestamp_header: Optional[str] = "X-Slack-Request-Timestamp"  # for replay attack protection
     prefix: str = "v0="  # prefix on the signature value (Slack uses "v0=")
     challenge_field: Optional[str] = "challenge"  # field name for URL verification handshake (Slack)
+    max_skew_seconds: int = 300
+
+    @model_validator(mode="after")
+    def validate_secret_source(self) -> "ConnectorWebhookAuth":
+        if not self.secret_env and not self.secret_credref:
+            raise ValueError("webhook_auth requires either secret_env or secret_credref")
+        return self
 
 
 class ConnectorSource(BaseModel):
@@ -40,11 +48,12 @@ class ConnectorSource(BaseModel):
     payload_schema: Optional[dict] = Field(default=None, alias="schema")
     webhook_auth: Optional[ConnectorWebhookAuth] = None  # HMAC auth for webhook sources
     path: Optional[str] = None
-    body_format: Optional[Literal["json", "form_urlencoded", "form_urlencoded_payload_json_field"]] = None
+    body_format: Optional[Literal["json", "form_urlencoded", "form_urlencoded_payload", "form_urlencoded_payload_json_field"]] = None
     payload_field: Optional[str] = None
     response_status: Optional[int] = None
     response_body: Optional[str] = None
     response_content_type: Optional[str] = None
+    ack_strategy: Optional[str] = None
     # poll fields
     url: Optional[str] = None
     method: str = "GET"
@@ -65,7 +74,7 @@ class ConnectorSource(BaseModel):
     @model_validator(mode="after")
     def validate_source_fields(self) -> "ConnectorSource":
         if self.type == "none":
-            fields = [
+            inbound_fields = [
                 self.webhook_auth,
                 self.path,
                 self.body_format,
@@ -73,6 +82,7 @@ class ConnectorSource(BaseModel):
                 self.response_status,
                 self.response_body,
                 self.response_content_type,
+                self.ack_strategy,
                 self.url,
                 self.interval,
                 self.response_key,
@@ -81,14 +91,13 @@ class ConnectorSource(BaseModel):
                 self.pattern,
                 self.transform,
                 self.auth,
-                self.follow_up,
             ]
             if self.headers is not None:
-                fields.append("set")
+                inbound_fields.append("set")
             if self.method != "GET":
-                fields.append("set")
-            if any(f is not None for f in fields):
-                raise ValueError("none source does not accept webhook/poll/schedule/channel-watch fields")
+                inbound_fields.append("set")
+            if any(f is not None for f in inbound_fields):
+                raise ValueError("source type none does not accept inbound source fields")
         elif self.type == "poll":
             if not self.url:
                 raise ValueError("poll source requires 'url'")
@@ -111,7 +120,7 @@ class ConnectorSource(BaseModel):
                 parts = urlsplit(self.path)
                 if not self.path.startswith("/") or parts.scheme or parts.netloc or parts.query or parts.fragment:
                     raise ValueError("webhook source path must be an absolute path without query or fragment")
-            if self.payload_field and self.body_format != "form_urlencoded_payload_json_field":
+            if self.payload_field and self.body_format not in {"form_urlencoded_payload", "form_urlencoded_payload_json_field"}:
                 raise ValueError("payload_field is only valid with body_format 'form_urlencoded_payload_json_field'")
             if self.response_status is not None and not 200 <= self.response_status <= 299:
                 raise ValueError("webhook response_status must be a 2xx status code")
@@ -122,7 +131,7 @@ class ConnectorSource(BaseModel):
                 poll_fields.append("set")
             if any(f is not None for f in poll_fields):
                 raise ValueError("webhook source does not accept poll/schedule/channel-watch fields")
-        elif self.path or self.body_format or self.payload_field or self.response_status is not None or self.response_body is not None or self.response_content_type is not None:
+        elif self.path or self.body_format or self.payload_field or self.response_status is not None or self.response_body is not None or self.response_content_type is not None or self.ack_strategy:
             raise ValueError(f"{self.type} source does not accept webhook body/path fields")
         return self
 
@@ -167,9 +176,41 @@ class ConnectorMCPTool(BaseModel):
 
     name: str
     method: str = "GET"
-    path: str
+    path: Optional[str] = None
     parameters: Optional[dict] = None
+    input_schema: Optional[dict] = None
+    returns: Optional[dict] = None
     description: str = ""
+    requires_config: Optional[str] = None
+    query_params: list[str] = Field(default_factory=list)
+    whitelist_check: Optional[str] = None
+    requires_consent_token: Optional[dict] = None
+
+    @model_validator(mode="after")
+    def validate_tool_controls(self) -> "ConnectorMCPTool":
+        if not self.path and not self.input_schema:
+            raise ValueError("tool requires either path or input_schema")
+        params = set((self.parameters or self.input_schema or {}).keys())
+        if self.whitelist_check and self.whitelist_check not in params:
+            raise ValueError(f"whitelist_check references unknown parameter {self.whitelist_check!r}")
+        for field in self.query_params:
+            if field not in params:
+                raise ValueError(f"query_params references unknown parameter {field!r}")
+        if self.requires_consent_token:
+            operation_kind = self.requires_consent_token.get("operation_kind")
+            token_field = self.requires_consent_token.get("token_input_field")
+            target_field = self.requires_consent_token.get("target_input_field")
+            if not operation_kind:
+                raise ValueError("requires_consent_token.operation_kind is required")
+            if not token_field:
+                raise ValueError("requires_consent_token.token_input_field is required")
+            if not target_field:
+                raise ValueError("requires_consent_token.target_input_field is required")
+            if token_field not in params:
+                raise ValueError(f"requires_consent_token references unknown token_input_field {token_field!r}")
+            if target_field not in params:
+                raise ValueError(f"requires_consent_token references unknown target_input_field {target_field!r}")
+        return self
 
 
 class ConnectorMCP(BaseModel):
@@ -197,11 +238,12 @@ class ConnectorCredential(BaseModel):
 class ConnectorAuth(BaseModel):
     """Authentication method for a connector's external API."""
     model_config = ConfigDict(extra="forbid")
-    type: Literal["none", "bearer", "jwt-exchange", "oauth2"] = "none"
+    type: Literal["none", "bearer", "jwt-exchange", "oauth2", "google_service_account"] = "none"
     token_url: Optional[str] = None
     token_params: Optional[dict[str, str]] = None
     token_response_field: str = "access_token"
     token_ttl_seconds: int = 3600
+    scopes: list[str] = Field(default_factory=list)
 
 
 class ConnectorRequires(BaseModel):
@@ -263,13 +305,20 @@ class ConnectorConfig(BaseModel):
     source: ConnectorSource
     routes: list[ConnectorRoute] = []
     mcp: Optional[ConnectorMCP] = None
+    config: dict = Field(default_factory=dict)
+    tools: list[ConnectorMCPTool] = []
+    runtime: Optional[dict] = None
     rate_limits: ConnectorRateLimits = Field(default_factory=ConnectorRateLimits)
     graph_ingest: list[GraphIngestRule] = []
 
     @model_validator(mode="after")
     def _routes_or_graph_ingest(self) -> "ConnectorConfig":
+        if self.source.type == "none":
+            if self.routes:
+                raise ValueError("tool-only connectors must not define routes")
+            if not self.tools and not (self.mcp and self.mcp.tools):
+                raise ValueError("tool-only connectors must define at least one tool")
+            return self
         if not self.routes and not self.graph_ingest and self.mcp is None:
             raise ValueError("Connector must define at least one route, graph_ingest rule, or MCP tool")
-        if self.source.type == "none" and self.routes:
-            raise ValueError("none source connectors cannot define routes")
         return self
