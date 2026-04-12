@@ -62,6 +62,53 @@ func (h *handler) createInstance(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, inst)
 }
 
+func (h *handler) createInstanceFromPackage(w http.ResponseWriter, r *http.Request) {
+	store := h.store()
+	if store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "instance store not available"})
+		return
+	}
+	reg := h.packageRegistry()
+	if reg == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "package registry not available"})
+		return
+	}
+
+	var req packageInstantiateRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if strings.TrimSpace(req.Kind) == "" || strings.TrimSpace(req.Name) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "kind and name are required"})
+		return
+	}
+
+	pkg, ok := reg.GetPackage(req.Kind, req.Name)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "package not found"})
+		return
+	}
+	inst, err := scaffoldInstanceFromPackage(pkg, req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if strings.TrimSpace(inst.ID) == "" {
+		id, err := generateInstanceID()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		inst.ID = id
+	}
+	if err := store.Create(r.Context(), inst); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusCreated, inst)
+}
+
 func (h *handler) showInstance(w http.ResponseWriter, r *http.Request) {
 	store := h.store()
 	if store == nil {

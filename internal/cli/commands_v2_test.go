@@ -35,7 +35,7 @@ func TestInstanceRuntimeSubcommandExists(t *testing.T) {
 	for _, cmd := range instance.Commands() {
 		instanceNames = append(instanceNames, cmd.Name())
 	}
-	for _, want := range []string{"list", "show", "validate", "update", "apply", "runtime"} {
+	for _, want := range []string{"list", "create-from-package", "show", "validate", "update", "apply", "runtime"} {
 		if !slices.Contains(instanceNames, want) {
 			t.Fatalf("missing instance command %q in %v", want, instanceNames)
 		}

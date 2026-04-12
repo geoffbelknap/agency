@@ -42,6 +42,136 @@ func TestInstancesCreateAndShow(t *testing.T) {
 	}
 }
 
+func TestCreateInstanceFromAuthorityPackage(t *testing.T) {
+	home := t.TempDir()
+	s := instancepkg.NewStore(filepath.Join(home, "instances"))
+	reg := hub.NewRegistry(filepath.Join(home, "hub-registry"))
+
+	pkgDir := filepath.Join(home, "hub-registry", "connectors", "google-drive-admin")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(): %v", err)
+	}
+	pkgPath := filepath.Join(pkgDir, "connector.yaml")
+	if err := os.WriteFile(pkgPath, []byte(`kind: connector
+name: google-drive-admin
+version: "1.0.0"
+requires:
+  credentials:
+    - name: google-drive-admin
+      scope: service-grant
+      grant_name: google-drive-admin
+  auth:
+    type: google_service_account
+    scopes:
+      - https://www.googleapis.com/auth/drive
+source:
+  type: none
+config:
+  allow_whitelist_mutations:
+    type: bool
+    default: false
+mcp:
+  name: google-drive-admin
+  credential: google-drive-admin
+  api_base: https://www.googleapis.com
+  tools:
+    - name: drive_list_file_permissions
+      method: GET
+      path: /drive/v3/files/{file_id}/permissions
+      parameters:
+        file_id: {type: string}
+        fields: {type: string}
+      query_params: [fields]
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(): %v", err)
+	}
+	if err := reg.PutPackage(hub.InstalledPackage{
+		Kind:    "connector",
+		Name:    "google-drive-admin",
+		Version: "1.0.0",
+		Trust:   "verified",
+		Path:    pkgPath,
+		Spec: map[string]any{
+			"runtime": map[string]any{
+				"executor": map[string]any{
+					"kind":     "http_json",
+					"base_url": "https://www.googleapis.com",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("PutPackage(): %v", err)
+	}
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{Store: s, Registry: reg})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/instances/from-package", strings.NewReader(`{"kind":"connector","name":"google-drive-admin","instance_name":"community-drive","config":{"consent_deployment_id":"dep-123"},"node_config":{"resource_whitelist":[{"kind":"file","drive_id":"file-123"}]}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("code = %d, want 201; body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"community-drive"`) {
+		t.Fatalf("missing instance name: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"connector.authority"`) {
+		t.Fatalf("missing authority node: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"google-drive-admin"`) {
+		t.Fatalf("missing package reference: %s", rec.Body.String())
+	}
+}
+
+func TestCreateInstanceFromIngressPackageRejected(t *testing.T) {
+	home := t.TempDir()
+	s := instancepkg.NewStore(filepath.Join(home, "instances"))
+	reg := hub.NewRegistry(filepath.Join(home, "hub-registry"))
+
+	pkgDir := filepath.Join(home, "hub-registry", "connectors", "slack-interactivity")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(): %v", err)
+	}
+	pkgPath := filepath.Join(pkgDir, "connector.yaml")
+	if err := os.WriteFile(pkgPath, []byte(`kind: connector
+name: slack-interactivity
+version: "1.0.0"
+source:
+  type: webhook
+  path: /webhooks/slack-interactivity
+routes:
+  - match: {}
+    target:
+      agent: slack-bridge
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(): %v", err)
+	}
+	if err := reg.PutPackage(hub.InstalledPackage{
+		Kind:    "connector",
+		Name:    "slack-interactivity",
+		Version: "1.0.0",
+		Trust:   "verified",
+		Path:    pkgPath,
+	}); err != nil {
+		t.Fatalf("PutPackage(): %v", err)
+	}
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{Store: s, Registry: reg})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/instances/from-package", strings.NewReader(`{"kind":"connector","name":"slack-interactivity"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400; body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "cannot be scaffolded as a single authority instance") {
+		t.Fatalf("unexpected error: %s", rec.Body.String())
+	}
+}
+
 func TestInstancesUpdate(t *testing.T) {
 	s := instancepkg.NewStore(t.TempDir())
 	inst := &instancepkg.Instance{

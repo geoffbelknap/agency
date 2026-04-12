@@ -183,6 +183,41 @@ paths:
               schema:
                 $ref: "#/components/schemas/Instance"
 
+  /instances/from-package:
+    post:
+      operationId: createInstanceFromPackage
+      summary: Scaffold a local V2 instance from an installed package
+      tags: [Instances]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, name]
+              properties:
+                kind:
+                  type: string
+                name:
+                  type: string
+                instance_name:
+                  type: string
+                node_id:
+                  type: string
+                config:
+                  type: object
+                  additionalProperties: true
+                node_config:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "201":
+          description: Created instance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Instance"
+
   /instances/{id}:
     get:
       operationId: showInstance

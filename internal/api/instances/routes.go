@@ -39,6 +39,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 
 	r.Get("/api/v1/instances", h.listInstances)
 	r.Post("/api/v1/instances", h.createInstance)
+	r.Post("/api/v1/instances/from-package", h.createInstanceFromPackage)
 	r.Get("/api/v1/instances/{id}", h.showInstance)
 	r.Patch("/api/v1/instances/{id}", h.updateInstance)
 	r.Post("/api/v1/instances/{id}/validate", h.validateInstance)

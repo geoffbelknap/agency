@@ -192,6 +192,13 @@ func (c *Client) ListInstances(ctx context.Context) ([]instancepkg.Instance, err
 	return resp.Instances, err
 }
 
+func (c *Client) CreateInstanceFromPackage(ctx context.Context, body map[string]any) (instancepkg.Instance, error) {
+	_ = ctx
+	var inst instancepkg.Instance
+	err := c.PostJSON("/api/v1/instances/from-package", body, &inst)
+	return inst, err
+}
+
 func (c *Client) ShowInstance(ctx context.Context, instanceID string) (instancepkg.Instance, error) {
 	_ = ctx
 	var inst instancepkg.Instance

@@ -311,6 +311,57 @@ func instanceCmd() *cobra.Command {
 			return nil
 		},
 	})
+	var fromPackageKind, fromPackageName, fromPackageInstanceName, fromPackageNodeID string
+	var fromPackageConfigJSON, fromPackageNodeConfigJSON string
+	createFromPackageCmd := &cobra.Command{
+		Use:   "create-from-package",
+		Short: "Scaffold a V2 instance from an installed package",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(fromPackageKind) == "" || strings.TrimSpace(fromPackageName) == "" {
+				return fmt.Errorf("--kind and --package are required")
+			}
+			body := map[string]any{
+				"kind": fromPackageKind,
+				"name": fromPackageName,
+			}
+			if strings.TrimSpace(fromPackageInstanceName) != "" {
+				body["instance_name"] = fromPackageInstanceName
+			}
+			if strings.TrimSpace(fromPackageNodeID) != "" {
+				body["node_id"] = fromPackageNodeID
+			}
+			if strings.TrimSpace(fromPackageConfigJSON) != "" {
+				var cfg map[string]any
+				if err := json.Unmarshal([]byte(fromPackageConfigJSON), &cfg); err != nil {
+					return fmt.Errorf("--config must be valid JSON object: %w", err)
+				}
+				body["config"] = cfg
+			}
+			if strings.TrimSpace(fromPackageNodeConfigJSON) != "" {
+				var cfg map[string]any
+				if err := json.Unmarshal([]byte(fromPackageNodeConfigJSON), &cfg); err != nil {
+					return fmt.Errorf("--node-config must be valid JSON object: %w", err)
+				}
+				body["node_config"] = cfg
+			}
+			inst, err := c.CreateInstanceFromPackage(cmd.Context(), body)
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(inst)
+		},
+	}
+	createFromPackageCmd.Flags().StringVar(&fromPackageKind, "kind", "", "Installed package kind")
+	createFromPackageCmd.Flags().StringVar(&fromPackageName, "package", "", "Installed package name")
+	createFromPackageCmd.Flags().StringVar(&fromPackageInstanceName, "name", "", "Instance name override")
+	createFromPackageCmd.Flags().StringVar(&fromPackageNodeID, "node-id", "", "Node ID override")
+	createFromPackageCmd.Flags().StringVar(&fromPackageConfigJSON, "config", "", "JSON object to merge into instance config")
+	createFromPackageCmd.Flags().StringVar(&fromPackageNodeConfigJSON, "node-config", "", "JSON object to merge into scaffolded node config")
+	cmd.AddCommand(createFromPackageCmd)
 	cmd.AddCommand(&cobra.Command{
 		Use:   "show <instance>",
 		Short: "Show a V2 instance",
