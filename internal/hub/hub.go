@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/geoffbelknap/agency/internal/models"
 	"gopkg.in/yaml.v3"
 )
 
@@ -1087,7 +1088,26 @@ func (m *Manager) discover() []Component {
 				continue
 			}
 			filepath.Walk(kindDir, func(path string, info os.FileInfo, err error) error {
-				if err != nil || info.IsDir() || !isDiscoverableComponentFile(kind, info.Name()) {
+				if err != nil {
+					return nil
+				}
+				if info.IsDir() {
+					switch {
+					case path != kindDir && fileExists(filepath.Join(path, "package.yaml")):
+						if component, ok := discoverPackage(path, src.Name, kind); ok {
+							results = append(results, component)
+						}
+						return filepath.SkipDir
+					case path != kindDir && fileExists(filepath.Join(path, "connector.yaml")):
+						if component, ok := discoverLegacyConnector(path, src.Name, kind); ok {
+							results = append(results, component)
+						}
+						return filepath.SkipDir
+					default:
+						return nil
+					}
+				}
+				if !isDiscoverableComponentFile(kind, info.Name()) {
 					return nil
 				}
 				// Skip metadata files — they're CI-stamped, not components
@@ -1131,6 +1151,73 @@ func (m *Manager) discover() []Component {
 		}
 	}
 	return results
+}
+
+func discoverPackage(dir, source, fallbackKind string) (Component, bool) {
+	var cfg models.PackageConfig
+	if err := models.Load(filepath.Join(dir, "package.yaml"), &cfg); err != nil {
+		return Component{}, false
+	}
+
+	kind := cfg.Kind
+	if kind == "" {
+		kind = fallbackKind
+	}
+
+	return Component{
+		Name:        cfg.Metadata.Name,
+		Kind:        kind,
+		Version:     cfg.Metadata.Version,
+		Description: cfg.Metadata.Title,
+		Source:      source,
+		Path:        filepath.Join(dir, "package.yaml"),
+	}, true
+}
+
+func discoverLegacyConnector(dir, source, fallbackKind string) (Component, bool) {
+	data, err := os.ReadFile(filepath.Join(dir, "connector.yaml"))
+	if err != nil {
+		return Component{}, false
+	}
+
+	var doc map[string]interface{}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return Component{}, false
+	}
+
+	name, _ := doc["name"].(string)
+	if name == "" {
+		name, _ = doc["connector"].(string)
+	}
+	if name == "" {
+		name = filepath.Base(dir)
+	}
+
+	kind, _ := doc["kind"].(string)
+	if kind == "" {
+		kind = fallbackKind
+	}
+
+	return Component{
+		Name:        name,
+		Kind:        kind,
+		Version:     stringValue(doc["version"]),
+		Description: stringValue(doc["description"]),
+		Author:      stringValue(doc["author"]),
+		License:     stringValue(doc["license"]),
+		Source:      source,
+		Path:        filepath.Join(dir, "connector.yaml"),
+	}, true
+}
+
+func stringValue(v interface{}) string {
+	s, _ := v.(string)
+	return s
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func cacheDirNameForKind(kind string) string {

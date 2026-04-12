@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -51,6 +52,14 @@ func (r *Registry) registryPath() string {
 	return filepath.Join(r.home, "registry.yaml")
 }
 
+func (r *Registry) packageRoot() string {
+	return filepath.Join(r.home, "packages")
+}
+
+func (r *Registry) packagePath(kind, name string) string {
+	return filepath.Join(r.packageRoot(), kind, name+".json")
+}
+
 // load reads the registry from disk. Caller must hold r.mu.
 func (r *Registry) load() (registryFile, error) {
 	var rf registryFile
@@ -84,6 +93,101 @@ func (r *Registry) save(rf registryFile) error {
 		return fmt.Errorf("write registry: %w", err)
 	}
 	return nil
+}
+
+// PutPackage stores local installed-package metadata in packages/<kind>/<name>.json.
+func (r *Registry) PutPackage(pkg InstalledPackage) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if strings.TrimSpace(pkg.Kind) == "" {
+		return fmt.Errorf("package kind is required")
+	}
+	if strings.TrimSpace(pkg.Name) == "" {
+		return fmt.Errorf("package name is required")
+	}
+	if pkg.Installed.IsZero() {
+		pkg.Installed = time.Now().UTC()
+	}
+
+	path := r.packagePath(pkg.Kind, pkg.Name)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("create package dir: %w", err)
+	}
+
+	data, err := json.MarshalIndent(pkg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal package: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("write package: %w", err)
+	}
+	return nil
+}
+
+// GetPackage returns the installed package metadata for the given kind/name.
+func (r *Registry) GetPackage(kind, name string) (InstalledPackage, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	data, err := os.ReadFile(r.packagePath(kind, name))
+	if err != nil {
+		return InstalledPackage{}, false
+	}
+	var pkg InstalledPackage
+	if err := json.Unmarshal(data, &pkg); err != nil {
+		return InstalledPackage{}, false
+	}
+	return pkg, true
+}
+
+// ListPackages returns installed packages, optionally filtered by kind.
+func (r *Registry) ListPackages(kind string) ([]InstalledPackage, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	root := r.packageRoot()
+	if kind != "" {
+		root = filepath.Join(root, kind)
+	}
+
+	entries, err := os.ReadDir(root)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read packages: %w", err)
+	}
+
+	var out []InstalledPackage
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(root, entry.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("read package %s: %w", entry.Name(), err)
+		}
+		var pkg InstalledPackage
+		if err := json.Unmarshal(data, &pkg); err != nil {
+			return nil, fmt.Errorf("parse package %s: %w", entry.Name(), err)
+		}
+		if kind != "" && pkg.Kind != "" && pkg.Kind != kind {
+			continue
+		}
+		out = append(out, pkg)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out, nil
 }
 
 // generateID returns a random 8-character lowercase hex string.

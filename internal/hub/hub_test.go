@@ -455,6 +455,40 @@ func TestDiscoverFindsProviderComponent(t *testing.T) {
 	}
 }
 
+func TestDiscoverFindsPackageEnvelope(t *testing.T) {
+	home := t.TempDir()
+	mgr := NewManager(home)
+
+	os.WriteFile(filepath.Join(home, "config.yaml"), []byte("hub:\n  sources:\n    - name: default\n      url: https://example.com\n"), 0644)
+
+	pkgDir := filepath.Join(home, "hub-cache", "default", "connectors", "slack-interactivity")
+	os.MkdirAll(pkgDir, 0755)
+	os.WriteFile(filepath.Join(pkgDir, "package.yaml"), []byte(`api_version: hub.agency/v2
+kind: connector
+metadata:
+  name: slack-interactivity
+  version: 1.0.0
+trust:
+  tier: verified
+  signature_required: true
+  executable: true
+`), 0644)
+
+	results := mgr.Search("slack-interactivity", "connector")
+	if len(results) != 1 {
+		t.Fatalf("expected one connector search result, got %+v", results)
+	}
+	if results[0].Name != "slack-interactivity" || results[0].Kind != "connector" {
+		t.Fatalf("unexpected package result: %+v", results[0])
+	}
+	if results[0].Version != "1.0.0" {
+		t.Fatalf("version = %q, want 1.0.0", results[0].Version)
+	}
+	if !strings.HasSuffix(results[0].Path, filepath.Join("connectors", "slack-interactivity", "package.yaml")) {
+		t.Fatalf("path = %q, want package.yaml path", results[0].Path)
+	}
+}
+
 func TestDiscoverFindsSetupComponent(t *testing.T) {
 	home := t.TempDir()
 	mgr := NewManager(home)
