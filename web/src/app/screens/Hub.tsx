@@ -34,6 +34,23 @@ function isInstanceable(pkg: RawInstalledPackage) {
   return INSTANCEABLE_PACKAGE_KINDS.has(pkg.kind);
 }
 
+function assuranceSet(pkg: RawInstalledPackage) {
+  return new Set(pkg.assurance ?? []);
+}
+
+function meetsInstanceAssurance(pkg: RawInstalledPackage) {
+  const statements = assuranceSet(pkg);
+  if (statements.has('official_source')) return true;
+  if (pkg.kind === 'connector') return statements.has('ask_partial');
+  return statements.has('publisher_verified');
+}
+
+function assuranceSummary(pkg: RawInstalledPackage) {
+  const statements = pkg.assurance ?? [];
+  if (statements.length === 0) return 'No assurance recorded';
+  return statements.join(', ');
+}
+
 export function Hub() {
   const [packages, setPackages] = useState<RawInstalledPackage[]>([]);
   const [instances, setInstances] = useState<RawInstance[]>([]);
@@ -237,6 +254,8 @@ export function Hub() {
               {packages.map((pkg) => {
                 const key = packageKey(pkg);
                 const busy = actionState[`create:${key}`];
+                const instanceable = isInstanceable(pkg);
+                const assuranceOkay = meetsInstanceAssurance(pkg);
                 return (
                   <div key={key} className="rounded-xl border border-border bg-card/70 p-4">
                     <div className="flex items-start justify-between gap-3">
@@ -255,9 +274,13 @@ export function Hub() {
                           </span>
                         </div>
                       </div>
-                      {isInstanceable(pkg) ? (
+                      {instanceable && assuranceOkay ? (
                         <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
                           Ready to instantiate
+                        </span>
+                      ) : instanceable ? (
+                        <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] text-red-700 dark:bg-red-950 dark:text-red-300">
+                          More assurance required
                         </span>
                       ) : (
                         <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700 dark:bg-amber-950 dark:text-amber-300">
@@ -271,8 +294,18 @@ export function Hub() {
                         <span className="font-medium text-foreground">Local path:</span> {pkg.path || 'Unknown'}
                       </div>
                       <div>
-                        {isInstanceable(pkg)
-                          ? 'Create a local instance from this package, then validate and apply it from the Instances tab.'
+                        <span className="font-medium text-foreground">Assurance:</span> {assuranceSummary(pkg)}
+                      </div>
+                      {pkg.publisher && (
+                        <div>
+                          <span className="font-medium text-foreground">Publisher:</span> {pkg.publisher}
+                        </div>
+                      )}
+                      <div>
+                        {instanceable
+                          ? assuranceOkay
+                            ? 'Create a local instance from this package, then validate and apply it from the Instances tab.'
+                            : 'This package cannot be instantiated yet because it does not meet the local assurance policy.'
                           : 'This package kind is not scaffoldable into a V2 instance yet.'}
                       </div>
                     </div>
@@ -285,11 +318,11 @@ export function Hub() {
                           setDraftNames((current) => ({ ...current, [key]: event.target.value }))
                         }
                         placeholder={`Optional instance name for ${pkg.name}`}
-                        disabled={!isInstanceable(pkg) || !!busy}
+                        disabled={!instanceable || !assuranceOkay || !!busy}
                       />
                       <Button
                         onClick={() => handleCreateInstance(pkg)}
-                        disabled={!isInstanceable(pkg) || !!busy}
+                        disabled={!instanceable || !assuranceOkay || !!busy}
                         className="sm:w-auto"
                       >
                         <Rocket className="mr-2 h-4 w-4" />

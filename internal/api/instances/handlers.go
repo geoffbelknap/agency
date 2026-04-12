@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/geoffbelknap/agency/internal/events"
+	"github.com/geoffbelknap/agency/internal/hub"
+	"github.com/geoffbelknap/agency/internal/hubpolicy"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
 	"github.com/geoffbelknap/agency/internal/manifestgen"
 	runpkg "github.com/geoffbelknap/agency/internal/runtime"
@@ -89,6 +91,10 @@ func (h *handler) createInstanceFromPackage(w http.ResponseWriter, r *http.Reque
 	pkg, ok := reg.GetPackage(req.Kind, req.Name)
 	if !ok {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "package not found"})
+		return
+	}
+	if err := h.requirePackageAssurance(pkg.Kind, pkg); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	inst, err := scaffoldInstanceFromPackage(pkg, req)
@@ -217,6 +223,10 @@ func (h *handler) applyInstance(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}
+	if err := h.requireInstancePackageAssurance(inst); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 	manifest, rtStore, err := h.compileManifestForInstance(id, inst)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -318,6 +328,47 @@ func (h *handler) compileManifestForInstance(id string, inst *instancepkg.Instan
 	}
 	h.refreshAttachedAgentManifests(id)
 	return manifest, rtStore, nil
+}
+
+func (h *handler) requireInstancePackageAssurance(inst *instancepkg.Instance) error {
+	reg := h.packageRegistry()
+	if reg == nil || inst == nil {
+		return nil
+	}
+
+	seen := map[string]bool{}
+	check := func(ref instancepkg.PackageRef) error {
+		if strings.TrimSpace(ref.Kind) == "" || strings.TrimSpace(ref.Name) == "" {
+			return nil
+		}
+		key := ref.Kind + "/" + ref.Name
+		if seen[key] {
+			return nil
+		}
+		seen[key] = true
+		pkg, ok := reg.GetPackage(ref.Kind, ref.Name)
+		if !ok {
+			return nil
+		}
+		return h.requirePackageAssurance(ref.Kind, pkg)
+	}
+
+	if err := check(inst.Source.Package); err != nil {
+		return err
+	}
+	for _, node := range inst.Nodes {
+		if err := check(node.Package); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (h *handler) requirePackageAssurance(kind string, pkg hub.InstalledPackage) error {
+	if !hubpolicy.DefaultPolicy().AllowsInstall(kind, pkg.Assurance) {
+		return fmt.Errorf("insufficient package assurance for %s", kind)
+	}
+	return nil
 }
 
 func (h *handler) showRuntimeManifest(w http.ResponseWriter, r *http.Request) {

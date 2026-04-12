@@ -193,17 +193,33 @@ func installedPackageTrust(source string) string {
 	}
 }
 
-func (m *Manager) publishInstalledPackage(name, kind, version, source, destPath string) error {
+func installedPackageAssurance(kind, source string) []string {
+	statements := []string{"publisher_verified"}
+	if filepath.Clean(source) == "official" {
+		statements = append(statements, "official_source")
+	}
+	switch {
+	case filepath.Clean(source) == "official" && kind == "connector":
+		return append(statements, "ask_partial")
+	default:
+		return statements
+	}
+}
+
+func buildInstalledPackage(name, kind, version, source, destPath string) (InstalledPackage, error) {
 	spec, err := deriveInstalledPackageSpec(kind, destPath)
 	if err != nil {
-		return err
+		return InstalledPackage{}, err
 	}
-	return m.Registry.PutPackage(InstalledPackage{
-		Kind:    kind,
-		Name:    name,
-		Version: version,
-		Trust:   installedPackageTrust(source),
-		Path:    destPath,
-		Spec:    spec,
-	})
+	return InstalledPackage{
+		Kind:        kind,
+		Name:        name,
+		Version:     version,
+		Trust:       installedPackageTrust(source),
+		Path:        destPath,
+		Spec:        spec,
+		Assurance:   installedPackageAssurance(kind, source),
+		Publisher:   source,
+		ReviewScope: "package-change",
+	}, nil
 }

@@ -249,6 +249,9 @@ rate_limits:
 	if !ok {
 		t.Fatal("expected installed package entry")
 	}
+	if len(pkg.Assurance) == 0 {
+		t.Fatalf("expected assurance metadata, got %#v", pkg)
+	}
 	runtimeSpec, ok := pkg.Spec["runtime"].(map[string]any)
 	if !ok {
 		t.Fatalf("missing runtime spec: %#v", pkg.Spec)
