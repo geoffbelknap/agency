@@ -56,8 +56,27 @@ func (r *Registry) packageRoot() string {
 	return filepath.Join(r.home, "packages")
 }
 
-func (r *Registry) packagePath(kind, name string) string {
-	return filepath.Join(r.packageRoot(), kind, name+".json")
+func validPackageSegment(segment string) bool {
+	if strings.TrimSpace(segment) == "" {
+		return false
+	}
+	if segment == "." || segment == ".." {
+		return false
+	}
+	if strings.ContainsAny(segment, `/\`) {
+		return false
+	}
+	return filepath.Base(segment) == segment
+}
+
+func (r *Registry) packagePath(kind, name string) (string, error) {
+	if !validPackageSegment(kind) {
+		return "", fmt.Errorf("invalid package kind %q", kind)
+	}
+	if !validPackageSegment(name) {
+		return "", fmt.Errorf("invalid package name %q", name)
+	}
+	return filepath.Join(r.packageRoot(), kind, name+".json"), nil
 }
 
 // load reads the registry from disk. Caller must hold r.mu.
@@ -100,17 +119,14 @@ func (r *Registry) PutPackage(pkg InstalledPackage) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if strings.TrimSpace(pkg.Kind) == "" {
-		return fmt.Errorf("package kind is required")
-	}
-	if strings.TrimSpace(pkg.Name) == "" {
-		return fmt.Errorf("package name is required")
+	path, err := r.packagePath(pkg.Kind, pkg.Name)
+	if err != nil {
+		return err
 	}
 	if pkg.Installed.IsZero() {
 		pkg.Installed = time.Now().UTC()
 	}
 
-	path := r.packagePath(pkg.Kind, pkg.Name)
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("create package dir: %w", err)
 	}
@@ -130,7 +146,12 @@ func (r *Registry) GetPackage(kind, name string) (InstalledPackage, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	data, err := os.ReadFile(r.packagePath(kind, name))
+	path, err := r.packagePath(kind, name)
+	if err != nil {
+		return InstalledPackage{}, false
+	}
+
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return InstalledPackage{}, false
 	}
@@ -146,12 +167,15 @@ func (r *Registry) ListPackages(kind string) ([]InstalledPackage, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	root := r.packageRoot()
 	if kind != "" {
-		root = filepath.Join(root, kind)
+		if !validPackageSegment(kind) {
+			return nil, fmt.Errorf("invalid package kind %q", kind)
+		}
+		return r.listPackagesInKind(kind)
 	}
 
-	entries, err := os.ReadDir(root)
+	var out []InstalledPackage
+	entries, err := os.ReadDir(r.packageRoot())
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -159,26 +183,18 @@ func (r *Registry) ListPackages(kind string) ([]InstalledPackage, error) {
 		return nil, fmt.Errorf("read packages: %w", err)
 	}
 
-	var out []InstalledPackage
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if !entry.IsDir() {
 			continue
 		}
-		if !strings.HasSuffix(entry.Name(), ".json") {
+		if !validPackageSegment(entry.Name()) {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(root, entry.Name()))
+		packages, err := r.listPackagesInKind(entry.Name())
 		if err != nil {
-			return nil, fmt.Errorf("read package %s: %w", entry.Name(), err)
+			return nil, err
 		}
-		var pkg InstalledPackage
-		if err := json.Unmarshal(data, &pkg); err != nil {
-			return nil, fmt.Errorf("parse package %s: %w", entry.Name(), err)
-		}
-		if kind != "" && pkg.Kind != "" && pkg.Kind != kind {
-			continue
-		}
-		out = append(out, pkg)
+		out = append(out, packages...)
 	}
 
 	sort.Slice(out, func(i, j int) bool {
@@ -187,6 +203,35 @@ func (r *Registry) ListPackages(kind string) ([]InstalledPackage, error) {
 		}
 		return out[i].Name < out[j].Name
 	})
+	return out, nil
+}
+
+func (r *Registry) listPackagesInKind(kind string) ([]InstalledPackage, error) {
+	root := filepath.Join(r.packageRoot(), kind)
+
+	entries, err := os.ReadDir(root)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read packages for kind %s: %w", kind, err)
+	}
+
+	var out []InstalledPackage
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(root, entry.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("read package %s/%s: %w", kind, entry.Name(), err)
+		}
+		var pkg InstalledPackage
+		if err := json.Unmarshal(data, &pkg); err != nil {
+			return nil, fmt.Errorf("parse package %s/%s: %w", kind, entry.Name(), err)
+		}
+		out = append(out, pkg)
+	}
 	return out, nil
 }
 
