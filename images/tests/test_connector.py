@@ -137,6 +137,18 @@ class TestConnectorMCP:
         )
         assert tool.input_schema["trigger_id"]["type"] == "string"
 
+    def test_tool_query_params_reference_known_fields(self):
+        tool = ConnectorMCPTool(
+            name="drive_share_file",
+            path="/drive/v3/files/{file_id}/permissions",
+            parameters={
+                "file_id": {"type": "string"},
+                "sendNotificationEmail": {"type": "boolean"},
+            },
+            query_params=["sendNotificationEmail"],
+        )
+        assert tool.query_params == ["sendNotificationEmail"]
+
     def test_rejects_unknown_consent_field(self):
         with pytest.raises(Exception):
             ConnectorMCPTool(
@@ -287,6 +299,28 @@ class TestConnectorConfig:
         )
         assert config.source.type == "none"
         assert config.tools[0].name == "drive_share_file"
+
+    def test_google_service_account_auth(self):
+        config = ConnectorConfig.model_validate(
+            {
+                "kind": "connector",
+                "name": "google-drive-admin",
+                "source": {"type": "none"},
+                "requires": {
+                    "auth": {
+                        "type": "google_service_account",
+                        "scopes": ["https://www.googleapis.com/auth/drive"],
+                    }
+                },
+                "tools": [
+                    {
+                        "name": "drive_share_file",
+                        "input_schema": {"file_id": {"type": "string"}},
+                    }
+                ],
+            }
+        )
+        assert config.requires.auth.type == "google_service_account"
 
 
 class TestConnectorSourceAdvanced:

@@ -155,6 +155,7 @@ class ConnectorMCPTool(BaseModel):
     returns: dict | None = None
     description: str = ""
     requires_config: str | None = None
+    query_params: list[str] = Field(default_factory=list)
     whitelist_check: str | None = None
     requires_consent_token: dict | None = None
 
@@ -165,6 +166,9 @@ class ConnectorMCPTool(BaseModel):
         params = set((self.parameters or self.input_schema or {}).keys())
         if self.whitelist_check and self.whitelist_check not in params:
             raise ValueError(f"whitelist_check references unknown parameter {self.whitelist_check!r}")
+        for field in self.query_params:
+            if field not in params:
+                raise ValueError(f"query_params references unknown parameter {field!r}")
         if self.requires_consent_token:
             operation_kind = self.requires_consent_token.get("operation_kind")
             token_field = self.requires_consent_token.get("token_input_field")
@@ -192,10 +196,36 @@ class ConnectorMCP(BaseModel):
     tools: list[ConnectorMCPTool] | None = None
 
 
+class ConnectorCredential(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    description: str = ""
+    type: Literal["secret", "config"] = "secret"
+    scope: Literal["service-grant", "env-var", "file"] = "service-grant"
+    grant_name: str | None = None
+    setup_url: str | None = None
+    example: str | None = None
+
+
+class ConnectorAuth(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["none", "bearer", "jwt-exchange", "oauth2", "google_service_account"] = "none"
+    token_url: str | None = None
+    token_params: dict[str, str] | None = None
+    token_response_field: str = "access_token"
+    token_ttl_seconds: int = 3600
+    scopes: list[str] = Field(default_factory=list)
+
+
 class ConnectorRequires(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     services: list[str] = Field(default_factory=list)
+    credentials: list[ConnectorCredential] = Field(default_factory=list)
+    auth: ConnectorAuth | None = None
+    egress_domains: list[str] = Field(default_factory=list)
 
 
 class ConnectorRateLimits(BaseModel):

@@ -336,6 +336,21 @@ func TestConnectorMCPToolValidateInputSchemaOnly(t *testing.T) {
 	}
 }
 
+func TestConnectorMCPToolValidateQueryParams(t *testing.T) {
+	tool := &ConnectorMCPTool{
+		Name: "drive_share_file",
+		Path: "/drive/v3/files/{file_id}/permissions",
+		Parameters: map[string]interface{}{
+			"file_id":               map[string]interface{}{"type": "string"},
+			"sendNotificationEmail": map[string]interface{}{"type": "boolean"},
+		},
+		QueryParams: []string{"sendNotificationEmail"},
+	}
+	if err := tool.Validate(); err != nil {
+		t.Fatalf("expected valid query_params, got %v", err)
+	}
+}
+
 func TestConnectorConfigValidateToolOnlyConnector(t *testing.T) {
 	cc := &ConnectorConfig{
 		Name:   "google-drive-admin",
@@ -353,5 +368,27 @@ func TestConnectorConfigValidateToolOnlyConnector(t *testing.T) {
 	}
 	if err := cc.Validate(); err != nil {
 		t.Fatalf("expected valid tool-only connector, got %v", err)
+	}
+}
+
+func TestConnectorConfigValidateGoogleServiceAccountAuth(t *testing.T) {
+	cc := &ConnectorConfig{
+		Name:   "google-drive-admin",
+		Source: ConnectorSource{Type: "none"},
+		Requires: &ConnectorRequires{
+			Auth: &ConnectorAuth{
+				Type:   "google_service_account",
+				Scopes: []string{"https://www.googleapis.com/auth/drive"},
+			},
+		},
+		Tools: []ConnectorMCPTool{
+			{
+				Name:        "drive_share_file",
+				InputSchema: map[string]interface{}{"file_id": map[string]interface{}{"type": "string"}},
+			},
+		},
+	}
+	if err := cc.Validate(); err != nil {
+		t.Fatalf("expected valid connector auth, got %v", err)
 	}
 }

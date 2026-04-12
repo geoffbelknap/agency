@@ -151,6 +151,7 @@ type ConnectorMCPTool struct {
 	Returns              map[string]interface{} `yaml:"returns"`
 	Description          string                 `yaml:"description"`
 	RequiresConfig       string                 `yaml:"requires_config,omitempty"`
+	QueryParams          []string               `yaml:"query_params,omitempty"`
 	WhitelistCheck       string                 `yaml:"whitelist_check,omitempty"`
 	RequiresConsentToken *ConsentRequirement    `yaml:"requires_consent_token,omitempty"`
 }
@@ -169,6 +170,11 @@ func (ct *ConnectorMCPTool) Validate() error {
 	}
 	if ct.WhitelistCheck != "" && !params[ct.WhitelistCheck] {
 		return fmt.Errorf("tool %q whitelist_check references unknown parameter %q", ct.Name, ct.WhitelistCheck)
+	}
+	for _, field := range ct.QueryParams {
+		if !params[field] {
+			return fmt.Errorf("tool %q query_params references unknown parameter %q", ct.Name, field)
+		}
 	}
 	if ct.RequiresConsentToken == nil {
 		return nil
@@ -213,11 +219,12 @@ type ConnectorCredential struct {
 
 // ConnectorAuth defines authentication configuration for a connector.
 type ConnectorAuth struct {
-	Type               string            `yaml:"type" json:"type" default:"none"` // none | bearer | jwt-exchange | oauth2
+	Type               string            `yaml:"type" json:"type" default:"none"` // none | bearer | jwt-exchange | oauth2 | google_service_account
 	TokenURL           string            `yaml:"token_url" json:"token_url,omitempty"`
 	TokenParams        map[string]string `yaml:"token_params" json:"token_params,omitempty"`
 	TokenResponseField string            `yaml:"token_response_field" json:"token_response_field" default:"access_token"`
 	TokenTTLSeconds    int               `yaml:"token_ttl_seconds" json:"token_ttl_seconds" default:"3600"`
+	Scopes             []string          `yaml:"scopes" json:"scopes,omitempty"`
 }
 
 // ConnectorRequires lists service dependencies for a connector.

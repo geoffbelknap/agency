@@ -163,6 +163,7 @@ class ConnectorMCPTool(BaseModel):
     returns: Optional[dict] = None
     description: str = ""
     requires_config: Optional[str] = None
+    query_params: list[str] = Field(default_factory=list)
     whitelist_check: Optional[str] = None
     requires_consent_token: Optional[dict] = None
 
@@ -173,6 +174,9 @@ class ConnectorMCPTool(BaseModel):
         params = set((self.parameters or self.input_schema or {}).keys())
         if self.whitelist_check and self.whitelist_check not in params:
             raise ValueError(f"whitelist_check references unknown parameter {self.whitelist_check!r}")
+        for field in self.query_params:
+            if field not in params:
+                raise ValueError(f"query_params references unknown parameter {field!r}")
         if self.requires_consent_token:
             operation_kind = self.requires_consent_token.get("operation_kind")
             token_field = self.requires_consent_token.get("token_input_field")
@@ -215,11 +219,12 @@ class ConnectorCredential(BaseModel):
 class ConnectorAuth(BaseModel):
     """Authentication method for a connector's external API."""
     model_config = ConfigDict(extra="forbid")
-    type: Literal["none", "bearer", "jwt-exchange", "oauth2"] = "none"
+    type: Literal["none", "bearer", "jwt-exchange", "oauth2", "google_service_account"] = "none"
     token_url: Optional[str] = None
     token_params: Optional[dict[str, str]] = None
     token_response_field: str = "access_token"
     token_ttl_seconds: int = 3600
+    scopes: list[str] = Field(default_factory=list)
 
 
 class ConnectorRequires(BaseModel):
