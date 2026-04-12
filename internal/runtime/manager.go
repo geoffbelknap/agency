@@ -13,11 +13,26 @@ func (m Manager) StartAuthority(store *Store, manifest *Manifest, nodeID string)
 		return nil, err
 	}
 	now := time.Now().UTC()
+	pid, port, url, err := authorityProcessStarter(store.InstanceDir(), manifest, nodeID)
+	if err != nil {
+		status := NodeStatus{
+			NodeID:      node.NodeID,
+			State:       NodeStateFailed,
+			UpdatedAt:   now,
+			LastError:   err.Error(),
+			RuntimePath: node.Materialization,
+		}
+		_ = store.SaveNodeStatus(status)
+		return nil, err
+	}
 	status := NodeStatus{
 		NodeID:      node.NodeID,
 		State:       NodeStateActive,
 		UpdatedAt:   now,
 		StartedAt:   &now,
+		PID:         pid,
+		Port:        port,
+		URL:         url,
 		RuntimePath: node.Materialization,
 	}
 	if err := store.SaveNodeStatus(status); err != nil {
@@ -35,6 +50,13 @@ func (m Manager) StopAuthority(store *Store, manifest *Manifest, nodeID string) 
 	status, err := store.LoadNodeStatus(nodeID)
 	if err != nil {
 		status = &NodeStatus{NodeID: nodeID, RuntimePath: node.Materialization}
+	}
+	if err := authorityProcessStopper(status.PID); err != nil {
+		status.State = NodeStateFailed
+		status.UpdatedAt = now
+		status.LastError = err.Error()
+		_ = store.SaveNodeStatus(*status)
+		return nil, err
 	}
 	status.State = NodeStateStopped
 	status.UpdatedAt = now

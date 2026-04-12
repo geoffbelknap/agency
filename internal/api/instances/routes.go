@@ -9,18 +9,26 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/config"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
+	runpkg "github.com/geoffbelknap/agency/internal/runtime"
 	"github.com/go-chi/chi/v5"
 )
 
 // Deps holds the dependencies required by the instances module.
 type Deps struct {
-	Store  *instancepkg.Store
-	Config *config.Config
-	Logger *slog.Logger
+	Store          *instancepkg.Store
+	Config         *config.Config
+	Logger         *slog.Logger
+	RuntimeManager runtimeManager
 }
 
 type handler struct {
 	deps Deps
+}
+
+type runtimeManager interface {
+	Status(store *runpkg.Store, manifest *runpkg.Manifest, nodeID string) (*runpkg.NodeStatus, error)
+	StartAuthority(store *runpkg.Store, manifest *runpkg.Manifest, nodeID string) (*runpkg.NodeStatus, error)
+	StopAuthority(store *runpkg.Store, manifest *runpkg.Manifest, nodeID string) (*runpkg.NodeStatus, error)
 }
 
 // RegisterRoutes mounts V2 instance routes onto r.
@@ -49,6 +57,13 @@ func (h *handler) store() *instancepkg.Store {
 		return nil
 	}
 	return instancepkg.NewStore(filepath.Join(h.deps.Config.Home, "instances"))
+}
+
+func (h *handler) runtimeManager() runtimeManager {
+	if h.deps.RuntimeManager != nil {
+		return h.deps.RuntimeManager
+	}
+	return runpkg.Manager{}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
+	runpkg "github.com/geoffbelknap/agency/internal/runtime"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -74,7 +76,7 @@ func TestInstancesCompileShowAndReconcileRuntimeManifest(t *testing.T) {
 	}
 
 	r := chi.NewRouter()
-	RegisterRoutes(r, Deps{Store: s})
+	RegisterRoutes(r, Deps{Store: s, RuntimeManager: stubRuntimeManager{}})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/instances/inst_123/runtime/manifest", nil)
 	rec := httptest.NewRecorder()
@@ -138,6 +140,45 @@ func TestInstancesCompileShowAndReconcileRuntimeManifest(t *testing.T) {
 	if !strings.Contains(stopRec.Body.String(), `"stopped"`) {
 		t.Fatalf("expected stopped status: %s", stopRec.Body.String())
 	}
+}
+
+type stubRuntimeManager struct{}
+
+func (stubRuntimeManager) Status(store *runpkg.Store, manifest *runpkg.Manifest, nodeID string) (*runpkg.NodeStatus, error) {
+	return runpkg.Manager{}.Status(store, manifest, nodeID)
+}
+
+func (stubRuntimeManager) StartAuthority(store *runpkg.Store, manifest *runpkg.Manifest, nodeID string) (*runpkg.NodeStatus, error) {
+	node, err := runpkg.Manager{}.Status(store, manifest, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	node.State = runpkg.NodeStateActive
+	node.UpdatedAt = now
+	node.StartedAt = &now
+	node.PID = 4321
+	node.Port = 18888
+	node.URL = "http://127.0.0.1:18888"
+	if err := store.SaveNodeStatus(*node); err != nil {
+		return nil, err
+	}
+	return node, nil
+}
+
+func (stubRuntimeManager) StopAuthority(store *runpkg.Store, manifest *runpkg.Manifest, nodeID string) (*runpkg.NodeStatus, error) {
+	node, err := store.LoadNodeStatus(nodeID)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	node.State = runpkg.NodeStateStopped
+	node.UpdatedAt = now
+	node.StoppedAt = &now
+	if err := store.SaveNodeStatus(*node); err != nil {
+		return nil, err
+	}
+	return node, nil
 }
 
 func extractID(body string) string {

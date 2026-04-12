@@ -118,3 +118,7 @@ func (s *Store) nodeStatusPath(nodeID string) string {
 func (s *Store) runtimeRoot() string {
 	return filepath.Join(s.instanceDir, "runtime")
 }
+
+func (s *Store) InstanceDir() string {
+	return s.instanceDir
+}

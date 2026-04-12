@@ -107,6 +107,17 @@ func TestManagerStartStopAuthority(t *testing.T) {
 		t.Fatalf("Reconcile(): %v", err)
 	}
 
+	origStarter := authorityProcessStarter
+	origStopper := authorityProcessStopper
+	t.Cleanup(func() {
+		authorityProcessStarter = origStarter
+		authorityProcessStopper = origStopper
+	})
+	authorityProcessStarter = func(instanceDir string, manifest *Manifest, nodeID string) (int, int, string, error) {
+		return 4321, 18888, "http://127.0.0.1:18888", nil
+	}
+	authorityProcessStopper = func(pid int) error { return nil }
+
 	manager := Manager{}
 	started, err := manager.StartAuthority(store, manifest, "drive_admin")
 	if err != nil {
@@ -114,6 +125,9 @@ func TestManagerStartStopAuthority(t *testing.T) {
 	}
 	if started.State != NodeStateActive {
 		t.Fatalf("started state = %q, want active", started.State)
+	}
+	if started.PID != 4321 || started.Port != 18888 {
+		t.Fatalf("unexpected runtime process info: %#v", started)
 	}
 
 	stopped, err := manager.StopAuthority(store, manifest, "drive_admin")

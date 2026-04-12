@@ -6091,6 +6091,12 @@ components:
         stopped_at:
           type: string
           format: date-time
+        pid:
+          type: integer
+        port:
+          type: integer
+        url:
+          type: string
         last_error:
           type: string
         runtime_path:

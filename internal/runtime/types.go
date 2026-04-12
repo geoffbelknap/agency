@@ -84,6 +84,9 @@ type NodeStatus struct {
 	UpdatedAt   time.Time  `yaml:"updated_at" json:"updated_at"`
 	StartedAt   *time.Time `yaml:"started_at,omitempty" json:"started_at,omitempty"`
 	StoppedAt   *time.Time `yaml:"stopped_at,omitempty" json:"stopped_at,omitempty"`
+	PID         int        `yaml:"pid,omitempty" json:"pid,omitempty"`
+	Port        int        `yaml:"port,omitempty" json:"port,omitempty"`
+	URL         string     `yaml:"url,omitempty" json:"url,omitempty"`
 	LastError   string     `yaml:"last_error,omitempty" json:"last_error,omitempty"`
 	RuntimePath string     `yaml:"runtime_path,omitempty" json:"runtime_path,omitempty"`
 }

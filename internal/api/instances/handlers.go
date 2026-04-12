@@ -213,7 +213,7 @@ func (h *handler) runtimeNodeStatus(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	status, err := (runpkg.Manager{}).Status(rtStore, manifest, chi.URLParam(r, "nodeID"))
+	status, err := h.runtimeManager().Status(rtStore, manifest, chi.URLParam(r, "nodeID"))
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
@@ -226,7 +226,7 @@ func (h *handler) startRuntimeNode(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	status, err := (runpkg.Manager{}).StartAuthority(rtStore, manifest, chi.URLParam(r, "nodeID"))
+	status, err := h.runtimeManager().StartAuthority(rtStore, manifest, chi.URLParam(r, "nodeID"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -239,7 +239,7 @@ func (h *handler) stopRuntimeNode(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	status, err := (runpkg.Manager{}).StopAuthority(rtStore, manifest, chi.URLParam(r, "nodeID"))
+	status, err := h.runtimeManager().StopAuthority(rtStore, manifest, chi.URLParam(r, "nodeID"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
