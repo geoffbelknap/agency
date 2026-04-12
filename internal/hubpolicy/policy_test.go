@@ -1,6 +1,10 @@
 package hubpolicy
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/geoffbelknap/agency/internal/hubclient"
+)
 
 func TestConnectorRequiresAskPartial(t *testing.T) {
 	p := DefaultPolicy()
@@ -23,5 +27,18 @@ func TestOfficialSourceAllowsLegacyConnectorInstall(t *testing.T) {
 	ok := p.AllowsInstall("connector", []string{"publisher_verified", "official_source"})
 	if !ok {
 		t.Fatal("expected official-source connector install to be allowed")
+	}
+}
+
+func TestConnectorAllowsStructuredAskPartialStatement(t *testing.T) {
+	p := DefaultPolicy()
+	ok := p.AllowsInstallStatements("connector", []hubclient.AssuranceStatement{
+		{
+			StatementType: "ask_reviewed",
+			Result:        "ASK-Partial",
+		},
+	})
+	if !ok {
+		t.Fatal("expected connector install to be allowed with ASK-Partial statement")
 	}
 }
