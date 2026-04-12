@@ -21,6 +21,15 @@ describe('Hub', () => {
               trust: 'official',
               path: '/tmp/.agency/packages/connector/google-drive-admin.json',
               assurance: ['publisher_verified', 'ask_partial'],
+              assurance_issuer: 'hub:official:agency',
+              assurance_statements: [
+                {
+                  statement_type: 'ask_reviewed',
+                  result: 'ASK-Partial',
+                  reviewer_type: 'automated',
+                  issuer_hub_id: 'hub:official:agency',
+                },
+              ],
             },
           ],
         }),
@@ -34,6 +43,8 @@ describe('Hub', () => {
       expect(screen.getByText('google-drive-admin')).toBeInTheDocument();
       expect(screen.getByText('Installed packages')).toBeInTheDocument();
       expect(screen.getByText('Ready to instantiate')).toBeInTheDocument();
+      expect(screen.getByText(/ASK-Partial via automated/i)).toBeInTheDocument();
+      expect(screen.getByText(/hub:official:agency/i)).toBeInTheDocument();
     });
   });
 
@@ -177,6 +188,15 @@ describe('Hub', () => {
               publisher: 'example-publisher',
               path: '/tmp/.agency/packages/connector/google-drive-admin.json',
               assurance: ['publisher_verified'],
+              assurance_issuer: 'hub:partner:example',
+              assurance_statements: [
+                {
+                  statement_type: 'ask_reviewed',
+                  result: 'ASK-Fail',
+                  reviewer_type: 'automated',
+                  issuer_hub_id: 'hub:partner:example',
+                },
+              ],
             },
           ],
         }),
@@ -191,6 +211,8 @@ describe('Hub', () => {
       expect(screen.getByText(/This package cannot be instantiated yet because it does not meet the local assurance policy./i)).toBeInTheDocument();
       expect(screen.getByText(/Assurance:/i)).toBeInTheDocument();
       expect(screen.getByText(/publisher_verified/i)).toBeInTheDocument();
+      expect(screen.getByText(/ASK-Fail via automated/i)).toBeInTheDocument();
+      expect(screen.getByText(/hub:partner:example/i)).toBeInTheDocument();
     });
 
     expect(screen.getByRole('button', { name: /create instance/i })).toBeDisabled();

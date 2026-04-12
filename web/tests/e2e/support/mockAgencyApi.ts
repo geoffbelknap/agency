@@ -224,6 +224,16 @@ const v2Packages = [
     version: '1.0.0',
     trust: 'official',
     path: '/tmp/.agency/packages/connector/slack-interactivity.json',
+    assurance: ['publisher_verified', 'ask_partial'],
+    assurance_issuer: 'hub:official:agency',
+    assurance_statements: [
+      {
+        statement_type: 'ask_reviewed',
+        result: 'ASK-Partial',
+        reviewer_type: 'automated',
+        issuer_hub_id: 'hub:official:agency',
+      },
+    ],
   },
   {
     kind: 'connector',
@@ -231,6 +241,16 @@ const v2Packages = [
     version: '1.0.0',
     trust: 'official',
     path: '/tmp/.agency/packages/connector/google-drive-admin.json',
+    assurance: ['publisher_verified', 'ask_partial'],
+    assurance_issuer: 'hub:official:agency',
+    assurance_statements: [
+      {
+        statement_type: 'ask_reviewed',
+        result: 'ASK-Partial',
+        reviewer_type: 'automated',
+        issuer_hub_id: 'hub:official:agency',
+      },
+    ],
   },
 ];
 

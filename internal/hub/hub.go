@@ -57,12 +57,13 @@ var nonInstallableKinds = map[string]bool{
 
 // Source represents a hub registry source (OCI or git).
 type Source struct {
-	Name     string `yaml:"name" json:"name"`
-	Type     string `yaml:"type,omitempty" json:"type,omitempty"`         // "oci" or "git"; defaults to "git"
-	URL      string `yaml:"url,omitempty" json:"url,omitempty"`           // git URL (when type=git)
-	Registry string `yaml:"registry,omitempty" json:"registry,omitempty"` // OCI registry base (when type=oci)
-	API      string `yaml:"api,omitempty" json:"api,omitempty"`           // Hub assurance/metadata API base
-	Branch   string `yaml:"branch,omitempty" json:"branch,omitempty"`     // git branch (when type=git)
+	Name               string `yaml:"name" json:"name"`
+	Type               string `yaml:"type,omitempty" json:"type,omitempty"`                               // "oci" or "git"; defaults to "git"
+	URL                string `yaml:"url,omitempty" json:"url,omitempty"`                                 // git URL (when type=git)
+	Registry           string `yaml:"registry,omitempty" json:"registry,omitempty"`                       // OCI registry base (when type=oci)
+	API                string `yaml:"api,omitempty" json:"api,omitempty"`                                 // Hub assurance/metadata API base
+	AssuranceAuthority bool   `yaml:"assurance_authority,omitempty" json:"assurance_authority,omitempty"` // Source is allowed to assert install-affecting assurance
+	Branch             string `yaml:"branch,omitempty" json:"branch,omitempty"`                           // git branch (when type=git)
 }
 
 // EffectiveType returns the source type, defaulting to "git" for backward compat.
@@ -84,9 +85,10 @@ func (s Source) ComponentRef(kind, name, version string) string {
 
 // DefaultSource is the official Agency hub.
 var DefaultSource = Source{
-	Name:     "official",
-	Type:     "oci",
-	Registry: "ghcr.io/geoffbelknap/agency-hub",
+	Name:               "official",
+	Type:               "oci",
+	Registry:           "ghcr.io/geoffbelknap/agency-hub",
+	AssuranceAuthority: true,
 }
 
 // Component represents a discovered hub component.
@@ -1570,7 +1572,7 @@ func (m *Manager) findSourceByName(name string) *Source {
 
 func (m *Manager) fetchPackageAssurance(ctx context.Context, sourceName, kind, name, version string) ([]hubclient.AssuranceStatement, error) {
 	src := m.findSourceByName(sourceName)
-	if src == nil || strings.TrimSpace(src.API) == "" || strings.TrimSpace(version) == "" {
+	if src == nil || !sourceAllowsAssurance(*src) || strings.TrimSpace(src.API) == "" || strings.TrimSpace(version) == "" {
 		return nil, nil
 	}
 	summary, err := (hubclient.Client{BaseURL: src.API}).FetchArtifactAssurance(ctx, src.Name, kind, name, version)
@@ -1592,6 +1594,18 @@ func (m *Manager) loadProvenance() []Provenance {
 	var entries []Provenance
 	json.Unmarshal(data, &entries)
 	return entries
+}
+
+func sourceAllowsAssurance(src Source) bool {
+	if src.AssuranceAuthority {
+		return true
+	}
+	switch strings.TrimSpace(src.Name) {
+	case "official", "default":
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *Manager) saveProvenance(entries []Provenance) {

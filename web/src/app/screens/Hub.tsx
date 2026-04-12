@@ -51,6 +51,14 @@ function assuranceSummary(pkg: RawInstalledPackage) {
   return statements.join(', ');
 }
 
+function primaryAskReview(pkg: RawInstalledPackage) {
+  return (pkg.assurance_statements ?? []).find((statement) => statement.statement_type === 'ask_reviewed') ?? null;
+}
+
+function assuranceIssuer(pkg: RawInstalledPackage) {
+  return pkg.assurance_issuer || primaryAskReview(pkg)?.issuer_hub_id || null;
+}
+
 export function Hub() {
   const [packages, setPackages] = useState<RawInstalledPackage[]>([]);
   const [instances, setInstances] = useState<RawInstance[]>([]);
@@ -256,6 +264,8 @@ export function Hub() {
                 const busy = actionState[`create:${key}`];
                 const instanceable = isInstanceable(pkg);
                 const assuranceOkay = meetsInstanceAssurance(pkg);
+                const askReview = primaryAskReview(pkg);
+                const issuer = assuranceIssuer(pkg);
                 return (
                   <div key={key} className="rounded-xl border border-border bg-card/70 p-4">
                     <div className="flex items-start justify-between gap-3">
@@ -296,6 +306,17 @@ export function Hub() {
                       <div>
                         <span className="font-medium text-foreground">Assurance:</span> {assuranceSummary(pkg)}
                       </div>
+                      {askReview && (
+                        <div>
+                          <span className="font-medium text-foreground">ASK review:</span> {askReview.result}
+                          {askReview.reviewer_type ? ` via ${askReview.reviewer_type}` : ''}
+                        </div>
+                      )}
+                      {issuer && (
+                        <div>
+                          <span className="font-medium text-foreground">Assurance hub:</span> {issuer}
+                        </div>
+                      )}
                       {pkg.publisher && (
                         <div>
                           <span className="font-medium text-foreground">Publisher:</span> {pkg.publisher}

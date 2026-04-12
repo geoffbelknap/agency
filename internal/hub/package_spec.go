@@ -244,6 +244,13 @@ func buildInstalledPackage(name, kind, version, source, destPath string, stateme
 	if len(assurance) == 0 {
 		assurance = installedPackageAssurance(kind, source)
 	}
+	issuer := ""
+	for _, stmt := range statements {
+		if strings.TrimSpace(stmt.IssuerHubID) != "" {
+			issuer = strings.TrimSpace(stmt.IssuerHubID)
+			break
+		}
+	}
 	return InstalledPackage{
 		Kind:                kind,
 		Name:                name,
@@ -253,6 +260,7 @@ func buildInstalledPackage(name, kind, version, source, destPath string, stateme
 		Spec:                spec,
 		Assurance:           assurance,
 		AssuranceStatements: statements,
+		AssuranceIssuer:     issuer,
 		Publisher:           source,
 		ReviewScope:         "package-change",
 	}, nil

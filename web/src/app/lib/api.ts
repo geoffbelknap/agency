@@ -208,6 +208,18 @@ export interface RawInstalledPackage {
   path?: string;
   spec?: Record<string, unknown>;
   assurance?: string[];
+  assurance_issuer?: string;
+  assurance_statements?: Array<{
+    artifact_kind?: string;
+    artifact_name?: string;
+    artifact_version?: string;
+    issuer_hub_id?: string;
+    statement_type: string;
+    result: string;
+    review_scope?: string;
+    reviewer_type?: string;
+    policy_version?: string;
+  }>;
   publisher?: string;
   review_scope?: string;
 }

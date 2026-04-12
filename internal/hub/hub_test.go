@@ -293,9 +293,15 @@ func TestInstallFetchesStructuredAssuranceFromHubAPI(t *testing.T) {
 		  "hub_id": "hub:default:test",
 		  "statements": [
 		    {
-		      "artifact_kind": "connector",
-		      "artifact_name": "google-drive-admin",
-		      "artifact_version": "1.0.0",
+		      "artifact": {
+		        "kind": "connector",
+		        "name": "google-drive-admin",
+		        "version": "1.0.0"
+		      },
+		      "issuer": {
+		        "hub_id": "hub:default:test",
+		        "statement_id": "stmt-1"
+		      },
 		      "statement_type": "ask_reviewed",
 		      "result": "ASK-Partial",
 		      "review_scope": "package-change",
@@ -344,8 +350,61 @@ mcp:
 	if pkg.AssuranceStatements[0].Result != "ASK-Partial" {
 		t.Fatalf("unexpected structured assurance: %#v", pkg.AssuranceStatements[0])
 	}
+	if pkg.AssuranceIssuer != "hub:default:test" {
+		t.Fatalf("unexpected assurance issuer: %q", pkg.AssuranceIssuer)
+	}
 	if !containsString(pkg.Assurance, "ask_partial") {
 		t.Fatalf("expected legacy assurance projection, got %#v", pkg.Assurance)
+	}
+}
+
+func TestInstallIgnoresUnapprovedHubAssuranceAPI(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		http.Error(w, "should not be called", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	home := t.TempDir()
+	mgr := NewManager(home)
+
+	os.WriteFile(filepath.Join(home, "config.yaml"), []byte("hub:\n  sources:\n    - name: partner\n      url: https://example.com\n      api: "+server.URL+"\n"), 0644)
+
+	cacheDir := filepath.Join(home, "hub-cache", "partner", "connectors", "google-drive-admin")
+	os.MkdirAll(cacheDir, 0755)
+	os.WriteFile(filepath.Join(cacheDir, "connector.yaml"), []byte(`kind: connector
+name: google-drive-admin
+version: "1.0.0"
+source:
+  type: none
+mcp:
+  name: google-drive-admin
+  credential: google-drive-admin
+  api_base: https://www.googleapis.com
+  tools:
+    - name: drive_list_file_permissions
+      method: GET
+      path: /drive/v3/files/{file_id}/permissions
+      parameters:
+        file_id: {type: string}
+`), 0644)
+
+	if _, err := mgr.Install("google-drive-admin", "connector", "partner", ""); err != nil {
+		t.Fatalf("Install(): %v", err)
+	}
+	if called {
+		t.Fatal("expected unapproved hub API to be ignored")
+	}
+	pkg, ok := mgr.Registry.GetPackage("connector", "google-drive-admin")
+	if !ok {
+		t.Fatal("expected installed package entry")
+	}
+	if len(pkg.AssuranceStatements) != 0 {
+		t.Fatalf("expected no structured assurance statements, got %#v", pkg.AssuranceStatements)
+	}
+	if pkg.AssuranceIssuer != "" {
+		t.Fatalf("expected no assurance issuer, got %q", pkg.AssuranceIssuer)
 	}
 }
 

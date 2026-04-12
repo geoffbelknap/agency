@@ -61,6 +61,7 @@ type InstalledPackage struct {
 	Spec                map[string]any                 `json:"spec,omitempty"`
 	Assurance           []string                       `json:"assurance,omitempty"`
 	AssuranceStatements []hubclient.AssuranceStatement `json:"assurance_statements,omitempty"`
+	AssuranceIssuer     string                         `json:"assurance_issuer,omitempty"`
 	Publisher           string                         `json:"publisher,omitempty"`
 	ReviewScope         string                         `json:"review_scope,omitempty"`
 }
