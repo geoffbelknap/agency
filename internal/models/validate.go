@@ -75,11 +75,3 @@ func ValidateNotEmpty(field, value string) error {
 func ValidateHierarchyName(name string) bool {
 	return reHierarchyName.MatchString(name) && len(name) >= 2
 }
-
-// Validate ensures the trust envelope is minimally populated.
-func (t *PackageTrust) Validate() error {
-	if strings.TrimSpace(t.Tier) == "" {
-		return fmt.Errorf("trust.tier is required")
-	}
-	return nil
-}

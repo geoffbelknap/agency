@@ -5,6 +5,19 @@ import (
 	"strings"
 )
 
+const packageAPIVersion = "hub.agency/v2"
+
+var packageKinds = map[string]struct{}{
+	"connector": {},
+	"service":   {},
+	"preset":    {},
+	"mission":   {},
+	"pack":      {},
+	"skill":     {},
+	"policy":    {},
+	"ontology":  {},
+}
+
 type PackageConfig struct {
 	APIVersion    string               `yaml:"api_version" json:"api_version"`
 	Kind          string               `yaml:"kind" json:"kind"`
@@ -39,11 +52,11 @@ type PackageTrust struct {
 }
 
 func (p *PackageConfig) Validate() error {
-	if strings.TrimSpace(p.APIVersion) == "" {
-		return fmt.Errorf("api_version is required")
+	if strings.TrimSpace(p.APIVersion) != packageAPIVersion {
+		return fmt.Errorf("api_version must be %s", packageAPIVersion)
 	}
-	if strings.TrimSpace(p.Kind) == "" {
-		return fmt.Errorf("kind is required")
+	if _, ok := packageKinds[strings.TrimSpace(p.Kind)]; !ok {
+		return fmt.Errorf("kind must be one of: connector, service, preset, mission, pack, skill, policy, ontology")
 	}
 	if strings.TrimSpace(p.Metadata.Name) == "" {
 		return fmt.Errorf("metadata.name is required")
@@ -52,4 +65,11 @@ func (p *PackageConfig) Validate() error {
 		return fmt.Errorf("metadata.version is required")
 	}
 	return p.Trust.Validate()
+}
+
+func (t *PackageTrust) Validate() error {
+	if strings.TrimSpace(t.Tier) == "" {
+		return fmt.Errorf("trust.tier is required")
+	}
+	return nil
 }
