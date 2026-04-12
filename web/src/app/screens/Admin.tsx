@@ -37,7 +37,7 @@ const TAB_GROUPS = [
     description: 'Infrastructure, intake, and shared platform services.',
     tabs: [
       { value: 'infrastructure', label: 'Infrastructure', description: 'Provision and rebuild the local platform.' },
-      { value: 'hub', label: 'Hub', description: 'Configure the operator-facing control surface.' },
+      { value: 'hub', label: 'Packages', description: 'Install local packages and manage governed instances.' },
       { value: 'intake', label: 'Intake', description: 'Manage inbound channels and collection paths.' },
       { value: 'knowledge', label: 'Knowledge', description: 'Inspect stored knowledge bases and retrieval inputs.' },
     ],

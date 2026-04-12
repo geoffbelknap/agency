@@ -193,6 +193,94 @@ export interface RawHubComponent {
   installed_at?: string;
 }
 
+export interface RawPackageRef {
+  kind: string;
+  name: string;
+  version?: string;
+}
+
+export interface RawInstalledPackage {
+  kind: string;
+  name: string;
+  version?: string;
+  trust?: string;
+  installed?: string;
+  path?: string;
+  spec?: Record<string, unknown>;
+}
+
+export interface RawPackageListResponse {
+  packages: RawInstalledPackage[];
+}
+
+export interface RawInstanceSource {
+  template?: RawPackageRef;
+  package?: RawPackageRef;
+}
+
+export interface RawInstanceNode {
+  id: string;
+  kind: string;
+  package?: RawPackageRef;
+  config?: Record<string, unknown>;
+}
+
+export interface RawInstanceGrant {
+  principal: string;
+  action: string;
+  resource?: string;
+  config?: Record<string, unknown>;
+}
+
+export interface RawInstanceBinding {
+  type: string;
+  target?: string;
+  config?: Record<string, unknown>;
+}
+
+export interface RawInstanceClaim {
+  owner: string;
+  claimed_at: string;
+}
+
+export interface RawInstance {
+  id: string;
+  name: string;
+  source: RawInstanceSource;
+  nodes?: RawInstanceNode[];
+  grants?: RawInstanceGrant[];
+  credentials?: Record<string, RawInstanceBinding>;
+  config?: Record<string, unknown>;
+  relationships?: Array<{ from: string; to: string; type: string }>;
+  claim?: RawInstanceClaim;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface RawInstanceListResponse {
+  instances: RawInstance[];
+}
+
+export interface RawRuntimeNodeStatus {
+  node_id: string;
+  state: string;
+  updated_at?: string;
+  started_at?: string;
+  stopped_at?: string;
+  pid?: number;
+  port?: number;
+  url?: string;
+  last_error?: string;
+  runtime_path?: string;
+}
+
+export interface RawInstanceApplyResult {
+  status: string;
+  instance: RawInstance;
+  manifest?: Record<string, unknown>;
+  nodes?: RawRuntimeNodeStatus[];
+}
+
 export interface RawConnector {
   id: string;
   name: string;
@@ -584,6 +672,41 @@ export const api = {
       req<OkResponse>(`/infra/rebuild/${component}`, { method: 'POST', body: '{}' }),
     reload: () => req<OkResponse>('/infra/reload', { method: 'POST', body: '{}' }),
     capacity: () => req<RawInfraCapacity>('/infra/capacity'),
+  },
+
+  packages: {
+    list: (kind?: string) => {
+      const params = new URLSearchParams();
+      if (kind) params.set('kind', kind);
+      const suffix = params.size ? `?${params.toString()}` : '';
+      return req<RawPackageListResponse>(`/packages${suffix}`);
+    },
+    show: (kind: string, name: string) =>
+      req<RawInstalledPackage>(`/packages/${encodeURIComponent(kind)}/${encodeURIComponent(name)}`),
+  },
+
+  instances: {
+    list: () => req<RawInstanceListResponse>('/instances'),
+    show: (id: string) => req<RawInstance>(`/instances/${encodeURIComponent(id)}`),
+    createFromPackage: (body: {
+      kind: string;
+      name: string;
+      instance_name?: string;
+      node_id?: string;
+      config?: Record<string, unknown>;
+      node_config?: Record<string, unknown>;
+    }) =>
+      req<RawInstance>('/instances/from-package', { method: 'POST', body: JSON.stringify(body) }),
+    validate: (id: string) =>
+      req<{ status: string }>(`/instances/${encodeURIComponent(id)}/validate`, {
+        method: 'POST',
+        body: '{}',
+      }),
+    apply: (id: string) =>
+      req<RawInstanceApplyResult>(`/instances/${encodeURIComponent(id)}/apply`, {
+        method: 'POST',
+        body: '{}',
+      }),
   },
 
   hub: {

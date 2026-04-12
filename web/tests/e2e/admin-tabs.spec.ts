@@ -16,7 +16,7 @@ test.describe('Admin tabs', () => {
   test('all admin sections render with mocked data', async ({ page }) => {
     const tabs = [
       { path: '/admin/infrastructure', locator: page.getByText('gateway') },
-      { path: '/admin/hub', locator: page.getByPlaceholder('Search components...') },
+      { path: '/admin/hub', locator: page.getByText('Packages and instances') },
       { path: '/admin/intake', locator: page.getByText('slack-intake') },
       { path: '/admin/knowledge', locator: page.getByText('Query Knowledge') },
       { path: '/admin/capabilities', locator: page.getByText('browser.open') },
