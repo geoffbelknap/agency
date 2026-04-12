@@ -36,6 +36,22 @@ async function bestEffortDelete(page: Page, path: string) {
   throw new Error(`cleanup failed for ${path}: ${status}`);
 }
 
+async function waitForAgentAbsent(page: Page, name: string, timeout = 60_000) {
+  const headers = await authHeaders(page);
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/v1/agents/${encodeURIComponent(name)}`, { headers });
+    return response.status();
+  }, {
+    timeout,
+    message: `expected ${name} to disappear after delete`,
+  }).toBe(404);
+}
+
+async function deleteAgentAndWait(page: Page, name: string) {
+  await bestEffortDelete(page, `/api/v1/agents/${encodeURIComponent(name)}`);
+  await waitForAgentAbsent(page, name);
+}
+
 async function authHeaders(page: Page) {
   const configResponse = await page.request.get('/__agency/config');
   const config = configResponse.ok() ? await configResponse.json() : {};
@@ -62,7 +78,7 @@ async function prunePlaywrightArtifacts(page: Page) {
     for (const agent of agents) {
       const name = agent?.name ?? '';
       if (!name.startsWith('playwright-agent-')) continue;
-      await bestEffortDelete(page, `/api/v1/agents/${encodeURIComponent(name)}`);
+      await deleteAgentAndWait(page, name);
     }
   }
 }
@@ -128,6 +144,21 @@ async function waitForAgentDmReady(page: Page, name: string, timeout = 60_000) {
   await page.waitForTimeout(3000);
 }
 
+async function waitForAgentStatus(page: Page, name: string, status: string, timeout = 60_000) {
+  const headers = await authHeaders(page);
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/v1/agents/${encodeURIComponent(name)}`, { headers });
+    if (!response.ok()) {
+      return null;
+    }
+    const agent = await response.json() as { status?: string };
+    return agent.status ?? null;
+  }, {
+    timeout,
+    message: `expected ${name} status to become ${status}`,
+  }).toBe(status);
+}
+
 async function cleanupMission(page: Page, name: string) {
   const headers = {
     ...(await authHeaders(page)),
@@ -154,6 +185,21 @@ async function cleanupMission(page: Page, name: string) {
     return;
   }
   throw new Error(`cleanup failed for /api/v1/missions/${encodeURIComponent(name)} after complete: ${retryDeleteResponse.status()}`);
+}
+
+async function waitForMissionStatus(page: Page, name: string, status: string, timeout = 60_000) {
+  const headers = await authHeaders(page);
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/v1/missions/${encodeURIComponent(name)}`, { headers });
+    if (!response.ok()) {
+      return null;
+    }
+    const mission = await response.json() as { status?: string };
+    return mission.status ?? null;
+  }, {
+    timeout,
+    message: `expected ${name} status to become ${status}`,
+  }).toBe(status);
 }
 
 async function sendChannelMessageViaApi(page: Page, channelName: string, content: string) {
@@ -359,7 +405,7 @@ test('live stack supports agent create flow from the agents screen', async ({ pa
     }
 
     await prunePlaywrightArtifacts(page);
-    await bestEffortDelete(page, `/api/v1/agents/${encodeURIComponent(agentName)}`);
+    await deleteAgentAndWait(page, agentName);
 
     await page.getByRole('button', { name: 'Create' }).click();
     await expect(page.getByRole('heading', { name: 'Create Agent' })).toBeVisible();
@@ -372,7 +418,7 @@ test('live stack supports agent create flow from the agents screen', async ({ pa
     await expect(page.getByRole('code').filter({ hasText: agentName })).toBeVisible();
     await expect(page.getByText(/Mode: assisted|Mode: autonomous/).first()).toBeVisible();
   } finally {
-    await bestEffortDelete(page, `/api/v1/agents/${encodeURIComponent(agentName)}`);
+    await deleteAgentAndWait(page, agentName);
   }
 });
 
@@ -389,7 +435,7 @@ test('live stack supports first useful DM reply flow for a running agent', async
     }
 
     await prunePlaywrightArtifacts(page);
-    await bestEffortDelete(page, `/api/v1/agents/${encodeURIComponent(agentName)}`);
+    await deleteAgentAndWait(page, agentName);
     await createAgentViaApi(page, agentName);
     await waitForAgentDmReady(page, agentName);
     await sendChannelMessageViaApi(page, `dm-${agentName}`, taskPrompt);
@@ -400,7 +446,46 @@ test('live stack supports first useful DM reply flow for a running agent', async
     await expect(page.getByText(taskPrompt, { exact: true })).toBeVisible();
     await expectAgentReply(page, agentName, replyToken);
   } finally {
-    await bestEffortDelete(page, `/api/v1/agents/${encodeURIComponent(agentName)}`);
+    await deleteAgentAndWait(page, agentName);
+  }
+});
+
+test('live stack supports agent pause, resume, and restart lifecycle flow', async ({ page }) => {
+  const agentName = uniqueName('playwright-agent');
+
+  try {
+    await page.goto('/agents');
+    const initialized = await expectSetupOrInitialized(page);
+    if (!initialized) {
+      return;
+    }
+
+    await prunePlaywrightArtifacts(page);
+    await deleteAgentAndWait(page, agentName);
+    await createAgentViaApi(page, agentName);
+    await waitForAgentDmReady(page, agentName);
+
+    await page.goto(`/agents/${encodeURIComponent(agentName)}`);
+    await settle(page);
+    await expect(page.getByRole('code').filter({ hasText: agentName })).toBeVisible();
+
+    await page.getByRole('button', { name: /^Pause$/ }).click();
+    await waitForAgentStatus(page, agentName, 'halted');
+    await settle(page);
+    await expect(page.getByRole('button', { name: /^Resume$/ })).toBeVisible();
+
+    await page.getByRole('button', { name: /^Resume$/ }).click();
+    await waitForAgentStatus(page, agentName, 'running');
+    await settle(page);
+    await expect(page.getByRole('button', { name: /^Restart$/ })).toBeVisible();
+
+    await page.getByRole('button', { name: /^Restart$/ }).click();
+    await waitForAgentStatus(page, agentName, 'running');
+    await waitForAgentDmReady(page, agentName);
+    await settle(page);
+    await expect(page.getByRole('button', { name: /^Pause$/ })).toBeVisible();
+  } finally {
+    await deleteAgentAndWait(page, agentName);
   }
 });
 
@@ -449,7 +534,7 @@ test('live stack supports mission assignment from mission detail', async ({ page
 
     await prunePlaywrightArtifacts(page);
     await cleanupMission(page, missionName);
-    await bestEffortDelete(page, `/api/v1/agents/${encodeURIComponent(agentName)}`);
+    await deleteAgentAndWait(page, agentName);
 
     await createAgentViaApi(page, agentName);
     await createMissionViaApi(page, missionName, missionDescription, missionInstructions);
@@ -466,6 +551,62 @@ test('live stack supports mission assignment from mission detail', async ({ page
     await expect(page.getByText('Assigned To', { exact: true }).first()).toBeVisible();
     await expect(page.getByText(agentName, { exact: true })).toBeVisible();
     await expect(page.getByText('(agent)', { exact: true })).toBeVisible();
+  } finally {
+    await cleanupMission(page, missionName);
+    await deleteAgentAndWait(page, agentName);
+  }
+});
+
+test('live stack supports assigned mission pause, resume, complete, and delete flow', async ({ page }) => {
+  const agentName = uniqueName('playwright-agent');
+  const missionName = uniqueName('playwright-mission');
+  const missionDescription = 'Mission lifecycle exercised from mission detail during live coverage';
+  const missionInstructions = 'Stay ready for mission lifecycle testing and report state changes when asked.';
+
+  try {
+    await page.goto('/missions');
+    const initialized = await expectSetupOrInitialized(page);
+    if (!initialized) {
+      return;
+    }
+
+    await prunePlaywrightArtifacts(page);
+    await cleanupMission(page, missionName);
+    await bestEffortDelete(page, `/api/v1/agents/${encodeURIComponent(agentName)}`);
+
+    await createAgentViaApi(page, agentName);
+    await createMissionViaApi(page, missionName, missionDescription, missionInstructions);
+
+    await page.goto(`/missions/${encodeURIComponent(missionName)}`);
+    await settle(page);
+
+    await page.getByRole('button', { name: 'assign', exact: true }).click();
+    await page.getByLabel('Assign target').fill(agentName);
+    await page.getByRole('button', { name: 'Assign' }).last().click();
+    await waitForMissionStatus(page, missionName, 'active');
+    await settle(page);
+    await expect(page.getByText('active', { exact: true }).first()).toBeVisible();
+
+    await page.getByRole('button', { name: /^Pause$/ }).click();
+    await waitForMissionStatus(page, missionName, 'paused');
+    await settle(page);
+    await expect(page.getByRole('button', { name: /^Resume$/ })).toBeVisible();
+
+    await page.getByRole('button', { name: /^Resume$/ }).click();
+    await waitForMissionStatus(page, missionName, 'active');
+    await settle(page);
+    await expect(page.getByRole('button', { name: /^Complete$/ })).toBeVisible();
+
+    await page.getByRole('button', { name: /^Complete$/ }).click();
+    await waitForMissionStatus(page, missionName, 'completed');
+    await settle(page);
+    await expect(page.getByText('completed', { exact: true }).first()).toBeVisible();
+
+    await page.getByRole('button', { name: 'Delete mission' }).click();
+    await page.getByRole('button', { name: /^Delete$/ }).click();
+    await settle(page);
+    await expect(page).toHaveURL(/\/missions$/);
+    await expect(page.getByText(missionName, { exact: true })).toHaveCount(0);
   } finally {
     await cleanupMission(page, missionName);
     await bestEffortDelete(page, `/api/v1/agents/${encodeURIComponent(agentName)}`);
