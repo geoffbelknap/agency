@@ -16,13 +16,16 @@ import (
 
 // Instance represents an installed hub component with a unique identity.
 type Instance struct {
-	ID      string `yaml:"id" json:"id"`
-	Name    string `yaml:"name" json:"name"`
-	Kind    string `yaml:"kind" json:"kind"`
-	Version string `yaml:"version,omitempty" json:"version,omitempty"`
-	Source  string `yaml:"source" json:"source"`
-	State   string `yaml:"state" json:"state"`
-	Created string `yaml:"created" json:"created"`
+	ID                string `yaml:"id" json:"id"`
+	Name              string `yaml:"name" json:"name"`
+	Kind              string `yaml:"kind" json:"kind"`
+	Version           string `yaml:"version,omitempty" json:"version,omitempty"`
+	Source            string `yaml:"source" json:"source"`
+	State             string `yaml:"state" json:"state"`
+	Created           string `yaml:"created" json:"created"`
+	DeploymentID      string `yaml:"deployment_id,omitempty" json:"deployment_id,omitempty"`
+	DeploymentRole    string `yaml:"deployment_role,omitempty" json:"deployment_role,omitempty"`
+	DeploymentManaged bool   `yaml:"deployment_managed,omitempty" json:"deployment_managed,omitempty"`
 }
 
 type registryFile struct {
@@ -255,6 +258,28 @@ func (r *Registry) SetVersion(nameOrID, version string) error {
 	}
 
 	inst.Version = version
+	rf.Instances[inst.Name] = *inst
+	return r.save(rf)
+}
+
+// SetDeploymentBinding annotates an instance as managed by a hub deployment.
+func (r *Registry) SetDeploymentBinding(nameOrID, deploymentID, role string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	rf, err := r.load()
+	if err != nil {
+		return err
+	}
+
+	inst := r.resolve(rf, nameOrID)
+	if inst == nil {
+		return fmt.Errorf("instance %q not found", nameOrID)
+	}
+
+	inst.DeploymentID = deploymentID
+	inst.DeploymentRole = role
+	inst.DeploymentManaged = deploymentID != ""
 	rf.Instances[inst.Name] = *inst
 	return r.save(rf)
 }

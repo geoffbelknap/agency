@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -99,5 +100,107 @@ func TestIsLocalOrTLSRejectsExternalPlaintext(t *testing.T) {
 
 	if isLocalOrTLS(req) {
 		t.Fatal("external plaintext request should be rejected")
+	}
+}
+
+func TestHubInstallRejectsDeploymentEnabledPack(t *testing.T) {
+	home := t.TempDir()
+	writeHubConfig(t, home)
+	writeDeploymentEnabledPack(t, home, "community-admin")
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{Config: &config.Config{Home: home}})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hub/install", bytes.NewBufferString(`{"component":"community-admin","kind":"pack"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "deployment-enabled") {
+		t.Fatalf("body = %s, want deployment guidance", rr.Body.String())
+	}
+}
+
+func TestHubConfigureRejectsDeploymentManagedInstance(t *testing.T) {
+	home := t.TempDir()
+	mgr := hubpkg.NewManager(home)
+	inst, err := mgr.Registry.Create("slack-interactivity", "connector", "official/slack-interactivity")
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+	if err := mgr.Registry.SetDeploymentBinding(inst.ID, "dep-123", "connector"); err != nil {
+		t.Fatalf("set deployment binding: %v", err)
+	}
+	instDir := mgr.Registry.InstanceDir(inst.ID)
+	if err := os.WriteFile(filepath.Join(instDir, "connector.yaml"), []byte("name: slack-interactivity\n"), 0o644); err != nil {
+		t.Fatalf("write template: %v", err)
+	}
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{Config: &config.Config{Home: home}})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/hub/"+inst.Name+"/config", bytes.NewBufferString(`{"config":{"foo":"bar"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "deployment") {
+		t.Fatalf("body = %s, want deployment guidance", rr.Body.String())
+	}
+}
+
+func TestHubRemoveRejectsDeploymentManagedInstance(t *testing.T) {
+	home := t.TempDir()
+	mgr := hubpkg.NewManager(home)
+	inst, err := mgr.Registry.Create("google-drive-admin", "connector", "official/google-drive-admin")
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+	if err := mgr.Registry.SetDeploymentBinding(inst.ID, "dep-456", "connector"); err != nil {
+		t.Fatalf("set deployment binding: %v", err)
+	}
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{Config: &config.Config{Home: home}})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/hub/"+inst.Name, nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "deployment") {
+		t.Fatalf("body = %s, want deployment guidance", rr.Body.String())
+	}
+}
+
+func writeHubConfig(t *testing.T, home string) {
+	t.Helper()
+	data := []byte("hub:\n  sources:\n    - name: official\n      type: oci\n      registry: ghcr.io/geoffbelknap/agency-hub\n")
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), data, 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+}
+
+func writeDeploymentEnabledPack(t *testing.T, home, name string) {
+	t.Helper()
+	packDir := filepath.Join(home, "hub-cache", "official", "packs", name)
+	if err := os.MkdirAll(packDir, 0o755); err != nil {
+		t.Fatalf("mkdir pack dir: %v", err)
+	}
+	packYAML := "name: " + name + "\nversion: 1.0.0\ndescription: test pack\n"
+	if err := os.WriteFile(filepath.Join(packDir, "pack.yaml"), []byte(packYAML), 0o644); err != nil {
+		t.Fatalf("write pack.yaml: %v", err)
+	}
+	schemaYAML := "schema_version: 1\ndeployment:\n  name: " + name + "\ninstances:\n  pack:\n    component: " + name + "\n"
+	if err := os.WriteFile(filepath.Join(packDir, "deployment_schema.yaml"), []byte(schemaYAML), 0o644); err != nil {
+		t.Fatalf("write deployment schema: %v", err)
 	}
 }

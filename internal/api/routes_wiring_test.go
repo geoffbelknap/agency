@@ -198,6 +198,9 @@ func TestOpenAPIPathsHaveRoutes(t *testing.T) {
 	//   (chi routes the test request to the second subrouter which only has candidates/promote/reject)
 	// - admin/audit/summarize: conditionally registered (needs non-nil deps)
 	skipRoutes := map[string]bool{
+		"POST /init":                              true,
+		"POST /hub/update":                        true,
+		"POST /hub/upgrade":                       true,
 		"POST /admin/capabilities/{name}/enable":  true,
 		"POST /admin/capabilities/{name}/disable": true,
 		"GET /graph/ontology":                     true,

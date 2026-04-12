@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -1379,6 +1380,7 @@ func hubCmd() *cobra.Command {
 	installCmd.Flags().StringVar(&installAs, "as", "", "Instance name (defaults to component name)")
 	installCmd.Flags().Bool("yes", false, "Skip consent prompt")
 	cmd.AddCommand(installCmd)
+	cmd.AddCommand(hubDeploymentCmd())
 
 	deployCmd := &cobra.Command{
 		Use: "deploy <pack>", Short: "Deploy a pack",
@@ -2451,6 +2453,403 @@ func hubCmd() *cobra.Command {
 	cmd.AddCommand(providerCmd)
 
 	return cmd
+}
+
+func hubDeploymentCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "deployment", Short: "Manage durable hub deployments"}
+
+	var createName string
+	var createFromFile string
+	var createNonInteractive bool
+	createCmd := &cobra.Command{
+		Use:  "create <pack>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			configVals, credRefs, err := loadDeploymentInput(createFromFile)
+			if err != nil {
+				return err
+			}
+			if !createNonInteractive {
+				schemaResp, err := c.HubDeploymentSchema(args[0])
+				if err != nil {
+					return err
+				}
+				configVals, credRefs = promptForDeploymentValues(schemaResp["schema"], configVals, credRefs)
+			}
+			result, err := c.HubDeploymentCreate(args[0], createName, configVals, credRefs)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%s Created deployment %s (%s)\n", green.Render("✓"), valueString(result["name"]), valueString(result["id"]))
+			return nil
+		},
+	}
+	createCmd.Flags().StringVar(&createName, "name", "", "Deployment name override")
+	createCmd.Flags().StringVar(&createFromFile, "from-file", "", "YAML file with config and credrefs")
+	createCmd.Flags().BoolVar(&createNonInteractive, "non-interactive", false, "Require all values via --from-file")
+	cmd.AddCommand(createCmd)
+
+	var configureFromFile string
+	configureCmd := &cobra.Command{
+		Use:  "configure <name-or-id>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			show, err := c.HubDeploymentShow(args[0])
+			if err != nil {
+				return err
+			}
+			deployment, _ := show["deployment"].(map[string]interface{})
+			configVals := map[string]interface{}{}
+			credRefs := map[string]string{}
+			for k, v := range mapValue(deployment["config"]) {
+				configVals[k] = v
+			}
+			for k, v := range mapValue(deployment["credrefs"]) {
+				if vm, ok := v.(map[string]interface{}); ok {
+					if id, ok := vm["credstore_id"].(string); ok {
+						credRefs[k] = id
+					}
+				}
+			}
+			fileConfig, fileCredRefs, err := loadDeploymentInput(configureFromFile)
+			if err != nil {
+				return err
+			}
+			for k, v := range fileConfig {
+				configVals[k] = v
+			}
+			for k, v := range fileCredRefs {
+				credRefs[k] = v
+			}
+			if configureFromFile == "" {
+				configVals, credRefs = promptForDeploymentValues(show["schema"], configVals, credRefs)
+			}
+			if _, err := c.HubDeploymentConfigure(args[0], configVals, credRefs); err != nil {
+				return err
+			}
+			fmt.Printf("%s Configured deployment %s\n", green.Render("✓"), bold.Render(args[0]))
+			return nil
+		},
+	}
+	configureCmd.Flags().StringVar(&configureFromFile, "from-file", "", "YAML file with config and credrefs")
+	cmd.AddCommand(configureCmd)
+
+	cmd.AddCommand(&cobra.Command{
+		Use:  "list",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			items, err := c.HubDeploymentList()
+			if err != nil {
+				return err
+			}
+			if len(items) == 0 {
+				fmt.Println(dim.Render("No deployments"))
+				return nil
+			}
+			fmt.Printf("  %-24s %-12s %-20s %s\n", bold.Render("NAME"), bold.Render("PACK"), bold.Render("OWNER"), bold.Render("ID"))
+			for _, item := range items {
+				owner := "-"
+				if om, ok := item["owner"].(map[string]interface{}); ok {
+					owner = valueString(om["agency_name"])
+					if owner == "" {
+						owner = "-"
+					}
+				}
+				pack := "-"
+				if pm, ok := item["pack"].(map[string]interface{}); ok {
+					pack = valueString(pm["name"])
+				}
+				fmt.Printf("  %-24s %-12s %-20s %s\n", valueString(item["name"]), pack, owner, valueString(item["id"]))
+			}
+			return nil
+		},
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:  "show <name-or-id>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.HubDeploymentShow(args[0])
+			if err != nil {
+				return err
+			}
+			out, _ := yaml.Marshal(result)
+			fmt.Print(string(out))
+			return nil
+		},
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:  "validate <name-or-id>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			if _, err := c.HubDeploymentValidate(args[0]); err != nil {
+				return err
+			}
+			fmt.Printf("%s Deployment %s is valid\n", green.Render("✓"), bold.Render(args[0]))
+			return nil
+		},
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:  "apply <name-or-id>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			if _, err := c.HubDeploymentApply(args[0]); err != nil {
+				return err
+			}
+			fmt.Printf("%s Applied deployment %s\n", green.Render("✓"), bold.Render(args[0]))
+			return nil
+		},
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:  "export <name-or-id> <path>",
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			data, err := c.HubDeploymentExport(args[0])
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(args[1], data, 0o644); err != nil {
+				return err
+			}
+			fmt.Printf("%s Exported deployment %s to %s\n", green.Render("✓"), bold.Render(args[0]), args[1])
+			return nil
+		},
+	})
+
+	var importName string
+	importCmd := &cobra.Command{
+		Use:  "import <path>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			data, err := os.ReadFile(args[0])
+			if err != nil {
+				return err
+			}
+			result, err := c.HubDeploymentImport(data, importName)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%s Imported deployment %s (%s)\n", green.Render("✓"), valueString(result["name"]), valueString(result["id"]))
+			return nil
+		},
+	}
+	importCmd.Flags().StringVar(&importName, "name", "", "Override deployment name on import")
+	cmd.AddCommand(importCmd)
+
+	var claimForce bool
+	claimCmd := &cobra.Command{
+		Use:  "claim <name-or-id>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			if _, err := c.HubDeploymentClaim(args[0], claimForce); err != nil {
+				return err
+			}
+			fmt.Printf("%s Claimed deployment %s\n", green.Render("✓"), bold.Render(args[0]))
+			return nil
+		},
+	}
+	claimCmd.Flags().BoolVar(&claimForce, "force", false, "Force-claim a stale deployment")
+	cmd.AddCommand(claimCmd)
+
+	cmd.AddCommand(&cobra.Command{
+		Use:  "release <name-or-id>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			if _, err := c.HubDeploymentRelease(args[0]); err != nil {
+				return err
+			}
+			fmt.Printf("%s Released deployment %s\n", green.Render("✓"), bold.Render(args[0]))
+			return nil
+		},
+	})
+
+	var keepInstances bool
+	destroyCmd := &cobra.Command{
+		Use:  "destroy <name-or-id>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			if _, err := c.HubDeploymentDestroy(args[0], keepInstances); err != nil {
+				return err
+			}
+			fmt.Printf("%s Destroyed deployment %s\n", green.Render("✓"), bold.Render(args[0]))
+			return nil
+		},
+	}
+	destroyCmd.Flags().BoolVar(&keepInstances, "keep-instances", false, "Retain child hub instances and clear ownership bindings")
+	cmd.AddCommand(destroyCmd)
+
+	return cmd
+}
+
+func loadDeploymentInput(path string) (map[string]interface{}, map[string]string, error) {
+	configVals := map[string]interface{}{}
+	credRefs := map[string]string{}
+	if strings.TrimSpace(path) == "" {
+		return configVals, credRefs, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	var body map[string]interface{}
+	if err := yaml.Unmarshal(data, &body); err != nil {
+		return nil, nil, err
+	}
+	if cfg, ok := body["config"].(map[string]interface{}); ok {
+		configVals = cfg
+	}
+	if rawCreds, ok := body["credrefs"].(map[string]interface{}); ok {
+		for k, v := range rawCreds {
+			credRefs[k] = valueString(v)
+		}
+	}
+	return configVals, credRefs, nil
+}
+
+func promptForDeploymentValues(schema interface{}, configVals map[string]interface{}, credRefs map[string]string) (map[string]interface{}, map[string]string) {
+	reader := bufio.NewReader(os.Stdin)
+	schemaMap, _ := schema.(map[string]interface{})
+	if cfgFields, ok := schemaMap["config"].(map[string]interface{}); ok {
+		keys := make([]string, 0, len(cfgFields))
+		for k := range cfgFields {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			field, _ := cfgFields[key].(map[string]interface{})
+			if _, ok := configVals[key]; ok {
+				continue
+			}
+			desc := valueString(field["description"])
+			prompt := key
+			if desc != "" {
+				prompt += " (" + desc + ")"
+			}
+			if def, ok := field["default"]; ok && def != nil {
+				prompt += fmt.Sprintf(" [%v]", def)
+			}
+			fmt.Printf("%s: ", prompt)
+			line, _ := reader.ReadString('\n')
+			line = strings.TrimSpace(line)
+			if line == "" {
+				if def, ok := field["default"]; ok {
+					configVals[key] = def
+				}
+				continue
+			}
+			switch valueString(field["type"]) {
+			case "int":
+				if n, err := strconv.Atoi(line); err == nil {
+					configVals[key] = n
+				}
+			case "bool":
+				configVals[key] = strings.EqualFold(line, "true") || strings.EqualFold(line, "yes") || line == "1"
+			case "list":
+				parts := strings.Split(line, ",")
+				items := make([]string, 0, len(parts))
+				for _, part := range parts {
+					part = strings.TrimSpace(part)
+					if part != "" {
+						items = append(items, part)
+					}
+				}
+				configVals[key] = items
+			default:
+				configVals[key] = line
+			}
+		}
+	}
+	if credFields, ok := schemaMap["credentials"].(map[string]interface{}); ok {
+		keys := make([]string, 0, len(credFields))
+		for k := range credFields {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			if _, ok := credRefs[key]; ok {
+				continue
+			}
+			field, _ := credFields[key].(map[string]interface{})
+			desc := valueString(field["description"])
+			prompt := key + " credstore key"
+			if desc != "" {
+				prompt += " (" + desc + ")"
+			}
+			fmt.Printf("%s: ", prompt)
+			line, _ := reader.ReadString('\n')
+			line = strings.TrimSpace(line)
+			if line != "" {
+				credRefs[key] = line
+			}
+		}
+	}
+	return configVals, credRefs
+}
+
+func valueString(v interface{}) string {
+	switch typed := v.(type) {
+	case string:
+		return typed
+	default:
+		return fmt.Sprintf("%v", typed)
+	}
+}
+
+func mapValue(v interface{}) map[string]interface{} {
+	if v == nil {
+		return map[string]interface{}{}
+	}
+	if m, ok := v.(map[string]interface{}); ok {
+		return m
+	}
+	return map[string]interface{}{}
 }
 
 // ════════════════════════════════════════════════════════════════════════════
