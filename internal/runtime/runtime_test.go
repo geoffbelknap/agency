@@ -20,6 +20,7 @@ import (
 	authzcore "github.com/geoffbelknap/agency/internal/authz"
 	agencyconsent "github.com/geoffbelknap/agency/internal/consent"
 	"github.com/geoffbelknap/agency/internal/credstore"
+	"github.com/geoffbelknap/agency/internal/hub"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
 	"golang.org/x/oauth2"
 )
@@ -151,6 +152,115 @@ func TestReconcilerMaterializesAuthorityConfig(t *testing.T) {
 	}
 	if status.State != NodeStateMaterialized {
 		t.Fatalf("node state = %q, want materialized", status.State)
+	}
+}
+
+func TestPlannerCompileIngressNode(t *testing.T) {
+	home := t.TempDir()
+	reg := hub.NewRegistry(filepath.Join(home, "hub-registry"))
+	pkgDir := filepath.Join(home, "hub-registry", "connectors", "slack-interactivity")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pkgPath := filepath.Join(pkgDir, "connector.yaml")
+	if err := os.WriteFile(pkgPath, []byte(`kind: connector
+name: slack-interactivity
+version: "1.0.0"
+source:
+  type: webhook
+  path: /webhooks/slack-interactivity
+  webhook_auth:
+    type: hmac_sha256
+    secret_credref: slack_signing_secret
+routes:
+  - match:
+      payload_type: block_actions
+    target:
+      agent: "${interactivity_target_agent}"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.PutPackage(hub.InstalledPackage{
+		Kind: "connector", Name: "slack-interactivity", Version: "1.0.0", Path: pkgPath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	inst := &instancepkg.Instance{
+		ID:   "inst_123",
+		Name: "slack-interactivity",
+		Source: instancepkg.InstanceSource{
+			Package: instancepkg.PackageRef{Kind: "connector", Name: "slack-interactivity", Version: "1.0.0"},
+		},
+		Config: map[string]any{"interactivity_target_agent": "slack-bridge"},
+		Nodes: []instancepkg.Node{{
+			ID:      "slack_interactivity",
+			Kind:    "connector.ingress",
+			Package: instancepkg.PackageRef{Kind: "connector", Name: "slack-interactivity", Version: "1.0.0"},
+		}},
+	}
+	manifest, err := Planner{Packages: reg}.Compile(inst)
+	if err != nil {
+		t.Fatalf("Compile(): %v", err)
+	}
+	if len(manifest.Runtime.Nodes) != 1 {
+		t.Fatalf("len(nodes) = %d, want 1", len(manifest.Runtime.Nodes))
+	}
+	node := manifest.Runtime.Nodes[0]
+	if node.Ingress == nil {
+		t.Fatal("expected ingress spec")
+	}
+	if node.Ingress.PublishedName != "slack-interactivity" {
+		t.Fatalf("published_name = %q", node.Ingress.PublishedName)
+	}
+	if !strings.Contains(node.Ingress.ConnectorYAML, "slack-bridge") {
+		t.Fatalf("connector yaml missing rendered target: %s", node.Ingress.ConnectorYAML)
+	}
+	if !strings.Contains(node.Ingress.ConnectorYAML, "name: slack-interactivity") {
+		t.Fatalf("connector yaml missing published name: %s", node.Ingress.ConnectorYAML)
+	}
+}
+
+func TestReconcilerPublishesIngressConnector(t *testing.T) {
+	home := t.TempDir()
+	instanceDir := filepath.Join(home, "instances", "inst_123")
+	store := NewStore(instanceDir)
+	manifest := &Manifest{
+		APIVersion: ManifestAPIVersion,
+		Kind:       ManifestKind,
+		Metadata: ManifestMeta{
+			ManifestID:   "mf_test",
+			InstanceID:   "inst_123",
+			InstanceName: "slack-interactivity",
+			CompiledAt:   time.Now().UTC(),
+			Planner:      PlannerVersion,
+		},
+		Runtime: RuntimeSpec{
+			Nodes: []RuntimeNode{{
+				NodeID:          "slack_interactivity",
+				Kind:            "connector.ingress",
+				Materialization: "ingress/slack_interactivity.yaml",
+				Ingress: &RuntimeIngressSpec{
+					PublishedName: "slack-interactivity",
+					ConnectorYAML: "kind: connector\nname: slack-interactivity\nsource:\n  type: webhook\n",
+				},
+			}},
+		},
+	}
+	if err := store.SaveManifest(manifest); err != nil {
+		t.Fatalf("SaveManifest(): %v", err)
+	}
+	if err := (Reconciler{Home: home}).Reconcile(store, manifest); err != nil {
+		t.Fatalf("Reconcile(): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(instanceDir, "runtime", "ingress", "slack_interactivity.yaml")); err != nil {
+		t.Fatalf("expected ingress materialization: %v", err)
+	}
+	published, err := os.ReadFile(filepath.Join(home, "connectors", "slack-interactivity.yaml"))
+	if err != nil {
+		t.Fatalf("read published connector: %v", err)
+	}
+	if !strings.Contains(string(published), "name: slack-interactivity") {
+		t.Fatalf("unexpected published connector: %s", string(published))
 	}
 }
 

@@ -68,7 +68,7 @@ func (m Manager) StopAuthority(store *Store, manifest *Manifest, nodeID string) 
 }
 
 func (m Manager) Status(store *Store, manifest *Manifest, nodeID string) (*NodeStatus, error) {
-	node, err := findAuthorityNode(manifest, nodeID)
+	node, err := findNode(manifest, nodeID)
 	if err != nil {
 		return nil, err
 	}
@@ -92,4 +92,14 @@ func findAuthorityNode(manifest *Manifest, nodeID string) (*RuntimeNode, error) 
 		}
 	}
 	return nil, fmt.Errorf("authority node %q not found", nodeID)
+}
+
+func findNode(manifest *Manifest, nodeID string) (*RuntimeNode, error) {
+	for _, node := range manifest.Runtime.Nodes {
+		if node.NodeID == nodeID {
+			copy := node
+			return &copy, nil
+		}
+	}
+	return nil, fmt.Errorf("runtime node %q not found", nodeID)
 }

@@ -1,6 +1,7 @@
 package instances
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"path/filepath"
@@ -21,6 +22,7 @@ type Deps struct {
 	Config         *config.Config
 	Logger         *slog.Logger
 	RuntimeManager runtimeManager
+	Signal         signalSender
 }
 
 type handler struct {
@@ -31,6 +33,10 @@ type runtimeManager interface {
 	Status(store *runpkg.Store, manifest *runpkg.Manifest, nodeID string) (*runpkg.NodeStatus, error)
 	StartAuthority(store *runpkg.Store, manifest *runpkg.Manifest, nodeID string) (*runpkg.NodeStatus, error)
 	StopAuthority(store *runpkg.Store, manifest *runpkg.Manifest, nodeID string) (*runpkg.NodeStatus, error)
+}
+
+type signalSender interface {
+	SignalContainer(ctx context.Context, containerName, sig string) error
 }
 
 // RegisterRoutes mounts V2 instance routes onto r.

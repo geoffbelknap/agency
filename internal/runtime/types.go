@@ -61,6 +61,7 @@ type RuntimeNode struct {
 	ConsentActions      []string                             `yaml:"consent_actions,omitempty" json:"consent_actions,omitempty"`
 	ConsentRequirements map[string]agencyconsent.Requirement `yaml:"consent_requirements,omitempty" json:"consent_requirements,omitempty"`
 	Executor            *RuntimeExecutor                     `yaml:"executor,omitempty" json:"executor,omitempty"`
+	Ingress             *RuntimeIngressSpec                  `yaml:"ingress,omitempty" json:"ingress,omitempty"`
 	Materialization     string                               `yaml:"materialization_path" json:"materialization_path"`
 }
 
@@ -104,6 +105,11 @@ type RuntimeExecutorAuth struct {
 	Header  string   `yaml:"header,omitempty" json:"header,omitempty"`
 	Prefix  string   `yaml:"prefix,omitempty" json:"prefix,omitempty"`
 	Scopes  []string `yaml:"scopes,omitempty" json:"scopes,omitempty"`
+}
+
+type RuntimeIngressSpec struct {
+	PublishedName string `yaml:"published_name" json:"published_name"`
+	ConnectorYAML string `yaml:"connector_yaml" json:"connector_yaml"`
 }
 
 type RuntimeOperation struct {

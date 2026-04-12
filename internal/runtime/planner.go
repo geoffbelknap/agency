@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -12,6 +13,8 @@ import (
 	agencyconsent "github.com/geoffbelknap/agency/internal/consent"
 	"github.com/geoffbelknap/agency/internal/hub"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
+	"github.com/geoffbelknap/agency/internal/models"
+	"gopkg.in/yaml.v3"
 )
 
 type packageResolver interface {
@@ -52,39 +55,62 @@ func (p Planner) Compile(inst *instancepkg.Instance) (*Manifest, error) {
 	}
 
 	for _, node := range inst.Nodes {
-		if node.Kind != "connector.authority" {
-			continue
-		}
 		if strings.TrimSpace(node.Package.Kind) == "" || strings.TrimSpace(node.Package.Name) == "" {
 			return nil, fmt.Errorf("node %q missing package reference", node.ID)
 		}
-		executor, err := p.plannerExecutor(node)
-		if err != nil {
-			return nil, fmt.Errorf("node %q executor: %w", node.ID, err)
+		switch node.Kind {
+		case "connector.authority":
+			executor, err := p.plannerExecutor(node)
+			if err != nil {
+				return nil, fmt.Errorf("node %q executor: %w", node.ID, err)
+			}
+			runtimeNode := RuntimeNode{
+				NodeID: node.ID,
+				Kind:   node.Kind,
+				Package: RuntimePackageRef{
+					Kind:    node.Package.Kind,
+					Name:    node.Package.Name,
+					Version: node.Package.Version,
+				},
+				Tools:               stringList(node.Config["tools"]),
+				ResourceWhitelist:   plannerResourceWhitelist(node),
+				CredentialBindings:  plannerCredentialBindings(node),
+				GrantSubjects:       plannerGrantSubjects(inst, node.ID),
+				ConsentActions:      plannerConsentActions(inst, node.ID),
+				ConsentRequirements: plannerConsentRequirements(inst, node.ID),
+				Executor:            executor,
+				Materialization:     "authority/" + node.ID + ".yaml",
+			}
+			manifest.Runtime.Nodes = append(manifest.Runtime.Nodes, runtimeNode)
+			manifest.Runtime.Operations = append(manifest.Runtime.Operations, RuntimeOperation{
+				Type:   "materialize_authority",
+				NodeID: node.ID,
+				Path:   runtimeNode.Materialization,
+			})
+		case "connector.ingress":
+			ingress, err := p.plannerIngress(inst, node)
+			if err != nil {
+				return nil, fmt.Errorf("node %q ingress: %w", node.ID, err)
+			}
+			runtimeNode := RuntimeNode{
+				NodeID: node.ID,
+				Kind:   node.Kind,
+				Package: RuntimePackageRef{
+					Kind:    node.Package.Kind,
+					Name:    node.Package.Name,
+					Version: node.Package.Version,
+				},
+				CredentialBindings: plannerCredentialBindings(node),
+				Ingress:            ingress,
+				Materialization:    "ingress/" + node.ID + ".yaml",
+			}
+			manifest.Runtime.Nodes = append(manifest.Runtime.Nodes, runtimeNode)
+			manifest.Runtime.Operations = append(manifest.Runtime.Operations, RuntimeOperation{
+				Type:   "publish_ingress",
+				NodeID: node.ID,
+				Path:   runtimeNode.Materialization,
+			})
 		}
-		runtimeNode := RuntimeNode{
-			NodeID: node.ID,
-			Kind:   node.Kind,
-			Package: RuntimePackageRef{
-				Kind:    node.Package.Kind,
-				Name:    node.Package.Name,
-				Version: node.Package.Version,
-			},
-			Tools:               stringList(node.Config["tools"]),
-			ResourceWhitelist:   plannerResourceWhitelist(node),
-			CredentialBindings:  plannerCredentialBindings(node),
-			GrantSubjects:       plannerGrantSubjects(inst, node.ID),
-			ConsentActions:      plannerConsentActions(inst, node.ID),
-			ConsentRequirements: plannerConsentRequirements(inst, node.ID),
-			Executor:            executor,
-			Materialization:     "authority/" + node.ID + ".yaml",
-		}
-		manifest.Runtime.Nodes = append(manifest.Runtime.Nodes, runtimeNode)
-		manifest.Runtime.Operations = append(manifest.Runtime.Operations, RuntimeOperation{
-			Type:   "materialize_authority",
-			NodeID: node.ID,
-			Path:   runtimeNode.Materialization,
-		})
 	}
 
 	sort.Slice(manifest.Runtime.Nodes, func(i, j int) bool {
@@ -258,6 +284,71 @@ func plannerCredentialBindings(node instancepkg.Node) []string {
 	keys := stringList(node.Config["credential_bindings"])
 	sort.Strings(keys)
 	return dedupe(keys)
+}
+
+func (p Planner) plannerIngress(inst *instancepkg.Instance, node instancepkg.Node) (*RuntimeIngressSpec, error) {
+	if p.Packages == nil {
+		return nil, fmt.Errorf("package registry required")
+	}
+	pkg, found := p.Packages.GetPackage(node.Package.Kind, node.Package.Name)
+	if !found {
+		return nil, fmt.Errorf("package %s/%s not found", node.Package.Kind, node.Package.Name)
+	}
+	var cfg models.ConnectorConfig
+	if err := models.Load(pkg.Path, &cfg); err != nil {
+		return nil, fmt.Errorf("load connector package: %w", err)
+	}
+	if cfg.Source.Type == "" || cfg.Source.Type == "none" {
+		return nil, fmt.Errorf("package %q does not define an ingress source", node.Package.Name)
+	}
+	rendered, err := renderIngressConnectorYAML(pkg.Path, ingressTemplateValues(inst, node))
+	if err != nil {
+		return nil, err
+	}
+	var renderedCfg models.ConnectorConfig
+	if err := yaml.Unmarshal(rendered, &renderedCfg); err != nil {
+		return nil, fmt.Errorf("parse rendered connector yaml: %w", err)
+	}
+	publishedName := strings.TrimSpace(stringValue(node.Config["published_name"]))
+	if publishedName == "" {
+		publishedName = inst.Name
+	}
+	renderedCfg.Name = publishedName
+	if renderedCfg.Source.Type == "webhook" {
+		path := "/webhooks/" + publishedName
+		renderedCfg.Source.Path = &path
+	}
+	finalYAML, err := yaml.Marshal(renderedCfg)
+	if err != nil {
+		return nil, fmt.Errorf("marshal rendered connector yaml: %w", err)
+	}
+	return &RuntimeIngressSpec{
+		PublishedName: publishedName,
+		ConnectorYAML: string(finalYAML),
+	}, nil
+}
+
+func renderIngressConnectorYAML(path string, values map[string]string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read connector package: %w", err)
+	}
+	return []byte(hub.ResolvePlaceholders(string(data), values)), nil
+}
+
+func ingressTemplateValues(inst *instancepkg.Instance, node instancepkg.Node) map[string]string {
+	values := map[string]string{}
+	for key, value := range inst.Config {
+		if s, ok := value.(string); ok {
+			values[key] = s
+		}
+	}
+	for key, value := range node.Config {
+		if s, ok := value.(string); ok {
+			values[key] = s
+		}
+	}
+	return values
 }
 
 func plannerResourceWhitelist(node instancepkg.Node) []RuntimeResourceWhitelistEntry {

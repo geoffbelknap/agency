@@ -2,6 +2,7 @@ package instances
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -220,10 +221,11 @@ func (h *handler) applyInstance(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	if err := (runpkg.Reconciler{}).Reconcile(rtStore, manifest); err != nil {
+	if err := (runpkg.Reconciler{Home: h.homeDir()}).Reconcile(rtStore, manifest); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	h.reloadIngressIfNeeded(manifest)
 	statuses, err := rtStore.ListNodeStatuses()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -362,10 +364,11 @@ func (h *handler) reconcileRuntime(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "runtime manifest is stale"})
 		return
 	}
-	if err := (runpkg.Reconciler{}).Reconcile(rtStore, manifest); err != nil {
+	if err := (runpkg.Reconciler{Home: h.homeDir()}).Reconcile(rtStore, manifest); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	h.reloadIngressIfNeeded(manifest)
 	writeJSON(w, http.StatusOK, manifest)
 }
 
@@ -532,6 +535,25 @@ func (h *handler) runtimeContext(w http.ResponseWriter, r *http.Request) (*runpk
 		return nil, nil, false
 	}
 	return rtStore, manifest, true
+}
+
+func (h *handler) homeDir() string {
+	if h.deps.Config == nil {
+		return ""
+	}
+	return h.deps.Config.Home
+}
+
+func (h *handler) reloadIngressIfNeeded(manifest *runpkg.Manifest) {
+	if manifest == nil || h.deps.Signal == nil {
+		return
+	}
+	for _, node := range manifest.Runtime.Nodes {
+		if node.Kind == "connector.ingress" {
+			_ = h.deps.Signal.SignalContainer(context.Background(), "agency-intake", "SIGHUP")
+			return
+		}
+	}
 }
 
 func generateInstanceID() (string, error) {

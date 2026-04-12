@@ -124,7 +124,7 @@ mcp:
 	}
 }
 
-func TestCreateInstanceFromIngressPackageRejected(t *testing.T) {
+func TestCreateInstanceFromIngressPackage(t *testing.T) {
 	home := t.TempDir()
 	s := instancepkg.NewStore(filepath.Join(home, "instances"))
 	reg := hub.NewRegistry(filepath.Join(home, "hub-registry"))
@@ -140,10 +140,13 @@ version: "1.0.0"
 source:
   type: webhook
   path: /webhooks/slack-interactivity
+config:
+  interactivity_target_agent:
+    type: string
 routes:
   - match: {}
     target:
-      agent: slack-bridge
+      agent: "${interactivity_target_agent}"
 `), 0o644); err != nil {
 		t.Fatalf("WriteFile(): %v", err)
 	}
@@ -160,15 +163,18 @@ routes:
 	r := chi.NewRouter()
 	RegisterRoutes(r, Deps{Store: s, Registry: reg})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/instances/from-package", strings.NewReader(`{"kind":"connector","name":"slack-interactivity"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/instances/from-package", strings.NewReader(`{"kind":"connector","name":"slack-interactivity","config":{"interactivity_target_agent":"slack-bridge"}}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("code = %d, want 400; body = %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("code = %d, want 201; body = %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "cannot be scaffolded as a single authority instance") {
-		t.Fatalf("unexpected error: %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `"connector.ingress"`) {
+		t.Fatalf("missing ingress node: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"interactivity_target_agent":"slack-bridge"`) {
+		t.Fatalf("missing instance config: %s", rec.Body.String())
 	}
 }
 

@@ -32,16 +32,6 @@ func scaffoldConnectorInstance(pkg hub.InstalledPackage, req packageInstantiateR
 	if err := models.Load(pkg.Path, &cfg); err != nil {
 		return nil, fmt.Errorf("load connector package: %w", err)
 	}
-	if cfg.Source.Type != "none" {
-		return nil, fmt.Errorf("connector %q requires ingress/runtime composition and cannot be scaffolded as a single authority instance yet", cfg.Name)
-	}
-	if pkg.Spec == nil {
-		return nil, fmt.Errorf("connector %q does not have installed runtime package metadata", cfg.Name)
-	}
-	runtimeSpec, _ := pkg.Spec["runtime"].(map[string]any)
-	if runtimeSpec == nil || runtimeSpec["executor"] == nil {
-		return nil, fmt.Errorf("connector %q does not expose an authority runtime executor", cfg.Name)
-	}
 
 	instanceName := strings.TrimSpace(req.InstanceName)
 	if instanceName == "" {
@@ -51,11 +41,24 @@ func scaffoldConnectorInstance(pkg hub.InstalledPackage, req packageInstantiateR
 	if nodeID == "" {
 		nodeID = sanitizeNodeID(cfg.Name)
 	}
-
-	nodeConfig := connectorDefaultNodeConfig(cfg)
-	mergeMap(nodeConfig, req.NodeConfig)
 	instConfig := map[string]any{}
+	mergeMap(instConfig, connectorDefaultInstanceConfig(cfg))
 	mergeMap(instConfig, req.Config)
+
+	nodeKind := "connector.ingress"
+	nodeConfig := map[string]any{}
+	if cfg.Source.Type == "none" {
+		if pkg.Spec == nil {
+			return nil, fmt.Errorf("connector %q does not have installed runtime package metadata", cfg.Name)
+		}
+		runtimeSpec, _ := pkg.Spec["runtime"].(map[string]any)
+		if runtimeSpec == nil || runtimeSpec["executor"] == nil {
+			return nil, fmt.Errorf("connector %q does not expose an authority runtime executor", cfg.Name)
+		}
+		nodeKind = "connector.authority"
+		nodeConfig = connectorDefaultAuthorityNodeConfig(cfg)
+	}
+	mergeMap(nodeConfig, req.NodeConfig)
 
 	inst := &instancepkg.Instance{
 		Name: instanceName,
@@ -68,7 +71,7 @@ func scaffoldConnectorInstance(pkg hub.InstalledPackage, req packageInstantiateR
 		},
 		Nodes: []instancepkg.Node{{
 			ID:   nodeID,
-			Kind: "connector.authority",
+			Kind: nodeKind,
 			Package: instancepkg.PackageRef{
 				Kind:    pkg.Kind,
 				Name:    pkg.Name,
@@ -82,7 +85,7 @@ func scaffoldConnectorInstance(pkg hub.InstalledPackage, req packageInstantiateR
 	return inst, nil
 }
 
-func connectorDefaultNodeConfig(cfg models.ConnectorConfig) map[string]any {
+func connectorDefaultAuthorityNodeConfig(cfg models.ConnectorConfig) map[string]any {
 	out := map[string]any{}
 	tools := connectorToolNames(cfg)
 	if len(tools) > 0 {
@@ -95,6 +98,11 @@ func connectorDefaultNodeConfig(cfg models.ConnectorConfig) map[string]any {
 	if cfg.MCP != nil && strings.TrimSpace(cfg.MCP.Credential) != "" {
 		out["credential_bindings"] = []any{cfg.MCP.Credential}
 	}
+	return out
+}
+
+func connectorDefaultInstanceConfig(cfg models.ConnectorConfig) map[string]any {
+	out := map[string]any{}
 	for key, raw := range cfg.Config {
 		field, ok := raw.(map[string]any)
 		if !ok {
@@ -109,21 +117,22 @@ func connectorDefaultNodeConfig(cfg models.ConnectorConfig) map[string]any {
 
 func connectorDefaultBindings(cfg models.ConnectorConfig) map[string]instancepkg.Binding {
 	out := map[string]instancepkg.Binding{}
-	if cfg.MCP == nil || strings.TrimSpace(cfg.MCP.Credential) == "" {
+	if cfg.Requires == nil {
 		return out
 	}
-	target := cfg.MCP.Credential
-	if cfg.Requires != nil {
-		for _, cred := range cfg.Requires.Credentials {
-			if strings.TrimSpace(cred.Name) == cfg.MCP.Credential && strings.TrimSpace(cred.GrantName) != "" {
-				target = cred.GrantName
-				break
-			}
+	for _, cred := range cfg.Requires.Credentials {
+		name := strings.TrimSpace(cred.Name)
+		if name == "" {
+			continue
 		}
-	}
-	out[cfg.MCP.Credential] = instancepkg.Binding{
-		Type:   "credref",
-		Target: "credref:" + target,
+		target := name
+		if strings.TrimSpace(cred.GrantName) != "" {
+			target = strings.TrimSpace(cred.GrantName)
+		}
+		out[name] = instancepkg.Binding{
+			Type:   "credref",
+			Target: "credref:" + target,
+		}
 	}
 	return out
 }

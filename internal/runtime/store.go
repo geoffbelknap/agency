@@ -57,6 +57,20 @@ func (s *Store) SaveAuthorityConfig(node RuntimeNode) error {
 	return nil
 }
 
+func (s *Store) SaveIngressConfig(node RuntimeNode) error {
+	if node.Ingress == nil {
+		return fmt.Errorf("ingress node %q missing ingress spec", node.NodeID)
+	}
+	path := filepath.Join(s.runtimeRoot(), node.Materialization)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create ingress dir: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(node.Ingress.ConnectorYAML), 0o644); err != nil {
+		return fmt.Errorf("write ingress config: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) SaveNodeStatus(status NodeStatus) error {
 	path := s.nodeStatusPath(status.NodeID)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

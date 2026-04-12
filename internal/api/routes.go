@@ -288,6 +288,7 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 		Store:    startup.InstanceStore,
 		Registry: startup.HubRegistry,
 		Logger:   logger,
+		Signal:   &DockerSignalSender{RawClient: dc.RawClient()},
 	})
 	apiauthz.RegisterRoutes(r, apiauthz.Deps{
 		Resolver: derefResolver(startup.AuthzResolver),
