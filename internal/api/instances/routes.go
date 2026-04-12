@@ -36,6 +36,9 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Get("/api/v1/instances/{id}/runtime/manifest", h.showRuntimeManifest)
 	r.Post("/api/v1/instances/{id}/runtime/manifest", h.compileRuntimeManifest)
 	r.Post("/api/v1/instances/{id}/runtime/reconcile", h.reconcileRuntime)
+	r.Get("/api/v1/instances/{id}/runtime/nodes/{nodeID}", h.runtimeNodeStatus)
+	r.Post("/api/v1/instances/{id}/runtime/nodes/{nodeID}/start", h.startRuntimeNode)
+	r.Post("/api/v1/instances/{id}/runtime/nodes/{nodeID}/stop", h.stopRuntimeNode)
 }
 
 func (h *handler) store() *instancepkg.Store {

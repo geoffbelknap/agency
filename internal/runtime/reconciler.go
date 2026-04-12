@@ -13,6 +13,15 @@ func (r Reconciler) Reconcile(store *Store, m *Manifest) error {
 			m.Status.ReconcileState = ReconcileStateFailed
 			return err
 		}
+		if err := store.SaveNodeStatus(NodeStatus{
+			NodeID:      node.NodeID,
+			State:       NodeStateMaterialized,
+			UpdatedAt:   time.Now().UTC(),
+			RuntimePath: node.Materialization,
+		}); err != nil {
+			m.Status.ReconcileState = ReconcileStateFailed
+			return err
+		}
 	}
 	now := time.Now().UTC()
 	m.Status.ReconcileState = ReconcileStateMaterialized

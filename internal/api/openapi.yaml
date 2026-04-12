@@ -333,6 +333,78 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /instances/{id}/runtime/nodes/{nodeID}:
+    get:
+      operationId: runtimeNodeStatus
+      summary: Show runtime status for a reconciled instance node
+      tags: [Instances]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: nodeID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Runtime node status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeNodeStatus"
+
+  /instances/{id}/runtime/nodes/{nodeID}/start:
+    post:
+      operationId: startRuntimeNode
+      summary: Mark a reconciled authority runtime node active
+      tags: [Instances]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: nodeID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Runtime node status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeNodeStatus"
+
+  /instances/{id}/runtime/nodes/{nodeID}/stop:
+    post:
+      operationId: stopRuntimeNode
+      summary: Mark a reconciled authority runtime node stopped
+      tags: [Instances]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: nodeID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Runtime node status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeNodeStatus"
+
   /authz/resolve:
     post:
       operationId: resolveAuthz
@@ -6002,6 +6074,27 @@ components:
                 $ref: "#/components/schemas/RuntimeOperation"
         status:
           $ref: "#/components/schemas/RuntimeManifestStatus"
+
+    RuntimeNodeStatus:
+      type: object
+      properties:
+        node_id:
+          type: string
+        state:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        stopped_at:
+          type: string
+          format: date-time
+        last_error:
+          type: string
+        runtime_path:
+          type: string
 
     CredentialEntry:
       type: object

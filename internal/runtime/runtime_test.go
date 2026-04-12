@@ -80,6 +80,45 @@ func TestReconcilerMaterializesAuthorityConfig(t *testing.T) {
 	if got.Status.ReconcileState != ReconcileStateMaterialized {
 		t.Fatalf("reconcile_state = %q, want materialized", got.Status.ReconcileState)
 	}
+	status, err := store.LoadNodeStatus("drive_admin")
+	if err != nil {
+		t.Fatalf("LoadNodeStatus(): %v", err)
+	}
+	if status.State != NodeStateMaterialized {
+		t.Fatalf("node state = %q, want materialized", status.State)
+	}
+}
+
+func TestManagerStartStopAuthority(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+	manifest, err := Planner{}.Compile(testInstance())
+	if err != nil {
+		t.Fatalf("Compile(): %v", err)
+	}
+	if err := store.SaveManifest(manifest); err != nil {
+		t.Fatalf("SaveManifest(): %v", err)
+	}
+	if err := (Reconciler{}).Reconcile(store, manifest); err != nil {
+		t.Fatalf("Reconcile(): %v", err)
+	}
+
+	manager := Manager{}
+	started, err := manager.StartAuthority(store, manifest, "drive_admin")
+	if err != nil {
+		t.Fatalf("StartAuthority(): %v", err)
+	}
+	if started.State != NodeStateActive {
+		t.Fatalf("started state = %q, want active", started.State)
+	}
+
+	stopped, err := manager.StopAuthority(store, manifest, "drive_admin")
+	if err != nil {
+		t.Fatalf("StopAuthority(): %v", err)
+	}
+	if stopped.State != NodeStateStopped {
+		t.Fatalf("stopped state = %q, want stopped", stopped.State)
+	}
 }
 
 func testInstance() *instancepkg.Instance {

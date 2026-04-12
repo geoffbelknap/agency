@@ -11,6 +11,11 @@ const (
 	ReconcileStateMaterialized = "materialized"
 	ReconcileStateFailed       = "failed"
 	ReconcileStateStale        = "stale"
+
+	NodeStateMaterialized = "materialized"
+	NodeStateActive       = "active"
+	NodeStateStopped      = "stopped"
+	NodeStateFailed       = "failed"
 )
 
 type Manifest struct {
@@ -71,4 +76,14 @@ type RuntimeOperation struct {
 type ManifestStatus struct {
 	ReconcileState   string     `yaml:"reconcile_state" json:"reconcile_state"`
 	LastReconciledAt *time.Time `yaml:"last_reconciled_at,omitempty" json:"last_reconciled_at,omitempty"`
+}
+
+type NodeStatus struct {
+	NodeID      string     `yaml:"node_id" json:"node_id"`
+	State       string     `yaml:"state" json:"state"`
+	UpdatedAt   time.Time  `yaml:"updated_at" json:"updated_at"`
+	StartedAt   *time.Time `yaml:"started_at,omitempty" json:"started_at,omitempty"`
+	StoppedAt   *time.Time `yaml:"stopped_at,omitempty" json:"stopped_at,omitempty"`
+	LastError   string     `yaml:"last_error,omitempty" json:"last_error,omitempty"`
+	RuntimePath string     `yaml:"runtime_path,omitempty" json:"runtime_path,omitempty"`
 }

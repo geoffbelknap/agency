@@ -208,6 +208,65 @@ func (h *handler) reconcileRuntime(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, manifest)
 }
 
+func (h *handler) runtimeNodeStatus(w http.ResponseWriter, r *http.Request) {
+	rtStore, manifest, ok := h.runtimeContext(w, r)
+	if !ok {
+		return
+	}
+	status, err := (runpkg.Manager{}).Status(rtStore, manifest, chi.URLParam(r, "nodeID"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (h *handler) startRuntimeNode(w http.ResponseWriter, r *http.Request) {
+	rtStore, manifest, ok := h.runtimeContext(w, r)
+	if !ok {
+		return
+	}
+	status, err := (runpkg.Manager{}).StartAuthority(rtStore, manifest, chi.URLParam(r, "nodeID"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (h *handler) stopRuntimeNode(w http.ResponseWriter, r *http.Request) {
+	rtStore, manifest, ok := h.runtimeContext(w, r)
+	if !ok {
+		return
+	}
+	status, err := (runpkg.Manager{}).StopAuthority(rtStore, manifest, chi.URLParam(r, "nodeID"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (h *handler) runtimeContext(w http.ResponseWriter, r *http.Request) (*runpkg.Store, *runpkg.Manifest, bool) {
+	store := h.store()
+	if store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "instance store not available"})
+		return nil, nil, false
+	}
+	instanceDir, err := store.InstanceDir(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return nil, nil, false
+	}
+	rtStore := runpkg.NewStore(instanceDir)
+	manifest, err := rtStore.LoadManifest()
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return nil, nil, false
+	}
+	return rtStore, manifest, true
+}
+
 func generateInstanceID() (string, error) {
 	b := make([]byte, 4)
 	if _, err := rand.Read(b); err != nil {

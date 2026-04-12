@@ -108,6 +108,36 @@ func TestInstancesCompileShowAndReconcileRuntimeManifest(t *testing.T) {
 	if _, err := os.Stat(authorityPath); err != nil {
 		t.Fatalf("expected authority config at %s: %v", authorityPath, err)
 	}
+
+	statusReq := httptest.NewRequest(http.MethodGet, "/api/v1/instances/inst_123/runtime/nodes/drive_admin", nil)
+	statusRec := httptest.NewRecorder()
+	r.ServeHTTP(statusRec, statusReq)
+	if statusRec.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want 200; body = %s", statusRec.Code, statusRec.Body.String())
+	}
+	if !strings.Contains(statusRec.Body.String(), `"materialized"`) {
+		t.Fatalf("expected materialized status: %s", statusRec.Body.String())
+	}
+
+	startReq := httptest.NewRequest(http.MethodPost, "/api/v1/instances/inst_123/runtime/nodes/drive_admin/start", nil)
+	startRec := httptest.NewRecorder()
+	r.ServeHTTP(startRec, startReq)
+	if startRec.Code != http.StatusOK {
+		t.Fatalf("start code = %d, want 200; body = %s", startRec.Code, startRec.Body.String())
+	}
+	if !strings.Contains(startRec.Body.String(), `"active"`) {
+		t.Fatalf("expected active status: %s", startRec.Body.String())
+	}
+
+	stopReq := httptest.NewRequest(http.MethodPost, "/api/v1/instances/inst_123/runtime/nodes/drive_admin/stop", nil)
+	stopRec := httptest.NewRecorder()
+	r.ServeHTTP(stopRec, stopReq)
+	if stopRec.Code != http.StatusOK {
+		t.Fatalf("stop code = %d, want 200; body = %s", stopRec.Code, stopRec.Body.String())
+	}
+	if !strings.Contains(stopRec.Body.String(), `"stopped"`) {
+		t.Fatalf("expected stopped status: %s", stopRec.Body.String())
+	}
 }
 
 func extractID(body string) string {
