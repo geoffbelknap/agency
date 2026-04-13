@@ -1,9 +1,14 @@
 package cli
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"testing"
 
+	"github.com/geoffbelknap/agency/internal/apiclient"
 	"github.com/spf13/cobra"
 )
 
@@ -53,5 +58,48 @@ func TestInstanceRuntimeSubcommandExists(t *testing.T) {
 		if !slices.Contains(names, want) {
 			t.Fatalf("missing runtime command %q in %v", want, names)
 		}
+	}
+}
+
+func TestResolveInstanceRefByName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/instances" {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"instances": []map[string]any{
+				{"id": "inst_123", "name": "drive-alpha"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	c := apiclient.NewClient(srv.URL)
+	id, err := resolveInstanceRef(context.Background(), c, "drive-alpha")
+	if err != nil {
+		t.Fatalf("resolveInstanceRef(): %v", err)
+	}
+	if id != "inst_123" {
+		t.Fatalf("id = %q, want inst_123", id)
+	}
+}
+
+func TestResolveInstanceRefRejectsAmbiguousNames(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"instances": []map[string]any{
+				{"id": "inst_123", "name": "shared-name"},
+				{"id": "inst_456", "name": "shared-name"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	c := apiclient.NewClient(srv.URL)
+	_, err := resolveInstanceRef(context.Background(), c, "shared-name")
+	if err == nil {
+		t.Fatal("expected ambiguity error")
 	}
 }

@@ -371,7 +371,11 @@ func instanceCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			inst, err := c.ShowInstance(cmd.Context(), args[0])
+			instanceID, err := resolveInstanceRef(cmd.Context(), c, args[0])
+			if err != nil {
+				return err
+			}
+			inst, err := c.ShowInstance(cmd.Context(), instanceID)
 			if err != nil {
 				return err
 			}
@@ -387,7 +391,11 @@ func instanceCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			result, err := c.ValidateInstance(cmd.Context(), args[0])
+			instanceID, err := resolveInstanceRef(cmd.Context(), c, args[0])
+			if err != nil {
+				return err
+			}
+			result, err := c.ValidateInstance(cmd.Context(), instanceID)
 			if err != nil {
 				return err
 			}
@@ -404,6 +412,10 @@ func instanceCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			instanceID, err := resolveInstanceRef(cmd.Context(), c, args[0])
+			if err != nil {
+				return err
+			}
 			if strings.TrimSpace(updateJSON) == "" {
 				return fmt.Errorf("--json is required")
 			}
@@ -411,7 +423,7 @@ func instanceCmd() *cobra.Command {
 			if err := json.Unmarshal([]byte(updateJSON), &body); err != nil {
 				return fmt.Errorf("--json must be valid JSON object: %w", err)
 			}
-			result, err := c.UpdateInstance(cmd.Context(), args[0], body)
+			result, err := c.UpdateInstance(cmd.Context(), instanceID, body)
 			if err != nil {
 				return err
 			}
@@ -429,7 +441,11 @@ func instanceCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			result, err := c.ApplyInstance(cmd.Context(), args[0])
+			instanceID, err := resolveInstanceRef(cmd.Context(), c, args[0])
+			if err != nil {
+				return err
+			}
+			result, err := c.ApplyInstance(cmd.Context(), instanceID)
 			if err != nil {
 				return err
 			}
@@ -449,7 +465,11 @@ func instanceCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			result, err := c.ShowRuntimeManifest(cmd.Context(), args[0])
+			instanceID, err := resolveInstanceRef(cmd.Context(), c, args[0])
+			if err != nil {
+				return err
+			}
+			result, err := c.ShowRuntimeManifest(cmd.Context(), instanceID)
 			if err != nil {
 				return err
 			}
@@ -465,7 +485,11 @@ func instanceCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			result, err := c.CompileRuntimeManifest(cmd.Context(), args[0])
+			instanceID, err := resolveInstanceRef(cmd.Context(), c, args[0])
+			if err != nil {
+				return err
+			}
+			result, err := c.CompileRuntimeManifest(cmd.Context(), instanceID)
 			if err != nil {
 				return err
 			}
@@ -481,7 +505,11 @@ func instanceCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			result, err := c.ReconcileRuntimeManifest(cmd.Context(), args[0])
+			instanceID, err := resolveInstanceRef(cmd.Context(), c, args[0])
+			if err != nil {
+				return err
+			}
+			result, err := c.ReconcileRuntimeManifest(cmd.Context(), instanceID)
 			if err != nil {
 				return err
 			}
@@ -497,7 +525,11 @@ func instanceCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			result, err := c.StartRuntimeNode(cmd.Context(), args[0], args[1])
+			instanceID, err := resolveInstanceRef(cmd.Context(), c, args[0])
+			if err != nil {
+				return err
+			}
+			result, err := c.StartRuntimeNode(cmd.Context(), instanceID, args[1])
 			if err != nil {
 				return err
 			}
@@ -513,7 +545,11 @@ func instanceCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			result, err := c.StopRuntimeNode(cmd.Context(), args[0], args[1])
+			instanceID, err := resolveInstanceRef(cmd.Context(), c, args[0])
+			if err != nil {
+				return err
+			}
+			result, err := c.StopRuntimeNode(cmd.Context(), instanceID, args[1])
 			if err != nil {
 				return err
 			}
@@ -531,13 +567,17 @@ func instanceCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			instanceID, err := resolveInstanceRef(cmd.Context(), c, args[0])
+			if err != nil {
+				return err
+			}
 			input := map[string]any{}
 			if strings.TrimSpace(inputJSON) != "" {
 				if err := json.Unmarshal([]byte(inputJSON), &input); err != nil {
 					return fmt.Errorf("--input must be valid JSON object: %w", err)
 				}
 			}
-			result, err := c.InvokeRuntimeNode(cmd.Context(), args[0], args[1], map[string]any{
+			result, err := c.InvokeRuntimeNode(cmd.Context(), instanceID, args[1], map[string]any{
 				"subject":          subject,
 				"node_id":          args[1],
 				"action":           action,
@@ -557,6 +597,36 @@ func instanceCmd() *cobra.Command {
 	runtimeCmd.AddCommand(invokeCmd)
 	cmd.AddCommand(runtimeCmd)
 	return cmd
+}
+
+func resolveInstanceRef(ctx context.Context, c *apiclient.Client, ref string) (string, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", fmt.Errorf("instance reference is required")
+	}
+	items, err := c.ListInstances(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, item := range items {
+		if item.ID == ref {
+			return item.ID, nil
+		}
+	}
+	matches := []string{}
+	for _, item := range items {
+		if item.Name == ref {
+			matches = append(matches, item.ID)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return ref, nil
+	case 1:
+		return matches[0], nil
+	default:
+		return "", fmt.Errorf("multiple instances named %q; use an instance ID", ref)
+	}
 }
 
 func authzCmd() *cobra.Command {
