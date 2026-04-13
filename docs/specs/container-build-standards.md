@@ -37,9 +37,12 @@ Every Agency Dockerfile must include:
 ```dockerfile
 ARG BUILD_ID=unknown
 LABEL agency.build.id=${BUILD_ID}
+LABEL org.opencontainers.image.source=https://github.com/geoffbelknap/agency
 ```
 
 This enables build versioning and staleness detection. The gateway compares the running container's `agency.build.id` label against the current binary's commit hash to detect stale images.
+
+The `org.opencontainers.image.source` label is required for GHCR package linkage and public package visibility. If an image is published without it, GitHub can treat the package as an unlinked/private container even when the repo itself is public.
 
 ### Python service template
 
@@ -202,6 +205,7 @@ When adding a new image:
 2. Add a matrix entry in `release-images.yml`.
 3. If it uses `agency-python-base`, ensure it's in the `build-and-push` job (which has `needs: build-python-base`).
 4. If it's a new category (e.g., Rust), create a new job.
+5. Ensure the release workflow publishes `org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}` so GHCR packages stay linked to the repo and anonymously pullable.
 
 ## Adding a New Container Image
 
