@@ -180,6 +180,24 @@ func TestMissionList(t *testing.T) {
 	}
 }
 
+func TestMissionList_ExistingEmptyDirectoryReturnsEmptySlice(t *testing.T) {
+	mm := NewMissionManager(t.TempDir())
+	if err := os.MkdirAll(mm.missionsDir(), 0o755); err != nil {
+		t.Fatalf("mkdir missions dir: %v", err)
+	}
+
+	missions, err := mm.List()
+	if err != nil {
+		t.Fatalf("List on existing empty dir: %v", err)
+	}
+	if missions == nil {
+		t.Fatal("expected empty slice, got nil")
+	}
+	if len(missions) != 0 {
+		t.Errorf("expected 0, got %d", len(missions))
+	}
+}
+
 func TestMissionUpdate(t *testing.T) {
 	mm := NewMissionManager(t.TempDir())
 

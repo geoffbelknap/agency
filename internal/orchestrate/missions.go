@@ -175,6 +175,9 @@ func (mm *MissionManager) List() ([]*models.Mission, error) {
 		}
 		missions = append(missions, m)
 	}
+	if missions == nil {
+		return []*models.Mission{}, nil
+	}
 	return missions, nil
 }
 
