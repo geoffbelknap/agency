@@ -102,7 +102,10 @@ def _run_ontology_migration(store: KnowledgeStore, data_dir: Path) -> None:
 
 
 def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) -> web.Application:
-    from logging_config import correlation_middleware
+    try:
+        from logging_config import correlation_middleware
+    except ImportError:
+        from images.logging_config import correlation_middleware
     app = web.Application(middlewares=[correlation_middleware()])
     store = KnowledgeStore(data_dir or Path("/data"))
     app["store"] = store
