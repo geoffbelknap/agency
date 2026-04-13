@@ -86,10 +86,11 @@ class TestConnectorRoute:
         route = ConnectorRoute(
             match={"severity": ["critical", "high"]},
             target={"team": "soc-team"},
-
+            handling_mode="sync_response",
             priority="high",
             sla="15m",
         )
+        assert route.handling_mode == "sync_response"
         assert route.priority == "high"
         assert route.sla == "15m"
 

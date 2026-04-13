@@ -12,46 +12,46 @@ var intervalPattern = regexp.MustCompile(`^\d+[smhd]$`)
 // ConnectorFollowUp defines a follow-up request after an initial poll.
 type ConnectorFollowUp struct {
 	URL         string  `yaml:"url" validate:"required"`
-	When        *string `yaml:"when"`
-	ResponseKey *string `yaml:"response_key"`
-	DedupKey    *string `yaml:"dedup_key"`
-	SkipFirst   bool    `yaml:"skip_first"`
+	When        *string `yaml:"when,omitempty"`
+	ResponseKey *string `yaml:"response_key,omitempty"`
+	DedupKey    *string `yaml:"dedup_key,omitempty"`
+	SkipFirst   bool    `yaml:"skip_first,omitempty"`
 }
 
 // ConnectorWebhookAuth defines HMAC-based webhook authentication.
 type ConnectorWebhookAuth struct {
-	Type            string  `yaml:"type" default:"hmac_sha256"`
-	SecretEnv       string  `yaml:"secret_env"`
-	SecretCredref   string  `yaml:"secret_credref"`
-	Header          string  `yaml:"header" default:"X-Slack-Signature"`
-	TimestampHeader *string `yaml:"timestamp_header"`
-	Prefix          string  `yaml:"prefix" default:"v0="`
-	ChallengeField  *string `yaml:"challenge_field"`
-	MaxSkewSeconds  int     `yaml:"max_skew_seconds" default:"300"`
+	Type            string  `yaml:"type,omitempty" default:"hmac_sha256"`
+	SecretEnv       string  `yaml:"secret_env,omitempty"`
+	SecretCredref   string  `yaml:"secret_credref,omitempty"`
+	Header          string  `yaml:"header,omitempty" default:"X-Slack-Signature"`
+	TimestampHeader *string `yaml:"timestamp_header,omitempty"`
+	Prefix          string  `yaml:"prefix,omitempty" default:"v0="`
+	ChallengeField  *string `yaml:"challenge_field,omitempty"`
+	MaxSkewSeconds  int     `yaml:"max_skew_seconds,omitempty" default:"300"`
 }
 
 // ConnectorSource defines the inbound event source for a connector.
 type ConnectorSource struct {
 	Type                string                 `yaml:"type" validate:"required,oneof=webhook poll schedule channel-watch none"`
-	PayloadSchema       map[string]interface{} `yaml:"schema"`
-	WebhookAuth         *ConnectorWebhookAuth  `yaml:"webhook_auth"`
-	Path                *string                `yaml:"path"`
-	BodyFormat          *string                `yaml:"body_format"`
-	PayloadField        *string                `yaml:"payload_field"`
-	ResponseStatus      *int                   `yaml:"response_status"`
-	ResponseBody        *string                `yaml:"response_body"`
-	ResponseContentType *string                `yaml:"response_content_type"`
-	AckStrategy         *string                `yaml:"ack_strategy"`
-	URL                 *string                `yaml:"url"`
-	Method              string                 `yaml:"method" default:"GET"`
-	Headers             map[string]string      `yaml:"headers"`
-	Interval            *string                `yaml:"interval"`
-	ResponseKey         *string                `yaml:"response_key"`
-	DedupKey            *string                `yaml:"dedup_key"`
-	FollowUp            *ConnectorFollowUp     `yaml:"follow_up"`
-	Cron                *string                `yaml:"cron"`
-	Channel             *string                `yaml:"channel"`
-	Pattern             *string                `yaml:"pattern"`
+	PayloadSchema       map[string]interface{} `yaml:"schema,omitempty"`
+	WebhookAuth         *ConnectorWebhookAuth  `yaml:"webhook_auth,omitempty"`
+	Path                *string                `yaml:"path,omitempty"`
+	BodyFormat          *string                `yaml:"body_format,omitempty"`
+	PayloadField        *string                `yaml:"payload_field,omitempty"`
+	ResponseStatus      *int                   `yaml:"response_status,omitempty"`
+	ResponseBody        *string                `yaml:"response_body,omitempty"`
+	ResponseContentType *string                `yaml:"response_content_type,omitempty"`
+	AckStrategy         *string                `yaml:"ack_strategy,omitempty"`
+	URL                 *string                `yaml:"url,omitempty"`
+	Method              string                 `yaml:"method,omitempty" default:"GET"`
+	Headers             map[string]string      `yaml:"headers,omitempty"`
+	Interval            *string                `yaml:"interval,omitempty"`
+	ResponseKey         *string                `yaml:"response_key,omitempty"`
+	DedupKey            *string                `yaml:"dedup_key,omitempty"`
+	FollowUp            *ConnectorFollowUp     `yaml:"follow_up,omitempty"`
+	Cron                *string                `yaml:"cron,omitempty"`
+	Channel             *string                `yaml:"channel,omitempty"`
+	Pattern             *string                `yaml:"pattern,omitempty"`
 }
 
 // Validate implements cross-field validation for ConnectorSource.
@@ -144,20 +144,21 @@ func (cs *ConnectorSource) Validate() error {
 // ConnectorRelayTarget defines an HTTP relay destination.
 type ConnectorRelayTarget struct {
 	URL         string            `yaml:"url" validate:"required"`
-	Method      string            `yaml:"method" default:"POST"`
-	Headers     map[string]string `yaml:"headers"`
+	Method      string            `yaml:"method,omitempty" default:"POST"`
+	Headers     map[string]string `yaml:"headers,omitempty"`
 	Body        string            `yaml:"body" validate:"required"`
-	ContentType string            `yaml:"content_type" default:"application/json"`
+	ContentType string            `yaml:"content_type,omitempty" default:"application/json"`
 }
 
 // ConnectorRoute defines a routing rule for matched events.
 type ConnectorRoute struct {
-	Match    map[string]interface{} `yaml:"match" validate:"required"`
-	Target   map[string]string      `yaml:"target"`
-	Relay    *ConnectorRelayTarget  `yaml:"relay"`
-	Priority string                 `yaml:"priority" validate:"omitempty,oneof=high normal low" default:"normal"`
-	SLA      *string                `yaml:"sla"`
-	Brief    *string                `yaml:"brief"`
+	Match        map[string]interface{} `yaml:"match" validate:"required"`
+	Target       map[string]string      `yaml:"target,omitempty"`
+	Relay        *ConnectorRelayTarget  `yaml:"relay,omitempty"`
+	HandlingMode string                 `yaml:"handling_mode,omitempty" validate:"omitempty,oneof=async_ack sync_response"`
+	Priority     string                 `yaml:"priority,omitempty" validate:"omitempty,oneof=high normal low" default:"normal"`
+	SLA          *string                `yaml:"sla,omitempty"`
+	Brief        *string                `yaml:"brief,omitempty"`
 }
 
 // Validate implements target/relay mutual exclusion for ConnectorRoute.

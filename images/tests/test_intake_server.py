@@ -225,6 +225,58 @@ class TestWebhookEndpoint:
             assert await resp.text() == ""
             mock_deliver.assert_called_once()
 
+    async def test_slack_shortcut_sync_response(self, aiohttp_client, intake_app, connectors_dir):
+        (connectors_dir / "slack-sync.yaml").write_text(yaml.dump({
+            "kind": "connector",
+            "name": "slack-interactivity",
+            "source": {
+                "type": "webhook",
+                "body_format": "form_urlencoded_payload",
+                "ack_strategy": "immediate_empty_200",
+            },
+            "routes": [{
+                "match": {"payload_type": "shortcut"},
+                "target": {"agent": "handler"},
+                "handling_mode": "sync_response",
+            }],
+            "runtime": {
+                "executor": {
+                    "kind": "slack_interactivity",
+                    "base_url": "https://slack.com",
+                    "auth": {"type": "bearer", "binding": "slack_bot_token"},
+                    "actions": {
+                        "slack_view_open": {
+                            "method": "POST",
+                            "path": "/api/views.open",
+                            "body": {"trigger_id": "trigger_id", "view": "view"},
+                        }
+                    },
+                }
+            },
+        }))
+        intake_app["connectors"] = _load_connectors(connectors_dir)
+
+        client = await aiohttp_client(intake_app)
+        with patch("images.intake.server._deliver_task", new_callable=AsyncMock) as mock_deliver, \
+                patch("images.intake.server._maybe_sync_response", new_callable=AsyncMock) as mock_sync:
+            mock_deliver.return_value = True
+            mock_sync.return_value = None
+            resp = await client.post(
+                "/webhooks/slack-interactivity",
+                data="payload=" + json.dumps(
+                    {
+                        "type": "shortcut",
+                        "callback_id": "agency_open",
+                        "trigger_id": "1337.abc",
+                        "user": {"id": "U123"},
+                    }
+                ),
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            assert resp.status == 200
+            mock_deliver.assert_called_once()
+            mock_sync.assert_awaited_once()
+
     async def test_slack_events_delivery_builds_normalized_bridge_metadata(self, aiohttp_client, connectors_dir, data_dir):
         slack_data = load_agency_hub_connector("connectors/slack-events/connector.yaml").model_dump(mode="json", exclude_none=True)
         slack_data["source"].pop("webhook_auth", None)

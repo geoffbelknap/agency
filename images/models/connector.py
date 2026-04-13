@@ -156,6 +156,7 @@ class ConnectorRoute(BaseModel):
     target: Optional[dict[str, str]] = None
     # Relay routing: POST directly to an HTTP endpoint, no agent spawned
     relay: Optional[ConnectorRelayTarget] = None
+    handling_mode: Optional[Literal["async_ack", "sync_response"]] = None
     priority: Literal["high", "normal", "low"] = "normal"
     sla: Optional[str] = None
     brief: Optional[str] = None  # Jinja2 template for task brief delivered to agent
