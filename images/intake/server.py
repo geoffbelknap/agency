@@ -1351,7 +1351,10 @@ def create_app(
     gateway_url: str = "http://gateway:8200",
     gateway_token: str = "",
 ) -> web.Application:
-    from logging_config import correlation_middleware
+    try:
+        from logging_config import correlation_middleware
+    except ImportError:
+        from images.logging_config import correlation_middleware
     app = web.Application(middlewares=[correlation_middleware()])
     app["connectors_dir"] = connectors_dir or Path("/app/connectors")
     app["connectors"] = _load_connectors(app["connectors_dir"])
