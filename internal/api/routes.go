@@ -61,12 +61,13 @@ type RouteOptions struct {
 func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, logger *slog.Logger, startup *StartupResult, opts RouteOptions) {
 	// Defense-in-depth: validate X-Agency-Caller on protected endpoints
 	callerAllowlist := map[string][]string{
-		"POST /api/v1/agents/{name}/signal": {"enforcer"},
-		"POST /api/v1/infra/internal/llm":   {"enforcer", "knowledge"},
-		"POST /api/v1/comms/channels/*":     {"comms", "intake"},
-		"GET /api/v1/comms/channels/*":      {"comms", "intake", "enforcer"},
-		"POST /api/v1/graph/ingest":         {"intake"},
-		"POST /api/v1/events/publish":       {"intake", "knowledge"},
+		"POST /api/v1/agents/{name}/signal":         {"enforcer"},
+		"POST /api/v1/infra/internal/llm":           {"enforcer", "knowledge"},
+		"POST /api/v1/comms/channels/*":             {"comms", "intake"},
+		"GET /api/v1/comms/channels/*":              {"comms", "intake", "enforcer"},
+		"POST /api/v1/graph/ingest":                 {"intake"},
+		"POST /api/v1/events/publish":               {"intake", "knowledge"},
+		"POST /api/internal/relay/webhooks/deliver": {"relay"},
 	}
 	r.Use(CallerValidation(callerAllowlist))
 
@@ -123,6 +124,12 @@ func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, l
 	// Event routes on the socket — used by intake for event publishing.
 	if opts.EventBus != nil {
 		apievents.RegisterRoutes(r, apievents.Deps{
+			EventBus:   opts.EventBus,
+			WebhookMgr: opts.WebhookMgr,
+			Scheduler:  opts.Scheduler,
+			NotifStore: opts.NotifStore,
+		})
+		apievents.RegisterInternalRoutes(r, apievents.Deps{
 			EventBus:   opts.EventBus,
 			WebhookMgr: opts.WebhookMgr,
 			Scheduler:  opts.Scheduler,

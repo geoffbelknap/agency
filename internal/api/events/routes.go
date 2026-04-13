@@ -66,6 +66,13 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Post("/api/v1/events/notifications/{name}/test", h.testNotification)
 }
 
+// RegisterInternalRoutes mounts socket-only local ingress routes that are not
+// part of the public operator API surface.
+func RegisterInternalRoutes(r chi.Router, d Deps) {
+	h := &handler{deps: d}
+	r.Post("/api/internal/relay/webhooks/deliver", h.relayWebhookDeliver)
+}
+
 // webhookRateLimiter provides simple per-name rate limiting.
 type webhookRateLimiter struct {
 	mu      sync.Mutex
