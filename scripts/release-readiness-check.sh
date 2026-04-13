@@ -77,6 +77,95 @@ check_release_exists() {
     fail "GitHub release ${tag} does not exist"
 }
 
+check_release_assets() {
+  local tag="$1"
+  local version="${tag#v}"
+  local release_json
+  local release_file
+  release_json="$(gh release view "$tag" --json assets)"
+  release_file="$(mktemp)"
+  printf '%s' "$release_json" >"$release_file"
+
+  python3 - "$version" "$release_file" <<'PY'
+import json
+import sys
+
+version = sys.argv[1]
+release_file = sys.argv[2]
+with open(release_file, "r", encoding="utf-8") as fh:
+    data = json.load(fh)
+assets = {asset["name"]: asset for asset in data.get("assets", [])}
+expected = [
+    f"agency_{version}_darwin_amd64.tar.gz",
+    f"agency_{version}_darwin_arm64.tar.gz",
+    f"agency_{version}_linux_amd64.tar.gz",
+    f"agency_{version}_linux_arm64.tar.gz",
+    "checksums.txt",
+]
+missing = [name for name in expected if name not in assets]
+if missing:
+    print(f"missing release assets: {missing}", file=sys.stderr)
+    sys.exit(1)
+for name in expected:
+    digest = assets[name].get("digest", "")
+    if not digest.startswith("sha256:"):
+        print(f"asset {name} missing sha256 digest", file=sys.stderr)
+        sys.exit(1)
+PY
+  rm -f "$release_file"
+}
+
+check_formula_sha_matches_release() {
+  local tag="$1"
+  local version="${tag#v}"
+  local formula_content
+  local release_json
+  local release_file
+  local formula_file
+
+  formula_content="$(curl -fsSL "$(formula_download_url)")"
+  release_json="$(gh release view "$tag" --json assets)"
+  release_file="$(mktemp)"
+  formula_file="$(mktemp)"
+  printf '%s' "$release_json" >"$release_file"
+  printf '%s' "$formula_content" >"$formula_file"
+
+  python3 - "$version" "$release_file" "$formula_file" <<'PY'
+import json
+import sys
+
+version = sys.argv[1]
+release_file = sys.argv[2]
+formula_file = sys.argv[3]
+with open(release_file, "r", encoding="utf-8") as fh:
+    assets = {asset["name"]: asset for asset in json.load(fh).get("assets", [])}
+with open(formula_file, "r", encoding="utf-8") as fh:
+    formula = fh.read()
+
+expected_pairs = {
+    f"agency_{version}_darwin_amd64.tar.gz": None,
+    f"agency_{version}_darwin_arm64.tar.gz": None,
+    f"agency_{version}_linux_amd64.tar.gz": None,
+    f"agency_{version}_linux_arm64.tar.gz": None,
+}
+for name in expected_pairs:
+    digest = assets.get(name, {}).get("digest", "")
+    if not digest.startswith("sha256:"):
+        print(f"missing release digest for {name}", file=sys.stderr)
+        sys.exit(1)
+    expected_pairs[name] = digest.split("sha256:", 1)[1]
+
+for name, sha in expected_pairs.items():
+    if name not in formula:
+        print(f"formula missing URL for {name}", file=sys.stderr)
+        sys.exit(1)
+    if sha not in formula:
+        print(f"formula missing checksum {sha} for {name}", file=sys.stderr)
+        sys.exit(1)
+PY
+  rm -f "$release_file" "$formula_file"
+}
+
 check_required_files() {
   local files=(
     ".github/workflows/release.yaml"
@@ -179,7 +268,9 @@ run_published() {
 
   log "Checking published release ${TARGET_TAG}"
   check_release_exists "$TARGET_TAG"
+  check_release_assets "$TARGET_TAG"
   check_formula_for_tag "$TARGET_TAG"
+  check_formula_sha_matches_release "$TARGET_TAG"
 
   local image
   local failures=0
