@@ -19,7 +19,7 @@ export const router = createBrowserRouter([
     Component: Layout,
     ErrorBoundary: RouteErrorBoundary,
     children: [
-      { index: true, element: <Navigate to="/channels" replace /> },
+      { index: true, element: <Navigate to="/overview" replace /> },
       { path: 'overview', Component: Overview, ErrorBoundary: RouteErrorBoundary },
       { path: 'channels', Component: Channels, ErrorBoundary: RouteErrorBoundary },
       { path: 'channels/:name', Component: Channels, ErrorBoundary: RouteErrorBoundary },

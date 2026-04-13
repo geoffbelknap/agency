@@ -306,6 +306,36 @@ describe('Agents', () => {
     });
   });
 
+  it('opens the new agent DM after a successful create-and-start flow', async () => {
+    server.use(
+      http.get(`${BASE}/agents`, () => HttpResponse.json([])),
+      http.get(`${BASE}/capabilities`, () => HttpResponse.json([])),
+      http.get(`${BASE}/infra/status`, () => HttpResponse.json({ components: [], build_id: 'test' })),
+      http.get(`${BASE}/hub/presets`, () =>
+        HttpResponse.json([
+          { name: 'generalist', description: 'General purpose', type: 'agent', source: 'default' },
+          { name: 'researcher', description: 'Research focused', type: 'agent', source: 'default' },
+        ]),
+      ),
+      http.post(`${BASE}/agents`, async ({ request }) => {
+        const body = await request.json() as any;
+        return HttpResponse.json({ status: 'created', name: body.name }, { status: 201 });
+      }),
+      http.post(`${BASE}/agents/research-pal/start`, () => HttpResponse.json({ status: 'running' })),
+      http.post(`${BASE}/agents/research-pal/dm`, () => HttpResponse.json({ status: 'ready', channel: 'dm-research-pal' })),
+    );
+
+    renderAgents();
+
+    await userEvent.click(await screen.findByRole('button', { name: /create/i }));
+    await userEvent.type(await screen.findByLabelText(/name/i), 'research-pal');
+    await userEvent.click(screen.getByRole('button', { name: /^create$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('channel view')).toBeInTheDocument();
+    });
+  });
+
   it('shows Resume for halted agent', async () => {
     server.use(
       http.get(`${BASE}/agents`, () =>

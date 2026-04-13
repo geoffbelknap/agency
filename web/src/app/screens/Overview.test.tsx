@@ -15,6 +15,20 @@ function wrapInfra(components: any[]) {
 }
 
 describe('Overview', () => {
+  beforeEach(() => {
+    server.use(
+      http.get(`${BASE}/infra/providers`, () =>
+        HttpResponse.json([
+          { name: 'anthropic', display_name: 'Anthropic', description: '', category: 'cloud', installed: true, credential_configured: true },
+          { name: 'openai', display_name: 'OpenAI', description: '', category: 'cloud', installed: true, credential_configured: true },
+        ]),
+      ),
+      http.get(`${BASE}/infra/routing/config`, () =>
+        HttpResponse.json({ configured: true, version: 'test' }),
+      ),
+    );
+  });
+
   it('renders agent summary table', async () => {
     server.use(
       http.get(`${BASE}/agents`, () =>
@@ -135,9 +149,30 @@ describe('Overview', () => {
     renderWithRouter(<Overview />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByText(/create your first agent/i)).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'Create an agent' })).toHaveAttribute('href', '/agents');
-      expect(screen.getByRole('link', { name: 'Open setup wizard' })).toHaveAttribute('href', '/setup');
+      expect(screen.getByText(/create a research agent, then open its dm/i)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Create research agent' })).toHaveAttribute('href', '/agents');
+      expect(screen.getByRole('link', { name: 'Review providers' })).toHaveAttribute('href', '/setup');
+    });
+  });
+
+  it('shows provider coverage for tester orientation', async () => {
+    server.use(
+      http.get(`${BASE}/agents`, () => HttpResponse.json([])),
+      http.get(`${BASE}/infra/status`, () =>
+        HttpResponse.json(wrapInfra([
+          { name: 'gateway', state: 'running', health: 'healthy' },
+        ])),
+      ),
+    );
+
+    renderWithRouter(<Overview />, { route: '/' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Provider Coverage')).toBeInTheDocument();
+      expect(screen.getByText('Anthropic')).toBeInTheDocument();
+      expect(screen.getByText('OpenAI')).toBeInTheDocument();
+      expect(screen.getByText('Routing ready')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Open provider setup' })).toHaveAttribute('href', '/setup');
     });
   });
 
@@ -159,8 +194,8 @@ describe('Overview', () => {
     renderWithRouter(<Overview />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByText(/move into direct messages, missions, or intake/i)).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'Open channels' })).toHaveAttribute('href', '/channels');
+      expect(screen.getByText(/open a dm, missions, or intake/i)).toBeInTheDocument();
+      expect(screen.getAllByRole('link', { name: 'Open channels' }).length).toBeGreaterThan(0);
       expect(screen.getByRole('link', { name: 'Open missions' })).toHaveAttribute('href', '/missions');
       expect(screen.getByRole('link', { name: 'Open intake' })).toHaveAttribute('href', '/admin/intake');
     });

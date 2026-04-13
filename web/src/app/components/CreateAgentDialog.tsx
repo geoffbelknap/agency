@@ -30,7 +30,7 @@ interface Preset {
 interface CreateAgentDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreated: () => void;
+  onCreated: (result: { name: string; started: boolean; dmChannel?: string }) => void;
 }
 
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
@@ -89,9 +89,16 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
     try {
       await api.agents.create(name, preset, mode);
       let startFailed = false;
+      let dmChannel: string | undefined;
       if (autoStart) {
         try {
           await api.agents.start(name);
+          try {
+            const dm = await api.agents.ensureDM(name);
+            dmChannel = dm.channel;
+          } catch {
+            // DM establishment is best-effort here; the agent is still usable from the fleet view.
+          }
         } catch {
           startFailed = true;
         }
@@ -104,7 +111,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
           toast.info(`Agent "${name}" was created, but did not start. Start it from the agent detail view.`);
         }
       }
-      onCreated();
+      onCreated({ name, started: autoStart && !startFailed, dmChannel });
       onOpenChange(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to create agent');

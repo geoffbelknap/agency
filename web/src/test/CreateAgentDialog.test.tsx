@@ -12,7 +12,7 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.f
 
 const BASE = 'http://localhost:8200/api/v1';
 
-function renderDialog(props: Partial<{ open: boolean; onOpenChange: (v: boolean) => void; onCreated: () => void }> = {}) {
+function renderDialog(props: Partial<{ open: boolean; onOpenChange: (v: boolean) => void; onCreated: (result: { name: string; started: boolean; dmChannel?: string }) => void }> = {}) {
   const defaultProps = {
     open: true,
     onOpenChange: vi.fn(),

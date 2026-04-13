@@ -204,7 +204,16 @@ export function Agents() {
       <CreateAgentDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
-        onCreated={load}
+        onCreated={({ name, started, dmChannel }) => {
+          void load();
+          if (dmChannel) {
+            navigate(`/channels/${encodeURIComponent(dmChannel)}`);
+            return;
+          }
+          if (started) {
+            navigate(`/agents/${encodeURIComponent(name)}`);
+          }
+        }}
       />
     </div>
   );
