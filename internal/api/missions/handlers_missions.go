@@ -569,15 +569,32 @@ func (h *handler) releaseMissionClaim(w http.ResponseWriter, r *http.Request) {
 func CheckCoordinatorFailover(ctx context.Context, agentName string, d Deps) {
 	missions, err := d.MissionManager.List()
 	if err != nil {
+		if d.Logger != nil {
+			d.Logger.Warn("coordinator failover: list missions failed", "agent", agentName, "err", err)
+		}
 		return
 	}
+	foundCandidate := false
 	for _, m := range missions {
 		if m.Status != "active" || m.AssignedType != "team" {
 			continue
 		}
+		foundCandidate = true
 		teamCfg, err := d.MissionManager.LoadTeamConfig(m.AssignedTo)
-		if err != nil || teamCfg.Coordinator != agentName {
+		if err != nil {
+			if d.Logger != nil {
+				d.Logger.Warn("coordinator failover: load team config failed", "agent", agentName, "mission", m.Name, "team", m.AssignedTo, "err", err)
+			}
 			continue
+		}
+		if d.Logger != nil {
+			d.Logger.Info("coordinator failover inspecting mission", "halted_agent", agentName, "mission", m.Name, "team", m.AssignedTo, "coordinator", teamCfg.Coordinator, "coverage", teamCfg.Coverage)
+		}
+		if teamCfg.Coordinator != agentName {
+			continue
+		}
+		if d.Logger != nil {
+			d.Logger.Info("coordinator failover candidate", "agent", agentName, "mission", m.Name, "team", m.AssignedTo, "coverage", teamCfg.Coverage)
 		}
 
 		// Coordinator is down — failover.
@@ -594,13 +611,21 @@ func CheckCoordinatorFailover(ctx context.Context, agentName string, d Deps) {
 				"team":         m.AssignedTo,
 				"coverage":     "none",
 			})
+			if d.Logger != nil {
+				d.Logger.Warn("coordinator failover: no coverage designated", "agent", agentName, "mission", m.Name, "team", m.AssignedTo)
+			}
 			continue
 		}
 
 		// Copy mission to coverage agent.
 		if err := d.MissionManager.AssignCoverageAgent(m, coverage); err != nil {
-			d.Logger.Error("coverage failover failed", "mission", m.Name, "coverage", coverage, "err", err)
+			if d.Logger != nil {
+				d.Logger.Error("coverage failover failed", "mission", m.Name, "coverage", coverage, "err", err)
+			}
 			continue
+		}
+		if d.Logger != nil {
+			d.Logger.Info("coordinator failover assigned coverage", "mission", m.Name, "from", agentName, "to", coverage)
 		}
 
 		// Update event bus subscriptions: route triggers to coverage agent.
@@ -633,5 +658,8 @@ func CheckCoordinatorFailover(ctx context.Context, agentName string, d Deps) {
 			"author":  "_system",
 			"content": msg,
 		})
+	}
+	if !foundCandidate && d.Logger != nil {
+		d.Logger.Info("coordinator failover found no active team missions", "halted_agent", agentName)
 	}
 }

@@ -52,7 +52,26 @@ func (hc *MissionHealthChecker) CheckHealth(m *models.Mission) MissionHealthResp
 
 	// Check agent running state
 	if m.AssignedTo != "" {
-		resp.Checks = append(resp.Checks, hc.checkAgentRunning(m.AssignedTo))
+		targets, err := missionHealthTargets(hc.Home, m)
+		if err != nil {
+			resp.Checks = append(resp.Checks, HealthCheck{
+				Name:   "agent_running",
+				Status: "fail",
+				Detail: fmt.Sprintf("could not resolve mission targets: %v", err),
+				Fix:    "check the team configuration",
+			})
+		} else if len(targets) == 0 {
+			resp.Checks = append(resp.Checks, HealthCheck{
+				Name:   "agent_running",
+				Status: "fail",
+				Detail: "Mission has no resolved execution targets",
+				Fix:    fmt.Sprintf("agency mission assign %s <agent>", m.Name),
+			})
+		} else {
+			for _, target := range targets {
+				resp.Checks = append(resp.Checks, hc.checkAgentRunning(target))
+			}
+		}
 	} else {
 		resp.Checks = append(resp.Checks, HealthCheck{
 			Name: "agent_assigned", Status: "fail",

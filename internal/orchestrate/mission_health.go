@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"strings"
 
 	"log/slog"
 	"github.com/docker/docker/api/types/container"
@@ -119,39 +120,43 @@ func (m *MissionHealthMonitor) runChecks(ctx context.Context) {
 
 // checkMission checks a single active mission.
 func (m *MissionHealthMonitor) checkMission(mission *models.Mission, running map[string]string) {
-	agentName := mission.AssignedTo
-	if agentName == "" {
+	targets, err := missionHealthTargets(m.mm.Home, mission)
+	if err != nil {
+		m.logger.Warn("mission health alert: failed to resolve targets",
+			"mission", mission.Name,
+			"assigned_to", mission.AssignedTo,
+			"assigned_type", mission.AssignedType,
+			"error", err,
+		)
+		m.triggerAlert(mission, "could not resolve mission health targets")
+		return
+	}
+	if len(targets) == 0 {
 		return
 	}
 
-	// Check 1: is the assigned agent running?
-	wsContainer := fmt.Sprintf("%s-%s-workspace", prefix, agentName)
-	state, ok := running[wsContainer]
-	if !ok || state != "running" {
-		reason := fmt.Sprintf("agent %q workspace container is not running (state=%q)", agentName, state)
-		m.logger.Warn("mission health alert: agent stopped",
-			"mission", mission.Name,
-			"agent", agentName,
-			"container", wsContainer,
-			"state", state,
-		)
-		m.triggerAlert(mission, reason)
-		return
+	var issues []string
+	healthyTarget := ""
+	for _, agentName := range targets {
+		wsContainer := fmt.Sprintf("%s-%s-workspace", prefix, agentName)
+		enfContainer := fmt.Sprintf("%s-%s-enforcer", prefix, agentName)
+		wsState := running[wsContainer]
+		enfState := running[enfContainer]
+		if wsState == "running" && enfState == "running" {
+			healthyTarget = agentName
+			break
+		}
+		issues = append(issues, fmt.Sprintf("%s(workspace=%q,enforcer=%q)", agentName, wsState, enfState))
 	}
-
-	// Check 2: is the enforcer running? (ASK Tenet 3: mediation must be complete)
-	enfContainer := fmt.Sprintf("%s-%s-enforcer", prefix, agentName)
-	enfState := running[enfContainer]
-	if enfState != "running" {
-		reason := fmt.Sprintf("agent %q enforcer is not running (state=%q) — unmediated API access", agentName, enfState)
-		m.logger.Warn("mission health alert: enforcer down",
-			"mission", mission.Name,
-			"agent", agentName,
-			"container", enfContainer,
-			"state", enfState,
-		)
-		m.triggerAlert(mission, reason)
-		return
+	if healthyTarget == "" {
+	reason := fmt.Sprintf("no healthy execution target running for mission %q: %s", mission.Name, strings.Join(issues, ", "))
+	m.logger.Warn("mission health alert: execution targets unavailable",
+		"mission", mission.Name,
+		"targets", targets,
+		"issues", strings.Join(issues, ", "),
+	)
+	m.triggerAlert(mission, reason)
+	return
 	}
 
 	// Check 3: are all required capabilities still granted?
@@ -164,7 +169,7 @@ func (m *MissionHealthMonitor) checkMission(mission *models.Mission, running map
 		reason := fmt.Sprintf("required capabilities no longer available: %v", missingCaps)
 		m.logger.Warn("mission health alert: capability revoked",
 			"mission", mission.Name,
-			"agent", agentName,
+			"agent", healthyTarget,
 			"missing", missingCaps,
 		)
 		m.triggerAlert(mission, reason)
