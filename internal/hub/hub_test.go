@@ -408,6 +408,112 @@ mcp:
 	}
 }
 
+func TestBuildInstalledPackageTreatsDefaultSourceAsOfficial(t *testing.T) {
+	home := t.TempDir()
+	componentDir := filepath.Join(home, "connectors")
+	if err := os.MkdirAll(componentDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	connectorPath := filepath.Join(componentDir, "slack-interactivity.yaml")
+	if err := os.WriteFile(connectorPath, []byte(`kind: connector
+name: slack-interactivity
+version: "1.1.0"
+source:
+  type: webhook
+  path: /webhooks/slack-interactivity
+routes:
+  - match:
+      payload_type: shortcut
+    target:
+      agent: slack-operator
+`), 0o644); err != nil {
+		t.Fatalf("write connector: %v", err)
+	}
+
+	pkg, err := buildInstalledPackage("slack-interactivity", "connector", "1.1.0", "default/slack-interactivity", connectorPath, nil)
+	if err != nil {
+		t.Fatalf("buildInstalledPackage(): %v", err)
+	}
+	if got, want := pkg.Trust, "verified"; got != want {
+		t.Fatalf("Trust = %q, want %q", got, want)
+	}
+	if !containsString(pkg.Assurance, "official_source") {
+		t.Fatalf("expected official_source assurance, got %#v", pkg.Assurance)
+	}
+	if !containsString(pkg.Assurance, "ask_partial") {
+		t.Fatalf("expected ask_partial assurance, got %#v", pkg.Assurance)
+	}
+}
+
+func TestUpgradeRefreshesInstalledPackageMetadataWhenVersionIsUnchanged(t *testing.T) {
+	home := t.TempDir()
+	mgr := NewManager(home)
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte("hub:\n  sources:\n    - name: default\n      registry: ghcr.io/geoffbelknap/agency-hub\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cacheDir := filepath.Join(home, "hub-cache", "default", "connectors", "slack-interactivity")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("mkdir cache: %v", err)
+	}
+	componentYAML := []byte(`kind: connector
+name: slack-interactivity
+version: "1.1.0"
+source:
+  type: webhook
+  path: /webhooks/slack-interactivity
+routes:
+  - match:
+      payload_type: shortcut
+    target:
+      agent: slack-operator
+`)
+	if err := os.WriteFile(filepath.Join(cacheDir, "connector.yaml"), componentYAML, 0o644); err != nil {
+		t.Fatalf("write cache component: %v", err)
+	}
+
+	inst, err := mgr.Registry.Create("slack-interactivity", "connector", "default/slack-interactivity")
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+	if err := mgr.Registry.SetVersion(inst.Name, "1.1.0"); err != nil {
+		t.Fatalf("set version: %v", err)
+	}
+	instDir := mgr.Registry.InstanceDir(inst.Name)
+	if err := os.WriteFile(filepath.Join(instDir, "connector.yaml"), componentYAML, 0o644); err != nil {
+		t.Fatalf("write installed component: %v", err)
+	}
+	if err := mgr.Registry.PutPackage(InstalledPackage{
+		Kind:      "connector",
+		Name:      "slack-interactivity",
+		Version:   "1.1.0",
+		Trust:     "local",
+		Path:      filepath.Join(instDir, "connector.yaml"),
+		Assurance: []string{"ask_partial"},
+	}); err != nil {
+		t.Fatalf("seed package: %v", err)
+	}
+
+	report, err := mgr.Upgrade([]string{"slack-interactivity"})
+	if err != nil {
+		t.Fatalf("Upgrade(): %v", err)
+	}
+	if len(report.Components) != 1 || report.Components[0].Status != "unchanged" {
+		t.Fatalf("unexpected upgrade report: %#v", report.Components)
+	}
+
+	pkg, ok := mgr.Registry.GetPackage("connector", "slack-interactivity")
+	if !ok {
+		t.Fatal("expected installed package entry")
+	}
+	if got, want := pkg.Trust, "verified"; got != want {
+		t.Fatalf("Trust = %q, want %q", got, want)
+	}
+	if !containsString(pkg.Assurance, "official_source") {
+		t.Fatalf("expected official_source assurance, got %#v", pkg.Assurance)
+	}
+}
+
 func containsString(items []string, target string) bool {
 	for _, item := range items {
 		if item == target {

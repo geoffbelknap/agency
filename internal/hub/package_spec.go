@@ -185,8 +185,22 @@ func deriveConnectorActionBody(tool models.ConnectorMCPTool) map[string]any {
 	return body
 }
 
+func canonicalSourceName(source string) string {
+	cleaned := filepath.Clean(strings.TrimSpace(source))
+	if cleaned == "." || cleaned == "" {
+		return ""
+	}
+	head, _, _ := strings.Cut(cleaned, "/")
+	switch head {
+	case "official", "default":
+		return "official"
+	default:
+		return head
+	}
+}
+
 func installedPackageTrust(source string) string {
-	switch filepath.Clean(source) {
+	switch canonicalSourceName(source) {
 	case "official":
 		return "verified"
 	default:
@@ -196,11 +210,11 @@ func installedPackageTrust(source string) string {
 
 func installedPackageAssurance(kind, source string) []string {
 	statements := []string{"publisher_verified"}
-	if filepath.Clean(source) == "official" {
+	if canonicalSourceName(source) == "official" {
 		statements = append(statements, "official_source")
 	}
 	switch {
-	case filepath.Clean(source) == "official" && kind == "connector":
+	case canonicalSourceName(source) == "official" && kind == "connector":
 		return append(statements, "ask_partial")
 	default:
 		return statements
