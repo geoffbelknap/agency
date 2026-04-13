@@ -848,10 +848,16 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser bo
 }
 
 func runServe(httpAddr string) error {
+	cfg := config.Load()
+	if buildID == "" || buildID == "unknown" {
+		if derived := deriveLocalBuildID(cfg.SourceDir, sourceDir); derived != "" {
+			buildID = derived
+		}
+	}
+
 	logger := agencylog.New("gateway", buildID)
 	slog.SetDefault(logger)
 
-	cfg := config.Load()
 	cfg.Version = version
 	cfg.BuildID = buildID
 	// Dev build: use source_dir stamped at build time if config doesn't override
@@ -1285,6 +1291,35 @@ func runServe(httpAddr string) error {
 
 	logger.Info("shutdown complete")
 	return nil
+}
+
+func deriveLocalBuildID(paths ...string) string {
+	for _, candidate := range paths {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		commitCmd := exec.Command("git", "-C", candidate, "rev-parse", "--short", "HEAD")
+		commitOut, err := commitCmd.Output()
+		if err != nil {
+			continue
+		}
+		commit := strings.TrimSpace(string(commitOut))
+		if commit == "" {
+			continue
+		}
+
+		dirtyCmd := exec.Command("git", "-C", candidate, "status", "--porcelain")
+		dirtyOut, err := dirtyCmd.Output()
+		if err != nil {
+			return commit
+		}
+		if strings.TrimSpace(string(dirtyOut)) != "" {
+			return commit + "-dirty"
+		}
+		return commit
+	}
+	return ""
 }
 
 // listAgentNames returns the names of all agent directories under ~/.agency/agents/.
