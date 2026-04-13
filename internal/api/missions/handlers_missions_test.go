@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 )
 
 type recordingCommsClient struct {
+	mu       sync.Mutex
 	requests []commsRequest
 }
 
@@ -38,17 +40,57 @@ func (r *recordingCommsClient) CommsRequest(_ context.Context, method, path stri
 		data, _ := json.Marshal(body)
 		_ = json.Unmarshal(data, &req.Body)
 	}
+	r.mu.Lock()
 	r.requests = append(r.requests, req)
+	r.mu.Unlock()
 	return []byte(`{}`), nil
 }
 
+func (r *recordingCommsClient) Requests() []commsRequest {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]commsRequest, len(r.requests))
+	copy(out, r.requests)
+	return out
+}
+
 type recordingSignalSender struct {
+	mu      sync.Mutex
 	signals []string
+	done    chan struct{}
+	once    sync.Once
 }
 
 func (r *recordingSignalSender) SignalContainer(_ context.Context, containerName, signal string) error {
+	r.mu.Lock()
 	r.signals = append(r.signals, containerName+":"+signal)
+	r.mu.Unlock()
+	r.once.Do(func() {
+		if r.done != nil {
+			close(r.done)
+		}
+	})
 	return nil
+}
+
+func (r *recordingSignalSender) Wait(timeout time.Duration) bool {
+	if r.done == nil {
+		return false
+	}
+	select {
+	case <-r.done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+func (r *recordingSignalSender) Signals() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]string, len(r.signals))
+	copy(out, r.signals)
+	return out
 }
 
 func writeTestAgent(t *testing.T, home, name string) {
@@ -175,7 +217,7 @@ func TestCheckCoordinatorFailoverAssignsCoverageAndAlertsOperator(t *testing.T) 
 	}
 
 	comms := &recordingCommsClient{}
-	signals := &recordingSignalSender{}
+	signals := &recordingSignalSender{done: make(chan struct{})}
 	audit := logs.NewWriter(home)
 
 	CheckCoordinatorFailover(context.Background(), "coord-agent", Deps{
@@ -191,23 +233,21 @@ func TestCheckCoordinatorFailoverAssignsCoverageAndAlertsOperator(t *testing.T) 
 	if _, err := os.Stat(filepath.Join(home, "agents", "coverage-agent", "mission.yaml")); err != nil {
 		t.Fatalf("expected coverage mission copy after failover: %v", err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if len(signals.signals) == 1 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+	if !signals.Wait(2 * time.Second) {
+		t.Fatal("timed out waiting for coverage enforcer signal")
 	}
-	if len(signals.signals) != 1 || signals.signals[0] != "agency-coverage-agent-enforcer:SIGHUP" {
-		t.Fatalf("expected coverage enforcer SIGHUP, got %v", signals.signals)
+	recordedSignals := signals.Signals()
+	if len(recordedSignals) != 1 || recordedSignals[0] != "agency-coverage-agent-enforcer:SIGHUP" {
+		t.Fatalf("expected coverage enforcer SIGHUP, got %v", recordedSignals)
 	}
-	if len(comms.requests) != 1 {
-		t.Fatalf("expected one operator comms alert, got %d", len(comms.requests))
+	requests := comms.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("expected one operator comms alert, got %d", len(requests))
 	}
-	if comms.requests[0].Method != http.MethodPost || comms.requests[0].Path != "/channels/operator/messages" {
-		t.Fatalf("unexpected comms request: %+v", comms.requests[0])
+	if requests[0].Method != http.MethodPost || requests[0].Path != "/channels/operator/messages" {
+		t.Fatalf("unexpected comms request: %+v", requests[0])
 	}
-	content, _ := comms.requests[0].Body["content"].(string)
+	content, _ := requests[0].Body["content"].(string)
 	if !strings.Contains(content, "coverage-agent") || !strings.Contains(content, "team-failover") {
 		t.Fatalf("unexpected operator alert content: %q", content)
 	}
