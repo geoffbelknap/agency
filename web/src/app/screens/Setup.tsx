@@ -81,7 +81,7 @@ export function Setup() {
   }, [currentIdx]);
 
   const finish = useCallback((channelName?: string) => {
-    navigate(channelName ? `/channels/${encodeURIComponent(channelName)}` : '/channels', { replace: true });
+    navigate(channelName ? `/channels/${encodeURIComponent(channelName)}` : '/overview', { replace: true });
   }, [navigate]);
 
   return (
