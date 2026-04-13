@@ -28,13 +28,22 @@ func (h *handler) getAgentTrajectory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Proxy to the enforcer's /trajectory endpoint on the constraint port (8081).
-	// The gateway reaches enforcers via container DNS on the mediation network.
-	enforcerURL := fmt.Sprintf("http://agency-%s-enforcer:8081/trajectory", name)
-
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
+	enforcerName := fmt.Sprintf("agency-%s-enforcer", name)
+	if body, ok, err := trajectoryBodyFromExec(ctx, h.deps.DC, enforcerName); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(body)
+		return
+	} else if err != nil && h.deps.Logger != nil {
+		h.deps.Logger.Warn("trajectory exec unavailable", "agent", name, "container", enforcerName, "err", err)
+	}
+
+	// Fallback to the container DNS name for deployments where the gateway is
+	// itself on the mediation network.
+	enforcerURL := fmt.Sprintf("http://agency-%s-enforcer:8081/trajectory", name)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, enforcerURL, nil)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "failed to create request: " + err.Error()})
@@ -44,6 +53,9 @@ func (h *handler) getAgentTrajectory(w http.ResponseWriter, r *http.Request) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
+		if h.deps.Logger != nil {
+			h.deps.Logger.Warn("trajectory network proxy failed", "agent", name, "url", enforcerURL, "err", err)
+		}
 		// Enforcer not reachable — agent may be stopped or starting
 		writeJSON(w, 502, map[string]string{
 			"error": "enforcer unavailable — agent may not be running",
@@ -69,4 +81,19 @@ func (h *handler) getAgentTrajectory(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
 	w.Write(body)
+}
+
+func trajectoryBodyFromExec(ctx context.Context, dc DockerClient, enforcerName string) ([]byte, bool, error) {
+	if dc == nil {
+		return nil, false, nil
+	}
+	body, err := dc.ExecInContainer(ctx, enforcerName, []string{"curl", "-sf", "http://127.0.0.1:8081/trajectory"})
+	if err != nil {
+		return nil, false, err
+	}
+	var check json.RawMessage
+	if json.Unmarshal([]byte(body), &check) != nil {
+		return nil, false, fmt.Errorf("invalid trajectory JSON from exec")
+	}
+	return []byte(body), true, nil
 }
