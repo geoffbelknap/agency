@@ -243,6 +243,91 @@ routes:
 	}
 }
 
+func TestPlannerCompileIngressOmitsEmptyWebhookFields(t *testing.T) {
+	home := t.TempDir()
+	reg := hub.NewRegistry(filepath.Join(home, "hub-registry"))
+	pkgDir := filepath.Join(home, "hub-registry", "connectors", "slack-interactivity")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pkgPath := filepath.Join(pkgDir, "connector.yaml")
+	if err := os.WriteFile(pkgPath, []byte(`kind: connector
+name: slack-interactivity
+version: "1.1.0"
+source:
+  type: webhook
+  path: /webhooks/slack-interactivity
+  body_format: form_urlencoded_payload
+  ack_strategy: immediate_empty_200
+  webhook_auth:
+    type: hmac_sha256
+    secret_credref: slack_signing_secret
+    header: X-Slack-Signature
+    timestamp_header: X-Slack-Request-Timestamp
+routes:
+  - match:
+      payload_type: block_actions
+    target:
+      agent: "${interactivity_target_agent}"
+  - match:
+      payload_type: shortcut
+    target:
+      agent: "${interactivity_target_agent}"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.PutPackage(hub.InstalledPackage{
+		Kind: "connector", Name: "slack-interactivity", Version: "1.1.0", Path: pkgPath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	inst := &instancepkg.Instance{
+		ID:   "inst_123",
+		Name: "slack-alpha",
+		Source: instancepkg.InstanceSource{
+			Package: instancepkg.PackageRef{Kind: "connector", Name: "slack-interactivity", Version: "1.1.0"},
+		},
+		Config: map[string]any{"interactivity_target_agent": "slack-operator"},
+		Nodes: []instancepkg.Node{{
+			ID:      "slack_interactivity",
+			Kind:    "connector.ingress",
+			Package: instancepkg.PackageRef{Kind: "connector", Name: "slack-interactivity", Version: "1.1.0"},
+		}},
+	}
+
+	manifest, err := Planner{Packages: reg}.Compile(inst)
+	if err != nil {
+		t.Fatalf("Compile(): %v", err)
+	}
+	node := manifest.Runtime.Nodes[0]
+	if node.Ingress == nil {
+		t.Fatal("expected ingress spec")
+	}
+	for _, forbidden := range []string{
+		"method: \"\"",
+		"headers: {}",
+		"url: null",
+		"interval: null",
+		"response_key: null",
+		"dedup_key: null",
+		"cron: null",
+		"channel: null",
+		"pattern: null",
+		"payload_field: null",
+		"response_status: null",
+		"response_body: null",
+		"response_content_type: null",
+		"priority: \"\"",
+	} {
+		if strings.Contains(node.Ingress.ConnectorYAML, forbidden) {
+			t.Fatalf("connector yaml should omit %q, got:\n%s", forbidden, node.Ingress.ConnectorYAML)
+		}
+	}
+	if !strings.Contains(node.Ingress.ConnectorYAML, "path: /webhooks/slack-alpha") {
+		t.Fatalf("connector yaml missing published webhook path: %s", node.Ingress.ConnectorYAML)
+	}
+}
+
 func TestPlannerCompileIngressRuntimeSubscription(t *testing.T) {
 	home := t.TempDir()
 	reg := hub.NewRegistry(filepath.Join(home, "hub-registry"))

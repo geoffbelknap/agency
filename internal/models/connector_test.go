@@ -293,8 +293,9 @@ func TestConnectorRoute_Validate(t *testing.T) {
 
 	t.Run("target_only", func(t *testing.T) {
 		cr := &ConnectorRoute{
-			Match:  map[string]interface{}{"type": "message"},
-			Target: map[string]string{"agent": "atlas"},
+			Match:        map[string]interface{}{"type": "message"},
+			Target:       map[string]string{"agent": "atlas"},
+			HandlingMode: "sync_response",
 		}
 		if err := cr.Validate(); err != nil {
 			t.Errorf("expected valid route with target, got: %v", err)

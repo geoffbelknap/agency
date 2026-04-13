@@ -55,6 +55,7 @@ routes:
 
   - match:
       type: shortcut
+    handling_mode: sync_response
     target:
       agent: slack-bridge
     brief: >

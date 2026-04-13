@@ -61,7 +61,7 @@ def _collapse_form_data(form_values: dict[str, list[str]]) -> dict:
     return payload
 
 
-def _resolve_webhook_secret(auth) -> str:
+async def _resolve_webhook_secret(auth, gateway: Optional[GatewayClient] = None) -> str:
     if auth.secret_env:
         secret = os.environ.get(auth.secret_env, "")
         if secret:
@@ -75,6 +75,10 @@ def _resolve_webhook_secret(auth) -> str:
             secret = os.environ.get(key, "")
             if secret:
                 return secret
+        if gateway is not None:
+            resolved = await gateway.resolve_credential(auth.secret_credref)
+            if resolved and isinstance(resolved.get("value"), str):
+                return resolved["value"]
     return ""
 
 
@@ -132,6 +136,144 @@ def _build_route_task_text(route, payload: dict) -> str:
     if route.brief:
         return render_template(route.brief, payload)
     return json.dumps(payload, default=str, indent=2)
+
+
+def _route_handling_mode(connector, route, payload: dict) -> str:
+    if route.handling_mode:
+        return route.handling_mode
+    runtime = connector.runtime or {}
+    executor = runtime.get("executor") if isinstance(runtime, dict) else None
+    if not isinstance(executor, dict):
+        return "async_ack"
+    if executor.get("kind") == "slack_interactivity" and payload.get("payload_type") == "shortcut":
+        # Backward-compatible default for the current Slack interactivity package.
+        return "sync_response"
+    return "async_ack"
+
+
+def _slack_shortcut_modal_view(payload: dict) -> dict:
+    callback_id = str(payload.get("callback_id") or "agency_shortcut")
+    return {
+        "type": "modal",
+        "callback_id": "agency.shortcut.ack",
+        "title": {"type": "plain_text", "text": "Agency"},
+        "close": {"type": "plain_text", "text": "Close"},
+        "submit": {"type": "plain_text", "text": "Continue"},
+        "private_metadata": json.dumps({"callback_id": callback_id}),
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "Agency received your shortcut. Continue this flow here and the operator will pick it up.",
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "prompt",
+                "label": {"type": "plain_text", "text": "What do you want Agency to do?"},
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "text",
+                    "multiline": True,
+                    "placeholder": {"type": "plain_text", "text": "Describe the task"},
+                },
+            },
+        ],
+    }
+
+
+async def _execute_slack_action(
+    connector,
+    gateway: GatewayClient,
+    action_name: str,
+    inputs: dict,
+) -> bool:
+    runtime = connector.runtime or {}
+    executor = runtime.get("executor") if isinstance(runtime, dict) else None
+    if not isinstance(executor, dict):
+        logger.warning("sync response unavailable: connector runtime executor missing")
+        return False
+    actions = executor.get("actions") or {}
+    action = actions.get(action_name)
+    if not isinstance(action, dict):
+        logger.warning("sync response unavailable: action %s missing", action_name)
+        return False
+    auth = executor.get("auth") or {}
+    binding = auth.get("binding")
+    if not isinstance(binding, str) or not binding:
+        logger.warning("sync response unavailable: auth binding missing for %s", action_name)
+        return False
+    credential = await gateway.resolve_credential(binding)
+    if not credential or not isinstance(credential.get("value"), str) or not credential["value"]:
+        logger.warning("sync response unavailable: could not resolve credential %s", binding)
+        return False
+    body_template = action.get("body") or {}
+    body = {}
+    for key, source_key in body_template.items():
+        if isinstance(source_key, str):
+            body[key] = inputs.get(source_key)
+        else:
+            body[key] = source_key
+    headers = {"Content-Type": "application/json"}
+    token = credential["value"]
+    auth_type = auth.get("type") or credential.get("protocol")
+    if auth_type == "bearer":
+        prefix = auth.get("prefix") or "Bearer "
+        header_name = auth.get("header") or "Authorization"
+        headers[header_name] = f"{prefix}{token}"
+    base_url = str(executor.get("base_url") or "").rstrip("/")
+    path = str(action.get("path") or "")
+    if not base_url or not path:
+        logger.warning("sync response unavailable: action %s missing base_url or path", action_name)
+        return False
+    url = f"{base_url}{path}"
+    proxy = os.environ.get("HTTPS_PROXY") if url.startswith("https://") else os.environ.get("HTTP_PROXY")
+    ssl_ctx = _make_ssl_context() if url.startswith("https://") else None
+    async with ClientSession() as session:
+        try:
+            async with session.request(
+                action.get("method", "POST"),
+                url,
+                headers=headers,
+                json=body,
+                proxy=proxy,
+                ssl=ssl_ctx,
+            ) as resp:
+                response_body = await resp.json(content_type=None)
+                if resp.status >= 400 or response_body.get("ok") is not True:
+                    logger.warning("sync slack action failed: %s %s", resp.status, response_body)
+                    return False
+                return True
+        except Exception as e:
+            logger.warning("sync slack action error: %s", e)
+            return False
+
+
+async def _maybe_sync_response(
+    connector_name: str,
+    connector,
+    route,
+    payload: dict,
+    gateway: GatewayClient,
+) -> Optional[web.Response]:
+    if _route_handling_mode(connector, route, payload) != "sync_response":
+        return None
+    if payload.get("payload_type") == "shortcut" and payload.get("trigger_id"):
+        opened = await _execute_slack_action(
+            connector,
+            gateway,
+            "slack_view_open",
+            {
+                "trigger_id": payload.get("trigger_id"),
+                "view": _slack_shortcut_modal_view(payload),
+            },
+        )
+        if not opened:
+            return web.json_response({"error": "sync response failed"}, status=502)
+        return web.Response(status=200, text="")
+    logger.warning("sync response route is unsupported for %s payload", payload.get("payload_type"))
+    return web.json_response({"error": "unsupported sync response route"}, status=501)
 
 
 def _expand_route_target(target_value: str) -> str:
@@ -1073,7 +1215,12 @@ async def handle_items(request: web.Request) -> web.Response:
     ])
 
 
-def _verify_webhook_auth(request: web.Request, body_bytes: bytes, connector) -> Optional[web.Response]:
+async def _verify_webhook_auth(
+    request: web.Request,
+    body_bytes: bytes,
+    connector,
+    gateway: Optional[GatewayClient] = None,
+) -> Optional[web.Response]:
     """Verify HMAC-SHA256 webhook signature. Returns an error Response on failure, None on success."""
     auth = connector.source.webhook_auth
     if not auth:
@@ -1089,7 +1236,7 @@ def _verify_webhook_auth(request: web.Request, body_bytes: bytes, connector) -> 
             )
         return None
 
-    secret = _resolve_webhook_secret(auth)
+    secret = await _resolve_webhook_secret(auth, gateway)
     if not secret:
         logger.warning("Webhook auth configured but required secret env var is not set")
         return web.json_response({"error": "Webhook auth misconfigured"}, status=500)
@@ -1145,7 +1292,7 @@ async def handle_webhook(request: web.Request) -> web.Response:
             except Exception:
                 pass
 
-        err = _verify_webhook_auth(request, body_bytes, connector)
+        err = await _verify_webhook_auth(request, body_bytes, connector, request.app.get("gateway"))
         if err:
             return err
 
@@ -1179,6 +1326,7 @@ async def handle_webhook(request: web.Request) -> web.Response:
     gateway = request.app["gateway"]
     knowledge_url = request.app.get("knowledge_url")
     event_buffer = request.app.get("event_buffer")
+    route_result = evaluate_routes(connector.routes, payload)
     delivered = await _route_and_deliver(
         connector_name, connector, payload, store, gateway,
         source_label=f"connector:{connector_name}",
@@ -1186,6 +1334,11 @@ async def handle_webhook(request: web.Request) -> web.Response:
         event_buffer=event_buffer,
         bridge_state=request.app.get("bridge_state"),
     )
+    if delivered and route_result is not None:
+        _, route = route_result
+        sync_response = await _maybe_sync_response(connector_name, connector, route, payload, gateway)
+        if sync_response is not None:
+            return sync_response
     if connector.source.ack_strategy == "immediate_empty_200":
         return web.Response(status=200, text="")
     return _webhook_success_response(connector, delivered)

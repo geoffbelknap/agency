@@ -56,6 +56,25 @@ class GatewayClient:
         except Exception as e:
             logger.warning("event publish error: %s", e)
 
+    async def resolve_credential(self, name: str) -> dict | None:
+        """Resolve a credential value through the gateway credential API."""
+        url = f"{self.base_url}/api/v1/creds/internal/resolve"
+        try:
+            async with aiohttp.ClientSession() as session:
+                resp = await session.get(
+                    url,
+                    params={"name": name},
+                    headers=self._headers(),
+                    timeout=aiohttp.ClientTimeout(total=10),
+                )
+                if resp.status < 400:
+                    return await resp.json()
+                body = await resp.text()
+                logger.warning("credential resolve failed for %s: %d %s", name, resp.status, body)
+        except Exception as e:
+            logger.warning("credential resolve error for %s: %s", name, e)
+        return None
+
     async def graph_ingest(
         self,
         content: str,
