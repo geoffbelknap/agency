@@ -15,6 +15,17 @@ Agency welcomes contributions. The project implements the [ASK framework](https:
 3. Make your changes. Run `make test` before submitting.
 4. Open a pull request. Reference the issue.
 
+## Branch and merge policy
+
+- Keep `main` releasable. Short-lived feature branches are preferred over long-running divergence.
+- Prefer `Rebase and merge` or merge commits for normal PRs. This preserves ancestry so local and CI branch cleanup can reliably use Git history.
+- Avoid `Squash and merge` as the default. Use it only when a branch history is intentionally messy and you are explicitly trading ancestry for a cleaner single commit.
+- Enable automatic branch deletion after merge in repository settings where possible.
+- Before cutting a release, update local `main`, prune remotes, and delete local branches that are either:
+  - already merged by ancestry, or
+  - patch-equivalent to `main` and tied to a merged PR.
+- If a PR branch is behind `main`, refresh it before merge so auto-merge and release triage stay predictable.
+
 ## Building and testing
 
 ```bash
