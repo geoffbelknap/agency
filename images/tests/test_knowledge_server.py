@@ -41,6 +41,19 @@ class TestNodeIngestion:
         data = await resp.json()
         assert data["ingested"] == 1
 
+    @pytest.mark.asyncio
+    async def test_universal_ingest_markdown(self, client):
+        c = await client
+        resp = await c.post("/ingest", json={
+            "content": "# Graph ingest probe\n\nUnique marker: universal ingest works\n",
+            "filename": "probe.md",
+            "content_type": "text/markdown",
+        })
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["extractor"] == "markdown"
+        assert data["nodes_created"] >= 1
+
 
 class TestQuery:
     @pytest.mark.asyncio

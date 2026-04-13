@@ -177,7 +177,14 @@ func TestLLMBufferedResponse(t *testing.T) {
 }
 
 func TestLLMStreamingResponse(t *testing.T) {
+	var receivedStreamOptions map[string]interface{}
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req map[string]interface{}
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Fatalf("unmarshal request: %v", err)
+		}
+		receivedStreamOptions, _ = req["stream_options"].(map[string]interface{})
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		flusher, _ := w.(http.Flusher)
@@ -215,6 +222,9 @@ func TestLLMStreamingResponse(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), "content_block_delta") {
 		t.Error("SSE data should be relayed")
+	}
+	if got, _ := receivedStreamOptions["include_usage"].(bool); !got {
+		t.Fatalf("expected stream_options.include_usage=true, got %#v", receivedStreamOptions)
 	}
 }
 
@@ -390,6 +400,33 @@ func TestExtractStreamUsageOpenAI(t *testing.T) {
 	}
 	if out != 80 {
 		t.Errorf("expected completion_tokens 80, got %d", out)
+	}
+}
+
+func TestExtractStreamUsageGeminiUsageMetadata(t *testing.T) {
+	chunk := "data: {\"usageMetadata\":{\"promptTokenCount\":321,\"candidatesTokenCount\":123}}\n\n"
+	in, out := extractStreamUsage(chunk)
+	if in != 321 {
+		t.Errorf("expected promptTokenCount 321, got %d", in)
+	}
+	if out != 123 {
+		t.Errorf("expected candidatesTokenCount 123, got %d", out)
+	}
+}
+
+func TestExtractUsageCountsGeminiUsageMetadata(t *testing.T) {
+	obj := map[string]interface{}{
+		"usageMetadata": map[string]interface{}{
+			"promptTokenCount":     float64(444),
+			"candidatesTokenCount": float64(222),
+		},
+	}
+	in, out := extractUsageCounts(obj)
+	if in != 444 {
+		t.Errorf("expected 444 input tokens, got %d", in)
+	}
+	if out != 222 {
+		t.Errorf("expected 222 output tokens, got %d", out)
 	}
 }
 

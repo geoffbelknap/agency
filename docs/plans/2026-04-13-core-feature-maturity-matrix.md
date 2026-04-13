@@ -38,11 +38,11 @@ works") and instead evaluate them as complete product surfaces:
 | Event bus / routing / subscriptions | `Alpha-ready` | Internal events, connector events, and notifications route through one bus. | Visibility into event delivery, operator debugging, mission health integration, notification wiring. | Core routing works, but operator-facing event inspection is still less polished than the execution path itself. |
 | Model routing / provider abstraction | `Alpha-ready` | Route LLM traffic through configured providers and tiers. | Provider setup UX, routing config visibility, usage summaries, fallback clarity. | Multi-provider works; “why this model/provider was chosen” still needs better operator UX. |
 | Budget enforcement | `Alpha-ready` | Enforcer tracks cost and enforces daily/monthly/task budgets. | Clear operator surfacing, warnings/exhaustion events, mission integration, usage reconciliation. | Core enforcement exists; release gate should explicitly verify live usage -> budget -> audit linkage. |
-| Usage tracking / economics | `Partial` | Aggregate LLM usage, tokens, latency, estimated cost. | Reliable non-zero token/cost attribution, by-agent/by-model reporting, release smoke coverage. | Live `agency admin usage` works, but current output still shows zero tokens/cost for some real provider calls. This needs investigation before claiming economics are solid. |
+| Usage tracking / economics | `Alpha-ready` | Aggregate LLM usage, tokens, latency, estimated cost. | Reliable non-zero token/cost attribution, by-agent/by-model reporting, release smoke coverage. | Live provider-backed streaming calls now record tokens and estimated cost correctly. Remaining work is better reconciliation and operator polish, not basic correctness. |
 | Audit logging | `Alpha-ready` | Infrastructure-written logs and HMAC-signed audit trail. | Easy inspection, useful categories, release gating, signal correlation, retention. | Strong underlying model; still need a better release gate tying task execution to auditable evidence. |
-| Trajectory monitoring | `Partial` | Enforcer detects repetition / cycle / error-cascade anomalies. | Stable trajectory endpoint, `agency show` surfacing, notifications, critical-path tests, docs alignment. | Docs claim stronger support than current live behavior. The trajectory endpoint currently returned `502` in live release-gate probing. |
+| Trajectory monitoring | `Alpha-ready` | Enforcer detects repetition / cycle / error-cascade anomalies. | Stable trajectory endpoint, `agency show` surfacing, notifications, critical-path tests, docs alignment. | Live trajectory endpoint is now working in the fundamentals gate. Still needs better operator surfacing and alerting before calling it mature. |
 | Knowledge graph query / stats | `Alpha-ready` | Query graph, inspect stats, retrieve cached results and relationship data. | Reliable live updates, ingestion, ontology management, curation visibility. | Query/stats work. Registration appears eventually consistent enough to need retries in release tests. |
-| Knowledge graph ingestion | `Partial` | Ingest documents/URLs into graph. | Working pipeline in local stack, extraction coverage, synthesis gating, review tooling. | Live probe returned `503 Ingestion pipeline not available`; this is a real maturity gap. |
+| Knowledge graph ingestion | `Alpha-ready` | Ingest documents/URLs into graph. | Working pipeline in local stack, extraction coverage, synthesis gating, review tooling. | Live universal ingest now works in the local stack and ingested content is queryable by extracted nodes. Remaining work is richer content indexing and better synthesis ergonomics. |
 | Knowledge graph governance (classification / review / quarantine / ontology candidates) | `Alpha-ready` | Governance and structural controls around graph content. | Review workflows, candidate management, curation logs, operator education. | A lot is implemented, but this surface still needs more end-to-end operator validation. |
 | Missions | `Alpha-ready` | Create, assign, pause/resume, complete, delete missions. | Wizard/UI, mission health, evaluations, economics, team integration. | Non-destructive live UI flows passed; still needs stronger “real operator workflow” coverage. |
 | Teams / coordinators / multi-agent coordination | `Partial` | Teams and channels exist; coordinators can be configured. | Real structured delegation UX, conflict handling, work splitting visibility, stronger lifecycle semantics. | Team scaffolding exists, but formal coordination remains more aspirational than productized. |
@@ -97,18 +97,6 @@ Before `0.1.x`, the features that deserve explicit release gating are:
 ## Current Blockers Worth Treating As First-Class
 
 These are not abstract maturity concerns — they are currently observable gaps:
-
-- **Trajectory endpoint instability**
-  - Live check returned `502` for disposable running agents.
-  - This blocks calling trajectory monitoring `Alpha-ready` from an operator perspective.
-
-- **Graph ingestion unavailable**
-  - Live `agency graph ingest` returned `503 Ingestion pipeline not available`.
-  - This blocks calling knowledge ingestion mature.
-
-- **Usage / economics fidelity**
-  - Live usage surfaces recorded calls, but token and cost fields were still zero in the probe path.
-  - This blocks calling economics observability reliable.
 
 - **GHCR release image visibility**
   - Some images were not anonymously pullable from GHCR.

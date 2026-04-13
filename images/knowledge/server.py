@@ -601,16 +601,14 @@ async def handle_ingest_universal(request: web.Request) -> web.Response:
     source_principal = body.get("source_principal", "")
 
     try:
-        loop = asyncio.get_event_loop()
-        stats = await loop.run_in_executor(
-            None,
-            lambda: pipeline.ingest(
-                content,
-                filename=filename,
-                content_type=content_type,
-                scope=scope,
-                source_principal=source_principal,
-            ),
+        # The knowledge store uses a shared SQLite connection, so ingestion
+        # must run on the server thread instead of a worker executor.
+        stats = pipeline.ingest(
+            content,
+            filename=filename,
+            content_type=content_type,
+            scope=scope,
+            source_principal=source_principal,
         )
     except Exception:
         logger.exception("Ingestion pipeline error")
