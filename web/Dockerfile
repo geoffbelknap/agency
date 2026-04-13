@@ -1,6 +1,8 @@
 # Stage 1: Build the React app
 FROM node:22-alpine AS build
 WORKDIR /app
+ARG BUILD_ID=unknown
+ENV VITE_BUILD_ID=$BUILD_ID
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY . .

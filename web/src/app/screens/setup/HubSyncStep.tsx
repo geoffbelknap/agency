@@ -11,10 +11,14 @@ export function HubSyncStep({ onComplete }: HubSyncStepProps) {
   const [status, setStatus] = useState<'syncing' | 'error' | 'done'>('syncing');
   const [error, setError] = useState('');
   const [phase, setPhase] = useState<'update' | 'upgrade'>('update');
+  const [showSlowHint, setShowSlowHint] = useState(false);
+  const [allowContinue, setAllowContinue] = useState(false);
 
   const runSync = async () => {
     setStatus('syncing');
     setError('');
+    setShowSlowHint(false);
+    setAllowContinue(false);
     try {
       setPhase('update');
       await api.hub.update();
@@ -32,6 +36,16 @@ export function HubSyncStep({ onComplete }: HubSyncStepProps) {
     runSync();
   }, []);
 
+  useEffect(() => {
+    if (status !== 'syncing') return;
+    const hintTimer = window.setTimeout(() => setShowSlowHint(true), 3000);
+    const continueTimer = window.setTimeout(() => setAllowContinue(true), 8000);
+    return () => {
+      window.clearTimeout(hintTimer);
+      window.clearTimeout(continueTimer);
+    };
+  }, [status]);
+
   return (
     <div className="text-center space-y-6">
       <div className="space-y-2">
@@ -47,7 +61,23 @@ export function HubSyncStep({ onComplete }: HubSyncStepProps) {
       </div>
 
       {status === 'syncing' && (
-        <RefreshCw className="w-6 h-6 text-muted-foreground animate-spin mx-auto" />
+        <div className="space-y-4">
+          <RefreshCw className="w-6 h-6 text-muted-foreground animate-spin mx-auto" />
+          {showSlowHint && (
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                This can take a little while on a fresh machine while Agency refreshes hub sources and checks installed components.
+              </p>
+              {allowContinue && (
+                <div className="flex justify-center">
+                  <Button variant="ghost" size="sm" onClick={onComplete} className="text-muted-foreground">
+                    Continue without sync
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {status === 'error' && (
