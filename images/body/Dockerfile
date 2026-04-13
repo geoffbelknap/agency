@@ -18,7 +18,8 @@ ARG CACHE_BUST=0
 COPY images/body/*.py /app/
 RUN rm -f /app/test_*.py /app/*_test.py
 COPY images/body/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+RUN chmod 0644 /app/*.py /app/logging_config.py /app/sitecustomize.py && \
+    chmod 0755 /app/entrypoint.sh
 
 USER bodyuser
 

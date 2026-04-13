@@ -42,6 +42,8 @@ http {\n\
 COPY nginx.conf /etc/nginx/conf.d/agency-web.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY agency-entrypoint.sh /agency-entrypoint.sh
+RUN chmod 0644 /etc/nginx/conf.d/agency-web.conf \
+    && chmod 0755 /agency-entrypoint.sh
 
 USER nginx
 EXPOSE 8280
