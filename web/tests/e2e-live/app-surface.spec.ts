@@ -48,7 +48,7 @@ test('live admin tabs render across the real stack', async ({ page }) => {
 
   const tabs = [
     { path: '/admin/infrastructure', assert: async () => expect(page.getByRole('heading', { name: 'Infrastructure' })).toBeVisible() },
-    { path: '/admin/hub', assert: async () => expect(page.getByRole('tab', { name: 'Packages' })).toBeVisible() },
+    { path: '/admin/hub', assert: async () => expect(page.getByRole('tab', { name: 'Packages' }).first()).toBeVisible() },
     { path: '/admin/intake', assert: async () => expect(page.getByRole('tab', { name: 'Connectors' })).toBeVisible() },
     { path: '/admin/knowledge', assert: async () => expect(page.getByText(/Query Knowledge|Knowledge graph is empty/)).toBeVisible() },
     { path: '/admin/capabilities', assert: async () => expect(page.getByText('Platform capability registry')).toBeVisible() },
@@ -69,7 +69,7 @@ test('live admin tabs render across the real stack', async ({ page }) => {
   for (const tab of tabs) {
     await page.goto(tab.path);
     await settle(page);
-    await expect(page.getByRole('heading', { name: 'Admin' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Admin', exact: true })).toBeVisible();
     await tab.assert();
   }
 });
@@ -249,7 +249,7 @@ test('live hub surfaces source trust and provenance guidance without mutating st
   await settle(page);
   await expect(page.getByText('Packages and instances')).toBeVisible();
   await expect(page.getByText(/Installed packages are reusable local building blocks/i)).toBeVisible();
-  await expect(page.getByText('Installed packages')).toBeVisible();
+  await expect(page.getByText('Installed packages', { exact: true })).toBeVisible();
   await page.getByRole('tab', { name: 'Instances' }).click();
   await expect(page.getByText('Local instances')).toBeVisible();
   await expect(page.getByText('Authority nodes')).toBeVisible();

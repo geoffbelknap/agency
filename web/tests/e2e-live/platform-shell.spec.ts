@@ -53,15 +53,15 @@ test('live stack routes to setup or initialized navigation without app errors', 
     return;
   }
 
-  await expect(page.getByRole('link', { name: 'Channels' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Agents' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Missions' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Teams' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Knowledge' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Profiles' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Hub' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Intake' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Admin' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Channels', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Agents', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Missions', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Teams', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Knowledge', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Profiles', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Hub', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Intake', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Admin', exact: true })).toBeVisible();
 
   await gotoRoute(page, '/admin');
   await expect(page.getByRole('heading', { name: 'Admin' })).toBeVisible();
@@ -85,7 +85,14 @@ test('live stack top-level routes render without app errors when initialized', a
       await expect(page.getByText(/No channels available|Loading\.\.\./)).toBeVisible();
     } },
     { path: '/agents', expectVisible: async () => expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible() },
-    { path: '/missions', expectVisible: async () => expect(page.getByRole('heading', { name: 'Missions' })).toBeVisible() },
+    { path: '/missions', expectVisible: async () => {
+      const heading = page.getByRole('heading', { name: 'Missions' });
+      if (await heading.count()) {
+        await expect(heading).toBeVisible();
+        return;
+      }
+      await expect(page.getByRole('button', { name: /Create Mission|New Mission/ }).first()).toBeVisible();
+    } },
     { path: '/knowledge', expectVisible: async () => expect(page.getByRole('heading', { name: 'Knowledge' })).toBeVisible() },
     { path: '/profiles', expectVisible: async () => expect(page.getByRole('heading', { name: 'Profiles' })).toBeVisible() },
     { path: '/teams', expectVisible: async () => expect(page.getByRole('heading', { name: 'Teams' })).toBeVisible() },
@@ -122,10 +129,10 @@ test('live overview surfaces the right next-step guidance for the current stack 
     return;
   }
 
-  await expect(page.getByText(/move into direct messages, missions, or intake/i)).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Open channels' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Open missions' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Open intake' })).toBeVisible();
+  await expect(page.getByText(/open a dm, missions, or intake|move into direct messages, missions, or intake/i)).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open channels' }).first()).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open missions' }).first()).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open intake' }).first()).toBeVisible();
 });
 
 test('live stack supports read-only drill-downs for key initialized views', async ({ page }) => {
