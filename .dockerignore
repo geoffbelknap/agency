@@ -4,7 +4,10 @@ tests/
 docs/
 .git/
 .github/
+.claude/
 .claude-plugin/
+.venv/
+.worktrees/
 *.md
 *.txt
 .pytest_cache/

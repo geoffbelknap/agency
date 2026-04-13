@@ -738,8 +738,46 @@ func (m *Manager) Upgrade(components []string) (*UpgradeReport, error) {
 			continue
 		}
 
-		// Read cached version
+		// Read cached version. Even when the version is unchanged, refresh the
+		// installed package metadata so trust/assurance projections can evolve
+		// without requiring a version bump.
 		if cached.Version == "" || cached.Version == inst.Version {
+			destPath := filepath.Join(m.Registry.InstanceDir(inst.Name), inst.Kind+".yaml")
+			assurance, err := m.fetchPackageAssurance(context.Background(), cached.Source, inst.Kind, inst.Name, inst.Version)
+			if err != nil {
+				report.Components = append(report.Components, ComponentUpgrade{
+					Name:       inst.Name,
+					Kind:       inst.Kind,
+					OldVersion: inst.Version,
+					NewVersion: cached.Version,
+					Status:     "error",
+					Error:      err.Error(),
+				})
+				continue
+			}
+			pkg, err := buildInstalledPackage(inst.Name, inst.Kind, inst.Version, cached.Source, destPath, assurance)
+			if err != nil {
+				report.Components = append(report.Components, ComponentUpgrade{
+					Name:       inst.Name,
+					Kind:       inst.Kind,
+					OldVersion: inst.Version,
+					NewVersion: cached.Version,
+					Status:     "error",
+					Error:      err.Error(),
+				})
+				continue
+			}
+			if err := m.Registry.PutPackage(pkg); err != nil {
+				report.Components = append(report.Components, ComponentUpgrade{
+					Name:       inst.Name,
+					Kind:       inst.Kind,
+					OldVersion: inst.Version,
+					NewVersion: cached.Version,
+					Status:     "error",
+					Error:      err.Error(),
+				})
+				continue
+			}
 			report.Components = append(report.Components, ComponentUpgrade{
 				Name:       inst.Name,
 				Kind:       inst.Kind,
