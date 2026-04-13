@@ -77,3 +77,59 @@ func TestIntakeWebhookRequiresConnector(t *testing.T) {
 		t.Fatalf("unexpected error response: %#v", resp)
 	}
 }
+
+func TestRelayWebhookDeliverRoutesToLocalPathAndPreservesHeaders(t *testing.T) {
+	previousBaseURL := intakeBaseURL
+	defer func() { intakeBaseURL = previousBaseURL }()
+
+	var receivedPath string
+	var receivedHeader string
+	var receivedBody []byte
+	intake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.RequestURI()
+		receivedHeader = r.Header.Get("X-Slack-Signature")
+		receivedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer intake.Close()
+	intakeBaseURL = intake.URL
+
+	h := &handler{}
+	req := httptest.NewRequest(http.MethodPost, "/api/internal/relay/webhooks/deliver", bytes.NewReader([]byte(`{"type":"block_actions"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Slack-Signature", "v0=abc123")
+	req.Header.Set("X-Relay-Webhook-Local-Path", "/webhooks/slack-alpha")
+	req.Header.Set("X-Relay-Webhook-Query", "?trigger_id=123")
+	req.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+
+	h.relayWebhookDeliver(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if receivedPath != "/webhooks/slack-alpha?trigger_id=123" {
+		t.Fatalf("received path = %q", receivedPath)
+	}
+	if receivedHeader != "v0=abc123" {
+		t.Fatalf("received signature = %q", receivedHeader)
+	}
+	if string(receivedBody) != `{"type":"block_actions"}` {
+		t.Fatalf("unexpected forwarded body: %s", string(receivedBody))
+	}
+}
+
+func TestRelayWebhookDeliverRequiresWebhookPath(t *testing.T) {
+	h := &handler{}
+	req := httptest.NewRequest(http.MethodPost, "/api/internal/relay/webhooks/deliver", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("X-Relay-Webhook-Local-Path", "/api/v1/agents")
+	w := httptest.NewRecorder()
+
+	h.relayWebhookDeliver(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/geoffbelknap/agency/internal/models"
@@ -94,6 +95,79 @@ func (h *handler) intakeWebhook(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
 	w.Write(out)
+}
+
+func (h *handler) relayWebhookDeliver(w http.ResponseWriter, r *http.Request) {
+	localPath := strings.TrimSpace(r.Header.Get("X-Relay-Webhook-Local-Path"))
+	if localPath == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "X-Relay-Webhook-Local-Path header is required"})
+		return
+	}
+	if !strings.HasPrefix(localPath, "/webhooks/") {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid relay webhook path"})
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "read body: " + err.Error()})
+		return
+	}
+
+	webhookURL := intakeBaseURL + localPath
+	if rawQuery := strings.TrimSpace(r.Header.Get("X-Relay-Webhook-Query")); rawQuery != "" {
+		if strings.HasPrefix(rawQuery, "?") {
+			webhookURL += rawQuery
+		} else {
+			webhookURL += "?" + rawQuery
+		}
+	}
+
+	req, err := http.NewRequestWithContext(r.Context(), r.Method, webhookURL, bytes.NewReader(body))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	copyRelayWebhookHeaders(req.Header, r.Header)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "intake unreachable: " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	copyResponseHeaders(w.Header(), resp.Header)
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
+func copyRelayWebhookHeaders(dst, src http.Header) {
+	for k, values := range src {
+		canonical := http.CanonicalHeaderKey(k)
+		switch canonical {
+		case "Authorization", "X-Agency-Token", "X-Agency-Caller", "X-Agency-Via":
+			continue
+		}
+		if strings.HasPrefix(canonical, "X-Relay-Webhook-") {
+			continue
+		}
+		for _, value := range values {
+			dst.Add(k, value)
+		}
+	}
+}
+
+func copyResponseHeaders(dst, src http.Header) {
+	for k, values := range src {
+		if strings.EqualFold(k, "Content-Length") {
+			continue
+		}
+		for _, value := range values {
+			dst.Add(k, value)
+		}
+	}
 }
 
 // serviceGet makes a GET request to an infra service via its localhost port.

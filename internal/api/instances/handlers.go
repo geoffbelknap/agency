@@ -17,6 +17,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/hubpolicy"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
 	"github.com/geoffbelknap/agency/internal/manifestgen"
+	"github.com/geoffbelknap/agency/internal/relayhooks"
 	runpkg "github.com/geoffbelknap/agency/internal/runtime"
 	"github.com/go-chi/chi/v5"
 )
@@ -238,6 +239,7 @@ func (h *handler) applyInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	h.syncRuntimeSubscriptions(manifest)
 	h.reloadIngressIfNeeded(manifest)
+	h.syncRelayWebhookManifest()
 	statuses, err := rtStore.ListNodeStatuses()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -430,6 +432,7 @@ func (h *handler) reconcileRuntime(w http.ResponseWriter, r *http.Request) {
 	}
 	h.syncRuntimeSubscriptions(manifest)
 	h.reloadIngressIfNeeded(manifest)
+	h.syncRelayWebhookManifest()
 	writeJSON(w, http.StatusOK, manifest)
 }
 
@@ -636,6 +639,26 @@ func (h *handler) syncRuntimeSubscriptions(manifest *runpkg.Manifest) {
 				Target: sub.InstanceID + "/" + sub.NodeID,
 			},
 		})
+	}
+}
+
+func (h *handler) syncRelayWebhookManifest() {
+	if h.deps.Config == nil {
+		return
+	}
+	store := h.store()
+	if store == nil {
+		return
+	}
+	manifest, err := relayhooks.Build(context.Background(), store, h.deps.Config.HMACKey)
+	if err != nil {
+		if h.deps.Logger != nil {
+			h.deps.Logger.Warn("failed to build relay webhook manifest", "err", err)
+		}
+		return
+	}
+	if err := (relayhooks.Store{Home: h.deps.Config.Home}).Save(manifest); err != nil && h.deps.Logger != nil {
+		h.deps.Logger.Warn("failed to save relay webhook manifest", "err", err)
 	}
 }
 
