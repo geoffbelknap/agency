@@ -52,7 +52,7 @@ require_cmd() {
 }
 
 latest_release_tag() {
-  gh release list --limit 1 | awk 'NR==1 { print $3 }'
+  gh release list --limit 20 --json tagName,isLatest --jq '.[] | select(.isLatest == true) | .tagName' | head -n1
 }
 
 formula_download_url() {
