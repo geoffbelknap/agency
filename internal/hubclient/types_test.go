@@ -2,6 +2,7 @@ package hubclient
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -26,6 +27,28 @@ func TestAssuranceStatementCarriesScopeAndResult(t *testing.T) {
 	}
 }
 
+func TestAssuranceStatementUnmarshalNestedHubShape(t *testing.T) {
+	var stmt AssuranceStatement
+	err := json.Unmarshal([]byte(`{
+		"artifact": {"kind":"connector","name":"slack-interactivity","version":"1.1.0"},
+		"issuer": {"hub_id":"hub:official:agency","statement_id":"abc"},
+		"statement_type":"ask_reviewed",
+		"result":"ASK-Partial",
+		"review_scope":"package-change",
+		"reviewer_type":"automated",
+		"policy_version":"2026-04-12"
+	}`), &stmt)
+	if err != nil {
+		t.Fatalf("Unmarshal(): %v", err)
+	}
+	if stmt.ArtifactKind != "connector" || stmt.ArtifactName != "slack-interactivity" || stmt.ArtifactVersion != "1.1.0" {
+		t.Fatalf("unexpected artifact fields: %#v", stmt)
+	}
+	if stmt.IssuerHubID != "hub:official:agency" {
+		t.Fatalf("unexpected issuer hub id: %q", stmt.IssuerHubID)
+	}
+}
+
 func TestPublisherRecordCarriesVerifiedIdentityFields(t *testing.T) {
 	record := PublisherRecord{
 		PublisherID: "org:agency-platform",
@@ -43,7 +66,7 @@ func TestFetchArtifactAssurance(t *testing.T) {
 			t.Fatalf("path = %q, want %q", got, want)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"schema_version":1,"hub_id":"hub:official:agency","statements":[{"artifact_kind":"connector","artifact_name":"slack-interactivity","artifact_version":"1.1.0","statement_type":"ask_reviewed","result":"ASK-Partial","review_scope":"package-change","reviewer_type":"automated","policy_version":"2026-04-12"}]}`))
+		_, _ = w.Write([]byte(`{"schema_version":1,"hub_id":"hub:official:agency","statements":[{"artifact":{"kind":"connector","name":"slack-interactivity","version":"1.1.0"},"issuer":{"hub_id":"hub:official:agency","statement_id":"stmt-1"},"statement_type":"ask_reviewed","result":"ASK-Partial","review_scope":"package-change","reviewer_type":"automated","policy_version":"2026-04-12"}]}`))
 	}))
 	defer server.Close()
 
@@ -56,5 +79,8 @@ func TestFetchArtifactAssurance(t *testing.T) {
 	}
 	if summary.Statements[0].Result != "ASK-Partial" {
 		t.Fatalf("unexpected result: %q", summary.Statements[0].Result)
+	}
+	if summary.Statements[0].IssuerHubID != "hub:official:agency" {
+		t.Fatalf("unexpected issuer hub id: %q", summary.Statements[0].IssuerHubID)
 	}
 }

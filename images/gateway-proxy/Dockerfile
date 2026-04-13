@@ -5,6 +5,6 @@ LABEL agency.build.id=${BUILD_ID}
 LABEL agency.source.hash=${SOURCE_HASH}
 RUN apk add --no-cache socat
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN chmod 0755 /entrypoint.sh
 USER nobody
 ENTRYPOINT ["/entrypoint.sh"]

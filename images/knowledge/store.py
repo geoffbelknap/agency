@@ -10,6 +10,7 @@ Schema is designed for clean export to external graph DBs.
 
 import json
 import logging
+import os
 import sqlite3
 import time
 import uuid
@@ -37,6 +38,11 @@ VALID_PROVENANCE = {"EXTRACTED", "INFERRED", "AMBIGUOUS"}
 
 _PROVENANCE_RANK = {"EXTRACTED": 1, "INFERRED": 2, "AMBIGUOUS": 3}
 
+_DEFAULT_EMBED_KINDS = (
+    "Software,ConfigItem,BehaviorPattern,Vulnerability,Finding,"
+    "ThreatIndicator,HuntHypothesis,procedure,episode,cached_result"
+)
+
 
 class KnowledgeStore:
     def __init__(self, data_dir: Path):
@@ -60,16 +66,26 @@ class KnowledgeStore:
         except (ImportError, Exception) as e:
             logger.warning("sqlite-vec not available: %s — vector search disabled", e)
 
-        # --- Embedding provider ---
-        from images.knowledge.embedding import create_provider, get_embeddable_kinds
-        self._embedding_provider = create_provider()
-        self._embeddable_kinds = get_embeddable_kinds()
+        # --- Embedding provider (lazy) ---
+        self._embedding_provider = None
+        raw_embed_kinds = os.environ.get("KNOWLEDGE_EMBED_KINDS", _DEFAULT_EMBED_KINDS)
+        self._embeddable_kinds = {
+            k.strip().lower() for k in raw_embed_kinds.split(",") if k.strip()
+        }
+        self._vec_table_initialized = False
 
         # --- Classification config (set via set_classification_config()) ---
         self._classification_config = None
 
-        # --- Create vec0 virtual table if possible ---
-        if self._vec_available and self._embedding_provider.dimensions > 0:
+    def _ensure_embedding_provider(self):
+        """Initialize embedding provider only when an embedding path is used."""
+        if self._embedding_provider is None:
+            try:
+                from knowledge.embedding import create_provider
+            except ImportError:
+                from images.knowledge.embedding import create_provider
+            self._embedding_provider = create_provider()
+        if self._vec_available and not self._vec_table_initialized and self._embedding_provider.dimensions > 0:
             try:
                 dims = self._embedding_provider.dimensions
                 self._db.execute(
@@ -77,9 +93,11 @@ class KnowledgeStore:
                     f"id TEXT PRIMARY KEY, embedding float[{dims}])"
                 )
                 self._db.commit()
+                self._vec_table_initialized = True
             except Exception as e:
                 logger.warning("Failed to create nodes_vec table: %s", e)
                 self._vec_available = False
+        return self._embedding_provider
 
     def set_classification_config(self, config):
         """Set the classification config used for scope merging in add_node."""
@@ -187,13 +205,14 @@ class KnowledgeStore:
         """Generate and store embedding for a node. Best-effort — never raises."""
         if kind.lower() not in self._embeddable_kinds:
             return
-        if self._embedding_provider.dimensions == 0:
+        provider = self._ensure_embedding_provider()
+        if provider.dimensions == 0:
             return
         if not self._vec_available:
             return
         try:
             text = f"{label}: {summary}"[:2048]
-            vector = self._embedding_provider.embed(text)
+            vector = provider.embed(text)
             if vector:
                 self._db.execute(
                     "INSERT OR REPLACE INTO nodes_vec(id, embedding) VALUES (?, ?)",
@@ -378,10 +397,11 @@ class KnowledgeStore:
         principal: Optional[dict] = None,
     ) -> list[dict]:
         # Determine whether hybrid retrieval is possible
-        can_vector = (
-            self._vec_available
-            and self._embedding_provider.dimensions > 0
-        )
+        provider = None
+        can_vector = False
+        if self._vec_available:
+            provider = self._ensure_embedding_provider()
+            can_vector = provider.dimensions > 0
 
         if semantic_only and can_vector:
             results = self._find_nodes_vector(query, visible_channels, limit)
