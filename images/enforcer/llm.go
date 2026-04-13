@@ -291,8 +291,14 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Determine if streaming
+	isStream, _ := reqBody["stream"].(bool)
+
 	// Rewrite model in request body
 	reqBody["model"] = providerModel
+	if isStream && !isAnthropic {
+		ensureStreamUsageRequested(reqBody)
+	}
 	modifiedBody, err := json.Marshal(reqBody)
 	if err != nil {
 		http.Error(w, `{"error":"failed to rewrite request body"}`, http.StatusInternalServerError)
@@ -308,9 +314,6 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-
-	// Determine if streaming
-	isStream, _ := reqBody["stream"].(bool)
 
 	// Build and send the upstream request with retries
 	var resp *http.Response
@@ -379,6 +382,15 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func ensureStreamUsageRequested(reqBody map[string]interface{}) {
+	streamOptions, _ := reqBody["stream_options"].(map[string]interface{})
+	if streamOptions == nil {
+		streamOptions = make(map[string]interface{})
+		reqBody["stream_options"] = streamOptions
+	}
+	streamOptions["include_usage"] = true
+}
+
 // relayBuffered relays a non-streaming LLM response.
 func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string) {
 	// Copy safe headers
@@ -398,20 +410,7 @@ func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, 
 	var respBody map[string]interface{}
 	inputTokens, outputTokens := 0, 0
 	if json.Unmarshal(body, &respBody) == nil {
-		if usage, ok := respBody["usage"].(map[string]interface{}); ok {
-			if v, ok := usage["input_tokens"].(float64); ok {
-				inputTokens = int(v)
-			}
-			if v, ok := usage["prompt_tokens"].(float64); ok {
-				inputTokens = int(v)
-			}
-			if v, ok := usage["output_tokens"].(float64); ok {
-				outputTokens = int(v)
-			}
-			if v, ok := usage["completion_tokens"].(float64); ok {
-				outputTokens = int(v)
-			}
-		}
+		inputTokens, outputTokens = extractUsageCounts(respBody)
 	}
 
 	// Trajectory monitoring: record tool calls and response content
@@ -911,22 +910,82 @@ func extractStreamUsage(chunk string) (inputTokens, outputTokens int) {
 		if json.Unmarshal([]byte(data), &obj) != nil {
 			continue
 		}
-		usage, ok := obj["usage"].(map[string]interface{})
-		if !ok {
-			continue
+		in, out := extractUsageCounts(obj)
+		if in > 0 {
+			inputTokens = in
 		}
-		if v, ok := usage["input_tokens"].(float64); ok {
-			inputTokens = int(v)
-		}
-		if v, ok := usage["prompt_tokens"].(float64); ok {
-			inputTokens = int(v)
-		}
-		if v, ok := usage["output_tokens"].(float64); ok {
-			outputTokens = int(v)
-		}
-		if v, ok := usage["completion_tokens"].(float64); ok {
-			outputTokens = int(v)
+		if out > 0 {
+			outputTokens = out
 		}
 	}
 	return
+}
+
+func extractUsageCounts(obj map[string]interface{}) (inputTokens, outputTokens int) {
+	if usage, ok := obj["usage"].(map[string]interface{}); ok {
+		inputTokens = firstInt(
+			usage["input_tokens"],
+			usage["prompt_tokens"],
+		)
+		outputTokens = firstInt(
+			usage["output_tokens"],
+			usage["completion_tokens"],
+		)
+	}
+
+	// Gemini and some proxy layers expose usage at the top level as usageMetadata.
+	if usageMeta, ok := obj["usageMetadata"].(map[string]interface{}); ok {
+		if inputTokens == 0 {
+			inputTokens = firstInt(
+				usageMeta["promptTokenCount"],
+				usageMeta["prompt_token_count"],
+			)
+		}
+		if outputTokens == 0 {
+			outputTokens = firstInt(
+				usageMeta["candidatesTokenCount"],
+				usageMeta["candidates_token_count"],
+				usageMeta["outputTokenCount"],
+				usageMeta["output_token_count"],
+			)
+		}
+	}
+	if usageMeta, ok := obj["usage_metadata"].(map[string]interface{}); ok {
+		if inputTokens == 0 {
+			inputTokens = firstInt(
+				usageMeta["promptTokenCount"],
+				usageMeta["prompt_token_count"],
+			)
+		}
+		if outputTokens == 0 {
+			outputTokens = firstInt(
+				usageMeta["candidatesTokenCount"],
+				usageMeta["candidates_token_count"],
+				usageMeta["outputTokenCount"],
+				usageMeta["output_token_count"],
+			)
+		}
+	}
+
+	return inputTokens, outputTokens
+}
+
+func firstInt(values ...interface{}) int {
+	for _, value := range values {
+		switch v := value.(type) {
+		case float64:
+			if v > 0 {
+				return int(v)
+			}
+		case int:
+			if v > 0 {
+				return v
+			}
+		case int64:
+			if v > 0 {
+				return int(v)
+			}
+		}
+	}
+	return 0
 }

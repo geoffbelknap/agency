@@ -14,9 +14,11 @@ COPY images/logging_config.py /app/logging_config.py
 COPY images/_sitecustomize.py /app/sitecustomize.py
 
 COPY images/knowledge/*.py /app/
+COPY images/knowledge/ingestion /app/ingestion
 RUN mkdir -p /app/images/knowledge \
     && touch /app/images/__init__.py /app/images/knowledge/__init__.py \
-    && cp /app/*.py /app/images/knowledge/
+    && cp /app/*.py /app/images/knowledge/ \
+    && cp -R /app/ingestion /app/images/knowledge/ingestion
 
 EXPOSE 8080
 CMD ["python", "-u", "/app/server.py"]
