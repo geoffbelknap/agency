@@ -2,7 +2,9 @@ import json
 import hashlib
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
 from unittest.mock import MagicMock
+from types import SimpleNamespace
 
 
 class MockEnforcerHandler(BaseHTTPRequestHandler):
@@ -49,6 +51,14 @@ def test_reload_constraints():
         from body import Body
         body = Body.__new__(Body)
         body.enforcer_url = f"http://127.0.0.1:{port}"
+        body.config_dir = Path(".")
+        body.is_meeseeks = False
+        body._active_mission = None
+        body._task_features = {}
+        body._config_overrides = {}
+        body._skills_manager = MagicMock()
+        body._skills_manager.get_system_prompt_section.return_value = ""
+        body.assemble_system_prompt = MagicMock(return_value="stub prompt")
         # Body uses _mcp_policy as the internal attribute name
         body._mcp_policy = None
         body._log = MagicMock()
@@ -60,3 +70,90 @@ def test_reload_constraints():
         assert len(server.last_ack["hash"]) == 64  # SHA-256 hex
     finally:
         server.shutdown()
+
+
+def test_on_config_change_refreshes_identity(tmp_path):
+    from body import Body
+
+    body = Body.__new__(Body)
+    body.config_dir = Path(tmp_path)
+    body._config_overrides = {}
+    body._reload_mission = MagicMock()
+    body._service_dispatcher = None
+    body._fetch_config = lambda filename: "RECONFIG_ALPHA_READY" if filename == "identity.md" else None
+    body.assemble_system_prompt = lambda: body._config_overrides["identity.md"].strip()
+
+    body._on_config_change()
+
+    assert body._config_overrides["identity.md"] == "RECONFIG_ALPHA_READY"
+    assert body._system_prompt == "RECONFIG_ALPHA_READY"
+    body._reload_mission.assert_called_once()
+
+
+def test_build_direct_idle_prompt_prioritizes_identity():
+    from body import Body
+
+    body = Body.__new__(Body)
+    body._config_overrides = {
+        "identity.md": "Always reply with EXACT_TOKEN_ONLY and nothing else."
+    }
+
+    prompt = body._build_direct_idle_prompt("dm-alpha", "operator", "What is 2+2?")
+
+    assert "Always reply with EXACT_TOKEN_ONLY and nothing else." in prompt
+    assert "response policy for this message" in prompt
+    assert "use that literally" in prompt
+    assert "Do not answer the underlying question in a default helpful style" in prompt
+    assert "Only fall back to normal concise conversational help when your identity is silent" in prompt
+
+
+def test_cache_filters_include_policy_hash_and_mission_scope():
+    from body import Body
+
+    body = Body.__new__(Body)
+    body.agent_name = "alpha"
+    body._active_mission = {"id": "mission-123", "name": "Mission Alpha"}
+    body._config_overrides = {
+        "identity.md": "IDENTITY",
+        "FRAMEWORK.md": "FRAMEWORK",
+        "AGENTS.md": "AGENTS",
+    }
+
+    filters = body._cache_filters("2026-04-13T00:00:00Z")
+
+    assert filters["agent"] == "alpha"
+    assert filters["created_after"] == "2026-04-13T00:00:00Z"
+    assert filters["mission_id"] == "mission-123"
+    assert "policy_hash" in filters
+    assert len(filters["policy_hash"]) == 12
+
+
+def test_check_cache_queries_with_policy_hash():
+    from body import Body
+
+    captured = {}
+
+    class StubHTTPClient:
+        def post(self, url, json=None, timeout=None):
+            captured["url"] = url
+            captured["json"] = json
+            captured["timeout"] = timeout
+            return SimpleNamespace(status_code=200, json=lambda: {"results": []})
+
+    body = Body.__new__(Body)
+    body.agent_name = "alpha"
+    body._active_mission = None
+    body._http_client = StubHTTPClient()
+    body._knowledge_url = "http://knowledge"
+    body._config_overrides = {
+        "identity.md": "IDENTITY",
+        "FRAMEWORK.md": "FRAMEWORK",
+        "AGENTS.md": "AGENTS",
+    }
+
+    hit_type, _, _, _ = body._check_cache("hello world")
+
+    assert hit_type is None
+    assert captured["url"] == "http://knowledge/query"
+    assert captured["json"]["filters"]["agent"] == "alpha"
+    assert "policy_hash" in captured["json"]["filters"]

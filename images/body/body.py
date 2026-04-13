@@ -214,6 +214,7 @@ class Body:
         self._notification_queue: list[tuple[str, str, str]] = []
         self._last_notification_task_time = 0.0
         self._knowledge_url = os.environ.get("AGENCY_KNOWLEDGE_URL", "http://enforcer:8081/mediation/knowledge")
+        self._config_overrides: dict[str, Optional[str]] = {}
 
         # Real-time comms event-driven loop state
         self._event_queue = queue_module.Queue()
@@ -281,6 +282,23 @@ class Body:
         except Exception as e:
             log.warning("Config fetch %s failed: %s", filename, e)
             return None
+
+    def _refresh_local_config_file(self, filename: str) -> None:
+        """Refresh a config file from the enforcer config endpoint into memory."""
+        content = self._fetch_config(filename)
+        if content is None:
+            self._config_overrides.pop(filename, None)
+            return
+        self._config_overrides[filename] = content
+
+    def _config_text(self, filename: str) -> Optional[str]:
+        """Return refreshed config text when present, otherwise read local disk."""
+        if filename in self._config_overrides:
+            return self._config_overrides[filename]
+        path = self.config_dir / filename
+        if path.exists():
+            return path.read_text()
+        return None
 
     def reload_constraints(self, version: int, severity: str):
         """Fetch updated constraints from enforcer, apply, and ack with hash."""
@@ -785,6 +803,35 @@ class Body:
     _IDLE_REPLY_COOLDOWN: float = 60.0  # seconds between idle replies
     _recent_idle_message_ids: set = None  # dedup set for message IDs
 
+    def _build_direct_idle_prompt(self, channel: str, author: str, summary: str) -> str:
+        """Build the direct-DM/mention idle prompt.
+
+        This path must preserve operator-authored identity changes in live
+        conversation, even when the incoming message looks like a simple
+        factual question. Conversational defaults only apply when identity is
+        silent.
+        """
+        identity_snapshot = self._config_text("identity.md")
+        identity_clause = ""
+        if identity_snapshot and identity_snapshot.strip():
+            identity_clause = (
+                "Current operator-defined identity and response policy "
+                "(authoritative for this message):\n"
+                f"{identity_snapshot.strip()}\n\n"
+            )
+        return (
+            f"You received a direct message in #{channel} from {author}: \"{summary}\"\n\n"
+            f"{identity_clause}"
+            f"Use your current identity and system prompt as the response policy for this message.\n\n"
+            f"Rules:\n"
+            f"- If your identity dictates exact wording, a fixed phrase, a refusal, a persona, or another specific response shape, use that literally.\n"
+            f"- Do not answer the underlying question in a default helpful style when your identity gives a conflicting instruction.\n"
+            f"- Only fall back to normal concise conversational help when your identity is silent on how to respond.\n"
+            f"- Only call read_messages('{channel}') if you need earlier conversation context.\n"
+            f"- Reply by calling send_message('{channel}', your_response).\n"
+            f"- If the person follows up, continue the conversation."
+        )
+
     def _handle_idle_mention(self, event: dict) -> None:
         """Handle a mention or interest match when no task is active.
 
@@ -868,20 +915,7 @@ class Body:
                 f"greeting), respond briefly and complete."
             )
         elif match_type == "direct":
-            prompt = (
-                f"You were mentioned in #{channel} by {author}: \"{summary}\"\n\n"
-                f"Respond directly — you already have the message above. Only call "
-                f"read_messages('{channel}') if you need earlier conversation context.\n\n"
-                f"Guidelines:\n"
-                f"- Keep responses concise and conversational. Match the tone and length "
-                f"of the question — a short question deserves a short answer.\n"
-                f"- Do NOT use web search for questions you can answer from knowledge "
-                f"(math, facts, general knowledge, opinions). Only search when the "
-                f"question requires real-time data (weather, prices, news, schedules).\n"
-                f"- If the request is ambiguous, ask a clarifying question.\n"
-                f"- Respond via send_message('{channel}', your_response).\n"
-                f"- If the person follows up, continue the conversation — don't rush to complete."
-            )
+            prompt = self._build_direct_idle_prompt(channel, author, summary)
         else:
             # Interest match — agent's expertise is relevant
             kw_str = ", ".join(matched_kws) if matched_kws else "your area of expertise"
@@ -1032,6 +1066,9 @@ class Body:
         log.info("Config change notification received, reloading")
         # Re-fetch mission
         self._reload_mission()
+        # Refresh operator-owned prompt files that are cached under /workspace.
+        for filename in ("identity.md", "FRAMEWORK.md", "AGENTS.md", "session-context.json", "tiers.json"):
+            self._refresh_local_config_file(filename)
         # Re-fetch services manifest
         if self._service_dispatcher:
             self._service_dispatcher.load_from_url("http://enforcer:8081/config/services-manifest.json")
@@ -1059,9 +1096,9 @@ class Body:
         parts = []
 
         # Identity — always included
-        identity_path = self.config_dir / "identity.md"
-        if identity_path.exists():
-            parts.append(identity_path.read_text().strip())
+        identity_content = self._config_text("identity.md")
+        if identity_content and identity_content.strip():
+            parts.append(identity_content.strip())
 
         # Mission context (after identity, before memory) — always included
         if self._active_mission and self._active_mission.get("status") == "active":
@@ -1192,15 +1229,15 @@ class Body:
 
         # Framework governance — standard and full tiers
         if prompt_tier in ("standard", "full"):
-            framework_path = self.config_dir / "FRAMEWORK.md"
-            if framework_path.exists():
-                parts.append(framework_path.read_text().strip())
+            framework_content = self._config_text("FRAMEWORK.md")
+            if framework_content and framework_content.strip():
+                parts.append(framework_content.strip())
 
         # Constraints and services — standard and full tiers
         if prompt_tier in ("standard", "full"):
-            agents_path = self.config_dir / "AGENTS.md"
-            if agents_path.exists():
-                parts.append(agents_path.read_text().strip())
+            agents_content = self._config_text("AGENTS.md")
+            if agents_content and agents_content.strip():
+                parts.append(agents_content.strip())
 
         # Skills section (loaded on demand via activate_skill tool) — standard and full tiers
         if prompt_tier in ("standard", "full"):
@@ -2341,7 +2378,7 @@ class Body:
                     "kind": "cached_result",
                     "limit": 1,
                     "semantic_only": True,
-                    "filters": {"agent": self.agent_name, "created_after": cutoff},
+                    "filters": self._cache_filters(cutoff),
                 },
                 timeout=2.0,
             )
@@ -2399,6 +2436,35 @@ class Body:
         }
         return {**defaults, **mission.get("cache", {})}
 
+    def _current_response_policy_hash(self) -> str:
+        """Hash the prompt-governing operator inputs for cache scoping."""
+        import hashlib
+
+        policy_parts = [
+            self._config_text("identity.md") or "",
+            self._config_text("FRAMEWORK.md") or "",
+            self._config_text("AGENTS.md") or "",
+        ]
+        return hashlib.sha256("\n---\n".join(policy_parts).encode()).hexdigest()[:12]
+
+    def _cache_filters(self, cutoff: str) -> dict:
+        """Build semantic-cache query filters for the current runtime policy."""
+        cache_config = self._get_cache_config()
+        filters = {
+            "agent": self.agent_name,
+            "created_after": cutoff,
+            "policy_hash": self._current_response_policy_hash(),
+        }
+        if cache_config.get("scope", "mission") == "mission":
+            mission = getattr(self, "_active_mission", None) or {}
+            mission_id = mission.get("id", "")
+            mission_name = mission.get("name", "")
+            if mission_id:
+                filters["mission_id"] = mission_id
+            elif mission_name:
+                filters["mission"] = mission_name
+        return filters
+
     def _write_cache_entry(self, task_id: str, task_content: str, result_text: str, metadata: dict) -> None:
         """Write a cached_result node to the knowledge graph for semantic caching.
 
@@ -2412,6 +2478,7 @@ class Body:
             return
 
         mission_name = (getattr(self, '_active_mission', None) or {}).get('name', '')
+        mission_id = (getattr(self, '_active_mission', None) or {}).get("id", "")
         tools_used = list(getattr(self, '_tools_used_this_task', set()))
         task_hash = hashlib.sha256(task_content.encode()).hexdigest()[:12]
 
@@ -2426,6 +2493,8 @@ class Body:
                 "trigger_context": metadata.get("trigger_context", ""),
                 "agent": self.agent_name,
                 "mission": mission_name,
+                "mission_id": mission_id,
+                "policy_hash": self._current_response_policy_hash(),
                 "tools_used": tools_used,
                 "outcome": "success",
                 "cost_usd": metadata.get("cost_usd", 0),
@@ -2437,7 +2506,6 @@ class Body:
             },
         }
 
-        mission_id = (getattr(self, '_active_mission', None) or {}).get("id", "")
         if mission_id:
             node["mission_id"] = mission_id
 

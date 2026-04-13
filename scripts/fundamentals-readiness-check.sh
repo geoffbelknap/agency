@@ -8,6 +8,8 @@ AGENCY_HOME_DIR="${AGENCY_HOME:-$HOME/.agency}"
 AGENT_NAME="fundamentals-readiness-$(date +%s)"
 DM_CHANNEL="dm-${AGENT_NAME}"
 MESSAGE="Reply with exactly one short sentence containing the phrase: fundamentals readiness ok."
+RECONFIG_MESSAGE="What is 10+10?"
+RECONFIG_TOKEN="RECONFIGALPHAREADY"
 WEB_URL="http://127.0.0.1:8280"
 RESPONSE_TIMEOUT="${AGENCY_FUNDAMENTALS_RESPONSE_TIMEOUT:-150}"
 START_TIMEOUT="${AGENCY_FUNDAMENTALS_START_TIMEOUT:-420}"
@@ -102,6 +104,13 @@ credential_names_for_provider() {
 agent_message_count() {
   run_agency comms read "$DM_CHANNEL" --limit 100 2>/dev/null |
     grep -c "  ${AGENT_NAME}:"
+}
+
+latest_agent_message() {
+  run_agency comms read "$DM_CHANNEL" --limit 100 2>/dev/null |
+    grep "  ${AGENT_NAME}:" |
+    sed -E "s/^.*  ${AGENT_NAME}: //" |
+    tail -n1
 }
 
 wait_for_agent_running() {
@@ -280,6 +289,35 @@ case "${usage_calls:-}" in
     fail "agency admin usage did not report any calls for the test agent"
     ;;
 esac
+
+log "Checking live dynamic reconfiguration"
+curl -fsS -X PUT "http://127.0.0.1:8200/api/v1/agents/${AGENT_NAME}/config" \
+  -H "Authorization: Bearer ${gateway_token}" \
+  -H "Content-Type: application/json" \
+  --data "{\"identity\":\"You are in reconfiguration proof mode. For every direct DM or mention, respond with exactly ${RECONFIG_TOKEN} and nothing else. Do not answer the underlying question.\"}" >/dev/null ||
+  fail "failed to update agent identity through the live config API"
+
+before_reconfig="$(agent_message_count || true)"
+run_agency send "$AGENT_NAME" "$RECONFIG_MESSAGE" >/dev/null
+
+deadline=$((SECONDS + RESPONSE_TIMEOUT))
+while [ "$SECONDS" -lt "$deadline" ]; do
+  after_reconfig="$(agent_message_count || true)"
+  if [ "${after_reconfig:-0}" -gt "${before_reconfig:-0}" ]; then
+    break
+  fi
+  sleep "$POLL_INTERVAL"
+done
+
+after_reconfig="$(agent_message_count || true)"
+if [ "${after_reconfig:-0}" -le "${before_reconfig:-0}" ]; then
+  fail "agent did not respond after live config update within ${RESPONSE_TIMEOUT}s"
+fi
+
+reconfig_reply="$(latest_agent_message)"
+if [ "${reconfig_reply:-}" != "${RECONFIG_TOKEN}" ]; then
+  fail "live reconfiguration reply mismatch: expected ${RECONFIG_TOKEN}, got '${reconfig_reply:-<empty>}'"
+fi
 
 log "Checking audit log"
 audit_output="$(run_agency log "$AGENT_NAME" --since "$(date -u +%Y-%m-%dT00:00:00Z)")"
