@@ -28,7 +28,7 @@ jobs:
       - name: Go tests
         run: go test -race -count=1 ./...
 
-  python-test:
+  python-unit-test:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -44,12 +44,48 @@ jobs:
       - name: Install dependencies
         run: pip install -r images/tests/requirements-ci.txt
 
-      - name: Python tests
+      - name: Python unit tests
         run: >-
           pytest images/tests/ -x -vv --timeout=30 --durations=20
+          --ignore=images/tests/test_graph_intelligence.py
+          --ignore=images/tests/test_knowledge_curator.py
+          --ignore=images/tests/test_knowledge_federation.py
+          --ignore=images/tests/test_knowledge_org_context.py
+          --ignore=images/tests/test_knowledge_review_gate.py
+          --ignore=images/tests/test_knowledge_server.py
+          --ignore=images/tests/test_knowledge_synthesizer.py
           --ignore=images/tests/test_realtime_comms_e2e.py
           --ignore=images/tests/test_comms_e2e.py
-        timeout-minutes: 12
+        timeout-minutes: 8
+
+  python-knowledge-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+          cache-dependency-path: 'images/tests/requirements-ci.txt'
+
+      - name: Install dependencies
+        run: pip install -r images/tests/requirements-ci.txt
+
+      - name: Python knowledge and synthesis tests
+        run: >-
+          pytest
+          images/tests/test_graph_intelligence.py
+          images/tests/test_knowledge_curator.py
+          images/tests/test_knowledge_federation.py
+          images/tests/test_knowledge_org_context.py
+          images/tests/test_knowledge_review_gate.py
+          images/tests/test_knowledge_server.py
+          images/tests/test_knowledge_synthesizer.py
+          -x -vv --timeout=30 --durations=20
+        timeout-minutes: 8
 
   web-test:
     runs-on: ubuntu-latest
