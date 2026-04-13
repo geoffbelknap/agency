@@ -570,6 +570,45 @@ func TestMissionTeamLifecycleUpdatesMemberCopies(t *testing.T) {
 	}
 }
 
+func TestMissionAssignToTeamWithCoordinatorWritesOnlyCoordinatorCopy(t *testing.T) {
+	mm := NewMissionManager(t.TempDir())
+
+	for _, agentName := range []string{"team-coordinator", "team-worker"} {
+		makeTestAgent(t, mm.Home, agentName)
+	}
+	makeTestTeam(t, mm.Home, models.TeamConfig{
+		Name:        "coord-team",
+		Coordinator: "team-coordinator",
+		Coverage:    "team-worker",
+		Members: []models.TeamMember{
+			{Name: "team-coordinator", Type: "agent", AgentType: "coordinator"},
+			{Name: "team-worker", Type: "agent"},
+		},
+	})
+
+	m := newTestMission("coord-only")
+	if err := mm.Create(m); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	teamCfg, err := mm.LoadTeamConfig("coord-team")
+	if err != nil {
+		t.Fatalf("LoadTeamConfig: %v", err)
+	}
+	if err := mm.AssignToTeam("coord-only", "coord-team", teamCfg); err != nil {
+		t.Fatalf("AssignToTeam: %v", err)
+	}
+
+	if got := readAgentMissionCopy(t, mm, "team-coordinator"); got.Status != "active" {
+		t.Fatalf("expected active coordinator copy, got %q", got.Status)
+	}
+	if _, err := os.Stat(mm.agentMissionPath("team-worker")); err == nil {
+		t.Fatal("worker should not receive a mission copy when coordinator is configured")
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("stat worker mission copy: %v", err)
+	}
+}
+
 func TestMissionCompleteUnassigned(t *testing.T) {
 	mm := NewMissionManager(t.TempDir())
 
