@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { StatusIndicator } from '../components/StatusIndicator';
-import { Agent, InfrastructureService, AuditEvent } from '../types';
+import { Agent, InfrastructureService, AuditEvent, Provider } from '../types';
 import { Button } from '../components/ui/button';
 import { Play, RotateCw, Square } from 'lucide-react';
 import { toast } from 'sonner';
@@ -60,6 +60,8 @@ export function Overview() {
   const [loading, setLoading] = useState(true);
   const [infraAction, setInfraAction] = useState<InfraAction | null>(null);
   const [infraBuildId, setInfraBuildId] = useState('');
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [routingConfigured, setRoutingConfigured] = useState<boolean | null>(null);
 
   const loadInfrastructure = useCallback(async () => {
     try {
@@ -85,6 +87,8 @@ export function Overview() {
     // Fire all requests concurrently — render each section as it arrives
     const agentPromise = api.agents.list();
     const infraPromise = loadInfrastructure();
+    const providerPromise = api.providers.list().catch(() => [] as Provider[]);
+    const routingPromise = api.routing.config().catch(() => ({ configured: false }));
 
     // Agents come back fast (~35ms) — render immediately
     agentPromise.then((agentData) => {
@@ -128,6 +132,8 @@ export function Overview() {
 
     // Infra comes back slower — renders when ready
     infraPromise.catch(() => {});
+    providerPromise.then((providerData) => setProviders(providerData ?? []));
+    routingPromise.then((config) => setRoutingConfigured(Boolean(config.configured)));
   }, [loadInfrastructure]);
 
   useEffect(() => {
@@ -155,6 +161,8 @@ export function Overview() {
   const hasRunningServices = infrastructure.some((service) => isRunningState(service.state));
   const primaryAction: InfraAction = hasRunningServices ? 'restart' : 'start';
   const hasAgents = agents.length > 0;
+  const readyProviders = providers.filter((provider) => provider.credential_configured);
+  const readyProviderNames = readyProviders.map((provider) => provider.display_name || provider.name);
 
   const handleInfraAction = async (action: InfraAction) => {
     setInfraAction(action);
@@ -247,8 +255,8 @@ export function Overview() {
                   {!hasRunningServices
                     ? 'Start infrastructure first so the web UI, comms, and gateway services are available.'
                     : !hasAgents
-                      ? 'Infrastructure is up. Create your first agent, then open a DM to verify the stack is working.'
-                      : 'Your platform is running. Move into direct messages, missions, or intake depending on the next operator task.'}
+                      ? 'Infrastructure is up. Create a research agent, then open its DM to verify the full research loop.'
+                      : 'Your platform is running. Open a DM, missions, or intake depending on the next operator task.'}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -266,10 +274,10 @@ export function Overview() {
                 ) : !hasAgents ? (
                   <>
                     <Button asChild variant="outline" size="sm" className="h-8 text-xs">
-                      <Link to="/agents">Create an agent</Link>
+                      <Link to="/agents">Create research agent</Link>
                     </Button>
                     <Button asChild variant="outline" size="sm" className="h-8 text-xs">
-                      <Link to="/setup">Open setup wizard</Link>
+                      <Link to="/setup">Review providers</Link>
                     </Button>
                   </>
                 ) : (
@@ -289,6 +297,62 @@ export function Overview() {
             </div>
           </div>
 
+          <div className="mb-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+            <div className="rounded-lg border border-border bg-card p-4">
+              <div className="mb-2 text-sm font-medium text-foreground">Researcher Path</div>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Give testers a predictable path: create a <span className="text-foreground">researcher</span> agent,
+                open its DM, and ask for a topic summary or source-backed brief.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button asChild size="sm" className="h-8 text-xs">
+                  <Link to="/agents">Open agent fleet</Link>
+                </Button>
+                <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                  <Link to="/channels">Open channels</Link>
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border bg-card p-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="text-sm font-medium text-foreground">Provider Coverage</div>
+                <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                  {routingConfigured ? 'Routing ready' : 'Needs review'}
+                </div>
+              </div>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                {readyProviders.length > 0
+                  ? `${readyProviders.length} provider${readyProviders.length === 1 ? '' : 's'} configured for agent research and fallback routing.`
+                  : 'No configured providers detected in the web UI yet.'}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {readyProviderNames.length > 0 ? (
+                  readyProviderNames.map((providerName) => (
+                    <span
+                      key={providerName}
+                      className="rounded-full border border-border bg-secondary px-2.5 py-1 text-[11px] text-foreground/80"
+                    >
+                      {providerName}
+                    </span>
+                  ))
+                ) : (
+                  <span className="rounded-full border border-border bg-secondary px-2.5 py-1 text-[11px] text-muted-foreground">
+                    No providers configured
+                  </span>
+                )}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                  <Link to="/setup">Open provider setup</Link>
+                </Button>
+                <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                  <Link to="/admin/hub">Review hub components</Link>
+                </Button>
+              </div>
+            </div>
+          </div>
+
           <h2 className="text-xs font-bold text-foreground/80 uppercase tracking-widest mb-3">
             Agents ({agents.length})
           </h2>
@@ -296,7 +360,7 @@ export function Overview() {
             <div className="text-sm text-muted-foreground text-center py-8">Loading...</div>
           ) : agents.length === 0 ? (
             <div className="bg-card border border-border rounded p-8 text-center text-sm text-muted-foreground">
-              No agents running. Create one from the Agents page.
+              No agents running. Create a research agent from the fleet view to start the tester flow.
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
