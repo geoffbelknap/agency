@@ -136,13 +136,15 @@ const localHttpsConfig = localCertExists
   : undefined
 const devHttps = process.env.VITE_DISABLE_HTTPS ? undefined : localHttpsConfig
 
+const envBuildId = process.env.VITE_BUILD_ID || process.env.BUILD_ID || ''
 const gitCommit = (() => {
   try { return execSync('git rev-parse --short HEAD').toString().trim() } catch { return 'unknown' }
 })()
 const gitDirty = (() => {
   try { return execSync('git diff --quiet && git diff --cached --quiet || echo dirty').toString().trim() } catch { return '' }
 })()
-const buildId = gitDirty ? `${gitCommit}-${gitDirty}` : gitCommit
+const fallbackBuildId = gitDirty ? `${gitCommit}-${gitDirty}` : gitCommit
+const buildId = envBuildId || fallbackBuildId
 
 if (process.env.VITE_API_TOKEN && process.env.NODE_ENV === 'production') {
   console.warn('\n⚠️  WARNING: VITE_API_TOKEN is set. This token will be embedded in the production bundle.\n  Use the /__agency/config endpoint for runtime token delivery instead.\n')

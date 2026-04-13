@@ -53,6 +53,12 @@ function hasKnownDmStatus(dmStatuses: Record<string, DmStatus> | undefined, dmNa
   return !!dmStatuses && Object.prototype.hasOwnProperty.call(dmStatuses, dmName);
 }
 
+function displayBuildId(buildId: string): string | null {
+  const normalized = buildId.trim();
+  if (!normalized || normalized === 'unknown' || normalized === 'unknown-dirty') return null;
+  return normalized;
+}
+
 interface SidebarSectionProps {
   title: string;
   defaultOpen?: boolean;
@@ -232,9 +238,11 @@ function SidebarContent({
           </>
         )}
       </ScrollArea>
-      <div className="px-3 py-1.5 text-[10px] text-muted-foreground/50 select-all">
-        {__BUILD_ID__}
-      </div>
+      {displayBuildId(__BUILD_ID__) && (
+        <div className="px-3 py-1.5 text-[10px] text-muted-foreground/50 select-all">
+          {displayBuildId(__BUILD_ID__)}
+        </div>
+      )}
     </div>
   );
 }
