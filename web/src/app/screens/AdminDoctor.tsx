@@ -81,29 +81,33 @@ export function AdminDoctor() {
   };
 
   return (
-    <div className="space-y-4">
-      {/* Header row */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          {!loading && totalAgents > 0 && (
-            <span
-              className={`inline-block w-2 h-2 rounded-full ${issueCount === 0 ? 'bg-emerald-500' : 'bg-amber-500'}`}
-            />
-          )}
-          <span>
-            {loading
-              ? 'Running checks...'
-              : lastRun
-                ? `${summaryText} · last run ${lastRun}`
-                : summaryText}
-          </span>
+    <div className="space-y-6">
+      <div className="rounded-2xl border border-border bg-card px-4 py-4 md:px-5">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div className="space-y-1">
+            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Runtime doctor</div>
+            <p className="text-sm text-muted-foreground">Run operator-safe health checks across the shared platform and active agents.</p>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {!loading && totalAgents > 0 && (
+                <span
+                  className={`inline-block h-2 w-2 rounded-full ${issueCount === 0 ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                />
+              )}
+              <span>
+                {loading
+                  ? 'Running checks...'
+                  : lastRun
+                    ? `${summaryText} · last run ${lastRun}`
+                    : summaryText}
+              </span>
+            </div>
+          </div>
+          <Button size="sm" onClick={runDoctor} disabled={loading} className="h-9 self-start md:self-auto">
+            {loading ? 'Running...' : 'Run Doctor'}
+          </Button>
         </div>
-        <Button size="sm" onClick={runDoctor} disabled={loading}>
-          {loading ? 'Running...' : 'Run Doctor'}
-        </Button>
       </div>
 
-      {/* Error */}
       {error && (
         <div className="text-sm text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded px-3 py-2">
           {error}
@@ -111,7 +115,7 @@ export function AdminDoctor() {
       )}
 
       {!loading && !error && issueCount > 0 && (
-        <div className="bg-card border border-border rounded p-4 space-y-3">
+        <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
           <div className="flex items-center gap-2 text-sm text-amber-400">
             <AlertTriangle className="w-4 h-4" />
             <span>{issueCount === 1 ? '1 issue needs attention' : `${issueCount} issues need attention`}</span>
@@ -137,7 +141,6 @@ export function AdminDoctor() {
         </div>
       )}
 
-      {/* Loading */}
       {loading ? (
         <div className="text-sm text-muted-foreground text-center py-12">
           Running doctor checks...
@@ -145,36 +148,40 @@ export function AdminDoctor() {
       ) : groups.length === 0 ? (
         <div className="text-sm text-muted-foreground text-center py-12">No checks returned</div>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
           {groups.map((group) => (
             <div key={group.name} className="contents">
-              {/* Summary card */}
               <button
                 onClick={() => handleCardClick(group.name)}
-                className={`bg-card border rounded-lg p-4 text-center cursor-pointer hover:bg-secondary/40 transition-colors border-l-[3px] ${
-                  group.allPass ? 'border-l-emerald-500' : 'border-l-amber-500'
+                className={`cursor-pointer rounded-2xl border bg-card p-4 text-left transition-colors hover:bg-secondary/40 ${
+                  group.allPass ? 'border-emerald-500/40' : 'border-amber-500/40'
                 } ${expandedAgent === group.name ? 'ring-1 ring-border' : ''}`}
               >
-                <div
-                  className={`text-2xl font-bold ${group.allPass ? 'text-emerald-400' : 'text-amber-400'}`}
-                >
-                  {group.passed}/{group.total}
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Checks</div>
+                    <div
+                      className={`mt-1 text-2xl font-semibold ${group.allPass ? 'text-emerald-400' : 'text-amber-400'}`}
+                    >
+                      {group.passed}/{group.total}
+                    </div>
+                  </div>
+                  <div className={`mt-1 h-2.5 w-2.5 rounded-full ${group.allPass ? 'bg-emerald-500' : 'bg-amber-500'}`} />
                 </div>
-                <div className="text-xs text-muted-foreground font-mono mt-1 truncate">
+                <div className="mt-3 truncate font-mono text-xs text-muted-foreground">
                   {group.name}
                 </div>
               </button>
 
-              {/* Expanded check list — spans full row when open */}
               {expandedAgent === group.name && (
-                <div className="col-span-2 md:col-span-3 lg:col-span-4 bg-card border border-border rounded-lg p-4 space-y-2">
-                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                <div className="col-span-2 space-y-2 rounded-2xl border border-border bg-card p-4 md:col-span-3 lg:col-span-4">
+                  <h3 className="mb-3 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                     <code className="normal-case">{group.name}</code> — checks
                   </h3>
                   {group.checks.map((check) => (
                     <div
                       key={check.id}
-                      className="flex items-start gap-3 text-sm bg-background rounded p-3"
+                      className="flex items-start gap-3 rounded-2xl bg-background p-3 text-sm"
                     >
                       <div className="pt-0.5 shrink-0">
                         {check.status === 'pass' ? (
