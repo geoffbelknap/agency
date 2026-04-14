@@ -106,6 +106,9 @@ others.
 - Keep volatile `BUILD_ID` / `SOURCE_HASH` labels at the end of Dockerfiles
 - Do not reintroduce broad repo-root build contexts unless they are actually required
 - `workspace-base` and `python-base` exist to stabilize heavy shared layers; use that pattern when appropriate
+- Container topology must keep the canonical network names visible in docs and code:
+  `agency-gateway` for the internal bridge, `agency-egress-int` for mediated internal
+  egress access, and `agency-egress-ext` for external egress connectivity.
 
 Build and test commands:
 
