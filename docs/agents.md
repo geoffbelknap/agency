@@ -6,6 +6,10 @@ description: "An agent is an autonomous AI worker running inside an isolated con
 
 An agent is an autonomous AI worker running inside an isolated container. This page covers the full agent lifecycle — creating, configuring, starting, sending tasks, monitoring, and stopping agents.
 
+> Status: Core reference with a few experimental extensions called out inline.
+> The default `0.2.x` path is one operator working with one or a few agents
+> through direct messages.
+
 ## Creating an Agent
 
 ```bash
@@ -24,6 +28,9 @@ To create a specific agent type:
 agency create my-agent --type coordinator --preset coordinator
 agency create my-agent --type function --preset security-reviewer
 ```
+
+`coordinator` and `function` types are experimental relative to the default
+single-agent `0.2.x` path.
 
 See [Presets](/presets) for the full list of built-in presets.
 
@@ -227,6 +234,8 @@ agency list --active                    # Only running agents
 ```
 
 ## Missions
+
+Experimental. Missions are not part of the default `0.2.x` core workflow.
 
 Agents can be assigned missions — standing instructions that define their ongoing purpose. An agent with an active mission only wakes for matching triggers and @mentions, eliminating idle LLM calls.
 

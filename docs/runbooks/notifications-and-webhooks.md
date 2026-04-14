@@ -1,5 +1,9 @@
 # Notifications & Webhooks
 
+> Status: Experimental operator runbook. Notifications, inbound webhooks, and
+> broader event-bus subscriptions are not part of the default supported `0.2.x`
+> first-user path.
+
 ## Trigger
 
 Setting up operator alerting, configuring notification destinations, managing inbound webhooks, or troubleshooting event delivery.

@@ -1,5 +1,9 @@
 # Hub & Capabilities
 
+> Status: Experimental operator runbook. Hub lifecycle and broader capability
+> distribution remain outside the default supported `0.2.x` first-user path.
+> Core provider setup uses the built-in provider catalog and `agency quickstart`.
+
 ## Trigger
 
 Installing hub components, managing capabilities, configuring web-fetch, working with presets, or troubleshooting hub operations.

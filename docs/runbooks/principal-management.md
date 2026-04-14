@@ -1,5 +1,9 @@
 # Principal Management
 
+> Status: Internal operator runbook. Principal registry and authority-management
+> workflows are internal/admin-facing and are not part of the default supported
+> `0.2.x` first-user path.
+
 ## Trigger
 
 Managing the principal registry — creating, updating, suspending, or revoking principals. Understanding the authority hierarchy and permission model.
