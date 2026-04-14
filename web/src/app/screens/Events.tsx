@@ -161,50 +161,57 @@ export function Events() {
 
   return (
     <div className="space-y-6">
-      {/* Header row with filters */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Select value={sourceTypeFilter} onValueChange={setSourceTypeFilter}>
-          <SelectTrigger className="w-[140px] h-8 text-xs">
-            <SelectValue placeholder="All sources" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">All sources</SelectItem>
-            {SOURCE_TYPES.map((st) => (
-              <SelectItem key={st} value={st}>{st}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="rounded-2xl border border-border bg-card px-4 py-4 md:px-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-1">
+            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Event filters</div>
+            <p className="text-sm text-muted-foreground">Scope the operational feed by source, event type, or runtime owner.</p>
+          </div>
+          <div className="flex flex-1 flex-wrap items-center gap-2 lg:justify-end">
+            <Select value={sourceTypeFilter} onValueChange={setSourceTypeFilter}>
+              <SelectTrigger className="h-8 w-[140px] text-xs">
+                <SelectValue placeholder="All sources" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">All sources</SelectItem>
+                {SOURCE_TYPES.map((st) => (
+                  <SelectItem key={st} value={st}>{st}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-        <Select value={agentFilter} onValueChange={setAgentFilter}>
-          <SelectTrigger className="w-[160px] h-8 text-xs">
-            <SelectValue placeholder="All agents" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All agents</SelectItem>
-            {uniqueAgents.map((a) => (
-              <SelectItem key={a} value={a}>{a}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+            <Select value={agentFilter} onValueChange={setAgentFilter}>
+              <SelectTrigger className="h-8 w-[160px] text-xs">
+                <SelectValue placeholder="All agents" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All agents</SelectItem>
+                {uniqueAgents.map((a) => (
+                  <SelectItem key={a} value={a}>{a}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-        <input
-          type="text"
-          value={eventTypeFilter}
-          onChange={(e) => setEventTypeFilter(e.target.value)}
-          placeholder="Filter by event type..."
-          className="flex-1 min-w-0 sm:min-w-[180px] bg-card border border-border text-foreground rounded px-3 py-1 text-xs placeholder:text-muted-foreground/70 h-8"
-        />
+            <input
+              type="text"
+              value={eventTypeFilter}
+              onChange={(e) => setEventTypeFilter(e.target.value)}
+              placeholder="Filter by event type..."
+              className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-1 text-xs text-foreground placeholder:text-muted-foreground/70 sm:min-w-[200px]"
+            />
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={loadEvents}
-          disabled={loading}
-          className="h-8"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadEvents}
+              disabled={loading}
+              className="h-8"
+            >
+              <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
+        </div>
       </div>
 
       {error && (
@@ -214,7 +221,7 @@ export function Events() {
       )}
 
       {!loading && !error && attentionEvents.length > 0 && (
-        <div className="rounded-lg border border-amber-900/50 bg-amber-950/20 p-4">
+        <div className="rounded-2xl border border-amber-900/40 bg-amber-950/20 p-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="space-y-1">
               <div className="flex items-center gap-2 text-sm font-medium text-amber-300">
@@ -243,8 +250,20 @@ export function Events() {
         </div>
       )}
 
-      {/* Event feed */}
-      <div className="bg-card border border-border rounded overflow-hidden">
+      <div className="overflow-hidden rounded-2xl border border-border bg-card">
+        <div className="border-b border-border px-4 py-3">
+          <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h3 className="text-sm font-medium text-foreground">Event feed</h3>
+              <p className="text-xs text-muted-foreground">Recent runtime, connector, channel, and webhook activity with expandable payload detail.</p>
+            </div>
+            {!loading && !error && (
+              <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                {filteredEvents.length} item{filteredEvents.length !== 1 ? 's' : ''}
+              </div>
+            )}
+          </div>
+        </div>
         {loading ? (
           <div className="text-muted-foreground text-center py-8 text-sm">Loading events...</div>
         ) : filteredEvents.length === 0 ? (
@@ -257,37 +276,34 @@ export function Events() {
               return (
                 <Fragment key={event.id}>
                   <div
-                    className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-secondary/30 transition-colors"
+                    className="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-secondary/30"
                     onClick={() => toggleEvent(event.id)}
                   >
-                    {/* Severity dot */}
                     <span
-                      className={`flex-none w-1.5 h-1.5 rounded-full ${severityDotClass(event.event_type)}`}
+                      className={`h-1.5 w-1.5 flex-none rounded-full ${severityDotClass(event.event_type)}`}
                     />
-
-                    {/* Source name */}
-                    <span
-                      className="flex-none font-medium text-foreground text-xs truncate"
-                      style={{ maxWidth: 140 }}
-                      title={event.source_name || event.source_type}
-                    >
-                      {event.source_name || event.source_type}
-                    </span>
-
-                    {/* Event type */}
-                    <span className="flex-none text-xs text-muted-foreground">
-                      {event.event_type}
-                    </span>
-
-                    {/* Brief detail */}
+                    <div className="min-w-0 flex-none" style={{ maxWidth: 168 }}>
+                      <div
+                        className="truncate text-xs font-medium text-foreground"
+                        title={event.source_name || event.source_type}
+                      >
+                        {event.source_name || event.source_type}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">{event.source_type}</div>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-medium text-foreground">{event.event_type}</div>
+                      {detail ? (
+                        <div className="truncate text-xs text-muted-foreground/80">
+                          {detail}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-muted-foreground/60">No inline detail</div>
+                      )}
+                    </div>
                     {detail && (
-                      <span className="flex-1 min-w-0 text-xs text-muted-foreground/70 truncate">
-                        {detail}
-                      </span>
+                      <span className="sr-only">{detail}</span>
                     )}
-                    {!detail && <span className="flex-1" />}
-
-                    {/* Relative timestamp */}
                     <span className="flex-none text-xs text-muted-foreground/60 whitespace-nowrap">
                       {formatRelative(event.timestamp)}
                     </span>
@@ -295,8 +311,8 @@ export function Events() {
 
                   {/* Expanded detail */}
                   {isExpanded && (
-                    <div className="bg-secondary/20 px-4 py-3 space-y-3">
-                      <div className="rounded border border-amber-900/40 bg-amber-950/20 px-3 py-2 text-xs">
+                    <div className="space-y-3 bg-secondary/20 px-4 py-3">
+                      <div className="rounded-xl border border-amber-900/40 bg-amber-950/20 px-3 py-3 text-xs">
                         <div className="font-medium text-amber-300">Likely next step</div>
                         <div className="mt-1 text-muted-foreground">{eventRecoveryHint(event)}</div>
                         <div className="mt-2 flex flex-wrap gap-2">
@@ -312,16 +328,16 @@ export function Events() {
                       </div>
                       {event.data && Object.keys(event.data).length > 0 && (
                         <div>
-                          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">Data</div>
-                          <pre className="text-xs text-foreground/80 bg-background/60 border border-border rounded p-3 overflow-x-auto whitespace-pre-wrap break-words">
+                          <div className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Data</div>
+                          <pre className="overflow-x-auto rounded-xl border border-border bg-background/60 p-3 text-xs text-foreground/80 whitespace-pre-wrap break-words">
                             {JSON.stringify(event.data, null, 2)}
                           </pre>
                         </div>
                       )}
                       {event.metadata && Object.keys(event.metadata).length > 0 && (
                         <div>
-                          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">Metadata</div>
-                          <pre className="text-xs text-foreground/80 bg-background/60 border border-border rounded p-3 overflow-x-auto whitespace-pre-wrap break-words">
+                          <div className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Metadata</div>
+                          <pre className="overflow-x-auto rounded-xl border border-border bg-background/60 p-3 text-xs text-foreground/80 whitespace-pre-wrap break-words">
                             {JSON.stringify(event.metadata, null, 2)}
                           </pre>
                         </div>
@@ -339,10 +355,9 @@ export function Events() {
         )}
       </div>
 
-      {/* Subscriptions section */}
-      <div className="bg-card border border-border rounded">
+      <div className="rounded-2xl border border-border bg-card">
         <button
-          className="w-full flex items-center gap-2 p-4 text-left hover:bg-secondary/50 transition-colors"
+          className="flex w-full items-center gap-2 p-4 text-left transition-colors hover:bg-secondary/50"
           onClick={() => setSubsOpen((prev) => !prev)}
         >
           {subsOpen ? (
@@ -350,7 +365,10 @@ export function Events() {
           ) : (
             <ChevronRight className="w-4 h-4 text-muted-foreground" />
           )}
-          <span className="text-sm font-medium text-foreground">Active Subscriptions</span>
+          <div>
+            <div className="text-sm font-medium text-foreground">Active subscriptions</div>
+            <div className="text-xs text-muted-foreground">Current event bus subscribers and their live scopes.</div>
+          </div>
         </button>
         {subsOpen && (
           <div className="border-t border-border p-4">
