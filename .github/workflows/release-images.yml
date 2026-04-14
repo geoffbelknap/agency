@@ -8,6 +8,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/geoffbelknap
+  CACHE_PREFIX: ghcr.io/geoffbelknap/agency-buildcache
 
 permissions:
   contents: read
@@ -54,8 +55,8 @@ jobs:
           tags: |
             ${{ env.IMAGE_PREFIX }}/agency-python-base:v${{ steps.version.outputs.version }}
             ${{ env.IMAGE_PREFIX }}/agency-python-base:latest
-          cache-from: type=gha,scope=python-base
-          cache-to: type=gha,scope=python-base,mode=max
+          cache-from: type=registry,ref=${{ env.CACHE_PREFIX }}:python-base
+          cache-to: type=registry,ref=${{ env.CACHE_PREFIX }}:python-base,mode=max
 
   build-and-push:
     needs: build-python-base
@@ -124,8 +125,8 @@ jobs:
           tags: |
             ${{ env.IMAGE_PREFIX }}/agency-${{ matrix.image.name }}:v${{ steps.version.outputs.version }}
             ${{ env.IMAGE_PREFIX }}/agency-${{ matrix.image.name }}:latest
-          cache-from: type=gha,scope=${{ matrix.image.name }}
-          cache-to: type=gha,scope=${{ matrix.image.name }},mode=max
+          cache-from: type=registry,ref=${{ env.CACHE_PREFIX }}:${{ matrix.image.name }}
+          cache-to: type=registry,ref=${{ env.CACHE_PREFIX }}:${{ matrix.image.name }},mode=max
 
   build-and-push-web:
     runs-on: ubuntu-latest
@@ -166,5 +167,5 @@ jobs:
           tags: |
             ${{ env.IMAGE_PREFIX }}/agency-web:v${{ steps.version.outputs.version }}
             ${{ env.IMAGE_PREFIX }}/agency-web:latest
-          cache-from: type=gha,scope=web
-          cache-to: type=gha,scope=web,mode=max
+          cache-from: type=registry,ref=${{ env.CACHE_PREFIX }}:web
+          cache-to: type=registry,ref=${{ env.CACHE_PREFIX }}:web,mode=max
