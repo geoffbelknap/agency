@@ -340,7 +340,7 @@ export function Channels() {
 
   return (
     <>
-      <div className="flex h-full min-h-0">
+      <div className="flex h-full min-h-0 bg-background">
         <ChannelSidebar
           channels={channels}
           selectedChannel={selectedChannel}
@@ -403,7 +403,7 @@ export function Channels() {
             )}
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
             {loading ? 'Loading...' : 'No channels available'}
           </div>
         )}
