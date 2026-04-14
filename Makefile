@@ -1,4 +1,4 @@
-.PHONY: all build install deploy test clean images python-base \
+.PHONY: all build install deploy test clean images python-base workspace-base \
        body enforcer comms knowledge intake egress workspace web-fetch web relay \
        web-test-unit web-test-e2e web-test-all \
        e2e-live-web e2e-live-web-safe e2e-live-web-risky \
@@ -76,8 +76,13 @@ python-base:
 	@echo "Building agency-python-base..."
 	docker build -f $(IMAGE_DIR)/python-base/Dockerfile -t agency-python-base:latest $(IMAGE_DIR)/python-base
 
+workspace-base:
+	@echo "Building agency-workspace-base..."
+	docker build -f $(IMAGE_DIR)/workspace-base/Dockerfile -t agency-workspace-base:latest $(IMAGE_DIR)/workspace-base
+
 # Python service images depend on the shared base (egress excluded — uses mitmproxy)
 body comms knowledge intake: python-base
+workspace: workspace-base
 
 # Build all container images (core only; use `make images-all` to include web)
 images: $(CORE_IMAGES)
@@ -98,6 +103,7 @@ $(1):
 		docker build --build-arg BUILD_ID=$(BUILD_ID) \
 			-f $(IMAGE_DIR)/$(1)/Dockerfile -t agency-$(1):latest .,\
 		docker build --build-arg BUILD_ID=$(BUILD_ID) \
+			$$(if $$(filter workspace,$(1)),--build-arg WORKSPACE_BASE_IMAGE=agency-workspace-base:latest,) \
 			-f $(IMAGE_DIR)/$(1)/Dockerfile -t agency-$(1):latest $(IMAGE_DIR)/$(1)))
 endef
 
