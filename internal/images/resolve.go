@@ -33,6 +33,7 @@ var sourceImageDependencies = map[string][]string{
 	"comms":     {"python-base"},
 	"knowledge": {"python-base"},
 	"intake":    {"python-base"},
+	"workspace": {"workspace-base"},
 }
 
 // Resolve ensures the Docker image for the named service is available locally.
