@@ -18,6 +18,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/apiclient"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/daemon"
+	"github.com/geoffbelknap/agency/internal/providercatalog"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -566,26 +567,13 @@ func runQuickstart(opts quickstartOptions) error {
 		}
 	}
 
-	// Phase 3b: Hub sync + provider install
-	// After infra is up and credentials are stored, install the provider
-	// so routing.yaml and egress config are populated.
+	// Phase 3b: Install bundled provider routing into the local core config.
 	if providerName != "" {
-		if _, err := c.Post("/api/v1/hub/update", nil); err != nil {
-			fmt.Printf("  %s hub             update failed: %s\n", qsRed.Render("✗"), err)
-			return fmt.Errorf("hub update: %w", err)
+		if err := providercatalog.Install(cfg.Home, providerName); err != nil {
+			fmt.Printf("  %s provider        install failed: %s\n", qsRed.Render("✗"), err)
+			return fmt.Errorf("install provider routing: %w", err)
 		}
-		if _, err := c.Post("/api/v1/hub/install", map[string]interface{}{
-			"component": providerName,
-		}); err != nil {
-			if isHubInstallAlreadyExists(err) {
-				fmt.Printf("  %s hub             %s provider already installed\n", qsGreen.Render("✓"), providerName)
-			} else {
-				fmt.Printf("  %s hub             provider install failed: %s\n", qsRed.Render("✗"), err)
-				return fmt.Errorf("hub install provider: %w", err)
-			}
-		} else {
-			fmt.Printf("  %s hub             %s provider installed\n", qsGreen.Render("✓"), providerName)
-		}
+		fmt.Printf("  %s provider        %s routing installed\n", qsGreen.Render("✓"), providerName)
 	}
 
 	// Phase 4: Agent — create and start first agent

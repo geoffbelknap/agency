@@ -76,7 +76,6 @@ func TestRoutingConfigConfiguredRequiresUsableCredential(t *testing.T) {
 
 func TestListProvidersRecognizesEnvVarCredential(t *testing.T) {
 	tmp := t.TempDir()
-	writeHubProvider(t, tmp)
 	store := newTestCredStore(t, tmp)
 	if err := store.Put(credstore.Entry{
 		Name:  "GEMINI_API_KEY",
@@ -105,11 +104,21 @@ func TestListProvidersRecognizesEnvVarCredential(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(body) != 1 {
-		t.Fatalf("providers = %d, want 1: %#v", len(body), body)
+	if len(body) == 0 {
+		t.Fatalf("providers = %d, want at least 1: %#v", len(body), body)
 	}
-	if configured, _ := body[0]["credential_configured"].(bool); !configured {
-		t.Fatalf("credential_configured = false, want true: %#v", body[0])
+	foundGemini := false
+	for _, provider := range body {
+		if name, _ := provider["name"].(string); name != "gemini" {
+			continue
+		}
+		foundGemini = true
+		if configured, _ := provider["credential_configured"].(bool); !configured {
+			t.Fatalf("gemini credential_configured = false, want true: %#v", provider)
+		}
+	}
+	if !foundGemini {
+		t.Fatalf("expected bundled gemini provider in list: %#v", body)
 	}
 }
 
@@ -145,32 +154,5 @@ tiers:
 `)
 	if err := os.WriteFile(filepath.Join(dir, "routing.yaml"), data, 0644); err != nil {
 		t.Fatalf("write routing: %v", err)
-	}
-}
-
-func writeHubProvider(t *testing.T, home string) {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(`hub:
-  sources:
-    - name: default
-      url: https://github.com/geoffbelknap/agency-hub.git
-`), 0600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-	dir := filepath.Join(home, "hub-cache", "default", "providers", "gemini")
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		t.Fatalf("mkdir provider dir: %v", err)
-	}
-	data := []byte(`name: gemini
-display_name: Google Gemini
-description: Gemini models
-category: cloud
-credential:
-  name: gemini-api-key
-  label: API Key
-  env_var: GEMINI_API_KEY
-`)
-	if err := os.WriteFile(filepath.Join(dir, "provider.yaml"), data, 0644); err != nil {
-		t.Fatalf("write provider: %v", err)
 	}
 }

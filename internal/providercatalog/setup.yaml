@@ -1,0 +1,9 @@
+capability_tiers:
+  minimal:
+    display_name: Minimal
+    description: LLM access only. No external services.
+    capabilities: []
+  standard:
+    display_name: Standard
+    description: Recommended core defaults without experimental services.
+    capabilities: []

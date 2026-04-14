@@ -312,24 +312,10 @@ func RunInit(opts InitOptions) ([]KeyEntry, error) {
 		return nil, fmt.Errorf("write config: %w", err)
 	}
 
-	// Sync hub catalog (best-effort — don't fail init if hub is unreachable).
-	// This also syncs routing.yaml, services, and ontology from the hub.
-	syncHubCatalog(agencyHome)
-
 	// Generate credential-swaps.yaml (best-effort).
 	hub.WriteSwapConfig(agencyHome) //nolint:errcheck
 
 	return pendingKeys, nil
-}
-
-// syncHubCatalog pulls the latest hub source catalog so hub search works
-// immediately after init. Best-effort — failures are silently ignored.
-func syncHubCatalog(agencyHome string) {
-	if os.Getenv("AGENCY_SKIP_HUB_SYNC") == "1" {
-		return
-	}
-	mgr := hub.NewManager(agencyHome)
-	mgr.Update() //nolint:errcheck
 }
 
 func resolveAgencyHome() (string, error) {

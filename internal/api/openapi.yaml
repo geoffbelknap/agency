@@ -3213,13 +3213,13 @@ paths:
   /infra/providers:
     get:
       operationId: listProviders
-      summary: List configured LLM providers
+      summary: List available LLM providers for the core setup flow
       tags: [Infra]
       x-agency-tier: core
       x-agency-stability: supported
       responses:
         "200":
-          description: List of configured providers
+          description: List of available providers with install and credential status
           content:
             application/json:
               schema:
@@ -3227,6 +3227,30 @@ paths:
                 items:
                   type: object
                   additionalProperties: true
+  /infra/providers/{name}/install:
+    post:
+      operationId: installProvider
+      summary: Install a bundled provider routing definition into the local core config
+      tags: [Infra]
+      x-agency-tier: core
+      x-agency-stability: supported
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Provider name
+      responses:
+        "200":
+          description: Provider routing installed
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # ── Comms ────────────────────────────────────────────────────────────────
   /comms/channels:

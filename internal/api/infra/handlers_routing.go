@@ -2,14 +2,12 @@ package infra
 
 import (
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"gopkg.in/yaml.v3"
 
-	"github.com/geoffbelknap/agency/internal/hub"
 	"github.com/geoffbelknap/agency/internal/models"
+	"github.com/geoffbelknap/agency/internal/providercatalog"
 	"github.com/geoffbelknap/agency/internal/routing"
 )
 
@@ -126,15 +124,10 @@ func loadModelCosts(home string) map[string]routing.ModelCost {
 	return costs
 }
 
-// listProviders returns available LLM providers from the hub cache with credential status.
+// listProviders returns available bundled LLM providers with credential status.
 //
 //	GET /api/v1/infra/providers
 func (h *handler) listProviders(w http.ResponseWriter, r *http.Request) {
-	hubMgr := hub.NewManager(h.deps.Config.Home)
-
-	// Get all provider components from hub cache
-	available := hubMgr.Search("", "provider")
-
 	type providerResponse struct {
 		Name                 string `json:"name"`
 		DisplayName          string `json:"display_name"`
@@ -148,35 +141,30 @@ func (h *handler) listProviders(w http.ResponseWriter, r *http.Request) {
 		CredentialConfigured bool   `json:"credential_configured"`
 	}
 
-	// Check which providers are installed
-	installed := hubMgr.List()
-	installedNames := make(map[string]bool)
-	for _, inst := range installed {
-		if inst.Kind == "provider" {
-			installedNames[inst.DisplayName()] = true
+	installedProviders := map[string]bool{}
+	if rc := loadRoutingConfig(h.deps.Config.Home); rc != nil {
+		for name := range rc.Providers {
+			installedProviders[name] = true
 		}
 	}
 
+	available, err := providercatalog.List()
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "failed to load bundled providers"})
+		return
+	}
 	var results []providerResponse
-	for _, comp := range available {
-		data, err := os.ReadFile(comp.Path)
-		if err != nil {
-			continue
-		}
-		var doc map[string]interface{}
-		if yaml.Unmarshal(data, &doc) != nil {
-			continue
-		}
+	for _, doc := range available {
 
 		pr := providerResponse{
-			Name:        comp.Name,
-			DisplayName: strField(doc, "display_name"),
-			Description: comp.Description,
-			Category:    strField(doc, "category"),
-			Installed:   installedNames[comp.Name],
+			Name:        doc.Name,
+			DisplayName: doc.DisplayName,
+			Description: doc.Description,
+			Category:    doc.Category,
+			Installed:   installedProviders[doc.Name],
 		}
 
-		if cred, ok := doc["credential"].(map[string]interface{}); ok {
+		if cred := doc.Credential; cred != nil {
 			pr.CredentialName = strField(cred, "name")
 			pr.CredentialLabel = strField(cred, "label")
 			pr.APIKeyURL = strField(cred, "api_key_url")
@@ -193,7 +181,7 @@ func (h *handler) listProviders(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if routing, ok := doc["routing"].(map[string]interface{}); ok {
+		if routing := doc.Routing; routing != nil {
 			if abc, ok := routing["api_base_configurable"].(bool); ok {
 				pr.APIBaseConfigurable = abc
 			}
@@ -226,6 +214,22 @@ func (h *handler) credentialConfigured(name string) bool {
 	return false
 }
 
+// installProvider merges a bundled provider definition into routing.yaml.
+//
+//	POST /api/v1/infra/providers/{name}/install
+func (h *handler) installProvider(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(chi.URLParam(r, "name"))
+	if name == "" {
+		writeJSON(w, 400, map[string]string{"error": "provider name required"})
+		return
+	}
+	if err := providercatalog.Install(h.deps.Config.Home, name); err != nil {
+		writeJSON(w, 404, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]string{"status": "installed", "provider": name})
+}
+
 func credentialNameCandidates(name string) []string {
 	normalized := strings.ToLower(strings.ReplaceAll(name, "_", "-"))
 	if normalized == name {
@@ -234,30 +238,13 @@ func credentialNameCandidates(name string) []string {
 	return []string{name, normalized}
 }
 
-// setupConfig returns the wizard configuration (capability tiers) from the hub cache.
+// setupConfig returns the bundled wizard configuration (capability tiers).
 //
 //	GET /api/v1/infra/setup/config
 func (h *handler) setupConfig(w http.ResponseWriter, r *http.Request) {
-	hubMgr := hub.NewManager(h.deps.Config.Home)
-
-	setupComps := hubMgr.Search("", "setup")
-
-	if len(setupComps) == 0 {
-		writeJSON(w, 200, map[string]interface{}{
-			"capability_tiers": map[string]interface{}{},
-		})
-		return
-	}
-
-	data, err := os.ReadFile(setupComps[0].Path)
+	doc, err := providercatalog.SetupConfig()
 	if err != nil {
-		writeJSON(w, 500, map[string]string{"error": "failed to read setup config"})
-		return
-	}
-
-	var doc map[string]interface{}
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "failed to parse setup config"})
+		writeJSON(w, 500, map[string]string{"error": "failed to load setup config"})
 		return
 	}
 

@@ -958,6 +958,8 @@ export const api = {
 
   providers: {
     list: () => req<import('../types').Provider[]>('/infra/providers'),
+    install: (name: string) =>
+      req<OkResponse>(`/infra/providers/${encodeURIComponent(name)}/install`, { method: 'POST', body: '{}' }),
   },
 
   setup: {

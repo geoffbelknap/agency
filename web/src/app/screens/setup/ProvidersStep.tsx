@@ -78,7 +78,7 @@ export function ProvidersStep({
 
       if (!provider.installed) {
         try {
-          await api.hub.install(provider.name, 'provider');
+          await api.providers.install(provider.name);
         } catch (installErr: any) {
           if (!(installErr.message || '').includes('already exists')) {
             throw installErr;

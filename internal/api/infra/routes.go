@@ -60,6 +60,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	}
 
 	r.Get("/api/v1/infra/providers", h.listProviders)
+	r.Post("/api/v1/infra/providers/{name}/install", h.installProvider)
 	r.Get("/api/v1/infra/setup/config", h.setupConfig)
 }
 

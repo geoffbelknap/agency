@@ -1,0 +1,39 @@
+name: anthropic
+display_name: Anthropic
+description: Claude models — Opus, Sonnet, Haiku
+category: cloud
+credential:
+  name: anthropic-api-key
+  label: API Key
+  env_var: ANTHROPIC_API_KEY
+  api_key_url: https://console.anthropic.com/settings/keys
+routing:
+  api_base: https://api.anthropic.com/v1
+  auth_header: x-api-key
+  auth_prefix: ""
+  models:
+    claude-opus:
+      provider_model: claude-opus-4-20250514
+      capabilities: [tools, vision, streaming]
+      cost_per_mtok_in: 5.0
+      cost_per_mtok_out: 25.0
+      cost_per_mtok_cached: 0.50
+    claude-sonnet:
+      provider_model: claude-sonnet-4-20250514
+      capabilities: [tools, vision, streaming]
+      cost_per_mtok_in: 3.0
+      cost_per_mtok_out: 15.0
+      cost_per_mtok_cached: 0.30
+    claude-haiku:
+      provider_model: claude-haiku-4-5-20251001
+      capabilities: [tools, vision, streaming]
+      cost_per_mtok_in: 1.0
+      cost_per_mtok_out: 5.0
+      cost_per_mtok_cached: 0.10
+  tiers:
+    frontier: claude-opus
+    standard: claude-sonnet
+    fast: claude-haiku
+    mini: null
+    nano: null
+    batch: null
