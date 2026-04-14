@@ -59,6 +59,7 @@ jobs:
 
   build-and-push:
     needs: build-python-base
+    name: build-${{ matrix.image.name }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

@@ -1,10 +1,12 @@
-FROM golang:1.26-bookworm AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS builder
 WORKDIR /build
+ARG TARGETOS
+ARG TARGETARCH
 COPY go.mod go.sum ./
 RUN go mod download
 COPY *.go ./
 COPY consent ./consent
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /enforcer .
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-s -w" -o /enforcer .
 
 FROM debian:bookworm-slim
 ARG BUILD_ID=unknown
