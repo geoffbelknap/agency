@@ -52,7 +52,7 @@ describe('Usage', () => {
 
     renderWithRouter(<Usage />);
 
-    expect(await screen.findByText('Routing Suggestions')).toBeInTheDocument();
+    expect(await screen.findByText('Routing suggestions')).toBeInTheDocument();
     expect(screen.getByText('summarization')).toBeInTheDocument();
     expect(screen.getByText('claude-sonnet')).toBeInTheDocument();
     expect(screen.getByText('claude-haiku')).toBeInTheDocument();
@@ -110,7 +110,7 @@ describe('Usage', () => {
 
     renderWithRouter(<Usage />);
 
-    expect(await screen.findByText('Routing Model Stats')).toBeInTheDocument();
+    expect(await screen.findByText('Routing model stats')).toBeInTheDocument();
     expect(screen.getByText('summarization')).toBeInTheDocument();
     expect(screen.getByText('claude-haiku')).toBeInTheDocument();
     expect(screen.getByText('96%')).toBeInTheDocument();
