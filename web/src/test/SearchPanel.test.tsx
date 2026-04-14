@@ -28,7 +28,8 @@ describe('SearchPanel', () => {
 
   it('shows "Search messages..." empty state when no query', () => {
     render(<SearchPanel {...defaultProps} />);
-    expect(screen.getByText(/search messages\.\.\./i)).toBeInTheDocument();
+    expect(screen.getByText('Search messages')).toBeInTheDocument();
+    expect(screen.getByText(/use keywords, agent names, or decision text/i)).toBeInTheDocument();
   });
 
   it('shows "Search" header with close button', () => {

@@ -36,7 +36,7 @@ describe('ChannelItem', () => {
 
   it('applies active styling when active', () => {
     render(<ChannelItem channel={channel} active={true} onClick={() => {}} />);
-    expect(screen.getByRole('button')).toHaveClass('bg-accent/90');
+    expect(screen.getByRole('button')).toHaveClass('bg-accent/80');
   });
 
   it('calls onClick when clicked', () => {
