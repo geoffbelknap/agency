@@ -227,7 +227,7 @@ export function Infrastructure() {
       </div>
 
       {!loading && (unhealthyServices.length > 0 || (!hasRunningServices && services.length > 0)) && (
-        <div className="bg-card border border-border rounded p-4 space-y-3">
+        <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
           <div className="flex items-center gap-2 text-sm text-amber-400">
             <Activity className="w-4 h-4" />
             <span>
@@ -256,10 +256,10 @@ export function Infrastructure() {
         </div>
       )}
 
-      <div className="bg-card border border-border rounded overflow-hidden">
+      <div className="overflow-hidden rounded-2xl border border-border bg-card">
         <div className="px-4 py-3 border-b border-border">
-          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Host Capacity</h3>
-          <p className="text-[10px] text-muted-foreground/70 mt-0.5">Agent and meeseeks slot budget enforced by the runtime</p>
+          <h3 className="text-sm font-medium text-foreground">Host capacity</h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">Agent and meeseeks slot budget enforced by the runtime.</p>
         </div>
         {capacityLoading ? (
           <div className="px-4 py-6 text-sm text-muted-foreground text-center">Loading capacity...</div>
@@ -269,33 +269,33 @@ export function Infrastructure() {
           </div>
         ) : capacity && (
           <div className="p-4 space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
               <div>
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Slots Used</div>
+                <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Slots used</div>
                 <div className="text-lg font-semibold text-foreground">{usedSlots} / {capacity.max_agents}</div>
-                <div className="text-[10px] text-muted-foreground">{capacity.available_slots} available</div>
+                <div className="text-[11px] text-muted-foreground">{capacity.available_slots} available</div>
               </div>
               <div>
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Agents</div>
+                <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Agents</div>
                 <div className="text-lg font-semibold text-foreground">{capacity.running_agents}</div>
-                <div className="text-[10px] text-muted-foreground">{formatGB(capacity.agent_slot_mb)} each</div>
+                <div className="text-[11px] text-muted-foreground">{formatGB(capacity.agent_slot_mb)} each</div>
               </div>
               <div>
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Meeseeks</div>
+                <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Meeseeks</div>
                 <div className="text-lg font-semibold text-foreground">{capacity.running_meeseeks}</div>
-                <div className="text-[10px] text-muted-foreground">{capacity.max_concurrent_meesks} max concurrent</div>
+                <div className="text-[11px] text-muted-foreground">{capacity.max_concurrent_meesks} max concurrent</div>
               </div>
               <div>
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Memory</div>
+                <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Memory</div>
                 <div className="text-lg font-semibold text-foreground">{formatGB(capacity.host_memory_mb)}</div>
-                <div className="text-[10px] text-muted-foreground">{formatGB(capacity.system_reserve_mb + capacity.infra_overhead_mb)} reserved</div>
+                <div className="text-[11px] text-muted-foreground">{formatGB(capacity.system_reserve_mb + capacity.infra_overhead_mb)} reserved</div>
               </div>
               <div>
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Networks</div>
+                <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Networks</div>
                 <div className={capacity.network_pool_configured ? 'text-lg font-semibold text-green-400' : 'text-lg font-semibold text-amber-400'}>
                   {capacity.network_pool_configured ? 'Configured' : 'Default'}
                 </div>
-                <div className="text-[10px] text-muted-foreground">{capacity.host_cpu_cores} CPU cores</div>
+                <div className="text-[11px] text-muted-foreground">{capacity.host_cpu_cores} CPU cores</div>
               </div>
             </div>
             <div className="h-2 rounded bg-secondary overflow-hidden" aria-label={`Capacity ${capacityPercent(capacity)}% used`}>
@@ -306,7 +306,11 @@ export function Infrastructure() {
       </div>
 
       {/* Services Table */}
-      <div className="bg-card border border-border rounded overflow-hidden">
+      <div className="overflow-hidden rounded-2xl border border-border bg-card">
+        <div className="px-4 py-3 border-b border-border">
+          <h3 className="text-sm font-medium text-foreground">Infrastructure services</h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">Runtime service state and safe recovery actions.</p>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[480px]">
             <thead>
