@@ -1,4 +1,4 @@
-FROM ollama/ollama:0.9.3
+FROM ollama/ollama:0.9.3@sha256:45008241d61056449dd4f20cebf64bfa5a2168b0c078ecf34aa2779760502c2f
 
 ARG BUILD_ID=unknown
 ARG SOURCE_HASH=unknown
