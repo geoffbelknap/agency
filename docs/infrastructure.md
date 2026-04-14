@@ -6,6 +6,11 @@ description: "Agency runs shared infrastructure that all agents use. This page c
 
 Agency runs shared infrastructure that all agents use. This page covers what each component does, how to manage it, and how to troubleshoot problems.
 
+> Status: Mixed reference. The default `0.2.x` core stack is egress, comms,
+> knowledge, per-agent enforcers, and the web UI. `web-fetch`, `intake`, and
+> similar optional services are experimental and are not part of the default
+> first-user path.
+
 ## Components
 
 ### Egress Proxy
@@ -19,6 +24,8 @@ The egress proxy is the only component that holds real API keys. It sits between
 Built on mitmproxy. Credentials are resolved from the gateway's encrypted credential store via a dedicated Unix socket (`~/.agency/run/gateway-cred.sock`), mounted only into the egress container. The `SocketKeyResolver` handles credential lookups at request time, so real API keys never touch any container except egress and never traverse a Docker network. See [Credentials](credentials.md) for the operator guide.
 
 ### Web-Fetch Service
+
+Experimental relative to the default `0.2.x` core path.
 
 Shared infrastructure for agents to fetch and read web pages:
 
@@ -52,6 +59,8 @@ Runs on container port 8080. The host-side gateway reaches it via localhost brid
 
 ### Intake Service
 
+Experimental relative to the default `0.2.x` core path.
+
 External work source management:
 
 - **Webhook receiver** — HTTP listener for incoming webhook events
@@ -80,6 +89,15 @@ Each agent gets its own Go HTTP proxy (32MB):
 - **Credential-free** — No API keys; forwards to egress for credential injection
 - **Config delivery** — Serves hot-reloadable config files via `/config/{filename}` on port 8081
 
+### Web UI
+
+The web UI is part of the core operator path:
+
+- **Setup flow** — Guided first-run provider and platform setup
+- **Direct-message workflow** — Primary default way to work with agents
+- **Activity and audit visibility** — Status, history, and operator inspection
+- **Core-only default navigation** — Experimental sections stay hidden unless explicitly enabled
+
 ## Managing Infrastructure
 
 ### Start
@@ -88,7 +106,9 @@ Each agent gets its own Go HTTP proxy (32MB):
 agency infra up
 ```
 
-Builds container images (if needed) and starts all shared infrastructure. This happens automatically on the first `agency start` if infrastructure isn't running.
+Builds container images (if needed) and starts the default shared
+infrastructure. This happens automatically on the first `agency start` if
+infrastructure isn't running.
 
 ### Stop
 
@@ -104,7 +124,8 @@ Stops all shared infrastructure. Running agents will lose access to comms and eg
 agency infra rebuild
 ```
 
-Rebuilds all infrastructure container images. Use after updating Agency to pick up changes to the comms, egress, or knowledge services.
+Rebuilds infrastructure container images. Use after updating Agency to pick up
+changes to the shared services you have enabled.
 
 ### Status
 
@@ -134,8 +155,8 @@ Agency uses four network layers:
 | Network | Connects | Purpose |
 |---------|----------|---------|
 | `agent-{name}-internal` | workspace ↔ enforcer | Per-agent isolation |
-| `agency-gateway` | gateway-proxy ↔ comms/knowledge/intake/web-fetch/enforcers/egress | Gateway mediation and service discovery (`gateway:8200`) |
-| `agency-egress-int` | enforcers/knowledge/intake/web-fetch ↔ egress | Internal outbound mediation |
+| `agency-gateway` | gateway-proxy ↔ comms/knowledge/web/enforcers/egress plus optional services | Gateway mediation and service discovery (`gateway:8200`) |
+| `agency-egress-int` | enforcers/knowledge plus optional outbound services ↔ egress | Internal outbound mediation |
 | `agency-egress-ext` | egress ↔ internet | Outbound internet access |
 
 This topology ensures:

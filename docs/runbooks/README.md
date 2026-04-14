@@ -2,6 +2,10 @@
 
 Procedural guides for operating the Agency platform. Each runbook follows a consistent format: trigger condition, steps, verification, rollback.
 
+Status note:
+- runbooks without a qualifier apply to the supported core `0.2.x` path
+- some runbooks cover experimental or internal operator workflows and are marked explicitly on the page
+
 ## Index
 
 ### Setup & Maintenance

@@ -1,5 +1,9 @@
 # Routing & Providers
 
+> Status: Mixed operator runbook. Basic provider setup, model tiering, and
+> routing configuration are part of the supported `0.2.x` path. Routing
+> optimizer suggestions and approval workflows are experimental.
+
 ## Trigger
 
 Adding LLM providers, configuring model tiers, reviewing routing optimizer suggestions, or troubleshooting model routing.
@@ -19,10 +23,11 @@ Agency supports five first-class providers:
 ### Adding a provider via setup
 
 ```bash
-agency setup
+agency quickstart
 ```
 
-The setup wizard prompts for provider and API key. Stores the key in the encrypted credential store.
+The quickstart flow prompts for provider and API key and stores the key in the
+encrypted credential store.
 
 ### Adding a provider manually
 
@@ -76,7 +81,9 @@ The enforcer validates that the target model supports what the request needs. On
 
 ### Hub-managed config
 
-`routing.yaml` is managed by the hub and overwritten on `agency hub update`. Do not edit directly.
+The base provider catalog ships with Agency. Generated routing config should be
+treated as managed data; put local changes in the operator override file rather
+than editing generated config directly.
 
 ### Operator overrides
 

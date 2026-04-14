@@ -6,6 +6,10 @@ description: "This page explains the key ideas behind Agency. Understanding thes
 
 This page explains the key ideas behind Agency. Understanding these concepts makes everything else click.
 
+> Status: Core reference. This page describes the default `0.2.x` core Agency
+> path first. Experimental surfaces such as teams, packs, connectors, and
+> missions are called out inline where they appear.
+
 ## The Big Picture
 
 Agency is a platform where **you** (the operator) manage **agents** that do work. Each agent runs inside an isolated container — it has its own workspace, identity, and constraints. The platform enforces security boundaries between agents, and between agents and the outside world.
@@ -18,7 +22,7 @@ You (operator)
     ▼
 Agency Platform
     │
-    ├── Shared Infrastructure (egress, comms, knowledge, intake)
+    ├── Shared Infrastructure (egress, comms, knowledge, web)
     │
     └── Per-Agent Containers
         ├── Agent A (engineer, working on code)
@@ -50,8 +54,8 @@ Tasks come through DMs (`agency send <agent> <message>`) or channel messages rou
 | Type | Purpose | Example |
 |------|---------|---------|
 | **Standard** | Does the actual work — writes code, analyzes data, writes docs | engineer, analyst, writer |
-| **Coordinator** | Breaks tasks into pieces and delegates to other agents | coordinator |
-| **Function** | Oversight role — can inspect other agents' workspaces and halt them | security-reviewer, compliance-auditor |
+| **Coordinator** | Experimental multi-agent coordination role | coordinator |
+| **Function** | Experimental oversight role for broader team workflows | security-reviewer, compliance-auditor |
 
 ## Presets
 
@@ -175,14 +179,16 @@ See [Connectors and Intake](/connectors-and-intake) for more.
 
 ## Infrastructure
 
-Agency runs shared infrastructure that all agents use:
+Agency runs shared infrastructure that all agents use. The default `0.2.x`
+core path centers on egress, comms, knowledge, per-agent enforcers, and the
+web UI. Other services remain optional or experimental.
 
 | Component | Role |
 |-----------|------|
 | **Egress** | Proxy between agents and the internet. Handles credential swap — real API keys are injected here, not in agent containers. |
-| **Analysis** | XPIA (prompt injection) scanning, budget tracking, rate limiting. |
 | **Comms** | Channel-based messaging service with full-text search. |
 | **Knowledge** | Organizational knowledge graph — compounds over time from agent communications. |
+| **Web** | Operator UI for setup, direct-message workflow, activity, and audit visibility. |
 | **Intake** | Receives external work from connectors and routes it to agents. Experimental relative to the `0.2.x` core path. |
 
 All of this runs on a mediation network that agents access through their enforcer sidecar — never directly.

@@ -6,6 +6,10 @@ description: "Quick definitions for every term you'll encounter in Agency."
 
 Quick definitions for every term you'll encounter in Agency.
 
+> Status key: terms described without a qualifier are part of the supported
+> core `0.2.x` path. Terms labeled experimental or internal refer to surfaces
+> that are gated, optional, or intended mainly for operator/platform work.
+
 ---
 
 **Agent** — An AI worker that runs inside an isolated container. Each agent has a name, a role (defined by its preset), a workspace where it does its work, and constraints that limit what it can do. Agents work autonomously on tasks you assign them.
@@ -32,7 +36,9 @@ Quick definitions for every term you'll encounter in Agency.
 
 **Egress proxy** — The only component that holds real API keys. Sits between agents and the internet, swapping scoped tokens for real credentials. Agents never see actual keys.
 
-**Event bus** — Unified event routing system in the gateway. Sources include connectors, channels, schedules, webhooks, and platform events. Subscriptions are derived from missions and notification config. At-most-once delivery with a 1000-event ring buffer.
+**Event bus** — The gateway's event-driven routing layer. Core Agency uses it
+for DM, agent wake/react behavior, and platform events. Broader connector,
+mission, and notification workflows built on top of it remain experimental.
 
 **Enforcer** — A lightweight proxy (written in Go, 32MB) that sits in front of each agent. Routes LLM calls, enforces domain rules, performs XPIA scanning, tracks budgets, enforces rate limits, runs trajectory monitoring, and logs everything. The enforcer has no credentials itself — it forwards to the egress proxy.
 
@@ -46,7 +52,11 @@ Quick definitions for every term you'll encounter in Agency.
 
 **Identity** — A document (`identity.md`) that defines who an agent is — its purpose, working style, and behavioral guidelines. Think of it as the agent's personality and professional orientation.
 
-**Infrastructure** — The shared services that all agents use: egress proxy (internet access), comms (messaging), knowledge (organizational memory), and intake (external work sources). Intake remains outside the default `0.2.x` core path. XPIA scanning and budget tracking are handled by the enforcer.
+**Infrastructure** — The shared services that all agents use: egress proxy
+(internet access), comms (messaging), knowledge (organizational memory), web
+(operator UI), and per-agent enforcers. Intake, web-fetch, and other optional
+services remain outside the default `0.2.x` core path. XPIA scanning and budget
+tracking are handled by the enforcer.
 
 **Intake** — An experimental service that receives work from connectors and routes it to agents or teams. Manages a queue of work items with state tracking.
 
@@ -86,7 +96,8 @@ Quick definitions for every term you'll encounter in Agency.
 
 **Trajectory monitoring** — Enforcer-side pattern detection for stuck or looping agents. A sliding window of 50 tool calls is analyzed by detectors for tool repetition, tool cycles, error cascades, budget velocity, and progress stalls. Anomalies are emitted to the audit log and gateway event bus. Always on with zero LLM cost.
 
-**Trust** — A score (1-5) that Agency tracks for each agent based on observed behavior. Low trust triggers automatic restrictions. Operators can manually adjust trust levels.
+**Trust** — An experimental governance/admin surface for tracking agent trust
+levels and restrictions. It is not part of the default `0.2.x` first-user path.
 
 **Workspace** — The `/workspace` directory inside an agent's container where it does all its work. Files created here are accessible from the host at `~/.agency/agents/<name>/workspace-data/`.
 

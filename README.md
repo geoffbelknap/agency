@@ -71,10 +71,7 @@ Agency is built around them first.
 
 **You'll need:**
 
-- [Docker](https://docs.docker.com/get-docker/) installed and running
-- an API key from [Anthropic](https://console.anthropic.com),
-  [OpenAI](https://platform.openai.com), or
-  [Google](https://aistudio.google.com)
+- [Docker](https://docs.docker.com/get-docker/) installed
 
 > **Windows:** Install
 > [Docker Desktop](https://docs.docker.com/desktop/install/windows-install/)

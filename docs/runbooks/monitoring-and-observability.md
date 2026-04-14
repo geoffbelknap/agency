@@ -1,5 +1,9 @@
 # Monitoring & Observability
 
+> Status: Mixed operator runbook. Core signal, audit, and trajectory-monitoring
+> workflows are part of the supported `0.2.x` path. Meeseeks, notification
+> integrations, and some broader observability surfaces remain experimental.
+
 ## Trigger
 
 Understanding agent behavior, investigating anomalies, tuning trajectory monitoring, interpreting signals, managing meeseeks, or debugging semantic cache behavior.

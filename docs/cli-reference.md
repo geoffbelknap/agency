@@ -6,12 +6,19 @@ description: "Complete command reference for the agency CLI, with agent operatio
 
 Complete command reference for the `agency` CLI. All commands follow a Docker-style layout — agent operations are top-level, related operations are grouped into subcommands.
 
+> Status: Mixed reference. The supported `0.2.x` core CLI path centers on
+> `quickstart`, agent lifecycle, DM workflow, comms, credentials, policy,
+> infrastructure, and core admin commands. Commands for teams, missions, hub,
+> intake, notifications, and similar broader surfaces are experimental unless
+> explicitly enabled.
+
 ## Setup
 
 ```bash
 agency init                              # Initialize ~/.agency/
-agency init --api-key $KEY               # Initialize with API key
 agency init --operator <name>            # Named operator identity
+agency quickstart                        # Guided first-run core setup
+agency quickstart --no-docker-start      # Skip Docker auto-start attempt
 ```
 
 ## Agent Lifecycle
@@ -31,6 +38,9 @@ agency resume <name>                     # Resume stopped agent
 agency restart <name>                    # Full teardown + restart
 agency delete <name>                     # Delete agent (must be stopped)
 ```
+
+`coordinator` and `function` agent types remain experimental relative to the
+default single-agent `0.2.x` path.
 
 ## Tasks and Observation
 
@@ -81,6 +91,8 @@ agency comms search "<query>" --channel <name>  # Search specific channel
 
 ## Teams
 
+Experimental.
+
 ```bash
 agency team create <name>                # Create a team
 agency team list                         # List all teams
@@ -112,6 +124,8 @@ agency policy exception grant <name> ... # Grant exception delegation
 
 ## Deploy and Teardown
 
+Experimental pack/deployment workflow.
+
 ```bash
 agency deploy <pack.yaml>               # Deploy a pack
 agency teardown <pack-name>             # Tear down a deployed pack
@@ -119,12 +133,17 @@ agency teardown <pack-name>             # Tear down a deployed pack
 
 ## Intake
 
+Experimental.
+
 ```bash
 agency intake items                      # List work items
 agency intake stats                      # Intake statistics
 ```
 
 ## Hub
+
+Experimental broader distribution and registry surface. Core provider setup uses
+the built-in provider catalog and `agency quickstart`.
 
 ```bash
 agency hub search <query>                # Search available components
@@ -151,6 +170,8 @@ agency infra reload                      # Hot-reload configurations
 
 ## Notifications
 
+Experimental.
+
 ```bash
 agency notify list                       # List notification destinations
 agency notify add <name> --url <url>     # Add notification destination
@@ -173,6 +194,8 @@ agency admin department show <name>      # Department details
 agency admin egress show <name>          # Egress rules for agent
 agency admin destroy --yes               # Remove everything (preserves knowledge)
 ```
+
+`trust` and `department` admin commands are experimental governance surfaces.
 
 ## Evaluation
 

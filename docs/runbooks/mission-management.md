@@ -1,5 +1,8 @@
 # Mission Management
 
+> Status: Experimental operator runbook. Missions are not part of the default
+> supported `0.2.x` first-user path.
+
 ## Trigger
 
 Creating, configuring, assigning, or troubleshooting agent missions. Missions are standing instructions that define what an agent does, how it operates, and what success looks like.

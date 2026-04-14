@@ -1,5 +1,10 @@
 # Knowledge Management
 
+> Status: Mixed operator runbook. Core graph query, stats, export, ingest, and
+> retrieval workflows are part of the supported `0.2.x` path. Ontology,
+> quarantine, communities, review, and broader governance flows are
+> experimental.
+
 ## Trigger
 
 Ingesting content into the knowledge graph, managing classification tiers, reviewing ontology, handling quarantine/release, or troubleshooting graph issues.
