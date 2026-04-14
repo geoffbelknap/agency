@@ -10,13 +10,13 @@ RUN useradd -m -s /bin/sh -u 61000 bodyuser && \
     mkdir -p /workspace && chown bodyuser:bodyuser /workspace
 
 # Shared logging infrastructure (auto-configures via sitecustomize.py)
-COPY images/logging_config.py /app/logging_config.py
-COPY images/_sitecustomize.py /app/sitecustomize.py
+COPY --from=shared logging_config.py /app/logging_config.py
+COPY --from=shared _sitecustomize.py /app/sitecustomize.py
 
 ARG CACHE_BUST=0
-COPY images/body/*.py /app/
+COPY *.py /app/
 RUN rm -f /app/test_*.py /app/*_test.py
-COPY images/body/entrypoint.sh /app/entrypoint.sh
+COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod 0644 /app/*.py /app/logging_config.py /app/sitecustomize.py && \
     chmod 0755 /app/entrypoint.sh
 

@@ -68,16 +68,16 @@ jobs:
         image:
           # Repo-context images: need repo root for shared models/logging
           - name: comms
-            context: .
+            context: images/comms
             dockerfile: images/comms/Dockerfile
           - name: knowledge
-            context: .
+            context: images/knowledge
             dockerfile: images/knowledge/Dockerfile
           - name: body
-            context: .
+            context: images/body
             dockerfile: images/body/Dockerfile
           - name: egress
-            context: .
+            context: images/egress
             dockerfile: images/egress/Dockerfile
           # Self-contained images: build context is their own directory
           - name: enforcer
@@ -114,6 +114,8 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.image.context }}
+          build-contexts: |
+            shared=images
           file: ${{ matrix.image.dockerfile }}
           platforms: linux/amd64,linux/arm64
           push: true
