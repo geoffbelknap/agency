@@ -87,6 +87,7 @@ export function Admin() {
   const isMobile = useIsMobile();
   const activeTab = urlTab && VALID_TABS.has(urlTab) ? urlTab : 'infrastructure';
   const activeSection = TAB_INDEX.get(activeTab) ?? TAB_INDEX.get('infrastructure')!;
+  const activeGroup = TAB_GROUPS.find((group) => group.label === activeSection.group) ?? TAB_GROUPS[0];
 
   const handleTabChange = useCallback((value: string) => {
     navigate(`/admin/${value}`, { replace: true });
@@ -215,83 +216,100 @@ export function Admin() {
   }, [policyAgent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="border-b border-border px-4 md:px-8 py-4">
-        <h1 className="text-xl text-foreground">Admin</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Security, governance, and operations
-        </p>
+    <div className="flex h-full flex-col bg-background">
+      <div className="border-b border-border bg-surface-alt/70 px-4 py-5 md:px-8">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div className="space-y-2">
+            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              Administrative surfaces
+            </p>
+            <div>
+              <h1 className="text-2xl text-foreground">Admin</h1>
+              <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+                Security, governance, runtime controls, and operational evidence for the local Agency environment.
+              </p>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-border bg-card px-4 py-3 xl:max-w-sm">
+            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              Current section
+            </p>
+            <div className="mt-2 text-lg font-medium text-foreground">{activeSection.label}</div>
+            <p className="mt-1 text-sm text-muted-foreground">{activeSection.description}</p>
+          </div>
+        </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 p-4 md:p-8 overflow-auto">
+      <div className="flex-1 overflow-auto px-4 py-5 md:px-8 md:py-8">
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
-          <div className="rounded-2xl border border-border bg-card px-4 py-4 md:px-5">
-            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-              <div className="space-y-2">
-                <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+          <section className="rounded-3xl border border-border bg-card px-4 py-4 md:px-5">
+            <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+              <div className="max-w-2xl">
+                <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                   {activeSection.group}
                 </div>
-                <div>
-                  <h2 className="text-lg font-medium text-foreground">{activeSection.label}</h2>
-                  <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-                    {activeSection.description}
-                  </p>
-                </div>
+                <h2 className="mt-2 text-xl text-foreground">{activeSection.label}</h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {activeSection.description}
+                </p>
               </div>
-              <div className="rounded-xl bg-secondary px-3 py-2 text-xs text-muted-foreground md:max-w-xs">
+              <div className="rounded-2xl bg-secondary/70 px-4 py-3 text-sm text-muted-foreground xl:max-w-sm">
                 {activeSection.groupDescription}
               </div>
             </div>
-          </div>
+          </section>
 
           {isMobile && (
-          <div className="space-y-2">
-            <label htmlFor="admin-section" className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              Section
-            </label>
-            <select
-              id="admin-section"
-              value={activeTab}
-              onChange={(e) => handleTabChange(e.target.value)}
-              className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm text-foreground"
-            >
-              {TAB_GROUPS.map((group) => (
-                <optgroup key={group.label} label={group.label}>
-                  {group.tabs.map((tab) => (
-                    <option key={tab.value} value={tab.value}>{tab.label}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-            <p className="text-xs text-muted-foreground">
-              {activeSection.group}: {activeSection.description}
-            </p>
-          </div>
+            <div className="space-y-2">
+              <label htmlFor="admin-section" className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                Section
+              </label>
+              <select
+                id="admin-section"
+                value={activeTab}
+                onChange={(e) => handleTabChange(e.target.value)}
+                className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm text-foreground"
+              >
+                {TAB_GROUPS.map((group) => (
+                  <optgroup key={group.label} label={group.label}>
+                    {group.tabs.map((tab) => (
+                      <option key={tab.value} value={tab.value}>{tab.label}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              <p className="text-sm text-muted-foreground">
+                {activeSection.group}: {activeSection.description}
+              </p>
+            </div>
           )}
 
-          <div className={`${isMobile ? 'hidden' : 'grid'} gap-3 xl:grid-cols-2`}>
+          <div className={`${isMobile ? 'hidden' : 'space-y-4'}`}>
             {TAB_GROUPS.map((group) => (
-              <div key={group.label} className="rounded-2xl border border-border bg-card p-3">
-                <div className="mb-3 px-1">
-                  <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                    {group.label}
+              <section key={group.label} className="rounded-2xl border border-border/80 bg-card px-4 py-4">
+                <div className="mb-3 flex flex-col gap-2 xl:flex-row xl:items-baseline xl:justify-between">
+                  <div>
+                    <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                      {group.label}
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">{group.description}</div>
                   </div>
-                  <div className="mt-1 text-xs text-muted-foreground">{group.description}</div>
+                  {group.label === activeGroup.label && (
+                    <div className="text-sm font-medium text-foreground">Current focus: {activeSection.label}</div>
+                  )}
                 </div>
-                <TabsList className="h-auto w-full flex-wrap justify-start gap-1.5 bg-transparent p-0">
+                <TabsList className="h-auto w-full flex-wrap justify-start gap-2 bg-transparent p-0">
                   {group.tabs.map((tab) => (
                     <TabsTrigger
                       key={tab.value}
                       value={tab.value}
-                      className={tab.value === 'danger' ? 'text-red-400 data-[state=active]:text-red-300' : ''}
+                      className={tab.value === 'danger' ? 'text-red-500 data-[state=active]:text-red-600 dark:text-red-300 dark:data-[state=active]:text-red-200' : ''}
                     >
                       {tab.label}
                     </TabsTrigger>
                   ))}
                 </TabsList>
-              </div>
+              </section>
             ))}
           </div>
 
@@ -310,14 +328,14 @@ export function Admin() {
           <TabsContent value="egress"><Suspense fallback={LAZY_FALLBACK}><AdminEgress /></Suspense></TabsContent>
 
           <TabsContent value="setup">
-            <div className="text-center py-12 space-y-4">
+            <div className="space-y-4 rounded-3xl border border-border bg-card px-6 py-10 text-center">
               <h3 className="text-lg font-medium text-foreground">Re-run Setup Wizard</h3>
               <p className="text-sm text-muted-foreground max-w-md mx-auto">
                 Walk through platform configuration again — update providers, capabilities, and agent settings.
               </p>
               <button
                 onClick={() => navigate('/setup')}
-                className="px-4 py-2 bg-foreground text-background rounded text-sm font-medium hover:opacity-90 transition-opacity"
+                className="rounded-xl bg-foreground px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-90"
               >
                 Open Setup Wizard
               </button>
