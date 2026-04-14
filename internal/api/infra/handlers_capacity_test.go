@@ -11,6 +11,24 @@ import (
 	"github.com/geoffbelknap/agency/internal/config"
 )
 
+func TestCapacity_UsesRuntimeContainerLabels(t *testing.T) {
+	workspace := workspaceCapacityFilters()
+	if !workspace.MatchKVList("label", map[string]string{"agency.type": "workspace"}) {
+		t.Fatal("workspace capacity filters should match agency.type=workspace")
+	}
+	if workspace.MatchKVList("label", map[string]string{"agency.role": "workspace"}) {
+		t.Fatal("workspace capacity filters should not use legacy agency.role label")
+	}
+
+	meeseeks := meeseeksCapacityFilters()
+	if !meeseeks.MatchKVList("label", map[string]string{"agency.type": "meeseeks-workspace"}) {
+		t.Fatal("meeseeks capacity filters should match agency.type=meeseeks-workspace")
+	}
+	if meeseeks.MatchKVList("label", map[string]string{"agency.role": "meeseeks"}) {
+		t.Fatal("meeseeks capacity filters should not use legacy agency.role label")
+	}
+}
+
 func TestCapacity_MissingFile(t *testing.T) {
 	tmp := t.TempDir()
 	h := &handler{deps: Deps{
