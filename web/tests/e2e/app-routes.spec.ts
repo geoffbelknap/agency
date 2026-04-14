@@ -39,7 +39,7 @@ test.describe('Agency app routes', () => {
 
     await page.getByRole('link', { name: /admin/i }).click();
     await expect(page.getByRole('heading', { name: 'Admin' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Infrastructure' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Infrastructure', exact: true })).toBeVisible();
     await expect(page.getByText('gateway', { exact: true })).toBeVisible();
   });
 
