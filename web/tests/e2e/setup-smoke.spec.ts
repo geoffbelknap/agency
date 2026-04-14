@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('setup wizard can advance past hub sync into welcome', async ({ page }) => {
+test('setup wizard can advance past platform readiness into welcome', async ({ page }) => {
   await page.route('**/__agency/config', async (route) => {
     await route.fulfill({
       status: 200,
@@ -9,24 +9,24 @@ test('setup wizard can advance past hub sync into welcome', async ({ page }) => 
     });
   });
 
-  await page.route('**/api/v1/hub/update', async (route) => {
+  await page.route('**/api/v1/infra/status', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ ok: true }),
+      body: JSON.stringify({ version: '0.2.1', build_id: 'test-build', components: [] }),
     });
   });
 
-  await page.route('**/api/v1/hub/upgrade', async (route) => {
+  await page.route('**/api/v1/infra/routing/config', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ components: [] }),
+      body: JSON.stringify({ configured: false, version: 'test-build' }),
     });
   });
 
   await page.goto('/setup');
-
+  await expect(page.getByRole('heading', { name: 'Prepare the workspace' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Welcome to Agency' })).toBeVisible();
   const nameInput = page.getByPlaceholder('operator');
   await expect(nameInput).toBeVisible();

@@ -149,8 +149,8 @@ describe('Overview', () => {
     renderWithRouter(<Overview />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByText(/create a research agent, then open its dm/i)).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'Create research agent' })).toHaveAttribute('href', '/agents');
+      expect(screen.getByText(/create your first agent, then open its dm/i)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Create first agent' })).toHaveAttribute('href', '/agents');
       expect(screen.getByRole('link', { name: 'Review providers' })).toHaveAttribute('href', '/setup');
     });
   });

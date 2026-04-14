@@ -3,13 +3,14 @@ import { Hash, Brain, DatabaseZap, RefreshCw } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { type RawChannel, type RawEconomicsResponse, type RawMeeseeks } from '../../lib/api';
 import { formatDateTimeShort } from '../../lib/time';
+import { featureEnabled } from '../../lib/features';
 
 type OperationsSubTab = 'channels' | 'knowledge' | 'meeseeks' | 'economics';
 
-const OPERATIONS_TABS: { id: OperationsSubTab; label: string }[] = [
+const ALL_OPERATIONS_TABS: { id: OperationsSubTab; label: string; feature?: 'meeseeks' }[] = [
   { id: 'channels', label: 'Channels' },
   { id: 'knowledge', label: 'Knowledge' },
-  { id: 'meeseeks', label: 'Meeseeks' },
+  { id: 'meeseeks', label: 'Meeseeks', feature: 'meeseeks' },
   { id: 'economics', label: 'Economics' },
 ];
 
@@ -243,10 +244,12 @@ function MeeseeksContent({ agentName, meeseeksList, refreshMeeseeks, handleKillM
 }
 
 export function AgentOperationsTab({ agentName, channels, knowledge, meeseeksList, economics, refreshMeeseeks, handleKillMeeseeks, handleKillAllMeeseeks, handleClearCache, subTab, onSubTabChange }: Props) {
+  const operationsTabs = ALL_OPERATIONS_TABS.filter((tab) => !tab.feature || featureEnabled(tab.feature));
+
   return (
     <div className="flex flex-col h-full">
       <div role="tablist" className="flex gap-2 px-2 py-1 border-b border-border">
-        {OPERATIONS_TABS.map((t) => (
+        {operationsTabs.map((t) => (
           <button key={t.id} role="tab" aria-selected={subTab === t.id} aria-controls={`ops-panel-${t.id}`} onClick={() => onSubTabChange(t.id)}
             className={`text-xs px-2 py-1 rounded transition-colors ${
               subTab === t.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'
@@ -258,7 +261,7 @@ export function AgentOperationsTab({ agentName, channels, knowledge, meeseeksLis
       <div role="tabpanel" id={`ops-panel-${subTab}`} className="flex-1 overflow-auto">
         {subTab === 'channels' && <ChannelsContent channels={channels} />}
         {subTab === 'knowledge' && <KnowledgeContent agentName={agentName} knowledge={knowledge} handleClearCache={handleClearCache} />}
-        {subTab === 'meeseeks' && (
+        {featureEnabled('meeseeks') && subTab === 'meeseeks' && (
           <MeeseeksContent
             agentName={agentName}
             meeseeksList={meeseeksList}

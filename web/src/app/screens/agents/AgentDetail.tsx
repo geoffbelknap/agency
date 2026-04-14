@@ -9,6 +9,7 @@ import { AgentActivityTab } from './AgentActivityTab';
 import { AgentOperationsTab } from './AgentOperationsTab';
 import { AgentSystemTab } from './AgentSystemTab';
 import { formatDateTimeShort } from '../../lib/time';
+import { adminFeatureFlags, featureEnabled } from '../../lib/features';
 
 type PrimaryTab = 'overview' | 'activity' | 'operations' | 'system';
 type OperationsSubTab = 'channels' | 'knowledge' | 'meeseeks' | 'economics';
@@ -42,6 +43,9 @@ export function AgentDetail({ agent, infraBuildId, capabilities: initialCapabili
     : primaryTab;
 
   const data = useAgentDetailData(agent.name, initialCapabilities, effectiveDataTab, onRefreshAgents);
+  const showTeams = featureEnabled('teams');
+  const showMissions = featureEnabled('missions');
+  const showTrust = adminFeatureFlags.trust;
 
   return (
     <div className="flex flex-col h-full bg-card">
@@ -62,9 +66,9 @@ export function AgentDetail({ agent, infraBuildId, capabilities: initialCapabili
               )}
               </div>
               <div className="text-xs text-muted-foreground">
-                {[agent.type, agent.role, agent.team && `team: ${agent.team}`].filter(Boolean).join(' · ')}
+                {[agent.type, agent.role, showTeams && agent.team && `team: ${agent.team}`].filter(Boolean).join(' · ')}
               </div>
-              {agent.mission && (
+              {showMissions && agent.mission && (
                 <div className="rounded-xl border border-border bg-muted/40 px-3 py-2">
                   <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Mission</div>
                   <div className="mt-1 text-sm text-foreground">{agent.mission}</div>
@@ -77,7 +81,7 @@ export function AgentDetail({ agent, infraBuildId, capabilities: initialCapabili
                   Mode: <span className="text-foreground">{agent.mode}</span>
                 </span>
               )}
-              {agent.trustLevel != null && agent.trustLevel > 0 && (
+              {showTrust && agent.trustLevel != null && agent.trustLevel > 0 && (
                 <span className="rounded-full bg-secondary px-2.5 py-1">
                   Trust: <span className="text-foreground">{agent.trustLevel}/5</span>
                 </span>

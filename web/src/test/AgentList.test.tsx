@@ -12,6 +12,8 @@ describe('AgentList', () => {
     render(<AgentList agents={agents} selectedAgent={null} onSelect={vi.fn()} />);
     expect(screen.getByText('alice')).toBeInTheDocument();
     expect(screen.getByText('bob')).toBeInTheDocument();
+    expect(screen.queryByText('Team')).not.toBeInTheDocument();
+    expect(screen.queryByText('Mission')).not.toBeInTheDocument();
   });
 
   it('shows status for each agent', () => {

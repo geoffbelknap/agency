@@ -3,25 +3,25 @@ import { Bot, MessageSquare, Settings, Menu, X, Sun, Moon, Monitor, PanelLeftClo
 import { useState, useEffect, useCallback } from 'react';
 import { socket } from '../lib/ws';
 import { api, ensureConfig, getVia, getAuthenticated } from '../lib/api';
-import { coreSidebarFlags, experimentalSurfacesEnabled } from '../lib/features';
+import { experimentalSurfacesEnabled, featureEnabled, type FeatureId } from '../lib/features';
 import { useTheme, type Theme } from './ThemeProvider';
 import { useVisualViewport } from '../hooks/useVisualViewport';
 import { TextScaleControl } from './TextScaleControl';
 
-type NavItem = { name: string; path: string; icon: any; enabled?: boolean; experimental?: boolean };
+type NavItem = { name: string; path: string; icon: any; feature?: FeatureId };
 
 const allPrimaryNav: NavItem[] = [
   { name: 'Channels', path: '/channels', icon: MessageSquare },
   { name: 'Agents', path: '/agents', icon: Bot },
-  { name: 'Missions', path: '/missions', icon: Target, enabled: coreSidebarFlags.missions, experimental: true },
-  { name: 'Teams', path: '/teams', icon: Users, enabled: coreSidebarFlags.teams, experimental: true },
+  { name: 'Missions', path: '/missions', icon: Target, feature: 'missions' },
+  { name: 'Teams', path: '/teams', icon: Users, feature: 'teams' },
   { name: 'Knowledge', path: '/knowledge', icon: Brain },
-  { name: 'Profiles', path: '/profiles', icon: UserCircle, enabled: coreSidebarFlags.profiles, experimental: true },
-  { name: 'Hub', path: '/admin/hub', icon: Package, enabled: coreSidebarFlags.hub, experimental: true },
-  { name: 'Intake', path: '/admin/intake', icon: Cable, enabled: coreSidebarFlags.intake, experimental: true },
+  { name: 'Profiles', path: '/profiles', icon: UserCircle, feature: 'profiles' },
+  { name: 'Hub', path: '/admin/hub', icon: Package, feature: 'hub' },
+  { name: 'Intake', path: '/admin/intake', icon: Cable, feature: 'intake' },
 ];
 
-const primaryNav = allPrimaryNav.filter((item) => item.enabled !== false);
+const primaryNav = allPrimaryNav.filter((item) => !item.feature || featureEnabled(item.feature));
 
 const secondaryNav: NavItem[] = [
   { name: 'Admin', path: '/admin', icon: Settings },
@@ -172,7 +172,7 @@ export function Layout() {
             <span className="block whitespace-nowrap text-sm font-medium">
               {navLabel}
             </span>
-            {item.experimental && (
+            {item.feature && (
               <span className="mt-1 inline-flex rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-primary">
                 Experimental
               </span>
@@ -216,7 +216,7 @@ export function Layout() {
         </div>
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span className="truncate">{item.name}</span>
-          {item.experimental && (
+          {item.feature && (
             <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-primary">
               Exp
             </span>

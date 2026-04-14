@@ -1,3 +1,6 @@
+import { useIsMobile } from '../../components/ui/use-mobile';
+import { featureEnabled } from '../../lib/features';
+
 interface AgentRow {
   name: string;
   status: string;
@@ -48,44 +51,122 @@ function relativeTime(iso: string): string {
 
 export function AgentList({ agents, selectedAgent, onSelect }: Props) {
   const isMobile = useIsMobile();
+  const showTeams = featureEnabled('teams');
+  const showMissions = featureEnabled('missions');
 
-  return (
-    isMobile ? (
-      <div className="space-y-2">
-        {agents.map((agent) => {
-          const isSelected = agent.name === selectedAgent;
-          return (
-            <button
-              key={agent.name}
-              type="button"
-              onClick={() => onSelect(agent.name)}
-              className={`w-full rounded-xl border px-3 py-3 text-left transition-colors ${
-                isSelected
-                  ? 'border-primary/40 bg-primary/5'
-                  : 'border-border bg-background hover:bg-muted/40'
-              }`}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate font-mono text-sm text-foreground">{agent.name}</div>
-                  <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <span className={`inline-block h-2 w-2 rounded-full ${statusDotColor(agent.status)}`} />
-                    <span className="capitalize">{agent.status}</span>
-                    <span className="text-muted-foreground/60">•</span>
-                    <span>{agent.team || 'No team'}</span>
-                  </div>
-                </div>
-                <div className="shrink-0 text-right text-[11px] text-muted-foreground" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                  {relativeTime(agent.lastActive)}
+  return isMobile ? (
+    <div className="space-y-2">
+      {agents.map((agent) => {
+        const isSelected = agent.name === selectedAgent;
+        return (
+          <button
+            key={agent.name}
+            type="button"
+            onClick={() => onSelect(agent.name)}
+            className={`w-full rounded-xl border px-3 py-3 text-left transition-colors ${
+              isSelected
+                ? 'border-primary/40 bg-primary/5'
+                : 'border-border bg-background hover:bg-muted/40'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate font-mono text-sm text-foreground">{agent.name}</div>
+                <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className={`inline-block h-2 w-2 rounded-full ${statusDotColor(agent.status)}`} />
+                  <span className="capitalize">{agent.status}</span>
+                  {showTeams && agent.team && (
+                    <>
+                      <span className="text-muted-foreground/60">•</span>
+                      <span>{agent.team}</span>
+                    </>
+                  )}
                 </div>
               </div>
-              <div className="mt-3 flex items-center justify-between gap-3">
-                <div className="min-w-0 text-xs text-muted-foreground">
-                  <span className="text-muted-foreground/70">Mission:</span>{' '}
-                  <span className="truncate">{agent.mission ?? '—'}</span>
+              <div className="shrink-0 text-right text-[11px] text-muted-foreground" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                {relativeTime(agent.lastActive)}
+              </div>
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <div className="min-w-0 text-xs text-muted-foreground">
+                {showMissions ? (
+                  <>
+                    <span className="text-muted-foreground/70">Mission:</span>{' '}
+                    <span className="truncate">{agent.mission ?? '—'}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-muted-foreground/70">Recent activity:</span>{' '}
+                    <span className="truncate">{relativeTime(agent.lastActive)}</span>
+                  </>
+                )}
+              </div>
+              {agent.budget ? (
+                <div className="h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-muted">
+                  <div
+                    data-budget-bar
+                    className={`h-full rounded-full ${budgetColor(agent.budget.daily_used, agent.budget.daily_limit)}`}
+                    style={{
+                      width: `${Math.min(100, (agent.budget.daily_used / agent.budget.daily_limit) * 100)}%`,
+                    }}
+                  />
                 </div>
+              ) : (
+                <div className="text-xs text-muted-foreground">—</div>
+              )}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  ) : (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="border-b text-left text-muted-foreground">
+          <th className="pb-2 pr-4 font-medium">Name</th>
+          <th className="pb-2 pr-4 font-medium">Status</th>
+          {showTeams && <th className="pb-2 pr-4 font-medium">Team</th>}
+          {showMissions && <th className="pb-2 pr-4 font-medium">Mission</th>}
+          <th className="pb-2 pr-4 font-medium">Budget</th>
+          <th className="pb-2 font-medium">Last Active</th>
+        </tr>
+      </thead>
+      <tbody>
+        {agents.map((agent) => {
+          const isSelected = agent.name === selectedAgent;
+          const rowClass = [
+            'cursor-pointer transition-colors hover:bg-muted/50',
+            isSelected ? 'bg-primary/5' : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
+
+          return (
+            <tr
+              key={agent.name}
+              className={rowClass}
+              onClick={() => onSelect(agent.name)}
+              tabIndex={0}
+              role="button"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onSelect(agent.name);
+                }
+              }}
+            >
+              <td className="py-2 pr-4 font-mono">{agent.name}</td>
+              <td className="py-2 pr-4">
+                <span className="flex items-center gap-1.5">
+                  <span className={`inline-block h-2 w-2 rounded-full ${statusDotColor(agent.status)}`} />
+                  {agent.status}
+                </span>
+              </td>
+              {showTeams && <td className="py-2 pr-4">{agent.team || '—'}</td>}
+              {showMissions && <td className="py-2 pr-4">{agent.mission ?? '—'}</td>}
+              <td className="py-2 pr-4">
                 {agent.budget ? (
-                  <div className="w-20 h-1.5 rounded-full bg-muted overflow-hidden shrink-0">
+                  <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
                     <div
                       data-budget-bar
                       className={`h-full rounded-full ${budgetColor(agent.budget.daily_used, agent.budget.daily_limit)}`}
@@ -95,75 +176,16 @@ export function AgentList({ agents, selectedAgent, onSelect }: Props) {
                     />
                   </div>
                 ) : (
-                  <div className="text-xs text-muted-foreground">—</div>
+                  '—'
                 )}
-              </div>
-            </button>
+              </td>
+              <td className="py-2" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                {relativeTime(agent.lastActive)}
+              </td>
+            </tr>
           );
         })}
-      </div>
-    ) : (
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b text-left text-muted-foreground">
-            <th className="pb-2 pr-4 font-medium">Name</th>
-            <th className="pb-2 pr-4 font-medium">Status</th>
-            <th className="pb-2 pr-4 font-medium">Team</th>
-            <th className="pb-2 pr-4 font-medium">Mission</th>
-            <th className="pb-2 pr-4 font-medium">Budget</th>
-            <th className="pb-2 font-medium">Last Active</th>
-          </tr>
-        </thead>
-        <tbody>
-          {agents.map((agent) => {
-            const isSelected = agent.name === selectedAgent;
-            const rowClass = [
-              'cursor-pointer hover:bg-muted/50 transition-colors',
-              isSelected ? 'bg-primary/5' : '',
-            ]
-              .filter(Boolean)
-              .join(' ');
-
-            return (
-              <tr
-                key={agent.name}
-                className={rowClass}
-                onClick={() => onSelect(agent.name)}
-                tabIndex={0}
-                role="button"
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(agent.name); } }}
-              >
-                <td className="py-2 pr-4 font-mono">{agent.name}</td>
-                <td className="py-2 pr-4">
-                  <span className="flex items-center gap-1.5">
-                    <span className={`inline-block w-2 h-2 rounded-full ${statusDotColor(agent.status)}`} />
-                    {agent.status}
-                  </span>
-                </td>
-                <td className="py-2 pr-4">{agent.team}</td>
-                <td className="py-2 pr-4">{agent.mission ?? '—'}</td>
-                <td className="py-2 pr-4">
-                  {agent.budget ? (
-                    <div className="w-20 h-1.5 rounded-full bg-muted overflow-hidden">
-                      <div
-                        data-budget-bar
-                        className={`h-full rounded-full ${budgetColor(agent.budget.daily_used, agent.budget.daily_limit)}`}
-                        style={{
-                          width: `${Math.min(100, (agent.budget.daily_used / agent.budget.daily_limit) * 100)}%`,
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    '—'
-                  )}
-                </td>
-                <td className="py-2" style={{ fontVariantNumeric: 'tabular-nums' }}>{relativeTime(agent.lastActive)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    )
+      </tbody>
+    </table>
   );
 }
-import { useIsMobile } from '../../components/ui/use-mobile';

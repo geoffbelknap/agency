@@ -29,7 +29,7 @@ const LAZY_FALLBACK = <div className="text-sm text-muted-foreground text-center 
 const TAB_GROUPS = [
   {
     label: 'Operations',
-    description: 'Infrastructure, intake, and shared platform services.',
+    description: 'Infrastructure and shared platform services.',
     tabs: [
       { value: 'infrastructure', label: 'Infrastructure', description: 'Provision and rebuild the local platform.' },
       { value: 'hub', label: 'Packages', description: 'Install local packages and manage governed instances.', enabled: adminFeatureFlags.hub, experimental: true },
@@ -43,7 +43,7 @@ const TAB_GROUPS = [
     tabs: [
       { value: 'capabilities', label: 'Capabilities', description: 'Review scoped capabilities and assignment rules.' },
       { value: 'presets', label: 'Presets', description: 'Manage reusable agent configuration presets.' },
-      { value: 'trust', label: 'Trust', description: 'Adjust agent trust tiers and restrictions.' },
+      { value: 'trust', label: 'Trust', description: 'Adjust agent trust tiers and restrictions.', enabled: adminFeatureFlags.trust, experimental: true },
       { value: 'egress', label: 'Egress', description: 'Define allowed outbound network destinations.' },
       { value: 'policy', label: 'Policy', description: 'Inspect and validate per-agent policy state.' },
       { value: 'doctor', label: 'Doctor', description: 'Run platform health checks and spot drift.' },

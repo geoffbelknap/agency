@@ -121,62 +121,7 @@ describe('Knowledge', () => {
     });
   });
 
-  it('keeps ontology decisions reversible via restore', async () => {
-    let candidates = [] as Array<{ id: string; value: string; count?: number; status?: string }>;
-    let curationEntries = [
-      {
-        id: 'entry-1',
-        action: 'ontology_reject',
-        node_id: 'cand-1',
-        value: 'device',
-        timestamp: '2026-04-09T10:00:00Z',
-      },
-    ];
-
-    server.use(
-      http.get(`${BASE}/graph/stats`, () =>
-        HttpResponse.json({ node_count: 0, edge_count: 0 }),
-      ),
-      http.get(`${BASE}/graph/ontology/candidates`, () =>
-        HttpResponse.json({ candidates }),
-      ),
-      http.get(`${BASE}/graph/curation-log`, () =>
-        HttpResponse.json({ entries: curationEntries }),
-      ),
-      http.post(`${BASE}/graph/ontology/restore`, async ({ request }) => {
-        const body = await request.json() as { node_id?: string };
-        expect(body.node_id).toBe('cand-1');
-        candidates = [{ id: 'cand-1', value: 'device', count: 3, status: 'candidate' }];
-        curationEntries = [
-          {
-            id: 'entry-restore',
-            action: 'ontology_restore',
-            node_id: 'cand-1',
-            value: 'device',
-            timestamp: '2026-04-09T10:05:00Z',
-          },
-        ];
-        return HttpResponse.json({ restored: true, node_id: 'cand-1' });
-      }),
-    );
-
-    renderWithRouter(<Knowledge />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Recent Decisions')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /restore/i })).toBeInTheDocument();
-    });
-
-    await userEvent.click(screen.getByRole('button', { name: /restore/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText('Pending Candidates')).toBeInTheDocument();
-      expect(screen.getAllByText('device')[0]).toBeInTheDocument();
-      expect(screen.getByText('candidate')).toBeInTheDocument();
-    });
-  });
-
-  it('parses ontology decisions from curation log detail payloads', async () => {
+  it('hides experimental graph governance sections in the default core workspace', async () => {
     server.use(
       http.get(`${BASE}/graph/stats`, () =>
         HttpResponse.json({ node_count: 0, edge_count: 0 }),
@@ -197,116 +142,46 @@ describe('Knowledge', () => {
     renderWithRouter(<Knowledge />);
 
     await waitFor(() => {
-      expect(screen.getByText('Recent Decisions')).toBeInTheDocument();
-      expect(screen.getByText('mystery_kind')).toBeInTheDocument();
-      expect(screen.getByText('promote')).toBeInTheDocument();
+      expect(screen.getByText('Core Knowledge Surface')).toBeInTheDocument();
+      expect(screen.getByText(/advanced graph governance, ontology review, quarantine, and topology inspection are experimental/i)).toBeInTheDocument();
+      expect(screen.queryByText('Structural Review')).not.toBeInTheDocument();
+      expect(screen.queryByText('Graph Topology')).not.toBeInTheDocument();
+      expect(screen.queryByText('Quarantine')).not.toBeInTheDocument();
+      expect(screen.queryByText('Ontology Review')).not.toBeInTheDocument();
     });
   });
 
-  it('reviews pending structural contributions', async () => {
-    let pending = [
-      {
-        id: 'contrib-1',
-        type: 'team_membership',
-        subject: 'alice',
-        proposed: 'platform',
-        summary: 'Alice appears to work on platform operations.',
-        agent: 'synthesizer',
-        confidence: 0.91,
-        created_at: '2026-04-09T10:00:00Z',
-      },
-    ];
-    let reviewed = '';
-
+  it('keeps experimental contribution-review data from surfacing in core mode', async () => {
     server.use(
       http.get(`${BASE}/graph/stats`, () =>
         HttpResponse.json({ node_count: 0, edge_count: 0 }),
       ),
-      http.get(`${BASE}/graph/ontology/candidates`, () =>
-        HttpResponse.json({ candidates: [] }),
-      ),
-      http.get(`${BASE}/graph/curation-log`, () =>
-        HttpResponse.json({ entries: [] }),
-      ),
-      http.get(`${BASE}/graph/pending`, () =>
-        HttpResponse.json({ pending }),
-      ),
-      http.post(`${BASE}/graph/review/contrib-1`, async ({ request }) => {
-        const body = await request.json() as { action?: string };
-        reviewed = body.action ?? '';
-        pending = [];
-        return HttpResponse.json({ ok: true, reviewed: 'contrib-1' });
-      }),
     );
 
     renderWithRouter(<Knowledge />);
 
     await waitFor(() => {
-      expect(screen.getByText('Structural Review')).toBeInTheDocument();
-      expect(screen.getByText('Alice appears to work on platform operations.')).toBeInTheDocument();
-    });
-
-    await userEvent.click(screen.getByRole('button', { name: /approve/i }));
-
-    await waitFor(() => {
-      expect(reviewed).toBe('approve');
-      expect(screen.getByText('No pending structural contributions')).toBeInTheDocument();
+      expect(screen.getByText('Core Knowledge Surface')).toBeInTheDocument();
+      expect(screen.queryByText('Structural Review')).not.toBeInTheDocument();
     });
   });
 
-  it('lists and releases quarantined knowledge', async () => {
-    let quarantined = [
-      {
-        node_id: 'node-1',
-        label: 'stale device record',
-        agent: 'sensor-agent',
-        type: 'device',
-        reason: 'Source boundary changed',
-        quarantined_at: '2026-04-09T10:00:00Z',
-      },
-    ];
-    let released = '';
-
+  it('keeps experimental quarantine data hidden in core mode', async () => {
     server.use(
       http.get(`${BASE}/graph/stats`, () =>
         HttpResponse.json({ node_count: 0, edge_count: 0 }),
       ),
-      http.get(`${BASE}/graph/ontology/candidates`, () =>
-        HttpResponse.json({ candidates: [] }),
-      ),
-      http.get(`${BASE}/graph/curation-log`, () =>
-        HttpResponse.json({ entries: [] }),
-      ),
-      http.get(`${BASE}/graph/pending`, () =>
-        HttpResponse.json({ pending: [] }),
-      ),
-      http.get(`${BASE}/graph/quarantine`, () =>
-        HttpResponse.json({ nodes: quarantined }),
-      ),
-      http.post(`${BASE}/graph/quarantine/release`, async ({ request }) => {
-        const body = await request.json() as { node_id?: string };
-        released = body.node_id ?? '';
-        quarantined = [];
-        return HttpResponse.json({ ok: true, released: 1 });
-      }),
     );
 
     renderWithRouter(<Knowledge />);
 
     await waitFor(() => {
-      expect(screen.getByText('Quarantine')).toBeInTheDocument();
-      expect(screen.getByText('stale device record')).toBeInTheDocument();
-    });
-
-    await userEvent.click(screen.getByRole('button', { name: /release/i }));
-
-    await waitFor(() => {
-      expect(released).toBe('node-1');
-      expect(screen.getByText('No quarantined knowledge')).toBeInTheDocument();
+      expect(screen.getByText('Core Knowledge Surface')).toBeInTheDocument();
+      expect(screen.queryByText('Quarantine')).not.toBeInTheDocument();
     });
   });
 
-  it('renders graph topology summaries', async () => {
+  it('keeps experimental topology summaries hidden in core mode', async () => {
     server.use(
       http.get(`${BASE}/graph/stats`, () =>
         HttpResponse.json({ node_count: 0, edge_count: 0 }),
@@ -322,11 +197,8 @@ describe('Knowledge', () => {
     renderWithRouter(<Knowledge />);
 
     await waitFor(() => {
-      expect(screen.getByText('Graph Topology')).toBeInTheDocument();
-      expect(screen.getByText('restricted')).toBeInTheDocument();
-      expect(screen.getByText('alice')).toBeInTheDocument();
-      expect(screen.getByText('Platform Ops')).toBeInTheDocument();
-      expect(screen.getByText('release process')).toBeInTheDocument();
+      expect(screen.getByText('Core Knowledge Surface')).toBeInTheDocument();
+      expect(screen.queryByText('Graph Topology')).not.toBeInTheDocument();
     });
   });
 });

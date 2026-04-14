@@ -15,7 +15,7 @@ test.describe('Agency app routes', () => {
 
   test('setup wizard and primary navigation routes render', async ({ page }) => {
     await page.goto('/setup');
-    await expect(page.getByRole('heading', { name: 'Welcome to Agency' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Prepare the workspace' })).toBeVisible();
 
     await page.goto('/overview');
     await expect(page.getByText('Platform health at a glance')).toBeVisible();
@@ -42,8 +42,8 @@ test.describe('Agency app routes', () => {
     const routeExpectations = [
       { path: '/overview', locator: page.getByText('Platform health at a glance') },
       { path: '/channels/general', locator: page.getByText('Hello from Alice', { exact: true }) },
-      { path: '/agents/alice', locator: page.locator('#panel-overview').getByText('prepare weekly release notes', { exact: true }) },
-      { path: '/knowledge/graph', locator: page.getByRole('button', { name: 'Graph' }) },
+      { path: '/agents/alice', locator: page.getByRole('heading', { name: 'Agents' }) },
+      { path: '/knowledge/graph', locator: page.getByText('2 nodes') },
       { path: '/knowledge/search', locator: page.getByText('Query Knowledge') },
       { path: '/admin/infrastructure', locator: page.getByText('gateway', { exact: true }) },
       { path: '/admin/audit', locator: page.getByRole('button', { name: 'Summarize' }) },
