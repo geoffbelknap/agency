@@ -790,10 +790,10 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser bo
 	fmt.Println()
 	fmt.Println("Profiling host capacity...")
 
-	hasEmbeddings := true
+	hasEmbeddings := false
 	embedProvider := os.Getenv("KNOWLEDGE_EMBED_PROVIDER")
-	if embedProvider != "" && embedProvider != "ollama" {
-		hasEmbeddings = false
+	if embedProvider == "ollama" {
+		hasEmbeddings = true
 	}
 
 	capCfg, capErr := orchestrate.ProfileHost(hasEmbeddings)

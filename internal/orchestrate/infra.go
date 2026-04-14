@@ -1259,10 +1259,10 @@ func (inf *Infra) ensureRelay(ctx context.Context) error {
 }
 
 func (inf *Infra) ensureEmbeddings(ctx context.Context) error {
-	// Conditional: only start if embedding provider is ollama (the default).
-	// If provider changed away from ollama, clean up any running container.
+	// Conditional: only start if embedding provider is explicitly set to ollama.
+	// Otherwise, keep embeddings out of the default core runtime path.
 	provider := os.Getenv("KNOWLEDGE_EMBED_PROVIDER")
-	if provider != "" && provider != "ollama" {
+	if provider != "ollama" {
 		name := inf.containerName("embeddings")
 		if inf.isRunning(ctx, name) {
 			inf.log.Info("embeddings provider changed, stopping container", "provider", provider)

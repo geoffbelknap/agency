@@ -247,7 +247,7 @@ def create_provider(provider_name: Optional[str] = None) -> EmbeddingProvider:
       KNOWLEDGE_EMBED_OLLAMA_MODEL — model name for Ollama
     """
     name = (
-        provider_name or os.environ.get("KNOWLEDGE_EMBED_PROVIDER", "ollama")
+        provider_name or os.environ.get("KNOWLEDGE_EMBED_PROVIDER", "none")
     ).lower()
 
     try:
