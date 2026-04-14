@@ -113,13 +113,14 @@ var agentChoices = []agentChoice{
 }
 
 type quickstartOptions struct {
-	provider  string
-	key       string
-	preset    string
-	name      string
-	noDemo    bool
-	noBrowser bool
-	verbose   bool
+	provider      string
+	key           string
+	preset        string
+	name          string
+	noDemo        bool
+	noBrowser     bool
+	noDockerStart bool
+	verbose       bool
 }
 
 func quickstartCmd() *cobra.Command {
@@ -149,6 +150,7 @@ Run with --no-browser to print the Web UI URL without opening it.`,
 	cmd.Flags().StringVar(&opts.name, "name", "", "Name for the first agent")
 	cmd.Flags().BoolVar(&opts.noDemo, "no-demo", false, "Skip the demo task")
 	cmd.Flags().BoolVar(&opts.noBrowser, "no-browser", false, "Don't open the web UI in a browser (also respected via AGENCY_NO_BROWSER=1)")
+	cmd.Flags().BoolVar(&opts.noDockerStart, "no-docker-start", false, "Don't try to start Docker Desktop automatically (also respected via AGENCY_NO_DOCKER_START=1)")
 	cmd.Flags().BoolVar(&opts.verbose, "verbose", false, "Show detailed output")
 
 	return cmd
@@ -346,7 +348,7 @@ func runQuickstart(opts quickstartOptions) error {
 	configExistedBefore := quickstartConfigExists()
 
 	// Phase 1: Environment — check Docker
-	if err := checkDocker(); err != nil {
+	if err := checkDocker(opts.noDockerStart); err != nil {
 		fmt.Printf("  %s environment     Docker not available\n", qsRed.Render("✗"))
 		fmt.Println()
 		fmt.Println(err.Error())

@@ -48,13 +48,14 @@ brews:
     homepage: "https://github.com/geoffbelknap/agency"
     description: "Agency — An operating system for AI agents"
     caveats: |
-      To get started:
+      Start here:
 
-        1. Make sure Docker is running
-        2. Get an API key from Anthropic, OpenAI, or Google
-        3. Run: agency setup
+        agency quickstart
 
-      Full documentation: https://github.com/geoffbelknap/agency
+      Agency will guide you through provider setup on first run.
+      If Docker Desktop is installed but not running, Agency will try to start it.
+
+      Quick start guide: https://github.com/geoffbelknap/agency/blob/main/docs/quickstart.md
     test: |
       system "#{bin}/agency", "--version"
 
