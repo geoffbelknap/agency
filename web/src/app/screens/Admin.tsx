@@ -39,10 +39,10 @@ const TAB_GROUPS = [
   },
   {
     label: 'Governance',
-    description: 'Policies, trust, and agent operating boundaries.',
+    description: 'Capabilities, presets, policy, and agent operating boundaries.',
     tabs: [
       { value: 'capabilities', label: 'Capabilities', description: 'Review scoped capabilities and assignment rules.' },
-      { value: 'presets', label: 'Presets', description: 'Manage reusable agent configuration presets.' },
+      { value: 'presets', label: 'Presets', description: 'Manage reusable agent role presets for core operator workflows.' },
       { value: 'trust', label: 'Trust', description: 'Adjust agent trust tiers and restrictions.', enabled: adminFeatureFlags.trust, experimental: true },
       { value: 'egress', label: 'Egress', description: 'Define allowed outbound network destinations.' },
       { value: 'policy', label: 'Policy', description: 'Inspect and validate per-agent policy state.' },
@@ -234,12 +234,12 @@ export function Admin() {
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="space-y-1.5">
             <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              Administrative surfaces
+              Operator surfaces
             </p>
             <div className="flex flex-col gap-2 xl:flex-row xl:items-end xl:gap-4">
               <h1 className="text-2xl text-foreground">Admin</h1>
               <p className="max-w-3xl text-sm text-muted-foreground">
-                Security, governance, runtime controls, and operational evidence for the local Agency environment.
+                Core runtime controls, governed agent configuration, and operational evidence for the local Agency environment.
               </p>
             </div>
           </div>

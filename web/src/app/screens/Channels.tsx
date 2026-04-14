@@ -1,6 +1,6 @@
 // src/app/screens/Channels.tsx
 import { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
 import { Search } from 'lucide-react';
 import { useIsMobile } from '../components/ui/use-mobile';
 import { ChannelSidebar } from '../components/chat/ChannelSidebar';
@@ -403,8 +403,25 @@ export function Channels() {
             )}
           </>
         ) : (
-          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-            {loading ? 'Loading...' : 'No channels available'}
+          <div className="flex flex-1 items-center justify-center p-6">
+            {loading ? (
+              <div className="text-sm text-muted-foreground">Loading...</div>
+            ) : (
+              <div className="w-full max-w-md rounded-3xl border border-border bg-card px-6 py-8 text-center">
+                <h3 className="text-lg font-medium text-foreground">No channels yet</h3>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Start with a direct message to an agent or create a shared channel for operator coordination.
+                </p>
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  <Button size="sm" onClick={() => setCreateChannelOpen(true)}>
+                    Create channel
+                  </Button>
+                  <Button asChild variant="outline" size="sm">
+                    <Link to="/agents">Open Agents</Link>
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

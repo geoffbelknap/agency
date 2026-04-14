@@ -24,7 +24,7 @@ describe('Presets', () => {
       expect(screen.getByRole('link', { name: 'Open Capabilities' })).toHaveAttribute('href', '/admin/capabilities');
       expect(screen.getByRole('link', { name: 'Open Agents' })).toHaveAttribute('href', '/agents');
       expect(screen.getByText(/select a preset to review before creating a custom one/i)).toBeInTheDocument();
-      expect(screen.getByText(/built-in presets are the fastest path for alpha users/i)).toBeInTheDocument();
+      expect(screen.getByText(/built-in presets are the fastest path for the default core workflow/i)).toBeInTheDocument();
     });
   });
 });

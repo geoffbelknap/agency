@@ -172,7 +172,7 @@ export function Presets() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">Agent preset templates</p>
+        <p className="text-sm text-muted-foreground">Reusable agent role presets</p>
         <Button size="sm" onClick={startNew}>
           <Plus className="w-4 h-4 mr-1" />
           New Preset
@@ -182,11 +182,11 @@ export function Presets() {
       <div className="rounded-lg border border-border bg-card p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="space-y-1">
-            <div className="text-sm font-medium text-foreground">Use presets to standardize agent behavior before enabling tools</div>
-            <p className="text-xs text-muted-foreground">
-              Start from a built-in preset when the role already exists, then duplicate it only when your team needs a custom identity, limits, or escalation rules.
-            </p>
-          </div>
+              <div className="text-sm font-medium text-foreground">Use presets to standardize agent behavior before enabling tools</div>
+              <p className="text-xs text-muted-foreground">
+              Start from a built-in preset when the role already exists, then duplicate it only when you need a custom identity, limits, or escalation rules.
+              </p>
+            </div>
           <div className="flex flex-wrap gap-2">
             <Button asChild variant="outline" size="sm" className="h-8 text-xs">
               <Link to="/admin/capabilities">Open Capabilities</Link>
@@ -251,7 +251,7 @@ export function Presets() {
                 Select a preset to review before creating a custom one
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
-                Built-in presets are the fastest path for alpha users. Create a custom preset only when the built-ins no longer match the role you need.
+                Built-in presets are the fastest path for the default core workflow. Create a custom preset only when the built-ins no longer match the role you need.
               </p>
             </div>
           ) : editing ? (

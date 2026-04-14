@@ -1,7 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { api } from '../lib/api';
-import { Knowledge } from './Knowledge';
 import { Button } from '../components/ui/button';
 import { RefreshCw, Network, List, Search, Database } from 'lucide-react';
 import { KnowledgeNode, ViewMode } from './knowledge/types';
@@ -9,6 +8,8 @@ import { KIND_COLORS } from './knowledge/constants';
 import { GraphView } from './knowledge/GraphView';
 import { NodeBrowser } from './knowledge/NodeBrowser';
 import { NodeDetail } from './knowledge/NodeDetail';
+
+const KnowledgeSearch = lazy(() => import('./Knowledge').then((m) => ({ default: m.Knowledge })));
 
 export function KnowledgeExplorer() {
   const { view: urlView } = useParams<{ view?: string }>();
@@ -176,13 +177,15 @@ export function KnowledgeExplorer() {
       <div className="flex-1 overflow-hidden flex">
         {view === 'search' ? (
           <div className="flex-1 p-4 md:p-8 overflow-auto">
-            <Knowledge onSelectResult={(label, kind) => {
-              const match = nodes.find((n) => n.label === label && n.kind === kind);
-              if (match) {
-                setSelectedNode(match);
-                setView('browser');
-              }
-            }} />
+            <Suspense fallback={<div className="text-sm text-muted-foreground text-center py-16">Loading search...</div>}>
+              <KnowledgeSearch onSelectResult={(label, kind) => {
+                const match = nodes.find((n) => n.label === label && n.kind === kind);
+                if (match) {
+                  setSelectedNode(match);
+                  setView('browser');
+                }
+              }} />
+            </Suspense>
           </div>
         ) : view === 'browser' ? (
           <div className="flex-1 flex overflow-hidden">

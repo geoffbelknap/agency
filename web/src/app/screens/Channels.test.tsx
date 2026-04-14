@@ -173,4 +173,20 @@ describe('Channels', () => {
     });
     expect(input).toHaveValue('');
   });
+
+  it('shows a core-first empty state when no channels exist', async () => {
+    server.use(
+      operatorProfilesHandler,
+      http.get(`${BASE}/comms/channels`, () => HttpResponse.json([])),
+      http.get(`${BASE}/agents`, () => HttpResponse.json([])),
+    );
+
+    renderWithRouter(<Channels />);
+
+    await waitFor(() => {
+      expect(screen.getByText('No channels yet')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Create channel' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Open Agents' })).toHaveAttribute('href', '/agents');
+    });
+  });
 });
