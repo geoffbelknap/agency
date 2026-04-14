@@ -4,9 +4,9 @@ import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { Setup } from './Setup';
 
-vi.mock('./setup/HubSyncStep', () => ({
-  HubSyncStep: ({ onComplete }: { onComplete: () => void }) => (
-    <button type="button" onClick={onComplete}>Complete hub sync</button>
+vi.mock('./setup/PlatformReadyStep', () => ({
+  PlatformReadyStep: ({ onComplete }: { onComplete: () => void }) => (
+    <button type="button" onClick={onComplete}>Complete platform prep</button>
   ),
 }));
 
@@ -51,7 +51,7 @@ describe('Setup', () => {
   it('routes to overview when setup is skipped without a channel', async () => {
     renderSetup();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Complete hub sync' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Complete platform prep' }));
     await userEvent.click(screen.getByRole('button', { name: 'Skip setup' }));
 
     expect(screen.getByText('overview page')).toBeInTheDocument();
@@ -60,7 +60,7 @@ describe('Setup', () => {
   it('routes to the provided DM channel when setup finishes with a chat target', async () => {
     renderSetup();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Complete hub sync' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Complete platform prep' }));
     await userEvent.click(screen.getByRole('button', { name: 'Finish to DM' }));
 
     expect(screen.getByText('channel page')).toBeInTheDocument();

@@ -6,6 +6,7 @@ import { StatusIndicator } from '../../components/StatusIndicator';
 import { type RawAgent, type RawBudgetResponse } from '../../lib/api';
 import { formatDateTimeShort } from '../../lib/time';
 import type { AgentStatus } from '../../types';
+import { adminFeatureFlags, featureEnabled } from '../../lib/features';
 
 interface AgentDetailSheetProps {
   agentName: string | null;
@@ -16,6 +17,10 @@ interface AgentDetailSheetProps {
 }
 
 export function AgentDetailSheet({ agentName, agent, budget, onClose, onMessageAgent }: AgentDetailSheetProps) {
+  const showTeams = featureEnabled('teams');
+  const showMissions = featureEnabled('missions');
+  const showTrust = adminFeatureFlags.trust;
+
   return (
     <Sheet open={!!agentName} onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent side="right" hideClose className="p-0 w-full sm:max-w-[480px] bg-card border-border flex flex-col overflow-hidden">
@@ -26,7 +31,7 @@ export function AgentDetailSheet({ agentName, agent, budget, onClose, onMessageA
                 <div>
                   <code className="text-lg text-foreground">{agent.name}</code>
                   <div className="text-xs text-muted-foreground mt-1">
-                    {[agent.type, agent.role, agent.team && `team: ${agent.team}`].filter(Boolean).join(' · ')}
+                    {[agent.type, agent.role, showTeams && agent.team && `team: ${agent.team}`].filter(Boolean).join(' · ')}
                   </div>
                 </div>
                 <Button size="sm" variant="ghost" onClick={onClose} className="h-8 w-8 p-0">
@@ -66,10 +71,10 @@ export function AgentDetailSheet({ agentName, agent, budget, onClose, onMessageA
                   ['Role', agent.role],
                   ['Model', agent.model],
                   ['Preset', agent.preset],
-                  ['Trust', agent.trust_level != null && agent.trust_level > 0 ? `${agent.trust_level}/5` : undefined],
-                  ['Team', agent.team],
-                  ['Mission', agent.mission],
-                  ['Mission Status', agent.mission_status],
+                  [showTrust ? 'Trust' : '', showTrust && agent.trust_level != null && agent.trust_level > 0 ? `${agent.trust_level}/5` : undefined],
+                  [showTeams ? 'Team' : '', showTeams ? agent.team : undefined],
+                  [showMissions ? 'Mission' : '', showMissions ? agent.mission : undefined],
+                  [showMissions ? 'Mission Status' : '', showMissions ? agent.mission_status : undefined],
                   ['Build', agent.build_id],
                   ['Last Active', agent.last_active ? formatDateTimeShort(agent.last_active) : undefined],
                 ].filter(([, v]) => v).map(([k, v]) => (

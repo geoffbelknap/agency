@@ -2,6 +2,7 @@ import { StatusIndicator } from '../../components/StatusIndicator';
 import { Agent } from '../../types';
 import { type RawBudgetResponse } from '../../lib/api';
 import { formatDateTimeShort } from '../../lib/time';
+import { adminFeatureFlags, featureEnabled } from '../../lib/features';
 
 interface Props {
   agent: Agent;
@@ -25,16 +26,15 @@ function progressTone(used: number, limit: number): string {
 }
 
 export function AgentOverviewTab({ agent, budget }: Props) {
+  const showMissions = featureEnabled('missions');
+  const showTeams = featureEnabled('teams');
+  const showTrust = adminFeatureFlags.trust;
+
   const summaryItems = [
     {
       label: 'Status',
       value: agent.status,
       detail: agent.mode ? `Mode: ${agent.mode}` : undefined,
-    },
-    {
-      label: 'Mission',
-      value: agent.mission || 'No mission assigned',
-      detail: agent.missionStatus ? `State: ${agent.missionStatus}` : undefined,
     },
     {
       label: 'Last active',
@@ -54,14 +54,21 @@ export function AgentOverviewTab({ agent, budget }: Props) {
         : undefined,
     },
   ];
+  if (showMissions) {
+    summaryItems.splice(1, 0, {
+      label: 'Mission',
+      value: agent.mission || 'No mission assigned',
+      detail: agent.missionStatus ? `State: ${agent.missionStatus}` : undefined,
+    });
+  }
 
   const identityItems = [
     ['Preset', agent.preset],
     ['Role', agent.role],
     ['Model', agent.model],
-    ['Team', agent.team],
+    [showTeams ? 'Team' : '', showTeams ? agent.team : undefined],
     ['Type', agent.type],
-    ['Trust', agent.trustLevel != null && agent.trustLevel > 0 ? `${agent.trustLevel}/5` : undefined],
+    [showTrust ? 'Trust' : '', showTrust && agent.trustLevel != null && agent.trustLevel > 0 ? `${agent.trustLevel}/5` : undefined],
     ['Enforcer', agent.enforcerState],
     ['Build', agent.buildId],
   ].filter(([, value]) => value);

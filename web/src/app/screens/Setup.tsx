@@ -1,17 +1,17 @@
 import { useReducer, useCallback } from 'react';
 import { useNavigate } from 'react-router';
-import { HubSyncStep } from './setup/HubSyncStep';
+import { PlatformReadyStep } from './setup/PlatformReadyStep';
 import { WelcomeStep } from './setup/WelcomeStep';
 import { ProvidersStep } from './setup/ProvidersStep';
 import { AgentStep } from './setup/AgentStep';
 import { CapabilitiesStep } from './setup/CapabilitiesStep';
 import { ChatStep } from './setup/ChatStep';
 
-type WizardStep = 'hub-sync' | 'welcome' | 'providers' | 'agent' | 'capabilities' | 'chat';
+type WizardStep = 'platform-ready' | 'welcome' | 'providers' | 'agent' | 'capabilities' | 'chat';
 
-const STEPS: WizardStep[] = ['hub-sync', 'welcome', 'providers', 'agent', 'capabilities', 'chat'];
+const STEPS: WizardStep[] = ['platform-ready', 'welcome', 'providers', 'agent', 'capabilities', 'chat'];
 const STEP_META: Record<WizardStep, { title: string; description: string }> = {
-  'hub-sync': {
+  'platform-ready': {
     title: 'Prepare the workspace',
     description: 'Verify the local runtime is reachable and that the core platform pieces are ready before you configure anything else.',
   },
@@ -46,7 +46,7 @@ interface WizardState {
   agentPreset: string;
   platformExpert: boolean;
   capabilities: string[];
-  hubSynced: boolean;
+  platformPrepared: boolean;
 }
 
 type WizardAction =
@@ -57,7 +57,7 @@ type WizardAction =
   | { type: 'SET_AGENT'; name: string; preset: string }
   | { type: 'SET_PLATFORM_EXPERT'; enabled: boolean }
   | { type: 'SET_CAPABILITIES'; capabilities: string[] }
-  | { type: 'HUB_SYNCED' };
+  | { type: 'PLATFORM_PREPARED' };
 
 function wizardReducer(state: WizardState, action: WizardAction): WizardState {
   switch (action.type) {
@@ -69,13 +69,13 @@ function wizardReducer(state: WizardState, action: WizardAction): WizardState {
     case 'SET_AGENT': return { ...state, agentName: action.name, agentPreset: action.preset };
     case 'SET_PLATFORM_EXPERT': return { ...state, platformExpert: action.enabled };
     case 'SET_CAPABILITIES': return { ...state, capabilities: action.capabilities };
-    case 'HUB_SYNCED': return { ...state, hubSynced: true };
+    case 'PLATFORM_PREPARED': return { ...state, platformPrepared: true };
     default: return state;
   }
 }
 
 const initialState: WizardState = {
-  step: 'hub-sync',
+  step: 'platform-ready',
   operatorName: '',
   providers: {},
   tierStrategy: 'best_effort',
@@ -83,7 +83,7 @@ const initialState: WizardState = {
   agentPreset: 'platform-expert',
   platformExpert: true,
   capabilities: [],
-  hubSynced: false,
+  platformPrepared: false,
 };
 
 export function Setup() {
@@ -184,8 +184,8 @@ export function Setup() {
           </div>
 
           <div className="w-full">
-        {state.step === 'hub-sync' && (
-          <HubSyncStep onComplete={() => { dispatch({ type: 'HUB_SYNCED' }); goNext(); }} />
+        {state.step === 'platform-ready' && (
+          <PlatformReadyStep onComplete={() => { dispatch({ type: 'PLATFORM_PREPARED' }); goNext(); }} />
         )}
         {state.step === 'welcome' && (
           <WelcomeStep

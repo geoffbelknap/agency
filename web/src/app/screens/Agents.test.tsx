@@ -252,9 +252,7 @@ describe('Agents', () => {
     });
   });
 
-  it('refreshes and kills all meeseeks for an agent', async () => {
-    let listCalls = 0;
-    let killedAll = false;
+  it('hides meeseeks operations in the default core UI', async () => {
     server.use(
       http.get(`${BASE}/agents`, () => HttpResponse.json(defaultAgents)),
       http.get(`${BASE}/agents/alice/logs`, () => HttpResponse.json([])),
@@ -262,23 +260,6 @@ describe('Agents', () => {
         HttpResponse.json({ daily_limit: 0, monthly_limit: 0, daily_used: 0, monthly_used: 0, today_llm_calls: 0, today_input_tokens: 0, today_output_tokens: 0 }),
       ),
       http.get(`${BASE}/agents/alice/channels`, () => HttpResponse.json([])),
-      http.get(`${BASE}/agents/meeseeks`, ({ request }) => {
-        const parent = new URL(request.url).searchParams.get('parent');
-        if (parent !== 'alice') return HttpResponse.json([]);
-        listCalls += 1;
-        if (killedAll) return HttpResponse.json([]);
-        return HttpResponse.json([
-          { id: 'mks-1', parent_agent: 'alice', task: 'summarize incident', status: 'working', model: 'haiku', budget: 1, budget_used: 0.1 },
-        ]);
-      }),
-      http.delete(`${BASE}/agents/meeseeks`, ({ request }) => {
-        const parent = new URL(request.url).searchParams.get('parent');
-        if (parent === 'alice') {
-          killedAll = true;
-          return HttpResponse.json({ status: 'terminated', killed: ['mks-1'] });
-        }
-        return HttpResponse.json({ status: 'terminated', killed: [] });
-      }),
     );
 
     renderAgents();
@@ -287,22 +268,9 @@ describe('Agents', () => {
     });
     await userEvent.click(screen.getByText('alice'));
     await userEvent.click(screen.getByRole('tab', { name: /operations/i }));
-    await userEvent.click(screen.getByRole('tab', { name: /meeseeks/i }));
 
     await waitFor(() => {
-      expect(screen.getByText('mks-1')).toBeInTheDocument();
-    });
-
-    await userEvent.click(screen.getByRole('button', { name: /refresh meeseeks/i }));
-    await waitFor(() => {
-      expect(listCalls).toBeGreaterThanOrEqual(2);
-    });
-
-    await userEvent.click(screen.getByRole('button', { name: /kill all/i }));
-    await waitFor(() => {
-      expect(killedAll).toBe(true);
-      expect(toastSuccess).toHaveBeenCalledWith('Killed 1 meeseeks for alice');
-      expect(screen.getByText('No active meeseeks.')).toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: /meeseeks/i })).not.toBeInTheDocument();
     });
   });
 

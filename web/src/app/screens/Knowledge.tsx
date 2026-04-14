@@ -5,6 +5,7 @@ import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Search, Database, Sparkles, Check, X, RotateCcw, ShieldCheck, ShieldAlert, Network } from 'lucide-react';
 import { toast } from 'sonner';
+import { adminFeatureFlags } from '../lib/features';
 
 interface QueryResult {
   label: string;
@@ -276,6 +277,7 @@ function parseTopologyItems(raw: unknown, keys: string[], fallbackPrefix: string
 }
 
 export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string, kind: string) => void }) {
+  const graphAdminEnabled = adminFeatureFlags.graphAdmin;
   const [queryText, setQueryText] = useState('');
   const [queryResults, setQueryResults] = useState<QueryResult[]>([]);
   const [queryLoading, setQueryLoading] = useState(false);
@@ -426,10 +428,12 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
   };
 
   useEffect(() => {
-    loadOntologyReviewData();
-    loadPendingContributions();
-    loadQuarantinedNodes();
-    loadTopology();
+    if (graphAdminEnabled) {
+      loadOntologyReviewData();
+      loadPendingContributions();
+      loadQuarantinedNodes();
+      loadTopology();
+    }
     const loadStats = async () => {
       try {
         setStatsLoading(true);
@@ -443,7 +447,7 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
       }
     };
     loadStats();
-  }, []);
+  }, [graphAdminEnabled]);
 
   const handleQuery = async () => {
     if (!queryText.trim()) return;
@@ -637,8 +641,20 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
         </div>
       </div>
 
+      {!graphAdminEnabled && (
+        <div className="bg-card border border-border rounded p-4 md:p-6">
+          <div className="flex items-center gap-2 mb-2">
+            <ShieldCheck className="w-4 h-4 text-primary" />
+            <h2 className="text-sm font-semibold text-foreground/80">Core Knowledge Surface</h2>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Advanced graph governance, ontology review, quarantine, and topology inspection are experimental and hidden in the default core workspace.
+          </p>
+        </div>
+      )}
+
       {/* Structural Review */}
-      <div className="bg-card border border-border rounded p-4 md:p-6">
+      {graphAdminEnabled && <div className="bg-card border border-border rounded p-4 md:p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-foreground/80 flex items-center gap-2">
             <ShieldCheck className="w-4 h-4" />
@@ -711,10 +727,10 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
             ))}
           </div>
         )}
-      </div>
+      </div>}
 
       {/* Topology */}
-      <div className="bg-card border border-border rounded p-4 md:p-6">
+      {graphAdminEnabled && <div className="bg-card border border-border rounded p-4 md:p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-foreground/80 flex items-center gap-2">
             <Network className="w-4 h-4" />
@@ -757,10 +773,10 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
             </div>
           ))}
         </div>
-      </div>
+      </div>}
 
       {/* Quarantine */}
-      <div className="bg-card border border-border rounded p-4 md:p-6">
+      {graphAdminEnabled && <div className="bg-card border border-border rounded p-4 md:p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-foreground/80 flex items-center gap-2">
             <ShieldAlert className="w-4 h-4" />
@@ -814,10 +830,10 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
             ))}
           </div>
         )}
-      </div>
+      </div>}
 
       {/* Ontology Candidates */}
-      {(ontologyCandidates.length > 0 || ontologyDecisions.length > 0) && (
+      {graphAdminEnabled && (ontologyCandidates.length > 0 || ontologyDecisions.length > 0) && (
         <div className="bg-card border border-border rounded p-4 md:p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-foreground/80 flex items-center gap-2">
@@ -883,8 +899,8 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
                   );
                 })}
               </div>
-            </div>
-          )}
+        </div>
+      )}
 
           {ontologyDecisions.length > 0 && (
             <div>

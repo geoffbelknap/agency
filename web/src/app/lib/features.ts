@@ -21,15 +21,19 @@ function envFlag(value: string | boolean | undefined, fallback = false): boolean
 
 export const experimentalSurfacesEnabled = envFlag(import.meta.env.VITE_ENABLE_EXPERIMENTAL_SURFACES, false);
 
-type FeatureTier = 'core' | 'experimental' | 'internal';
-type FeatureId = (typeof registry)[number]['id'];
+export type FeatureTier = 'core' | 'experimental' | 'internal';
+export type FeatureId = (typeof registry)[number]['id'];
 
 const tierById = new Map<FeatureId, FeatureTier>(
   registry.map((feature) => [feature.id, feature.tier as FeatureTier]),
 );
 
+export function featureTier(id: FeatureId): FeatureTier {
+  return tierById.get(id) ?? 'core';
+}
+
 export function featureEnabled(id: FeatureId): boolean {
-  const tier = tierById.get(id) ?? 'core';
+  const tier = featureTier(id);
   switch (tier) {
     case 'core':
       return true;
@@ -38,6 +42,10 @@ export function featureEnabled(id: FeatureId): boolean {
     default:
       return false;
   }
+}
+
+export function featureIsExperimental(id: FeatureId): boolean {
+  return featureTier(id) === 'experimental';
 }
 
 export const coreSidebarFlags = {
@@ -49,9 +57,12 @@ export const coreSidebarFlags = {
 } as const;
 
 export const adminFeatureFlags = {
+  trust: featureEnabled('trust_admin'),
+  graphAdmin: featureEnabled('graph_admin'),
   hub: featureEnabled('hub'),
   intake: featureEnabled('intake'),
   events: featureEnabled('events'),
   webhooks: featureEnabled('webhooks'),
   notifications: featureEnabled('notifications'),
+  routingOptimizer: featureEnabled('routing_optimizer'),
 } as const;

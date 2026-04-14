@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { api } from '../lib/api';
 import { socket } from '../lib/ws';
 import { formatTime } from '../lib/time';
+import { featureEnabled } from '../lib/features';
 
 type InfraAction = 'start' | 'stop' | 'restart';
 
@@ -62,6 +63,7 @@ export function Overview() {
   const [infraBuildId, setInfraBuildId] = useState('');
   const [providers, setProviders] = useState<Provider[]>([]);
   const [routingConfigured, setRoutingConfigured] = useState<boolean | null>(null);
+  const showTeams = featureEnabled('teams');
 
   const loadInfrastructure = useCallback(async () => {
     try {
@@ -255,7 +257,7 @@ export function Overview() {
                   {!hasRunningServices
                     ? 'Start infrastructure first so the web UI, comms, and gateway services are available.'
                     : !hasAgents
-                      ? 'Infrastructure is up. Create a research agent, then open its DM to verify the full research loop.'
+                      ? 'Infrastructure is up. Create your first agent, then open its DM to verify the core operator flow.'
                       : 'Your platform is running. Open a DM, inspect recent activity, or review graph context depending on the next operator task.'}
                 </p>
               </div>
@@ -274,7 +276,7 @@ export function Overview() {
                 ) : !hasAgents ? (
                   <>
                     <Button asChild variant="outline" size="sm" className="h-8 text-xs">
-                      <Link to="/agents">Create research agent</Link>
+                      <Link to="/agents">Create first agent</Link>
                     </Button>
                     <Button asChild variant="outline" size="sm" className="h-8 text-xs">
                       <Link to="/setup">Review providers</Link>
@@ -296,10 +298,9 @@ export function Overview() {
 
           <div className="mb-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
             <div className="rounded-lg border border-border bg-card p-4">
-              <div className="mb-2 text-sm font-medium text-foreground">Researcher Path</div>
+              <div className="mb-2 text-sm font-medium text-foreground">First Agent Path</div>
               <p className="text-xs leading-relaxed text-muted-foreground">
-                Give testers a predictable path: create a <span className="text-foreground">researcher</span> agent,
-                open its DM, and ask for a topic summary or source-backed brief.
+                Give testers a predictable path: create an agent, open its DM, and ask for a topic summary or source-backed brief.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button asChild size="sm" className="h-8 text-xs">
@@ -357,7 +358,7 @@ export function Overview() {
             <div className="text-sm text-muted-foreground text-center py-8">Loading...</div>
           ) : agents.length === 0 ? (
             <div className="bg-card border border-border rounded p-8 text-center text-sm text-muted-foreground">
-              No agents running. Create a research agent from the fleet view to start the tester flow.
+              No agents running. Create your first agent from the fleet view to start the tester flow.
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -389,7 +390,7 @@ export function Overview() {
                       agent.enforcerState === 'halted' ? 'text-red-400' :
                       'text-foreground/80'
                     }>{agent.enforcerState}</span></span>
-                    {agent.team && <span>Team: <span className="text-foreground/80">{agent.team}</span></span>}
+                    {showTeams && agent.team && <span>Team: <span className="text-foreground/80">{agent.team}</span></span>}
                   </div>
                 </div>
               ))}
