@@ -23,7 +23,7 @@ builds:
 
 archives:
   - id: default
-    format: tar.gz
+    formats: [tar.gz]
     name_template: "agency_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
@@ -37,18 +37,18 @@ changelog:
       - "^test:"
       - "^ci:"
 
-brews:
-  - repository:
+homebrew_casks:
+  - ids:
+      - default
+    repository:
       owner: geoffbelknap
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     name: agency
+    binaries:
+      - agency
     homepage: "https://github.com/geoffbelknap/agency"
     description: "Agency — An operating system for AI agents"
-    install: |
-      bin.install "agency"
-    test: |
-      system "#{bin}/agency", "--version"
     caveats: |
       To get started:
 
