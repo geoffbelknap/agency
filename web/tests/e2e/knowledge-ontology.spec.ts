@@ -3,7 +3,7 @@ import { installAgencyMocks } from './support/mockAgencyApi';
 
 const controllers = new WeakMap<object, { assertNoUnhandledRequests: () => void }>();
 
-test.describe('Knowledge ontology review', () => {
+test.describe('Knowledge core surface', () => {
   test.beforeEach(async ({ page }) => {
     const controller = await installAgencyMocks(page);
     controllers.set(page, controller);
@@ -13,37 +13,18 @@ test.describe('Knowledge ontology review', () => {
     controllers.get(page)?.assertNoUnhandledRequests();
   });
 
-  test('promote, reject, and restore update the review surface', async ({ page }) => {
+  test('hides ontology review and governance surfaces in the default workspace', async ({ page }) => {
     await page.goto('/knowledge/search');
 
     await expect(page.getByRole('heading', { name: 'Knowledge', exact: true })).toBeVisible();
-    await expect(page.getByText('Ontology Review')).toBeVisible();
-    await expect(page.getByText('rollout-readiness', { exact: true })).toBeVisible();
-    await expect(page.getByText('policy-drift', { exact: true })).toBeVisible();
+    await expect(page.getByText('Query Knowledge')).toBeVisible();
+    await expect(page.getByText('Core Knowledge Surface')).toBeVisible();
+    await expect(
+      page.getByText(/advanced graph governance, ontology review, quarantine, and topology inspection are experimental/i),
+    ).toBeVisible();
 
-    const rolloutCandidate = page
-      .getByText('rollout-readiness', { exact: true })
-      .locator('xpath=ancestor::div[contains(@class,"justify-between")][1]');
-    await rolloutCandidate.getByTitle('Promote to ontology').click();
-
-    const policyCandidate = page
-      .getByText('policy-drift', { exact: true })
-      .locator('xpath=ancestor::div[contains(@class,"justify-between")][1]');
-    await policyCandidate.getByTitle('Reject candidate').click();
-
-    const recentDecisions = page.locator('div').filter({ hasText: 'Recent Decisions' }).first();
-    await expect(recentDecisions.getByText('rollout-readiness', { exact: true })).toBeVisible();
-    await expect(recentDecisions.getByText('promote', { exact: true })).toBeVisible();
-    await expect(recentDecisions.getByText('policy-drift', { exact: true })).toBeVisible();
-    await expect(recentDecisions.getByText('reject', { exact: true })).toBeVisible();
-
-    const rolloutDecision = recentDecisions
-      .getByText('rollout-readiness', { exact: true })
-      .locator('xpath=ancestor::div[contains(@class,"justify-between")][1]');
-    await rolloutDecision.getByRole('button', { name: /restore/i }).click();
-
-    const pendingCandidates = page.locator('div').filter({ hasText: 'Pending Candidates' }).first();
-    await expect(pendingCandidates.getByText('rollout-readiness', { exact: true }).first()).toBeVisible();
-    await expect(page.locator('div').filter({ hasText: 'rollout-readiness' }).filter({ hasText: 'restore' }).first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Ontology Review', exact: true })).toHaveCount(0);
+    await expect(page.getByText('rollout-readiness', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('policy-drift', { exact: true })).toHaveCount(0);
   });
 });
