@@ -6,13 +6,14 @@ import (
 	"net/http"
 	"regexp"
 
-	"log/slog"
 	"github.com/go-chi/chi/v5"
+	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/events"
+	"github.com/geoffbelknap/agency/internal/featureflags"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -51,18 +52,8 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	// Admin
 	r.Get("/api/v1/admin/doctor", h.adminDoctor)
 	r.Post("/api/v1/admin/destroy", h.adminDestroy)
-	r.Post("/api/v1/admin/trust", h.adminTrust)
 	r.Get("/api/v1/admin/audit", h.adminAudit)
 	r.Get("/api/v1/admin/egress", h.adminEgress)
-	r.Post("/api/v1/admin/graph", h.adminKnowledge)
-	r.Post("/api/v1/admin/department", h.adminDepartment)
-
-	// Teams
-	r.Get("/api/v1/admin/teams", h.listTeams)
-	r.Post("/api/v1/admin/teams", h.createTeam)
-	r.Get("/api/v1/admin/teams/{name}", h.showTeam)
-	r.Delete("/api/v1/admin/teams/{name}", h.deleteTeam)
-	r.Get("/api/v1/admin/teams/{name}/activity", h.teamActivity)
 
 	// Capabilities
 	r.Get("/api/v1/admin/capabilities", h.listCapabilities)
@@ -72,12 +63,6 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Post("/api/v1/admin/capabilities", h.addCapability)
 	r.Delete("/api/v1/admin/capabilities/{name}", h.deleteCapability)
 
-	// Profiles
-	r.Get("/api/v1/admin/profiles", h.listProfiles)
-	r.Get("/api/v1/admin/profiles/{id}", h.getProfile)
-	r.Put("/api/v1/admin/profiles/{id}", h.createOrUpdateProfile)
-	r.Delete("/api/v1/admin/profiles/{id}", h.deleteProfile)
-
 	// Policy
 	r.Get("/api/v1/admin/policy/{agent}", h.showPolicy)
 	r.Post("/api/v1/admin/policy/{agent}/validate", h.validatePolicy)
@@ -85,14 +70,33 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	// Rebuild
 	r.Post("/api/v1/admin/agents/{name}/rebuild", h.rebuildAgent)
 
-	// Principal registry
-	r.Get("/api/v1/admin/registry", h.registrySnapshot)
-	r.Get("/api/v1/admin/registry/resolve", h.registryResolve)
-	r.Get("/api/v1/admin/registry/list", h.registryList)
-	r.Post("/api/v1/admin/registry", h.registryRegister)
-	r.Get("/api/v1/admin/registry/{uuid}/effective", h.registryEffective)
-	r.Put("/api/v1/admin/registry/{uuid}", h.registryUpdate)
-	r.Delete("/api/v1/admin/registry/{uuid}", h.registryDelete)
+	if featureflags.ExperimentalSurfacesEnabled() {
+		r.Post("/api/v1/admin/trust", h.adminTrust)
+		r.Post("/api/v1/admin/graph", h.adminKnowledge)
+		r.Post("/api/v1/admin/department", h.adminDepartment)
+
+		// Teams
+		r.Get("/api/v1/admin/teams", h.listTeams)
+		r.Post("/api/v1/admin/teams", h.createTeam)
+		r.Get("/api/v1/admin/teams/{name}", h.showTeam)
+		r.Delete("/api/v1/admin/teams/{name}", h.deleteTeam)
+		r.Get("/api/v1/admin/teams/{name}/activity", h.teamActivity)
+
+		// Profiles
+		r.Get("/api/v1/admin/profiles", h.listProfiles)
+		r.Get("/api/v1/admin/profiles/{id}", h.getProfile)
+		r.Put("/api/v1/admin/profiles/{id}", h.createOrUpdateProfile)
+		r.Delete("/api/v1/admin/profiles/{id}", h.deleteProfile)
+
+		// Principal registry
+		r.Get("/api/v1/admin/registry", h.registrySnapshot)
+		r.Get("/api/v1/admin/registry/resolve", h.registryResolve)
+		r.Get("/api/v1/admin/registry/list", h.registryList)
+		r.Post("/api/v1/admin/registry", h.registryRegister)
+		r.Get("/api/v1/admin/registry/{uuid}/effective", h.registryEffective)
+		r.Put("/api/v1/admin/registry/{uuid}", h.registryUpdate)
+		r.Delete("/api/v1/admin/registry/{uuid}", h.registryDelete)
+	}
 }
 
 // validResourceName matches lowercase alphanumeric names with hyphens, 1-64 chars.

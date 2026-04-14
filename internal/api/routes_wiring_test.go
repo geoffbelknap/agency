@@ -35,6 +35,7 @@ import (
 // Handlers will often panic or return 5xx with nil deps; that is fine.
 // A panic means the handler ran (route was found), which is a PASS for wiring.
 func TestRouteWiring_AllModulesRegistered(t *testing.T) {
+	t.Setenv("AGENCY_EXPERIMENTAL_SURFACES", "1")
 	r := chi.NewRouter()
 
 	cfg := &config.Config{Home: t.TempDir(), Version: "test", Token: "test-token"}
@@ -177,6 +178,7 @@ func repoRoot(t *testing.T) string {
 //   - Typos in route paths (e.g., /infra/capacty vs /infra/capacity)
 //   - Missing RegisterRoutes calls for new modules
 func TestOpenAPIPathsHaveRoutes(t *testing.T) {
+	t.Setenv("AGENCY_EXPERIMENTAL_SURFACES", "1")
 	root := repoRoot(t)
 	specPath := filepath.Join(root, "internal", "api", "openapi.yaml")
 
