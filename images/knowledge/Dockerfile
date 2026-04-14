@@ -1,4 +1,5 @@
-FROM agency-python-base:latest
+ARG PYTHON_BASE_IMAGE=ghcr.io/geoffbelknap/agency-python-base:latest
+FROM ${PYTHON_BASE_IMAGE}
 ARG BUILD_ID=unknown
 ARG SOURCE_HASH=unknown
 LABEL agency.build.id=${BUILD_ID}

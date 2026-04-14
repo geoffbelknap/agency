@@ -122,6 +122,7 @@ jobs:
           push: true
           build-args: |
             BUILD_ID=${{ github.sha }}
+            PYTHON_BASE_IMAGE=${{ env.IMAGE_PREFIX }}/agency-python-base:v${{ steps.version.outputs.version }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           tags: |
