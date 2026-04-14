@@ -37,7 +37,7 @@ changelog:
       - "^test:"
       - "^ci:"
 
-homebrew_casks:
+brews:
   - ids:
       - default
     repository:
@@ -45,8 +45,6 @@ homebrew_casks:
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     name: agency
-    binaries:
-      - agency
     homepage: "https://github.com/geoffbelknap/agency"
     description: "Agency — An operating system for AI agents"
     caveats: |
@@ -57,6 +55,8 @@ homebrew_casks:
         3. Run: agency setup
 
       Full documentation: https://github.com/geoffbelknap/agency
+    test: |
+      system "#{bin}/agency", "--version"
 
 release:
   github:
