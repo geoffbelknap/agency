@@ -31,9 +31,11 @@ function ThreadPanelContent({
 
   return (
     <>
-      {/* Header */}
-      <div className="p-4 border-b border-border flex items-center justify-between">
-        <h3 className="font-semibold text-foreground">Thread</h3>
+      <div className="flex items-start justify-between border-b border-border px-4 py-4">
+        <div>
+          <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Thread</div>
+          <h3 className="mt-1 text-base font-semibold text-foreground">Replies and follow-up</h3>
+        </div>
         <Button
           variant="ghost"
           size="icon"
@@ -45,8 +47,8 @@ function ThreadPanelContent({
         </Button>
       </div>
 
-      {/* Parent message */}
-      <div className="p-4 bg-card/50 border-b border-border">
+      <div className="border-b border-border bg-card/40 px-4 py-4">
+        <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Parent message</div>
         <AgencyMessage
           message={parentMessage}
           agentStatus={agentStatuses?.[parentMessage.author]}
@@ -54,28 +56,34 @@ function ThreadPanelContent({
         />
       </div>
 
-      {/* Replies */}
       <ScrollArea className="flex-1">
-        <div className="p-4 space-y-1">
+        <div className="px-4 py-4">
+          <div className="mb-3 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            Replies
+          </div>
           {replies.length === 0 ? (
-            <div className="flex items-center justify-center h-16 text-sm text-muted-foreground">
-              No replies yet
+            <div className="flex h-24 items-center justify-center rounded-2xl border border-dashed border-border bg-card px-4 text-center">
+              <div>
+                <div className="text-sm font-medium text-foreground">No replies yet</div>
+                <div className="mt-1 text-xs text-muted-foreground">Use the thread to keep side conversations out of the main channel timeline.</div>
+              </div>
             </div>
           ) : (
-            replies.map((msg) => (
-              <AgencyMessage
-                key={msg.id}
-                message={msg}
-                agentStatus={agentStatuses?.[msg.author]}
-                showReplyButton={false}
-              />
-            ))
+            <div className="space-y-1">
+              {replies.map((msg) => (
+                <AgencyMessage
+                  key={msg.id}
+                  message={msg}
+                  agentStatus={agentStatuses?.[msg.author]}
+                  showReplyButton={false}
+                />
+              ))}
+            </div>
           )}
           <div ref={repliesEndRef} />
         </div>
       </ScrollArea>
 
-      {/* Compose */}
       <ComposeBar onSend={(content) => onSend(content)} channelName={`thread-${parentMessage.id}`} placeholder="Reply in thread" />
     </>
   );

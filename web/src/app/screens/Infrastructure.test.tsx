@@ -66,7 +66,7 @@ describe('Infrastructure', () => {
     renderWithRouter(<Infrastructure />);
 
     await waitFor(() => {
-      expect(screen.getByText('Host Capacity')).toBeInTheDocument();
+      expect(screen.getByText('Host capacity')).toBeInTheDocument();
       expect(screen.getByText('3 / 8')).toBeInTheDocument();
       expect(screen.getByText('5 available')).toBeInTheDocument();
       expect(screen.getByText('Configured')).toBeInTheDocument();

@@ -2,19 +2,16 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 ARG BUILD_ID=unknown
-ENV VITE_BUILD_ID=$BUILD_ID
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY . .
-RUN npm run build
+RUN VITE_BUILD_ID="$BUILD_ID" npm run build
 
 # Stage 2: Serve with nginx (plain alpine to avoid inherited EXPOSE 80)
 FROM alpine:3.21
 
 ARG BUILD_ID=unknown
 ARG SOURCE_HASH=unknown
-LABEL agency.build.id="${BUILD_ID}"
-LABEL agency.source.hash="${SOURCE_HASH}"
 
 RUN apk add --no-cache nginx \
     && addgroup -g 101 -S nginx 2>/dev/null || true \
@@ -46,6 +43,9 @@ COPY --from=build /app/dist /usr/share/nginx/html
 COPY agency-entrypoint.sh /agency-entrypoint.sh
 RUN chmod 0644 /etc/nginx/conf.d/agency-web.conf \
     && chmod 0755 /agency-entrypoint.sh
+
+LABEL agency.build.id="${BUILD_ID}"
+LABEL agency.source.hash="${SOURCE_HASH}"
 
 USER nginx
 EXPOSE 8280

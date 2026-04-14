@@ -79,9 +79,32 @@ export function Webhooks() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      <div className="rounded-2xl border border-border bg-card px-4 py-4 md:px-5">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div className="space-y-1">
+            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Inbound delivery</div>
+            <p className="text-sm text-muted-foreground">Inbound webhooks for external systems that need signed event delivery into Agency.</p>
+            <p className="text-xs text-muted-foreground">
+              Use webhooks when another system needs a signed inbound endpoint. Use notifications for operator-facing alerts instead.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+              <Link to="/admin/notifications">Open Notifications</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+              <Link to="/admin/events">Review Events</Link>
+            </Button>
+          </div>
+        </div>
+      </div>
+
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">Inbound webhooks for external event delivery</p>
+        <div>
+          <h3 className="text-sm font-medium text-foreground">Webhooks</h3>
+          <p className="text-xs text-muted-foreground">Create signed endpoints, rotate secrets, and remove stale receivers.</p>
+        </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={load} disabled={loading}>
             <RefreshCw className={`w-3 h-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
@@ -96,25 +119,6 @@ export function Webhooks() {
         </div>
       </div>
 
-      <div className="rounded-lg border border-border bg-card p-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="space-y-1">
-            <div className="text-sm font-medium text-foreground">Use webhooks when another system needs a signed inbound endpoint</div>
-            <p className="text-xs text-muted-foreground">
-              Webhooks are for external delivery into Agency. Use notifications for operator-facing alerts like ntfy topics and outbound paging.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
-              <Link to="/admin/notifications">Open Notifications</Link>
-            </Button>
-            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
-              <Link to="/admin/events">Review Events</Link>
-            </Button>
-          </div>
-        </div>
-      </div>
-
       {error && (
         <div className="text-sm text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded px-3 py-2">
           {error}
@@ -123,7 +127,7 @@ export function Webhooks() {
 
       {/* Secret reveal banner */}
       {createdSecret && (
-        <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded px-3 py-2 space-y-1">
+        <div className="space-y-1 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3 dark:border-amber-900 dark:bg-amber-950/30">
           <div className="text-xs font-medium text-amber-700 dark:text-amber-300">
             Secret for "{createdSecret.name}" — copy now, it won't be shown again
           </div>
@@ -143,22 +147,25 @@ export function Webhooks() {
 
       {/* Create form */}
       {showCreate && (
-        <div className="bg-card border border-border rounded p-4 space-y-3">
-          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">New Webhook</div>
+        <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
+          <div>
+            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">New webhook</div>
+            <p className="mt-1 text-xs text-muted-foreground">Create a named endpoint for one event stream, then copy the generated secret immediately.</p>
+          </div>
           <div className="flex flex-col sm:flex-row gap-2">
             <input
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="name"
-              className="flex-1 bg-secondary border border-border text-foreground rounded px-3 py-1.5 text-sm placeholder:text-muted-foreground/70"
+              className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/70"
             />
             <input
               type="text"
               value={newEventType}
               onChange={(e) => setNewEventType(e.target.value)}
               placeholder="event type"
-              className="flex-1 bg-secondary border border-border text-foreground rounded px-3 py-1.5 text-sm placeholder:text-muted-foreground/70"
+              className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/70"
             />
           </div>
           <div className="flex gap-2">
@@ -172,8 +179,7 @@ export function Webhooks() {
         </div>
       )}
 
-      {/* Webhook list */}
-      <div className="bg-card border border-border rounded overflow-hidden">
+      <div className="overflow-hidden rounded-2xl border border-border bg-card">
         {loading ? (
           <div className="text-muted-foreground text-center py-8 text-sm">Loading webhooks...</div>
         ) : webhooks.length === 0 ? (
@@ -190,7 +196,7 @@ export function Webhooks() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[500px]">
               <thead>
-                <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
+                <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-[0.14em]">
                   <th className="text-left p-3 font-medium">Name</th>
                   <th className="text-left p-3 font-medium">Event Type</th>
                   <th className="text-left p-3 font-medium">URL</th>

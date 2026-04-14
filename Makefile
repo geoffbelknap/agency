@@ -100,13 +100,14 @@ $(foreach img,$(CORE_IMAGES),$(eval $(call IMAGE_RULE,$(img))))
 
 # agency-web source (monorepo)
 AGENCY_WEB_DIR ?= $(SOURCE_DIR)/web
+WEB_SOURCE_HASH := $(shell go run ./cmd/sourcehash web)
 
 web:
 	@echo "Building agency-web..."
 	@if [ ! -d "$(AGENCY_WEB_DIR)" ]; then \
 		echo "Error: agency-web not found at $(AGENCY_WEB_DIR)"; exit 1; \
 	fi
-	docker build --build-arg BUILD_ID=$(BUILD_ID) \
+	docker build --build-arg BUILD_ID=$(BUILD_ID) --build-arg SOURCE_HASH=$(WEB_SOURCE_HASH) \
 		-f $(AGENCY_WEB_DIR)/Dockerfile -t agency-web:latest $(AGENCY_WEB_DIR)
 
 # agency-relay source (sibling repo in workspace)

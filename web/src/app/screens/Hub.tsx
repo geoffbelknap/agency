@@ -205,7 +205,7 @@ export function Hub() {
         </div>
       )}
 
-      <div className="flex flex-col gap-3 rounded-xl border border-border bg-card/70 p-4 md:flex-row md:items-start md:justify-between">
+      <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card px-4 py-4 md:flex-row md:items-start md:justify-between md:px-5">
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-sm font-medium text-foreground">
             <Boxes className="h-4 w-4" />
@@ -230,20 +230,20 @@ export function Hub() {
 
         <TabsContent value="packages" className="space-y-4">
           <div className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-lg border border-border bg-card/70 px-4 py-3">
-              <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Installed packages</div>
+            <div className="rounded-2xl border border-border bg-card px-4 py-3">
+              <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Installed packages</div>
               <div className="mt-1 text-2xl font-semibold text-foreground">{packages.length}</div>
               <div className="text-xs text-muted-foreground">Local packages available to scaffold new instances.</div>
             </div>
-            <div className="rounded-lg border border-border bg-card/70 px-4 py-3">
-              <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Instanceable now</div>
+            <div className="rounded-2xl border border-border bg-card px-4 py-3">
+              <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Instanceable now</div>
               <div className="mt-1 text-2xl font-semibold text-foreground">
                 {packages.filter((pkg) => isInstanceable(pkg)).length}
               </div>
               <div className="text-xs text-muted-foreground">Currently limited to connector packages on the V2 path.</div>
             </div>
-            <div className="rounded-lg border border-border bg-card/70 px-4 py-3">
-              <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Trust modes</div>
+            <div className="rounded-2xl border border-border bg-card px-4 py-3">
+              <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Trust modes</div>
               <div className="mt-1 text-2xl font-semibold text-foreground">
                 {new Set(packages.map((pkg) => pkg.trust || 'unspecified')).size}
               </div>
@@ -267,7 +267,7 @@ export function Hub() {
                 const askReview = primaryAskReview(pkg);
                 const issuer = assuranceIssuer(pkg);
                 return (
-                  <div key={key} className="rounded-xl border border-border bg-card/70 p-4">
+                    <div key={key} className="rounded-2xl border border-border bg-card p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
@@ -359,18 +359,18 @@ export function Hub() {
 
         <TabsContent value="instances" className="space-y-4">
           <div className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-lg border border-border bg-card/70 px-4 py-3">
-              <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Local instances</div>
+            <div className="rounded-2xl border border-border bg-card px-4 py-3">
+              <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Local instances</div>
               <div className="mt-1 text-2xl font-semibold text-foreground">{instanceCount}</div>
               <div className="text-xs text-muted-foreground">Governed realizations ready for validate and apply.</div>
             </div>
-            <div className="rounded-lg border border-border bg-card/70 px-4 py-3">
-              <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Claimed instances</div>
+            <div className="rounded-2xl border border-border bg-card px-4 py-3">
+              <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Claimed instances</div>
               <div className="mt-1 text-2xl font-semibold text-foreground">{claimedCount}</div>
               <div className="text-xs text-muted-foreground">Instances currently owned by a named operator or process.</div>
             </div>
-            <div className="rounded-lg border border-border bg-card/70 px-4 py-3">
-              <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Authority nodes</div>
+            <div className="rounded-2xl border border-border bg-card px-4 py-3">
+              <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Authority nodes</div>
               <div className="mt-1 text-2xl font-semibold text-foreground">{authorityNodeCount}</div>
               <div className="text-xs text-muted-foreground">Authority runtime nodes available for mediated actions.</div>
             </div>
@@ -391,7 +391,7 @@ export function Hub() {
                   const showBusy = actionState[`show:${instance.id}`];
                   const applyResult = lastApply[instance.id];
                   return (
-                    <div key={instance.id} className="rounded-xl border border-border bg-card/70 p-4">
+                    <div key={instance.id} className="rounded-2xl border border-border bg-card p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="space-y-1">
                           <h3 className="text-sm font-semibold text-foreground">{instance.name}</h3>

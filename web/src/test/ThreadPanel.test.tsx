@@ -41,7 +41,7 @@ describe('ThreadPanel', () => {
 
   it('renders parent message', () => {
     render(<ThreadPanel {...defaultProps} />);
-    expect(screen.getByText('Parent message')).toBeInTheDocument();
+    expect(screen.getByText('Parent message', { selector: 'div' })).toBeInTheDocument();
     expect(screen.getAllByText('alice').length).toBeGreaterThan(0);
   });
 

@@ -55,9 +55,11 @@ function highlightQuery(text: string, query: string): React.ReactNode {
 function SearchPanelContent({ onClose, onJumpToMessage, query, setQuery, results, loading, searched }: SearchPanelProps & { query: string; setQuery: (q: string) => void; results: SearchResult[]; loading: boolean; searched: boolean }) {
   return (
     <>
-      {/* Header */}
-      <div className="p-4 border-b border-border flex items-center justify-between">
-        <h3 className="font-semibold text-foreground">Search</h3>
+      <div className="flex items-start justify-between border-b border-border px-4 py-4">
+        <div>
+          <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Search</div>
+          <h3 className="mt-1 text-base font-semibold text-foreground">Find messages and jump back into context</h3>
+        </div>
         <Button
           variant="ghost"
           size="icon"
@@ -69,59 +71,70 @@ function SearchPanelContent({ onClose, onJumpToMessage, query, setQuery, results
         </Button>
       </div>
 
-      {/* Search input */}
-      <div className="p-3 border-b border-border">
+      <div className="border-b border-border px-4 py-4">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search messages..."
-            className="pl-8 bg-card border-border text-foreground placeholder:text-muted-foreground"
+            className="h-10 rounded-2xl border-border bg-card pl-8 text-foreground placeholder:text-muted-foreground"
             autoFocus
           />
         </div>
       </div>
 
-      {/* Results area */}
       <ScrollArea className="flex-1">
-        <div className="p-2">
+        <div className="px-4 py-4">
+          {query.trim() && (
+            <div className="mb-3 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              Results
+            </div>
+          )}
           {loading ? (
-            <div className="flex items-center justify-center h-16 text-sm text-muted-foreground">
+            <div className="flex h-24 items-center justify-center rounded-2xl border border-dashed border-border bg-card text-sm text-muted-foreground">
               Searching...
             </div>
           ) : !query.trim() ? (
-            <div className="flex items-center justify-center h-16 text-sm text-muted-foreground">
-              Search messages...
+            <div className="flex h-28 items-center justify-center rounded-2xl border border-dashed border-border bg-card px-4 text-center">
+              <div>
+                <div className="text-sm font-medium text-foreground">Search messages</div>
+                <div className="mt-1 text-xs text-muted-foreground">Use keywords, agent names, or decision text to jump straight into the right thread.</div>
+              </div>
             </div>
           ) : searched && results.length === 0 ? (
-            <div className="flex items-center justify-center h-16 text-sm text-muted-foreground">
-              No results
+            <div className="flex h-24 items-center justify-center rounded-2xl border border-dashed border-border bg-card px-4 text-center">
+              <div>
+                <div className="text-sm font-medium text-foreground">No results</div>
+                <div className="mt-1 text-xs text-muted-foreground">Try a broader phrase or search for the channel, sender, or event wording instead.</div>
+              </div>
             </div>
           ) : (
-            results.map((result) => (
-              <button
-                key={result.id}
-                onClick={() => onJumpToMessage(result.channel, result.id)}
-                className="w-full text-left p-3 rounded-md hover:bg-accent transition-colors mb-1 group"
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <Badge
-                    variant="secondary"
-                    className="text-xs px-1.5 py-0 bg-border text-foreground/80 font-normal"
-                  >
-                    #{result.channel}
-                  </Badge>
-                  <span className="text-xs font-medium text-foreground/80">{result.author}</span>
-                  <span className="text-xs text-muted-foreground ml-auto">
-                    {formatTimestamp(result.timestamp)}
-                  </span>
-                </div>
-                <p className="text-sm text-muted-foreground line-clamp-2 group-hover:text-foreground transition-colors">
-                  {highlightQuery(result.content, query)}
-                </p>
-              </button>
-            ))
+            <div className="space-y-2">
+              {results.map((result) => (
+                <button
+                  key={result.id}
+                  onClick={() => onJumpToMessage(result.channel, result.id)}
+                  className="group w-full rounded-2xl border border-border bg-card p-3 text-left transition-colors hover:bg-accent"
+                >
+                  <div className="mb-1 flex items-center gap-2">
+                    <Badge
+                      variant="secondary"
+                      className="bg-border px-1.5 py-0 text-xs font-normal text-foreground/80"
+                    >
+                      #{result.channel}
+                    </Badge>
+                    <span className="text-xs font-medium text-foreground/80">{result.author}</span>
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      {formatTimestamp(result.timestamp)}
+                    </span>
+                  </div>
+                  <p className="line-clamp-2 text-sm text-muted-foreground transition-colors group-hover:text-foreground">
+                    {highlightQuery(result.content, query)}
+                  </p>
+                </button>
+              ))}
+            </div>
           )}
         </div>
       </ScrollArea>

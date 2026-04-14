@@ -25,7 +25,7 @@ test.describe('Admin tabs', () => {
       { path: '/admin/egress', locator: page.getByText('api.anthropic.com') },
       { path: '/admin/policy', locator: page.getByRole('button', { name: 'Validate' }) },
       { path: '/admin/doctor', locator: page.getByRole('button', { name: 'Run Doctor' }) },
-      { path: '/admin/usage', locator: page.getByText('LLM usage and estimated spend') },
+      { path: '/admin/usage', locator: page.getByText('Model traffic, spend, and routing quality for the selected period.') },
       { path: '/admin/events', locator: page.getByText('message.created') },
       { path: '/admin/webhooks', locator: page.getByText('release-events', { exact: true }) },
       { path: '/admin/notifications', locator: page.getByText('agency-geoff', { exact: true }) },

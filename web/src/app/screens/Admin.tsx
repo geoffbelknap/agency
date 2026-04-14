@@ -93,6 +93,15 @@ export function Admin() {
     navigate(`/admin/${value}`, { replace: true });
   }, [navigate]);
 
+  const handleGroupChange = useCallback((groupLabel: string) => {
+    const targetGroup = TAB_GROUPS.find((group) => group.label === groupLabel);
+    if (!targetGroup) return;
+    const fallbackTab = targetGroup.tabs[0]?.value;
+    if (fallbackTab && fallbackTab !== activeTab) {
+      handleTabChange(fallbackTab);
+    }
+  }, [activeTab, handleTabChange]);
+
   // Agents (trust + policy selector)
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(true);
@@ -217,45 +226,84 @@ export function Admin() {
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <div className="border-b border-border bg-surface-alt/70 px-4 py-5 md:px-8">
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-          <div className="space-y-2">
+      <div className="border-b border-border bg-surface-alt/55 px-4 py-4 md:px-8">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div className="space-y-1.5">
             <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
               Administrative surfaces
             </p>
-            <div>
+            <div className="flex flex-col gap-2 xl:flex-row xl:items-end xl:gap-4">
               <h1 className="text-2xl text-foreground">Admin</h1>
-              <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+              <p className="max-w-3xl text-sm text-muted-foreground">
                 Security, governance, runtime controls, and operational evidence for the local Agency environment.
               </p>
             </div>
           </div>
-          <div className="rounded-2xl border border-border bg-card px-4 py-3 xl:max-w-sm">
-            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              Current section
-            </p>
-            <div className="mt-2 text-lg font-medium text-foreground">{activeSection.label}</div>
-            <p className="mt-1 text-sm text-muted-foreground">{activeSection.description}</p>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Current section</span>
+            <span className="rounded-full border border-border bg-card px-3 py-1.5 font-medium text-foreground">
+              {activeSection.label}
+            </span>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto px-4 py-5 md:px-8 md:py-8">
-        <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
-          <section className="rounded-3xl border border-border bg-card px-4 py-4 md:px-5">
-            <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-              <div className="max-w-2xl">
-                <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                  {activeSection.group}
+      <div className="flex-1 overflow-auto px-4 py-4 md:px-8 md:py-5">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
+          <section className="rounded-2xl border border-border bg-card px-4 py-4 md:px-5">
+            <div className="space-y-4">
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                <div className="max-w-2xl">
+                  <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                    {activeSection.group}
+                  </div>
+                  <div className="mt-1 flex flex-col gap-1 xl:flex-row xl:items-baseline xl:gap-3">
+                    <h2 className="text-xl text-foreground">{activeSection.label}</h2>
+                    <p className="text-sm text-muted-foreground">
+                      {activeSection.description}
+                    </p>
+                  </div>
                 </div>
-                <h2 className="mt-2 text-xl text-foreground">{activeSection.label}</h2>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {activeSection.description}
-                </p>
+                <div className="text-sm text-muted-foreground xl:max-w-sm xl:text-right">
+                  {activeSection.groupDescription}
+                </div>
               </div>
-              <div className="rounded-2xl bg-secondary/70 px-4 py-3 text-sm text-muted-foreground xl:max-w-sm">
-                {activeSection.groupDescription}
-              </div>
+
+              {!isMobile && (
+                <div className="space-y-3 border-t border-border/80 pt-3">
+                  <div className="flex flex-wrap gap-2">
+                    {TAB_GROUPS.map((group) => {
+                      const isCurrentGroup = group.label === activeGroup.label;
+                      return (
+                        <button
+                          key={group.label}
+                          type="button"
+                          onClick={() => handleGroupChange(group.label)}
+                          className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                            isCurrentGroup
+                              ? 'border-primary/30 bg-primary/10 text-primary'
+                              : 'border-border bg-background text-muted-foreground hover:border-border-mid hover:text-foreground'
+                          }`}
+                        >
+                          {group.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <TabsList className="h-auto w-full flex-wrap justify-start gap-2 bg-transparent p-0">
+                    {activeGroup.tabs.map((tab) => (
+                      <TabsTrigger
+                        key={tab.value}
+                        value={tab.value}
+                        className={tab.value === 'danger' ? 'text-red-500 data-[state=active]:text-red-600 dark:text-red-300 dark:data-[state=active]:text-red-200' : ''}
+                      >
+                        {tab.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </div>
+              )}
             </div>
           </section>
 
@@ -283,35 +331,6 @@ export function Admin() {
               </p>
             </div>
           )}
-
-          <div className={`${isMobile ? 'hidden' : 'space-y-4'}`}>
-            {TAB_GROUPS.map((group) => (
-              <section key={group.label} className="rounded-2xl border border-border/80 bg-card px-4 py-4">
-                <div className="mb-3 flex flex-col gap-2 xl:flex-row xl:items-baseline xl:justify-between">
-                  <div>
-                    <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                      {group.label}
-                    </div>
-                    <div className="mt-1 text-sm text-muted-foreground">{group.description}</div>
-                  </div>
-                  {group.label === activeGroup.label && (
-                    <div className="text-sm font-medium text-foreground">Current focus: {activeSection.label}</div>
-                  )}
-                </div>
-                <TabsList className="h-auto w-full flex-wrap justify-start gap-2 bg-transparent p-0">
-                  {group.tabs.map((tab) => (
-                    <TabsTrigger
-                      key={tab.value}
-                      value={tab.value}
-                      className={tab.value === 'danger' ? 'text-red-500 data-[state=active]:text-red-600 dark:text-red-300 dark:data-[state=active]:text-red-200' : ''}
-                    >
-                      {tab.label}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </section>
-            ))}
-          </div>
 
           <TabsContent value="infrastructure"><Suspense fallback={LAZY_FALLBACK}><Infrastructure /></Suspense></TabsContent>
           <TabsContent value="hub"><Suspense fallback={LAZY_FALLBACK}><Hub /></Suspense></TabsContent>

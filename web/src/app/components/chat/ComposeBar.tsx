@@ -58,9 +58,9 @@ export function ComposeBar({ onSend, channelName, disabled, replyTo, onCancelRep
   };
 
   return (
-    <div className="p-4 border-t border-border safe-bottom">
+    <div className="border-t border-border px-4 py-4 safe-bottom md:px-5">
       {replyTo && (
-        <div className="flex items-center justify-between mb-2 px-2 py-1 bg-secondary rounded text-xs text-muted-foreground">
+        <div className="mb-3 flex items-center justify-between rounded-2xl border border-border bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
           <span>Replying to <span className="text-foreground">{replyTo.author}</span></span>
           <button
             onClick={onCancelReply}
@@ -71,8 +71,15 @@ export function ComposeBar({ onSend, channelName, disabled, replyTo, onCancelRep
           </button>
         </div>
       )}
-      <div className="flex gap-2 items-center">
-        <div className="relative flex-1">
+      <div className="rounded-[1.5rem] border border-border bg-card p-2 shadow-sm">
+        <div className="mb-2 flex items-center justify-between gap-3 px-2 pt-1">
+          <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            Message
+          </div>
+          {selectedFlag ? <MessageFlagBadge flag={selectedFlag} /> : <div className="text-[11px] text-muted-foreground">Enter to send</div>}
+        </div>
+        <div className="flex items-end gap-2">
+          <div className="relative flex-1">
           {showSlashMenu && (
             <SlashCommandMenu
               filter={slashFilter}
@@ -85,72 +92,71 @@ export function ComposeBar({ onSend, channelName, disabled, replyTo, onCancelRep
             onChange={setNewMessage}
             onSubmit={handleSend}
             placeholder={placeholder || `Message #${channelName}`}
-            className="bg-card border-border text-foreground placeholder:text-muted-foreground"
+            className="min-h-[3rem] rounded-[1.25rem] border-border bg-background text-foreground placeholder:text-muted-foreground"
           />
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                aria-label="Set message flag"
+                className={`h-11 rounded-2xl border-border bg-background hover:bg-secondary ${selectedFlag ? 'text-foreground' : 'text-muted-foreground'}`}
+              >
+                <Flag className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="bg-card border-border text-foreground">
+              <DropdownMenuLabel className="text-muted-foreground text-xs">Flag message as</DropdownMenuLabel>
+              <DropdownMenuSeparator className="bg-border" />
+              <DropdownMenuItem
+                onClick={() => setSelectedFlag(selectedFlag === 'DECISION' ? null : 'DECISION')}
+                className="gap-2 focus:bg-secondary cursor-pointer"
+              >
+                <span className="text-green-400">●</span>
+                DECISION
+                {selectedFlag === 'DECISION' && <span className="ml-auto text-green-400">✓</span>}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setSelectedFlag(selectedFlag === 'BLOCKER' ? null : 'BLOCKER')}
+                className="gap-2 focus:bg-secondary cursor-pointer"
+              >
+                <span className="text-red-400">●</span>
+                BLOCKER
+                {selectedFlag === 'BLOCKER' && <span className="ml-auto text-red-400">✓</span>}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setSelectedFlag(selectedFlag === 'QUESTION' ? null : 'QUESTION')}
+                className="gap-2 focus:bg-secondary cursor-pointer"
+              >
+                <span className="text-amber-400">●</span>
+                QUESTION
+                {selectedFlag === 'QUESTION' && <span className="ml-auto text-amber-400">✓</span>}
+              </DropdownMenuItem>
+              {selectedFlag && (
+                <>
+                  <DropdownMenuSeparator className="bg-border" />
+                  <DropdownMenuItem
+                    onClick={() => setSelectedFlag(null)}
+                    className="gap-2 focus:bg-secondary cursor-pointer text-muted-foreground"
+                  >
+                    <X className="w-3 h-3" />
+                    Clear flag
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            onClick={handleSend}
+            size="sm"
+            aria-label="Send message"
+            disabled={disabled || !newMessage.trim() || overLimit}
+            className="h-11 rounded-2xl px-4"
+          >
+            <Send className="w-4 h-4" />
+          </Button>
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              aria-label="Set message flag"
-              className={`border-border bg-card hover:bg-secondary ${selectedFlag ? 'text-foreground' : 'text-muted-foreground'}`}
-            >
-              <Flag className="w-4 h-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="bg-card border-border text-foreground">
-            <DropdownMenuLabel className="text-muted-foreground text-xs">Flag message as</DropdownMenuLabel>
-            <DropdownMenuSeparator className="bg-border" />
-            <DropdownMenuItem
-              onClick={() => setSelectedFlag(selectedFlag === 'DECISION' ? null : 'DECISION')}
-              className="gap-2 focus:bg-secondary cursor-pointer"
-            >
-              <span className="text-green-400">●</span>
-              DECISION
-              {selectedFlag === 'DECISION' && <span className="ml-auto text-green-400">✓</span>}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => setSelectedFlag(selectedFlag === 'BLOCKER' ? null : 'BLOCKER')}
-              className="gap-2 focus:bg-secondary cursor-pointer"
-            >
-              <span className="text-red-400">●</span>
-              BLOCKER
-              {selectedFlag === 'BLOCKER' && <span className="ml-auto text-red-400">✓</span>}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => setSelectedFlag(selectedFlag === 'QUESTION' ? null : 'QUESTION')}
-              className="gap-2 focus:bg-secondary cursor-pointer"
-            >
-              <span className="text-amber-400">●</span>
-              QUESTION
-              {selectedFlag === 'QUESTION' && <span className="ml-auto text-amber-400">✓</span>}
-            </DropdownMenuItem>
-            {selectedFlag && (
-              <>
-                <DropdownMenuSeparator className="bg-border" />
-                <DropdownMenuItem
-                  onClick={() => setSelectedFlag(null)}
-                  className="gap-2 focus:bg-secondary cursor-pointer text-muted-foreground"
-                >
-                  <X className="w-3 h-3" />
-                  Clear flag
-                </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        {selectedFlag && (
-          <MessageFlagBadge flag={selectedFlag} />
-        )}
-        <Button
-          onClick={handleSend}
-          size="sm"
-          aria-label="Send message"
-          disabled={disabled || !newMessage.trim() || overLimit}
-        >
-          <Send className="w-4 h-4" />
-        </Button>
       </div>
       {overLimit && (
         <div className="text-xs text-red-400 px-1 mt-1">

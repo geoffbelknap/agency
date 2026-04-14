@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	agencydocker "github.com/geoffbelknap/agency/internal/docker"
 )
 
 const (
@@ -123,6 +125,7 @@ func Start(port int) error {
 	if err != nil {
 		return fmt.Errorf("resolve executable path: %w", err)
 	}
+	agencydocker.EnsureUsableHostEnv()
 
 	// Open log file for daemon stdout/stderr
 	logPath := filepath.Join(agencyDir, "gateway.log")
@@ -135,6 +138,7 @@ func Start(port int) error {
 	// Don't pass --http; the serve command reads gateway_addr from config.yaml.
 	// The daemon only needs the port for its health check.
 	cmd := exec.Command(exePath, "serve")
+	cmd.Env = os.Environ()
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	setDetached(cmd)

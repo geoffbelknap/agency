@@ -26,10 +26,10 @@ interface MessageListProps {
 
 function MessageSkeletons() {
   return (
-    <div className="space-y-4 p-4">
+    <div className="space-y-5 px-5 py-5">
       {[1, 2, 3, 4].map((i) => (
         <div key={i} className="flex gap-3">
-          <Skeleton className="w-8 h-8 rounded flex-shrink-0" />
+          <Skeleton className="h-8 w-8 rounded-2xl flex-shrink-0" />
           <div className="flex-1 space-y-1.5">
             <Skeleton className="h-3 w-24" />
             <Skeleton className="h-3 w-full" />
@@ -181,7 +181,7 @@ export function MessageList({ messages, loading, agentStatuses, processingAgents
 
   return (
     <ScrollArea ref={scrollAreaRef} className="min-h-0 flex-1 overscroll-contain">
-      <div className="p-4 space-y-1">
+      <div className="space-y-1 px-5 py-4">
         {loadingMore && !loading && showLoadingEarlier && (
           <div className="flex justify-center pb-2 text-xs text-muted-foreground">
             <Loader2 className="mr-1 h-3 w-3 animate-spin" />
@@ -191,8 +191,11 @@ export function MessageList({ messages, loading, agentStatuses, processingAgents
         {loading ? (
           <MessageSkeletons />
         ) : messages.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
-            No messages yet
+          <div className="flex h-40 items-center justify-center">
+            <div className="rounded-2xl border border-dashed border-border bg-card px-5 py-6 text-center">
+              <div className="text-sm font-medium text-foreground">No messages yet</div>
+              <div className="mt-1 text-xs text-muted-foreground">Start the thread with a direct instruction, question, or decision.</div>
+            </div>
           </div>
         ) : (
           messages.map((msg, idx) => {
