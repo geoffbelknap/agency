@@ -215,23 +215,13 @@ describe('Admin — Doctor tab', () => {
 });
 
 describe('Admin — Trust tab', () => {
-  it('elevates agent trust', async () => {
-    let elevated = false;
-    server.use(
-      ...agentHandlers,
-      http.post(`${BASE}/admin/trust`, () => {
-        elevated = true;
-        return HttpResponse.json({ ok: true });
-      }),
-    );
+  it('is hidden in the default core admin UI', async () => {
     renderAdmin('trust');
     await waitFor(() => {
-      expect(screen.getByText('alice')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Infrastructure' })).toBeInTheDocument();
     });
-    await userEvent.click(screen.getByRole('button', { name: /elevate/i }));
-    await waitFor(() => {
-      expect(elevated).toBe(true);
-    });
+    expect(screen.queryByText('alice')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /elevate/i })).not.toBeInTheDocument();
   });
 });
 
