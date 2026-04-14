@@ -42,10 +42,10 @@ describe('ChannelSidebar', () => {
     render(<ChannelSidebar channels={channels} selectedChannel={channels[0]} onSelect={() => {}} />);
     const buttons = screen.getAllByRole('button');
     const generalButton = buttons.find((btn) => btn.textContent?.includes('general'));
-    expect(generalButton).toHaveClass('bg-accent');
+    expect(generalButton).toHaveClass('bg-accent/90');
   });
 
-  it('labels visible DMs as agent conversations', () => {
+  it('shows DM status without legacy agent pills', () => {
     render(
       <ChannelSidebar
         channels={channels}
@@ -56,8 +56,9 @@ describe('ChannelSidebar', () => {
     );
 
     expect(screen.getByLabelText('Running')).toBeInTheDocument();
-    expect(screen.getAllByText('AGENT')).toHaveLength(2);
     expect(screen.getByLabelText('Unavailable')).toBeInTheDocument();
+    expect(screen.getByText('Direct messages')).toBeInTheDocument();
+    expect(screen.queryByText('AGENT')).not.toBeInTheDocument();
     expect(screen.queryByText('LEGACY')).not.toBeInTheDocument();
     expect(screen.queryByText('UNAVAILABLE')).not.toBeInTheDocument();
   });

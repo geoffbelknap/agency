@@ -74,23 +74,23 @@ function SidebarSection({ title, defaultOpen = true, titleClassName, children }:
       <button
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-center gap-1 px-1 py-1 group"
+        className="flex w-full items-center gap-1.5 px-2 py-1.5"
       >
         {open ? (
-          <ChevronDown className="h-3 w-3 text-muted-foreground/60 shrink-0" />
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         ) : (
-          <ChevronRight className="h-3 w-3 text-muted-foreground/60 shrink-0" />
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         )}
         <span
           className={cn(
-            'text-[10px] uppercase tracking-widest font-medium',
-            titleClassName ?? 'text-muted-foreground/60',
+            'text-sm font-medium',
+            titleClassName ?? 'text-muted-foreground',
           )}
         >
           {title}
         </span>
       </button>
-      {open && <div>{children}</div>}
+      {open && <div className="mt-1 space-y-1">{children}</div>}
     </div>
   );
 }
@@ -113,20 +113,49 @@ function SidebarContent({
   const grouped = groupChannels(filtered);
 
   return (
-    <div className="flex h-full w-72 flex-col bg-sidebar">
-      <div className="p-2">
+    <div className="flex h-full w-[18.5rem] flex-col bg-sidebar">
+      <div className="border-b border-border/70 px-3 pb-3 pt-4">
+        <div className="mb-4 px-1">
+          <h2 className="text-lg text-sidebar-foreground">Channels</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Direct work, DMs, and internal coordination.
+          </p>
+        </div>
         <div className="relative flex-1">
           <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search channels..."
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            className="pl-8 bg-card border-border text-sm"
+            className="bg-card pl-8 text-sm"
           />
         </div>
+        <div className="mt-3 flex items-center gap-2">
+          {onCreateChannel && (
+            <button
+              onClick={onCreateChannel}
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-sidebar-accent"
+            >
+              <Plus className="h-3.5 w-3.5 shrink-0" />
+              <span>Add channel</span>
+            </button>
+          )}
+          {onToggleInactive && (
+            <button
+              onClick={onToggleInactive}
+              className={cn(
+                'rounded-xl px-3 py-2 text-sm font-medium transition-colors',
+                showInactive
+                  ? 'bg-accent text-foreground'
+                  : 'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground',
+              )}
+            >
+              {showInactive ? 'Hide inactive' : 'Show inactive'}
+            </button>
+          )}
+        </div>
       </div>
-      <ScrollArea className="flex-1 px-2 overscroll-contain">
-        {/* Channels section */}
+      <ScrollArea className="flex-1 px-3 py-3 overscroll-contain">
         <SidebarSection title="Channels">
           {grouped.channels.map((ch) => (
             <ChannelItem
@@ -136,110 +165,73 @@ function SidebarContent({
               onClick={() => onSelect(ch)}
             />
           ))}
-          {onCreateChannel && (
-            <div className="mt-1 flex items-center gap-1">
-              <button
-                onClick={onCreateChannel}
-                className="flex flex-1 items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-              >
-                <Plus className="h-3.5 w-3.5 shrink-0" />
-                <span className="text-xs">Add channel</span>
-              </button>
-              {onToggleInactive && (
-                <button
-                  onClick={onToggleInactive}
-                  className={cn(
-                    'rounded-md px-2 py-1.5 text-[10px] uppercase tracking-[0.14em] transition-colors',
-                    showInactive
-                      ? 'bg-accent text-foreground'
-                      : 'text-muted-foreground/60 hover:text-muted-foreground',
-                  )}
-                >
-                  {showInactive ? 'Hide inactive' : 'Show inactive'}
-                </button>
-              )}
-            </div>
-          )}
         </SidebarSection>
 
         {grouped.dms.length > 0 && (
-          <>
-            <div className="my-2 border-t border-border/40" />
-            <SidebarSection title="Direct Messages">
-              {grouped.dms.map((ch) => {
-                const isActive = ch.id === selectedChannel?.id;
-                const dmName = dmDisplayName(ch.name);
-                const knownAgent = hasKnownDmStatus(dmStatuses, dmName);
-                return (
-                  <button
-                    key={ch.id}
-                    onClick={() => onSelect(ch)}
-                    className={cn(
-                      'flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors',
-                      'hover:bg-accent',
-                      isActive && 'bg-accent',
-                    )}
-                  >
-                    {knownAgent ? (
-                      <AgentStatusDot status={dmStatuses?.[dmName] ?? 'unknown'} className="shrink-0" />
-                    ) : (
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/30"
-                        aria-label="Unavailable"
-                        title="Agent unavailable"
-                      />
-                    )}
-                    <span className={cn('flex-1 truncate font-medium', ch.unreadCount > 0 && 'text-white')}>
-                      {dmName}
-                    </span>
-                    <div className="flex items-center gap-1 shrink-0">
-                      {ch.unreadCount > 0 && (
-                        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                          {ch.unreadCount}
-                        </span>
-                      )}
-                      <span className="text-[10px] bg-secondary px-1 py-0.5 rounded text-muted-foreground">
-                        AGENT
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-            </SidebarSection>
-          </>
-        )}
-
-        {grouped.internal.length > 0 && (
-          <>
-            <div className="my-2 border-t border-border/40" />
-            <SidebarSection title="Internal" defaultOpen={false} titleClassName="text-muted-foreground/50">
-              {grouped.internal.map((ch) => (
+          <SidebarSection title="Direct messages" titleClassName="text-muted-foreground">
+            {grouped.dms.map((ch) => {
+              const isActive = ch.id === selectedChannel?.id;
+              const dmName = dmDisplayName(ch.name);
+              const knownAgent = hasKnownDmStatus(dmStatuses, dmName);
+              return (
                 <button
                   key={ch.id}
                   onClick={() => onSelect(ch)}
                   className={cn(
-                    'flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors',
-                    'hover:bg-accent',
-                    ch.id === selectedChannel?.id && 'bg-accent',
+                    'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors',
+                    isActive ? 'bg-accent/90 text-foreground' : 'hover:bg-accent/55',
                   )}
                 >
-                  <Hash className="h-4 w-4 shrink-0 text-muted-foreground/60 mt-0.5" />
-                  <span className={cn('truncate font-medium', ch.unreadCount > 0 && 'text-white')}>
-                    {ch.name}
+                  {knownAgent ? (
+                    <AgentStatusDot status={dmStatuses?.[dmName] ?? 'unknown'} className="shrink-0" />
+                  ) : (
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full bg-muted-foreground/45"
+                      aria-label="Unavailable"
+                      title="Agent unavailable"
+                    />
+                  )}
+                  <span className={cn('flex-1 truncate font-medium', ch.unreadCount > 0 && !isActive && 'text-foreground')}>
+                    {dmName}
                   </span>
                   {ch.unreadCount > 0 && (
-                    <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground shrink-0">
+                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">
                       {ch.unreadCount}
                     </span>
                   )}
                 </button>
-              ))}
-            </SidebarSection>
-          </>
+              );
+            })}
+          </SidebarSection>
+        )}
+
+        {grouped.internal.length > 0 && (
+          <SidebarSection title="Internal" defaultOpen={false} titleClassName="text-muted-foreground">
+            {grouped.internal.map((ch) => (
+              <button
+                key={ch.id}
+                onClick={() => onSelect(ch)}
+                className={cn(
+                  'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors',
+                  ch.id === selectedChannel?.id ? 'bg-accent/90 text-foreground' : 'hover:bg-accent/55',
+                )}
+              >
+                <Hash className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className={cn('truncate font-medium', ch.unreadCount > 0 && ch.id !== selectedChannel?.id && 'text-foreground')}>
+                  {ch.name}
+                </span>
+                {ch.unreadCount > 0 && (
+                  <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground shrink-0">
+                    {ch.unreadCount}
+                  </span>
+                )}
+              </button>
+            ))}
+          </SidebarSection>
         )}
       </ScrollArea>
       {displayBuildId(__BUILD_ID__) && (
-        <div className="px-3 py-1.5 text-[10px] text-muted-foreground/50 select-all">
+        <div className="border-t border-border/70 px-4 py-2 text-[11px] text-muted-foreground select-all">
           {displayBuildId(__BUILD_ID__)}
         </div>
       )}
@@ -263,25 +255,25 @@ export function ChannelSidebar({
 
   if (isMobile) {
     return (
-      <Sheet open={mobileOpen} onOpenChange={(open) => { if (!open) onMobileClose?.(); }}>
-        <SheetContent side="left" className="p-0 w-72 bg-sidebar border-border">
-        <SidebarContent
-          channels={channels}
-          selectedChannel={selectedChannel}
-          onSelect={onSelect}
-          dmStatuses={dmStatuses}
-          onCreateChannel={onCreateChannel}
-          showInactive={showInactive}
-          onToggleInactive={onToggleInactive}
-          onBrowseChannels={onBrowseChannels}
-        />
+        <Sheet open={mobileOpen} onOpenChange={(open) => { if (!open) onMobileClose?.(); }}>
+        <SheetContent side="left" className="w-[18.5rem] border-border bg-sidebar p-0">
+          <SidebarContent
+            channels={channels}
+            selectedChannel={selectedChannel}
+            onSelect={onSelect}
+            dmStatuses={dmStatuses}
+            onCreateChannel={onCreateChannel}
+            showInactive={showInactive}
+            onToggleInactive={onToggleInactive}
+            onBrowseChannels={onBrowseChannels}
+          />
         </SheetContent>
       </Sheet>
     );
   }
 
   return (
-    <div className="border-r border-border">
+    <div className="border-r border-border/70 bg-sidebar">
       <SidebarContent
         channels={channels}
         selectedChannel={selectedChannel}

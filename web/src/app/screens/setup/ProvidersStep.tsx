@@ -119,9 +119,11 @@ export function ProvidersStep({
 
   return (
     <div className="space-y-8">
-      <div className="text-center space-y-2">
-        <h2 className="text-2xl font-semibold text-foreground">LLM Providers</h2>
-        <p className="text-muted-foreground text-sm">Connect at least one provider to power your agents.</p>
+      <div className="space-y-2">
+        <h2 className="text-2xl text-foreground">LLM Providers</h2>
+        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+          Connect at least one provider to power your agents. Verify it here first so later runtime issues are easier to interpret.
+        </p>
       </div>
 
       <div className="space-y-6">
@@ -130,7 +132,7 @@ export function ProvidersStep({
           if (items.length === 0) return null;
           return (
             <div key={cat} className="space-y-2">
-              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{categoryLabels[cat]}</h3>
+              <h3 className="text-sm font-medium text-foreground">{categoryLabels[cat]}</h3>
               <div className="space-y-2">
                 {items.map((provider) => {
                   const status = configuredProviders[provider.name];
@@ -138,9 +140,9 @@ export function ProvidersStep({
                   const isValidated = status?.validated || provider.credential_configured;
 
                   return (
-                    <div key={provider.name} className="border border-border rounded-lg bg-card overflow-hidden">
+                    <div key={provider.name} className="overflow-hidden rounded-2xl border border-border bg-card">
                       <button
-                        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-secondary/30 transition-colors"
+                        className="flex w-full items-center justify-between px-4 py-4 text-left transition-colors hover:bg-secondary/30"
                         onClick={() => setExpanded(isExpanded ? null : provider.name)}
                       >
                         <div className="flex items-center gap-3">
@@ -151,22 +153,22 @@ export function ProvidersStep({
                       </button>
 
                       {isExpanded && (
-                        <div className="px-4 pb-4 space-y-3 border-t border-border pt-3">
-                          <p className="text-xs text-muted-foreground">{provider.description}</p>
+                        <div className="space-y-4 border-t border-border px-4 pb-4 pt-4">
+                          <p className="text-sm leading-6 text-muted-foreground">{provider.description}</p>
 
                           {provider.credential_name && (
-                            <div className="space-y-1.5">
-                              <label className="text-xs text-muted-foreground">{provider.credential_label || 'API Key'}</label>
+                            <div className="space-y-2">
+                              <label className="text-sm font-medium text-foreground">{provider.credential_label || 'API Key'}</label>
                               <Input
                                 type="password"
                                 value={keyInputs[provider.name] || ''}
                                 onChange={(e) => setKeyInputs((prev) => ({ ...prev, [provider.name]: e.target.value }))}
                                 placeholder={isValidated ? '••••••••' : 'Enter your API key'}
-                                className="text-sm bg-background"
+                                className="bg-input-background text-sm"
                               />
                               {provider.api_key_url && (
                                 <a href={provider.api_key_url} target="_blank" rel="noopener noreferrer"
-                                  className="text-xs text-blue-400 hover:text-blue-300 inline-flex items-center gap-1">
+                                  className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary/80">
                                   Get an API key <ExternalLink className="w-3 h-3" />
                                 </a>
                               )}
@@ -174,19 +176,19 @@ export function ProvidersStep({
                           )}
 
                           {provider.api_base_configurable && (
-                            <div className="space-y-1.5">
-                              <label className="text-xs text-muted-foreground">API Base URL</label>
+                            <div className="space-y-2">
+                              <label className="text-sm font-medium text-foreground">API Base URL</label>
                               <Input
                                 value={baseInputs[provider.name] || ''}
                                 onChange={(e) => setBaseInputs((prev) => ({ ...prev, [provider.name]: e.target.value }))}
                                 placeholder="http://localhost:11434/v1"
-                                className="text-sm bg-background"
+                                className="bg-input-background text-sm"
                               />
                             </div>
                           )}
 
                           {testError[provider.name] && (
-                            <p className="text-xs text-red-400 flex items-center gap-1">
+                            <p className="flex items-center gap-1 text-sm text-red-500">
                               <X className="w-3 h-3" /> {testError[provider.name]}
                             </p>
                           )}
@@ -208,9 +210,11 @@ export function ProvidersStep({
       </div>
 
       {hasValidProvider && (
-        <div className="space-y-3 pt-4 border-t border-border">
-          <h3 className="text-sm font-medium text-foreground">Model Routing Strategy</h3>
-          <p className="text-xs text-muted-foreground">How should the platform handle model tier requests?</p>
+        <div className="space-y-4 border-t border-border pt-5">
+          <div>
+            <h3 className="text-sm font-medium text-foreground">Model Routing Strategy</h3>
+            <p className="mt-1 text-sm text-muted-foreground">How should the platform handle model tier requests?</p>
+          </div>
           <div className="space-y-2">
             {([
               { value: 'best_effort' as const, label: 'Best Effort', desc: 'Use the nearest available model when the requested tier is unmapped.' },
@@ -219,13 +223,13 @@ export function ProvidersStep({
             ]).map((opt) => (
               <button
                 key={opt.value}
-                className={`w-full text-left px-3 py-2.5 rounded border transition-colors ${
+                className={`w-full rounded-2xl border px-4 py-3 text-left transition-colors ${
                   tierStrategy === opt.value ? 'border-foreground/30 bg-secondary/50' : 'border-border hover:border-border/80'
                 }`}
                 onClick={() => onTierStrategyUpdate(opt.value)}
               >
                 <div className="text-sm font-medium text-foreground">{opt.label}</div>
-                <div className="text-xs text-muted-foreground">{opt.desc}</div>
+                <div className="mt-1 text-sm text-muted-foreground">{opt.desc}</div>
               </button>
             ))}
           </div>

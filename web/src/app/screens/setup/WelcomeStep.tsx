@@ -36,43 +36,46 @@ export function WelcomeStep({ operatorName, onUpdate, onNext, onSkip, isReSetup 
   };
 
   return (
-    <div className="text-center space-y-8">
+    <div className="space-y-8">
       <div className="space-y-3">
-        <h2 className="text-2xl font-semibold text-foreground">
+        <h2 className="text-2xl text-foreground">
           {isReSetup ? 'Re-configure Agency' : 'Welcome to Agency'}
         </h2>
-        <p className="text-muted-foreground text-sm max-w-sm mx-auto">
+        <p className="max-w-md text-sm leading-6 text-muted-foreground">
           {isReSetup
             ? "Let's walk through your configuration. You can update anything or skip ahead."
             : "Let's get your platform set up. This will take a few minutes."}
         </p>
       </div>
 
-      <div className="space-y-3 max-w-xs mx-auto">
-        <label className="text-sm text-muted-foreground text-left block">Your name</label>
+      <div className="max-w-md space-y-3">
+        <label className="block text-sm font-medium text-foreground">Your name</label>
         <Input
           value={name}
           onChange={(e) => setName(e.target.value.replace(/[^a-zA-Z0-9-]/g, ''))}
           placeholder="operator"
           maxLength={64}
-          className="text-center bg-card border-border"
+          className="bg-input-background text-base"
           onKeyDown={(e) => e.key === 'Enter' && isValid && handleSubmit()}
         />
-        {error && <p className="text-xs text-red-400">{error}</p>}
+        <p className="text-sm text-muted-foreground">
+          Use a short stable operator name. It appears in conversations and audit trails.
+        </p>
+        {error && <p className="text-sm text-red-500">{error}</p>}
       </div>
 
       <div className="space-y-3">
         <Button
           onClick={handleSubmit}
           disabled={!isValid || submitting}
-          className="w-48"
+          className="min-w-40"
         >
           {submitting ? 'Initializing...' : 'Continue'}
         </Button>
 
         {isReSetup && (
           <div>
-            <button onClick={onSkip} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+            <button onClick={onSkip} className="text-sm text-muted-foreground transition-colors hover:text-foreground">
               Skip setup
             </button>
           </div>
