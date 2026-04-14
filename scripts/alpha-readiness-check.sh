@@ -43,6 +43,17 @@ run_agency() {
   "$AGENCY_BIN" -q "$@"
 }
 
+wait_for_status() {
+  local deadline=$((SECONDS + 20))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if run_agency status >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 infra_is_healthy() {
   local status
   status="$(run_agency status 2>/dev/null || true)"
@@ -128,6 +139,7 @@ diagnose_agent_failure() {
 
 log "Checking daemon and infrastructure"
 run_agency serve restart >/dev/null
+wait_for_status || fail "gateway did not become reachable after daemon restart"
 if infra_is_healthy; then
   log "Infrastructure already healthy; reusing existing stack"
 else
