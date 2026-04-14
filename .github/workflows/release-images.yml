@@ -70,9 +70,6 @@ jobs:
           - name: knowledge
             context: .
             dockerfile: images/knowledge/Dockerfile
-          - name: intake
-            context: .
-            dockerfile: images/intake/Dockerfile
           - name: body
             context: .
             dockerfile: images/body/Dockerfile
@@ -86,9 +83,6 @@ jobs:
           - name: workspace
             context: images/workspace
             dockerfile: images/workspace/Dockerfile
-          - name: web-fetch
-            context: images/web-fetch
-            dockerfile: images/web-fetch/Dockerfile
 
     steps:
       - name: Checkout
@@ -172,45 +166,3 @@ jobs:
             ${{ env.IMAGE_PREFIX }}/agency-web:latest
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
-
-  build-and-push-embeddings:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract version
-        id: version
-        env:
-          REF_NAME: ${{ github.ref_name }}
-        run: echo "version=${REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
-
-      - name: Build and push embeddings
-        uses: docker/build-push-action@v7
-        with:
-          context: images/embeddings
-          file: images/embeddings/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          build-args: |
-            BUILD_ID=${{ github.sha }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          tags: |
-            ${{ env.IMAGE_PREFIX }}/agency-embeddings:v${{ steps.version.outputs.version }}
-            ${{ env.IMAGE_PREFIX }}/agency-embeddings:latest
-          cache-from: type=gha,scope=embeddings
-          cache-to: type=gha,scope=embeddings,mode=max

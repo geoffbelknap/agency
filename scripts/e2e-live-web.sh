@@ -164,7 +164,7 @@ wait_for_infra_healthy() {
   fi
 
   if [ -n "$instance" ]; then
-    local components="egress comms knowledge intake web-fetch web embeddings"
+    local components="egress comms knowledge web"
     local lines=""
     local all_healthy=0
 
@@ -203,9 +203,9 @@ wait_for_infra_healthy() {
   done
 
   attempt=0
-  until printf '%s\n' "$status_output" | grep -q "web-fetch.*✓" \
+  until printf '%s\n' "$status_output" | grep -q "egress.*✓" \
+    && printf '%s\n' "$status_output" | grep -q "comms.*✓" \
     && printf '%s\n' "$status_output" | grep -q "knowledge.*✓" \
-    && printf '%s\n' "$status_output" | grep -q "intake.*✓" \
     && printf '%s\n' "$status_output" | grep -q "web.*✓"; do
     attempt=$((attempt + 1))
     if [ "$attempt" -ge "$timeout" ]; then

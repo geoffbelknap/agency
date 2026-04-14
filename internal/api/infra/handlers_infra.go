@@ -12,6 +12,7 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/budget"
 	"github.com/geoffbelknap/agency/internal/events"
+	"github.com/geoffbelknap/agency/internal/infratier"
 	"github.com/geoffbelknap/agency/internal/models"
 )
 
@@ -248,7 +249,7 @@ func (h *handler) infraReload(w http.ResponseWriter, r *http.Request) {
 	h.regenerateSwapConfig()
 
 	// Reload restarts all infra components to pick up config changes
-	components := []string{"egress", "comms", "knowledge", "intake"}
+	components := infratier.ReloadComponents()
 	var reloaded []string
 	for _, comp := range components {
 		if err := h.deps.Infra.RestartComponent(r.Context(), comp); err != nil {

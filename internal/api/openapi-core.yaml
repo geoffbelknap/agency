@@ -1131,7 +1131,7 @@ paths:
                   required: true
                   schema:
                     type: string
-                    enum: [egress, comms, knowledge, intake]
+                    enum: [egress, comms, knowledge, web]
             responses:
                 "200":
                     description: Component restarted

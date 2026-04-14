@@ -20,6 +20,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/geoffbelknap/agency/internal/comms"
+	"github.com/geoffbelknap/agency/internal/infratier"
 )
 
 const prefix = "agency"
@@ -148,7 +149,7 @@ type InfraComponent struct {
 }
 
 func (c *Client) InfraStatus(ctx context.Context) ([]InfraComponent, error) {
-	components := []string{"egress", "comms", "knowledge", "intake", "web-fetch", "web", "embeddings"}
+	components := infratier.StatusComponents()
 	instance := strings.Trim(strings.ToLower(os.Getenv("AGENCY_INFRA_INSTANCE")), "-")
 
 	// Single ContainerList call is ~50ms vs seconds for individual inspects on WSL2

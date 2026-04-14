@@ -26,6 +26,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/config"
 	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/images"
+	"github.com/geoffbelknap/agency/internal/infratier"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/orchestrate/containers"
 	"github.com/geoffbelknap/agency/internal/pkg/envfile"
@@ -354,19 +355,29 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 	}
 	progress("gateway-proxy", "Started gateway-proxy")
 
-	components := []struct {
+	componentSet := map[string]struct {
 		name   string
 		desc   string
 		ensure func(ctx context.Context) error
 	}{
-		{"egress", "Starting egress proxy (credential swap, network mediation)", inf.ensureEgress},
-		{"comms", "Starting comms server (channels, messaging)", inf.ensureComms},
-		{"knowledge", "Starting knowledge graph", inf.ensureKnowledge},
-		{"intake", "Starting intake service", inf.ensureIntake},
-		{"web-fetch", "Starting web-fetch service (content extraction, security scanning)", inf.ensureWebFetch},
-		{"web", "Starting web UI", inf.ensureWeb},
-		{"relay", "Starting relay tunnel", inf.ensureRelay},
-		{"embeddings", "Starting embeddings service (local vector embeddings)", inf.ensureEmbeddings},
+		"egress":     {"egress", "Starting egress proxy (credential swap, network mediation)", inf.ensureEgress},
+		"comms":      {"comms", "Starting comms server (channels, messaging)", inf.ensureComms},
+		"knowledge":  {"knowledge", "Starting knowledge graph", inf.ensureKnowledge},
+		"intake":     {"intake", "Starting intake service", inf.ensureIntake},
+		"web-fetch":  {"web-fetch", "Starting web-fetch service (content extraction, security scanning)", inf.ensureWebFetch},
+		"web":        {"web", "Starting web UI", inf.ensureWeb},
+		"relay":      {"relay", "Starting relay tunnel", inf.ensureRelay},
+		"embeddings": {"embeddings", "Starting embeddings service (local vector embeddings)", inf.ensureEmbeddings},
+	}
+	var components []struct {
+		name   string
+		desc   string
+		ensure func(ctx context.Context) error
+	}
+	for _, name := range infratier.StartupComponents() {
+		if comp, ok := componentSet[name]; ok {
+			components = append(components, comp)
+		}
 	}
 
 	// Start remaining components in parallel — they all depend on gateway-proxy
@@ -1186,7 +1197,7 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 				"AGENCY_GATEWAY_PORT": inf.gatewayPort(),
 				"AGENCY_WEB_LISTEN":   inf.webListenAddr(),
 			}),
-			Labels: inf.infraLabels(ctx, defaultImages["web"], "web"),
+			Labels:       inf.infraLabels(ctx, defaultImages["web"], "web"),
 			Healthcheck:  inf.webHealthCheck(),
 			ExposedPorts: nat.PortSet{"8280/tcp": struct{}{}},
 		},

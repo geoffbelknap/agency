@@ -12,14 +12,11 @@ EXPECTED_IMAGES=(
   agency-python-base
   agency-comms
   agency-knowledge
-  agency-intake
   agency-body
   agency-egress
   agency-enforcer
   agency-workspace
-  agency-web-fetch
   agency-web
-  agency-embeddings
 )
 
 log() {

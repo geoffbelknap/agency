@@ -12,6 +12,7 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
+	"github.com/geoffbelknap/agency/internal/infratier"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 	"github.com/geoffbelknap/agency/internal/routing"
@@ -120,7 +121,7 @@ func registerInfraTools(reg *MCPToolRegistry) {
 			"properties": map[string]interface{}{
 				"component": map[string]interface{}{
 					"type":        "string",
-					"enum":        []string{"egress", "comms", "knowledge", "web-fetch"},
+					"enum":        infratier.RebuildComponents(),
 					"description": "Component to rebuild",
 				},
 			},
@@ -152,7 +153,7 @@ func registerInfraTools(reg *MCPToolRegistry) {
 			// Regenerate credential-swaps.yaml before reloading
 			d.regenerateSwapConfig()
 
-			components := []string{"egress", "comms", "knowledge", "intake"}
+			components := infratier.ReloadComponents()
 			var reloaded []string
 			for _, comp := range components {
 				if err := d.infra.RestartComponent(context.Background(), comp); err != nil {

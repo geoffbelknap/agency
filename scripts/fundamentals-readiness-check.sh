@@ -64,10 +64,7 @@ infra_is_healthy() {
   printf '%s\n' "$status" | grep -Eq 'egress[[:space:]]+running.*✓' || return 1
   printf '%s\n' "$status" | grep -Eq 'comms[[:space:]]+running.*✓' || return 1
   printf '%s\n' "$status" | grep -Eq 'knowledge[[:space:]]+running.*✓' || return 1
-  printf '%s\n' "$status" | grep -Eq 'intake[[:space:]]+running.*✓' || return 1
-  printf '%s\n' "$status" | grep -Eq 'web-fetch[[:space:]]+running.*✓' || return 1
   printf '%s\n' "$status" | grep -Eq 'web[[:space:]]+running.*✓' || return 1
-  printf '%s\n' "$status" | grep -Eq 'embeddings[[:space:]]+running.*✓' || return 1
 }
 
 cleanup() {
@@ -184,7 +181,7 @@ fi
 status="$(run_agency status)"
 printf '%s\n' "$status" | grep -q 'Web UI:  http://127.0.0.1:8280' ||
   fail "agency status did not report the HTTP Web UI URL"
-for component in egress comms knowledge intake web-fetch web embeddings; do
+for component in egress comms knowledge web; do
   printf '%s\n' "$status" | grep -Eq "${component}[[:space:]]+running.*✓" ||
     fail "${component} is not healthy"
 done
