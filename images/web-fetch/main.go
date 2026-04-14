@@ -8,11 +8,21 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
 
 var buildID = "dev"
+
+func init() {
+	if buildID != "dev" {
+		return
+	}
+	if envBuildID := os.Getenv("BUILD_ID"); strings.TrimSpace(envBuildID) != "" {
+		buildID = envBuildID
+	}
+}
 
 func main() {
 	initLogging()

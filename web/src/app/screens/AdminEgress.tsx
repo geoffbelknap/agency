@@ -130,8 +130,7 @@ export function AdminEgress() {
 
       {!egressDomainsLoading && egressDomains.length === 0 && !egressDomainsError ? (
         <div className="text-sm text-muted-foreground text-center py-6 bg-card border border-border rounded">
-          Domains are auto-provisioned when connectors are activated. Use{' '}
-          <code className="text-foreground/80">agency hub activate</code> to set up connectors.
+          No managed egress domains are active yet. They appear as agents and optional integrations request governed outbound access.
         </div>
       ) : egressDomains.length > 0 && (
         <div className="bg-card border border-border rounded overflow-hidden">

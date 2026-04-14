@@ -1,8 +1,6 @@
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:4724b8cc51e33e398f0e2e15e18d5ec2851ff0c2280647e1310bc1642182655d
 ARG BUILD_ID=unknown
 ARG SOURCE_HASH=unknown
-LABEL agency.build.id=${BUILD_ID}
-LABEL agency.source.hash=${SOURCE_HASH}
 
 # Minimal agent workspace — curl, jq, bash only.
 # Execution-layer confinement via custom seccomp profile on workspace container.
@@ -23,4 +21,6 @@ RUN chmod +x /usr/local/bin/agent-entrypoint.sh
 
 USER agent
 WORKDIR /workspace
+LABEL agency.build.id=${BUILD_ID}
+LABEL agency.source.hash=${SOURCE_HASH}
 CMD ["/usr/local/bin/agent-entrypoint.sh"]

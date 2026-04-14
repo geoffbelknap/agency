@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useParams, useNavigate, Link } from 'react-router';
+import { useParams, useNavigate } from 'react-router';
 import { RefreshCw, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Agent } from '../types';
@@ -146,9 +146,6 @@ export function Agents() {
           >
             <RefreshCw className={`w-3.5 h-3.5 ${refreshingAgents ? 'animate-spin' : ''}`} aria-hidden="true" />
           </Button>
-          <Link to="/teams" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-            Manage Teams
-          </Link>
         </div>
       </div>
 

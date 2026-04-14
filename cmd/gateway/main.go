@@ -204,9 +204,13 @@ func customHelp(cmd *cobra.Command, _ []string) {
 		grouped[c.GroupID] = append(grouped[c.GroupID], c)
 	}
 
-	fmt.Println("Agency — An operating system for AI agents")
+	fmt.Println("Agency — Governed AI agents with isolation and auditability")
 	fmt.Println()
 	fmt.Println("Usage: agency <command> [options]")
+	if agencyCLIExperimentalEnabled() {
+		fmt.Println()
+		fmt.Println("Experimental surfaces are enabled via AGENCY_EXPERIMENTAL_SURFACES=1.")
+	}
 
 	for _, g := range groups {
 		cmds := grouped[g.id]
@@ -216,13 +220,13 @@ func customHelp(cmd *cobra.Command, _ []string) {
 		fmt.Printf("\n  %s\n", g.title)
 		for _, c := range cmds {
 			if c.HasSubCommands() {
-				fmt.Printf("    %s  %s\n", pad(c.Name()+" ...", 28), c.Short)
+				fmt.Printf("    %s  %s\n", pad(c.Name()+" ...", 28), helpShort(c))
 			} else {
 				use := c.Use
 				if i := len(c.Name()); i < len(use) {
 					use = c.Name() + use[i:]
 				}
-				fmt.Printf("    %s  %s\n", pad(use, 28), c.Short)
+				fmt.Printf("    %s  %s\n", pad(use, 28), helpShort(c))
 			}
 		}
 	}
@@ -249,10 +253,15 @@ func subcommandHelp(cmd *cobra.Command) {
 			if i := len(c.Name()); i < len(use) {
 				use = c.Name() + use[i:]
 			}
-			fmt.Printf("  %s  %s\n", pad(use, 28), c.Short)
+			fmt.Printf("  %s  %s\n", pad(use, 28), helpShort(c))
 		}
 	} else {
 		fmt.Printf("Usage: %s\n", cmd.UseLine())
+	}
+
+	if agencyCLI.IsExperimentalCommand(cmd.Name()) {
+		fmt.Println()
+		fmt.Println("This surface is experimental and not part of the default core product path.")
 	}
 
 	if cmd.HasLocalFlags() {
@@ -281,6 +290,23 @@ func subcommandHelp(cmd *cobra.Command) {
 	}
 
 	fmt.Println()
+}
+
+func agencyCLIExperimentalEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENCY_EXPERIMENTAL_SURFACES"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func helpShort(cmd *cobra.Command) string {
+	short := cmd.Short
+	if agencyCLI.IsExperimentalCommand(cmd.Name()) {
+		short += " [experimental]"
+	}
+	return short
 }
 
 func main() {
@@ -381,14 +407,15 @@ func serveCmd() *cobra.Command {
 
 func setupCmd() *cobra.Command {
 	var (
-		name      string
-		preset    string
-		provider  string
-		apiKey    string
-		notifyURL string
-		noInfra   bool
-		noBrowser bool
-		cliMode   bool
+		name          string
+		preset        string
+		provider      string
+		apiKey        string
+		notifyURL     string
+		noInfra       bool
+		noBrowser     bool
+		noDockerStart bool
+		cliMode       bool
 	)
 
 	cmd := &cobra.Command{
@@ -397,7 +424,7 @@ func setupCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Check Docker first — fail fast with clear guidance
 			if !noInfra {
-				if err := checkDocker(); err != nil {
+				if err := checkDocker(noDockerStart); err != nil {
 					return err
 				}
 			}
@@ -467,6 +494,7 @@ func setupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&notifyURL, "notify-url", "", "Notification URL (ntfy or webhook) for operator alerts")
 	cmd.Flags().BoolVar(&noInfra, "no-infra", false, "Skip Docker check and infrastructure startup")
 	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Don't open the web UI in a browser (also respected via AGENCY_NO_BROWSER=1)")
+	cmd.Flags().BoolVar(&noDockerStart, "no-docker-start", false, "Don't try to start Docker Desktop automatically (also respected via AGENCY_NO_DOCKER_START=1)")
 	cmd.Flags().BoolVar(&cliMode, "cli", false, "Run full interactive setup in the terminal")
 
 	return cmd
@@ -602,7 +630,24 @@ func localWebURLForHost(host string) string {
 	return fmt.Sprintf("http://%s:8280", host)
 }
 
-func checkDocker() error {
+func dockerAutoStartDisabled() bool {
+	return os.Getenv("AGENCY_NO_DOCKER_START") != ""
+}
+
+func tryStartDockerDesktop(wsl bool) bool {
+	switch {
+	case runtime.GOOS == "darwin":
+		return exec.Command("open", "-a", "Docker").Start() == nil
+	case runtime.GOOS == "windows":
+		return exec.Command("cmd", "/c", "start", "", "Docker Desktop").Start() == nil
+	case wsl:
+		return exec.Command("cmd.exe", "/c", "start", "", "Docker Desktop").Start() == nil
+	default:
+		return false
+	}
+}
+
+func checkDocker(noDockerStart bool) error {
 	wsl := isWSL()
 
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -631,6 +676,22 @@ func checkDocker() error {
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	if err := cmd.Run(); err != nil {
+		if !noDockerStart && !dockerAutoStartDisabled() && tryStartDockerDesktop(wsl) {
+			fmt.Fprintln(os.Stderr, "Docker is installed but not running. Trying to start Docker Desktop...")
+			deadline := time.Now().Add(45 * time.Second)
+			for time.Now().Before(deadline) {
+				time.Sleep(2 * time.Second)
+				retry := exec.Command("docker", "info")
+				retry.Stdout = nil
+				retry.Stderr = nil
+				if retry.Run() == nil {
+					return nil
+				}
+			}
+			fmt.Fprintln(os.Stderr, "Docker Desktop did not become ready in time.")
+			fmt.Fprintln(os.Stderr, "")
+		}
+
 		fmt.Fprintln(os.Stderr, "Docker is installed but not running.")
 		fmt.Fprintln(os.Stderr, "")
 		switch {
@@ -764,10 +825,10 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser bo
 	fmt.Println()
 	fmt.Println("Profiling host capacity...")
 
-	hasEmbeddings := true
+	hasEmbeddings := false
 	embedProvider := os.Getenv("KNOWLEDGE_EMBED_PROVIDER")
-	if embedProvider != "" && embedProvider != "ollama" {
-		hasEmbeddings = false
+	if embedProvider == "ollama" {
+		hasEmbeddings = true
 	}
 
 	capCfg, capErr := orchestrate.ProfileHost(hasEmbeddings)

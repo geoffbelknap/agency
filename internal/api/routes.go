@@ -29,6 +29,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/events"
+	"github.com/geoffbelknap/agency/internal/features"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -155,6 +156,7 @@ func RegisterCredentialSocketRoutes(r chi.Router, cfg *config.Config, dc *docker
 // RegisterAll sets up all REST API routes with full option support.
 // This is the canonical registration entry point for the full HTTP API surface.
 func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *slog.Logger, startup *StartupResult, opts RouteOptions) {
+	experimental := features.ExperimentalEnabled()
 	d := &mcpDeps{
 		cfg: cfg, dc: dc, log: logger,
 		infra: startup.Infra, agents: startup.AgentManager,
@@ -248,21 +250,23 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 		})
 	}
 
-	// Missions and canvas routes (extracted module)
-	apimissions.RegisterRoutes(r, apimissions.Deps{
-		MissionManager: startup.MissionManager,
-		Claims:         startup.Claims,
-		HealthMonitor:  opts.HealthMonitor,
-		Scheduler:      opts.Scheduler,
-		EventBus:       opts.EventBus,
-		Knowledge:      startup.Knowledge,
-		CredStore:      startup.CredStore,
-		Audit:          startup.Audit,
-		Config:         cfg,
-		Logger:         logger,
-		Comms:          dc,
-		Signal:         &DockerSignalSender{RawClient: dc.RawClient()},
-	})
+	if experimental {
+		// Missions and canvas routes (extracted module)
+		apimissions.RegisterRoutes(r, apimissions.Deps{
+			MissionManager: startup.MissionManager,
+			Claims:         startup.Claims,
+			HealthMonitor:  opts.HealthMonitor,
+			Scheduler:      opts.Scheduler,
+			EventBus:       opts.EventBus,
+			Knowledge:      startup.Knowledge,
+			CredStore:      startup.CredStore,
+			Audit:          startup.Audit,
+			Config:         cfg,
+			Logger:         logger,
+			Comms:          dc,
+			Signal:         &DockerSignalSender{RawClient: dc.RawClient()},
+		})
+	}
 
 	// Knowledge graph and ontology routes (extracted module)
 	graph.RegisterRoutes(r, graph.Deps{
@@ -282,25 +286,27 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 		DC:        dc,
 	})
 
-	// V2 package routes over the local hub package registry.
-	apipackages.RegisterRoutes(r, apipackages.Deps{
-		Config:   cfg,
-		Registry: startup.HubRegistry,
-		Logger:   logger,
-	})
+	if experimental {
+		// V2 package routes over the local hub package registry.
+		apipackages.RegisterRoutes(r, apipackages.Deps{
+			Config:   cfg,
+			Registry: startup.HubRegistry,
+			Logger:   logger,
+		})
 
-	apiinstances.RegisterRoutes(r, apiinstances.Deps{
-		Config:   cfg,
-		Store:    startup.InstanceStore,
-		Registry: startup.HubRegistry,
-		Logger:   logger,
-		Signal:   &DockerSignalSender{RawClient: dc.RawClient()},
-		EventBus: opts.EventBus,
-	})
-	apiauthz.RegisterRoutes(r, apiauthz.Deps{
-		Resolver: derefResolver(startup.AuthzResolver),
-		Logger:   logger,
-	})
+		apiinstances.RegisterRoutes(r, apiinstances.Deps{
+			Config:   cfg,
+			Store:    startup.InstanceStore,
+			Registry: startup.HubRegistry,
+			Logger:   logger,
+			Signal:   &DockerSignalSender{RawClient: dc.RawClient()},
+			EventBus: opts.EventBus,
+		})
+		apiauthz.RegisterRoutes(r, apiauthz.Deps{
+			Resolver: derefResolver(startup.AuthzResolver),
+			Logger:   logger,
+		})
+	}
 
 	// Credential routes (extracted module) — only if CredStore is initialized
 	if startup.CredStore != nil {

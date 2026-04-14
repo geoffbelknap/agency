@@ -3,22 +3,27 @@ import { Bot, MessageSquare, Settings, Menu, X, Sun, Moon, Monitor, PanelLeftClo
 import { useState, useEffect, useCallback } from 'react';
 import { socket } from '../lib/ws';
 import { api, ensureConfig, getVia, getAuthenticated } from '../lib/api';
+import { coreSidebarFlags, experimentalSurfacesEnabled } from '../lib/features';
 import { useTheme, type Theme } from './ThemeProvider';
 import { useVisualViewport } from '../hooks/useVisualViewport';
 import { TextScaleControl } from './TextScaleControl';
 
-const primaryNav = [
+type NavItem = { name: string; path: string; icon: any; enabled?: boolean; experimental?: boolean };
+
+const allPrimaryNav: NavItem[] = [
   { name: 'Channels', path: '/channels', icon: MessageSquare },
   { name: 'Agents', path: '/agents', icon: Bot },
-  { name: 'Missions', path: '/missions', icon: Target },
-  { name: 'Teams', path: '/teams', icon: Users },
+  { name: 'Missions', path: '/missions', icon: Target, enabled: coreSidebarFlags.missions, experimental: true },
+  { name: 'Teams', path: '/teams', icon: Users, enabled: coreSidebarFlags.teams, experimental: true },
   { name: 'Knowledge', path: '/knowledge', icon: Brain },
-  { name: 'Profiles', path: '/profiles', icon: UserCircle },
-  { name: 'Hub', path: '/admin/hub', icon: Package },
-  { name: 'Intake', path: '/admin/intake', icon: Cable },
+  { name: 'Profiles', path: '/profiles', icon: UserCircle, enabled: coreSidebarFlags.profiles, experimental: true },
+  { name: 'Hub', path: '/admin/hub', icon: Package, enabled: coreSidebarFlags.hub, experimental: true },
+  { name: 'Intake', path: '/admin/intake', icon: Cable, enabled: coreSidebarFlags.intake, experimental: true },
 ];
 
-const secondaryNav = [
+const primaryNav = allPrimaryNav.filter((item) => item.enabled !== false);
+
+const secondaryNav: NavItem[] = [
   { name: 'Admin', path: '/admin', icon: Settings },
 ];
 
@@ -140,7 +145,7 @@ export function Layout() {
     setIsMobileMenuOpen(false);
   }, [location.pathname]);
 
-  function renderNavItem(item: typeof primaryNav[number]) {
+  function renderNavItem(item: NavItem) {
     const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
     const Icon = item.icon;
     const showUnread = item.path === '/channels' && hasChannelUnread && !isActive;
@@ -167,6 +172,11 @@ export function Layout() {
             <span className="block whitespace-nowrap text-sm font-medium">
               {navLabel}
             </span>
+            {item.experimental && (
+              <span className="mt-1 inline-flex rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-primary">
+                Experimental
+              </span>
+            )}
             {isActive && (
               <span className="block whitespace-nowrap text-[11px] text-sidebar-foreground/56">
                 {item.path.startsWith('/admin') ? 'Administrative surface' : 'Workspace surface'}
@@ -184,7 +194,7 @@ export function Layout() {
     );
   }
 
-  function renderMobileNavItem(item: typeof primaryNav[number]) {
+  function renderMobileNavItem(item: NavItem) {
     const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
     const Icon = item.icon;
     const showUnread = item.path === '/channels' && hasChannelUnread && !isActive;
@@ -204,7 +214,14 @@ export function Layout() {
         }`}>
           <Icon className="w-4 h-4" />
         </div>
-        <span className="flex-1">{item.name}</span>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="truncate">{item.name}</span>
+          {item.experimental && (
+            <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-primary">
+              Exp
+            </span>
+          )}
+        </div>
         {showUnread && (
           <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-50" />
@@ -371,6 +388,12 @@ export function Layout() {
           <nav className={`space-y-1 ${compactSidebar ? 'mt-6' : ''}`}>
             {secondaryNav.map((item) => renderNavItem(item))}
           </nav>
+
+          {!compactSidebar && experimentalSurfacesEnabled && (
+            <div className="mt-6 rounded-2xl border border-border/70 bg-primary/5 px-3 py-3 text-xs text-sidebar-foreground/72">
+              Experimental surfaces are enabled for this workspace.
+            </div>
+          )}
         </div>
 
         <div className={`border-t border-sidebar-border ${compactSidebar ? 'px-2 py-3' : 'px-3 py-3.5'}`}>

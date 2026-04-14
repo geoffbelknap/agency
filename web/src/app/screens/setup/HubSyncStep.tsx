@@ -50,13 +50,13 @@ export function HubSyncStep({ onComplete }: HubSyncStepProps) {
     <div className="text-center space-y-6">
       <div className="space-y-2">
         <h2 className="text-2xl font-semibold text-foreground">
-          {status === 'error' ? 'Hub sync failed' : 'Preparing your platform...'}
+          {status === 'error' ? 'Platform preparation failed' : 'Preparing your platform...'}
         </h2>
         <p className="text-muted-foreground text-sm">
-          {status === 'syncing' && phase === 'update' && 'Updating hub sources...'}
-          {status === 'syncing' && phase === 'upgrade' && 'Installing components...'}
+          {status === 'syncing' && phase === 'update' && 'Checking local platform state...'}
+          {status === 'syncing' && phase === 'upgrade' && 'Refreshing required components...'}
           {status === 'done' && 'Ready to go'}
-          {status === 'error' && 'Could not reach the hub registry'}
+          {status === 'error' && 'Could not finish the local preparation step'}
         </p>
       </div>
 
@@ -66,7 +66,7 @@ export function HubSyncStep({ onComplete }: HubSyncStepProps) {
           {showSlowHint && (
             <div className="space-y-3">
               <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-                This can take a little while on a fresh machine while Agency refreshes hub sources and checks installed components.
+                This can take a little while on a fresh machine while Agency checks local state and refreshes required components.
               </p>
               {allowContinue && (
                 <div className="flex justify-center">

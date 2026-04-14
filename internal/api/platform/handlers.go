@@ -3,32 +3,47 @@ package platform
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
+	"github.com/geoffbelknap/agency/internal/openapispec"
 )
 
 func (h *handler) openapiSpec(w http.ResponseWriter, r *http.Request) {
+	h.serveOpenAPISpec(w, "full")
+}
+
+func (h *handler) openapiCoreSpec(w http.ResponseWriter, r *http.Request) {
+	h.serveOpenAPISpec(w, "core")
+}
+
+func (h *handler) serveOpenAPISpec(w http.ResponseWriter, view string) {
 	// Serve from disk so the spec is always current — no stale embeds.
 	// Look in source dir first (dev), then ~/.agency/ (deployed).
 	paths := []string{
 		filepath.Join(h.deps.Config.SourceDir, "agency-gateway", "internal", "api", "openapi.yaml"),
+		filepath.Join(h.deps.Config.SourceDir, "internal", "api", "openapi.yaml"),
 		filepath.Join(h.deps.Config.Home, "openapi.yaml"),
 	}
-	for _, p := range paths {
-		data, err := os.ReadFile(p)
-		if err == nil {
-			w.Header().Set("Content-Type", "application/yaml")
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.WriteHeader(200)
-			w.Write(data) //nolint:errcheck
+	data, err := openapispec.Load(paths)
+	if err != nil {
+		http.Error(w, "OpenAPI spec not found", 404)
+		return
+	}
+	if view == "core" {
+		data, err = openapispec.FilterByTier(data, "core")
+		if err != nil {
+			http.Error(w, "OpenAPI core view unavailable", http.StatusInternalServerError)
 			return
 		}
 	}
-	http.Error(w, "OpenAPI spec not found", 404)
+
+	w.Header().Set("Content-Type", "application/yaml")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.WriteHeader(200)
+	w.Write(data) //nolint:errcheck
 }
 
 func (h *handler) health(w http.ResponseWriter, r *http.Request) {

@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/geoffbelknap/agency/internal/events"
+	"github.com/geoffbelknap/agency/internal/features"
 	"github.com/geoffbelknap/agency/internal/logs"
 )
 
@@ -31,6 +32,7 @@ type handler struct {
 // routes onto r. Should only be called when EventBus is non-nil.
 func RegisterRoutes(r chi.Router, d Deps) {
 	h := &handler{deps: d}
+	experimental := features.ExperimentalEnabled()
 	if d.WebhookMgr != nil {
 		h.webhookRL = newWebhookRateLimiter()
 	}
@@ -40,30 +42,31 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Get("/api/v1/events/{id}", h.showEvent)
 	r.Get("/api/v1/events/subscriptions", h.listSubscriptions)
 
-	// Webhooks
-	r.Post("/api/v1/events/webhooks", h.createWebhook)
-	r.Get("/api/v1/events/webhooks", h.listWebhooks)
-	r.Get("/api/v1/events/webhooks/{name}", h.showWebhook)
-	r.Delete("/api/v1/events/webhooks/{name}", h.deleteWebhook)
-	r.Post("/api/v1/events/webhooks/{name}/rotate-secret", h.rotateWebhookSecret)
-
-	// Inbound webhook receiver
-	r.Post("/api/v1/events/webhook/{name}", h.receiveWebhook)
-
 	// Internal event publishing (infra services → event bus)
 	r.Post("/api/v1/events/publish", h.publishEvent)
+	if experimental {
+		// Webhooks
+		r.Post("/api/v1/events/webhooks", h.createWebhook)
+		r.Get("/api/v1/events/webhooks", h.listWebhooks)
+		r.Get("/api/v1/events/webhooks/{name}", h.showWebhook)
+		r.Delete("/api/v1/events/webhooks/{name}", h.deleteWebhook)
+		r.Post("/api/v1/events/webhooks/{name}/rotate-secret", h.rotateWebhookSecret)
 
-	// Intake proxy
-	r.Get("/api/v1/events/intake/items", h.intakeItems)
-	r.Get("/api/v1/events/intake/stats", h.intakeStats)
-	r.Post("/api/v1/events/intake/webhook", h.intakeWebhook)
+		// Inbound webhook receiver
+		r.Post("/api/v1/events/webhook/{name}", h.receiveWebhook)
 
-	// Notifications
-	r.Get("/api/v1/events/notifications", h.listNotifications)
-	r.Post("/api/v1/events/notifications", h.addNotification)
-	r.Get("/api/v1/events/notifications/{name}", h.showNotification)
-	r.Delete("/api/v1/events/notifications/{name}", h.deleteNotification)
-	r.Post("/api/v1/events/notifications/{name}/test", h.testNotification)
+		// Intake proxy
+		r.Get("/api/v1/events/intake/items", h.intakeItems)
+		r.Get("/api/v1/events/intake/stats", h.intakeStats)
+		r.Post("/api/v1/events/intake/webhook", h.intakeWebhook)
+
+		// Notifications
+		r.Get("/api/v1/events/notifications", h.listNotifications)
+		r.Post("/api/v1/events/notifications", h.addNotification)
+		r.Get("/api/v1/events/notifications/{name}", h.showNotification)
+		r.Delete("/api/v1/events/notifications/{name}", h.deleteNotification)
+		r.Post("/api/v1/events/notifications/{name}/test", h.testNotification)
+	}
 }
 
 // RegisterInternalRoutes mounts socket-only local ingress routes that are not

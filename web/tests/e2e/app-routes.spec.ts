@@ -17,6 +17,9 @@ test.describe('Agency app routes', () => {
     await page.goto('/setup');
     await expect(page.getByRole('heading', { name: 'Welcome to Agency' })).toBeVisible();
 
+    await page.goto('/overview');
+    await expect(page.getByText('Platform health at a glance')).toBeVisible();
+
     await page.goto('/channels');
     await expect(page.getByRole('link', { name: /channels/i })).toBeVisible();
     await expect(page.getByText('Hello from Alice')).toBeVisible();
@@ -25,17 +28,9 @@ test.describe('Agency app routes', () => {
     await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible();
     await expect(page.getByText('alice')).toBeVisible();
 
-    await page.getByRole('link', { name: /missions/i }).click();
-    await expect(page.getByRole('heading', { name: 'Missions' })).toBeVisible();
-    await expect(page.getByText('release-train')).toBeVisible();
-
     await page.getByRole('link', { name: /knowledge/i }).click();
     await expect(page.getByRole('heading', { name: 'Knowledge' })).toBeVisible();
     await expect(page.getByText('Release notes')).toBeVisible();
-
-    await page.getByRole('link', { name: /profiles/i }).click();
-    await expect(page.getByRole('heading', { name: 'Profiles' })).toBeVisible();
-    await expect(page.getByRole('cell', { name: 'Geoff', exact: true })).toBeVisible();
 
     await page.getByRole('link', { name: /admin/i }).click();
     await expect(page.getByRole('heading', { name: 'Admin' })).toBeVisible();
@@ -48,11 +43,10 @@ test.describe('Agency app routes', () => {
       { path: '/overview', locator: page.getByText('Platform health at a glance') },
       { path: '/channels/general', locator: page.getByText('Hello from Alice', { exact: true }) },
       { path: '/agents/alice', locator: page.locator('#panel-overview').getByText('prepare weekly release notes', { exact: true }) },
-      { path: '/missions/release-train', locator: page.getByText('Prepare weekly release notes and rollout summary.') },
       { path: '/knowledge/graph', locator: page.getByRole('button', { name: 'Graph' }) },
       { path: '/knowledge/search', locator: page.getByText('Query Knowledge') },
-      { path: '/profiles/operator', locator: page.getByText('Primary operator profile') },
-      { path: '/teams', locator: page.getByText('Manage agent groups') },
+      { path: '/admin/infrastructure', locator: page.getByText('gateway', { exact: true }) },
+      { path: '/admin/audit', locator: page.getByRole('button', { name: 'Summarize' }) },
     ];
 
     for (const route of routeExpectations) {

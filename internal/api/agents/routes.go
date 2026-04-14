@@ -5,14 +5,15 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"log/slog"
 	"github.com/go-chi/chi/v5"
+	"log/slog"
 
-	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/config"
+	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/events"
+	"github.com/geoffbelknap/agency/internal/features"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -47,7 +48,7 @@ type Deps struct {
 	HaltController  *orchestrate.HaltController
 	CtxMgr          *agencyctx.Manager
 	Audit           *logs.Writer
-	EventBus        *events.Bus                       // may be nil
+	EventBus        *events.Bus // may be nil
 	MeeseeksManager *orchestrate.MeeseeksManager
 	Knowledge       *knowledge.Proxy
 	MissionManager  *orchestrate.MissionManager
@@ -57,14 +58,14 @@ type Deps struct {
 	Config          *config.Config
 	Logger          *slog.Logger
 	CredStore       *credstore.Store
-	DockerStatus    *docker.Status   // may be nil
-	WSHub           *ws.Hub          // may be nil
+	DockerStatus    *docker.Status // may be nil
+	WSHub           *ws.Hub        // may be nil
 	Comms           CommsClient
 	Signal          SignalSender
 	DC              DockerClient
 	// RawDocker is required for StartSequence (container orchestration).
 	// It is used only by start/restart handlers.
-	RawDocker       *docker.Client
+	RawDocker *docker.Client
 }
 
 type handler struct {
@@ -83,8 +84,8 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Delete("/api/v1/agents/{name}", h.deleteAgent)
 	r.Post("/api/v1/agents/{name}/start", h.startAgent)
 	r.Post("/api/v1/agents/{name}/restart", h.restartAgent)
-	r.Post("/api/v1/agents/{name}/stop", h.haltAgent)  // canonical stop endpoint
-	r.Post("/api/v1/agents/{name}/halt", h.haltAgent)  // alias: backward compat
+	r.Post("/api/v1/agents/{name}/stop", h.haltAgent) // canonical stop endpoint
+	r.Post("/api/v1/agents/{name}/halt", h.haltAgent) // alias: backward compat
 	r.Post("/api/v1/agents/{name}/resume", h.resumeAgent)
 	r.Post("/api/v1/agents/{name}/grant", h.grantAgent)
 	r.Post("/api/v1/agents/{name}/revoke", h.revokeAgent)
@@ -124,13 +125,15 @@ func RegisterRoutes(r chi.Router, d Deps) {
 
 	r.Get("/api/v1/agents/{name}/logs", h.agentLogs)
 
-	// Meeseeks
-	r.Post("/api/v1/agents/meeseeks", h.spawnMeeseeks)
-	r.Get("/api/v1/agents/meeseeks", h.listMeeseeks)
-	r.Get("/api/v1/agents/meeseeks/{id}", h.showMeeseeks)
-	r.Delete("/api/v1/agents/meeseeks/{id}", h.killMeeseeks)
-	r.Delete("/api/v1/agents/meeseeks", h.killMeeseeksByParent) // kill all for a parent (?parent=<agent>)
-	r.Post("/api/v1/agents/meeseeks/{id}/complete", h.completeMeeseeks)
+	if features.ExperimentalEnabled() {
+		// Meeseeks
+		r.Post("/api/v1/agents/meeseeks", h.spawnMeeseeks)
+		r.Get("/api/v1/agents/meeseeks", h.listMeeseeks)
+		r.Get("/api/v1/agents/meeseeks/{id}", h.showMeeseeks)
+		r.Delete("/api/v1/agents/meeseeks/{id}", h.killMeeseeks)
+		r.Delete("/api/v1/agents/meeseeks", h.killMeeseeksByParent) // kill all for a parent (?parent=<agent>)
+		r.Post("/api/v1/agents/meeseeks/{id}/complete", h.completeMeeseeks)
+	}
 }
 
 // writeJSON writes a JSON response with the given status code.

@@ -13,7 +13,7 @@ const STEPS: WizardStep[] = ['hub-sync', 'welcome', 'providers', 'agent', 'capab
 const STEP_META: Record<WizardStep, { title: string; description: string }> = {
   'hub-sync': {
     title: 'Prepare the workspace',
-    description: 'Check local package state and make sure Agency has the basics it needs before you configure anything else.',
+    description: 'Verify the local runtime is reachable and that the core platform pieces are ready before you configure anything else.',
   },
   welcome: {
     title: 'Name the operator',
@@ -33,7 +33,7 @@ const STEP_META: Record<WizardStep, { title: string; description: string }> = {
   },
   chat: {
     title: 'Open the first conversation',
-    description: 'Confirm the agent is reachable, ask a grounded first question, and continue into Channels when ready.',
+    description: 'Confirm the agent is reachable, ask a grounded first question, and continue into the direct-message workflow when ready.',
   },
 };
 
@@ -120,7 +120,7 @@ export function Setup() {
           </p>
           <h1 className="mt-3 text-3xl text-foreground">Bring Agency online with a calmer first run.</h1>
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
-            Setup should feel guided, progressive, and easy to recover from. Each step does one job, and nothing here changes destructive behavior.
+            Setup should feel guided, progressive, and easy to recover from. Each step does one job and gets you to a working governed agent quickly.
           </p>
 
           <div className="mt-8 space-y-3">

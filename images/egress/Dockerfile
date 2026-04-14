@@ -1,8 +1,6 @@
-FROM python:3.13-slim
+FROM python:3.13-slim@sha256:d168b8d9eb761f4d3fe305ebd04aeb7e7f2de0297cec5fb2f8f6403244621664
 ARG BUILD_ID=unknown
 ARG SOURCE_HASH=unknown
-LABEL agency.build.id=${BUILD_ID}
-LABEL agency.source.hash=${SOURCE_HASH}
 
 WORKDIR /app
 
@@ -11,17 +9,19 @@ RUN pip install --no-cache-dir mitmproxy==12.2.1 pyyaml==6.0.3 PyJWT==2.12.1 cry
 RUN mkdir -p /app/logs /app/blocklists
 
 # Shared logging infrastructure (auto-configures via sitecustomize.py)
-COPY images/logging_config.py /app/logging_config.py
-COPY images/_sitecustomize.py /app/sitecustomize.py
+COPY --from=shared logging_config.py /app/logging_config.py
+COPY --from=shared _sitecustomize.py /app/sitecustomize.py
 
-COPY images/egress/addon.py /app/addon.py
-COPY images/egress/credential_swap.py /app/credential_swap.py
-COPY images/egress/key_resolver.py /app/key_resolver.py
-COPY images/egress/swap_handlers.py /app/swap_handlers.py
-COPY images/egress/fetch_blocklists.py /app/fetch_blocklists.py
-COPY images/egress/entrypoint.sh /app/entrypoint.sh
+COPY addon.py /app/addon.py
+COPY credential_swap.py /app/credential_swap.py
+COPY key_resolver.py /app/key_resolver.py
+COPY swap_handlers.py /app/swap_handlers.py
+COPY fetch_blocklists.py /app/fetch_blocklists.py
+COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 EXPOSE 3128
 
+LABEL agency.build.id=${BUILD_ID}
+LABEL agency.source.hash=${SOURCE_HASH}
 ENTRYPOINT ["/app/entrypoint.sh"]

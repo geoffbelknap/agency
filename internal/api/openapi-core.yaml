@@ -1,0 +1,3705 @@
+openapi: 3.1.0
+info:
+    title: Agency Gateway API
+    version: 0.1.0
+    description: |-
+        REST API for the Agency AI agent operating platform. Deploys agents in
+        enforced isolation containers with credential scoping, network mediation,
+        read-only constraints, and continuous audit.
+
+        All endpoints except /health require API token authentication via the
+        X-Agency-Token header. Streaming endpoints accept `Accept: application/x-ndjson`.
+
+        This spec is the canonical Agency API contract. Agency product tiering is
+        represented with vendor extensions such as `x-agency-tier` and
+        `x-agency-stability`. Consumers should treat `core` as the supported
+        default surface, `experimental` as opt-in, and `internal` as non-public.
+
+        Generated API view: core.
+    license:
+        name: Proprietary
+servers:
+    - url: http://localhost:8200/api/v1
+      description: Local gateway daemon
+security:
+    - apiToken: []
+x-agency-spec-tiering:
+    default_supported_tier: core
+    tiers:
+        - core
+        - experimental
+        - internal
+tags:
+    - name: Health
+      description: Health check and platform initialization
+      x-agency-tier: core
+      x-agency-stability: supported
+    - name: Agents
+      description: Agent lifecycle — create, start, stop, halt, resume, restart, delete; budget, context, memory, economics
+      x-agency-tier: core
+      x-agency-stability: supported
+    - name: Admin
+      description: Administrative operations — doctor, destroy, trust, audit, egress, capabilities, policy, teams, registry, profiles
+      x-agency-tier: core
+      x-agency-stability: supported
+      x-agency-note: Mixed tag. Some operations are core, while advanced governance and profile surfaces should move to operation-level tiering.
+    - name: Graph
+      description: Knowledge graph queries, export, ontology, curation, communities, quarantine, classification, principals
+      x-agency-tier: core
+      x-agency-stability: supported
+      x-agency-note: Mixed tag. Query, retrieval, and stats are core; governance and ontology surfaces should move to operation-level tiering.
+    - name: Infra
+      description: Shared infrastructure lifecycle — up, down, rebuild, reload, status, routing, providers, setup
+      x-agency-tier: core
+      x-agency-stability: supported
+      x-agency-note: Mixed tag. Basic infra and provider setup are core; advanced routing and broader setup surfaces may need operation-level tiering.
+    - name: Comms
+      description: Inter-agent communication channels, messages, unreads
+      x-agency-tier: core
+      x-agency-stability: supported
+    - name: Creds
+      description: Encrypted credential store — CRUD, rotate, test, groups; internal credential resolution
+      x-agency-tier: core
+      x-agency-stability: supported
+    - name: MCP
+      description: MCP tool registry — list and call tools
+      x-agency-tier: core
+      x-agency-stability: supported
+paths:
+    # ── Health ──────────────────────────────────────────────────────────────────
+    /health:
+        get:
+            operationId: health
+            summary: Health check
+            tags: [Health]
+            security: []
+            responses:
+                "200":
+                    description: Gateway is healthy
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                        example: ok
+                                    version:
+                                        type: string
+                                    build_id:
+                                        type: string
+    /init:
+        post:
+            operationId: initPlatform
+            summary: Bootstrap the Agency platform
+            tags: [Health]
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                operator:
+                                    type: string
+                                force:
+                                    type: boolean
+                                anthropic_api_key:
+                                    type: string
+                                openai_api_key:
+                                    type: string
+            responses:
+                "200":
+                    description: Platform initialized
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/StatusResponse"
+    # ── Agents ──────────────────────────────────────────────────────────────────
+    /agents:
+        get:
+            operationId: listAgents
+            summary: List all agents
+            tags: [Agents]
+            responses:
+                "200":
+                    description: Array of agent summaries
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                items:
+                                    $ref: "#/components/schemas/AgentSummary"
+        post:
+            operationId: createAgent
+            summary: Create a new agent
+            tags: [Agents]
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            required: [name]
+                            properties:
+                                name:
+                                    type: string
+                                preset:
+                                    type: string
+                                    default: generalist
+            responses:
+                "201":
+                    description: Agent created
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/StatusResponse"
+    /agents/{name}:
+        get:
+            operationId: showAgent
+            summary: Show agent detail
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Agent detail
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/AgentDetail"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+        delete:
+            operationId: deleteAgent
+            summary: Delete an agent and its containers
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Agent deleted
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/StatusResponse"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+    /agents/{name}/start:
+        post:
+            operationId: startAgent
+            summary: Start an agent (seven-phase sequence)
+            description: |
+                Runs the seven-phase start sequence: verify, enforcement, constraints,
+                workspace, identity, body, session. Supports NDJSON streaming when
+                Accept: application/x-ndjson is set.
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Agent started (JSON or NDJSON stream)
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/StartResult"
+                        application/x-ndjson:
+                            schema:
+                                description: Stream of phase progress events ending with a complete event
+    /agents/{name}/restart:
+        post:
+            operationId: restartAgent
+            summary: Restart an agent with key rotation
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Agent restarted
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/StartResult"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+    /agents/{name}/stop:
+        post:
+            operationId: stopAgent
+            summary: Stop (halt) an agent
+            description: |
+                Three-tier halt: supervised (graceful), immediate (SIGTERM), emergency
+                (SIGKILL + silent). Emergency halt requires a reason (ASK Tenet 2).
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                type:
+                                    type: string
+                                    enum: [supervised, immediate, emergency]
+                                    default: supervised
+                                reason:
+                                    type: string
+                                initiator:
+                                    type: string
+            responses:
+                "200":
+                    description: Halt record
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/HaltRecord"
+    /agents/{name}/halt:
+        post:
+            operationId: haltAgent
+            summary: Halt an agent (alias for stop)
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                type:
+                                    type: string
+                                    enum: [supervised, immediate, emergency]
+                                    default: supervised
+                                reason:
+                                    type: string
+                                initiator:
+                                    type: string
+            responses:
+                "200":
+                    description: Halt record
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/HaltRecord"
+    /agents/{name}/resume:
+        post:
+            operationId: resumeAgent
+            summary: Resume a halted agent
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                initiator:
+                                    type: string
+            responses:
+                "200":
+                    description: Agent resumed
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/StatusResponse"
+    /agents/{name}/grant:
+        post:
+            operationId: grantAgent
+            summary: Grant a capability to an agent
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            required: [capability]
+                            properties:
+                                capability:
+                                    type: string
+            responses:
+                "200":
+                    description: Capability granted
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    agent:
+                                        type: string
+                                    capability:
+                                        type: string
+    /agents/{name}/revoke:
+        post:
+            operationId: revokeAgent
+            summary: Revoke a capability from an agent
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            required: [capability]
+                            properties:
+                                capability:
+                                    type: string
+            responses:
+                "200":
+                    description: Capability revoked
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    agent:
+                                        type: string
+                                    capability:
+                                        type: string
+    /agents/{name}/signal:
+        post:
+            operationId: relaySignal
+            summary: Relay a body-originated signal via WebSocket
+            description: |
+                Mediated path: body -> enforcer -> gateway -> WebSocket hub.
+                ASK tenet 2: every action leaves a trace.
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            required: [signal_type]
+                            properties:
+                                signal_type:
+                                    type: string
+                                data:
+                                    type: object
+                                    additionalProperties: true
+            responses:
+                "200":
+                    description: Signal relayed
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/StatusResponse"
+    /agents/{name}/channels:
+        get:
+            operationId: agentChannels
+            summary: List channels an agent is a member of
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Array of channels
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                items:
+                                    type: object
+    /agents/{name}/dm:
+        post:
+            operationId: ensureAgentDM
+            summary: Ensure the dedicated direct-message channel for an agent
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Dedicated DM channel is ready for use
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                required: [status, channel]
+                                properties:
+                                    status:
+                                        type: string
+                                        example: ready
+                                    channel:
+                                        type: string
+                                        example: dm-henry
+    /agents/{name}/results:
+        get:
+            operationId: listResults
+            summary: List task results in agent workspace
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Array of result identifiers
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                items:
+                                    type: object
+                                    properties:
+                                        task_id:
+                                            type: string
+    /agents/{name}/results/{taskId}:
+        get:
+            operationId: getResult
+            summary: Get a task result document
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+                - name: taskId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: download
+                  in: query
+                  schema:
+                    type: string
+                    enum: ["true", "false"]
+            responses:
+                "200":
+                    description: Markdown result document
+                    content:
+                        text/markdown:
+                            schema:
+                                type: string
+                "404":
+                    $ref: "#/components/responses/NotFound"
+    /agents/{name}/config:
+        get:
+            operationId: getAgentConfig
+            summary: Get full agent config bundle
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Agent configuration bundle
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/AgentConfigBundle"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+        put:
+            operationId: updateAgentConfig
+            summary: Partially update agent config
+            description: |
+                Accepts partial updates — only fields present in the request body are
+                updated. ASK tenet 6: constraint changes trigger enforcer reload so the
+                agent sees old or new, never a mix.
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                agent_yaml:
+                                    type: object
+                                    additionalProperties: true
+                                identity:
+                                    type: string
+                                    nullable: true
+                                constraints:
+                                    type: object
+                                    additionalProperties: true
+                                workspace:
+                                    type: object
+                                    additionalProperties: true
+            responses:
+                "200":
+                    description: Updated config bundle
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/AgentConfigBundle"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+    /agents/{name}/logs:
+        get:
+            operationId: agentLogs
+            summary: Get agent audit logs
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+                - name: since
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: until
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+            responses:
+                "200":
+                    description: Array of audit log entries (max 500)
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                items:
+                                    type: object
+                                    additionalProperties: true
+    # ── Budget ──────────────────────────────────────────────────────────────────
+    /agents/{name}/budget:
+        get:
+            operationId: getBudget
+            summary: Get agent budget usage (computed from audit logs)
+            description: |
+                Returns daily and monthly usage with limits and remaining budget.
+                Usage is computed from enforcer audit logs (same source as routing metrics).
+                No separate budget recording needed — costs are derived from LLM call logs.
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Budget state
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    agent_name:
+                                        type: string
+                                    daily_used:
+                                        type: number
+                                        format: double
+                                    daily_limit:
+                                        type: number
+                                        format: double
+                                    daily_remaining:
+                                        type: number
+                                        format: double
+                                    monthly_used:
+                                        type: number
+                                        format: double
+                                    monthly_limit:
+                                        type: number
+                                        format: double
+                                    monthly_remaining:
+                                        type: number
+                                        format: double
+                                    per_task_limit:
+                                        type: number
+                                        format: double
+                                    today_llm_calls:
+                                        type: integer
+                                    today_input_tokens:
+                                        type: integer
+                                        format: int64
+                                    today_output_tokens:
+                                        type: integer
+                                        format: int64
+    /agents/{name}/budget/remaining:
+        get:
+            operationId: getBudgetRemaining
+            summary: Get remaining budget (lightweight)
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Remaining budget
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    daily_used:
+                                        type: number
+                                        format: double
+                                    daily_limit:
+                                        type: number
+                                        format: double
+                                    daily_remaining:
+                                        type: number
+                                        format: double
+                                    monthly_used:
+                                        type: number
+                                        format: double
+                                    monthly_limit:
+                                        type: number
+                                        format: double
+                                    monthly_remaining:
+                                        type: number
+                                        format: double
+    # ── Context ─────────────────────────────────────────────────────────────────
+    /agents/{name}/context/constraints:
+        get:
+            operationId: getConstraints
+            summary: Get current acknowledged constraints for an agent
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Current constraints
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /agents/{name}/context/policy:
+        get:
+            operationId: getContextPolicy
+            summary: Get agent name and current constraints
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Agent policy view
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    agent:
+                                        type: string
+                                    constraints:
+                                        type: object
+                                        additionalProperties: true
+    /agents/{name}/context/exceptions:
+        get:
+            operationId: getExceptions
+            summary: Get exceptions (currently returns empty list)
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Empty exception list
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                items:
+                                    type: object
+    /agents/{name}/context/changes:
+        get:
+            operationId: getChanges
+            summary: Get full constraint change history
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Array of constraint changes
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                items:
+                                    $ref: "#/components/schemas/ConstraintChange"
+    /agents/{name}/context/push:
+        post:
+            operationId: pushConstraints
+            summary: Push new constraints to a running agent
+            description: |
+                Validates the request, calls Manager.Push, triggers async delivery to
+                the agent's enforcer via WebSocket. Two-stage timeout handles alerting
+                and auto-halt for unacknowledged changes.
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            required: [constraints, reason]
+                            properties:
+                                constraints:
+                                    type: object
+                                    additionalProperties: true
+                                severity_override:
+                                    type: string
+                                reason:
+                                    type: string
+                                initiator:
+                                    type: string
+                                    default: operator
+            responses:
+                "202":
+                    description: Constraint push accepted
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    change_id:
+                                        type: string
+                                    version:
+                                        type: integer
+                                    severity:
+                                        type: string
+                                    status:
+                                        type: string
+                                    ack_timeout_seconds:
+                                        type: integer
+    /agents/{name}/context/status:
+        get:
+            operationId: getContextStatus
+            summary: Get latest constraint change status
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Latest change status or no_changes
+                    content:
+                        application/json:
+                            schema:
+                                oneOf:
+                                    - $ref: "#/components/schemas/ConstraintChange"
+                                    - type: object
+                                      properties:
+                                        status:
+                                            type: string
+                                            example: no_changes
+    # ── Policy ──────────────────────────────────────────────────────────────────
+    /admin/policy/{agent}:
+        get:
+            operationId: showPolicy
+            summary: Show effective policy for an agent
+            tags: [Admin]
+            x-agency-tier: core
+            x-agency-stability: supported
+            parameters:
+                - name: agent
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Effective policy
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /admin/policy/{agent}/validate:
+        post:
+            operationId: validatePolicy
+            summary: Validate policy for an agent including hard floor enforcement
+            tags: [Admin]
+            x-agency-tier: core
+            x-agency-stability: supported
+            parameters:
+                - name: agent
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Policy is valid
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/PolicyValidation"
+                "400":
+                    description: Policy has violations
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/PolicyValidation"
+    # ── Graph ───────────────────────────────────────────────────────────────────
+    /graph/query:
+        post:
+            operationId: knowledgeQuery
+            summary: Query the knowledge graph
+            tags: [Graph]
+            x-agency-tier: core
+            x-agency-stability: supported
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                query:
+                                    type: string
+                                text:
+                                    type: string
+                                    description: Alias for query
+            responses:
+                "200":
+                    description: Query results
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /graph/who-knows:
+        get:
+            operationId: knowledgeWhoKnows
+            summary: Find agents who know about a topic
+            tags: [Graph]
+            x-agency-tier: core
+            x-agency-stability: supported
+            parameters:
+                - name: topic
+                  in: query
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Agents with knowledge on topic
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /graph/stats:
+        get:
+            operationId: knowledgeStats
+            summary: Get knowledge graph statistics
+            tags: [Graph]
+            x-agency-tier: core
+            x-agency-stability: supported
+            responses:
+                "200":
+                    description: Graph statistics
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /graph/export:
+        get:
+            operationId: knowledgeExport
+            summary: Export knowledge graph
+            tags: [Graph]
+            x-agency-tier: core
+            x-agency-stability: supported
+            parameters:
+                - name: format
+                  in: query
+                  schema:
+                    type: string
+                    default: json
+            responses:
+                "200":
+                    description: Exported graph data
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /graph/changes:
+        get:
+            operationId: knowledgeChanges
+            summary: Get knowledge graph change history
+            tags: [Graph]
+            x-agency-tier: core
+            x-agency-stability: supported
+            parameters:
+                - name: since
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Change entries
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /graph/context:
+        get:
+            operationId: knowledgeContext
+            summary: Get contextual knowledge about a subject
+            tags: [Graph]
+            x-agency-tier: core
+            x-agency-stability: supported
+            parameters:
+                - name: subject
+                  in: query
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Contextual knowledge
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /graph/neighbors:
+        get:
+            operationId: knowledgeNeighbors
+            summary: Get neighboring nodes in the knowledge graph
+            tags: [Graph]
+            x-agency-tier: core
+            x-agency-stability: supported
+            parameters:
+                - name: node_id
+                  in: query
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Neighbor nodes
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /graph/path:
+        get:
+            operationId: knowledgePath
+            summary: Find path between two nodes in the knowledge graph
+            tags: [Graph]
+            x-agency-tier: core
+            x-agency-stability: supported
+            parameters:
+                - name: from
+                  in: query
+                  required: true
+                  schema:
+                    type: string
+                - name: to
+                  in: query
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Path between nodes
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    # ── Graph Ingestion & Insights ─────────────────────────────────────────────
+    /graph/ingest:
+        post:
+            operationId: knowledgeIngest
+            summary: Universal content ingestion
+            tags: [Graph]
+            x-agency-tier: core
+            x-agency-stability: supported
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            required: [content]
+                            properties:
+                                content:
+                                    type: string
+                                filename:
+                                    type: string
+                                content_type:
+                                    type: string
+                                scope:
+                                    type: object
+            responses:
+                "200":
+                    description: Ingestion statistics
+    /graph/insight:
+        post:
+            operationId: knowledgeSaveInsight
+            summary: Save agent insight with provenance
+            tags: [Graph]
+            x-agency-tier: core
+            x-agency-stability: supported
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            required: [insight, source_nodes, confidence]
+                            properties:
+                                insight:
+                                    type: string
+                                source_nodes:
+                                    type: array
+                                    items:
+                                        type: string
+                                confidence:
+                                    type: string
+                                    enum: [high, medium, low]
+                                tags:
+                                    type: array
+                                    items:
+                                        type: string
+            responses:
+                "200":
+                    description: Created insight node ID
+    # ── Infrastructure ──────────────────────────────────────────────────────────
+    /infra/status:
+        get:
+            operationId: infraStatus
+            summary: Get infrastructure component status
+            tags: [Infra]
+            x-agency-tier: core
+            x-agency-stability: supported
+            responses:
+                "200":
+                    description: Infrastructure status
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    version:
+                                        type: string
+                                    build_id:
+                                        type: string
+                                    components:
+                                        type: object
+                                        additionalProperties: true
+                                    infra_llm_daily_used:
+                                        type: number
+                                    infra_llm_daily_limit:
+                                        type: number
+    /infra/up:
+        post:
+            operationId: infraUp
+            summary: Start shared infrastructure
+            description: Supports NDJSON streaming when Accept header is application/x-ndjson.
+            tags: [Infra]
+            x-agency-tier: core
+            x-agency-stability: supported
+            responses:
+                "200":
+                    description: Infrastructure started
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/StatusResponse"
+                        application/x-ndjson:
+                            schema:
+                                description: Stream of progress events
+    /infra/down:
+        post:
+            operationId: infraDown
+            summary: Stop shared infrastructure
+            description: Supports NDJSON streaming.
+            tags: [Infra]
+            x-agency-tier: core
+            x-agency-stability: supported
+            responses:
+                "200":
+                    description: Infrastructure stopped
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/StatusResponse"
+                        application/x-ndjson:
+                            schema:
+                                description: Stream of progress events
+    /infra/rebuild/{component}:
+        post:
+            operationId: infraRebuild
+            summary: Rebuild (restart) a specific infrastructure component
+            description: Supports NDJSON streaming.
+            tags: [Infra]
+            x-agency-tier: core
+            x-agency-stability: supported
+            parameters:
+                - name: component
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                    enum: [egress, comms, knowledge, web]
+            responses:
+                "200":
+                    description: Component restarted
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/StatusResponse"
+                        application/x-ndjson:
+                            schema:
+                                description: Stream of progress events
+    /infra/reload:
+        post:
+            operationId: infraReload
+            summary: Reload all infrastructure components
+            tags: [Infra]
+            x-agency-tier: core
+            x-agency-stability: supported
+            responses:
+                "200":
+                    description: Components reloaded
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    components:
+                                        type: array
+                                        items:
+                                            type: string
+    /infra/capacity:
+        get:
+            operationId: infraCapacity
+            summary: Show host capacity and agent slot availability
+            description: |
+                Returns the host resource budget derived from capacity.yaml, including
+                memory limits, agent/meeseeks slot sizes, running counts, and available
+                slots. Used by the CLI (`agency infra capacity`) and enforced at agent
+                start and meeseeks spawn.
+            tags: [Infra]
+            x-agency-tier: core
+            x-agency-stability: supported
+            responses:
+                "200":
+                    description: Current capacity state
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    host_memory_mb:
+                                        type: integer
+                                    host_cpu_cores:
+                                        type: integer
+                                    system_reserve_mb:
+                                        type: integer
+                                    infra_overhead_mb:
+                                        type: integer
+                                    max_agents:
+                                        type: integer
+                                    max_concurrent_meesks:
+                                        type: integer
+                                    agent_slot_mb:
+                                        type: integer
+                                    meeseeks_slot_mb:
+                                        type: integer
+                                    network_pool_configured:
+                                        type: boolean
+                                    running_agents:
+                                        type: integer
+                                    running_meeseeks:
+                                        type: integer
+                                    available_slots:
+                                        type: integer
+                "503":
+                    description: Capacity config not available
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/ErrorResponse"
+    /infra/setup/config:
+        get:
+            operationId: getSetupConfig
+            summary: Get current platform setup configuration
+            tags: [Infra]
+            x-agency-tier: core
+            x-agency-stability: supported
+            responses:
+                "200":
+                    description: Setup configuration
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /infra/providers:
+        get:
+            operationId: listProviders
+            summary: List available LLM providers for the core setup flow
+            tags: [Infra]
+            x-agency-tier: core
+            x-agency-stability: supported
+            responses:
+                "200":
+                    description: List of available providers with install and credential status
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                items:
+                                    type: object
+                                    additionalProperties: true
+    /infra/providers/{name}/install:
+        post:
+            operationId: installProvider
+            summary: Install a bundled provider routing definition into the local core config
+            tags: [Infra]
+            x-agency-tier: core
+            x-agency-stability: supported
+            parameters:
+                - name: name
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                  description: Provider name
+            responses:
+                "200":
+                    description: Provider routing installed
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+                "404":
+                    $ref: "#/components/responses/NotFound"
+    # ── Comms ────────────────────────────────────────────────────────────────
+    /comms/channels:
+        get:
+            operationId: listChannels
+            summary: List channels the operator is a member of
+            tags: [Comms]
+            responses:
+                "200":
+                    description: Channel list (proxied from comms container)
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                items:
+                                    type: object
+                                    additionalProperties: true
+        post:
+            operationId: createChannel
+            summary: Create a new channel
+            tags: [Comms]
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            required: [name]
+                            properties:
+                                name:
+                                    type: string
+                                topic:
+                                    type: string
+            responses:
+                "201":
+                    description: Channel created
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /comms/channels/{name}/messages:
+        get:
+            operationId: readMessages
+            summary: Read messages in a channel
+            tags: [Comms]
+            parameters:
+                - name: name
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: limit
+                  in: query
+                  schema:
+                    type: integer
+                    default: 50
+            responses:
+                "200":
+                    description: Messages
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                items:
+                                    type: object
+                                    additionalProperties: true
+        post:
+            operationId: sendMessage
+            summary: Send a message to a channel
+            tags: [Comms]
+            parameters:
+                - name: name
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                content:
+                                    type: string
+                                author:
+                                    type: string
+                                    default: _operator
+            responses:
+                "200":
+                    description: Message sent
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /comms/channels/{name}/messages/{id}:
+        put:
+            operationId: editMessage
+            summary: Edit a message
+            tags: [Comms]
+            parameters:
+                - name: name
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                content:
+                                    type: string
+                                author:
+                                    type: string
+            responses:
+                "200":
+                    description: Message edited
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+        delete:
+            operationId: deleteMessage
+            summary: Delete a message
+            tags: [Comms]
+            parameters:
+                - name: name
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Message deleted
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /comms/channels/{name}/messages/{id}/reactions:
+        post:
+            operationId: addReaction
+            summary: Add a reaction to a message
+            tags: [Comms]
+            parameters:
+                - name: name
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                emoji:
+                                    type: string
+                                author:
+                                    type: string
+            responses:
+                "200":
+                    description: Reaction added
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /comms/channels/{name}/messages/{id}/reactions/{emoji}:
+        delete:
+            operationId: removeReaction
+            summary: Remove a reaction from a message
+            tags: [Comms]
+            parameters:
+                - name: name
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: emoji
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: author
+                  in: query
+                  schema:
+                    type: string
+                    default: _operator
+            responses:
+                "200":
+                    description: Reaction removed
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /comms/channels/search:
+        get:
+            operationId: searchMessages
+            summary: Search messages across channels
+            tags: [Comms]
+            parameters:
+                - name: q
+                  in: query
+                  required: true
+                  schema:
+                    type: string
+                - name: channel
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Search results
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /comms/channels/{name}/archive:
+        post:
+            operationId: archiveChannel
+            summary: Archive a channel
+            tags: [Comms]
+            parameters:
+                - name: name
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Channel archived
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /comms/unreads:
+        get:
+            operationId: getUnreads
+            summary: Get unread message counts for the operator
+            tags: [Comms]
+            responses:
+                "200":
+                    description: Unread counts
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /comms/channels/{name}/mark-read:
+        post:
+            operationId: markRead
+            summary: Mark a channel as read for the operator
+            tags: [Comms]
+            parameters:
+                - name: name
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Channel marked as read
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    # ── Routing ─────────────────────────────────────────────────────────────────
+    /infra/routing/metrics:
+        get:
+            operationId: routingMetrics
+            summary: Get aggregated LLM usage metrics
+            tags: [Infra]
+            x-agency-tier: core
+            x-agency-stability: supported
+            parameters:
+                - name: agent
+                  in: query
+                  description: Filter to a single agent
+                  schema:
+                    type: string
+                - name: since
+                  in: query
+                  description: Start of time window (RFC3339 or YYYY-MM-DD, default last 24h)
+                  schema:
+                    type: string
+                - name: until
+                  in: query
+                  description: End of time window (RFC3339 or YYYY-MM-DD, default now)
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Usage metrics summary
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /infra/routing/config:
+        get:
+            operationId: routingConfig
+            summary: Get model routing configuration (sanitized, no credentials)
+            tags: [Infra]
+            x-agency-tier: core
+            x-agency-stability: supported
+            responses:
+                "200":
+                    description: Routing configuration
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    configured:
+                                        type: boolean
+                                    version:
+                                        type: string
+                                    providers:
+                                        type: object
+                                        additionalProperties:
+                                            type: object
+                                            properties:
+                                                api_base:
+                                                    type: string
+                                                auth_env:
+                                                    type: string
+                                                caching:
+                                                    type: boolean
+                                    models:
+                                        type: object
+                                        additionalProperties:
+                                            type: object
+                                            properties:
+                                                provider:
+                                                    type: string
+                                                provider_model:
+                                                    type: string
+                                                cost_per_mtok_in:
+                                                    type: number
+                                                cost_per_mtok_out:
+                                                    type: number
+                                                cost_per_mtok_cached:
+                                                    type: number
+                                    tiers:
+                                        type: object
+                                        additionalProperties: true
+                                    settings:
+                                        type: object
+                                        additionalProperties: true
+    /infra/routing/stats:
+        get:
+            operationId: routingStats
+            summary: Per-model per-task-type LLM usage statistics
+            tags: [Infra]
+            x-agency-tier: core
+            x-agency-stability: supported
+            parameters:
+                - name: task_type
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Model statistics with success rates and costs
+    # ── Admin ───────────────────────────────────────────────────────────────────
+    /admin/doctor:
+        get:
+            operationId: adminDoctor
+            summary: Run security guarantee checks on all running agents
+            description: |
+                Runs 7 checks per agent: credentials isolated, network mediation,
+                constraints read-only, enforcer audit active, audit not writable,
+                halt functional, operator override available.
+            tags: [Admin]
+            x-agency-tier: core
+            x-agency-stability: supported
+            responses:
+                "200":
+                    description: Doctor report
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/DoctorReport"
+    /admin/destroy:
+        post:
+            operationId: adminDestroy
+            summary: Destroy all agents and infrastructure
+            tags: [Admin]
+            x-agency-tier: core
+            x-agency-stability: supported
+            responses:
+                "200":
+                    description: Everything destroyed
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/StatusResponse"
+    /admin/audit:
+        get:
+            operationId: adminAudit
+            summary: Query audit logs
+            description: |
+                With action=stats returns aggregate statistics. Otherwise returns log
+                entries filtered by agent, since, and until.
+            tags: [Admin]
+            x-agency-tier: core
+            x-agency-stability: supported
+            parameters:
+                - name: action
+                  in: query
+                  schema:
+                    type: string
+                    enum: [stats]
+                - name: agent
+                  in: query
+                  schema:
+                    type: string
+                - name: since
+                  in: query
+                  schema:
+                    type: string
+                - name: until
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Audit log entries or stats
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /admin/egress:
+        get:
+            operationId: adminEgress
+            summary: Get egress configuration for an agent
+            tags: [Admin]
+            x-agency-tier: core
+            x-agency-stability: supported
+            parameters:
+                - name: agent
+                  in: query
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Egress configuration
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /admin/audit/summarize:
+        post:
+            operationId: auditSummarize
+            summary: Trigger audit summarization and return MissionMetrics
+            tags: [Admin]
+            x-agency-tier: core
+            x-agency-stability: supported
+            responses:
+                "200":
+                    description: Audit summarization results
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    metrics:
+                                        type: array
+                                        items:
+                                            type: object
+                                            additionalProperties: true
+                                    count:
+                                        type: integer
+    # ── MCP ─────────────────────────────────────────────────────────────────────
+    /mcp/tools:
+        get:
+            operationId: mcpTools
+            summary: List registered MCP tools
+            tags: [MCP]
+            parameters:
+                - name: view
+                  in: query
+                  description: Defaults to the supported core MCP tool surface. Use `full` to include experimental tools.
+                  schema:
+                    type: string
+                    enum: [core, full]
+                    default: core
+            responses:
+                "200":
+                    description: Tool list
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    tools:
+                                        type: array
+                                        items:
+                                            type: object
+                                            additionalProperties: true
+    /mcp/call:
+        post:
+            operationId: mcpCall
+            summary: Call an MCP tool
+            tags: [MCP]
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                name:
+                                    type: string
+                                arguments:
+                                    type: object
+                                    additionalProperties: true
+            responses:
+                "200":
+                    description: Tool call result
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    # ── Memory ─────────────────────────────────────────────────────────────────
+    /agents/{name}/procedures:
+        get:
+            operationId: listAgentProcedures
+            summary: List procedure records for an agent
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+                - name: mission
+                  in: query
+                  schema:
+                    type: string
+                  description: Filter by mission ID
+                - name: outcome
+                  in: query
+                  schema:
+                    type: string
+                    enum: [success, partial, failed]
+                  description: Filter by outcome
+            responses:
+                "200":
+                    description: Procedure records
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    procedures:
+                                        type: array
+                                        items:
+                                            $ref: "#/components/schemas/ProcedureRecord"
+    /agents/{name}/episodes:
+        get:
+            operationId: listAgentEpisodes
+            summary: List episode records for an agent
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+                - name: mission
+                  in: query
+                  schema:
+                    type: string
+                  description: Filter by mission name
+                - name: from
+                  in: query
+                  schema:
+                    type: string
+                    format: date
+                  description: Start date (ISO 8601)
+                - name: to
+                  in: query
+                  schema:
+                    type: string
+                    format: date
+                  description: End date (ISO 8601)
+                - name: outcome
+                  in: query
+                  schema:
+                    type: string
+                    enum: [success, partial, failed, escalated]
+                - name: tag
+                  in: query
+                  schema:
+                    type: string
+                  description: Filter by tag
+            responses:
+                "200":
+                    description: Episode records
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    episodes:
+                                        type: array
+                                        items:
+                                            $ref: "#/components/schemas/EpisodeRecord"
+                                    total:
+                                        type: integer
+    /agents/{name}/trajectory:
+        get:
+            operationId: getAgentTrajectory
+            summary: Current trajectory monitor state for an agent
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Trajectory state
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/TrajectoryState"
+    /missions/{name}/procedures:
+        get:
+            operationId: listMissionProcedures
+            summary: List procedure records for a mission (across all agents)
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/missionName"
+                - name: agent
+                  in: query
+                  schema:
+                    type: string
+                  description: Filter by agent name
+            responses:
+                "200":
+                    description: Procedure records
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    procedures:
+                                        type: array
+                                        items:
+                                            $ref: "#/components/schemas/ProcedureRecord"
+    /missions/{name}/episodes:
+        get:
+            operationId: listMissionEpisodes
+            summary: List episode records for a mission (across all agents)
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/missionName"
+            responses:
+                "200":
+                    description: Episode records
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    episodes:
+                                        type: array
+                                        items:
+                                            $ref: "#/components/schemas/EpisodeRecord"
+                                    total:
+                                        type: integer
+    /missions/{name}/evaluations:
+        get:
+            operationId: listMissionEvaluations
+            summary: List recent success criteria evaluation results for a mission
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/missionName"
+                - name: limit
+                  in: query
+                  schema:
+                    type: integer
+                    default: 20
+                  description: Max results (default 20, max 100)
+            responses:
+                "200":
+                    description: Evaluation results with summary stats
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    mission:
+                                        type: string
+                                    evaluations:
+                                        type: array
+                                        items:
+                                            $ref: "#/components/schemas/EvaluationResult"
+                                    summary:
+                                        type: object
+                                        properties:
+                                            total:
+                                                type: integer
+                                            passed:
+                                                type: integer
+                                            failed:
+                                                type: integer
+                                            pass_rate:
+                                                type: number
+    # ── Meeseeks ────────────────────────────────────────────────────────────────
+    /agents/meeseeks:
+        post:
+            operationId: spawnMeeseeks
+            summary: Spawn an ephemeral Meeseeks sub-agent
+            tags: [Agents]
+            parameters:
+                - name: parent
+                  in: query
+                  description: Parent agent name
+                  schema:
+                    type: string
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/MeeseeksSpawnRequest"
+            responses:
+                "201":
+                    description: Meeseeks spawned
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    meeseeks_id:
+                                        type: string
+                                    status:
+                                        type: string
+                "429":
+                    description: Spawn rate limit exceeded
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/ErrorResponse"
+        get:
+            operationId: listMeeseeks
+            summary: List Meeseeks (optionally filtered by parent)
+            tags: [Agents]
+            parameters:
+                - name: parent
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Meeseeks list
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                items:
+                                    $ref: "#/components/schemas/Meeseeks"
+        delete:
+            operationId: killMeeseeksByParent
+            summary: Kill all Meeseeks for a parent agent
+            tags: [Agents]
+            parameters:
+                - name: parent
+                  in: query
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Meeseeks terminated
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    killed:
+                                        type: array
+                                        items:
+                                            type: string
+    /agents/meeseeks/{id}:
+        get:
+            operationId: showMeeseeks
+            summary: Show Meeseeks detail
+            tags: [Agents]
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Meeseeks detail
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/Meeseeks"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+        delete:
+            operationId: killMeeseeks
+            summary: Terminate a Meeseeks
+            tags: [Agents]
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Meeseeks terminated
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/StatusResponse"
+    /agents/meeseeks/{id}/complete:
+        post:
+            operationId: completeMeeseeks
+            summary: Mark a Meeseeks as completed (called by body runtime)
+            tags: [Agents]
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Meeseeks completed
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/StatusResponse"
+    # ── Credentials ─────────────────────────────────────────────────────────────
+    /creds:
+        post:
+            operationId: createOrUpdateCredential
+            summary: Store or update a credential
+            description: Stores a credential in the encrypted credential store. Idempotent — same name+value is a no-op, different value updates.
+            tags: [Creds]
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            required: [name, value, kind, scope, protocol]
+                            properties:
+                                name: {type: string, description: Credential name (e.g. LC_API_KEY_DETECTION_TUNER)}
+                                value: {type: string, description: Credential value (encrypted at rest)}
+                                kind: {type: string, enum: [provider, service, gateway, internal, group]}
+                                scope: {type: string, description: "platform, agent:{name}, or team:{name}"}
+                                protocol: {type: string, enum: [api-key, jwt-exchange, github-app, oauth2, bearer]}
+                                service: {type: string, description: Service definition name}
+                                group: {type: string, description: Credential group name}
+                                external_scopes: {type: array, items: {type: string}}
+                                requires: {type: array, items: {type: string}}
+                                expires_at: {type: string, format: date-time}
+                                protocol_config: {type: object, additionalProperties: true}
+            responses:
+                "200":
+                    description: Credential stored
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status: {type: string}
+                                    name: {type: string}
+        get:
+            operationId: listCredentials
+            summary: List credentials (values redacted)
+            tags: [Creds]
+            parameters:
+                - name: kind
+                  in: query
+                  schema: {type: string}
+                - name: scope
+                  in: query
+                  schema: {type: string}
+                - name: service
+                  in: query
+                  schema: {type: string}
+                - name: group
+                  in: query
+                  schema: {type: string}
+                - name: expiring
+                  in: query
+                  schema: {type: string}
+                  description: Duration string (e.g. 7d) — list credentials expiring within
+            responses:
+                "200":
+                    description: List of credentials with redacted values
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                items:
+                                    $ref: "#/components/schemas/CredentialEntry"
+    /creds/{name}:
+        get:
+            operationId: showCredential
+            summary: Show credential metadata (value redacted unless ?show_value=true)
+            tags: [Creds]
+            parameters:
+                - name: name
+                  in: path
+                  required: true
+                  schema: {type: string}
+                - name: show_value
+                  in: query
+                  schema: {type: boolean, default: false}
+                  description: Include plaintext value (high-severity audit event)
+            responses:
+                "200":
+                    description: Credential details
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/CredentialEntry"
+                "404":
+                    description: Credential not found
+        delete:
+            operationId: deleteCredential
+            summary: Delete a credential
+            tags: [Creds]
+            parameters:
+                - name: name
+                  in: path
+                  required: true
+                  schema: {type: string}
+            responses:
+                "200":
+                    description: Credential deleted
+    /creds/{name}/rotate:
+        post:
+            operationId: rotateCredential
+            summary: Rotate credential value (preserves metadata)
+            tags: [Creds]
+            parameters:
+                - name: name
+                  in: path
+                  required: true
+                  schema: {type: string}
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            required: [value]
+                            properties:
+                                value: {type: string}
+            responses:
+                "200":
+                    description: Credential rotated
+    /creds/{name}/test:
+        post:
+            operationId: testCredential
+            summary: Test credential against external API
+            tags: [Creds]
+            parameters:
+                - name: name
+                  in: path
+                  required: true
+                  schema: {type: string}
+            responses:
+                "200":
+                    description: Test result
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    ok: {type: boolean}
+                                    status: {type: integer}
+                                    message: {type: string}
+                                    latency_ms: {type: integer}
+    /creds/groups:
+        post:
+            operationId: createCredentialGroup
+            summary: Create a credential group (shared protocol config)
+            tags: [Creds]
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            required: [name, protocol]
+                            properties:
+                                name: {type: string}
+                                protocol: {type: string}
+                                token_url: {type: string}
+                                token_params: {type: object, additionalProperties: {type: string}}
+                                requires: {type: array, items: {type: string}}
+            responses:
+                "200":
+                    description: Group created
+    # ── Agent Rebuild ──────────────────────────────────────────────────────────
+    /admin/agents/{name}/rebuild:
+        post:
+            operationId: rebuildAgent
+            summary: Regenerate all derived files for an agent
+            description: |
+                Regenerates services-manifest.json, services.yaml, PLATFORM.md,
+                FRAMEWORK.md, and AGENTS.md without restarting the agent.
+            tags: [Agents]
+            parameters:
+                - name: name
+                  in: path
+                  required: true
+                  schema: {type: string}
+            responses:
+                "200":
+                    description: Rebuild result
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status: {type: string, enum: [rebuilt, partial, failed]}
+                                    regenerated: {type: array, items: {type: string}}
+                                    errors: {type: array, items: {type: string}}
+                "404":
+                    description: Agent not found
+    # ── Agent Cache & Economics ────────────────────────────────────────────────
+    /agents/{name}/cache:
+        delete:
+            operationId: clearAgentCache
+            summary: Clear semantic cache for an agent
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Cache cleared
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/StatusResponse"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+    /agents/{name}/economics:
+        get:
+            operationId: getAgentEconomics
+            summary: Get per-workflow economics rollup for an agent
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Economics rollup
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+                "404":
+                    $ref: "#/components/responses/NotFound"
+    /agents/economics/summary:
+        get:
+            operationId: getEconomicsSummary
+            summary: Get platform-wide economics summary across all agents
+            tags: [Agents]
+            responses:
+                "200":
+                    description: Platform economics summary
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
+    /admin/registry/list:
+        get:
+            operationId: registryList
+            summary: List principals by type
+            tags: [Admin]
+            parameters:
+                - name: type
+                  in: query
+                  schema:
+                    type: string
+                    enum: [operator, agent, team, role, channel]
+            responses:
+                "200":
+                    description: List of principals
+    /admin/registry/{uuid}:
+        put:
+            operationId: registryUpdate
+            summary: Update principal fields
+            tags: [Admin]
+            parameters:
+                - name: uuid
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                parent:
+                                    type: string
+                                status:
+                                    type: string
+                                    enum: [active, suspended, revoked]
+                                permissions:
+                                    type: string
+            responses:
+                "200":
+                    description: Updated
+        delete:
+            operationId: registryDelete
+            summary: Delete a principal
+            tags: [Admin]
+            parameters:
+                - name: uuid
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Deleted
+    /admin/registry/{uuid}/effective:
+        get:
+            operationId: registryEffective
+            summary: Compute effective permissions for a principal
+            tags: [Admin]
+            parameters:
+                - name: uuid
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: Effective permissions after hierarchy resolution
+# ── WebSocket (outside /api/v1) ─────────────────────────────────────────────
+# Note: OpenAPI 3.1 does not natively support WebSocket. Documented as a
+# separate server path for completeness.
+components:
+    securitySchemes:
+        apiToken:
+            type: apiKey
+            in: header
+            name: X-Agency-Token
+            description: API token generated during `agency init`
+        webhookSecret:
+            type: apiKey
+            in: header
+            name: X-Webhook-Secret
+            description: Per-webhook secret for inbound webhook authentication
+    parameters:
+        agentName:
+            name: name
+            in: path
+            required: true
+            schema:
+                type: string
+            description: Agent name
+        presetName:
+            name: name
+            in: path
+            required: true
+            schema:
+                type: string
+                pattern: "^[a-z0-9][a-z0-9\\-]{0,63}$"
+            description: Preset name (lowercase alphanumeric + hyphens, 1-64 chars)
+        nameOrID:
+            name: nameOrID
+            in: path
+            required: true
+            schema:
+                type: string
+            description: Hub instance name or ID
+        capabilityName:
+            name: name
+            in: path
+            required: true
+            schema:
+                type: string
+            description: Capability name
+        missionName:
+            name: name
+            in: path
+            required: true
+            schema:
+                type: string
+            description: Mission name or ID
+    responses:
+        NotFound:
+            description: Resource not found
+            content:
+                application/json:
+                    schema:
+                        $ref: "#/components/schemas/ErrorResponse"
+    schemas:
+        StatusResponse:
+            type: object
+            properties:
+                status:
+                    type: string
+                name:
+                    type: string
+        ErrorResponse:
+            type: object
+            properties:
+                error:
+                    type: string
+        InstalledPackage:
+            type: object
+            properties:
+                kind:
+                    type: string
+                name:
+                    type: string
+                version:
+                    type: string
+                trust:
+                    type: string
+                installed:
+                    type: string
+                    format: date-time
+                path:
+                    type: string
+        PackageListResponse:
+            type: object
+            properties:
+                packages:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/InstalledPackage"
+        PackageRef:
+            type: object
+            properties:
+                kind:
+                    type: string
+                name:
+                    type: string
+                version:
+                    type: string
+        InstanceSource:
+            type: object
+            properties:
+                template:
+                    $ref: "#/components/schemas/PackageRef"
+                package:
+                    $ref: "#/components/schemas/PackageRef"
+        InstanceClaim:
+            type: object
+            properties:
+                owner:
+                    type: string
+                claimed_at:
+                    type: string
+                    format: date-time
+        Instance:
+            type: object
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                source:
+                    $ref: "#/components/schemas/InstanceSource"
+                config:
+                    type: object
+                    additionalProperties: true
+                claim:
+                    $ref: "#/components/schemas/InstanceClaim"
+                created_at:
+                    type: string
+                    format: date-time
+                updated_at:
+                    type: string
+                    format: date-time
+        InstanceListResponse:
+            type: object
+            properties:
+                instances:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/Instance"
+        ConsentRequirement:
+            type: object
+            properties:
+                required_for:
+                    type: array
+                    items:
+                        type: string
+        Grant:
+            type: object
+            properties:
+                subject:
+                    type: string
+                target:
+                    type: string
+                actions:
+                    type: array
+                    items:
+                        type: string
+                consent:
+                    $ref: "#/components/schemas/ConsentRequirement"
+        AuthzRequest:
+            type: object
+            properties:
+                subject:
+                    type: string
+                target:
+                    type: string
+                action:
+                    type: string
+                instance:
+                    type: string
+                consent_provided:
+                    type: boolean
+                grants:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/Grant"
+        AuthzDecision:
+            type: object
+            properties:
+                allow:
+                    type: boolean
+                reasons:
+                    type: array
+                    items:
+                        type: string
+                consent_needed:
+                    type: boolean
+        RuntimeManifestMetadata:
+            type: object
+            properties:
+                manifest_id:
+                    type: string
+                instance_id:
+                    type: string
+                instance_name:
+                    type: string
+                compiled_at:
+                    type: string
+                    format: date-time
+                planner_version:
+                    type: string
+        RuntimeManifestSource:
+            type: object
+            properties:
+                instance_revision:
+                    type: string
+                    format: date-time
+        RuntimeNode:
+            type: object
+            properties:
+                node_id:
+                    type: string
+                kind:
+                    type: string
+                package:
+                    $ref: "#/components/schemas/PackageRef"
+                tools:
+                    type: array
+                    items:
+                        type: string
+                credential_bindings:
+                    type: array
+                    items:
+                        type: string
+                grant_subjects:
+                    type: array
+                    items:
+                        type: string
+                consent_actions:
+                    type: array
+                    items:
+                        type: string
+                executor:
+                    $ref: "#/components/schemas/RuntimeExecutor"
+                materialization_path:
+                    type: string
+        RuntimeBinding:
+            type: object
+            properties:
+                name:
+                    type: string
+                type:
+                    type: string
+                target:
+                    type: string
+        RuntimeExecutor:
+            type: object
+            properties:
+                kind:
+                    type: string
+                base_url:
+                    type: string
+                actions:
+                    type: object
+                    additionalProperties:
+                        $ref: "#/components/schemas/RuntimeHTTPAction"
+                auth:
+                    $ref: "#/components/schemas/RuntimeExecutorAuth"
+        RuntimeHTTPAction:
+            type: object
+            properties:
+                method:
+                    type: string
+                path:
+                    type: string
+                headers:
+                    type: object
+                    additionalProperties:
+                        type: string
+        RuntimeExecutorAuth:
+            type: object
+            properties:
+                type:
+                    type: string
+                binding:
+                    type: string
+                header:
+                    type: string
+                prefix:
+                    type: string
+        RuntimeOperation:
+            type: object
+            properties:
+                type:
+                    type: string
+                node_id:
+                    type: string
+                path:
+                    type: string
+        RuntimeManifestStatus:
+            type: object
+            properties:
+                reconcile_state:
+                    type: string
+                last_reconciled_at:
+                    type: string
+                    format: date-time
+        RuntimeManifest:
+            type: object
+            properties:
+                api_version:
+                    type: string
+                kind:
+                    type: string
+                metadata:
+                    $ref: "#/components/schemas/RuntimeManifestMetadata"
+                source:
+                    $ref: "#/components/schemas/RuntimeManifestSource"
+                runtime:
+                    type: object
+                    properties:
+                        nodes:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/RuntimeNode"
+                        bindings:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/RuntimeBinding"
+                        operations:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/RuntimeOperation"
+                status:
+                    $ref: "#/components/schemas/RuntimeManifestStatus"
+        RuntimeNodeStatus:
+            type: object
+            properties:
+                node_id:
+                    type: string
+                state:
+                    type: string
+                updated_at:
+                    type: string
+                    format: date-time
+                started_at:
+                    type: string
+                    format: date-time
+                stopped_at:
+                    type: string
+                    format: date-time
+                pid:
+                    type: integer
+                port:
+                    type: integer
+                url:
+                    type: string
+                last_error:
+                    type: string
+                runtime_path:
+                    type: string
+        CredentialEntry:
+            type: object
+            properties:
+                name: {type: string}
+                value: {type: string, description: "[redacted] unless show_value=true"}
+                kind: {type: string, enum: [provider, service, gateway, internal, group]}
+                scope: {type: string}
+                protocol: {type: string}
+                service: {type: string}
+                group: {type: string}
+                external_scopes: {type: array, items: {type: string}}
+                requires: {type: array, items: {type: string}}
+                expires_at: {type: string, format: date-time}
+                protocol_config: {type: object, additionalProperties: true}
+                source: {type: string}
+                created_at: {type: string, format: date-time}
+                rotated_at: {type: string, format: date-time}
+        AgentSummary:
+            type: object
+            properties:
+                name:
+                    type: string
+                status:
+                    type: string
+                preset:
+                    type: string
+        AgentDetail:
+            type: object
+            properties:
+                name:
+                    type: string
+                status:
+                    type: string
+                preset:
+                    type: string
+                lifecycle_id:
+                    type: string
+                mission:
+                    type: string
+                granted_caps:
+                    type: array
+                    items:
+                        type: string
+        AgentConfigBundle:
+            type: object
+            properties:
+                agent_yaml:
+                    type: object
+                    additionalProperties: true
+                identity:
+                    type: string
+                constraints:
+                    type: object
+                    additionalProperties: true
+                workspace:
+                    type: object
+                    additionalProperties: true
+        StartResult:
+            type: object
+            properties:
+                agent:
+                    type: string
+                model:
+                    type: string
+                phases:
+                    type: integer
+        HaltRecord:
+            type: object
+            properties:
+                agent:
+                    type: string
+                type:
+                    type: string
+                reason:
+                    type: string
+                initiator:
+                    type: string
+                timestamp:
+                    type: string
+        BudgetState:
+            type: object
+            properties:
+                agent_name:
+                    type: string
+                daily_used:
+                    type: number
+                daily_limit:
+                    type: number
+                daily_remaining:
+                    type: number
+                monthly_used:
+                    type: number
+                monthly_limit:
+                    type: number
+                monthly_remaining:
+                    type: number
+                per_task_limit:
+                    type: number
+                today_llm_calls:
+                    type: integer
+                today_input_tokens:
+                    type: integer
+                    format: int64
+                today_output_tokens:
+                    type: integer
+                    format: int64
+                task_usage:
+                    type: array
+                    items:
+                        type: object
+        BudgetRemaining:
+            type: object
+            properties:
+                daily_remaining:
+                    type: number
+                monthly_remaining:
+                    type: number
+                daily_used:
+                    type: number
+                monthly_used:
+                    type: number
+        ConstraintChange:
+            type: object
+            properties:
+                change_id:
+                    type: string
+                version:
+                    type: integer
+                severity:
+                    type: string
+                status:
+                    type: string
+                constraints:
+                    type: object
+                    additionalProperties: true
+                reason:
+                    type: string
+                initiator:
+                    type: string
+        PresetInfo:
+            type: object
+            properties:
+                name:
+                    type: string
+                description:
+                    type: string
+                type:
+                    type: string
+                source:
+                    type: string
+                    enum: [built-in, user]
+        PresetFull:
+            type: object
+            required: [name]
+            properties:
+                name:
+                    type: string
+                    pattern: "^[a-z0-9][a-z0-9\\-]{0,63}$"
+                description:
+                    type: string
+                type:
+                    type: string
+                model_tier:
+                    type: string
+                tools:
+                    type: array
+                    items:
+                        type: string
+                capabilities:
+                    type: array
+                    items:
+                        type: string
+                hard_limits:
+                    type: array
+                    items:
+                        type: object
+                        properties:
+                            rule:
+                                type: string
+                            reason:
+                                type: string
+                escalation:
+                    type: object
+                    properties:
+                        always_escalate:
+                            type: array
+                            items:
+                                type: string
+                        flag_before_proceeding:
+                            type: array
+                            items:
+                                type: string
+                identity:
+                    type: object
+                    properties:
+                        purpose:
+                            type: string
+                        body:
+                            type: string
+        PolicyValidation:
+            type: object
+            properties:
+                valid:
+                    type: boolean
+                violations:
+                    type: array
+                    items:
+                        type: string
+        HubComponent:
+            type: object
+            properties:
+                name:
+                    type: string
+                kind:
+                    type: string
+                version:
+                    type: string
+                description:
+                    type: string
+        UpdateReport:
+            type: object
+            properties:
+                sources:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/SourceUpdate"
+                available:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/AvailableUpgrade"
+                warnings:
+                    type: array
+                    items:
+                        type: string
+        SourceUpdate:
+            type: object
+            properties:
+                name:
+                    type: string
+                old_commit:
+                    type: string
+                new_commit:
+                    type: string
+                commit_count:
+                    type: integer
+        AvailableUpgrade:
+            type: object
+            properties:
+                name:
+                    type: string
+                kind:
+                    type: string
+                    description: '"connector", "pack", "managed"'
+                category:
+                    type: string
+                    description: 'For managed files: "ontology", "routing", "services"'
+                installed_version:
+                    type: string
+                available_version:
+                    type: string
+                summary:
+                    type: string
+        UpgradeReport:
+            type: object
+            properties:
+                files:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/FileUpgrade"
+                components:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/ComponentUpgrade"
+                warnings:
+                    type: array
+                    items:
+                        type: string
+        FileUpgrade:
+            type: object
+            properties:
+                category:
+                    type: string
+                    description: '"ontology", "routing", "services"'
+                path:
+                    type: string
+                status:
+                    type: string
+                    description: '"upgraded", "unchanged", "added", "error"'
+                summary:
+                    type: string
+        ComponentUpgrade:
+            type: object
+            properties:
+                name:
+                    type: string
+                kind:
+                    type: string
+                old_version:
+                    type: string
+                new_version:
+                    type: string
+                status:
+                    type: string
+                    description: '"upgraded", "unchanged", "error"'
+                error:
+                    type: string
+        HubInstance:
+            type: object
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                kind:
+                    type: string
+                version:
+                    type: string
+                source:
+                    type: string
+                state:
+                    type: string
+                created:
+                    type: string
+                deployment_id:
+                    type: string
+                deployment_role:
+                    type: string
+                deployment_managed:
+                    type: boolean
+        HubDeployment:
+            type: object
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                pack:
+                    type: object
+                    additionalProperties: true
+                schema_version:
+                    type: integer
+                config:
+                    type: object
+                    additionalProperties: true
+                credrefs:
+                    type: object
+                    additionalProperties: true
+                instances:
+                    type: array
+                    items:
+                        type: object
+                        additionalProperties: true
+                owner:
+                    type: object
+                    additionalProperties: true
+                created_at:
+                    type: string
+                    format: date-time
+                updated_at:
+                    type: string
+                    format: date-time
+                audit_log_path:
+                    type: string
+        HubInstanceDetail:
+            type: object
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                kind:
+                    type: string
+                source:
+                    type: string
+                state:
+                    type: string
+                created:
+                    type: string
+                config:
+                    type: object
+                    additionalProperties:
+                        type: string
+                configured_at:
+                    type: string
+        Capability:
+            type: object
+            properties:
+                name:
+                    type: string
+                kind:
+                    type: string
+                state:
+                    type: string
+                agents:
+                    type: array
+                    items:
+                        type: string
+        Mission:
+            type: object
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                version:
+                    type: integer
+                status:
+                    type: string
+                assigned_to:
+                    type: string
+                assigned_type:
+                    type: string
+                meeseeks:
+                    type: boolean
+                meeseeks_limit:
+                    type: integer
+                meeseeks_model:
+                    type: string
+                meeseeks_budget:
+                    type: number
+                triggers:
+                    type: array
+                    items:
+                        type: object
+                reflection:
+                    $ref: "#/components/schemas/MissionReflection"
+                success_criteria:
+                    $ref: "#/components/schemas/MissionSuccessCriteria"
+                fallback:
+                    $ref: "#/components/schemas/MissionFallback"
+                cost_mode:
+                    type: string
+                    enum: [frugal, balanced, thorough]
+                min_task_tier:
+                    type: string
+                    enum: [minimal, standard, full]
+                procedural_memory:
+                    type: object
+                    properties:
+                        capture:
+                            type: boolean
+                        retrieve:
+                            type: boolean
+                        max_retrieved:
+                            type: integer
+                        include_failures:
+                            type: boolean
+                episodic_memory:
+                    type: object
+                    properties:
+                        capture:
+                            type: boolean
+                        retrieve:
+                            type: boolean
+                        max_retrieved:
+                            type: integer
+                        retention_days:
+                            type: integer
+                        tool_enabled:
+                            type: boolean
+        MissionHealthResponse:
+            type: object
+            properties:
+                mission:
+                    type: string
+                status:
+                    type: string
+                    description: '"healthy", "degraded", "unhealthy", "unknown"'
+                checks:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/MissionHealthCheck"
+                summary:
+                    type: string
+        MissionHealthCheck:
+            type: object
+            properties:
+                name:
+                    type: string
+                    description: Check name (e.g. "connector_active", "credential_health", "agent_running")
+                status:
+                    type: string
+                    description: '"pass", "warn", "fail"'
+                detail:
+                    type: string
+                    description: Human-readable check result
+                fix:
+                    type: string
+                    description: Suggested remediation command (only present on failures)
+        HubHealthResponse:
+            type: object
+            properties:
+                name:
+                    type: string
+                kind:
+                    type: string
+                status:
+                    type: string
+                    description: '"healthy", "degraded", "unhealthy", "unknown"'
+                checks:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/MissionHealthCheck"
+                summary:
+                    type: string
+        MeeseeksSpawnRequest:
+            type: object
+            required: [task]
+            properties:
+                task:
+                    type: string
+                model:
+                    type: string
+                budget:
+                    type: number
+                tools:
+                    type: array
+                    items:
+                        type: string
+        Meeseeks:
+            type: object
+            properties:
+                id:
+                    type: string
+                task:
+                    type: string
+                status:
+                    type: string
+                parent_agent:
+                    type: string
+                model:
+                    type: string
+                budget:
+                    type: number
+                budget_used:
+                    type: number
+                mission_id:
+                    type: string
+                created_at:
+                    type: string
+        Event:
+            type: object
+            properties:
+                id:
+                    type: string
+                source_type:
+                    type: string
+                source_name:
+                    type: string
+                event_type:
+                    type: string
+                data:
+                    type: object
+                    additionalProperties: true
+                timestamp:
+                    type: string
+                    format: date-time
+        Webhook:
+            type: object
+            properties:
+                name:
+                    type: string
+                event_type:
+                    type: string
+                secret:
+                    type: string
+                url:
+                    type: string
+                created_at:
+                    type: string
+                    format: date-time
+        NotificationDestination:
+            type: object
+            description: Notification destination (headers redacted)
+            properties:
+                name:
+                    type: string
+                type:
+                    type: string
+                    enum: [ntfy, webhook]
+                url:
+                    type: string
+                events:
+                    type: array
+                    items:
+                        type: string
+        Profile:
+            type: object
+            description: User or agent profile with display information
+            required: [id, type, display_name]
+            properties:
+                id:
+                    type: string
+                    description: Unique profile ID (matches principal ID or agent name)
+                type:
+                    type: string
+                    enum: [operator, agent]
+                    description: Profile type
+                display_name:
+                    type: string
+                    description: Human-friendly display name
+                avatar_url:
+                    type: string
+                    description: URL or path to avatar image
+                email:
+                    type: string
+                    description: Contact email address
+                department:
+                    type: string
+                    description: Department name
+                title:
+                    type: string
+                    description: Job title or role
+                bio:
+                    type: string
+                    description: Short biography or description
+                metadata:
+                    type: object
+                    additionalProperties:
+                        type: string
+                    description: Arbitrary key-value metadata
+                created:
+                    type: string
+                    format: date-time
+                updated:
+                    type: string
+                    format: date-time
+        NotificationConfig:
+            type: object
+            description: Full notification config (returned on create)
+            properties:
+                name:
+                    type: string
+                type:
+                    type: string
+                    enum: [ntfy, webhook]
+                url:
+                    type: string
+                events:
+                    type: array
+                    items:
+                        type: string
+                headers:
+                    type: object
+                    additionalProperties:
+                        type: string
+        DoctorReport:
+            type: object
+            properties:
+                all_passed:
+                    type: boolean
+                tested_agents:
+                    type: array
+                    items:
+                        type: string
+                checks:
+                    type: array
+                    items:
+                        type: object
+                        properties:
+                            name:
+                                type: string
+                            agent:
+                                type: string
+                            status:
+                                type: string
+                                enum: [pass, fail]
+                            detail:
+                                type: string
+        ProcedureRecord:
+            type: object
+            properties:
+                task_id:
+                    type: string
+                agent:
+                    type: string
+                mission_id:
+                    type: string
+                mission_name:
+                    type: string
+                task_type:
+                    type: string
+                timestamp:
+                    type: string
+                    format: date-time
+                approach:
+                    type: string
+                tools_used:
+                    type: array
+                    items:
+                        type: string
+                outcome:
+                    type: string
+                    enum: [success, partial, failed]
+                duration_minutes:
+                    type: integer
+                lessons:
+                    type: array
+                    items:
+                        type: string
+        EpisodeRecord:
+            type: object
+            properties:
+                task_id:
+                    type: string
+                agent:
+                    type: string
+                mission_name:
+                    type: string
+                timestamp:
+                    type: string
+                    format: date-time
+                duration_minutes:
+                    type: integer
+                outcome:
+                    type: string
+                    enum: [success, partial, failed, escalated]
+                summary:
+                    type: string
+                notable_events:
+                    type: array
+                    items:
+                        type: string
+                entities_mentioned:
+                    type: array
+                    items:
+                        type: object
+                        properties:
+                            type:
+                                type: string
+                            name:
+                                type: string
+                operational_tone:
+                    type: string
+                    enum: [routine, notable, problematic]
+                tags:
+                    type: array
+                    items:
+                        type: string
+        TrajectoryState:
+            type: object
+            properties:
+                agent:
+                    type: string
+                enabled:
+                    type: boolean
+                window_size:
+                    type: integer
+                current_entries:
+                    type: integer
+                active_anomalies:
+                    type: array
+                    items:
+                        type: object
+                        properties:
+                            detector:
+                                type: string
+                            detail:
+                                type: string
+                            severity:
+                                type: string
+                                enum: [warning, critical]
+                            first_detected:
+                                type: string
+                                format: date-time
+                detectors:
+                    type: object
+                    additionalProperties:
+                        type: object
+                        properties:
+                            status:
+                                type: string
+                            last_fired:
+                                type: string
+                                format: date-time
+                                nullable: true
+        EvaluationResult:
+            type: object
+            properties:
+                task_id:
+                    type: string
+                passed:
+                    type: boolean
+                evaluation_mode:
+                    type: string
+                    enum: [checklist_only, llm, checklist_only_fallback]
+                model_used:
+                    type: string
+                criteria_results:
+                    type: array
+                    items:
+                        type: object
+                        properties:
+                            id:
+                                type: string
+                            passed:
+                                type: boolean
+                            required:
+                                type: boolean
+                            reasoning:
+                                type: string
+                evaluated_at:
+                    type: string
+                    format: date-time
+        MissionReflection:
+            type: object
+            properties:
+                enabled:
+                    type: boolean
+                    default: false
+                max_rounds:
+                    type: integer
+                    default: 3
+                    minimum: 1
+                    maximum: 10
+                criteria:
+                    type: array
+                    items:
+                        type: string
+        MissionSuccessCriteria:
+            type: object
+            properties:
+                checklist:
+                    type: array
+                    items:
+                        type: object
+                        properties:
+                            id:
+                                type: string
+                            description:
+                                type: string
+                            required:
+                                type: boolean
+                evaluation:
+                    type: object
+                    properties:
+                        enabled:
+                            type: boolean
+                            default: false
+                        mode:
+                            type: string
+                            enum: [llm, checklist_only]
+                        model:
+                            type: string
+                            default: default
+                        on_failure:
+                            type: string
+                            enum: [flag, retry, block]
+                            default: flag
+                        max_retries:
+                            type: integer
+                            default: 1
+        MissionFallback:
+            type: object
+            properties:
+                policies:
+                    type: array
+                    items:
+                        type: object
+                        properties:
+                            trigger:
+                                type: string
+                                enum: [tool_error, capability_unavailable, budget_warning, consecutive_errors, timeout, no_progress]
+                            tool:
+                                type: string
+                            capability:
+                                type: string
+                            threshold:
+                                type: integer
+                            count:
+                                type: integer
+                            strategy:
+                                type: array
+                                items:
+                                    type: object
+                                    properties:
+                                        action:
+                                            type: string
+                                            enum: [retry, alternative_tool, degrade, simplify, complete_partial, pause_and_assess, escalate]
+                                        max_attempts:
+                                            type: integer
+                                        backoff:
+                                            type: string
+                                            enum: [exponential, fixed, none]
+                                        tool:
+                                            type: string
+                                        hint:
+                                            type: string
+                                        severity:
+                                            type: string
+                                        message:
+                                            type: string
+                default_policy:
+                    type: object
+                    properties:
+                        strategy:
+                            type: array
+                            items:
+                                type: object
+x-agency-generated-view: core

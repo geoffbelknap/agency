@@ -4,13 +4,14 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"log/slog"
 	"github.com/go-chi/chi/v5"
+	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/events"
+	"github.com/geoffbelknap/agency/internal/features"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 )
@@ -50,13 +51,16 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Get("/api/v1/infra/routing/metrics", h.routingMetrics)
 	r.Get("/api/v1/infra/routing/config", h.routingConfig)
 
-	// Routing optimizer
-	r.Get("/api/v1/infra/routing/suggestions", h.routingSuggestions)
-	r.Post("/api/v1/infra/routing/suggestions/{id}/approve", h.routingSuggestionApprove)
-	r.Post("/api/v1/infra/routing/suggestions/{id}/reject", h.routingSuggestionReject)
-	r.Get("/api/v1/infra/routing/stats", h.routingStats)
+	if features.ExperimentalEnabled() {
+		// Routing optimizer
+		r.Get("/api/v1/infra/routing/suggestions", h.routingSuggestions)
+		r.Post("/api/v1/infra/routing/suggestions/{id}/approve", h.routingSuggestionApprove)
+		r.Post("/api/v1/infra/routing/suggestions/{id}/reject", h.routingSuggestionReject)
+		r.Get("/api/v1/infra/routing/stats", h.routingStats)
+	}
 
 	r.Get("/api/v1/infra/providers", h.listProviders)
+	r.Post("/api/v1/infra/providers/{name}/install", h.installProvider)
 	r.Get("/api/v1/infra/setup/config", h.setupConfig)
 }
 

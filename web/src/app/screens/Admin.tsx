@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { api } from '../lib/api';
+import { adminFeatureFlags } from '../lib/features';
 import { Agent } from '../types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { useIsMobile } from '../components/ui/use-mobile';
@@ -25,20 +26,14 @@ const AdminEgress = lazy(() => import('./AdminEgress').then(m => ({ default: m.A
 
 const LAZY_FALLBACK = <div className="text-sm text-muted-foreground text-center py-8">Loading...</div>;
 
-const VALID_TABS = new Set([
-  'infrastructure', 'hub', 'intake', 'knowledge', 'capabilities', 'presets',
-  'trust', 'egress', 'policy', 'doctor', 'usage', 'events', 'webhooks',
-  'notifications', 'audit', 'setup', 'danger',
-]);
-
 const TAB_GROUPS = [
   {
     label: 'Operations',
     description: 'Infrastructure, intake, and shared platform services.',
     tabs: [
       { value: 'infrastructure', label: 'Infrastructure', description: 'Provision and rebuild the local platform.' },
-      { value: 'hub', label: 'Packages', description: 'Install local packages and manage governed instances.' },
-      { value: 'intake', label: 'Intake', description: 'Manage inbound channels and collection paths.' },
+      { value: 'hub', label: 'Packages', description: 'Install local packages and manage governed instances.', enabled: adminFeatureFlags.hub, experimental: true },
+      { value: 'intake', label: 'Intake', description: 'Manage inbound channels and collection paths.', enabled: adminFeatureFlags.intake, experimental: true },
       { value: 'knowledge', label: 'Knowledge', description: 'Inspect stored knowledge bases and retrieval inputs.' },
     ],
   },
@@ -59,9 +54,9 @@ const TAB_GROUPS = [
     description: 'Usage, events, notifications, and operational history.',
     tabs: [
       { value: 'usage', label: 'Usage', description: 'Track spend, token flow, and runtime volume.' },
-      { value: 'events', label: 'Events', description: 'Inspect recent system and agent event streams.' },
-      { value: 'webhooks', label: 'Webhooks', description: 'Manage outbound event delivery endpoints.' },
-      { value: 'notifications', label: 'Notifications', description: 'Configure alerting and delivery preferences.' },
+      { value: 'events', label: 'Events', description: 'Inspect recent system and agent event streams.', enabled: adminFeatureFlags.events, experimental: true },
+      { value: 'webhooks', label: 'Webhooks', description: 'Manage outbound event delivery endpoints.', enabled: adminFeatureFlags.webhooks, experimental: true },
+      { value: 'notifications', label: 'Notifications', description: 'Configure alerting and delivery preferences.', enabled: adminFeatureFlags.notifications, experimental: true },
       { value: 'audit', label: 'Audit', description: 'Review recorded agent actions and policy decisions.' },
       { value: 'setup', label: 'Setup Wizard', description: 'Re-run guided environment setup.' },
     ],
@@ -75,8 +70,17 @@ const TAB_GROUPS = [
   },
 ];
 
+const FILTERED_TAB_GROUPS = TAB_GROUPS
+  .map((group) => ({
+    ...group,
+    tabs: group.tabs.filter((tab) => tab.enabled !== false),
+  }))
+  .filter((group) => group.tabs.length > 0);
+
+const VALID_TABS = new Set(FILTERED_TAB_GROUPS.flatMap((group) => group.tabs.map((tab) => tab.value)));
+
 const TAB_INDEX = new Map(
-  TAB_GROUPS.flatMap((group) =>
+  FILTERED_TAB_GROUPS.flatMap((group) =>
     group.tabs.map((tab) => [tab.value, { ...tab, group: group.label, groupDescription: group.description }] as const),
   ),
 );
@@ -87,14 +91,14 @@ export function Admin() {
   const isMobile = useIsMobile();
   const activeTab = urlTab && VALID_TABS.has(urlTab) ? urlTab : 'infrastructure';
   const activeSection = TAB_INDEX.get(activeTab) ?? TAB_INDEX.get('infrastructure')!;
-  const activeGroup = TAB_GROUPS.find((group) => group.label === activeSection.group) ?? TAB_GROUPS[0];
+  const activeGroup = FILTERED_TAB_GROUPS.find((group) => group.label === activeSection.group) ?? FILTERED_TAB_GROUPS[0];
 
   const handleTabChange = useCallback((value: string) => {
     navigate(`/admin/${value}`, { replace: true });
   }, [navigate]);
 
   const handleGroupChange = useCallback((groupLabel: string) => {
-    const targetGroup = TAB_GROUPS.find((group) => group.label === groupLabel);
+    const targetGroup = FILTERED_TAB_GROUPS.find((group) => group.label === groupLabel);
     if (!targetGroup) return;
     const fallbackTab = targetGroup.tabs[0]?.value;
     if (fallbackTab && fallbackTab !== activeTab) {
@@ -244,6 +248,11 @@ export function Admin() {
             <span className="rounded-full border border-border bg-card px-3 py-1.5 font-medium text-foreground">
               {activeSection.label}
             </span>
+            {activeSection.experimental && (
+              <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 font-medium text-primary">
+                Experimental
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -269,10 +278,16 @@ export function Admin() {
                 </div>
               </div>
 
+              {activeGroup.tabs.some((tab) => tab.experimental) && (
+                <div className="rounded-2xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+                  Some admin sections in this view are experimental and are not part of the default core product path.
+                </div>
+              )}
+
               {!isMobile && (
                 <div className="space-y-3 border-t border-border/80 pt-3">
                   <div className="flex flex-wrap gap-2">
-                    {TAB_GROUPS.map((group) => {
+                    {FILTERED_TAB_GROUPS.map((group) => {
                       const isCurrentGroup = group.label === activeGroup.label;
                       return (
                         <button
@@ -298,7 +313,14 @@ export function Admin() {
                         value={tab.value}
                         className={tab.value === 'danger' ? 'text-red-500 data-[state=active]:text-red-600 dark:text-red-300 dark:data-[state=active]:text-red-200' : ''}
                       >
-                        {tab.label}
+                        <span className="inline-flex items-center gap-2">
+                          <span>{tab.label}</span>
+                          {tab.experimental && (
+                            <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-primary">
+                              Exp
+                            </span>
+                          )}
+                        </span>
                       </TabsTrigger>
                     ))}
                   </TabsList>
@@ -318,10 +340,10 @@ export function Admin() {
                 onChange={(e) => handleTabChange(e.target.value)}
                 className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm text-foreground"
               >
-                {TAB_GROUPS.map((group) => (
+                {FILTERED_TAB_GROUPS.map((group) => (
                   <optgroup key={group.label} label={group.label}>
                     {group.tabs.map((tab) => (
-                      <option key={tab.value} value={tab.value}>{tab.label}</option>
+                      <option key={tab.value} value={tab.value}>{tab.experimental ? `${tab.label} (experimental)` : tab.label}</option>
                     ))}
                   </optgroup>
                 ))}

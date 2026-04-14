@@ -18,6 +18,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/apiclient"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/daemon"
+	"github.com/geoffbelknap/agency/internal/providercatalog"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -112,13 +113,14 @@ var agentChoices = []agentChoice{
 }
 
 type quickstartOptions struct {
-	provider  string
-	key       string
-	preset    string
-	name      string
-	noDemo    bool
-	noBrowser bool
-	verbose   bool
+	provider      string
+	key           string
+	preset        string
+	name          string
+	noDemo        bool
+	noBrowser     bool
+	noDockerStart bool
+	verbose       bool
 }
 
 func quickstartCmd() *cobra.Command {
@@ -148,6 +150,7 @@ Run with --no-browser to print the Web UI URL without opening it.`,
 	cmd.Flags().StringVar(&opts.name, "name", "", "Name for the first agent")
 	cmd.Flags().BoolVar(&opts.noDemo, "no-demo", false, "Skip the demo task")
 	cmd.Flags().BoolVar(&opts.noBrowser, "no-browser", false, "Don't open the web UI in a browser (also respected via AGENCY_NO_BROWSER=1)")
+	cmd.Flags().BoolVar(&opts.noDockerStart, "no-docker-start", false, "Don't try to start Docker Desktop automatically (also respected via AGENCY_NO_DOCKER_START=1)")
 	cmd.Flags().BoolVar(&opts.verbose, "verbose", false, "Show detailed output")
 
 	return cmd
@@ -345,7 +348,7 @@ func runQuickstart(opts quickstartOptions) error {
 	configExistedBefore := quickstartConfigExists()
 
 	// Phase 1: Environment — check Docker
-	if err := checkDocker(); err != nil {
+	if err := checkDocker(opts.noDockerStart); err != nil {
 		fmt.Printf("  %s environment     Docker not available\n", qsRed.Render("✗"))
 		fmt.Println()
 		fmt.Println(err.Error())
@@ -566,26 +569,13 @@ func runQuickstart(opts quickstartOptions) error {
 		}
 	}
 
-	// Phase 3b: Hub sync + provider install
-	// After infra is up and credentials are stored, install the provider
-	// so routing.yaml and egress config are populated.
+	// Phase 3b: Install bundled provider routing into the local core config.
 	if providerName != "" {
-		if _, err := c.Post("/api/v1/hub/update", nil); err != nil {
-			fmt.Printf("  %s hub             update failed: %s\n", qsRed.Render("✗"), err)
-			return fmt.Errorf("hub update: %w", err)
+		if err := providercatalog.Install(cfg.Home, providerName); err != nil {
+			fmt.Printf("  %s provider        install failed: %s\n", qsRed.Render("✗"), err)
+			return fmt.Errorf("install provider routing: %w", err)
 		}
-		if _, err := c.Post("/api/v1/hub/install", map[string]interface{}{
-			"component": providerName,
-		}); err != nil {
-			if isHubInstallAlreadyExists(err) {
-				fmt.Printf("  %s hub             %s provider already installed\n", qsGreen.Render("✓"), providerName)
-			} else {
-				fmt.Printf("  %s hub             provider install failed: %s\n", qsRed.Render("✗"), err)
-				return fmt.Errorf("hub install provider: %w", err)
-			}
-		} else {
-			fmt.Printf("  %s hub             %s provider installed\n", qsGreen.Render("✓"), providerName)
-		}
+		fmt.Printf("  %s provider        %s routing installed\n", qsGreen.Render("✓"), providerName)
 	}
 
 	// Phase 4: Agent — create and start first agent

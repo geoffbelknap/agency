@@ -1,44 +1,58 @@
 ---
 title: "Agency User Guide"
-description: "Agency is a platform for running AI agents and teams of agents that do real work, with full auditability and enforced security boundaries."
+description: "Agency is a governed AI agent platform focused on secure runtime, direct-message workflows, graph-backed context, and auditable execution."
 ---
 
 
-Agency is a platform that lets you run AI agents — and teams of AI agents — that do real work for you. You describe what you want done, agents go do it, and the platform keeps everything safe and auditable.
+Agency is a platform for running governed AI agents that do real work with
+strong security boundaries, complete auditability, and a usable direct-message
+workflow.
+
+This guide is organized around the current core product, not every possible
+platform surface in the repo.
 
 ## Start Here
 
-- **[What is Agency?](/what-is-agency)** — Plain-language overview: what it does, who it's for, and what it feels like to use.
-- **[Quick Start](/quickstart)** — Get your first agent running in under 10 minutes.
-- **[Getting API Keys](/getting-api-keys)** — How to get an LLM provider key (including free options).
-- **[Core Concepts](/concepts)** — Deeper dive into how agents, channels, teams, and policies fit together.
-- **[Glossary](/glossary)** — Quick definitions for every term you'll encounter.
+- **[What is Agency?](/what-is-agency)** — What Agency is, what problem it solves, and how it differs from a chat-only agent experience.
+- **[Quick Start](/quickstart)** — Install Agency, run quickstart, create your first agent, and send your first task.
+- **[Getting API Keys](/getting-api-keys)** — Set up a supported model provider.
+- **[Core Concepts](/concepts)** — Agents, constraints, identity, channels, graph context, and governance.
+- **[Glossary](/glossary)** — Definitions for the main terms.
 
-## Working with Agents
+## Core Workflows
 
-- **[Agents](/agents)** — Creating, configuring, starting, briefing, and stopping agents.
-- **[Presets](/presets)** — The 15 built-in presets, model tiers, and when to use each one.
-- **[Capabilities](/capabilities)** — MCP servers, skills, and services: what agents can do and how to manage it.
+- **[Agents](/agents)** — Create, configure, start, stop, and inspect agents.
+- **[Presets](/presets)** — Choose a built-in role as a starting point.
+- **[Channels and Messaging](/channels-and-messaging)** — Direct messages, shared channels, and message history.
+- **[Model Routing](/model-routing)** — Provider setup and basic routing behavior.
+- **[Security](/security)** — Isolation, mediation, audit, and credential boundaries.
 
-## Communication and Coordination
+## Operating Agency
 
-- **[Channels and Messaging](/channels-and-messaging)** — How agents communicate, search message history, and coordinate work.
-- **[Teams](/teams)** — Creating teams, assigning roles, using coordinators, and running multi-agent operations.
+- **[Infrastructure](/infrastructure)** — Shared services, mediation plane, and local stack operations.
+- **[CLI Reference](/cli-reference)** — Command reference for the current CLI surface.
+- **[Troubleshooting](/troubleshooting)** — Common issues, recovery steps, and `agency admin doctor`.
 
-## Governance
+## Building On Agency
 
-- **[Policies and Governance](/policies-and-governance)** — Policy hierarchy, trust calibration, exceptions, and function agents.
-- **[Security](/security)** — What's enforced, how isolation works, and what operators need to know.
+- **REST API** — The gateway exposes a REST API on `localhost:8200`.
+- **OpenAPI contract** — Canonical spec at `/api/v1/openapi.yaml`.
+- **Core API view** — Supported default API subset at `/api/v1/openapi-core.yaml`.
+- **MCP server** — `agency mcp-server` exposes Agency operations to AI assistants and other MCP clients.
 
-## Deployment and Integration
+## Not Core To Start With
 
-- **[Packs](/packs)** — Declarative deployment: define a team in YAML, deploy it in one command.
-- **[Connectors and Intake](/connectors-and-intake)** — Bringing external work into Agency: webhooks, polling, schedules, and channel-watch.
-- **[Hub](/hub)** — Installing and sharing packs, presets, and connectors from the community registry.
+Some broader platform areas exist in the repo and docs, but they are not the
+mainline onboarding path right now:
 
-## Operations
+- teams and coordinator-heavy workflows
+- packs and hub lifecycle
+- broad connector inventory
+- graph governance and ontology operations
+- advanced routing optimization surfaces
 
-- **[Model Routing](/model-routing)** — Model tiers, provider configuration, and cost optimization.
-- **[Infrastructure](/infrastructure)** — Managing shared infrastructure, egress, and the mediation layer.
-- **[CLI Reference](/cli-reference)** — Complete command reference for every `agency` command.
-- **[Troubleshooting](/troubleshooting)** — Common issues, `agency admin doctor`, and recovery procedures.
+Those can still be useful, but they should not be mistaken for the core Agency
+product today.
+
+They remain documented under the **Experimental Surfaces** section of the docs
+navigation so work can continue without diluting the default product path.

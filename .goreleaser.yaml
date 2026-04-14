@@ -23,7 +23,7 @@ builds:
 
 archives:
   - id: default
-    format: tar.gz
+    formats: [tar.gz]
     name_template: "agency_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
@@ -38,25 +38,23 @@ changelog:
       - "^ci:"
 
 brews:
-  - repository:
+  - ids:
+      - default
+    repository:
       owner: geoffbelknap
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     name: agency
     homepage: "https://github.com/geoffbelknap/agency"
     description: "Agency — An operating system for AI agents"
-    install: |
-      bin.install "agency"
+    caveats: |
+      Start here:
+
+        agency quickstart
+
+      Quick start guide: https://github.com/geoffbelknap/agency#readme
     test: |
       system "#{bin}/agency", "--version"
-    caveats: |
-      To get started:
-
-        1. Make sure Docker is running
-        2. Get an API key from Anthropic, OpenAI, or Google
-        3. Run: agency setup
-
-      Full documentation: https://github.com/geoffbelknap/agency
 
 release:
   github:

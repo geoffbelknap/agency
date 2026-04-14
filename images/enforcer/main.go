@@ -17,6 +17,15 @@ import (
 
 var buildID = "unknown"
 
+func init() {
+	if buildID != "unknown" {
+		return
+	}
+	if envBuildID := os.Getenv("BUILD_ID"); strings.TrimSpace(envBuildID) != "" {
+		buildID = envBuildID
+	}
+}
+
 const (
 	defaultPort           = "3128"
 	defaultConstraintPort = "8081"

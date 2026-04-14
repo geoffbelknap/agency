@@ -8,6 +8,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/geoffbelknap
+  CACHE_PREFIX: ghcr.io/geoffbelknap/agency-buildcache
 
 permissions:
   contents: read
@@ -16,6 +17,8 @@ permissions:
 jobs:
   build-python-base:
     runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -40,24 +43,24 @@ jobs:
         run: echo "version=${REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push python-base
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: images/python-base
           file: images/python-base/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          build-args: |
-            BUILD_ID=${{ github.sha }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           tags: |
             ${{ env.IMAGE_PREFIX }}/agency-python-base:v${{ steps.version.outputs.version }}
             ${{ env.IMAGE_PREFIX }}/agency-python-base:latest
-          cache-from: type=gha,scope=python-base
-          cache-to: type=gha,scope=python-base,mode=max
+          cache-from: type=registry,ref=${{ env.CACHE_PREFIX }}:python-base
+          cache-to: type=registry,ref=${{ env.CACHE_PREFIX }}:python-base,mode=max
 
   build-and-push:
     needs: build-python-base
+    name: build-${{ matrix.image.name }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -65,19 +68,16 @@ jobs:
         image:
           # Repo-context images: need repo root for shared models/logging
           - name: comms
-            context: .
+            context: images/comms
             dockerfile: images/comms/Dockerfile
           - name: knowledge
-            context: .
+            context: images/knowledge
             dockerfile: images/knowledge/Dockerfile
-          - name: intake
-            context: .
-            dockerfile: images/intake/Dockerfile
           - name: body
-            context: .
+            context: images/body
             dockerfile: images/body/Dockerfile
           - name: egress
-            context: .
+            context: images/egress
             dockerfile: images/egress/Dockerfile
           # Self-contained images: build context is their own directory
           - name: enforcer
@@ -86,9 +86,6 @@ jobs:
           - name: workspace
             context: images/workspace
             dockerfile: images/workspace/Dockerfile
-          - name: web-fetch
-            context: images/web-fetch
-            dockerfile: images/web-fetch/Dockerfile
 
     steps:
       - name: Checkout
@@ -117,18 +114,21 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.image.context }}
+          build-contexts: |
+            shared=images
           file: ${{ matrix.image.dockerfile }}
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
             BUILD_ID=${{ github.sha }}
+            PYTHON_BASE_IMAGE=${{ env.IMAGE_PREFIX }}/agency-python-base@${{ needs.build-python-base.outputs.digest }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           tags: |
             ${{ env.IMAGE_PREFIX }}/agency-${{ matrix.image.name }}:v${{ steps.version.outputs.version }}
             ${{ env.IMAGE_PREFIX }}/agency-${{ matrix.image.name }}:latest
-          cache-from: type=gha,scope=${{ matrix.image.name }}
-          cache-to: type=gha,scope=${{ matrix.image.name }},mode=max
+          cache-from: type=registry,ref=${{ env.CACHE_PREFIX }}:${{ matrix.image.name }}
+          cache-to: type=registry,ref=${{ env.CACHE_PREFIX }}:${{ matrix.image.name }},mode=max
 
   build-and-push-web:
     runs-on: ubuntu-latest
@@ -169,47 +169,5 @@ jobs:
           tags: |
             ${{ env.IMAGE_PREFIX }}/agency-web:v${{ steps.version.outputs.version }}
             ${{ env.IMAGE_PREFIX }}/agency-web:latest
-          cache-from: type=gha,scope=web
-          cache-to: type=gha,scope=web,mode=max
-
-  build-and-push-embeddings:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract version
-        id: version
-        env:
-          REF_NAME: ${{ github.ref_name }}
-        run: echo "version=${REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
-
-      - name: Build and push embeddings
-        uses: docker/build-push-action@v7
-        with:
-          context: images/embeddings
-          file: images/embeddings/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          build-args: |
-            BUILD_ID=${{ github.sha }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          tags: |
-            ${{ env.IMAGE_PREFIX }}/agency-embeddings:v${{ steps.version.outputs.version }}
-            ${{ env.IMAGE_PREFIX }}/agency-embeddings:latest
-          cache-from: type=gha,scope=embeddings
-          cache-to: type=gha,scope=embeddings,mode=max
+          cache-from: type=registry,ref=${{ env.CACHE_PREFIX }}:web
+          cache-to: type=registry,ref=${{ env.CACHE_PREFIX }}:web,mode=max

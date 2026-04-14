@@ -1,0 +1,16 @@
+name: openai-compatible
+display_name: OpenAI-Compatible
+description: Connect a compatible OpenAI-style endpoint with custom base URL
+category: compatible
+credential:
+  name: openai-compatible-api-key
+  label: API Key
+  env_var: OPENAI_COMPATIBLE_API_KEY
+  api_key_url: ""
+routing:
+  api_base: https://api.example.com/v1
+  api_base_configurable: true
+  auth_header: Authorization
+  auth_prefix: "Bearer "
+  models: {}
+  tiers: {}

@@ -1,10 +1,14 @@
 ---
 title: "Meeseeks Agents"
-description: "Ephemeral single-purpose agents that parent agents spawn on-demand. They complete one task and cease to exist."
+description: "Experimental ephemeral single-purpose agents that parent agents can spawn on-demand."
 ---
 
 
 Meeseeks are ephemeral, single-purpose agents spawned on-demand by a parent agent. Named after the creatures from Rick and Morty, they are created to serve a singular purpose and cease to exist after fulfilling it.
+
+> Experimental surface: Meeseeks are not part of the default `0.2.x` core
+> Agency path. Keep them available for exploration, but do not treat them as a
+> supported first-user workflow.
 
 A Meeseeks has exactly one task, uses a cheap model, inherits its parent's constraints, and self-terminates on completion. No identity, no memory, no history — just the task.
 
