@@ -2,8 +2,6 @@ ARG PYTHON_BASE_IMAGE=ghcr.io/geoffbelknap/agency-python-base:latest
 FROM ${PYTHON_BASE_IMAGE}
 ARG BUILD_ID=unknown
 ARG SOURCE_HASH=unknown
-LABEL agency.build.id=${BUILD_ID}
-LABEL agency.source.hash=${SOURCE_HASH}
 
 WORKDIR /app
 
@@ -24,4 +22,6 @@ RUN chmod 0644 /app/*.py /app/logging_config.py /app/sitecustomize.py && \
 
 USER bodyuser
 
+LABEL agency.build.id=${BUILD_ID}
+LABEL agency.source.hash=${SOURCE_HASH}
 CMD ["/app/entrypoint.sh"]

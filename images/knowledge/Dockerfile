@@ -2,8 +2,6 @@ ARG PYTHON_BASE_IMAGE=ghcr.io/geoffbelknap/agency-python-base:latest
 FROM ${PYTHON_BASE_IMAGE}
 ARG BUILD_ID=unknown
 ARG SOURCE_HASH=unknown
-LABEL agency.build.id=${BUILD_ID}
-LABEL agency.source.hash=${SOURCE_HASH}
 WORKDIR /app
 
 # Extra deps not in the shared base
@@ -22,4 +20,6 @@ RUN mkdir -p /app/images/knowledge \
     && cp -R /app/ingestion /app/images/knowledge/ingestion
 
 EXPOSE 8080
+LABEL agency.build.id=${BUILD_ID}
+LABEL agency.source.hash=${SOURCE_HASH}
 CMD ["python", "-u", "/app/server.py"]
