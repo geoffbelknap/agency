@@ -232,6 +232,14 @@ export function Usage() {
   const bySource = metrics?.by_source ? Object.entries(metrics.by_source) : [];
   const recentErrors = metrics?.recent_errors ?? [];
   const primaryErroredAgent = recentErrors.find((entry) => entry.agent)?.agent;
+  const summaryMetrics = t ? [
+    { label: 'Requests', value: t.requests.toLocaleString(), tone: 'text-foreground' },
+    { label: 'Total tokens', value: formatTokens(t.total_tokens), tone: 'text-foreground' },
+    { label: 'Estimated spend', value: displayCost(t), tone: 'text-primary' },
+    { label: 'Input', value: formatTokens(t.input_tokens), tone: 'text-muted-foreground-strong' },
+    { label: 'Output', value: formatTokens(t.output_tokens), tone: 'text-muted-foreground-strong' },
+    { label: 'Avg latency', value: `${(t.avg_latency_ms / 1000).toFixed(1)}s`, tone: 'text-muted-foreground-strong', detail: t.p95_latency_ms != null ? `p95 ${(t.p95_latency_ms / 1000).toFixed(1)}s` : undefined },
+  ] : [];
 
   // Use gateway cost if available, otherwise estimate client-side
   function displayCost(bucket: MetricsBucket, model?: string): string {
@@ -244,56 +252,62 @@ export function Usage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground">LLM usage and estimated spend</p>
-          {metrics?.period && (
-            <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-              {new Date(metrics.period.since).toLocaleDateString()} — {new Date(metrics.period.until).toLocaleDateString()}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5">
-          {RANGE_PRESETS.filter(p => p.key !== 'custom').map(p => (
-            <Button
-              key={p.key}
-              variant={preset === p.key ? 'default' : 'outline'}
-              size="sm"
-              className="h-7 px-2.5 text-xs"
-              onClick={() => handlePreset(p.key)}
-            >
-              {p.label}
+      <div className="rounded-2xl border border-border bg-card px-4 py-4 md:px-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-1">
+            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              Usage overview
+            </div>
+            <p className="text-sm text-muted-foreground">Model traffic, spend, and routing quality for the selected period.</p>
+            {metrics?.period && (
+              <p className="text-[11px] text-muted-foreground/70">
+                {new Date(metrics.period.since).toLocaleDateString()} — {new Date(metrics.period.until).toLocaleDateString()}
+              </p>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex flex-wrap items-center gap-1 rounded-2xl border border-border/80 bg-secondary/55 p-1">
+              {RANGE_PRESETS.filter(p => p.key !== 'custom').map(p => (
+                <Button
+                  key={p.key}
+                  variant={preset === p.key ? 'default' : 'ghost'}
+                  size="sm"
+                  className="h-8 rounded-xl px-3 text-xs"
+                  onClick={() => handlePreset(p.key)}
+                >
+                  {p.label}
+                </Button>
+              ))}
+              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant={preset === 'custom' ? 'default' : 'ghost'}
+                    size="sm"
+                    className="h-8 gap-1 rounded-xl px-3 text-xs"
+                    onClick={() => { setPreset('custom'); setCalendarOpen(true); }}
+                  >
+                    <CalendarIcon className="w-3 h-3" />
+                    {preset === 'custom' && dateRange?.from
+                      ? `${formatDateShort(dateRange.from)}${dateRange.to ? ` – ${formatDateShort(dateRange.to)}` : ''}`
+                      : 'Custom'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="end">
+                  <Calendar
+                    mode="range"
+                    selected={dateRange}
+                    onSelect={handleDateRangeSelect}
+                    numberOfMonths={2}
+                    disabled={{ after: new Date() }}
+                    defaultMonth={dateRange?.from ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+            <Button variant="outline" size="sm" className="h-8 rounded-xl px-3" onClick={() => load()} disabled={refreshing}>
+              <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
             </Button>
-          ))}
-          <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                variant={preset === 'custom' ? 'default' : 'outline'}
-                size="sm"
-                className="h-7 px-2.5 text-xs gap-1"
-                onClick={() => { setPreset('custom'); setCalendarOpen(true); }}
-              >
-                <CalendarIcon className="w-3 h-3" />
-                {preset === 'custom' && dateRange?.from
-                  ? `${formatDateShort(dateRange.from)}${dateRange.to ? ` – ${formatDateShort(dateRange.to)}` : ''}`
-                  : 'Custom'}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="end">
-              <Calendar
-                mode="range"
-                selected={dateRange}
-                onSelect={handleDateRangeSelect}
-                numberOfMonths={2}
-                disabled={{ after: new Date() }}
-                defaultMonth={dateRange?.from ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)}
-              />
-            </PopoverContent>
-          </Popover>
-          <div className="w-px h-5 bg-border mx-0.5" />
-          <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => load()} disabled={refreshing}>
-            <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
-          </Button>
+          </div>
         </div>
       </div>
 
@@ -333,41 +347,50 @@ export function Usage() {
             </div>
           )}
 
-          {/* Summary cards */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-3">
-            <div className="bg-card border border-border rounded p-3 md:p-4">
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Requests</div>
-              <div className="text-lg md:text-xl font-semibold text-foreground">{t.requests}</div>
-              {t.errors > 0 && <div className="text-[10px] text-red-400">{t.errors} errors</div>}
+          <div className="overflow-hidden rounded-2xl border border-border bg-card">
+            <div className="grid gap-0 lg:grid-cols-[1.5fr_1fr]">
+              <div className="border-b border-border px-4 py-4 lg:border-b-0 lg:border-r lg:px-5">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  {summaryMetrics.slice(0, 3).map((metric) => (
+                    <div key={metric.label} className="space-y-1.5">
+                      <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                        {metric.label}
+                      </div>
+                      <div className={`text-2xl font-semibold tracking-tight ${metric.tone}`}>
+                        {metric.value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-0 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+                {summaryMetrics.slice(3).map((metric) => (
+                  <div key={metric.label} className="px-4 py-4">
+                    <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                      {metric.label}
+                    </div>
+                    <div className={`mt-1 text-lg font-semibold ${metric.tone}`}>
+                      {metric.value}
+                    </div>
+                    {metric.detail && (
+                      <div className="mt-1 text-xs text-muted-foreground">{metric.detail}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="bg-card border border-border rounded p-3 md:p-4">
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Input Tokens</div>
-              <div className="text-lg md:text-xl font-semibold text-foreground">{formatTokens(t.input_tokens)}</div>
-            </div>
-            <div className="bg-card border border-border rounded p-3 md:p-4">
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Output Tokens</div>
-              <div className="text-lg md:text-xl font-semibold text-foreground">{formatTokens(t.output_tokens)}</div>
-            </div>
-            <div className="bg-card border border-border rounded p-3 md:p-4">
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Total Tokens</div>
-              <div className="text-lg md:text-xl font-semibold text-foreground">{formatTokens(t.total_tokens)}</div>
-            </div>
-            <div className="bg-card border border-border rounded p-3 md:p-4">
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Avg Latency</div>
-              <div className="text-lg md:text-xl font-semibold text-foreground">{(t.avg_latency_ms / 1000).toFixed(1)}s</div>
-              {t.p95_latency_ms != null && <div className="text-[10px] text-muted-foreground">p95: {(t.p95_latency_ms / 1000).toFixed(1)}s</div>}
-            </div>
-            <div className="bg-card border border-border rounded p-3 md:p-4">
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Est. Cost</div>
-              <div className="text-lg md:text-xl font-semibold text-green-400">{displayCost(t)}</div>
-            </div>
+            {t.errors > 0 && (
+              <div className="border-t border-border bg-red-50/50 px-4 py-2 text-sm text-red-700 dark:bg-red-950/20 dark:text-red-300">
+                {t.errors} request errors recorded in the selected period.
+              </div>
+            )}
           </div>
 
           <div className="bg-card border border-border rounded overflow-hidden">
             <div className="px-4 py-3 border-b border-border flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Routing Suggestions</h3>
-                <p className="text-[10px] text-muted-foreground/70 mt-0.5">Pending optimizer recommendations for lower-cost model routing</p>
+                <h3 className="text-sm font-medium text-foreground">Routing suggestions</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">Pending optimizer recommendations for lower-cost model routing.</p>
               </div>
               <Button variant="outline" size="sm" className="h-7 px-2 text-xs gap-1" onClick={loadSuggestions} disabled={suggestionsLoading}>
                 <RefreshCw className={`w-3 h-3 ${suggestionsLoading ? 'animate-spin' : ''}`} />
@@ -433,8 +456,8 @@ export function Usage() {
           <div className="bg-card border border-border rounded overflow-hidden">
             <div className="px-4 py-3 border-b border-border flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Routing Model Stats</h3>
-                <p className="text-[10px] text-muted-foreground/70 mt-0.5">Per-model optimizer telemetry by task type</p>
+                <h3 className="text-sm font-medium text-foreground">Routing model stats</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">Per-model optimizer telemetry by task type.</p>
               </div>
               <Button variant="outline" size="sm" className="h-7 px-2 text-xs gap-1" onClick={loadRoutingStats} disabled={statsLoading}>
                 <RefreshCw className={`w-3 h-3 ${statsLoading ? 'animate-spin' : ''}`} />
@@ -483,7 +506,7 @@ export function Usage() {
           {byAgent.length > 0 && (
             <div className="bg-card border border-border rounded overflow-hidden">
               <div className="px-4 py-3 border-b border-border">
-                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Per Agent</h3>
+                <h3 className="text-sm font-medium text-foreground">Per agent</h3>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm min-w-[640px]">
@@ -522,7 +545,7 @@ export function Usage() {
           {byModel.length > 0 && (
             <div className="bg-card border border-border rounded overflow-hidden">
               <div className="px-4 py-3 border-b border-border">
-                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Per Model</h3>
+                <h3 className="text-sm font-medium text-foreground">Per model</h3>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm min-w-[520px]">
@@ -557,7 +580,7 @@ export function Usage() {
           {byProvider.length > 0 && (
             <div className="bg-card border border-border rounded overflow-hidden">
               <div className="px-4 py-3 border-b border-border">
-                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Per Provider</h3>
+                <h3 className="text-sm font-medium text-foreground">Per provider</h3>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm min-w-[440px]">
@@ -590,8 +613,8 @@ export function Usage() {
           {bySource.length > 0 && (
             <div className="bg-card border border-border rounded overflow-hidden">
               <div className="px-4 py-3 border-b border-border">
-                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Per Source</h3>
-                <p className="text-[10px] text-muted-foreground/70 mt-0.5">System vs agent LLM usage by caller</p>
+                <h3 className="text-sm font-medium text-foreground">Per source</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">System vs agent LLM usage by caller.</p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm min-w-[520px]">
@@ -628,7 +651,7 @@ export function Usage() {
           {recentErrors.length > 0 && (
             <div className="bg-card border border-red-900/30 rounded overflow-hidden">
               <div className="px-4 py-3 border-b border-border">
-                <h3 className="text-xs font-medium text-red-400 uppercase tracking-wide">Recent Errors</h3>
+                <h3 className="text-sm font-medium text-red-400">Recent errors</h3>
               </div>
               <div className="divide-y divide-border">
                 {recentErrors.map((e, i) => (

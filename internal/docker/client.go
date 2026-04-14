@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -28,11 +29,37 @@ type Client struct {
 	cli *client.Client
 }
 
+func desktopDockerHost() string {
+	if os.Getenv("DOCKER_HOST") != "" {
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	socketPath := filepath.Join(home, ".docker", "run", "docker.sock")
+	if _, err := os.Stat(socketPath); err == nil {
+		return "unix://" + socketPath
+	}
+	return ""
+}
+
+// EnsureUsableHostEnv populates DOCKER_HOST with Docker Desktop's user socket
+// when the environment does not already specify a Docker endpoint.
+func EnsureUsableHostEnv() string {
+	if host := desktopDockerHost(); host != "" {
+		_ = os.Setenv("DOCKER_HOST", host)
+		return host
+	}
+	return os.Getenv("DOCKER_HOST")
+}
+
 // Verify that Client implements comms.Client at compile time.
 var _ comms.Client = (*Client)(nil)
 
 // NewClient creates a new Docker client from the environment.
 func NewClient() (*Client, error) {
+	EnsureUsableHostEnv()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("cannot connect to Docker: %w", err)
@@ -50,6 +77,7 @@ func NewClient() (*Client, error) {
 func TryNewClient(logger interface {
 	Warn(msg string, keyvals ...any)
 }) *Client {
+	EnsureUsableHostEnv()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		logger.Warn("Docker client unavailable, starting in degraded mode", "err", err)

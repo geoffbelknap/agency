@@ -42,7 +42,7 @@ describe('ChannelSidebar', () => {
     render(<ChannelSidebar channels={channels} selectedChannel={channels[0]} onSelect={() => {}} />);
     const buttons = screen.getAllByRole('button');
     const generalButton = buttons.find((btn) => btn.textContent?.includes('general'));
-    expect(generalButton).toHaveClass('bg-accent/90');
+    expect(generalButton).toHaveClass('bg-accent/80');
   });
 
   it('shows DM status without legacy agent pills', () => {

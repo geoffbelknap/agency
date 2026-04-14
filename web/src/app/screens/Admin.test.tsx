@@ -90,6 +90,7 @@ describe('Admin — Policy tab', () => {
   it('renders policy tab trigger', async () => {
     server.use(...agentHandlers);
     renderAdminInForm();
+    await userEvent.click(screen.getByRole('button', { name: /governance/i }));
     expect(screen.getByRole('tab', { name: /policy/i })).toBeInTheDocument();
   });
 

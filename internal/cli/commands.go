@@ -130,6 +130,7 @@ func newClient() *Client {
 
 // cliVersion is set by RegisterCommands from the root cobra command's version.
 var cliVersion string
+var cliBuildID string
 
 // requireGateway creates a client and checks connectivity.
 // If the gateway is not reachable, it attempts to auto-start the daemon.
@@ -155,7 +156,7 @@ func requireGateway() (*Client, error) {
 	return c, nil
 }
 
-// checkDaemonVersion compares the CLI version with the running daemon's version.
+// checkDaemonVersion compares the CLI version/build with the running daemon.
 // If they differ, it auto-restarts the daemon so upgrades take effect immediately.
 func checkDaemonVersion(c *Client) {
 	if cliVersion == "" || cliVersion == "dev" {
@@ -166,10 +167,20 @@ func checkDaemonVersion(c *Client) {
 		return
 	}
 	daemonVersion, _ := health["version"].(string)
-	if daemonVersion == "" || daemonVersion == cliVersion {
+	daemonBuildID, _ := health["build_id"].(string)
+	versionMatch := daemonVersion != "" && daemonVersion == cliVersion
+	buildMatch := cliBuildID == "" || daemonBuildID == cliBuildID
+	if versionMatch && buildMatch {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "Daemon version mismatch (daemon: %s, cli: %s). Restarting daemon...\n", daemonVersion, cliVersion)
+	fmt.Fprintf(
+		os.Stderr,
+		"Daemon build mismatch (daemon: %s/%s, cli: %s/%s). Restarting daemon...\n",
+		daemonVersion,
+		daemonBuildID,
+		cliVersion,
+		cliBuildID,
+	)
 	if err := daemon.Stop(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not stop old daemon: %v\n", err)
 		return
@@ -197,6 +208,12 @@ func RegisterCommands(root *cobra.Command) {
 	if v := root.Version; v != "" {
 		if idx := strings.IndexByte(v, ' '); idx > 0 {
 			cliVersion = v[:idx]
+			if open := strings.IndexByte(v, '('); open >= 0 {
+				rest := v[open+1:]
+				if comma := strings.IndexByte(rest, ','); comma > 0 {
+					cliBuildID = strings.TrimSpace(rest[:comma])
+				}
+			}
 		} else {
 			cliVersion = v
 		}

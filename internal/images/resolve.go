@@ -245,6 +245,16 @@ func buildFromSource(ctx context.Context, cli *client.Client, name, sourceDir, t
 	return dockerBuild(ctx, cli, spec.contextDir, spec.dockerfilePath, tag, buildArgs)
 }
 
+// SourceFingerprintForService returns the source fingerprint for a buildable service
+// using the same source selection logic as image resolution.
+func SourceFingerprintForService(name, sourceDir string) (string, error) {
+	spec, err := sourceBuildSpec(name, sourceDir)
+	if err != nil {
+		return "", err
+	}
+	return sourceFingerprint(spec.contextDir, spec.dockerfilePath)
+}
+
 func sourceFingerprint(contextDir, dockerfilePath string) (string, error) {
 	dockerfileFullPath := filepath.Join(contextDir, dockerfilePath)
 	sources, err := dockerfileSources(dockerfileFullPath)

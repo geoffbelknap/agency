@@ -151,17 +151,28 @@ export function Layout() {
         key={item.path}
         to={item.path}
         title={compactSidebar ? navLabel : undefined}
-        className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors duration-150
+        className={`group flex items-center gap-3 rounded-2xl px-3 py-2.5 transition-colors duration-150
           ${isActive
-            ? 'bg-primary/12 text-primary'
-            : 'text-sidebar-foreground/78 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+            ? 'bg-sidebar-accent text-sidebar-foreground'
+            : 'text-sidebar-foreground/72 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground'
           }`}
       >
-        <Icon className="h-4 w-4 flex-shrink-0" />
+        <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl ${
+          isActive ? 'bg-primary/12 text-primary' : 'text-sidebar-foreground/62 group-hover:text-sidebar-foreground'
+        }`}>
+          <Icon className="h-4 w-4" />
+        </div>
         {!compactSidebar && (
-          <span className="min-w-0 flex-1 whitespace-nowrap text-sm font-medium">
-            {navLabel}
-          </span>
+          <div className="min-w-0 flex-1">
+            <span className="block whitespace-nowrap text-sm font-medium">
+              {navLabel}
+            </span>
+            {isActive && (
+              <span className="block whitespace-nowrap text-[11px] text-sidebar-foreground/56">
+                {item.path.startsWith('/admin') ? 'Administrative surface' : 'Workspace surface'}
+              </span>
+            )}
+          </div>
         )}
         {showUnread && (
           <span className={`relative flex h-2.5 w-2.5 flex-shrink-0 ${compactSidebar ? 'ml-auto' : ''}`}>
@@ -182,13 +193,17 @@ export function Layout() {
       <Link
         key={item.path}
         to={item.path}
-        className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150
+        className={`flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium transition-colors duration-150
           ${isActive
-            ? 'bg-primary/12 text-primary'
+            ? 'bg-sidebar-accent text-sidebar-foreground'
             : 'text-sidebar-foreground/78 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
           }`}
       >
-        <Icon className="w-4 h-4" />
+        <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl ${
+          isActive ? 'bg-primary/12 text-primary' : 'text-sidebar-foreground/62'
+        }`}>
+          <Icon className="w-4 h-4" />
+        </div>
         <span className="flex-1">{item.name}</span>
         {showUnread && (
           <span className="relative flex h-2 w-2">
@@ -291,15 +306,15 @@ export function Layout() {
         />
       )}
 
-      {/* Desktop Sidebar — icon rail that expands */}
+      {/* Desktop Sidebar */}
       <aside
         className={`hidden flex-shrink-0 flex-col border-r border-sidebar-border bg-sidebar lg:flex ${
           compactSidebar ? 'w-20' : 'w-60'
         }`}
       >
-        <div className={`border-b border-sidebar-border ${compactSidebar ? 'px-3 py-4' : 'px-4 py-5'}`}>
+        <div className={`border-b border-sidebar-border ${compactSidebar ? 'px-3 py-4' : 'px-4 py-4.5'}`}>
           <div className={`flex items-center ${compactSidebar ? 'justify-center' : 'gap-3'}`}>
-            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/10">
               <svg width="22" height="22" viewBox="0 0 52 52" className="flex-shrink-0">
                 <rect x="0" y="0" width="22" height="22" rx="3" className="fill-primary" />
                 <rect x="26" y="0" width="22" height="22" rx="3" className="fill-foreground" />
@@ -312,7 +327,7 @@ export function Layout() {
                 <span style={{ fontFamily: 'var(--font-display)', fontWeight: 300, fontSize: '20px' }} className="block text-sidebar-foreground">
                   Agency
                 </span>
-                <p className="text-sm text-sidebar-foreground/68">Operator workspace</p>
+                <p className="text-sm text-sidebar-foreground/60">Operator workspace</p>
               </div>
             )}
             <button
@@ -338,10 +353,10 @@ export function Layout() {
           )}
         </div>
 
-        <div className={`flex-1 overflow-y-auto ${compactSidebar ? 'px-2 py-4' : 'px-3 py-5'}`}>
+        <div className={`flex-1 overflow-y-auto ${compactSidebar ? 'px-2 py-4' : 'px-3 py-4'}`}>
           {!compactSidebar && (
-            <div className="mb-3 px-3">
-              <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-sidebar-foreground/50">Work</span>
+            <div className="mb-2 px-3">
+              <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-sidebar-foreground/42">Workspace</span>
             </div>
           )}
           <nav className="space-y-1">
@@ -349,8 +364,8 @@ export function Layout() {
           </nav>
 
           {!compactSidebar && (
-            <div className="mb-3 mt-8 px-3">
-              <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-sidebar-foreground/50">Control</span>
+            <div className="mb-2 mt-7 px-3">
+              <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-sidebar-foreground/42">Control</span>
             </div>
           )}
           <nav className={`space-y-1 ${compactSidebar ? 'mt-6' : ''}`}>
@@ -358,18 +373,18 @@ export function Layout() {
           </nav>
         </div>
 
-        <div className={`border-t border-sidebar-border ${compactSidebar ? 'px-2 py-3' : 'px-3 py-4'}`}>
+        <div className={`border-t border-sidebar-border ${compactSidebar ? 'px-2 py-3' : 'px-3 py-3.5'}`}>
           <div className="space-y-1">
             <button
               onClick={cycleTheme}
-              className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sidebar-foreground/72 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${compactSidebar ? 'justify-center' : ''}`}
+              className={`flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-sidebar-foreground/68 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground ${compactSidebar ? 'justify-center' : ''}`}
               title={`Theme: ${theme}`}
               aria-label={`Switch theme (currently ${theme})`}
             >
               <ThemeIcon className="h-4 w-4 flex-shrink-0" />
               {!compactSidebar && <span className="text-sm font-medium capitalize">{theme}</span>}
             </button>
-            <div className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sidebar-foreground/72 ${compactSidebar ? 'justify-center' : ''}`}>
+            <div className={`flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sidebar-foreground/68 ${compactSidebar ? 'justify-center' : ''}`}>
               <div className="flex h-4 w-4 items-center justify-center">
                 <TextScaleControl />
               </div>
@@ -377,7 +392,7 @@ export function Layout() {
             </div>
           </div>
 
-          <div className={`mt-4 rounded-2xl border border-sidebar-border/80 bg-sidebar-accent/45 ${compactSidebar ? 'p-3' : 'px-3 py-3.5'}`}>
+          <div className={`mt-4 rounded-[1.35rem] border border-sidebar-border/80 bg-sidebar-accent/38 ${compactSidebar ? 'p-3' : 'px-3 py-3.5'}`}>
             <div className={`flex items-center gap-2.5 ${compactSidebar ? 'justify-center' : ''}`}>
               <div className="relative flex-shrink-0">
                 <div className={`h-2.5 w-2.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-red-500'}`} />
@@ -389,7 +404,7 @@ export function Layout() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-sidebar-foreground">
-                      {isConnected ? 'Gateway connected' : 'Gateway disconnected'}
+                      {isConnected ? 'Gateway online' : 'Gateway offline'}
                     </span>
                     {isRelay && (
                       <span className="rounded-full bg-primary/12 px-2 py-0.5 text-[11px] font-medium text-primary">
@@ -397,7 +412,7 @@ export function Layout() {
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-sidebar-foreground/58">
+                  <div className="text-xs text-sidebar-foreground/56">
                     {isRelay ? 'Signed in through relay transport' : 'Live WebSocket session'}
                   </div>
                 </div>
