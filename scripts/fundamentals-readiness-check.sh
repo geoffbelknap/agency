@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 AGENCY_BIN="${AGENCY_BIN:-}"
 AGENCY_HOME_DIR="${AGENCY_HOME:-$HOME/.agency}"
+RUN_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 AGENT_NAME="fundamentals-readiness-$(date +%s)"
 DM_CHANNEL="dm-${AGENT_NAME}"
 MESSAGE="Reply with exactly one short sentence containing the phrase: fundamentals readiness ok."
@@ -43,6 +44,19 @@ resolve_agency_bin() {
 
 run_agency() {
   "$AGENCY_BIN" -q "$@"
+}
+
+infra_is_healthy() {
+  local status
+  status="$(run_agency status 2>/dev/null || true)"
+  [ -n "$status" ] || return 1
+  printf '%s\n' "$status" | grep -Eq 'egress[[:space:]]+running.*✓' || return 1
+  printf '%s\n' "$status" | grep -Eq 'comms[[:space:]]+running.*✓' || return 1
+  printf '%s\n' "$status" | grep -Eq 'knowledge[[:space:]]+running.*✓' || return 1
+  printf '%s\n' "$status" | grep -Eq 'intake[[:space:]]+running.*✓' || return 1
+  printf '%s\n' "$status" | grep -Eq 'web-fetch[[:space:]]+running.*✓' || return 1
+  printf '%s\n' "$status" | grep -Eq 'web[[:space:]]+running.*✓' || return 1
+  printf '%s\n' "$status" | grep -Eq 'embeddings[[:space:]]+running.*✓' || return 1
 }
 
 cleanup() {
@@ -149,7 +163,11 @@ fi
 
 log "Checking daemon and infrastructure"
 run_agency serve restart >/dev/null
-run_agency infra up
+if infra_is_healthy; then
+  log "Infrastructure already healthy; reusing existing stack"
+else
+  run_agency infra up
+fi
 
 status="$(run_agency status)"
 printf '%s\n' "$status" | grep -q 'Web UI:  http://127.0.0.1:8280' ||
@@ -282,7 +300,7 @@ case "${show_calls:-}" in
     ;;
 esac
 
-usage_output="$(run_agency admin usage --agent "$AGENT_NAME" --since "$(date +%F)")"
+usage_output="$(run_agency admin usage --agent "$AGENT_NAME" --since "$RUN_STARTED_AT")"
 usage_calls="$(printf '%s\n' "$usage_output" | extract_usage_calls)"
 case "${usage_calls:-}" in
   ''|0)
@@ -320,7 +338,7 @@ if [ "${reconfig_reply:-}" != "${RECONFIG_TOKEN}" ]; then
 fi
 
 log "Checking audit log"
-audit_output="$(run_agency log "$AGENT_NAME" --since "$(date -u +%Y-%m-%dT00:00:00Z)")"
+audit_output="$(run_agency log "$AGENT_NAME" --since "$RUN_STARTED_AT")"
 printf '%s\n' "$audit_output" | grep -q 'agent_started' ||
   fail "agent audit log did not record agent_started"
 printf '%s\n' "$audit_output" | grep -Eq 'LLM_DIRECT_STREAM|LLM_PROXY|LLM_BATCH' ||

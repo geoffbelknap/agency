@@ -10,6 +10,20 @@ import (
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 )
 
+func workspaceCapacityFilters() filters.Args {
+	return filters.NewArgs(
+		filters.Arg("label", "agency.type=workspace"),
+		filters.Arg("status", "running"),
+	)
+}
+
+func meeseeksCapacityFilters() filters.Args {
+	return filters.NewArgs(
+		filters.Arg("label", "agency.type=meeseeks-workspace"),
+		filters.Arg("status", "running"),
+	)
+}
+
 func (h *handler) infraCapacity(w http.ResponseWriter, r *http.Request) {
 	capPath := filepath.Join(h.deps.Config.Home, "capacity.yaml")
 	cfg, err := orchestrate.LoadCapacity(capPath)
@@ -27,20 +41,14 @@ func (h *handler) infraCapacity(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 
 			agentContainers, err := raw.ContainerList(ctx, container.ListOptions{
-				Filters: filters.NewArgs(
-					filters.Arg("label", "agency.role=workspace"),
-					filters.Arg("status", "running"),
-				),
+				Filters: workspaceCapacityFilters(),
 			})
 			if err == nil {
 				runningAgents = len(agentContainers)
 			}
 
 			meeseeksContainers, err := raw.ContainerList(ctx, container.ListOptions{
-				Filters: filters.NewArgs(
-					filters.Arg("label", "agency.role=meeseeks"),
-					filters.Arg("status", "running"),
-				),
+				Filters: meeseeksCapacityFilters(),
 			})
 			if err == nil {
 				runningMeeseeks = len(meeseeksContainers)

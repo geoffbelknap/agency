@@ -43,6 +43,16 @@ run_agency() {
   "$AGENCY_BIN" -q "$@"
 }
 
+infra_is_healthy() {
+  local status
+  status="$(run_agency status 2>/dev/null || true)"
+  [ -n "$status" ] || return 1
+  printf '%s\n' "$status" | grep -Eq 'egress[[:space:]]+running.*✓' || return 1
+  printf '%s\n' "$status" | grep -Eq 'comms[[:space:]]+running.*✓' || return 1
+  printf '%s\n' "$status" | grep -Eq 'knowledge[[:space:]]+running.*✓' || return 1
+  printf '%s\n' "$status" | grep -Eq 'web[[:space:]]+running.*✓' || return 1
+}
+
 cleanup() {
   set +e
   if [ "$CREATED_AGENT" = "1" ]; then
@@ -118,8 +128,12 @@ diagnose_agent_failure() {
 
 log "Checking daemon and infrastructure"
 run_agency serve restart >/dev/null
-log "Starting infrastructure; this can take several minutes when images are stale"
-run_agency infra up
+if infra_is_healthy; then
+  log "Infrastructure already healthy; reusing existing stack"
+else
+  log "Starting infrastructure; this can take several minutes when images are stale"
+  run_agency infra up
+fi
 
 status="$(run_agency status)"
 printf '%s\n' "$status" | grep -q 'Web UI:  http://127.0.0.1:8280' ||
