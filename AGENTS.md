@@ -32,8 +32,10 @@ Primary areas:
 ## Repo Rules
 
 - The Go gateway is the source of truth.
+- The default product line is the scoped `0.2.x` core path, not the older broader platform surface.
 - `internal/api/openapi.yaml` is the canonical API spec.
 - `web/` is a REST client only and must stay aligned with backend API behavior.
+- Experimental and internal surfaces must stay explicitly gated in API, CLI, web, MCP, and release flows.
 - Preserve fail-closed behavior during startup, enforcement, mediation, and teardown.
 - Do not loosen container, network, credential, or capability boundaries casually.
 - Hub-managed files must not be edited directly when the expected customization point is elsewhere.

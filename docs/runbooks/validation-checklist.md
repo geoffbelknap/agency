@@ -1,5 +1,10 @@
 # Validation Checklist
 
+> Status: Mixed operator checklist. Use the core sections as the default
+> `0.2.x` release and health path. Hub, missions, notifications, registry, and
+> other broader platform checks are experimental or internal and should only be
+> validated when those surfaces are intentionally enabled.
+
 ## Trigger
 
 Post-deployment, post-upgrade, periodic health verification, or after any significant infrastructure change.
@@ -21,7 +26,9 @@ go build -o agency ./cmd/gateway/
 ./test_e2e.sh
 ```
 
-Expected: all phases pass. Covers: setup, infrastructure, agent lifecycle, credentials, missions, hub, knowledge, auth enforcement.
+Expected: all phases pass. Covers the default setup, infrastructure, agent
+lifecycle, credentials, knowledge, and auth path. Experimental surfaces should
+be validated separately when enabled.
 
 ## Manual Validation Checklist
 
