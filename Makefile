@@ -18,9 +18,11 @@ IMAGE_DIR = images
 # Core images built by `make images`.
 CORE_IMAGES = body enforcer comms knowledge intake egress workspace web-fetch gateway-proxy
 
-# Services whose Dockerfile needs the repo root as build context
-# (they COPY images/models/ for shared Pydantic schemas).
-REPO_CONTEXT_IMAGES = body comms knowledge intake egress
+# Services whose Dockerfile still needs the repo root as build context.
+REPO_CONTEXT_IMAGES = intake
+
+# Services that build from their own directory plus shared assets from images/.
+SHARED_CONTEXT_IMAGES = body comms knowledge egress
 
 # Build and install the gateway binary + all container images (including web UI)
 all: install images-all
@@ -83,17 +85,20 @@ images: $(CORE_IMAGES)
 # Build all container images including web UI and relay
 images-all: images web relay
 
-# Per-image targets. Repo-context images use repo root as context;
-# self-contained images use their own directory.
+# Per-image targets. Shared-context images use their own directory plus
+# images/ as a named build context; repo-context images still use repo root.
 define IMAGE_RULE
 .PHONY: $(1)
 $(1):
 	@echo "Building agency-$(1)..."
+	$$(if $$(filter $(1),$(SHARED_CONTEXT_IMAGES)),\
+		docker build --build-context shared=$(IMAGE_DIR) --build-arg BUILD_ID=$(BUILD_ID) \
+			-f $(IMAGE_DIR)/$(1)/Dockerfile -t agency-$(1):latest $(IMAGE_DIR)/$(1),\
 	$$(if $$(filter $(1),$(REPO_CONTEXT_IMAGES)),\
 		docker build --build-arg BUILD_ID=$(BUILD_ID) \
 			-f $(IMAGE_DIR)/$(1)/Dockerfile -t agency-$(1):latest .,\
 		docker build --build-arg BUILD_ID=$(BUILD_ID) \
-			-f $(IMAGE_DIR)/$(1)/Dockerfile -t agency-$(1):latest $(IMAGE_DIR)/$(1))
+			-f $(IMAGE_DIR)/$(1)/Dockerfile -t agency-$(1):latest $(IMAGE_DIR)/$(1)))
 endef
 
 $(foreach img,$(CORE_IMAGES),$(eval $(call IMAGE_RULE,$(img))))

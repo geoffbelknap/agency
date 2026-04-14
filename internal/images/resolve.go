@@ -49,7 +49,7 @@ func Resolve(ctx context.Context, cli *client.Client, name, version, sourceDir, 
 		if err != nil {
 			return err
 		}
-		hash, err := sourceFingerprint(spec.contextDir, spec.dockerfilePath)
+		hash, err := sourceFingerprint(spec.contextDir, spec.dockerfilePath, spec.namedContexts)
 		if err != nil {
 			return fmt.Errorf("fingerprint image %s source: %w", localTag, err)
 		}
@@ -194,22 +194,35 @@ func ResolveUpstream(ctx context.Context, cli *client.Client, name, version, ups
 type buildSpec struct {
 	contextDir     string
 	dockerfilePath string
+	namedContexts  map[string]string
 }
 
 func sourceBuildSpec(name, sourceDir string) (buildSpec, error) {
-	// Services that need the repo root as build context
-	// (they COPY agency_core/models/ and agency_core/exceptions.py)
+	// Services that still need the repo root as build context.
 	repoContextNames := map[string]bool{
-		"body": true, "comms": true, "knowledge": true, "intake": true, "egress": true,
+		"intake": true,
+	}
+
+	// Services that build from a self-contained context plus shared image assets.
+	sharedContextNames := map[string]bool{
+		"body": true, "comms": true, "knowledge": true, "egress": true,
 	}
 
 	var spec buildSpec
 
 	switch {
 	case repoContextNames[name]:
-		// Build context is repo root; Dockerfile is in images/{name}/
+		// Build context is repo root; Dockerfile is in images/{name}/.
 		spec.contextDir = sourceDir
 		spec.dockerfilePath = filepath.Join("images", name, "Dockerfile")
+	case sharedContextNames[name]:
+		// Build context is the image directory itself, with shared files sourced
+		// from the top-level images/ directory via a named context.
+		spec.contextDir = filepath.Join(sourceDir, "images", name)
+		spec.dockerfilePath = "Dockerfile"
+		spec.namedContexts = map[string]string{
+			"shared": filepath.Join(sourceDir, "images"),
+		}
 	case name == "web":
 		// agency-web lives in the top-level web/ directory rather than images/.
 		spec.contextDir = filepath.Join(sourceDir, "web")
@@ -242,7 +255,17 @@ func buildFromSource(ctx context.Context, cli *client.Client, name, sourceDir, t
 	if sourceHash != "" {
 		buildArgs["SOURCE_HASH"] = &sourceHash
 	}
-	return dockerBuild(ctx, cli, spec.contextDir, spec.dockerfilePath, tag, buildArgs)
+	if len(spec.namedContexts) == 0 {
+		return dockerBuild(ctx, cli, spec.contextDir, spec.dockerfilePath, tag, buildArgs)
+	}
+
+	contextDir, dockerfilePath, err := prepareBuildContext(spec)
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(contextDir)
+
+	return dockerBuild(ctx, cli, contextDir, dockerfilePath, tag, buildArgs)
 }
 
 // SourceFingerprintForService returns the source fingerprint for a buildable service
@@ -252,36 +275,58 @@ func SourceFingerprintForService(name, sourceDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return sourceFingerprint(spec.contextDir, spec.dockerfilePath)
+	return sourceFingerprint(spec.contextDir, spec.dockerfilePath, spec.namedContexts)
 }
 
-func sourceFingerprint(contextDir, dockerfilePath string) (string, error) {
+func sourceFingerprint(contextDir, dockerfilePath string, namedContexts map[string]string) (string, error) {
 	dockerfileFullPath := filepath.Join(contextDir, dockerfilePath)
-	sources, err := dockerfileSources(dockerfileFullPath)
+	sources, namedSources, err := dockerfileSources(dockerfileFullPath)
 	if err != nil {
 		return "", err
 	}
-	paths := []string{dockerfilePath}
-	for _, source := range sources {
-		paths = append(paths, source)
-	}
-	files, err := expandFingerprintPaths(contextDir, paths)
+	files, err := expandFingerprintPaths(contextDir, append([]string{dockerfilePath}, sources...))
 	if err != nil {
 		return "", err
 	}
-	sort.Strings(files)
+	type fingerprintFile struct {
+		baseDir string
+		path    string
+		prefix  string
+	}
+	var allFiles []fingerprintFile
+	for _, file := range files {
+		allFiles = append(allFiles, fingerprintFile{baseDir: contextDir, path: file})
+	}
+	for name, ctxDir := range namedContexts {
+		ctxSources := namedSources[name]
+		if len(ctxSources) == 0 {
+			continue
+		}
+		ctxFiles, err := expandFingerprintPaths(ctxDir, ctxSources)
+		if err != nil {
+			return "", err
+		}
+		for _, file := range ctxFiles {
+			allFiles = append(allFiles, fingerprintFile{baseDir: ctxDir, path: file, prefix: name + ":"})
+		}
+	}
+	sort.Slice(allFiles, func(i, j int) bool {
+		left := allFiles[i].prefix + allFiles[i].path
+		right := allFiles[j].prefix + allFiles[j].path
+		return left < right
+	})
 
 	h := sha256.New()
-	for _, file := range files {
-		rel, err := filepath.Rel(contextDir, file)
+	for _, file := range allFiles {
+		rel, err := filepath.Rel(file.baseDir, file.path)
 		if err != nil {
 			return "", err
 		}
-		data, err := os.ReadFile(file)
+		data, err := os.ReadFile(file.path)
 		if err != nil {
 			return "", err
 		}
-		h.Write([]byte(rel))
+		h.Write([]byte(file.prefix + rel))
 		h.Write([]byte{0})
 		h.Write(data)
 		h.Write([]byte{0})
@@ -289,14 +334,15 @@ func sourceFingerprint(contextDir, dockerfilePath string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil))[:16], nil
 }
 
-func dockerfileSources(path string) ([]string, error) {
+func dockerfileSources(path string) ([]string, map[string][]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer f.Close()
 
 	var sources []string
+	namedSources := map[string][]string{}
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -311,17 +357,162 @@ func dockerfileSources(path string) ([]string, error) {
 		if instruction != "COPY" && instruction != "ADD" {
 			continue
 		}
+		start := 1
+		namedTarget := ""
 		if strings.HasPrefix(fields[1], "--from=") {
-			continue
+			ctxName := strings.TrimPrefix(fields[1], "--from=")
+			start = 2
+			if ctxName != "shared" {
+				continue
+			}
+			namedTarget = ctxName
 		}
-		for _, source := range fields[1 : len(fields)-1] {
+		for _, source := range fields[start : len(fields)-1] {
 			if strings.HasPrefix(source, "--") {
 				continue
 			}
-			sources = append(sources, strings.Trim(source, `"'`))
+			trimmed := strings.Trim(source, `"'`)
+			if namedTarget != "" {
+				namedSources[namedTarget] = append(namedSources[namedTarget], trimmed)
+				continue
+			}
+			sources = append(sources, trimmed)
 		}
 	}
-	return sources, scanner.Err()
+	return sources, namedSources, scanner.Err()
+}
+
+func prepareBuildContext(spec buildSpec) (string, string, error) {
+	tempDir, err := os.MkdirTemp("", "agency-image-build-*")
+	if err != nil {
+		return "", "", err
+	}
+	if err := copyDirContents(spec.contextDir, tempDir); err != nil {
+		os.RemoveAll(tempDir)
+		return "", "", err
+	}
+
+	defaultSources, namedSources, err := dockerfileSources(filepath.Join(spec.contextDir, spec.dockerfilePath))
+	if err != nil {
+		os.RemoveAll(tempDir)
+		return "", "", err
+	}
+	_ = defaultSources
+	for name, ctxDir := range spec.namedContexts {
+		sources := namedSources[name]
+		if len(sources) == 0 {
+			continue
+		}
+		if err := copySelectedPaths(ctxDir, filepath.Join(tempDir, "_ctx_"+name), sources); err != nil {
+			os.RemoveAll(tempDir)
+			return "", "", err
+		}
+	}
+
+	originalDockerfile, err := os.ReadFile(filepath.Join(tempDir, spec.dockerfilePath))
+	if err != nil {
+		os.RemoveAll(tempDir)
+		return "", "", err
+	}
+	rewritten := rewriteDockerfileForNamedContexts(string(originalDockerfile), spec.namedContexts)
+	if err := os.WriteFile(filepath.Join(tempDir, spec.dockerfilePath), []byte(rewritten), 0o644); err != nil {
+		os.RemoveAll(tempDir)
+		return "", "", err
+	}
+
+	return tempDir, spec.dockerfilePath, nil
+}
+
+func copyDirContents(srcDir, dstDir string) error {
+	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		dst := filepath.Join(dstDir, rel)
+		if info.IsDir() {
+			return os.MkdirAll(dst, info.Mode())
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(dst, data, info.Mode())
+	})
+}
+
+func copySelectedPaths(srcDir, dstDir string, paths []string) error {
+	files, err := expandFingerprintPaths(srcDir, paths)
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		rel, err := filepath.Rel(srcDir, file)
+		if err != nil {
+			return err
+		}
+		dst := filepath.Join(dstDir, rel)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		info, err := os.Stat(file)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(dst, data, info.Mode()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func rewriteDockerfileForNamedContexts(content string, namedContexts map[string]string) string {
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		fields := strings.Fields(trimmed)
+		if len(fields) < 4 {
+			continue
+		}
+		instruction := strings.ToUpper(fields[0])
+		if instruction != "COPY" && instruction != "ADD" {
+			continue
+		}
+		if !strings.HasPrefix(fields[1], "--from=") {
+			continue
+		}
+		ctxName := strings.TrimPrefix(fields[1], "--from=")
+		if _, ok := namedContexts[ctxName]; !ok {
+			continue
+		}
+		rewritten := []string{fields[0]}
+		for _, source := range fields[2 : len(fields)-1] {
+			if strings.HasPrefix(source, "--") {
+				rewritten = append(rewritten, source)
+				continue
+			}
+			rewritten = append(rewritten, filepath.ToSlash(filepath.Join("_ctx_"+ctxName, strings.Trim(source, `"'`))))
+		}
+		rewritten = append(rewritten, fields[len(fields)-1])
+		lines[i] = strings.Join(rewritten, " ")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func expandFingerprintPaths(contextDir string, paths []string) ([]string, error) {

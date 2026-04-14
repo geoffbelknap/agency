@@ -46,14 +46,6 @@ func TestBuildContextConsistency(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Determine which names are repo-context vs self-contained.
-	// This must match the map in buildFromSource.
-	repoContext := map[string]bool{
-		"body": true, "comms": true, "knowledge": true, "intake": true, "egress": true,
-	}
-
-	copyRe := regexp.MustCompile(`^COPY\s+(\S+)`)
-
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
@@ -64,11 +56,10 @@ func TestBuildContextConsistency(t *testing.T) {
 			continue // no Dockerfile — not a buildable image
 		}
 
-		var contextDir string
-		if repoContext[name] {
-			contextDir = root
-		} else {
-			contextDir = filepath.Join(imagesDir, name)
+		spec, err := sourceBuildSpec(name, root)
+		if err != nil {
+			t.Errorf("%s: sourceBuildSpec: %v", name, err)
+			continue
 		}
 
 		f, err := os.Open(dockerfile)
@@ -87,45 +78,40 @@ func TestBuildContextConsistency(t *testing.T) {
 			if strings.HasPrefix(line, "#") {
 				continue
 			}
-			m := copyRe.FindStringSubmatch(line)
-			if m == nil {
+			if !strings.HasPrefix(strings.ToUpper(line), "COPY ") && !strings.HasPrefix(strings.ToUpper(line), "ADD ") {
 				continue
 			}
-			src := m[1]
-			if strings.HasPrefix(src, "--from=") {
-				continue // multi-stage copy — source is another build stage
+			sources, namedSources, err := dockerfileSources(dockerfile)
+			if err != nil {
+				t.Errorf("%s: parse Dockerfile: %v", name, err)
+				break
 			}
-
-			// Resolve the COPY source relative to the build context.
-			// Handle glob patterns (e.g., "*.py", "images/body/*.py")
-			fullPath := filepath.Join(contextDir, src)
-			found := false
-			if strings.ContainsAny(src, "*?[") {
-				matches, _ := filepath.Glob(fullPath)
-				found = len(matches) > 0
-			} else {
-				_, statErr := os.Stat(fullPath)
-				found = statErr == nil
+			checkSourcePaths(t, name, lineNum, spec.contextDir, sources)
+			for ctxName, ctxSources := range namedSources {
+				checkSourcePaths(t, name, lineNum, spec.namedContexts[ctxName], ctxSources)
 			}
-			if found {
-				continue
-			}
-
-			if repoContext[name] {
-				t.Errorf("%s (Dockerfile:%d): COPY source %q not found relative to repo root %q",
-					name, lineNum, src, contextDir)
-			} else {
-				// Check if it would exist with repo root context — suggests missing repoContextNames entry
-				if _, err2 := os.Stat(filepath.Join(root, src)); err2 == nil {
-					t.Errorf("%s (Dockerfile:%d): COPY source %q exists at repo root but image uses self-contained context %q — add %q to repoContextNames in resolve.go",
-						name, lineNum, src, contextDir, name)
-				} else {
-					t.Errorf("%s (Dockerfile:%d): COPY source %q not found at %q",
-						name, lineNum, src, fullPath)
-				}
-			}
+			break
 		}
 		f.Close()
+	}
+}
+
+func checkSourcePaths(t *testing.T, name string, lineNum int, contextDir string, sources []string) {
+	t.Helper()
+	for _, src := range sources {
+		fullPath := filepath.Join(contextDir, src)
+		found := false
+		if strings.ContainsAny(src, "*?[") {
+			matches, _ := filepath.Glob(fullPath)
+			found = len(matches) > 0
+		} else {
+			_, statErr := os.Stat(fullPath)
+			found = statErr == nil
+		}
+		if found {
+			continue
+		}
+		t.Errorf("%s (Dockerfile:%d): COPY source %q not found relative to %q", name, lineNum, src, contextDir)
 	}
 }
 
@@ -152,9 +138,8 @@ func TestRepoContextMatchesMakefile(t *testing.T) {
 		makefileImages[name] = true
 	}
 
-	// This must match the map in buildFromSource — keep in sync.
 	goImages := map[string]bool{
-		"body": true, "comms": true, "knowledge": true, "intake": true, "egress": true,
+		"intake": true,
 	}
 
 	for name := range makefileImages {
@@ -278,14 +263,14 @@ func TestSourceFingerprintIgnoresUncopiedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := sourceFingerprint(dir, "Dockerfile")
+	first, err := sourceFingerprint(dir, "Dockerfile", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "unrelated.txt"), []byte("two\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	second, err := sourceFingerprint(dir, "Dockerfile")
+	second, err := sourceFingerprint(dir, "Dockerfile", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +280,7 @@ func TestSourceFingerprintIgnoresUncopiedFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "app.py"), []byte("print('two')\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	third, err := sourceFingerprint(dir, "Dockerfile")
+	third, err := sourceFingerprint(dir, "Dockerfile", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
