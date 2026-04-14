@@ -4,49 +4,81 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8.svg)](https://go.dev)
 
-An operating system for AI agents.
+Governed AI agents with real isolation, mediated execution, durable memory, and
+complete auditability.
 
-Most organizations want to use AI agents. What stops them is everything around the agent: Compliance, Security, and Operational readiness (governance, audit trails, policy seurface, detection surface, isolation, network mediation, cost controls, resilience). The problems that don't show up in experimentation but kill you in production.
+Agency is the reference implementation of [ASK](https://askframework.org), the
+open framework for agent security.
 
-Agency handles all of it. You focus on the work — one personal assistant or a hundreds agents running at scale. Agency handles the security, the infrastructure, and the operational overhead so the agents can do real work with real data in real organizations.
+## What Agency Is
 
-The reference implementation of [ASK](https://askframework.org), the open framework for agent security.
+Agency is a platform for running one or a few AI agents that can do real work
+without being trusted with your machine, your network, or your credentials.
 
-## How it works
+The core product is intentionally simple:
+
+- create an agent
+- start it in an isolated workspace
+- talk to it through a direct-message workflow
+- let it use governed tools through a mediation layer
+- keep a durable audit trail and visible budget/usage records
+- let it build graph-backed context that improves future work
+
+This is not "just another chat UI." The point is the governed runtime around the
+agent.
+
+## How It Works
 
 ![Agency architecture](docs/images/architecture.svg)
 
-Operators manage the platform through the CLI, web UI, or MCP tools. The gateway orchestrates everything below it. Shared infrastructure handles messaging, a persistent knowledge graph, work intake from external systems, and an egress proxy that swaps scoped tokens for real API keys at the network boundary.
+Operators use the CLI, web UI, REST API, or MCP server. The Go gateway is the
+control plane and source of truth.
 
-Each agent gets an enforcer — a Go proxy that mediates every request, scans for prompt injection, tracks budget, and writes HMAC-signed audit logs. Below that, the workspace is a hardened container where the agent actually runs. It can only reach the enforcer. It never sees real credentials, the internet, or any other agent's workspace.
+Each agent runs inside its own isolated workspace. An enforcer sidecar mediates
+every LLM call, tool call, and service request. The agent never sees real API
+keys and never gets direct outbound internet access.
 
-Inside each workspace, Agency implements the [ASK cognitive model](https://askframework.org/#cognitive): the agent's Mind is split into Constraints (operator-owned, read-only), Identity (agent-owned, audited), and Session (ephemeral). The critical security boundary — between what the operator controls and what the agent can modify — is structural, not a matter of trust.
+Inside the workspace, Agency implements the
+[ASK cognitive model](https://askframework.org/#cognitive):
 
-Agents communicate through channels, remember what they learn across sessions, and wake only when triggered. The same security model works whether you're running one agent or a hundred.
+- `Constraints` are operator-owned and read-only
+- `Identity` is agent-owned and durable
+- `Session` is ephemeral per run
 
-### Knowledge graph intelligence
+The system is event-driven. Agents are woken by direct messages, platform
+events, and other routed events rather than broad polling loops being the main
+product model.
 
-Universal ingestion from any source — code, docs, configs, tool outputs. Dual extraction: deterministic parsers first, LLM only for semantic gaps. Community detection (Louvain) and hub analysis identify clusters and key entities. Query feedback loop refines retrieval over time. Four-tier classification (public/internal/restricted/confidential) controls access at the node level, with operator-configurable scope mappings.
+Agency also keeps a durable knowledge graph. The important part of that story is
+not "graph features for their own sake," but that agents can retrieve useful
+context from previous work and get smarter and faster over time.
 
-### Principal registry and ACL
+## Why It Exists
 
-Every entity — operators, agents, services — gets a UUID-based identity in the principal registry. Hierarchical permission model with ceiling inheritance: child scopes can only narrow, never widen. Route-level and resource-level enforcement. Default-deny for unmatched routes.
+Most AI agent demos skip the hard parts:
 
-### Routing optimizer
+- isolation
+- mediation
+- credential boundaries
+- auditability
+- fail-closed behavior
+- operator recovery
 
-A background optimizer tracks per-model success rates and costs across tiers. When a cheaper model meets quality thresholds, it surfaces a suggestion. Operators review and approve — the optimizer never changes routing autonomously. Approved changes write to `routing.local.yaml`.
+Those are exactly the parts that matter once an agent is doing real work.
+Agency is built around them first.
 
-### GraphRAG security
-
-XPIA scanning runs on graph-injected briefings before they reach an agent's context. Provenance tracking ties every knowledge node to its source. Compromised agent contributions can be quarantined without disrupting the rest of the graph.
-
-## Quick start
+## Quick Start
 
 **You'll need:**
-- [Docker](https://docs.docker.com/get-docker/) installed and running
-- An API key from [Anthropic](https://console.anthropic.com) (recommended), [OpenAI](https://platform.openai.com), or [Google](https://aistudio.google.com)
 
-> **Windows:** Install [Docker Desktop](https://docs.docker.com/desktop/install/windows-install/) with WSL integration enabled, then run everything below inside your WSL2 terminal.
+- [Docker](https://docs.docker.com/get-docker/) installed and running
+- an API key from [Anthropic](https://console.anthropic.com),
+  [OpenAI](https://platform.openai.com), or
+  [Google](https://aistudio.google.com)
+
+> **Windows:** Install
+> [Docker Desktop](https://docs.docker.com/desktop/install/windows-install/)
+> with WSL integration enabled, then run Agency inside WSL2.
 
 ### Install
 
@@ -56,202 +88,142 @@ XPIA scanning runs on graph-injected briefings before they reach an agent's cont
 brew install geoffbelknap/tap/agency
 ```
 
-**Linux (no Homebrew):**
+**Linux / macOS / WSL2 (script):**
 
 ```bash
 curl -fsSL https://geoffbelknap.github.io/agency/install.sh | bash
 ```
 
-The install script downloads the binary, checks Docker, and runs setup. Alternatively, [build from source](#building).
-
-### Set up and run
+### First Run
 
 ```bash
 agency quickstart
 ```
 
-This walks you through choosing a provider, setting your API key, starting infrastructure, creating a first agent, and sending a demo task. For basic users, the Web UI is the primary experience after setup.
+Quickstart guides you through:
 
-Quickstart opens the browser directly to your new agent's chat and also prints the direct chat URL. If the browser does not open, use the printed URL or open `http://localhost:8280` and select the agent under **Direct Messages**. If you prefer the terminal or need a fallback:
+1. choosing a provider
+2. storing an API key
+3. starting infrastructure
+4. creating a first agent
+5. opening the web UI and direct-message chat
+
+After setup, the main path is:
 
 ```bash
 agency send henry "summarize the open issues in this repo"
-agency status
-agency admin doctor    # verify all security guarantees are holding
+agency log henry
+agency admin doctor
 ```
 
-### Operating via AI assistant
+See [docs/quickstart.md](docs/quickstart.md) for the guided flow.
 
-Agency ships with an MCP server (112 tools) and a Claude Code plugin with guided skills (`/status`, `/deploy`, `/create-agent`, `/create-mission`, and more).
+## Programmatic Surface
 
-#### Claude Code (recommended)
+Agency is not only a CLI and web app. It also exposes a build surface for
+operators and other tools:
 
-Install the plugin for auto-discovery of MCP tools and skills:
+- REST API
+- canonical OpenAPI spec at
+  [internal/api/openapi.yaml](internal/api/openapi.yaml)
+- supported core API view at `/api/v1/openapi-core.yaml`
+- MCP server via `agency mcp-server`
 
-```bash
-claude plugin add /path/to/agency
-```
+That means Agency itself, its web UI, AI assistants, and third-party clients
+can all build on the same contract.
 
-Or add the MCP server directly:
+### AI Assistant Integration
+
+Add Agency as an MCP server:
 
 ```bash
 claude mcp add agency -- agency mcp-server
-```
-
-The plugin is in `.claude-plugin/` at the repo root. If you're working inside the agency repo, Claude Code picks it up automatically.
-
-#### GitHub Copilot CLI
-
-```bash
+codex mcp add agency -- agency mcp-server
 gh copilot mcp add agency -- agency mcp-server
 ```
 
-#### VS Code
+## Core Commands
 
-Add to your workspace `.vscode/mcp.json`:
+```text
+agency quickstart
+agency setup
+agency infra up
+agency status
 
-```json
-{
-  "servers": {
-    "agency": {
-      "command": "agency",
-      "args": ["mcp-server"]
-    }
-  }
-}
+agency create <name> [--preset X]
+agency start <name>
+agency stop <name>
+agency show <name>
+agency send <agent> <message>
+agency log <name>
+
+agency admin doctor
+agency admin usage --agent <name>
+agency graph query <text>
+agency graph stats
 ```
 
-#### OpenAI Codex CLI
+Run `agency <command> --help` for details.
 
-```bash
-codex mcp add agency -- agency mcp-server
-```
+## What Is In Scope Today
 
-## Key commands
+Agency's credible near-term core is:
 
-```
-agency setup                         Initialize the platform
-agency create <name> [--preset X]    Create an agent
-agency start <name>                  Start (7-phase verified sequence)
-agency stop <name>                   Halt an agent
-agency send <target> <message>       Send work via DM or channel
-agency status                        Platform overview
-agency log <name>                    Audit log
+- governed single-agent or small-agent workflows
+- direct messages and simple channels
+- event-driven execution
+- provider routing and governed tool use
+- graph-backed retrieval/context
+- audit, budget, and usage visibility
+- web UI for setup, agents, DM, and activity
+- API and MCP surfaces for builders
 
-agency mission create <file>         Standing instructions from YAML
-agency mission assign <name> <agent> Assign mission to agent
-agency deploy <pack.yaml>            Deploy a full team from a pack
-agency teardown <pack>               Reverse a deployment
-
-agency hub install <name>            Install a connector or pack
-agency hub <name> activate           Activate it
-agency creds set <name> <value>      Store a credential
-agency admin doctor                  Verify security guarantees
-agency infra capacity                Host capacity and agent slots
-
-agency registry list [--type agent]  List registered principals
-agency routing suggestions           View routing optimization suggestions
-agency routing approve <id>          Apply a cheaper model suggestion
-agency graph ingest <file>           Ingest a file into the knowledge graph
-agency graph classification show     View classification tier config
-agency admin knowledge quarantine --agent <name>  Quarantine compromised contributions
-```
-
-Run `agency <command> --help` for details on any command.
-
-## Connectors
-
-Connectors bring external work into Agency. Published to [agency-hub](https://github.com/geoffbelknap/agency-hub), installed by name.
-
-| Connector | What it does |
-|-----------|-------------|
-| `limacharlie` | LimaCharlie detections and sensor inventory |
-| `nextdns-blocked` | NextDNS blocked DNS queries |
-| `unifi` | UniFi Site Manager infrastructure devices |
-| `slack-admin` | Slack admin-scoped operations |
-| `slack-app-home` | Slack App Home publishing |
-| `slack-canvas` | Slack Canvas publishing |
-| `slack-commands` | Slack slash command ingress |
-| `slack-events` | Slack Events API webhooks, real-time |
-| `slack-interactivity` | Slack interactivity and modal lifecycle |
-| `google-drive-admin` | Google Drive sharing and permission administration |
-| `jira-ops` | Jira Cloud issues, routed by type and priority |
-
-Plus companion connectors for additional data sources (`limacharlie-sensors`, `nextdns-analytics`, `unifi-hosts`, `unifi-sites`) and Slack bridges (`agency-bridge-slack-events-outbound`, `agency-bridge-slack-interactivity-outbound`, `agency-bridge-slack-commands-outbound`, `comms-to-slack`, `red-team-escalations-to-slack`).
-
-```bash
-agency hub install limacharlie --kind connector
-agency hub limacharlie activate
-agency hub limacharlie config
-```
-
-## Model providers
-
-Agency works with any LLM provider that speaks the OpenAI API format. The setup wizard configures Anthropic, OpenAI, and Google out of the box. Any other OpenAI-compatible provider (Groq, Together, Mistral, Ollama, etc.) can be added in `routing.yaml`.
-
-Five model tiers (frontier, standard, fast, mini, nano). Each agent preset declares a tier. The platform resolves to the best available model based on configured credentials.
-
-## Related projects
-
-| Project | What it is |
-|---------|-----------|
-| [ASK](https://askframework.org) | The security framework Agency implements. 27 tenets. Vendor-neutral. |
-| [web/](web/) | Web UI. Vite/React. Connects to the gateway REST API. |
-| [agency-hub](https://github.com/geoffbelknap/agency-hub) | Component registry. Packs, presets, connectors, missions, services. |
+There are broader platform areas in the repo, but they are not the center of
+the product story right now.
 
 ## Building
 
 ```bash
-make all          # Go binary + all container images
-make install      # Go binary only (auto-restarts daemon)
-make images       # Container images only
-make deploy       # install + infra up
-make test         # Run tests
+make all
+make install
+make images
+make test
 
-# Go tests from repo root
 go test ./...
-
-# Python tests (container image code)
 pytest images/tests/
 ```
 
-## Repository structure
+## Repository Structure
 
-```
+```text
 agency/
 ├── cmd/gateway/        # Go binary entry point
-├── internal/           # Go packages
-│   ├── registry/       # Principal UUID registry and ACL permissions
-│   ├── routing/        # Model routing metrics and optimizer
-│   └── ...             # api, cli, models, orchestrate, hub, etc.
+├── internal/           # Go packages: API, CLI, orchestrate, policy, runtime
 ├── images/             # Container image sources
-│   ├── body/           # Agent runtime (Python)
-│   ├── comms/          # Messaging server (Python)
-│   ├── knowledge/      # Knowledge graph (Python)
-│   │   ├── ingestion/  # Universal content ingestion pipeline
-│   │   ├── classification.py  # Classification-based access control
-│   │   └── graph_intelligence.py  # Community detection and hub analysis
-│   ├── intake/         # Work intake (Python)
-│   ├── egress/         # Credential swap proxy (Python)
-│   ├── enforcer/       # Enforcement proxy (Go)
-│   ├── workspace/      # Agent workspace container
-│   ├── web-fetch/      # Web page fetcher (Go)
-│   ├── python-base/    # Shared Python base image
-│   ├── models/         # Shared Pydantic models
-│   └── tests/          # Python tests for image code
 ├── presets/            # Agent preset YAML files
-├── docs/              # Specs and documentation
-├── go.mod             # Go module (github.com/geoffbelknap/agency)
-└── Makefile           # Unified build (Go binary + container images)
+├── web/                # Web UI (REST client)
+├── docs/               # Docs, specs, plans
+├── go.mod
+└── Makefile
 ```
 
-## Platform support
+## Related Projects
 
-Linux (x86_64, arm64) and macOS (Apple Silicon, Intel) natively. Windows via WSL2.
+| Project | What it is |
+|---------|-----------|
+| [ASK](https://askframework.org) | The security framework Agency implements. |
+| [web/](web/) | The Agency web UI. |
+| [agency-hub](https://github.com/geoffbelknap/agency-hub) | Registry and ecosystem work outside the core runtime story. |
+
+## Platform Support
+
+Linux (`x86_64`, `arm64`) and macOS (Apple Silicon, Intel) natively. Windows
+via WSL2.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). All changes must satisfy the [ASK tenets](https://askframework.org).
+See [CONTRIBUTING.md](CONTRIBUTING.md). All changes must satisfy the
+[ASK tenets](https://askframework.org).
 
 ## License
 

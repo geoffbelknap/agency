@@ -39,6 +39,33 @@ var (
 	quiet bool // suppress spinners and progress animations
 )
 
+func experimentalSurfacesEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENCY_EXPERIMENTAL_SURFACES"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func IsExperimentalCommand(name string) bool {
+	switch name {
+	case "hub", "team", "intake", "mission", "event", "webhook", "meeseeks",
+		"notify", "notifications", "notification", "cache", "registry",
+		"package", "instance", "authz":
+		return true
+	default:
+		return false
+	}
+}
+
+func hideWhenExperimentalDisabled(cmd *cobra.Command) *cobra.Command {
+	if !experimentalSurfacesEnabled() {
+		cmd.Hidden = true
+	}
+	return cmd
+}
+
 // spinner displays an animated spinner with a status message on the current line.
 type spinner struct {
 	mu     sync.Mutex
@@ -265,10 +292,13 @@ func RegisterCommands(root *cobra.Command) {
 
 	// ── Grouped subcommands ─────────────────────────────────────────────
 	for _, cmd := range []*cobra.Command{
-		channelCmd(), infraCmd(), hubCmd(), teamCmd(), capCmd(),
-		intakeCmd(), knowledgeCmd(), policyCmd(), adminCmd(),
-		contextCmd(), missionCmd(), eventCmd(), webhookCmd(), meeseeksCmd(), notificationsCmd(), auditCmd(),
-		credentialCmd(), cacheCmd(), registryCmd(), packageCmd(), instanceCmd(), authzCmd(),
+		channelCmd(), infraCmd(), hideWhenExperimentalDisabled(hubCmd()), hideWhenExperimentalDisabled(teamCmd()), capCmd(),
+		hideWhenExperimentalDisabled(intakeCmd()), knowledgeCmd(), policyCmd(), adminCmd(),
+		contextCmd(), hideWhenExperimentalDisabled(missionCmd()), hideWhenExperimentalDisabled(eventCmd()),
+		hideWhenExperimentalDisabled(webhookCmd()), hideWhenExperimentalDisabled(meeseeksCmd()),
+		hideWhenExperimentalDisabled(notificationsCmd()), auditCmd(),
+		credentialCmd(), hideWhenExperimentalDisabled(cacheCmd()), hideWhenExperimentalDisabled(registryCmd()),
+		hideWhenExperimentalDisabled(packageCmd()), hideWhenExperimentalDisabled(instanceCmd()), hideWhenExperimentalDisabled(authzCmd()),
 	} {
 		cmd.GroupID = "manage"
 		root.AddCommand(cmd)
@@ -1232,7 +1262,7 @@ func resumeCmd() *cobra.Command {
 func grantCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "grant <agent> <capability>",
-		Short: "Grant a capability to an agent",
+		Short: "Grant governed capability access to an agent",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
@@ -1251,7 +1281,7 @@ func grantCmd() *cobra.Command {
 func revokeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "revoke <agent> <capability>",
-		Short: "Revoke a capability from an agent",
+		Short: "Revoke governed capability access from an agent",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
@@ -3372,10 +3402,10 @@ func teamCmd() *cobra.Command {
 // ════════════════════════════════════════════════════════════════════════════
 
 func capCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "cap", Short: "Capability management"}
+	cmd := &cobra.Command{Use: "cap", Short: "Governed capability access"}
 
 	cmd.AddCommand(&cobra.Command{
-		Use: "list", Short: "List capabilities",
+		Use: "list", Short: "List registered capabilities",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
@@ -3395,7 +3425,7 @@ func capCmd() *cobra.Command {
 	})
 
 	cmd.AddCommand(&cobra.Command{
-		Use: "show <name>", Short: "Show capability details", Args: cobra.ExactArgs(1),
+		Use: "show <name>", Short: "Show capability definition", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
@@ -3411,7 +3441,7 @@ func capCmd() *cobra.Command {
 	})
 
 	enableCmd := &cobra.Command{
-		Use: "enable <name>", Short: "Enable a capability", Args: cobra.ExactArgs(1),
+		Use: "enable <name>", Short: "Enable a capability for use", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
@@ -3426,8 +3456,8 @@ func capCmd() *cobra.Command {
 			return nil
 		},
 	}
-	enableCmd.Flags().String("key", "", "API key for the capability")
-	enableCmd.Flags().StringSlice("agents", nil, "Agents to scope to")
+	enableCmd.Flags().String("key", "", "API key for the capability, when required")
+	enableCmd.Flags().StringSlice("agents", nil, "Optional agent scope")
 	cmd.AddCommand(enableCmd)
 
 	cmd.AddCommand(&cobra.Command{
@@ -3446,7 +3476,7 @@ func capCmd() *cobra.Command {
 	})
 
 	addCmd := &cobra.Command{
-		Use: "add <name>", Short: "Add a new capability", Args: cobra.ExactArgs(1),
+		Use: "add <name>", Short: "Register a new capability", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
@@ -3464,7 +3494,7 @@ func capCmd() *cobra.Command {
 	cmd.AddCommand(addCmd)
 
 	cmd.AddCommand(&cobra.Command{
-		Use: "delete <name>", Short: "Delete a capability", Args: cobra.ExactArgs(1),
+		Use: "delete <name>", Short: "Delete a capability definition", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
@@ -4124,10 +4154,10 @@ func knowledgeOntologyCmd() *cobra.Command {
 // ════════════════════════════════════════════════════════════════════════════
 
 func policyCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "policy", Short: "Policy operations"}
+	cmd := &cobra.Command{Use: "policy", Short: "Agent policy inspection"}
 
 	cmd.AddCommand(&cobra.Command{
-		Use: "show <agent>", Short: "Show effective policy", Args: cobra.ExactArgs(1),
+		Use: "show <agent>", Short: "Show effective agent policy", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
@@ -4143,7 +4173,7 @@ func policyCmd() *cobra.Command {
 	})
 
 	cmd.AddCommand(&cobra.Command{
-		Use: "validate <agent>", Short: "Validate policy chain", Args: cobra.ExactArgs(1),
+		Use: "validate <agent>", Short: "Validate effective agent policy", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
@@ -4168,10 +4198,10 @@ func policyCmd() *cobra.Command {
 // ════════════════════════════════════════════════════════════════════════════
 
 func adminCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "admin", Short: "Administrative operations"}
+	cmd := &cobra.Command{Use: "admin", Short: "Operator admin and safety checks"}
 
 	cmd.AddCommand(&cobra.Command{
-		Use: "doctor", Short: "Run health checks",
+		Use: "doctor", Short: "Run security and runtime safety checks",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
@@ -4252,7 +4282,7 @@ func adminCmd() *cobra.Command {
 
 	var usageSince, usageUntil, usageAgent string
 	usageCmd := &cobra.Command{
-		Use: "usage", Short: "LLM usage metrics (tokens, cost, latency)",
+		Use: "usage", Short: "LLM usage and cost metrics",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
@@ -4317,11 +4347,11 @@ func adminCmd() *cobra.Command {
 
 	// ── Routing optimizer commands ─────────────────────────────────────────
 	routingCmd := &cobra.Command{
-		Use: "routing", Short: "Routing optimizer — suggestions, approvals, stats",
+		Use: "routing", Short: "Provider routing visibility and experimental optimizer controls",
 	}
 
 	routingCmd.AddCommand(&cobra.Command{
-		Use: "suggestions", Short: "List routing optimization suggestions",
+		Use: "suggestions", Short: "List experimental routing suggestions",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
@@ -4370,7 +4400,7 @@ func adminCmd() *cobra.Command {
 	})
 
 	routingCmd.AddCommand(&cobra.Command{
-		Use: "approve <suggestion-id>", Short: "Approve a routing suggestion",
+		Use: "approve <suggestion-id>", Short: "Approve an experimental routing suggestion",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
@@ -4397,7 +4427,7 @@ func adminCmd() *cobra.Command {
 	})
 
 	routingCmd.AddCommand(&cobra.Command{
-		Use: "reject <suggestion-id>", Short: "Reject a routing suggestion",
+		Use: "reject <suggestion-id>", Short: "Reject an experimental routing suggestion",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
@@ -4415,7 +4445,7 @@ func adminCmd() *cobra.Command {
 
 	var statsTaskType string
 	statsCmd := &cobra.Command{
-		Use: "stats", Short: "Per-model per-task-type routing statistics",
+		Use: "stats", Short: "Per-model routing statistics",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
@@ -4459,7 +4489,7 @@ func adminCmd() *cobra.Command {
 	cmd.AddCommand(routingCmd)
 
 	trustCmd := &cobra.Command{
-		Use: "trust [action]", Short: "Trust calibration", Args: cobra.MinimumNArgs(1),
+		Use: "trust [action]", Short: "Experimental trust calibration", Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
@@ -4483,7 +4513,7 @@ func adminCmd() *cobra.Command {
 	cmd.AddCommand(trustCmd)
 
 	auditCmd := &cobra.Command{
-		Use: "audit", Short: "Show security audit",
+		Use: "audit", Short: "Show audit events for an agent",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
@@ -4514,10 +4544,10 @@ func adminCmd() *cobra.Command {
 	auditCmd.Flags().String("agent", "", "Agent to audit")
 	cmd.AddCommand(auditCmd)
 
-	egressCmd := &cobra.Command{Use: "egress", Short: "Egress domain management"}
+	egressCmd := &cobra.Command{Use: "egress", Short: "Egress allowlist visibility"}
 
 	egressCmd.AddCommand(&cobra.Command{
-		Use: "domains", Short: "List all egress domains with provenance",
+		Use: "domains", Short: "List allowed egress domains with provenance",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
@@ -4680,7 +4710,7 @@ FRAMEWORK.md, AGENTS.md.`,
 	})
 
 	cmd.AddCommand(&cobra.Command{
-		Use: "department [action]", Short: "Department management", Args: cobra.MinimumNArgs(1),
+		Use: "department [action]", Short: "Experimental department management", Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
 			if err != nil {
@@ -5925,7 +5955,7 @@ func auditCmd() *cobra.Command {
 // ════════════════════════════════════════════════════════════════════════════
 
 func credentialCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "creds", Short: "Manage credentials in the credential store"}
+	cmd := &cobra.Command{Use: "creds", Short: "Manage governed credentials"}
 
 	// agency credential set
 	setCmd := &cobra.Command{
@@ -5981,9 +6011,9 @@ func credentialCmd() *cobra.Command {
 	setCmd.Flags().String("name", "", "Credential name (optional when provided as positional argument)")
 	setCmd.Flags().String("value", "", "Secret value (required)")
 	setCmd.Flags().String("kind", "provider", "Kind: provider, service, gateway, internal")
-	setCmd.Flags().String("scope", "platform", "Scope: platform, team:<name>, agent:<name>")
+	setCmd.Flags().String("scope", "platform", "Scope: platform or agent:<name>")
 	setCmd.Flags().String("protocol", "api-key", "Protocol: api-key, jwt-exchange, bearer, github-app, oauth2")
-	setCmd.Flags().String("service", "", "Service name for routing")
+	setCmd.Flags().String("service", "", "Optional governed service name")
 	setCmd.Flags().String("group", "", "Group name to inherit config from")
 	setCmd.Flags().String("external-scopes", "", "Comma-separated external scopes")
 	setCmd.Flags().String("requires", "", "Comma-separated dependency credential names")

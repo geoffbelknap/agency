@@ -9,6 +9,11 @@ info:
 
     All endpoints except /health require API token authentication via the
     X-Agency-Token header. Streaming endpoints accept `Accept: application/x-ndjson`.
+
+    This spec is the canonical Agency API contract. Agency product tiering is
+    represented with vendor extensions such as `x-agency-tier` and
+    `x-agency-stability`. Consumers should treat `core` as the supported
+    default surface, `experimental` as opt-in, and `internal` as non-public.
   license:
     name: Proprietary
 
@@ -19,39 +24,82 @@ servers:
 security:
   - apiToken: []
 
+x-agency-spec-tiering:
+  default_supported_tier: core
+  tiers:
+    - core
+    - experimental
+    - internal
+
 tags:
   - name: Health
     description: Health check and platform initialization
+    x-agency-tier: core
+    x-agency-stability: supported
   - name: Agents
     description: Agent lifecycle — create, start, stop, halt, resume, restart, delete; budget, context, memory, economics
+    x-agency-tier: core
+    x-agency-stability: supported
   - name: Missions
     description: Mission lifecycle — create, assign, pause, resume, complete; memory, evaluations, canvas
+    x-agency-tier: experimental
+    x-agency-stability: experimental
   - name: Admin
     description: Administrative operations — doctor, destroy, trust, audit, egress, capabilities, policy, teams, registry, profiles
+    x-agency-tier: core
+    x-agency-stability: supported
+    x-agency-note: Mixed tag. Some operations are core, while advanced governance and profile surfaces should move to operation-level tiering.
   - name: Hub
     description: Component registry — search, install, configure, activate; presets, deploy, teardown, connectors, egress
+    x-agency-tier: experimental
+    x-agency-stability: experimental
   - name: Packages
     description: V2 local package registry — installed package listing and inspection
+    x-agency-tier: experimental
+    x-agency-stability: experimental
   - name: Instances
     description: V2 local instances — governed local realizations of installed packages
+    x-agency-tier: experimental
+    x-agency-stability: experimental
   - name: AuthZ
     description: V2 grant resolution and authorization decisions
+    x-agency-tier: experimental
+    x-agency-stability: experimental
   - name: Graph
     description: Knowledge graph queries, export, ontology, curation, communities, quarantine, classification, principals
+    x-agency-tier: core
+    x-agency-stability: supported
+    x-agency-note: Mixed tag. Query, retrieval, and stats are core; governance and ontology surfaces should move to operation-level tiering.
   - name: Infra
     description: Shared infrastructure lifecycle — up, down, rebuild, reload, status, routing, providers, setup
+    x-agency-tier: core
+    x-agency-stability: supported
+    x-agency-note: Mixed tag. Basic infra and provider setup are core; advanced routing and broader setup surfaces may need operation-level tiering.
   - name: Comms
     description: Inter-agent communication channels, messages, unreads
+    x-agency-tier: core
+    x-agency-stability: supported
   - name: Creds
     description: Encrypted credential store — CRUD, rotate, test, groups; internal credential resolution
+    x-agency-tier: core
+    x-agency-stability: supported
   - name: Events
     description: Platform event bus — events, webhooks, notifications, subscriptions, intake
+    x-agency-tier: experimental
+    x-agency-stability: experimental
+    x-agency-note: Event-driven architecture is core, but broad event-management and intake surfaces are not yet part of the default supported product path.
   - name: MCP
     description: MCP tool registry — list and call tools
+    x-agency-tier: core
+    x-agency-stability: supported
   - name: Platform
     description: Platform-level operations
+    x-agency-tier: core
+    x-agency-stability: supported
   - name: Internal
     description: Internal infrastructure LLM proxy
+    x-agency-tier: internal
+    x-agency-stability: internal
 
 paths:
   # ── Health ──────────────────────────────────────────────────────────────────
@@ -1387,6 +1435,8 @@ paths:
       operationId: showPolicy
       summary: Show effective policy for an agent
       tags: [Admin]
+      x-agency-tier: core
+      x-agency-stability: supported
       parameters:
         - name: agent
           in: path
@@ -1407,6 +1457,8 @@ paths:
       operationId: validatePolicy
       summary: Validate policy for an agent including hard floor enforcement
       tags: [Admin]
+      x-agency-tier: core
+      x-agency-stability: supported
       parameters:
         - name: agent
           in: path
@@ -2160,6 +2212,8 @@ paths:
       operationId: listCapabilities
       summary: List all registered capabilities
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       responses:
         "200":
           description: Capability list
@@ -2173,6 +2227,8 @@ paths:
       operationId: addCapability
       summary: Register a new capability
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       requestBody:
         required: true
         content:
@@ -2201,6 +2257,8 @@ paths:
       operationId: showCapability
       summary: Show capability detail
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - $ref: "#/components/parameters/capabilityName"
       responses:
@@ -2216,6 +2274,8 @@ paths:
       operationId: deleteCapability
       summary: Delete a capability
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - $ref: "#/components/parameters/capabilityName"
       responses:
@@ -2231,6 +2291,8 @@ paths:
       operationId: enableCapability
       summary: Enable a capability (triggers hot-reload for running agents)
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - $ref: "#/components/parameters/capabilityName"
       requestBody:
@@ -2258,6 +2320,8 @@ paths:
       operationId: disableCapability
       summary: Disable a capability
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - $ref: "#/components/parameters/capabilityName"
       responses:
@@ -2274,6 +2338,8 @@ paths:
       operationId: knowledgeQuery
       summary: Query the knowledge graph
       tags: [Graph]
+      x-agency-tier: core
+      x-agency-stability: supported
       requestBody:
         required: true
         content:
@@ -2300,6 +2366,8 @@ paths:
       operationId: knowledgeWhoKnows
       summary: Find agents who know about a topic
       tags: [Graph]
+      x-agency-tier: core
+      x-agency-stability: supported
       parameters:
         - name: topic
           in: query
@@ -2320,6 +2388,8 @@ paths:
       operationId: knowledgeStats
       summary: Get knowledge graph statistics
       tags: [Graph]
+      x-agency-tier: core
+      x-agency-stability: supported
       responses:
         "200":
           description: Graph statistics
@@ -2334,6 +2404,8 @@ paths:
       operationId: knowledgeExport
       summary: Export knowledge graph
       tags: [Graph]
+      x-agency-tier: core
+      x-agency-stability: supported
       parameters:
         - name: format
           in: query
@@ -2354,6 +2426,8 @@ paths:
       operationId: knowledgeChanges
       summary: Get knowledge graph change history
       tags: [Graph]
+      x-agency-tier: core
+      x-agency-stability: supported
       parameters:
         - name: since
           in: query
@@ -2373,6 +2447,8 @@ paths:
       operationId: knowledgeContext
       summary: Get contextual knowledge about a subject
       tags: [Graph]
+      x-agency-tier: core
+      x-agency-stability: supported
       parameters:
         - name: subject
           in: query
@@ -2393,6 +2469,8 @@ paths:
       operationId: knowledgeNeighbors
       summary: Get neighboring nodes in the knowledge graph
       tags: [Graph]
+      x-agency-tier: core
+      x-agency-stability: supported
       parameters:
         - name: node_id
           in: query
@@ -2413,6 +2491,8 @@ paths:
       operationId: knowledgePath
       summary: Find path between two nodes in the knowledge graph
       tags: [Graph]
+      x-agency-tier: core
+      x-agency-stability: supported
       parameters:
         - name: from
           in: query
@@ -2438,6 +2518,8 @@ paths:
       operationId: knowledgeFlags
       summary: Get flagged knowledge nodes
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       responses:
         "200":
           description: Flagged nodes
@@ -2452,6 +2534,8 @@ paths:
       operationId: knowledgeRestore
       summary: Restore a flagged knowledge node
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       requestBody:
         required: true
         content:
@@ -2476,6 +2560,8 @@ paths:
       operationId: knowledgeCurationLog
       summary: Get knowledge curation audit log
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       responses:
         "200":
           description: Curation log entries
@@ -2490,6 +2576,8 @@ paths:
       operationId: knowledgeOntology
       summary: Get full knowledge ontology configuration
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       responses:
         "200":
           description: Ontology config
@@ -2504,6 +2592,8 @@ paths:
       operationId: knowledgeOntologyTypes
       summary: Get ontology entity types
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       responses:
         "200":
           description: Entity types with count
@@ -2524,6 +2614,8 @@ paths:
       operationId: knowledgeOntologyRelationships
       summary: Get ontology relationship types
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       responses:
         "200":
           description: Relationship types with count
@@ -2544,6 +2636,8 @@ paths:
       operationId: knowledgeOntologyValidate
       summary: Validate knowledge graph nodes against ontology
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       responses:
         "200":
           description: Validation results
@@ -2568,6 +2662,8 @@ paths:
       operationId: knowledgeOntologyMigrate
       summary: Migrate knowledge graph nodes to match ontology
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       responses:
         "200":
           description: Migration results
@@ -2582,6 +2678,8 @@ paths:
       operationId: listOntologyCandidates
       summary: List ontology emergence candidates
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       responses:
         "200":
           description: Ontology emergence candidates
@@ -2601,6 +2699,8 @@ paths:
       operationId: promoteOntologyCandidate
       summary: Promote an ontology candidate to the base ontology
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       requestBody:
         required: true
         content:
@@ -2630,6 +2730,8 @@ paths:
       operationId: rejectOntologyCandidate
       summary: Reject an ontology candidate
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       requestBody:
         required: true
         content:
@@ -2659,6 +2761,8 @@ paths:
       operationId: restoreOntologyCandidate
       summary: Restore an ontology candidate to review
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       requestBody:
         required: true
         content:
@@ -2678,9 +2782,6 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
-                    type: boolean
-                  value:
-                    type: string
 
   # ── Graph Ingestion & Insights ─────────────────────────────────────────────
   /graph/ingest:
@@ -2688,6 +2789,8 @@ paths:
       operationId: knowledgeIngest
       summary: Universal content ingestion
       tags: [Graph]
+      x-agency-tier: core
+      x-agency-stability: supported
       requestBody:
         content:
           application/json:
@@ -2712,6 +2815,8 @@ paths:
       operationId: knowledgeSaveInsight
       summary: Save agent insight with provenance
       tags: [Graph]
+      x-agency-tier: core
+      x-agency-stability: supported
       requestBody:
         content:
           application/json:
@@ -2741,6 +2846,8 @@ paths:
       operationId: knowledgeCommunities
       summary: List knowledge graph communities
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       responses:
         "200":
           description: List of community nodes
@@ -2750,6 +2857,8 @@ paths:
       operationId: knowledgeCommunity
       summary: Get community members
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - name: id
           in: path
@@ -2765,6 +2874,8 @@ paths:
       operationId: knowledgeHubs
       summary: Get top hub nodes
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - name: limit
           in: query
@@ -2781,6 +2892,8 @@ paths:
       operationId: knowledgeClassification
       summary: Get classification tier configuration
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       responses:
         "200":
           description: Classification tiers and scope mappings
@@ -2791,6 +2904,8 @@ paths:
       operationId: knowledgeQuarantine
       summary: Quarantine nodes by agent
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       requestBody:
         content:
           application/json:
@@ -2810,6 +2925,8 @@ paths:
       operationId: knowledgeQuarantineList
       summary: List quarantined nodes
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - name: agent
           in: query
@@ -2824,6 +2941,8 @@ paths:
       operationId: knowledgeQuarantineRelease
       summary: Release quarantined nodes
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       requestBody:
         content:
           application/json:
@@ -2844,6 +2963,8 @@ paths:
       operationId: listGraphPrincipals
       summary: List principals in the knowledge graph
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       responses:
         "200":
           description: List of graph principals
@@ -2858,6 +2979,8 @@ paths:
       operationId: addGraphPrincipal
       summary: Add a principal to the knowledge graph
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       requestBody:
         required: true
         content:
@@ -2887,6 +3010,8 @@ paths:
       operationId: getGraphPrincipal
       summary: Get a principal from the knowledge graph by UUID
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - name: uuid
           in: path
@@ -2910,6 +3035,8 @@ paths:
       operationId: infraStatus
       summary: Get infrastructure component status
       tags: [Infra]
+      x-agency-tier: core
+      x-agency-stability: supported
       responses:
         "200":
           description: Infrastructure status
@@ -2936,6 +3063,8 @@ paths:
       summary: Start shared infrastructure
       description: Supports NDJSON streaming when Accept header is application/x-ndjson.
       tags: [Infra]
+      x-agency-tier: core
+      x-agency-stability: supported
       responses:
         "200":
           description: Infrastructure started
@@ -2953,6 +3082,8 @@ paths:
       summary: Stop shared infrastructure
       description: Supports NDJSON streaming.
       tags: [Infra]
+      x-agency-tier: core
+      x-agency-stability: supported
       responses:
         "200":
           description: Infrastructure stopped
@@ -2970,6 +3101,8 @@ paths:
       summary: Rebuild (restart) a specific infrastructure component
       description: Supports NDJSON streaming.
       tags: [Infra]
+      x-agency-tier: core
+      x-agency-stability: supported
       parameters:
         - name: component
           in: path
@@ -2993,6 +3126,8 @@ paths:
       operationId: infraReload
       summary: Reload all infrastructure components
       tags: [Infra]
+      x-agency-tier: core
+      x-agency-stability: supported
       responses:
         "200":
           description: Components reloaded
@@ -3018,6 +3153,8 @@ paths:
         slots. Used by the CLI (`agency infra capacity`) and enforced at agent
         start and meeseeks spawn.
       tags: [Infra]
+      x-agency-tier: core
+      x-agency-stability: supported
       responses:
         "200":
           description: Current capacity state
@@ -3062,6 +3199,8 @@ paths:
       operationId: getSetupConfig
       summary: Get current platform setup configuration
       tags: [Infra]
+      x-agency-tier: core
+      x-agency-stability: supported
       responses:
         "200":
           description: Setup configuration
@@ -3076,6 +3215,8 @@ paths:
       operationId: listProviders
       summary: List configured LLM providers
       tags: [Infra]
+      x-agency-tier: core
+      x-agency-stability: supported
       responses:
         "200":
           description: List of configured providers
@@ -3399,6 +3540,8 @@ paths:
       operationId: routingMetrics
       summary: Get aggregated LLM usage metrics
       tags: [Infra]
+      x-agency-tier: core
+      x-agency-stability: supported
       parameters:
         - name: agent
           in: query
@@ -3429,6 +3572,8 @@ paths:
       operationId: routingConfig
       summary: Get model routing configuration (sanitized, no credentials)
       tags: [Infra]
+      x-agency-tier: core
+      x-agency-stability: supported
       responses:
         "200":
           description: Routing configuration
@@ -3480,6 +3625,8 @@ paths:
       operationId: routingSuggestions
       summary: List routing optimization suggestions
       tags: [Infra]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - name: status
           in: query
@@ -3495,6 +3642,8 @@ paths:
       operationId: routingSuggestionApprove
       summary: Approve a routing suggestion
       tags: [Infra]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - name: id
           in: path
@@ -3510,6 +3659,8 @@ paths:
       operationId: routingSuggestionReject
       summary: Reject a routing suggestion
       tags: [Infra]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - name: id
           in: path
@@ -3525,6 +3676,8 @@ paths:
       operationId: routingStats
       summary: Per-model per-task-type LLM usage statistics
       tags: [Infra]
+      x-agency-tier: core
+      x-agency-stability: supported
       parameters:
         - name: task_type
           in: query
@@ -3544,6 +3697,8 @@ paths:
         constraints read-only, enforcer audit active, audit not writable,
         halt functional, operator override available.
       tags: [Admin]
+      x-agency-tier: core
+      x-agency-stability: supported
       responses:
         "200":
           description: Doctor report
@@ -3557,6 +3712,8 @@ paths:
       operationId: adminDestroy
       summary: Destroy all agents and infrastructure
       tags: [Admin]
+      x-agency-tier: core
+      x-agency-stability: supported
       responses:
         "200":
           description: Everything destroyed
@@ -3574,6 +3731,8 @@ paths:
         Trust levels: 1=minimal, 2=low, 3=standard, 4=high, 5=elevated.
         ASK tenet 15: elevation always requires human approval.
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       requestBody:
         required: true
         content:
@@ -3614,6 +3773,8 @@ paths:
         With action=stats returns aggregate statistics. Otherwise returns log
         entries filtered by agent, since, and until.
       tags: [Admin]
+      x-agency-tier: core
+      x-agency-stability: supported
       parameters:
         - name: action
           in: query
@@ -3646,6 +3807,8 @@ paths:
       operationId: adminEgress
       summary: Get egress configuration for an agent
       tags: [Admin]
+      x-agency-tier: core
+      x-agency-stability: supported
       parameters:
         - name: agent
           in: query
@@ -3671,6 +3834,8 @@ paths:
         ontology_promote, ontology_reject, ontology_restore,
         ontology_seed_kind_candidate, delete_by_kind.
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       requestBody:
         required: true
         content:
@@ -3700,6 +3865,8 @@ paths:
       summary: Manage departments
       description: "Actions: list, show."
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       requestBody:
         required: true
         content:
@@ -3803,6 +3970,8 @@ paths:
       operationId: auditSummarize
       summary: Trigger audit summarization and return MissionMetrics
       tags: [Admin]
+      x-agency-tier: core
+      x-agency-stability: supported
       responses:
         "200":
           description: Audit summarization results
@@ -3825,6 +3994,8 @@ paths:
       operationId: listTeams
       summary: List all teams
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       responses:
         "200":
           description: Team list
@@ -3843,6 +4014,8 @@ paths:
       operationId: createTeam
       summary: Create a new team
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       requestBody:
         required: true
         content:
@@ -3870,6 +4043,8 @@ paths:
       operationId: showTeam
       summary: Show team detail
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - name: name
           in: path
@@ -3890,6 +4065,8 @@ paths:
       operationId: deleteTeam
       summary: Delete a team
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - name: name
           in: path
@@ -3907,6 +4084,8 @@ paths:
       operationId: teamActivity
       summary: Get recent activity for all team members
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - name: name
           in: path
@@ -3993,16 +4172,27 @@ paths:
       operationId: mcpTools
       summary: List registered MCP tools
       tags: [MCP]
+      parameters:
+        - name: view
+          in: query
+          description: Defaults to the supported core MCP tool surface. Use `full` to include experimental tools.
+          schema:
+            type: string
+            enum: [core, full]
+            default: core
       responses:
         "200":
           description: Tool list
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  additionalProperties: true
+                type: object
+                properties:
+                  tools:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
 
   /mcp/call:
     post:
@@ -4016,7 +4206,7 @@ paths:
             schema:
               type: object
               properties:
-                tool:
+                name:
                   type: string
                 arguments:
                   type: object
@@ -5171,6 +5361,8 @@ paths:
       summary: List all profiles
       description: Returns all profiles, optionally filtered by type.
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - name: type
           in: query
@@ -5194,6 +5386,8 @@ paths:
       operationId: getProfile
       summary: Get a profile by ID
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - name: id
           in: path
@@ -5217,6 +5411,8 @@ paths:
       operationId: createOrUpdateProfile
       summary: Create or update a profile
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - name: id
           in: path
@@ -5246,6 +5442,8 @@ paths:
       operationId: deleteProfile
       summary: Delete a profile
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - name: id
           in: path
@@ -5328,6 +5526,8 @@ paths:
       summary: List pending knowledge contributions
       description: Returns org-structural knowledge contributions awaiting operator review. Operator-only (ASK tenet 5).
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       responses:
         "200":
           description: Pending contributions
@@ -5349,6 +5549,8 @@ paths:
       summary: Approve or reject a knowledge contribution
       description: Approves or rejects a pending org-structural contribution by ID. Operator-only (ASK tenet 5).
       tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - name: id
           in: path
@@ -5728,6 +5930,8 @@ paths:
       operationId: registrySnapshot
       summary: Full registry snapshot
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       responses:
         "200":
           description: JSON snapshot of all principals
@@ -5735,6 +5939,8 @@ paths:
       operationId: registryRegister
       summary: Register a principal
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       requestBody:
         required: true
         content:
@@ -5772,6 +5978,8 @@ paths:
       operationId: registryResolve
       summary: Resolve principal by UUID or type+name
       tags: [Admin]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
       parameters:
         - name: uuid
           in: query

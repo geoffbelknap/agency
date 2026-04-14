@@ -23,6 +23,25 @@ func TestMCPToolRegistry_RegisterAndList(t *testing.T) {
 	if tools[0].Name != "agency_test" {
 		t.Errorf("name = %q, want agency_test", tools[0].Name)
 	}
+	if tools[0].Tier != "core" {
+		t.Errorf("tier = %q, want core", tools[0].Tier)
+	}
+}
+
+func TestMCPToolRegistry_ToolsByView(t *testing.T) {
+	reg := NewMCPToolRegistry()
+	reg.Register("agency_core", "Core tool", nil, nil)
+	reg.RegisterWithTier("agency_experimental", "Experimental tool", "experimental", nil, nil)
+
+	core := reg.ToolsByView("core")
+	if len(core) != 1 || core[0].Name != "agency_core" {
+		t.Fatalf("core tools = %#v, want only agency_core", core)
+	}
+
+	full := reg.ToolsByView("full")
+	if len(full) != 2 {
+		t.Fatalf("full tools = %d, want 2", len(full))
+	}
 }
 
 func TestMCPToolRegistry_Call(t *testing.T) {
@@ -68,6 +87,29 @@ func TestMCPToolsEndpoint(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&body)
 	if len(body.Tools) != 1 {
 		t.Fatalf("tools = %d, want 1", len(body.Tools))
+	}
+}
+
+func TestMCPToolsEndpoint_FullViewIncludesExperimental(t *testing.T) {
+	reg := NewMCPToolRegistry()
+	reg.Register("agency_core", "Core", nil, nil)
+	reg.RegisterWithTier("agency_experimental", "Experimental", "experimental", nil, nil)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/mcp/tools?view=full", nil)
+	mcpToolsHandler(reg)(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var body struct {
+		Tools []MCPTool `json:"tools"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Tools) != 2 {
+		t.Fatalf("tools = %d, want 2", len(body.Tools))
 	}
 }
 

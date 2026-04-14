@@ -11,6 +11,7 @@ import { MissionList } from './screens/MissionList';
 import { MissionDetail } from './screens/MissionDetail';
 import { Setup } from './screens/Setup';
 import { Profiles } from './screens/Profiles';
+import { experimentalSurfacesEnabled } from './lib/features';
 
 export const router = createBrowserRouter([
   { path: '/setup', Component: Setup, ErrorBoundary: RouteErrorBoundary },
@@ -25,16 +26,27 @@ export const router = createBrowserRouter([
       { path: 'channels/:name', Component: Channels, ErrorBoundary: RouteErrorBoundary },
       { path: 'agents', Component: Agents, ErrorBoundary: RouteErrorBoundary },
       { path: 'agents/:name', Component: Agents, ErrorBoundary: RouteErrorBoundary },
-      { path: 'missions', Component: MissionList, ErrorBoundary: RouteErrorBoundary },
-      { path: 'missions/:name', Component: MissionDetail, ErrorBoundary: RouteErrorBoundary },
-      { path: 'missions/:name/composer', lazy: () => import('./screens/missions/composer/MissionComposer').then(m => ({ Component: m.MissionComposer })), ErrorBoundary: RouteErrorBoundary },
       { path: 'knowledge', Component: KnowledgeExplorer, ErrorBoundary: RouteErrorBoundary },
       { path: 'knowledge/:view', Component: KnowledgeExplorer, ErrorBoundary: RouteErrorBoundary },
-      { path: 'profiles', Component: Profiles, ErrorBoundary: RouteErrorBoundary },
-      { path: 'profiles/:id', Component: Profiles, ErrorBoundary: RouteErrorBoundary },
-      { path: 'teams', Component: Teams, ErrorBoundary: RouteErrorBoundary },
       { path: 'admin', Component: Admin, ErrorBoundary: RouteErrorBoundary },
       { path: 'admin/:tab', Component: Admin, ErrorBoundary: RouteErrorBoundary },
+      ...(experimentalSurfacesEnabled
+        ? [
+            { path: 'missions', Component: MissionList, ErrorBoundary: RouteErrorBoundary },
+            { path: 'missions/:name', Component: MissionDetail, ErrorBoundary: RouteErrorBoundary },
+            { path: 'missions/:name/composer', lazy: () => import('./screens/missions/composer/MissionComposer').then(m => ({ Component: m.MissionComposer })), ErrorBoundary: RouteErrorBoundary },
+            { path: 'profiles', Component: Profiles, ErrorBoundary: RouteErrorBoundary },
+            { path: 'profiles/:id', Component: Profiles, ErrorBoundary: RouteErrorBoundary },
+            { path: 'teams', Component: Teams, ErrorBoundary: RouteErrorBoundary },
+          ]
+        : [
+            { path: 'missions', element: <Navigate to="/overview" replace /> },
+            { path: 'missions/:name', element: <Navigate to="/overview" replace /> },
+            { path: 'missions/:name/composer', element: <Navigate to="/overview" replace /> },
+            { path: 'profiles', element: <Navigate to="/overview" replace /> },
+            { path: 'profiles/:id', element: <Navigate to="/overview" replace /> },
+            { path: 'teams', element: <Navigate to="/overview" replace /> },
+          ]),
     ],
   },
 ]);

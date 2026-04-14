@@ -1,10 +1,15 @@
 ---
 title: "Events and Webhooks"
-description: "A unified event routing system that connects external systems, agent activation, and operator notifications through a single event bus."
+description: "Event routing inside the gateway, including experimental webhook and external event surfaces."
 ---
 
 
 The event framework is a unified routing layer inside the gateway. Every agent activation, operator notification, and external integration flows through the same model: sources emit events, the bus routes them by subscription, subscribers act on matching events.
+
+> Core note: the event bus and subscription model are part of the `0.2.x` core
+> architecture. Experimental note: the broader webhook, notification, and
+> external integration surfaces described on this page are still not part of
+> the default first-user contract.
 
 No polling. No keyword scanning. No separate code paths for different event types.
 

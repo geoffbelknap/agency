@@ -21,7 +21,7 @@ works") and instead evaluate them as complete product surfaces:
 
 | Level | Meaning |
 |-------|---------|
-| `Mature` | Core behavior works reliably; support surfaces are mostly in place; suitable as a foundation for `0.1.x`. |
+| `Mature` | Core behavior works reliably; support surfaces are mostly in place; suitable as a foundation for `0.2.x`. |
 | `Alpha-ready` | Works well enough for friendly testers, but still has known rough edges or missing support surfaces. |
 | `Partial` | Important parts exist, but the feature is incomplete, inconsistent, or missing key support elements. |
 | `Experimental` | Technically present, but not reliable enough to present as a supported product capability. |
@@ -85,7 +85,7 @@ Every feature should be evaluated across these dimensions before being called
 
 ## Immediate Release-Gate Focus
 
-Before `0.1.x`, the features that deserve explicit release gating are:
+Before `0.2.x`, the features that deserve explicit release gating are:
 
 - agent runtime core
 - comms / DM flow
@@ -108,7 +108,7 @@ These are not abstract maturity concerns — they are currently observable gaps:
 
 This matrix should feed a second document:
 
-- `0.1.x release gates by feature`
+- `0.2.x core release gates`
 
 That follow-up should map each release-critical feature to:
 

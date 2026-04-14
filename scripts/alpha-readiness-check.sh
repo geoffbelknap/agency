@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Legacy script name kept for compatibility. This is the readiness check for
+# the current core Agency path.
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 AGENCY_BIN="${AGENCY_BIN:-}"
@@ -137,6 +140,7 @@ diagnose_agent_failure() {
   docker logs --tail 80 "agency-${AGENT_NAME}-workspace" >&2 || true
 }
 
+log "Running legacy alpha-readiness-check for the current core Agency path"
 log "Checking daemon and infrastructure"
 run_agency serve restart >/dev/null
 wait_for_status || fail "gateway did not become reachable after daemon restart"
@@ -217,7 +221,7 @@ while [ "$SECONDS" -lt "$deadline" ]; do
     log "Cleaning up test agent"
     cleanup
     CREATED_AGENT=0
-    log "Alpha readiness check passed"
+    log "Legacy alpha readiness check passed for the core Agency path"
     exit 0
   fi
   sleep "$POLL_INTERVAL"

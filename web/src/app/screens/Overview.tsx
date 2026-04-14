@@ -256,7 +256,7 @@ export function Overview() {
                     ? 'Start infrastructure first so the web UI, comms, and gateway services are available.'
                     : !hasAgents
                       ? 'Infrastructure is up. Create a research agent, then open its DM to verify the full research loop.'
-                      : 'Your platform is running. Open a DM, missions, or intake depending on the next operator task.'}
+                      : 'Your platform is running. Open a DM, inspect recent activity, or review graph context depending on the next operator task.'}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -286,10 +286,7 @@ export function Overview() {
                       <Link to="/channels">Open channels</Link>
                     </Button>
                     <Button asChild variant="outline" size="sm" className="h-8 text-xs">
-                      <Link to="/missions">Open missions</Link>
-                    </Button>
-                    <Button asChild variant="outline" size="sm" className="h-8 text-xs">
-                      <Link to="/admin/intake">Open intake</Link>
+                      <Link to="/knowledge">Open knowledge</Link>
                     </Button>
                   </>
                 )}
@@ -347,7 +344,7 @@ export function Overview() {
                   <Link to="/setup">Open provider setup</Link>
                 </Button>
                 <Button asChild variant="outline" size="sm" className="h-8 text-xs">
-                  <Link to="/admin/hub">Review hub components</Link>
+                  <Link to="/admin/usage">Review usage</Link>
                 </Button>
               </div>
             </div>

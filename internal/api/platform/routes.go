@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"log/slog"
 	"github.com/go-chi/chi/v5"
+	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/audit"
 	"github.com/geoffbelknap/agency/internal/config"
@@ -53,6 +53,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 
 	// OpenAPI spec
 	r.Get("/api/v1/openapi.yaml", h.openapiSpec)
+	r.Get("/api/v1/openapi-core.yaml", h.openapiCoreSpec)
 
 	// Health
 	r.Get("/api/v1/health", h.health)

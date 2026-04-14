@@ -194,10 +194,9 @@ describe('Overview', () => {
     renderWithRouter(<Overview />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByText(/open a dm, missions, or intake/i)).toBeInTheDocument();
+      expect(screen.getByText(/open a dm, inspect recent activity, or review graph context/i)).toBeInTheDocument();
       expect(screen.getAllByRole('link', { name: 'Open channels' }).length).toBeGreaterThan(0);
-      expect(screen.getByRole('link', { name: 'Open missions' })).toHaveAttribute('href', '/missions');
-      expect(screen.getByRole('link', { name: 'Open intake' })).toHaveAttribute('href', '/admin/intake');
+      expect(screen.getByRole('link', { name: 'Open knowledge' })).toHaveAttribute('href', '/knowledge');
     });
   });
 

@@ -46,18 +46,15 @@
             "group": "Working with agents",
             "pages": [
               "agents",
-              "missions",
-              "meeseeks",
               "presets",
               "capabilities",
               "credentials"
             ]
           },
           {
-            "group": "Communication & coordination",
+            "group": "Communication",
             "pages": [
-              "channels-and-messaging",
-              "teams"
+              "channels-and-messaging"
             ]
           },
           {
@@ -66,15 +63,6 @@
               "policies-and-governance",
               "security",
               "threat-model"
-            ]
-          },
-          {
-            "group": "Deployment & integration",
-            "pages": [
-              "packs",
-              "connectors-and-intake",
-              "events",
-              "hub"
             ]
           },
           {
@@ -88,6 +76,18 @@
             ]
           },
           {
+            "group": "Experimental Surfaces",
+            "pages": [
+              "missions",
+              "teams",
+              "meeseeks",
+              "packs",
+              "connectors-and-intake",
+              "events",
+              "hub"
+            ]
+          },
+          {
             "group": "Project",
             "pages": [
               "ROADMAP"
@@ -98,7 +98,7 @@
       {
         "tab": "API Reference",
         "icon": "square-terminal",
-        "openapi": "https://raw.githubusercontent.com/geoffbelknap/agency/main/agency-gateway/internal/api/openapi.yaml"
+        "openapi": "https://raw.githubusercontent.com/geoffbelknap/agency/main/agency-gateway/internal/api/openapi-core.yaml"
       }
     ]
   },

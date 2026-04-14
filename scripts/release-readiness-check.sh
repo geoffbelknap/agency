@@ -42,8 +42,8 @@ Modes:
   published   Validate an already-published release, Homebrew formula, and GHCR images.
 
 Examples:
-  ./scripts/release-readiness-check.sh preflight --version 0.1.7
-  ./scripts/release-readiness-check.sh published --tag v0.1.6
+  ./scripts/release-readiness-check.sh preflight --version 0.2.0
+  ./scripts/release-readiness-check.sh published --tag v0.2.0
 EOF
 }
 

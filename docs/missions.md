@@ -1,10 +1,14 @@
 ---
 title: "Missions"
-description: "Define standing instructions for agents. Missions declare what an agent should do, what events trigger work, and what healthy operation looks like."
+description: "Experimental standing instructions for agents. Missions declare what an agent should do, what events trigger work, and what healthy operation looks like."
 ---
 
 
 A mission is a standing instruction that gives an agent ongoing purpose. Unlike ad-hoc tasks sent via `agency send`, a mission declares what an agent should do, what events trigger work, what capabilities are required, and what healthy operation looks like.
+
+> Experimental surface: missions remain available for continued development, but
+> they are not part of the default `0.2.x` core Agency path. The supported
+> first-user workflow is still the direct-message path.
 
 An agent can hold exactly one mission at a time.
 

@@ -33,19 +33,21 @@ func registerMCPTools(reg *MCPToolRegistry) {
 	registerCommsTools(reg)
 	registerObservabilityTools(reg)
 	registerAdminTools(reg)
-	registerCapabilityTools(reg)
 	registerPolicyTools(reg)
-	registerTeamTools(reg)
-	registerDeployTools(reg)
-	registerConnectorTools(reg)
-	registerIntakeTools(reg)
-	registerHubTools(reg)
-	registerMissionTools(reg)
-	registerMeeseeksTools(reg)
-	registerEventTools(reg)
-	registerNotificationTools(reg)
 	registerCredentialTools(reg)
-	registerProfileTools(reg)
+	reg.WithTier("experimental", func() {
+		registerCapabilityTools(reg)
+		registerTeamTools(reg)
+		registerDeployTools(reg)
+		registerConnectorTools(reg)
+		registerIntakeTools(reg)
+		registerHubTools(reg)
+		registerMissionTools(reg)
+		registerMeeseeksTools(reg)
+		registerEventTools(reg)
+		registerNotificationTools(reg)
+		registerProfileTools(reg)
+	})
 }
 
 // ── Infrastructure (6 tools) ────────────────────────────────────────────────
@@ -53,7 +55,7 @@ func registerMCPTools(reg *MCPToolRegistry) {
 func registerInfraTools(reg *MCPToolRegistry) {
 	reg.Register(
 		"agency_infra_status",
-		"Show infrastructure health: which shared containers (egress, comms) are running and healthy.",
+		"Show health for the shared Agency runtime services that support agent work.",
 		nil,
 		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			status, err := d.dc.InfraStatus(context.Background())
@@ -80,7 +82,7 @@ func registerInfraTools(reg *MCPToolRegistry) {
 
 	reg.Register(
 		"agency_infra_up",
-		"Build images and start shared infrastructure (egress proxy, comms server). Required before starting any agent. Run after agency_setup.",
+		"Start the shared Agency runtime services needed before agents can run. Use after agency_setup.",
 		nil,
 		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			if d.infra == nil {
@@ -97,7 +99,7 @@ func registerInfraTools(reg *MCPToolRegistry) {
 
 	reg.Register(
 		"agency_infra_down",
-		"Stop and remove all shared infrastructure containers (egress, comms, knowledge).",
+		"Stop the shared Agency runtime services.",
 		nil,
 		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			if d.infra == nil {
@@ -112,7 +114,7 @@ func registerInfraTools(reg *MCPToolRegistry) {
 
 	reg.Register(
 		"agency_infra_rebuild",
-		"Rebuild a single infrastructure component image and restart its container.",
+		"Rebuild and restart one shared runtime component.",
 		map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -141,7 +143,7 @@ func registerInfraTools(reg *MCPToolRegistry) {
 
 	reg.Register(
 		"agency_infra_reload",
-		"Send SIGHUP to all running enforcers to reload configuration (routing, egress domains, API keys, service registry) without restarting containers.",
+		"Reload shared runtime and enforcer configuration without a full restart.",
 		nil,
 		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			if d.infra == nil {
@@ -167,7 +169,7 @@ func registerInfraTools(reg *MCPToolRegistry) {
 
 	reg.Register(
 		"agency_setup",
-		"Bootstrap Agency on a fresh host. Creates ~/.agency/ directory structure, config files, and verifies Docker. Required before any other operation. Next: agency_infra_up to start shared infrastructure. API keys are read from ANTHROPIC_API_KEY and OPENAI_API_KEY environment variables.",
+		"Bootstrap Agency on a fresh host. Creates ~/.agency, writes base config, and verifies Docker. Run this before agency_infra_up and agent creation.",
 		map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -283,7 +285,7 @@ func registerAgentTools(reg *MCPToolRegistry) {
 	// agency_show
 	reg.Register(
 		"agency_show",
-		"Show full agent dashboard: name, preset, status, trust level, team, granted services, active task, and container state.",
+		"Show the current agent summary: identity, preset, model, trust, granted access, task state, and runtime status.",
 		map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -585,7 +587,7 @@ func registerAgentTools(reg *MCPToolRegistry) {
 	// agency_grant
 	reg.Register(
 		"agency_grant",
-		"Grant a service to an agent. The service credential is injected at the egress layer.",
+		"Grant a governed service capability to an agent.",
 		map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -641,7 +643,7 @@ func registerAgentTools(reg *MCPToolRegistry) {
 	// agency_revoke
 	reg.Register(
 		"agency_revoke",
-		"Revoke a service from an agent. Removes the credential from the egress layer.",
+		"Revoke a governed service capability from an agent.",
 		map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

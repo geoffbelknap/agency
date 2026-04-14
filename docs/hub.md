@@ -1,10 +1,14 @@
 ---
 title: "Hub"
-description: "The Hub is a git-backed component registry for sharing and installing packs, presets, and connectors. Think of it as a package manager for Agency components."
+description: "Experimental package and component registry for sharing packs, presets, and connectors."
 ---
 
 
 The Hub is a git-backed component registry for sharing and installing packs, presets, and connectors. Think of it as a package manager for Agency components.
+
+> Experimental surface: the Hub remains in active development, but it is not
+> part of the default `0.2.x` core Agency contract. Core Agency should be
+> understandable and usable without depending on Hub lifecycle flows.
 
 ## Searching
 

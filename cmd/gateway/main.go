@@ -204,9 +204,13 @@ func customHelp(cmd *cobra.Command, _ []string) {
 		grouped[c.GroupID] = append(grouped[c.GroupID], c)
 	}
 
-	fmt.Println("Agency — An operating system for AI agents")
+	fmt.Println("Agency — Governed AI agents with isolation and auditability")
 	fmt.Println()
 	fmt.Println("Usage: agency <command> [options]")
+	if agencyCLIExperimentalEnabled() {
+		fmt.Println()
+		fmt.Println("Experimental surfaces are enabled via AGENCY_EXPERIMENTAL_SURFACES=1.")
+	}
 
 	for _, g := range groups {
 		cmds := grouped[g.id]
@@ -216,13 +220,13 @@ func customHelp(cmd *cobra.Command, _ []string) {
 		fmt.Printf("\n  %s\n", g.title)
 		for _, c := range cmds {
 			if c.HasSubCommands() {
-				fmt.Printf("    %s  %s\n", pad(c.Name()+" ...", 28), c.Short)
+				fmt.Printf("    %s  %s\n", pad(c.Name()+" ...", 28), helpShort(c))
 			} else {
 				use := c.Use
 				if i := len(c.Name()); i < len(use) {
 					use = c.Name() + use[i:]
 				}
-				fmt.Printf("    %s  %s\n", pad(use, 28), c.Short)
+				fmt.Printf("    %s  %s\n", pad(use, 28), helpShort(c))
 			}
 		}
 	}
@@ -249,10 +253,15 @@ func subcommandHelp(cmd *cobra.Command) {
 			if i := len(c.Name()); i < len(use) {
 				use = c.Name() + use[i:]
 			}
-			fmt.Printf("  %s  %s\n", pad(use, 28), c.Short)
+			fmt.Printf("  %s  %s\n", pad(use, 28), helpShort(c))
 		}
 	} else {
 		fmt.Printf("Usage: %s\n", cmd.UseLine())
+	}
+
+	if agencyCLI.IsExperimentalCommand(cmd.Name()) {
+		fmt.Println()
+		fmt.Println("This surface is experimental and not part of the default core product path.")
 	}
 
 	if cmd.HasLocalFlags() {
@@ -281,6 +290,23 @@ func subcommandHelp(cmd *cobra.Command) {
 	}
 
 	fmt.Println()
+}
+
+func agencyCLIExperimentalEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENCY_EXPERIMENTAL_SURFACES"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func helpShort(cmd *cobra.Command) string {
+	short := cmd.Short
+	if agencyCLI.IsExperimentalCommand(cmd.Name()) {
+		short += " [experimental]"
+	}
+	return short
 }
 
 func main() {

@@ -1,10 +1,14 @@
 ---
 title: "Teams"
-description: "A team groups agents and humans together with defined roles. Teams enable coordination, delegation, and oversight at scale."
+description: "Experimental team coordination for grouping agents and humans with defined roles."
 ---
 
 
 A team groups agents and humans together with defined roles. Teams enable coordination, delegation, and oversight at scale.
+
+> Experimental surface: teams and coordinator-heavy workflows are not part of
+> the default `0.2.x` core Agency contract. Use them as development surfaces,
+> not as the primary first-user path.
 
 ## Creating a Team
 

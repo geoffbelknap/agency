@@ -1,10 +1,14 @@
 ---
 title: "Packs"
-description: "Packs are YAML files that declare an entire deployment — agents, teams, channels, and connectors — and are the recommended way to deploy to Agency."
+description: "Experimental declarative deployments for agents, teams, channels, and connectors."
 ---
 
 
-A pack is a YAML file that declares an entire deployment — agents, teams, channels, and connectors — in one file. Packs are the recommended way to deploy multi-agent teams.
+A pack is a YAML file that declares an entire deployment — agents, teams, channels, and connectors — in one file.
+
+> Experimental surface: packs are still useful for platform and ecosystem work,
+> but they are not part of the default `0.2.x` core onboarding path. Treat
+> packs as an advanced deployment surface, not the primary way to get started.
 
 ## What a Pack Looks Like
 

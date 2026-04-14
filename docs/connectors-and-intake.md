@@ -1,10 +1,15 @@
 ---
 title: "Connectors and Intake"
-description: "Connectors bring work from external systems into Agency. The intake service receives incoming work, applies routing rules, and delivers it to agents or teams."
+description: "Experimental external integrations that route work from outside systems into Agency."
 ---
 
 
 Connectors bring work from external systems into Agency. The intake service receives incoming work, applies routing rules, and delivers it to agents or teams.
+
+> Experimental surface: event-driven delivery is core to Agency, but broad
+> connector and intake inventory is not part of the default `0.2.x` core
+> contract. Keep using these flows for iteration, but do not treat them as the
+> primary supported onboarding path.
 
 ## Source Types
 

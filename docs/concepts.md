@@ -99,7 +99,10 @@ A **team** groups agents (and humans) together with defined roles. Teams enable:
 - **Shared channels** for team communication
 - **Activity tracking** across the team
 
-The same security model works whether you have one agent or twenty. Teams add coordination, not complexity.
+Teams are still experimental relative to the default `0.2.x` core product. The
+same security model can extend to coordinated teams, but the supported
+first-user path remains one operator using one or a few agents through the
+direct-message workflow.
 
 See [Teams](/teams) for more.
 
@@ -147,7 +150,9 @@ agency deploy red-team/pack.yaml    # Creates agents, teams, channels, starts ev
 agency teardown red-team             # Reverses the deployment
 ```
 
-Packs are the recommended way to deploy multi-agent teams. They're version-controlled, shareable through the hub, and reproducible.
+Packs are an experimental deployment surface for multi-agent teams. They are
+useful for platform and ecosystem work, but they are not part of the default
+`0.2.x` core Agency path.
 
 See [Packs](/packs) for more.
 
@@ -162,7 +167,9 @@ See [Packs](/packs) for more.
 | **Schedule** | Triggers on a cron schedule | Daily security scan |
 | **Channel-watch** | Matches regex patterns in agent channels | Escalation keywords |
 
-Connectors route incoming work to specific agents or teams through the intake service.
+Connectors route incoming work to specific agents or teams through the intake
+service. Event-driven architecture is core; the broader connector inventory is
+still experimental.
 
 See [Connectors and Intake](/connectors-and-intake) for more.
 
@@ -176,7 +183,7 @@ Agency runs shared infrastructure that all agents use:
 | **Analysis** | XPIA (prompt injection) scanning, budget tracking, rate limiting. |
 | **Comms** | Channel-based messaging service with full-text search. |
 | **Knowledge** | Organizational knowledge graph — compounds over time from agent communications. |
-| **Intake** | Receives external work from connectors and routes it to agents. |
+| **Intake** | Receives external work from connectors and routes it to agents. Experimental relative to the `0.2.x` core path. |
 
 All of this runs on a mediation network that agents access through their enforcer sidecar — never directly.
 

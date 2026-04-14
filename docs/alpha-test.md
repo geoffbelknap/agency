@@ -1,14 +1,17 @@
 ---
-title: "Alpha Test Guide"
-description: "A short first-run guide for early Agency alpha testers."
+title: "Core Test Guide"
+description: "A short first-run guide for early Agency core testers."
 ---
 
 Use this guide when you are trying Agency for the first time. The goal is not to learn every feature or become a command-line user. The goal is to get one useful agent running in the Web UI, understand what it is doing, and know the few recovery commands to use if something gets confusing.
 
+This page keeps the legacy `alpha-test` slug for compatibility. It now
+describes the current `0.2.x` core Agency path.
+
 ## What You Need
 
 1. Docker installed and running.
-2. One LLM provider API key. Google Gemini is a good alpha choice because it has a free tier.
+2. One LLM provider API key. Google Gemini is a good early-user choice because it has a free tier.
 3. About 20 minutes.
 
 ## Start Agency
@@ -22,7 +25,7 @@ agency quickstart
 Quickstart will:
 
 1. Check that Docker is running.
-2. Ask which LLM provider to use. For alpha testing, choose Google Gemini unless you already have another provider key ready.
+2. Ask which LLM provider to use. For early core testing, choose Google Gemini unless you already have another provider key ready.
 3. Store your API key in Agency's encrypted credential store.
 4. Start the local infrastructure.
 5. Create and start your first agent.
@@ -35,7 +38,7 @@ Web UI: http://localhost:8280
 Chat:   http://localhost:8280/channels/dm-henry
 ```
 
-After this point, stay in the Web UI unless the guide explicitly says to use the terminal. Developers, security operators, and advanced users can use the CLI heavily; basic alpha testers should treat it as setup and recovery tooling.
+After this point, stay in the Web UI unless the guide explicitly says to use the terminal. Developers, security operators, and advanced users can use the CLI heavily; basic core testers should treat it as setup and recovery tooling.
 
 If you need to re-run guided setup later, open `/setup` in the Web UI or use **Admin → Setup Wizard**. That is the recovery and reconfiguration path after quickstart, not a separate onboarding flow.
 
@@ -75,11 +78,14 @@ agency send henry "What can you help me with? Give me three practical things to 
 
 ## Operator Readiness Check
 
-Before handing an alpha build to a tester, run the local readiness check:
+Before handing a `0.2.x` core build to a tester, run the local readiness check:
 
 ```bash
 ./scripts/alpha-readiness-check.sh
 ```
+
+The script name is also legacy for compatibility. It is the readiness check
+for the current core Agency path.
 
 This is an operator/developer check, not a user-facing command. It verifies the daemon, infrastructure, Web UI, direct chat route, configured provider, provider credential, temporary agent startup, live DM response, and cleanup path. It uses the current local Agency profile and deletes its temporary `alpha-readiness-*` agent when finished.
 
@@ -119,7 +125,7 @@ If the dry run only lists disposable `alpha-*`, `playwright-*`, `e2e-*`, or temp
 ./scripts/cleanup-live-test-runtimes.sh --apply
 ```
 
-If you want to start the alpha test over:
+If you want to start the core test over:
 
 ```bash
 agency admin destroy --yes

@@ -29,7 +29,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 	// 1. agency_admin_doctor
 	reg.Register(
 		"agency_admin_doctor",
-		"Verify all six security guarantees against running containers. Reports pass/fail for each guarantee.",
+		"Run Agency's security and runtime safety checks against running agents and shared services.",
 		nil,
 		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			ctx := context.Background()
@@ -289,7 +289,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 	// 2. agency_admin_destroy
 	reg.Register(
 		"agency_admin_destroy",
-		"Factory-reset Agency: remove all containers, networks, data. Knowledge graph is preserved. Requires a reason to prevent accidental use.",
+		"Tear down Agency runtime state and stop all agents. Requires a reason to prevent accidental use.",
 		map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -1310,7 +1310,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 	// agency_policy_show
 	reg.Register(
 		"agency_policy_show",
-		"Show the effective policy for an agent after resolving the full hierarchy (platform > org > department > team > agent).",
+		"Show the effective policy for an agent after current policy hierarchy resolution.",
 		map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -1947,7 +1947,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 	// agency_help — pure text generation, no service call
 	reg.Register(
 		"agency_help",
-		"Get an overview of all Agency tools grouped by workflow. Call this first if you are unfamiliar with Agency.",
+		"Get an overview of the default supported Agency MCP tools grouped by workflow.",
 		nil,
 		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			groups := []struct {
@@ -1958,13 +1958,9 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				{"Agent Lifecycle", []string{"agency_list", "agency_create", "agency_start", "agency_stop", "agency_resume", "agency_restart", "agency_delete", "agency_show", "agency_status", "agency_grant", "agency_revoke"}},
 				{"Communication", []string{"agency_channel_create", "agency_channel_list", "agency_channel_read", "agency_channel_send", "agency_channel_search", "agency_channel_archive", "agency_channel_grant_access"}},
 				{"Observability", []string{"agency_log"}},
-				{"Capabilities", []string{"agency_cap_list", "agency_cap_show", "agency_cap_enable", "agency_cap_disable", "agency_cap_add", "agency_cap_delete"}},
 				{"Policy", []string{"agency_policy_show", "agency_policy_check", "agency_policy_validate", "agency_policy_template", "agency_policy_exception"}},
-				{"Teams", []string{"agency_team_create", "agency_team_list", "agency_team_show", "agency_team_activity"}},
-				{"Deploy", []string{"agency_deploy", "agency_teardown"}},
-				{"Intake", []string{"agency_intake_items", "agency_intake_stats"}},
-				{"Admin", []string{"agency_admin_doctor", "agency_admin_destroy", "agency_admin_rebuild", "agency_admin_trust", "agency_admin_egress", "agency_admin_audit", "agency_admin_knowledge", "agency_admin_department"}},
-				{"Hub", []string{"agency_hub_search", "agency_hub_install", "agency_hub_remove", "agency_hub_list", "agency_hub_update", "agency_hub_info"}},
+				{"Admin", []string{"agency_admin_doctor", "agency_admin_destroy", "agency_admin_rebuild", "agency_admin_egress", "agency_admin_audit"}},
+				{"Credentials", []string{"agency_credential_set", "agency_credential_list", "agency_credential_show", "agency_credential_rotate", "agency_credential_test"}},
 			}
 
 			// Build tool name -> description map from registry
@@ -1976,24 +1972,32 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 			}
 
 			lines := []string{
-				"Agency -- AI Agent Isolation Platform",
+				"Agency -- Governed Agent Runtime",
 				"",
-				"Agency deploys AI agents inside enforced isolation containers with",
-				"credential scoping, network mediation, and continuous security verification.",
+				"Agency runs AI agents inside enforced isolation with governed access,",
+				"a durable audit trail, and operator-visible runtime controls.",
 				"",
-				"Typical workflow: init -> infra_up -> create -> start -> send -> monitor",
+				"Typical workflow: setup -> infra_up -> create -> start -> send -> monitor",
 				"",
 			}
 			for _, group := range groups {
-				lines = append(lines, fmt.Sprintf("## %s", group.name))
+				groupLines := []string{}
 				for _, name := range group.tools {
 					desc := toolMap[name]
+					if desc == "" {
+						continue
+					}
 					short := desc
 					if idx := strings.Index(desc, ". "); idx >= 0 {
 						short = desc[:idx+1]
 					}
-					lines = append(lines, fmt.Sprintf("  %s -- %s", name, short))
+					groupLines = append(groupLines, fmt.Sprintf("  %s -- %s", name, short))
 				}
+				if len(groupLines) == 0 {
+					continue
+				}
+				lines = append(lines, fmt.Sprintf("## %s", group.name))
+				lines = append(lines, groupLines...)
 				lines = append(lines, "")
 			}
 
