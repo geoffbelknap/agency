@@ -25,6 +25,7 @@ import (
 	authzcore "github.com/geoffbelknap/agency/internal/authz"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/daemon"
+	"github.com/geoffbelknap/agency/internal/features"
 	"github.com/geoffbelknap/agency/internal/update"
 )
 
@@ -39,28 +40,12 @@ var (
 	quiet bool // suppress spinners and progress animations
 )
 
-func experimentalSurfacesEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENCY_EXPERIMENTAL_SURFACES"))) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
-	}
-}
-
 func IsExperimentalCommand(name string) bool {
-	switch name {
-	case "hub", "team", "intake", "mission", "event", "webhook", "meeseeks",
-		"notify", "notifications", "notification", "cache", "registry",
-		"package", "instance", "authz":
-		return true
-	default:
-		return false
-	}
+	return features.CommandIsExperimental(name)
 }
 
 func hideWhenExperimentalDisabled(cmd *cobra.Command) *cobra.Command {
-	if !experimentalSurfacesEnabled() {
+	if !features.CommandVisible(cmd.Name()) {
 		cmd.Hidden = true
 	}
 	return cmd

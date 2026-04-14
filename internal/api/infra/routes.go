@@ -11,7 +11,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/events"
-	"github.com/geoffbelknap/agency/internal/featureflags"
+	"github.com/geoffbelknap/agency/internal/features"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 )
@@ -51,7 +51,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Get("/api/v1/infra/routing/metrics", h.routingMetrics)
 	r.Get("/api/v1/infra/routing/config", h.routingConfig)
 
-	if featureflags.ExperimentalSurfacesEnabled() {
+	if features.ExperimentalEnabled() {
 		// Routing optimizer
 		r.Get("/api/v1/infra/routing/suggestions", h.routingSuggestions)
 		r.Post("/api/v1/infra/routing/suggestions/{id}/approve", h.routingSuggestionApprove)

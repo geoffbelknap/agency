@@ -10,7 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/geoffbelknap/agency/internal/events"
-	"github.com/geoffbelknap/agency/internal/featureflags"
+	"github.com/geoffbelknap/agency/internal/features"
 	"github.com/geoffbelknap/agency/internal/logs"
 )
 
@@ -32,7 +32,7 @@ type handler struct {
 // routes onto r. Should only be called when EventBus is non-nil.
 func RegisterRoutes(r chi.Router, d Deps) {
 	h := &handler{deps: d}
-	experimental := featureflags.ExperimentalSurfacesEnabled()
+	experimental := features.ExperimentalEnabled()
 	if d.WebhookMgr != nil {
 		h.webhookRL = newWebhookRateLimiter()
 	}

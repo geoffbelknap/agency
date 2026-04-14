@@ -13,7 +13,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/events"
-	"github.com/geoffbelknap/agency/internal/featureflags"
+	"github.com/geoffbelknap/agency/internal/features"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -125,7 +125,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 
 	r.Get("/api/v1/agents/{name}/logs", h.agentLogs)
 
-	if featureflags.ExperimentalSurfacesEnabled() {
+	if features.ExperimentalEnabled() {
 		// Meeseeks
 		r.Post("/api/v1/agents/meeseeks", h.spawnMeeseeks)
 		r.Get("/api/v1/agents/meeseeks", h.listMeeseeks)

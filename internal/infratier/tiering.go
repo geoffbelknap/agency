@@ -1,9 +1,6 @@
 package infratier
 
-import (
-	"os"
-	"strings"
-)
+import "github.com/geoffbelknap/agency/internal/features"
 
 var (
 	coreStartupComponents         = []string{"egress", "comms", "knowledge", "web"}
@@ -14,27 +11,29 @@ var (
 	coreRebuildComponents         = []string{"egress", "comms", "knowledge", "web"}
 )
 
-func ExperimentalSurfacesEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENCY_EXPERIMENTAL_SURFACES"))) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
-	}
-}
-
 func StartupComponents() []string {
-	if ExperimentalSurfacesEnabled() {
-		return append(copyOf(coreStartupComponents), experimentalStartupComponents...)
+	out := copyOf(coreStartupComponents)
+	if features.Enabled(features.Intake) {
+		out = append(out, "intake")
 	}
-	return copyOf(coreStartupComponents)
+	if features.Enabled(features.WebFetch) {
+		out = append(out, "web-fetch")
+	}
+	if features.Enabled(features.Relay) {
+		out = append(out, "relay")
+	}
+	return out
 }
 
 func StatusComponents() []string {
-	if ExperimentalSurfacesEnabled() {
-		return append(copyOf(coreStatusComponents), experimentalStatusComponents...)
+	out := copyOf(coreStatusComponents)
+	if features.Enabled(features.Intake) {
+		out = append(out, "intake")
 	}
-	return copyOf(coreStatusComponents)
+	if features.Enabled(features.WebFetch) {
+		out = append(out, "web-fetch")
+	}
+	return out
 }
 
 func ReloadComponents() []string {

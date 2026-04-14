@@ -13,7 +13,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/events"
-	"github.com/geoffbelknap/agency/internal/featureflags"
+	"github.com/geoffbelknap/agency/internal/features"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -70,7 +70,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	// Rebuild
 	r.Post("/api/v1/admin/agents/{name}/rebuild", h.rebuildAgent)
 
-	if featureflags.ExperimentalSurfacesEnabled() {
+	if features.ExperimentalEnabled() {
 		r.Post("/api/v1/admin/trust", h.adminTrust)
 		r.Post("/api/v1/admin/graph", h.adminKnowledge)
 		r.Post("/api/v1/admin/department", h.adminDepartment)

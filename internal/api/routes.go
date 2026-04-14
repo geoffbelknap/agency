@@ -29,7 +29,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/events"
-	"github.com/geoffbelknap/agency/internal/featureflags"
+	"github.com/geoffbelknap/agency/internal/features"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -156,7 +156,7 @@ func RegisterCredentialSocketRoutes(r chi.Router, cfg *config.Config, dc *docker
 // RegisterAll sets up all REST API routes with full option support.
 // This is the canonical registration entry point for the full HTTP API surface.
 func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *slog.Logger, startup *StartupResult, opts RouteOptions) {
-	experimental := featureflags.ExperimentalSurfacesEnabled()
+	experimental := features.ExperimentalEnabled()
 	d := &mcpDeps{
 		cfg: cfg, dc: dc, log: logger,
 		infra: startup.Infra, agents: startup.AgentManager,

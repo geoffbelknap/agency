@@ -12,7 +12,7 @@ func TestStartupComponentsDefaultToCore(t *testing.T) {
 func TestStartupComponentsIncludeExperimentalWhenEnabled(t *testing.T) {
 	t.Setenv("AGENCY_EXPERIMENTAL_SURFACES", "1")
 	got := StartupComponents()
-	want := []string{"egress", "comms", "knowledge", "web", "intake", "web-fetch", "relay", "embeddings"}
+	want := []string{"egress", "comms", "knowledge", "web", "intake", "web-fetch", "relay"}
 	assertSlicesEqual(t, got, want)
 }
 

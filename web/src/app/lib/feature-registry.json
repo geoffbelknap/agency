@@ -1,0 +1,86 @@
+[
+  {
+    "id": "authz",
+    "tier": "experimental"
+  },
+  {
+    "id": "cache",
+    "tier": "internal"
+  },
+  {
+    "id": "department_admin",
+    "tier": "experimental"
+  },
+  {
+    "id": "embeddings",
+    "tier": "internal"
+  },
+  {
+    "id": "events",
+    "tier": "experimental"
+  },
+  {
+    "id": "graph_admin",
+    "tier": "experimental"
+  },
+  {
+    "id": "hub",
+    "tier": "experimental"
+  },
+  {
+    "id": "instances",
+    "tier": "experimental"
+  },
+  {
+    "id": "intake",
+    "tier": "experimental"
+  },
+  {
+    "id": "meeseeks",
+    "tier": "experimental"
+  },
+  {
+    "id": "missions",
+    "tier": "experimental"
+  },
+  {
+    "id": "notifications",
+    "tier": "experimental"
+  },
+  {
+    "id": "packages",
+    "tier": "experimental"
+  },
+  {
+    "id": "profiles",
+    "tier": "experimental"
+  },
+  {
+    "id": "registry_admin",
+    "tier": "experimental"
+  },
+  {
+    "id": "relay",
+    "tier": "experimental"
+  },
+  {
+    "id": "routing_optimizer",
+    "tier": "experimental"
+  },
+  {
+    "id": "teams",
+    "tier": "experimental"
+  },
+  {
+    "id": "trust_admin",
+    "tier": "experimental"
+  },
+  {
+    "id": "web_fetch",
+    "tier": "experimental"
+  },
+  {
+    "id": "webhooks",
+    "tier": "experimental"
+  }
+]

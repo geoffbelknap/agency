@@ -12,6 +12,7 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
+	"github.com/geoffbelknap/agency/internal/features"
 	"github.com/geoffbelknap/agency/internal/infratier"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -36,7 +37,7 @@ func registerMCPTools(reg *MCPToolRegistry) {
 	registerAdminTools(reg)
 	registerPolicyTools(reg)
 	registerCredentialTools(reg)
-	reg.WithTier("experimental", func() {
+	reg.WithTier(string(features.TierExperimental), func() {
 		registerCapabilityTools(reg)
 		registerTeamTools(reg)
 		registerDeployTools(reg)
