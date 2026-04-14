@@ -6,6 +6,7 @@ import { StatusIndicator } from '../components/StatusIndicator';
 import { InfrastructureService } from '../types';
 import { Button } from '../components/ui/button';
 import { api, type RawInfraCapacity } from '../lib/api';
+import { featureEnabled } from '../lib/features';
 import { socket } from '../lib/ws';
 
 type InfraAction = 'start' | 'stop' | 'restart';
@@ -58,10 +59,12 @@ function formatGB(mb: number) {
 
 function capacityPercent(capacity: RawInfraCapacity) {
   if (!capacity.max_agents) return 0;
-  return Math.min(100, Math.round(((capacity.running_agents + capacity.running_meeseeks) / capacity.max_agents) * 100));
+  const used = Math.max(0, capacity.max_agents - capacity.available_slots);
+  return Math.min(100, Math.round((used / capacity.max_agents) * 100));
 }
 
 export function Infrastructure() {
+  const showMeeseeks = featureEnabled('meeseeks');
   const [services, setServices] = useState<InfrastructureService[]>([]);
   const [capacity, setCapacity] = useState<RawInfraCapacity | null>(null);
   const [capacityError, setCapacityError] = useState<string | null>(null);
@@ -162,7 +165,7 @@ export function Infrastructure() {
   };
 
   const healthyCount = services.filter((s) => s.health === 'healthy').length;
-  const usedSlots = capacity ? capacity.running_agents + capacity.running_meeseeks : 0;
+  const usedSlots = capacity ? Math.max(0, capacity.max_agents - capacity.available_slots) : 0;
   const hasRunningServices = services.some((service) => isRunningState(service.state));
   const unhealthyServices = services.filter((service) => service.health === 'unhealthy');
   const stoppedServices = services.filter((service) => isStoppedState(service.state));
@@ -259,7 +262,11 @@ export function Infrastructure() {
       <div className="overflow-hidden rounded-2xl border border-border bg-card">
         <div className="px-4 py-3 border-b border-border">
           <h3 className="text-sm font-medium text-foreground">Host capacity</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">Agent and meeseeks slot budget enforced by the runtime.</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {showMeeseeks
+              ? 'Agent and meeseeks slot budget enforced by the runtime.'
+              : 'Agent slot budget enforced by the local runtime.'}
+          </p>
         </div>
         {capacityLoading ? (
           <div className="px-4 py-6 text-sm text-muted-foreground text-center">Loading capacity...</div>
@@ -269,7 +276,7 @@ export function Infrastructure() {
           </div>
         ) : capacity && (
           <div className="p-4 space-y-4">
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+            <div className={`grid grid-cols-2 gap-3 ${showMeeseeks ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
               <div>
                 <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Slots used</div>
                 <div className="text-lg font-semibold text-foreground">{usedSlots} / {capacity.max_agents}</div>
@@ -280,11 +287,19 @@ export function Infrastructure() {
                 <div className="text-lg font-semibold text-foreground">{capacity.running_agents}</div>
                 <div className="text-[11px] text-muted-foreground">{formatGB(capacity.agent_slot_mb)} each</div>
               </div>
-              <div>
-                <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Meeseeks</div>
-                <div className="text-lg font-semibold text-foreground">{capacity.running_meeseeks}</div>
-                <div className="text-[11px] text-muted-foreground">{capacity.max_concurrent_meesks} max concurrent</div>
-              </div>
+              {showMeeseeks ? (
+                <div>
+                  <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Meeseeks</div>
+                  <div className="text-lg font-semibold text-foreground">{capacity.running_meeseeks}</div>
+                  <div className="text-[11px] text-muted-foreground">{capacity.max_concurrent_meesks} max concurrent</div>
+                </div>
+              ) : (
+                <div>
+                  <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Available</div>
+                  <div className="text-lg font-semibold text-foreground">{capacity.available_slots}</div>
+                  <div className="text-[11px] text-muted-foreground">agent slots remaining</div>
+                </div>
+              )}
               <div>
                 <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Memory</div>
                 <div className="text-lg font-semibold text-foreground">{formatGB(capacity.host_memory_mb)}</div>

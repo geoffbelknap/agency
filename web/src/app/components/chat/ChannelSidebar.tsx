@@ -121,7 +121,7 @@ function SidebarContent({
           </div>
           <h2 className="mt-1 text-lg text-sidebar-foreground">Channels</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Direct work, DMs, and internal coordination.
+            Direct agent work, DMs, and audit-friendly coordination.
           </p>
         </div>
         <div className="relative flex-1">
