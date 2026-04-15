@@ -16,9 +16,8 @@ test.describe('Knowledge core surface', () => {
   test('hides ontology review and governance surfaces in the default workspace', async ({ page }) => {
     await page.goto('/knowledge/search');
 
-    await expect(page.locator('main').getByText('Knowledge', { exact: true }).first()).toBeVisible();
-    await expect(page.getByText('Query graph memory')).toBeVisible();
-    await expect(page.getByPlaceholder('governance, build, field notes...')).toBeVisible();
+    await expect(page.locator('main').getByRole('tab', { name: 'Search' })).toBeVisible();
+    await expect(page.getByText('Structural Review')).toBeVisible();
 
     await expect(page.getByRole('heading', { name: 'Ontology Review', exact: true })).toHaveCount(0);
     await expect(page.getByText('rollout-readiness', { exact: true })).toHaveCount(0);

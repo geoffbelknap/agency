@@ -56,6 +56,7 @@ test('setup wizard can advance past platform readiness into providers', async ({
   await page.goto('/setup');
   await expect(page.getByRole('heading', { name: 'Prepare the workspace' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Connect providers' })).toBeVisible();
-  await expect(page.getByText('Provider readiness')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'LLM Providers' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Provider A' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
 });

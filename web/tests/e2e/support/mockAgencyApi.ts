@@ -190,8 +190,8 @@ const profiles = [
   {
     id: 'operator',
     type: 'operator',
-    display_name: 'Geoff',
-    email: 'geoff@example.com',
+    display_name: 'Trent',
+    email: 'trent@example.com',
     status: 'active',
     bio: 'Primary operator profile',
   },
@@ -306,7 +306,7 @@ const capabilities = [
 ];
 
 const notifications = [
-  { name: 'agency-geoff', type: 'ntfy', url: 'https://ntfy.sh/agency-geoff', events: ['operator_alert'] },
+  { name: 'agency-trent', type: 'ntfy', url: 'https://ntfy.sh/agency-trent', events: ['operator_alert'] },
 ];
 
 const events = [
@@ -1000,7 +1000,7 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
       return;
     }
     if (method === 'GET' && pathname === '/api/v1/events/subscriptions') {
-      await route.fulfill(json([{ topic: 'mission.updated', destination: 'agency-geoff' }]));
+      await route.fulfill(json([{ topic: 'mission.updated', destination: 'agency-trent' }]));
       return;
     }
 

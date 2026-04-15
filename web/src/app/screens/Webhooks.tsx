@@ -3,6 +3,23 @@ import { Link } from 'react-router';
 import { toast } from 'sonner';
 import { api, RawWebhook } from '../lib/api';
 import { Button } from '../components/ui/button';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card';
+import { Input } from '../components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../components/ui/table';
 import { AlertTriangle, Copy, Plus, RefreshCw, RotateCw, Trash2 } from 'lucide-react';
 import { formatDateTime } from '../lib/time';
 
@@ -80,25 +97,23 @@ export function Webhooks() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-border bg-card px-4 py-4 md:px-5">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div className="space-y-1">
-            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Inbound delivery</div>
-            <p className="text-sm text-muted-foreground">Inbound webhooks for external systems that need signed event delivery into Agency.</p>
-            <p className="text-xs text-muted-foreground">
+      <Card>
+        <CardHeader>
+          <CardTitle>Inbound delivery</CardTitle>
+          <CardDescription>Inbound webhooks for external systems that need signed event delivery into Agency.</CardDescription>
+          <CardDescription>
               Use webhooks when another system needs a signed inbound endpoint. Use notifications for operator-facing alerts instead.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+          </CardDescription>
+          <CardAction className="flex gap-2">
+            <Button asChild variant="outline" size="sm">
               <Link to="/admin/notifications">Open Notifications</Link>
             </Button>
-            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+            <Button asChild variant="outline" size="sm">
               <Link to="/admin/events">Review Events</Link>
             </Button>
-          </div>
-        </div>
-      </div>
+          </CardAction>
+        </CardHeader>
+      </Card>
 
       <div className="flex items-center justify-between">
         <div>
@@ -107,12 +122,12 @@ export function Webhooks() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={load} disabled={loading}>
-            <RefreshCw className={`w-3 h-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={loading ? 'animate-spin' : ''} />
             Refresh
           </Button>
           {!showCreate && (
             <Button variant="outline" size="sm" onClick={() => setShowCreate(true)}>
-              <Plus className="w-3 h-3 mr-1" />
+              <Plus data-icon="inline-start" />
               Create
             </Button>
           )}
@@ -147,25 +162,26 @@ export function Webhooks() {
 
       {/* Create form */}
       {showCreate && (
-        <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
-          <div>
-            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">New webhook</div>
-            <p className="mt-1 text-xs text-muted-foreground">Create a named endpoint for one event stream, then copy the generated secret immediately.</p>
-          </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>New webhook</CardTitle>
+            <CardDescription>Create a named endpoint for one event stream, then copy the generated secret immediately.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
           <div className="flex flex-col sm:flex-row gap-2">
-            <input
+            <Input
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="name"
-              className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/70"
+              className="flex-1"
             />
-            <input
+            <Input
               type="text"
               value={newEventType}
               onChange={(e) => setNewEventType(e.target.value)}
               placeholder="event type"
-              className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/70"
+              className="flex-1"
             />
           </div>
           <div className="flex gap-2">
@@ -176,10 +192,16 @@ export function Webhooks() {
               Cancel
             </Button>
           </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
-      <div className="overflow-hidden rounded-2xl border border-border bg-card">
+      <Card>
+        <CardHeader>
+          <CardTitle>Webhooks</CardTitle>
+          <CardDescription>Create signed endpoints, rotate secrets, and remove stale receivers.</CardDescription>
+        </CardHeader>
+        <CardContent>
         {loading ? (
           <div className="text-muted-foreground text-center py-8 text-sm">Loading webhooks...</div>
         ) : webhooks.length === 0 ? (
@@ -193,27 +215,26 @@ export function Webhooks() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[500px]">
-              <thead>
-                <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-[0.14em]">
-                  <th className="text-left p-3 font-medium">Name</th>
-                  <th className="text-left p-3 font-medium">Event Type</th>
-                  <th className="text-left p-3 font-medium">URL</th>
-                  <th className="text-left p-3 font-medium">Created</th>
-                  <th className="text-right p-3 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Event Type</TableHead>
+                <TableHead>URL</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
                 {webhooks.map((wh) => (
-                  <tr key={wh.name} className="border-b border-border hover:bg-secondary/50 transition-colors">
-                    <td className="p-3"><code className="text-foreground">{wh.name}</code></td>
-                    <td className="p-3 text-xs text-foreground/80">{wh.event_type}</td>
-                    <td className="p-3 text-xs text-muted-foreground font-mono truncate max-w-[200px]">{wh.url}</td>
-                    <td className="p-3 text-xs text-muted-foreground whitespace-nowrap">
+                  <TableRow key={wh.name}>
+                    <TableCell><code className="text-foreground">{wh.name}</code></TableCell>
+                    <TableCell className="text-xs text-foreground/80">{wh.event_type}</TableCell>
+                    <TableCell className="max-w-[200px] truncate font-mono text-xs text-muted-foreground">{wh.url}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                       {wh.created_at ? formatDateTime(wh.created_at) : '—'}
-                    </td>
-                    <td className="p-3 text-right">
+                    </TableCell>
+                    <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         <Button
                           variant="ghost"
@@ -234,14 +255,14 @@ export function Webhooks() {
                           <Trash2 className="w-3 h-3" />
                         </Button>
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+            </TableBody>
+          </Table>
         )}
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

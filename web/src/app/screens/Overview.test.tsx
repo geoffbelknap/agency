@@ -194,9 +194,28 @@ describe('Overview', () => {
     renderWithRouter(<Overview />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByText(/open a dm, inspect recent activity, or review graph context/i)).toBeInTheDocument();
+      expect(screen.getByText(/open a dm, inspect recent activity, or review system state/i)).toBeInTheDocument();
       expect(screen.getAllByRole('link', { name: 'Open channels' }).length).toBeGreaterThan(0);
       expect(screen.getByRole('link', { name: 'Open knowledge' })).toHaveAttribute('href', '/knowledge');
+    });
+  });
+
+  it('uses neutral first-agent onboarding copy instead of research framing', async () => {
+    server.use(
+      http.get(`${BASE}/agents`, () => HttpResponse.json([])),
+      http.get(`${BASE}/infra/status`, () =>
+        HttpResponse.json(wrapInfra([
+          { name: 'gateway', state: 'running', health: 'healthy' },
+        ])),
+      ),
+    );
+
+    renderWithRouter(<Overview />, { route: '/' });
+
+    await waitFor(() => {
+      expect(screen.getByText(/verify a simple task or status request end to end/i)).toBeInTheDocument();
+      expect(screen.getByText(/configured for agent tasks and fallback routing/i)).toBeInTheDocument();
+      expect(screen.getByText(/start the operator flow/i)).toBeInTheDocument();
     });
   });
 
