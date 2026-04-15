@@ -589,6 +589,7 @@ func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, 
 		RetryOf:       retryOf,
 		Extra:         lh.providerToolAuditExtra(modelAlias, providerToolUses, respBody),
 	})
+	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, respBody)
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
@@ -701,6 +702,9 @@ func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, mo
 		Extra: lh.providerToolAuditExtra(modelAlias, providerToolUses, map[string]interface{}{
 			"chunks": providerToolChunks,
 		}),
+	})
+	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, map[string]interface{}{
+		"chunks": providerToolChunks,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
@@ -851,6 +855,9 @@ func (lh *LLMHandler) relayGeminiStream(w http.ResponseWriter, resp *http.Respon
 			"chunks": rawChunks,
 		}),
 	})
+	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, map[string]interface{}{
+		"chunks": rawChunks,
+	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
 }
@@ -949,6 +956,7 @@ func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.R
 		RetryOf:       retryOf,
 		Extra:         lh.providerToolAuditExtra(modelAlias, providerToolUses, rawRespBody),
 	})
+	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, rawRespBody)
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
@@ -1003,6 +1011,7 @@ func (lh *LLMHandler) relayGeminiBuffered(w http.ResponseWriter, resp *http.Resp
 		RetryOf:       retryOf,
 		Extra:         lh.providerToolAuditExtra(modelAlias, providerToolUses, rawRespBody),
 	})
+	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, rawRespBody)
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
 }
@@ -1055,6 +1064,7 @@ func (lh *LLMHandler) relayGeminiResponsesBuffered(w http.ResponseWriter, resp *
 		RetryOf:       retryOf,
 		Extra:         lh.providerToolAuditExtra(modelAlias, providerToolUses, rawRespBody),
 	})
+	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, rawRespBody)
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
 }
@@ -1136,6 +1146,9 @@ func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Res
 		Extra: lh.providerToolAuditExtra(modelAlias, providerToolUses, map[string]interface{}{
 			"chunks": rawChunks,
 		}),
+	})
+	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, map[string]interface{}{
+		"chunks": rawChunks,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
@@ -1315,6 +1328,24 @@ func (lh *LLMHandler) providerToolAuditExtra(modelAlias string, uses []ProviderT
 		}
 	}
 	return extra
+}
+
+func (lh *LLMHandler) auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID string, statusCode int, respBody map[string]interface{}) {
+	if statusCode < 200 || statusCode >= 300 {
+		return
+	}
+	proposals := detectHarnessedProviderToolProposals(respBody)
+	if len(proposals) == 0 {
+		return
+	}
+	lh.audit.Log(AuditEntry{
+		Type:          "PROVIDER_TOOL_HARNESS_PROPOSED",
+		Model:         modelAlias,
+		ProviderModel: providerModel,
+		CorrelationID: correlationID,
+		Status:        statusCode,
+		Extra:         summarizeHarnessedProviderToolUses(proposals),
+	})
 }
 
 func (lh *LLMHandler) providerToolCostEstimate(modelAlias string, uses []ProviderToolUse) float64 {

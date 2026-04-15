@@ -49,11 +49,16 @@ func TestProviderToolCapabilityInventoryShapes(t *testing.T) {
 		"code_interpreter":        capProviderCodeExecution,
 		"code_execution":          capProviderCodeExecution,
 		"code_execution_20250825": capProviderCodeExecution,
+		"computer_call":           capProviderComputerUse,
 		"computer_use_preview":    capProviderComputerUse,
 		"computer_20250124":       capProviderComputerUse,
 		"shell":                   capProviderShell,
+		"shell_call":              capProviderShell,
 		"local_shell":             capProviderShell,
+		"local_shell_call":        capProviderShell,
+		"bash_code_execution":     capProviderShell,
 		"bash_20250124":           capProviderShell,
+		"text_editor_call":        capProviderTextEditor,
 		"text_editor_20250124":    capProviderTextEditor,
 		"memory":                  capProviderMemory,
 		"mcp":                     capProviderMCP,
@@ -67,6 +72,32 @@ func TestProviderToolCapabilityInventoryShapes(t *testing.T) {
 		if got := providerToolCapability(toolType); got != want {
 			t.Fatalf("providerToolCapability(%q) = %q, want %q", toolType, got, want)
 		}
+	}
+}
+
+func TestProviderToolExecutionModes(t *testing.T) {
+	if !providerToolRequiresAgencyHarness(capProviderComputerUse) {
+		t.Fatal("computer use must require Agency harness mediation")
+	}
+	if !providerToolRequiresAgencyHarness(capProviderShell) {
+		t.Fatal("shell must require Agency harness mediation")
+	}
+	if !providerToolRequiresAgencyHarness(capProviderTextEditor) {
+		t.Fatal("text editor must require Agency harness mediation")
+	}
+	if !providerToolRequiresAgencyHarness(capProviderApplyPatch) {
+		t.Fatal("apply patch must require Agency harness mediation")
+	}
+	if providerToolRequiresAgencyHarness(capProviderWebSearch) {
+		t.Fatal("web search should remain provider-hosted, not Agency harnessed")
+	}
+
+	extra := summarizeProviderToolUses([]ProviderToolUse{{Capability: capProviderComputerUse, ToolType: "computer_use_preview"}})
+	if extra["provider_tool_execution_modes"] != providerToolExecutionAgencyHarnessed {
+		t.Fatalf("execution mode missing: %#v", extra)
+	}
+	if extra["provider_tool_harness_required"] != "true" {
+		t.Fatalf("harness marker missing: %#v", extra)
 	}
 }
 

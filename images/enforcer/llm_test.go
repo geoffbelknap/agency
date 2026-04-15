@@ -480,6 +480,75 @@ func TestLLMProviderToolAllowedWithGrant(t *testing.T) {
 	}
 }
 
+func TestLLMHarnessedProviderToolProposalAudited(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"id":"resp_test","output":[{"type":"computer_call","call_id":"call_1","action":{"type":"click","x":10,"y":20}}],"usage":{"input_tokens":5,"output_tokens":7}}`)
+	}))
+	defer provider.Close()
+
+	rc := testRoutingConfig()
+	rc.Providers["openai-compat"] = Provider{
+		APIBase: provider.URL + "/v1/",
+	}
+	model := rc.Models["claude-sonnet"]
+	model.ProviderToolCapabilities = append(model.ProviderToolCapabilities, capProviderComputerUse)
+	rc.Models["claude-sonnet"] = model
+
+	auditDir := t.TempDir()
+	audit := NewAuditLogger(auditDir, "test-agent")
+
+	lh := NewLLMHandler(rc, provider.URL, audit)
+	lh.SetProviderToolPolicy(&ProviderToolPolicy{Granted: map[string]bool{capProviderComputerUse: true}})
+
+	body := `{"model":"claude-sonnet","input":"use the computer","tools":[{"type":"computer_use_preview"}]}`
+	req := httptest.NewRequest("POST", "/v1/responses", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Correlation-Id", "corr-harness")
+	rr := httptest.NewRecorder()
+	lh.ServeHTTP(rr, req)
+	audit.Close()
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	today := time.Now().UTC().Format("2006-01-02")
+	data, err := os.ReadFile(filepath.Join(auditDir, "enforcer-"+today+".jsonl"))
+	if err != nil {
+		t.Fatalf("read audit: %v", err)
+	}
+	var harnessEntry *AuditEntry
+	var llmEntry *AuditEntry
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var entry AuditEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("unmarshal audit: %v", err)
+		}
+		if entry.Type == "PROVIDER_TOOL_HARNESS_PROPOSED" {
+			copied := entry
+			harnessEntry = &copied
+		}
+		if entry.Type == "LLM_DIRECT" {
+			copied := entry
+			llmEntry = &copied
+		}
+	}
+	if harnessEntry == nil {
+		t.Fatalf("missing PROVIDER_TOOL_HARNESS_PROPOSED audit entry in %s", string(data))
+	}
+	if harnessEntry.Extra["provider_tool_harness_required"] != "true" {
+		t.Fatalf("harness marker missing: %#v", harnessEntry.Extra)
+	}
+	if harnessEntry.Extra["provider_tool_harness_capabilities"] != capProviderComputerUse {
+		t.Fatalf("harness capability missing: %#v", harnessEntry.Extra)
+	}
+	if llmEntry == nil || llmEntry.Extra["provider_tool_harness_proposal_count"] != "1" {
+		t.Fatalf("LLM audit missing harness proposal count: %#v", llmEntry)
+	}
+}
+
 func TestLLMProviderToolUnsupportedByModel(t *testing.T) {
 	var llmCalled bool
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

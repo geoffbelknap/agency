@@ -95,3 +95,34 @@ func TestProviderToolAuditExtraGeminiURLContext(t *testing.T) {
 		t.Fatalf("source url missing: %#v", extra)
 	}
 }
+
+func TestProviderToolAuditExtraHarnessProposal(t *testing.T) {
+	resp := map[string]interface{}{
+		"output": []interface{}{
+			map[string]interface{}{
+				"type": "computer_call",
+				"action": map[string]interface{}{
+					"type": "click",
+				},
+			},
+			map[string]interface{}{
+				"type": "tool_use",
+				"name": "bash_20250124",
+				"input": map[string]interface{}{
+					"command": "whoami",
+				},
+			},
+		},
+	}
+
+	extra := providerToolAuditExtra([]ProviderToolUse{{Capability: capProviderComputerUse, ToolType: "computer_use_preview"}}, resp)
+	if extra["provider_tool_harness_required"] != "true" {
+		t.Fatalf("harness marker missing: %#v", extra)
+	}
+	if extra["provider_tool_harness_proposal_count"] != "2" {
+		t.Fatalf("proposal count missing: %#v", extra)
+	}
+	if extra["provider_tool_harness_capabilities"] != capProviderComputerUse+","+capProviderShell {
+		t.Fatalf("harness capabilities missing: %#v", extra)
+	}
+}

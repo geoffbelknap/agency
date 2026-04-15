@@ -16,7 +16,8 @@ Implemented baseline:
 - Gemini native streaming is translated from `streamGenerateContent` SSE to Agency-facing OpenAI-compatible chat chunks or Responses events.
 - Gemini native `/v1/responses` requests are translated to native `generateContent` and returned as Responses-style output.
 - Buffered provider responses produce compact audit metadata for tool type, source count, citation count, search query count, and source URLs when providers expose those fields.
-- Bundled OpenAI, Anthropic, and Gemini provider catalog entries declare `provider_tool_capabilities` per model.
+- Provider-defined computer, shell, text-editor, and patch tools are classified as `agency_harnessed`: the provider may propose actions, but actual execution must happen through Agency mediation. Provider-returned harness proposals are marked in audit as `PROVIDER_TOOL_HARNESS_PROPOSED` and summarized without logging raw action payloads.
+- Bundled OpenAI, Anthropic, and Google provider catalog entries declare `provider_tool_capabilities` per model.
 - Audit and routing metrics include provider-tool call counts, and include provider-tool estimated cost when `provider_tool_pricing` or legacy `provider_tool_costs` are configured for a model.
 
 ## Goal
@@ -121,6 +122,13 @@ Cost accounting:
 - When configured, the enforcer records `provider_tool_estimated_cost_usd`, `provider_tool_cost_unit`, `provider_tool_cost_source`, and `provider_tool_cost_confidence` in the LLM audit entry.
 - Routing metrics and budget views add known provider-tool estimated cost to token estimated cost.
 - If pricing confidence is unknown, Agency records call counts and unknown-pricing markers so the Usage tab can surface budget risk instead of treating the tool as free.
+
+Agency-harnessed tools:
+
+- `provider-computer-use`, `provider-shell`, `provider-text-editor`, and `provider-apply-patch` are not treated as provider-hosted execution.
+- These tools can be declared only when the agent has an explicit grant and the selected model declares support.
+- If the provider returns a proposed action, the enforcer records `PROVIDER_TOOL_HARNESS_PROPOSED` plus compact fields such as harness capability, provider tool type, execution mode, and proposal count.
+- The audit path intentionally avoids persisting raw shell commands, computer coordinates, edit contents, or patch payloads. Any future execution loop must translate proposals into Agency-native tool calls and pass through the same external mediation, consent, and audit controls as local tools.
 
 ## Validation Boundary
 

@@ -45,6 +45,15 @@ func providerToolAuditExtra(uses []ProviderToolUse, respBody map[string]interfac
 		}
 		extra["provider_source_urls"] = strings.Join(urls, ",")
 	}
+	if proposals := detectHarnessedProviderToolProposals(respBody); len(proposals) > 0 {
+		extra["provider_tool_harness_required"] = "true"
+		extra["provider_tool_harness_proposal_count"] = fmt.Sprintf("%d", len(proposals))
+		if proposalExtra := summarizeHarnessedProviderToolUses(proposals); proposalExtra != nil {
+			for key, value := range proposalExtra {
+				extra[key] = value
+			}
+		}
+	}
 	if len(extra) == 0 {
 		return nil
 	}
@@ -108,8 +117,39 @@ func isProviderResponseToolType(typ string) bool {
 		strings.Contains(t, "file_search") ||
 		strings.Contains(t, "code") ||
 		strings.Contains(t, "computer") ||
+		strings.Contains(t, "shell") ||
+		strings.Contains(t, "bash") ||
+		strings.Contains(t, "text_editor") ||
+		strings.Contains(t, "apply_patch") ||
 		strings.Contains(t, "tool_result") ||
 		strings.Contains(t, "server_tool")
+}
+
+func detectHarnessedProviderToolProposals(v interface{}) []ProviderToolUse {
+	var uses []ProviderToolUse
+	collectHarnessedProviderToolProposals(v, &uses)
+	return dedupeProviderToolUses(uses)
+}
+
+func collectHarnessedProviderToolProposals(v interface{}, uses *[]ProviderToolUse) {
+	switch x := v.(type) {
+	case map[string]interface{}:
+		typ, _ := x["type"].(string)
+		name, _ := x["name"].(string)
+		toolName, _ := x["tool_name"].(string)
+		for _, candidate := range []string{typ, name, toolName} {
+			if cap := providerToolCapability(candidate); cap != "" && providerToolRequiresAgencyHarness(cap) {
+				*uses = append(*uses, ProviderToolUse{Capability: cap, ToolType: candidate, Name: firstNonEmpty(name, toolName)})
+			}
+		}
+		for _, value := range x {
+			collectHarnessedProviderToolProposals(value, uses)
+		}
+	case []interface{}:
+		for _, item := range x {
+			collectHarnessedProviderToolProposals(item, uses)
+		}
+	}
 }
 
 func sortedKeys(m map[string]bool) []string {
@@ -119,4 +159,13 @@ func sortedKeys(m map[string]bool) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
