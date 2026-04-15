@@ -116,6 +116,63 @@ type RoutingConfig struct {
 	Settings  Settings            `yaml:"settings"`
 }
 
+var allowedProviderToolCapabilities = map[string]bool{
+	capProviderWebSearch:       true,
+	capProviderWebFetch:        true,
+	capProviderURLContext:      true,
+	capProviderFileSearch:      true,
+	capProviderCodeExecution:   true,
+	capProviderComputerUse:     true,
+	capProviderShell:           true,
+	capProviderTextEditor:      true,
+	capProviderMemory:          true,
+	capProviderMCP:             true,
+	capProviderImageGeneration: true,
+	capProviderGoogleMaps:      true,
+	capProviderToolSearch:      true,
+	capProviderApplyPatch:      true,
+}
+
+func validateProviderToolCapability(capability string) error {
+	if allowedProviderToolCapabilities[capability] {
+		return nil
+	}
+	return fmt.Errorf("unknown provider tool capability %q", capability)
+}
+
+func (rc *RoutingConfig) Validate() error {
+	if rc == nil {
+		return fmt.Errorf("routing config is nil")
+	}
+	if _, ok := rc.Providers["gemini"]; ok {
+		return fmt.Errorf("providers.gemini is not supported; use provider principal google with api_format gemini")
+	}
+	for alias, model := range rc.Models {
+		if strings.TrimSpace(model.Provider) == "" {
+			return fmt.Errorf("models.%s.provider is required", alias)
+		}
+		if _, ok := rc.Providers[model.Provider]; !ok {
+			return fmt.Errorf("models.%s references unknown provider %q", alias, model.Provider)
+		}
+		for _, capability := range model.ProviderToolCapabilities {
+			if err := validateProviderToolCapability(capability); err != nil {
+				return fmt.Errorf("models.%s.provider_tool_capabilities: %w", alias, err)
+			}
+		}
+		for capability := range model.ProviderToolPricing {
+			if err := validateProviderToolCapability(capability); err != nil {
+				return fmt.Errorf("models.%s.provider_tool_pricing: %w", alias, err)
+			}
+		}
+		for capability := range model.ProviderToolCosts {
+			if err := validateProviderToolCapability(capability); err != nil {
+				return fmt.Errorf("models.%s.provider_tool_costs: %w", alias, err)
+			}
+		}
+	}
+	return nil
+}
+
 // APIKey represents an API key entry in api_keys.yaml.
 type APIKey struct {
 	Key  string `yaml:"key"`
@@ -152,6 +209,9 @@ func LoadRoutingConfig(path string) (*RoutingConfig, error) {
 	var rc RoutingConfig
 	if err := yaml.Unmarshal(data, &rc); err != nil {
 		return nil, fmt.Errorf("parse routing config: %w", err)
+	}
+	if err := rc.Validate(); err != nil {
+		return nil, fmt.Errorf("validate routing config: %w", err)
 	}
 	return &rc, nil
 }

@@ -69,6 +69,43 @@ func TestProviderYAMLToolCapabilitiesExistInInventory(t *testing.T) {
 					t.Fatalf("%s/%s declares unknown provider tool capability %q", provider.Name, modelName, capability)
 				}
 			}
+			pricing, _ := model["provider_tool_pricing"].(map[string]interface{})
+			for capability := range pricing {
+				if _, ok := inv.Capabilities[capability]; !ok {
+					t.Fatalf("%s/%s declares unknown provider tool pricing capability %q", provider.Name, modelName, capability)
+				}
+			}
+		}
+	}
+}
+
+func TestProviderYAMLUsesCanonicalProviderPrincipals(t *testing.T) {
+	providers, err := List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range providers {
+		if provider.Name == "gemini" {
+			t.Fatal("gemini provider principal should not exist; use google with api_format gemini")
+		}
+		routingProviders, _ := provider.Routing["providers"].(map[string]interface{})
+		for name := range routingProviders {
+			if name == "gemini" {
+				t.Fatalf("%s routing declares stale gemini provider principal", provider.Name)
+			}
+		}
+		routingModels, _ := provider.Routing["models"].(map[string]interface{})
+		for modelName, rawModel := range routingModels {
+			model, _ := rawModel.(map[string]interface{})
+			modelProvider, _ := model["provider"].(string)
+			if modelProvider == "gemini" {
+				t.Fatalf("%s/%s references stale gemini provider principal", provider.Name, modelName)
+			}
+			if modelProvider != "" {
+				if _, ok := routingProviders[modelProvider]; !ok {
+					t.Fatalf("%s/%s references unknown provider principal %q", provider.Name, modelName, modelProvider)
+				}
+			}
 		}
 	}
 }

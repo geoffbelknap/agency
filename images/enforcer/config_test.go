@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -70,6 +71,60 @@ func TestModelProviderToolPriceForLegacyCosts(t *testing.T) {
 	}
 	if price.Unit != "tool_call" || price.USDPerUnit != 0.01 || price.Confidence != "estimated" {
 		t.Fatalf("unexpected legacy price: %#v", price)
+	}
+}
+
+func TestLoadRoutingConfigRejectsUnknownProviderToolCapability(t *testing.T) {
+	dir := t.TempDir()
+	routingFile := filepath.Join(dir, "routing.yaml")
+	os.WriteFile(routingFile, []byte(`
+version: "0.1"
+providers:
+  openai:
+    api_base: https://api.openai.com/v1/
+models:
+  gpt-test:
+    provider: openai
+    provider_model: gpt-test
+    provider_tool_capabilities: [provider-web-search, provider-unknown-tool]
+settings:
+  xpia_scan: true
+  default_timeout: 300
+`), 0644)
+
+	_, err := LoadRoutingConfig(routingFile)
+	if err == nil {
+		t.Fatal("expected unknown provider tool capability error")
+	}
+	if !strings.Contains(err.Error(), "provider-unknown-tool") {
+		t.Fatalf("expected capability name in error, got %v", err)
+	}
+}
+
+func TestLoadRoutingConfigRejectsGeminiProviderPrincipal(t *testing.T) {
+	dir := t.TempDir()
+	routingFile := filepath.Join(dir, "routing.yaml")
+	os.WriteFile(routingFile, []byte(`
+version: "0.1"
+providers:
+  gemini:
+    api_base: https://generativelanguage.googleapis.com/v1beta/
+    api_format: gemini
+models:
+  gemini-flash:
+    provider: gemini
+    provider_model: gemini-2.5-flash
+settings:
+  xpia_scan: true
+  default_timeout: 300
+`), 0644)
+
+	_, err := LoadRoutingConfig(routingFile)
+	if err == nil {
+		t.Fatal("expected gemini provider principal error")
+	}
+	if !strings.Contains(err.Error(), "provider principal google") {
+		t.Fatalf("expected google provider guidance, got %v", err)
 	}
 }
 
