@@ -60,11 +60,13 @@ func (h *handler) routingConfig(w http.ResponseWriter, r *http.Request) {
 		Caching bool   `json:"caching"`
 	}
 	type modelView struct {
-		Provider          string  `json:"provider"`
-		ProviderModel     string  `json:"provider_model"`
-		CostPerMTokIn     float64 `json:"cost_per_mtok_in"`
-		CostPerMTokOut    float64 `json:"cost_per_mtok_out"`
-		CostPerMTokCached float64 `json:"cost_per_mtok_cached"`
+		Provider                 string                              `json:"provider"`
+		ProviderModel            string                              `json:"provider_model"`
+		ProviderToolCapabilities []string                            `json:"provider_tool_capabilities,omitempty"`
+		ProviderToolPricing      map[string]models.ProviderToolPrice `json:"provider_tool_pricing,omitempty"`
+		CostPerMTokIn            float64                             `json:"cost_per_mtok_in"`
+		CostPerMTokOut           float64                             `json:"cost_per_mtok_out"`
+		CostPerMTokCached        float64                             `json:"cost_per_mtok_cached"`
 	}
 
 	providers := make(map[string]providerView, len(rc.Providers))
@@ -79,11 +81,13 @@ func (h *handler) routingConfig(w http.ResponseWriter, r *http.Request) {
 	modelsMap := make(map[string]modelView, len(rc.Models))
 	for k, m := range rc.Models {
 		modelsMap[k] = modelView{
-			Provider:          m.Provider,
-			ProviderModel:     m.ProviderModel,
-			CostPerMTokIn:     m.CostPerMTokIn,
-			CostPerMTokOut:    m.CostPerMTokOut,
-			CostPerMTokCached: m.CostPerMTokCached,
+			Provider:                 m.Provider,
+			ProviderModel:            m.ProviderModel,
+			ProviderToolCapabilities: m.ProviderToolCapabilities,
+			ProviderToolPricing:      m.ProviderToolPricing,
+			CostPerMTokIn:            m.CostPerMTokIn,
+			CostPerMTokOut:           m.CostPerMTokOut,
+			CostPerMTokCached:        m.CostPerMTokCached,
 		}
 	}
 
@@ -113,15 +117,34 @@ func loadModelCosts(home string) map[string]routing.ModelCost {
 	costs := make(map[string]routing.ModelCost, len(rc.Models))
 	for alias, m := range rc.Models {
 		costs[alias] = routing.ModelCost{
-			CostPerMTokIn:     m.CostPerMTokIn,
-			CostPerMTokOut:    m.CostPerMTokOut,
-			CostPerMTokCached: m.CostPerMTokCached,
+			CostPerMTokIn:       m.CostPerMTokIn,
+			CostPerMTokOut:      m.CostPerMTokOut,
+			CostPerMTokCached:   m.CostPerMTokCached,
+			ProviderToolCosts:   m.ProviderToolCosts,
+			ProviderToolPricing: routingProviderToolPricing(m.ProviderToolPricing),
 		}
 	}
 	if len(costs) == 0 {
 		return nil
 	}
 	return costs
+}
+
+func routingProviderToolPricing(in map[string]models.ProviderToolPrice) map[string]routing.ProviderToolPrice {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]routing.ProviderToolPrice, len(in))
+	for cap, p := range in {
+		out[cap] = routing.ProviderToolPrice{
+			Unit:        p.Unit,
+			USDPerUnit:  p.USDPerUnit,
+			Source:      p.Source,
+			Confidence:  p.Confidence,
+			Description: p.Description,
+		}
+	}
+	return out
 }
 
 // listProviders returns available bundled LLM providers with credential status.
@@ -193,6 +216,18 @@ func (h *handler) listProviders(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, results)
 }
 
+// providerTools returns the canonical bundled provider-tool inventory.
+//
+//	GET /api/v1/infra/provider-tools
+func (h *handler) providerTools(w http.ResponseWriter, r *http.Request) {
+	inv, err := providercatalog.ProviderTools()
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "failed to load provider tool inventory"})
+		return
+	}
+	writeJSON(w, 200, inv)
+}
+
 // strField extracts a string value from a map by key.
 func strField(m map[string]interface{}, key string) string {
 	v, _ := m[key].(string)
@@ -227,6 +262,7 @@ func (h *handler) installProvider(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
 		return
 	}
+	h.regenerateSwapConfig()
 	writeJSON(w, 200, map[string]string{"status": "installed", "provider": name})
 }
 

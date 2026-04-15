@@ -943,6 +943,13 @@ func GenerateFrameworkMD(agentType, agentTier string) string {
 // resolveGrantedCaps returns the set of capability names granted to this agent.
 func (ss *StartSequence) resolveGrantedCaps() map[string]bool {
 	result := make(map[string]bool)
+	if caps, ok := ss.constraintsData["granted_capabilities"].([]interface{}); ok {
+		for _, raw := range caps {
+			if cap, ok := raw.(string); ok && cap != "" {
+				result[cap] = true
+			}
+		}
+	}
 	capPath := filepath.Join(ss.Home, "capabilities.yaml")
 	data, err := os.ReadFile(capPath)
 	if err != nil {

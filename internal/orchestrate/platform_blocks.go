@@ -1,6 +1,9 @@
 package orchestrate
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // Platform awareness building blocks — composable by agent type.
 // See docs/specs/platform/agent-platform-awareness.md
@@ -60,7 +63,21 @@ Combined outputs from multiple agents cannot exceed what any individual contribu
 // allCapabilities lists capabilities that can be granted.
 // Used to generate the "not available" section in PLATFORM.md.
 var allCapabilities = map[string]string{
-	"web-fetch": "fetch and read web pages",
+	"provider-web-search":       "use provider-executed web search with cited sources",
+	"provider-web-fetch":        "use provider-executed web page fetching",
+	"provider-url-context":      "send specific URLs to a provider for context",
+	"provider-file-search":      "use provider-hosted file or collection search",
+	"provider-code-execution":   "use provider-hosted code execution",
+	"provider-computer-use":     "use provider-hosted computer control",
+	"provider-shell":            "use provider-hosted shell tools",
+	"provider-text-editor":      "use provider-hosted text editor tools",
+	"provider-memory":           "use provider-hosted memory tools",
+	"provider-mcp":              "connect a provider directly to remote MCP tools",
+	"provider-image-generation": "use provider-hosted image generation tools",
+	"provider-google-maps":      "use provider-hosted Google Maps tools",
+	"provider-tool-search":      "let a provider discover additional available tools",
+	"provider-apply-patch":      "use provider-hosted patch application tools",
+	"web-fetch":                 "fetch and read web pages",
 }
 
 // GeneratePlatformMD assembles platform awareness content scaled by agent type.
@@ -87,7 +104,13 @@ func GeneratePlatformMD(agentType string, grantedCaps map[string]bool) string {
 
 	// Tell the agent what it cannot do — prevents hallucinating capabilities.
 	var notGranted []string
-	for cap, desc := range allCapabilities {
+	caps := make([]string, 0, len(allCapabilities))
+	for cap := range allCapabilities {
+		caps = append(caps, cap)
+	}
+	sort.Strings(caps)
+	for _, cap := range caps {
+		desc := allCapabilities[cap]
 		if grantedCaps == nil || !grantedCaps[cap] {
 			notGranted = append(notGranted, "- You cannot "+desc+" (the `"+cap+"` capability is not granted)")
 		}

@@ -1,0 +1,276 @@
+version: "0.1"
+capabilities:
+  provider-web-search:
+    title: Web search
+    risk: medium
+    default_grant: true
+    execution: provider_hosted
+    description: Provider-side web search or search grounding.
+    providers:
+      openai:
+        status: supported
+        request_tools: [web_search, web_search_preview]
+        endpoints: [/v1/responses, /v1/chat/completions]
+        pricing: {unit: tool_call, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model, audit_fixture, pricing_fixture]
+      anthropic:
+        status: supported
+        request_tools: [web_search_20250305, web_search_20260209]
+        generic_tools: [web_search]
+        endpoints: [/v1/messages]
+        pricing: {unit: search, usd_per_unit: 0.01, confidence: exact}
+        tests: [detect, normalize_generic, grant_deny, unsupported_model, audit_fixture, pricing_fixture]
+      google:
+        status: supported
+        request_tools: [google_search]
+        generic_tools: [web_search]
+        endpoints: [generateContent, streamGenerateContent]
+        pricing: {unit: grounded_request, confidence: unknown}
+        tests: [detect, normalize_generic, grant_deny, unsupported_model, audit_fixture, pricing_fixture]
+
+  provider-web-fetch:
+    title: Web fetch
+    risk: medium
+    default_grant: false
+    execution: provider_hosted
+    description: Provider-side retrieval of web pages or URLs.
+    providers:
+      openai:
+        status: partial
+        request_tools: [web_search]
+        notes: Web page opening appears as web search actions rather than a separate stable tool.
+        pricing: {unit: tool_call, confidence: unknown}
+        tests: [inventory_only]
+      anthropic:
+        status: inventoried
+        request_tools: [web_fetch]
+        pricing: {unit: tool_call, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model]
+      google:
+        status: supported
+        request_tools: [url_context]
+        capability_alias: provider-url-context
+        pricing: {unit: url_context_request, confidence: unknown}
+        tests: [detect, normalize_generic, grant_deny, unsupported_model, audit_fixture]
+
+  provider-url-context:
+    title: URL context
+    risk: medium
+    default_grant: false
+    execution: provider_hosted
+    description: Google Gemini URL context tool.
+    providers:
+      openai: {status: no_equivalent}
+      anthropic: {status: no_equivalent}
+      google:
+        status: supported
+        request_tools: [url_context]
+        endpoints: [generateContent, streamGenerateContent]
+        pricing: {unit: url_context_request, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model, audit_fixture]
+
+  provider-file-search:
+    title: File search
+    risk: medium
+    default_grant: false
+    execution: provider_connected
+    description: Provider-side search over provider-hosted file or vector stores.
+    providers:
+      openai:
+        status: supported
+        request_tools: [file_search]
+        endpoints: [/v1/responses]
+        pricing: {unit: query_or_storage, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model, audit_fixture, pricing_fixture]
+      anthropic: {status: no_equivalent}
+      google:
+        status: supported
+        request_tools: [file_search]
+        endpoints: [generateContent]
+        pricing: {unit: query_or_storage, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model, audit_fixture]
+
+  provider-code-execution:
+    title: Code execution
+    risk: high
+    default_grant: false
+    execution: provider_hosted
+    description: Provider-hosted code interpreter or code execution sandbox.
+    providers:
+      openai:
+        status: supported
+        request_tools: [code_interpreter]
+        endpoints: [/v1/responses]
+        pricing: {unit: session, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model, audit_fixture, pricing_fixture]
+      anthropic:
+        status: beta
+        request_tools: [code_execution_20250825]
+        required_headers: ["anthropic-beta: code-execution-2025-08-25"]
+        endpoints: [/v1/messages]
+        pricing: {unit: session, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model]
+      google:
+        status: supported
+        request_tools: [code_execution]
+        endpoints: [generateContent]
+        pricing: {unit: execution, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model, audit_fixture]
+
+  provider-computer-use:
+    title: Computer use
+    risk: critical
+    default_grant: false
+    execution: agency_harnessed
+    description: Provider-defined computer-use loop. The model proposes actions; Agency must execute any action through runtime mediation.
+    providers:
+      openai:
+        status: harness_required
+        request_tools: [computer_use_preview]
+        pricing: {unit: harness_action, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model, harness_required]
+      anthropic:
+        status: harness_required
+        request_tools: [computer_20250124]
+        pricing: {unit: harness_action, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model, harness_required]
+      google:
+        status: unconfirmed
+        request_tools: [computer_use]
+        pricing: {unit: harness_action, confidence: unknown}
+        tests: [inventory_only]
+
+  provider-shell:
+    title: Shell
+    risk: critical
+    default_grant: false
+    execution: agency_harnessed
+    description: Provider-defined shell or bash action proposal. Actual command execution must remain mediated by Agency.
+    providers:
+      openai:
+        status: harness_required
+        request_tools: [shell, local_shell]
+        pricing: {unit: harness_action, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model, harness_required]
+      anthropic:
+        status: harness_required
+        request_tools: [bash_20250124]
+        pricing: {unit: harness_action, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model, harness_required]
+      google: {status: no_equivalent}
+
+  provider-text-editor:
+    title: Text editor
+    risk: high
+    default_grant: false
+    execution: agency_harnessed
+    description: Provider-defined text editing action proposal. Actual filesystem writes must remain mediated by Agency.
+    providers:
+      openai: {status: no_equivalent}
+      anthropic:
+        status: harness_required
+        request_tools: [text_editor_20250124]
+        pricing: {unit: harness_action, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model, harness_required]
+      google: {status: no_equivalent}
+
+  provider-memory:
+    title: Provider memory
+    risk: high
+    default_grant: false
+    execution: provider_connected
+    description: Provider-managed memory tools or memory connector surfaces.
+    providers:
+      openai: {status: no_equivalent}
+      anthropic:
+        status: inventoried
+        request_tools: [memory]
+        pricing: {unit: tool_call, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model]
+      google: {status: no_equivalent}
+
+  provider-mcp:
+    title: Remote MCP and connectors
+    risk: high
+    default_grant: false
+    execution: provider_connected
+    description: Provider-side remote MCP or connector execution.
+    providers:
+      openai:
+        status: supported
+        request_tools: [mcp]
+        endpoints: [/v1/responses]
+        pricing: {unit: remote_tool_call, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model, audit_fixture, pricing_fixture]
+      anthropic:
+        status: beta
+        request_fields: [mcp_servers]
+        required_headers: ["anthropic-beta: mcp-client-2025-04-04"]
+        pricing: {unit: remote_tool_call, confidence: unknown}
+        tests: [inventory_only]
+      google: {status: no_equivalent}
+
+  provider-image-generation:
+    title: Image generation
+    risk: high
+    default_grant: false
+    execution: provider_hosted
+    description: Provider-side image generation tool.
+    providers:
+      openai:
+        status: supported
+        request_tools: [image_generation]
+        endpoints: [/v1/responses]
+        pricing: {unit: image, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model, audit_fixture, pricing_fixture]
+      anthropic: {status: no_equivalent}
+      google: {status: no_equivalent}
+
+  provider-google-maps:
+    title: Google Maps grounding
+    risk: medium
+    default_grant: false
+    execution: provider_connected
+    description: Google Maps grounding/tool access.
+    providers:
+      openai: {status: no_equivalent}
+      anthropic: {status: no_equivalent}
+      google:
+        status: unconfirmed
+        request_tools: [google_maps]
+        pricing: {unit: maps_grounded_request, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model]
+
+  provider-tool-search:
+    title: Tool search
+    risk: high
+    default_grant: false
+    execution: provider_connected
+    description: Provider-side discovery or invocation of available tools.
+    providers:
+      openai:
+        status: inventoried
+        request_tools: [tool_search]
+        pricing: {unit: tool_call, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model]
+      anthropic:
+        status: inventoried
+        request_tools: [tool_search]
+        pricing: {unit: tool_call, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model]
+      google: {status: no_equivalent}
+
+  provider-apply-patch:
+    title: Apply patch
+    risk: high
+    default_grant: false
+    execution: agency_harnessed
+    description: Provider-defined patch proposal. Actual file mutation must remain mediated by Agency.
+    providers:
+      openai:
+        status: harness_required
+        request_tools: [apply_patch]
+        pricing: {unit: harness_action, confidence: unknown}
+        tests: [detect, grant_deny, unsupported_model, harness_required]
+      anthropic: {status: no_equivalent}
+      google: {status: no_equivalent}

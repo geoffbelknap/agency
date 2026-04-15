@@ -11,6 +11,23 @@ const SYSTEM_TABS: { id: SystemSubTab; label: string }[] = [
   { id: 'logs', label: 'Logs' },
 ];
 
+const PROVIDER_TOOL_CAPABILITIES: RawCapability[] = [
+  { name: 'provider-web-search', kind: 'provider-tool', state: 'available', description: 'Provider-executed web search' },
+  { name: 'provider-web-fetch', kind: 'provider-tool', state: 'available', description: 'Provider-executed URL fetch' },
+  { name: 'provider-url-context', kind: 'provider-tool', state: 'available', description: 'Provider URL context ingestion' },
+  { name: 'provider-file-search', kind: 'provider-tool', state: 'available', description: 'Provider-hosted file search' },
+  { name: 'provider-code-execution', kind: 'provider-tool', state: 'available', description: 'Provider-executed code' },
+  { name: 'provider-computer-use', kind: 'provider-tool', state: 'available', description: 'Provider computer control' },
+  { name: 'provider-shell', kind: 'provider-tool', state: 'available', description: 'Provider shell execution' },
+  { name: 'provider-text-editor', kind: 'provider-tool', state: 'available', description: 'Provider text editor operations' },
+  { name: 'provider-memory', kind: 'provider-tool', state: 'available', description: 'Provider-managed memory' },
+  { name: 'provider-mcp', kind: 'provider-tool', state: 'available', description: 'Provider MCP connector access' },
+  { name: 'provider-image-generation', kind: 'provider-tool', state: 'available', description: 'Provider image generation' },
+  { name: 'provider-google-maps', kind: 'provider-tool', state: 'available', description: 'Provider Google Maps grounding' },
+  { name: 'provider-tool-search', kind: 'provider-tool', state: 'available', description: 'Provider tool catalog search' },
+  { name: 'provider-apply-patch', kind: 'provider-tool', state: 'available', description: 'Provider patch application' },
+];
+
 interface Props {
   agent: Agent;
   agentConfig: Record<string, any> | null;
@@ -46,6 +63,11 @@ function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, h
       setIdentityDraft(agentConfig.identity);
     }
   }, [agentConfig]);
+
+  const visibleCapabilities = [
+    ...capabilities,
+    ...PROVIDER_TOOL_CAPABILITIES.filter((providerCap) => !capabilities.some((cap) => cap.name === providerCap.name)),
+  ];
 
   return (
     <div className="space-y-4 p-4">
@@ -152,14 +174,15 @@ function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, h
       {/* Unified capabilities list */}
       <div>
         <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Capabilities</div>
-        {capabilities.length === 0 ? (
+        {visibleCapabilities.length === 0 ? (
           <div className="text-xs text-muted-foreground/70">No capabilities available.</div>
         ) : (
           <div className="space-y-1.5">
-            {capabilities.map((c: any) => {
+            {visibleCapabilities.map((c: any) => {
               const agentGrants = agent.grantedCapabilities || [];
               const granted = agentGrants.includes(c.name);
-              const platformActive = c.state === 'enabled' || c.state === 'available' || c.state === 'restricted';
+              const providerTool = c.kind === 'provider-tool';
+              const platformActive = !providerTool && (c.state === 'enabled' || c.state === 'available' || c.state === 'restricted');
               const scopedAll = platformActive && (c.scoped_agents?.length === 0 || !c.scoped_agents);
               const scopedToThis = platformActive && c.scoped_agents?.includes(agent.name);
               const effectiveAccess = granted || scopedAll || scopedToThis;
@@ -188,10 +211,10 @@ function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, h
                       )}
                     </div>
                   </div>
-                  {(c.state !== 'disabled' || granted) && (
+                  {(providerTool || c.state !== 'disabled' || granted) && (
                     <button
-                      onClick={() => granted ? handleRevoke(agent.name, c.name) : platformActive ? handleGrant(agent.name, c.name) : undefined}
-                      disabled={capLoading === c.name || (!granted && !platformActive)}
+                      onClick={() => granted ? handleRevoke(agent.name, c.name) : (platformActive || providerTool) ? handleGrant(agent.name, c.name) : undefined}
+                      disabled={capLoading === c.name || (!granted && !platformActive && !providerTool)}
                       className={`text-[10px] px-2.5 py-1 rounded cursor-pointer transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 ${actionStyle}`}>
                       {capLoading === c.name ? '...' : effectiveAccess && !granted ? 'active' : granted ? 'revoke' : 'grant'}
                     </button>

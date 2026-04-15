@@ -495,7 +495,7 @@ func inferProviderDefaults(name string) *providerDefaults {
 			Header:  "Authorization",
 			Format:  "Bearer {key}",
 		}
-	case strings.Contains(n, "google"):
+	case strings.Contains(n, "google"), strings.Contains(n, "gemini"):
 		return &providerDefaults{
 			Domains: []string{"generativelanguage.googleapis.com"},
 			Header:  "x-goog-api-key",
@@ -521,4 +521,3 @@ func matchesFilter(metadata map[string]string, filter Filter) bool {
 	}
 	return true
 }
-

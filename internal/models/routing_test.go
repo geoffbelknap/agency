@@ -29,7 +29,7 @@ func TestRoutingConfig_TierCapabilities(t *testing.T) {
 	rc := RoutingConfig{
 		Models: map[string]ModelConfig{
 			"claude-sonnet": {Provider: "anthropic", ProviderModel: "claude-sonnet-4", Capabilities: []string{"tools", "vision", "streaming"}},
-			"gemini-flash":  {Provider: "gemini", ProviderModel: "gemini-2.5-flash", Capabilities: []string{"tools", "vision", "streaming"}},
+			"gemini-flash":  {Provider: "google", ProviderModel: "gemini-2.5-flash", Capabilities: []string{"tools", "vision", "streaming"}},
 		},
 		Tiers: TierConfig{
 			Standard: []TierEntry{{Model: "claude-sonnet"}, {Model: "gemini-flash"}},

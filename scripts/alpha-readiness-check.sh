@@ -104,7 +104,7 @@ credential_names_for_provider() {
     openai)
       printf '%s\n' openai-api-key OPENAI_API_KEY
       ;;
-    gemini)
+    google)
       printf '%s\n' gemini-api-key GEMINI_API_KEY
       ;;
     *)

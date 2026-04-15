@@ -3227,6 +3227,21 @@ paths:
                 items:
                   type: object
                   additionalProperties: true
+  /infra/provider-tools:
+    get:
+      operationId: listProviderTools
+      summary: List canonical provider-side tool inventory
+      tags: [Infra]
+      x-agency-tier: core
+      x-agency-stability: supported
+      responses:
+        "200":
+          description: Provider-tool capability inventory with per-provider support metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
   /infra/providers/{name}/install:
     post:
       operationId: installProvider

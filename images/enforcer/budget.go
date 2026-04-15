@@ -82,6 +82,15 @@ func (bt *BudgetTracker) RecordUsage(inputTokens, outputTokens, cachedTokens int
 		float64(outputTokens)*costPerMTokOut/1_000_000 +
 		float64(cachedTokens)*costPerMTokCached/1_000_000
 
+	bt.RecordCost(cost, inputTokens, outputTokens, cachedTokens)
+}
+
+// RecordCost adds an already-estimated USD cost, such as provider-side tool
+// charges, to the current task and reports it to the gateway.
+func (bt *BudgetTracker) RecordCost(cost float64, inputTokens, outputTokens, cachedTokens int64) {
+	if cost <= 0 {
+		return
+	}
 	bt.mu.Lock()
 	bt.taskCostUSD += cost
 	bt.mu.Unlock()

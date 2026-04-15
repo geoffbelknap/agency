@@ -22,11 +22,12 @@ func testRoutingConfig() *RoutingConfig {
 		},
 		Models: map[string]Model{
 			"claude-sonnet": {
-				Provider:      "openai-compat",
-				ProviderModel: "claude-sonnet-4-20250514",
-				Capabilities:  []string{"tools", "vision", "streaming"},
-				CostIn:        3.0,
-				CostOut:       15.0,
+				Provider:                 "openai-compat",
+				ProviderModel:            "claude-sonnet-4-20250514",
+				Capabilities:             []string{"tools", "vision", "streaming"},
+				ProviderToolCapabilities: []string{capProviderWebSearch},
+				CostIn:                   3.0,
+				CostOut:                  15.0,
 			},
 		},
 	}
@@ -116,6 +117,275 @@ func TestLLMModelRewrittenInBody(t *testing.T) {
 	}
 }
 
+func TestLLMResponsesEndpointForwarded(t *testing.T) {
+	var receivedPath string
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"id":"resp_test","usage":{"input_tokens":5,"output_tokens":7}}`)
+	}))
+	defer provider.Close()
+
+	rc := testRoutingConfig()
+	rc.Providers["openai-compat"] = Provider{
+		APIBase: provider.URL + "/v1/",
+	}
+
+	auditDir := t.TempDir()
+	audit := NewAuditLogger(auditDir, "test-agent")
+	defer audit.Close()
+
+	lh := NewLLMHandler(rc, provider.URL, audit)
+	lh.SetProviderToolPolicy(&ProviderToolPolicy{Granted: map[string]bool{capProviderWebSearch: true}})
+
+	body := `{"model":"claude-sonnet","input":"what changed today?","tools":[{"type":"web_search"}]}`
+	req := httptest.NewRequest("POST", "/v1/responses", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	lh.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if receivedPath != "/v1/responses" {
+		t.Fatalf("expected /v1/responses upstream path, got %q", receivedPath)
+	}
+}
+
+func TestLLMGeminiNativeTranslated(t *testing.T) {
+	var receivedPath string
+	var received map[string]interface{}
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(body, &received); err != nil {
+			t.Fatalf("unmarshal request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"candidates":[{"content":{"parts":[{"text":"grounded"}],"role":"model"},"groundingMetadata":{"webSearchQueries":["q"],"groundingChunks":[{"web":{"uri":"https://example.com","title":"Example"}}]}}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":4,"totalTokenCount":7}}`)
+	}))
+	defer provider.Close()
+
+	rc := &RoutingConfig{
+		Providers: map[string]Provider{
+			"google": {APIBase: provider.URL + "/v1beta", APIFormat: "gemini"},
+		},
+		Models: map[string]Model{
+			"gemini-flash": {
+				Provider:                 "google",
+				ProviderModel:            "gemini-2.5-flash",
+				Capabilities:             []string{"tools"},
+				ProviderToolCapabilities: []string{capProviderWebSearch},
+			},
+		},
+	}
+	auditDir := t.TempDir()
+	audit := NewAuditLogger(auditDir, "test-agent")
+	defer audit.Close()
+
+	lh := NewLLMHandler(rc, provider.URL, audit)
+	lh.SetProviderToolPolicy(&ProviderToolPolicy{Granted: map[string]bool{capProviderWebSearch: true}})
+
+	body := `{"model":"gemini-flash","messages":[{"role":"user","content":"search"}],"tools":[{"type":"web_search"}]}`
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	lh.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if receivedPath != "/v1beta/models/gemini-2.5-flash:generateContent" {
+		t.Fatalf("received path = %q", receivedPath)
+	}
+	if received["model"] != nil {
+		t.Fatalf("native Gemini request should not include model: %#v", received)
+	}
+	tools := received["tools"].([]interface{})
+	if _, ok := tools[0].(map[string]interface{})["google_search"]; !ok {
+		t.Fatalf("web_search was not translated to google_search: %#v", tools)
+	}
+	if !strings.Contains(rr.Body.String(), "grounded") {
+		t.Fatalf("response not translated: %s", rr.Body.String())
+	}
+}
+
+func TestLLMGeminiNativeStreamTranslated(t *testing.T) {
+	var receivedPath, receivedQuery string
+	var received map[string]interface{}
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		receivedQuery = r.URL.RawQuery
+		body, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(body, &received); err != nil {
+			t.Fatalf("unmarshal request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hello \"}],\"role\":\"model\"}}]}\n\n")
+		flusher.Flush()
+		fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"world\"}],\"role\":\"model\"},\"groundingMetadata\":{\"webSearchQueries\":[\"q\"],\"groundingChunks\":[{\"web\":{\"uri\":\"https://example.com\"}}]}}],\"usageMetadata\":{\"promptTokenCount\":3,\"candidatesTokenCount\":2,\"totalTokenCount\":5}}\n\n")
+		flusher.Flush()
+	}))
+	defer provider.Close()
+
+	rc := &RoutingConfig{
+		Providers: map[string]Provider{
+			"google": {APIBase: provider.URL + "/v1beta", APIFormat: "gemini"},
+		},
+		Models: map[string]Model{
+			"gemini-flash": {
+				Provider:                 "google",
+				ProviderModel:            "gemini-2.5-flash",
+				Capabilities:             []string{"tools", "streaming"},
+				ProviderToolCapabilities: []string{capProviderWebSearch},
+			},
+		},
+	}
+	auditDir := t.TempDir()
+	audit := NewAuditLogger(auditDir, "test-agent")
+	defer audit.Close()
+
+	lh := NewLLMHandler(rc, provider.URL, audit)
+	lh.SetProviderToolPolicy(&ProviderToolPolicy{Granted: map[string]bool{capProviderWebSearch: true}})
+
+	body := `{"model":"gemini-flash","messages":[{"role":"user","content":"search"}],"tools":[{"type":"web_search"}],"stream":true}`
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	lh.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if receivedPath != "/v1beta/models/gemini-2.5-flash:streamGenerateContent" {
+		t.Fatalf("received path = %q", receivedPath)
+	}
+	if receivedQuery != "alt=sse" {
+		t.Fatalf("received query = %q", receivedQuery)
+	}
+	if received["stream"] != nil || received["model"] != nil {
+		t.Fatalf("native Gemini request should not include OpenAI stream/model fields: %#v", received)
+	}
+	if !strings.Contains(rr.Body.String(), `"content":"hello "`) || !strings.Contains(rr.Body.String(), `"content":"world"`) {
+		t.Fatalf("stream response not translated: %s", rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"usage"`) || !strings.Contains(rr.Body.String(), "data: [DONE]") {
+		t.Fatalf("stream did not include final usage and done marker: %s", rr.Body.String())
+	}
+}
+
+func TestLLMGeminiNativeResponsesTranslated(t *testing.T) {
+	var receivedPath string
+	var received map[string]interface{}
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(body, &received); err != nil {
+			t.Fatalf("unmarshal request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"candidates":[{"content":{"parts":[{"text":"responses grounded"}],"role":"model"}}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":4,"totalTokenCount":7}}`)
+	}))
+	defer provider.Close()
+
+	rc := &RoutingConfig{
+		Providers: map[string]Provider{
+			"google": {APIBase: provider.URL + "/v1beta", APIFormat: "gemini"},
+		},
+		Models: map[string]Model{
+			"gemini-flash": {
+				Provider:                 "google",
+				ProviderModel:            "gemini-2.5-flash",
+				Capabilities:             []string{"tools"},
+				ProviderToolCapabilities: []string{capProviderWebSearch},
+			},
+		},
+	}
+	auditDir := t.TempDir()
+	audit := NewAuditLogger(auditDir, "test-agent")
+	defer audit.Close()
+
+	lh := NewLLMHandler(rc, provider.URL, audit)
+	lh.SetProviderToolPolicy(&ProviderToolPolicy{Granted: map[string]bool{capProviderWebSearch: true}})
+
+	body := `{"model":"gemini-flash","input":[{"role":"user","content":[{"type":"input_text","text":"search"}]}],"tools":[{"type":"web_search"}]}`
+	req := httptest.NewRequest("POST", "/v1/responses", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	lh.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if receivedPath != "/v1beta/models/gemini-2.5-flash:generateContent" {
+		t.Fatalf("received path = %q", receivedPath)
+	}
+	if received["model"] != nil || received["input"] != nil {
+		t.Fatalf("native Gemini request should not include model/input fields: %#v", received)
+	}
+	if !strings.Contains(rr.Body.String(), `"object":"response"`) || !strings.Contains(rr.Body.String(), "responses grounded") {
+		t.Fatalf("response not translated: %s", rr.Body.String())
+	}
+}
+
+func TestLLMGeminiNativeResponsesStreamTranslated(t *testing.T) {
+	var receivedPath, receivedQuery string
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		receivedQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"alpha\"}],\"role\":\"model\"}}]}\n\n")
+		flusher.Flush()
+		fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\" beta\"}],\"role\":\"model\"}}],\"usageMetadata\":{\"promptTokenCount\":1,\"candidatesTokenCount\":2,\"totalTokenCount\":3}}\n\n")
+		flusher.Flush()
+	}))
+	defer provider.Close()
+
+	rc := &RoutingConfig{
+		Providers: map[string]Provider{
+			"google": {APIBase: provider.URL + "/v1beta", APIFormat: "gemini"},
+		},
+		Models: map[string]Model{
+			"gemini-flash": {
+				Provider:      "google",
+				ProviderModel: "gemini-2.5-flash",
+				Capabilities:  []string{"streaming"},
+			},
+		},
+	}
+	auditDir := t.TempDir()
+	audit := NewAuditLogger(auditDir, "test-agent")
+	defer audit.Close()
+
+	lh := NewLLMHandler(rc, provider.URL, audit)
+
+	body := `{"model":"gemini-flash","input":"stream this","stream":true}`
+	req := httptest.NewRequest("POST", "/v1/responses", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	lh.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if receivedPath != "/v1beta/models/gemini-2.5-flash:streamGenerateContent" || receivedQuery != "alt=sse" {
+		t.Fatalf("upstream = %q?%s", receivedPath, receivedQuery)
+	}
+	if !strings.Contains(rr.Body.String(), "event: response.output_text.delta") || !strings.Contains(rr.Body.String(), "event: response.completed") {
+		t.Fatalf("responses stream not translated: %s", rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "alpha beta") {
+		t.Fatalf("completed event missing full text: %s", rr.Body.String())
+	}
+}
+
 func TestLLMUnknownModel(t *testing.T) {
 	auditDir := t.TempDir()
 	audit := NewAuditLogger(auditDir, "test-agent")
@@ -135,6 +405,119 @@ func TestLLMUnknownModel(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), "unknown model") {
 		t.Errorf("expected unknown model error, got: %s", rr.Body.String())
+	}
+}
+
+func TestLLMProviderToolDeniedWithoutGrant(t *testing.T) {
+	var llmCalled bool
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		llmCalled = true
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"id":"msg_test"}`)
+	}))
+	defer provider.Close()
+
+	rc := testRoutingConfig()
+	rc.Providers["openai-compat"] = Provider{
+		APIBase: provider.URL + "/v1/",
+	}
+
+	auditDir := t.TempDir()
+	audit := NewAuditLogger(auditDir, "test-agent")
+	defer audit.Close()
+
+	lh := NewLLMHandler(rc, provider.URL, audit)
+
+	body := `{"model":"claude-sonnet","messages":[],"tools":[{"type":"web_search_preview"}]}`
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	lh.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if llmCalled {
+		t.Fatal("provider should not be called when provider tool is denied")
+	}
+	if !strings.Contains(rr.Body.String(), "provider_tool_denied") {
+		t.Fatalf("expected provider_tool_denied response, got %s", rr.Body.String())
+	}
+}
+
+func TestLLMProviderToolAllowedWithGrant(t *testing.T) {
+	var llmCalled bool
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		llmCalled = true
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"id":"msg_test"}`)
+	}))
+	defer provider.Close()
+
+	rc := testRoutingConfig()
+	rc.Providers["openai-compat"] = Provider{
+		APIBase: provider.URL + "/v1/",
+	}
+
+	auditDir := t.TempDir()
+	audit := NewAuditLogger(auditDir, "test-agent")
+	defer audit.Close()
+
+	lh := NewLLMHandler(rc, provider.URL, audit)
+	lh.SetProviderToolPolicy(&ProviderToolPolicy{Granted: map[string]bool{capProviderWebSearch: true}})
+
+	body := `{"model":"claude-sonnet","messages":[],"tools":[{"type":"web_search_preview"}]}`
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	lh.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !llmCalled {
+		t.Fatal("provider should be called when provider tool is granted")
+	}
+}
+
+func TestLLMProviderToolUnsupportedByModel(t *testing.T) {
+	var llmCalled bool
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		llmCalled = true
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"id":"msg_test"}`)
+	}))
+	defer provider.Close()
+
+	rc := testRoutingConfig()
+	rc.Providers["openai-compat"] = Provider{
+		APIBase: provider.URL + "/v1/",
+	}
+	model := rc.Models["claude-sonnet"]
+	model.ProviderToolCapabilities = nil
+	rc.Models["claude-sonnet"] = model
+
+	auditDir := t.TempDir()
+	audit := NewAuditLogger(auditDir, "test-agent")
+	defer audit.Close()
+
+	lh := NewLLMHandler(rc, provider.URL, audit)
+	lh.SetProviderToolPolicy(&ProviderToolPolicy{Granted: map[string]bool{capProviderWebSearch: true}})
+
+	body := `{"model":"claude-sonnet","messages":[],"tools":[{"type":"web_search_preview"}]}`
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	lh.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if llmCalled {
+		t.Fatal("provider should not be called when provider tool is unsupported")
+	}
+	if !strings.Contains(rr.Body.String(), "provider_tool_unsupported") {
+		t.Fatalf("expected provider_tool_unsupported response, got %s", rr.Body.String())
 	}
 }
 
@@ -225,6 +608,151 @@ func TestLLMStreamingResponse(t *testing.T) {
 	}
 	if got, _ := receivedStreamOptions["include_usage"].(bool); !got {
 		t.Fatalf("expected stream_options.include_usage=true, got %#v", receivedStreamOptions)
+	}
+}
+
+func TestLLMStreamingProviderToolAuditExtra(t *testing.T) {
+	var received map[string]interface{}
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(body, &received); err != nil {
+			t.Fatalf("unmarshal request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		fmt.Fprint(w, "data: {\"type\":\"response.web_search_call.completed\",\"annotations\":[{\"type\":\"url_citation\",\"url\":\"https://example.com/source\"}],\"usage\":{\"input_tokens\":3,\"output_tokens\":4}}\n\n")
+		flusher.Flush()
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer provider.Close()
+
+	rc := testRoutingConfig()
+	rc.Providers["openai-compat"] = Provider{APIBase: provider.URL + "/v1/"}
+
+	auditDir := t.TempDir()
+	audit := NewAuditLogger(auditDir, "test-agent")
+
+	lh := NewLLMHandler(rc, provider.URL, audit)
+	lh.SetProviderToolPolicy(&ProviderToolPolicy{Granted: map[string]bool{capProviderWebSearch: true}})
+
+	body := `{"model":"claude-sonnet","input":"what changed today?","tools":[{"type":"web_search"}],"stream":true}`
+	req := httptest.NewRequest("POST", "/v1/responses", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	lh.ServeHTTP(rr, req)
+	audit.Close()
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if _, ok := received["stream_options"]; ok {
+		t.Fatalf("Responses streaming request should not include chat stream_options: %#v", received["stream_options"])
+	}
+
+	today := time.Now().UTC().Format("2006-01-02")
+	data, err := os.ReadFile(filepath.Join(auditDir, "enforcer-"+today+".jsonl"))
+	if err != nil {
+		t.Fatalf("read audit: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	var entry AuditEntry
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &entry); err != nil {
+		t.Fatalf("unmarshal audit: %v", err)
+	}
+	if entry.Type != "LLM_DIRECT_STREAM" {
+		t.Fatalf("audit type = %s, want LLM_DIRECT_STREAM", entry.Type)
+	}
+	if entry.Extra["provider_tool_call_count"] != "1" {
+		t.Fatalf("provider_tool_call_count = %q", entry.Extra["provider_tool_call_count"])
+	}
+	if entry.Extra["provider_response_tool_types"] != "response.web_search_call.completed" {
+		t.Fatalf("provider_response_tool_types = %q", entry.Extra["provider_response_tool_types"])
+	}
+	if entry.Extra["provider_source_urls"] != "https://example.com/source" {
+		t.Fatalf("provider_source_urls = %q", entry.Extra["provider_source_urls"])
+	}
+}
+
+func TestLLMAnthropicStreamingProviderToolAuditExtra(t *testing.T) {
+	var received map[string]interface{}
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/messages" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(body, &received); err != nil {
+			t.Fatalf("unmarshal request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		fmt.Fprint(w, "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_test\",\"model\":\"claude-sonnet-4-20250514\",\"usage\":{\"input_tokens\":3}}}\n\n")
+		flusher.Flush()
+		fmt.Fprint(w, "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"server_tool_use\",\"id\":\"srvtoolu_1\",\"name\":\"web_search\"}}\n\n")
+		flusher.Flush()
+		fmt.Fprint(w, "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"web_search_tool_result\",\"tool_use_id\":\"srvtoolu_1\",\"content\":[{\"type\":\"web_search_result\",\"url\":\"https://example.com/source\",\"title\":\"Source\"}]}}\n\n")
+		flusher.Flush()
+		fmt.Fprint(w, "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":4}}\n\n")
+		flusher.Flush()
+		fmt.Fprint(w, "data: {\"type\":\"message_stop\"}\n\n")
+		flusher.Flush()
+	}))
+	defer provider.Close()
+
+	rc := testRoutingConfig()
+	rc.Providers["anthropic"] = Provider{APIBase: provider.URL + "/v1/"}
+	rc.Models["claude-sonnet"] = Model{
+		Provider:                 "anthropic",
+		ProviderModel:            "claude-sonnet-4-20250514",
+		Capabilities:             []string{"tools", "streaming"},
+		ProviderToolCapabilities: []string{capProviderWebSearch},
+	}
+
+	auditDir := t.TempDir()
+	audit := NewAuditLogger(auditDir, "test-agent")
+
+	lh := NewLLMHandler(rc, provider.URL, audit)
+	lh.SetProviderToolPolicy(&ProviderToolPolicy{Granted: map[string]bool{capProviderWebSearch: true}})
+
+	body := `{"model":"claude-sonnet","messages":[{"role":"user","content":"what changed today?"}],"tools":[{"type":"web_search"}],"stream":true}`
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	lh.ServeHTTP(rr, req)
+	audit.Close()
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	tools := received["tools"].([]interface{})
+	tool := tools[0].(map[string]interface{})
+	if tool["type"] != defaultAnthropicWebSearchToolType {
+		t.Fatalf("generic Anthropic web_search not normalized: %#v", tool)
+	}
+
+	today := time.Now().UTC().Format("2006-01-02")
+	data, err := os.ReadFile(filepath.Join(auditDir, "enforcer-"+today+".jsonl"))
+	if err != nil {
+		t.Fatalf("read audit: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	var entry AuditEntry
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &entry); err != nil {
+		t.Fatalf("unmarshal audit: %v", err)
+	}
+	if entry.Type != "LLM_DIRECT_STREAM" {
+		t.Fatalf("audit type = %s, want LLM_DIRECT_STREAM", entry.Type)
+	}
+	if entry.Extra["provider_tool_call_count"] != "1" {
+		t.Fatalf("provider_tool_call_count = %q", entry.Extra["provider_tool_call_count"])
+	}
+	if entry.Extra["provider_response_tool_types"] != "server_tool_use,web_search_result,web_search_tool_result" {
+		t.Fatalf("provider_response_tool_types = %q", entry.Extra["provider_response_tool_types"])
+	}
+	if entry.Extra["provider_source_urls"] != "https://example.com/source" {
+		t.Fatalf("provider_source_urls = %q", entry.Extra["provider_source_urls"])
 	}
 }
 
@@ -578,8 +1106,8 @@ func TestLLMRateLimitDeniedSendsKeepalive(t *testing.T) {
 	defer audit.Close()
 
 	// Create rate limiter with limit of 1 RPM, then exhaust it
-	rl := NewRateLimiter(1, 1) // 1 rpm, 1s window
-	rl.RecordRequest("anthropic")  // exhaust the single slot
+	rl := NewRateLimiter(1, 1)    // 1 rpm, 1s window
+	rl.RecordRequest("anthropic") // exhaust the single slot
 
 	lh := NewLLMHandler(rc, provider.URL, audit)
 	lh.SetRateLimiter(rl, "test-agent")
@@ -616,10 +1144,18 @@ func TestLLMRateLimitDeniedSendsKeepalive(t *testing.T) {
 
 func TestStepIndexIncrement(t *testing.T) {
 	lh := &LLMHandler{stepCounters: make(map[string]int)}
-	if lh.nextStepIndex("t1") != 1 { t.Error("expected 1") }
-	if lh.nextStepIndex("t1") != 2 { t.Error("expected 2") }
-	if lh.nextStepIndex("t1") != 3 { t.Error("expected 3") }
-	if lh.nextStepIndex("t2") != 1 { t.Error("expected 1 for new task") }
+	if lh.nextStepIndex("t1") != 1 {
+		t.Error("expected 1")
+	}
+	if lh.nextStepIndex("t1") != 2 {
+		t.Error("expected 2")
+	}
+	if lh.nextStepIndex("t1") != 3 {
+		t.Error("expected 3")
+	}
+	if lh.nextStepIndex("t2") != 1 {
+		t.Error("expected 1 for new task")
+	}
 }
 
 func TestLLMAnthropicStreaming(t *testing.T) {

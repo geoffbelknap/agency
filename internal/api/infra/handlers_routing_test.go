@@ -107,18 +107,48 @@ func TestListProvidersRecognizesEnvVarCredential(t *testing.T) {
 	if len(body) == 0 {
 		t.Fatalf("providers = %d, want at least 1: %#v", len(body), body)
 	}
-	foundGemini := false
+	foundGoogle := false
 	for _, provider := range body {
-		if name, _ := provider["name"].(string); name != "gemini" {
+		if name, _ := provider["name"].(string); name != "google" {
 			continue
 		}
-		foundGemini = true
+		foundGoogle = true
 		if configured, _ := provider["credential_configured"].(bool); !configured {
-			t.Fatalf("gemini credential_configured = false, want true: %#v", provider)
+			t.Fatalf("google credential_configured = false, want true: %#v", provider)
 		}
 	}
-	if !foundGemini {
-		t.Fatalf("expected bundled gemini provider in list: %#v", body)
+	if !foundGoogle {
+		t.Fatalf("expected bundled google provider in list: %#v", body)
+	}
+}
+
+func TestProviderToolsInventoryEndpoint(t *testing.T) {
+	h := &handler{deps: Deps{Config: &config.Config{Home: t.TempDir()}}}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/infra/provider-tools", nil)
+	rec := httptest.NewRecorder()
+	h.providerTools(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var body map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	caps, ok := body["capabilities"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected capabilities map: %#v", body)
+	}
+	webSearch, ok := caps["provider-web-search"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected provider-web-search capability: %#v", caps)
+	}
+	providers, ok := webSearch["providers"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected provider map: %#v", webSearch)
+	}
+	if _, ok := providers["google"]; !ok {
+		t.Fatalf("expected google provider entry: %#v", providers)
 	}
 }
 
@@ -141,12 +171,12 @@ func writeRoutingConfig(t *testing.T, home string) {
 		t.Fatalf("mkdir routing dir: %v", err)
 	}
 	data := []byte(`providers:
-  gemini:
+  google:
     api_base: https://generativelanguage.googleapis.com/v1beta/openai
     auth_env: GEMINI_API_KEY
 models:
   gemini-2.5-flash:
-    provider: gemini
+    provider: google
     provider_model: gemini-2.5-flash
 tiers:
   fast:

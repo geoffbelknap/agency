@@ -12,7 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-//go:embed providers/*.yaml setup.yaml
+//go:embed providers/*.yaml setup.yaml provider_tools.yaml
 var bundled embed.FS
 
 // This package is a temporary core-path provider shim. It keeps bundled
@@ -27,6 +27,33 @@ type ProviderDoc struct {
 	Category    string                 `yaml:"category" json:"category"`
 	Credential  map[string]interface{} `yaml:"credential" json:"credential"`
 	Routing     map[string]interface{} `yaml:"routing" json:"routing"`
+}
+
+type ProviderToolInventory struct {
+	Version      string                            `yaml:"version" json:"version"`
+	Capabilities map[string]ProviderToolCapability `yaml:"capabilities" json:"capabilities"`
+}
+
+type ProviderToolCapability struct {
+	Title        string                          `yaml:"title" json:"title"`
+	Risk         string                          `yaml:"risk" json:"risk"`
+	DefaultGrant bool                            `yaml:"default_grant" json:"default_grant"`
+	Execution    string                          `yaml:"execution" json:"execution"`
+	Description  string                          `yaml:"description" json:"description"`
+	Providers    map[string]ProviderToolProvider `yaml:"providers" json:"providers"`
+}
+
+type ProviderToolProvider struct {
+	Status          string                 `yaml:"status" json:"status"`
+	RequestTools    []string               `yaml:"request_tools,omitempty" json:"request_tools,omitempty"`
+	GenericTools    []string               `yaml:"generic_tools,omitempty" json:"generic_tools,omitempty"`
+	RequestFields   []string               `yaml:"request_fields,omitempty" json:"request_fields,omitempty"`
+	RequiredHeaders []string               `yaml:"required_headers,omitempty" json:"required_headers,omitempty"`
+	Endpoints       []string               `yaml:"endpoints,omitempty" json:"endpoints,omitempty"`
+	CapabilityAlias string                 `yaml:"capability_alias,omitempty" json:"capability_alias,omitempty"`
+	Pricing         map[string]interface{} `yaml:"pricing,omitempty" json:"pricing,omitempty"`
+	Tests           []string               `yaml:"tests,omitempty" json:"tests,omitempty"`
+	Notes           string                 `yaml:"notes,omitempty" json:"notes,omitempty"`
 }
 
 func List() ([]ProviderDoc, error) {
@@ -75,6 +102,18 @@ func SetupConfig() (map[string]interface{}, error) {
 	var doc map[string]interface{}
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil, err
+	}
+	return doc, nil
+}
+
+func ProviderTools() (ProviderToolInventory, error) {
+	data, err := bundled.ReadFile("provider_tools.yaml")
+	if err != nil {
+		return ProviderToolInventory{}, err
+	}
+	var doc ProviderToolInventory
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return ProviderToolInventory{}, fmt.Errorf("parse provider_tools.yaml: %w", err)
 	}
 	return doc, nil
 }

@@ -94,6 +94,82 @@ func TestTranslateRequestWithTools(t *testing.T) {
 	}
 }
 
+func TestTranslateRequestPreservesAnthropicServerTools(t *testing.T) {
+	openai := map[string]interface{}{
+		"model": "claude-sonnet-4-20250514",
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": "search"},
+		},
+		"tools": []interface{}{
+			map[string]interface{}{
+				"type":     "web_search_20260209",
+				"name":     "web_search",
+				"max_uses": float64(3),
+			},
+		},
+	}
+	body, _ := json.Marshal(openai)
+	result, err := translateToAnthropic(body, true)
+	if err != nil {
+		t.Fatalf("translation failed: %v", err)
+	}
+	var req map[string]interface{}
+	json.Unmarshal(result, &req)
+	tools := req["tools"].([]interface{})
+	if len(tools) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(tools))
+	}
+	tool := tools[0].(map[string]interface{})
+	if tool["type"] != "web_search_20260209" {
+		t.Fatalf("server tool type not preserved: %v", tool["type"])
+	}
+	if tool["name"] != "web_search" {
+		t.Fatalf("server tool name not preserved: %v", tool["name"])
+	}
+	if tool["input_schema"] != nil {
+		t.Fatalf("server tool should not be converted to input_schema: %#v", tool)
+	}
+	if cc, ok := tool["cache_control"].(map[string]interface{}); !ok || cc["type"] != "ephemeral" {
+		t.Fatal("preserved server tool should receive cache_control when caching enabled")
+	}
+}
+
+func TestTranslateRequestNormalizesGenericWebSearchTool(t *testing.T) {
+	openai := map[string]interface{}{
+		"model": "claude-sonnet-4-20250514",
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": "search"},
+		},
+		"tools": []interface{}{
+			map[string]interface{}{
+				"type":     "web_search",
+				"max_uses": float64(2),
+			},
+		},
+	}
+	body, _ := json.Marshal(openai)
+	result, err := translateToAnthropic(body, false)
+	if err != nil {
+		t.Fatalf("translation failed: %v", err)
+	}
+	var req map[string]interface{}
+	json.Unmarshal(result, &req)
+	tools := req["tools"].([]interface{})
+	if len(tools) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(tools))
+	}
+	tool := tools[0].(map[string]interface{})
+	if tool["type"] != defaultAnthropicWebSearchToolType {
+		t.Fatalf("generic web_search should map to %s, got %v", defaultAnthropicWebSearchToolType, tool["type"])
+	}
+	if tool["name"] != "web_search" {
+		t.Fatalf("generic web_search should set name, got %v", tool["name"])
+	}
+	if tool["max_uses"] != float64(2) {
+		t.Fatalf("generic web_search should preserve options: %#v", tool)
+	}
+}
+
 func TestTranslateRequestToolCalls(t *testing.T) {
 	openai := map[string]interface{}{
 		"model": "claude-sonnet-4-20250514",

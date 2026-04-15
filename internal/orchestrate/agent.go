@@ -267,11 +267,12 @@ func (am *AgentManager) Create(ctx context.Context, name, preset string) error {
 	}
 
 	constraints := map[string]interface{}{
-		"version":     "0.1",
-		"agent":       name,
-		"identity":    identityBlock,
-		"hard_limits": hardLimits,
-		"escalation":  escalation,
+		"version":              "0.1",
+		"agent":                name,
+		"identity":             identityBlock,
+		"granted_capabilities": []string{"provider-web-search"},
+		"hard_limits":          hardLimits,
+		"escalation":           escalation,
 		"network": map[string]interface{}{
 			"egress_mode": "denylist",
 		},

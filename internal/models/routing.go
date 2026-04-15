@@ -10,6 +10,7 @@ var VALID_TIERS = []string{"frontier", "standard", "fast", "mini", "nano", "batc
 // ProviderConfig holds connection details for a single LLM provider.
 type ProviderConfig struct {
 	APIBase    string `yaml:"api_base" validate:"required"`
+	APIFormat  string `yaml:"api_format,omitempty"`
 	AuthEnv    string `yaml:"auth_env"`
 	AuthHeader string `yaml:"auth_header"`
 	AuthPrefix string `yaml:"auth_prefix"`
@@ -29,12 +30,24 @@ func (p *ProviderConfig) Validate() error {
 
 // ModelConfig describes a specific LLM model and its cost information.
 type ModelConfig struct {
-	Provider          string   `yaml:"provider" validate:"required"`
-	ProviderModel     string   `yaml:"provider_model" validate:"required"`
-	Capabilities      []string `yaml:"capabilities"`
-	CostPerMTokIn     float64  `yaml:"cost_per_mtok_in" validate:"gte=0" default:"0"`
-	CostPerMTokOut    float64  `yaml:"cost_per_mtok_out" validate:"gte=0" default:"0"`
-	CostPerMTokCached float64  `yaml:"cost_per_mtok_cached" validate:"gte=0" default:"0"`
+	Provider                 string                       `yaml:"provider" validate:"required"`
+	ProviderModel            string                       `yaml:"provider_model" validate:"required"`
+	Capabilities             []string                     `yaml:"capabilities"`
+	ProviderToolCapabilities []string                     `yaml:"provider_tool_capabilities"`
+	ProviderToolCosts        map[string]float64           `yaml:"provider_tool_costs"`
+	ProviderToolPricing      map[string]ProviderToolPrice `yaml:"provider_tool_pricing"`
+	CostPerMTokIn            float64                      `yaml:"cost_per_mtok_in" validate:"gte=0" default:"0"`
+	CostPerMTokOut           float64                      `yaml:"cost_per_mtok_out" validate:"gte=0" default:"0"`
+	CostPerMTokCached        float64                      `yaml:"cost_per_mtok_cached" validate:"gte=0" default:"0"`
+}
+
+// ProviderToolPrice describes the billing metadata for a provider-side tool.
+type ProviderToolPrice struct {
+	Unit        string  `yaml:"unit" json:"unit"`
+	USDPerUnit  float64 `yaml:"usd_per_unit" json:"usd_per_unit"`
+	Source      string  `yaml:"source" json:"source"`
+	Confidence  string  `yaml:"confidence" json:"confidence"`
+	Description string  `yaml:"description,omitempty" json:"description,omitempty"`
 }
 
 // HasCapability returns true if the model declares the given capability.

@@ -462,7 +462,7 @@ func setupCmd() *cobra.Command {
 					case "2":
 						provider = "openai"
 					case "3":
-						provider = "gemini"
+						provider = "google"
 					case "4":
 						provider = ""
 					default:
@@ -489,7 +489,7 @@ func setupCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&name, "name", "", "Agent name (quick setup)")
 	cmd.Flags().StringVar(&preset, "preset", "", "Agent preset (quick setup)")
-	cmd.Flags().StringVar(&provider, "provider", "", "LLM provider (anthropic, openai, gemini)")
+	cmd.Flags().StringVar(&provider, "provider", "", "LLM provider (anthropic, openai, google)")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "LLM provider API key")
 	cmd.Flags().StringVar(&notifyURL, "notify-url", "", "Notification URL (ntfy or webhook) for operator alerts")
 	cmd.Flags().BoolVar(&noInfra, "no-infra", false, "Skip Docker check and infrastructure startup")
@@ -772,7 +772,7 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser bo
 			providerEnvMap := map[string]string{
 				"anthropic": "ANTHROPIC_API_KEY",
 				"openai":    "OPENAI_API_KEY",
-				"gemini":    "GEMINI_API_KEY",
+				"google":    "GEMINI_API_KEY",
 			}
 			cfg := config.Load()
 			c := apiclient.NewClient("http://" + cfg.GatewayAddr)

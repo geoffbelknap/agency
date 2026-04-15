@@ -1,0 +1,45 @@
+name: google
+display_name: Google Gemini
+description: Gemini models — 2.5 Pro, 2.5 Flash
+version: "0.1.0"
+category: cloud
+credential:
+  name: gemini-api-key
+  label: API Key
+  env_var: GEMINI_API_KEY
+  api_key_url: https://aistudio.google.com/apikey
+routing:
+  api_base: https://generativelanguage.googleapis.com/v1beta
+  api_format: gemini
+  auth_header: x-goog-api-key
+  auth_prefix: ""
+  models:
+    gemini-2.5-pro:
+      provider_model: gemini-2.5-pro
+      capabilities: [tools, vision, streaming]
+      provider_tool_capabilities: [provider-web-search, provider-url-context, provider-code-execution, provider-file-search, provider-google-maps, provider-computer-use]
+      provider_tool_pricing: &gemini_provider_tool_pricing
+        provider-web-search: {unit: grounded_request, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
+        provider-url-context: {unit: url_context_request, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
+        provider-code-execution: {unit: execution, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
+        provider-file-search: {unit: query_or_storage, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
+        provider-google-maps: {unit: maps_grounded_request, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
+        provider-computer-use: {unit: harness_action, usd_per_unit: 0, source: agency_policy, confidence: unknown}
+      cost_per_mtok_in: 1.25
+      cost_per_mtok_out: 10.0
+      cost_per_mtok_cached: 0.315
+    gemini-2.5-flash:
+      provider_model: gemini-2.5-flash
+      capabilities: [tools, vision, streaming]
+      provider_tool_capabilities: [provider-web-search, provider-url-context, provider-code-execution, provider-file-search, provider-google-maps, provider-computer-use]
+      provider_tool_pricing: *gemini_provider_tool_pricing
+      cost_per_mtok_in: 0.15
+      cost_per_mtok_out: 0.60
+      cost_per_mtok_cached: 0.0375
+  tiers:
+    frontier: gemini-2.5-pro
+    standard: gemini-2.5-pro
+    fast: gemini-2.5-flash
+    mini: gemini-2.5-flash
+    nano: gemini-2.5-flash
+    batch: null

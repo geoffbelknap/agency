@@ -16,12 +16,29 @@ const metrics = {
     output_tokens: 4000,
     total_tokens: 16000,
     est_cost_usd: 0.25,
+    provider_tool_calls: 2,
+    provider_tool_cost_usd: 0.02,
+    provider_tool_unpriced_calls: 1,
     errors: 0,
     avg_latency_ms: 900,
   },
   by_agent: {},
   by_model: {},
   by_provider: {},
+  by_provider_tool: {
+    'provider-web-search': {
+      requests: 1,
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+      est_cost_usd: 0.02,
+      provider_tool_calls: 2,
+      provider_tool_cost_usd: 0.02,
+      provider_tool_unpriced_calls: 1,
+      errors: 0,
+      avg_latency_ms: 0,
+    },
+  },
   by_source: {},
   recent_errors: [],
 };
@@ -115,6 +132,17 @@ describe('Usage', () => {
     expect(screen.getByText('claude-haiku')).toBeInTheDocument();
     expect(screen.getByText('96%')).toBeInTheDocument();
     expect(screen.getByText('$0.0120')).toBeInTheDocument();
+  });
+
+  it('renders provider tool economics and unknown pricing warning', async () => {
+    mockUsageData();
+
+    renderWithRouter(<Usage />);
+
+    expect(await screen.findByText('Provider tool economics')).toBeInTheDocument();
+    expect(screen.getByText('provider-web-search')).toBeInTheDocument();
+    expect(screen.getByText(/provider-tool call had unknown pricing/i)).toBeInTheDocument();
+    expect(screen.getAllByText('$0.0200').length).toBeGreaterThan(0);
   });
 
   it('shows recovery guidance when recent routing errors exist', async () => {

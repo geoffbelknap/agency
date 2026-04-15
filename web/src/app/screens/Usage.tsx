@@ -25,6 +25,9 @@ interface MetricsBucket {
   errors: number;
   avg_latency_ms: number;
   p95_latency_ms?: number;
+  provider_tool_calls?: number;
+  provider_tool_cost_usd?: number;
+  provider_tool_unpriced_calls?: number;
 }
 
 interface RecentError {
@@ -42,6 +45,7 @@ interface RoutingMetrics {
   by_model: Record<string, MetricsBucket>;
   by_provider: Record<string, MetricsBucket>;
   by_source?: Record<string, MetricsBucket>;
+  by_provider_tool?: Record<string, MetricsBucket>;
   recent_errors?: RecentError[];
 }
 
@@ -230,14 +234,19 @@ export function Usage() {
   const byModel = metrics?.by_model ? Object.entries(metrics.by_model) : [];
   const byProvider = metrics?.by_provider ? Object.entries(metrics.by_provider) : [];
   const bySource = metrics?.by_source ? Object.entries(metrics.by_source) : [];
+  const byProviderTool = metrics?.by_provider_tool ? Object.entries(metrics.by_provider_tool) : [];
   const recentErrors = metrics?.recent_errors ?? [];
   const primaryErroredAgent = recentErrors.find((entry) => entry.agent)?.agent;
+  const providerToolCost = t?.provider_tool_cost_usd ?? 0;
+  const providerToolCalls = t?.provider_tool_calls ?? 0;
+  const unpricedProviderToolCalls = t?.provider_tool_unpriced_calls ?? 0;
+  const tokenCost = t ? Math.max(0, (t.est_cost_usd || 0) - providerToolCost) : 0;
   const summaryMetrics = t ? [
     { label: 'Requests', value: t.requests.toLocaleString(), tone: 'text-foreground' },
     { label: 'Total tokens', value: formatTokens(t.total_tokens), tone: 'text-foreground' },
     { label: 'Estimated spend', value: displayCost(t), tone: 'text-primary' },
-    { label: 'Input', value: formatTokens(t.input_tokens), tone: 'text-muted-foreground-strong' },
-    { label: 'Output', value: formatTokens(t.output_tokens), tone: 'text-muted-foreground-strong' },
+    { label: 'Token spend', value: `$${tokenCost.toFixed(4)}`, tone: 'text-muted-foreground-strong' },
+    { label: 'Provider tools', value: `$${providerToolCost.toFixed(4)}`, tone: providerToolCalls > 0 ? 'text-primary' : 'text-muted-foreground-strong', detail: `${providerToolCalls.toLocaleString()} call${providerToolCalls === 1 ? '' : 's'}` },
     { label: 'Avg latency', value: `${(t.avg_latency_ms / 1000).toFixed(1)}s`, tone: 'text-muted-foreground-strong', detail: t.p95_latency_ms != null ? `p95 ${(t.p95_latency_ms / 1000).toFixed(1)}s` : undefined },
   ] : [];
 
@@ -384,7 +393,51 @@ export function Usage() {
                 {t.errors} request errors recorded in the selected period.
               </div>
             )}
+            {unpricedProviderToolCalls > 0 && (
+              <div className="border-t border-border bg-amber-50/70 px-4 py-2 text-sm text-amber-800 dark:bg-amber-950/25 dark:text-amber-300">
+                {unpricedProviderToolCalls} provider-tool call{unpricedProviderToolCalls === 1 ? '' : 's'} had unknown pricing and may not be fully reflected in estimated spend.
+              </div>
+            )}
           </div>
+
+          {byProviderTool.length > 0 && (
+            <div className="bg-card border border-border rounded overflow-hidden">
+              <div className="px-4 py-3 border-b border-border">
+                <h3 className="text-sm font-medium text-foreground">Provider tool economics</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">Provider-side tool calls separated from token spend.</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[620px]">
+                  <thead>
+                    <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
+                      <th className="text-left p-3 font-medium">Capability</th>
+                      <th className="text-right p-3 font-medium">Requests</th>
+                      <th className="text-right p-3 font-medium">Tool Calls</th>
+                      <th className="text-right p-3 font-medium">Known Tool Cost</th>
+                      <th className="text-right p-3 font-medium">Unpriced</th>
+                      <th className="text-right p-3 font-medium">Total Est.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {byProviderTool.map(([capability, b]) => (
+                      <tr key={capability} className="border-b border-border hover:bg-secondary/50">
+                        <td className="p-3"><code className="text-foreground">{capability}</code></td>
+                        <td className="p-3 text-right text-foreground/80">{b.requests}</td>
+                        <td className="p-3 text-right text-foreground/80">{b.provider_tool_calls ?? 0}</td>
+                        <td className="p-3 text-right text-green-400">${(b.provider_tool_cost_usd ?? 0).toFixed(4)}</td>
+                        <td className="p-3 text-right">
+                          {(b.provider_tool_unpriced_calls ?? 0) > 0
+                            ? <span className="text-amber-300">{b.provider_tool_unpriced_calls}</span>
+                            : <span className="text-muted-foreground/70">0</span>}
+                        </td>
+                        <td className="p-3 text-right text-green-400">{displayCost(b)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           <div className="bg-card border border-border rounded overflow-hidden">
             <div className="px-4 py-3 border-b border-border flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

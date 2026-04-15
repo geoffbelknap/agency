@@ -26,6 +26,7 @@ function auditSummary(entry: AuditEntry): string {
   if (evt === 'LLM_DIRECT_STREAM' || evt === 'LLM_DIRECT') {
     const parts = [
       r.model,
+      r.provider_tool_capabilities ? `provider tools:${r.provider_tool_capabilities}` : null,
       r.duration_ms ? `${(r.duration_ms / 1000).toFixed(1)}s` : null,
       r.input_tokens != null ? `in:${r.input_tokens}` : null,
       r.output_tokens != null ? `out:${r.output_tokens}` : null,
@@ -44,6 +45,12 @@ function auditSummary(entry: AuditEntry): string {
   }
   if (evt === 'LLM_DIRECT_ERROR') {
     return r.error || r.detail || '';
+  }
+  if (evt === 'PROVIDER_TOOL_ALLOWED') {
+    return [r.provider_tool_capabilities, r.provider_tool_types].filter(Boolean).join(' · ');
+  }
+  if (evt === 'PROVIDER_TOOL_DENIED' || evt === 'PROVIDER_TOOL_UNSUPPORTED') {
+    return [r.provider_tool_capability, r.provider_tool_type, r.error].filter(Boolean).join(' · ');
   }
   if (evt === 'DOMAIN_BLOCKED' || evt === 'SERVICE_DENIED') {
     return [r.host || r.domain, r.reason].filter(Boolean).join(' — ');
@@ -84,13 +91,24 @@ function entryDetail(entry: AuditEntry): { primary: string; secondary: string } 
   if (evt === 'LLM_DIRECT' || evt === 'LLM_DIRECT_STREAM') {
     const primary = [
       r.model,
+      r.provider_tool_capabilities ? `provider tools:${r.provider_tool_capabilities}` : null,
       r.input_tokens != null ? `in:${Number(r.input_tokens).toLocaleString()}` : null,
       r.output_tokens != null ? `out:${Number(r.output_tokens).toLocaleString()}` : null,
     ].filter(Boolean).join('  ');
     const cost = r.cost != null ? `$${Number(r.cost).toFixed(4)}` : '';
     const dur = r.duration_ms ? `${(r.duration_ms / 1000).toFixed(1)}s` : '';
-    const secondary = [dur, cost].filter(Boolean).join('  ');
+    const evidence = [
+      r.provider_source_count != null ? `sources:${r.provider_source_count}` : null,
+      r.provider_citation_count != null ? `citations:${r.provider_citation_count}` : null,
+      r.provider_search_query_count != null ? `queries:${r.provider_search_query_count}` : null,
+    ].filter(Boolean).join('  ');
+    const secondary = [dur, cost, evidence].filter(Boolean).join('  ');
     return { primary, secondary };
+  }
+
+  if (evt === 'PROVIDER_TOOL_ALLOWED' || evt === 'PROVIDER_TOOL_DENIED' || evt === 'PROVIDER_TOOL_UNSUPPORTED') {
+    const primary = [r.provider_tool_capability, r.provider_tool_type].filter(Boolean).join('  ');
+    return { primary, secondary: r.error || '' };
   }
 
   if (evt === 'TOOL_CALL') {

@@ -306,18 +306,18 @@ func TestListWithFilters(t *testing.T) {
 	store := NewStore(backend, home)
 
 	store.Put(Entry{
-		Name:  "KEY_A",
-		Value: "a",
+		Name:     "KEY_A",
+		Value:    "a",
 		Metadata: Metadata{Kind: KindService, Scope: "platform", Service: "svc-a", Protocol: ProtocolAPIKey, Source: "operator"},
 	})
 	store.Put(Entry{
-		Name:  "KEY_B",
-		Value: "b",
+		Name:     "KEY_B",
+		Value:    "b",
 		Metadata: Metadata{Kind: KindProvider, Scope: "platform", Protocol: ProtocolBearer, Source: "operator"},
 	})
 	store.Put(Entry{
-		Name:  "KEY_C",
-		Value: "c",
+		Name:     "KEY_C",
+		Value:    "c",
 		Metadata: Metadata{Kind: KindService, Scope: "agent:x", Service: "svc-a", Protocol: ProtocolAPIKey, Source: "operator"},
 	})
 
@@ -595,6 +595,17 @@ func TestGenerateSwapConfig(t *testing.T) {
 		},
 	})
 
+	store.Put(Entry{
+		Name:  "gemini-api-key",
+		Value: "gemini-secret",
+		Metadata: Metadata{
+			Kind:     KindProvider,
+			Scope:    "platform",
+			Protocol: ProtocolAPIKey,
+			Source:   "operator",
+		},
+	})
+
 	data, err := store.GenerateSwapConfig()
 	if err != nil {
 		t.Fatalf("GenerateSwapConfig: %v", err)
@@ -602,8 +613,10 @@ func TestGenerateSwapConfig(t *testing.T) {
 
 	var cfg struct {
 		Swaps map[string]struct {
-			Type   string `yaml:"type"`
-			KeyRef string `yaml:"key_ref"`
+			Type    string   `yaml:"type"`
+			KeyRef  string   `yaml:"key_ref"`
+			Header  string   `yaml:"header"`
+			Domains []string `yaml:"domains"`
 		} `yaml:"swaps"`
 	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
@@ -623,6 +636,16 @@ func TestGenerateSwapConfig(t *testing.T) {
 			t.Errorf("limacharlie key_ref: got %q, want LC_KEY", lc.KeyRef)
 		}
 	}
+	if gemini, ok := cfg.Swaps["gemini-api-key"]; !ok {
+		t.Error("expected gemini-api-key in swap config")
+	} else {
+		if gemini.Header != "x-goog-api-key" {
+			t.Errorf("gemini header: got %q, want x-goog-api-key", gemini.Header)
+		}
+		if len(gemini.Domains) != 1 || gemini.Domains[0] != "generativelanguage.googleapis.com" {
+			t.Errorf("gemini domains: got %#v", gemini.Domains)
+		}
+	}
 }
 
 func TestExpiring(t *testing.T) {
@@ -634,18 +657,18 @@ func TestExpiring(t *testing.T) {
 	far := time.Now().Add(365 * 24 * time.Hour).UTC().Format(time.RFC3339)
 
 	store.Put(Entry{
-		Name:  "EXPIRING_SOON",
-		Value: "val",
+		Name:     "EXPIRING_SOON",
+		Value:    "val",
 		Metadata: Metadata{Kind: KindService, Scope: "platform", Protocol: ProtocolAPIKey, Source: "operator", ExpiresAt: soon},
 	})
 	store.Put(Entry{
-		Name:  "EXPIRING_FAR",
-		Value: "val",
+		Name:     "EXPIRING_FAR",
+		Value:    "val",
 		Metadata: Metadata{Kind: KindService, Scope: "platform", Protocol: ProtocolAPIKey, Source: "operator", ExpiresAt: far},
 	})
 	store.Put(Entry{
-		Name:  "NO_EXPIRY",
-		Value: "val",
+		Name:     "NO_EXPIRY",
+		Value:    "val",
 		Metadata: Metadata{Kind: KindService, Scope: "platform", Protocol: ProtocolAPIKey, Source: "operator"},
 	})
 

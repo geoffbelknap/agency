@@ -10,8 +10,9 @@ import (
 
 // Provider represents an LLM provider configuration.
 type Provider struct {
-	APIBase string `yaml:"api_base"`
-	Caching *bool  `yaml:"caching,omitempty"`
+	APIBase   string `yaml:"api_base"`
+	APIFormat string `yaml:"api_format,omitempty"`
+	Caching   *bool  `yaml:"caching,omitempty"`
 }
 
 // CachingEnabled returns whether prompt caching is enabled for this provider.
@@ -25,12 +26,26 @@ func (p Provider) CachingEnabled() bool {
 
 // Model represents an LLM model alias configuration.
 type Model struct {
-	Provider      string   `yaml:"provider"`
-	ProviderModel string   `yaml:"provider_model"`
-	Capabilities  []string `yaml:"capabilities"`
-	CostIn        float64  `yaml:"cost_per_mtok_in"`
-	CostOut       float64  `yaml:"cost_per_mtok_out"`
-	CostCached    float64  `yaml:"cost_per_mtok_cached"`
+	Provider                 string                       `yaml:"provider"`
+	ProviderModel            string                       `yaml:"provider_model"`
+	Capabilities             []string                     `yaml:"capabilities"`
+	ProviderToolCapabilities []string                     `yaml:"provider_tool_capabilities"`
+	ProviderToolCosts        map[string]float64           `yaml:"provider_tool_costs"`
+	ProviderToolPricing      map[string]ProviderToolPrice `yaml:"provider_tool_pricing"`
+	CostIn                   float64                      `yaml:"cost_per_mtok_in"`
+	CostOut                  float64                      `yaml:"cost_per_mtok_out"`
+	CostCached               float64                      `yaml:"cost_per_mtok_cached"`
+}
+
+// ProviderToolPrice describes a provider-side tool billing unit. It is
+// intentionally metadata-only: enforcement still happens through explicit
+// provider-tool grants.
+type ProviderToolPrice struct {
+	Unit        string  `yaml:"unit" json:"unit"`
+	USDPerUnit  float64 `yaml:"usd_per_unit" json:"usd_per_unit"`
+	Source      string  `yaml:"source" json:"source"`
+	Confidence  string  `yaml:"confidence" json:"confidence"`
+	Description string  `yaml:"description,omitempty" json:"description,omitempty"`
 }
 
 // HasCapability returns true if the model declares support for the given capability.
@@ -41,6 +56,50 @@ func (m Model) HasCapability(cap string) bool {
 		}
 	}
 	return false
+}
+
+// HasProviderToolCapability returns true if the model explicitly declares
+// support for the given provider-executed server tool capability.
+func (m Model) HasProviderToolCapability(cap string) bool {
+	for _, c := range m.ProviderToolCapabilities {
+		if c == cap {
+			return true
+		}
+	}
+	return false
+}
+
+func (m Model) ProviderToolPriceFor(cap string) (ProviderToolPrice, bool) {
+	if m.ProviderToolPricing != nil {
+		if p, ok := m.ProviderToolPricing[cap]; ok {
+			p = normalizeProviderToolPrice(p)
+			return p, true
+		}
+	}
+	if m.ProviderToolCosts != nil {
+		if cost, ok := m.ProviderToolCosts[cap]; ok {
+			return ProviderToolPrice{
+				Unit:       "tool_call",
+				USDPerUnit: cost,
+				Source:     "legacy_provider_tool_costs",
+				Confidence: "estimated",
+			}, true
+		}
+	}
+	return ProviderToolPrice{}, false
+}
+
+func normalizeProviderToolPrice(p ProviderToolPrice) ProviderToolPrice {
+	if strings.TrimSpace(p.Unit) == "" {
+		p.Unit = "tool_call"
+	}
+	if strings.TrimSpace(p.Source) == "" {
+		p.Source = "provider_catalog"
+	}
+	if strings.TrimSpace(p.Confidence) == "" {
+		p.Confidence = "unknown"
+	}
+	return p
 }
 
 // Settings holds enforcer operational settings.
@@ -135,12 +194,20 @@ func (rc *RoutingConfig) ResolveModel(alias string) (targetURL string, providerM
 	if !ok {
 		return "", "", "", fmt.Errorf("unknown provider: %s", model.Provider)
 	}
+	providerModel = model.ProviderModel
 	base := strings.TrimRight(provider.APIBase, "/")
-	if model.Provider == "anthropic" {
+	switch provider.APIFormat {
+	case "gemini":
+		targetURL = fmt.Sprintf("%s/models/%s:generateContent", base, providerModel)
+	case "anthropic":
 		targetURL = base + "/messages"
-	} else {
-		targetURL = base + "/chat/completions"
+	default:
+		if model.Provider == "anthropic" {
+			targetURL = base + "/messages"
+		} else {
+			targetURL = base + "/chat/completions"
+		}
 	}
 
-	return targetURL, model.ProviderModel, model.Provider, nil
+	return targetURL, providerModel, model.Provider, nil
 }

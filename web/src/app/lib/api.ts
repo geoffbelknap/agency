@@ -343,6 +343,14 @@ export interface RawAuditEntry {
   phase_name?: string;
   // Security/capability fields
   capability?: string;
+  provider_tool_capability?: string;
+  provider_tool_capabilities?: string;
+  provider_tool_type?: string;
+  provider_tool_types?: string;
+  provider_source_count?: string | number;
+  provider_citation_count?: string | number;
+  provider_search_query_count?: string | number;
+  provider_source_urls?: string;
   reason?: string;
   error?: string;
   domain?: string;
@@ -958,6 +966,7 @@ export const api = {
 
   providers: {
     list: () => req<import('../types').Provider[]>('/infra/providers'),
+    tools: () => req<Record<string, unknown>>('/infra/provider-tools'),
     install: (name: string) =>
       req<OkResponse>(`/infra/providers/${encodeURIComponent(name)}/install`, { method: 'POST', body: '{}' }),
   },

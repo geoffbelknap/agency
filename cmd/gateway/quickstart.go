@@ -26,7 +26,7 @@ import (
 var providerDisplayNames = map[string]string{
 	"anthropic": "Anthropic",
 	"openai":    "OpenAI",
-	"gemini":    "Google Gemini",
+	"google":    "Google Gemini",
 }
 
 var (
@@ -144,7 +144,7 @@ Run with --no-browser to print the Web UI URL without opening it.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.provider, "provider", "", "LLM provider (anthropic, openai, gemini)")
+	cmd.Flags().StringVar(&opts.provider, "provider", "", "LLM provider (anthropic, openai, google)")
 	cmd.Flags().StringVar(&opts.key, "key", "", "API key for the provider")
 	cmd.Flags().StringVar(&opts.preset, "preset", "", "Agent preset to use")
 	cmd.Flags().StringVar(&opts.name, "name", "", "Name for the first agent")
@@ -160,8 +160,6 @@ func normalizeProvider(provider string) string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "":
 		return ""
-	case "gemini":
-		return "gemini"
 	default:
 		return strings.ToLower(strings.TrimSpace(provider))
 	}
@@ -227,7 +225,7 @@ func quickstartProviderForChoice(choice string) string {
 	case "3":
 		return "openai"
 	default:
-		return "gemini"
+		return "google"
 	}
 }
 
@@ -276,7 +274,7 @@ func validateAPIKey(provider, key string) error {
 			return err
 		}
 		req.Header.Set("Authorization", "Bearer "+key)
-	case "gemini":
+	case "google":
 		req, err = http.NewRequest("GET", "https://generativelanguage.googleapis.com/v1beta/openai/models", nil)
 		if err != nil {
 			return err
@@ -369,7 +367,7 @@ func runQuickstart(opts quickstartOptions) error {
 		providerName = normalizeProvider(detectProvider())
 	}
 	if providerName != "" && !isSupportedQuickstartProvider(providerName) {
-		return fmt.Errorf("unsupported provider %q; use anthropic, openai, or gemini", providerName)
+		return fmt.Errorf("unsupported provider %q; use anthropic, openai, or google", providerName)
 	}
 
 	if providerName != "" && apiKey == "" && !providerExplicit {
@@ -388,7 +386,7 @@ func runQuickstart(opts quickstartOptions) error {
 			providerName = promptProvider()
 		}
 		if providerName != "" && !isSupportedQuickstartProvider(providerName) {
-			return fmt.Errorf("unsupported provider %q; use anthropic, openai, or gemini", providerName)
+			return fmt.Errorf("unsupported provider %q; use anthropic, openai, or google", providerName)
 		}
 
 		if apiKey != "" {

@@ -20,6 +20,12 @@ models:
     provider_model: claude-sonnet-4-20250514
     cost_per_mtok_in: 3.0
     cost_per_mtok_out: 15.0
+    provider_tool_pricing:
+      provider-web-search:
+        unit: search
+        usd_per_unit: 0.01
+        source: test
+        confidence: exact
 settings:
   xpia_scan: true
   default_timeout: 300
@@ -41,11 +47,29 @@ settings:
 	if rc.Models["claude-sonnet"].CostOut != 15.0 {
 		t.Errorf("wrong cost_out: %f", rc.Models["claude-sonnet"].CostOut)
 	}
+	price, ok := rc.Models["claude-sonnet"].ProviderToolPriceFor(capProviderWebSearch)
+	if !ok {
+		t.Fatal("expected provider tool price")
+	}
+	if price.Unit != "search" || price.USDPerUnit != 0.01 || price.Confidence != "exact" {
+		t.Fatalf("unexpected provider tool price: %#v", price)
+	}
 	if !rc.Settings.XPIAScan {
 		t.Error("expected xpia_scan to be true")
 	}
 	if rc.Settings.DefaultTimeout != 300 {
 		t.Errorf("wrong default_timeout: %d", rc.Settings.DefaultTimeout)
+	}
+}
+
+func TestModelProviderToolPriceForLegacyCosts(t *testing.T) {
+	model := Model{ProviderToolCosts: map[string]float64{capProviderWebSearch: 0.01}}
+	price, ok := model.ProviderToolPriceFor(capProviderWebSearch)
+	if !ok {
+		t.Fatal("expected legacy provider tool cost to be available as price")
+	}
+	if price.Unit != "tool_call" || price.USDPerUnit != 0.01 || price.Confidence != "estimated" {
+		t.Fatalf("unexpected legacy price: %#v", price)
 	}
 }
 
@@ -133,6 +157,37 @@ func TestResolveModelWithDifferentProvider(t *testing.T) {
 		t.Errorf("wrong provider model: %s", providerModel)
 	}
 	if providerName != "openai" {
+		t.Errorf("wrong provider name: %s", providerName)
+	}
+}
+
+func TestResolveModelGeminiNative(t *testing.T) {
+	rc := &RoutingConfig{
+		Providers: map[string]Provider{
+			"google": {
+				APIBase:   "https://generativelanguage.googleapis.com/v1beta",
+				APIFormat: "gemini",
+			},
+		},
+		Models: map[string]Model{
+			"gemini-flash": {
+				Provider:      "google",
+				ProviderModel: "gemini-2.5-flash",
+			},
+		},
+	}
+
+	target, providerModel, providerName, err := rc.ResolveModel("gemini-flash")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if target != "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent" {
+		t.Errorf("wrong target: %s", target)
+	}
+	if providerModel != "gemini-2.5-flash" {
+		t.Errorf("wrong provider model: %s", providerModel)
+	}
+	if providerName != "google" {
 		t.Errorf("wrong provider name: %s", providerName)
 	}
 }

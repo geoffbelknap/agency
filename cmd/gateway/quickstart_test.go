@@ -59,8 +59,8 @@ func TestNormalizeQuickstartProvider(t *testing.T) {
 		"":           "",
 		"anthropic":  "anthropic",
 		"OpenAI":     "openai",
-		"gemini":     "gemini",
-		"  GEMINI  ": "gemini",
+		"google":     "google",
+		"  GOOGLE  ": "google",
 	}
 
 	for input, want := range tests {
@@ -71,13 +71,13 @@ func TestNormalizeQuickstartProvider(t *testing.T) {
 }
 
 func TestSupportedQuickstartProvider(t *testing.T) {
-	for _, provider := range []string{"anthropic", "openai", "gemini"} {
+	for _, provider := range []string{"anthropic", "openai", "google"} {
 		if !isSupportedQuickstartProvider(provider) {
 			t.Fatalf("%s should be supported", provider)
 		}
 	}
-	if isSupportedQuickstartProvider("google") {
-		t.Fatal("google should not be supported as a provider identity; use gemini")
+	if isSupportedQuickstartProvider("gemini") {
+		t.Fatal("gemini should not be supported as a provider identity; use google")
 	}
 }
 
@@ -107,11 +107,11 @@ func TestQuickstartPromptDecision(t *testing.T) {
 
 func TestPromptProviderChoiceMapping(t *testing.T) {
 	tests := map[string]string{
-		"":  "gemini",
-		"1": "gemini",
+		"":  "google",
+		"1": "google",
 		"2": "anthropic",
 		"3": "openai",
-		"9": "gemini",
+		"9": "google",
 	}
 
 	for input, want := range tests {

@@ -41,7 +41,7 @@ func mergeProviderInto(cfg map[string]interface{}, providerName string, provider
 	// Merge provider config (api_base, auth fields)
 	providers := ensureMap(cfg, "providers")
 	providerCfg := map[string]interface{}{}
-	for _, key := range []string{"api_base", "auth_header", "auth_prefix", "auth_env"} {
+	for _, key := range []string{"api_base", "api_format", "auth_header", "auth_prefix", "auth_env"} {
 		if v, ok := routing[key]; ok {
 			providerCfg[key] = v
 		}
