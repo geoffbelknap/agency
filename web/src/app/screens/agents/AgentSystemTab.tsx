@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Shield } from 'lucide-react';
-import { type RawCapability, type RawPolicyValidation, type RawAuditEntry } from '../../lib/api';
+import { api, type RawCapability, type RawPolicyValidation, type RawAuditEntry, type RawProviderToolCapability } from '../../lib/api';
 import { Agent } from '../../types';
 import { LogsSection } from './AgentActivityTab';
 
@@ -9,23 +9,6 @@ type SystemSubTab = 'config' | 'logs';
 const SYSTEM_TABS: { id: SystemSubTab; label: string }[] = [
   { id: 'config', label: 'Config' },
   { id: 'logs', label: 'Logs' },
-];
-
-const PROVIDER_TOOL_CAPABILITIES: RawCapability[] = [
-  { name: 'provider-web-search', kind: 'provider-tool', state: 'available', description: 'Provider-executed web search' },
-  { name: 'provider-web-fetch', kind: 'provider-tool', state: 'available', description: 'Provider-executed URL fetch' },
-  { name: 'provider-url-context', kind: 'provider-tool', state: 'available', description: 'Provider URL context ingestion' },
-  { name: 'provider-file-search', kind: 'provider-tool', state: 'available', description: 'Provider-hosted file search' },
-  { name: 'provider-code-execution', kind: 'provider-tool', state: 'available', description: 'Provider-executed code' },
-  { name: 'provider-computer-use', kind: 'provider-tool', state: 'available', description: 'Provider computer control' },
-  { name: 'provider-shell', kind: 'provider-tool', state: 'available', description: 'Provider shell execution' },
-  { name: 'provider-text-editor', kind: 'provider-tool', state: 'available', description: 'Provider text editor operations' },
-  { name: 'provider-memory', kind: 'provider-tool', state: 'available', description: 'Provider-managed memory' },
-  { name: 'provider-mcp', kind: 'provider-tool', state: 'available', description: 'Provider MCP connector access' },
-  { name: 'provider-image-generation', kind: 'provider-tool', state: 'available', description: 'Provider image generation' },
-  { name: 'provider-google-maps', kind: 'provider-tool', state: 'available', description: 'Provider Google Maps grounding' },
-  { name: 'provider-tool-search', kind: 'provider-tool', state: 'available', description: 'Provider tool catalog search' },
-  { name: 'provider-apply-patch', kind: 'provider-tool', state: 'available', description: 'Provider patch application' },
 ];
 
 interface Props {
@@ -57,6 +40,8 @@ function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, h
   const [editingIdentity, setEditingIdentity] = useState(false);
   const [identityDraft, setIdentityDraft] = useState('');
   const [savingConfig, setSavingConfig] = useState(false);
+  const [providerToolCatalog, setProviderToolCatalog] = useState<Record<string, RawProviderToolCapability>>({});
+  const [providerToolCatalogError, setProviderToolCatalogError] = useState('');
 
   useEffect(() => {
     if (agentConfig?.identity) {
@@ -64,9 +49,32 @@ function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, h
     }
   }, [agentConfig]);
 
+  useEffect(() => {
+    let cancelled = false;
+    api.providers.tools()
+      .then((inventory) => {
+        if (cancelled) return;
+        setProviderToolCatalog(inventory.capabilities || {});
+        setProviderToolCatalogError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setProviderToolCatalog({});
+        setProviderToolCatalogError(err instanceof Error ? err.message : 'Provider tool catalog unavailable.');
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const providerToolCapabilities: RawCapability[] = Object.entries(providerToolCatalog).map(([name, tool]) => ({
+    name,
+    kind: 'provider-tool',
+    state: 'available',
+    description: tool.description || tool.title,
+  }));
+
   const visibleCapabilities = [
     ...capabilities,
-    ...PROVIDER_TOOL_CAPABILITIES.filter((providerCap) => !capabilities.some((cap) => cap.name === providerCap.name)),
+    ...providerToolCapabilities.filter((providerCap) => !capabilities.some((cap) => cap.name === providerCap.name)),
   ];
 
   return (
@@ -182,10 +190,16 @@ function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, h
               const agentGrants = agent.grantedCapabilities || [];
               const granted = agentGrants.includes(c.name);
               const providerTool = c.kind === 'provider-tool';
+              const providerToolMeta = providerToolCatalog[c.name];
               const platformActive = !providerTool && (c.state === 'enabled' || c.state === 'available' || c.state === 'restricted');
               const scopedAll = platformActive && (c.scoped_agents?.length === 0 || !c.scoped_agents);
               const scopedToThis = platformActive && c.scoped_agents?.includes(agent.name);
               const effectiveAccess = granted || scopedAll || scopedToThis;
+              const providerStatuses = providerToolMeta?.providers
+                ? Object.entries(providerToolMeta.providers)
+                    .filter(([, provider]) => provider.status && provider.status !== 'no_equivalent')
+                    .map(([provider, meta]) => `${provider}: ${meta.status}`)
+                : [];
 
               let actionStyle = 'bg-border text-muted-foreground hover:bg-blue-50 dark:hover:bg-blue-950 hover:text-blue-700 dark:hover:text-blue-400';
 
@@ -206,6 +220,18 @@ function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, h
                     <div className="min-w-0">
                       <span className={`text-xs ${effectiveAccess ? granted ? 'text-blue-300' : 'text-green-300' : 'text-foreground/80'}`}>{c.name}</span>
                       {c.description && <div className="text-[10px] text-muted-foreground line-clamp-1">{c.description}</div>}
+                      {providerToolMeta && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          <span className="rounded border border-border bg-background/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">risk: {providerToolMeta.risk}</span>
+                          <span className="rounded border border-border bg-background/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">{providerToolMeta.execution.replace(/_/g, ' ')}</span>
+                          {providerToolMeta.default_grant && (
+                            <span className="rounded border border-green-200 dark:border-green-900/40 bg-green-50 dark:bg-green-950/20 px-1.5 py-0.5 text-[10px] text-green-700 dark:text-green-400">default</span>
+                          )}
+                          {providerStatuses.slice(0, 3).map((status) => (
+                            <span key={status} className="rounded border border-border bg-background/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">{status}</span>
+                          ))}
+                        </div>
+                      )}
                       {effectiveAccess && !granted && (
                         <div className="text-[10px] text-green-600">Enabled platform-wide</div>
                       )}
@@ -222,6 +248,11 @@ function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, h
                 </div>
               );
             })}
+            {providerToolCatalogError && (
+              <div className="text-[10px] text-amber-700 dark:text-amber-400/80">
+                Provider tool catalog unavailable: {providerToolCatalogError}
+              </div>
+            )}
           </div>
         )}
       </div>
