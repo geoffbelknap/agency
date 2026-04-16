@@ -1712,6 +1712,27 @@ paths:
                         application/json:
                             schema:
                                 $ref: "#/components/schemas/StatusResponse"
+    /admin/prune-images:
+        post:
+            operationId: adminPruneImages
+            summary: Remove true dangling untagged Agency images
+            tags: [Admin]
+            x-agency-tier: core
+            x-agency-stability: supported
+            responses:
+                "200":
+                    description: Dangling-image prune result
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    pruned:
+                                        type: integer
+                                    skipped:
+                                        type: integer
     /admin/audit:
         get:
             operationId: adminAudit
@@ -3484,8 +3505,10 @@ components:
                                 type: string
                             status:
                                 type: string
-                                enum: [pass, fail]
+                                enum: [pass, warn, fail]
                             detail:
+                                type: string
+                            fix:
                                 type: string
         ProcedureRecord:
             type: object

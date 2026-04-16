@@ -4209,6 +4209,7 @@ func adminCmd() *cobra.Command {
 						agent, _ := m["agent"].(string)
 						status, _ := m["status"].(string)
 						detail, _ := m["detail"].(string)
+						fix, _ := m["fix"].(string)
 						if agent != currentAgent {
 							if currentAgent != "" {
 								fmt.Println()
@@ -4225,6 +4226,9 @@ func adminCmd() *cobra.Command {
 							line += dim.Render("  " + detail)
 						}
 						fmt.Println(line)
+						if status != "pass" && fix != "" {
+							fmt.Printf("      %s %s\n", cyan.Render("fix:"), fix)
+						}
 					}
 				}
 			} else {
@@ -4663,6 +4667,35 @@ func adminCmd() *cobra.Command {
 	}
 	destroyCmd.Flags().Bool("yes", false, "Skip confirmation prompt")
 	cmd.AddCommand(destroyCmd)
+
+	cmd.AddCommand(&cobra.Command{
+		Use: "prune-images", Short: "Remove true dangling untagged Agency images",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.AdminPruneImages()
+			if err != nil {
+				return err
+			}
+
+			getInt := func(key string) int {
+				if v, ok := result[key].(float64); ok {
+					return int(v)
+				}
+				return 0
+			}
+			pruned := getInt("pruned")
+			skipped := getInt("skipped")
+			fmt.Printf("%s Pruned %d dangling Agency image(s)", green.Render("✓"), pruned)
+			if skipped > 0 {
+				fmt.Printf(" (%d skipped)", skipped)
+			}
+			fmt.Println()
+			return nil
+		},
+	})
 
 	cmd.AddCommand(&cobra.Command{
 		Use: "rebuild <agent>", Short: "Regenerate all derived config files for an agent",

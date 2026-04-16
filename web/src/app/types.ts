@@ -123,6 +123,7 @@ export interface DoctorCheck {
   name: string;
   status: CheckStatus;
   message: string;
+  fix?: string;
 }
 
 export interface Connector {

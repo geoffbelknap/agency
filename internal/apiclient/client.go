@@ -1138,6 +1138,12 @@ func (c *Client) AdminDestroy() error {
 	return err
 }
 
+func (c *Client) AdminPruneImages() (map[string]interface{}, error) {
+	var result map[string]interface{}
+	err := c.PostJSON("/api/v1/admin/prune-images", nil, &result)
+	return result, err
+}
+
 func (c *Client) AdminRebuild(agent string) (map[string]interface{}, error) {
 	var result map[string]interface{}
 	err := c.PostJSON("/api/v1/agents/"+url.PathEscape(agent)+"/rebuild", nil, &result)

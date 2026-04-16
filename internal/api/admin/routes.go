@@ -52,6 +52,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	// Admin
 	r.Get("/api/v1/admin/doctor", h.adminDoctor)
 	r.Post("/api/v1/admin/destroy", h.adminDestroy)
+	r.Post("/api/v1/admin/prune-images", h.adminPruneImages)
 	r.Get("/api/v1/admin/audit", h.adminAudit)
 	r.Get("/api/v1/admin/egress", h.adminEgress)
 

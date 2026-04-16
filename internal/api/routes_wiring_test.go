@@ -119,6 +119,7 @@ func TestRouteWiring_AllModulesRegistered(t *testing.T) {
 		{"credentials", "GET", "/api/v1/creds"},
 		{"events", "GET", "/api/v1/events"},
 		{"admin_doctor", "GET", "/api/v1/admin/doctor"},
+		{"admin_prune_images", "POST", "/api/v1/admin/prune-images"},
 		{"infra_status", "GET", "/api/v1/infra/status"},
 		{"health", "GET", "/api/v1/health"},
 		{"mcp_tools", "GET", "/api/v1/mcp/tools"},

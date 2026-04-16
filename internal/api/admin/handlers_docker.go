@@ -23,6 +23,7 @@ type dockerCheckResult struct {
 	Agent  string `json:"agent,omitempty"`
 	Status string `json:"status"`
 	Detail string `json:"detail,omitempty"`
+	Fix    string `json:"fix,omitempty"`
 }
 
 // runDockerChecks performs infrastructure-level Docker hygiene checks that are
@@ -42,8 +43,8 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 	pass := func(name, detail string) dockerCheckResult {
 		return dockerCheckResult{Name: name, Status: "pass", Detail: detail}
 	}
-	warn := func(name, detail string) dockerCheckResult {
-		return dockerCheckResult{Name: name, Status: "warn", Detail: detail}
+	warn := func(name, detail, fix string) dockerCheckResult {
+		return dockerCheckResult{Name: name, Status: "warn", Detail: detail, Fix: fix}
 	}
 	fail := func(name, detail string) dockerCheckResult {
 		return dockerCheckResult{Name: name, Status: "fail", Detail: detail}
@@ -60,7 +61,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 		all, err := h.deps.DC.ListAgencyContainers(ctx, false /* all, not just running */)
 		if err != nil {
 			results = append(results, warn("docker_orphan_containers",
-				"Cannot list containers: "+err.Error()))
+				"Cannot list containers: "+err.Error(), ""))
 			return
 		}
 		var orphans []string
@@ -77,7 +78,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 		}
 		if len(orphans) > 0 {
 			results = append(results, warn("docker_orphan_containers",
-				fmt.Sprintf("%d orphan workspace container(s): %s", len(orphans), strings.Join(orphans, ", "))))
+				fmt.Sprintf("%d orphan workspace container(s): %s", len(orphans), strings.Join(orphans, ", ")), ""))
 		} else {
 			results = append(results, pass("docker_orphan_containers", "No orphan workspace containers"))
 		}
@@ -88,7 +89,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 		nets, err := h.deps.DC.ListNetworksByLabel(ctx, "agency.managed=true")
 		if err != nil {
 			results = append(results, warn("docker_orphan_networks",
-				"Cannot list networks: "+err.Error()))
+				"Cannot list networks: "+err.Error(), ""))
 			return
 		}
 		// Shared infrastructure networks are expected to be empty when
@@ -98,7 +99,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 			inspect, err := h.deps.DC.NetworkInspectRaw(ctx, n.Name)
 			if err != nil {
 				results = append(results, warn("docker_orphan_networks",
-					"Cannot inspect network "+n.Name+": "+err.Error()))
+					"Cannot inspect network "+n.Name+": "+err.Error(), ""))
 				return
 			}
 			if len(inspect.Containers) == 0 && !isSharedInfraNetwork(n.Name) {
@@ -108,7 +109,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 		if len(orphans) > 0 {
 			results = append(results, warn("docker_orphan_networks",
 				fmt.Sprintf("%d orphan network(s) with no connected endpoints: %s",
-					len(orphans), strings.Join(orphans, ", "))))
+					len(orphans), strings.Join(orphans, ", ")), ""))
 		} else {
 			results = append(results, pass("docker_orphan_networks",
 				"No orphan agency-managed networks"))
@@ -120,12 +121,13 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 		imgs, err := h.deps.DC.ListDanglingAgencyImages(ctx)
 		if err != nil {
 			results = append(results, warn("docker_dangling_images",
-				"Cannot list images: "+err.Error()))
+				"Cannot list images: "+err.Error(), ""))
 			return
 		}
 		if len(imgs) > 0 {
 			results = append(results, warn("docker_dangling_images",
-				fmt.Sprintf("%d true dangling agency image(s)", len(imgs))))
+				fmt.Sprintf("%d true dangling agency image(s)", len(imgs)),
+				"Run `agency admin prune-images` to remove unused untagged Agency images."))
 		} else {
 			results = append(results, pass("docker_dangling_images",
 				"No dangling agency images"))
@@ -137,7 +139,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 		running, err := h.deps.DC.ListAgencyContainers(ctx, true /* running only */)
 		if err != nil {
 			results = append(results, warn("docker_log_sizes",
-				"Cannot list running containers: "+err.Error()))
+				"Cannot list running containers: "+err.Error(), ""))
 			return
 		}
 		const warnThreshold = 500 * 1024 * 1024 // 500 MB
@@ -152,7 +154,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 		totalMB := float64(totalBytes) / (1024 * 1024)
 		if totalBytes > warnThreshold {
 			results = append(results, warn("docker_log_sizes",
-				fmt.Sprintf("Total log size across agency containers: %.1f MB (threshold 500 MB)", totalMB)))
+				fmt.Sprintf("Total log size across agency containers: %.1f MB (threshold 500 MB)", totalMB), ""))
 		} else {
 			results = append(results, pass("docker_log_sizes",
 				fmt.Sprintf("Total log size: %.1f MB", totalMB)))
@@ -218,7 +220,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 		running, err := h.deps.DC.ListAgencyContainers(ctx, true /* running only */)
 		if err != nil {
 			results = append(results, warn("docker_log_rotation",
-				"Cannot list running containers: "+err.Error()))
+				"Cannot list running containers: "+err.Error(), ""))
 			return
 		}
 		var missing []string
@@ -240,7 +242,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 		if len(missing) > 0 {
 			results = append(results, warn("docker_log_rotation",
 				fmt.Sprintf("%d container(s) missing log rotation (max-size): %s",
-					len(missing), strings.Join(missing, ", "))))
+					len(missing), strings.Join(missing, ", ")), ""))
 		} else {
 			results = append(results, pass("docker_log_rotation",
 				"All agency containers have log rotation configured"))
