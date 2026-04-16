@@ -13,8 +13,6 @@ import (
 	"gopkg.in/yaml.v3"
 	"log/slog"
 
-	dockerclient "github.com/docker/docker/client"
-
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
@@ -24,7 +22,6 @@ import (
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/models"
-	"github.com/geoffbelknap/agency/internal/orchestrate/containers"
 )
 
 // StartSequence orchestrates the seven-phase agent start.
@@ -34,12 +31,14 @@ type StartSequence struct {
 	Version     string
 	SourceDir   string // agency_core/ path for dev-mode image builds
 	BuildID     string // content-aware build ID for staleness detection
+	BackendName string
 	Docker      *agencyDocker.Client
 	Comms       comms.Client
 	Log         *slog.Logger
 	KeyRotation bool // Force scoped key rotation (used on restart)
 	CredStore   *credstore.Store
 	Audit       *logs.Writer // optional — capacity rejection audit logging
+	Runtime     *RuntimeSupervisor
 
 	// Resolved state
 	agentConfig     map[string]interface{}
@@ -208,49 +207,10 @@ func (ss *StartSequence) phase1Verify() error {
 }
 
 func (ss *StartSequence) phase2Enforcement(ctx context.Context) error {
-	// Ensure agent network
-	agentNet := fmt.Sprintf("%s-%s-internal", prefix, ss.AgentName)
-	infra, err := NewInfra(ss.Home, ss.Version, ss.Docker, ss.Log, nil)
-	if err != nil {
-		return err
-	}
-	infra.SourceDir = ss.SourceDir
-	infra.BuildID = ss.BuildID
-	if err := infra.EnsureAgentNetwork(ctx, agentNet); err != nil {
-		return fmt.Errorf("create agent network: %w", err)
-	}
-
-	// Start enforcer — rotate scoped key on restart (ASK tenet 4: least privilege)
-	var sharedCli *dockerclient.Client
-	if ss.Docker != nil {
-		sharedCli = ss.Docker.RawClient()
-	}
-	enf, err := NewEnforcerWithClient(ss.AgentName, ss.Home, ss.Version, ss.Log, nil, sharedCli)
-	if err != nil {
-		return err
-	}
-	enf.SourceDir = ss.SourceDir
-	enf.BuildID = ss.BuildID
-	if lifecycleID, ok := ss.agentConfig["lifecycle_id"].(string); ok && lifecycleID != "" {
-		enf.LifecycleID = lifecycleID
-	}
-	if principalUUID, ok := ss.agentConfig["uuid"].(string); ok && principalUUID != "" {
-		enf.PrincipalUUID = principalUUID
-	}
-	if ss.KeyRotation {
-		ss.scopedKey, err = enf.StartWithKeyRotation(ctx)
-	} else {
-		ss.scopedKey, err = enf.Start(ctx)
-	}
-	if err != nil {
+	if err := ss.runtimeSupervisor().EnsureEnforcer(ctx, ss.AgentName, ss.KeyRotation); err != nil {
 		return fmt.Errorf("enforcer start: %w", err)
 	}
-
-	// Wait for enforcer health
-	if err := enf.HealthCheck(ctx, 30*time.Second); err != nil {
-		ss.Log.Warn("enforcer health check slow", "err", err)
-	}
-
+	ss.scopedKey = readScopedAPIKey(filepath.Join(ss.Home, "agents", ss.AgentName, "state", "enforcer-auth", "api_keys.yaml"))
 	return nil
 }
 
@@ -324,31 +284,28 @@ func (ss *StartSequence) phase5Identity() error {
 }
 
 func (ss *StartSequence) phase6Body(ctx context.Context) error {
-	var sharedCli *dockerclient.Client
-	if ss.Docker != nil {
-		sharedCli = ss.Docker.RawClient()
-	}
-	ws, err := NewWorkspaceWithClient(ss.AgentName, ss.Home, ss.Version, ss.Log, sharedCli)
-	if err != nil {
-		return err
-	}
-	ws.SourceDir = ss.SourceDir
-	ws.BuildID = ss.BuildID
-	if principalUUID, ok := ss.agentConfig["uuid"].(string); ok && principalUUID != "" {
-		ws.PrincipalUUID = principalUUID
-	}
-
 	deps := ss.readWorkspaceDeps()
 	if !deps.IsEmpty() {
 		ss.Log.Info("workspace deps loaded", "agent", ss.AgentName, "pip", deps.Pip, "apt", deps.Apt, "env_count", len(deps.Env))
 	}
-
-	return ws.Start(ctx, StartOptions{
-		ScopedKey:  ss.scopedKey,
-		Model:      ss.model,
-		AdminModel: ss.adminModel,
-		Deps:       deps,
-	})
+	rs := ss.runtimeSupervisor()
+	spec, err := rs.Compile(ctx, ss.AgentName)
+	if err != nil {
+		return err
+	}
+	if spec.Package.Env == nil {
+		spec.Package.Env = make(map[string]string)
+	}
+	if ss.model != "" {
+		spec.Package.Env["AGENCY_MODEL"] = ss.model
+	}
+	if ss.adminModel != "" {
+		spec.Package.Env["AGENCY_ADMIN_MODEL"] = ss.adminModel
+	}
+	if err := rs.Reconcile(ctx, spec); err != nil {
+		return err
+	}
+	return rs.EnsureWorkspace(ctx, ss.AgentName)
 }
 
 func (ss *StartSequence) readWorkspaceDeps() WorkspaceDeps {
@@ -559,11 +516,27 @@ func (ss *StartSequence) checkCapacity(ctx context.Context) error {
 
 func (ss *StartSequence) failClosed(ctx context.Context) {
 	ss.Log.Warn("fail-closed teardown", "agent", ss.AgentName)
-	wsName := fmt.Sprintf("%s-%s-workspace", prefix, ss.AgentName)
-	enfName := fmt.Sprintf("%s-%s-enforcer", prefix, ss.AgentName)
-	for _, name := range []string{wsName, enfName} {
-		_ = containers.StopAndRemove(ctx, ss.Docker.RawClient(), name, 10)
+	if err := ss.runtimeSupervisor().Stop(ctx, ss.AgentName); err != nil && ss.Log != nil {
+		ss.Log.Warn("runtime stop failed during fail-closed teardown", "agent", ss.AgentName, "err", err)
 	}
+}
+
+func (ss *StartSequence) runtimeSupervisor() *RuntimeSupervisor {
+	if ss.Runtime != nil {
+		return ss.Runtime
+	}
+	ss.Runtime = NewRuntimeSupervisor(
+		ss.Home,
+		ss.Version,
+		ss.SourceDir,
+		ss.BuildID,
+		ss.BackendName,
+		ss.Docker,
+		ss.Comms,
+		ss.Log,
+		ss.CredStore,
+	)
+	return ss.Runtime
 }
 
 // generateTiersJSON creates a tiers.json manifest from the routing config.

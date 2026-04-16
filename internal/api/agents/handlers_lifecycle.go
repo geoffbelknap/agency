@@ -251,10 +251,12 @@ func (h *handler) startAgent(w http.ResponseWriter, r *http.Request) {
 		Version:   h.deps.Config.Version,
 		SourceDir: h.deps.Config.SourceDir,
 		BuildID:   h.deps.Config.BuildID,
+		BackendName: h.deps.Config.Hub.DeploymentBackend,
 		Docker:    h.deps.RawDocker,
 		Comms:     h.deps.Comms,
 		Log:       h.deps.Logger,
 		CredStore: h.deps.CredStore,
+		Runtime:   h.deps.AgentManager.Runtime,
 	}
 
 	// Stream progress as NDJSON if client requests it
@@ -357,11 +359,13 @@ func (h *handler) restartAgent(w http.ResponseWriter, r *http.Request) {
 		Version:     h.deps.Config.Version,
 		SourceDir:   h.deps.Config.SourceDir,
 		BuildID:     h.deps.Config.BuildID,
+		BackendName: h.deps.Config.Hub.DeploymentBackend,
 		Docker:      h.deps.RawDocker,
 		Comms:       h.deps.Comms,
 		Log:         h.deps.Logger,
 		KeyRotation: true,
 		CredStore:   h.deps.CredStore,
+		Runtime:     h.deps.AgentManager.Runtime,
 	}
 
 	result, err := ss.Run(r.Context(), func(phase int, phaseName, desc string) {
@@ -495,6 +499,13 @@ func (h *handler) resumeAgent(w http.ResponseWriter, r *http.Request) {
 // dockerRequired returns true if Docker is available. If not, writes a 503
 // response with a human-readable error and returns false.
 func (h *handler) dockerRequired(w http.ResponseWriter) bool {
+	if h.deps.AgentManager != nil && h.deps.AgentManager.Runtime != nil {
+		if err := h.deps.AgentManager.Runtime.RuntimeAvailable(context.Background()); err != nil {
+			writeJSON(w, 503, map[string]string{"error": err.Error()})
+			return false
+		}
+		return true
+	}
 	if h.deps.DockerStatus != nil && !h.deps.DockerStatus.Available() {
 		writeJSON(w, 503, map[string]string{
 			"error": "Docker is not available. Container operations are unavailable.",

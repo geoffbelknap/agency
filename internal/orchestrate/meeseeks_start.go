@@ -147,6 +147,9 @@ func (ms *MeeseeksStartSequence) phase2Enforcement(ctx context.Context) error {
 	env := []string{
 		"HOME=/agency/enforcer/data",
 		"AGENT_NAME=" + ms.Meeseeks.ID,
+		"AGENCY_ENFORCER_PROXY_URL=http://enforcer:3128",
+		"AGENCY_ENFORCER_CONTROL_URL=http://enforcer:8081",
+		"AGENCY_ENFORCER_HEALTH_URL=http://enforcer:3128/health",
 		"CONSTRAINT_WS_PORT=8081",
 		fmt.Sprintf("AGENCY_MEESEEKS_BUDGET=%.4f", ms.Meeseeks.Budget),
 		"AGENCY_MEESEEKS=true",
@@ -250,10 +253,15 @@ func (ms *MeeseeksStartSequence) phase4Workspace(ctx context.Context) error {
 	auditDir := filepath.Join(ms.Home, "audit", ms.Meeseeks.ID)
 
 	env := []string{
+		"AGENCY_ENFORCER_PROXY_URL=http://enforcer:3128",
+		"AGENCY_ENFORCER_CONTROL_URL=http://enforcer:8081",
+		"AGENCY_ENFORCER_HEALTH_URL=http://enforcer:3128/health",
 		"AGENCY_ENFORCER_URL=http://enforcer:3128/v1",
 		"OPENAI_API_BASE=http://enforcer:3128/v1",
 		"HTTP_PROXY=http://enforcer:3128",
 		"HTTPS_PROXY=http://enforcer:3128",
+		"AGENCY_COMMS_URL=http://enforcer:8081/mediation/comms",
+		"AGENCY_KNOWLEDGE_URL=http://enforcer:8081/mediation/knowledge",
 		"NO_PROXY=enforcer,comms,knowledge,localhost,127.0.0.1",
 		"AGENCY_AGENT_NAME=" + ms.Meeseeks.ID,
 		"AGENCY_MODEL=claude-" + ms.Meeseeks.Model,

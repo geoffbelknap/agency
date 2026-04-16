@@ -367,6 +367,7 @@ func (d *Deployer) Deploy(ctx context.Context, pack *PackDef, onStatus func(stri
 			Version:   d.Version,
 			SourceDir: d.SourceDir,
 			BuildID:   d.BuildID,
+			BackendName: defaultRuntimeBackend,
 			Docker:    d.Docker,
 			Comms:     d.Comms,
 			Log:       d.Log,

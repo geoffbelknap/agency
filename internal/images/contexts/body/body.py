@@ -146,9 +146,11 @@ class Body:
         self.conversation_meta = self.state_dir / "conversation-meta.json"
         self.memory_dir = self.workspace_dir / ".memory"
 
+        self.proxy_url = os.environ.get("AGENCY_ENFORCER_PROXY_URL", "http://enforcer:3128")
+        self.control_url = os.environ.get("AGENCY_ENFORCER_CONTROL_URL", "http://enforcer:8081")
         self.enforcer_url = os.environ.get(
             "AGENCY_ENFORCER_URL",
-            os.environ.get("OPENAI_API_BASE", "http://enforcer:3128/v1"),
+            os.environ.get("OPENAI_API_BASE", f"{self.proxy_url}/v1"),
         )
         self.model = os.environ.get("AGENCY_MODEL", "claude-sonnet")
         self.agent_name = os.environ.get("AGENCY_AGENT_NAME", "agent")
@@ -199,7 +201,8 @@ class Body:
         self._checkpoint_injected = False
         self._notification_queue: list[tuple[str, str, str]] = []
         self._last_notification_task_time = 0.0
-        self._knowledge_url = os.environ.get("AGENCY_KNOWLEDGE_URL", "http://knowledge:8080")
+        self._knowledge_url = os.environ.get("AGENCY_KNOWLEDGE_URL", f"{self.control_url}/mediation/knowledge")
+        self._comms_url = os.environ.get("AGENCY_COMMS_URL", f"{self.control_url}/mediation/comms")
 
         # Real-time comms event-driven loop state
         self._event_queue = queue_module.Queue()
@@ -534,7 +537,7 @@ class Body:
         )
 
         # Register comms tools
-        comms_url = os.environ.get("AGENCY_COMMS_URL", "http://comms:8080")
+        comms_url = os.environ.get("AGENCY_COMMS_URL", self._comms_url)
         agent_name = os.environ.get("AGENCY_AGENT_NAME", "unknown")
         from comms_tools import register_comms_tools
         register_comms_tools(self._builtin_tools, comms_url=comms_url, agent_name=agent_name)
@@ -553,7 +556,7 @@ class Body:
             log.warning("comms | cursor reset failed (non-fatal): %s", _e)
 
         # Register knowledge graph tools
-        knowledge_url = os.environ.get("AGENCY_KNOWLEDGE_URL", "http://knowledge:8080")
+        knowledge_url = os.environ.get("AGENCY_KNOWLEDGE_URL", self._knowledge_url)
         self._knowledge_url = knowledge_url
         from knowledge_tools import register_knowledge_tools
         register_knowledge_tools(self._builtin_tools, knowledge_url=knowledge_url, agent_name=agent_name, active_mission=self._active_mission)
@@ -637,7 +640,7 @@ class Body:
         self._system_prompt = self.assemble_system_prompt()
         log.info("System prompt assembled (%d chars)", len(self._system_prompt))
 
-        proxy_url = os.environ.get("HTTP_PROXY")
+        proxy_url = os.environ.get("HTTP_PROXY", self.proxy_url)
         self._http_client = httpx.Client(
             timeout=LLM_TIMEOUT,
             proxy=proxy_url,
@@ -665,7 +668,7 @@ class Body:
             )
 
         # Start WebSocket listener
-        comms_url = os.environ.get("AGENCY_COMMS_URL", "http://comms:8080")
+        comms_url = os.environ.get("AGENCY_COMMS_URL", self._comms_url)
         self._ws_listener = WSListener(
             comms_url=comms_url,
             agent_name=self.agent_name,
@@ -907,7 +910,7 @@ class Body:
         if not keywords:
             return
         try:
-            comms_url = os.environ.get("AGENCY_COMMS_URL", "http://comms:8080")
+            comms_url = os.environ.get("AGENCY_COMMS_URL", self._comms_url)
             httpx.Client(timeout=5).post(
                 f"{comms_url}/subscriptions/{self.agent_name}/interests",
                 json={
@@ -921,7 +924,7 @@ class Body:
 
     def _clear_interests(self) -> None:
         try:
-            comms_url = os.environ.get("AGENCY_COMMS_URL", "http://comms:8080")
+            comms_url = os.environ.get("AGENCY_COMMS_URL", self._comms_url)
             httpx.Client(timeout=5).delete(f"{comms_url}/subscriptions/{self.agent_name}/interests")
         except Exception:
             pass
@@ -1074,7 +1077,7 @@ class Body:
         # Team communication context
         from comms_tools import build_comms_context
         comms_context = build_comms_context(
-            os.environ.get("AGENCY_COMMS_URL", "http://comms:8080"),
+            os.environ.get("AGENCY_COMMS_URL", self._comms_url),
             os.environ.get("AGENCY_AGENT_NAME", "unknown"),
         )
         if comms_context:
@@ -1998,7 +2001,7 @@ class Body:
         # The gateway's comms bridge picks up the signal and broadcasts via
         # WebSocket hub to agency-web and other connected clients.
         try:
-            comms_url = os.environ.get("AGENCY_COMMS_URL", "http://comms:8080")
+            comms_url = os.environ.get("AGENCY_COMMS_URL", self._comms_url)
             self._http_client.post(
                 f"{comms_url}/signals",
                 json={
@@ -2014,7 +2017,7 @@ class Body:
     def _post_operator_notification(self, event_type: str, content: str, metadata: dict | None = None) -> None:
         """Post notification to #operator channel."""
         try:
-            comms_url = os.environ.get("AGENCY_COMMS_URL", "http://comms:8080")
+            comms_url = os.environ.get("AGENCY_COMMS_URL", self._comms_url)
             msg_metadata = {"event_type": event_type, "agent": self.agent_name}
             if metadata:
                 msg_metadata.update(metadata)
@@ -2430,7 +2433,7 @@ class Body:
         if not self._active_mission:
             return json.dumps({"error": "No active mission"})
         try:
-            comms_url = os.environ.get("AGENCY_COMMS_URL", "http://comms:8080")
+            comms_url = os.environ.get("AGENCY_COMMS_URL", self._comms_url)
             # POST to gateway claim endpoint via the enforcer proxy.
             gateway_url = os.environ.get("AGENCY_GATEWAY_URL", "http://localhost:8200")
             mission_name = self._active_mission.get("name", "")
@@ -2465,7 +2468,7 @@ class Body:
 
     def _send_meeseeks_message(self, channel: str, message: str) -> None:
         """Send a message to a channel via comms (best-effort)."""
-        comms_url = os.environ.get("AGENCY_COMMS_URL", "http://comms:8080")
+        comms_url = os.environ.get("AGENCY_COMMS_URL", self._comms_url)
         try:
             client = self._http_client or httpx
             client.post(
