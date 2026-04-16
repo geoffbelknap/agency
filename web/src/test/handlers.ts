@@ -91,6 +91,12 @@ export const handlers = [
     }),
   ),
   http.get(`${BASE}/infra/providers`, () => HttpResponse.json([])),
+  http.get(`${BASE}/infra/provider-tools`, () =>
+    HttpResponse.json({
+      version: '0.1',
+      capabilities: {},
+    }),
+  ),
   http.get(`${BASE}/infra/routing/metrics`, () =>
     HttpResponse.json({
       period: { since: '2026-04-08T00:00:00Z', until: '2026-04-09T00:00:00Z' },
