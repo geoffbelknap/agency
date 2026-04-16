@@ -46,16 +46,16 @@ const inventory = {
       description: 'Provider-defined computer-use loop.',
       providers: {
         openai: {
-          status: 'harness_unavailable',
+          status: 'unsupported_by_agency',
           request_tools: ['computer_use_preview'],
           pricing: { unit: 'harness_action', confidence: 'unknown' },
-          tests: ['detect', 'harness_unavailable'],
+          tests: ['detect', 'unsupported_by_agency'],
         },
         anthropic: {
-          status: 'harness_unavailable',
+          status: 'unsupported_by_agency',
           request_tools: ['computer_20250124'],
           pricing: { unit: 'harness_action', confidence: 'unknown' },
-          tests: ['detect', 'harness_unavailable'],
+          tests: ['detect', 'unsupported_by_agency'],
         },
         google: {
           status: 'unconfirmed',
@@ -103,7 +103,7 @@ describe('AdminProviderTools', () => {
     expect(screen.getByText('provider-computer-use')).toBeInTheDocument();
     expect(screen.getAllByText('supported').length).toBeGreaterThanOrEqual(3);
     expect(screen.getAllByText('harnessed').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByText('harness unavailable').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('unsupported by agency').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('default grant')).toBeInTheDocument();
     expect(screen.getByText('exact · $0.0100 · search')).toBeInTheDocument();
   });

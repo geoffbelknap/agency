@@ -95,8 +95,8 @@ granted to the agent.
 
 Provider-defined shell, text-editor, and patch tools are translated to
 Agency-native mediated tools before the provider sees the request. Computer-use
-remains unavailable until Agency has a first-class screen/input execution
-harness.
+is flagged as unsupported by Agency until Agency has a first-class screen/input
+execution harness.
 
 Grant or revoke provider tools the same way as other per-agent grants:
 
@@ -129,7 +129,7 @@ Audit events to watch:
 - `PROVIDER_TOOL_DENIED` — agent lacks the required provider-tool grant.
 - `PROVIDER_TOOL_UNSUPPORTED` — agent has the grant, but the selected model does not declare support.
 - `PROVIDER_TOOL_HARNESS_TRANSLATED` — request declared a provider-defined action tool that was rewritten into Agency-native function tools.
-- `PROVIDER_TOOL_HARNESS_UNAVAILABLE` — request declared a provider-defined action tool that requires an Agency execution harness that is not available.
+- `PROVIDER_TOOL_HARNESS_UNAVAILABLE` — request declared a provider-defined action tool that Agency does not support yet because the required execution harness does not exist.
 - `LLM_DIRECT` / `LLM_DIRECT_STREAM` — includes compact provider-tool evidence such as source, citation, and search-query counts when exposed by the provider.
 
 Provider-tool cost accounting is configured per model. Prefer structured

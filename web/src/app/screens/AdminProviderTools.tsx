@@ -23,7 +23,7 @@ function statusTone(status: string) {
     case 'harness_required':
     case 'harnessed':
       return 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-400';
-    case 'harness_unavailable':
+    case 'unsupported_by_agency':
       return 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-400';
     case 'no_equivalent':
       return 'border-border bg-secondary text-muted-foreground';

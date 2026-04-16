@@ -122,18 +122,18 @@ capabilities:
     risk: critical
     default_grant: false
     execution: agency_harnessed
-    description: Provider-defined computer-use loop. Not exposed until Agency has a mediated desktop/runtime execution harness.
+    description: Provider-defined computer-use loop. Unsupported by Agency until a mediated desktop/runtime execution harness exists.
     providers:
       openai:
-        status: harness_unavailable
+        status: unsupported_by_agency
         request_tools: [computer_use_preview]
         pricing: {unit: harness_action, confidence: unknown}
-        tests: [detect, grant_deny, harness_unavailable]
+        tests: [detect, grant_deny, unsupported_by_agency]
       anthropic:
-        status: harness_unavailable
+        status: unsupported_by_agency
         request_tools: [computer_20250124]
         pricing: {unit: harness_action, confidence: unknown}
-        tests: [detect, grant_deny, harness_unavailable]
+        tests: [detect, grant_deny, unsupported_by_agency]
       google:
         status: unconfirmed
         request_tools: [computer_use]
