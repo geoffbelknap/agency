@@ -1,6 +1,7 @@
 package orchestrate
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -8,6 +9,8 @@ import (
 
 	"log/slog"
 	"gopkg.in/yaml.v3"
+
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
 func newTestLogger() *slog.Logger {
@@ -303,5 +306,123 @@ func TestLoadAgentDetail_PreservesExistingLifecycleID(t *testing.T) {
 
 	if detail.LifecycleID != existingID {
 		t.Errorf("expected existing lifecycle_id %q to be preserved, got %q", existingID, detail.LifecycleID)
+	}
+}
+
+func TestLoadAgentDetail_UsesRuntimeStatusProjection(t *testing.T) {
+	dir := t.TempDir()
+	agentDir := filepath.Join(dir, "agents", "runtime-agent")
+	stateDir := filepath.Join(agentDir, "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("uuid: ag_runtime\ntype: standard\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tokenFile := filepath.Join(stateDir, "token.yaml")
+	if err := os.WriteFile(tokenFile, []byte("- key: \"abc\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rs := NewRuntimeSupervisor(dir, "0.1.0", "", "build-1", "fake", nil, nil, nil, nil)
+	fake := &fakeRuntimeBackend{
+		status: runtimecontract.BackendStatus{
+			RuntimeID: "runtime-agent",
+			Healthy:   false,
+			Phase:     runtimecontract.RuntimePhaseDegraded,
+			Details: map[string]string{
+				"enforcer_state": "stopped",
+				"last_error":     "lost mediation",
+			},
+		},
+	}
+	rs.registry.Register("fake", func() (runtimecontract.Backend, error) { return fake, nil })
+	spec := runtimecontract.RuntimeSpec{
+		RuntimeID: "runtime-agent",
+		AgentID:   "ag_runtime",
+		Backend:   "fake",
+		Transport: runtimecontract.RuntimeTransportSpec{
+			Enforcer: runtimecontract.EnforcerTransportSpec{
+				Type:     runtimecontract.TransportTypeLoopbackHTTP,
+				Endpoint: "http://127.0.0.1:9999",
+				TokenRef: tokenFile,
+			},
+		},
+		Storage: runtimecontract.RuntimeStorageSpec{
+			ConfigPath: agentDir,
+			StatePath:  stateDir,
+		},
+	}
+	if err := rs.Reconcile(context.Background(), spec); err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+
+	am := &AgentManager{Home: dir, Runtime: rs}
+	detail := am.loadAgentDetail("runtime-agent", filepath.Join(dir, "agents"), map[string]containerInfo{}, map[string]string{})
+	if detail.Status != "unhealthy" {
+		t.Fatalf("status = %q, want unhealthy", detail.Status)
+	}
+	if detail.Workspace != "running" {
+		t.Fatalf("workspace = %q, want running", detail.Workspace)
+	}
+	if detail.Enforcer != "stopped" {
+		t.Fatalf("enforcer = %q, want stopped", detail.Enforcer)
+	}
+}
+
+func TestLoadAgentDetail_RuntimeStoppedRespectsActiveHalt(t *testing.T) {
+	dir := t.TempDir()
+	agentDir := filepath.Join(dir, "agents", "halted-agent")
+	stateDir := filepath.Join(agentDir, "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("uuid: ag_halted\ntype: standard\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tokenFile := filepath.Join(stateDir, "token.yaml")
+	if err := os.WriteFile(tokenFile, []byte("- key: \"abc\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(activeHaltPath(dir, "halted-agent"), []byte(`{"halt_id":"h1"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rs := NewRuntimeSupervisor(dir, "0.1.0", "", "build-1", "fake", nil, nil, nil, nil)
+	fake := &fakeRuntimeBackend{
+		status: runtimecontract.BackendStatus{
+			RuntimeID: "halted-agent",
+			Healthy:   false,
+			Phase:     runtimecontract.RuntimePhaseStopped,
+			Details: map[string]string{
+				"enforcer_state": "stopped",
+			},
+		},
+	}
+	rs.registry.Register("fake", func() (runtimecontract.Backend, error) { return fake, nil })
+	spec := runtimecontract.RuntimeSpec{
+		RuntimeID: "halted-agent",
+		AgentID:   "ag_halted",
+		Backend:   "fake",
+		Transport: runtimecontract.RuntimeTransportSpec{
+			Enforcer: runtimecontract.EnforcerTransportSpec{
+				Type:     runtimecontract.TransportTypeLoopbackHTTP,
+				Endpoint: "http://127.0.0.1:9999",
+				TokenRef: tokenFile,
+			},
+		},
+		Storage: runtimecontract.RuntimeStorageSpec{
+			ConfigPath: agentDir,
+			StatePath:  stateDir,
+		},
+	}
+	if err := rs.Reconcile(context.Background(), spec); err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+
+	am := &AgentManager{Home: dir, Runtime: rs}
+	detail := am.loadAgentDetail("halted-agent", filepath.Join(dir, "agents"), map[string]containerInfo{}, map[string]string{})
+	if detail.Status != "halted" {
+		t.Fatalf("status = %q, want halted", detail.Status)
 	}
 }

@@ -28,6 +28,7 @@ type StartupResult struct {
 	Infra           *orchestrate.Infra
 	AgentManager    *orchestrate.AgentManager
 	HaltController  *orchestrate.HaltController
+	Runtime         *orchestrate.RuntimeSupervisor
 	Audit           *logs.Writer
 	CtxMgr          *agencyctx.Manager
 	MissionManager  *orchestrate.MissionManager
@@ -83,6 +84,7 @@ func Startup(cfg *config.Config, dc *docker.Client, logger *slog.Logger) (*Start
 	}
 	halt.SourceDir = cfg.SourceDir
 	halt.BuildID = cfg.BuildID
+	halt.BackendName = cfg.Hub.DeploymentBackend
 	halt.Comms = dc
 
 	audit := logs.NewWriter(cfg.Home)
@@ -106,6 +108,23 @@ func Startup(cfg *config.Config, dc *docker.Client, logger *slog.Logger) (*Start
 		cs = credstore.NewStore(fb, cfg.Home)
 	}
 	halt.CredStore = cs
+	runtimeSupervisor := orchestrate.NewRuntimeSupervisor(
+		cfg.Home,
+		cfg.Version,
+		cfg.SourceDir,
+		cfg.BuildID,
+		cfg.Hub.DeploymentBackend,
+		dc,
+		dc,
+		logger,
+		cs,
+	)
+	agents.Version = cfg.Version
+	agents.SourceDir = cfg.SourceDir
+	agents.BuildID = cfg.BuildID
+	agents.BackendName = cfg.Hub.DeploymentBackend
+	agents.Runtime = runtimeSupervisor
+	halt.Runtime = runtimeSupervisor
 
 	// Initialize profile store (non-fatal).
 	ps := profiles.NewStore(filepath.Join(cfg.Home, "profiles"))
@@ -131,6 +150,7 @@ func Startup(cfg *config.Config, dc *docker.Client, logger *slog.Logger) (*Start
 		Infra:           infra,
 		AgentManager:    agents,
 		HaltController:  halt,
+		Runtime:         runtimeSupervisor,
 		Audit:           audit,
 		CtxMgr:          ctxMgr,
 		MissionManager:  orchestrate.NewMissionManager(cfg.Home),

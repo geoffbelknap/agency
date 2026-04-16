@@ -30,17 +30,18 @@ const enforcerImage = "agency-enforcer:latest"
 
 // Enforcer manages the per-agent enforcer sidecar container.
 type Enforcer struct {
-	AgentName     string
-	ContainerName string
-	Home          string
-	Version       string
-	SourceDir     string
-	BuildID       string
-	LifecycleID   string
-	PrincipalUUID string // agent UUID from principal registry
-	cli           *client.Client
-	log           *slog.Logger
-	hmacKey       []byte
+	AgentName          string
+	ContainerName      string
+	Home               string
+	Version            string
+	SourceDir          string
+	BuildID            string
+	ConstraintHostPort string
+	LifecycleID        string
+	PrincipalUUID      string // agent UUID from principal registry
+	cli                *client.Client
+	log                *slog.Logger
+	hmacKey            []byte
 }
 
 func NewEnforcer(agentName, home, version string, logger *slog.Logger, hmacKey []byte) (*Enforcer, error) {
@@ -178,9 +179,12 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 	// enforcer's container network exposure.
 	enforcerHostConfig.NetworkMode = container.NetworkMode(gatewayNetName())
 	enforcerHostConfig.Tmpfs = map[string]string{"/tmp": "size=64M", "/run": "size=32M"}
-	constraintHostPort, err := pickLoopbackPort()
-	if err != nil {
-		return "", fmt.Errorf("allocate enforcer constraint port: %w", err)
+	constraintHostPort := e.ConstraintHostPort
+	if constraintHostPort == "" {
+		constraintHostPort, err = pickLoopbackPort()
+		if err != nil {
+			return "", fmt.Errorf("allocate enforcer constraint port: %w", err)
+		}
 	}
 	enforcerHostConfig.PortBindings = nat.PortMap{
 		"8081/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: constraintHostPort}},
@@ -383,15 +387,12 @@ func waitContainerRunning(ctx context.Context, cli *client.Client, name string, 
 }
 
 func waitContainerHealthy(ctx context.Context, cli *client.Client, name string, timeout time.Duration) error {
-	// Quick check — already healthy?
-	if info, err := cli.ContainerInspect(ctx, name); err == nil {
-		if info.State.Health != nil && info.State.Health.Status == "healthy" {
-			return nil
-		}
-	}
-
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+
+	if done, err := inspectContainerHealth(ctx, cli, name); done || err != nil {
+		return err
+	}
 
 	eventCh, errCh := cli.Events(ctx, events.ListOptions{
 		Filters: filters.NewArgs(
@@ -399,6 +400,8 @@ func waitContainerHealthy(ctx context.Context, cli *client.Client, name string, 
 			filters.Arg("event", "health_status"),
 		),
 	})
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
 
 	for {
 		select {
@@ -410,6 +413,13 @@ func waitContainerHealthy(ctx context.Context, cli *client.Client, name string, 
 			if strings.Contains(status, "healthy") && !strings.Contains(status, "unhealthy") {
 				return nil
 			}
+			if done, err := inspectContainerHealth(ctx, cli, name); done || err != nil {
+				return err
+			}
+		case <-ticker.C:
+			if done, err := inspectContainerHealth(ctx, cli, name); done || err != nil {
+				return err
+			}
 		case err := <-errCh:
 			if ctx.Err() != nil {
 				return fmt.Errorf("container %s did not become healthy within %v", name, timeout)
@@ -419,6 +429,32 @@ func waitContainerHealthy(ctx context.Context, cli *client.Client, name string, 
 			return fmt.Errorf("container %s did not become healthy within %v", name, timeout)
 		}
 	}
+}
+
+func inspectContainerHealth(ctx context.Context, cli *client.Client, name string) (bool, error) {
+	info, err := cli.ContainerInspect(ctx, name)
+	if err != nil {
+		return false, nil
+	}
+	if info.State == nil {
+		return false, nil
+	}
+	if info.State.Health == nil {
+		if info.State.Running {
+			return true, nil
+		}
+		if info.State.Status == "exited" || info.State.Status == "dead" {
+			return true, fmt.Errorf("container %s exited before becoming healthy", name)
+		}
+		return false, nil
+	}
+	if info.State.Health.Status == "healthy" {
+		return true, nil
+	}
+	if info.State.Status == "exited" || info.State.Status == "dead" {
+		return true, fmt.Errorf("container %s exited before becoming healthy", name)
+	}
+	return false, nil
 }
 
 func generateToken(n int) string {

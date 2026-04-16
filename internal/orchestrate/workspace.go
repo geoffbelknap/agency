@@ -75,6 +75,7 @@ type StartOptions struct {
 	ScopedKey  string // Enforcer API key for auth
 	Model      string // Primary LLM model
 	AdminModel string // Mini-tier model for cheap calls
+	Env        map[string]string
 	ExtraBinds []string
 	Deps       WorkspaceDeps // Declared workspace dependencies
 }
@@ -121,20 +122,27 @@ func (w *Workspace) Start(ctx context.Context, opts StartOptions) error {
 		return fmt.Errorf("constraints.yaml not found for %s", w.AgentName)
 	}
 
+	transportProxyURL := envValue(opts.Env, "AGENCY_ENFORCER_PROXY_URL", "http://enforcer:3128")
+	controlURL := envValue(opts.Env, "AGENCY_ENFORCER_CONTROL_URL", "http://enforcer:8081")
+	enforcerURL := envValue(opts.Env, "AGENCY_ENFORCER_URL", strings.TrimRight(transportProxyURL, "/")+"/v1")
+
 	// Build proxy URL with scoped key for auth
-	proxyURL := "http://enforcer:3128"
+	proxyURL := transportProxyURL
 	if opts.ScopedKey != "" {
-		proxyURL = fmt.Sprintf("http://%s:x@enforcer:3128", opts.ScopedKey)
+		proxyURL = strings.Replace(transportProxyURL, "http://", fmt.Sprintf("http://%s:x@", opts.ScopedKey), 1)
 	}
 
 	env := map[string]string{
-		"AGENCY_ENFORCER_URL":  "http://enforcer:3128/v1",
-		"OPENAI_API_BASE":      "http://enforcer:3128/v1",
+		"AGENCY_ENFORCER_PROXY_URL": transportProxyURL,
+		"AGENCY_ENFORCER_URL":       enforcerURL,
+		"OPENAI_API_BASE":           enforcerURL,
+		"AGENCY_ENFORCER_CONTROL_URL": controlURL,
+		"AGENCY_ENFORCER_HEALTH_URL":  strings.TrimRight(transportProxyURL, "/") + "/health",
 		"HTTP_PROXY":           proxyURL,
 		"HTTPS_PROXY":          proxyURL,
 		"NO_PROXY":             "enforcer,localhost,127.0.0.1",
-		"AGENCY_COMMS_URL":     "http://enforcer:8081/mediation/comms",
-		"AGENCY_KNOWLEDGE_URL": "http://enforcer:8081/mediation/knowledge",
+		"AGENCY_COMMS_URL":     strings.TrimRight(controlURL, "/") + "/mediation/comms",
+		"AGENCY_KNOWLEDGE_URL": strings.TrimRight(controlURL, "/") + "/mediation/knowledge",
 		"AGENCY_AGENT_NAME":    w.AgentName,
 		"AGENCY_MODEL":         "claude-sonnet",
 		"PATH":                 "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -148,6 +156,12 @@ func (w *Workspace) Start(ctx context.Context, opts StartOptions) error {
 	}
 	if opts.ScopedKey != "" {
 		env["OPENAI_API_KEY"] = opts.ScopedKey
+	}
+	for k, v := range opts.Env {
+		if strings.TrimSpace(k) == "" || v == "" {
+			continue
+		}
+		env[k] = v
 	}
 
 	// CA certs for egress proxy trust
@@ -263,6 +277,16 @@ func (w *Workspace) Start(ctx context.Context, opts StartOptions) error {
 
 	w.log.Info("workspace started", "agent", w.AgentName, "container", w.ContainerName)
 	return nil
+}
+
+func envValue(values map[string]string, key, fallback string) string {
+	if values == nil {
+		return fallback
+	}
+	if v := strings.TrimSpace(values[key]); v != "" {
+		return v
+	}
+	return fallback
 }
 
 // Stop stops the workspace container.

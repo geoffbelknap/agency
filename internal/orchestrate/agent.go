@@ -25,6 +25,7 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/comms"
 	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
 var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$`)
@@ -78,6 +79,11 @@ type AgentManager struct {
 	Home         string
 	Docker       *agencyDocker.Client
 	Comms        comms.Client
+	Version      string
+	SourceDir    string
+	BuildID      string
+	BackendName  string
+	Runtime      *RuntimeSupervisor
 	cli          *client.Client
 	log          *slog.Logger
 	StopSuppress *StopSuppression
@@ -396,6 +402,10 @@ func (am *AgentManager) StopContainers(ctx context.Context, name string) {
 	if am.StopSuppress != nil {
 		am.StopSuppress.Suppress(name)
 	}
+	if am.Runtime != nil {
+		_ = am.Runtime.Stop(ctx, name)
+		return
+	}
 	am.stopAgentContainers(ctx, name)
 }
 
@@ -548,7 +558,64 @@ func (am *AgentManager) loadAgentDetail(name, agentsDir string, running map[stri
 		}
 	}
 
-	// Runtime status from containers
+	if am.Runtime != nil {
+		if status, err := am.Runtime.Get(context.Background(), name); err == nil {
+			applyRuntimeStatus(&d, status)
+		} else {
+			applyContainerStatus(&d, running, am.Home, name)
+		}
+	} else {
+		applyContainerStatus(&d, running, am.Home, name)
+	}
+	if activeHaltExists(am.Home, name) && d.Status != "running" {
+		d.Status = "halted"
+	}
+
+	// Last active: most recent signal timestamp
+	signalsPath := filepath.Join(agentDir, "state", "agent-signals.jsonl")
+	d.LastActive = lastSignalTimestamp(signalsPath)
+
+	return d
+}
+
+func applyRuntimeStatus(d *AgentDetail, status runtimecontract.RuntimeStatus) {
+	switch status.Phase {
+	case runtimecontract.RuntimePhaseRunning:
+		d.Status = "running"
+		d.Workspace = "running"
+		d.Enforcer = "running"
+	case runtimecontract.RuntimePhaseStopped:
+		d.Status = "stopped"
+		d.Workspace = "stopped"
+		d.Enforcer = "stopped"
+	case runtimecontract.RuntimePhaseDegraded:
+		d.Status = "unhealthy"
+		d.Workspace = "running"
+		if status.Transport.EnforcerConnected {
+			d.Enforcer = "running"
+		} else {
+			d.Enforcer = "stopped"
+		}
+	case runtimecontract.RuntimePhaseStarting, runtimecontract.RuntimePhaseReconciled, runtimecontract.RuntimePhaseCompiled:
+		d.Status = "starting"
+		d.Workspace = "stopped"
+		if status.Transport.EnforcerConnected {
+			d.Enforcer = "running"
+		} else {
+			d.Enforcer = "stopped"
+		}
+	default:
+		d.Status = "stopped"
+		d.Workspace = "stopped"
+		if status.Transport.EnforcerConnected {
+			d.Enforcer = "running"
+		} else {
+			d.Enforcer = "stopped"
+		}
+	}
+}
+
+func applyContainerStatus(d *AgentDetail, running map[string]containerInfo, home, name string) {
 	wsName := fmt.Sprintf("%s-%s-workspace", prefix, name)
 	enfName := fmt.Sprintf("%s-%s-enforcer", prefix, name)
 
@@ -557,7 +624,7 @@ func (am *AgentManager) loadAgentDetail(name, agentsDir string, running map[stri
 		d.Status = ci.State
 	} else {
 		d.Workspace = "stopped"
-		if activeHaltExists(am.Home, name) {
+		if activeHaltExists(home, name) {
 			d.Status = "halted"
 		}
 	}
@@ -569,18 +636,9 @@ func (am *AgentManager) loadAgentDetail(name, agentsDir string, running map[stri
 	} else {
 		d.Enforcer = "stopped"
 	}
-
-	// ASK Tenet 3: Mediation is complete. An agent running without its
-	// enforcer has no API mediation — report as unhealthy, not running.
 	if d.Workspace == "running" && d.Enforcer != "running" {
 		d.Status = "unhealthy"
 	}
-
-	// Last active: most recent signal timestamp
-	signalsPath := filepath.Join(agentDir, "state", "agent-signals.jsonl")
-	d.LastActive = lastSignalTimestamp(signalsPath)
-
-	return d
 }
 
 // taskIsComplete checks the agent's signals file for a task_complete signal

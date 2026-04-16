@@ -42,8 +42,10 @@ type HaltController struct {
 	Docker       *agencyDocker.Client
 	SourceDir    string
 	BuildID      string
+	BackendName  string
 	Comms        comms.Client
 	CredStore    *credstore.Store
+	Runtime      *RuntimeSupervisor
 	StopSuppress *StopSuppression
 	cli          *client.Client
 	log          *slog.Logger
@@ -88,26 +90,30 @@ func (hc *HaltController) Halt(ctx context.Context, agentName, haltType, reason,
 	if hc.StopSuppress != nil {
 		hc.StopSuppress.Suppress(agentName)
 	}
-
-	// Stop containers: workspace first, then enforcer.
-	containers := []string{
-		fmt.Sprintf("%s-%s-workspace", prefix, agentName),
-		fmt.Sprintf("%s-%s-enforcer", prefix, agentName),
-	}
-
-	for _, cname := range containers {
-		info, err := hc.cli.ContainerInspect(ctx, cname)
-		if err != nil {
-			continue // Container doesn't exist
+	if hc.Runtime != nil {
+		if err := hc.Runtime.Stop(ctx, agentName); err != nil {
+			return nil, err
 		}
-		if info.State.Running || info.State.Paused {
-			timeout := 30
-			if err := hc.cli.ContainerStop(ctx, cname, container.StopOptions{Timeout: &timeout}); err != nil {
-				hc.log.Warn("stop failed", "container", cname, "err", err)
+	} else {
+		containers := []string{
+			fmt.Sprintf("%s-%s-workspace", prefix, agentName),
+			fmt.Sprintf("%s-%s-enforcer", prefix, agentName),
+		}
+
+		for _, cname := range containers {
+			info, err := hc.cli.ContainerInspect(ctx, cname)
+			if err != nil {
+				continue
 			}
-		}
-		if err := hc.cli.ContainerRemove(ctx, cname, container.RemoveOptions{Force: true}); err != nil {
-			hc.log.Warn("remove failed", "container", cname, "err", err)
+			if info.State.Running || info.State.Paused {
+				timeout := 30
+				if err := hc.cli.ContainerStop(ctx, cname, container.StopOptions{Timeout: &timeout}); err != nil {
+					hc.log.Warn("stop failed", "container", cname, "err", err)
+				}
+			}
+			if err := hc.cli.ContainerRemove(ctx, cname, container.RemoveOptions{Force: true}); err != nil {
+				hc.log.Warn("remove failed", "container", cname, "err", err)
+			}
 		}
 	}
 
@@ -173,10 +179,12 @@ func (hc *HaltController) Resume(ctx context.Context, agentName, initiator strin
 		Version:   hc.Version,
 		SourceDir: hc.SourceDir,
 		BuildID:   hc.BuildID,
+		BackendName: hc.BackendName,
 		Docker:    hc.Docker,
 		Comms:     hc.Comms,
 		Log:       hc.log,
 		CredStore: hc.CredStore,
+		Runtime:   hc.Runtime,
 	}
 	if _, err := ss.Run(ctx, nil); err != nil {
 		return fmt.Errorf("resume start sequence: %w", err)
