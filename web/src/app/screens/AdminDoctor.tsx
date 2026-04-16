@@ -31,6 +31,7 @@ export function AdminDoctor() {
         name: c.name,
         status: c.status,
         message: c.detail || '',
+        fix: c.fix || '',
       }));
       setChecks(mapped);
       setLastRun(new Date().toLocaleTimeString());
@@ -196,6 +197,11 @@ export function AdminDoctor() {
                         <div className="text-foreground/80">{check.name}</div>
                         {check.message && (
                           <div className="text-xs text-muted-foreground mt-0.5">{check.message}</div>
+                        )}
+                        {check.fix && check.status !== 'pass' && (
+                          <div className="mt-1 text-xs text-foreground/70">
+                            Fix: <span className="text-muted-foreground">{check.fix}</span>
+                          </div>
                         )}
                       </div>
                     </div>

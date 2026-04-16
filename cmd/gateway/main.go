@@ -412,6 +412,7 @@ func setupCmd() *cobra.Command {
 		provider      string
 		apiKey        string
 		notifyURL     string
+		configurePool bool
 		noInfra       bool
 		noBrowser     bool
 		noDockerStart bool
@@ -432,7 +433,7 @@ func setupCmd() *cobra.Command {
 			if cliMode {
 				// Quick setup: if --name or --preset flags are set, skip prompts
 				if name != "" || preset != "" {
-					return runSetup(provider, apiKey, notifyURL, noInfra, true, noBrowser)
+					return runSetup(provider, apiKey, notifyURL, noInfra, true, noBrowser, configurePool)
 				}
 
 				// Interactive: prompt for provider/key if not set via flags
@@ -478,12 +479,12 @@ func setupCmd() *cobra.Command {
 					}
 				}
 
-				return runSetup(provider, apiKey, notifyURL, noInfra, true, noBrowser)
+				return runSetup(provider, apiKey, notifyURL, noInfra, true, noBrowser, configurePool)
 			}
 
 			// Default: web-assisted setup — no prompts.
 			// Pass through --provider/--api-key if given (supports non-interactive use).
-			return runSetup(provider, apiKey, notifyURL, noInfra, false, noBrowser)
+			return runSetup(provider, apiKey, notifyURL, noInfra, false, noBrowser, configurePool)
 		},
 	}
 
@@ -492,6 +493,7 @@ func setupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", "", "LLM provider (anthropic, openai, google)")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "LLM provider API key")
 	cmd.Flags().StringVar(&notifyURL, "notify-url", "", "Notification URL (ntfy or webhook) for operator alerts")
+	cmd.Flags().BoolVar(&configurePool, "configure-network-pool", false, "Configure Docker default-address-pools before infrastructure startup")
 	cmd.Flags().BoolVar(&noInfra, "no-infra", false, "Skip Docker check and infrastructure startup")
 	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Don't open the web UI in a browser (also respected via AGENCY_NO_BROWSER=1)")
 	cmd.Flags().BoolVar(&noDockerStart, "no-docker-start", false, "Don't try to start Docker Desktop automatically (also respected via AGENCY_NO_DOCKER_START=1)")
@@ -711,7 +713,7 @@ func checkDocker(noDockerStart bool) error {
 	return nil
 }
 
-func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser bool) error {
+func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser, configurePool bool) error {
 	provider = normalizeProvider(provider)
 	pendingKeys, err := config.RunInit(config.InitOptions{
 		Provider:  provider,
@@ -805,6 +807,32 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser bo
 		}
 	}
 
+	hasEmbeddings := false
+	embedProvider := os.Getenv("KNOWLEDGE_EMBED_PROVIDER")
+	if embedProvider == "ollama" {
+		hasEmbeddings = true
+	}
+
+	capCfg, capErr := orchestrate.ProfileHost(hasEmbeddings)
+	if capErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not profile host: %v\n", capErr)
+	}
+
+	if capErr == nil {
+		fmt.Println()
+		poolConfigured, poolPath, err := reconcileDockerNetworkPool(configurePool)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not inspect Docker network pool: %v\n", err)
+		} else {
+			capCfg.NetworkPoolConfigured = poolConfigured
+			if poolConfigured {
+				fmt.Printf("Docker network pool configured (%s)\n", poolPath)
+			} else if poolPath != "" {
+				fmt.Printf("Docker network pool uses defaults (%s)\n", poolPath)
+			}
+		}
+	}
+
 	// Start infrastructure unless --no-infra was passed
 	if !noInfra {
 		fmt.Println()
@@ -825,16 +853,7 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser bo
 	fmt.Println()
 	fmt.Println("Profiling host capacity...")
 
-	hasEmbeddings := false
-	embedProvider := os.Getenv("KNOWLEDGE_EMBED_PROVIDER")
-	if embedProvider == "ollama" {
-		hasEmbeddings = true
-	}
-
-	capCfg, capErr := orchestrate.ProfileHost(hasEmbeddings)
-	if capErr != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not profile host: %v\n", capErr)
-	} else {
+	if capErr == nil {
 		capPath := filepath.Join(agencyHome, "capacity.yaml")
 		if err := orchestrate.SaveCapacity(capPath, capCfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not save capacity config: %v\n", err)
@@ -852,39 +871,6 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser bo
 				capCfg.MeeseeksSlotMB)
 			fmt.Println()
 			fmt.Printf("Written to %s — edit to adjust limits.\n", capPath)
-		}
-	}
-
-	// Docker network pool configuration (CLI mode only)
-	if cliMode {
-		daemonJSON := "/etc/docker/daemon.json"
-		needsConfig := true
-
-		if data, err := os.ReadFile(daemonJSON); err == nil {
-			if strings.Contains(string(data), "default-address-pools") {
-				needsConfig = false
-			}
-		}
-
-		if needsConfig {
-			fmt.Println()
-			fmt.Println("Docker network pool: default (limited to ~15 networks)")
-			fmt.Println("Recommended: /24 subnets from 172.16.0.0/12 (~4,000 networks)")
-			fmt.Print("Configure now? This requires a Docker daemon restart. [y/N] ")
-
-			scanner := bufio.NewScanner(os.Stdin)
-			if scanner.Scan() && strings.ToLower(strings.TrimSpace(scanner.Text())) == "y" {
-				if err := configureDockerPool(daemonJSON); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: could not configure Docker pool: %v\n", err)
-				} else {
-					fmt.Println("Docker pool configured. Restart Docker daemon to apply.")
-					capPath := filepath.Join(agencyHome, "capacity.yaml")
-					if cap, loadErr := orchestrate.LoadCapacity(capPath); loadErr == nil {
-						cap.NetworkPoolConfigured = true
-						orchestrate.SaveCapacity(capPath, cap)
-					}
-				}
-			}
 		}
 	}
 
@@ -1406,6 +1392,108 @@ func readPassword() ([]byte, error) {
 	return term.ReadPassword(fd)
 }
 
+func dockerDaemonConfigPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	switch runtime.GOOS {
+	case "darwin", "windows":
+		return filepath.Join(home, ".docker", "daemon.json"), nil
+	case "linux":
+		if isWSL() {
+			return "", fmt.Errorf("Docker Desktop on WSL must be configured from Windows Docker Desktop settings")
+		}
+		return "/etc/docker/daemon.json", nil
+	default:
+		return "", fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+}
+
+func dockerPoolConfigured(path string) (bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return false, fmt.Errorf("parse %s: %w", path, err)
+	}
+	rawPools, ok := cfg["default-address-pools"]
+	if !ok {
+		return false, nil
+	}
+	pools, ok := rawPools.([]interface{})
+	if !ok {
+		return false, nil
+	}
+	for _, raw := range pools {
+		pool, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if size, ok := jsonNumberToInt(pool["size"]); ok && size >= 24 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func jsonNumberToInt(v interface{}) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case json.Number:
+		i, err := n.Int64()
+		return int(i), err == nil
+	case string:
+		i, err := strconv.Atoi(strings.TrimSpace(n))
+		return i, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func writeDaemonConfig(path string, content []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err == nil {
+		if err := os.WriteFile(path, content, 0644); err == nil {
+			return nil
+		}
+	}
+
+	tmp, err := os.CreateTemp("", "agency-daemon-*.json")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(content); err != nil {
+		tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	defer os.Remove(tmpPath)
+
+	dir := filepath.Dir(path)
+	if out, err := exec.Command("sudo", "mkdir", "-p", dir).CombinedOutput(); err != nil {
+		return fmt.Errorf("sudo mkdir %s: %w: %s", dir, err, strings.TrimSpace(string(out)))
+	}
+	if out, err := exec.Command("sudo", "install", "-m", "0644", tmpPath, path).CombinedOutput(); err != nil {
+		return fmt.Errorf("sudo install %s: %w: %s", path, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func configureDockerPool(path string) error {
 	var existing map[string]interface{}
 
@@ -1414,8 +1502,10 @@ func configureDockerPool(path string) error {
 		if err := json.Unmarshal(data, &existing); err != nil {
 			return fmt.Errorf("cannot parse existing %s: %w", path, err)
 		}
-	} else {
+	} else if os.IsNotExist(err) {
 		existing = make(map[string]interface{})
+	} else {
+		return fmt.Errorf("cannot read existing %s: %w", path, err)
 	}
 
 	existing["default-address-pools"] = []map[string]interface{}{
@@ -1427,5 +1517,57 @@ func configureDockerPool(path string) error {
 		return err
 	}
 
-	return os.WriteFile(path, append(out, '\n'), 0644)
+	return writeDaemonConfig(path, append(out, '\n'))
+}
+
+func restartDockerForNetworkPool() error {
+	switch runtime.GOOS {
+	case "darwin":
+		_ = exec.Command("osascript", "-e", `quit app "Docker"`).Run()
+		time.Sleep(2 * time.Second)
+		if !tryStartDockerDesktop(false) {
+			return fmt.Errorf("could not restart Docker Desktop automatically")
+		}
+		deadline := time.Now().Add(60 * time.Second)
+		for time.Now().Before(deadline) {
+			time.Sleep(2 * time.Second)
+			retry := exec.Command("docker", "info")
+			retry.Stdout = nil
+			retry.Stderr = nil
+			if retry.Run() == nil {
+				return nil
+			}
+		}
+		return fmt.Errorf("Docker Desktop did not become ready after restart")
+	case "linux":
+		if out, err := exec.Command("sudo", "systemctl", "restart", "docker").CombinedOutput(); err != nil {
+			return fmt.Errorf("restart docker: %w: %s", err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	default:
+		return nil
+	}
+}
+
+func reconcileDockerNetworkPool(configure bool) (bool, string, error) {
+	path, err := dockerDaemonConfigPath()
+	if err != nil {
+		return false, "", err
+	}
+	configured, err := dockerPoolConfigured(path)
+	if err != nil {
+		return false, path, err
+	}
+	if configured || !configure {
+		return configured, path, nil
+	}
+
+	fmt.Println("Configuring Docker network pool for /24 subnets...")
+	if err := configureDockerPool(path); err != nil {
+		return false, path, err
+	}
+	if err := restartDockerForNetworkPool(); err != nil {
+		return false, path, err
+	}
+	return true, path, nil
 }

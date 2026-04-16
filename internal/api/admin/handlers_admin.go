@@ -31,6 +31,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 		Agent  string `json:"agent"`
 		Status string `json:"status"`
 		Detail string `json:"detail,omitempty"`
+		Fix    string `json:"fix,omitempty"`
 	}
 	type scopeInfo struct {
 		Agent    string   `json:"agent"`
@@ -78,6 +79,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 				Agent:  dc.Agent,
 				Status: dc.Status,
 				Detail: dc.Detail,
+				Fix:    dc.Fix,
 			})
 		}
 		writeJSON(w, 200, report)
@@ -448,23 +450,25 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Network pool check
-		if capErr == nil {
-			if capCfg.NetworkPoolConfigured {
-				report.Checks = append(report.Checks, checkResult{
-					Name: "network_pool", Status: "pass",
-					Detail: "Docker network pool configured for /24 subnets",
-				})
-			} else {
-				detail := "Default Docker address pool still in use (limits agent-network fan-out)"
-				if runtime.GOOS == "darwin" {
-					detail += " — on Docker Desktop this must be configured in the daemon settings, not by Agency at runtime"
-				}
-				report.Checks = append(report.Checks, checkResult{
-					Name: "network_pool", Status: "warn",
-					Detail: detail,
-				})
+	if capErr == nil {
+		if capCfg.NetworkPoolConfigured {
+			report.Checks = append(report.Checks, checkResult{
+				Name: "network_pool", Status: "pass",
+				Detail: "Docker network pool configured for /24 subnets",
+			})
+		} else {
+			detail := "Default Docker address pool still in use (limits agent-network fan-out)"
+			fix := "Run `agency setup --configure-network-pool`, let Agency apply the Docker network pool change, then rerun `agency admin doctor`."
+			if runtime.GOOS == "darwin" {
+				detail += " — Docker Desktop must be restarted for the new pool to take effect"
 			}
+			report.Checks = append(report.Checks, checkResult{
+				Name: "network_pool", Status: "warn",
+				Detail: detail,
+				Fix:    fix,
+			})
 		}
+	}
 
 	writeJSON(w, 200, report)
 }
@@ -484,27 +488,39 @@ func (h *handler) adminDestroy(w http.ResponseWriter, r *http.Request) {
 
 	// Prune dangling agency images
 	if h.deps.DC != nil {
-		h.pruneDanglingImages(r.Context())
+		_, _ = h.pruneDanglingImages(r.Context())
 	}
 
 	h.deps.Logger.Info("admin destroy completed")
 	writeJSON(w, 200, map[string]string{"status": "destroyed"})
 }
 
+func (h *handler) adminPruneImages(w http.ResponseWriter, r *http.Request) {
+	pruned, skipped := h.pruneDanglingImages(r.Context())
+	writeJSON(w, 200, map[string]interface{}{
+		"status":  "ok",
+		"pruned":  pruned,
+		"skipped": skipped,
+	})
+}
+
 // pruneDanglingImages removes true dangling untagged Agency build images.
-func (h *handler) pruneDanglingImages(ctx context.Context) {
+func (h *handler) pruneDanglingImages(ctx context.Context) (pruned, skipped int) {
 	imgs, err := h.deps.DC.ListDanglingAgencyImages(ctx)
 	if err != nil {
 		h.deps.Logger.Warn("prune images: list failed", "err", err)
-		return
+		return 0, 0
 	}
 	for _, img := range imgs {
 		if _, err := h.deps.DC.RemoveImage(ctx, img.ID); err != nil {
 			h.deps.Logger.Debug("prune untagged image skip", "id", img.ID, "err", err)
+			skipped++
 		} else {
 			h.deps.Logger.Info("pruned dangling image", "id", img.ID)
+			pruned++
 		}
 	}
+	return pruned, skipped
 }
 
 func (h *handler) adminTrust(w http.ResponseWriter, r *http.Request) {

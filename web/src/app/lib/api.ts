@@ -401,7 +401,7 @@ export interface RawAuditEntry {
 }
 
 export interface RawDoctorResult {
-  checks: Array<{ name: string; agent?: string; status: string; detail?: string }>;
+  checks: Array<{ name: string; agent?: string; status: string; detail?: string; fix?: string }>;
 }
 
 export interface RawKnowledgeStats {
