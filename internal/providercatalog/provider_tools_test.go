@@ -79,6 +79,54 @@ func TestProviderYAMLToolCapabilitiesExistInInventory(t *testing.T) {
 	}
 }
 
+func TestProviderYAMLDoesNotExposeAgencyHarnessedTools(t *testing.T) {
+	inv, err := ProviderTools()
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers, err := List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range providers {
+		routing, ok := provider.Routing["models"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		for modelName, rawModel := range routing {
+			model, ok := rawModel.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			caps, _ := model["provider_tool_capabilities"].([]interface{})
+			for _, rawCap := range caps {
+				capability, _ := rawCap.(string)
+				entry, ok := inv.Capabilities[capability]
+				if !ok {
+					continue
+				}
+				if entry.Execution == "agency_harnessed" {
+					t.Fatalf("%s/%s exposes agency-harnessed provider tool capability %q", provider.Name, modelName, capability)
+				}
+			}
+		}
+	}
+}
+
+func TestInventoryDoesNotUseStaleHarnessRequiredStatus(t *testing.T) {
+	inv, err := ProviderTools()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for capability, entry := range inv.Capabilities {
+		for provider, meta := range entry.Providers {
+			if meta.Status == "harness_required" {
+				t.Fatalf("%s/%s uses stale harness_required status", capability, provider)
+			}
+		}
+	}
+}
+
 func TestProviderYAMLUsesCanonicalProviderPrincipals(t *testing.T) {
 	providers, err := List()
 	if err != nil {

@@ -279,3 +279,7 @@ func providerToolDeniedError(use ProviderToolUse) string {
 func providerToolUnsupportedError(modelAlias string, use ProviderToolUse) string {
 	return fmt.Sprintf("model %q does not declare support for provider tool capability %q", modelAlias, use.Capability)
 }
+
+func providerToolHarnessUnavailableError(use ProviderToolUse) string {
+	return fmt.Sprintf("provider tool %q requires an Agency execution harness for capability %q; use Agency-native mediated tools instead", use.ToolType, use.Capability)
+}

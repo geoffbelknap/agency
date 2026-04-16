@@ -122,18 +122,18 @@ capabilities:
     risk: critical
     default_grant: false
     execution: agency_harnessed
-    description: Provider-defined computer-use loop. The model proposes actions; Agency must execute any action through runtime mediation.
+    description: Provider-defined computer-use loop. Not exposed until Agency has a mediated desktop/runtime execution harness.
     providers:
       openai:
-        status: harness_required
+        status: harness_unavailable
         request_tools: [computer_use_preview]
         pricing: {unit: harness_action, confidence: unknown}
-        tests: [detect, grant_deny, unsupported_model, harness_required]
+        tests: [detect, grant_deny, harness_unavailable]
       anthropic:
-        status: harness_required
+        status: harness_unavailable
         request_tools: [computer_20250124]
         pricing: {unit: harness_action, confidence: unknown}
-        tests: [detect, grant_deny, unsupported_model, harness_required]
+        tests: [detect, grant_deny, harness_unavailable]
       google:
         status: unconfirmed
         request_tools: [computer_use]
@@ -145,18 +145,20 @@ capabilities:
     risk: critical
     default_grant: false
     execution: agency_harnessed
-    description: Provider-defined shell or bash action proposal. Actual command execution must remain mediated by Agency.
+    description: Provider-defined shell or bash action proposal. Use Agency-native execute_command mediation instead of provider-side shell tools.
     providers:
       openai:
-        status: harness_required
+        status: agency_native
         request_tools: [shell, local_shell]
         pricing: {unit: harness_action, confidence: unknown}
-        tests: [detect, grant_deny, unsupported_model, harness_required]
+        notes: Use Agency-native execute_command rather than provider-defined shell tools.
+        tests: [detect, grant_deny, harness_unavailable]
       anthropic:
-        status: harness_required
+        status: agency_native
         request_tools: [bash_20250124]
         pricing: {unit: harness_action, confidence: unknown}
-        tests: [detect, grant_deny, unsupported_model, harness_required]
+        notes: Use Agency-native execute_command rather than provider-defined bash tools.
+        tests: [detect, grant_deny, harness_unavailable]
       google: {status: no_equivalent}
 
   provider-text-editor:
@@ -164,14 +166,15 @@ capabilities:
     risk: high
     default_grant: false
     execution: agency_harnessed
-    description: Provider-defined text editing action proposal. Actual filesystem writes must remain mediated by Agency.
+    description: Provider-defined text editing action proposal. Use Agency-native read_file/write_file mediation instead.
     providers:
       openai: {status: no_equivalent}
       anthropic:
-        status: harness_required
+        status: agency_native
         request_tools: [text_editor_20250124]
         pricing: {unit: harness_action, confidence: unknown}
-        tests: [detect, grant_deny, unsupported_model, harness_required]
+        notes: Use Agency-native read_file/write_file tools rather than provider-defined editor tools.
+        tests: [detect, grant_deny, harness_unavailable]
       google: {status: no_equivalent}
 
   provider-memory:
@@ -265,12 +268,13 @@ capabilities:
     risk: high
     default_grant: false
     execution: agency_harnessed
-    description: Provider-defined patch proposal. Actual file mutation must remain mediated by Agency.
+    description: Provider-defined patch proposal. Use Agency-native file editing mediation instead.
     providers:
       openai:
-        status: harness_required
+        status: agency_native
         request_tools: [apply_patch]
         pricing: {unit: harness_action, confidence: unknown}
-        tests: [detect, grant_deny, unsupported_model, harness_required]
+        notes: Use Agency-native file editing tools rather than provider-defined patch tools.
+        tests: [detect, grant_deny, harness_unavailable]
       anthropic: {status: no_equivalent}
       google: {status: no_equivalent}

@@ -15,16 +15,13 @@ routing:
     claude-opus:
       provider_model: claude-opus-4-20250514
       capabilities: [tools, vision, streaming]
-      provider_tool_capabilities: [provider-web-search, provider-web-fetch, provider-code-execution, provider-computer-use, provider-shell, provider-text-editor, provider-memory, provider-mcp, provider-tool-search]
+      provider_tool_capabilities: [provider-web-search, provider-web-fetch, provider-code-execution, provider-memory, provider-mcp, provider-tool-search]
       provider_tool_costs:
         provider-web-search: 0.01
       provider_tool_pricing:
         provider-web-search: {unit: search, usd_per_unit: 0.01, source: anthropic_catalog, confidence: exact}
         provider-web-fetch: {unit: tool_call, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
         provider-code-execution: {unit: session, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
-        provider-computer-use: {unit: harness_action, usd_per_unit: 0, source: agency_policy, confidence: unknown}
-        provider-shell: {unit: harness_action, usd_per_unit: 0, source: agency_policy, confidence: unknown}
-        provider-text-editor: {unit: harness_action, usd_per_unit: 0, source: agency_policy, confidence: unknown}
         provider-memory: {unit: tool_call, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
         provider-mcp: {unit: remote_tool_call, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
         provider-tool-search: {unit: tool_call, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
@@ -34,16 +31,13 @@ routing:
     claude-sonnet:
       provider_model: claude-sonnet-4-20250514
       capabilities: [tools, vision, streaming]
-      provider_tool_capabilities: [provider-web-search, provider-web-fetch, provider-code-execution, provider-computer-use, provider-shell, provider-text-editor, provider-memory, provider-mcp, provider-tool-search]
+      provider_tool_capabilities: [provider-web-search, provider-web-fetch, provider-code-execution, provider-memory, provider-mcp, provider-tool-search]
       provider_tool_costs:
         provider-web-search: 0.01
       provider_tool_pricing:
         provider-web-search: {unit: search, usd_per_unit: 0.01, source: anthropic_catalog, confidence: exact}
         provider-web-fetch: {unit: tool_call, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
         provider-code-execution: {unit: session, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
-        provider-computer-use: {unit: harness_action, usd_per_unit: 0, source: agency_policy, confidence: unknown}
-        provider-shell: {unit: harness_action, usd_per_unit: 0, source: agency_policy, confidence: unknown}
-        provider-text-editor: {unit: harness_action, usd_per_unit: 0, source: agency_policy, confidence: unknown}
         provider-memory: {unit: tool_call, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
         provider-mcp: {unit: remote_tool_call, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
         provider-tool-search: {unit: tool_call, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
@@ -53,16 +47,13 @@ routing:
     claude-haiku:
       provider_model: claude-haiku-4-5-20251001
       capabilities: [tools, vision, streaming]
-      provider_tool_capabilities: [provider-web-search, provider-web-fetch, provider-code-execution, provider-computer-use, provider-shell, provider-text-editor, provider-memory, provider-mcp, provider-tool-search]
+      provider_tool_capabilities: [provider-web-search, provider-web-fetch, provider-code-execution, provider-memory, provider-mcp, provider-tool-search]
       provider_tool_costs:
         provider-web-search: 0.01
       provider_tool_pricing:
         provider-web-search: {unit: search, usd_per_unit: 0.01, source: anthropic_catalog, confidence: exact}
         provider-web-fetch: {unit: tool_call, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
         provider-code-execution: {unit: session, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
-        provider-computer-use: {unit: harness_action, usd_per_unit: 0, source: agency_policy, confidence: unknown}
-        provider-shell: {unit: harness_action, usd_per_unit: 0, source: agency_policy, confidence: unknown}
-        provider-text-editor: {unit: harness_action, usd_per_unit: 0, source: agency_policy, confidence: unknown}
         provider-memory: {unit: tool_call, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
         provider-mcp: {unit: remote_tool_call, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
         provider-tool-search: {unit: tool_call, usd_per_unit: 0, source: provider_catalog, confidence: unknown}

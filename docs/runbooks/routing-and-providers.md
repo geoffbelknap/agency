@@ -93,6 +93,11 @@ such as URL context, file search, code execution, shell, computer use, MCP,
 memory, image generation, maps, and patching remain denied until explicitly
 granted to the agent.
 
+Provider-defined shell, text-editor, patch, and computer-use tools are not
+forwarded to providers in the bundled catalog. Shell and file-editing work
+should use Agency-native mediated tools. Computer-use remains unavailable until
+Agency has a first-class execution harness.
+
 Grant or revoke provider tools the same way as other per-agent grants:
 
 ```bash
@@ -123,6 +128,7 @@ Audit events to watch:
 - `PROVIDER_TOOL_ALLOWED` — request declared provider-side tools and the agent grant matched.
 - `PROVIDER_TOOL_DENIED` — agent lacks the required provider-tool grant.
 - `PROVIDER_TOOL_UNSUPPORTED` — agent has the grant, but the selected model does not declare support.
+- `PROVIDER_TOOL_HARNESS_UNAVAILABLE` — request declared a provider-defined action tool that requires an Agency execution harness that is not available.
 - `LLM_DIRECT` / `LLM_DIRECT_STREAM` — includes compact provider-tool evidence such as source, citation, and search-query counts when exposed by the provider.
 
 Provider-tool cost accounting is configured per model. Prefer structured

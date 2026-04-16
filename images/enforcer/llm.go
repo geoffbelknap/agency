@@ -276,6 +276,25 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf(`{"error":"provider_tool_denied","detail":%q}`, errMsg), http.StatusForbidden)
 			return
 		}
+		if providerToolRequiresAgencyHarness(use.Capability) {
+			errMsg := providerToolHarnessUnavailableError(use)
+			lh.audit.Log(AuditEntry{
+				Type:          "PROVIDER_TOOL_HARNESS_UNAVAILABLE",
+				Model:         modelAlias,
+				ProviderModel: providerModel,
+				CorrelationID: correlationID,
+				Status:        http.StatusNotImplemented,
+				Error:         errMsg,
+				Extra: map[string]string{
+					"provider_tool_capability":      use.Capability,
+					"provider_tool_type":            use.ToolType,
+					"provider_tool_name":            use.Name,
+					"provider_tool_execution_modes": providerToolExecutionAgencyHarnessed,
+				},
+			})
+			http.Error(w, fmt.Sprintf(`{"error":"provider_tool_harness_unavailable","detail":%q}`, errMsg), http.StatusNotImplemented)
+			return
+		}
 		if !model.HasProviderToolCapability(use.Capability) {
 			errMsg := providerToolUnsupportedError(modelAlias, use)
 			lh.audit.Log(AuditEntry{

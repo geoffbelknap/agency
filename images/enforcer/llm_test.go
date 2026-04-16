@@ -480,8 +480,10 @@ func TestLLMProviderToolAllowedWithGrant(t *testing.T) {
 	}
 }
 
-func TestLLMHarnessedProviderToolProposalAudited(t *testing.T) {
+func TestLLMHarnessedProviderToolRejectedBeforeProvider(t *testing.T) {
+	var llmCalled bool
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		llmCalled = true
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, `{"id":"resp_test","output":[{"type":"computer_call","call_id":"call_1","action":{"type":"click","x":10,"y":20}}],"usage":{"input_tokens":5,"output_tokens":7}}`)
@@ -510,8 +512,14 @@ func TestLLMHarnessedProviderToolProposalAudited(t *testing.T) {
 	lh.ServeHTTP(rr, req)
 	audit.Close()
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if llmCalled {
+		t.Fatal("provider should not be called for unavailable harnessed provider tools")
+	}
+	if !strings.Contains(rr.Body.String(), "provider_tool_harness_unavailable") {
+		t.Fatalf("expected provider_tool_harness_unavailable response, got %s", rr.Body.String())
 	}
 
 	today := time.Now().UTC().Format("2006-01-02")
@@ -520,32 +528,24 @@ func TestLLMHarnessedProviderToolProposalAudited(t *testing.T) {
 		t.Fatalf("read audit: %v", err)
 	}
 	var harnessEntry *AuditEntry
-	var llmEntry *AuditEntry
 	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 		var entry AuditEntry
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
 			t.Fatalf("unmarshal audit: %v", err)
 		}
-		if entry.Type == "PROVIDER_TOOL_HARNESS_PROPOSED" {
+		if entry.Type == "PROVIDER_TOOL_HARNESS_UNAVAILABLE" {
 			copied := entry
 			harnessEntry = &copied
 		}
-		if entry.Type == "LLM_DIRECT" {
-			copied := entry
-			llmEntry = &copied
-		}
 	}
 	if harnessEntry == nil {
-		t.Fatalf("missing PROVIDER_TOOL_HARNESS_PROPOSED audit entry in %s", string(data))
+		t.Fatalf("missing PROVIDER_TOOL_HARNESS_UNAVAILABLE audit entry in %s", string(data))
 	}
-	if harnessEntry.Extra["provider_tool_harness_required"] != "true" {
-		t.Fatalf("harness marker missing: %#v", harnessEntry.Extra)
-	}
-	if harnessEntry.Extra["provider_tool_harness_capabilities"] != capProviderComputerUse {
+	if harnessEntry.Extra["provider_tool_capability"] != capProviderComputerUse {
 		t.Fatalf("harness capability missing: %#v", harnessEntry.Extra)
 	}
-	if llmEntry == nil || llmEntry.Extra["provider_tool_harness_proposal_count"] != "1" {
-		t.Fatalf("LLM audit missing harness proposal count: %#v", llmEntry)
+	if harnessEntry.Extra["provider_tool_execution_modes"] != providerToolExecutionAgencyHarnessed {
+		t.Fatalf("execution mode missing: %#v", harnessEntry.Extra)
 	}
 }
 
