@@ -277,6 +277,28 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if providerToolRequiresAgencyHarness(use.Capability) {
+			if providerToolHarnessAvailable(use.Capability) {
+				if len(model.Capabilities) > 0 && !model.HasCapability("tools") {
+					errMsg := fmt.Sprintf("model %q does not declare ordinary tool support required for provider tool harness capability %q", modelAlias, use.Capability)
+					lh.audit.Log(AuditEntry{
+						Type:          "PROVIDER_TOOL_UNSUPPORTED",
+						Model:         modelAlias,
+						ProviderModel: providerModel,
+						CorrelationID: correlationID,
+						Status:        http.StatusUnprocessableEntity,
+						Error:         errMsg,
+						Extra: map[string]string{
+							"provider_tool_capability":      use.Capability,
+							"provider_tool_type":            use.ToolType,
+							"provider_tool_name":            use.Name,
+							"provider_tool_execution_modes": providerToolExecutionAgencyHarnessed,
+						},
+					})
+					http.Error(w, fmt.Sprintf(`{"error":"provider_tool_unsupported","detail":%q}`, errMsg), http.StatusUnprocessableEntity)
+					return
+				}
+				continue
+			}
 			errMsg := providerToolHarnessUnavailableError(use)
 			lh.audit.Log(AuditEntry{
 				Type:          "PROVIDER_TOOL_HARNESS_UNAVAILABLE",
@@ -313,6 +335,18 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf(`{"error":"provider_tool_unsupported","detail":%q}`, errMsg), http.StatusUnprocessableEntity)
 			return
 		}
+	}
+	harnessedProviderToolUses := rewriteHarnessedProviderTools(reqBody)
+	if len(harnessedProviderToolUses) > 0 {
+		lh.audit.Log(AuditEntry{
+			Type:          "PROVIDER_TOOL_HARNESS_TRANSLATED",
+			Model:         modelAlias,
+			ProviderModel: providerModel,
+			CorrelationID: correlationID,
+			Status:        http.StatusOK,
+			Extra:         summarizeHarnessedProviderToolUses(harnessedProviderToolUses),
+		})
+		providerToolUses = nonHarnessedProviderToolUses(providerToolUses)
 	}
 	if len(providerToolUses) > 0 {
 		lh.audit.Log(AuditEntry{

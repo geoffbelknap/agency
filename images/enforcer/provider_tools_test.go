@@ -101,6 +101,47 @@ func TestProviderToolExecutionModes(t *testing.T) {
 	}
 }
 
+func TestRewriteHarnessedProviderTools(t *testing.T) {
+	body := map[string]interface{}{
+		"tools": []interface{}{
+			map[string]interface{}{"type": "shell"},
+			map[string]interface{}{"type": "text_editor_20250124"},
+			map[string]interface{}{"type": "web_search"},
+		},
+	}
+
+	translated := rewriteHarnessedProviderTools(body)
+	if len(translated) != 2 {
+		t.Fatalf("translated uses = %#v, want 2", translated)
+	}
+	rawTools := body["tools"].([]interface{})
+	var names []string
+	var sawWebSearch bool
+	for _, raw := range rawTools {
+		tool := raw.(map[string]interface{})
+		if typ, _ := tool["type"].(string); typ == "web_search" {
+			sawWebSearch = true
+			continue
+		}
+		fn, _ := tool["function"].(map[string]interface{})
+		if name, _ := fn["name"].(string); name != "" {
+			names = append(names, name)
+		}
+	}
+	got := map[string]bool{}
+	for _, name := range names {
+		got[name] = true
+	}
+	for _, want := range []string{"execute_command", "read_file", "write_file"} {
+		if !got[want] {
+			t.Fatalf("missing translated function %q in %#v", want, rawTools)
+		}
+	}
+	if !sawWebSearch {
+		t.Fatalf("non-harnessed provider tool should be preserved: %#v", rawTools)
+	}
+}
+
 func TestLoadProviderToolPolicy(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "constraints.yaml"), []byte("granted_capabilities:\n  - provider-web-search\n"), 0o644); err != nil {

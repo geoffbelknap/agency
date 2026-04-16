@@ -148,17 +148,17 @@ capabilities:
     description: Provider-defined shell or bash action proposal. Use Agency-native execute_command mediation instead of provider-side shell tools.
     providers:
       openai:
-        status: agency_native
+        status: harnessed
         request_tools: [shell, local_shell]
         pricing: {unit: harness_action, confidence: unknown}
-        notes: Use Agency-native execute_command rather than provider-defined shell tools.
-        tests: [detect, grant_deny, harness_unavailable]
+        notes: Translated to Agency-native execute_command before the provider sees the request.
+        tests: [detect, grant_deny, harness_translate, audit_fixture]
       anthropic:
-        status: agency_native
+        status: harnessed
         request_tools: [bash_20250124]
         pricing: {unit: harness_action, confidence: unknown}
-        notes: Use Agency-native execute_command rather than provider-defined bash tools.
-        tests: [detect, grant_deny, harness_unavailable]
+        notes: Translated to Agency-native execute_command before the provider sees the request.
+        tests: [detect, grant_deny, harness_translate, audit_fixture]
       google: {status: no_equivalent}
 
   provider-text-editor:
@@ -170,11 +170,11 @@ capabilities:
     providers:
       openai: {status: no_equivalent}
       anthropic:
-        status: agency_native
+        status: harnessed
         request_tools: [text_editor_20250124]
         pricing: {unit: harness_action, confidence: unknown}
-        notes: Use Agency-native read_file/write_file tools rather than provider-defined editor tools.
-        tests: [detect, grant_deny, harness_unavailable]
+        notes: Translated to Agency-native read_file/write_file before the provider sees the request.
+        tests: [detect, grant_deny, harness_translate, audit_fixture]
       google: {status: no_equivalent}
 
   provider-memory:
@@ -271,10 +271,10 @@ capabilities:
     description: Provider-defined patch proposal. Use Agency-native file editing mediation instead.
     providers:
       openai:
-        status: agency_native
+        status: harnessed
         request_tools: [apply_patch]
         pricing: {unit: harness_action, confidence: unknown}
-        notes: Use Agency-native file editing tools rather than provider-defined patch tools.
-        tests: [detect, grant_deny, harness_unavailable]
+        notes: Translated to Agency-native read_file/write_file before the provider sees the request.
+        tests: [detect, grant_deny, harness_translate, audit_fixture]
       anthropic: {status: no_equivalent}
       google: {status: no_equivalent}

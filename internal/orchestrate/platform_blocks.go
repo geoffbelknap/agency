@@ -69,14 +69,14 @@ var allCapabilities = map[string]string{
 	"provider-file-search":      "use provider-hosted file or collection search",
 	"provider-code-execution":   "use provider-hosted code execution",
 	"provider-computer-use":     "use provider-defined computer control",
-	"provider-shell":            "use provider-defined shell tools",
-	"provider-text-editor":      "use provider-defined text editor tools",
+	"provider-shell":            "use provider-defined shell tools through Agency mediation",
+	"provider-text-editor":      "use provider-defined text editor tools through Agency mediation",
 	"provider-memory":           "use provider-hosted memory tools",
 	"provider-mcp":              "connect a provider directly to remote MCP tools",
 	"provider-image-generation": "use provider-hosted image generation tools",
 	"provider-google-maps":      "use provider-hosted Google Maps tools",
 	"provider-tool-search":      "let a provider discover additional available tools",
-	"provider-apply-patch":      "use provider-defined patch application tools",
+	"provider-apply-patch":      "use provider-defined patch application tools through Agency mediation",
 	"web-fetch":                 "fetch and read web pages",
 }
 

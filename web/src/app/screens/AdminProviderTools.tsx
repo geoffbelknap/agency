@@ -21,7 +21,7 @@ function statusTone(status: string) {
     case 'inventoried':
       return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-400';
     case 'harness_required':
-    case 'agency_native':
+    case 'harnessed':
       return 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-400';
     case 'harness_unavailable':
       return 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-400';

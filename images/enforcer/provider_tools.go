@@ -168,6 +168,151 @@ func providerToolRequiresAgencyHarness(capability string) bool {
 	return providerToolExecutionMode(capability) == providerToolExecutionAgencyHarnessed
 }
 
+func providerToolHarnessAvailable(capability string) bool {
+	switch capability {
+	case capProviderShell, capProviderTextEditor, capProviderApplyPatch:
+		return true
+	default:
+		return false
+	}
+}
+
+func rewriteHarnessedProviderTools(body map[string]interface{}) []ProviderToolUse {
+	rawTools, ok := body["tools"].([]interface{})
+	if !ok || len(rawTools) == 0 {
+		return nil
+	}
+
+	var translated []ProviderToolUse
+	var rewritten []interface{}
+	seenFunctions := existingFunctionToolNames(rawTools)
+	for _, raw := range rawTools {
+		tool, ok := raw.(map[string]interface{})
+		if !ok {
+			rewritten = append(rewritten, raw)
+			continue
+		}
+		uses := detectProviderToolUse(tool)
+		var harnessed []ProviderToolUse
+		for _, use := range uses {
+			if providerToolRequiresAgencyHarness(use.Capability) && providerToolHarnessAvailable(use.Capability) {
+				harnessed = append(harnessed, use)
+			}
+		}
+		if len(harnessed) == 0 {
+			rewritten = append(rewritten, raw)
+			continue
+		}
+		for _, use := range harnessed {
+			translated = append(translated, use)
+			for _, fnTool := range providerToolHarnessFunctionTools(use.Capability) {
+				fn, _ := fnTool["function"].(map[string]interface{})
+				name, _ := fn["name"].(string)
+				if name == "" || seenFunctions[name] {
+					continue
+				}
+				seenFunctions[name] = true
+				rewritten = append(rewritten, fnTool)
+			}
+		}
+	}
+	body["tools"] = rewritten
+	return dedupeProviderToolUses(translated)
+}
+
+func existingFunctionToolNames(rawTools []interface{}) map[string]bool {
+	seen := map[string]bool{}
+	for _, raw := range rawTools {
+		tool, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		fn, _ := tool["function"].(map[string]interface{})
+		name, _ := fn["name"].(string)
+		if name != "" {
+			seen[name] = true
+		}
+	}
+	return seen
+}
+
+func providerToolHarnessFunctionTools(capability string) []map[string]interface{} {
+	switch capability {
+	case capProviderShell:
+		return []map[string]interface{}{functionToolDefinition(
+			"execute_command",
+			"Execute a shell command in the mediated Agency workspace. Returns stdout, stderr, and exit code.",
+			map[string]interface{}{
+				"command": map[string]interface{}{"type": "string", "description": "Shell command to execute"},
+				"timeout": map[string]interface{}{"type": "integer", "description": "Timeout in seconds (default 300, max 300)"},
+			},
+			[]string{"command"},
+		)}
+	case capProviderTextEditor:
+		return []map[string]interface{}{
+			functionToolDefinition(
+				"read_file",
+				"Read the contents of a file from the mediated Agency workspace.",
+				map[string]interface{}{
+					"path":   map[string]interface{}{"type": "string", "description": "Path to the file, relative to the workspace"},
+					"offset": map[string]interface{}{"type": "integer", "description": "Line number to start reading from, 1-based"},
+					"limit":  map[string]interface{}{"type": "integer", "description": "Maximum number of lines to read"},
+				},
+				[]string{"path"},
+			),
+			functionToolDefinition(
+				"write_file",
+				"Write content to a file in the mediated Agency workspace.",
+				map[string]interface{}{
+					"path":    map[string]interface{}{"type": "string", "description": "Path to the file, relative to the workspace"},
+					"content": map[string]interface{}{"type": "string", "description": "Content to write to the file"},
+				},
+				[]string{"path", "content"},
+			),
+		}
+	case capProviderApplyPatch:
+		return []map[string]interface{}{
+			functionToolDefinition(
+				"read_file",
+				"Read the contents of a file from the mediated Agency workspace before editing.",
+				map[string]interface{}{
+					"path":   map[string]interface{}{"type": "string", "description": "Path to the file, relative to the workspace"},
+					"offset": map[string]interface{}{"type": "integer", "description": "Line number to start reading from, 1-based"},
+					"limit":  map[string]interface{}{"type": "integer", "description": "Maximum number of lines to read"},
+				},
+				[]string{"path"},
+			),
+			functionToolDefinition(
+				"write_file",
+				"Apply a mediated file change by writing the complete updated file content.",
+				map[string]interface{}{
+					"path":    map[string]interface{}{"type": "string", "description": "Path to the file, relative to the workspace"},
+					"content": map[string]interface{}{"type": "string", "description": "Complete updated file content"},
+				},
+				[]string{"path", "content"},
+			),
+		}
+	default:
+		return nil
+	}
+}
+
+func functionToolDefinition(name, description string, properties map[string]interface{}, required []string) map[string]interface{} {
+	return map[string]interface{}{
+		"type": "function",
+		"function": map[string]interface{}{
+			"name":        name,
+			"description": description,
+			"parameters": map[string]interface{}{
+				"type":                 "object",
+				"properties":           properties,
+				"required":             required,
+				"additionalProperties": false,
+			},
+		},
+	}
+}
+
 func dedupeProviderToolUses(uses []ProviderToolUse) []ProviderToolUse {
 	if len(uses) < 2 {
 		return uses
@@ -180,6 +325,20 @@ func dedupeProviderToolUses(uses []ProviderToolUse) []ProviderToolUse {
 			continue
 		}
 		seen[key] = true
+		out = append(out, use)
+	}
+	return out
+}
+
+func nonHarnessedProviderToolUses(uses []ProviderToolUse) []ProviderToolUse {
+	if len(uses) == 0 {
+		return nil
+	}
+	out := make([]ProviderToolUse, 0, len(uses))
+	for _, use := range uses {
+		if providerToolRequiresAgencyHarness(use.Capability) {
+			continue
+		}
 		out = append(out, use)
 	}
 	return out

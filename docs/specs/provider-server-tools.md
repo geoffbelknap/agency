@@ -16,7 +16,7 @@ Implemented baseline:
 - Gemini native streaming is translated from `streamGenerateContent` SSE to Agency-facing OpenAI-compatible chat chunks or Responses events.
 - Gemini native `/v1/responses` requests are translated to native `generateContent` and returned as Responses-style output.
 - Buffered provider responses produce compact audit metadata for tool type, source count, citation count, search query count, and source URLs when providers expose those fields.
-- Provider-defined computer, shell, text-editor, and patch tools are classified as `agency_harnessed` but are not forwarded to providers until an executable Agency harness exists. Shell, file editing, and patch-style work should use Agency-native mediated tools instead.
+- Provider-defined shell, text-editor, and patch tools are classified as `agency_harnessed` and translated into Agency-native function tools before the provider sees the request. Provider-defined computer-use remains fail-closed until an executable screen/input harness exists.
 - Bundled OpenAI, Anthropic, and Google provider catalog entries declare `provider_tool_capabilities` per model.
 - Audit and routing metrics include provider-tool call counts, and include provider-tool estimated cost when `provider_tool_pricing` or legacy `provider_tool_costs` are configured for a model.
 
@@ -45,8 +45,8 @@ Current public provider docs show these provider-side or provider-defined tools:
 | OpenAI | Web search | `provider-web-search` |
 | OpenAI | File search and retrieval | `provider-file-search` |
 | OpenAI | Computer use | `provider-computer-use` (not exposed; harness unavailable) |
-| OpenAI | Shell, local shell | `provider-shell` (use Agency-native `execute_command`) |
-| OpenAI | Apply patch | `provider-apply-patch` (use Agency-native file editing) |
+| OpenAI | Shell, local shell | `provider-shell` (Agency harness translates to `execute_command`) |
+| OpenAI | Apply patch | `provider-apply-patch` (Agency harness translates to file editing tools) |
 | OpenAI | Tool search | `provider-tool-search` |
 | OpenAI | Image generation | `provider-image-generation` |
 | OpenAI | Code interpreter | `provider-code-execution` |
@@ -58,9 +58,9 @@ Current public provider docs show these provider-side or provider-defined tools:
 | Anthropic | Tool search | `provider-tool-search` |
 | Anthropic | MCP connector | `provider-mcp` |
 | Anthropic | Memory | `provider-memory` |
-| Anthropic | Bash | `provider-shell` (use Agency-native `execute_command`) |
+| Anthropic | Bash | `provider-shell` (Agency harness translates to `execute_command`) |
 | Anthropic | Computer use | `provider-computer-use` (not exposed; harness unavailable) |
-| Anthropic | Text editor | `provider-text-editor` (use Agency-native file editing) |
+| Anthropic | Text editor | `provider-text-editor` (Agency harness translates to file editing tools) |
 | Gemini | Google Search grounding | `provider-web-search` |
 | Gemini | URL context | `provider-url-context` |
 | Gemini | Code execution | `provider-code-execution` |
@@ -106,7 +106,7 @@ Rationale:
 - Search is read-oriented and already a core research expectation.
 - Fetch and URL context can exfiltrate sensitive URLs or use untrusted content as context.
 - File search may expose provider-hosted corpora and needs data-boundary policy.
-- Code execution is a provider-hosted execution surface. Provider-defined shell, computer use, text editor, and patching require Agency execution harnesses and are not forwarded to providers by default.
+- Code execution is a provider-hosted execution surface. Provider-defined shell, text editor, and patching are translated to Agency-native mediated tools. Provider-defined computer use requires a future screen/input execution harness and is not forwarded to providers.
 - MCP/connectors can create provider-side direct access paths that bypass Agency's normal service mediation if not constrained.
 - Image generation and maps may carry different data, cost, and policy obligations.
 
@@ -126,10 +126,11 @@ Cost accounting:
 Agency-harnessed tools:
 
 - `provider-computer-use`, `provider-shell`, `provider-text-editor`, and `provider-apply-patch` are not treated as provider-hosted execution.
-- Requests for these provider-defined tools fail closed with `provider_tool_harness_unavailable` before the provider sees the request, even if a local routing override declares model support.
-- Shell and file-editing workflows already have Agency-native mediated equivalents (`execute_command`, `read_file`, `write_file`, and service/MCP tools where granted). Those paths preserve workspace boundaries, credential stripping, mediation, and audit.
+- Requests for `provider-shell`, `provider-text-editor`, and `provider-apply-patch` require the matching agent grant, then the enforcer rewrites the provider-defined tool declaration into Agency-native function tools before forwarding the LLM request.
+- The translated harness tools are `execute_command` for shell and `read_file`/`write_file` for editor and patch-style work. Those paths preserve workspace boundaries, credential stripping, mediation, and audit.
+- Requests for `provider-computer-use` fail closed with `provider_tool_harness_unavailable` before the provider sees the request, even if a local routing override declares model support.
 - Computer-use remains unavailable until Agency has a first-class runtime/screenshot/input harness whose execution is mediated outside the agent boundary.
-- Any future execution loop must translate provider proposals into Agency-native tool calls and pass through the same external mediation, consent, and audit controls as local tools. Raw shell commands, computer coordinates, edit contents, or patch payloads must not be persisted as ordinary provider-response audit metadata.
+- Any future computer-use loop must translate provider proposals into Agency-native tool calls and pass through the same external mediation, consent, and audit controls as local tools. Raw computer coordinates or interaction payloads must not be persisted as ordinary provider-response audit metadata.
 
 ## Validation Boundary
 

@@ -549,6 +549,76 @@ func TestLLMHarnessedProviderToolRejectedBeforeProvider(t *testing.T) {
 	}
 }
 
+func TestLLMHarnessedProviderToolTranslated(t *testing.T) {
+	var received map[string]interface{}
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+			t.Fatalf("decode provider request: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"id":"msg_test","usage":{"input_tokens":5,"output_tokens":7}}`)
+	}))
+	defer provider.Close()
+
+	rc := testRoutingConfig()
+	rc.Providers["openai-compat"] = Provider{
+		APIBase: provider.URL + "/v1/",
+	}
+
+	auditDir := t.TempDir()
+	audit := NewAuditLogger(auditDir, "test-agent")
+
+	lh := NewLLMHandler(rc, provider.URL, audit)
+	lh.SetProviderToolPolicy(&ProviderToolPolicy{Granted: map[string]bool{capProviderShell: true}})
+
+	body := `{"model":"claude-sonnet","messages":[],"tools":[{"type":"shell"}]}`
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Correlation-Id", "corr-shell-harness")
+	rr := httptest.NewRecorder()
+	lh.ServeHTTP(rr, req)
+	audit.Close()
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	rawTools, ok := received["tools"].([]interface{})
+	if !ok || len(rawTools) != 1 {
+		t.Fatalf("expected one translated tool, got %#v", received["tools"])
+	}
+	tool := rawTools[0].(map[string]interface{})
+	fn, _ := tool["function"].(map[string]interface{})
+	if fn["name"] != "execute_command" {
+		t.Fatalf("expected execute_command harness, got %#v", rawTools)
+	}
+
+	today := time.Now().UTC().Format("2006-01-02")
+	data, err := os.ReadFile(filepath.Join(auditDir, "enforcer-"+today+".jsonl"))
+	if err != nil {
+		t.Fatalf("read audit: %v", err)
+	}
+	var translatedEntry *AuditEntry
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var entry AuditEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("unmarshal audit: %v", err)
+		}
+		if entry.Type == "PROVIDER_TOOL_HARNESS_TRANSLATED" {
+			copied := entry
+			translatedEntry = &copied
+		}
+		if entry.Type == "PROVIDER_TOOL_ALLOWED" {
+			t.Fatalf("translated harness should not be audited as provider-hosted allowed tool: %#v", entry)
+		}
+	}
+	if translatedEntry == nil {
+		t.Fatalf("missing PROVIDER_TOOL_HARNESS_TRANSLATED audit entry in %s", string(data))
+	}
+	if translatedEntry.Extra["provider_tool_harness_capabilities"] != capProviderShell {
+		t.Fatalf("harness capability missing: %#v", translatedEntry.Extra)
+	}
+}
+
 func TestLLMProviderToolUnsupportedByModel(t *testing.T) {
 	var llmCalled bool
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

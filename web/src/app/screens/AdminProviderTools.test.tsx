@@ -64,6 +64,30 @@ const inventory = {
         },
       },
     },
+    'provider-shell': {
+      title: 'Shell',
+      risk: 'critical',
+      default_grant: false,
+      execution: 'agency_harnessed',
+      description: 'Provider-defined shell action proposal.',
+      providers: {
+        openai: {
+          status: 'harnessed',
+          request_tools: ['shell'],
+          pricing: { unit: 'harness_action', confidence: 'unknown' },
+          tests: ['detect', 'harness_translate'],
+        },
+        anthropic: {
+          status: 'harnessed',
+          request_tools: ['bash_20250124'],
+          pricing: { unit: 'harness_action', confidence: 'unknown' },
+          tests: ['detect', 'harness_translate'],
+        },
+        google: {
+          status: 'no_equivalent',
+        },
+      },
+    },
   },
 };
 
@@ -78,6 +102,7 @@ describe('AdminProviderTools', () => {
     expect(screen.getByText('provider-web-search')).toBeInTheDocument();
     expect(screen.getByText('provider-computer-use')).toBeInTheDocument();
     expect(screen.getAllByText('supported').length).toBeGreaterThanOrEqual(3);
+    expect(screen.getAllByText('harnessed').length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText('harness unavailable').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('default grant')).toBeInTheDocument();
     expect(screen.getByText('exact · $0.0100 · search')).toBeInTheDocument();
