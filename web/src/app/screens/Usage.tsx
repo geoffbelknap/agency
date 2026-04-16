@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router';
 import { Button } from '../components/ui/button';
 import { Calendar } from '../components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
-import { AlertTriangle, CalendarIcon, Check, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, ArrowRightLeft, CalendarIcon, Check, Coins, Layers3, LineChart, RefreshCw, TrendingUp, Wrench, X } from 'lucide-react';
 import type { DateRange } from 'react-day-picker';
 import { toast } from 'sonner';
 import { api, type RawRoutingStat, type RawRoutingSuggestion } from '../lib/api';
@@ -74,6 +74,8 @@ function formatTokens(n: number): string {
 }
 
 type RangePreset = '24h' | '7d' | '30d' | 'custom';
+type UsageView = 'breakdowns' | 'tools' | 'economics' | 'optimizer' | 'errors';
+type BreakdownView = 'agents' | 'models' | 'providers' | 'sources';
 
 const RANGE_PRESETS: { key: RangePreset; label: string }[] = [
   { key: '24h', label: '24h' },
@@ -109,6 +111,12 @@ function formatSavingsUSD(value: number): string {
 function formatProviderToolMeta(value?: string): string {
   if (!value) return 'unknown';
   return value.split(',').map((part) => part.trim()).filter(Boolean).join(', ') || 'unknown';
+}
+
+function sectionButton(active: boolean): string {
+  return active
+    ? 'border-primary/30 bg-primary/10 text-primary'
+    : 'border-border bg-background text-muted-foreground hover:border-border hover:text-foreground';
 }
 
 function isNotFoundError(err: unknown): boolean {
@@ -148,6 +156,8 @@ export function Usage() {
   const [preset, setPreset] = useState<RangePreset>('24h');
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [view, setView] = useState<UsageView>('breakdowns');
+  const [breakdown, setBreakdown] = useState<BreakdownView>('agents');
 
   const load = useCallback(async (p?: RangePreset, range?: DateRange) => {
     const activePreset = p ?? preset;
@@ -262,13 +272,101 @@ export function Usage() {
   const tokenCost = t ? Math.max(0, (t.est_cost_usd || 0) - providerToolCost) : 0;
   const knownProviderToolCalls = Math.max(0, providerToolCalls - unpricedProviderToolCalls);
   const summaryMetrics = t ? [
-    { label: 'Requests', value: t.requests.toLocaleString(), tone: 'text-foreground' },
-    { label: 'Total tokens', value: formatTokens(t.total_tokens), tone: 'text-foreground' },
-    { label: 'Estimated spend', value: displayCost(t), tone: 'text-primary' },
-    { label: 'Token spend', value: `$${tokenCost.toFixed(4)}`, tone: 'text-muted-foreground-strong' },
-    { label: 'Provider tools', value: `$${providerToolCost.toFixed(4)}`, tone: providerToolCalls > 0 ? 'text-primary' : 'text-muted-foreground-strong', detail: `${knownProviderToolCalls.toLocaleString()} priced / ${unpricedProviderToolCalls.toLocaleString()} unpriced` },
-    { label: 'Avg latency', value: `${(t.avg_latency_ms / 1000).toFixed(1)}s`, tone: 'text-muted-foreground-strong', detail: t.p95_latency_ms != null ? `p95 ${(t.p95_latency_ms / 1000).toFixed(1)}s` : undefined },
+    {
+      label: 'Requests',
+      value: t.requests.toLocaleString(),
+      detail: `${formatTokens(t.total_tokens)} total tokens`,
+      icon: LineChart,
+      tone: 'text-foreground',
+    },
+    {
+      label: 'Estimated spend',
+      value: displayCost(t),
+      detail: `$${tokenCost.toFixed(4)} tokens + $${providerToolCost.toFixed(4)} tools`,
+      icon: Coins,
+      tone: 'text-primary',
+    },
+    {
+      label: 'Latency',
+      value: `${(t.avg_latency_ms / 1000).toFixed(1)}s`,
+      detail: t.p95_latency_ms != null ? `p95 ${(t.p95_latency_ms / 1000).toFixed(1)}s` : 'p95 unavailable',
+      icon: TrendingUp,
+      tone: 'text-foreground',
+    },
+    {
+      label: 'Open issues',
+      value: `${t.errors + (unpricedProviderToolCalls > 0 ? 1 : 0)}`,
+      detail: `${t.errors} errors, ${unpricedProviderToolCalls.toLocaleString()} unpriced tool calls`,
+      icon: AlertTriangle,
+      tone: t.errors > 0 || unpricedProviderToolCalls > 0 ? 'text-amber-300' : 'text-foreground',
+    },
   ] : [];
+  const activeBreakdownRows = useMemo(() => {
+    switch (breakdown) {
+      case 'agents':
+        return byAgent.map(([name, b]) => ({
+          key: name,
+          primary: name,
+          secondary: undefined,
+          requests: b.requests,
+          input: formatTokens(b.input_tokens),
+          output: formatTokens(b.output_tokens),
+          tokens: formatTokens(b.total_tokens),
+          latency: `${(b.avg_latency_ms / 1000).toFixed(1)}s`,
+          p95: b.p95_latency_ms != null ? `${(b.p95_latency_ms / 1000).toFixed(1)}s` : '—',
+          errors: b.errors,
+          cost: displayCost(b, byModel.length === 1 ? byModel[0][0] : undefined),
+        }));
+      case 'models':
+        return byModel.map(([model, b]) => ({
+          key: model,
+          primary: model,
+          secondary: undefined,
+          requests: b.requests,
+          input: formatTokens(b.input_tokens),
+          output: formatTokens(b.output_tokens),
+          tokens: formatTokens(b.total_tokens),
+          latency: `${(b.avg_latency_ms / 1000).toFixed(1)}s`,
+          p95: b.p95_latency_ms != null ? `${(b.p95_latency_ms / 1000).toFixed(1)}s` : '—',
+          errors: b.errors,
+          cost: displayCost(b, model),
+        }));
+      case 'providers':
+        return byProvider.map(([provider, b]) => ({
+          key: provider,
+          primary: provider,
+          secondary: undefined,
+          requests: b.requests,
+          input: formatTokens(b.input_tokens),
+          output: formatTokens(b.output_tokens),
+          tokens: formatTokens(b.total_tokens),
+          latency: `${(b.avg_latency_ms / 1000).toFixed(1)}s`,
+          p95: b.p95_latency_ms != null ? `${(b.p95_latency_ms / 1000).toFixed(1)}s` : '—',
+          errors: b.errors,
+          cost: displayCost(b),
+        }));
+      case 'sources':
+        return bySource.map(([source, b]) => ({
+          key: source,
+          primary: source,
+          secondary: source === 'agent' ? 'runtime requests' : source === 'system' ? 'setup + admin' : undefined,
+          requests: b.requests,
+          input: formatTokens(b.input_tokens),
+          output: formatTokens(b.output_tokens),
+          tokens: formatTokens(b.total_tokens),
+          latency: `${(b.avg_latency_ms / 1000).toFixed(1)}s`,
+          p95: b.p95_latency_ms != null ? `${(b.p95_latency_ms / 1000).toFixed(1)}s` : '—',
+          errors: b.errors,
+          cost: displayCost(b),
+        }));
+      default:
+        return [];
+    }
+  }, [breakdown, byAgent, byModel, byProvider, bySource]);
+  const missingPricingRows = useMemo(
+    () => byProviderTool.filter(([, b]) => (b.provider_tool_unpriced_calls ?? 0) > 0),
+    [byProviderTool],
+  );
 
   // Use gateway cost if available, otherwise estimate client-side
   function displayCost(bucket: MetricsBucket, model?: string): string {
@@ -350,433 +448,523 @@ export function Usage() {
         <div className="text-sm text-muted-foreground text-center py-12">No metrics available</div>
       ) : (
         <>
-          {recentErrors.length > 0 && (
-            <div className="rounded-lg border border-red-900/40 bg-red-950/20 p-4">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 text-sm font-medium text-red-300">
-                    <AlertTriangle className="h-4 w-4" />
-                    {recentErrors.length} recent routing error{recentErrors.length !== 1 ? 's' : ''} need attention
+          <div className="overflow-hidden rounded-2xl border border-border bg-card">
+            <div className="grid gap-0 lg:grid-cols-4">
+              {summaryMetrics.map((metric, index) => {
+                const Icon = metric.icon;
+                return (
+                  <div
+                    key={metric.label}
+                    className={`px-4 py-4 md:px-5 ${index < summaryMetrics.length - 1 ? 'border-b border-border lg:border-b-0 lg:border-r' : ''}`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{metric.label}</div>
+                      <Icon className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className={`mt-2 text-2xl font-semibold tracking-tight ${metric.tone}`}>{metric.value}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{metric.detail}</div>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Review the affected agent path first, then use Doctor if the failure is broader than one route or model.
-                  </p>
+                );
+              })}
+            </div>
+            {(recentErrors.length > 0 || unpricedProviderToolCalls > 0) && (
+              <div className="border-t border-border bg-secondary/20 px-4 py-3 md:px-5">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="space-y-1">
+                    {recentErrors.length > 0 && (
+                      <div className="flex items-center gap-2 text-sm font-medium text-red-300">
+                        <AlertTriangle className="h-4 w-4" />
+                        {recentErrors.length} recent routing error{recentErrors.length !== 1 ? 's' : ''} need attention
+                      </div>
+                    )}
+                    {unpricedProviderToolCalls > 0 && (
+                      <div className="text-sm text-amber-300">
+                        {unpricedProviderToolCalls} provider-tool call{unpricedProviderToolCalls === 1 ? '' : 's'} are missing pricing metadata and are not fully reflected in estimated spend.
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {primaryErroredAgent && (
+                      <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                        <Link to={`/agents/${primaryErroredAgent}`}>Open Agent: {primaryErroredAgent}</Link>
+                      </Button>
+                    )}
+                    {unpricedProviderToolCalls > 0 && (
+                      <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                        <Link to="/admin/provider-tools">Open Provider Tools</Link>
+                      </Button>
+                    )}
+                    <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                      <Link to="/admin/doctor">Open Doctor</Link>
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="flex flex-col gap-3 border-t border-border px-4 py-3 md:px-5 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { value: 'breakdowns', label: 'Breakdowns', icon: Layers3 },
+                  { value: 'tools', label: 'Tool Usage', icon: Wrench },
+                  { value: 'economics', label: 'Economics', icon: Coins },
+                  { value: 'optimizer', label: 'Optimizer', icon: ArrowRightLeft },
+                  { value: 'errors', label: 'Errors', icon: AlertTriangle },
+                ].map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.value}
+                      type="button"
+                      onClick={() => setView(item.value as UsageView)}
+                      className={`inline-flex h-9 items-center gap-2 rounded-full border px-3 text-sm transition-colors ${sectionButton(view === item.value)}`}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      <span>{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="text-sm text-muted-foreground">Operational detail is split by task instead of stacked into one long report.</div>
+            </div>
+          </div>
+
+          {view === 'breakdowns' && (
+            <section className="overflow-hidden rounded-2xl border border-border bg-card">
+              <div className="flex flex-col gap-3 border-b border-border px-4 py-4 md:px-5 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h3 className="text-sm font-medium text-foreground">Primary Breakdown</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">One table at a time. Operators swap the lens instead of scrolling through multiple repeated report sections.</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {primaryErroredAgent && (
-                    <Button asChild variant="outline" size="sm" className="h-8 text-xs">
-                      <Link to={`/agents/${primaryErroredAgent}`}>Open Agent: {primaryErroredAgent}</Link>
-                    </Button>
+                  {[
+                    { value: 'agents', label: 'Agents' },
+                    { value: 'models', label: 'Models' },
+                    { value: 'providers', label: 'Providers' },
+                    { value: 'sources', label: 'Sources' },
+                  ]
+                    .filter((item) => item.value !== 'sources' || bySource.length > 0)
+                    .map((item) => (
+                      <button
+                        key={item.value}
+                        type="button"
+                        onClick={() => setBreakdown(item.value as BreakdownView)}
+                        className={`inline-flex h-8 items-center rounded-full border px-3 text-sm transition-colors ${sectionButton(breakdown === item.value)}`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[840px] text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-xs uppercase tracking-[0.12em] text-muted-foreground">
+                      <th className="p-3 text-left font-medium">{breakdown.slice(0, -1)}</th>
+                      <th className="p-3 text-right font-medium">Requests</th>
+                      <th className="p-3 text-right font-medium">Input</th>
+                      <th className="p-3 text-right font-medium">Output</th>
+                      <th className="p-3 text-right font-medium">Tokens</th>
+                      <th className="p-3 text-right font-medium">Avg latency</th>
+                      <th className="p-3 text-right font-medium">p95</th>
+                      <th className="p-3 text-right font-medium">Errors</th>
+                      <th className="p-3 text-right font-medium">Est. cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeBreakdownRows.map((row) => (
+                      <tr key={row.key} className="border-b border-border/70 last:border-0 hover:bg-secondary/35">
+                        <td className="p-3">
+                          <div className="font-medium text-foreground">{row.primary}</div>
+                          {row.secondary && <div className="mt-0.5 text-xs text-muted-foreground">{row.secondary}</div>}
+                        </td>
+                        <td className="p-3 text-right text-foreground/80">{row.requests}</td>
+                        <td className="p-3 text-right text-foreground/80">{row.input}</td>
+                        <td className="p-3 text-right text-foreground/80">{row.output}</td>
+                        <td className="p-3 text-right text-foreground/80">{row.tokens}</td>
+                        <td className="p-3 text-right text-muted-foreground">{row.latency}</td>
+                        <td className="p-3 text-right text-muted-foreground">{row.p95}</td>
+                        <td className="p-3 text-right">
+                          {row.errors > 0 ? <span className="text-red-400">{row.errors}</span> : <span className="text-muted-foreground/70">0</span>}
+                        </td>
+                        <td className="p-3 text-right text-green-400">{row.cost}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {view === 'tools' && (
+            <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+              <div className="overflow-hidden rounded-2xl border border-border bg-card">
+                <div className="border-b border-border px-4 py-4 md:px-5">
+                  <h3 className="text-sm font-medium text-foreground">Tool Activity Mix</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">This screen currently tracks provider-side tool activity. Agency-native tool usage is not yet part of the routing metrics contract.</p>
+                </div>
+                <div className="divide-y divide-border">
+                  <div className="px-4 py-4 md:px-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-sm font-medium text-foreground">Provider-side tools</div>
+                        <div className="mt-1 text-sm text-muted-foreground">Search, file search, URL context, and other provider-defined tools visible to routing metrics.</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-semibold text-foreground">{providerToolCalls.toLocaleString()}</div>
+                        <div className="text-xs text-muted-foreground">total tool calls</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="px-4 py-4 md:px-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-sm font-medium text-foreground">Priced provider tools</div>
+                        <div className="mt-1 text-sm text-muted-foreground">Calls with pricing metadata available and included in estimated spend.</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-semibold text-foreground">{knownProviderToolCalls.toLocaleString()}</div>
+                        <div className="text-xs text-muted-foreground">known-price calls</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="px-4 py-4 md:px-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-sm font-medium text-foreground">Missing pricing metadata</div>
+                        <div className="mt-1 text-sm text-muted-foreground">These calls are visible, but they are not fully reflected in cost estimates until pricing data is added.</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-semibold text-amber-300">{unpricedProviderToolCalls.toLocaleString()}</div>
+                        <div className="text-xs text-muted-foreground">unpriced calls</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-2xl border border-border bg-card">
+                <div className="border-b border-border px-4 py-4 md:px-5">
+                  <h3 className="text-sm font-medium text-foreground">Most Used Provider Tool Surfaces</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">This shows which provider-side tools are active, how often they are called, and where pricing confidence is incomplete.</p>
+                </div>
+                <div className="divide-y divide-border">
+                  {byProviderTool.length === 0 ? (
+                    <div className="px-4 py-6 text-sm text-muted-foreground">No provider-side tool activity recorded in the selected period.</div>
+                  ) : (
+                    byProviderTool.map(([capability, b]) => (
+                      <div key={capability} className="px-4 py-4 md:px-5">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="min-w-0 space-y-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <code className="break-all text-sm text-foreground">{capability}</code>
+                              <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                                provider side
+                              </span>
+                            </div>
+                            <div className="text-sm text-muted-foreground">
+                              pricing confidence: <span className={(b.provider_tool_unpriced_calls ?? 0) > 0 ? 'text-amber-300' : 'text-foreground/80'}>{formatProviderToolMeta(b.provider_tool_cost_confidence)}</span>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              pricing source: {formatProviderToolMeta(b.provider_tool_cost_source)}
+                            </div>
+                          </div>
+                          <div className="grid min-w-0 grid-cols-2 gap-3 sm:min-w-[260px]">
+                            <div className="rounded-xl border border-border bg-secondary/35 px-3 py-2">
+                              <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Calls</div>
+                              <div className="mt-1 text-base font-semibold text-foreground">{(b.provider_tool_calls ?? 0).toLocaleString()}</div>
+                            </div>
+                            <div className="rounded-xl border border-border bg-secondary/35 px-3 py-2">
+                              <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Requests</div>
+                              <div className="mt-1 text-base font-semibold text-foreground">{b.requests.toLocaleString()}</div>
+                            </div>
+                            <div className="rounded-xl border border-border bg-secondary/35 px-3 py-2">
+                              <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Known tool cost</div>
+                              <div className="mt-1 text-base font-semibold text-green-400">${(b.provider_tool_cost_usd ?? 0).toFixed(4)}</div>
+                            </div>
+                            <div className="rounded-xl border border-border bg-secondary/35 px-3 py-2">
+                              <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Unpriced</div>
+                              <div className={`mt-1 text-base font-semibold ${(b.provider_tool_unpriced_calls ?? 0) > 0 ? 'text-amber-300' : 'text-muted-foreground/80'}`}>
+                                {(b.provider_tool_unpriced_calls ?? 0).toLocaleString()}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
                   )}
-                  <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                </div>
+              </div>
+            </section>
+          )}
+
+          {view === 'economics' && (
+            <section className="grid gap-6 xl:grid-cols-[1.15fr_1fr]">
+              <div className="overflow-hidden rounded-2xl border border-border bg-card">
+                <div className="border-b border-border px-4 py-4 md:px-5">
+                  <h3 className="text-sm font-medium text-foreground">Spend Composition</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">This shows what spend is known, what is included in the estimate, and where the estimate is incomplete because pricing metadata is missing.</p>
+                </div>
+                <div className="grid gap-0 sm:grid-cols-3">
+                  <div className="border-b border-border px-4 py-4 sm:border-b-0 sm:border-r">
+                    <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Token spend</div>
+                    <div className="mt-2 text-2xl font-semibold text-foreground">${tokenCost.toFixed(4)}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">Included in estimated total</div>
+                  </div>
+                  <div className="border-b border-border px-4 py-4 sm:border-b-0 sm:border-r">
+                    <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Priced tool spend</div>
+                    <div className="mt-2 text-2xl font-semibold text-foreground">${providerToolCost.toFixed(4)}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">Included in estimated total</div>
+                  </div>
+                  <div className="px-4 py-4">
+                    <div className="text-[11px] uppercase tracking-[0.14em] text-amber-500">Calls without pricing metadata</div>
+                    <div className="mt-2 text-2xl font-semibold text-amber-300">{unpricedProviderToolCalls.toLocaleString()} calls</div>
+                    <div className="mt-1 text-xs text-amber-200/80">Not included in estimated total</div>
+                  </div>
+                </div>
+                <div className="border-t border-border px-4 py-4 md:px-5">
+                  <div className="rounded-xl border border-amber-900/40 bg-amber-950/20 px-4 py-3">
+                    <div className="text-sm font-medium text-amber-200">What this means</div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      Agency can see these tool calls happened, but the current routing metrics contract only exposes missing pricing at the capability level. Add pricing metadata for the flagged capabilities to make the spend estimate complete.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                <div className="overflow-hidden rounded-2xl border border-border bg-card">
+                  <div className="border-b border-border px-4 py-4 md:px-5">
+                    <h3 className="text-sm font-medium text-foreground">Missing Pricing Metadata</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">These are the exact provider-tool capabilities currently showing unpriced usage in the selected period.</p>
+                  </div>
+                  <div className="divide-y divide-border">
+                    {missingPricingRows.length === 0 ? (
+                      <div className="px-4 py-6 text-sm text-muted-foreground">No provider tool calls are currently missing pricing metadata.</div>
+                    ) : (
+                      missingPricingRows.map(([capability, b]) => (
+                        <div key={capability} className="flex flex-col gap-3 px-4 py-4 md:px-5">
+                          <div className="flex flex-wrap items-center gap-2 text-sm">
+                            <code className="text-foreground">{capability}</code>
+                            <span className="text-muted-foreground">pricing confidence</span>
+                            <code className="text-muted-foreground">{formatProviderToolMeta(b.provider_tool_cost_confidence)}</code>
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            {(b.provider_tool_unpriced_calls ?? 0).toLocaleString()} calls missing a complete price mapping
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <div className="border-t border-border bg-secondary/30 px-4 py-4 md:px-5">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div className="text-sm text-muted-foreground">
+                        Update provider tool pricing metadata in routing configuration so these calls are included in spend estimates.
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button asChild variant="outline" size="sm" className="h-8 rounded-xl px-3 text-xs">
+                          <Link to="/admin/provider-tools">Open Provider Tools</Link>
+                        </Button>
+                        <Button asChild variant="outline" size="sm" className="h-8 rounded-xl px-3 text-xs">
+                          <Link to="/admin/presets">Open Presets</Link>
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {byProviderTool.length > 0 && (
+                  <div className="overflow-hidden rounded-2xl border border-border bg-card">
+                    <div className="border-b border-border px-4 py-4 md:px-5">
+                      <h3 className="text-sm font-medium text-foreground">Provider Tool Breakdown</h3>
+                      <p className="mt-1 text-sm text-muted-foreground">Once pricing metadata exists, this is the durable audit of provider-side tool spend.</p>
+                    </div>
+                    <div className="divide-y divide-border">
+                      {byProviderTool.map(([capability, b]) => (
+                        <div key={capability} className="grid gap-3 px-4 py-3 md:grid-cols-[1.4fr_repeat(4,minmax(0,1fr))] md:items-center md:px-5">
+                          <div>
+                            <div className="font-mono text-sm text-foreground">{capability}</div>
+                            <div className="mt-1 text-xs text-muted-foreground">{b.requests} requests / {b.provider_tool_calls ?? 0} tool calls</div>
+                          </div>
+                          <div className="text-sm text-muted-foreground md:text-right">
+                            <div className="text-[10px] uppercase tracking-[0.14em]">Known</div>
+                            <div className="mt-1 text-foreground">${(b.provider_tool_cost_usd ?? 0).toFixed(4)}</div>
+                          </div>
+                          <div className="text-sm text-muted-foreground md:text-right">
+                            <div className="text-[10px] uppercase tracking-[0.14em]">Confidence</div>
+                            <div className={`mt-1 ${(b.provider_tool_unpriced_calls ?? 0) > 0 ? 'text-amber-300' : 'text-foreground'}`}>
+                              {formatProviderToolMeta(b.provider_tool_cost_confidence)}
+                            </div>
+                          </div>
+                          <div className="text-sm text-muted-foreground md:text-right">
+                            <div className="text-[10px] uppercase tracking-[0.14em]">Unpriced</div>
+                            <div className="mt-1 text-amber-300">{(b.provider_tool_unpriced_calls ?? 0).toLocaleString()}</div>
+                          </div>
+                          <div className="text-sm text-muted-foreground md:text-right">
+                            <div className="text-[10px] uppercase tracking-[0.14em]">Total est.</div>
+                            <div className="mt-1 text-green-400">{displayCost(b)}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {view === 'optimizer' && (
+            <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+              <div className="overflow-hidden rounded-2xl border border-border bg-card">
+                <div className="border-b border-border px-4 py-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between md:px-5">
+                  <div>
+                    <h3 className="text-sm font-medium text-foreground">Routing Suggestions</h3>
+                    <p className="mt-0.5 text-sm text-muted-foreground">Pending optimizer recommendations for lower-cost model routing.</p>
+                  </div>
+                  <Button variant="outline" size="sm" className="h-8 rounded-xl px-3 text-xs gap-1" onClick={loadSuggestions} disabled={suggestionsLoading}>
+                    <RefreshCw className={`w-3 h-3 ${suggestionsLoading ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </Button>
+                </div>
+                {suggestionsLoading ? (
+                  <div className="px-4 py-6 text-sm text-muted-foreground text-center">Loading routing suggestions...</div>
+                ) : suggestions.length === 0 ? (
+                  <div className="px-4 py-6 text-sm text-muted-foreground text-center">No pending routing suggestions</div>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {suggestions.map((s) => (
+                      <div key={s.id} className="px-4 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between md:px-5">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 text-sm">
+                            <code className="text-foreground">{s.task_type || 'unknown-task'}</code>
+                            <span className="text-muted-foreground/70">route</span>
+                            <code className="text-muted-foreground">{s.current_model || 'current'}</code>
+                            <span className="text-muted-foreground/70">to</span>
+                            <code className="text-green-400">{s.suggested_model || 'suggested'}</code>
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground break-words">{s.reason || 'No reason supplied.'}</div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-wide">
+                            <span className="rounded bg-green-950/40 text-green-300 border border-green-900/40 px-2 py-0.5">
+                              {formatSavingsPercent(s.savings_percent)} savings
+                            </span>
+                            <span className="rounded bg-secondary text-muted-foreground px-2 py-0.5">
+                              {formatSavingsUSD(s.savings_usd_per_1k)} / 1K calls
+                            </span>
+                            <span className="rounded bg-secondary text-muted-foreground px-2 py-0.5">{s.status}</span>
+                          </div>
+                        </div>
+                        {s.status === 'pending' && (
+                          <div className="flex gap-2 shrink-0">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 gap-1"
+                              onClick={() => handleSuggestionAction(s.id, 'reject')}
+                              disabled={suggestionAction !== null}
+                            >
+                              <X className="w-3 h-3" />
+                              Reject
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="h-8 gap-1"
+                              onClick={() => handleSuggestionAction(s.id, 'approve')}
+                              disabled={suggestionAction !== null}
+                            >
+                              <Check className="w-3 h-3" />
+                              Approve
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="overflow-hidden rounded-2xl border border-border bg-card">
+                <div className="border-b border-border px-4 py-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between md:px-5">
+                  <div>
+                    <h3 className="text-sm font-medium text-foreground">Routing Model Stats</h3>
+                    <p className="mt-0.5 text-sm text-muted-foreground">Per-model optimizer telemetry by task type.</p>
+                  </div>
+                  <Button variant="outline" size="sm" className="h-8 rounded-xl px-3 text-xs gap-1" onClick={loadRoutingStats} disabled={statsLoading}>
+                    <RefreshCw className={`w-3 h-3 ${statsLoading ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </Button>
+                </div>
+                {statsLoading ? (
+                  <div className="px-4 py-6 text-sm text-muted-foreground text-center">Loading routing stats...</div>
+                ) : routingStats.length === 0 ? (
+                  <div className="px-4 py-6 text-sm text-muted-foreground text-center">No routing stats available</div>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {routingStats.map((s) => (
+                      <div key={`${s.task_type}:${s.model}`} className="grid gap-2 px-4 py-3 md:grid-cols-[1.3fr_1fr_repeat(4,minmax(0,0.7fr))] md:items-center md:px-5">
+                        <div>
+                          <div className="text-sm font-medium text-foreground">{s.task_type || 'unknown'}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">{s.model || 'unknown'}</div>
+                        </div>
+                        <div className="text-sm text-muted-foreground md:text-right">{s.total_calls}</div>
+                        <div className="text-sm text-muted-foreground md:text-right">{s.retries} retries</div>
+                        <div className="text-sm text-green-400 md:text-right">{Math.round((s.success_rate || 0) * 100)}%</div>
+                        <div className="text-sm text-muted-foreground md:text-right">{((s.avg_latency_ms || 0) / 1000).toFixed(1)}s</div>
+                        <div className="text-sm text-muted-foreground md:text-right">{formatTokens((s.avg_input_tokens || 0) + (s.avg_output_tokens || 0))}</div>
+                        <div className="text-sm text-green-400 md:text-right">${(s.cost_per_1k || 0).toFixed(4)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {view === 'errors' && (
+            <section className="overflow-hidden rounded-2xl border border-red-900/30 bg-card">
+              <div className="border-b border-red-900/30 bg-red-950/20 px-4 py-4 md:px-5">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <h3 className="text-sm font-medium text-red-300">Recent Routing Failures</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">Error detail lives in its own view instead of being duplicated in both the summary and the bottom of the page.</p>
+                  </div>
+                  <Button asChild variant="outline" size="sm" className="h-8 rounded-xl px-3 text-xs">
                     <Link to="/admin/doctor">Open Doctor</Link>
                   </Button>
                 </div>
               </div>
-            </div>
-          )}
-
-          <div className="overflow-hidden rounded-2xl border border-border bg-card">
-            <div className="grid gap-0 lg:grid-cols-[1.5fr_1fr]">
-              <div className="border-b border-border px-4 py-4 lg:border-b-0 lg:border-r lg:px-5">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                  {summaryMetrics.slice(0, 3).map((metric) => (
-                    <div key={metric.label} className="space-y-1.5">
-                      <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                        {metric.label}
+              {recentErrors.length === 0 ? (
+                <div className="px-4 py-6 text-sm text-muted-foreground">No recent routing errors in the selected period.</div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {recentErrors.map((e, i) => (
+                    <div key={i} className="px-4 py-4 md:px-5">
+                      <div className="flex items-center gap-3 text-sm">
+                        <span className="text-muted-foreground text-xs whitespace-nowrap">
+                          {new Date(e.ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <code className="text-foreground">{e.agent}</code>
+                        <span className="text-muted-foreground/70">{e.model}</span>
+                        {e.status > 0 && (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-red-950 text-red-400 font-mono">{e.status}</span>
+                        )}
                       </div>
-                      <div className={`text-2xl font-semibold tracking-tight ${metric.tone}`}>
-                        {metric.value}
+                      <div className="mt-1 text-xs text-red-400/80 font-mono break-all">{e.error}</div>
+                      <div className="mt-2 rounded border border-red-900/30 bg-red-950/20 px-3 py-2 text-xs">
+                        <div className="font-medium text-red-300">Likely next step</div>
+                        <div className="mt-1 text-muted-foreground">{routingErrorHint(e)}</div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Button asChild variant="outline" size="sm" className="h-7 text-xs">
+                            <Link to={`/agents/${e.agent}`}>Open Agent: {e.agent}</Link>
+                          </Button>
+                          <Button asChild variant="outline" size="sm" className="h-7 text-xs">
+                            <Link to="/admin/doctor">Open Doctor</Link>
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
-              </div>
-              <div className="grid grid-cols-1 gap-0 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-                {summaryMetrics.slice(3).map((metric) => (
-                  <div key={metric.label} className="px-4 py-4">
-                    <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                      {metric.label}
-                    </div>
-                    <div className={`mt-1 text-lg font-semibold ${metric.tone}`}>
-                      {metric.value}
-                    </div>
-                    {metric.detail && (
-                      <div className="mt-1 text-xs text-muted-foreground">{metric.detail}</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-            {t.errors > 0 && (
-              <div className="border-t border-border bg-red-50/50 px-4 py-2 text-sm text-red-700 dark:bg-red-950/20 dark:text-red-300">
-                {t.errors} request errors recorded in the selected period.
-              </div>
-            )}
-            {unpricedProviderToolCalls > 0 && (
-              <div className="border-t border-border bg-amber-50/70 px-4 py-2 text-sm text-amber-800 dark:bg-amber-950/25 dark:text-amber-300">
-                {unpricedProviderToolCalls} provider-tool call{unpricedProviderToolCalls === 1 ? '' : 's'} had unknown pricing and may not be fully reflected in estimated spend.
-              </div>
-            )}
-          </div>
-
-          {byProviderTool.length > 0 && (
-            <div className="bg-card border border-border rounded overflow-hidden">
-              <div className="px-4 py-3 border-b border-border">
-                <h3 className="text-sm font-medium text-foreground">Provider tool economics</h3>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Provider-side tool calls separated from token spend. Known cost is included in estimated spend; unpriced calls are budget exposure.
-                </p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                  <div className="rounded-xl border border-border bg-secondary/45 px-3 py-2">
-                    <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Known provider-tool spend</div>
-                    <div className="mt-1 text-lg font-semibold text-foreground">${providerToolCost.toFixed(4)}</div>
-                  </div>
-                  <div className="rounded-xl border border-border bg-secondary/45 px-3 py-2">
-                    <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Priced calls</div>
-                    <div className="mt-1 text-lg font-semibold text-foreground">{knownProviderToolCalls.toLocaleString()}</div>
-                  </div>
-                  <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 dark:border-amber-900/40 dark:bg-amber-950/20">
-                    <div className="text-[10px] uppercase tracking-[0.14em] text-amber-700 dark:text-amber-400">Unpriced exposure</div>
-                    <div className="mt-1 text-lg font-semibold text-amber-700 dark:text-amber-300">{unpricedProviderToolCalls.toLocaleString()}</div>
-                  </div>
-                </div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[820px]">
-                  <thead>
-                    <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
-                      <th className="text-left p-3 font-medium">Capability</th>
-                      <th className="text-right p-3 font-medium">Requests</th>
-                      <th className="text-right p-3 font-medium">Tool Calls</th>
-                      <th className="text-left p-3 font-medium">Pricing</th>
-                      <th className="text-right p-3 font-medium">Known Tool Cost</th>
-                      <th className="text-right p-3 font-medium">Unpriced</th>
-                      <th className="text-right p-3 font-medium">Total Est.</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {byProviderTool.map(([capability, b]) => (
-                      <tr key={capability} className="border-b border-border hover:bg-secondary/50">
-                        <td className="p-3"><code className="text-foreground">{capability}</code></td>
-                        <td className="p-3 text-right text-foreground/80">{b.requests}</td>
-                        <td className="p-3 text-right text-foreground/80">{b.provider_tool_calls ?? 0}</td>
-                        <td className="p-3 text-left text-xs text-muted-foreground">
-                          <div>confidence: <span className={(b.provider_tool_unpriced_calls ?? 0) > 0 ? 'text-amber-300' : 'text-foreground/80'}>{formatProviderToolMeta(b.provider_tool_cost_confidence)}</span></div>
-                          <div>source: <span className="text-foreground/80">{formatProviderToolMeta(b.provider_tool_cost_source)}</span></div>
-                        </td>
-                        <td className="p-3 text-right text-green-400">${(b.provider_tool_cost_usd ?? 0).toFixed(4)}</td>
-                        <td className="p-3 text-right">
-                          {(b.provider_tool_unpriced_calls ?? 0) > 0
-                            ? <span className="text-amber-300">{b.provider_tool_unpriced_calls}</span>
-                            : <span className="text-muted-foreground/70">0</span>}
-                        </td>
-                        <td className="p-3 text-right text-green-400">{displayCost(b)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          <div className="bg-card border border-border rounded overflow-hidden">
-            <div className="px-4 py-3 border-b border-border flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="text-sm font-medium text-foreground">Routing suggestions</h3>
-                <p className="mt-0.5 text-xs text-muted-foreground">Pending optimizer recommendations for lower-cost model routing.</p>
-              </div>
-              <Button variant="outline" size="sm" className="h-7 px-2 text-xs gap-1" onClick={loadSuggestions} disabled={suggestionsLoading}>
-                <RefreshCw className={`w-3 h-3 ${suggestionsLoading ? 'animate-spin' : ''}`} />
-                Refresh
-              </Button>
-            </div>
-            {suggestionsLoading ? (
-              <div className="px-4 py-6 text-sm text-muted-foreground text-center">Loading routing suggestions...</div>
-            ) : suggestions.length === 0 ? (
-              <div className="px-4 py-6 text-sm text-muted-foreground text-center">No pending routing suggestions</div>
-            ) : (
-              <div className="divide-y divide-border">
-                {suggestions.map((s) => (
-                  <div key={s.id} className="px-4 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2 text-sm">
-                        <code className="text-foreground">{s.task_type || 'unknown-task'}</code>
-                        <span className="text-muted-foreground/70">route</span>
-                        <code className="text-muted-foreground">{s.current_model || 'current'}</code>
-                        <span className="text-muted-foreground/70">to</span>
-                        <code className="text-green-400">{s.suggested_model || 'suggested'}</code>
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground break-words">{s.reason || 'No reason supplied.'}</div>
-                      <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-wide">
-                        <span className="rounded bg-green-950/40 text-green-300 border border-green-900/40 px-2 py-0.5">
-                          {formatSavingsPercent(s.savings_percent)} savings
-                        </span>
-                        <span className="rounded bg-secondary text-muted-foreground px-2 py-0.5">
-                          {formatSavingsUSD(s.savings_usd_per_1k)} / 1K calls
-                        </span>
-                        <span className="rounded bg-secondary text-muted-foreground px-2 py-0.5">{s.status}</span>
-                      </div>
-                    </div>
-                    {s.status === 'pending' && (
-                      <div className="flex gap-2 shrink-0">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 gap-1"
-                          onClick={() => handleSuggestionAction(s.id, 'reject')}
-                          disabled={suggestionAction !== null}
-                        >
-                          <X className="w-3 h-3" />
-                          Reject
-                        </Button>
-                        <Button
-                          size="sm"
-                          className="h-8 gap-1"
-                          onClick={() => handleSuggestionAction(s.id, 'approve')}
-                          disabled={suggestionAction !== null}
-                        >
-                          <Check className="w-3 h-3" />
-                          Approve
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="bg-card border border-border rounded overflow-hidden">
-            <div className="px-4 py-3 border-b border-border flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="text-sm font-medium text-foreground">Routing model stats</h3>
-                <p className="mt-0.5 text-xs text-muted-foreground">Per-model optimizer telemetry by task type.</p>
-              </div>
-              <Button variant="outline" size="sm" className="h-7 px-2 text-xs gap-1" onClick={loadRoutingStats} disabled={statsLoading}>
-                <RefreshCw className={`w-3 h-3 ${statsLoading ? 'animate-spin' : ''}`} />
-                Refresh
-              </Button>
-            </div>
-            {statsLoading ? (
-              <div className="px-4 py-6 text-sm text-muted-foreground text-center">Loading routing stats...</div>
-            ) : routingStats.length === 0 ? (
-              <div className="px-4 py-6 text-sm text-muted-foreground text-center">No routing stats available</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[720px]">
-                  <thead>
-                    <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
-                      <th className="text-left p-3 font-medium">Task</th>
-                      <th className="text-left p-3 font-medium">Model</th>
-                      <th className="text-right p-3 font-medium">Calls</th>
-                      <th className="text-right p-3 font-medium">Retries</th>
-                      <th className="text-right p-3 font-medium">Success</th>
-                      <th className="text-right p-3 font-medium">Avg Latency</th>
-                      <th className="text-right p-3 font-medium">Avg Tokens</th>
-                      <th className="text-right p-3 font-medium">Cost / 1K</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {routingStats.map((s) => (
-                      <tr key={`${s.task_type}:${s.model}`} className="border-b border-border hover:bg-secondary/50">
-                        <td className="p-3"><code className="text-foreground">{s.task_type || 'unknown'}</code></td>
-                        <td className="p-3"><code className="text-muted-foreground">{s.model || 'unknown'}</code></td>
-                        <td className="p-3 text-right text-foreground/80">{s.total_calls}</td>
-                        <td className="p-3 text-right text-foreground/80">{s.retries}</td>
-                        <td className="p-3 text-right text-green-400">{Math.round((s.success_rate || 0) * 100)}%</td>
-                        <td className="p-3 text-right text-muted-foreground">{((s.avg_latency_ms || 0) / 1000).toFixed(1)}s</td>
-                        <td className="p-3 text-right text-muted-foreground">{formatTokens((s.avg_input_tokens || 0) + (s.avg_output_tokens || 0))}</td>
-                        <td className="p-3 text-right text-green-400">${(s.cost_per_1k || 0).toFixed(4)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* Per-agent */}
-          {byAgent.length > 0 && (
-            <div className="bg-card border border-border rounded overflow-hidden">
-              <div className="px-4 py-3 border-b border-border">
-                <h3 className="text-sm font-medium text-foreground">Per agent</h3>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[640px]">
-                  <thead>
-                    <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
-                      <th className="text-left p-3 font-medium">Agent</th>
-                      <th className="text-right p-3 font-medium">Requests</th>
-                      <th className="text-right p-3 font-medium">Input</th>
-                      <th className="text-right p-3 font-medium">Output</th>
-                      <th className="text-right p-3 font-medium">Avg Latency</th>
-                      <th className="text-right p-3 font-medium">p95</th>
-                      <th className="text-right p-3 font-medium">Errors</th>
-                      <th className="text-right p-3 font-medium">Est. Cost</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {byAgent.map(([name, b]) => (
-                      <tr key={name} className="border-b border-border hover:bg-secondary/50">
-                        <td className="p-3"><code className="text-foreground">{name}</code></td>
-                        <td className="p-3 text-right text-foreground/80">{b.requests}</td>
-                        <td className="p-3 text-right text-foreground/80">{formatTokens(b.input_tokens)}</td>
-                        <td className="p-3 text-right text-foreground/80">{formatTokens(b.output_tokens)}</td>
-                        <td className="p-3 text-right text-muted-foreground">{(b.avg_latency_ms / 1000).toFixed(1)}s</td>
-                        <td className="p-3 text-right text-muted-foreground">{b.p95_latency_ms != null ? `${(b.p95_latency_ms / 1000).toFixed(1)}s` : '—'}</td>
-                        <td className="p-3 text-right">{b.errors > 0 ? <span className="text-red-400">{b.errors}</span> : <span className="text-muted-foreground/70">0</span>}</td>
-                        <td className="p-3 text-right text-green-400">{displayCost(b, byModel.length === 1 ? byModel[0][0] : undefined)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Per-model */}
-          {byModel.length > 0 && (
-            <div className="bg-card border border-border rounded overflow-hidden">
-              <div className="px-4 py-3 border-b border-border">
-                <h3 className="text-sm font-medium text-foreground">Per model</h3>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[520px]">
-                  <thead>
-                    <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
-                      <th className="text-left p-3 font-medium">Model</th>
-                      <th className="text-right p-3 font-medium">Requests</th>
-                      <th className="text-right p-3 font-medium">Input</th>
-                      <th className="text-right p-3 font-medium">Output</th>
-                      <th className="text-right p-3 font-medium">Avg Latency</th>
-                      <th className="text-right p-3 font-medium">Est. Cost</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {byModel.map(([model, b]) => (
-                      <tr key={model} className="border-b border-border hover:bg-secondary/50">
-                        <td className="p-3"><code className="text-foreground">{model}</code></td>
-                        <td className="p-3 text-right text-foreground/80">{b.requests}</td>
-                        <td className="p-3 text-right text-foreground/80">{formatTokens(b.input_tokens)}</td>
-                        <td className="p-3 text-right text-foreground/80">{formatTokens(b.output_tokens)}</td>
-                        <td className="p-3 text-right text-muted-foreground">{(b.avg_latency_ms / 1000).toFixed(1)}s</td>
-                        <td className="p-3 text-right text-green-400">{displayCost(b, model)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Per-provider */}
-          {byProvider.length > 0 && (
-            <div className="bg-card border border-border rounded overflow-hidden">
-              <div className="px-4 py-3 border-b border-border">
-                <h3 className="text-sm font-medium text-foreground">Per provider</h3>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[440px]">
-                  <thead>
-                    <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
-                      <th className="text-left p-3 font-medium">Provider</th>
-                      <th className="text-right p-3 font-medium">Requests</th>
-                      <th className="text-right p-3 font-medium">Tokens</th>
-                      <th className="text-right p-3 font-medium">Errors</th>
-                      <th className="text-right p-3 font-medium">Avg Latency</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {byProvider.map(([provider, b]) => (
-                      <tr key={provider} className="border-b border-border hover:bg-secondary/50">
-                        <td className="p-3"><code className="text-foreground">{provider}</code></td>
-                        <td className="p-3 text-right text-foreground/80">{b.requests}</td>
-                        <td className="p-3 text-right text-foreground/80">{formatTokens(b.total_tokens)}</td>
-                        <td className="p-3 text-right">{b.errors > 0 ? <span className="text-red-400">{b.errors}</span> : <span className="text-muted-foreground/70">0</span>}</td>
-                        <td className="p-3 text-right text-muted-foreground">{(b.avg_latency_ms / 1000).toFixed(1)}s</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Per-source */}
-          {bySource.length > 0 && (
-            <div className="bg-card border border-border rounded overflow-hidden">
-              <div className="px-4 py-3 border-b border-border">
-                <h3 className="text-sm font-medium text-foreground">Per source</h3>
-                <p className="mt-0.5 text-xs text-muted-foreground">System vs agent LLM usage by caller.</p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[520px]">
-                  <thead>
-                    <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
-                      <th className="text-left p-3 font-medium">Source</th>
-                      <th className="text-right p-3 font-medium">Requests</th>
-                      <th className="text-right p-3 font-medium">Input</th>
-                      <th className="text-right p-3 font-medium">Output</th>
-                      <th className="text-right p-3 font-medium">Avg Latency</th>
-                      <th className="text-right p-3 font-medium">Errors</th>
-                      <th className="text-right p-3 font-medium">Est. Cost</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bySource.map(([source, b]) => (
-                      <tr key={source} className="border-b border-border hover:bg-secondary/50">
-                        <td className="p-3"><code className="text-foreground">{source}</code></td>
-                        <td className="p-3 text-right text-foreground/80">{b.requests}</td>
-                        <td className="p-3 text-right text-foreground/80">{formatTokens(b.input_tokens)}</td>
-                        <td className="p-3 text-right text-foreground/80">{formatTokens(b.output_tokens)}</td>
-                        <td className="p-3 text-right text-muted-foreground">{(b.avg_latency_ms / 1000).toFixed(1)}s</td>
-                        <td className="p-3 text-right">{b.errors > 0 ? <span className="text-red-400">{b.errors}</span> : <span className="text-muted-foreground/70">0</span>}</td>
-                        <td className="p-3 text-right text-green-400">{displayCost(b)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Recent Errors */}
-          {recentErrors.length > 0 && (
-            <div className="bg-card border border-red-900/30 rounded overflow-hidden">
-              <div className="px-4 py-3 border-b border-border">
-                <h3 className="text-sm font-medium text-red-400">Recent errors</h3>
-              </div>
-              <div className="divide-y divide-border">
-                {recentErrors.map((e, i) => (
-                  <div key={i} className="px-4 py-3">
-                    <div className="flex items-center gap-3 text-sm">
-                      <span className="text-muted-foreground text-xs whitespace-nowrap">
-                        {new Date(e.ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                      <code className="text-foreground">{e.agent}</code>
-                      <span className="text-muted-foreground/70">{e.model}</span>
-                      {e.status > 0 && (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-red-950 text-red-400 font-mono">{e.status}</span>
-                      )}
-                    </div>
-                    <div className="mt-1 text-xs text-red-400/80 font-mono break-all">{e.error}</div>
-                    <div className="mt-2 rounded border border-red-900/30 bg-red-950/20 px-3 py-2 text-xs">
-                      <div className="font-medium text-red-300">Likely next step</div>
-                      <div className="mt-1 text-muted-foreground">{routingErrorHint(e)}</div>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <Button asChild variant="outline" size="sm" className="h-7 text-xs">
-                          <Link to={`/agents/${e.agent}`}>Open Agent: {e.agent}</Link>
-                        </Button>
-                        <Button asChild variant="outline" size="sm" className="h-7 text-xs">
-                          <Link to="/admin/doctor">Open Doctor</Link>
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+              )}
+            </section>
           )}
         </>
       )}
