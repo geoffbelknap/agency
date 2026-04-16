@@ -15,44 +15,45 @@ import (
 )
 
 const (
-	llmMaxRetries      = 3
-	llmRetryDelay      = 500 * time.Millisecond
-	llmReadTimeout     = 300 * time.Second
-	llmMaxRequestBody  = 10 << 20 // 10 MB
+	llmMaxRetries     = 3
+	llmRetryDelay     = 500 * time.Millisecond
+	llmReadTimeout    = 300 * time.Second
+	llmMaxRequestBody = 10 << 20 // 10 MB
 )
 
 // safeResponseHeaders are the only headers relayed from LLM provider responses.
 var safeResponseHeaders = map[string]bool{
-	"content-type":    true,
-	"content-length":  true,
-	"cache-control":   true,
-	"retry-after":     true,
-	"x-request-id":    true,
+	"content-type":     true,
+	"content-length":   true,
+	"cache-control":    true,
+	"retry-after":      true,
+	"x-request-id":     true,
 	"x-correlation-id": true,
 }
 
 // safeStreamHeaders are relayed for SSE streaming responses.
 var safeStreamHeaders = map[string]bool{
-	"content-type":    true,
-	"cache-control":   true,
-	"x-request-id":    true,
+	"content-type":     true,
+	"cache-control":    true,
+	"x-request-id":     true,
 	"x-correlation-id": true,
 }
 
 // LLMHandler handles /v1/* requests: model resolution, body rewriting,
 // forwarding to providers, and response relay.
 type LLMHandler struct {
-	routing     *RoutingConfig
-	proxy       string // egress proxy URL
-	audit       *AuditLogger
-	transport   *http.Transport
-	rateLimiter *RateLimiter
-	agentName   string
-	budget      *BudgetTracker
-	toolTracker  *ToolTracker
-	trajectory   *TrajectoryMonitor
-	stepCounters map[string]int
-	stepMu       sync.Mutex
+	routing       *RoutingConfig
+	proxy         string // egress proxy URL
+	audit         *AuditLogger
+	transport     *http.Transport
+	rateLimiter   *RateLimiter
+	agentName     string
+	budget        *BudgetTracker
+	toolTracker   *ToolTracker
+	trajectory    *TrajectoryMonitor
+	providerTools *ProviderToolPolicy
+	stepCounters  map[string]int
+	stepMu        sync.Mutex
 }
 
 // NewLLMHandler creates an LLM proxy handler.
@@ -138,6 +139,13 @@ func (lh *LLMHandler) SetBudget(bt *BudgetTracker) {
 // SetTrajectory wires the trajectory monitor for tool call anomaly detection.
 func (lh *LLMHandler) SetTrajectory(tm *TrajectoryMonitor) {
 	lh.trajectory = tm
+}
+
+// SetProviderToolPolicy wires provider-side server tool grants into the LLM
+// path. These grants are loaded from constraints.yaml and are external to the
+// agent boundary.
+func (lh *LLMHandler) SetProviderToolPolicy(policy *ProviderToolPolicy) {
+	lh.providerTools = policy
 }
 
 func (lh *LLMHandler) nextStepIndex(taskID string) int {
@@ -227,12 +235,13 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Detect required capabilities from request body
 	requiredCaps := detectRequiredCaps(reqBody)
+	providerToolUses := DetectProviderToolUses(reqBody)
+	model := lh.routing.Models[modelAlias]
 
 	// Check if resolved model supports required capabilities.
 	// Models with no capabilities declared are assumed to support everything
 	// (backward compat with routing configs that predate capability declarations).
 	if len(requiredCaps) > 0 {
-		model := lh.routing.Models[modelAlias]
 		if len(model.Capabilities) > 0 {
 			for _, req := range requiredCaps {
 				if !model.HasCapability(req) {
@@ -247,6 +256,106 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+	}
+
+	for _, use := range providerToolUses {
+		if !lh.providerTools.Allows(use.Capability) {
+			errMsg := providerToolDeniedError(use)
+			lh.audit.Log(AuditEntry{
+				Type:          "PROVIDER_TOOL_DENIED",
+				Model:         modelAlias,
+				CorrelationID: correlationID,
+				Status:        http.StatusForbidden,
+				Error:         errMsg,
+				Extra: map[string]string{
+					"provider_tool_capability": use.Capability,
+					"provider_tool_type":       use.ToolType,
+					"provider_tool_name":       use.Name,
+				},
+			})
+			http.Error(w, fmt.Sprintf(`{"error":"provider_tool_denied","detail":%q}`, errMsg), http.StatusForbidden)
+			return
+		}
+		if providerToolRequiresAgencyHarness(use.Capability) {
+			if providerToolHarnessAvailable(use.Capability) {
+				if len(model.Capabilities) > 0 && !model.HasCapability("tools") {
+					errMsg := fmt.Sprintf("model %q does not declare ordinary tool support required for provider tool harness capability %q", modelAlias, use.Capability)
+					lh.audit.Log(AuditEntry{
+						Type:          "PROVIDER_TOOL_UNSUPPORTED",
+						Model:         modelAlias,
+						ProviderModel: providerModel,
+						CorrelationID: correlationID,
+						Status:        http.StatusUnprocessableEntity,
+						Error:         errMsg,
+						Extra: map[string]string{
+							"provider_tool_capability":      use.Capability,
+							"provider_tool_type":            use.ToolType,
+							"provider_tool_name":            use.Name,
+							"provider_tool_execution_modes": providerToolExecutionAgencyHarnessed,
+						},
+					})
+					http.Error(w, fmt.Sprintf(`{"error":"provider_tool_unsupported","detail":%q}`, errMsg), http.StatusUnprocessableEntity)
+					return
+				}
+				continue
+			}
+			errMsg := providerToolHarnessUnavailableError(use)
+			lh.audit.Log(AuditEntry{
+				Type:          "PROVIDER_TOOL_HARNESS_UNAVAILABLE",
+				Model:         modelAlias,
+				ProviderModel: providerModel,
+				CorrelationID: correlationID,
+				Status:        http.StatusNotImplemented,
+				Error:         errMsg,
+				Extra: map[string]string{
+					"provider_tool_capability":      use.Capability,
+					"provider_tool_type":            use.ToolType,
+					"provider_tool_name":            use.Name,
+					"provider_tool_execution_modes": providerToolExecutionAgencyHarnessed,
+				},
+			})
+			http.Error(w, fmt.Sprintf(`{"error":"provider_tool_harness_unavailable","detail":%q}`, errMsg), http.StatusNotImplemented)
+			return
+		}
+		if !model.HasProviderToolCapability(use.Capability) {
+			errMsg := providerToolUnsupportedError(modelAlias, use)
+			lh.audit.Log(AuditEntry{
+				Type:          "PROVIDER_TOOL_UNSUPPORTED",
+				Model:         modelAlias,
+				ProviderModel: providerModel,
+				CorrelationID: correlationID,
+				Status:        http.StatusUnprocessableEntity,
+				Error:         errMsg,
+				Extra: map[string]string{
+					"provider_tool_capability": use.Capability,
+					"provider_tool_type":       use.ToolType,
+					"provider_tool_name":       use.Name,
+				},
+			})
+			http.Error(w, fmt.Sprintf(`{"error":"provider_tool_unsupported","detail":%q}`, errMsg), http.StatusUnprocessableEntity)
+			return
+		}
+	}
+	harnessedProviderToolUses := rewriteHarnessedProviderTools(reqBody)
+	if len(harnessedProviderToolUses) > 0 {
+		lh.audit.Log(AuditEntry{
+			Type:          "PROVIDER_TOOL_HARNESS_TRANSLATED",
+			Model:         modelAlias,
+			ProviderModel: providerModel,
+			CorrelationID: correlationID,
+			Status:        http.StatusOK,
+			Extra:         summarizeHarnessedProviderToolUses(harnessedProviderToolUses),
+		})
+		providerToolUses = nonHarnessedProviderToolUses(providerToolUses)
+	}
+	if len(providerToolUses) > 0 {
+		lh.audit.Log(AuditEntry{
+			Type:          "PROVIDER_TOOL_ALLOWED",
+			Model:         modelAlias,
+			CorrelationID: correlationID,
+			Status:        http.StatusOK,
+			Extra:         summarizeProviderToolUses(providerToolUses),
+		})
 	}
 
 	// Scan tool-role messages for injection patterns (ASK Tenet 1 + 17).
@@ -270,6 +379,9 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	isAnthropic := providerName == "anthropic"
+	provider := lh.routing.Providers[lh.routing.Models[modelAlias].Provider]
+	isGeminiNative := provider.APIFormat == "gemini"
+	isResponsesPath := r.URL.Path == "/v1/responses"
 
 	// Acquire rate limit slot if rate limiter is configured
 	if lh.rateLimiter != nil {
@@ -282,21 +394,32 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Determine target URL from request path
 	// The path after /v1/ determines the endpoint
 	// For Anthropic, always use the resolved URL (/messages)
-	if !isAnthropic {
+	if !isAnthropic && !isGeminiNative {
 		path := r.URL.Path
 		if strings.HasPrefix(path, "/v1/") {
 			endpoint := path[3:] // strip /v1, keep /chat/completions etc
-			base := strings.TrimRight(lh.routing.Providers[lh.routing.Models[modelAlias].Provider].APIBase, "/")
+			base := strings.TrimRight(provider.APIBase, "/")
 			targetURL = base + endpoint
 		}
+	} else if isResponsesPath && isAnthropic {
+		http.Error(w, fmt.Sprintf(`{"error":"responses endpoint is not supported for %s models"}`, providerName), http.StatusBadRequest)
+		return
 	}
 
 	// Determine if streaming
 	isStream, _ := reqBody["stream"].(bool)
+	if isStream && isGeminiNative {
+		targetURL = strings.Replace(targetURL, ":generateContent", ":streamGenerateContent", 1)
+		if !strings.Contains(targetURL, "?") {
+			targetURL += "?alt=sse"
+		} else {
+			targetURL += "&alt=sse"
+		}
+	}
 
 	// Rewrite model in request body
 	reqBody["model"] = providerModel
-	if isStream && !isAnthropic {
+	if isStream && !isAnthropic && !isResponsesPath {
 		ensureStreamUsageRequested(reqBody)
 	}
 	modifiedBody, err := json.Marshal(reqBody)
@@ -307,10 +430,15 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// For Anthropic: translate request body to Anthropic format
 	if isAnthropic {
-		provider := lh.routing.Providers[lh.routing.Models[modelAlias].Provider]
 		modifiedBody, err = translateToAnthropic(modifiedBody, provider.CachingEnabled())
 		if err != nil {
 			http.Error(w, `{"error":"failed to translate request for Anthropic"}`, http.StatusInternalServerError)
+			return
+		}
+	} else if isGeminiNative {
+		modifiedBody, err = translateToGemini(modifiedBody)
+		if err != nil {
+			http.Error(w, `{"error":"failed to translate request for Gemini"}`, http.StatusInternalServerError)
 			return
 		}
 	}
@@ -369,15 +497,27 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Relay response
 	if isStream {
 		if isAnthropic {
-			lh.relayAnthropicStream(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf)
+			lh.relayAnthropicStream(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf, providerToolUses)
+		} else if isGeminiNative {
+			if isResponsesPath {
+				lh.relayGeminiStream(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf, providerToolUses, geminiStreamResponses)
+			} else {
+				lh.relayGeminiStream(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf, providerToolUses, geminiStreamChat)
+			}
 		} else {
-			lh.relayStream(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf)
+			lh.relayStream(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf, providerToolUses)
 		}
 	} else {
 		if isAnthropic {
-			lh.relayAnthropicBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf)
+			lh.relayAnthropicBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf, providerToolUses)
+		} else if isGeminiNative {
+			if isResponsesPath {
+				lh.relayGeminiResponsesBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf, providerToolUses)
+			} else {
+				lh.relayGeminiBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf, providerToolUses)
+			}
 		} else {
-			lh.relayBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf)
+			lh.relayBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf, providerToolUses)
 		}
 	}
 }
@@ -392,7 +532,7 @@ func ensureStreamUsageRequested(reqBody map[string]interface{}) {
 }
 
 // relayBuffered relays a non-streaming LLM response.
-func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string) {
+func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string, providerToolUses []ProviderToolUse) {
 	// Copy safe headers
 	for k, vv := range resp.Header {
 		if safeResponseHeaders[strings.ToLower(k)] {
@@ -500,11 +640,13 @@ func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, 
 		ToolCallValid: toolCallValid,
 		StepIndex:     stepIndex,
 		RetryOf:       retryOf,
+		Extra:         lh.providerToolAuditExtra(modelAlias, providerToolUses, respBody),
 	})
+	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, respBody)
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, resp.StatusCode, durationMs)
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
 }
 
 // emitTrajectoryAnomaly logs a trajectory anomaly to the audit log and relays
@@ -535,7 +677,7 @@ func (lh *LLMHandler) emitTrajectoryAnomaly(anomaly Anomaly) {
 }
 
 // relayStream relays an SSE streaming LLM response.
-func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string) {
+func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string, providerToolUses []ProviderToolUse) {
 	// Copy safe stream headers
 	for k, vv := range resp.Header {
 		if safeStreamHeaders[strings.ToLower(k)] {
@@ -551,6 +693,7 @@ func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, mo
 
 	inputTokens, outputTokens := 0, 0
 	var ttftTime time.Time
+	var providerToolChunks []interface{}
 	buf := make([]byte, 4096)
 	for {
 		n, err := resp.Body.Read(buf)
@@ -574,6 +717,9 @@ func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, mo
 				if out > 0 {
 					outputTokens = out
 				}
+			}
+			if len(providerToolUses) > 0 {
+				providerToolChunks = append(providerToolChunks, extractStreamJSONObjects(chunkStr)...)
 			}
 		}
 		if err != nil {
@@ -606,16 +752,172 @@ func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, mo
 		TPOTMs:        tpotMs,
 		StepIndex:     stepIndex,
 		RetryOf:       retryOf,
+		Extra: lh.providerToolAuditExtra(modelAlias, providerToolUses, map[string]interface{}{
+			"chunks": providerToolChunks,
+		}),
+	})
+	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, map[string]interface{}{
+		"chunks": providerToolChunks,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, resp.StatusCode, durationMs)
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
+}
+
+func extractStreamJSONObjects(chunk string) []interface{} {
+	var objects []interface{}
+	for _, line := range strings.Split(chunk, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+		if data == "" || data == "[DONE]" {
+			continue
+		}
+		var obj interface{}
+		if json.Unmarshal([]byte(data), &obj) == nil {
+			objects = append(objects, obj)
+		}
+	}
+	return objects
+}
+
+type geminiStreamMode int
+
+const (
+	geminiStreamChat geminiStreamMode = iota
+	geminiStreamResponses
+)
+
+// relayGeminiStream relays native Gemini SSE as either OpenAI-compatible chat
+// chunks or Responses events.
+func (lh *LLMHandler) relayGeminiStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string, providerToolUses []ProviderToolUse, mode geminiStreamMode) {
+	for k, vv := range resp.Header {
+		if safeStreamHeaders[strings.ToLower(k)] {
+			for _, v := range vv {
+				w.Header().Add(k, v)
+			}
+		}
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(resp.StatusCode)
+
+	flusher, canFlush := w.(http.Flusher)
+	inputTokens, outputTokens := 0, 0
+	var ttftTime time.Time
+	var rawChunks []interface{}
+	var fullText strings.Builder
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "event:") {
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "" || data == "[DONE]" {
+			continue
+		}
+
+		var chunk map[string]interface{}
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			continue
+		}
+		rawChunks = append(rawChunks, chunk)
+		if in, out := geminiUsageCounts(chunk); in > 0 || out > 0 {
+			if in > 0 {
+				inputTokens = in
+			}
+			if out > 0 {
+				outputTokens = out
+			}
+		}
+
+		content := geminiResponseText(chunk)
+		if content == "" {
+			continue
+		}
+		fullText.WriteString(content)
+		if ttftTime.IsZero() {
+			ttftTime = time.Now()
+		}
+		if mode == geminiStreamResponses {
+			fmt.Fprintf(w, "event: response.output_text.delta\ndata: %s\n\n", geminiOpenAIResponseTextDelta(content))
+		} else {
+			fmt.Fprintf(w, "data: %s\n\n", geminiOpenAIStreamChunk(content, "", nil))
+		}
+		if canFlush {
+			flusher.Flush()
+		}
+	}
+
+	finalUsage := map[string]interface{}{}
+	if inputTokens > 0 {
+		finalUsage["prompt_tokens"] = inputTokens
+	}
+	if outputTokens > 0 {
+		finalUsage["completion_tokens"] = outputTokens
+	}
+	if inputTokens > 0 || outputTokens > 0 {
+		finalUsage["total_tokens"] = inputTokens + outputTokens
+	}
+	if len(finalUsage) == 0 {
+		finalUsage = nil
+	}
+	if mode == geminiStreamResponses {
+		fmt.Fprintf(w, "event: response.completed\ndata: %s\n\n", geminiOpenAIResponseCompleted(fullText.String(), finalUsage))
+	} else {
+		fmt.Fprintf(w, "data: %s\n\n", geminiOpenAIStreamChunk("", "stop", finalUsage))
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}
+	if canFlush {
+		flusher.Flush()
+	}
+
+	ttftMs := int64(0)
+	if !ttftTime.IsZero() {
+		ttftMs = ttftTime.Sub(start).Milliseconds()
+	}
+	tpotMs := float64(0)
+	durationMs := time.Since(start).Milliseconds()
+	if outputTokens > 0 && ttftMs > 0 {
+		tpotMs = float64(durationMs-ttftMs) / float64(outputTokens)
+	}
+
+	lh.audit.Log(AuditEntry{
+		Type:          "LLM_DIRECT_STREAM",
+		Model:         modelAlias,
+		ProviderModel: providerModel,
+		CorrelationID: correlationID,
+		EventID:       eventID,
+		Status:        resp.StatusCode,
+		InputTokens:   inputTokens,
+		OutputTokens:  outputTokens,
+		DurationMs:    durationMs,
+		TTFTMs:        ttftMs,
+		TPOTMs:        tpotMs,
+		StepIndex:     stepIndex,
+		RetryOf:       retryOf,
+		Extra: lh.providerToolAuditExtra(modelAlias, providerToolUses, map[string]interface{}{
+			"chunks": rawChunks,
+		}),
+	})
+	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, map[string]interface{}{
+		"chunks": rawChunks,
+	})
+	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
 }
 
 // relayAnthropicBuffered relays a non-streaming Anthropic response, translating
 // it back to OpenAI format before sending to the client.
-func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string) {
+func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string, providerToolUses []ProviderToolUse) {
 	body, _ := io.ReadAll(resp.Body)
 
 	// Translate Anthropic response to OpenAI format
@@ -641,7 +943,9 @@ func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.R
 
 	// Extract usage from translated response for audit
 	var respBody map[string]interface{}
+	var rawRespBody map[string]interface{}
 	inputTokens, outputTokens := 0, 0
+	_ = json.Unmarshal(body, &rawRespBody)
 	if json.Unmarshal(translated, &respBody) == nil {
 		if usage, ok := respBody["usage"].(map[string]interface{}); ok {
 			if v, ok := usage["prompt_tokens"].(float64); ok {
@@ -703,16 +1007,124 @@ func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.R
 		ToolCallValid: toolCallValid,
 		StepIndex:     stepIndex,
 		RetryOf:       retryOf,
+		Extra:         lh.providerToolAuditExtra(modelAlias, providerToolUses, rawRespBody),
 	})
+	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, rawRespBody)
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, resp.StatusCode, durationMs)
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
+}
+
+// relayGeminiBuffered relays a non-streaming Gemini native response,
+// translating it back to OpenAI chat/completions format for the body runtime.
+func (lh *LLMHandler) relayGeminiBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string, providerToolUses []ProviderToolUse) {
+	body, _ := io.ReadAll(resp.Body)
+
+	translated, err := translateFromGemini(body)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.StatusCode)
+		w.Write(body)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	for k, vv := range resp.Header {
+		if safeResponseHeaders[strings.ToLower(k)] && strings.ToLower(k) != "content-type" && strings.ToLower(k) != "content-length" {
+			for _, v := range vv {
+				w.Header().Add(k, v)
+			}
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	w.Write(translated)
+
+	var respBody map[string]interface{}
+	var rawRespBody map[string]interface{}
+	_ = json.Unmarshal(body, &rawRespBody)
+	inputTokens, outputTokens := 0, 0
+	if json.Unmarshal(translated, &respBody) == nil {
+		inputTokens, outputTokens = extractUsageCounts(respBody)
+	}
+
+	durationMs := time.Since(start).Milliseconds()
+	lh.audit.Log(AuditEntry{
+		Type:          "LLM_DIRECT",
+		Model:         modelAlias,
+		ProviderModel: providerModel,
+		CorrelationID: correlationID,
+		EventID:       eventID,
+		Status:        resp.StatusCode,
+		InputTokens:   inputTokens,
+		OutputTokens:  outputTokens,
+		DurationMs:    durationMs,
+		TTFTMs:        durationMs,
+		StepIndex:     stepIndex,
+		RetryOf:       retryOf,
+		Extra:         lh.providerToolAuditExtra(modelAlias, providerToolUses, rawRespBody),
+	})
+	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, rawRespBody)
+	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
+}
+
+// relayGeminiResponsesBuffered relays a non-streaming Gemini native response
+// as an OpenAI Responses-style body.
+func (lh *LLMHandler) relayGeminiResponsesBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string, providerToolUses []ProviderToolUse) {
+	body, _ := io.ReadAll(resp.Body)
+
+	translated, err := translateFromGeminiResponse(body)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.StatusCode)
+		w.Write(body)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	for k, vv := range resp.Header {
+		if safeResponseHeaders[strings.ToLower(k)] && strings.ToLower(k) != "content-type" && strings.ToLower(k) != "content-length" {
+			for _, v := range vv {
+				w.Header().Add(k, v)
+			}
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	w.Write(translated)
+
+	var respBody map[string]interface{}
+	var rawRespBody map[string]interface{}
+	_ = json.Unmarshal(body, &rawRespBody)
+	inputTokens, outputTokens := 0, 0
+	if json.Unmarshal(translated, &respBody) == nil {
+		inputTokens, outputTokens = extractUsageCounts(respBody)
+	}
+
+	durationMs := time.Since(start).Milliseconds()
+	lh.audit.Log(AuditEntry{
+		Type:          "LLM_DIRECT",
+		Model:         modelAlias,
+		ProviderModel: providerModel,
+		CorrelationID: correlationID,
+		EventID:       eventID,
+		Status:        resp.StatusCode,
+		InputTokens:   inputTokens,
+		OutputTokens:  outputTokens,
+		DurationMs:    durationMs,
+		TTFTMs:        durationMs,
+		StepIndex:     stepIndex,
+		RetryOf:       retryOf,
+		Extra:         lh.providerToolAuditExtra(modelAlias, providerToolUses, rawRespBody),
+	})
+	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, rawRespBody)
+	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
 }
 
 // relayAnthropicStream relays an Anthropic SSE streaming response, translating
 // each event to OpenAI chat.completion.chunk format before sending to the client.
-func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string) {
+func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string, providerToolUses []ProviderToolUse) {
 	for k, vv := range resp.Header {
 		if safeStreamHeaders[strings.ToLower(k)] {
 			for _, v := range vv {
@@ -727,6 +1139,7 @@ func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Res
 	translator := newStreamTranslator()
 
 	var ttftTime time.Time
+	var rawChunks []interface{}
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -740,6 +1153,10 @@ func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Res
 			ttftTime = time.Now()
 		}
 		data := line[6:]
+		var raw map[string]interface{}
+		if json.Unmarshal([]byte(data), &raw) == nil {
+			rawChunks = append(rawChunks, raw)
+		}
 
 		chunks := translator.translateEvent(data)
 		for _, chunk := range chunks {
@@ -779,11 +1196,17 @@ func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Res
 		TPOTMs:        tpotMs,
 		StepIndex:     stepIndex,
 		RetryOf:       retryOf,
+		Extra: lh.providerToolAuditExtra(modelAlias, providerToolUses, map[string]interface{}{
+			"chunks": rawChunks,
+		}),
+	})
+	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, map[string]interface{}{
+		"chunks": rawChunks,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, translator.inputTokens, translator.outputTokens, resp.StatusCode, time.Since(start).Milliseconds())
+	lh.reportUsage(modelAlias, providerModel, translator.inputTokens, translator.outputTokens, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, time.Since(start).Milliseconds())
 }
 
 // acquireRateSlot blocks until a rate limit slot is available from the
@@ -865,8 +1288,8 @@ func atofOr(s string, fallback float64) float64 {
 }
 
 // reportUsage records token usage for budget tracking and rate limiting.
-func (lh *LLMHandler) reportUsage(modelAlias, providerModel string, inputTokens, outputTokens int, statusCode int, latencyMs int64) {
-	if inputTokens == 0 && outputTokens == 0 {
+func (lh *LLMHandler) reportUsage(modelAlias, providerModel string, inputTokens, outputTokens int, providerToolCostUSD float64, statusCode int, latencyMs int64) {
+	if inputTokens == 0 && outputTokens == 0 && providerToolCostUSD <= 0 {
 		return
 	}
 	model, ok := lh.routing.Models[modelAlias]
@@ -880,6 +1303,7 @@ func (lh *LLMHandler) reportUsage(modelAlias, providerModel string, inputTokens,
 			int64(inputTokens), int64(outputTokens), 0,
 			model.CostIn, model.CostOut, model.CostCached,
 		)
+		lh.budget.RecordCost(providerToolCostUSD, 0, 0, 0)
 	}
 
 	// Record request for rate limiter window tracking
@@ -892,6 +1316,108 @@ func (lh *LLMHandler) reportUsage(modelAlias, providerModel string, inputTokens,
 			lh.rateLimiter.RecordRequest(providerName)
 		}
 	}
+}
+
+func (lh *LLMHandler) providerToolAuditExtra(modelAlias string, uses []ProviderToolUse, respBody map[string]interface{}) map[string]string {
+	extra := providerToolAuditExtra(uses, respBody)
+	if len(uses) == 0 {
+		return extra
+	}
+	if extra == nil {
+		extra = map[string]string{}
+	}
+	extra["provider_tool_call_count"] = fmt.Sprintf("%d", len(uses))
+
+	model, ok := lh.routing.Models[modelAlias]
+	if !ok {
+		return extra
+	}
+	var cost float64
+	var pricedCount int
+	var unknownCount int
+	units := map[string]bool{}
+	sources := map[string]bool{}
+	confidences := map[string]bool{}
+	for _, use := range uses {
+		price, ok := model.ProviderToolPriceFor(use.Capability)
+		if !ok {
+			unknownCount++
+			confidences["unknown"] = true
+			continue
+		}
+		pricedCount++
+		cost += price.USDPerUnit
+		if price.Unit != "" {
+			units[price.Unit] = true
+		}
+		if price.Source != "" {
+			sources[price.Source] = true
+		}
+		if price.Confidence != "" {
+			confidences[price.Confidence] = true
+		}
+		if price.Confidence == "unknown" {
+			unknownCount++
+		}
+	}
+	if pricedCount > 0 {
+		extra["provider_tool_estimated_cost_usd"] = fmt.Sprintf("%.8f", cost)
+		if len(units) > 0 {
+			extra["provider_tool_cost_unit"] = strings.Join(sortedKeys(units), ",")
+		}
+		if len(sources) > 0 {
+			extra["provider_tool_cost_source"] = strings.Join(sortedKeys(sources), ",")
+		}
+		if len(confidences) > 0 {
+			extra["provider_tool_cost_confidence"] = strings.Join(sortedKeys(confidences), ",")
+		}
+	}
+	if unknownCount > 0 {
+		extra["provider_tool_unpriced_count"] = fmt.Sprintf("%d", unknownCount)
+		if len(confidences) > 0 {
+			extra["provider_tool_cost_confidence"] = strings.Join(sortedKeys(confidences), ",")
+		} else {
+			extra["provider_tool_cost_confidence"] = "unknown"
+		}
+	}
+	return extra
+}
+
+func (lh *LLMHandler) auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID string, statusCode int, respBody map[string]interface{}) {
+	if statusCode < 200 || statusCode >= 300 {
+		return
+	}
+	proposals := detectHarnessedProviderToolProposals(respBody)
+	if len(proposals) == 0 {
+		return
+	}
+	lh.audit.Log(AuditEntry{
+		Type:          "PROVIDER_TOOL_HARNESS_PROPOSED",
+		Model:         modelAlias,
+		ProviderModel: providerModel,
+		CorrelationID: correlationID,
+		Status:        statusCode,
+		Extra:         summarizeHarnessedProviderToolUses(proposals),
+	})
+}
+
+func (lh *LLMHandler) providerToolCostEstimate(modelAlias string, uses []ProviderToolUse) float64 {
+	if len(uses) == 0 {
+		return 0
+	}
+	model, ok := lh.routing.Models[modelAlias]
+	if !ok {
+		return 0
+	}
+	var cost float64
+	for _, use := range uses {
+		price, ok := model.ProviderToolPriceFor(use.Capability)
+		if !ok || price.Confidence == "unknown" {
+			continue
+		}
+		cost += price.USDPerUnit
+	}
+	return cost
 }
 
 // extractStreamUsage attempts to extract usage info from an SSE chunk.

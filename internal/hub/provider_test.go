@@ -209,6 +209,13 @@ routing:
     test-model:
       provider_model: test-model-v1
       capabilities: [tools, streaming]
+      provider_tool_capabilities: [provider-web-search]
+      provider_tool_pricing:
+        provider-web-search:
+          unit: search
+          usd_per_unit: 0.01
+          source: test
+          confidence: exact
       cost_per_mtok_in: 1.0
       cost_per_mtok_out: 2.0
   tiers:
@@ -244,6 +251,24 @@ routing:
 	}
 	if len(caps) != 2 {
 		t.Errorf("expected 2 capabilities, got %d", len(caps))
+	}
+	providerToolCaps, ok := model["provider_tool_capabilities"].([]interface{})
+	if !ok {
+		t.Fatal("expected provider_tool_capabilities field in merged model")
+	}
+	if len(providerToolCaps) != 1 || providerToolCaps[0] != "provider-web-search" {
+		t.Errorf("unexpected provider tool capabilities: %#v", providerToolCaps)
+	}
+	providerToolPricing, ok := model["provider_tool_pricing"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected provider_tool_pricing field in merged model")
+	}
+	webSearchPrice, ok := providerToolPricing["provider-web-search"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected provider-web-search pricing")
+	}
+	if webSearchPrice["unit"] != "search" || webSearchPrice["confidence"] != "exact" {
+		t.Errorf("unexpected provider tool pricing: %#v", webSearchPrice)
 	}
 
 	// Verify the actual capability values

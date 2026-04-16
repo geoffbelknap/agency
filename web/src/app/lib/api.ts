@@ -322,6 +322,33 @@ export interface RawCapability {
   description?: string;
 }
 
+export interface RawProviderToolProvider {
+  status: string;
+  request_tools?: string[];
+  generic_tools?: string[];
+  request_fields?: string[];
+  required_headers?: string[];
+  endpoints?: string[];
+  capability_alias?: string;
+  pricing?: Record<string, unknown>;
+  tests?: string[];
+  notes?: string;
+}
+
+export interface RawProviderToolCapability {
+  title: string;
+  risk: string;
+  default_grant: boolean;
+  execution: string;
+  description: string;
+  providers?: Record<string, RawProviderToolProvider>;
+}
+
+export interface RawProviderToolInventory {
+  version: string;
+  capabilities?: Record<string, RawProviderToolCapability>;
+}
+
 export interface RawAuditEntry {
   // Core fields
   timestamp?: string;
@@ -343,6 +370,14 @@ export interface RawAuditEntry {
   phase_name?: string;
   // Security/capability fields
   capability?: string;
+  provider_tool_capability?: string;
+  provider_tool_capabilities?: string;
+  provider_tool_type?: string;
+  provider_tool_types?: string;
+  provider_source_count?: string | number;
+  provider_citation_count?: string | number;
+  provider_search_query_count?: string | number;
+  provider_source_urls?: string;
   reason?: string;
   error?: string;
   domain?: string;
@@ -958,6 +993,7 @@ export const api = {
 
   providers: {
     list: () => req<import('../types').Provider[]>('/infra/providers'),
+    tools: () => req<RawProviderToolInventory>('/infra/provider-tools'),
     install: (name: string) =>
       req<OkResponse>(`/infra/providers/${encodeURIComponent(name)}/install`, { method: 'POST', body: '{}' }),
   },

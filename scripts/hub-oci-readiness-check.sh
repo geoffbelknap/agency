@@ -4,7 +4,7 @@ set -euo pipefail
 AGENCY_BIN="${AGENCY_BIN:-agency}"
 AGENCY_HOME_DIR="${AGENCY_HOME:-$HOME/.agency}"
 EXPECTED_REGISTRY="ghcr.io/geoffbelknap/agency-hub"
-PROVIDER_NAME="${AGENCY_HUB_READINESS_PROVIDER:-gemini}"
+PROVIDER_NAME=""
 
 log() {
   printf '==> %s\n' "$*"

@@ -121,6 +121,7 @@ func NewEnforcer() *Enforcer {
 
 	proxy := NewProxyHandler(domains, services, audit, agentName, enforcer.emitSignal)
 	llm := NewLLMHandler(routing, egressProxy, audit)
+	llm.SetProviderToolPolicy(LoadProviderToolPolicy(agentDir))
 
 	rateLimiter := NewRateLimiter(50, 60) // 50 rpm default, 60s window
 	llm.SetRateLimiter(rateLimiter, agentName)
@@ -240,6 +241,7 @@ func (e *Enforcer) Reload() {
 	// Reload service registry (scope metadata only — no real keys needed)
 	servicesDir := envOr("SERVICES_DIR", defaultServicesDir)
 	agentDir := envOr("AGENT_DIR", defaultAgentDir)
+	e.llm.SetProviderToolPolicy(LoadProviderToolPolicy(agentDir))
 	if err := e.services.LoadFromFiles(servicesDir, agentDir); err != nil {
 		slog.Warn("failed to reload services", "error", err)
 	} else {
@@ -276,6 +278,7 @@ func (e *Enforcer) Handler() http.Handler {
 	// Service tool calls (e.g., /v1/hive/fp/...) use absolute-form URLs through
 	// the proxy and must reach the proxy handler, not the LLM handler.
 	mux.Handle("/v1/chat/completions", e.llm)
+	mux.Handle("/v1/responses", e.llm)
 	mux.Handle("/v1/models", e.llm)
 	mux.Handle("/", e.proxy)
 

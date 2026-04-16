@@ -16,12 +16,31 @@ const metrics = {
     output_tokens: 4000,
     total_tokens: 16000,
     est_cost_usd: 0.25,
+    provider_tool_calls: 2,
+    provider_tool_cost_usd: 0.02,
+    provider_tool_unpriced_calls: 1,
     errors: 0,
     avg_latency_ms: 900,
   },
   by_agent: {},
   by_model: {},
   by_provider: {},
+  by_provider_tool: {
+    'provider-web-search': {
+      requests: 1,
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+      est_cost_usd: 0.02,
+      provider_tool_calls: 2,
+      provider_tool_cost_usd: 0.02,
+      provider_tool_unpriced_calls: 1,
+      provider_tool_cost_confidence: 'exact,unknown',
+      provider_tool_cost_source: 'provider_catalog',
+      errors: 0,
+      avg_latency_ms: 0,
+    },
+  },
   by_source: {},
   recent_errors: [],
 };
@@ -52,7 +71,9 @@ describe('Usage', () => {
 
     renderWithRouter(<Usage />);
 
-    expect(await screen.findByText('Routing suggestions')).toBeInTheDocument();
+    await screen.findByText('Breakdowns');
+    await userEvent.click(screen.getByRole('button', { name: /optimizer/i }));
+    expect(await screen.findByText('Routing Suggestions')).toBeInTheDocument();
     expect(screen.getByText('summarization')).toBeInTheDocument();
     expect(screen.getByText('claude-sonnet')).toBeInTheDocument();
     expect(screen.getByText('claude-haiku')).toBeInTheDocument();
@@ -84,6 +105,7 @@ describe('Usage', () => {
 
     renderWithRouter(<Usage />);
 
+    await userEvent.click(await screen.findByRole('button', { name: /optimizer/i }));
     await screen.findByText('summarization');
     await userEvent.click(screen.getByRole('button', { name: /approve/i }));
 
@@ -110,11 +132,29 @@ describe('Usage', () => {
 
     renderWithRouter(<Usage />);
 
-    expect(await screen.findByText('Routing model stats')).toBeInTheDocument();
+    await screen.findByRole('button', { name: /optimizer/i });
+    await userEvent.click(screen.getByRole('button', { name: /optimizer/i }));
+    expect(await screen.findByText('Routing Model Stats')).toBeInTheDocument();
     expect(screen.getByText('summarization')).toBeInTheDocument();
     expect(screen.getByText('claude-haiku')).toBeInTheDocument();
     expect(screen.getByText('96%')).toBeInTheDocument();
     expect(screen.getByText('$0.0120')).toBeInTheDocument();
+  });
+
+  it('renders provider tool economics and unknown pricing warning', async () => {
+    mockUsageData();
+
+    renderWithRouter(<Usage />);
+
+    await screen.findByRole('button', { name: /economics/i });
+    await userEvent.click(screen.getByRole('button', { name: /economics/i }));
+    expect(await screen.findByText('Provider Tool Breakdown')).toBeInTheDocument();
+    expect(screen.getAllByText('provider-web-search').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/missing pricing metadata/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/calls without pricing metadata/i)).toBeInTheDocument();
+    expect(screen.getByText(/priced tool spend/i)).toBeInTheDocument();
+    expect(screen.getAllByText('exact, unknown').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('$0.0200').length).toBeGreaterThan(0);
   });
 
   it('shows recovery guidance when recent routing errors exist', async () => {
@@ -142,7 +182,13 @@ describe('Usage', () => {
     renderWithRouter(<Usage />, { route: '/admin/usage' });
 
     await waitFor(() => {
-      expect(screen.getByText(/recent routing error/)).toBeInTheDocument();
+      expect(screen.getByText(/recent routing error/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /errors/i })).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /errors/i }));
+
+    await waitFor(() => {
       expect(screen.getAllByRole('link', { name: 'Open Agent: alice' }).length).toBeGreaterThan(0);
       expect(screen.getAllByRole('link', { name: 'Open Doctor' }).length).toBeGreaterThan(0);
       expect(screen.getByText('Rate limit exceeded')).toBeInTheDocument();

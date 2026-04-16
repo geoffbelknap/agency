@@ -15,24 +15,38 @@ routing:
     gpt-4.1:
       provider_model: gpt-4.1
       capabilities: [tools, vision, streaming]
+      provider_tool_capabilities: [provider-web-search, provider-file-search, provider-code-execution, provider-tool-search, provider-image-generation, provider-mcp]
+      provider_tool_pricing: &openai_provider_tool_pricing
+        provider-web-search: {unit: tool_call, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
+        provider-file-search: {unit: query_or_storage, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
+        provider-code-execution: {unit: session, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
+        provider-tool-search: {unit: tool_call, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
+        provider-image-generation: {unit: image, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
+        provider-mcp: {unit: remote_tool_call, usd_per_unit: 0, source: provider_catalog, confidence: unknown}
       cost_per_mtok_in: 2.0
       cost_per_mtok_out: 8.0
       cost_per_mtok_cached: 0.50
     gpt-4o:
       provider_model: gpt-4o
       capabilities: [tools, vision, streaming]
+      provider_tool_capabilities: [provider-web-search, provider-file-search, provider-code-execution, provider-tool-search, provider-image-generation, provider-mcp]
+      provider_tool_pricing: *openai_provider_tool_pricing
       cost_per_mtok_in: 2.50
       cost_per_mtok_out: 10.0
       cost_per_mtok_cached: 1.25
     gpt-4.1-mini:
       provider_model: gpt-4.1-mini
       capabilities: [tools, vision, streaming]
+      provider_tool_capabilities: [provider-web-search, provider-file-search, provider-code-execution, provider-tool-search, provider-image-generation, provider-mcp]
+      provider_tool_pricing: *openai_provider_tool_pricing
       cost_per_mtok_in: 0.40
       cost_per_mtok_out: 1.60
       cost_per_mtok_cached: 0.10
     gpt-4.1-nano:
       provider_model: gpt-4.1-nano
       capabilities: [tools, vision, streaming]
+      provider_tool_capabilities: [provider-web-search, provider-file-search, provider-code-execution, provider-tool-search, provider-image-generation, provider-mcp]
+      provider_tool_pricing: *openai_provider_tool_pricing
       cost_per_mtok_in: 0.10
       cost_per_mtok_out: 0.40
       cost_per_mtok_cached: 0.025

@@ -1,7 +1,10 @@
 // agency-gateway/internal/models/routing.go
 package models
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // VALID_TIERS is the ordered list of valid model routing tier names.
 // Referenced by preset.go (Task 16) and agent.go (Task 17).
@@ -10,6 +13,7 @@ var VALID_TIERS = []string{"frontier", "standard", "fast", "mini", "nano", "batc
 // ProviderConfig holds connection details for a single LLM provider.
 type ProviderConfig struct {
 	APIBase    string `yaml:"api_base" validate:"required"`
+	APIFormat  string `yaml:"api_format,omitempty"`
 	AuthEnv    string `yaml:"auth_env"`
 	AuthHeader string `yaml:"auth_header"`
 	AuthPrefix string `yaml:"auth_prefix"`
@@ -29,12 +33,48 @@ func (p *ProviderConfig) Validate() error {
 
 // ModelConfig describes a specific LLM model and its cost information.
 type ModelConfig struct {
-	Provider          string   `yaml:"provider" validate:"required"`
-	ProviderModel     string   `yaml:"provider_model" validate:"required"`
-	Capabilities      []string `yaml:"capabilities"`
-	CostPerMTokIn     float64  `yaml:"cost_per_mtok_in" validate:"gte=0" default:"0"`
-	CostPerMTokOut    float64  `yaml:"cost_per_mtok_out" validate:"gte=0" default:"0"`
-	CostPerMTokCached float64  `yaml:"cost_per_mtok_cached" validate:"gte=0" default:"0"`
+	Provider                 string                       `yaml:"provider" validate:"required"`
+	ProviderModel            string                       `yaml:"provider_model" validate:"required"`
+	Capabilities             []string                     `yaml:"capabilities"`
+	ProviderToolCapabilities []string                     `yaml:"provider_tool_capabilities"`
+	ProviderToolCosts        map[string]float64           `yaml:"provider_tool_costs"`
+	ProviderToolPricing      map[string]ProviderToolPrice `yaml:"provider_tool_pricing"`
+	CostPerMTokIn            float64                      `yaml:"cost_per_mtok_in" validate:"gte=0" default:"0"`
+	CostPerMTokOut           float64                      `yaml:"cost_per_mtok_out" validate:"gte=0" default:"0"`
+	CostPerMTokCached        float64                      `yaml:"cost_per_mtok_cached" validate:"gte=0" default:"0"`
+}
+
+// ProviderToolPrice describes the billing metadata for a provider-side tool.
+type ProviderToolPrice struct {
+	Unit        string  `yaml:"unit" json:"unit"`
+	USDPerUnit  float64 `yaml:"usd_per_unit" json:"usd_per_unit"`
+	Source      string  `yaml:"source" json:"source"`
+	Confidence  string  `yaml:"confidence" json:"confidence"`
+	Description string  `yaml:"description,omitempty" json:"description,omitempty"`
+}
+
+var validProviderToolCapabilities = map[string]bool{
+	"provider-web-search":       true,
+	"provider-web-fetch":        true,
+	"provider-url-context":      true,
+	"provider-file-search":      true,
+	"provider-code-execution":   true,
+	"provider-computer-use":     true,
+	"provider-shell":            true,
+	"provider-text-editor":      true,
+	"provider-memory":           true,
+	"provider-mcp":              true,
+	"provider-image-generation": true,
+	"provider-google-maps":      true,
+	"provider-tool-search":      true,
+	"provider-apply-patch":      true,
+}
+
+func validateProviderToolCapability(capability string) error {
+	if validProviderToolCapabilities[capability] {
+		return nil
+	}
+	return fmt.Errorf("unknown provider tool capability %q", capability)
 }
 
 // HasCapability returns true if the model declares the given capability.
@@ -135,9 +175,35 @@ func (r *RoutingConfig) Validate() error {
 	}
 
 	for name, p := range r.Providers {
+		if name == "gemini" {
+			return fmt.Errorf("providers.gemini is not supported; use provider principal google with api_format gemini")
+		}
 		pc := p // copy so we can take address
 		if err := pc.Validate(); err != nil {
 			return fmt.Errorf("providers.%s: %w", name, err)
+		}
+	}
+	for name, m := range r.Models {
+		if strings.TrimSpace(m.Provider) == "" {
+			return fmt.Errorf("models.%s.provider is required", name)
+		}
+		if _, ok := r.Providers[m.Provider]; !ok {
+			return fmt.Errorf("models.%s references unknown provider %q", name, m.Provider)
+		}
+		for _, capability := range m.ProviderToolCapabilities {
+			if err := validateProviderToolCapability(capability); err != nil {
+				return fmt.Errorf("models.%s.provider_tool_capabilities: %w", name, err)
+			}
+		}
+		for capability := range m.ProviderToolPricing {
+			if err := validateProviderToolCapability(capability); err != nil {
+				return fmt.Errorf("models.%s.provider_tool_pricing: %w", name, err)
+			}
+		}
+		for capability := range m.ProviderToolCosts {
+			if err := validateProviderToolCapability(capability); err != nil {
+				return fmt.Errorf("models.%s.provider_tool_costs: %w", name, err)
+			}
 		}
 	}
 	return r.Settings.Validate()

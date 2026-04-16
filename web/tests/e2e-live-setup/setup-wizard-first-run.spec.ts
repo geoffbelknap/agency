@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
-const provider = process.env.AGENCY_SETUP_PROVIDER || 'gemini';
+const provider = process.env.AGENCY_SETUP_PROVIDER || 'google';
 const providerLabel = process.env.AGENCY_SETUP_PROVIDER_LABEL || 'Google Gemini';
 const providerKey = process.env.AGENCY_SETUP_PROVIDER_API_KEY || '';
 const agentName = process.env.AGENCY_SETUP_AGENT_NAME || `alpha-setup-${Date.now()}`;

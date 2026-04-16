@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Shield } from 'lucide-react';
-import { type RawCapability, type RawPolicyValidation, type RawAuditEntry } from '../../lib/api';
+import { api, type RawCapability, type RawPolicyValidation, type RawAuditEntry, type RawProviderToolCapability } from '../../lib/api';
 import { Agent } from '../../types';
 import { LogsSection } from './AgentActivityTab';
 
@@ -40,12 +40,42 @@ function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, h
   const [editingIdentity, setEditingIdentity] = useState(false);
   const [identityDraft, setIdentityDraft] = useState('');
   const [savingConfig, setSavingConfig] = useState(false);
+  const [providerToolCatalog, setProviderToolCatalog] = useState<Record<string, RawProviderToolCapability>>({});
+  const [providerToolCatalogError, setProviderToolCatalogError] = useState('');
 
   useEffect(() => {
     if (agentConfig?.identity) {
       setIdentityDraft(agentConfig.identity);
     }
   }, [agentConfig]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.providers.tools()
+      .then((inventory) => {
+        if (cancelled) return;
+        setProviderToolCatalog(inventory.capabilities || {});
+        setProviderToolCatalogError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setProviderToolCatalog({});
+        setProviderToolCatalogError(err instanceof Error ? err.message : 'Provider tool catalog unavailable.');
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const providerToolCapabilities: RawCapability[] = Object.entries(providerToolCatalog).map(([name, tool]) => ({
+    name,
+    kind: 'provider-tool',
+    state: 'available',
+    description: tool.description || tool.title,
+  }));
+
+  const visibleCapabilities = [
+    ...capabilities,
+    ...providerToolCapabilities.filter((providerCap) => !capabilities.some((cap) => cap.name === providerCap.name)),
+  ];
 
   return (
     <div className="space-y-4 p-4">
@@ -152,17 +182,24 @@ function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, h
       {/* Unified capabilities list */}
       <div>
         <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Capabilities</div>
-        {capabilities.length === 0 ? (
+        {visibleCapabilities.length === 0 ? (
           <div className="text-xs text-muted-foreground/70">No capabilities available.</div>
         ) : (
           <div className="space-y-1.5">
-            {capabilities.map((c: any) => {
+            {visibleCapabilities.map((c: any) => {
               const agentGrants = agent.grantedCapabilities || [];
               const granted = agentGrants.includes(c.name);
-              const platformActive = c.state === 'enabled' || c.state === 'available' || c.state === 'restricted';
+              const providerTool = c.kind === 'provider-tool';
+              const providerToolMeta = providerToolCatalog[c.name];
+              const platformActive = !providerTool && (c.state === 'enabled' || c.state === 'available' || c.state === 'restricted');
               const scopedAll = platformActive && (c.scoped_agents?.length === 0 || !c.scoped_agents);
               const scopedToThis = platformActive && c.scoped_agents?.includes(agent.name);
               const effectiveAccess = granted || scopedAll || scopedToThis;
+              const providerStatuses = providerToolMeta?.providers
+                ? Object.entries(providerToolMeta.providers)
+                    .filter(([, provider]) => provider.status && provider.status !== 'no_equivalent')
+                    .map(([provider, meta]) => `${provider}: ${meta.status}`)
+                : [];
 
               let actionStyle = 'bg-border text-muted-foreground hover:bg-blue-50 dark:hover:bg-blue-950 hover:text-blue-700 dark:hover:text-blue-400';
 
@@ -183,15 +220,27 @@ function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, h
                     <div className="min-w-0">
                       <span className={`text-xs ${effectiveAccess ? granted ? 'text-blue-300' : 'text-green-300' : 'text-foreground/80'}`}>{c.name}</span>
                       {c.description && <div className="text-[10px] text-muted-foreground line-clamp-1">{c.description}</div>}
+                      {providerToolMeta && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          <span className="rounded border border-border bg-background/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">risk: {providerToolMeta.risk}</span>
+                          <span className="rounded border border-border bg-background/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">{providerToolMeta.execution.replace(/_/g, ' ')}</span>
+                          {providerToolMeta.default_grant && (
+                            <span className="rounded border border-green-200 dark:border-green-900/40 bg-green-50 dark:bg-green-950/20 px-1.5 py-0.5 text-[10px] text-green-700 dark:text-green-400">default</span>
+                          )}
+                          {providerStatuses.slice(0, 3).map((status) => (
+                            <span key={status} className="rounded border border-border bg-background/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">{status}</span>
+                          ))}
+                        </div>
+                      )}
                       {effectiveAccess && !granted && (
                         <div className="text-[10px] text-green-600">Enabled platform-wide</div>
                       )}
                     </div>
                   </div>
-                  {(c.state !== 'disabled' || granted) && (
+                  {(providerTool || c.state !== 'disabled' || granted) && (
                     <button
-                      onClick={() => granted ? handleRevoke(agent.name, c.name) : platformActive ? handleGrant(agent.name, c.name) : undefined}
-                      disabled={capLoading === c.name || (!granted && !platformActive)}
+                      onClick={() => granted ? handleRevoke(agent.name, c.name) : (platformActive || providerTool) ? handleGrant(agent.name, c.name) : undefined}
+                      disabled={capLoading === c.name || (!granted && !platformActive && !providerTool)}
                       className={`text-[10px] px-2.5 py-1 rounded cursor-pointer transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 ${actionStyle}`}>
                       {capLoading === c.name ? '...' : effectiveAccess && !granted ? 'active' : granted ? 'revoke' : 'grant'}
                     </button>
@@ -199,6 +248,11 @@ function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, h
                 </div>
               );
             })}
+            {providerToolCatalogError && (
+              <div className="text-[10px] text-amber-700 dark:text-amber-400/80">
+                Provider tool catalog unavailable: {providerToolCatalogError}
+              </div>
+            )}
           </div>
         )}
       </div>

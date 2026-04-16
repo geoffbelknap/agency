@@ -16,7 +16,7 @@ Agency supports five first-class providers:
 |----------|--------|-------|
 | Anthropic | Requires format translation (enforcer handles OpenAI↔Anthropic) | `agency setup` or manual |
 | OpenAI | Native OpenAI format | `agency setup` or manual |
-| Google Gemini | OpenAI-compatible endpoint | `agency setup` or manual |
+| Google Gemini | Native Gemini format (enforcer translates Agency requests to `generateContent`) | `agency setup` or manual |
 | Ollama | OpenAI-compatible (local) | Manual |
 | OpenAI-Compatible | Any OpenAI-format endpoint | Manual |
 
@@ -76,6 +76,103 @@ models:
 ```
 
 The enforcer validates that the target model supports what the request needs. On mismatch, returns HTTP 422. Tier capabilities are the intersection of models in the tier.
+
+### Provider-side tools
+
+Provider-side tools are tools executed by the model provider rather than by
+Agency's local MCP/service runner. Examples include OpenAI web search,
+Anthropic web search/web fetch, and Gemini Google Search grounding.
+
+Provider-side tools require two independent checks:
+
+- The agent must have a grant in `constraints.yaml`, for example `provider-web-search`.
+- The selected model must declare support in `routing.yaml` under `provider_tool_capabilities`.
+
+New agents receive `provider-web-search` by default. Higher-risk provider tools
+such as URL context, file search, code execution, shell, computer use, MCP,
+memory, image generation, maps, and patching remain denied until explicitly
+granted to the agent.
+
+Provider-defined shell, text-editor, and patch tools are translated to
+Agency-native mediated tools before the provider sees the request. Computer-use
+is flagged as unsupported by Agency until Agency has a first-class screen/input
+execution harness.
+
+Grant or revoke provider tools the same way as other per-agent grants:
+
+```bash
+agency grant researcher provider-url-context
+agency revoke researcher provider-url-context
+```
+
+Model support is declared separately from ordinary model capabilities:
+
+```yaml
+models:
+  gemini-2.5-flash:
+    provider: google
+    provider_model: gemini-2.5-flash
+    capabilities: [tools, vision, streaming]
+    provider_tool_capabilities:
+      - provider-web-search
+      - provider-url-context
+      - provider-code-execution
+```
+
+If a model omits `provider_tool_capabilities`, Agency treats that model as
+supporting no provider-side tools and fails closed before the provider sees the
+request.
+
+Audit events to watch:
+
+- `PROVIDER_TOOL_ALLOWED` — request declared provider-side tools and the agent grant matched.
+- `PROVIDER_TOOL_DENIED` — agent lacks the required provider-tool grant.
+- `PROVIDER_TOOL_UNSUPPORTED` — agent has the grant, but the selected model does not declare support.
+- `PROVIDER_TOOL_HARNESS_TRANSLATED` — request declared a provider-defined action tool that was rewritten into Agency-native function tools.
+- `PROVIDER_TOOL_HARNESS_UNAVAILABLE` — request declared a provider-defined action tool that Agency does not support yet because the required execution harness does not exist.
+- `LLM_DIRECT` / `LLM_DIRECT_STREAM` — includes compact provider-tool evidence such as source, citation, and search-query counts when exposed by the provider.
+
+Provider-tool cost accounting is configured per model. Prefer structured
+`provider_tool_pricing`; legacy `provider_tool_costs` is still accepted for
+older routing configs:
+
+```yaml
+models:
+  custom-grounded-model:
+    provider: custom
+    provider_model: custom-grounded-model
+    capabilities: [tools, streaming]
+    provider_tool_capabilities: [provider-web-search]
+    provider_tool_pricing:
+      provider-web-search:
+        unit: search
+        usd_per_unit: 0.01
+        source: provider_catalog
+        confidence: exact
+```
+
+When pricing is unknown, set `confidence: unknown` instead of treating the
+tool as free. Usage metrics and the Usage tab then surface the call as an
+unpriced provider-tool event. Product-facing setup smoke checks should verify
+only that a submitted provider API key works and that credential mediation is
+configured; provider-tool behavior is covered by deterministic mapping and
+audit tests rather than live billable tool calls.
+
+The canonical provider-tool inventory is bundled at
+`internal/providercatalog/provider_tools.yaml` and exposed at
+`GET /api/v1/infra/provider-tools`. Use it for operator-visible capability
+matrices, provider support status, risk level, execution mode, and pricing
+confidence. Do not infer support from provider names or model names alone.
+
+Release pipelines should run the deterministic provider-tool gate:
+
+```bash
+./scripts/provider-tools-readiness-check.sh
+```
+
+This check covers the bundled inventory and routing declarations, the infra API
+surface, enforcer mediation and audit behavior, and the provider-tool Usage/Admin
+UI tests. It does not call live provider tools or spend provider quota.
 
 ## Routing Configuration
 

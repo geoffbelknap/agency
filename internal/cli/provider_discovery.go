@@ -15,8 +15,9 @@ import (
 )
 
 type discoveredModel struct {
-	ID           string
-	Capabilities []string
+	ID                       string
+	Capabilities             []string
+	ProviderToolCapabilities []string
 }
 
 // discoverModels calls the OpenAI-compatible /models endpoint.
@@ -54,9 +55,52 @@ func discoverModels(ctx context.Context, baseURL string, credential string) ([]d
 	var models []discoveredModel
 	for _, m := range result.Data {
 		caps := probeCapabilities(ctx, client, baseURL, m.ID, credential)
-		models = append(models, discoveredModel{ID: m.ID, Capabilities: caps})
+		providerToolCaps := inferProviderToolCapabilities(baseURL, m.ID)
+		models = append(models, discoveredModel{ID: m.ID, Capabilities: caps, ProviderToolCapabilities: providerToolCaps})
 	}
 	return models, nil
+}
+
+func inferProviderToolCapabilities(baseURL, modelID string) []string {
+	lowerBase := strings.ToLower(baseURL)
+	lowerModel := strings.ToLower(modelID)
+	switch {
+	case strings.Contains(lowerBase, "api.openai.com"):
+		return []string{
+			"provider-web-search",
+			"provider-file-search",
+			"provider-code-execution",
+			"provider-computer-use",
+			"provider-shell",
+			"provider-apply-patch",
+			"provider-tool-search",
+			"provider-image-generation",
+			"provider-mcp",
+		}
+	case strings.Contains(lowerBase, "api.anthropic.com"):
+		return []string{
+			"provider-web-search",
+			"provider-web-fetch",
+			"provider-code-execution",
+			"provider-computer-use",
+			"provider-shell",
+			"provider-text-editor",
+			"provider-memory",
+			"provider-mcp",
+			"provider-tool-search",
+		}
+	case strings.Contains(lowerBase, "generativelanguage.googleapis.com") || strings.Contains(lowerModel, "gemini"):
+		return []string{
+			"provider-web-search",
+			"provider-url-context",
+			"provider-code-execution",
+			"provider-file-search",
+			"provider-google-maps",
+			"provider-computer-use",
+		}
+	default:
+		return nil
+	}
 }
 
 // probeCapabilities sends a minimal tool call request to detect tool support.
@@ -122,13 +166,17 @@ func writeProviderConfig(name, baseURL, credential string, models []discoveredMo
 
 	modelsCfg := ensureMapInCLI(cfg, "models")
 	for _, m := range models {
-		modelsCfg[m.ID] = map[string]interface{}{
+		modelCfg := map[string]interface{}{
 			"provider":          name,
 			"provider_model":    m.ID,
 			"capabilities":      m.Capabilities,
 			"cost_per_mtok_in":  0,
 			"cost_per_mtok_out": 0,
 		}
+		if len(m.ProviderToolCapabilities) > 0 {
+			modelCfg["provider_tool_capabilities"] = m.ProviderToolCapabilities
+		}
+		modelsCfg[m.ID] = modelCfg
 	}
 
 	return writeLocalRouting(localPath, cfg)
@@ -153,11 +201,14 @@ func writeProviderSkeleton(name, baseURL, credential string) error {
 
 	modelsCfg := ensureMapInCLI(cfg, "models")
 	modelsCfg["REPLACE-ME"] = map[string]interface{}{
-		"provider":          name,
-		"provider_model":    "REPLACE-ME",
-		"capabilities":      []string{"streaming"},
-		"cost_per_mtok_in":  0,
-		"cost_per_mtok_out": 0,
+		"provider":                   name,
+		"provider_model":             "REPLACE-ME",
+		"capabilities":               []string{"streaming"},
+		"provider_tool_capabilities": []string{},
+		"provider_tool_costs":        map[string]float64{},
+		"provider_tool_pricing":      map[string]interface{}{},
+		"cost_per_mtok_in":           0,
+		"cost_per_mtok_out":          0,
 	}
 
 	if err := writeLocalRouting(localPath, cfg); err != nil {

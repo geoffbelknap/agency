@@ -217,6 +217,119 @@ func TestCollectWithCostConfig(t *testing.T) {
 	}
 }
 
+func TestCollectWithProviderToolCost(t *testing.T) {
+	dir := t.TempDir()
+	today := time.Now().UTC().Format("2006-01-02")
+	now := time.Now().UTC()
+
+	enfDir := filepath.Join(dir, "audit", "agent-x", "enforcer")
+	os.MkdirAll(enfDir, 0755)
+
+	rec := auditRecord{
+		Timestamp:                now.Add(-1 * time.Hour).Format(time.RFC3339Nano),
+		Type:                     "LLM_DIRECT",
+		Agent:                    "agent-x",
+		Model:                    "gemini-flash",
+		ProviderModel:            "gemini-2.5-flash",
+		Status:                   200,
+		DurationMs:               1000,
+		InputTokens:              1000,
+		OutputTokens:             1000,
+		ProviderToolCallCount:    1,
+		ProviderToolCapabilities: "provider-web-search",
+	}
+	b, _ := json.Marshal(rec)
+	b = append(b, '\n')
+	os.WriteFile(filepath.Join(enfDir, "enforcer-"+today+".jsonl"), b, 0644)
+
+	costs := map[string]ModelCost{
+		"gemini-flash": {
+			CostPerMTokIn:  1.0,
+			CostPerMTokOut: 1.0,
+			ProviderToolPricing: map[string]ProviderToolPrice{
+				"provider-web-search": {Unit: "search", USDPerUnit: 0.01, Source: "test", Confidence: "exact"},
+			},
+		},
+	}
+
+	s, err := CollectWithCosts(dir, MetricsQuery{}, costs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Totals.ProviderToolCalls != 1 {
+		t.Fatalf("provider tool calls = %d", s.Totals.ProviderToolCalls)
+	}
+	if s.Totals.ProviderToolCostUSD != 0.01 {
+		t.Fatalf("provider tool cost = %f", s.Totals.ProviderToolCostUSD)
+	}
+	if s.Totals.EstCostUSD <= 0.01 {
+		t.Fatalf("estimated cost should include token and provider tool cost, got %f", s.Totals.EstCostUSD)
+	}
+	if s.ByProviderTool["provider-web-search"].ProviderToolCostUSD != 0.01 {
+		t.Fatalf("provider tool breakdown cost = %f", s.ByProviderTool["provider-web-search"].ProviderToolCostUSD)
+	}
+}
+
+func TestCollectProviderToolCostFromAuditExtra(t *testing.T) {
+	dir := t.TempDir()
+	today := time.Now().UTC().Format("2006-01-02")
+	now := time.Now().UTC()
+
+	enfDir := filepath.Join(dir, "audit", "agent-x", "enforcer")
+	os.MkdirAll(enfDir, 0755)
+
+	line := map[string]interface{}{
+		"ts":             now.Add(-1 * time.Hour).Format(time.RFC3339Nano),
+		"type":           "LLM_DIRECT",
+		"agent":          "agent-x",
+		"model":          "claude-sonnet",
+		"provider_model": "claude-sonnet-4-20250514",
+		"status":         200,
+		"duration_ms":    1000,
+		"input_tokens":   1000,
+		"output_tokens":  1000,
+		"extra": map[string]string{
+			"provider_tool_call_count":         "1",
+			"provider_tool_capabilities":       "provider-web-search",
+			"provider_tool_estimated_cost_usd": "0.01000000",
+			"provider_tool_unpriced_count":     "1",
+			"provider_tool_cost_confidence":    "exact,unknown",
+			"provider_tool_cost_source":        "provider_catalog",
+		},
+	}
+	b, _ := json.Marshal(line)
+	b = append(b, '\n')
+	os.WriteFile(filepath.Join(enfDir, "enforcer-"+today+".jsonl"), b, 0644)
+
+	s, err := CollectWithCosts(dir, MetricsQuery{}, map[string]ModelCost{
+		"claude-sonnet": {CostPerMTokIn: 1.0, CostPerMTokOut: 1.0},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Totals.ProviderToolCalls != 1 {
+		t.Fatalf("provider tool calls = %d", s.Totals.ProviderToolCalls)
+	}
+	if s.Totals.ProviderToolCostUSD != 0.01 {
+		t.Fatalf("provider tool cost = %f", s.Totals.ProviderToolCostUSD)
+	}
+	if s.Totals.ProviderToolUnpricedCalls != 1 {
+		t.Fatalf("provider tool unpriced calls = %d", s.Totals.ProviderToolUnpricedCalls)
+	}
+	if s.Totals.ProviderToolCostConfidence != "exact,unknown" {
+		t.Fatalf("provider tool confidence = %q", s.Totals.ProviderToolCostConfidence)
+	}
+	if s.Totals.ProviderToolCostSource != "provider_catalog" {
+		t.Fatalf("provider tool source = %q", s.Totals.ProviderToolCostSource)
+	}
+	if s.ByProviderTool["provider-web-search"].ProviderToolCostUSD != 0.01 {
+		t.Fatalf("provider tool breakdown cost = %f", s.ByProviderTool["provider-web-search"].ProviderToolCostUSD)
+	}
+	if s.ByProviderTool["provider-web-search"].ProviderToolCostConfidence != "exact,unknown" {
+		t.Fatalf("provider tool breakdown confidence = %q", s.ByProviderTool["provider-web-search"].ProviderToolCostConfidence)
+	}
+}
+
 func TestInferProvider(t *testing.T) {
 	cases := []struct {
 		model    string
@@ -265,32 +378,32 @@ func TestCollectBySource(t *testing.T) {
 	records := []auditRecord{
 		{
 			Timestamp: now.Add(-3 * time.Hour).Format(time.RFC3339Nano),
-			Type: "LLM_DIRECT_STREAM", Agent: "agent-x", Source: "enforcer",
+			Type:      "LLM_DIRECT_STREAM", Agent: "agent-x", Source: "enforcer",
 			Model: "claude-sonnet", ProviderModel: "claude-sonnet-4-20250514",
 			Status: 200, DurationMs: 1000, InputTokens: 500, OutputTokens: 200,
 		},
 		{
 			Timestamp: now.Add(-2 * time.Hour).Format(time.RFC3339Nano),
-			Type: "LLM_DIRECT_STREAM", Agent: "agent-x", Source: "synthesizer",
+			Type:      "LLM_DIRECT_STREAM", Agent: "agent-x", Source: "synthesizer",
 			Model: "claude-haiku", ProviderModel: "claude-haiku-4-5-20251001",
 			Status: 200, DurationMs: 400, InputTokens: 300, OutputTokens: 100,
 		},
 		{
 			Timestamp: now.Add(-1 * time.Hour).Format(time.RFC3339Nano),
-			Type: "LLM_DIRECT_STREAM", Agent: "agent-x", Source: "reflector",
+			Type:      "LLM_DIRECT_STREAM", Agent: "agent-x", Source: "reflector",
 			Model: "claude-sonnet", ProviderModel: "claude-sonnet-4-20250514",
 			Status: 200, DurationMs: 800, InputTokens: 600, OutputTokens: 300,
 		},
 		{
 			Timestamp: now.Add(-30 * time.Minute).Format(time.RFC3339Nano),
-			Type: "LLM_DIRECT_STREAM", Agent: "agent-x", Source: "enforcer",
+			Type:      "LLM_DIRECT_STREAM", Agent: "agent-x", Source: "enforcer",
 			Model: "claude-sonnet", ProviderModel: "claude-sonnet-4-20250514",
 			Status: 200, DurationMs: 1500, InputTokens: 700, OutputTokens: 250,
 		},
 		// Record with no source — should bucket as "unknown"
 		{
 			Timestamp: now.Add(-10 * time.Minute).Format(time.RFC3339Nano),
-			Type: "LLM_DIRECT", Agent: "agent-x",
+			Type:      "LLM_DIRECT", Agent: "agent-x",
 			Model: "claude-sonnet", ProviderModel: "claude-sonnet-4-20250514",
 			Status: 200, DurationMs: 500, InputTokens: 100, OutputTokens: 50,
 		},

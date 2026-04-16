@@ -279,13 +279,13 @@ func translateFromAnthropic(anthropicBody []byte) ([]byte, error) {
 // streamTranslator holds state for converting Anthropic SSE events to OpenAI
 // chat.completion.chunk format across a single streaming response.
 type streamTranslator struct {
-	msgID        string
-	model        string
-	inputTokens  int
-	outputTokens int
+	msgID         string
+	model         string
+	inputTokens   int
+	outputTokens  int
 	cacheCreation int
-	cacheRead    int
-	blocks       map[int]*contentBlock
+	cacheRead     int
+	blocks        map[int]*contentBlock
 }
 
 type contentBlock struct {
@@ -425,10 +425,10 @@ func (st *streamTranslator) translateEvent(data string) []string {
 				},
 			},
 			"usage": map[string]interface{}{
-				"prompt_tokens":                st.inputTokens,
-				"completion_tokens":            st.outputTokens,
-				"cache_creation_input_tokens":  st.cacheCreation,
-				"cache_read_input_tokens":      st.cacheRead,
+				"prompt_tokens":               st.inputTokens,
+				"completion_tokens":           st.outputTokens,
+				"cache_creation_input_tokens": st.cacheCreation,
+				"cache_read_input_tokens":     st.cacheRead,
 			},
 		}
 		out, _ := json.Marshal(chunk)
@@ -471,8 +471,13 @@ func intFromJSON(v interface{}) int {
 	return 0
 }
 
-// translateTools converts OpenAI function tool definitions to Anthropic format.
-// When caching is enabled, the last tool gets cache_control for prompt caching.
+const defaultAnthropicWebSearchToolType = "web_search_20250305"
+
+// translateTools converts OpenAI function tool definitions to Anthropic format,
+// normalizes generic provider-side tool aliases to Anthropic server tool
+// definitions, and preserves Anthropic-native server tools such as
+// web_search_*. When caching is enabled, the last translated or preserved tool
+// gets cache_control.
 func translateTools(tools []interface{}, cachingEnabled bool) []interface{} {
 	var result []interface{}
 
@@ -482,16 +487,30 @@ func translateTools(tools []interface{}, cachingEnabled bool) []interface{} {
 			continue
 		}
 		fn, _ := tool["function"].(map[string]interface{})
-		if fn == nil {
+		if fn != nil {
+			anthropicTool := map[string]interface{}{
+				"name":         fn["name"],
+				"description":  fn["description"],
+				"input_schema": fn["parameters"],
+			}
+			result = append(result, anthropicTool)
 			continue
 		}
 
-		anthropicTool := map[string]interface{}{
-			"name":         fn["name"],
-			"description":  fn["description"],
-			"input_schema": fn["parameters"],
+		if normalized := normalizeAnthropicServerTool(tool); normalized != nil {
+			result = append(result, normalized)
+			continue
 		}
-		result = append(result, anthropicTool)
+
+		toolType, _ := tool["type"].(string)
+		if providerToolCapability(toolType) == "" {
+			continue
+		}
+		preserved := make(map[string]interface{}, len(tool))
+		for k, v := range tool {
+			preserved[k] = v
+		}
+		result = append(result, preserved)
 	}
 
 	// Add cache_control to the last tool when caching is enabled
@@ -501,6 +520,29 @@ func translateTools(tools []interface{}, cachingEnabled bool) []interface{} {
 	}
 
 	return result
+}
+
+func normalizeAnthropicServerTool(tool map[string]interface{}) map[string]interface{} {
+	toolType, _ := tool["type"].(string)
+	switch strings.ToLower(strings.TrimSpace(toolType)) {
+	case "web_search", "web_search_preview":
+		normalized := copyStringInterfaceMap(tool)
+		normalized["type"] = defaultAnthropicWebSearchToolType
+		if _, ok := normalized["name"].(string); !ok {
+			normalized["name"] = "web_search"
+		}
+		return normalized
+	default:
+		return nil
+	}
+}
+
+func copyStringInterfaceMap(in map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 // addHistoryCacheControl marks the second-to-last user message with

@@ -77,8 +77,11 @@ func TestGeneratePlatformMD_NotGrantedCaps(t *testing.T) {
 }
 
 func TestGeneratePlatformMD_GrantedCapsOmitted(t *testing.T) {
-	// web-fetch granted — should NOT list it as unavailable
-	granted := map[string]bool{"web-fetch": true}
+	// All known caps granted — should NOT list anything as unavailable
+	granted := map[string]bool{}
+	for cap := range allCapabilities {
+		granted[cap] = true
+	}
 	result := GeneratePlatformMD("standard", granted)
 	if strings.Contains(result, "Capabilities Not Available") {
 		t.Error("should not include not-available section when all caps granted")

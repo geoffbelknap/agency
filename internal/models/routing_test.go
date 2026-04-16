@@ -29,7 +29,7 @@ func TestRoutingConfig_TierCapabilities(t *testing.T) {
 	rc := RoutingConfig{
 		Models: map[string]ModelConfig{
 			"claude-sonnet": {Provider: "anthropic", ProviderModel: "claude-sonnet-4", Capabilities: []string{"tools", "vision", "streaming"}},
-			"gemini-flash":  {Provider: "gemini", ProviderModel: "gemini-2.5-flash", Capabilities: []string{"tools", "vision", "streaming"}},
+			"gemini-flash":  {Provider: "google", ProviderModel: "gemini-2.5-flash", Capabilities: []string{"tools", "vision", "streaming"}},
 		},
 		Tiers: TierConfig{
 			Standard: []TierEntry{{Model: "claude-sonnet"}, {Model: "gemini-flash"}},
@@ -111,5 +111,57 @@ func TestResolveTierWithCapabilitiesNoMatch(t *testing.T) {
 	pc, mc, _ := rc.ResolveTierWithCapabilities("mini", []string{"vision"}, nil)
 	if pc != nil || mc != nil {
 		t.Error("expected nil for unsatisfiable caps")
+	}
+}
+
+func TestRoutingConfigValidateRejectsUnknownProviderToolCapability(t *testing.T) {
+	rc := RoutingConfig{
+		Providers: map[string]ProviderConfig{
+			"openai": {APIBase: "https://api.openai.com/v1"},
+		},
+		Models: map[string]ModelConfig{
+			"gpt-test": {
+				Provider:                 "openai",
+				ProviderModel:            "gpt-test",
+				ProviderToolCapabilities: []string{"provider-web-search", "provider-unknown-tool"},
+			},
+		},
+	}
+	if err := rc.Validate(); err == nil {
+		t.Fatal("expected unknown provider tool capability error")
+	}
+}
+
+func TestRoutingConfigValidateRejectsUnknownProviderToolPricingCapability(t *testing.T) {
+	rc := RoutingConfig{
+		Providers: map[string]ProviderConfig{
+			"openai": {APIBase: "https://api.openai.com/v1"},
+		},
+		Models: map[string]ModelConfig{
+			"gpt-test": {
+				Provider:      "openai",
+				ProviderModel: "gpt-test",
+				ProviderToolPricing: map[string]ProviderToolPrice{
+					"provider-unknown-tool": {Unit: "tool_call", Confidence: "unknown"},
+				},
+			},
+		},
+	}
+	if err := rc.Validate(); err == nil {
+		t.Fatal("expected unknown provider tool pricing capability error")
+	}
+}
+
+func TestRoutingConfigValidateRejectsGeminiProviderPrincipal(t *testing.T) {
+	rc := RoutingConfig{
+		Providers: map[string]ProviderConfig{
+			"gemini": {APIBase: "https://generativelanguage.googleapis.com/v1beta", APIFormat: "gemini"},
+		},
+		Models: map[string]ModelConfig{
+			"gemini-flash": {Provider: "gemini", ProviderModel: "gemini-2.5-flash"},
+		},
+	}
+	if err := rc.Validate(); err == nil {
+		t.Fatal("expected gemini provider principal error")
 	}
 }

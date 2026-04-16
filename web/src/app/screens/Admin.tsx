@@ -15,6 +15,7 @@ const Hub = lazy(() => import('./Hub').then(m => ({ default: m.Hub })));
 const Intake = lazy(() => import('./Intake').then(m => ({ default: m.Intake })));
 const Knowledge = lazy(() => import('./Knowledge').then(m => ({ default: m.Knowledge })));
 const Capabilities = lazy(() => import('./Capabilities').then(m => ({ default: m.Capabilities })));
+const AdminProviderTools = lazy(() => import('./AdminProviderTools').then(m => ({ default: m.AdminProviderTools })));
 const Usage = lazy(() => import('./Usage').then(m => ({ default: m.Usage })));
 const Presets = lazy(() => import('./Presets').then(m => ({ default: m.Presets })));
 const Events = lazy(() => import('./Events').then(m => ({ default: m.Events })));
@@ -42,6 +43,7 @@ const TAB_GROUPS = [
     description: 'Capabilities, presets, policy, and agent operating boundaries.',
     tabs: [
       { value: 'capabilities', label: 'Capabilities', description: 'Review scoped capabilities and assignment rules.' },
+      { value: 'provider-tools', label: 'Provider Tools', description: 'Review provider-side tool support, risk, pricing, and coverage.' },
       { value: 'presets', label: 'Presets', description: 'Manage reusable agent role presets for core operator workflows.' },
       { value: 'trust', label: 'Trust', description: 'Adjust agent trust tiers and restrictions.', enabled: adminFeatureFlags.trust, experimental: true },
       { value: 'egress', label: 'Egress', description: 'Define allowed outbound network destinations.' },
@@ -359,6 +361,7 @@ export function Admin() {
           <TabsContent value="intake"><Suspense fallback={LAZY_FALLBACK}><Intake /></Suspense></TabsContent>
           <TabsContent value="knowledge"><Suspense fallback={LAZY_FALLBACK}><Knowledge /></Suspense></TabsContent>
           <TabsContent value="capabilities"><Suspense fallback={LAZY_FALLBACK}><Capabilities /></Suspense></TabsContent>
+          <TabsContent value="provider-tools"><Suspense fallback={LAZY_FALLBACK}><AdminProviderTools /></Suspense></TabsContent>
           <TabsContent value="presets"><Suspense fallback={LAZY_FALLBACK}><Presets /></Suspense></TabsContent>
           <TabsContent value="usage"><Suspense fallback={LAZY_FALLBACK}><Usage /></Suspense></TabsContent>
           <TabsContent value="events"><Suspense fallback={LAZY_FALLBACK}><Events /></Suspense></TabsContent>

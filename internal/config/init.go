@@ -37,7 +37,7 @@ func ValidateOperatorName(name string) error {
 
 // InitOptions holds the parameters for initializing the Agency platform.
 type InitOptions struct {
-	Provider        string // e.g. "anthropic", "openai", "gemini"
+	Provider        string // e.g. "anthropic", "openai", "google"
 	APIKey          string // primary provider API key
 	AnthropicAPIKey string // explicit Anthropic key (overrides APIKey when Provider=="anthropic")
 	OpenAIAPIKey    string // explicit OpenAI key
@@ -57,7 +57,7 @@ type KeyEntry struct {
 // providerEnvVar returns the environment variable name for a given provider.
 func providerEnvVar(provider string) string {
 	switch strings.ToLower(provider) {
-	case "gemini":
+	case "google":
 		return "GEMINI_API_KEY"
 	default:
 		return strings.ToUpper(provider) + "_API_KEY"
@@ -74,7 +74,7 @@ func ProviderCredentialName(provider string) string {
 		return "anthropic-api-key"
 	case "openai":
 		return "openai-api-key"
-	case "gemini":
+	case "google":
 		return "gemini-api-key"
 	default:
 		return providerEnvVar(provider)
@@ -90,7 +90,7 @@ func ProviderDomains(provider string) []string {
 		return []string{"api.anthropic.com"}
 	case "openai":
 		return []string{"api.openai.com"}
-	case "gemini":
+	case "google":
 		return []string{"generativelanguage.googleapis.com"}
 	default:
 		return nil
@@ -373,7 +373,7 @@ func ReadExistingKeys(agencyHome string) []string {
 	providerMap := map[string]string{
 		"ANTHROPIC_API_KEY": "anthropic",
 		"OPENAI_API_KEY":    "openai",
-		"GEMINI_API_KEY":    "gemini",
+		"GEMINI_API_KEY":    "google",
 	}
 	var providers []string
 	for _, line := range strings.Split(string(data), "\n") {

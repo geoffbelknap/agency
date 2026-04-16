@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -614,12 +615,16 @@ func dockerBuild(ctx context.Context, cli *client.Client, contextDir, dockerfile
 	}
 	defer tarReader.Close()
 
+	platform := defaultBuildPlatform()
+	addDefaultPlatformBuildArgs(buildArgs, platform)
+
 	resp, err := cli.ImageBuild(ctx, tarReader, types.ImageBuildOptions{
 		Dockerfile:  dockerfile,
 		Tags:        []string{tag},
 		Remove:      true,
 		ForceRemove: true,
 		BuildArgs:   buildArgs,
+		Platform:    defaultBuildPlatform(),
 	})
 	if err != nil {
 		return fmt.Errorf("docker build: %w", err)
@@ -642,6 +647,35 @@ func dockerBuild(ctx context.Context, cli *client.Client, contextDir, dockerfile
 		}
 	}
 	return nil
+}
+
+func addDefaultPlatformBuildArgs(buildArgs map[string]*string, platform string) {
+	if buildArgs == nil {
+		return
+	}
+	targetOS, targetArch, ok := strings.Cut(platform, "/")
+	if !ok || targetOS == "" || targetArch == "" {
+		return
+	}
+	defaults := map[string]string{
+		"BUILDPLATFORM":  platform,
+		"TARGETPLATFORM": platform,
+		"TARGETOS":       targetOS,
+		"TARGETARCH":     targetArch,
+	}
+	for name, value := range defaults {
+		if _, exists := buildArgs[name]; !exists {
+			v := value
+			buildArgs[name] = &v
+		}
+	}
+}
+
+func defaultBuildPlatform() string {
+	if platform := strings.TrimSpace(os.Getenv("DOCKER_DEFAULT_PLATFORM")); platform != "" {
+		return platform
+	}
+	return "linux/" + runtime.GOARCH
 }
 
 // dockerIgnorePatterns returns the exclusion patterns from .dockerignore in dir.

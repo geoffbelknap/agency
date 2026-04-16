@@ -2854,7 +2854,11 @@ func hubCmd() *cobra.Command {
 
 			fmt.Printf("\nFound %d models:\n\n", len(models))
 			for _, m := range models {
-				fmt.Printf("  %-30s %s\n", m.ID, strings.Join(m.Capabilities, ", "))
+				parts := []string{strings.Join(m.Capabilities, ", ")}
+				if len(m.ProviderToolCapabilities) > 0 {
+					parts = append(parts, "provider tools: "+strings.Join(m.ProviderToolCapabilities, ", "))
+				}
+				fmt.Printf("  %-30s %s\n", m.ID, strings.Join(parts, " | "))
 			}
 
 			fmt.Printf("\nWrite to routing.local.yaml? [Y/n] ")

@@ -6,7 +6,7 @@ func TestProviderCredentialName(t *testing.T) {
 	tests := map[string]string{
 		"anthropic": "anthropic-api-key",
 		"openai":    "openai-api-key",
-		"gemini":    "gemini-api-key",
+		"google":    "gemini-api-key",
 		"custom":    "CUSTOM_API_KEY",
 	}
 

@@ -11,12 +11,12 @@ import (
 func TestResolveModelTierPrefersConfiguredProvider(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("GEMINI_API_KEY", "test-key")
-	writeFile(t, filepath.Join(home, "config.yaml"), "llm_provider: gemini\n")
+	writeFile(t, filepath.Join(home, "config.yaml"), "llm_provider: google\n")
 	writeFile(t, filepath.Join(home, "infrastructure", "routing.yaml"), `providers:
   anthropic:
     api_base: https://api.anthropic.com/v1
     auth_env: ANTHROPIC_API_KEY
-  gemini:
+  google:
     api_base: https://generativelanguage.googleapis.com/v1beta/openai
     auth_env: GEMINI_API_KEY
 models:
@@ -24,7 +24,7 @@ models:
     provider: anthropic
     provider_model: claude-sonnet-4-20250514
   gemini-2.5-pro:
-    provider: gemini
+    provider: google
     provider_model: gemini-2.5-pro
 tiers:
   standard:
@@ -57,12 +57,12 @@ func TestDefaultModelTier(t *testing.T) {
 func TestPhase3ConstraintsFailsWhenNoCredentialedModelResolves(t *testing.T) {
 	home := t.TempDir()
 	agentName := "alpha"
-	writeFile(t, filepath.Join(home, "config.yaml"), "llm_provider: gemini\n")
+	writeFile(t, filepath.Join(home, "config.yaml"), "llm_provider: google\n")
 	writeFile(t, filepath.Join(home, "infrastructure", "routing.yaml"), `providers:
   anthropic:
     api_base: https://api.anthropic.com/v1
     auth_env: ANTHROPIC_API_KEY
-  gemini:
+  google:
     api_base: https://generativelanguage.googleapis.com/v1beta/openai
     auth_env: GEMINI_API_KEY
 models:
@@ -70,7 +70,7 @@ models:
     provider: anthropic
     provider_model: claude-sonnet-4-20250514
   gemini-2.5-pro:
-    provider: gemini
+    provider: google
     provider_model: gemini-2.5-pro
 tiers:
   standard:
