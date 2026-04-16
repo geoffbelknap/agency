@@ -53,13 +53,6 @@ function pricingLabel(provider?: RawProviderToolProvider) {
   return [confidence, price, unit].filter(Boolean).join(' · ');
 }
 
-function testCoverage(provider?: RawProviderToolProvider) {
-  const tests = provider?.tests || [];
-  if (tests.length === 0) return 'none';
-  if (tests.includes('inventory_only')) return 'inventory only';
-  return `${tests.length} checks`;
-}
-
 function statusLabel(status: string) {
   return status.replace(/_/g, ' ');
 }
@@ -187,7 +180,7 @@ export function AdminProviderTools() {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-border bg-card">
-          <table className="w-full min-w-[1060px] text-sm">
+          <table className="w-full min-w-[920px] text-sm">
             <thead className="border-b border-border bg-secondary/50 text-xs uppercase tracking-[0.12em] text-muted-foreground">
               <tr>
                 <th className="p-3 text-left font-medium">Capability</th>
@@ -195,7 +188,6 @@ export function AdminProviderTools() {
                 {PROVIDERS.map((provider) => (
                   <th key={provider} className="p-3 text-left font-medium">{provider}</th>
                 ))}
-                <th className="p-3 text-left font-medium">Coverage</th>
               </tr>
             </thead>
             <tbody>
@@ -237,15 +229,6 @@ export function AdminProviderTools() {
                       </td>
                     );
                   })}
-                  <td className="p-3">
-                    <div className="space-y-1">
-                      {PROVIDERS.map((providerName) => (
-                        <div key={providerName} className="text-xs text-muted-foreground">
-                          <span className="font-medium text-foreground/80">{providerName}</span>: {testCoverage(tool.providers?.[providerName])}
-                        </div>
-                      ))}
-                    </div>
-                  </td>
                 </tr>
               ))}
             </tbody>
