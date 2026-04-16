@@ -157,6 +157,16 @@ The canonical provider-tool inventory is bundled at
 matrices, provider support status, risk level, execution mode, and pricing
 confidence. Do not infer support from provider names or model names alone.
 
+Release pipelines should run the deterministic provider-tool gate:
+
+```bash
+./scripts/provider-tools-readiness-check.sh
+```
+
+This check covers the bundled inventory and routing declarations, the infra API
+surface, enforcer mediation and audit behavior, and the provider-tool Usage/Admin
+UI tests. It does not call live provider tools or spend provider quota.
+
 ## Routing Configuration
 
 ### Hub-managed config
