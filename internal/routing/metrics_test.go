@@ -293,6 +293,8 @@ func TestCollectProviderToolCostFromAuditExtra(t *testing.T) {
 			"provider_tool_capabilities":       "provider-web-search",
 			"provider_tool_estimated_cost_usd": "0.01000000",
 			"provider_tool_unpriced_count":     "1",
+			"provider_tool_cost_confidence":    "exact,unknown",
+			"provider_tool_cost_source":        "provider_catalog",
 		},
 	}
 	b, _ := json.Marshal(line)
@@ -314,8 +316,17 @@ func TestCollectProviderToolCostFromAuditExtra(t *testing.T) {
 	if s.Totals.ProviderToolUnpricedCalls != 1 {
 		t.Fatalf("provider tool unpriced calls = %d", s.Totals.ProviderToolUnpricedCalls)
 	}
+	if s.Totals.ProviderToolCostConfidence != "exact,unknown" {
+		t.Fatalf("provider tool confidence = %q", s.Totals.ProviderToolCostConfidence)
+	}
+	if s.Totals.ProviderToolCostSource != "provider_catalog" {
+		t.Fatalf("provider tool source = %q", s.Totals.ProviderToolCostSource)
+	}
 	if s.ByProviderTool["provider-web-search"].ProviderToolCostUSD != 0.01 {
 		t.Fatalf("provider tool breakdown cost = %f", s.ByProviderTool["provider-web-search"].ProviderToolCostUSD)
+	}
+	if s.ByProviderTool["provider-web-search"].ProviderToolCostConfidence != "exact,unknown" {
+		t.Fatalf("provider tool breakdown confidence = %q", s.ByProviderTool["provider-web-search"].ProviderToolCostConfidence)
 	}
 }
 

@@ -28,6 +28,8 @@ interface MetricsBucket {
   provider_tool_calls?: number;
   provider_tool_cost_usd?: number;
   provider_tool_unpriced_calls?: number;
+  provider_tool_cost_confidence?: string;
+  provider_tool_cost_source?: string;
 }
 
 interface RecentError {
@@ -102,6 +104,11 @@ function formatSavingsPercent(value: number): string {
 function formatSavingsUSD(value: number): string {
   if (!Number.isFinite(value)) return '$0.0000';
   return `$${value.toFixed(4)}`;
+}
+
+function formatProviderToolMeta(value?: string): string {
+  if (!value) return 'unknown';
+  return value.split(',').map((part) => part.trim()).filter(Boolean).join(', ') || 'unknown';
 }
 
 async function fetchMetrics(since?: string, until?: string): Promise<RoutingMetrics> {
@@ -241,12 +248,13 @@ export function Usage() {
   const providerToolCalls = t?.provider_tool_calls ?? 0;
   const unpricedProviderToolCalls = t?.provider_tool_unpriced_calls ?? 0;
   const tokenCost = t ? Math.max(0, (t.est_cost_usd || 0) - providerToolCost) : 0;
+  const knownProviderToolCalls = Math.max(0, providerToolCalls - unpricedProviderToolCalls);
   const summaryMetrics = t ? [
     { label: 'Requests', value: t.requests.toLocaleString(), tone: 'text-foreground' },
     { label: 'Total tokens', value: formatTokens(t.total_tokens), tone: 'text-foreground' },
     { label: 'Estimated spend', value: displayCost(t), tone: 'text-primary' },
     { label: 'Token spend', value: `$${tokenCost.toFixed(4)}`, tone: 'text-muted-foreground-strong' },
-    { label: 'Provider tools', value: `$${providerToolCost.toFixed(4)}`, tone: providerToolCalls > 0 ? 'text-primary' : 'text-muted-foreground-strong', detail: `${providerToolCalls.toLocaleString()} call${providerToolCalls === 1 ? '' : 's'}` },
+    { label: 'Provider tools', value: `$${providerToolCost.toFixed(4)}`, tone: providerToolCalls > 0 ? 'text-primary' : 'text-muted-foreground-strong', detail: `${knownProviderToolCalls.toLocaleString()} priced / ${unpricedProviderToolCalls.toLocaleString()} unpriced` },
     { label: 'Avg latency', value: `${(t.avg_latency_ms / 1000).toFixed(1)}s`, tone: 'text-muted-foreground-strong', detail: t.p95_latency_ms != null ? `p95 ${(t.p95_latency_ms / 1000).toFixed(1)}s` : undefined },
   ] : [];
 
@@ -404,15 +412,32 @@ export function Usage() {
             <div className="bg-card border border-border rounded overflow-hidden">
               <div className="px-4 py-3 border-b border-border">
                 <h3 className="text-sm font-medium text-foreground">Provider tool economics</h3>
-                <p className="mt-0.5 text-xs text-muted-foreground">Provider-side tool calls separated from token spend.</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Provider-side tool calls separated from token spend. Known cost is included in estimated spend; unpriced calls are budget exposure.
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  <div className="rounded-xl border border-border bg-secondary/45 px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Known provider-tool spend</div>
+                    <div className="mt-1 text-lg font-semibold text-foreground">${providerToolCost.toFixed(4)}</div>
+                  </div>
+                  <div className="rounded-xl border border-border bg-secondary/45 px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Priced calls</div>
+                    <div className="mt-1 text-lg font-semibold text-foreground">{knownProviderToolCalls.toLocaleString()}</div>
+                  </div>
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 dark:border-amber-900/40 dark:bg-amber-950/20">
+                    <div className="text-[10px] uppercase tracking-[0.14em] text-amber-700 dark:text-amber-400">Unpriced exposure</div>
+                    <div className="mt-1 text-lg font-semibold text-amber-700 dark:text-amber-300">{unpricedProviderToolCalls.toLocaleString()}</div>
+                  </div>
+                </div>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[620px]">
+                <table className="w-full text-sm min-w-[820px]">
                   <thead>
                     <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wide">
                       <th className="text-left p-3 font-medium">Capability</th>
                       <th className="text-right p-3 font-medium">Requests</th>
                       <th className="text-right p-3 font-medium">Tool Calls</th>
+                      <th className="text-left p-3 font-medium">Pricing</th>
                       <th className="text-right p-3 font-medium">Known Tool Cost</th>
                       <th className="text-right p-3 font-medium">Unpriced</th>
                       <th className="text-right p-3 font-medium">Total Est.</th>
@@ -424,6 +449,10 @@ export function Usage() {
                         <td className="p-3"><code className="text-foreground">{capability}</code></td>
                         <td className="p-3 text-right text-foreground/80">{b.requests}</td>
                         <td className="p-3 text-right text-foreground/80">{b.provider_tool_calls ?? 0}</td>
+                        <td className="p-3 text-left text-xs text-muted-foreground">
+                          <div>confidence: <span className={(b.provider_tool_unpriced_calls ?? 0) > 0 ? 'text-amber-300' : 'text-foreground/80'}>{formatProviderToolMeta(b.provider_tool_cost_confidence)}</span></div>
+                          <div>source: <span className="text-foreground/80">{formatProviderToolMeta(b.provider_tool_cost_source)}</span></div>
+                        </td>
                         <td className="p-3 text-right text-green-400">${(b.provider_tool_cost_usd ?? 0).toFixed(4)}</td>
                         <td className="p-3 text-right">
                           {(b.provider_tool_unpriced_calls ?? 0) > 0

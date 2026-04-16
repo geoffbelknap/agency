@@ -35,6 +35,8 @@ const metrics = {
       provider_tool_calls: 2,
       provider_tool_cost_usd: 0.02,
       provider_tool_unpriced_calls: 1,
+      provider_tool_cost_confidence: 'exact,unknown',
+      provider_tool_cost_source: 'provider_catalog',
       errors: 0,
       avg_latency_ms: 0,
     },
@@ -142,6 +144,10 @@ describe('Usage', () => {
     expect(await screen.findByText('Provider tool economics')).toBeInTheDocument();
     expect(screen.getByText('provider-web-search')).toBeInTheDocument();
     expect(screen.getByText(/provider-tool call had unknown pricing/i)).toBeInTheDocument();
+    expect(screen.getByText(/Known provider-tool spend/i)).toBeInTheDocument();
+    expect(screen.getByText(/Unpriced exposure/i)).toBeInTheDocument();
+    expect(screen.getByText('confidence:')).toBeInTheDocument();
+    expect(screen.getByText('exact, unknown')).toBeInTheDocument();
     expect(screen.getAllByText('$0.0200').length).toBeGreaterThan(0);
   });
 

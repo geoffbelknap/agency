@@ -43,29 +43,33 @@ type Period struct {
 
 // Totals holds aggregate counters for a group of LLM requests.
 type Totals struct {
-	Requests                  int     `json:"requests"`
-	InputTokens               int64   `json:"input_tokens"`
-	OutputTokens              int64   `json:"output_tokens"`
-	TotalTokens               int64   `json:"total_tokens"`
-	EstCostUSD                float64 `json:"est_cost_usd"`
-	Errors                    int     `json:"errors"`
-	AvgLatencyMs              int64   `json:"avg_latency_ms"`
-	P95LatencyMs              int64   `json:"p95_latency_ms"`
-	TTFTP50Ms                 int64   `json:"ttft_p50_ms,omitempty"`
-	TTFTP95Ms                 int64   `json:"ttft_p95_ms,omitempty"`
-	TPOTP50Ms                 float64 `json:"tpot_p50_ms,omitempty"`
-	TPOTP95Ms                 float64 `json:"tpot_p95_ms,omitempty"`
-	ToolCalls                 int     `json:"tool_calls,omitempty"`
-	ToolHallucinations        int     `json:"tool_hallucinations,omitempty"`
-	ProviderToolCalls         int     `json:"provider_tool_calls,omitempty"`
-	ProviderToolCostUSD       float64 `json:"provider_tool_cost_usd,omitempty"`
-	ProviderToolUnpricedCalls int     `json:"provider_tool_unpriced_calls,omitempty"`
-	RetryCostUSD              float64 `json:"retry_cost_usd,omitempty"`
+	Requests                   int     `json:"requests"`
+	InputTokens                int64   `json:"input_tokens"`
+	OutputTokens               int64   `json:"output_tokens"`
+	TotalTokens                int64   `json:"total_tokens"`
+	EstCostUSD                 float64 `json:"est_cost_usd"`
+	Errors                     int     `json:"errors"`
+	AvgLatencyMs               int64   `json:"avg_latency_ms"`
+	P95LatencyMs               int64   `json:"p95_latency_ms"`
+	TTFTP50Ms                  int64   `json:"ttft_p50_ms,omitempty"`
+	TTFTP95Ms                  int64   `json:"ttft_p95_ms,omitempty"`
+	TPOTP50Ms                  float64 `json:"tpot_p50_ms,omitempty"`
+	TPOTP95Ms                  float64 `json:"tpot_p95_ms,omitempty"`
+	ToolCalls                  int     `json:"tool_calls,omitempty"`
+	ToolHallucinations         int     `json:"tool_hallucinations,omitempty"`
+	ProviderToolCalls          int     `json:"provider_tool_calls,omitempty"`
+	ProviderToolCostUSD        float64 `json:"provider_tool_cost_usd,omitempty"`
+	ProviderToolUnpricedCalls  int     `json:"provider_tool_unpriced_calls,omitempty"`
+	ProviderToolCostConfidence string  `json:"provider_tool_cost_confidence,omitempty"`
+	ProviderToolCostSource     string  `json:"provider_tool_cost_source,omitempty"`
+	RetryCostUSD               float64 `json:"retry_cost_usd,omitempty"`
 	// internal — not serialised
-	latencies []int64   `json:"-"`
-	costAcc   float64   `json:"-"`
-	ttfts     []int64   `json:"-"`
-	tpots     []float64 `json:"-"`
+	latencies               []int64         `json:"-"`
+	costAcc                 float64         `json:"-"`
+	ttfts                   []int64         `json:"-"`
+	tpots                   []float64       `json:"-"`
+	providerToolConfidences map[string]bool `json:"-"`
+	providerToolSources     map[string]bool `json:"-"`
 }
 
 // ErrorEntry captures a recent LLM error for operator visibility.
@@ -120,6 +124,8 @@ type auditRecord struct {
 	ProviderToolEstimatedCostUSD float64
 	ProviderToolCapabilities     string
 	ProviderToolUnpricedCount    int
+	ProviderToolCostConfidence   string
+	ProviderToolCostSource       string
 }
 
 func (r auditRecord) MarshalJSON() ([]byte, error) {
@@ -145,7 +151,9 @@ func (r auditRecord) MarshalJSON() ([]byte, error) {
 		ProviderToolEstimatedCostUSD float64 `json:"provider_tool_estimated_cost_usd,omitempty"`
 		ProviderToolCapabilities     string  `json:"provider_tool_capabilities,omitempty"`
 		ProviderToolUnpricedCount    int     `json:"provider_tool_unpriced_count,omitempty"`
-	}{r.Timestamp, r.Type, r.Agent, r.Source, r.Model, r.ProviderModel, r.Status, r.Error, r.DurationMs, r.InputTokens, r.OutputTokens, r.TTFTMs, r.TPOTMs, r.StepIndex, r.ToolCallValid, r.RetryOf, r.ContextTokens, r.ProviderToolCallCount, r.ProviderToolEstimatedCostUSD, r.ProviderToolCapabilities, r.ProviderToolUnpricedCount})
+		ProviderToolCostConfidence   string  `json:"provider_tool_cost_confidence,omitempty"`
+		ProviderToolCostSource       string  `json:"provider_tool_cost_source,omitempty"`
+	}{r.Timestamp, r.Type, r.Agent, r.Source, r.Model, r.ProviderModel, r.Status, r.Error, r.DurationMs, r.InputTokens, r.OutputTokens, r.TTFTMs, r.TPOTMs, r.StepIndex, r.ToolCallValid, r.RetryOf, r.ContextTokens, r.ProviderToolCallCount, r.ProviderToolEstimatedCostUSD, r.ProviderToolCapabilities, r.ProviderToolUnpricedCount, r.ProviderToolCostConfidence, r.ProviderToolCostSource})
 }
 
 func (r *auditRecord) UnmarshalJSON(data []byte) error {
@@ -177,6 +185,8 @@ func (r *auditRecord) UnmarshalJSON(data []byte) error {
 		ProviderToolEstimatedCostUSD interface{}       `json:"provider_tool_estimated_cost_usd"`
 		ProviderToolCapabilities     string            `json:"provider_tool_capabilities"`
 		ProviderToolUnpricedCount    interface{}       `json:"provider_tool_unpriced_count"`
+		ProviderToolCostConfidence   string            `json:"provider_tool_cost_confidence"`
+		ProviderToolCostSource       string            `json:"provider_tool_cost_source"`
 		Extra                        map[string]string `json:"extra"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -215,6 +225,8 @@ func (r *auditRecord) UnmarshalJSON(data []byte) error {
 	r.ProviderToolEstimatedCostUSD = floatFromAny(raw.ProviderToolEstimatedCostUSD)
 	r.ProviderToolCapabilities = raw.ProviderToolCapabilities
 	r.ProviderToolUnpricedCount = intFromAny(raw.ProviderToolUnpricedCount)
+	r.ProviderToolCostConfidence = raw.ProviderToolCostConfidence
+	r.ProviderToolCostSource = raw.ProviderToolCostSource
 	if raw.Extra != nil {
 		if r.ProviderToolCallCount == 0 {
 			r.ProviderToolCallCount = intFromAny(raw.Extra["provider_tool_call_count"])
@@ -227,6 +239,12 @@ func (r *auditRecord) UnmarshalJSON(data []byte) error {
 		}
 		if r.ProviderToolUnpricedCount == 0 {
 			r.ProviderToolUnpricedCount = intFromAny(raw.Extra["provider_tool_unpriced_count"])
+		}
+		if r.ProviderToolCostConfidence == "" {
+			r.ProviderToolCostConfidence = raw.Extra["provider_tool_cost_confidence"]
+		}
+		if r.ProviderToolCostSource == "" {
+			r.ProviderToolCostSource = raw.Extra["provider_tool_cost_source"]
 		}
 	}
 	return nil
@@ -592,6 +610,8 @@ func accumWithCost(t *Totals, rec auditRecord, cost float64, providerToolCost fl
 	t.ProviderToolCalls += rec.ProviderToolCallCount
 	t.ProviderToolCostUSD += providerToolCost
 	t.ProviderToolUnpricedCalls += rec.ProviderToolUnpricedCount
+	addCSVToSet(&t.providerToolConfidences, rec.ProviderToolCostConfidence)
+	addCSVToSet(&t.providerToolSources, rec.ProviderToolCostSource)
 	if rec.Status >= 400 || rec.Error != "" {
 		t.Errors++
 	}
@@ -657,9 +677,40 @@ func finalise(t *Totals) {
 	t.EstCostUSD = math.Round(t.EstCostUSD*1e6) / 1e6
 	t.ProviderToolCostUSD = math.Round(t.ProviderToolCostUSD*1e6) / 1e6
 	t.RetryCostUSD = math.Round(t.RetryCostUSD*1e6) / 1e6
+	t.ProviderToolCostConfidence = strings.Join(sortedBoolKeys(t.providerToolConfidences), ",")
+	t.ProviderToolCostSource = strings.Join(sortedBoolKeys(t.providerToolSources), ",")
 	t.latencies = nil // free memory
 	t.ttfts = nil
 	t.tpots = nil
+	t.providerToolConfidences = nil
+	t.providerToolSources = nil
+}
+
+func addCSVToSet(target *map[string]bool, values string) {
+	if values == "" {
+		return
+	}
+	if *target == nil {
+		*target = map[string]bool{}
+	}
+	for _, raw := range strings.Split(values, ",") {
+		value := strings.TrimSpace(raw)
+		if value != "" {
+			(*target)[value] = true
+		}
+	}
+}
+
+func sortedBoolKeys(m map[string]bool) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func percentile(data []int64, pct int) int64 {
