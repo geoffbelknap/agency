@@ -111,6 +111,10 @@ function formatProviderToolMeta(value?: string): string {
   return value.split(',').map((part) => part.trim()).filter(Boolean).join(', ') || 'unknown';
 }
 
+function isNotFoundError(err: unknown): boolean {
+  return err instanceof Error && (err.message.includes('404') || err.message.toLowerCase().includes('not found'));
+}
+
 async function fetchMetrics(since?: string, until?: string): Promise<RoutingMetrics> {
   const configRes = await fetch('/__agency/config');
   let base = '/api/v1';
@@ -179,6 +183,10 @@ export function Usage() {
     try {
       setSuggestions(await api.routing.suggestions('pending'));
     } catch (err: any) {
+      if (isNotFoundError(err)) {
+        setSuggestions([]);
+        return;
+      }
       toast.error(err.message || 'Failed to load routing suggestions');
     } finally {
       setSuggestionsLoading(false);
@@ -190,6 +198,10 @@ export function Usage() {
     try {
       setRoutingStats(await api.routing.stats());
     } catch (err: any) {
+      if (isNotFoundError(err)) {
+        setRoutingStats([]);
+        return;
+      }
       toast.error(err.message || 'Failed to load routing stats');
     } finally {
       setStatsLoading(false);
