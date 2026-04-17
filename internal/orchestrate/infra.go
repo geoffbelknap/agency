@@ -155,6 +155,20 @@ func (inf *Infra) containerName(role string) string {
 	return inf.scopedName(fmt.Sprintf("%s-infra-%s", prefix, role))
 }
 
+func (inf *Infra) gatewayContainerHost() string {
+	if inf.cli != nil && inf.cli.Backend() == runtimehost.BackendContainerd {
+		return inf.containerName("gateway")
+	}
+	return "gateway"
+}
+
+func (inf *Infra) egressContainerHost() string {
+	if inf.cli != nil && inf.cli.Backend() == runtimehost.BackendContainerd {
+		return inf.containerName("egress")
+	}
+	return "egress"
+}
+
 func (inf *Infra) gatewayNetName() string {
 	return inf.scopedName(baseGatewayNet)
 }
@@ -733,7 +747,7 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 		binds = append(binds, runDir+":/app/run:ro")
 		env["GATEWAY_SOCKET"] = "/app/run/gateway-cred.sock"
 	}
-	env["GATEWAY_URL"] = "http://gateway:8200"
+	env["GATEWAY_URL"] = "http://" + inf.gatewayContainerHost() + ":8200"
 	env["GATEWAY_TOKEN"] = inf.EgressToken
 	env["AGENCY_CALLER"] = "egress"
 
@@ -742,6 +756,17 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 	hc.NetworkMode = containerops.NetworkMode(inf.egressIntNetName())
 
 	mergeEnv(env, inf.loggingEnv("egress"))
+	netCfg := (*containerops.NetworkingConfig)(nil)
+	if inf.cli.Backend() == runtimehost.BackendContainerd {
+		netCfg = &containerops.NetworkingConfig{
+			EndpointsConfig: map[string]*containerops.EndpointSettings{
+				inf.egressIntNetName(): {},
+				inf.egressExtNetName(): {},
+				inf.gatewayNetName():   {},
+			},
+		}
+	}
+
 	id, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
 		&containerops.Config{
@@ -751,7 +776,7 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 			Labels:      inf.serviceLabels(ctx, defaultImages["egress"], "egress", "3128"),
 			Healthcheck: defaultHealthChecks["egress"],
 		},
-		hc, nil,
+		hc, netCfg,
 	)
 	if err != nil {
 		return err
@@ -762,10 +787,12 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 	}
 
 	// Connect to egress-ext network (internet access)
-	inf.connectIfNeeded(ctx, id, inf.egressExtNetName(), []string{"egress"})
+	if inf.cli.Backend() != runtimehost.BackendContainerd {
+		inf.connectIfNeeded(ctx, id, inf.egressExtNetName(), []string{"egress"})
 
-	// Connect to gateway network (hub — service access)
-	inf.connectIfNeeded(ctx, id, inf.gatewayNetName(), []string{"egress"})
+		// Connect to gateway network (hub — service access)
+		inf.connectIfNeeded(ctx, id, inf.gatewayNetName(), []string{"egress"})
+	}
 
 	return inf.waitHealthy(ctx, name, 30*time.Second)
 }
@@ -842,10 +869,10 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 	fixDirPerms(knowledgeDir, 0777)
 
 	env := map[string]string{
-		"HTTPS_PROXY":          "http://egress:3128",
-		"NO_PROXY":             inf.containerName("embeddings") + ",localhost,127.0.0.1,gateway",
+		"HTTPS_PROXY":          "http://" + inf.egressContainerHost() + ":3128",
+		"NO_PROXY":             inf.containerName("embeddings") + ",localhost,127.0.0.1," + inf.gatewayContainerHost(),
 		"AGENCY_GATEWAY_TOKEN": inf.GatewayToken,
-		"AGENCY_GATEWAY_URL":   "http://gateway:8200",
+		"AGENCY_GATEWAY_URL":   "http://" + inf.gatewayContainerHost() + ":8200",
 		"AGENCY_CALLER":        "knowledge",
 	}
 
@@ -873,6 +900,15 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 	}
 
 	mergeEnv(env, inf.loggingEnv("knowledge"))
+	netCfg := (*containerops.NetworkingConfig)(nil)
+	if inf.cli.Backend() == runtimehost.BackendContainerd {
+		netCfg = &containerops.NetworkingConfig{
+			EndpointsConfig: map[string]*containerops.EndpointSettings{
+				inf.gatewayNetName():   {},
+				inf.egressIntNetName(): {},
+			},
+		}
+	}
 	id, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
 		&containerops.Config{
@@ -883,7 +919,7 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 			Healthcheck:  defaultHealthChecks["knowledge"],
 			ExposedPorts: containerops.PortSet{"8080/tcp": struct{}{}},
 		},
-		hc, nil,
+		hc, netCfg,
 	)
 	if err != nil {
 		return err
@@ -897,7 +933,9 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 	}
 
 	// Connect knowledge to egress-int network for outbound proxy access
-	inf.connectIfNeeded(ctx, id, inf.egressIntNetName(), []string{"knowledge"})
+	if inf.cli.Backend() != runtimehost.BackendContainerd {
+		inf.connectIfNeeded(ctx, id, inf.egressIntNetName(), []string{"knowledge"})
+	}
 	return nil
 }
 
@@ -929,10 +967,10 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 	}
 
 	env := map[string]string{
-		"HTTP_PROXY":    "http://egress:3128",
-		"HTTPS_PROXY":   "http://egress:3128",
-		"NO_PROXY":      "gateway,localhost,127.0.0.1",
-		"GATEWAY_URL":   "http://gateway:8200",
+		"HTTP_PROXY":    "http://" + inf.egressContainerHost() + ":3128",
+		"HTTPS_PROXY":   "http://" + inf.egressContainerHost() + ":3128",
+		"NO_PROXY":      inf.gatewayContainerHost() + ",localhost,127.0.0.1",
+		"GATEWAY_URL":   "http://" + inf.gatewayContainerHost() + ":8200",
 		"GATEWAY_TOKEN": inf.GatewayToken,
 		"AGENCY_CALLER": "intake",
 	}
@@ -962,6 +1000,15 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 	}
 
 	mergeEnv(env, inf.loggingEnv("intake"))
+	netCfg := (*containerops.NetworkingConfig)(nil)
+	if inf.cli.Backend() == runtimehost.BackendContainerd {
+		netCfg = &containerops.NetworkingConfig{
+			EndpointsConfig: map[string]*containerops.EndpointSettings{
+				inf.gatewayNetName():   {},
+				inf.egressIntNetName(): {},
+			},
+		}
+	}
 	id, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
 		&containerops.Config{
@@ -972,7 +1019,7 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 			Healthcheck:  defaultHealthChecks["intake"],
 			ExposedPorts: containerops.PortSet{"8080/tcp": struct{}{}},
 		},
-		hc, nil,
+		hc, netCfg,
 	)
 	if err != nil {
 		return err
@@ -983,7 +1030,9 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 	}
 
 	// Connect intake to egress-int network for outbound proxy access
-	inf.connectIfNeeded(ctx, id, inf.egressIntNetName(), []string{"intake"})
+	if inf.cli.Backend() != runtimehost.BackendContainerd {
+		inf.connectIfNeeded(ctx, id, inf.egressIntNetName(), []string{"intake"})
+	}
 
 	return inf.waitHealthy(ctx, name, 90*time.Second)
 }
@@ -1010,9 +1059,9 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 	}
 
 	env := map[string]string{
-		"HTTP_PROXY":    "http://egress:3128",
-		"HTTPS_PROXY":   "http://egress:3128",
-		"NO_PROXY":      "gateway,localhost,127.0.0.1",
+		"HTTP_PROXY":    "http://" + inf.egressContainerHost() + ":3128",
+		"HTTPS_PROXY":   "http://" + inf.egressContainerHost() + ":3128",
+		"NO_PROXY":      inf.gatewayContainerHost() + ",localhost,127.0.0.1",
 		"AGENCY_CALLER": "web-fetch",
 	}
 
@@ -1035,6 +1084,15 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 	}
 
 	mergeEnv(env, inf.loggingEnv("web-fetch"))
+	netCfg := (*containerops.NetworkingConfig)(nil)
+	if inf.cli.Backend() == runtimehost.BackendContainerd {
+		netCfg = &containerops.NetworkingConfig{
+			EndpointsConfig: map[string]*containerops.EndpointSettings{
+				inf.gatewayNetName():   {},
+				inf.egressIntNetName(): {},
+			},
+		}
+	}
 	id, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
 		&containerops.Config{
@@ -1045,7 +1103,7 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 			Healthcheck:  defaultHealthChecks["web-fetch"],
 			ExposedPorts: containerops.PortSet{"8080/tcp": struct{}{}},
 		},
-		hc, nil,
+		hc, netCfg,
 	)
 	if err != nil {
 		return err
@@ -1056,7 +1114,9 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 	}
 
 	// Connect web-fetch to egress-int network for outbound proxy access
-	inf.connectIfNeeded(ctx, id, inf.egressIntNetName(), []string{"web-fetch"})
+	if inf.cli.Backend() != runtimehost.BackendContainerd {
+		inf.connectIfNeeded(ctx, id, inf.egressIntNetName(), []string{"web-fetch"})
+	}
 
 	return inf.waitHealthy(ctx, name, 90*time.Second)
 }

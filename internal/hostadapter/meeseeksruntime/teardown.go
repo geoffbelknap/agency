@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/docker/docker/api/types/container"
-	dockerclient "github.com/docker/docker/client"
 	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
@@ -13,12 +12,12 @@ import (
 )
 
 func TeardownMeeseeks(ctx context.Context, mks *models.Meeseeks, logger *slog.Logger, dc ...*runtimehost.Client) error {
-	var cli *dockerclient.Client
+	var cli *runtimehost.RawClient
 	if len(dc) > 0 && dc[0] != nil {
 		cli = dc[0].RawClient()
 	} else {
 		var err error
-		cli, err = dockerclient.NewClientWithOpts(dockerclient.FromEnv, dockerclient.WithAPIVersionNegotiation())
+		cli, err = runtimehost.NewRawClient()
 		if err != nil {
 			return fmt.Errorf("docker client: %w", err)
 		}

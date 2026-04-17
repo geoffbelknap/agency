@@ -6,11 +6,10 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
-	dockerclient "github.com/docker/docker/client"
 	"log/slog"
 )
 
-func AuditDockerSocket(ctx context.Context, cli *dockerclient.Client, logger *slog.Logger) []string {
+func AuditDockerSocket(ctx context.Context, cli *RawClient, logger *slog.Logger) []string {
 	containers, err := cli.ContainerList(ctx, container.ListOptions{
 		All:     true,
 		Filters: filters.NewArgs(filters.Arg("label", "agency.managed=true")),

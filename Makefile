@@ -79,7 +79,7 @@ podman-readiness-full:
 	@./scripts/podman-readiness-check.sh --full
 
 containerd-readiness:
-	@./scripts/containerd-readiness-check.sh
+	@./scripts/containerd-rootless-readiness-check.sh
 
 clean:
 	rm -f agency gateway

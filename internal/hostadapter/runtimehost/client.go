@@ -21,20 +21,18 @@ import (
 	dockerimage "github.com/docker/docker/api/types/image"
 	dockernetwork "github.com/docker/docker/api/types/network"
 	dockerclient "github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/stdcopy"
 
 	"github.com/geoffbelknap/agency/internal/comms"
 	"github.com/geoffbelknap/agency/internal/infratier"
 )
 
 type Client struct {
-	cli     *dockerclient.Client
+	cli     *RawClient
 	backend string
 }
 
 type (
 	DockerHandle        = Client
-	RawClient           = dockerclient.Client
 	ContainerState      = dockercontainer.Summary
 	ListOptions         = dockercontainer.ListOptions
 	FilterArgs          = dockerfilters.Args
@@ -44,6 +42,8 @@ type (
 	ImageDeleteResponse = dockerimage.DeleteResponse
 	ImagePullOptions    = dockerimage.PullOptions
 	ImageBuildOptions   = dockertypes.ImageBuildOptions
+	ImageInspect        = dockerimage.InspectResponse
+	ImageBuildResponse  = dockertypes.ImageBuildResponse
 	InfraComponent      struct {
 		Name    string `json:"name"`
 		State   string `json:"state"`
@@ -238,14 +238,10 @@ func newRawClientForBackend(backend string, backendConfig map[string]string) (*R
 	if !IsContainerBackend(backend) {
 		return nil, fmt.Errorf("unsupported container backend %q", backend)
 	}
-	host := resolveBackendHost(backend, backendConfig)
-	opts := []dockerclient.Opt{dockerclient.WithAPIVersionNegotiation()}
-	if host != "" {
-		opts = append(opts, dockerclient.WithHost(host))
-	} else {
-		opts = append(opts, dockerclient.FromEnv)
+	if backend == BackendContainerd {
+		return newNerdctlRawClient(backendConfig)
 	}
-	return dockerclient.NewClientWithOpts(opts...)
+	return newDockerRawClient(backend, resolveBackendHost(backend, backendConfig))
 }
 
 func resolveBackendHost(backend string, backendConfig map[string]string) string {
@@ -267,7 +263,7 @@ func resolveBackendHost(backend string, backendConfig map[string]string) string 
 		if host := strings.TrimSpace(os.Getenv("CONTAINER_HOST")); host != "" {
 			return hostFromPath(host)
 		}
-		return strings.TrimSpace(os.Getenv("DOCKER_HOST"))
+		return "unix:///run/containerd/containerd.sock"
 	case BackendDocker:
 		if host := desktopDockerHost(); host != "" {
 			return host
@@ -293,7 +289,18 @@ func hostFromPath(value string) string {
 }
 
 func IsErrNotFound(err error) bool {
-	return dockerclient.IsErrNotFound(err)
+	if err == nil {
+		return false
+	}
+	if dockerclient.IsErrNotFound(err) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "not found") ||
+		strings.Contains(msg, "no such image") ||
+		strings.Contains(msg, "no such object") ||
+		strings.Contains(msg, "no such container") ||
+		strings.Contains(msg, "no such network")
 }
 
 func NewStatus(dc *Client) *Status {
@@ -448,29 +455,7 @@ func (c *Client) InfraStatus(ctx context.Context) ([]InfraComponent, error) {
 }
 
 func (c *Client) ExecInContainer(ctx context.Context, containerName string, cmd []string) (string, error) {
-	execConfig := dockercontainer.ExecOptions{Cmd: cmd, AttachStdout: true, AttachStderr: true}
-	exec, err := c.cli.ContainerExecCreate(ctx, containerName, execConfig)
-	if err != nil {
-		return "", fmt.Errorf("exec create: %w", err)
-	}
-	resp, err := c.cli.ContainerExecAttach(ctx, exec.ID, dockercontainer.ExecAttachOptions{})
-	if err != nil {
-		return "", fmt.Errorf("exec attach: %w", err)
-	}
-	defer resp.Close()
-	var buf bytes.Buffer
-	if _, err := stdcopy.StdCopy(&buf, &bytes.Buffer{}, resp.Reader); err != nil {
-		buf.Reset()
-		_, _ = buf.ReadFrom(resp.Reader)
-	}
-	inspect, err := c.cli.ContainerExecInspect(ctx, exec.ID)
-	if err != nil {
-		return buf.String(), fmt.Errorf("exec inspect: %w", err)
-	}
-	if inspect.ExitCode != 0 {
-		return buf.String(), fmt.Errorf("exit code %d", inspect.ExitCode)
-	}
-	return buf.String(), nil
+	return c.cli.Exec(ctx, containerName, "", cmd)
 }
 
 func (c *Client) SignalContainer(ctx context.Context, containerName, signal string) error {
@@ -585,7 +570,7 @@ func (c *Client) ContainerShortID(ctx context.Context, name string) string {
 	return info.ID
 }
 
-func (c *Client) RawClient() *dockerclient.Client {
+func (c *Client) RawClient() *RawClient {
 	if c == nil {
 		return nil
 	}

@@ -25,9 +25,8 @@ usage() {
   cat <<'EOF'
 Usage: ./scripts/containerd-readiness-check.sh [--keep-home] [--source-home <path>] [--socket <uri>]
 
-Runs a Linux-only readiness lane for the first Agency `containerd` backend slice.
-This slice is compatibility-backed: Agency talks to a Docker-compatible API socket
-while the public backend remains `containerd`.
+Runs a Linux-only readiness lane for the Agency `containerd` backend.
+This lane expects a native containerd + nerdctl environment on Linux.
 
 Options:
   --keep-home           Preserve the generated seed home
@@ -92,7 +91,7 @@ provider_env_var() {
   esac
 }
 
-detect_compat_socket() {
+detect_containerd_socket() {
   if [ -n "$SOCKET_OVERRIDE" ]; then
     printf '%s\n' "$SOCKET_OVERRIDE"
     return 0
@@ -101,15 +100,15 @@ detect_compat_socket() {
     printf '%s\n' "$CONTAINERD_HOST"
     return 0
   fi
-  if [ -n "${DOCKER_HOST:-}" ]; then
-    printf '%s\n' "$DOCKER_HOST"
+  if [ -n "${CONTAINER_HOST:-}" ]; then
+    printf '%s\n' "$CONTAINER_HOST"
     return 0
   fi
-  if [ -S /var/run/docker.sock ]; then
-    printf '%s\n' "unix:///var/run/docker.sock"
+  if [ -S /run/containerd/containerd.sock ]; then
+    printf '%s\n' "unix:///run/containerd/containerd.sock"
     return 0
   fi
-  fail "Could not find a Docker-compatible socket for the containerd compatibility lane"
+  fail "Could not find a containerd socket for the containerd readiness lane"
 }
 
 create_seed_home() {
@@ -281,20 +280,20 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ "$(uname -s)" = "Linux" ] || fail "containerd readiness is Linux-only"
-require_cmd docker
+require_cmd nerdctl
 require_cmd python3
 
 if ! AGENCY_BIN="$(resolve_agency_bin)"; then
   fail "Could not resolve agency binary. Build it first."
 fi
 
-COMPAT_SOCKET="$(detect_compat_socket)"
-log "Using compatibility socket for containerd backend: $COMPAT_SOCKET"
+CONTAINERD_SOCKET="$(detect_containerd_socket)"
+log "Using containerd socket for containerd backend: $CONTAINERD_SOCKET"
 
 choose_ports
 create_seed_home
 write_routing_config
-patch_seed_config "$COMPAT_SOCKET"
+patch_seed_config "$CONTAINERD_SOCKET"
 
 export AGENCY_HOME="$SEED_HOME"
 export AGENCY_BIN

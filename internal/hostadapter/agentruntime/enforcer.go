@@ -9,12 +9,12 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	"gopkg.in/yaml.v3"
 	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/hostadapter/imageops"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/orchestrate/containers"
 	"github.com/geoffbelknap/agency/internal/services"
 )
@@ -31,7 +31,7 @@ type Enforcer struct {
 	ConstraintHostPort string
 	LifecycleID        string
 	PrincipalUUID      string
-	cli                *client.Client
+	cli                *runtimehost.RawClient
 	log                *slog.Logger
 	hmacKey            []byte
 }
@@ -40,10 +40,10 @@ func NewEnforcer(agentName, home, version string, logger *slog.Logger, hmacKey [
 	return NewEnforcerWithClient(agentName, home, version, logger, hmacKey, nil)
 }
 
-func NewEnforcerWithClient(agentName, home, version string, logger *slog.Logger, hmacKey []byte, cli *client.Client) (*Enforcer, error) {
+func NewEnforcerWithClient(agentName, home, version string, logger *slog.Logger, hmacKey []byte, cli *runtimehost.RawClient) (*Enforcer, error) {
 	if cli == nil {
 		var err error
-		cli, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+		cli, err = runtimehost.NewRawClient()
 		if err != nil {
 			return nil, err
 		}
@@ -89,12 +89,13 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (string, error) {
 	commsHost := scopedInfraName(fmt.Sprintf("%s-infra-comms", prefix))
 	knowledgeHost := scopedInfraName(fmt.Sprintf("%s-infra-knowledge", prefix))
 	webFetchHost := scopedInfraName(fmt.Sprintf("%s-infra-web-fetch", prefix))
+	gatewayHostName := gatewayHost(e.cli.Backend())
 
 	env := map[string]string{
 		"HOME":               "/agency/enforcer/data",
 		"AGENT_NAME":         e.AgentName,
 		"CONSTRAINT_WS_PORT": "8081",
-		"GATEWAY_URL":        "http://gateway:8200",
+		"GATEWAY_URL":        "http://" + gatewayHostName + ":8200",
 		"COMMS_URL":          "http://" + commsHost + ":8080",
 		"KNOWLEDGE_URL":      "http://" + knowledgeHost + ":8080",
 		"WEB_FETCH_URL":      "http://" + webFetchHost + ":8080",
@@ -113,7 +114,7 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (string, error) {
 				env["GATEWAY_TOKEN"] = cf.Token
 			}
 			if cf.GatewayAddr != "" {
-				env["GATEWAY_URL"] = "http://gateway:8200"
+				env["GATEWAY_URL"] = "http://" + gatewayHostName + ":8200"
 			}
 		}
 	}
@@ -175,11 +176,9 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (string, error) {
 
 	netCfg := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
-			gatewayNetName(): {},
-			internalNet:      {Aliases: []string{"enforcer"}},
-			egressIntNetName(): {
-				Aliases: []string{"enforcer"},
-			},
+			gatewayNetName():   {},
+			internalNet:        {},
+			egressIntNetName(): {},
 		},
 	}
 

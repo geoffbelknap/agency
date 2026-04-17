@@ -10,10 +10,10 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/volume"
-	"github.com/docker/docker/client"
 	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/hostadapter/imageops"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/orchestrate/containers"
 )
 
@@ -39,7 +39,7 @@ type Workspace struct {
 	SourceDir     string
 	BuildID       string
 	PrincipalUUID string
-	cli           *client.Client
+	cli           *runtimehost.RawClient
 	log           *slog.Logger
 }
 
@@ -56,10 +56,10 @@ func NewWorkspace(agentName, home, version string, logger *slog.Logger) (*Worksp
 	return NewWorkspaceWithClient(agentName, home, version, logger, nil)
 }
 
-func NewWorkspaceWithClient(agentName, home, version string, logger *slog.Logger, cli *client.Client) (*Workspace, error) {
+func NewWorkspaceWithClient(agentName, home, version string, logger *slog.Logger, cli *runtimehost.RawClient) (*Workspace, error) {
 	if cli == nil {
 		var err error
-		cli, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+		cli, err = runtimehost.NewRawClient()
 		if err != nil {
 			return nil, err
 		}
@@ -110,9 +110,19 @@ func (w *Workspace) Start(ctx context.Context, opts StartOptions) error {
 		return fmt.Errorf("constraints.yaml not found for %s", w.AgentName)
 	}
 
-	transportProxyURL := envValue(opts.Env, "AGENCY_ENFORCER_PROXY_URL", "http://enforcer:3128")
-	controlURL := envValue(opts.Env, "AGENCY_ENFORCER_CONTROL_URL", "http://enforcer:8081")
+	enforcerHostName := enforcerHost(w.AgentName, w.Backend)
+	defaultProxyURL := "http://" + enforcerHostName + ":3128"
+	defaultControlURL := "http://" + enforcerHostName + ":8081"
+	transportProxyURL := envValue(opts.Env, "AGENCY_ENFORCER_PROXY_URL", defaultProxyURL)
+	controlURL := envValue(opts.Env, "AGENCY_ENFORCER_CONTROL_URL", defaultControlURL)
+	if isContainerdBackend(w.Backend) {
+		transportProxyURL = defaultProxyURL
+		controlURL = defaultControlURL
+	}
 	enforcerURL := envValue(opts.Env, "AGENCY_ENFORCER_URL", strings.TrimRight(transportProxyURL, "/")+"/v1")
+	if isContainerdBackend(w.Backend) {
+		enforcerURL = strings.TrimRight(transportProxyURL, "/") + "/v1"
+	}
 
 	proxyURL := transportProxyURL
 	if opts.ScopedKey != "" {
@@ -128,7 +138,7 @@ func (w *Workspace) Start(ctx context.Context, opts StartOptions) error {
 		"AGENCY_ENFORCER_HEALTH_URL":  strings.TrimRight(transportProxyURL, "/") + "/health",
 		"HTTP_PROXY":                  proxyURL,
 		"HTTPS_PROXY":                 proxyURL,
-		"NO_PROXY":                    "enforcer,localhost,127.0.0.1",
+		"NO_PROXY":                    enforcerHostName + ",localhost,127.0.0.1",
 		"AGENCY_COMMS_URL":            strings.TrimRight(controlURL, "/") + "/mediation/comms",
 		"AGENCY_KNOWLEDGE_URL":        strings.TrimRight(controlURL, "/") + "/mediation/knowledge",
 		"AGENCY_AGENT_NAME":           w.AgentName,
