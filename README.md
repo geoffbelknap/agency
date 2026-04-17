@@ -129,6 +129,14 @@ operators and other tools:
 That means Agency itself, its web UI, AI assistants, and third-party clients
 can all build on the same contract.
 
+Operator/runtime surfaces now include:
+
+- `POST /api/v1/agents/{name}/dm` to establish or reuse the direct-message channel for an agent
+- `GET /api/v1/agents/{name}/runtime/manifest` for persisted runtime contract state
+- `GET /api/v1/agents/{name}/runtime/status` for projected runtime health and backend state
+- `POST /api/v1/agents/{name}/runtime/validate` for fail-closed runtime validation
+- `GET /api/v1/admin/doctor` for deployment safety, with runtime checks separated from backend-specific hygiene
+
 ### AI Assistant Integration
 
 Add Agency as an MCP server:
@@ -189,6 +197,17 @@ make test
 go test ./...
 pytest images/tests/
 ```
+
+For runtime/lifecycle changes, the highest-signal validation path is:
+
+```bash
+bash ./scripts/runtime-contract-smoke.sh --agent <agent>
+./scripts/e2e-live-disposable.sh --skip-build
+```
+
+See [docs/runbooks/runtime-smoke.md](docs/runbooks/runtime-smoke.md) and
+[docs/runbooks/validation-checklist.md](docs/runbooks/validation-checklist.md)
+for the current operator validation flow.
 
 ## Repository Structure
 

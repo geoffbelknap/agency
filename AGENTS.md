@@ -40,7 +40,12 @@ Primary areas:
 - Do not loosen container, network, credential, or capability boundaries casually.
 - Hub-managed files must not be edited directly when the expected customization point is elsewhere.
 - Enforcers must remain on the internal mediation plane only: per-agent internal network + `agency-gateway` + `agency-egress-int`. They must not attach to `agency-operator` or any other external-facing network.
-- `agency admin doctor` is authoritative for current deployment safety, but read its Docker hygiene checks precisely: orphan networks are based on full network inspect, and dangling images means true untagged Agency build leftovers, not intentional version-tagged images.
+- The runtime contract is now backend-neutral. Runtime health should be reasoned about through the runtime supervisor, persisted runtime manifest, and runtime status/validate surfaces, not through raw Docker assumptions.
+- Agent runtime introspection is a first-class contract:
+  - `GET /api/v1/agents/{name}/runtime/manifest`
+  - `GET /api/v1/agents/{name}/runtime/status`
+  - `POST /api/v1/agents/{name}/runtime/validate`
+- `agency admin doctor` is authoritative for current deployment safety, but it now separates runtime checks from backend-specific hygiene checks. Read Docker warnings as Docker backend hygiene, not as generic runtime failure.
 - Agent DM establishment is a first-class backend contract at `POST /api/v1/agents/{name}/dm`; UI flows should use it instead of reconstructing DM channel state ad hoc.
 
 ## Build And Test
@@ -54,6 +59,8 @@ go test ./...
 go build ./cmd/gateway/
 pytest images/tests/
 ./agency admin doctor
+bash ./scripts/runtime-contract-smoke.sh --agent <agent>
+./scripts/e2e-live-disposable.sh --skip-build
 ```
 
 Repo-specific end-to-end paths also exist and should be used when the change warrants them.

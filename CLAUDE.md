@@ -77,9 +77,19 @@ Network rules that must remain true:
 - `internal/api/openapi.yaml` is the canonical API spec
 - `/api/v1/openapi-core.yaml` is the supported default API view
 - agent DM establishment is a first-class backend contract at `POST /api/v1/agents/{name}/dm`
+- agent runtime introspection is a supported operator contract:
+  - `GET /api/v1/agents/{name}/runtime/manifest`
+  - `GET /api/v1/agents/{name}/runtime/status`
+  - `POST /api/v1/agents/{name}/runtime/validate`
 - `agency quickstart` is the guided first-run path
 - `agency setup` is the idempotent setup/infrastructure command
 - `agency admin doctor` is the authoritative deployment-safety check
+
+The runtime model is backend-neutral now. Treat runtime health and backend
+hygiene as distinct concerns:
+
+- runtime health: runtime manifest, runtime status, runtime validate, fail-closed startup/restart behavior
+- backend hygiene: Docker-specific image/network/log/pid checks when Docker is the selected backend
 
 ## Feature Gating
 
@@ -117,6 +127,8 @@ go test ./...
 go build ./cmd/gateway/
 pytest images/tests/
 ./agency admin doctor
+bash ./scripts/runtime-contract-smoke.sh --agent <agent>
+./scripts/e2e-live-disposable.sh --skip-build
 ```
 
 Use the smallest sufficient validation for the change, but validate shipped

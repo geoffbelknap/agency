@@ -22,6 +22,17 @@ npm test                 # Run tests (Vitest)
 - **TLS:** Auto-generated via mkcert on first `npx agency-web` start. Certs live in `.certs/` (gitignored).
 - **Build ID:** Each build is stamped with the git commit hash via Vite's `define` option (`__BUILD_ID__`, `__BUILD_TIME__`). Declared in `src/vite-env.d.ts`. Displayed at the bottom of the channel sidebar.
 
+### Backend Contract Rules
+
+- The web app is a pure REST/WebSocket client. Do not recreate backend logic in the browser.
+- Agent DM establishment is a first-class backend contract at `POST /api/v1/agents/{name}/dm`. UI flows should use it instead of reconstructing DM state ad hoc.
+- Agent runtime introspection is now a supported operator surface:
+  - `GET /api/v1/agents/{name}/runtime/manifest`
+  - `GET /api/v1/agents/{name}/runtime/status`
+  - `POST /api/v1/agents/{name}/runtime/validate`
+- `agency admin doctor` now separates runtime checks from backend-specific hygiene checks. UI/operator copy should preserve that distinction and should not present Docker hygiene warnings as generic runtime failure.
+- Runtime health should come from the runtime APIs and the backend contract, not from hardcoded Docker assumptions such as container names, network names, or enforcer hostnames.
+
 ### Real-Time Features
 
 - **Agent activity signals** — Agent signals (`processing`, `activity`, `task_complete`, `error`) stream over WebSocket. `TypingIndicator` renders activity labels (e.g. "searching the web", "composing response") sourced from `agent_signal_activity` events.
@@ -57,6 +68,24 @@ bin/
 - Tailwind v4 — styles via utility classes, not CSS modules.
 - Tests use Vitest + React Testing Library + MSW for API mocking.
 - Build produces vendor chunks: `vendor-react`, `vendor-mui`, `vendor-radix`, `vendor-charts`, `vendor-icons`.
+- Keep feature-gated surfaces explicitly gated in routes, navigation, and live tests. Do not make experimental or non-core product areas look like default/core flows accidentally.
+- Preserve the current product line bias: direct messages, agent lifecycle, runtime visibility, and operator diagnostics are the default path; broader platform surfaces remain gated.
+
+## Validation
+
+Use the smallest sufficient frontend validation, but use live browser coverage when the change touches runtime/lifecycle/operator flows.
+
+```bash
+npm test
+./scripts/e2e-live-disposable.sh --skip-build
+```
+
+The disposable live suite is the highest-signal validation path when changes affect:
+
+- agent create/start/pause/resume/restart
+- DM/reply behavior
+- runtime-backed agent status or diagnostics
+- operator/admin surfaces
 
 ## Things to Know
 
