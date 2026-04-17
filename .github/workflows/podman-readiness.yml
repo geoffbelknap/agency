@@ -2,6 +2,12 @@ name: Podman Readiness
 
 on:
   workflow_dispatch:
+    inputs:
+      full_e2e:
+        description: 'Run the full Podman disposable E2E release gate after smoke'
+        required: false
+        default: false
+        type: boolean
   schedule:
     - cron: '0 14 * * 1'
 
@@ -38,5 +44,11 @@ jobs:
 
       - name: Run Podman readiness smoke
         run: make podman-readiness
+        env:
+          AGENCY_PODMAN_SOCKET: unix:///tmp/podman.sock
+
+      - name: Run Podman readiness full E2E
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_e2e }}
+        run: make podman-readiness-full
         env:
           AGENCY_PODMAN_SOCKET: unix:///tmp/podman.sock
