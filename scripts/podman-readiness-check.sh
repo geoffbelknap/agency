@@ -159,6 +159,46 @@ bootstrap_seed_home() {
     "$SEED_HOME/run" \
     "$SEED_HOME/knowledge/ontology.d"
   mkdir -m 700 -p "$SEED_HOME/audit"
+  cat >"$SEED_HOME/infrastructure/routing.yaml" <<'EOF'
+version: "0.1"
+providers:
+  anthropic:
+    api_base: https://api.anthropic.com/v1
+    auth_env: ANTHROPIC_API_KEY
+    auth_header: x-api-key
+    auth_prefix: ""
+  openai:
+    api_base: https://api.openai.com/v1
+    auth_env: OPENAI_API_KEY
+    auth_header: Authorization
+    auth_prefix: "Bearer "
+models:
+  claude-sonnet:
+    provider: anthropic
+    provider_model: claude-sonnet-4-20250514
+  claude-haiku:
+    provider: anthropic
+    provider_model: claude-haiku-4-5-20251001
+  gpt-4o:
+    provider: openai
+    provider_model: gpt-4o
+  gpt-4o-mini:
+    provider: openai
+    provider_model: gpt-4o-mini
+tiers:
+  standard:
+    - model: claude-sonnet
+      preference: 0
+    - model: gpt-4o
+      preference: 1
+  mini:
+    - model: claude-haiku
+      preference: 0
+    - model: gpt-4o-mini
+      preference: 1
+settings:
+  default_tier: standard
+EOF
 }
 
 patch_seed_config() {
