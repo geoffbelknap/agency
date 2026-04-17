@@ -82,6 +82,12 @@ func splitDoctorChecks(checks []doctorCheckResult, backend string) ([]doctorChec
 	return runtimeChecks, backendChecks
 }
 
+func isSyntheticReadinessAgent(name string) bool {
+	name = strings.TrimSpace(strings.ToLower(name))
+	return strings.HasPrefix(name, "podman-readiness-") ||
+		strings.HasPrefix(name, "docker-readiness-")
+}
+
 func managedRuntimeAgents(home string) ([]string, error) {
 	agentsDir := filepath.Join(home, "agents")
 	entries, err := os.ReadDir(agentsDir)
@@ -526,6 +532,9 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		agentName := ae.Name()
+		if isSyntheticReadinessAgent(agentName) {
+			continue
+		}
 		// Check if agent has any granted services
 		var constraints map[string]interface{}
 		if data, err := os.ReadFile(filepath.Join(agentsDir, agentName, "constraints.yaml")); err == nil {
@@ -623,7 +632,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Network pool check
-	if capErr == nil {
+	if capErr == nil && report.Backend == runtimehost.BackendDocker {
 		if capCfg.NetworkPoolConfigured {
 			report.Checks = append(report.Checks, checkResult{
 				Name: "network_pool", Status: "pass",
