@@ -6,9 +6,10 @@ set -e
 
 # Determine how to reach the gateway daemon.
 # On Linux: Unix socket works through bind mount (native filesystem).
-# On macOS Docker Desktop: Unix sockets don't work through bind mounts
-# (VM boundary), so we use host.docker.internal:${AGENCY_HOST_GATEWAY_PORT}.
+# On VM-backed runtimes: Unix sockets don't work through bind mounts
+# (VM boundary), so we use the configured host gateway alias.
 HOST_GATEWAY_PORT="${AGENCY_HOST_GATEWAY_PORT:-8200}"
+HOST_GATEWAY_HOSTS="${AGENCY_HOST_GATEWAY_HOSTS:-host.docker.internal,host.containers.internal}"
 GATEWAY_TARGET=""
 if [ -S /run/gateway.sock ]; then
     # Test if the socket is actually connectable (fails on macOS Docker Desktop)
@@ -17,14 +18,23 @@ if [ -S /run/gateway.sock ]; then
     fi
 fi
 if [ -z "$GATEWAY_TARGET" ]; then
-    # Socket not usable — try host.docker.internal (macOS Docker Desktop)
-    if ping -c1 -W1 host.docker.internal >/dev/null 2>&1; then
-        GATEWAY_TARGET="TCP:host.docker.internal:${HOST_GATEWAY_PORT}"
-        echo "gateway-proxy: using host.docker.internal (macOS Docker Desktop)"
-    fi
+    # Socket not usable — try host aliases provided by the backend contract.
+    # Name resolution is the portable capability we rely on here; ICMP reachability
+    # is not guaranteed across runtimes and is not required for the TCP bridge.
+    OLD_IFS="$IFS"
+    IFS=","
+    for host in $HOST_GATEWAY_HOSTS; do
+        host=$(printf '%s' "$host" | tr -d ' ')
+        if [ -n "$host" ] && getent hosts "$host" >/dev/null 2>&1; then
+            GATEWAY_TARGET="TCP:${host}:${HOST_GATEWAY_PORT}"
+            echo "gateway-proxy: using ${host}"
+            break
+        fi
+    done
+    IFS="$OLD_IFS"
 fi
 if [ -z "$GATEWAY_TARGET" ]; then
-    echo "gateway-proxy: no route to gateway daemon (no socket, no host.docker.internal)"
+    echo "gateway-proxy: no route to gateway daemon (no socket, no reachable host alias in ${HOST_GATEWAY_HOSTS})"
     exit 1
 fi
 echo "gateway-proxy: target=$GATEWAY_TARGET"

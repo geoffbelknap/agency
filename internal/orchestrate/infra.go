@@ -7,25 +7,19 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/events"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/client"
-	"github.com/docker/go-connections/nat"
 	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/comms"
 	"github.com/geoffbelknap/agency/internal/config"
-	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
-	"github.com/geoffbelknap/agency/internal/images"
+	"github.com/geoffbelknap/agency/internal/hostadapter/containerops"
+	"github.com/geoffbelknap/agency/internal/hostadapter/imageops"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/infratier"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/orchestrate/containers"
@@ -36,88 +30,22 @@ import (
 )
 
 type dockerNetworkAPI interface {
-	NetworkInspect(ctx context.Context, networkID string, options network.InspectOptions) (network.Inspect, error)
-	NetworkCreate(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error)
+	NetworkInspect(ctx context.Context, networkID string, options containerops.InspectOptions) (containerops.Inspect, error)
+	NetworkCreate(ctx context.Context, name string, options containerops.CreateOptions) (containerops.CreateResponse, error)
 	NetworkRemove(ctx context.Context, networkID string) error
 }
 
+const prefix = "agency"
+
 const (
-	prefix           = "agency"
-	baseGatewayNet   = "agency-gateway"
-	baseEgressIntNet = "agency-egress-int"
-	baseEgressExtNet = "agency-egress-ext"
-	baseOperatorNet  = "agency-operator"
+	baseGatewayNet   = runtimehost.BaseGatewayNet
+	baseEgressIntNet = runtimehost.BaseEgressIntNet
+	baseEgressExtNet = runtimehost.BaseEgressExtNet
+	baseOperatorNet  = runtimehost.BaseOperatorNet
 )
 
-var defaultImages = map[string]string{
-	"egress":        "agency-egress:latest",
-	"comms":         "agency-comms:latest",
-	"knowledge":     "agency-knowledge:latest",
-	"intake":        "agency-intake:latest",
-	"web-fetch":     "agency-web-fetch:latest",
-	"web":           "agency-web:latest",
-	"relay":         "agency-relay:latest",
-	"embeddings":    "agency-embeddings:latest",
-	"gateway-proxy": "agency-gateway-proxy:latest",
-}
-
-var defaultHealthChecks = map[string]*container.HealthConfig{
-	"egress": {
-		Test:        []string{"CMD-SHELL", `python -c "import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1',3128)); s.close()"`},
-		Interval:    10 * time.Second,
-		Timeout:     3 * time.Second,
-		StartPeriod: 5 * time.Second,
-		Retries:     3,
-	},
-	"comms": {
-		Test:        []string{"CMD-SHELL", `python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"`},
-		Interval:    10 * time.Second,
-		Timeout:     3 * time.Second,
-		StartPeriod: 5 * time.Second,
-		Retries:     3,
-	},
-	"knowledge": {
-		Test:        []string{"CMD-SHELL", `python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"`},
-		Interval:    10 * time.Second,
-		Timeout:     3 * time.Second,
-		StartPeriod: 5 * time.Second,
-		Retries:     3,
-	},
-	"intake": {
-		Test:        []string{"CMD-SHELL", `python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"`},
-		Interval:    10 * time.Second,
-		Timeout:     3 * time.Second,
-		StartPeriod: 5 * time.Second,
-		Retries:     3,
-	},
-	"web-fetch": {
-		Test:        []string{"CMD", "wget", "-q", "-O-", "http://127.0.0.1:8080/health"},
-		Interval:    10 * time.Second,
-		Timeout:     3 * time.Second,
-		StartPeriod: 5 * time.Second,
-		Retries:     3,
-	},
-	"web": {
-		Test:        []string{"CMD", "wget", "-q", "-O-", "http://127.0.0.1:8280/health"},
-		Interval:    10 * time.Second,
-		Timeout:     3 * time.Second,
-		StartPeriod: 5 * time.Second,
-		Retries:     3,
-	},
-	"embeddings": {
-		Test:        []string{"CMD-SHELL", `bash -c "echo > /dev/tcp/127.0.0.1/11434"`},
-		Interval:    10 * time.Second,
-		Timeout:     3 * time.Second,
-		StartPeriod: 10 * time.Second,
-		Retries:     3,
-	},
-	// gateway-proxy has no Docker health check. It's socat — starts instantly.
-	// Readiness is verified by the gateway via waitSocketReady() instead.
-	// A Docker health check here would fork socat per check, causing PID
-	// exhaustion under concurrent health probes from other containers.
-}
-
-var infraNameSanitizer = regexp.MustCompile(`[^a-z0-9-]+`)
+var defaultImages = runtimehost.DefaultImages
+var defaultHealthChecks = runtimehost.DefaultHealthChecks
 
 // loggingEnv returns standard logging environment variables for a container.
 // Every agency container gets these so structured logging works by default.
@@ -154,21 +82,21 @@ type Infra struct {
 	EgressToken  string // scoped token for egress credential resolution
 	Registry     *registry.Registry
 	Optimizer    *routing.RoutingOptimizer
-	Docker       *agencyDocker.Client
+	Docker       *runtimehost.DockerHandle
 	Comms        comms.Client
-	cli          *client.Client
+	cli          *runtimehost.RawClient
 	log          *slog.Logger
 	hmacKey      []byte
 }
 
 // NewInfra creates a new infrastructure manager.
-func NewInfra(home, version string, dc *agencyDocker.Client, logger *slog.Logger, hmacKey []byte) (*Infra, error) {
-	var cli *client.Client
+func NewInfra(home, version string, dc *runtimehost.DockerHandle, logger *slog.Logger, hmacKey []byte) (*Infra, error) {
+	var cli *runtimehost.RawClient
 	if dc != nil {
 		cli = dc.RawClient()
 	} else {
 		var err error
-		cli, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+		cli, err = runtimehost.NewRawClient()
 		if err != nil {
 			return nil, err
 		}
@@ -193,37 +121,27 @@ func NewInfra(home, version string, dc *agencyDocker.Client, logger *slog.Logger
 }
 
 func infraInstanceName() string {
-	instance := strings.TrimSpace(strings.ToLower(os.Getenv("AGENCY_INFRA_INSTANCE")))
-	if instance == "" {
-		return ""
-	}
-	instance = infraNameSanitizer.ReplaceAllString(instance, "-")
-	instance = strings.Trim(instance, "-")
-	return instance
+	return runtimehost.InfraInstanceName()
 }
 
 func scopedInfraName(base string) string {
-	instance := infraInstanceName()
-	if instance == "" {
-		return base
-	}
-	return fmt.Sprintf("%s-%s", base, instance)
+	return runtimehost.ScopedInfraName(base)
 }
 
 func gatewayNetName() string {
-	return scopedInfraName(baseGatewayNet)
+	return runtimehost.GatewayNetName()
 }
 
 func egressIntNetName() string {
-	return scopedInfraName(baseEgressIntNet)
+	return runtimehost.EgressIntNetName()
 }
 
 func egressExtNetName() string {
-	return scopedInfraName(baseEgressExtNet)
+	return runtimehost.EgressExtNetName()
 }
 
 func operatorNetName() string {
-	return scopedInfraName(baseOperatorNet)
+	return runtimehost.OperatorNetName()
 }
 
 func (inf *Infra) scopedName(base string) string {
@@ -263,7 +181,7 @@ func (inf *Infra) instanceLabel() string {
 func (inf *Infra) infraLabels(ctx context.Context, imageRef, component string) map[string]string {
 	buildID := ""
 	if inf.cli != nil {
-		buildID = images.ImageBuildLabel(ctx, inf.cli, imageRef)
+		buildID = imageops.ImageBuildLabel(ctx, inf.cli, imageRef)
 	}
 	return map[string]string{
 		"agency.managed":       "true",
@@ -341,7 +259,7 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 	// Write default classification config if it doesn't exist
 	inf.ensureDefaultClassification()
 
-	progress("networks", "Creating Docker networks")
+	progress("networks", "Creating managed networks")
 	if err := inf.ensureNetworks(ctx); err != nil {
 		return fmt.Errorf("ensure networks: %w", err)
 	}
@@ -410,6 +328,14 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 		return fmt.Errorf("infrastructure failures: %s", strings.Join(errs, "; "))
 	}
 
+	if err := inf.waitCommsReady(ctx, 30*time.Second); err != nil {
+		return fmt.Errorf("comms bridge: %w", err)
+	}
+
+	if err := inf.ensureSystemChannels(ctx); err != nil {
+		return fmt.Errorf("system channels: %w", err)
+	}
+
 	// Audit: verify no managed container has Docker socket access
 	if violations := inf.AuditDockerSocket(ctx); len(violations) > 0 {
 		inf.log.Error("Docker socket audit FAILED — containers with /var/run/docker.sock mounted",
@@ -469,27 +395,7 @@ func (inf *Infra) TeardownWithProgress(ctx context.Context, onProgress ProgressF
 
 // cleanNetworks removes agency-managed Docker networks that have no connected endpoints.
 func (inf *Infra) cleanNetworks(ctx context.Context) {
-	networks, err := inf.cli.NetworkList(ctx, network.ListOptions{})
-	if err != nil {
-		return
-	}
-	for _, n := range networks {
-		if n.Labels["agency.managed"] != "true" {
-			continue
-		}
-		// Inspect to check for connected endpoints
-		detail, err := inf.cli.NetworkInspect(ctx, n.ID, network.InspectOptions{})
-		if err != nil {
-			continue
-		}
-		if len(detail.Containers) == 0 {
-			if err := inf.cli.NetworkRemove(ctx, n.ID); err != nil {
-				inf.log.Debug("clean network skip", "network", n.Name, "err", err)
-			} else {
-				inf.log.Info("cleaned orphan network", "network", n.Name)
-			}
-		}
-	}
+	runtimehost.CleanManagedNetworks(ctx, inf.cli, inf.log)
 }
 
 // RestartComponent stops, removes, and recreates a single component.
@@ -533,7 +439,7 @@ func (inf *Infra) RestartComponentWithProgress(ctx context.Context, component st
 // route to the host — all external access must go through the enforcer/egress
 // chain (ASK Tenet 3: mediation is complete).
 func (inf *Infra) EnsureAgentNetwork(ctx context.Context, netName string) error {
-	if err := ensureInternalNetworkReady(ctx, inf.cli, netName); err != nil {
+	if err := runtimehost.EnsureInternalNetworkReady(ctx, inf.cli, netName); err != nil {
 		inf.log.Error("failed to create agent network", "network", netName, "err", err)
 		return err
 	}
@@ -542,7 +448,7 @@ func (inf *Infra) EnsureAgentNetwork(ctx context.Context, netName string) error 
 }
 
 func ensureInternalNetworkReady(ctx context.Context, cli dockerNetworkAPI, netName string) error {
-	if _, err := cli.NetworkInspect(ctx, netName, network.InspectOptions{}); err == nil {
+	if _, err := cli.NetworkInspect(ctx, netName, containerops.InspectOptions{}); err == nil {
 		return nil
 	} else if !containers.IsNetworkNotFound(err) {
 		return fmt.Errorf("inspect agent network %s: %w", netName, err)
@@ -555,7 +461,7 @@ func ensureInternalNetworkReady(ctx context.Context, cli dockerNetworkAPI, netNa
 
 	backoff := []time.Duration{50 * time.Millisecond, 100 * time.Millisecond, 250 * time.Millisecond, 500 * time.Millisecond, time.Second}
 	for _, delay := range backoff {
-		if _, err := cli.NetworkInspect(ctx, netName, network.InspectOptions{}); err == nil {
+		if _, err := cli.NetworkInspect(ctx, netName, containerops.InspectOptions{}); err == nil {
 			return nil
 		} else if !containers.IsNetworkNotFound(err) {
 			return fmt.Errorf("verify agent network %s: %w", netName, err)
@@ -568,7 +474,7 @@ func ensureInternalNetworkReady(ctx context.Context, cli dockerNetworkAPI, netNa
 		}
 	}
 
-	if _, err := cli.NetworkInspect(ctx, netName, network.InspectOptions{}); err == nil {
+	if _, err := cli.NetworkInspect(ctx, netName, containerops.InspectOptions{}); err == nil {
 		return nil
 	} else if containers.IsNetworkNotFound(err) {
 		return fmt.Errorf("agent network %s not ready after create", netName)
@@ -654,7 +560,7 @@ func (inf *Infra) ensureNetworks(ctx context.Context) error {
 		{inf.operatorNetName(), false},  // Operator tools (web, relay)
 	}
 	for _, n := range nets {
-		_, inspectErr := inf.cli.NetworkInspect(ctx, n.name, network.InspectOptions{})
+		_, inspectErr := inf.cli.NetworkInspect(ctx, n.name, containerops.InspectOptions{})
 		if inspectErr != nil {
 			var err error
 			switch {
@@ -677,17 +583,22 @@ func (inf *Infra) ensureNetworks(ctx context.Context) error {
 // -- Individual containers --
 
 func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
-	if err := images.Resolve(ctx, inf.cli, "gateway-proxy", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
+	if err := imageops.Resolve(ctx, inf.cli, "gateway-proxy", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve gateway-proxy image: %w", err)
 	}
 	name := inf.containerName("gateway-proxy")
-	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) && inf.hasContainerEnv(ctx, name, "AGENCY_HOST_GATEWAY_PORT", inf.gatewayPort()) {
+	hostGatewayHosts := runtimehost.HostGatewayAliasesEnv(inf.backendName())
+	if inf.isRunning(ctx, name) &&
+		inf.isCurrentBuild(ctx, name) &&
+		inf.isHealthyOrNoCheck(ctx, name) &&
+		inf.hasContainerEnv(ctx, name, "AGENCY_HOST_GATEWAY_PORT", inf.gatewayPort()) &&
+		inf.hasContainerEnv(ctx, name, "AGENCY_HOST_GATEWAY_HOSTS", hostGatewayHosts) {
 		return nil
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("gateway-proxy"))
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
-	hc.NetworkMode = container.NetworkMode(inf.gatewayNetName())
+	hc.NetworkMode = containerops.NetworkMode(inf.gatewayNetName())
 	hc.ReadonlyRootfs = true
 	hc.Resources.Memory = 64 * 1024 * 1024
 	hc.Resources.NanoCPUs = 500_000_000
@@ -697,10 +608,10 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	hc.Resources.PidsLimit = nil
 	// Reverse bridges: host gateway reaches services through published ports.
 	// Ports must publish to the host for macOS Docker Desktop compatibility.
-	hc.PortBindings = nat.PortMap{
-		"8202/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8202")}},
-		"8204/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8204")}},
-		"8205/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8205")}},
+	hc.PortBindings = containerops.PortMap{
+		"8202/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8202")}},
+		"8204/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8204")}},
+		"8205/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8205")}},
 	}
 	// Mount the run directory so socat can reach the gateway Unix socket.
 	// Mount the directory (not the socket file) so new sockets from daemon
@@ -708,8 +619,8 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	runDir := filepath.Join(inf.Home, "run")
 	hc.Binds = []string{runDir + ":/run:ro"}
 
-	netCfg := &network.NetworkingConfig{
-		EndpointsConfig: map[string]*network.EndpointSettings{
+	netCfg := &containerops.NetworkingConfig{
+		EndpointsConfig: map[string]*containerops.EndpointSettings{
 			inf.gatewayNetName(): {
 				Aliases: []string{"gateway"},
 			},
@@ -719,11 +630,14 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 
 	if _, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
-		&container.Config{
+		&containerops.Config{
 			Image:    defaultImages["gateway-proxy"],
 			Hostname: "gateway-proxy",
-			Env:      mapToEnv(map[string]string{"AGENCY_HOST_GATEWAY_PORT": inf.gatewayPort()}),
-			ExposedPorts: nat.PortSet{
+			Env: mapToEnv(map[string]string{
+				"AGENCY_HOST_GATEWAY_PORT":  inf.gatewayPort(),
+				"AGENCY_HOST_GATEWAY_HOSTS": hostGatewayHosts,
+			}),
+			ExposedPorts: containerops.PortSet{
 				"8202/tcp": struct{}{},
 				"8204/tcp": struct{}{},
 				"8205/tcp": struct{}{},
@@ -743,8 +657,15 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	return inf.waitSocketReady(ctx, 10*time.Second)
 }
 
+func (inf *Infra) backendName() string {
+	if inf.Docker == nil {
+		return runtimehost.BackendDocker
+	}
+	return inf.Docker.Backend()
+}
+
 func (inf *Infra) ensureEgress(ctx context.Context) error {
-	if err := images.Resolve(ctx, inf.cli, "egress", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
+	if err := imageops.Resolve(ctx, inf.cli, "egress", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve egress image: %w", err)
 	}
 	name := inf.containerName("egress")
@@ -818,12 +739,12 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
-	hc.NetworkMode = container.NetworkMode(inf.egressIntNetName())
+	hc.NetworkMode = containerops.NetworkMode(inf.egressIntNetName())
 
 	mergeEnv(env, inf.loggingEnv("egress"))
 	id, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
-		&container.Config{
+		&containerops.Config{
 			Image:       defaultImages["egress"],
 			Hostname:    "egress",
 			Env:         mapToEnv(env),
@@ -850,7 +771,7 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 }
 
 func (inf *Infra) ensureComms(ctx context.Context) error {
-	if err := images.Resolve(ctx, inf.cli, "comms", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
+	if err := imageops.Resolve(ctx, inf.cli, "comms", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve comms image: %w", err)
 	}
 	name := inf.containerName("comms")
@@ -876,13 +797,13 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 		commsData + ":/app/data:rw",
 		agentsDir + ":/app/agents:rw",
 	}
-	hc.NetworkMode = container.NetworkMode(inf.gatewayNetName())
+	hc.NetworkMode = containerops.NetworkMode(inf.gatewayNetName())
 	// No host port binding — comms is reached via Docker container IP.
 	// Host port publishing is unreliable on some hosts with user-defined networks.
 
 	if _, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
-		&container.Config{
+		&containerops.Config{
 			Image:       defaultImages["comms"],
 			Hostname:    "comms",
 			Env:         mapToEnv(func() map[string]string { e := inf.loggingEnv("comms"); e["AGENCY_CALLER"] = "comms"; return e }()),
@@ -902,16 +823,11 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 		return err
 	}
 
-	// Create system channels
-	if err := inf.ensureSystemChannels(ctx); err != nil {
-		return fmt.Errorf("system channels: %w", err)
-	}
-
 	return nil
 }
 
 func (inf *Infra) ensureKnowledge(ctx context.Context) error {
-	if err := images.Resolve(ctx, inf.cli, "knowledge", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
+	if err := imageops.Resolve(ctx, inf.cli, "knowledge", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve knowledge image: %w", err)
 	}
 	name := inf.containerName("knowledge")
@@ -951,21 +867,21 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
-	hc.NetworkMode = container.NetworkMode(inf.gatewayNetName())
-	hc.PortBindings = nat.PortMap{
-		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.knowledgePort()}},
+	hc.NetworkMode = containerops.NetworkMode(inf.gatewayNetName())
+	hc.PortBindings = containerops.PortMap{
+		"8080/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.knowledgePort()}},
 	}
 
 	mergeEnv(env, inf.loggingEnv("knowledge"))
 	id, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
-		&container.Config{
+		&containerops.Config{
 			Image:        defaultImages["knowledge"],
 			Hostname:     "knowledge",
 			Env:          mapToEnv(env),
 			Labels:       inf.serviceLabels(ctx, defaultImages["knowledge"], "knowledge", "8080"),
 			Healthcheck:  defaultHealthChecks["knowledge"],
-			ExposedPorts: nat.PortSet{"8080/tcp": struct{}{}},
+			ExposedPorts: containerops.PortSet{"8080/tcp": struct{}{}},
 		},
 		hc, nil,
 	)
@@ -986,7 +902,7 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 }
 
 func (inf *Infra) ensureIntake(ctx context.Context) error {
-	if err := images.Resolve(ctx, inf.cli, "intake", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
+	if err := imageops.Resolve(ctx, inf.cli, "intake", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve intake image: %w", err)
 	}
 	name := inf.containerName("intake")
@@ -1039,22 +955,22 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
-	hc.NetworkMode = container.NetworkMode(inf.gatewayNetName())
+	hc.NetworkMode = containerops.NetworkMode(inf.gatewayNetName())
 	hc.Resources.Memory = 128 * 1024 * 1024 // 128MB — intake is lightweight
-	hc.PortBindings = nat.PortMap{
-		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.intakePort()}},
+	hc.PortBindings = containerops.PortMap{
+		"8080/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.intakePort()}},
 	}
 
 	mergeEnv(env, inf.loggingEnv("intake"))
 	id, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
-		&container.Config{
+		&containerops.Config{
 			Image:        defaultImages["intake"],
 			Hostname:     "intake",
 			Env:          mapToEnv(env),
 			Labels:       inf.serviceLabels(ctx, defaultImages["intake"], "intake", "8080"),
 			Healthcheck:  defaultHealthChecks["intake"],
-			ExposedPorts: nat.PortSet{"8080/tcp": struct{}{}},
+			ExposedPorts: containerops.PortSet{"8080/tcp": struct{}{}},
 		},
 		hc, nil,
 	)
@@ -1073,7 +989,7 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 }
 
 func (inf *Infra) ensureWebFetch(ctx context.Context) error {
-	if err := images.Resolve(ctx, inf.cli, "web-fetch", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
+	if err := imageops.Resolve(ctx, inf.cli, "web-fetch", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve web-fetch image: %w", err)
 	}
 	name := inf.containerName("web-fetch")
@@ -1113,21 +1029,21 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
-	hc.NetworkMode = container.NetworkMode(inf.gatewayNetName())
-	hc.PortBindings = nat.PortMap{
-		"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.webFetchPort()}},
+	hc.NetworkMode = containerops.NetworkMode(inf.gatewayNetName())
+	hc.PortBindings = containerops.PortMap{
+		"8080/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.webFetchPort()}},
 	}
 
 	mergeEnv(env, inf.loggingEnv("web-fetch"))
 	id, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
-		&container.Config{
+		&containerops.Config{
 			Image:        defaultImages["web-fetch"],
 			Hostname:     "web-fetch",
 			Env:          mapToEnv(env),
 			Labels:       inf.serviceLabels(ctx, defaultImages["web-fetch"], "web-fetch", "8080"),
 			Healthcheck:  defaultHealthChecks["web-fetch"],
-			ExposedPorts: nat.PortSet{"8080/tcp": struct{}{}},
+			ExposedPorts: containerops.PortSet{"8080/tcp": struct{}{}},
 		},
 		hc, nil,
 	)
@@ -1148,7 +1064,7 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 func (inf *Infra) ensureWeb(ctx context.Context) error {
 	// agency-web lives in the repo's top-level web/ directory, so it uses the
 	// main source tree as the resolver entrypoint instead of images/web/.
-	if err := images.Resolve(ctx, inf.cli, "web", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
+	if err := imageops.Resolve(ctx, inf.cli, "web", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		inf.log.Warn("agency-web image not available, skipping", "err", err)
 		return nil // non-fatal — web UI is optional
 	}
@@ -1161,9 +1077,9 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	useHostNetwork := inf.webUsesHostNetwork()
 	if useHostNetwork {
-		hc.NetworkMode = container.NetworkMode("host")
+		hc.NetworkMode = containerops.NetworkMode("host")
 	} else {
-		hc.NetworkMode = container.NetworkMode(inf.operatorNetName())
+		hc.NetworkMode = containerops.NetworkMode(inf.operatorNetName())
 	}
 	hc.ReadonlyRootfs = true
 	hc.Tmpfs = map[string]string{
@@ -1175,8 +1091,8 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 		"/tmp":                "rw,noexec,nosuid,size=1m",
 	}
 	if !useHostNetwork {
-		hc.PortBindings = nat.PortMap{
-			"8280/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.webPort()}},
+		hc.PortBindings = containerops.PortMap{
+			"8280/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.webPort()}},
 		}
 		// Web container needs the full gateway API (not the restricted socket proxy),
 		// so route to the host's TCP listener instead of the mediation-net gateway-proxy.
@@ -1189,7 +1105,7 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 
 	if _, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
-		&container.Config{
+		&containerops.Config{
 			Image:    defaultImages["web"],
 			Hostname: "web",
 			Env: mapToEnv(map[string]string{
@@ -1199,7 +1115,7 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 			}),
 			Labels:       inf.infraLabels(ctx, defaultImages["web"], "web"),
 			Healthcheck:  inf.webHealthCheck(),
-			ExposedPorts: nat.PortSet{"8280/tcp": struct{}{}},
+			ExposedPorts: containerops.PortSet{"8280/tcp": struct{}{}},
 		},
 		hc, nil,
 	); err != nil {
@@ -1219,7 +1135,7 @@ func (inf *Infra) ensureRelay(ctx context.Context) error {
 		return nil
 	}
 
-	if err := images.Resolve(ctx, inf.cli, "relay", inf.Version, "", inf.BuildID, inf.log); err != nil {
+	if err := imageops.Resolve(ctx, inf.cli, "relay", inf.Version, "", inf.BuildID, inf.log); err != nil {
 		inf.log.Warn("agency-relay image not available, skipping", "err", err)
 		return nil // non-fatal — relay is optional
 	}
@@ -1230,7 +1146,7 @@ func (inf *Infra) ensureRelay(ctx context.Context) error {
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("relay"))
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
-	hc.NetworkMode = container.NetworkMode(inf.operatorNetName())
+	hc.NetworkMode = containerops.NetworkMode(inf.operatorNetName())
 	hc.Binds = []string{
 		inf.Home + ":/home/relay/.agency:rw",
 	}
@@ -1242,7 +1158,7 @@ func (inf *Infra) ensureRelay(ctx context.Context) error {
 
 	if _, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
-		&container.Config{
+		&containerops.Config{
 			Image:    defaultImages["relay"],
 			Hostname: "relay",
 			Env: []string{
@@ -1271,8 +1187,8 @@ func (inf *Infra) ensureEmbeddings(ctx context.Context) error {
 		return nil
 	}
 
-	upstreamRef := fmt.Sprintf("%s:%s", images.OllamaUpstream, images.OllamaVersion)
-	if err := images.ResolveUpstream(ctx, inf.cli, "embeddings", inf.Version, upstreamRef, inf.BuildID, inf.log); err != nil {
+	upstreamRef := fmt.Sprintf("%s:%s", imageops.OllamaUpstream, imageops.OllamaVersion)
+	if err := imageops.ResolveUpstream(ctx, inf.cli, "embeddings", inf.Version, upstreamRef, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve embeddings image: %w", err)
 	}
 	name := inf.containerName("embeddings")
@@ -1292,13 +1208,13 @@ func (inf *Infra) ensureEmbeddings(ctx context.Context) error {
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
-	hc.NetworkMode = container.NetworkMode(inf.gatewayNetName())
+	hc.NetworkMode = containerops.NetworkMode(inf.gatewayNetName())
 	// Override memory: 3GB for model inference
 	hc.Resources.Memory = 3 * 1024 * 1024 * 1024
 
 	if _, err := containers.CreateAndStart(ctx, inf.cli,
 		name,
-		&container.Config{
+		&containerops.Config{
 			Image:       defaultImages["embeddings"],
 			Hostname:    "embeddings",
 			Labels:      inf.infraLabels(ctx, defaultImages["embeddings"], "embeddings"),
@@ -1314,6 +1230,27 @@ func (inf *Infra) ensureEmbeddings(ctx context.Context) error {
 	}
 	// Ollama needs longer to initialize than our Python services
 	return inf.waitHealthy(ctx, name, 60*time.Second)
+}
+
+func (inf *Infra) waitCommsReady(ctx context.Context, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		if _, err := inf.Comms.CommsRequest(ctx, "GET", "/channels", nil); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+	if lastErr != nil {
+		return fmt.Errorf("proxy path to comms not ready within %v: %w", timeout, lastErr)
+	}
+	return fmt.Errorf("proxy path to comms not ready within %v", timeout)
 }
 
 // -- System channels --
@@ -1342,9 +1279,9 @@ func (inf *Infra) ensureSystemChannels(ctx context.Context) error {
 		}
 		// Single path through the gateway-proxy. Retry with backoff for startup timing.
 		var lastErr error
-		for attempt := 0; attempt < 4; attempt++ {
+		for attempt := 0; attempt < 8; attempt++ {
 			if attempt > 0 {
-				time.Sleep(3 * time.Second)
+				time.Sleep(2 * time.Second)
 			}
 			_, lastErr = inf.Comms.CommsRequest(ctx, "POST", "/channels", body)
 			if lastErr == nil || strings.Contains(lastErr.Error(), "409") {
@@ -1501,66 +1438,11 @@ func stopTimeoutFor(role string) int {
 }
 
 func (inf *Infra) waitRunning(ctx context.Context, name string, timeout time.Duration) error {
-	// Quick check — already running?
-	if inf.isRunning(ctx, name) {
-		return nil
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	eventCh, errCh := inf.cli.Events(ctx, events.ListOptions{
-		Filters: filters.NewArgs(
-			filters.Arg("container", name),
-			filters.Arg("event", "start"),
-		),
-	})
-
-	for {
-		select {
-		case <-eventCh:
-			if inf.isRunning(ctx, name) {
-				return nil
-			}
-		case err := <-errCh:
-			if ctx.Err() != nil {
-				return fmt.Errorf("container %s did not start within %v", name, timeout)
-			}
-			return fmt.Errorf("event stream error for %s: %w", name, err)
-		case <-ctx.Done():
-			return fmt.Errorf("container %s did not start within %v", name, timeout)
-		}
-	}
+	return runtimehost.WaitRunning(ctx, inf.cli, name, timeout)
 }
 
 func (inf *Infra) waitHealthy(ctx context.Context, name string, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		info, err := inf.cli.ContainerInspect(ctx, name)
-		if err == nil {
-			if info.State.Health == nil {
-				return nil
-			}
-			if info.State.Health.Status == "healthy" {
-				return nil
-			}
-			if info.State.Status == "exited" || info.State.Status == "dead" {
-				return fmt.Errorf("container %s exited before becoming healthy", name)
-			}
-		}
-
-		select {
-		case <-ticker.C:
-			continue
-		case <-ctx.Done():
-			return fmt.Errorf("container %s did not become healthy within %v", name, timeout)
-		}
-	}
+	return runtimehost.WaitHealthy(ctx, inf.cli, name, timeout)
 }
 
 // waitSocketReady polls the gateway Unix socket directly from the Go process.
@@ -1586,12 +1468,7 @@ func (inf *Infra) waitSocketReady(ctx context.Context, timeout time.Duration) er
 }
 
 func (inf *Infra) connectIfNeeded(ctx context.Context, containerID, netName string, aliases []string) {
-	err := inf.cli.NetworkConnect(ctx, netName, containerID, &network.EndpointSettings{
-		Aliases: aliases,
-	})
-	if err != nil && !strings.Contains(err.Error(), "already exists") {
-		inf.log.Warn("network connect", "container", containerID, "network", netName, "err", err)
-	}
+	runtimehost.ConnectIfNeeded(ctx, inf.cli, containerID, netName, aliases, inf.log)
 }
 
 // fixDirPerms recursively sets permissions on all subdirectories and files
@@ -1674,12 +1551,12 @@ func (inf *Infra) webListenAddr() string {
 	return "8280"
 }
 
-func (inf *Infra) webHealthCheck() *container.HealthConfig {
+func (inf *Infra) webHealthCheck() *containerops.HealthConfig {
 	url := "http://127.0.0.1:8280/health"
 	if inf.webUsesHostNetwork() {
 		url = "http://127.0.0.1:" + inf.webPort() + "/health"
 	}
-	return &container.HealthConfig{
+	return &containerops.HealthConfig{
 		Test:        []string{"CMD", "wget", "-q", "-O-", url},
 		Interval:    10 * time.Second,
 		Timeout:     3 * time.Second,

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
@@ -295,6 +296,26 @@ func TestRuntimeSupervisorGetFallsBackToPersistedStatusWhenInspectFails(t *testi
 	}
 }
 
+func TestRuntimeSupervisorSaveManifestSkipsDeletedAgent(t *testing.T) {
+	home := t.TempDir()
+	rs := NewRuntimeSupervisor(home, "0.1.0", "", "build-1", "fake", nil, nil, nil, nil)
+
+	manifest := runtimeManifest{
+		Spec: runtimecontract.RuntimeSpec{
+			RuntimeID: "deleted-agent",
+			AgentID:   "ag_deleted",
+			Backend:   "fake",
+		},
+	}
+
+	if err := rs.saveManifest(manifest); err != nil {
+		t.Fatalf("saveManifest returned error: %v", err)
+	}
+	if _, err := os.Stat(rs.manifestPath("deleted-agent")); !os.IsNotExist(err) {
+		t.Fatalf("expected no manifest file, got err=%v", err)
+	}
+}
+
 func TestRuntimeSupervisorRestartStopsThenEnsures(t *testing.T) {
 	home := t.TempDir()
 	agentDir := filepath.Join(home, "agents", "alice")
@@ -348,5 +369,75 @@ func TestRuntimeSupervisorRestartStopsThenEnsures(t *testing.T) {
 	}
 	if !manifest.Status.Healthy {
 		t.Fatal("expected manifest status to be healthy after restart")
+	}
+}
+
+func TestRuntimeSupervisorProbeBackendRoundTrip(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, "agents", "alice")
+	stateDir := filepath.Join(agentDir, "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("uuid: ag_123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tokenFile := filepath.Join(stateDir, "token.yaml")
+	if err := os.WriteFile(tokenFile, []byte("- key: \"abc\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rs := NewRuntimeSupervisor(home, "0.1.0", "", "build-1", probeRuntimeBackendName, nil, nil, nil, nil)
+	spec, err := rs.Compile(context.Background(), "alice")
+	if err != nil {
+		t.Fatalf("Compile returned error: %v", err)
+	}
+	if spec.Backend != probeRuntimeBackendName {
+		t.Fatalf("backend = %q, want %q", spec.Backend, probeRuntimeBackendName)
+	}
+	if err := os.MkdirAll(filepath.Dir(spec.Transport.Enforcer.TokenRef), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(spec.Transport.Enforcer.TokenRef, []byte("- key: \"abc\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := rs.Reconcile(context.Background(), spec); err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+	if err := rs.Ensure(context.Background(), "alice"); err != nil {
+		t.Fatalf("Ensure returned error: %v", err)
+	}
+	status, err := rs.Get(context.Background(), "alice")
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if status.Phase != runtimecontract.RuntimePhaseRunning {
+		t.Fatalf("phase = %q, want running", status.Phase)
+	}
+	if !status.Healthy {
+		t.Fatal("expected healthy runtime status")
+	}
+	if err := rs.Validate(context.Background(), "alice"); err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+}
+
+func TestRuntimeSupervisorCompilePodmanBackend(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, "agents", "alice")
+	if err := os.MkdirAll(filepath.Join(agentDir, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("uuid: ag_123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rs := NewRuntimeSupervisor(home, "0.1.0", "", "build-1", runtimehost.BackendPodman, nil, nil, nil, nil)
+	spec, err := rs.Compile(context.Background(), "alice")
+	if err != nil {
+		t.Fatalf("Compile returned error: %v", err)
+	}
+	if spec.Backend != runtimehost.BackendPodman {
+		t.Fatalf("backend = %q, want %q", spec.Backend, runtimehost.BackendPodman)
 	}
 }

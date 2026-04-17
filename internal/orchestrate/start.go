@@ -13,9 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 	"log/slog"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 
 	"github.com/geoffbelknap/agency/internal/comms"
 	"github.com/geoffbelknap/agency/internal/config"
@@ -32,7 +30,7 @@ type StartSequence struct {
 	SourceDir   string // agency_core/ path for dev-mode image builds
 	BuildID     string // content-aware build ID for staleness detection
 	BackendName string
-	Docker      *agencyDocker.Client
+	Docker      *runtimehost.DockerHandle
 	Comms       comms.Client
 	Log         *slog.Logger
 	KeyRotation bool // Force scoped key rotation (used on restart)
@@ -475,29 +473,10 @@ func (ss *StartSequence) checkCapacity(ctx context.Context) error {
 	// Count running workspace containers (agents).
 	var agentCount, meeseeksCount int
 	if ss.Docker != nil {
-		cli := ss.Docker.RawClient()
-
-		agents, err := cli.ContainerList(ctx, container.ListOptions{
-			Filters: filters.NewArgs(
-				filters.Arg("label", "agency.type=workspace"),
-				filters.Arg("status", "running"),
-			),
-		})
+		agentCount, meeseeksCount, err = runtimehost.CountRunning(ctx, ss.Docker)
 		if err != nil {
-			return fmt.Errorf("list workspace containers: %w", err)
+			return fmt.Errorf("count running runtimes: %w", err)
 		}
-		agentCount = len(agents)
-
-		meeseeks, err := cli.ContainerList(ctx, container.ListOptions{
-			Filters: filters.NewArgs(
-				filters.Arg("label", "agency.type=meeseeks-workspace"),
-				filters.Arg("status", "running"),
-			),
-		})
-		if err != nil {
-			return fmt.Errorf("list meeseeks containers: %w", err)
-		}
-		meeseeksCount = len(meeseeks)
 	}
 
 	if err := CheckSlotAvailable(cfg, agentCount, meeseeksCount); err != nil {

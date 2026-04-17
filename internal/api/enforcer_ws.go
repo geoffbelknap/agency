@@ -3,20 +3,20 @@ package api
 import (
 	"fmt"
 
-	"github.com/docker/go-connections/nat"
+	"github.com/geoffbelknap/agency/internal/hostadapter/containerops"
 )
 
-func enforcerWSURLFromBindings(defaultURL string, hostBindings nat.PortMap, networkBindings nat.PortMap) string {
-	if url, ok := wsURLFromPortBindings(hostBindings[nat.Port("8081/tcp")]); ok {
+func enforcerWSURLFromBindings(defaultURL string, hostBindings containerops.PortMap, networkBindings containerops.PortMap) string {
+	if url, ok := wsURLFromPortBindings(hostBindings[containerops.Port("8081/tcp")]); ok {
 		return url
 	}
-	if url, ok := wsURLFromPortBindings(networkBindings[nat.Port("8081/tcp")]); ok {
+	if url, ok := wsURLFromPortBindings(networkBindings[containerops.Port("8081/tcp")]); ok {
 		return url
 	}
 	return defaultURL
 }
 
-func wsURLFromPortBindings(bindings []nat.PortBinding) (string, bool) {
+func wsURLFromPortBindings(bindings []containerops.PortBinding) (string, bool) {
 	if len(bindings) == 0 || bindings[0].HostPort == "" {
 		return "", false
 	}

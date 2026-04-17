@@ -4,23 +4,21 @@ import (
 	"net/http"
 	"path/filepath"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 )
 
-func workspaceCapacityFilters() filters.Args {
-	return filters.NewArgs(
-		filters.Arg("label", "agency.type=workspace"),
-		filters.Arg("status", "running"),
+func workspaceCapacityFilters() runtimehost.FilterArgs {
+	return runtimehost.NewFilterArgs(
+		runtimehost.FilterArg("label", "agency.type=workspace"),
+		runtimehost.FilterArg("status", "running"),
 	)
 }
 
-func meeseeksCapacityFilters() filters.Args {
-	return filters.NewArgs(
-		filters.Arg("label", "agency.type=meeseeks-workspace"),
-		filters.Arg("status", "running"),
+func meeseeksCapacityFilters() runtimehost.FilterArgs {
+	return runtimehost.NewFilterArgs(
+		runtimehost.FilterArg("label", "agency.type=meeseeks-workspace"),
+		runtimehost.FilterArg("status", "running"),
 	)
 }
 
@@ -40,14 +38,14 @@ func (h *handler) infraCapacity(w http.ResponseWriter, r *http.Request) {
 		if raw := h.deps.DC.RawClient(); raw != nil {
 			ctx := r.Context()
 
-			agentContainers, err := raw.ContainerList(ctx, container.ListOptions{
+			agentContainers, err := raw.ContainerList(ctx, runtimehost.ListOptions{
 				Filters: workspaceCapacityFilters(),
 			})
 			if err == nil {
 				runningAgents = len(agentContainers)
 			}
 
-			meeseeksContainers, err := raw.ContainerList(ctx, container.ListOptions{
+			meeseeksContainers, err := raw.ContainerList(ctx, runtimehost.ListOptions{
 				Filters: meeseeksCapacityFilters(),
 			})
 			if err == nil {

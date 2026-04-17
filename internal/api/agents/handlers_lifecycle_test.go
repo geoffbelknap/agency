@@ -6,8 +6,11 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/geoffbelknap/agency/internal/orchestrate"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -105,5 +108,33 @@ func TestEnsureAgentDMReturnsErrorWhenGrantFails(t *testing.T) {
 
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestContainerInstanceIDFallsBackWithoutDockerClient(t *testing.T) {
+	h := &handler{}
+	if got := h.containerInstanceID(context.Background(), "henry", "workspace"); got != "henry:workspace" {
+		t.Fatalf("containerInstanceID() = %q, want henry:workspace", got)
+	}
+}
+
+func TestRuntimeLifecycleAvailableUsesRuntimeSupervisor(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, "agents", "henry")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("uuid: ag_123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := &handler{deps: Deps{
+		AgentManager: &orchestrate.AgentManager{
+			Home:    home,
+			Runtime: orchestrate.NewRuntimeSupervisor(home, "0.1.0", "", "build-1", "probe", nil, nil, nil, nil),
+		},
+	}}
+	rec := httptest.NewRecorder()
+	if !h.runtimeLifecycleAvailable(rec) {
+		t.Fatalf("runtimeLifecycleAvailable() = false, body=%s", rec.Body.String())
 	}
 }

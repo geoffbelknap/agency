@@ -25,6 +25,12 @@ import (
 func (h *handler) signalMissionReload(agentName string) {
 	go func() {
 		ctx := context.Background()
+		if h.deps.Runtime != nil {
+			if err := h.deps.Runtime.ReloadEnforcer(ctx, agentName); err != nil {
+				h.deps.Logger.Warn("failed to reload runtime enforcer for mission update", "agent", agentName, "err", err)
+			}
+			return
+		}
 		enforcerName := fmt.Sprintf("agency-%s-enforcer", agentName)
 		if err := h.deps.Signal.SignalContainer(ctx, enforcerName, "SIGHUP"); err != nil {
 			h.deps.Logger.Warn("failed to signal enforcer for mission reload", "agent", agentName, "err", err)
@@ -646,6 +652,12 @@ func CheckCoordinatorFailover(ctx context.Context, agentName string, d Deps) {
 		})
 		go func(coverageName string) {
 			sigCtx := context.Background()
+			if d.Runtime != nil {
+				if err := d.Runtime.ReloadEnforcer(sigCtx, coverageName); err != nil {
+					d.Logger.Warn("failed to reload coverage runtime enforcer", "agent", coverageName, "err", err)
+				}
+				return
+			}
 			enforcerName := fmt.Sprintf("agency-%s-enforcer", coverageName)
 			if err := d.Signal.SignalContainer(sigCtx, enforcerName, "SIGHUP"); err != nil {
 				d.Logger.Warn("failed to signal coverage enforcer", "agent", coverageName, "err", err)

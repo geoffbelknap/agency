@@ -11,17 +11,17 @@ import (
 	"github.com/geoffbelknap/agency/internal/config"
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/credstore"
-	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/events"
 	"github.com/geoffbelknap/agency/internal/features"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 	"github.com/geoffbelknap/agency/internal/ws"
 )
 
-// Ensure *docker.Client satisfies DockerClient at compile time.
-var _ DockerClient = (*docker.Client)(nil)
+// Ensure the host-scoped Docker client satisfies DockerClient at compile time.
+var _ DockerClient = (*runtimehost.Client)(nil)
 
 // CommsClient is the interface for making requests to the comms service.
 // Defined locally per Go convention: interfaces belong where they are consumed.
@@ -58,14 +58,14 @@ type Deps struct {
 	Config          *config.Config
 	Logger          *slog.Logger
 	CredStore       *credstore.Store
-	DockerStatus    *docker.Status // may be nil
-	WSHub           *ws.Hub        // may be nil
+	DockerStatus    *runtimehost.Status // may be nil
+	WSHub           *ws.Hub             // may be nil
 	Comms           CommsClient
 	Signal          SignalSender
 	DC              DockerClient
 	// RawDocker is required for StartSequence (container orchestration).
 	// It is used only by start/restart handlers.
-	RawDocker *docker.Client
+	RawDocker *runtimehost.Client
 }
 
 type handler struct {

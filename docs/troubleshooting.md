@@ -38,16 +38,19 @@ Common causes:
 - Missing required fields
 - Policy chain inconsistency (agent policy tries to expand what a higher level restricts)
 
-### "Docker daemon not running"
+### Container backend not running
 
-Agency requires Docker. Start the Docker daemon:
+Agency requires the selected container backend. Start the backend first, then retry:
 
 ```bash
-# Linux
+# Docker on Linux
 sudo systemctl start docker
 
-# macOS / Windows (Docker Desktop)
-# Open Docker Desktop application
+# Docker on macOS / Windows
+# Open Docker Desktop
+
+# Podman
+podman info --format json
 ```
 
 ### Start Sequence Fails at a Specific Phase
@@ -57,9 +60,9 @@ The seven-phase start sequence is all-or-nothing. If it fails, check which phase
 | Phase | Common Issues |
 |-------|--------------|
 | **Verify** | Config file validation errors |
-| **Enforcement** | Docker issues, port conflicts, infrastructure not running |
+| **Enforcement** | Container backend issues, port conflicts, infrastructure not running |
 | **Constraints** | Policy chain errors, missing policy templates |
-| **Workspace** | Image build failures, Docker resource limits |
+| **Workspace** | Image build failures, backend resource limits |
 | **Identity** | Missing or corrupted `identity.md` |
 | **Body** | Image pull failures, mount permission issues |
 | **Session** | Rare — usually indicates an internal error |
@@ -115,11 +118,12 @@ This block is intentional. The right response is to adjust your approach, not wo
 ### Infrastructure Won't Start
 
 ```bash
-# Check Docker
-docker info
-
-# Check for port conflicts (common: 18091, 18092)
+# Check the selected container backend
 agency infra status
+
+# Optional backend-specific checks
+docker info
+podman info --format json
 
 # Rebuild and retry
 agency infra rebuild

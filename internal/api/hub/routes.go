@@ -10,7 +10,8 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
-	"github.com/geoffbelknap/agency/internal/docker"
+	"github.com/geoffbelknap/agency/internal/hostadapter"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 )
@@ -28,8 +29,9 @@ type Deps struct {
 	Config    *config.Config
 	Logger    *slog.Logger
 	Signal    SignalSender
+	Host      hostadapter.Adapter
 	// DC is required by deployPack/teardownPack which use orchestrate.NewDeployer.
-	DC *docker.Client
+	DC *runtimehost.Client
 	// Agents is required by deployPack to set CredStore on the deployer.
 	Agents *orchestrate.AgentManager
 }

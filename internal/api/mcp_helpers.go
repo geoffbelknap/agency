@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -140,11 +141,115 @@ func (d *mcpDeps) regenerateSwapConfig() {
 	os.WriteFile(swapPath, data, 0644)
 }
 
+func mcpManagedRuntimeAgents(home string) ([]string, error) {
+	agentsDir := filepath.Join(home, "agents")
+	entries, err := os.ReadDir(agentsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+	agents := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			agents = append(agents, entry.Name())
+		}
+	}
+	sort.Strings(agents)
+	return agents, nil
+}
+
+func (d *mcpDeps) runningAgentNames(ctx context.Context) ([]string, error) {
+	if d != nil && d.agents != nil {
+		agents, err := d.agents.List(ctx)
+		if err != nil {
+			return nil, err
+		}
+		running := make([]string, 0, len(agents))
+		for _, agent := range agents {
+			if agent.Status == "running" {
+				running = append(running, agent.Name)
+			}
+		}
+		sort.Strings(running)
+		return running, nil
+	}
+	if d == nil || d.dc == nil {
+		return nil, fmt.Errorf("runtime agent listing unavailable")
+	}
+	agents, err := d.dc.ListAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	running := make([]string, 0, len(agents))
+	for _, agent := range agents {
+		if agent.Status == "running" {
+			running = append(running, agent.Name)
+		}
+	}
+	sort.Strings(running)
+	return running, nil
+}
+
+func (d *mcpDeps) reloadAgentEnforcer(ctx context.Context, agentName string) error {
+	if d != nil && d.agents != nil && d.agents.Runtime != nil {
+		return d.agents.Runtime.ReloadEnforcer(ctx, agentName)
+	}
+	if d == nil || d.dc == nil {
+		return fmt.Errorf("enforcer reload unavailable")
+	}
+	enforcerName := fmt.Sprintf("agency-%s-enforcer", agentName)
+	return d.dc.RawClient().ContainerKill(ctx, enforcerName, "SIGHUP")
+}
+
+func (d *mcpDeps) runtimeDoctorSummary(ctx context.Context) (string, bool) {
+	backend := mcpConfiguredRuntimeBackend(d)
+	if d == nil || d.agents == nil || d.agents.Runtime == nil {
+		return fmt.Sprintf("Security guarantees (FAILURES)\n  Runtime supervisor unavailable for backend %s", backend), true
+	}
+	agents, err := mcpManagedRuntimeAgents(d.cfg.Home)
+	if err != nil {
+		return fmt.Sprintf("Security guarantees (FAILURES)\n  Cannot enumerate managed agents: %s", err), true
+	}
+	if len(agents) == 0 {
+		return fmt.Sprintf("Security guarantees (ALL PASS)\n  No managed agents to check (backend: %s)", backend), false
+	}
+
+	lines := make([]string, 0, len(agents)+1)
+	allPassed := true
+	for _, agentName := range agents {
+		status, err := d.agents.Runtime.Get(ctx, agentName)
+		if err != nil {
+			allPassed = false
+			lines = append(lines, fmt.Sprintf("  [FAIL] %s runtime status unavailable: %s", agentName, err))
+			continue
+		}
+		if err := d.agents.Runtime.Validate(ctx, agentName); err != nil {
+			allPassed = false
+			lines = append(lines, fmt.Sprintf("  [FAIL] %s runtime validate failed: %s", agentName, err))
+			continue
+		}
+		if status.Healthy {
+			lines = append(lines, fmt.Sprintf("  [PASS] %s runtime healthy: phase=%s backend=%s", agentName, status.Phase, status.Backend))
+			continue
+		}
+		allPassed = false
+		lines = append(lines, fmt.Sprintf("  [FAIL] %s runtime unhealthy: phase=%s backend=%s", agentName, status.Phase, status.Backend))
+	}
+
+	header := "Security guarantees (ALL PASS)"
+	if !allPassed {
+		header = "Security guarantees (FAILURES)"
+	}
+	return header + "\n" + strings.Join(lines, "\n"), !allPassed
+}
+
 // reloadCapabilitiesForRunningAgents regenerates manifests and signals enforcers
 // for all running agents after a capability change.
 func (d *mcpDeps) reloadCapabilitiesForRunningAgents(capName string) {
 	ctx := context.Background()
-	agents, err := d.dc.ListAgents(ctx)
+	agents, err := d.runningAgentNames(ctx)
 	if err != nil {
 		d.log.Warn("capability reload: failed to list agents", "err", err)
 		return
@@ -159,11 +264,7 @@ func (d *mcpDeps) reloadCapabilitiesForRunningAgents(capName string) {
 		}
 	}
 
-	for _, agent := range agents {
-		if agent.Status != "running" {
-			continue
-		}
-		name := agent.Name
+	for _, name := range agents {
 		agentDir := filepath.Join(d.cfg.Home, "agents", name)
 
 		if err := d.generateAgentManifest(name); err != nil {
@@ -229,11 +330,8 @@ func (d *mcpDeps) reloadCapabilitiesForRunningAgents(capName string) {
 			}
 		}
 
-		enforcerName := fmt.Sprintf("agency-%s-enforcer", name)
-		if d.dc != nil {
-			if err := d.dc.RawClient().ContainerKill(ctx, enforcerName, "SIGHUP"); err != nil {
-				d.log.Debug("capability reload: enforcer SIGHUP failed", "agent", name, "err", err)
-			}
+		if err := d.reloadAgentEnforcer(ctx, name); err != nil {
+			d.log.Debug("capability reload: enforcer reload failed", "agent", name, "err", err)
 		}
 
 		d.audit.Write(name, "capability_reload", map[string]interface{}{

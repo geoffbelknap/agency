@@ -214,10 +214,10 @@ Rate-limited requests return HTTP 429 to the body runtime.
 
 ## Docker Socket Audit
 
-Gateway startup runs `AuditDockerSocket()` — scans all `agency.managed` containers for Docker socket mounts. Violations are logged as security errors.
+When the selected backend is Docker, gateway startup runs `AuditDockerSocket()` to scan all `agency.managed` containers for Docker socket mounts. Violations are logged as security errors. This is a Docker-backend hygiene check, not a generic runtime-contract check.
 
 ```bash
-agency admin doctor   # includes docker socket audit check
+agency admin doctor   # includes docker socket audit when Docker is the selected backend
 ```
 
 ## LLM Usage

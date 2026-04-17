@@ -14,7 +14,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/capabilities"
 	agencyconsent "github.com/geoffbelknap/agency/internal/consent"
 	"github.com/geoffbelknap/agency/internal/credstore"
-	"github.com/geoffbelknap/agency/internal/docker"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -33,6 +33,10 @@ func registerAdminTools(reg *MCPToolRegistry) {
 		nil,
 		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
 			ctx := context.Background()
+			backend := mcpConfiguredRuntimeBackend(d)
+			if !runtimehost.IsContainerBackend(backend) {
+				return d.runtimeDoctorSummary(ctx)
+			}
 
 			type checkResult struct {
 				name   string
@@ -43,6 +47,9 @@ func registerAdminTools(reg *MCPToolRegistry) {
 			allPassed := true
 			var checks []checkResult
 
+			if d == nil || d.dc == nil {
+				return fmt.Sprintf("Security guarantees (FAILURES)\n  %s client is not initialized", runtimehost.NormalizeContainerBackend(backend)), true
+			}
 			agents, err := d.dc.ListAgentWorkspaces(ctx)
 			if err != nil {
 				return fmt.Sprintf("Security guarantees (FAILURES)\n  Cannot list containers: %s", err), true
@@ -202,12 +209,12 @@ func registerAdminTools(reg *MCPToolRegistry) {
 						checks = append(checks, checkResult{"operator_override", agentName, "FAIL", "Cannot inspect enforcer: " + err.Error()})
 						return
 					}
-					if !docker.EnforcerHasOperatorOverridePath(enf.Networks) {
+					if !runtimehost.EnforcerHasOperatorOverridePath(enf.Networks) {
 						allPassed = false
 						checks = append(checks, checkResult{"operator_override", agentName, "FAIL", "Enforcer missing gateway mediation network: " + strings.Join(enf.Networks, ", ")})
 						return
 					}
-					if unexpected := docker.EnforcerUnexpectedExternalNetworks(enf.Networks); len(unexpected) > 0 {
+					if unexpected := runtimehost.EnforcerUnexpectedExternalNetworks(enf.Networks); len(unexpected) > 0 {
 						allPassed = false
 						checks = append(checks, checkResult{"operator_override", agentName, "FAIL", "Enforcer attached to external network(s): " + strings.Join(unexpected, ", ")})
 						return
@@ -1924,11 +1931,8 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				return "Error: failed to store consent private key in credstore: " + err.Error(), true
 			}
 
-			if d.dc != nil {
-				enforcerName := "agency-" + agent + "-enforcer"
-				if err := d.dc.RawClient().ContainerKill(context.Background(), enforcerName, "SIGHUP"); err != nil {
-					d.log.Debug("consent key bootstrap: enforcer SIGHUP failed", "agent", agent, "err", err)
-				}
+			if err := d.reloadAgentEnforcer(context.Background(), agent); err != nil && d.log != nil {
+				d.log.Debug("consent key bootstrap: enforcer reload failed", "agent", agent, "err", err)
 			}
 
 			d.audit.Write(agent, "consent_keys_updated", map[string]interface{}{

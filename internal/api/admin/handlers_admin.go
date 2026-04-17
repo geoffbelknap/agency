@@ -12,13 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
 	"github.com/go-chi/chi/v5"
 	"gopkg.in/yaml.v3"
 
 	"github.com/geoffbelknap/agency/internal/config"
-	"github.com/geoffbelknap/agency/internal/docker"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -57,7 +55,7 @@ func configuredRuntimeBackend(cfg *config.Config) string {
 	if cfg != nil && strings.TrimSpace(cfg.Hub.DeploymentBackend) != "" {
 		return strings.TrimSpace(cfg.Hub.DeploymentBackend)
 	}
-	return "docker"
+	return runtimehost.BackendDocker
 }
 
 func isBackendSpecificDoctorCheck(name, backend string) bool {
@@ -84,11 +82,148 @@ func splitDoctorChecks(checks []doctorCheckResult, backend string) ([]doctorChec
 	return runtimeChecks, backendChecks
 }
 
+func managedRuntimeAgents(home string) ([]string, error) {
+	agentsDir := filepath.Join(home, "agents")
+	entries, err := os.ReadDir(agentsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var agents []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		manifestPath := filepath.Join(agentsDir, entry.Name(), "runtime", "manifest.yaml")
+		if _, err := os.Stat(manifestPath); err == nil {
+			agents = append(agents, entry.Name())
+		}
+	}
+	return agents, nil
+}
+
+func (h *handler) adminDoctorRuntimeContract(ctx context.Context) doctorReport {
+	report := doctorReport{AllPassed: true, Backend: configuredRuntimeBackend(h.deps.Config)}
+	if h.deps.AgentManager == nil || h.deps.AgentManager.Runtime == nil {
+		report.AllPassed = false
+		report.Checks = append(report.Checks, doctorCheckResult{
+			Name:   "runtime_supervisor",
+			Status: "fail",
+			Detail: "Runtime supervisor is not initialized",
+		})
+		report.RuntimeChecks, report.BackendChecks = splitDoctorChecks(report.Checks, report.Backend)
+		return report
+	}
+	if err := h.deps.AgentManager.Runtime.RuntimeAvailable(ctx); err != nil {
+		report.AllPassed = false
+		report.Checks = append(report.Checks, doctorCheckResult{
+			Name:   "runtime_backend_available",
+			Status: "fail",
+			Detail: err.Error(),
+		})
+		report.RuntimeChecks, report.BackendChecks = splitDoctorChecks(report.Checks, report.Backend)
+		return report
+	}
+	report.Checks = append(report.Checks, doctorCheckResult{
+		Name:   "runtime_backend_available",
+		Status: "pass",
+		Detail: fmt.Sprintf("Runtime backend %q is available", report.Backend),
+	})
+
+	home := ""
+	if h.deps.Config != nil {
+		home = h.deps.Config.Home
+	}
+	if home == "" && h.deps.AgentManager != nil {
+		home = h.deps.AgentManager.Home
+	}
+	agents, err := managedRuntimeAgents(home)
+	if err != nil {
+		report.AllPassed = false
+		report.Checks = append(report.Checks, doctorCheckResult{
+			Name:   "runtime_agent_discovery",
+			Status: "fail",
+			Detail: err.Error(),
+		})
+		report.RuntimeChecks, report.BackendChecks = splitDoctorChecks(report.Checks, report.Backend)
+		return report
+	}
+	report.TestedAgents = agents
+	if len(agents) == 0 {
+		report.Checks = append(report.Checks, doctorCheckResult{
+			Name:   "no_running_agents",
+			Status: "pass",
+			Detail: "No managed runtime manifests to check",
+		})
+		report.RuntimeChecks, report.BackendChecks = splitDoctorChecks(report.Checks, report.Backend)
+		return report
+	}
+	for _, agentName := range agents {
+		if _, err := h.deps.AgentManager.Runtime.Manifest(agentName); err != nil {
+			report.AllPassed = false
+			report.Checks = append(report.Checks, doctorCheckResult{
+				Name:   "runtime_manifest",
+				Agent:  agentName,
+				Status: "fail",
+				Detail: err.Error(),
+			})
+			continue
+		}
+		report.Checks = append(report.Checks, doctorCheckResult{
+			Name:   "runtime_manifest",
+			Agent:  agentName,
+			Status: "pass",
+			Detail: "Persisted runtime manifest is present",
+		})
+		status, err := h.deps.AgentManager.Runtime.Get(ctx, agentName)
+		if err != nil {
+			report.AllPassed = false
+			report.Checks = append(report.Checks, doctorCheckResult{
+				Name:   "runtime_status",
+				Agent:  agentName,
+				Status: "fail",
+				Detail: err.Error(),
+			})
+		} else {
+			report.Checks = append(report.Checks, doctorCheckResult{
+				Name:   "runtime_status",
+				Agent:  agentName,
+				Status: "pass",
+				Detail: fmt.Sprintf("Runtime phase=%s healthy=%t backend=%s", status.Phase, status.Healthy, status.Backend),
+			})
+		}
+		if err := h.deps.AgentManager.Runtime.Validate(ctx, agentName); err != nil {
+			report.AllPassed = false
+			report.Checks = append(report.Checks, doctorCheckResult{
+				Name:   "runtime_validate",
+				Agent:  agentName,
+				Status: "fail",
+				Detail: err.Error(),
+			})
+			continue
+		}
+		report.Checks = append(report.Checks, doctorCheckResult{
+			Name:   "runtime_validate",
+			Agent:  agentName,
+			Status: "pass",
+			Detail: "Runtime contract validates cleanly",
+		})
+	}
+	report.RuntimeChecks, report.BackendChecks = splitDoctorChecks(report.Checks, report.Backend)
+	return report
+}
+
 // ── Admin ───────────────────────────────────────────────────────────────────
 
 func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	report := doctorReport{AllPassed: true, Backend: configuredRuntimeBackend(h.deps.Config)}
+	if !runtimehost.IsContainerBackend(report.Backend) {
+		writeJSON(w, 200, h.adminDoctorRuntimeContract(ctx))
+		return
+	}
 
 	// Find running agents via docker (workspace containers)
 	agents, err := h.deps.DC.ListAgentWorkspaces(ctx)
@@ -346,7 +481,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 				})
 				return
 			}
-			if !docker.EnforcerHasOperatorOverridePath(enf.Networks) {
+			if !runtimehost.EnforcerHasOperatorOverridePath(enf.Networks) {
 				report.AllPassed = false
 				report.Checks = append(report.Checks, checkResult{
 					Name: "operator_override", Agent: agentName, Status: "fail",
@@ -354,7 +489,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 				})
 				return
 			}
-			if unexpected := docker.EnforcerUnexpectedExternalNetworks(enf.Networks); len(unexpected) > 0 {
+			if unexpected := runtimehost.EnforcerUnexpectedExternalNetworks(enf.Networks); len(unexpected) > 0 {
 				report.AllPassed = false
 				report.Checks = append(report.Checks, checkResult{
 					Name: "operator_override", Agent: agentName, Status: "fail",
@@ -462,14 +597,10 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 	} else {
 		agentCount := len(agents)
 		meeseeksCount := 0
-		// Count meeseeks containers
-		if mks, err := h.deps.DC.RawClient().ContainerList(ctx, container.ListOptions{
-			Filters: filters.NewArgs(
-				filters.Arg("label", "agency.role=meeseeks"),
-				filters.Arg("status", "running"),
-			),
-		}); err == nil {
-			meeseeksCount = len(mks)
+		if h.deps.Host != nil {
+			if count, err := h.deps.Host.CountRunningMeeseeks(ctx); err == nil {
+				meeseeksCount = count
+			}
 		}
 
 		total := agentCount + meeseeksCount
@@ -517,6 +648,14 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) adminDestroy(w http.ResponseWriter, r *http.Request) {
+	backend := configuredRuntimeBackend(h.deps.Config)
+	if !runtimehost.IsContainerBackend(backend) {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":   fmt.Sprintf("admin destroy is only available for container backends (current: %s)", backend),
+			"backend": backend,
+		})
+		return
+	}
 	// Stop all agents
 	agents, _ := h.deps.AgentManager.List(r.Context())
 	for _, a := range agents {
@@ -525,12 +664,16 @@ func (h *handler) adminDestroy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Tear down infrastructure
-	if h.deps.Infra != nil {
+	if h.deps.Host != nil {
+		_ = h.deps.Host.TeardownInfrastructure(r.Context(), h.deps.Infra)
+	} else if h.deps.Infra != nil {
 		h.deps.Infra.Teardown(r.Context())
 	}
 
 	// Prune dangling agency images
-	if h.deps.DC != nil {
+	if h.deps.Host != nil {
+		_, _, _ = h.deps.Host.PruneDanglingAgencyImages(r.Context())
+	} else if h.deps.DC != nil {
 		_, _ = h.pruneDanglingImages(r.Context())
 	}
 
@@ -539,6 +682,14 @@ func (h *handler) adminDestroy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) adminPruneImages(w http.ResponseWriter, r *http.Request) {
+	backend := configuredRuntimeBackend(h.deps.Config)
+	if !runtimehost.IsContainerBackend(backend) {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":   fmt.Sprintf("image pruning is only available for container backends (current: %s)", backend),
+			"backend": backend,
+		})
+		return
+	}
 	pruned, skipped := h.pruneDanglingImages(r.Context())
 	writeJSON(w, 200, map[string]interface{}{
 		"status":  "ok",
@@ -549,6 +700,19 @@ func (h *handler) adminPruneImages(w http.ResponseWriter, r *http.Request) {
 
 // pruneDanglingImages removes true dangling untagged Agency build images.
 func (h *handler) pruneDanglingImages(ctx context.Context) (pruned, skipped int) {
+	if h.deps.Host != nil {
+		pruned, skipped, err := h.deps.Host.PruneDanglingAgencyImages(ctx)
+		if err != nil && h.deps.Logger != nil {
+			h.deps.Logger.Warn("prune images: list failed", "err", err)
+		}
+		return pruned, skipped
+	}
+	if h.deps.DC == nil {
+		if h.deps.Logger != nil {
+			h.deps.Logger.Warn("prune images: docker client unavailable")
+		}
+		return 0, 0
+	}
 	imgs, err := h.deps.DC.ListDanglingAgencyImages(ctx)
 	if err != nil {
 		h.deps.Logger.Warn("prune images: list failed", "err", err)

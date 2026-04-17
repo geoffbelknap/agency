@@ -11,9 +11,10 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
-	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/events"
 	"github.com/geoffbelknap/agency/internal/features"
+	"github.com/geoffbelknap/agency/internal/hostadapter"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -36,7 +37,8 @@ type Deps struct {
 	CredStore    *credstore.Store
 	Config       *config.Config
 	Logger       *slog.Logger
-	DC           *docker.Client
+	DC           *runtimehost.Client
+	Host         hostadapter.Adapter
 	Signal       SignalSender
 	EventBus     *events.Bus // may be nil
 }

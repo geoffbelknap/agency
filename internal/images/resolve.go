@@ -16,9 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/client"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"log/slog"
 )
 
@@ -42,7 +40,7 @@ var sourceImageDependencies = map[string][]string{
 // Resolution order:
 //  1. Source tree build (if sourceDir is set — dev mode). Failure is fatal.
 //  2. GHCR pull (release mode)
-func Resolve(ctx context.Context, cli *client.Client, name, version, sourceDir, buildID string, logger *slog.Logger) error {
+func Resolve(ctx context.Context, cli *runtimehost.RawClient, name, version, sourceDir, buildID string, logger *slog.Logger) error {
 	localTag := fmt.Sprintf("agency-%s:latest", name)
 	var sourceHash string
 
@@ -59,7 +57,7 @@ func Resolve(ctx context.Context, cli *client.Client, name, version, sourceDir, 
 	}
 
 	// Check if existing local image is current — skip rebuild if buildID matches.
-	exists, err := imageExists(ctx, cli, localTag)
+	exists, err := ImageExists(ctx, cli, localTag)
 	if err != nil {
 		return fmt.Errorf("check local image %s: %w", localTag, err)
 	}
@@ -100,7 +98,7 @@ func Resolve(ctx context.Context, cli *client.Client, name, version, sourceDir, 
 				return fmt.Errorf("resolve source dependency %s for %s: %w", dep, localTag, err)
 			}
 		}
-		if err := buildFromSource(ctx, cli, name, sourceDir, localTag, buildID, sourceHash, logger); err != nil {
+		if err := BuildFromSource(ctx, cli, name, sourceDir, localTag, buildID, sourceHash, logger); err != nil {
 			return fmt.Errorf("image %s: source build failed: %w", localTag, err)
 		}
 		// Also tag with buildID so old images are identifiable for cleanup
@@ -109,7 +107,7 @@ func Resolve(ctx context.Context, cli *client.Client, name, version, sourceDir, 
 			cli.ImageTag(ctx, localTag, versionTag)
 		}
 		// Prune old images for this service (keep only current)
-		pruneOldImages(ctx, cli, name, buildID, logger)
+		PruneOldImages(ctx, cli, name, buildID, logger)
 		return nil
 	}
 
@@ -118,9 +116,9 @@ func Resolve(ctx context.Context, cli *client.Client, name, version, sourceDir, 
 		remoteTag := fmt.Sprintf("%s/agency-%s:v%s", registry, name, version)
 		logger.Info("pulling image", "image", remoteTag)
 		for attempt := 0; attempt < 2; attempt++ {
-			if err := pullAndTag(ctx, cli, remoteTag, localTag); err == nil {
+			if err := PullAndTag(ctx, cli, remoteTag, localTag); err == nil {
 				// Prune old images now that we have a fresh pull
-				pruneOldImages(ctx, cli, name, buildID, logger)
+				PruneOldImages(ctx, cli, name, buildID, logger)
 				return nil
 			} else {
 				if attempt == 0 {
@@ -143,11 +141,11 @@ func Resolve(ctx context.Context, cli *client.Client, name, version, sourceDir, 
 //  2. Pull from GHCR: ghcr.io/geoffbelknap/agency-<name>:v<version>, retag to agency-<name>:latest.
 //  3. Fallback: pull directly from upstreamRef (e.g. "ollama/ollama:0.9.3"), retag to agency-<name>:latest.
 //  4. Return error if all methods fail.
-func ResolveUpstream(ctx context.Context, cli *client.Client, name, version, upstreamRef, buildID string, logger *slog.Logger) error {
+func ResolveUpstream(ctx context.Context, cli *runtimehost.RawClient, name, version, upstreamRef, buildID string, logger *slog.Logger) error {
 	localTag := fmt.Sprintf("agency-%s:latest", name)
 
 	// Check if existing local image is current — skip pull if buildID matches.
-	exists, err := imageExists(ctx, cli, localTag)
+	exists, err := ImageExists(ctx, cli, localTag)
 	if err != nil {
 		return fmt.Errorf("check local image %s: %w", localTag, err)
 	}
@@ -169,8 +167,8 @@ func ResolveUpstream(ctx context.Context, cli *client.Client, name, version, ups
 		if logger != nil {
 			logger.Info("pulling image from GHCR", "image", ghcrTag)
 		}
-		if err := pullAndTag(ctx, cli, ghcrTag, localTag); err == nil {
-			pruneOldImages(ctx, cli, name, buildID, logger)
+		if err := PullAndTag(ctx, cli, ghcrTag, localTag); err == nil {
+			PruneOldImages(ctx, cli, name, buildID, logger)
 			return nil
 		} else if logger != nil {
 			logger.Warn("GHCR pull failed, falling back to upstream", "image", ghcrTag, "err", err)
@@ -182,8 +180,8 @@ func ResolveUpstream(ctx context.Context, cli *client.Client, name, version, ups
 		if logger != nil {
 			logger.Info("pulling image from upstream", "image", upstreamRef)
 		}
-		if err := pullAndTag(ctx, cli, upstreamRef, localTag); err == nil {
-			pruneOldImages(ctx, cli, name, buildID, logger)
+		if err := PullAndTag(ctx, cli, upstreamRef, localTag); err == nil {
+			PruneOldImages(ctx, cli, name, buildID, logger)
 			return nil
 		} else if logger != nil {
 			logger.Warn("upstream pull failed", "image", upstreamRef, "err", err)
@@ -243,7 +241,7 @@ func sourceBuildSpec(name, sourceDir string) (buildSpec, error) {
 }
 
 // buildFromSource builds an image directly from the source tree.
-func buildFromSource(ctx context.Context, cli *client.Client, name, sourceDir, tag, buildID, sourceHash string, logger *slog.Logger) error {
+func BuildFromSource(ctx context.Context, cli *runtimehost.RawClient, name, sourceDir, tag, buildID, sourceHash string, logger *slog.Logger) error {
 	spec, err := sourceBuildSpec(name, sourceDir)
 	if err != nil {
 		return err
@@ -563,13 +561,13 @@ func expandFingerprintPaths(contextDir string, paths []string) ([]string, error)
 	return files, nil
 }
 
-func imageExists(ctx context.Context, cli *client.Client, ref string) (bool, error) {
+func ImageExists(ctx context.Context, cli *runtimehost.RawClient, ref string) (bool, error) {
 	if cli == nil {
 		return false, fmt.Errorf("no Docker client")
 	}
 	_, _, err := cli.ImageInspectWithRaw(ctx, ref)
 	if err != nil {
-		if client.IsErrNotFound(err) {
+		if runtimehost.IsErrNotFound(err) {
 			return false, nil
 		}
 		if strings.Contains(err.Error(), "No such image") {
@@ -580,8 +578,12 @@ func imageExists(ctx context.Context, cli *client.Client, ref string) (bool, err
 	return true, nil
 }
 
-func pullAndTag(ctx context.Context, cli *client.Client, remoteRef, localTag string) error {
-	reader, err := cli.ImagePull(ctx, remoteRef, image.PullOptions{})
+func imageExists(ctx context.Context, cli *runtimehost.RawClient, ref string) (bool, error) {
+	return ImageExists(ctx, cli, ref)
+}
+
+func PullAndTag(ctx context.Context, cli *runtimehost.RawClient, remoteRef, localTag string) error {
+	reader, err := cli.ImagePull(ctx, remoteRef, runtimehost.ImagePullOptions{})
 	if err != nil {
 		return err
 	}
@@ -594,13 +596,13 @@ func pullAndTag(ctx context.Context, cli *client.Client, remoteRef, localTag str
 
 // ImageBuildLabel reads the agency.build.id label from a Docker image.
 // Returns empty string if the image cannot be inspected or the label is absent.
-func ImageBuildLabel(ctx context.Context, cli *client.Client, ref string) string {
+func ImageBuildLabel(ctx context.Context, cli *runtimehost.RawClient, ref string) string {
 	return ImageLabel(ctx, cli, ref, "agency.build.id")
 }
 
 // ImageLabel reads a Docker image label. Returns empty string if the image
 // cannot be inspected or the label is absent.
-func ImageLabel(ctx context.Context, cli *client.Client, ref, key string) string {
+func ImageLabel(ctx context.Context, cli *runtimehost.RawClient, ref, key string) string {
 	inspect, _, err := cli.ImageInspectWithRaw(ctx, ref)
 	if err != nil {
 		return ""
@@ -608,7 +610,7 @@ func ImageLabel(ctx context.Context, cli *client.Client, ref, key string) string
 	return inspect.Config.Labels[key]
 }
 
-func dockerBuild(ctx context.Context, cli *client.Client, contextDir, dockerfile, tag string, buildArgs map[string]*string) error {
+func dockerBuild(ctx context.Context, cli *runtimehost.RawClient, contextDir, dockerfile, tag string, buildArgs map[string]*string) error {
 	tarReader, err := createTar(contextDir)
 	if err != nil {
 		return fmt.Errorf("create build context tar: %w", err)
@@ -618,7 +620,7 @@ func dockerBuild(ctx context.Context, cli *client.Client, contextDir, dockerfile
 	platform := defaultBuildPlatform()
 	addDefaultPlatformBuildArgs(buildArgs, platform)
 
-	resp, err := cli.ImageBuild(ctx, tarReader, types.ImageBuildOptions{
+	resp, err := cli.ImageBuild(ctx, tarReader, runtimehost.ImageBuildOptions{
 		Dockerfile:  dockerfile,
 		Tags:        []string{tag},
 		Remove:      true,
@@ -782,7 +784,7 @@ func createTar(dir string) (io.ReadCloser, error) {
 
 // pruneOldImages removes old images for a service, keeping only the current buildID.
 // This prevents unbounded image accumulation from repeated rebuilds.
-func pruneOldImages(ctx context.Context, cli *client.Client, name, currentBuildID string, logger *slog.Logger) {
+func PruneOldImages(ctx context.Context, cli *runtimehost.RawClient, name, currentBuildID string, logger *slog.Logger) {
 	if cli == nil {
 		return
 	}
@@ -790,7 +792,7 @@ func pruneOldImages(ctx context.Context, cli *client.Client, name, currentBuildI
 	currentLatest := prefix + "latest"
 	currentVersionTag := prefix + currentBuildID
 
-	images, err := cli.ImageList(ctx, image.ListOptions{})
+	images, err := cli.ImageList(ctx, runtimehost.ImageListOptions{})
 	if err != nil {
 		return
 	}
@@ -803,7 +805,7 @@ func pruneOldImages(ctx context.Context, cli *client.Client, name, currentBuildI
 				continue
 			}
 			// Old image for this service — remove it
-			_, err := cli.ImageRemove(ctx, tag, image.RemoveOptions{PruneChildren: true})
+			_, err := cli.ImageRemove(ctx, tag, runtimehost.ImageRemoveOptions{PruneChildren: true})
 			if err == nil {
 				logger.Info("pruned old image", "image", tag)
 			}

@@ -17,6 +17,22 @@ START_TIMEOUT="${AGENCY_ALPHA_START_TIMEOUT:-420}"
 POLL_INTERVAL=2
 CREATED_AGENT=0
 
+runtime_cli() {
+  local config_path="${AGENCY_HOME_DIR}/config.yaml"
+  local backend=""
+  if [ -f "$config_path" ] && command -v ruby >/dev/null 2>&1; then
+    backend="$(ruby -e 'require "yaml"; path = ARGV[0]; data = YAML.load_file(path) || {}; hub = data["hub"].is_a?(Hash) ? data["hub"] : {}; value = hub["deployment_backend"].to_s.strip; puts(value)' "$config_path" 2>/dev/null || true)"
+  fi
+  case "$backend" in
+    podman)
+      printf '%s\n' podman
+      ;;
+    *)
+      printf '%s\n' docker
+      ;;
+  esac
+}
+
 log() {
   printf '==> %s\n' "$*"
 }
@@ -132,12 +148,16 @@ wait_for_agent_running() {
 }
 
 diagnose_agent_failure() {
+  local cli
+  cli="$(runtime_cli)"
   printf '\nDiagnostics for %s:\n' "$AGENT_NAME" >&2
   run_agency show "$AGENT_NAME" >&2 || true
   run_agency log "$AGENT_NAME" >&2 || true
-  docker ps -a --filter "name=agency-${AGENT_NAME}" --format '{{.Names}} {{.Status}}' >&2 || true
-  docker logs --tail 80 "agency-${AGENT_NAME}-enforcer" >&2 || true
-  docker logs --tail 80 "agency-${AGENT_NAME}-workspace" >&2 || true
+  if command -v "$cli" >/dev/null 2>&1; then
+    "$cli" ps -a --filter "name=agency-${AGENT_NAME}" --format '{{.Names}} {{.Status}}' >&2 || true
+    "$cli" logs --tail 80 "agency-${AGENT_NAME}-enforcer" >&2 || true
+    "$cli" logs --tail 80 "agency-${AGENT_NAME}-workspace" >&2 || true
+  fi
 }
 
 log "Running legacy alpha-readiness-check for the current core Agency path"

@@ -168,6 +168,14 @@ agency infra status                      # Container and image status
 agency infra reload                      # Hot-reload configurations
 ```
 
+## Runtime
+
+```bash
+agency runtime manifest <agent>          # Persisted agent runtime contract
+agency runtime status <agent>            # Projected agent runtime status
+agency runtime validate <agent>          # Fail-closed runtime validation
+```
+
 ## Notifications
 
 Experimental.

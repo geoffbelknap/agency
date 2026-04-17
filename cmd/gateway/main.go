@@ -33,8 +33,8 @@ import (
 	agencyCLI "github.com/geoffbelknap/agency/internal/cli"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/daemon"
-	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/events"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	agencylog "github.com/geoffbelknap/agency/internal/logging"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/models"
@@ -912,6 +912,7 @@ func runServe(httpAddr string) error {
 		cfg.SourceDir = sourceDir
 	}
 	logger.Info("agency home", "path", cfg.Home)
+	backendName := runtimehost.NormalizeContainerBackend(cfg.Hub.DeploymentBackend)
 
 	// Ensure audit directory has correct permissions (0700) — retroactively fix
 	// dirs created before this hardening was in place.
@@ -928,14 +929,19 @@ func runServe(httpAddr string) error {
 		}
 	}
 
-	// Docker client — optional, gateway starts in degraded mode if unavailable
-	dc := docker.TryNewClient(logger)
-	if dc != nil {
-		logger.Info("docker connected")
-	} else {
-		logger.Warn("docker unavailable — gateway starting in degraded mode")
+	// Container backend client — optional, gateway starts in degraded mode if unavailable.
+	var dc *runtimehost.Client
+	if runtimehost.IsContainerBackend(backendName) {
+		dc = runtimehost.TryNewClientForBackend(backendName, cfg.Hub.DeploymentBackendConfig, logger)
 	}
-	dockerStatus := docker.NewStatus(dc)
+	if dc != nil {
+		logger.Info("container backend connected", "backend", backendName)
+	} else if runtimehost.IsContainerBackend(backendName) {
+		logger.Warn("container backend unavailable — gateway starting in degraded mode", "backend", backendName)
+	} else {
+		logger.Info("gateway starting without a container backend client", "backend", backendName)
+	}
+	dockerStatus := runtimehost.NewStatus(dc)
 
 	// Startup reconciliation — clean up orphaned containers/networks from
 	// previous gateway runs. Runs before the HTTP server starts; errors are
@@ -1055,7 +1061,7 @@ func runServe(httpAddr string) error {
 				return missionMgr.Pause(name, reason)
 			},
 			logger,
-			dc.RawClient(),
+			dc,
 		)
 		if healthErr != nil {
 			logger.Warn("mission health monitor unavailable", "error", healthErr)
@@ -1080,7 +1086,7 @@ func runServe(httpAddr string) error {
 			},
 			logger,
 			stopSuppress,
-			dc.RawClient(),
+			dc,
 		)
 		if enfWatchErr != nil {
 			logger.Warn("enforcer watcher unavailable", "error", enfWatchErr)
@@ -1102,7 +1108,7 @@ func runServe(httpAddr string) error {
 			},
 			logger,
 			stopSuppress,
-			dc.RawClient(),
+			dc,
 		)
 		if wsWatchErr != nil {
 			logger.Warn("workspace watcher unavailable", "error", wsWatchErr)
@@ -1196,16 +1202,16 @@ func runServe(httpAddr string) error {
 	routeOpts.DockerStatus = dockerStatus
 	api.RegisterAll(r, cfg, dc, logger, startup, routeOpts)
 
-	// Wire auto-restore: when Docker reconnects, automatically bring up infra.
+	// Wire auto-restore: when the container backend reconnects, automatically bring up infra.
 	if cfg.AutoRestoreInfra {
 		dockerStatus.OnReconnect = func() {
-			logger.Info("Docker reconnected — auto-restoring infrastructure")
+			logger.Info("container backend reconnected — auto-restoring infrastructure", "backend", backendName)
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 				defer cancel()
-				newDC := docker.TryNewClient(logger)
+				newDC := runtimehost.TryNewClientForBackend(backendName, cfg.Hub.DeploymentBackendConfig, logger)
 				if newDC == nil {
-					logger.Warn("auto-restore: Docker reconnect detected but client creation failed")
+					logger.Warn("auto-restore: container backend reconnect detected but client creation failed", "backend", backendName)
 					return
 				}
 				infra, err := orchestrate.NewInfra(cfg.Home, cfg.Version, newDC, logger, cfg.HMACKey)

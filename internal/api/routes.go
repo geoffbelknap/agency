@@ -27,9 +27,10 @@ import (
 	"github.com/geoffbelknap/agency/internal/config"
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/credstore"
-	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/events"
 	"github.com/geoffbelknap/agency/internal/features"
+	"github.com/geoffbelknap/agency/internal/hostadapter"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -50,16 +51,42 @@ type RouteOptions struct {
 	NotifStore      *events.NotificationStore
 	StopSuppress    *orchestrate.StopSuppression
 	AuditSummarizer *audit.AuditSummarizer
-	DockerStatus    *docker.Status
+	DockerStatus    *runtimehost.Status
 	Registry        *registry.Registry
 	Optimizer       *routing.RoutingOptimizer
+}
+
+func signalSenderFor(dc *runtimehost.Client) SignalSender {
+	if dc == nil {
+		return noopSignalSender{}
+	}
+	return &DockerSignalSender{RawClient: dc.RawClient()}
+}
+
+func commsClientFor(dc *runtimehost.Client) interface {
+	CommsRequest(ctx context.Context, method, path string, body interface{}) ([]byte, error)
+} {
+	if dc == nil {
+		return noopCommsClient{}
+	}
+	return dc
+}
+
+func dockerExecClientFor(dc *runtimehost.Client) interface {
+	ExecInContainer(ctx context.Context, containerName string, cmd []string) (string, error)
+	ContainerShortID(ctx context.Context, name string) string
+} {
+	if dc == nil {
+		return noopDockerExecClient{}
+	}
+	return dc
 }
 
 // RegisterSocketRoutes sets up the restricted API surface for the Unix socket.
 // Only endpoints needed by infra containers are registered — no BearerAuth middleware.
 // Each infra-facing endpoint has its own auth mechanism (X-Agency-Token / X-Agency-Caller)
 // or is read-only health/status data.
-func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, logger *slog.Logger, startup *StartupResult, opts RouteOptions) {
+func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *runtimehost.Client, logger *slog.Logger, startup *StartupResult, opts RouteOptions) {
 	// Defense-in-depth: validate X-Agency-Caller on protected endpoints
 	callerAllowlist := map[string][]string{
 		"POST /api/v1/agents/{name}/signal":         {"enforcer"},
@@ -92,9 +119,9 @@ func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, l
 		CredStore:       startup.CredStore,
 		DockerStatus:    opts.DockerStatus,
 		WSHub:           opts.Hub,
-		Comms:           dc,
-		Signal:          &DockerSignalSender{RawClient: dc.RawClient()},
-		DC:              dc,
+		Comms:           commsClientFor(dc),
+		Signal:          signalSenderFor(dc),
+		DC:              dockerExecClientFor(dc),
 		RawDocker:       dc,
 	})
 
@@ -110,7 +137,7 @@ func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, l
 	})
 
 	apicomms.RegisterRoutes(r, apicomms.Deps{
-		Comms:        dc,
+		Comms:        commsClientFor(dc),
 		AgentManager: startup.AgentManager,
 		Config:       cfg,
 		Logger:       logger,
@@ -142,7 +169,7 @@ func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, l
 // RegisterCredentialSocketRoutes registers the credential-only socket router.
 // This socket is mounted exclusively by the egress container for credential
 // resolution. It is NOT bridged to TCP — credentials never traverse a Docker network.
-func RegisterCredentialSocketRoutes(r chi.Router, cfg *config.Config, dc *docker.Client, logger *slog.Logger, startup *StartupResult, opts RouteOptions) {
+func RegisterCredentialSocketRoutes(r chi.Router, cfg *config.Config, dc *runtimehost.Client, logger *slog.Logger, startup *StartupResult, opts RouteOptions) {
 	if startup.CredStore != nil {
 		creds.RegisterRoutes(r, creds.Deps{
 			CredStore: startup.CredStore,
@@ -155,8 +182,12 @@ func RegisterCredentialSocketRoutes(r chi.Router, cfg *config.Config, dc *docker
 
 // RegisterAll sets up all REST API routes with full option support.
 // This is the canonical registration entry point for the full HTTP API surface.
-func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *slog.Logger, startup *StartupResult, opts RouteOptions) {
+func RegisterAll(r chi.Router, cfg *config.Config, dc *runtimehost.Client, logger *slog.Logger, startup *StartupResult, opts RouteOptions) {
 	experimental := features.ExperimentalEnabled()
+	var host hostadapter.Adapter
+	if dc != nil {
+		host = hostadapter.NewAdapter(cfg.Hub.DeploymentBackend, dc, logger)
+	}
 	d := &mcpDeps{
 		cfg: cfg, dc: dc, log: logger,
 		infra: startup.Infra, agents: startup.AgentManager,
@@ -228,9 +259,9 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 		CredStore:       startup.CredStore,
 		DockerStatus:    opts.DockerStatus,
 		WSHub:           opts.Hub,
-		Comms:           dc,
-		Signal:          &DockerSignalSender{RawClient: dc.RawClient()},
-		DC:              dc,
+		Comms:           commsClientFor(dc),
+		Signal:          signalSenderFor(dc),
+		DC:              dockerExecClientFor(dc),
 		RawDocker:       dc,
 	})
 
@@ -254,6 +285,7 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 		// Missions and canvas routes (extracted module)
 		apimissions.RegisterRoutes(r, apimissions.Deps{
 			MissionManager: startup.MissionManager,
+			Runtime:        startup.Runtime,
 			Claims:         startup.Claims,
 			HealthMonitor:  opts.HealthMonitor,
 			Scheduler:      opts.Scheduler,
@@ -263,8 +295,8 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 			Audit:          startup.Audit,
 			Config:         cfg,
 			Logger:         logger,
-			Comms:          dc,
-			Signal:         &DockerSignalSender{RawClient: dc.RawClient()},
+			Comms:          commsClientFor(dc),
+			Signal:         signalSenderFor(dc),
 		})
 	}
 
@@ -282,7 +314,8 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 		Audit:     startup.Audit,
 		Config:    cfg,
 		Logger:    logger,
-		Signal:    &DockerSignalSender{RawClient: dc.RawClient()},
+		Signal:    signalSenderFor(dc),
+		Host:      host,
 		DC:        dc,
 	})
 
@@ -299,7 +332,7 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 			Store:    startup.InstanceStore,
 			Registry: startup.HubRegistry,
 			Logger:   logger,
-			Signal:   &DockerSignalSender{RawClient: dc.RawClient()},
+			Signal:   signalSenderFor(dc),
 			EventBus: opts.EventBus,
 		})
 		apiauthz.RegisterRoutes(r, apiauthz.Deps{
@@ -320,7 +353,7 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 
 	// Comms routes (extracted module) — channel/messaging proxy to comms container
 	apicomms.RegisterRoutes(r, apicomms.Deps{
-		Comms:        dc,
+		Comms:        commsClientFor(dc),
 		AgentManager: startup.AgentManager,
 		Config:       cfg,
 		Logger:       logger,
@@ -349,7 +382,8 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 		Config:       cfg,
 		Logger:       logger,
 		DC:           dc,
-		Signal:       &DockerSignalSender{RawClient: dc.RawClient()},
+		Host:         host,
+		Signal:       signalSenderFor(dc),
 		EventBus:     opts.EventBus,
 	})
 }
@@ -360,7 +394,7 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *docker.Client, logger *sl
 // Moving MCP registration into the individual modules is a follow-up task.
 type mcpDeps struct {
 	cfg           *config.Config
-	dc            *docker.Client
+	dc            *runtimehost.Client
 	log           *slog.Logger
 	infra         *orchestrate.Infra
 	agents        *orchestrate.AgentManager
@@ -396,6 +430,9 @@ func (d *mcpDeps) unregisterEnforcerWSClient(agentName string) {
 
 // containerInstanceID returns the short Docker container ID for a component.
 func (d *mcpDeps) containerInstanceID(ctx context.Context, agentName, component string) string {
+	if d == nil || d.dc == nil {
+		return agentName + ":" + component
+	}
 	containerName := fmt.Sprintf("agency-%s-%s", agentName, component)
 	return d.dc.ContainerShortID(ctx, containerName)
 }

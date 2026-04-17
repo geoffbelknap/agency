@@ -27,6 +27,26 @@ func TestCommands_V2RootsExist(t *testing.T) {
 	}
 }
 
+func TestAgentRuntimeRootExists(t *testing.T) {
+	root := &cobra.Command{Use: "agency"}
+	RegisterCommands(root)
+
+	runtimeIndex := slices.IndexFunc(root.Commands(), func(c *cobra.Command) bool { return c.Name() == "runtime" })
+	if runtimeIndex < 0 {
+		t.Fatal("missing runtime root command")
+	}
+	runtime := root.Commands()[runtimeIndex]
+	names := []string{}
+	for _, cmd := range runtime.Commands() {
+		names = append(names, cmd.Name())
+	}
+	for _, want := range []string{"manifest", "status", "validate"} {
+		if !slices.Contains(names, want) {
+			t.Fatalf("missing agent runtime command %q in %v", want, names)
+		}
+	}
+}
+
 func TestInstanceRuntimeSubcommandExists(t *testing.T) {
 	root := &cobra.Command{Use: "agency"}
 	RegisterCommands(root)
@@ -58,6 +78,9 @@ func TestInstanceRuntimeSubcommandExists(t *testing.T) {
 		if !slices.Contains(names, want) {
 			t.Fatalf("missing runtime command %q in %v", want, names)
 		}
+	}
+	if runtime.Short != "Manage authority instance runtime nodes and legacy manifests" {
+		t.Fatalf("unexpected runtime help text %q", runtime.Short)
 	}
 }
 

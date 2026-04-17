@@ -19,6 +19,37 @@ func TestStartup_NilDocker_ReturnsError(t *testing.T) {
 	}
 }
 
+func TestStartup_NilDocker_AllowedForNonDockerBackend(t *testing.T) {
+	cfg := &config.Config{
+		Home:    t.TempDir(),
+		Version: "test",
+		Hub: config.HubConfig{
+			DeploymentBackend: "probe",
+		},
+	}
+	result, err := Startup(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("Startup() returned error: %v", err)
+	}
+	if result.Runtime == nil || result.AgentManager == nil || result.HaltController == nil {
+		t.Fatalf("unexpected startup result: %#v", result)
+	}
+}
+
+func TestStartup_NilDocker_ReturnsErrorForPodmanBackend(t *testing.T) {
+	cfg := &config.Config{
+		Home:    t.TempDir(),
+		Version: "test",
+		Hub: config.HubConfig{
+			DeploymentBackend: "podman",
+		},
+	}
+	_, err := Startup(cfg, nil, nil)
+	if err == nil {
+		t.Fatal("expected error when podman client is nil")
+	}
+}
+
 func TestInitV2Dependencies_RegistersV2Stores(t *testing.T) {
 	cfg := &config.Config{Home: t.TempDir(), Version: "test"}
 	hubMgr := hub.NewManager(cfg.Home)

@@ -157,41 +157,6 @@ wait_for_infra_healthy() {
   local timeout="${1:-120}"
   local attempt=0
   local status_output=""
-  local instance="${AGENCY_INFRA_INSTANCE:-}"
-
-  if [ -n "$instance" ]; then
-    instance="$(printf '%s' "$instance" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//')"
-  fi
-
-  if [ -n "$instance" ]; then
-    local components="egress comms knowledge web"
-    local lines=""
-    local all_healthy=0
-
-    until [ "$attempt" -ge "$timeout" ]; do
-      lines="$(docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null || true)"
-      all_healthy=1
-      for component in $components; do
-        local expected="agency-infra-${component}-${instance}"
-        if ! printf '%s\n' "$lines" | grep -Eq "^${expected} .*healthy"; then
-          all_healthy=0
-          break
-        fi
-      done
-      if [ "$all_healthy" -eq 1 ]; then
-        return 0
-      fi
-      attempt=$((attempt + 1))
-      sleep 1
-    done
-
-    echo "Timed out waiting for disposable infrastructure to become healthy"
-    for component in $components; do
-      local expected="agency-infra-${component}-${instance}"
-      printf '%s\n' "$lines" | grep -E "^${expected} " || printf '%s missing\n' "$expected"
-    done
-    return 1
-  fi
 
   until status_output="$("$AGENCY_BIN" -q infra status 2>/dev/null)"; do
     attempt=$((attempt + 1))

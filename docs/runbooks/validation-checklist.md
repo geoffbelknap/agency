@@ -138,17 +138,19 @@ After running the lifecycle checks above, verify no errors occurred:
 - [ ] No container crashes: `tail -100 ~/.agency/gateway.log | grep "container died"` returns nothing
 
 **Infra container logs:**
-- [ ] No errors in knowledge: `docker logs --since 1h agency-infra-knowledge 2>&1 | grep -ciE "^ERROR:|Traceback"` returns 0
-- [ ] No errors in egress: `docker logs --since 1h agency-infra-egress 2>&1 | grep -ciE "^ERROR:|Traceback"` returns 0
-- [ ] No errors in comms: `docker logs --since 1h agency-infra-comms 2>&1 | grep -ciE "^ERROR:|Traceback"` returns 0
-- [ ] No errors in intake: `docker logs --since 1h agency-infra-intake 2>&1 | grep -ciE "^ERROR:|Traceback"` returns 0
+- [ ] No errors in knowledge: `<backend-cli> logs --since 1h agency-infra-knowledge 2>&1 | grep -ciE "^ERROR:|Traceback"` returns 0
+- [ ] No errors in egress: `<backend-cli> logs --since 1h agency-infra-egress 2>&1 | grep -ciE "^ERROR:|Traceback"` returns 0
+- [ ] No errors in comms: `<backend-cli> logs --since 1h agency-infra-comms 2>&1 | grep -ciE "^ERROR:|Traceback"` returns 0
+- [ ] No errors in intake: `<backend-cli> logs --since 1h agency-infra-intake 2>&1 | grep -ciE "^ERROR:|Traceback"` returns 0
 
-**Docker state:**
-- [ ] No exited infra containers: `docker ps -a --filter "label=agency.managed=true" --filter "status=exited"` shows only cleanup artifacts
-- [ ] No restarting containers: `docker ps -a --filter "label=agency.managed=true" --filter "status=restarting"` is empty
+Use `docker` or `podman` for `<backend-cli>` based on the selected container backend.
+
+**Container backend state:**
+- [ ] No exited infra containers: `<backend-cli> ps -a --filter "label=agency.managed=true" --filter "status=exited"` shows only cleanup artifacts
+- [ ] No restarting containers: `<backend-cli> ps -a --filter "label=agency.managed=true" --filter "status=restarting"` is empty
 
 **Docker socket audit:**
-- [ ] No containers with Docker socket mounts: `agency admin doctor` passes the `docker_socket_audit` check (gateway runs `AuditDockerSocket()` at startup)
+- [ ] If Docker is the selected backend, `agency admin doctor` passes the `docker_socket_audit` check (gateway runs `AuditDockerSocket()` at startup)
 
 **Platform health:**
 - [ ] `agency admin doctor` reports zero failures (no ✗ lines)

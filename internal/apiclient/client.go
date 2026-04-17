@@ -255,6 +255,27 @@ func (c *Client) ReconcileRuntimeManifest(ctx context.Context, instanceID string
 	return result, err
 }
 
+func (c *Client) ShowAgentRuntimeManifest(ctx context.Context, agentName string) (map[string]any, error) {
+	_ = ctx
+	var result map[string]any
+	err := c.GetJSON("/api/v1/agents/"+url.PathEscape(agentName)+"/runtime/manifest", &result)
+	return result, err
+}
+
+func (c *Client) ShowAgentRuntimeStatus(ctx context.Context, agentName string) (map[string]any, error) {
+	_ = ctx
+	var result map[string]any
+	err := c.GetJSON("/api/v1/agents/"+url.PathEscape(agentName)+"/runtime/status", &result)
+	return result, err
+}
+
+func (c *Client) ValidateAgentRuntime(ctx context.Context, agentName string) (map[string]any, error) {
+	_ = ctx
+	var result map[string]any
+	err := c.PostJSON("/api/v1/agents/"+url.PathEscape(agentName)+"/runtime/validate", nil, &result)
+	return result, err
+}
+
 func (c *Client) StartRuntimeNode(ctx context.Context, instanceID, nodeID string) (map[string]any, error) {
 	_ = ctx
 	var result map[string]any

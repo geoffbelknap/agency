@@ -152,11 +152,17 @@ async function channelExists(page: Page, channelName: string) {
 }
 
 async function bestEffortDelete(page: Page, path: string) {
-  const status = await requestWithToken(page, 'DELETE', path);
-  if (status === 200 || status === 204 || status === 404 || status === 598) {
-    return;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const status = await requestWithToken(page, 'DELETE', path);
+    if (status === 200 || status === 204 || status === 404 || status === 598) {
+      return;
+    }
+    if ((status === 502 || status === 503 || status === 504) && attempt < 2) {
+      await page.waitForTimeout(1000 * (attempt + 1));
+      continue;
+    }
+    throw new Error(`cleanup failed for ${path}: ${status}`);
   }
-  throw new Error(`cleanup failed for ${path}: ${status}`);
 }
 
 async function bestEffortArchiveChannel(page: Page, channelName: string) {

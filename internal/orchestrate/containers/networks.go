@@ -2,75 +2,45 @@ package containers
 
 import (
 	"context"
-	"strings"
 
-	"github.com/docker/docker/api/types/network"
+	"github.com/geoffbelknap/agency/internal/hostadapter/containerops"
 )
 
-// NetworkAPI is the subset of the Docker client used for network operations.
-type NetworkAPI interface {
-	NetworkCreate(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error)
-	NetworkRemove(ctx context.Context, networkID string) error
-}
+type (
+	NetworkAPI       = containerops.NetworkAPI
+	NetworkingConfig = containerops.NetworkingConfig
+	EndpointSettings = containerops.EndpointSettings
+	InspectOptions   = containerops.InspectOptions
+	CreateOptions    = containerops.CreateOptions
+	CreateResponse   = containerops.CreateResponse
+	PortSet          = containerops.PortSet
+	PortMap          = containerops.PortMap
+	PortBinding      = containerops.PortBinding
+)
 
-// CreateInternalNetwork creates a bridge network with Internal: true.
-// This is the ONLY way to create agent/meeseeks networks — internal networks
-// have no external route, enforcing the enforcement boundary (ASK tenet 3).
 func CreateInternalNetwork(ctx context.Context, cli NetworkAPI, name string, labels map[string]string) error {
-	_, err := cli.NetworkCreate(ctx, name, network.CreateOptions{
-		Driver:   "bridge",
-		Internal: true,
-		Labels:   mergeLabels(labels),
-	})
-	return err
+	return containerops.CreateInternalNetwork(ctx, cli, name, labels)
 }
 
-// CreateEgressNetwork creates a non-internal bridge network.
-// Used exclusively for the egress proxy container.
 func CreateEgressNetwork(ctx context.Context, cli NetworkAPI, name string, labels map[string]string) error {
-	_, err := cli.NetworkCreate(ctx, name, network.CreateOptions{
-		Driver:   "bridge",
-		Internal: false,
-		Labels:   mergeLabels(labels),
-	})
-	return err
+	return containerops.CreateEgressNetwork(ctx, cli, name, labels)
 }
 
-// CreateOperatorNetwork creates a non-internal bridge network for operator-facing
-// tools (agency-web, relay). Allows outbound access (relay needs to reach Cloudflare).
-// Isolated from the mediation network — operator tools only need the gateway.
 func CreateOperatorNetwork(ctx context.Context, cli NetworkAPI, name string, labels map[string]string) error {
-	_, err := cli.NetworkCreate(ctx, name, network.CreateOptions{
-		Driver:   "bridge",
-		Internal: false,
-		Labels:   mergeLabels(labels),
-	})
-	return err
+	return containerops.CreateOperatorNetwork(ctx, cli, name, labels)
 }
 
-// CreateMediationNetwork creates an internal bridge network for service mediation.
-// Used for agency-gateway and agency-egress-int — internal networks with no
-// external route, enforcing the mediation boundary (ASK tenet 3).
 func CreateMediationNetwork(ctx context.Context, cli NetworkAPI, name string, labels map[string]string) error {
-	_, err := cli.NetworkCreate(ctx, name, network.CreateOptions{
-		Driver:   "bridge",
-		Internal: true,
-		Labels:   mergeLabels(labels),
-	})
-	return err
+	return containerops.CreateMediationNetwork(ctx, cli, name, labels)
 }
 
-// RemoveNetwork removes a network by name, ignoring "not found" errors.
 func RemoveNetwork(ctx context.Context, cli NetworkAPI, name string) error {
-	err := cli.NetworkRemove(ctx, name)
-	if err != nil && !IsNetworkNotFound(err) {
-		return err
-	}
-	return nil
+	return containerops.RemoveNetwork(ctx, cli, name)
 }
 
-// mergeLabels returns a new map containing the caller-supplied labels plus
-// the agency.managed=true marker that all managed networks carry.
+func IsNetworkNotFound(err error) bool      { return containerops.IsNetworkNotFound(err) }
+func IsNetworkAlreadyExists(err error) bool { return containerops.IsNetworkAlreadyExists(err) }
+
 func mergeLabels(labels map[string]string) map[string]string {
 	merged := make(map[string]string, len(labels)+1)
 	for k, v := range labels {
@@ -78,23 +48,4 @@ func mergeLabels(labels map[string]string) map[string]string {
 	}
 	merged["agency.managed"] = "true"
 	return merged
-}
-
-// IsNetworkNotFound returns true for Docker "no such network" errors.
-func IsNetworkNotFound(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "no such network") ||
-		strings.Contains(msg, "not found")
-}
-
-// IsNetworkAlreadyExists returns true for Docker network name conflicts.
-func IsNetworkAlreadyExists(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "already exists")
 }

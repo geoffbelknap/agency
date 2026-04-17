@@ -40,19 +40,31 @@ function uniqueName(prefix: string) {
   return `${prefix}-${Date.now()}`;
 }
 
+let cachedAuthHeaders: Record<string, string> | null = null;
+
 async function bestEffortDelete(page: Page, path: string) {
-  const headers = await authHeaders(page);
-  const response = await page.request.delete(path, { headers });
-  const status = response.status();
-  if (status === 200 || status === 204 || status === 404) {
-    return;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const headers = await authHeaders(page, attempt > 0);
+    const response = await page.request.delete(path, { headers });
+    const status = response.status();
+    if (status === 200 || status === 204 || status === 404) {
+      return;
+    }
+    if (status === 401 && attempt < 2) {
+      await page.waitForTimeout(500 * (attempt + 1));
+      continue;
+    }
+    if ((status === 502 || status === 503 || status === 504) && attempt < 2) {
+      await page.waitForTimeout(1000 * (attempt + 1));
+      continue;
+    }
+    throw new Error(`cleanup failed for ${path}: ${status}`);
   }
-  throw new Error(`cleanup failed for ${path}: ${status}`);
 }
 
 async function waitForAgentAbsent(page: Page, name: string, timeout = 60_000) {
-  const headers = await authHeaders(page);
   await expect.poll(async () => {
+    const headers = await authHeaders(page);
     const response = await page.request.get(`/api/v1/agents/${encodeURIComponent(name)}`, { headers });
     return response.status();
   }, {
@@ -66,11 +78,15 @@ async function deleteAgentAndWait(page: Page, name: string) {
   await waitForAgentAbsent(page, name);
 }
 
-async function authHeaders(page: Page) {
+async function authHeaders(page: Page, forceRefresh = false) {
+  if (cachedAuthHeaders && !forceRefresh) {
+    return cachedAuthHeaders;
+  }
   const configResponse = await page.request.get('/__agency/config');
   const config = configResponse.ok() ? await configResponse.json() : {};
   const token = (config as { token?: string })?.token ?? '';
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  cachedAuthHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+  return cachedAuthHeaders;
 }
 
 async function prunePlaywrightArtifacts(page: Page) {

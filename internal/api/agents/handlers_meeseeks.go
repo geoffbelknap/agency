@@ -7,10 +7,9 @@ import (
 	"net/http"
 	"path/filepath"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
 	"github.com/go-chi/chi/v5"
 
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/models"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 )
@@ -305,20 +304,20 @@ func (h *handler) countRunningSlots(ctx context.Context) (agents int, meeseeks i
 	}
 	cli := h.deps.RawDocker.RawClient()
 
-	agentCtrs, err := cli.ContainerList(ctx, container.ListOptions{
-		Filters: filters.NewArgs(
-			filters.Arg("label", "agency.type=workspace"),
-			filters.Arg("status", "running"),
+	agentCtrs, err := cli.ContainerList(ctx, runtimehost.ListOptions{
+		Filters: runtimehost.NewFilterArgs(
+			runtimehost.FilterArg("label", "agency.type=workspace"),
+			runtimehost.FilterArg("status", "running"),
 		),
 	})
 	if err == nil {
 		agents = len(agentCtrs)
 	}
 
-	meeseeksCtrs, err := cli.ContainerList(ctx, container.ListOptions{
-		Filters: filters.NewArgs(
-			filters.Arg("label", "agency.type=meeseeks-workspace"),
-			filters.Arg("status", "running"),
+	meeseeksCtrs, err := cli.ContainerList(ctx, runtimehost.ListOptions{
+		Filters: runtimehost.NewFilterArgs(
+			runtimehost.FilterArg("label", "agency.type=meeseeks-workspace"),
+			runtimehost.FilterArg("status", "running"),
 		),
 	})
 	if err == nil {

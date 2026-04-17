@@ -33,6 +33,20 @@ async function fetchJson<T>(request: APIRequestContext, path: string): Promise<T
   return response.json();
 }
 
+async function expectKnowledgeVisible(page: Page) {
+  const searchHeading = page.getByRole('heading', { name: 'Query Knowledge' });
+  if (await searchHeading.count()) {
+    await expect(searchHeading.first()).toBeVisible();
+    return;
+  }
+  const loading = page.getByText('Loading search', { exact: true });
+  if (await loading.count()) {
+    await expect(loading.first()).toBeVisible();
+    return;
+  }
+  await expect(page.getByText('Knowledge graph is empty')).toBeVisible();
+}
+
 async function navLinkExists(page: Page, name: string) {
   return (await page.getByRole('link', { name, exact: true }).count()) > 0;
 }
@@ -50,10 +64,20 @@ test('live stack serves health and renders a top-level UI shell', async ({ page,
   await gotoRoute(page, '/');
   await settle(page);
 
-  const bodyText = await page.locator('body').innerText();
-  expect(bodyText).toMatch(
-    /Preparing your platform|Welcome to Agency|Re-configure Agency|Channels|Agents|Admin/,
-  );
+  if (await isSetupFlow(page)) {
+    await expect(page.getByRole('heading', { name: SETUP_HEADING_PATTERN }).first()).toBeVisible();
+    return;
+  }
+
+  await expect.poll(async () => {
+    const labels = ['Channels', 'Agents', 'Admin'];
+    for (const label of labels) {
+      if (await navLinkExists(page, label)) {
+        return label;
+      }
+    }
+    return '';
+  }).not.toBe('');
 });
 
 test('live stack routes to setup or initialized navigation without app errors', async ({ page }) => {
@@ -188,6 +212,7 @@ test('live stack supports read-only drill-downs for key initialized views', asyn
 
   await gotoRoute(page, '/knowledge');
   await settle(page);
+  await expect(page.getByRole('heading', { name: 'Knowledge' })).toBeVisible();
   if (await page.getByRole('button', { name: 'Graph' }).count()) {
     await page.getByRole('button', { name: 'Graph' }).click();
     await settle(page);
@@ -196,7 +221,7 @@ test('live stack supports read-only drill-downs for key initialized views', asyn
     await page.getByRole('button', { name: 'Search' }).click();
     await settle(page);
   }
-  await expect(page.getByText(/Query Knowledge|Knowledge graph is empty/)).toBeVisible();
+  await expectKnowledgeVisible(page);
 
   await gotoRoute(page, '/admin/usage');
   await settle(page);
@@ -259,7 +284,7 @@ test('live stack supports interactive navigation without mutating state', async 
 
   await page.getByRole('button', { name: 'Search' }).click();
   await settle(page);
-  await expect(page.getByText(/Query Knowledge|Knowledge graph is empty/)).toBeVisible();
+  await expectKnowledgeVisible(page);
 
   await page.goBack();
   await settle(page);

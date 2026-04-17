@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	agencydocker "github.com/geoffbelknap/agency/internal/docker"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 )
 
 const (
@@ -125,7 +125,7 @@ func Start(port int) error {
 	if err != nil {
 		return fmt.Errorf("resolve executable path: %w", err)
 	}
-	agencydocker.EnsureUsableHostEnv()
+	runtimehost.EnsureUsableHostEnv()
 
 	// Open log file for daemon stdout/stderr
 	logPath := filepath.Join(agencyDir, "gateway.log")

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -121,6 +123,28 @@ func (h *handler) relaySignal(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) listResults(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
+	if dir, ok := h.hostResultsDir(name); ok {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			writeJSON(w, 200, []interface{}{})
+			return
+		}
+		var results []map[string]string
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+				continue
+			}
+			taskID := strings.TrimSuffix(entry.Name(), ".md")
+			if taskID != "" {
+				results = append(results, map[string]string{"task_id": taskID})
+			}
+		}
+		if results == nil {
+			results = []map[string]string{}
+		}
+		writeJSON(w, 200, results)
+		return
+	}
 	containerName := "agency-" + name + "-workspace"
 	out, err := h.deps.DC.ExecInContainer(r.Context(), containerName, []string{
 		"sh", "-c", "ls -1 /workspace/.results/*.md 2>/dev/null | while read f; do basename \"$f\" .md; done",
@@ -149,6 +173,20 @@ func (h *handler) getResult(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "invalid task ID"})
 		return
 	}
+	if dir, ok := h.hostResultsDir(name); ok {
+		data, err := os.ReadFile(filepath.Join(dir, taskID+".md"))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "result not found"})
+			return
+		}
+		if r.URL.Query().Get("download") == "true" {
+			w.Header().Set("Content-Disposition", "attachment; filename=\""+taskID+".md\"")
+		}
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.WriteHeader(200)
+		w.Write(data)
+		return
+	}
 	containerName := "agency-" + name + "-workspace"
 	data, err := h.deps.DC.ExecInContainer(r.Context(), containerName, []string{
 		"cat", "/workspace/.results/" + taskID + ".md",
@@ -163,6 +201,21 @@ func (h *handler) getResult(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.WriteHeader(200)
 	w.Write([]byte(data))
+}
+
+func (h *handler) hostResultsDir(agentName string) (string, bool) {
+	if h.deps.AgentManager == nil || h.deps.AgentManager.Runtime == nil {
+		return "", false
+	}
+	manifest, err := h.deps.AgentManager.Runtime.Manifest(agentName)
+	if err != nil {
+		return "", false
+	}
+	workspacePath := strings.TrimSpace(manifest.Spec.Storage.WorkspacePath)
+	if workspacePath == "" || workspacePath == "/workspace" || !filepath.IsAbs(workspacePath) {
+		return "", false
+	}
+	return filepath.Join(workspacePath, ".results"), true
 }
 
 func (h *handler) agentChannels(w http.ResponseWriter, r *http.Request) {
@@ -222,15 +275,23 @@ func (h *handler) ensureDirectChannel(ctx context.Context, agentName string) (st
 	return dmChannel, nil
 }
 
-// containerInstanceID returns the short Docker container ID (first 12 hex chars)
-// for the named component of the given agent.
+// containerInstanceID returns a backend-specific runtime identifier for audit
+// events. For Docker this is the short container ID; for non-Docker backends
+// it falls back to the agent/component identifier so lifecycle events remain
+// attributable without assuming container semantics.
 func (h *handler) containerInstanceID(ctx context.Context, agentName, component string) string {
+	if h.deps.DC == nil {
+		return agentName + ":" + component
+	}
 	containerName := fmt.Sprintf("agency-%s-%s", agentName, component)
-	return h.deps.DC.ContainerShortID(ctx, containerName)
+	if shortID := h.deps.DC.ContainerShortID(ctx, containerName); shortID != "" {
+		return shortID
+	}
+	return agentName + ":" + component
 }
 
 func (h *handler) startAgent(w http.ResponseWriter, r *http.Request) {
-	if !h.dockerRequired(w) {
+	if !h.runtimeLifecycleAvailable(w) {
 		return
 	}
 	name := chi.URLParam(r, "name")
@@ -246,17 +307,17 @@ func (h *handler) startAgent(w http.ResponseWriter, r *http.Request) {
 	h.deps.Audit.SetLifecycleID(name, detail.LifecycleID)
 
 	ss := &orchestrate.StartSequence{
-		AgentName: name,
-		Home:      h.deps.Config.Home,
-		Version:   h.deps.Config.Version,
-		SourceDir: h.deps.Config.SourceDir,
-		BuildID:   h.deps.Config.BuildID,
+		AgentName:   name,
+		Home:        h.deps.Config.Home,
+		Version:     h.deps.Config.Version,
+		SourceDir:   h.deps.Config.SourceDir,
+		BuildID:     h.deps.Config.BuildID,
 		BackendName: h.deps.Config.Hub.DeploymentBackend,
-		Docker:    h.deps.RawDocker,
-		Comms:     h.deps.Comms,
-		Log:       h.deps.Logger,
-		CredStore: h.deps.CredStore,
-		Runtime:   h.deps.AgentManager.Runtime,
+		Docker:      h.deps.RawDocker,
+		Comms:       h.deps.Comms,
+		Log:         h.deps.Logger,
+		CredStore:   h.deps.CredStore,
+		Runtime:     h.deps.AgentManager.Runtime,
 	}
 
 	// Stream progress as NDJSON if client requests it
@@ -332,7 +393,7 @@ func (h *handler) unregisterEnforcerWSClient(agentName string) {
 }
 
 func (h *handler) restartAgent(w http.ResponseWriter, r *http.Request) {
-	if !h.dockerRequired(w) {
+	if !h.runtimeLifecycleAvailable(w) {
 		return
 	}
 	name := chi.URLParam(r, "name")
@@ -395,7 +456,7 @@ func (h *handler) restartAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) haltAgent(w http.ResponseWriter, r *http.Request) {
-	if !h.dockerRequired(w) {
+	if !h.runtimeLifecycleAvailable(w) {
 		return
 	}
 	name := chi.URLParam(r, "name")
@@ -478,7 +539,7 @@ func (h *handler) haltAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) resumeAgent(w http.ResponseWriter, r *http.Request) {
-	if !h.dockerRequired(w) {
+	if !h.runtimeLifecycleAvailable(w) {
 		return
 	}
 	name := chi.URLParam(r, "name")
@@ -496,9 +557,9 @@ func (h *handler) resumeAgent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": "resumed", "agent": name})
 }
 
-// dockerRequired returns true if Docker is available. If not, writes a 503
-// response with a human-readable error and returns false.
-func (h *handler) dockerRequired(w http.ResponseWriter) bool {
+// runtimeLifecycleAvailable returns true if the configured runtime backend is
+// available. If not, it writes a 503 response and returns false.
+func (h *handler) runtimeLifecycleAvailable(w http.ResponseWriter) bool {
 	if h.deps.AgentManager != nil && h.deps.AgentManager.Runtime != nil {
 		if err := h.deps.AgentManager.Runtime.RuntimeAvailable(context.Background()); err != nil {
 			writeJSON(w, 503, map[string]string{"error": err.Error()})
@@ -508,7 +569,7 @@ func (h *handler) dockerRequired(w http.ResponseWriter) bool {
 	}
 	if h.deps.DockerStatus != nil && !h.deps.DockerStatus.Available() {
 		writeJSON(w, 503, map[string]string{
-			"error": "Docker is not available. Container operations are unavailable.",
+			"error": "Runtime backend is not available. Lifecycle operations are unavailable.",
 		})
 		return false
 	}

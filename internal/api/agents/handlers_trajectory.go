@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -31,19 +32,14 @@ func (h *handler) getAgentTrajectory(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	enforcerName := fmt.Sprintf("agency-%s-enforcer", name)
-	if body, ok, err := trajectoryBodyFromExec(ctx, h.deps.DC, enforcerName); ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write(body)
+	enforcerURL, err := h.trajectoryURL(name)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{
+			"error": "enforcer unavailable — agent may not be running",
+			"agent": name,
+		})
 		return
-	} else if err != nil && h.deps.Logger != nil {
-		h.deps.Logger.Warn("trajectory exec unavailable", "agent", name, "container", enforcerName, "err", err)
 	}
-
-	// Fallback to the container DNS name for deployments where the gateway is
-	// itself on the mediation network.
-	enforcerURL := fmt.Sprintf("http://agency-%s-enforcer:8081/trajectory", name)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, enforcerURL, nil)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "failed to create request: " + err.Error()})
@@ -83,17 +79,20 @@ func (h *handler) getAgentTrajectory(w http.ResponseWriter, r *http.Request) {
 	w.Write(body)
 }
 
-func trajectoryBodyFromExec(ctx context.Context, dc DockerClient, enforcerName string) ([]byte, bool, error) {
-	if dc == nil {
-		return nil, false, nil
+func (h *handler) trajectoryURL(agentName string) (string, error) {
+	if h.deps.AgentManager != nil && h.deps.AgentManager.Runtime != nil {
+		manifest, err := h.deps.AgentManager.Runtime.Manifest(agentName)
+		if err == nil {
+			endpoint := manifest.Spec.Transport.Enforcer.Endpoint
+			if endpoint != "" {
+				parsed, err := url.Parse(endpoint)
+				if err == nil {
+					parsed.Path = "/trajectory"
+					parsed.RawQuery = ""
+					return parsed.String(), nil
+				}
+			}
+		}
 	}
-	body, err := dc.ExecInContainer(ctx, enforcerName, []string{"curl", "-sf", "http://127.0.0.1:8081/trajectory"})
-	if err != nil {
-		return nil, false, err
-	}
-	var check json.RawMessage
-	if json.Unmarshal([]byte(body), &check) != nil {
-		return nil, false, fmt.Errorf("invalid trajectory JSON from exec")
-	}
-	return []byte(body), true, nil
+	return fmt.Sprintf("http://agency-%s-enforcer:8081/trajectory", agentName), nil
 }
