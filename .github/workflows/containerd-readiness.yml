@@ -1,0 +1,51 @@
+name: Containerd Readiness
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 15 * * 2'
+
+permissions:
+  contents: read
+
+jobs:
+  containerd-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect container backend relevant changes
+        id: changes
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          if git diff --name-only "origin/${{ github.base_ref }}"...HEAD | grep -E '^(cmd/gateway/|internal/|scripts/|images/|Makefile|go\.mod|go\.sum|\.github/workflows/containerd-readiness\.yml|docs/runbooks/)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip containerd smoke for unrelated PR changes
+        if: ${{ github.event_name == 'pull_request' && steps.changes.outputs.run != 'true' }}
+        run: echo "No container-backend relevant changes detected; skipping containerd smoke."
+
+      - uses: actions/setup-go@v6
+        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.run == 'true' }}
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Build gateway binary
+        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.run == 'true' }}
+        run: go build -o ./agency ./cmd/gateway
+
+      - name: Run containerd readiness smoke
+        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.run == 'true' }}
+        run: make containerd-readiness
+        env:
+          AGENCY_CONTAINERD_SOCKET: unix:///var/run/docker.sock

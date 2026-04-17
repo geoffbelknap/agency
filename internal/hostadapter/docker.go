@@ -21,6 +21,7 @@ type ContainerAdapter struct {
 
 type DockerAdapter = ContainerAdapter
 type PodmanAdapter = ContainerAdapter
+type ContainerdAdapter = ContainerAdapter
 
 func NewDockerAdapter(dc *runtimehost.Client, logger *slog.Logger) *ContainerAdapter {
 	return &ContainerAdapter{dc: dc, logger: logger, backend: runtimehost.BackendDocker}
@@ -30,8 +31,14 @@ func NewPodmanAdapter(dc *runtimehost.Client, logger *slog.Logger) *ContainerAda
 	return &ContainerAdapter{dc: dc, logger: logger, backend: runtimehost.BackendPodman}
 }
 
+func NewContainerdAdapter(dc *runtimehost.Client, logger *slog.Logger) *ContainerAdapter {
+	return &ContainerAdapter{dc: dc, logger: logger, backend: runtimehost.BackendContainerd}
+}
+
 func NewAdapter(backend string, dc *runtimehost.Client, logger *slog.Logger) Adapter {
 	switch strings.TrimSpace(strings.ToLower(backend)) {
+	case runtimehost.BackendContainerd:
+		return NewContainerdAdapter(dc, logger)
 	case runtimehost.BackendPodman:
 		return NewPodmanAdapter(dc, logger)
 	case "", runtimehost.BackendDocker:
@@ -107,6 +114,7 @@ func (a *ContainerAdapter) DryRunDeployPack(ctx context.Context, opts DeployOpti
 		return nil, err
 	}
 	deployer := &dockerDeployer{
+		BackendName: optsBackendName(a.backend),
 		Home:        opts.Home,
 		Version:     opts.Version,
 		SourceDir:   opts.SourceDir,
@@ -124,6 +132,7 @@ func (a *ContainerAdapter) DeployPack(ctx context.Context, opts DeployOptions, p
 		return nil, err
 	}
 	deployer := &dockerDeployer{
+		BackendName: optsBackendName(a.backend),
 		Home:        opts.Home,
 		Version:     opts.Version,
 		SourceDir:   opts.SourceDir,
@@ -141,11 +150,19 @@ func (a *ContainerAdapter) TeardownPack(ctx context.Context, opts DeployOptions,
 		return err
 	}
 	deployer := &dockerDeployer{
-		Home:      opts.Home,
-		Version:   opts.Version,
-		Docker:    a.dc,
-		Logger:    a.logger,
-		CredStore: opts.CredStore,
+		BackendName: optsBackendName(a.backend),
+		Home:        opts.Home,
+		Version:     opts.Version,
+		Docker:      a.dc,
+		Logger:      a.logger,
+		CredStore:   opts.CredStore,
 	}
 	return deployer.teardown(ctx, packName, delete)
+}
+
+func optsBackendName(name string) string {
+	if normalized := runtimehost.NormalizeContainerBackend(name); normalized != "" {
+		return normalized
+	}
+	return runtimehost.BackendDocker
 }

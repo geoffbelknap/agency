@@ -9,6 +9,9 @@ func TestNewAdapter(t *testing.T) {
 	if got := NewAdapter("podman", nil, nil); got == nil || got.Backend() != "podman" {
 		t.Fatalf("podman adapter = %#v", got)
 	}
+	if got := NewAdapter("containerd", nil, nil); got == nil || got.Backend() != "containerd" {
+		t.Fatalf("containerd adapter = %#v", got)
+	}
 	if got := NewAdapter("probe", nil, nil); got != nil {
 		t.Fatalf("probe adapter = %#v, want nil", got)
 	}

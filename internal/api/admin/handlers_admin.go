@@ -60,9 +60,9 @@ func configuredRuntimeBackend(cfg *config.Config) string {
 
 func isBackendSpecificDoctorCheck(name, backend string) bool {
 	switch backend {
-	case "docker":
+	case runtimehost.BackendDocker, runtimehost.BackendPodman, runtimehost.BackendContainerd:
 		return name == "docker_connectivity" ||
-			name == "network_pool" ||
+			(name == "network_pool" && backend == runtimehost.BackendDocker) ||
 			strings.HasPrefix(name, "docker_")
 	default:
 		return false
@@ -85,6 +85,7 @@ func splitDoctorChecks(checks []doctorCheckResult, backend string) ([]doctorChec
 func isSyntheticReadinessAgent(name string) bool {
 	name = strings.TrimSpace(strings.ToLower(name))
 	return strings.HasPrefix(name, "podman-readiness-") ||
+		strings.HasPrefix(name, "containerd-readiness-") ||
 		strings.HasPrefix(name, "docker-readiness-")
 }
 

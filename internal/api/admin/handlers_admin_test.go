@@ -61,6 +61,29 @@ func TestSplitDoctorChecksKeepsNetworkPoolOutOfPodmanBackendChecks(t *testing.T)
 	}
 }
 
+func TestSplitDoctorChecksSeparatesContainerdBackendHygiene(t *testing.T) {
+	t.Parallel()
+
+	checks := []doctorCheckResult{
+		{Name: "credentials_isolated", Agent: "henry", Status: "pass"},
+		{Name: "docker_dangling_images", Status: "warn"},
+		{Name: "docker_log_rotation", Status: "warn"},
+		{Name: "network_pool", Status: "warn"},
+	}
+
+	runtimeChecks, backendChecks := splitDoctorChecks(checks, "containerd")
+
+	if len(backendChecks) != 2 {
+		t.Fatalf("backendChecks len = %d, want 2", len(backendChecks))
+	}
+	if len(runtimeChecks) != 2 {
+		t.Fatalf("runtimeChecks len = %d, want 2", len(runtimeChecks))
+	}
+	if backendChecks[0].Name != "docker_dangling_images" || backendChecks[1].Name != "docker_log_rotation" {
+		t.Fatalf("unexpected backend checks: %#v", backendChecks)
+	}
+}
+
 func TestConfiguredRuntimeBackendDefaultsToDocker(t *testing.T) {
 	t.Parallel()
 
@@ -174,6 +197,9 @@ func TestSyntheticReadinessAgentIsIgnoredForUnscopedAudit(t *testing.T) {
 
 	if !isSyntheticReadinessAgent("podman-readiness-123") {
 		t.Fatal("expected podman readiness agent to be treated as synthetic")
+	}
+	if !isSyntheticReadinessAgent("containerd-readiness-123") {
+		t.Fatal("expected containerd readiness agent to be treated as synthetic")
 	}
 	if !isSyntheticReadinessAgent("docker-readiness-123") {
 		t.Fatal("expected docker readiness agent to be treated as synthetic")

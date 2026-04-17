@@ -48,14 +48,14 @@ func (b *DockerRuntimeBackend) EnsureEnforcer(ctx context.Context, spec runtimec
 		}
 	}
 	if b.EnsureEnforcerFn == nil {
-		return fmt.Errorf("docker enforcer ensure is not configured")
+		return fmt.Errorf("%s enforcer ensure is not configured", b.Name())
 	}
 	return b.EnsureEnforcerFn(ctx, spec, rotateKey)
 }
 
 func (b *DockerRuntimeBackend) EnsureWorkspace(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
 	if b.EnsureWorkspaceFn == nil {
-		return fmt.Errorf("docker workspace ensure is not configured")
+		return fmt.Errorf("%s workspace ensure is not configured", b.Name())
 	}
 	return b.EnsureWorkspaceFn(ctx, spec)
 }

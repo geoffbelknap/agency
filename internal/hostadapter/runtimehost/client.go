@@ -71,8 +71,9 @@ type (
 )
 
 const (
-	BackendDocker = "docker"
-	BackendPodman = "podman"
+	BackendDocker     = "docker"
+	BackendPodman     = "podman"
+	BackendContainerd = "containerd"
 )
 
 func NormalizeContainerBackend(name string) string {
@@ -80,8 +81,8 @@ func NormalizeContainerBackend(name string) string {
 	switch name {
 	case "", BackendDocker:
 		return BackendDocker
-	case BackendPodman:
-		return BackendPodman
+	case BackendPodman, BackendContainerd:
+		return name
 	default:
 		return name
 	}
@@ -89,7 +90,7 @@ func NormalizeContainerBackend(name string) string {
 
 func IsContainerBackend(name string) bool {
 	switch NormalizeContainerBackend(name) {
-	case BackendDocker, BackendPodman:
+	case BackendDocker, BackendPodman, BackendContainerd:
 		return true
 	default:
 		return false
@@ -259,6 +260,14 @@ func resolveBackendHost(backend string, backendConfig map[string]string) string 
 	switch NormalizeContainerBackend(backend) {
 	case BackendPodman:
 		return defaultPodmanHost()
+	case BackendContainerd:
+		if host := strings.TrimSpace(os.Getenv("CONTAINERD_HOST")); host != "" {
+			return hostFromPath(host)
+		}
+		if host := strings.TrimSpace(os.Getenv("CONTAINER_HOST")); host != "" {
+			return hostFromPath(host)
+		}
+		return strings.TrimSpace(os.Getenv("DOCKER_HOST"))
 	case BackendDocker:
 		if host := desktopDockerHost(); host != "" {
 			return host

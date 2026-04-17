@@ -1,6 +1,6 @@
 .PHONY: all build install deploy test clean images python-base workspace-base \
        body enforcer comms knowledge intake egress workspace web-fetch web relay \
-       provider-tools-readiness podman-readiness podman-readiness-full \
+       provider-tools-readiness podman-readiness podman-readiness-full containerd-readiness \
        web-test-unit web-test-e2e web-test-all \
        e2e-live-web e2e-live-web-safe e2e-live-web-risky \
        e2e-live-web-disposable e2e-live-web-safe-disposable e2e-live-web-risky-disposable \
@@ -77,6 +77,9 @@ podman-readiness:
 
 podman-readiness-full:
 	@./scripts/podman-readiness-check.sh --full
+
+containerd-readiness:
+	@./scripts/containerd-readiness-check.sh
 
 clean:
 	rm -f agency gateway
