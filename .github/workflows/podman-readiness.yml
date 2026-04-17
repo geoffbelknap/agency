@@ -27,6 +27,13 @@ jobs:
           go-version: '1.26'
           cache: true
 
+      - uses: actions/setup-node@v5
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_e2e }}
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'web/package-lock.json'
+
       - name: Install Podman
         run: |
           sudo apt-get update
@@ -46,6 +53,24 @@ jobs:
         run: make podman-readiness
         env:
           AGENCY_PODMAN_SOCKET: unix:///tmp/podman.sock
+
+      - name: Install web dependencies
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_e2e }}
+        working-directory: web
+        run: npm ci
+
+      - name: Cache Playwright browsers
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_e2e }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+
+      - name: Install Playwright browser
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_e2e }}
+        working-directory: web
+        timeout-minutes: 5
+        run: npx playwright install chromium
 
       - name: Run Podman readiness full E2E
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_e2e }}
