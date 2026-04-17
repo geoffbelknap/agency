@@ -139,7 +139,7 @@ class Body:
 
     _CHANNEL_POSTING_KEYWORDS = [
         "post to", "send to", "share in", "notify",
-        "report to", "write to #", "channel",
+        "report to", "write to #", "channel", "send_message(",
     ]
 
     # Artifact length threshold (lines). Results longer than this get written
@@ -161,6 +161,7 @@ class Body:
             os.environ.get("OPENAI_API_BASE", "http://enforcer:3128/v1"),
         )
         self.model = os.environ.get("AGENCY_MODEL", "claude-sonnet")
+        self.admin_model = os.environ.get("AGENCY_ADMIN_MODEL", self.model)
         self.agent_name = os.environ.get("AGENCY_AGENT_NAME", "agent")
         self.context_window = int(os.environ.get(
             "AGENCY_CONTEXT_WINDOW", str(DEFAULT_CONTEXT_WINDOW)
@@ -736,6 +737,11 @@ class Body:
                         self._handle_system_event(event)
                     elif event_type == "task":
                         task = event.get("task", {})
+                        source = str(task.get("source", ""))
+                        task_content = str(task.get("task_content", task.get("content", "")))
+                        if source.startswith("channel:dm-") or task_content.startswith("[Mission trigger: channel dm-"):
+                            log.info("Skipping duplicate DM task delivery: %s", source)
+                            continue
                         task_id = task.get("task_id", "unknown")
                         log.info("New task received: %s", task_id)
                         self._emit_signal("task_accepted", {"task_id": task_id})
@@ -828,7 +834,8 @@ class Body:
             f"- Do not answer the underlying question in a default helpful style when your identity gives a conflicting instruction.\n"
             f"- Only fall back to normal concise conversational help when your identity is silent on how to respond.\n"
             f"- Only call read_messages('{channel}') if you need earlier conversation context.\n"
-            f"- Reply by calling send_message('{channel}', your_response).\n"
+            f"- Reply with the exact message text only. Do not call tools unless you truly need context.\n"
+            f"- The platform will deliver your reply to #{channel}.\n"
             f"- If the person follows up, continue the conversation."
         )
 
@@ -1375,6 +1382,14 @@ class Body:
         if not task:
             return None
 
+        source = str(task.get("source", ""))
+        task_content = str(task.get("task_content", task.get("content", "")))
+        if source.startswith("channel:dm-") or task_content.startswith("[Mission trigger: channel dm-"):
+            task_hash = json.dumps(task, sort_keys=True)
+            self._last_task_hash = task_hash
+            log.info("Skipping duplicate DM fallback task delivery: %s", source)
+            return None
+
         # Check if this is a new task
         task_hash = json.dumps(task, sort_keys=True)
         if task_hash == self._last_task_hash:
@@ -1457,6 +1472,7 @@ class Body:
         task_id = task.get("task_id", "unknown")
         self._total_tasks += 1
         self._current_task_id = task_id
+        self._current_task_tier = task.get("tier")
         self._task_content = task_content  # saved for cache write
         self._event_id = task.get("event_id")
         self._task_complete_called = False
@@ -1593,6 +1609,8 @@ class Body:
         self._messages = messages  # reference for post-task capture context
 
         tools = self._get_all_tool_definitions()
+        if task_id.startswith("idle-reply-"):
+            tools = None
 
         turn = 0
         while True:
@@ -1664,7 +1682,7 @@ class Body:
                 log.error("LLM call failed: %s", e)
                 error_data = classify_llm_error(
                     e,
-                    model=self.model,
+                    model=self._current_model(),
                     correlation_id=getattr(self, '_last_correlation_id', ''),
                     retries=LLM_MAX_RETRIES,
                 )
@@ -1675,7 +1693,7 @@ class Body:
                 log.error("LLM call failed: %s", e)
                 error_data = classify_llm_error(
                     e,
-                    model=self.model,
+                    model=self._current_model(),
                     correlation_id=getattr(self, '_last_correlation_id', ''),
                     retries=LLM_MAX_RETRIES,
                 )
@@ -1697,7 +1715,6 @@ class Body:
             choice = response.get("choices", [{}])[0]
             message = choice.get("message", {})
             finish_reason = choice.get("finish_reason", "")
-
             # Add assistant message to history
             messages.append(message)
 
@@ -1888,13 +1905,30 @@ class Body:
                     self._post_task_response(task, content, has_artifact=False)
                     self._finalize_task(task_id, turn)
                     break
-                # For idle replies (lightweight channel responses), auto-finalize
-                # instead of nudging — the nudge causes the agent to re-read the
-                # channel and send a duplicate reply.
                 if task_id.startswith(("idle-reply-", "notification-")):
-                    log.info("Task %s: idle reply auto-finalized (turn %d)", task_id, turn + 1)
-                    self._finalize_task(task_id, turn)
-                    break
+                    if content:
+                        if self._post_channel_message(task, content):
+                            log.info("Task %s: idle reply auto-posted (turn %d)", task_id, turn + 1)
+                            self._finalize_task(task_id, turn)
+                            break
+                        messages.append({
+                            "role": "user",
+                            "content": (
+                                "[Platform] Your DM reply could not be delivered. "
+                                "Try send_message again or provide the exact reply text "
+                                "so the platform can post it, then call complete_task."
+                            ),
+                        })
+                        continue
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "[Platform] You have not replied in the DM yet. "
+                            "Send the reply via send_message or provide the exact reply text "
+                            "so the platform can post it, then call complete_task."
+                        ),
+                    })
+                    continue
                 # For regular tasks, nudge to continue or explicitly complete.
                 messages.append({
                     "role": "user",
@@ -1935,7 +1969,7 @@ class Body:
         url = f"{self.enforcer_url}/chat/completions"
 
         payload = {
-            "model": self.model,
+            "model": self._current_model(),
             "messages": messages,
             "stream": True,
         }
@@ -2764,6 +2798,43 @@ class Body:
             return True
         return source.startswith("idle_direct:")
 
+    def _post_channel_message(self, task: dict, content: str) -> bool:
+        """Best-effort channel post for DM and notification auto-replies."""
+        source = task.get("source", "dm")
+        channel = "general"
+        if ":" in source:
+            parts = source.split(":")
+            if len(parts) >= 2:
+                channel = parts[1]
+        elif source.startswith("dm"):
+            channel = f"_dm-{self.agent_name}"
+
+        metadata: dict = dict(task.get("metadata", {}) or {})
+        metadata["agent"] = self.agent_name
+        metadata["task_id"] = task.get("task_id", "unknown")
+
+        reply_to = metadata.get("reply_to")
+        if not isinstance(reply_to, str):
+            reply_to = None
+
+        try:
+            comms_url = os.environ.get("AGENCY_COMMS_URL", "http://enforcer:8081/mediation/comms")
+            resp = self._http_client.post(
+                f"{comms_url}/channels/{channel}/messages",
+                json={
+                    "author": self.agent_name,
+                    "content": content,
+                    "reply_to": reply_to,
+                    "metadata": metadata,
+                },
+                timeout=5,
+            )
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            log.warning("Failed to post channel message to %s: %s", channel, e)
+            return False
+
     # -- Notification queue --
 
     def _queue_notification(self, channel: str, message_content: str, sender: str = "unknown") -> None:
@@ -2813,9 +2884,20 @@ class Body:
     _total_tasks: int = 0
     _total_turns: int = 0
     _current_task_id: Optional[str] = None
+    _current_task_tier: Optional[str] = None
     _event_id: Optional[str] = None
     _current_task_turns: int = 0
     _start_time: float = 0.0
+
+    def _current_model(self) -> str:
+        """Choose the best-fit model for the active task."""
+        tier = (self._current_task_tier or "").strip().lower()
+        task_id = self._current_task_id or ""
+        if tier in {"minimal", "mini", "fast"}:
+            return self.admin_model
+        if task_id.startswith(("idle-reply-", "notification-")):
+            return self.admin_model
+        return self.model
 
     # -- Conversation Persistence --
 

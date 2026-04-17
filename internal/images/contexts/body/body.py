@@ -133,7 +133,7 @@ class Body:
 
     _CHANNEL_POSTING_KEYWORDS = [
         "post to", "send to", "share in", "notify",
-        "report to", "write to #", "channel",
+        "report to", "write to #", "channel", "send_message(",
     ]
 
     def __init__(self, config_dir: str = "/agency"):
@@ -153,6 +153,7 @@ class Body:
             os.environ.get("OPENAI_API_BASE", f"{self.proxy_url}/v1"),
         )
         self.model = os.environ.get("AGENCY_MODEL", "claude-sonnet")
+        self.admin_model = os.environ.get("AGENCY_ADMIN_MODEL", self.model)
         self.agent_name = os.environ.get("AGENCY_AGENT_NAME", "agent")
         self.context_window = int(os.environ.get(
             "AGENCY_CONTEXT_WINDOW", str(DEFAULT_CONTEXT_WINDOW)
@@ -298,6 +299,30 @@ class Body:
                 if tc.get("function", {}).get("name") == tool_name:
                     return True
         return False
+
+    @staticmethod
+    def _has_tool_call(tool_calls: list[dict] | None, tool_name: str) -> bool:
+        """Return True if tool_calls includes the named function."""
+        if not tool_calls:
+            return False
+        for tc in tool_calls:
+            if tc.get("function", {}).get("name") == tool_name:
+                return True
+        return False
+
+    def _needs_channel_posting_reminder(
+        self,
+        task_content: str,
+        messages: list[dict],
+        tool_calls: list[dict] | None,
+    ) -> bool:
+        """Return True when a task asked for channel output but none was posted yet."""
+        if self._channel_reminder_sent or not self._has_channel_posting_intent(task_content):
+            return False
+        return not (
+            self._has_tool_call_in_history(messages, "send_message")
+            or self._has_tool_call(tool_calls, "send_message")
+        )
 
     def _is_mcp_server_allowed(self, server_name: str) -> bool:
         """Check if an MCP server is allowed by constraints policy."""
@@ -1308,6 +1333,7 @@ class Body:
         task_id = task.get("task_id", "unknown")
         self._total_tasks += 1
         self._current_task_id = task_id
+        self._current_task_tier = task.get("tier")
         self._task_complete_called = False
         self._current_task_turns = 0
 
@@ -1323,7 +1349,7 @@ class Body:
 
         # Signal that we're processing — drives typing indicators in clients
         source = task.get("source", "dm")
-        channel = "general"
+        channel = task.get("channel", "general")
         if ":" in source:
             # idle_direct:general:operator → extract channel
             parts = source.split(":")
@@ -1458,14 +1484,28 @@ class Body:
             if tool_calls:
                 if len(tool_calls) == 1:
                     result = self._handle_tool_call(tool_calls[0])
-                    if self._task_complete_called:
-                        self._finalize_task(task_id, turn)
-                        break
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_calls[0]["id"],
                         "content": result,
                     })
+                    if self._task_complete_called:
+                        if self._needs_channel_posting_reminder(task_content, messages, tool_calls):
+                            self._channel_reminder_sent = True
+                            messages.append({
+                                "role": "user",
+                                "content": (
+                                    "[Platform reminder] Your task asked you to post findings "
+                                    "to a channel. Verify you have posted your substantive "
+                                    "output (not just a status update) via send_message. "
+                                    "If you already did, call complete_task again."
+                                ),
+                            })
+                            self._task_complete_called = False
+                            log.info("Channel posting reminder injected for task %s", task_id)
+                            continue
+                        self._finalize_task(task_id, turn)
+                        break
                 else:
                     log.info("Executing %d tool calls in parallel", len(tool_calls))
                     with ThreadPoolExecutor(max_workers=min(len(tool_calls), 4)) as pool:
@@ -1481,9 +1521,6 @@ class Body:
                             except Exception as e:
                                 log.warning("Tool %s failed: %s", tc.get("function", {}).get("name"), e)
                                 results[tc["id"]] = json.dumps({"error": str(e)})
-                    if self._task_complete_called:
-                        self._finalize_task(task_id, turn)
-                        break
                     # Append results in the original tool_calls order
                     for tc in tool_calls:
                         messages.append({
@@ -1491,6 +1528,23 @@ class Body:
                             "tool_call_id": tc["id"],
                             "content": results[tc["id"]],
                         })
+                    if self._task_complete_called:
+                        if self._needs_channel_posting_reminder(task_content, messages, tool_calls):
+                            self._channel_reminder_sent = True
+                            messages.append({
+                                "role": "user",
+                                "content": (
+                                    "[Platform reminder] Your task asked you to post findings "
+                                    "to a channel. Verify you have posted your substantive "
+                                    "output (not just a status update) via send_message. "
+                                    "If you already did, call complete_task again."
+                                ),
+                            })
+                            self._task_complete_called = False
+                            log.info("Channel posting reminder injected for task %s", task_id)
+                            continue
+                        self._finalize_task(task_id, turn)
+                        break
                 continue  # Loop back to LLM with tool results
 
             # Text response with no tool calls
@@ -1558,9 +1612,30 @@ class Body:
                 # instead of nudging — the nudge causes the agent to re-read the
                 # channel and send a duplicate reply.
                 if task_id.startswith(("idle-reply-", "notification-")):
-                    log.info("Task %s: idle reply auto-finalized (turn %d)", task_id, turn + 1)
-                    self._finalize_task(task_id, turn)
-                    break
+                    if content and content.strip():
+                        log.info("Idle reply fallback post | task=%s channel=%s chars=%d", task_id, channel, len(content.strip()))
+                        if self._post_channel_message(channel, content.strip()):
+                            log.info("Task %s: idle reply auto-finalized (turn %d)", task_id, turn + 1)
+                            self._finalize_task(task_id, turn)
+                            break
+                        messages.append({
+                            "role": "user",
+                            "content": (
+                                "[Platform] Your reply was not delivered to the channel. "
+                                "Try again using send_message with the exact response text, "
+                                "then call complete_task."
+                            ),
+                        })
+                        continue
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "[Platform] You have not replied in the DM yet. "
+                            "Send the reply via send_message or provide the exact reply text "
+                            "so the platform can post it, then call complete_task."
+                        ),
+                    })
+                    continue
                 # For regular tasks, nudge to continue or explicitly complete.
                 messages.append({
                     "role": "user",
@@ -1584,7 +1659,7 @@ class Body:
         url = f"{self.enforcer_url}/chat/completions"
 
         payload = {
-            "model": self.model,
+            "model": self._current_model(),
             "messages": messages,
             "stream": True,
         }
@@ -2035,6 +2110,25 @@ class Body:
         except Exception:
             log.warning("Failed to post operator notification: %s", event_type)
 
+    def _post_channel_message(self, channel: str, content: str) -> bool:
+        """Post an agent-authored message to a comms channel."""
+        if not channel or not content:
+            return False
+        try:
+            comms_url = os.environ.get("AGENCY_COMMS_URL", self._comms_url)
+            log.info("Posting channel message | channel=%s url=%s/channels/%s/messages", channel, comms_url, channel)
+            resp = self._http_client.post(
+                f"{comms_url}/channels/{channel}/messages",
+                json={"author": self.agent_name, "content": content},
+                timeout=5,
+            )
+            resp.raise_for_status()
+            log.info("Posted channel message | channel=%s status=%d", channel, resp.status_code)
+            return True
+        except Exception as e:
+            log.warning("Failed to post channel message to #%s: %s", channel, e)
+            return False
+
     # -- Notification queue --
 
     def _queue_notification(self, channel: str, message_content: str, sender: str = "unknown") -> None:
@@ -2062,7 +2156,12 @@ class Body:
         )
         self._last_notification_task_time = time.monotonic()
         log.info("notification task created | id=%s | channel=#%s", task_id, channel)
-        return {"task_id": task_id, "content": content}
+        return {
+            "task_id": task_id,
+            "content": content,
+            "channel": channel,
+            "source": f"notification:{channel}:{sender}",
+        }
 
     def _process_queued_notifications(self) -> None:
         """Drain notification queue and process each as a task.
@@ -2084,8 +2183,19 @@ class Body:
     _total_tasks: int = 0
     _total_turns: int = 0
     _current_task_id: str | None = None
+    _current_task_tier: str | None = None
     _current_task_turns: int = 0
     _start_time: float = 0.0
+
+    def _current_model(self) -> str:
+        """Choose the best-fit model for the active task."""
+        tier = (self._current_task_tier or "").strip().lower()
+        task_id = self._current_task_id or ""
+        if tier in {"minimal", "mini", "fast"}:
+            return self.admin_model
+        if task_id.startswith(("idle-reply-", "notification-")):
+            return self.admin_model
+        return self.model
 
     # -- Conversation Persistence --
 

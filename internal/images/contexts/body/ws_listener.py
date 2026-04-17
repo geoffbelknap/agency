@@ -257,8 +257,9 @@ class WSListener:
                     if msg.get("author") == self.agent_name:
                         continue
                     content = msg.get("content", "")
-                    # Classify: direct mention or ambient
-                    match = "ambient"
+                    # DM channel traffic is a direct operator-to-agent path even
+                    # when the operator does not include an explicit @mention.
+                    match = "direct" if ch_name.startswith("dm-") else "ambient"
                     if f"@{self.agent_name}" in content:
                         match = "direct"
 

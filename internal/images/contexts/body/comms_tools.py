@@ -181,6 +181,7 @@ def _send_message(base_url: str, agent_name: str, args: dict) -> str:
                 "flags": args.get("flags"),
             },
         )
+        resp.raise_for_status()
         return resp.text
     except Exception as e:
         return json.dumps({"error": f"Failed to send message: {e}"})

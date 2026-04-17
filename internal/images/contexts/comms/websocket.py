@@ -95,16 +95,23 @@ async def fan_out_message(
         # System observers always get all events (no filtering)
         is_system = member in system_observers
 
+        is_direct_channel = ch.type == "direct" or channel_name.startswith("dm-")
+
         # Determine classification
         classification = "ambient"
         matched_keywords: list[str] = []
+
+        # Direct-message channels should always reach their participants as direct
+        # operator-to-agent work, even without an explicit @mention.
+        if is_direct_channel and not is_system:
+            classification = "direct"
 
         # Check @mention first (always classified as "direct")
         is_mentioned = f"@{member}" in content
 
         if is_mentioned:
             classification = "direct"
-        elif matcher and sub_manager:
+        elif classification == "ambient" and matcher and sub_manager:
             # Check merged expertise keywords (new) + legacy interests
             merged_kws = sub_manager.get_merged_keywords(member)
             interests = sub_manager.get(member)

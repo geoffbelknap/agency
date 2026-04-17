@@ -236,18 +236,41 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM HUP
 
-python3 -c 'import os, yaml
-from pathlib import Path
-home = Path(os.environ["AGENCY_HOME"])
-config_path = home / "config.yaml"
-data = {}
-if config_path.exists():
-    data = yaml.safe_load(config_path.read_text()) or {}
-data["gateway_addr"] = "127.0.0.1:" + os.environ["AGENCY_DISPOSABLE_GATEWAY_PORT"]
-if not data.get("token"):
-    data["token"] = "agency-disposable-live-check-token"
-config_path.write_text(yaml.safe_dump(data, sort_keys=False))
-'
+CONFIG_PATH="$AGENCY_HOME/config.yaml"
+TMP_CONFIG="$(mktemp "${TMPDIR:-/tmp}/agency-disposable-config.XXXXXX")"
+DISPOSABLE_GATEWAY_ADDR="127.0.0.1:${AGENCY_DISPOSABLE_GATEWAY_PORT}"
+
+if [ -f "$CONFIG_PATH" ]; then
+  awk -v gateway_addr="$DISPOSABLE_GATEWAY_ADDR" '
+    BEGIN { saw_gateway = 0; saw_token = 0 }
+    /^gateway_addr:[[:space:]]*/ {
+      print "gateway_addr: " gateway_addr
+      saw_gateway = 1
+      next
+    }
+    /^token:[[:space:]]*/ {
+      print
+      saw_token = 1
+      next
+    }
+    { print }
+    END {
+      if (!saw_gateway) {
+        print "gateway_addr: " gateway_addr
+      }
+      if (!saw_token) {
+        print "token: agency-disposable-live-check-token"
+      }
+    }
+  ' "$CONFIG_PATH" >"$TMP_CONFIG"
+else
+  cat >"$TMP_CONFIG" <<EOF
+gateway_addr: ${DISPOSABLE_GATEWAY_ADDR}
+token: agency-disposable-live-check-token
+EOF
+fi
+
+mv "$TMP_CONFIG" "$CONFIG_PATH"
 
 echo "==> Disposable Agency home: $DISPOSABLE_HOME"
 echo "==> Disposable infra id:    $AGENCY_INFRA_INSTANCE"
