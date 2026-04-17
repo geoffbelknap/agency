@@ -8,6 +8,7 @@ SOURCE_HOME="${AGENCY_SOURCE_HOME:-$HOME/.agency}"
 KEEP_HOME="${AGENCY_PODMAN_KEEP_HOME:-0}"
 RUN_FULL_E2E=0
 SEED_HOME=""
+BOOTSTRAPPED_HOME=0
 SOCKET_OVERRIDE="${AGENCY_PODMAN_SOCKET:-}"
 BOOTSTRAP_PROVIDER="${AGENCY_PODMAN_SETUP_PROVIDER:-openai}"
 BOOTSTRAP_API_KEY="${AGENCY_PODMAN_SETUP_API_KEY:-podman-readiness-placeholder-key}"
@@ -61,6 +62,20 @@ pick_free_port() {
 
 sanitize_instance() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//'
+}
+
+provider_env_var() {
+  case "$1" in
+    anthropic)
+      printf '%s\n' "ANTHROPIC_API_KEY"
+      ;;
+    google)
+      printf '%s\n' "GEMINI_API_KEY"
+      ;;
+    *)
+      printf '%s\n' "OPENAI_API_KEY"
+      ;;
+  esac
 }
 
 resolve_agency_bin() {
@@ -126,30 +141,46 @@ PY
 
 bootstrap_seed_home() {
   log "Source Agency home not found at $SOURCE_HOME; bootstrapping disposable setup"
-  AGENCY_HOME="$SEED_HOME" \
-  AGENCY_NO_BROWSER=1 \
-  "$AGENCY_BIN" -q setup \
-    --provider "$BOOTSTRAP_PROVIDER" \
-    --api-key "$BOOTSTRAP_API_KEY" \
-    --no-browser \
-    --no-infra >/dev/null
+  BOOTSTRAPPED_HOME=1
+  mkdir -p \
+    "$SEED_HOME/agents" \
+    "$SEED_HOME/teams" \
+    "$SEED_HOME/departments" \
+    "$SEED_HOME/connectors" \
+    "$SEED_HOME/hub" \
+    "$SEED_HOME/profiles" \
+    "$SEED_HOME/registry/services" \
+    "$SEED_HOME/registry/mcp-servers" \
+    "$SEED_HOME/registry/skills" \
+    "$SEED_HOME/infrastructure/comms/data/channels" \
+    "$SEED_HOME/infrastructure/comms/data/cursors" \
+    "$SEED_HOME/infrastructure/egress/certs" \
+    "$SEED_HOME/infrastructure/egress/blocklists" \
+    "$SEED_HOME/run" \
+    "$SEED_HOME/knowledge/ontology.d"
+  mkdir -m 700 -p "$SEED_HOME/audit"
 }
 
 patch_seed_config() {
   local socket="$1"
   local gateway_addr="127.0.0.1:${GATEWAY_PORT}"
   ruby -e '
+    require "securerandom"
     require "yaml"
     path = ARGV[0]
     socket = ARGV[1]
     gateway_addr = ARGV[2]
-    data = YAML.load_file(path) || {}
+    provider = ARGV[3]
+    data = File.exist?(path) ? (YAML.load_file(path) || {}) : {}
+    data["token"] ||= SecureRandom.hex(32)
+    data["egress_token"] ||= SecureRandom.hex(32)
+    data["llm_provider"] ||= provider
     data["hub"] ||= {}
     data["gateway_addr"] = gateway_addr
     data["hub"]["deployment_backend"] = "podman"
     data["hub"]["deployment_backend_config"] = {"host" => socket}
     File.write(path, YAML.dump(data))
-  ' "$SEED_HOME/config.yaml" "$socket" "$gateway_addr"
+  ' "$SEED_HOME/config.yaml" "$socket" "$gateway_addr" "$BOOTSTRAP_PROVIDER"
 }
 
 choose_ports() {
@@ -234,6 +265,12 @@ export AGENCY_KNOWLEDGE_PORT="$KNOWLEDGE_PORT"
 export AGENCY_INTAKE_PORT="$INTAKE_PORT"
 export AGENCY_WEB_FETCH_PORT="$WEB_FETCH_PORT"
 export AGENCY_WEB_PORT="$WEB_PORT"
+if [ "$BOOTSTRAPPED_HOME" = "1" ]; then
+  provider_env="$(provider_env_var "$BOOTSTRAP_PROVIDER")"
+  if [ -z "${!provider_env:-}" ]; then
+    export "$provider_env=$BOOTSTRAP_API_KEY"
+  fi
+fi
 
 log "Restarting gateway on Podman-backed seed home"
 "$AGENCY_BIN" serve restart >/dev/null
