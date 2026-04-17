@@ -9,6 +9,8 @@ KEEP_HOME="${AGENCY_PODMAN_KEEP_HOME:-0}"
 RUN_FULL_E2E=0
 SEED_HOME=""
 SOCKET_OVERRIDE="${AGENCY_PODMAN_SOCKET:-}"
+BOOTSTRAP_PROVIDER="${AGENCY_PODMAN_SETUP_PROVIDER:-openai}"
+BOOTSTRAP_API_KEY="${AGENCY_PODMAN_SETUP_API_KEY:-podman-readiness-placeholder-key}"
 AGENT_NAME="podman-readiness-$(date +%s)"
 
 usage() {
@@ -22,7 +24,7 @@ and optionally running the full disposable live web E2E.
 Options:
   --full                Run the full disposable Playwright suite after smoke
   --keep-home           Preserve the generated Podman seed home
-  --source-home <path>  Source Agency home to clone (default: ~/.agency)
+  --source-home <path>  Source Agency home to clone (default: ~/.agency; bootstraps one if missing)
   --socket <uri>        Override the Podman socket URI
   -h, --help            Show this help
 EOF
@@ -95,7 +97,22 @@ import tempfile
 print(tempfile.mkdtemp(prefix="agency-podman-seed.", dir="/tmp"))
 PY
 )"
-  cp -R "$SOURCE_HOME"/. "$SEED_HOME"/
+  if [ -d "$SOURCE_HOME" ]; then
+    cp -R "$SOURCE_HOME"/. "$SEED_HOME"/
+    return 0
+  fi
+  bootstrap_seed_home
+}
+
+bootstrap_seed_home() {
+  log "Source Agency home not found at $SOURCE_HOME; bootstrapping disposable setup"
+  AGENCY_HOME="$SEED_HOME" \
+  AGENCY_NO_BROWSER=1 \
+  "$AGENCY_BIN" -q setup \
+    --provider "$BOOTSTRAP_PROVIDER" \
+    --api-key "$BOOTSTRAP_API_KEY" \
+    --no-browser \
+    --no-infra >/dev/null
 }
 
 patch_seed_config() {
@@ -161,7 +178,6 @@ require_cmd podman
 require_cmd python3
 require_cmd ruby
 
-[ -d "$SOURCE_HOME" ] || fail "Source Agency home does not exist: $SOURCE_HOME"
 if ! AGENCY_BIN="$(resolve_agency_bin)"; then
   fail "Could not resolve agency binary. Build it first."
 fi
