@@ -531,6 +531,70 @@ paths:
                                 $ref: "#/components/schemas/AgentConfigBundle"
                 "404":
                     $ref: "#/components/responses/NotFound"
+    /agents/{name}/runtime/manifest:
+        get:
+            operationId: showAgentRuntimeManifest
+            summary: Show the persisted runtime manifest for an agent
+            description: |
+                Returns the persisted runtime contract for the agent, including the
+                compiled spec, projected runtime status, backend inspection details, and
+                backend capabilities.
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Agent runtime manifest
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/AgentRuntimeManifest"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+    /agents/{name}/runtime/status:
+        get:
+            operationId: showAgentRuntimeStatus
+            summary: Show the projected runtime status for an agent
+            description: |
+                Returns the current runtime phase, health, backend identity, and
+                transport connectivity state for the agent.
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Agent runtime status
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/AgentRuntimeStatus"
+                "404":
+                    $ref: "#/components/responses/NotFound"
+    /agents/{name}/runtime/validate:
+        post:
+            operationId: validateAgentRuntime
+            summary: Validate the runtime contract for an agent
+            description: |
+                Runs fail-closed runtime validation against the active backend and
+                transport configuration for the agent.
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+            responses:
+                "200":
+                    description: Runtime validated successfully
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/RuntimeValidationResult"
+                "400":
+                    description: Runtime validation failed
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/RuntimeValidationResult"
+                "404":
+                    $ref: "#/components/responses/NotFound"
     /agents/{name}/logs:
         get:
             operationId: agentLogs
@@ -1688,6 +1752,10 @@ paths:
                 Runs 7 checks per agent: credentials isolated, network mediation,
                 constraints read-only, enforcer audit active, audit not writable,
                 halt functional, operator override available.
+
+                The report is structured as runtime checks plus backend-specific
+                hygiene checks. For the Docker backend, Docker warnings should be read
+                as substrate hygiene, not as generic runtime contract failure.
             tags: [Admin]
             x-agency-tier: core
             x-agency-stability: supported
@@ -3544,6 +3612,87 @@ components:
                                 type: string
                             fix:
                                 type: string
+                unscoped_agents:
+                    type: array
+                    items:
+                        type: string
+        AgentRuntimeTransportStatus:
+            type: object
+            properties:
+                type:
+                    type: string
+                endpoint:
+                    type: string
+                enforcerConnected:
+                    type: boolean
+                lastError:
+                    type: string
+        AgentRuntimeStatus:
+            type: object
+            properties:
+                runtimeId:
+                    type: string
+                agentId:
+                    type: string
+                phase:
+                    type: string
+                    enum: [compiled, reconciled, starting, running, degraded, stopped, failed, quarantined]
+                healthy:
+                    type: boolean
+                backend:
+                    type: string
+                transport:
+                    $ref: "#/components/schemas/AgentRuntimeTransportStatus"
+        AgentBackendStatus:
+            type: object
+            properties:
+                runtimeId:
+                    type: string
+                healthy:
+                    type: boolean
+                phase:
+                    type: string
+                details:
+                    type: object
+                    additionalProperties:
+                        type: string
+        AgentBackendCapabilities:
+            type: object
+            properties:
+                supportedTransportTypes:
+                    type: array
+                    items:
+                        type: string
+                supportsRootless:
+                    type: boolean
+                supportsComposeLike:
+                    type: boolean
+        AgentRuntimeManifest:
+            type: object
+            properties:
+                spec:
+                    type: object
+                    additionalProperties: true
+                status:
+                    $ref: "#/components/schemas/AgentRuntimeStatus"
+                backendStatus:
+                    $ref: "#/components/schemas/AgentBackendStatus"
+                capabilities:
+                    $ref: "#/components/schemas/AgentBackendCapabilities"
+                compiledAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
+        RuntimeValidationResult:
+            type: object
+            properties:
+                status:
+                    type: string
+                    enum: [valid, invalid]
+                error:
+                    type: string
         ProcedureRecord:
             type: object
             properties:
