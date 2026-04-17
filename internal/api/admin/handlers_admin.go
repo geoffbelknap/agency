@@ -63,7 +63,8 @@ func isBackendSpecificDoctorCheck(name, backend string) bool {
 	case runtimehost.BackendDocker, runtimehost.BackendPodman, runtimehost.BackendContainerd:
 		return name == "docker_connectivity" ||
 			(name == "network_pool" && backend == runtimehost.BackendDocker) ||
-			strings.HasPrefix(name, "docker_")
+			strings.HasPrefix(name, "docker_") ||
+			strings.HasPrefix(name, backend+"_")
 	default:
 		return false
 	}
@@ -237,7 +238,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		report.AllPassed = false
 		report.Checks = append(report.Checks, doctorCheckResult{
-			Name: "docker_connectivity", Status: "fail",
+			Name: backendCheckName(report.Backend, "connectivity"), Status: "fail",
 			Detail: "Cannot list containers: " + err.Error(),
 		})
 		report.RuntimeChecks, report.BackendChecks = splitDoctorChecks(report.Checks, report.Backend)

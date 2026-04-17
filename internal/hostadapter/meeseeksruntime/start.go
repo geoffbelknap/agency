@@ -10,7 +10,6 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
-	dockerclient "github.com/docker/docker/client"
 	"log/slog"
 
 	agentruntime "github.com/geoffbelknap/agency/internal/hostadapter/agentruntime"
@@ -39,7 +38,7 @@ type MeeseeksStartSequence struct {
 
 	ParentConstraintsPath string
 
-	cli            *dockerclient.Client
+	cli            *runtimehost.RawClient
 	networkCreated bool
 	enforcerID     string
 	workspaceID    string
@@ -50,7 +49,7 @@ func (ms *MeeseeksStartSequence) Run(ctx context.Context) error {
 		ms.cli = ms.Docker.RawClient()
 	} else {
 		var err error
-		ms.cli, err = dockerclient.NewClientWithOpts(dockerclient.FromEnv, dockerclient.WithAPIVersionNegotiation())
+		ms.cli, err = runtimehost.NewRawClient()
 		if err != nil {
 			return fmt.Errorf("docker client: %w", err)
 		}
@@ -126,9 +125,9 @@ func (ms *MeeseeksStartSequence) phase2Enforcement(ctx context.Context) error {
 	env := []string{
 		"HOME=/agency/enforcer/data",
 		"AGENT_NAME=" + ms.Meeseeks.ID,
-		"AGENCY_ENFORCER_PROXY_URL=http://enforcer:3128",
-		"AGENCY_ENFORCER_CONTROL_URL=http://enforcer:8081",
-		"AGENCY_ENFORCER_HEALTH_URL=http://enforcer:3128/health",
+		"AGENCY_ENFORCER_PROXY_URL=http://" + meeseeksEnforcerHost(ms.Meeseeks.ID, ms.cli.Backend()) + ":3128",
+		"AGENCY_ENFORCER_CONTROL_URL=http://" + meeseeksEnforcerHost(ms.Meeseeks.ID, ms.cli.Backend()) + ":8081",
+		"AGENCY_ENFORCER_HEALTH_URL=http://" + meeseeksEnforcerHost(ms.Meeseeks.ID, ms.cli.Backend()) + ":3128/health",
 		"CONSTRAINT_WS_PORT=8081",
 		fmt.Sprintf("AGENCY_MEESEEKS_BUDGET=%.4f", ms.Meeseeks.Budget),
 		"AGENCY_MEESEEKS=true",
@@ -158,6 +157,11 @@ func (ms *MeeseeksStartSequence) phase2Enforcement(ctx context.Context) error {
 	hc.Binds = binds
 	hc.NetworkMode = container.NetworkMode(netName)
 	hc.Tmpfs = map[string]string{"/tmp": "size=64M", "/run": "size=32M"}
+	netCfg := &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{netName: {}}}
+	if ms.cli.Backend() == runtimehost.BackendContainerd {
+		netCfg.EndpointsConfig[gatewayNetName()] = &network.EndpointSettings{}
+		netCfg.EndpointsConfig[egressIntNetName()] = &network.EndpointSettings{}
+	}
 
 	enforcerContainerID, err := containers.CreateAndStart(ctx, ms.cli,
 		ms.Meeseeks.EnforcerName,
@@ -179,7 +183,7 @@ func (ms *MeeseeksStartSequence) phase2Enforcement(ctx context.Context) error {
 			},
 		},
 		hc,
-		nil,
+		netCfg,
 	)
 	if err != nil {
 		return fmt.Errorf("create/start enforcer container: %w", err)
@@ -190,12 +194,14 @@ func (ms *MeeseeksStartSequence) phase2Enforcement(ctx context.Context) error {
 		return err
 	}
 
-	_ = ms.cli.NetworkConnect(ctx, gatewayNetName(), enforcerContainerID, &network.EndpointSettings{
-		Aliases: []string{"enforcer"},
-	})
-	_ = ms.cli.NetworkConnect(ctx, egressIntNetName(), enforcerContainerID, &network.EndpointSettings{
-		Aliases: []string{"enforcer"},
-	})
+	if ms.cli.Backend() != runtimehost.BackendContainerd {
+		_ = ms.cli.NetworkConnect(ctx, gatewayNetName(), enforcerContainerID, &network.EndpointSettings{
+			Aliases: []string{"enforcer"},
+		})
+		_ = ms.cli.NetworkConnect(ctx, egressIntNetName(), enforcerContainerID, &network.EndpointSettings{
+			Aliases: []string{"enforcer"},
+		})
+	}
 	return nil
 }
 
@@ -215,18 +221,19 @@ func (ms *MeeseeksStartSequence) phase4Workspace(ctx context.Context) error {
 	}
 
 	netName := ms.Meeseeks.NetworkName
+	enforcerHostName := meeseeksEnforcerHost(ms.Meeseeks.ID, ms.cli.Backend())
 	auditDir := filepath.Join(ms.Home, "audit", ms.Meeseeks.ID)
 	env := []string{
-		"AGENCY_ENFORCER_PROXY_URL=http://enforcer:3128",
-		"AGENCY_ENFORCER_CONTROL_URL=http://enforcer:8081",
-		"AGENCY_ENFORCER_HEALTH_URL=http://enforcer:3128/health",
-		"AGENCY_ENFORCER_URL=http://enforcer:3128/v1",
-		"OPENAI_API_BASE=http://enforcer:3128/v1",
-		"HTTP_PROXY=http://enforcer:3128",
-		"HTTPS_PROXY=http://enforcer:3128",
-		"AGENCY_COMMS_URL=http://enforcer:8081/mediation/comms",
-		"AGENCY_KNOWLEDGE_URL=http://enforcer:8081/mediation/knowledge",
-		"NO_PROXY=enforcer,comms,knowledge,localhost,127.0.0.1",
+		"AGENCY_ENFORCER_PROXY_URL=http://" + enforcerHostName + ":3128",
+		"AGENCY_ENFORCER_CONTROL_URL=http://" + enforcerHostName + ":8081",
+		"AGENCY_ENFORCER_HEALTH_URL=http://" + enforcerHostName + ":3128/health",
+		"AGENCY_ENFORCER_URL=http://" + enforcerHostName + ":3128/v1",
+		"OPENAI_API_BASE=http://" + enforcerHostName + ":3128/v1",
+		"HTTP_PROXY=http://" + enforcerHostName + ":3128",
+		"HTTPS_PROXY=http://" + enforcerHostName + ":3128",
+		"AGENCY_COMMS_URL=http://" + enforcerHostName + ":8081/mediation/comms",
+		"AGENCY_KNOWLEDGE_URL=http://" + enforcerHostName + ":8081/mediation/knowledge",
+		"NO_PROXY=" + enforcerHostName + ",localhost,127.0.0.1",
 		"AGENCY_AGENT_NAME=" + ms.Meeseeks.ID,
 		"AGENCY_MODEL=claude-" + ms.Meeseeks.Model,
 		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -324,4 +331,11 @@ func egressIntNetName() string {
 	instance = strings.NewReplacer("_", "-", ".", "-", "/", "-").Replace(instance)
 	instance = strings.Trim(instance, "-")
 	return "agency-egress-int-" + instance
+}
+
+func meeseeksEnforcerHost(id, backend string) string {
+	if runtimehost.NormalizeContainerBackend(backend) == runtimehost.BackendContainerd {
+		return fmt.Sprintf("%s-%s-enforcer", prefix, id)
+	}
+	return "enforcer"
 }

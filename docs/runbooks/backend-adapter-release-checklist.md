@@ -39,10 +39,10 @@ Backend selection reminder:
 
 - set `hub.deployment_backend` in `config.yaml` to the adapter under test
 - for Podman, set `hub.deployment_backend_config.host` or `hub.deployment_backend_config.socket` if auto-detection is not enough
-- for the first `containerd` slice, set `hub.deployment_backend_config.host` or `hub.deployment_backend_config.socket` to a Docker-compatible API endpoint
+- for `containerd`, set `hub.deployment_backend_config.host` or `hub.deployment_backend_config.socket` to the native containerd socket when auto-detection is not enough
 - common Podman socket sources:
   `podman info --format json | jq -r '.host.remoteSocket.path'`
-- current `containerd` first slice is Linux-only and compatibility-backed rather than native gRPC-backed
+- current `containerd` slice is Linux-only and nerdctl-backed
 
 If you are validating a local patch, make sure the binary you are exercising is
 the one you just built:
@@ -213,7 +213,7 @@ Run the disposable live path after runtime or lifecycle changes:
 Release gate policy:
 
 - Docker and Podman smoke must stay automated
-- the first `containerd` smoke lane is automated on Linux against a Docker-compatible API socket while native containerd support is completed
+- the `containerd` smoke lane is automated on Linux against a native containerd socket via `nerdctl`
 - full Podman disposable E2E is a release requirement, not a per-PR requirement
 - the supported manual CI path is:
 

@@ -11,7 +11,6 @@ import (
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
-	dockerclient "github.com/docker/docker/client"
 	"log/slog"
 
 	containers "github.com/geoffbelknap/agency/internal/orchestrate/containers"
@@ -145,6 +144,9 @@ func WatchAgencyContainerEvents(ctx context.Context, dc *Client, actions ...stri
 	if dc == nil {
 		return nil, nil, fmt.Errorf("docker is not available")
 	}
+	if dc.RawClient() == nil || !dc.RawClient().SupportsEventStream() {
+		return nil, nil, fmt.Errorf("%s backend does not provide a container event stream", dc.Backend())
+	}
 	args := filters.NewArgs(
 		filters.Arg("type", "container"),
 		filters.Arg("label", "agency.agent"),
@@ -185,7 +187,7 @@ func WatchAgencyContainerEvents(ctx context.Context, dc *Client, actions ...stri
 	return out, errOut, nil
 }
 
-func WaitRunning(ctx context.Context, cli *dockerclient.Client, name string, timeout time.Duration) error {
+func WaitRunning(ctx context.Context, cli *RawClient, name string, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -209,7 +211,7 @@ func WaitRunning(ctx context.Context, cli *dockerclient.Client, name string, tim
 	}
 }
 
-func WaitHealthy(ctx context.Context, cli *dockerclient.Client, name string, timeout time.Duration) error {
+func WaitHealthy(ctx context.Context, cli *RawClient, name string, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -238,7 +240,7 @@ func WaitHealthy(ctx context.Context, cli *dockerclient.Client, name string, tim
 	}
 }
 
-func ConnectIfNeeded(ctx context.Context, cli *dockerclient.Client, containerID, netName string, aliases []string, logger *slog.Logger) {
+func ConnectIfNeeded(ctx context.Context, cli *RawClient, containerID, netName string, aliases []string, logger *slog.Logger) {
 	err := cli.NetworkConnect(ctx, netName, containerID, &network.EndpointSettings{
 		Aliases: aliases,
 	})
@@ -247,7 +249,7 @@ func ConnectIfNeeded(ctx context.Context, cli *dockerclient.Client, containerID,
 	}
 }
 
-func EnsureInternalNetworkReady(ctx context.Context, cli *dockerclient.Client, netName string) error {
+func EnsureInternalNetworkReady(ctx context.Context, cli *RawClient, netName string) error {
 	if _, err := cli.NetworkInspect(ctx, netName, network.InspectOptions{}); err == nil {
 		return nil
 	} else if !containers.IsNetworkNotFound(err) {
@@ -283,7 +285,7 @@ func EnsureInternalNetworkReady(ctx context.Context, cli *dockerclient.Client, n
 	}
 }
 
-func CleanManagedNetworks(ctx context.Context, cli *dockerclient.Client, logger *slog.Logger) {
+func CleanManagedNetworks(ctx context.Context, cli *RawClient, logger *slog.Logger) {
 	networks, err := cli.NetworkList(ctx, network.ListOptions{})
 	if err != nil {
 		return

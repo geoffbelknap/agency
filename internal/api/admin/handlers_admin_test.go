@@ -66,8 +66,8 @@ func TestSplitDoctorChecksSeparatesContainerdBackendHygiene(t *testing.T) {
 
 	checks := []doctorCheckResult{
 		{Name: "credentials_isolated", Agent: "henry", Status: "pass"},
-		{Name: "docker_dangling_images", Status: "warn"},
-		{Name: "docker_log_rotation", Status: "warn"},
+		{Name: "containerd_dangling_images", Status: "warn"},
+		{Name: "containerd_log_rotation", Status: "warn"},
 		{Name: "network_pool", Status: "warn"},
 	}
 
@@ -79,7 +79,7 @@ func TestSplitDoctorChecksSeparatesContainerdBackendHygiene(t *testing.T) {
 	if len(runtimeChecks) != 2 {
 		t.Fatalf("runtimeChecks len = %d, want 2", len(runtimeChecks))
 	}
-	if backendChecks[0].Name != "docker_dangling_images" || backendChecks[1].Name != "docker_log_rotation" {
+	if backendChecks[0].Name != "containerd_dangling_images" || backendChecks[1].Name != "containerd_log_rotation" {
 		t.Fatalf("unexpected backend checks: %#v", backendChecks)
 	}
 }

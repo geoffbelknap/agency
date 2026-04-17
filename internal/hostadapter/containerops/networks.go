@@ -85,7 +85,9 @@ func IsNetworkNotFound(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "no such network") ||
-		strings.Contains(msg, "not found")
+		strings.Contains(msg, "not found") ||
+		strings.Contains(msg, "no network found matching") ||
+		strings.Contains(msg, "unable to find any network matching")
 }
 
 func IsNetworkAlreadyExists(err error) bool {

@@ -116,8 +116,20 @@ func WorkspaceSecurityOpts(homeDir, backend string) []string {
 	case "podman", "containerd":
 		return opts
 	}
-	if profile := SeccompProfilePath(homeDir); profile != "" {
+	if profile := dockerSeccompProfile(homeDir); profile != "" {
 		opts = append(opts, "seccomp="+profile)
 	}
 	return opts
+}
+
+func dockerSeccompProfile(homeDir string) string {
+	profilePath := SeccompProfilePath(homeDir)
+	if profilePath == "" {
+		return strings.TrimSpace(embeddedSeccomp)
+	}
+	data, err := os.ReadFile(profilePath)
+	if err != nil {
+		return strings.TrimSpace(embeddedSeccomp)
+	}
+	return strings.TrimSpace(string(data))
 }

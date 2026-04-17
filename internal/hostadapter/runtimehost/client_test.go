@@ -21,6 +21,14 @@ func TestResolveBackendHostUsesContainerdEnv(t *testing.T) {
 	}
 }
 
+func TestResolveBackendHostUsesNativeContainerdDefault(t *testing.T) {
+	t.Setenv("CONTAINERD_HOST", "")
+	t.Setenv("CONTAINER_HOST", "")
+	if got := resolveBackendHost(BackendContainerd, nil); got != "unix:///run/containerd/containerd.sock" {
+		t.Fatalf("resolveBackendHost(containerd default) = %q", got)
+	}
+}
+
 func TestNormalizeContainerBackend(t *testing.T) {
 	if got := NormalizeContainerBackend(""); got != BackendDocker {
 		t.Fatalf("NormalizeContainerBackend(\"\") = %q, want %q", got, BackendDocker)

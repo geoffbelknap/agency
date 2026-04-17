@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/client"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 )
 
 const (
@@ -58,6 +58,31 @@ func egressIntNetName() string {
 	return scopedInfraName(baseEgressIntNet)
 }
 
+func isContainerdBackend(backend string) bool {
+	return runtimehost.NormalizeContainerBackend(backend) == runtimehost.BackendContainerd
+}
+
+func gatewayHost(backend string) string {
+	if isContainerdBackend(backend) {
+		return scopedInfraName(prefix + "-infra-gateway")
+	}
+	return "gateway"
+}
+
+func egressHost(backend string) string {
+	if isContainerdBackend(backend) {
+		return scopedInfraName(prefix + "-infra-egress")
+	}
+	return "egress"
+}
+
+func enforcerHost(agentName, backend string) string {
+	if isContainerdBackend(backend) {
+		return fmt.Sprintf("%s-%s-enforcer", prefix, agentName)
+	}
+	return "enforcer"
+}
+
 func pickLoopbackPort() (string, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -67,7 +92,7 @@ func pickLoopbackPort() (string, error) {
 	return fmt.Sprintf("%d", listener.Addr().(*net.TCPAddr).Port), nil
 }
 
-func waitContainerRunning(ctx context.Context, cli *client.Client, name string, timeout time.Duration) error {
+func waitContainerRunning(ctx context.Context, cli *runtimehost.RawClient, name string, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -92,11 +117,11 @@ func waitContainerRunning(ctx context.Context, cli *client.Client, name string, 
 	}
 }
 
-func WaitContainerRunning(ctx context.Context, cli *client.Client, name string, timeout time.Duration) error {
+func WaitContainerRunning(ctx context.Context, cli *runtimehost.RawClient, name string, timeout time.Duration) error {
 	return waitContainerRunning(ctx, cli, name, timeout)
 }
 
-func waitContainerHealthy(ctx context.Context, cli *client.Client, name string, timeout time.Duration) error {
+func waitContainerHealthy(ctx context.Context, cli *runtimehost.RawClient, name string, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -116,7 +141,7 @@ func waitContainerHealthy(ctx context.Context, cli *client.Client, name string, 
 	}
 }
 
-func inspectContainerHealth(ctx context.Context, cli *client.Client, name string) (bool, error) {
+func inspectContainerHealth(ctx context.Context, cli *runtimehost.RawClient, name string) (bool, error) {
 	info, err := cli.ContainerInspect(ctx, name)
 	if err != nil {
 		return false, nil

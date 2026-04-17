@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docker/docker/client"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 )
 
 // repoRoot walks up from the test file to find the repo root (contains go.mod).
@@ -201,7 +201,7 @@ func TestPythonBaseDependenciesMatchMakefile(t *testing.T) {
 }
 
 func TestResolveUpstream_SkipsIfCurrent(t *testing.T) {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := runtimehost.NewRawClient()
 	if err != nil {
 		t.Skip("Docker not available:", err)
 	}
@@ -212,7 +212,7 @@ func TestResolveUpstream_SkipsIfCurrent(t *testing.T) {
 }
 
 func TestImageExists_False(t *testing.T) {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := runtimehost.NewRawClient()
 	if err != nil {
 		t.Skip("Docker not available:", err)
 	}

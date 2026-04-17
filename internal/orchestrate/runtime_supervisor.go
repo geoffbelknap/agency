@@ -171,14 +171,14 @@ func (rs *RuntimeSupervisor) Compile(ctx context.Context, runtimeID string) (run
 				"AGENCY_MODEL":                       rs.resolveModel(agentID),
 				"AGENCY_ADMIN_MODEL":                 rs.resolveAdminModel(agentID),
 				"PATH":                               "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-				"NO_PROXY":                           "enforcer,localhost,127.0.0.1",
-				"AGENCY_ENFORCER_PROXY_URL":          "http://enforcer:3128",
-				"AGENCY_ENFORCER_URL":                "http://enforcer:3128/v1",
-				"OPENAI_API_BASE":                    "http://enforcer:3128/v1",
-				"AGENCY_ENFORCER_CONTROL_URL":        "http://enforcer:8081",
-				"AGENCY_ENFORCER_HEALTH_URL":         "http://enforcer:3128/health",
-				"AGENCY_COMMS_URL":                   "http://enforcer:8081/mediation/comms",
-				"AGENCY_KNOWLEDGE_URL":               "http://enforcer:8081/mediation/knowledge",
+				"NO_PROXY":                           rs.enforcerHost(agentID) + ",localhost,127.0.0.1",
+				"AGENCY_ENFORCER_PROXY_URL":          "http://" + rs.enforcerHost(agentID) + ":3128",
+				"AGENCY_ENFORCER_URL":                "http://" + rs.enforcerHost(agentID) + ":3128/v1",
+				"OPENAI_API_BASE":                    "http://" + rs.enforcerHost(agentID) + ":3128/v1",
+				"AGENCY_ENFORCER_CONTROL_URL":        "http://" + rs.enforcerHost(agentID) + ":8081",
+				"AGENCY_ENFORCER_HEALTH_URL":         "http://" + rs.enforcerHost(agentID) + ":3128/health",
+				"AGENCY_COMMS_URL":                   "http://" + rs.enforcerHost(agentID) + ":8081/mediation/comms",
+				"AGENCY_KNOWLEDGE_URL":               "http://" + rs.enforcerHost(agentID) + ":8081/mediation/knowledge",
 				"AGENCY_TRANSPORT_ENFORCER_TYPE":     runtimecontract.TransportTypeLoopbackHTTP,
 				"AGENCY_TRANSPORT_ENFORCER_ENDPOINT": endpoint,
 			},
@@ -216,6 +216,13 @@ func (rs *RuntimeSupervisor) workspacePath(agentID string) string {
 		return filepath.Join(rs.Home, "agents", agentID, "workspace")
 	}
 	return "/workspace"
+}
+
+func (rs *RuntimeSupervisor) enforcerHost(agentID string) string {
+	if runtimehost.NormalizeContainerBackend(rs.BackendName) == runtimehost.BackendContainerd {
+		return fmt.Sprintf("%s-%s-enforcer", prefix, agentID)
+	}
+	return "enforcer"
 }
 
 func (rs *RuntimeSupervisor) Reconcile(ctx context.Context, spec runtimecontract.RuntimeSpec) error {

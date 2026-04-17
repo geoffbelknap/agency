@@ -171,8 +171,8 @@ func TestWorkspaceSecurityOpts_DockerIncludesSeccompProfile(t *testing.T) {
 	if opts[0] != "no-new-privileges:true" {
 		t.Fatalf("first security opt = %q, want no-new-privileges:true", opts[0])
 	}
-	if !strings.HasPrefix(opts[1], "seccomp=") {
-		t.Fatalf("second security opt = %q, want seccomp=...", opts[1])
+	if !strings.HasPrefix(opts[1], "seccomp={") {
+		t.Fatalf("second security opt = %q, want embedded seccomp JSON", opts[1])
 	}
 }
 

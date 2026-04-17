@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 )
 
 func isSharedInfraNetwork(name string) bool {
@@ -26,6 +28,14 @@ type dockerCheckResult struct {
 	Fix    string `json:"fix,omitempty"`
 }
 
+func backendCheckName(backend, suffix string) string {
+	backend = runtimehost.NormalizeContainerBackend(backend)
+	if backend == "" {
+		backend = runtimehost.BackendDocker
+	}
+	return backend + "_" + suffix
+}
+
 // runDockerChecks performs infrastructure-level Docker hygiene checks that are
 // not tied to a specific agent. Results are appended to the doctor report.
 //
@@ -39,6 +49,7 @@ type dockerCheckResult struct {
 //  7. Log rotation      — agency containers must have max-size in LogConfig
 func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) []dockerCheckResult {
 	var results []dockerCheckResult
+	backend := configuredRuntimeBackend(h.deps.Config)
 
 	pass := func(name, detail string) dockerCheckResult {
 		return dockerCheckResult{Name: name, Status: "pass", Detail: detail}
@@ -60,7 +71,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 	func() {
 		all, err := h.deps.DC.ListAgencyContainers(ctx, false /* all, not just running */)
 		if err != nil {
-			results = append(results, warn("docker_orphan_containers",
+			results = append(results, warn(backendCheckName(backend, "orphan_containers"),
 				"Cannot list containers: "+err.Error(), ""))
 			return
 		}
@@ -77,10 +88,10 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 			}
 		}
 		if len(orphans) > 0 {
-			results = append(results, warn("docker_orphan_containers",
+			results = append(results, warn(backendCheckName(backend, "orphan_containers"),
 				fmt.Sprintf("%d orphan workspace container(s): %s", len(orphans), strings.Join(orphans, ", ")), ""))
 		} else {
-			results = append(results, pass("docker_orphan_containers", "No orphan workspace containers"))
+			results = append(results, pass(backendCheckName(backend, "orphan_containers"), "No orphan workspace containers"))
 		}
 	}()
 
@@ -88,7 +99,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 	func() {
 		nets, err := h.deps.DC.ListNetworksByLabel(ctx, "agency.managed=true")
 		if err != nil {
-			results = append(results, warn("docker_orphan_networks",
+			results = append(results, warn(backendCheckName(backend, "orphan_networks"),
 				"Cannot list networks: "+err.Error(), ""))
 			return
 		}
@@ -98,7 +109,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 		for _, n := range nets {
 			inspect, err := h.deps.DC.NetworkInspectRaw(ctx, n.Name)
 			if err != nil {
-				results = append(results, warn("docker_orphan_networks",
+				results = append(results, warn(backendCheckName(backend, "orphan_networks"),
 					"Cannot inspect network "+n.Name+": "+err.Error(), ""))
 				return
 			}
@@ -107,11 +118,11 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 			}
 		}
 		if len(orphans) > 0 {
-			results = append(results, warn("docker_orphan_networks",
+			results = append(results, warn(backendCheckName(backend, "orphan_networks"),
 				fmt.Sprintf("%d orphan network(s) with no connected endpoints: %s",
 					len(orphans), strings.Join(orphans, ", ")), ""))
 		} else {
-			results = append(results, pass("docker_orphan_networks",
+			results = append(results, pass(backendCheckName(backend, "orphan_networks"),
 				"No orphan agency-managed networks"))
 		}
 	}()
@@ -120,16 +131,16 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 	func() {
 		imgs, err := h.deps.DC.ListDanglingAgencyImages(ctx)
 		if err != nil {
-			results = append(results, warn("docker_dangling_images",
+			results = append(results, warn(backendCheckName(backend, "dangling_images"),
 				"Cannot list images: "+err.Error(), ""))
 			return
 		}
 		if len(imgs) > 0 {
-			results = append(results, warn("docker_dangling_images",
+			results = append(results, warn(backendCheckName(backend, "dangling_images"),
 				fmt.Sprintf("%d true dangling agency image(s)", len(imgs)),
 				"Run `agency admin prune-images` to remove unused untagged Agency images."))
 		} else {
-			results = append(results, pass("docker_dangling_images",
+			results = append(results, pass(backendCheckName(backend, "dangling_images"),
 				"No dangling agency images"))
 		}
 	}()
@@ -138,7 +149,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 	func() {
 		running, err := h.deps.DC.ListAgencyContainers(ctx, true /* running only */)
 		if err != nil {
-			results = append(results, warn("docker_log_sizes",
+			results = append(results, warn(backendCheckName(backend, "log_sizes"),
 				"Cannot list running containers: "+err.Error(), ""))
 			return
 		}
@@ -153,10 +164,10 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 		}
 		totalMB := float64(totalBytes) / (1024 * 1024)
 		if totalBytes > warnThreshold {
-			results = append(results, warn("docker_log_sizes",
+			results = append(results, warn(backendCheckName(backend, "log_sizes"),
 				fmt.Sprintf("Total log size across agency containers: %.1f MB (threshold 500 MB)", totalMB), ""))
 		} else {
-			results = append(results, pass("docker_log_sizes",
+			results = append(results, pass(backendCheckName(backend, "log_sizes"),
 				fmt.Sprintf("Total log size: %.1f MB", totalMB)))
 		}
 	}()
@@ -176,12 +187,12 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 			}
 		}
 		if len(violations) > 0 {
-			results = append(results, fail("docker_pid_limits",
+			results = append(results, fail(backendCheckName(backend, "pid_limits"),
 				fmt.Sprintf("Workspace container(s) missing PID limit: %s", strings.Join(violations, ", "))))
 		} else if len(runningAgents) == 0 {
-			results = append(results, pass("docker_pid_limits", "No running agents to check"))
+			results = append(results, pass(backendCheckName(backend, "pid_limits"), "No running agents to check"))
 		} else {
-			results = append(results, pass("docker_pid_limits",
+			results = append(results, pass(backendCheckName(backend, "pid_limits"),
 				"All workspace containers have PID limits set"))
 		}
 	}()
@@ -207,10 +218,10 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 			}
 		}
 		if len(violations) > 0 {
-			results = append(results, fail("docker_network_isolation",
+			results = append(results, fail(backendCheckName(backend, "network_isolation"),
 				fmt.Sprintf("Agent network(s) not set to Internal=true: %s", strings.Join(violations, ", "))))
 		} else {
-			results = append(results, pass("docker_network_isolation",
+			results = append(results, pass(backendCheckName(backend, "network_isolation"),
 				"All agent networks are internally isolated"))
 		}
 	}()
@@ -219,7 +230,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 	func() {
 		running, err := h.deps.DC.ListAgencyContainers(ctx, true /* running only */)
 		if err != nil {
-			results = append(results, warn("docker_log_rotation",
+			results = append(results, warn(backendCheckName(backend, "log_rotation"),
 				"Cannot list running containers: "+err.Error(), ""))
 			return
 		}
@@ -240,11 +251,11 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 			}
 		}
 		if len(missing) > 0 {
-			results = append(results, warn("docker_log_rotation",
+			results = append(results, warn(backendCheckName(backend, "log_rotation"),
 				fmt.Sprintf("%d container(s) missing log rotation (max-size): %s",
 					len(missing), strings.Join(missing, ", ")), ""))
 		} else {
-			results = append(results, pass("docker_log_rotation",
+			results = append(results, pass(backendCheckName(backend, "log_rotation"),
 				"All agency containers have log rotation configured"))
 		}
 	}()

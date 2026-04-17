@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/docker/docker/api/types/container"
-	dockerclient "github.com/docker/docker/client"
 
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
@@ -131,14 +130,14 @@ func (b *DockerRuntimeBackend) Capabilities(ctx context.Context) (runtimecontrac
 	}, nil
 }
 
-func (b *DockerRuntimeBackend) rawClient() (*dockerclient.Client, error) {
+func (b *DockerRuntimeBackend) rawClient() (*runtimehost.RawClient, error) {
 	if b.Docker == nil {
 		return nil, fmt.Errorf("%s is not available", b.Name())
 	}
 	return b.Docker.RawClient(), nil
 }
 
-func inspectContainerState(ctx context.Context, cli *dockerclient.Client, name string) string {
+func inspectContainerState(ctx context.Context, cli *runtimehost.RawClient, name string) string {
 	info, err := cli.ContainerInspect(ctx, name)
 	if err != nil {
 		return "stopped"

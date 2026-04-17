@@ -1,18 +1,15 @@
 package agentruntime
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/stdcopy"
 	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/config"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/pkg/envfile"
 )
 
@@ -101,7 +98,7 @@ func ResolveWorkspaceEnv(declared map[string]string, home, scopedKey string) map
 	return resolveWorkspaceEnv(declared, home, scopedKey)
 }
 
-func provisionWorkspace(ctx context.Context, cli *client.Client, containerName string, deps WorkspaceDeps, logger *slog.Logger) error {
+func provisionWorkspace(ctx context.Context, cli *runtimehost.RawClient, containerName string, deps WorkspaceDeps, logger *slog.Logger) error {
 	if deps.IsEmpty() {
 		return nil
 	}
@@ -173,41 +170,18 @@ func provisionWorkspace(ctx context.Context, cli *client.Client, containerName s
 	return nil
 }
 
-func dockerExecRoot(ctx context.Context, cli *client.Client, containerName string, cmd []string) error {
+func dockerExecRoot(ctx context.Context, cli *runtimehost.RawClient, containerName string, cmd []string) error {
 	return dockerExecAs(ctx, cli, containerName, "root", cmd)
 }
 
-func dockerExec(ctx context.Context, cli *client.Client, containerName string, cmd []string) error {
+func dockerExec(ctx context.Context, cli *runtimehost.RawClient, containerName string, cmd []string) error {
 	return dockerExecAs(ctx, cli, containerName, "", cmd)
 }
 
-func dockerExecAs(ctx context.Context, cli *client.Client, containerName, user string, cmd []string) error {
-	execID, err := cli.ContainerExecCreate(ctx, containerName, container.ExecOptions{
-		Cmd:          cmd,
-		AttachStdout: true,
-		AttachStderr: true,
-		User:         user,
-	})
+func dockerExecAs(ctx context.Context, cli *runtimehost.RawClient, containerName, user string, cmd []string) error {
+	out, err := cli.Exec(ctx, containerName, user, cmd)
 	if err != nil {
-		return fmt.Errorf("exec create: %w", err)
-	}
-	resp, err := cli.ContainerExecAttach(ctx, execID.ID, container.ExecAttachOptions{})
-	if err != nil {
-		return fmt.Errorf("exec attach: %w", err)
-	}
-	defer resp.Close()
-
-	var out bytes.Buffer
-	if _, err := stdcopy.StdCopy(&out, &out, resp.Reader); err != nil {
-		out.Reset()
-		_, _ = out.ReadFrom(resp.Reader)
-	}
-	inspect, err := cli.ContainerExecInspect(ctx, execID.ID)
-	if err != nil {
-		return fmt.Errorf("exec inspect: %w", err)
-	}
-	if inspect.ExitCode != 0 {
-		return fmt.Errorf("exit code %d: %s", inspect.ExitCode, out.String())
+		return fmt.Errorf("%w: %s", err, out)
 	}
 	return nil
 }

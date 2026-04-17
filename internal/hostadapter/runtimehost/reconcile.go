@@ -4,13 +4,12 @@ import (
 	"context"
 	"strings"
 
-	dockerclient "github.com/docker/docker/client"
 	"log/slog"
 
 	containers "github.com/geoffbelknap/agency/internal/orchestrate/containers"
 )
 
-func Reconcile(ctx context.Context, cli *dockerclient.Client, knownAgents []string, logger *slog.Logger) {
+func Reconcile(ctx context.Context, cli *RawClient, knownAgents []string, logger *slog.Logger) {
 	known := make(map[string]bool, len(knownAgents))
 	for _, agent := range knownAgents {
 		known[agent] = true
