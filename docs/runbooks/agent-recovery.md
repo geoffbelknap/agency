@@ -14,6 +14,18 @@ agency show <agent-name>
 
 Look for: state (running/paused/stopped), halt reason, last activity timestamp. Note: halted agents show status "paused".
 
+For runtime-contract builds, also inspect the runtime surfaces directly:
+
+```bash
+curl -fsS -H "Authorization: Bearer $(awk '/^token:[[:space:]]*/ {print $2; exit}' ~/.agency/config.yaml)" \
+  http://127.0.0.1:8200/api/v1/agents/<agent-name>/runtime/status
+
+curl -fsS -H "Authorization: Bearer $(awk '/^token:[[:space:]]*/ {print $2; exit}' ~/.agency/config.yaml)" \
+  http://127.0.0.1:8200/api/v1/agents/<agent-name>/runtime/manifest
+```
+
+Look for: `phase`, `healthy`, backend identity, and transport details.
+
 ### 2. Check audit log
 
 ```bash
@@ -69,6 +81,13 @@ agency start <agent-name>   # fresh start
 ```
 
 If OOMKilled: the agent exceeded its memory limit. Check if the task requires more memory or if there's a memory leak in the tools being used.
+
+After restart, confirm the runtime contract surfaces recover too:
+
+```bash
+curl -fsS -H "Authorization: Bearer $(awk '/^token:[[:space:]]*/ {print $2; exit}' ~/.agency/config.yaml)" \
+  http://127.0.0.1:8200/api/v1/agents/<agent-name>/runtime/status
+```
 
 ### Agent in restart loop
 
@@ -131,6 +150,15 @@ agency start <agent-name>   # restart recreates enforcer
 ```
 
 The workspace crash watcher detects enforcer crashes and emits operator alerts automatically.
+
+If the enforcer starts but the agent remains degraded, validate the runtime
+contract directly:
+
+```bash
+curl -fsS -X POST \
+  -H "Authorization: Bearer $(awk '/^token:[[:space:]]*/ {print $2; exit}' ~/.agency/config.yaml)" \
+  http://127.0.0.1:8200/api/v1/agents/<agent-name>/runtime/validate
+```
 
 ## Verification
 
