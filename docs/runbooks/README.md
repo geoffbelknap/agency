@@ -6,6 +6,17 @@ Status note:
 - runbooks without a qualifier apply to the supported core `0.2.x` path
 - some runbooks cover experimental or internal operator workflows and are marked explicitly on the page
 
+## Recommended Validation Paths
+
+Use these as the default validation sequence after a change:
+
+- Runtime, lifecycle, transport, or manifest changes:
+  [Runtime Smoke](runtime-smoke.md) -> [Validation Checklist](validation-checklist.md) -> [Agent Recovery](agent-recovery.md)
+- Web, operator, DM, or comms changes:
+  [Validation Checklist](validation-checklist.md) with the disposable live web E2E section, then [Monitoring & Observability](monitoring-and-observability.md)
+- Infrastructure or Docker hygiene changes:
+  [Initial Setup](initial-setup.md) or [Upgrade](upgrade.md), then [Validation Checklist](validation-checklist.md), then [Infrastructure Recovery](infrastructure-recovery.md) if anything degrades
+
 ## Index
 
 ### Setup & Maintenance
@@ -15,6 +26,7 @@ Status note:
 | [Initial Setup](initial-setup.md) | First-time deployment or fresh environment |
 | [Upgrade](upgrade.md) | Upgrading Agency to a new version |
 | [Backup & Restore](backup-restore.md) | Scheduled backup, disaster recovery, state migration |
+| [Runtime Smoke](runtime-smoke.md) | Runtime-contract validation for start, restart, status, transport, and manifest persistence |
 | [Validation Checklist](validation-checklist.md) | Post-deployment, post-upgrade, or periodic health verification |
 
 ### Operations

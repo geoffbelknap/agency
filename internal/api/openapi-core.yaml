@@ -3490,11 +3490,45 @@ components:
             properties:
                 all_passed:
                     type: boolean
+                backend:
+                    type: string
                 tested_agents:
                     type: array
                     items:
                         type: string
                 checks:
+                    type: array
+                    items:
+                        type: object
+                        properties:
+                            name:
+                                type: string
+                            agent:
+                                type: string
+                            status:
+                                type: string
+                                enum: [pass, warn, fail]
+                            detail:
+                                type: string
+                            fix:
+                                type: string
+                runtime_checks:
+                    type: array
+                    items:
+                        type: object
+                        properties:
+                            name:
+                                type: string
+                            agent:
+                                type: string
+                            status:
+                                type: string
+                                enum: [pass, warn, fail]
+                            detail:
+                                type: string
+                            fix:
+                                type: string
+                backend_checks:
                     type: array
                     items:
                         type: object

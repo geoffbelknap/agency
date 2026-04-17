@@ -281,14 +281,16 @@ echo "==> Running live Playwright suite"
 cd "$WEB_DIR"
 if [ "$PLAYWRIGHT_CONFIG" = "playwright.live.danger.config.ts" ]; then
   if [ "${#PLAYWRIGHT_ARGS[@]}" -gt 0 ]; then
-    AGENCY_E2E_ALLOW_DANGER=1 AGENCY_E2E_DANGER_CONFIRM=destroy-all \
+    env -u NO_COLOR \
+      AGENCY_E2E_ALLOW_DANGER=1 AGENCY_E2E_DANGER_CONFIRM=destroy-all \
       npx playwright test -c "$PLAYWRIGHT_CONFIG" "${PLAYWRIGHT_ARGS[@]}"
   else
-    AGENCY_E2E_ALLOW_DANGER=1 AGENCY_E2E_DANGER_CONFIRM=destroy-all \
+    env -u NO_COLOR \
+      AGENCY_E2E_ALLOW_DANGER=1 AGENCY_E2E_DANGER_CONFIRM=destroy-all \
       npx playwright test -c "$PLAYWRIGHT_CONFIG"
   fi
 elif [ "${#PLAYWRIGHT_ARGS[@]}" -gt 0 ]; then
-  npx playwright test -c "$PLAYWRIGHT_CONFIG" "${PLAYWRIGHT_ARGS[@]}"
+  env -u NO_COLOR npx playwright test -c "$PLAYWRIGHT_CONFIG" "${PLAYWRIGHT_ARGS[@]}"
 else
-  npx playwright test -c "$PLAYWRIGHT_CONFIG"
+  env -u NO_COLOR npx playwright test -c "$PLAYWRIGHT_CONFIG"
 fi

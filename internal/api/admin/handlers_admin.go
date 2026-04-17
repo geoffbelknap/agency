@@ -17,54 +17,95 @@ import (
 	"github.com/go-chi/chi/v5"
 	"gopkg.in/yaml.v3"
 
+	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 )
 
+type doctorCheckResult struct {
+	Name   string `json:"name"`
+	Agent  string `json:"agent,omitempty"`
+	Status string `json:"status"`
+	Detail string `json:"detail,omitempty"`
+	Fix    string `json:"fix,omitempty"`
+}
+
+type doctorScopeInfo struct {
+	Agent    string   `json:"agent"`
+	Service  string   `json:"service"`
+	Required []string `json:"required,omitempty"`
+	Optional []string `json:"optional,omitempty"`
+}
+
+type doctorReport struct {
+	AllPassed     bool                `json:"all_passed"`
+	Backend       string              `json:"backend,omitempty"`
+	TestedAgents  []string            `json:"tested_agents"`
+	Checks        []doctorCheckResult `json:"checks"`
+	RuntimeChecks []doctorCheckResult `json:"runtime_checks,omitempty"`
+	BackendChecks []doctorCheckResult `json:"backend_checks,omitempty"`
+	Scopes        []doctorScopeInfo   `json:"scopes,omitempty"`
+	Unscoped      []string            `json:"unscoped_agents,omitempty"`
+}
+
+type checkResult = doctorCheckResult
+type scopeInfo = doctorScopeInfo
+
+func configuredRuntimeBackend(cfg *config.Config) string {
+	if cfg != nil && strings.TrimSpace(cfg.Hub.DeploymentBackend) != "" {
+		return strings.TrimSpace(cfg.Hub.DeploymentBackend)
+	}
+	return "docker"
+}
+
+func isBackendSpecificDoctorCheck(name, backend string) bool {
+	switch backend {
+	case "docker":
+		return name == "docker_connectivity" ||
+			name == "network_pool" ||
+			strings.HasPrefix(name, "docker_")
+	default:
+		return false
+	}
+}
+
+func splitDoctorChecks(checks []doctorCheckResult, backend string) ([]doctorCheckResult, []doctorCheckResult) {
+	var runtimeChecks []doctorCheckResult
+	var backendChecks []doctorCheckResult
+	for _, check := range checks {
+		if isBackendSpecificDoctorCheck(check.Name, backend) {
+			backendChecks = append(backendChecks, check)
+			continue
+		}
+		runtimeChecks = append(runtimeChecks, check)
+	}
+	return runtimeChecks, backendChecks
+}
+
 // ── Admin ───────────────────────────────────────────────────────────────────
 
 func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
-	type checkResult struct {
-		Name   string `json:"name"`
-		Agent  string `json:"agent"`
-		Status string `json:"status"`
-		Detail string `json:"detail,omitempty"`
-		Fix    string `json:"fix,omitempty"`
-	}
-	type scopeInfo struct {
-		Agent    string   `json:"agent"`
-		Service  string   `json:"service"`
-		Required []string `json:"required,omitempty"`
-		Optional []string `json:"optional,omitempty"`
-	}
-	type doctorReport struct {
-		AllPassed    bool          `json:"all_passed"`
-		TestedAgents []string      `json:"tested_agents"`
-		Checks       []checkResult `json:"checks"`
-		Scopes       []scopeInfo   `json:"scopes,omitempty"`
-		Unscoped     []string      `json:"unscoped_agents,omitempty"`
-	}
-
 	ctx := r.Context()
-	report := doctorReport{AllPassed: true}
+	report := doctorReport{AllPassed: true, Backend: configuredRuntimeBackend(h.deps.Config)}
 
 	// Find running agents via docker (workspace containers)
 	agents, err := h.deps.DC.ListAgentWorkspaces(ctx)
 	if err != nil {
 		report.AllPassed = false
-		report.Checks = append(report.Checks, checkResult{
+		report.Checks = append(report.Checks, doctorCheckResult{
 			Name: "docker_connectivity", Status: "fail",
 			Detail: "Cannot list containers: " + err.Error(),
 		})
+		report.RuntimeChecks, report.BackendChecks = splitDoctorChecks(report.Checks, report.Backend)
 		writeJSON(w, 200, report)
 		return
 	}
 	report.TestedAgents = agents
 
 	if len(agents) == 0 {
-		report.Checks = append(report.Checks, checkResult{
+		report.Checks = append(report.Checks, doctorCheckResult{
 			Name: "no_running_agents", Status: "pass",
 			Detail: "No running agents to check",
 		})
@@ -74,7 +115,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 			if dc.Status != "pass" {
 				report.AllPassed = false
 			}
-			report.Checks = append(report.Checks, checkResult{
+			report.Checks = append(report.Checks, doctorCheckResult{
 				Name:   dc.Name,
 				Agent:  dc.Agent,
 				Status: dc.Status,
@@ -82,6 +123,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 				Fix:    dc.Fix,
 			})
 		}
+		report.RuntimeChecks, report.BackendChecks = splitDoctorChecks(report.Checks, report.Backend)
 		writeJSON(w, 200, report)
 		return
 	}
@@ -470,6 +512,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	report.RuntimeChecks, report.BackendChecks = splitDoctorChecks(report.Checks, report.Backend)
 	writeJSON(w, 200, report)
 }
 

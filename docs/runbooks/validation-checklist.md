@@ -11,6 +11,21 @@ Post-deployment, post-upgrade, periodic health verification, or after any signif
 
 ## Automated Validation
 
+Before validating a local patch, make sure the binary you are exercising is the
+one you just built. `agency` on `$PATH`, `./agency`, and the running daemon may
+point at different builds.
+
+Quick check:
+
+```bash
+./agency --version
+agency --version
+agency status
+```
+
+If you are validating a patched local binary, use `./agency` consistently or
+stop the installed daemon before starting a disposable/local runtime.
+
 ### Go test suite (no Docker required)
 
 ```bash
@@ -29,6 +44,27 @@ go build -o agency ./cmd/gateway/
 Expected: all phases pass. Covers the default setup, infrastructure, agent
 lifecycle, credentials, knowledge, and auth path. Experimental surfaces should
 be validated separately when enabled.
+
+### Disposable live web E2E (recommended after runtime/lifecycle changes)
+
+```bash
+./scripts/e2e-live-disposable.sh --skip-build
+```
+
+Expected: all live tests pass against a disposable Agency home.
+
+Covers:
+- initialized app shell and operator routes
+- runtime-backed agent create/start/pause/resume/restart flows
+- first useful DM reply for a running agent
+- webhook, notifications, presets, missions, and team flows
+
+If Docker reports `all predefined address pools have been fully subnetted`,
+clean leaked disposable runtimes before retrying:
+
+```bash
+AGENCY_BIN=./agency ./scripts/cleanup-live-test-runtimes.sh --apply
+```
 
 ## Manual Validation Checklist
 
@@ -54,9 +90,13 @@ Run through each section. Mark each item as you verify it.
 - [ ] `agency create validation-test` — agent directory created
 - [ ] `agency start validation-test` — agent starts, containers running
 - [ ] `agency show validation-test` — shows running state
+- [ ] `curl -sf -H "Authorization: Bearer $(grep '^token:' ~/.agency/config.yaml | awk '{print $2}')" http://localhost:8200/api/v1/agents/validation-test/runtime/status` — runtime status reports `phase=running`
+- [ ] `curl -sf -H "Authorization: Bearer $(grep '^token:' ~/.agency/config.yaml | awk '{print $2}')" http://localhost:8200/api/v1/agents/validation-test/runtime/manifest` — runtime manifest exists and includes backend + transport
+- [ ] `curl -sf -X POST -H "Authorization: Bearer $(grep '^token:' ~/.agency/config.yaml | awk '{print $2}')" http://localhost:8200/api/v1/agents/validation-test/runtime/validate` — runtime validates cleanly
 - [ ] `agency send validation-test "Hello"` — message delivered (check `agency comms read dm-validation-test`)
 - [ ] `agency halt validation-test --tier supervised --reason "validation"` — agent halts (status shows "paused")
 - [ ] `agency resume validation-test` — agent resumes
+- [ ] `agency restart validation-test` — agent re-enters the canonical startup flow and returns healthy
 - [ ] `agency stop validation-test` — agent stops
 - [ ] `agency delete validation-test` — agent removed
 
@@ -84,8 +124,9 @@ Run through each section. Mark each item as you verify it.
 
 ### Version Consistency
 
-- [ ] `agency --version` — shows expected version
-- [ ] `agency status` — no version mismatches between binary and containers
+- [ ] `./agency --version` — shows expected local build when validating a patch
+- [ ] `agency --version` — matches the installed/operator binary you intend to use
+- [ ] `agency status` — no unintended version mismatches between binary and containers
 
 ### Error Verification
 
@@ -112,6 +153,7 @@ After running the lifecycle checks above, verify no errors occurred:
 **Platform health:**
 - [ ] `agency admin doctor` reports zero failures (no ✗ lines)
 - [ ] `agency admin usage` shows zero errors (or no calls if no provider keys configured)
+- [ ] DM reply path works for a disposable agent without duplicate follow-on execution
 
 ### Routing & Providers
 

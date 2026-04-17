@@ -116,6 +116,30 @@ type RoutingConfig struct {
 	Settings  Settings            `yaml:"settings"`
 }
 
+func (rc *RoutingConfig) normalizeLegacyProviders() {
+	if rc == nil || rc.Providers == nil {
+		return
+	}
+	geminiProvider, ok := rc.Providers["gemini"]
+	if !ok {
+		return
+	}
+	if strings.TrimSpace(geminiProvider.APIFormat) == "" {
+		geminiProvider.APIFormat = "gemini"
+	}
+	if _, exists := rc.Providers["google"]; !exists {
+		rc.Providers["google"] = geminiProvider
+	}
+	for alias, model := range rc.Models {
+		if model.Provider != "gemini" {
+			continue
+		}
+		model.Provider = "google"
+		rc.Models[alias] = model
+	}
+	delete(rc.Providers, "gemini")
+}
+
 var allowedProviderToolCapabilities = map[string]bool{
 	capProviderWebSearch:       true,
 	capProviderWebFetch:        true,
@@ -143,9 +167,6 @@ func validateProviderToolCapability(capability string) error {
 func (rc *RoutingConfig) Validate() error {
 	if rc == nil {
 		return fmt.Errorf("routing config is nil")
-	}
-	if _, ok := rc.Providers["gemini"]; ok {
-		return fmt.Errorf("providers.gemini is not supported; use provider principal google with api_format gemini")
 	}
 	for alias, model := range rc.Models {
 		if strings.TrimSpace(model.Provider) == "" {
@@ -210,6 +231,7 @@ func LoadRoutingConfig(path string) (*RoutingConfig, error) {
 	if err := yaml.Unmarshal(data, &rc); err != nil {
 		return nil, fmt.Errorf("parse routing config: %w", err)
 	}
+	rc.normalizeLegacyProviders()
 	if err := rc.Validate(); err != nil {
 		return nil, fmt.Errorf("validate routing config: %w", err)
 	}

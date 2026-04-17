@@ -107,12 +107,18 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (scopedKey string,
 	}
 
 	internalNet := fmt.Sprintf("%s-%s-internal", prefix, e.AgentName)
+	commsHost := scopedInfraName(fmt.Sprintf("%s-infra-comms", prefix))
+	knowledgeHost := scopedInfraName(fmt.Sprintf("%s-infra-knowledge", prefix))
+	webFetchHost := scopedInfraName(fmt.Sprintf("%s-infra-web-fetch", prefix))
 
 	env := map[string]string{
 		"HOME":               "/agency/enforcer/data",
 		"AGENT_NAME":         e.AgentName,
 		"CONSTRAINT_WS_PORT": "8081",
 		"GATEWAY_URL":        "http://gateway:8200",
+		"COMMS_URL":          "http://" + commsHost + ":8080",
+		"KNOWLEDGE_URL":      "http://" + knowledgeHost + ":8080",
+		"WEB_FETCH_URL":      "http://" + webFetchHost + ":8080",
 		"AGENCY_CALLER":      "enforcer",
 	}
 	if e.LifecycleID != "" {

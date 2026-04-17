@@ -101,7 +101,7 @@ settings:
 	}
 }
 
-func TestLoadRoutingConfigRejectsGeminiProviderPrincipal(t *testing.T) {
+func TestLoadRoutingConfigNormalizesLegacyGeminiProviderPrincipal(t *testing.T) {
 	dir := t.TempDir()
 	routingFile := filepath.Join(dir, "routing.yaml")
 	os.WriteFile(routingFile, []byte(`
@@ -119,12 +119,22 @@ settings:
   default_timeout: 300
 `), 0644)
 
-	_, err := LoadRoutingConfig(routingFile)
-	if err == nil {
-		t.Fatal("expected gemini provider principal error")
+	rc, err := LoadRoutingConfig(routingFile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "provider principal google") {
-		t.Fatalf("expected google provider guidance, got %v", err)
+	if _, ok := rc.Providers["gemini"]; ok {
+		t.Fatal("expected legacy gemini provider to be removed")
+	}
+	googleProvider, ok := rc.Providers["google"]
+	if !ok {
+		t.Fatal("expected google provider to be synthesized")
+	}
+	if googleProvider.APIFormat != "gemini" {
+		t.Fatalf("expected google api_format gemini, got %q", googleProvider.APIFormat)
+	}
+	if rc.Models["gemini-flash"].Provider != "google" {
+		t.Fatalf("expected model provider to be rewritten to google, got %q", rc.Models["gemini-flash"].Provider)
 	}
 }
 

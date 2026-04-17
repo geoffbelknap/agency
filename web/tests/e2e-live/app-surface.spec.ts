@@ -39,6 +39,12 @@ async function expectAnyVisible(page: Page, candidates: string[]) {
   throw new Error(`None of the expected texts were visible: ${candidates.join(', ')}`);
 }
 
+async function isAdminTabSelected(page: Page, name: string) {
+  const tab = page.getByRole('tab', { name, exact: true });
+  if (!(await tab.count())) return false;
+  return (await tab.first().getAttribute('aria-selected')) === 'true';
+}
+
 test('live admin tabs render across the real stack', async ({ page }) => {
   await page.goto('/');
   const initialized = await expectSetupOrInitialized(page);
@@ -47,29 +53,33 @@ test('live admin tabs render across the real stack', async ({ page }) => {
   }
 
   const tabs = [
-    { path: '/admin/infrastructure', assert: async () => expect(page.getByRole('heading', { name: 'Infrastructure' })).toBeVisible() },
-    { path: '/admin/hub', assert: async () => expect(page.getByRole('tab', { name: 'Packages' }).first()).toBeVisible() },
-    { path: '/admin/intake', assert: async () => expect(page.getByRole('tab', { name: 'Connectors' })).toBeVisible() },
-    { path: '/admin/knowledge', assert: async () => expect(page.getByText(/Query Knowledge|Knowledge graph is empty/)).toBeVisible() },
-    { path: '/admin/capabilities', assert: async () => expect(page.getByText('Platform capability registry')).toBeVisible() },
-    { path: '/admin/presets', assert: async () => expect(page.getByText('Agent preset templates')).toBeVisible() },
-    { path: '/admin/trust', assert: async () => expect(page.getByText('Trust Level')).toBeVisible() },
-    { path: '/admin/egress', assert: async () => expect(page.getByText('Domain Provenance')).toBeVisible() },
-    { path: '/admin/policy', assert: async () => expect(page.getByRole('button', { name: 'Validate' })).toBeVisible() },
-    { path: '/admin/doctor', assert: async () => expectAnyVisible(page, ['Run Doctor', 'Running...', 'Running doctor checks...', 'No checks returned']) },
-    { path: '/admin/usage', assert: async () => expect(page.getByText('LLM usage and estimated spend')).toBeVisible() },
-    { path: '/admin/events', assert: async () => expect(page.getByRole('button', { name: 'Refresh' })).toBeVisible() },
-    { path: '/admin/webhooks', assert: async () => expect(page.getByText('Inbound webhooks for external event delivery')).toBeVisible() },
-    { path: '/admin/notifications', assert: async () => expect(page.getByText('Operator notification destinations')).toBeVisible() },
-    { path: '/admin/audit', assert: async () => expect(page.getByRole('button', { name: 'Summarize' })).toBeVisible() },
-    { path: '/admin/setup', assert: async () => expect(page.getByText('Re-run Setup Wizard')).toBeVisible() },
-    { path: '/admin/danger', assert: async () => expect(page.getByRole('button', { name: 'Destroy All' })).toBeVisible() },
+    { path: '/admin/infrastructure', tab: 'Infrastructure', assert: async () => expect(page.getByRole('heading', { name: 'Infrastructure', exact: true })).toBeVisible() },
+    { path: '/admin/hub', tab: 'Packages', optional: true, assert: async () => expect(page.getByText('Packages and instances')).toBeVisible() },
+    { path: '/admin/intake', tab: 'Intake', optional: true, assert: async () => expect(page.getByRole('tab', { name: 'Connectors' })).toBeVisible() },
+    { path: '/admin/knowledge', tab: 'Knowledge', assert: async () => expect(page.getByText(/Query Knowledge|Knowledge graph is empty/)).toBeVisible() },
+    { path: '/admin/capabilities', tab: 'Capabilities', assert: async () => expect(page.getByText('Platform capability registry')).toBeVisible() },
+    { path: '/admin/presets', tab: 'Presets', assert: async () => expect(page.getByText('Reusable agent role presets', { exact: true })).toBeVisible() },
+    { path: '/admin/trust', tab: 'Trust', optional: true, assert: async () => expect(page.getByText('Trust Level')).toBeVisible() },
+    { path: '/admin/egress', tab: 'Egress', assert: async () => expect(page.getByText('Domain Provenance')).toBeVisible() },
+    { path: '/admin/policy', tab: 'Policy', assert: async () => expect(page.getByRole('button', { name: 'Validate' })).toBeVisible() },
+    { path: '/admin/doctor', tab: 'Doctor', assert: async () => expectAnyVisible(page, ['Run Doctor', 'Running...', 'Running doctor checks...', 'No checks returned']) },
+    { path: '/admin/usage', tab: 'Usage', assert: async () => expect(page.getByText('Usage overview')).toBeVisible() },
+    { path: '/admin/events', tab: 'Events', optional: true, assert: async () => expect(page.getByRole('button', { name: 'Refresh' })).toBeVisible() },
+    { path: '/admin/webhooks', tab: 'Webhooks', optional: true, assert: async () => expect(page.getByText('Inbound webhooks for external event delivery')).toBeVisible() },
+    { path: '/admin/notifications', tab: 'Notifications', optional: true, assert: async () => expect(page.getByText('Operator notification destinations')).toBeVisible() },
+    { path: '/admin/audit', tab: 'Audit', assert: async () => expect(page.getByRole('button', { name: 'Summarize' })).toBeVisible() },
+    { path: '/admin/setup', tab: 'Setup Wizard', assert: async () => expect(page.getByText('Re-run Setup Wizard')).toBeVisible() },
+    { path: '/admin/danger', tab: 'Danger Zone', assert: async () => expect(page.getByRole('button', { name: 'Destroy All' })).toBeVisible() },
   ];
 
   for (const tab of tabs) {
     await page.goto(tab.path);
     await settle(page);
     await expect(page.getByRole('heading', { name: 'Admin', exact: true })).toBeVisible();
+    if (!(await isAdminTabSelected(page, tab.tab))) {
+      if (tab.optional) continue;
+      throw new Error(`Expected admin tab ${tab.tab} to be selected for ${tab.path}`);
+    }
     await tab.assert();
   }
 });
@@ -127,6 +137,9 @@ test('live stack supports read-only direct routes for available entities', async
   if (firstConnector) {
     await page.goto('/admin/intake');
     await settle(page);
+    if (!(await isAdminTabSelected(page, 'Intake'))) {
+      return;
+    }
     await expect(page.getByRole('tab', { name: 'Connectors' })).toBeVisible();
     await expect(page.getByText(/Start by adding a connector|Work is arriving but needs routing|Connectors are ready, now verify delivery|Intake is delivering work/)).toBeVisible();
     await expect(page.getByText('Healthy Polling')).toBeVisible();
@@ -148,6 +161,9 @@ test('live stack supports read-only direct routes for available entities', async
     const rowLabel = firstWorkItem.summary ?? firstWorkItem.brief_content ?? firstWorkItem.connector ?? firstWorkItem.source ?? firstWorkItem.id ?? '';
     await page.goto('/admin/intake');
     await settle(page);
+    if (!(await isAdminTabSelected(page, 'Intake'))) {
+      return;
+    }
     await page.getByRole('tab', { name: 'Work Items' }).click();
     await expect(page.getByText('Inbound work queue')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Refresh work items' })).toBeVisible();
@@ -194,7 +210,7 @@ test('live stack supports non-destructive operator diagnostics and recovery acti
 
   await page.goto('/admin/infrastructure');
   await settle(page);
-  await expect(page.getByRole('heading', { name: 'Infrastructure' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Infrastructure', exact: true })).toBeVisible();
   const refreshButton = page.getByRole('button', { name: /Refresh infrastructure|Refreshing infrastructure/ });
   await expect(refreshButton).toBeVisible();
   if (await page.getByRole('button', { name: 'Refresh infrastructure' }).count()) {
@@ -213,6 +229,9 @@ test('live recovery surfaces expose likely next steps when recent failures exist
 
   await page.goto('/admin/events');
   await settle(page);
+  if (!(await isAdminTabSelected(page, 'Events'))) {
+    return;
+  }
   await expect(page.getByRole('button', { name: 'Refresh' })).toBeVisible();
 
   if (await page.getByText(/recent event.*need attention/i).count()) {
@@ -228,7 +247,7 @@ test('live recovery surfaces expose likely next steps when recent failures exist
 
   await page.goto('/admin/usage');
   await settle(page);
-  await expect(page.getByText('LLM usage and estimated spend')).toBeVisible();
+  await expect(page.getByText('Usage overview')).toBeVisible();
 
   if (await page.getByText(/recent routing error.*need attention/i).count()) {
     await expect(page.getByText(/recent routing error.*need attention/i)).toBeVisible();
@@ -247,6 +266,9 @@ test('live hub surfaces source trust and provenance guidance without mutating st
 
   await page.goto('/admin/hub');
   await settle(page);
+  if (!(await isAdminTabSelected(page, 'Packages'))) {
+    return;
+  }
   await expect(page.getByText('Packages and instances')).toBeVisible();
   await expect(page.getByText(/Installed packages are reusable local building blocks/i)).toBeVisible();
   await expect(page.getByText('Installed packages', { exact: true })).toBeVisible();

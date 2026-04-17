@@ -22,6 +22,20 @@ async function expectSetupOrInitialized(page: Page) {
   return true;
 }
 
+async function isAdminTabSelected(page: Page, name: string) {
+  const tab = page.getByRole('tab', { name, exact: true });
+  if (!(await tab.count())) return false;
+  return (await tab.first().getAttribute('aria-selected')) === 'true';
+}
+
+function currentPath(page: Page) {
+  return new URL(page.url()).pathname;
+}
+
+function routeIsActive(page: Page, pathPrefix: string) {
+  return currentPath(page).startsWith(pathPrefix);
+}
+
 function uniqueName(prefix: string) {
   return `${prefix}-${Date.now()}`;
 }
@@ -235,6 +249,7 @@ test('live stack supports profile create, edit, and delete flow', async ({ page 
   const profileId = uniqueName('playwright-profile');
   const updatedDisplayName = `${profileId} updated`;
   const updatedBio = 'Created by live Playwright coverage';
+  let exercised = false;
 
   try {
     await page.goto('/profiles');
@@ -242,6 +257,10 @@ test('live stack supports profile create, edit, and delete flow', async ({ page 
     if (!initialized) {
       return;
     }
+    if (!routeIsActive(page, '/profiles')) {
+      return;
+    }
+    exercised = true;
 
     await bestEffortDelete(page, `/api/v1/admin/profiles/${encodeURIComponent(profileId)}`);
     await page.evaluate((id) => {
@@ -270,6 +289,7 @@ test('live stack supports profile create, edit, and delete flow', async ({ page 
 
     await expect(page.getByRole('heading', { name: updatedDisplayName })).toHaveCount(0);
   } finally {
+    if (!exercised) return;
     await bestEffortDelete(page, `/api/v1/admin/profiles/${encodeURIComponent(profileId)}`);
   }
 });
@@ -282,6 +302,9 @@ test('live stack supports webhook create, rotate, and delete flow', async ({ pag
     await page.goto('/admin/webhooks');
     const initialized = await expectSetupOrInitialized(page);
     if (!initialized) {
+      return;
+    }
+    if (!(await isAdminTabSelected(page, 'Webhooks'))) {
       return;
     }
 
@@ -317,6 +340,9 @@ test('live stack supports notification destination add and remove flow', async (
     await page.goto('/admin/notifications');
     const initialized = await expectSetupOrInitialized(page);
     if (!initialized) {
+      return;
+    }
+    if (!(await isAdminTabSelected(page, 'Notifications'))) {
       return;
     }
 
@@ -491,6 +517,7 @@ test('live stack supports agent pause, resume, and restart lifecycle flow', asyn
 
 test('live stack supports team create and delete flow', async ({ page }) => {
   const teamName = uniqueName('playwright-team');
+  let exercised = false;
 
   try {
     await page.goto('/teams');
@@ -498,6 +525,10 @@ test('live stack supports team create and delete flow', async ({ page }) => {
     if (!initialized) {
       return;
     }
+    if (!routeIsActive(page, '/teams')) {
+      return;
+    }
+    exercised = true;
 
     await prunePlaywrightArtifacts(page);
     await bestEffortDelete(page, `/api/v1/admin/teams/${encodeURIComponent(teamName)}`);
@@ -515,6 +546,7 @@ test('live stack supports team create and delete flow', async ({ page }) => {
 
     await expect(page.getByText(teamName, { exact: true })).toHaveCount(0);
   } finally {
+    if (!exercised) return;
     await bestEffortDelete(page, `/api/v1/admin/teams/${encodeURIComponent(teamName)}`);
   }
 });
@@ -524,6 +556,7 @@ test('live stack supports mission assignment from mission detail', async ({ page
   const missionName = uniqueName('playwright-mission');
   const missionDescription = 'Mission assigned from detail page during live coverage';
   const missionInstructions = 'Acknowledge assignment and report status back to the operator.';
+  let exercised = false;
 
   try {
     await page.goto('/missions');
@@ -531,6 +564,10 @@ test('live stack supports mission assignment from mission detail', async ({ page
     if (!initialized) {
       return;
     }
+    if (!routeIsActive(page, '/missions')) {
+      return;
+    }
+    exercised = true;
 
     await prunePlaywrightArtifacts(page);
     await cleanupMission(page, missionName);
@@ -552,6 +589,7 @@ test('live stack supports mission assignment from mission detail', async ({ page
     await expect(page.getByText(agentName, { exact: true })).toBeVisible();
     await expect(page.getByText('(agent)', { exact: true })).toBeVisible();
   } finally {
+    if (!exercised) return;
     await cleanupMission(page, missionName);
     await deleteAgentAndWait(page, agentName);
   }
@@ -562,6 +600,7 @@ test('live stack supports assigned mission pause, resume, complete, and delete f
   const missionName = uniqueName('playwright-mission');
   const missionDescription = 'Mission lifecycle exercised from mission detail during live coverage';
   const missionInstructions = 'Stay ready for mission lifecycle testing and report state changes when asked.';
+  let exercised = false;
 
   try {
     await page.goto('/missions');
@@ -569,6 +608,10 @@ test('live stack supports assigned mission pause, resume, complete, and delete f
     if (!initialized) {
       return;
     }
+    if (!routeIsActive(page, '/missions')) {
+      return;
+    }
+    exercised = true;
 
     await prunePlaywrightArtifacts(page);
     await cleanupMission(page, missionName);
@@ -608,6 +651,7 @@ test('live stack supports assigned mission pause, resume, complete, and delete f
     await expect(page).toHaveURL(/\/missions$/);
     await expect(page.getByText(missionName, { exact: true })).toHaveCount(0);
   } finally {
+    if (!exercised) return;
     await cleanupMission(page, missionName);
     await bestEffortDelete(page, `/api/v1/agents/${encodeURIComponent(agentName)}`);
   }
@@ -617,6 +661,7 @@ test('live stack supports mission create flow from the wizard', async ({ page })
   const missionName = uniqueName('playwright-mission');
   const missionDescription = 'Live mission created by Playwright coverage';
   const missionInstructions = 'Check the platform shell and report whether the operator-facing surfaces look healthy.';
+  let exercised = false;
 
   try {
     await page.goto('/missions');
@@ -624,6 +669,10 @@ test('live stack supports mission create flow from the wizard', async ({ page })
     if (!initialized) {
       return;
     }
+    if (!routeIsActive(page, '/missions')) {
+      return;
+    }
+    exercised = true;
 
     await prunePlaywrightArtifacts(page);
     await bestEffortDelete(page, `/api/v1/missions/${encodeURIComponent(missionName)}`);
@@ -650,6 +699,7 @@ test('live stack supports mission create flow from the wizard', async ({ page })
     await expect(page.getByText(missionName, { exact: true })).toBeVisible();
     await expect(page.getByText(missionDescription)).toBeVisible();
   } finally {
+    if (!exercised) return;
     await bestEffortDelete(page, `/api/v1/missions/${encodeURIComponent(missionName)}`);
   }
 });

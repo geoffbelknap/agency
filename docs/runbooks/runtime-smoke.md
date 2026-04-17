@@ -9,8 +9,18 @@ agent start, restart, status, and transport wiring.
 - The gateway token is configured in `~/.agency/config.yaml`.
 - The gateway is reachable on `127.0.0.1:8200`.
 
-If you are testing a patched local binary, stop the regular daemon first so the
-smoke binary owns port `8200`.
+If you are testing a patched local binary, make sure you are validating the
+correct build:
+
+```bash
+./agency --version
+agency --version
+agency status
+```
+
+If the installed daemon is on a different build, either:
+- stop the regular daemon and run the patched binary on `8200`, or
+- use a disposable/local environment explicitly wired to the patched binary.
 
 ## One-Command Smoke
 
@@ -32,6 +42,17 @@ What it covers:
 
 If the agent has not been started through the runtime supervisor path yet, the
 runtime endpoint checks are skipped until a manifest exists.
+
+What it does not cover:
+- operator/web UI flows
+- DM response behavior
+- duplicate delivery or event-bus edge cases
+
+Use the disposable live E2E suite when those surfaces changed:
+
+```bash
+./scripts/e2e-live-disposable.sh --skip-build
+```
 
 ## Disposable Agent Flow
 
@@ -86,6 +107,21 @@ curl -fsS \
 Restart should re-enter the canonical seven-phase flow and rotate the scoped
 enforcer credential instead of reusing the previous token.
 
+For runtime-contract changes that touched comms or body transport wiring, add a
+minimal DM verification after the agent is running:
+
+```bash
+curl -fsS \
+  -H "Authorization: Bearer $(awk '/^token:[[:space:]]*/ {print $2; exit}' ~/.agency/config.yaml)" \
+  -H 'Content-Type: application/json' \
+  -d '{"content":"Reply with exactly: runtime-smoke-ok"}' \
+  http://127.0.0.1:8200/api/v1/comms/channels/dm-runtime-smoke/messages
+```
+
+Expected outcome:
+- the agent posts a single reply into `dm-runtime-smoke`
+- no duplicate follow-on runtime task is emitted for the same DM
+
 ## Troubleshooting
 
 - If phase 2 fails, inspect the enforcer container health and logs first.
@@ -95,3 +131,9 @@ enforcer credential instead of reusing the previous token.
 - `agency admin doctor` environment findings such as dangling images or Docker
   address-pool drift are deployment hygiene issues, not runtime-contract
   correctness failures.
+- If disposable validation fails with `all predefined address pools have been fully subnetted`,
+  clean leaked disposable runtimes and retry:
+
+```bash
+AGENCY_BIN=./agency ./scripts/cleanup-live-test-runtimes.sh --apply
+```
