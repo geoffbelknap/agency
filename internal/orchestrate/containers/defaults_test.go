@@ -183,3 +183,11 @@ func TestWorkspaceSecurityOpts_PodmanSkipsHostSeccompPath(t *testing.T) {
 		t.Fatalf("WorkspaceSecurityOpts(podman) = %v, want only no-new-privileges:true", opts)
 	}
 }
+
+func TestWorkspaceSecurityOpts_ContainerdSkipsHostSeccompPath(t *testing.T) {
+	dir := t.TempDir()
+	opts := WorkspaceSecurityOpts(dir, "containerd")
+	if len(opts) != 1 || opts[0] != "no-new-privileges:true" {
+		t.Fatalf("WorkspaceSecurityOpts(containerd) = %v, want only no-new-privileges:true", opts)
+	}
+}

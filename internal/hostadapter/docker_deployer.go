@@ -21,6 +21,7 @@ import (
 var deployNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$`)
 
 type dockerDeployer struct {
+	BackendName string
 	Home        string
 	Version     string
 	SourceDir   string
@@ -128,7 +129,7 @@ func (d *dockerDeployer) deploy(ctx context.Context, pack *orchestrate.PackDef, 
 	am.Version = d.Version
 	am.SourceDir = d.SourceDir
 	am.BuildID = d.BuildID
-	am.BackendName = "docker"
+	am.BackendName = d.backendName()
 
 	rollback := func() {
 		if d.Logger != nil {
@@ -247,7 +248,7 @@ func (d *dockerDeployer) deploy(ctx context.Context, pack *orchestrate.PackDef, 
 			Version:     d.Version,
 			SourceDir:   d.SourceDir,
 			BuildID:     d.BuildID,
-			BackendName: "docker",
+			BackendName: d.backendName(),
 			Docker:      d.Docker,
 			Comms:       d.Docker,
 		}
@@ -258,6 +259,16 @@ func (d *dockerDeployer) deploy(ctx context.Context, pack *orchestrate.PackDef, 
 
 	d.saveManifest(pack, result)
 	return result, nil
+}
+
+func (d *dockerDeployer) backendName() string {
+	if normalized := runtimehost.NormalizeContainerBackend(d.BackendName); normalized != "" {
+		return normalized
+	}
+	if d.Docker != nil {
+		return d.Docker.Backend()
+	}
+	return runtimehost.BackendDocker
 }
 
 func (d *dockerDeployer) teardown(ctx context.Context, packName string, deleteResources bool) error {

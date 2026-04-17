@@ -14,6 +14,13 @@ func TestResolveBackendHostUsesConfiguredSocket(t *testing.T) {
 	}
 }
 
+func TestResolveBackendHostUsesContainerdEnv(t *testing.T) {
+	t.Setenv("CONTAINERD_HOST", "unix:///tmp/containerd-compat.sock")
+	if got := resolveBackendHost(BackendContainerd, nil); got != "unix:///tmp/containerd-compat.sock" {
+		t.Fatalf("resolveBackendHost(containerd) = %q", got)
+	}
+}
+
 func TestNormalizeContainerBackend(t *testing.T) {
 	if got := NormalizeContainerBackend(""); got != BackendDocker {
 		t.Fatalf("NormalizeContainerBackend(\"\") = %q, want %q", got, BackendDocker)
@@ -21,8 +28,14 @@ func TestNormalizeContainerBackend(t *testing.T) {
 	if got := NormalizeContainerBackend("PODMAN"); got != BackendPodman {
 		t.Fatalf("NormalizeContainerBackend(\"PODMAN\") = %q, want %q", got, BackendPodman)
 	}
+	if got := NormalizeContainerBackend("CONTAINERD"); got != BackendContainerd {
+		t.Fatalf("NormalizeContainerBackend(\"CONTAINERD\") = %q, want %q", got, BackendContainerd)
+	}
 	if !IsContainerBackend("podman") {
 		t.Fatal("expected podman to be a container backend")
+	}
+	if !IsContainerBackend("containerd") {
+		t.Fatal("expected containerd to be a container backend")
 	}
 	if IsContainerBackend("probe") {
 		t.Fatal("probe should not be a container backend")

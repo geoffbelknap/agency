@@ -50,6 +50,20 @@ func TestStartup_NilDocker_ReturnsErrorForPodmanBackend(t *testing.T) {
 	}
 }
 
+func TestStartup_NilDocker_ReturnsErrorForContainerdBackend(t *testing.T) {
+	cfg := &config.Config{
+		Home:    t.TempDir(),
+		Version: "test",
+		Hub: config.HubConfig{
+			DeploymentBackend: "containerd",
+		},
+	}
+	_, err := Startup(cfg, nil, nil)
+	if err == nil {
+		t.Fatal("expected error when containerd client is nil")
+	}
+}
+
 func TestInitV2Dependencies_RegistersV2Stores(t *testing.T) {
 	cfg := &config.Config{Home: t.TempDir(), Version: "test"}
 	hubMgr := hub.NewManager(cfg.Home)

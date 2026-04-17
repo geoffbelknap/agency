@@ -112,7 +112,8 @@ func SeccompProfilePath(homeDir string) string {
 
 func WorkspaceSecurityOpts(homeDir, backend string) []string {
 	opts := []string{"no-new-privileges:true"}
-	if strings.EqualFold(strings.TrimSpace(backend), "podman") {
+	switch strings.ToLower(strings.TrimSpace(backend)) {
+	case "podman", "containerd":
 		return opts
 	}
 	if profile := SeccompProfilePath(homeDir); profile != "" {

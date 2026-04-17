@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -178,7 +179,9 @@ func (w *Workspace) Start(ctx context.Context, opts StartOptions) error {
 		auditDir + ":/var/lib/agency/audit:ro",
 	}
 	if knowledgeDir := filepath.Join(w.Home, "knowledge"); fileExists(filepath.Join(knowledgeDir, "ontology.yaml")) {
-		binds = append(binds, knowledgeDir+":"+configDir+"/knowledge:ro")
+		if err := stageKnowledgeConfig(agentDir, knowledgeDir); err != nil {
+			return fmt.Errorf("stage knowledge config: %w", err)
+		}
 	}
 	if fileExists(egressCA) {
 		binds = append(binds, egressCA+":/etc/ssl/certs/agency-egress-ca.pem:ro")
@@ -240,6 +243,42 @@ func envValue(values map[string]string, key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func stageKnowledgeConfig(agentDir, knowledgeDir string) error {
+	targetDir := filepath.Join(agentDir, "knowledge")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return err
+	}
+	for _, name := range []string{"ontology.yaml", "base-ontology.yaml"} {
+		src := filepath.Join(knowledgeDir, name)
+		if !fileExists(src) {
+			continue
+		}
+		if err := copyFile(src, filepath.Join(targetDir, name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
 }
 
 func (w *Workspace) Stop(ctx context.Context) {

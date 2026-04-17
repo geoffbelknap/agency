@@ -132,6 +132,7 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 	}
 	registerContainerBackend(defaultRuntimeBackend)
 	registerContainerBackend(runtimehost.BackendPodman)
+	registerContainerBackend(runtimehost.BackendContainerd)
 	rs.registry.Register(probeRuntimeBackendName, func() (runtimecontract.Backend, error) {
 		return &probeRuntimeBackend{home: rs.Home}, nil
 	})
