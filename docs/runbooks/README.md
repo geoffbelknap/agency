@@ -10,6 +10,11 @@ Status note:
 
 Use these as the default validation sequence after a change:
 
+- New runtime or host adapter:
+  [Backend Adapter Release Checklist](backend-adapter-release-checklist.md)
+  -> [Runtime Smoke](runtime-smoke.md)
+  -> [Validation Checklist](validation-checklist.md)
+  Podman shortcut: `make podman-readiness` or `make podman-readiness-full`
 - Runtime, lifecycle, transport, or manifest changes:
   [Runtime Smoke](runtime-smoke.md) -> [Validation Checklist](validation-checklist.md) -> [Agent Recovery](agent-recovery.md)
 - Web, operator, DM, or comms changes:
@@ -26,6 +31,7 @@ Use these as the default validation sequence after a change:
 | [Initial Setup](initial-setup.md) | First-time deployment or fresh environment |
 | [Upgrade](upgrade.md) | Upgrading Agency to a new version |
 | [Backup & Restore](backup-restore.md) | Scheduled backup, disaster recovery, state migration |
+| [Backend Adapter Release Checklist](backend-adapter-release-checklist.md) | Release-style validation gate for Docker, Podman, and future adapters |
 | [Runtime Smoke](runtime-smoke.md) | Runtime-contract validation for start, restart, status, transport, and manifest persistence |
 | [Validation Checklist](validation-checklist.md) | Post-deployment, post-upgrade, or periodic health verification |
 

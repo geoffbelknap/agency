@@ -167,27 +167,48 @@ stop_pid() {
 }
 
 cleanup_scoped_infra_runtime() {
-  if [ -z "${AGENCY_INFRA_INSTANCE:-}" ] || ! command -v docker >/dev/null 2>&1; then
+  if [ -z "${AGENCY_INFRA_INSTANCE:-}" ]; then
+    return 0
+  fi
+
+  local backend="docker"
+  local runtime_cli="docker"
+  local config_path="${DISPOSABLE_HOME:-}/config.yaml"
+
+  if [ -f "$config_path" ] && command -v ruby >/dev/null 2>&1; then
+    backend="$(ruby -e 'require "yaml"; path = ARGV[0]; data = YAML.load_file(path) || {}; hub = data["hub"].is_a?(Hash) ? data["hub"] : {}; value = hub["deployment_backend"].to_s.strip; puts(value.empty? ? "docker" : value)' "$config_path" 2>/dev/null || printf '%s' 'docker')"
+  fi
+
+  case "$backend" in
+    podman)
+      runtime_cli="podman"
+      ;;
+    *)
+      runtime_cli="docker"
+      ;;
+  esac
+
+  if ! command -v "$runtime_cli" >/dev/null 2>&1; then
     return 0
   fi
 
   local container_ids
   local network_ids
 
-  container_ids="$(docker ps -aq \
+  container_ids="$("$runtime_cli" ps -aq \
     --filter label=agency.managed=true \
     --filter label=agency.role=infra \
     --filter "label=agency.instance=${AGENCY_INFRA_INSTANCE}")"
   if [ -n "$container_ids" ]; then
-    docker rm -f $container_ids >/dev/null 2>&1 || true
+    "$runtime_cli" rm -f $container_ids >/dev/null 2>&1 || true
   fi
 
-  network_ids="$(docker network ls -q \
+  network_ids="$("$runtime_cli" network ls -q \
     --filter label=agency.managed=true \
     --filter label=agency.role=infra \
     --filter "label=agency.instance=${AGENCY_INFRA_INSTANCE}")"
   if [ -n "$network_ids" ]; then
-    docker network rm $network_ids >/dev/null 2>&1 || true
+    "$runtime_cli" network rm $network_ids >/dev/null 2>&1 || true
   fi
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/features"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/infratier"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -52,6 +53,24 @@ func registerMCPTools(reg *MCPToolRegistry) {
 	})
 }
 
+func mcpConfiguredRuntimeBackend(d *mcpDeps) string {
+	if d != nil && d.cfg != nil && strings.TrimSpace(d.cfg.Hub.DeploymentBackend) != "" {
+		return strings.TrimSpace(d.cfg.Hub.DeploymentBackend)
+	}
+	return runtimehost.BackendDocker
+}
+
+func mcpContainerInfraUnavailable(d *mcpDeps) (string, bool) {
+	backend := mcpConfiguredRuntimeBackend(d)
+	if !runtimehost.IsContainerBackend(backend) {
+		return fmt.Sprintf("Infrastructure container lifecycle is only available for container backends. Current backend: %s.", backend), true
+	}
+	if d == nil || d.dc == nil {
+		return fmt.Sprintf("Infrastructure manager is unavailable: %s client is not initialized.", runtimehost.NormalizeContainerBackend(backend)), true
+	}
+	return "", false
+}
+
 // ── Infrastructure (6 tools) ────────────────────────────────────────────────
 
 func registerInfraTools(reg *MCPToolRegistry) {
@@ -60,6 +79,9 @@ func registerInfraTools(reg *MCPToolRegistry) {
 		"Show health for the shared Agency runtime services that support agent work.",
 		nil,
 		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if msg, unavailable := mcpContainerInfraUnavailable(d); unavailable {
+				return msg, true
+			}
 			status, err := d.dc.InfraStatus(context.Background())
 			if err != nil {
 				return "Error: " + err.Error(), true
@@ -87,6 +109,9 @@ func registerInfraTools(reg *MCPToolRegistry) {
 		"Start the shared Agency runtime services needed before agents can run. Use after agency_setup.",
 		nil,
 		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if msg, unavailable := mcpContainerInfraUnavailable(d); unavailable {
+				return msg, true
+			}
 			if d.infra == nil {
 				return "Error: infrastructure manager not initialized", true
 			}
@@ -104,6 +129,9 @@ func registerInfraTools(reg *MCPToolRegistry) {
 		"Stop the shared Agency runtime services.",
 		nil,
 		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if msg, unavailable := mcpContainerInfraUnavailable(d); unavailable {
+				return msg, true
+			}
 			if d.infra == nil {
 				return "Error: infrastructure manager not initialized", true
 			}
@@ -133,6 +161,9 @@ func registerInfraTools(reg *MCPToolRegistry) {
 			if component == "" {
 				return "Error: component is required", true
 			}
+			if msg, unavailable := mcpContainerInfraUnavailable(d); unavailable {
+				return msg, true
+			}
 			if d.infra == nil {
 				return "Error: infrastructure manager not initialized", true
 			}
@@ -148,6 +179,9 @@ func registerInfraTools(reg *MCPToolRegistry) {
 		"Reload shared runtime and enforcer configuration without a full restart.",
 		nil,
 		func(d *mcpDeps, args map[string]interface{}) (string, bool) {
+			if msg, unavailable := mcpContainerInfraUnavailable(d); unavailable {
+				return msg, true
+			}
 			if d.infra == nil {
 				return "Error: infrastructure manager not initialized", true
 			}

@@ -1,0 +1,38 @@
+name: Podman Readiness
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 14 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  podman-smoke:
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Install Podman
+        run: brew install podman
+
+      - name: Start Podman machine
+        run: |
+          podman machine init --cpus 4 --memory 4096 --disk-size 40 || true
+          podman machine start
+          podman info --format json
+
+      - name: Build gateway binary
+        run: go build -o ./agency ./cmd/gateway
+
+      - name: Run Podman readiness smoke
+        run: make podman-readiness
+

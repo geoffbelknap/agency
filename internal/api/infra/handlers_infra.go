@@ -12,6 +12,7 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/budget"
 	"github.com/geoffbelknap/agency/internal/events"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/infratier"
 	"github.com/geoffbelknap/agency/internal/models"
 )
@@ -19,6 +20,27 @@ import (
 // ── Infrastructure Status ────────────────────────────────────────────────────
 
 func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
+	backend := h.configuredBackend()
+	if !runtimehost.IsContainerBackend(backend) || h.deps.DC == nil {
+		limits := models.DefaultPlatformBudgetConfig()
+		store := budget.NewStore(filepath.Join(h.deps.Config.Home, "budget"))
+		infraState, _ := store.Load("_infrastructure")
+		writeJSON(w, 200, map[string]interface{}{
+			"version":                 h.deps.Config.Version,
+			"build_id":                h.deps.Config.BuildID,
+			"gateway_url":             "http://" + h.deps.Config.GatewayAddr,
+			"web_url":                 "http://127.0.0.1:8280",
+			"components":              []interface{}{},
+			"infra_llm_daily_used":    infraState.DailyUsed,
+			"infra_llm_daily_limit":   limits.InfraDaily,
+			"backend":                 backend,
+			"infra_control_available": false,
+			"docker":                  "not_applicable",
+			"host_runtime":            "not_applicable",
+		})
+		return
+	}
+
 	status, err := h.deps.DC.InfraStatus(r.Context())
 	if err != nil {
 		if h.deps.DockerStatus != nil {
@@ -34,14 +56,25 @@ func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 	store := budget.NewStore(filepath.Join(h.deps.Config.Home, "budget"))
 	infraState, _ := store.Load("_infrastructure")
 	writeJSON(w, 200, map[string]interface{}{
-		"version":               h.deps.Config.Version,
-		"build_id":              h.deps.Config.BuildID,
-		"gateway_url":           "http://" + h.deps.Config.GatewayAddr,
-		"web_url":               "http://127.0.0.1:8280",
-		"components":            status,
-		"infra_llm_daily_used":  infraState.DailyUsed,
-		"infra_llm_daily_limit": limits.InfraDaily,
+		"version":                 h.deps.Config.Version,
+		"build_id":                h.deps.Config.BuildID,
+		"gateway_url":             "http://" + h.deps.Config.GatewayAddr,
+		"web_url":                 "http://127.0.0.1:8280",
+		"components":              status,
+		"infra_llm_daily_used":    infraState.DailyUsed,
+		"infra_llm_daily_limit":   limits.InfraDaily,
+		"backend":                 backend,
+		"infra_control_available": true,
 		"docker": func() string {
+			if backend != runtimehost.BackendDocker {
+				return "not_applicable"
+			}
+			if h.deps.DockerStatus != nil && !h.deps.DockerStatus.Available() {
+				return "unavailable"
+			}
+			return "available"
+		}(),
+		"host_runtime": func() string {
 			if h.deps.DockerStatus != nil && !h.deps.DockerStatus.Available() {
 				return "unavailable"
 			}
@@ -53,7 +86,7 @@ func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 // ── Infrastructure Up ────────────────────────────────────────────────────────
 
 func (h *handler) infraUp(w http.ResponseWriter, r *http.Request) {
-	if !h.dockerRequired(w) {
+	if !h.containerBackendRequired(w) {
 		return
 	}
 	if h.deps.Infra == nil {
@@ -132,7 +165,7 @@ func (h *handler) infraUp(w http.ResponseWriter, r *http.Request) {
 // ── Infrastructure Down ──────────────────────────────────────────────────────
 
 func (h *handler) infraDown(w http.ResponseWriter, r *http.Request) {
-	if !h.dockerRequired(w) {
+	if !h.containerBackendRequired(w) {
 		return
 	}
 	if h.deps.Infra == nil {
@@ -183,7 +216,7 @@ func (h *handler) infraDown(w http.ResponseWriter, r *http.Request) {
 // ── Infrastructure Rebuild ───────────────────────────────────────────────────
 
 func (h *handler) infraRebuild(w http.ResponseWriter, r *http.Request) {
-	if !h.dockerRequired(w) {
+	if !h.containerBackendRequired(w) {
 		return
 	}
 	component := chi.URLParam(r, "component")
@@ -237,7 +270,7 @@ func (h *handler) infraRebuild(w http.ResponseWriter, r *http.Request) {
 // ── Infrastructure Reload ────────────────────────────────────────────────────
 
 func (h *handler) infraReload(w http.ResponseWriter, r *http.Request) {
-	if !h.dockerRequired(w) {
+	if !h.containerBackendRequired(w) {
 		return
 	}
 	if h.deps.Infra == nil {

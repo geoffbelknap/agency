@@ -6,9 +6,7 @@ import (
 	"strings"
 
 	"log/slog"
-	"github.com/docker/docker/api/types/events"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/client"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 )
 
 // EnforcerAlertFunc is called when an enforcer container exits unexpectedly.
@@ -19,7 +17,7 @@ type EnforcerAlertFunc func(agentName, reason string)
 // has lost all API mediation (ASK Tenet 3). This watcher detects that
 // condition in real-time via Docker's event stream — no polling.
 type EnforcerWatcher struct {
-	cli        *client.Client
+	docker     *runtimehost.DockerHandle
 	alert      EnforcerAlertFunc
 	logger     *slog.Logger
 	cancel     context.CancelFunc
@@ -33,18 +31,13 @@ func NewEnforcerWatcher(alertFn EnforcerAlertFunc, logger *slog.Logger, suppress
 	return NewEnforcerWatcherWithClient(alertFn, logger, suppress, nil)
 }
 
-// NewEnforcerWatcherWithClient creates a watcher using the provided Docker client
-// (or a new one if cli is nil). Prefer passing a shared client.
-func NewEnforcerWatcherWithClient(alertFn EnforcerAlertFunc, logger *slog.Logger, suppress *StopSuppression, cli *client.Client) (*EnforcerWatcher, error) {
-	if cli == nil {
-		var err error
-		cli, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-		if err != nil {
-			return nil, fmt.Errorf("enforcer watcher: docker client: %w", err)
-		}
+// NewEnforcerWatcherWithClient creates a watcher using the provided Docker client.
+func NewEnforcerWatcherWithClient(alertFn EnforcerAlertFunc, logger *slog.Logger, suppress *StopSuppression, dc *runtimehost.DockerHandle) (*EnforcerWatcher, error) {
+	if logger == nil {
+		logger = slog.Default()
 	}
 	return &EnforcerWatcher{
-		cli:      cli,
+		docker:   dc,
 		alert:    alertFn,
 		logger:   logger,
 		suppress: suppress,
@@ -53,6 +46,10 @@ func NewEnforcerWatcherWithClient(alertFn EnforcerAlertFunc, logger *slog.Logger
 
 // Start launches the background Docker event listener.
 func (w *EnforcerWatcher) Start(ctx context.Context) {
+	if w.docker == nil {
+		w.logger.Info("enforcer watcher disabled: docker client unavailable")
+		return
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	w.cancel = cancel
 
@@ -67,14 +64,11 @@ func (w *EnforcerWatcher) Stop() {
 }
 
 func (w *EnforcerWatcher) watch(ctx context.Context) {
-	// Listen for "die" events on enforcer containers only.
-	eventCh, errCh := w.cli.Events(ctx, events.ListOptions{
-		Filters: filters.NewArgs(
-			filters.Arg("type", "container"),
-			filters.Arg("event", "die"),
-			filters.Arg("name", prefix+"-"),
-		),
-	})
+	eventCh, errCh, err := runtimehost.WatchAgencyContainerEvents(ctx, w.docker, "die")
+	if err != nil {
+		w.logger.Warn("enforcer watcher disabled", "error", err)
+		return
+	}
 
 	for {
 		select {
@@ -82,7 +76,7 @@ func (w *EnforcerWatcher) watch(ctx context.Context) {
 			return
 
 		case ev := <-eventCh:
-			name := ev.Actor.Attributes["name"]
+			name := ev.Name
 			if name == "" {
 				continue
 			}
@@ -95,7 +89,7 @@ func (w *EnforcerWatcher) watch(ctx context.Context) {
 				continue
 			}
 
-			exitCode := ev.Actor.Attributes["exitCode"]
+			exitCode := ev.ExitCode
 			if w.suppress != nil && w.suppress.IsSuppressed(agentName) {
 				w.logger.Info("enforcer exit suppressed (intentional stop/restart)",
 					"agent", agentName,
@@ -115,14 +109,11 @@ func (w *EnforcerWatcher) watch(ctx context.Context) {
 				return
 			}
 			w.logger.Warn("enforcer watcher: event stream error, restarting", "error", err)
-			// Reconnect event stream.
-			eventCh, errCh = w.cli.Events(ctx, events.ListOptions{
-				Filters: filters.NewArgs(
-					filters.Arg("type", "container"),
-					filters.Arg("event", "die"),
-					filters.Arg("name", prefix+"-"),
-				),
-			})
+			eventCh, errCh, err = runtimehost.WatchAgencyContainerEvents(ctx, w.docker, "die")
+			if err != nil {
+				w.logger.Warn("enforcer watcher reconnect failed", "error", err)
+				return
+			}
 		}
 	}
 }

@@ -5,10 +5,12 @@ log_phase() {
   printf '[body-entrypoint] %s | %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1"
 }
 
+CONFIG_DIR="${AGENCY_CONFIG_DIR:-/agency}"
+
 # Copy operator-generated context files to workspace
-[ -f /agency/AGENTS.md ] && cp /agency/AGENTS.md /workspace/AGENTS.md 2>/dev/null || true
-[ -f /agency/FRAMEWORK.md ] && cp /agency/FRAMEWORK.md /workspace/FRAMEWORK.md 2>/dev/null || true
-[ -f /agency/identity.md ] && cp /agency/identity.md /workspace/identity.md 2>/dev/null || true
+[ -f "$CONFIG_DIR/AGENTS.md" ] && cp "$CONFIG_DIR/AGENTS.md" /workspace/AGENTS.md 2>/dev/null || true
+[ -f "$CONFIG_DIR/FRAMEWORK.md" ] && cp "$CONFIG_DIR/FRAMEWORK.md" /workspace/FRAMEWORK.md 2>/dev/null || true
+[ -f "$CONFIG_DIR/identity.md" ] && cp "$CONFIG_DIR/identity.md" /workspace/identity.md 2>/dev/null || true
 
 log_phase "Context files copied to workspace"
 

@@ -14,18 +14,26 @@ agency infra status
 
 Identify which components are down: egress, comms, knowledge, intake, web-fetch, web, embeddings, gateway-proxy.
 
-### 2. Check Docker
+### 2. Check container backend
 
+```bash
+agency infra status
+```
+
+If the selected container backend is Docker, verify Docker directly:
 ```bash
 docker info
 docker ps -a --filter "label=agency.managed=true"
 ```
 
-If Docker is not running, start it first:
+If the selected container backend is Podman, verify Podman directly:
+
 ```bash
-# macOS: open Docker Desktop
-# Linux: sudo systemctl start docker
+podman info --format json
+podman ps -a --filter "label=agency.managed=true"
 ```
+
+If the backend is not running, start it first before retrying recovery.
 
 ### 3. Check for port conflicts
 
@@ -34,7 +42,7 @@ lsof -i :8200  # gateway REST API
 lsof -i :8280  # web UI
 ```
 
-Note: knowledge and comms run in Docker containers and communicate over internal Docker networks — they don't expose ports on the host.
+Note: knowledge and comms run inside the selected container backend and communicate over internal managed networks — they don't expose ports on the host.
 
 ## Recovery Procedures
 
@@ -71,6 +79,10 @@ agency infra down
 # Clean orphaned Docker resources
 docker ps -a --filter "label=agency.managed=true" -q | xargs -r docker rm -f
 docker network ls --filter "label=agency.managed=true" -q | xargs -r docker network rm
+
+# Or clean orphaned Podman resources
+podman ps -a --filter "label=agency.managed=true" -q | xargs -r podman rm -f
+podman network ls --filter "label=agency.managed=true" -q | xargs -r podman network rm
 
 # Restart
 agency infra up

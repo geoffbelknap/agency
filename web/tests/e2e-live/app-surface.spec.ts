@@ -39,6 +39,15 @@ async function expectAnyVisible(page: Page, candidates: string[]) {
   throw new Error(`None of the expected texts were visible: ${candidates.join(', ')}`);
 }
 
+async function expectKnowledgeVisible(page: Page) {
+  const heading = page.getByRole('heading', { name: 'Query Knowledge' });
+  if (await heading.count()) {
+    await expect(heading.first()).toBeVisible();
+    return;
+  }
+  await expect(page.getByText('Knowledge graph is empty')).toBeVisible();
+}
+
 async function isAdminTabSelected(page: Page, name: string) {
   const tab = page.getByRole('tab', { name, exact: true });
   if (!(await tab.count())) return false;
@@ -56,7 +65,7 @@ test('live admin tabs render across the real stack', async ({ page }) => {
     { path: '/admin/infrastructure', tab: 'Infrastructure', assert: async () => expect(page.getByRole('heading', { name: 'Infrastructure', exact: true })).toBeVisible() },
     { path: '/admin/hub', tab: 'Packages', optional: true, assert: async () => expect(page.getByText('Packages and instances')).toBeVisible() },
     { path: '/admin/intake', tab: 'Intake', optional: true, assert: async () => expect(page.getByRole('tab', { name: 'Connectors' })).toBeVisible() },
-    { path: '/admin/knowledge', tab: 'Knowledge', assert: async () => expect(page.getByText(/Query Knowledge|Knowledge graph is empty/)).toBeVisible() },
+    { path: '/admin/knowledge', tab: 'Knowledge', assert: async () => expectKnowledgeVisible(page) },
     { path: '/admin/capabilities', tab: 'Capabilities', assert: async () => expect(page.getByText('Platform capability registry')).toBeVisible() },
     { path: '/admin/presets', tab: 'Presets', assert: async () => expect(page.getByText('Reusable agent role presets', { exact: true })).toBeVisible() },
     { path: '/admin/trust', tab: 'Trust', optional: true, assert: async () => expect(page.getByText('Trust Level')).toBeVisible() },

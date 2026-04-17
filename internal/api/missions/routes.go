@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"regexp"
 
-	"log/slog"
 	"github.com/go-chi/chi/v5"
+	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
@@ -32,6 +32,7 @@ type SignalSender interface {
 // Deps holds the dependencies required by the missions module.
 type Deps struct {
 	MissionManager *orchestrate.MissionManager
+	Runtime        *orchestrate.RuntimeSupervisor
 	Claims         *orchestrate.MissionClaimRegistry
 	HealthMonitor  *orchestrate.MissionHealthMonitor // may be nil
 	Scheduler      *events.Scheduler                 // may be nil

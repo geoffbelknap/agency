@@ -11,20 +11,14 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/client"
-	"github.com/docker/go-connections/nat"
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/comms"
-	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
@@ -77,25 +71,20 @@ type TaskSummary struct {
 // AgentManager handles agent CRUD operations.
 type AgentManager struct {
 	Home         string
-	Docker       *agencyDocker.Client
+	Docker       *runtimehost.DockerHandle
 	Comms        comms.Client
 	Version      string
 	SourceDir    string
 	BuildID      string
 	BackendName  string
 	Runtime      *RuntimeSupervisor
-	cli          *client.Client
 	log          *slog.Logger
 	StopSuppress *StopSuppression
 	infra        *Infra // optional — nil in tests without infra
 }
 
-func NewAgentManager(home string, dc *agencyDocker.Client, logger *slog.Logger) (*AgentManager, error) {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		return nil, err
-	}
-	return &AgentManager{Home: home, Docker: dc, Comms: dc, cli: cli, log: logger}, nil
+func NewAgentManager(home string, dc *runtimehost.DockerHandle, logger *slog.Logger) (*AgentManager, error) {
+	return &AgentManager{Home: home, Docker: dc, Comms: dc, log: logger}, nil
 }
 
 // SetInfra attaches the infrastructure manager (and its principal registry)
@@ -115,9 +104,6 @@ func (am *AgentManager) List(ctx context.Context) ([]AgentDetail, error) {
 		return nil, err
 	}
 
-	// Get running containers in one call
-	running := am.getRunningContainers(ctx)
-
 	// Build team membership index once for the entire list — avoids reading all
 	// team YAML files once per agent (O(agents*teams) → O(teams)).
 	teamIndex := buildTeamIndex(am.Home)
@@ -132,7 +118,7 @@ func (am *AgentManager) List(ctx context.Context) ([]AgentDetail, error) {
 			continue
 		}
 
-		detail := am.loadAgentDetail(e.Name(), agentsDir, running, teamIndex)
+		detail := am.loadAgentDetail(e.Name(), agentsDir, teamIndex)
 		agents = append(agents, detail)
 	}
 
@@ -148,9 +134,8 @@ func (am *AgentManager) Show(ctx context.Context, name string) (*AgentDetail, er
 		return nil, fmt.Errorf("agent %q not found", name)
 	}
 
-	running := am.getRunningContainers(ctx)
 	teamIndex := buildTeamIndex(am.Home)
-	detail := am.loadAgentDetail(name, agentsDir, running, teamIndex)
+	detail := am.loadAgentDetail(name, agentsDir, teamIndex)
 	return &detail, nil
 }
 
@@ -374,17 +359,19 @@ func (am *AgentManager) Delete(ctx context.Context, name string) error {
 	am.archiveAuditLogs(name)
 
 	// Remove workspace volume
-	volName := fmt.Sprintf("%s-%s-workspace-data", prefix, name)
-	_ = am.cli.VolumeRemove(ctx, volName, true)
+	if am.Docker != nil {
+		_ = runtimehost.RemoveRuntimeArtifacts(ctx, am.Docker, name)
+	}
 
 	// Remove agent directory
-	os.RemoveAll(agentDir)
+	if err := removePathAll(agentDir); err != nil {
+		return fmt.Errorf("remove agent directory: %w", err)
+	}
 
 	// Remove enforcer data
-	os.RemoveAll(filepath.Join(am.Home, "infrastructure", "enforcer", "data", name))
-
-	// Remove agent network
-	_ = am.cli.NetworkRemove(ctx, fmt.Sprintf("%s-%s-internal", prefix, name))
+	if err := removePathAll(filepath.Join(am.Home, "infrastructure", "enforcer", "data", name)); err != nil {
+		return fmt.Errorf("remove enforcer data: %w", err)
+	}
 
 	am.log.Info("agent deleted", "name", name)
 	return nil
@@ -411,7 +398,7 @@ func (am *AgentManager) StopContainers(ctx context.Context, name string) {
 
 // -- Internal helpers --
 
-func (am *AgentManager) loadAgentDetail(name, agentsDir string, running map[string]containerInfo, teamIndex map[string]string) AgentDetail {
+func (am *AgentManager) loadAgentDetail(name, agentsDir string, teamIndex map[string]string) AgentDetail {
 	agentDir := filepath.Join(agentsDir, name)
 	d := AgentDetail{
 		Name:     name,
@@ -558,15 +545,7 @@ func (am *AgentManager) loadAgentDetail(name, agentsDir string, running map[stri
 		}
 	}
 
-	if am.Runtime != nil {
-		if status, err := am.Runtime.Get(context.Background(), name); err == nil {
-			applyRuntimeStatus(&d, status)
-		} else {
-			applyContainerStatus(&d, running, am.Home, name)
-		}
-	} else {
-		applyContainerStatus(&d, running, am.Home, name)
-	}
+	applyPersistedAgentStatus(&d, am, name)
 	if activeHaltExists(am.Home, name) && d.Status != "running" {
 		d.Status = "halted"
 	}
@@ -615,29 +594,22 @@ func applyRuntimeStatus(d *AgentDetail, status runtimecontract.RuntimeStatus) {
 	}
 }
 
-func applyContainerStatus(d *AgentDetail, running map[string]containerInfo, home, name string) {
-	wsName := fmt.Sprintf("%s-%s-workspace", prefix, name)
-	enfName := fmt.Sprintf("%s-%s-enforcer", prefix, name)
-
-	if ci, ok := running[wsName]; ok {
-		d.Workspace = ci.State
-		d.Status = ci.State
-	} else {
-		d.Workspace = "stopped"
-		if activeHaltExists(home, name) {
-			d.Status = "halted"
+func applyPersistedAgentStatus(d *AgentDetail, am *AgentManager, name string) {
+	if am.Runtime != nil {
+		if status, err := am.Runtime.Get(context.Background(), name); err == nil {
+			applyRuntimeStatus(d, status)
+			return
+		}
+		if manifest, err := am.Runtime.Manifest(name); err == nil && manifest.Status.RuntimeID != "" {
+			applyRuntimeStatus(d, manifest.Status)
+			return
 		}
 	}
-	if ci, ok := running[enfName]; ok {
-		d.Enforcer = ci.State
-		if ci.BuildID != "" {
-			d.BuildID = ci.BuildID
-		}
-	} else {
-		d.Enforcer = "stopped"
-	}
-	if d.Workspace == "running" && d.Enforcer != "running" {
-		d.Status = "unhealthy"
+	d.Status = "stopped"
+	d.Workspace = "stopped"
+	d.Enforcer = "stopped"
+	if activeHaltExists(am.Home, name) {
+		d.Status = "halted"
 	}
 }
 
@@ -780,54 +752,11 @@ func buildTeamIndex(home string) map[string]string {
 	return index
 }
 
-// containerInfo holds state and build metadata for a running container.
-type containerInfo struct {
-	State   string
-	BuildID string // value of agency.build.gateway label
-}
-
-func (am *AgentManager) getRunningContainers(ctx context.Context) map[string]containerInfo {
-	if am.cli == nil {
-		return make(map[string]containerInfo)
-	}
-	result := make(map[string]containerInfo)
-	containers, err := am.cli.ContainerList(ctx, container.ListOptions{
-		All:     true,
-		Filters: filters.NewArgs(filters.Arg("name", prefix+"-")),
-	})
-	if err != nil {
-		return result
-	}
-	for _, c := range containers {
-		for _, n := range c.Names {
-			n = strings.TrimPrefix(n, "/")
-			ci := containerInfo{State: c.State}
-			if bid, ok := c.Labels["agency.build.gateway"]; ok {
-				ci.BuildID = bid
-			}
-			result[n] = ci
-		}
-	}
-	return result
-}
-
 func (am *AgentManager) stopAgentContainers(ctx context.Context, name string) {
-	containers := []string{
-		fmt.Sprintf("%s-%s-workspace", prefix, name),
-		fmt.Sprintf("%s-%s-enforcer", prefix, name),
+	if am.Docker == nil {
+		return
 	}
-	timeout := 3
-	var wg sync.WaitGroup
-	for _, cname := range containers {
-		cname := cname
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_ = am.cli.ContainerStop(ctx, cname, container.StopOptions{Timeout: &timeout})
-			_ = am.cli.ContainerRemove(ctx, cname, container.RemoveOptions{Force: true})
-		}()
-	}
-	wg.Wait()
+	_ = runtimehost.StopRuntime(ctx, am.Docker, name)
 }
 
 func (am *AgentManager) archiveAuditLogs(name string) {
@@ -877,9 +806,37 @@ func randomHex(n int) string {
 	return string(b)
 }
 
-// Suppress unused imports
-var (
-	_ = nat.PortSet{}
-	_ = network.EndpointSettings{}
-	_ json.RawMessage
-)
+func removePathAll(path string) error {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	// Normalize permissions before deletion so backend-created files do not
+	// silently leave ghost agent directories behind.
+	_ = filepath.Walk(path, func(current string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			_ = os.Chmod(current, 0o755)
+			return nil
+		}
+		_ = os.Chmod(current, 0o644)
+		return nil
+	})
+
+	if err := os.RemoveAll(path); err != nil {
+		return err
+	}
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("%s still exists after removal", path)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+var _ json.RawMessage

@@ -86,6 +86,13 @@ stop_pid() {
   fi
 }
 
+container_clis=()
+for cli in docker podman; do
+  if command -v "$cli" >/dev/null 2>&1; then
+    container_clis+=("$cli")
+  fi
+done
+
 matched_pids=()
 while IFS= read -r line; do
   pid="$(printf '%s' "$line" | awk '{print $1}')"
@@ -117,47 +124,49 @@ else
   fi
 fi
 
-if command -v docker >/dev/null 2>&1; then
+for cli in "${container_clis[@]}"; do
   disposable_containers=()
   while IFS= read -r name; do
+    [ -n "$name" ] || continue
     disposable_containers+=("$name")
   done < <(
-    docker ps -a --format '{{.Names}}' 2>/dev/null |
+    "$cli" ps -a --format '{{.Names}}' 2>/dev/null |
       grep -E '^agency-infra-(gateway-proxy|egress|comms|knowledge|intake|web-fetch|web|embeddings)-(agency-(live|danger|oci|operator-oci)-home-|agency-setup-home-)' || true
-    docker ps -a --format '{{.Names}}' 2>/dev/null |
+    "$cli" ps -a --format '{{.Names}}' 2>/dev/null |
       grep -E '^agency-(alpha-(setup|readiness)-[0-9]+|playwright-agent-[0-9]+|e2e-test-agent)-(workspace|enforcer)$' || true
   )
 
   if [ "${#disposable_containers[@]}" -gt 0 ]; then
     if [ "$APPLY" = "1" ]; then
-      log "removing disposable infra containers: ${disposable_containers[*]}"
-      docker rm -f "${disposable_containers[@]}" >/dev/null 2>&1 || true
+      log "removing disposable infra containers via $cli: ${disposable_containers[*]}"
+      "$cli" rm -f "${disposable_containers[@]}" >/dev/null 2>&1 || true
     else
-      log "matched disposable infra containers: ${disposable_containers[*]}"
+      log "matched disposable infra containers via $cli: ${disposable_containers[*]}"
       log "Dry run only. Re-run with --apply to remove matched containers."
     fi
   fi
 
   disposable_networks=()
   while IFS= read -r name; do
+    [ -n "$name" ] || continue
     disposable_networks+=("$name")
   done < <(
-    docker network ls --format '{{.Name}}' 2>/dev/null |
+    "$cli" network ls --format '{{.Name}}' 2>/dev/null |
       grep -E '^agency-(gateway|egress-int|egress-ext|operator)-(agency-(live|danger|oci|operator-oci)-home-|agency-setup-home-)' || true
-    docker network ls --format '{{.Name}}' 2>/dev/null |
+    "$cli" network ls --format '{{.Name}}' 2>/dev/null |
       grep -E '^agency-(alpha-(setup|readiness)-[0-9]+|playwright-agent-[0-9]+|e2e-test-agent)-internal$' || true
   )
 
   if [ "${#disposable_networks[@]}" -gt 0 ]; then
     if [ "$APPLY" = "1" ]; then
-      log "removing disposable infra networks: ${disposable_networks[*]}"
-      docker network rm "${disposable_networks[@]}" >/dev/null 2>&1 || true
+      log "removing disposable infra networks via $cli: ${disposable_networks[*]}"
+      "$cli" network rm "${disposable_networks[@]}" >/dev/null 2>&1 || true
     else
-      log "matched disposable infra networks: ${disposable_networks[*]}"
+      log "matched disposable infra networks via $cli: ${disposable_networks[*]}"
       log "Dry run only. Re-run with --apply to remove matched networks."
     fi
   fi
-fi
+done
 
 disposable_agents=()
 
@@ -174,17 +183,17 @@ add_disposable_agent() {
   disposable_agents+=("$value")
 }
 
-if command -v docker >/dev/null 2>&1; then
+for cli in "${container_clis[@]}"; do
   while IFS= read -r name; do
     agent="$(printf '%s\n' "$name" | sed -E 's/^agency-//; s/-(workspace|enforcer)$//')"
     if is_disposable_agent_name "$agent"; then
       add_disposable_agent "$agent"
     fi
   done < <(
-    docker ps -a --format '{{.Names}}' 2>/dev/null |
+    "$cli" ps -a --format '{{.Names}}' 2>/dev/null |
       grep -E '^agency-(alpha-(setup|readiness)-[0-9]+|playwright-agent-[0-9]+|e2e-test-agent)-(workspace|enforcer)$' || true
   )
-fi
+done
 
 if command -v "$AGENCY_CLI" >/dev/null 2>&1; then
   while IFS= read -r channel; do

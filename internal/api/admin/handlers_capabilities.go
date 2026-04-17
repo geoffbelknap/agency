@@ -240,8 +240,12 @@ func (h *handler) reloadCapabilitiesForRunningAgents(capName string) {
 		}
 
 		// SIGHUP the enforcer to reload service keys and config
-		enforcerName := fmt.Sprintf("agency-%s-enforcer", name)
-		if h.deps.Signal != nil {
+		if h.deps.AgentManager != nil && h.deps.AgentManager.Runtime != nil {
+			if err := h.deps.AgentManager.Runtime.ReloadEnforcer(ctx, name); err != nil {
+				h.deps.Logger.Debug("capability reload: runtime reload failed (may not be running)", "agent", name, "err", err)
+			}
+		} else if h.deps.Signal != nil {
+			enforcerName := fmt.Sprintf("agency-%s-enforcer", name)
 			if err := h.deps.Signal.SignalContainer(ctx, enforcerName, "SIGHUP"); err != nil {
 				h.deps.Logger.Debug("capability reload: enforcer SIGHUP failed (may not be running)", "agent", name, "err", err)
 			}

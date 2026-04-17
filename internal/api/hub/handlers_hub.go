@@ -16,6 +16,8 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/geoffbelknap/agency/internal/credstore"
+	"github.com/geoffbelknap/agency/internal/hostadapter"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	hubpkg "github.com/geoffbelknap/agency/internal/hub"
 	deploymentspkg "github.com/geoffbelknap/agency/internal/hub/deployments"
 	"github.com/geoffbelknap/agency/internal/models"
@@ -141,6 +143,16 @@ func (h *handler) signalInfraComponent(component string) {
 	if h.deps.Signal == nil {
 		return
 	}
+	backend := runtimehost.BackendDocker
+	if h.deps.Config != nil && strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend) != "" {
+		backend = strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend)
+	}
+	if !runtimehost.IsContainerBackend(backend) {
+		if h.deps.Logger != nil {
+			h.deps.Logger.Debug("hub: skip infra signal for non-container backend", "component", component, "backend", backend)
+		}
+		return
+	}
 	name := "agency-infra-" + component
 	if instance := strings.TrimSpace(os.Getenv("AGENCY_INFRA_INSTANCE")); instance != "" {
 		name += "-" + instance
@@ -148,6 +160,27 @@ func (h *handler) signalInfraComponent(component string) {
 	if err := h.deps.Signal.SignalContainer(context.Background(), name, "SIGHUP"); err != nil && h.deps.Logger != nil {
 		h.deps.Logger.Debug("hub: infra component SIGHUP failed", "component", component, "container", name, "err", err)
 	}
+}
+
+func (h *handler) backendRequiresDocker(w http.ResponseWriter, operation string) bool {
+	backend := runtimehost.BackendDocker
+	if h.deps.Config != nil && strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend) != "" {
+		backend = strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend)
+	}
+	if !runtimehost.IsContainerBackend(backend) {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":   fmt.Sprintf("%s is only available for container backends (current: %s)", operation, backend),
+			"backend": backend,
+		})
+		return false
+	}
+	if h.deps.DC == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": fmt.Sprintf("%s is unavailable: %s client is not initialized", operation, runtimehost.NormalizeContainerBackend(backend)),
+		})
+		return false
+	}
+	return true
 }
 
 func (h *handler) ensureDependencyInstalled(mgr *hubpkg.Manager, parentName string, dep hubpkg.DependencyRef) {
@@ -828,6 +861,9 @@ func (h *handler) regenerateSwapConfig() {
 
 // deployPack handles POST /api/v1/hub/deploy
 func (h *handler) deployPack(w http.ResponseWriter, r *http.Request) {
+	if !h.backendRequiresDocker(w, "hub deploy") {
+		return
+	}
 	var body struct {
 		PackPath    string               `json:"pack_path"`
 		PackName    string               `json:"pack_name"`
@@ -888,14 +924,15 @@ func (h *handler) deployPack(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	deployer := orchestrate.NewDeployer(h.deps.Config.Home, h.deps.Config.Version, h.deps.DC, h.deps.Logger)
-	deployer.SourceDir = h.deps.Config.SourceDir
-	deployer.BuildID = h.deps.Config.BuildID
-	deployer.Credentials = body.Credentials
-	deployer.CredStore = h.deps.CredStore
-
 	if body.DryRun {
-		result, err := deployer.DryRunDeploy(r.Context(), pack, func(s string) {
+		result, err := h.deps.Host.DryRunDeployPack(r.Context(), hostadapter.DeployOptions{
+			Home:        h.deps.Config.Home,
+			Version:     h.deps.Config.Version,
+			SourceDir:   h.deps.Config.SourceDir,
+			BuildID:     h.deps.Config.BuildID,
+			Credentials: body.Credentials,
+			CredStore:   h.deps.CredStore,
+		}, pack, func(s string) {
 			h.deps.Logger.Info("deploy dry-run", "status", s)
 		})
 		if err != nil {
@@ -906,7 +943,14 @@ func (h *handler) deployPack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := deployer.Deploy(r.Context(), pack, func(s string) {
+	result, err := h.deps.Host.DeployPack(r.Context(), hostadapter.DeployOptions{
+		Home:        h.deps.Config.Home,
+		Version:     h.deps.Config.Version,
+		SourceDir:   h.deps.Config.SourceDir,
+		BuildID:     h.deps.Config.BuildID,
+		Credentials: body.Credentials,
+		CredStore:   h.deps.CredStore,
+	}, pack, func(s string) {
 		h.deps.Logger.Info("deploy", "status", s)
 	})
 	if err != nil {
@@ -920,15 +964,20 @@ func (h *handler) deployPack(w http.ResponseWriter, r *http.Request) {
 
 // teardownPack handles POST /api/v1/hub/teardown/{pack}
 func (h *handler) teardownPack(w http.ResponseWriter, r *http.Request) {
+	if !h.backendRequiresDocker(w, "hub teardown") {
+		return
+	}
 	packName := chi.URLParam(r, "pack")
 	var body struct {
 		Delete bool `json:"delete"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
 
-	deployer := orchestrate.NewDeployer(h.deps.Config.Home, h.deps.Config.Version, h.deps.DC, h.deps.Logger)
-	deployer.CredStore = h.deps.CredStore
-	if err := deployer.Teardown(r.Context(), packName, body.Delete); err != nil {
+	if err := h.deps.Host.TeardownPack(r.Context(), hostadapter.DeployOptions{
+		Home:      h.deps.Config.Home,
+		Version:   h.deps.Config.Version,
+		CredStore: h.deps.CredStore,
+	}, packName, body.Delete); err != nil {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
 	}

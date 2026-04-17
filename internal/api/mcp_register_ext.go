@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/geoffbelknap/agency/internal/hostadapter"
 	"github.com/geoffbelknap/agency/internal/hub"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -282,12 +283,20 @@ func registerDeployTools(reg *MCPToolRegistry) {
 				}
 			}
 
-			deployer := orchestrate.NewDeployer(d.cfg.Home, d.cfg.Version, d.dc, d.log)
-			deployer.Credentials = creds
-			deployer.CredStore = d.credStore
+			if msg, unavailable := mcpContainerInfraUnavailable(d); unavailable {
+				return msg, true
+			}
+			adapter := hostadapter.NewAdapter(mcpConfiguredRuntimeBackend(d), d.dc, d.log)
 
 			if mapBool(args, "dry_run") {
-				result, err := deployer.DryRunDeploy(context.Background(), pack, func(s string) {
+				result, err := adapter.DryRunDeployPack(context.Background(), hostadapter.DeployOptions{
+					Home:        d.cfg.Home,
+					Version:     d.cfg.Version,
+					SourceDir:   d.cfg.SourceDir,
+					BuildID:     d.cfg.BuildID,
+					Credentials: creds,
+					CredStore:   d.credStore,
+				}, pack, func(s string) {
 					d.log.Info("deploy dry-run", "status", s)
 				})
 				if err != nil {
@@ -297,7 +306,14 @@ func registerDeployTools(reg *MCPToolRegistry) {
 				return string(data), false
 			}
 
-			result, err := deployer.Deploy(context.Background(), pack, func(s string) {
+			result, err := adapter.DeployPack(context.Background(), hostadapter.DeployOptions{
+				Home:        d.cfg.Home,
+				Version:     d.cfg.Version,
+				SourceDir:   d.cfg.SourceDir,
+				BuildID:     d.cfg.BuildID,
+				Credentials: creds,
+				CredStore:   d.credStore,
+			}, pack, func(s string) {
 				d.log.Info("deploy", "status", s)
 			})
 			if err != nil {
@@ -329,9 +345,15 @@ func registerDeployTools(reg *MCPToolRegistry) {
 			}
 			del := mapBool(args, "delete")
 
-			deployer := orchestrate.NewDeployer(d.cfg.Home, d.cfg.Version, d.dc, d.log)
-			deployer.CredStore = d.credStore
-			if err := deployer.Teardown(context.Background(), packName, del); err != nil {
+			if msg, unavailable := mcpContainerInfraUnavailable(d); unavailable {
+				return msg, true
+			}
+			adapter := hostadapter.NewAdapter(mcpConfiguredRuntimeBackend(d), d.dc, d.log)
+			if err := adapter.TeardownPack(context.Background(), hostadapter.DeployOptions{
+				Home:      d.cfg.Home,
+				Version:   d.cfg.Version,
+				CredStore: d.credStore,
+			}, packName, del); err != nil {
 				return "Error: " + err.Error(), true
 			}
 			d.audit.WriteSystem("pack_teardown", map[string]interface{}{"pack": packName, "delete": del})

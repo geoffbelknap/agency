@@ -57,7 +57,7 @@ func TestNetworkConstantsInDocs(t *testing.T) {
 // TestGatewayProxyNotSelfLoop parses the gateway-proxy entrypoint script and
 // verifies that socat never forwards to TCP:gateway (the container's own alias).
 // A TCP self-loop was the root cause of all inter-container communication failures.
-// The proxy uses UNIX-CONNECT on Linux and host.docker.internal on macOS.
+// The proxy uses UNIX-CONNECT on Linux and backend-provided host aliases on VM-backed runtimes.
 func TestGatewayProxyNotSelfLoop(t *testing.T) {
 	root := repoRoot(t)
 	script := filepath.Join(root, "images", "gateway-proxy", "entrypoint.sh")
@@ -76,9 +76,15 @@ func TestGatewayProxyNotSelfLoop(t *testing.T) {
 	if !strings.Contains(content, "UNIX-CONNECT:/run/gateway.sock") {
 		t.Error("gateway-proxy entrypoint missing UNIX-CONNECT:/run/gateway.sock (Linux path)")
 	}
-	// Must support host.docker.internal fallback (macOS Docker Desktop)
+	// Must support backend-provided host aliases for VM-backed runtimes.
+	if !strings.Contains(content, "AGENCY_HOST_GATEWAY_HOSTS") {
+		t.Error("gateway-proxy entrypoint missing AGENCY_HOST_GATEWAY_HOSTS")
+	}
 	if !strings.Contains(content, "host.docker.internal") {
-		t.Error("gateway-proxy entrypoint missing host.docker.internal (macOS path)")
+		t.Error("gateway-proxy entrypoint missing host.docker.internal fallback")
+	}
+	if !strings.Contains(content, "host.containers.internal") {
+		t.Error("gateway-proxy entrypoint missing host.containers.internal fallback")
 	}
 	if !strings.Contains(content, "AGENCY_HOST_GATEWAY_PORT") {
 		t.Error("gateway-proxy entrypoint must use AGENCY_HOST_GATEWAY_PORT for disposable gateways")

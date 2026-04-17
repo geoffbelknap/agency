@@ -283,7 +283,7 @@ func RegisterCommands(root *cobra.Command) {
 		hideWhenExperimentalDisabled(webhookCmd()), hideWhenExperimentalDisabled(meeseeksCmd()),
 		hideWhenExperimentalDisabled(notificationsCmd()), auditCmd(),
 		credentialCmd(), hideWhenExperimentalDisabled(cacheCmd()), hideWhenExperimentalDisabled(registryCmd()),
-		hideWhenExperimentalDisabled(packageCmd()), hideWhenExperimentalDisabled(instanceCmd()), hideWhenExperimentalDisabled(authzCmd()),
+		hideWhenExperimentalDisabled(packageCmd()), hideWhenExperimentalDisabled(instanceCmd()), runtimeCmd(), hideWhenExperimentalDisabled(authzCmd()),
 	} {
 		cmd.GroupID = "manage"
 		root.AddCommand(cmd)
@@ -486,11 +486,12 @@ func instanceCmd() *cobra.Command {
 	})
 	runtimeCmd := &cobra.Command{
 		Use:   "runtime",
-		Short: "Manage V2 instance runtime state",
+		Short: "Manage authority instance runtime nodes and legacy manifests",
+		Long:  "Manage instance-scoped authority runtime nodes. For backend-neutral agent runtime inspection and fail-closed validation, use `agency runtime manifest|status|validate <agent>`.",
 	}
 	runtimeCmd.AddCommand(&cobra.Command{
 		Use:   "manifest <instance>",
-		Short: "Show the current runtime manifest for an instance",
+		Short: "Show the legacy persisted runtime manifest for an instance",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
@@ -510,7 +511,7 @@ func instanceCmd() *cobra.Command {
 	})
 	runtimeCmd.AddCommand(&cobra.Command{
 		Use:   "compile <instance>",
-		Short: "Compile and persist a runtime manifest for an instance",
+		Short: "Compile and persist a legacy runtime manifest for an instance",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
@@ -530,7 +531,7 @@ func instanceCmd() *cobra.Command {
 	})
 	runtimeCmd.AddCommand(&cobra.Command{
 		Use:   "reconcile <instance>",
-		Short: "Reconcile an instance runtime manifest into runtime state",
+		Short: "Reconcile a legacy instance runtime manifest into runtime state",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := requireGateway()
@@ -628,6 +629,67 @@ func instanceCmd() *cobra.Command {
 	invokeCmd.Flags().BoolVar(&consent, "consent", false, "mark consent as already provided")
 	runtimeCmd.AddCommand(invokeCmd)
 	cmd.AddCommand(runtimeCmd)
+	return cmd
+}
+
+func runtimeCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "runtime",
+		Short: "Inspect and validate agent runtime contracts",
+		Long:  "Inspect the persisted agent runtime manifest, projected runtime status, and fail-closed runtime validation results using the backend-neutral agent runtime contract.",
+	}
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "manifest <agent>",
+		Short: "Show the persisted runtime manifest for an agent",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.ShowAgentRuntimeManifest(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "status <agent>",
+		Short: "Show the projected runtime status for an agent",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.ShowAgentRuntimeStatus(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "validate <agent>",
+		Short: "Run fail-closed runtime validation for an agent",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := requireGateway()
+			if err != nil {
+				return err
+			}
+			result, err := c.ValidateAgentRuntime(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+		},
+	})
+
 	return cmd
 }
 

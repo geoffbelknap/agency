@@ -3,6 +3,7 @@ package containers
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -121,31 +122,64 @@ func TestHostConfigDefaults_AllRolesHaveSecurityBaseline(t *testing.T) {
 	}
 }
 
-func TestSeccompProfile_FallsBackToEmbedded(t *testing.T) {
+func TestSeccompProfilePath_FallsBackToEmbeddedFile(t *testing.T) {
 	dir := t.TempDir()
-	profile := SeccompProfile(dir)
-	if profile == "" {
-		t.Fatal("SeccompProfile returned empty string")
+	profilePath := SeccompProfilePath(dir)
+	if profilePath == "" {
+		t.Fatal("SeccompProfilePath returned empty string")
 	}
-	// Embedded profile should contain valid JSON markers.
-	if len(profile) < 10 {
-		t.Errorf("SeccompProfile too short: %q", profile)
+	data, err := os.ReadFile(profilePath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", profilePath, err)
+	}
+	if len(data) < 10 {
+		t.Errorf("embedded seccomp profile too short: %q", string(data))
 	}
 }
 
-func TestSeccompProfile_ReadsOverrideFile(t *testing.T) {
+func TestSeccompProfilePath_ReadsOverrideFile(t *testing.T) {
 	dir := t.TempDir()
 	infraDir := filepath.Join(dir, "infrastructure")
 	if err := os.MkdirAll(infraDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	want := `{"custom":"profile"}`
-	if err := os.WriteFile(filepath.Join(infraDir, "seccomp-workspace.json"), []byte(want), 0644); err != nil {
+	wantPath := filepath.Join(infraDir, "seccomp-workspace.json")
+	wantContents := `{"custom":"profile"}`
+	if err := os.WriteFile(wantPath, []byte(wantContents), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	got := SeccompProfile(dir)
-	if got != want {
-		t.Errorf("SeccompProfile = %q, want %q", got, want)
+	got := SeccompProfilePath(dir)
+	if got != wantPath {
+		t.Errorf("SeccompProfilePath = %q, want %q", got, wantPath)
+	}
+	data, err := os.ReadFile(got)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", got, err)
+	}
+	if string(data) != wantContents {
+		t.Errorf("seccomp profile contents = %q, want %q", string(data), wantContents)
+	}
+}
+
+func TestWorkspaceSecurityOpts_DockerIncludesSeccompProfile(t *testing.T) {
+	dir := t.TempDir()
+	opts := WorkspaceSecurityOpts(dir, "docker")
+	if len(opts) != 2 {
+		t.Fatalf("WorkspaceSecurityOpts(docker) = %v, want base+seccomp", opts)
+	}
+	if opts[0] != "no-new-privileges:true" {
+		t.Fatalf("first security opt = %q, want no-new-privileges:true", opts[0])
+	}
+	if !strings.HasPrefix(opts[1], "seccomp=") {
+		t.Fatalf("second security opt = %q, want seccomp=...", opts[1])
+	}
+}
+
+func TestWorkspaceSecurityOpts_PodmanSkipsHostSeccompPath(t *testing.T) {
+	dir := t.TempDir()
+	opts := WorkspaceSecurityOpts(dir, "podman")
+	if len(opts) != 1 || opts[0] != "no-new-privileges:true" {
+		t.Fatalf("WorkspaceSecurityOpts(podman) = %v, want only no-new-privileges:true", opts)
 	}
 }

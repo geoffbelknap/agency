@@ -5,13 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 	"strings"
+	"time"
 
 	"log/slog"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/client"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"gopkg.in/yaml.v3"
 
 	"github.com/geoffbelknap/agency/internal/models"
@@ -29,7 +27,7 @@ type MissionHealthAlertFunc func(missionName, reason string)
 // If either check fails, it alerts the operator and auto-pauses the mission.
 type MissionHealthMonitor struct {
 	mm      *MissionManager
-	cli     *client.Client
+	docker  *runtimehost.DockerHandle
 	alert   MissionHealthAlertFunc
 	pause   func(name, reason string) error
 	logger  *slog.Logger
@@ -48,25 +46,20 @@ func NewMissionHealthMonitor(
 	return NewMissionHealthMonitorWithClient(mm, alertFn, pauseFn, logger, nil)
 }
 
-// NewMissionHealthMonitorWithClient creates a health monitor using the provided Docker
-// client (or a new one if cli is nil). Prefer passing a shared client.
+// NewMissionHealthMonitorWithClient creates a health monitor using the provided Docker client.
 func NewMissionHealthMonitorWithClient(
 	mm *MissionManager,
 	alertFn MissionHealthAlertFunc,
 	pauseFn func(name, reason string) error,
 	logger *slog.Logger,
-	cli *client.Client,
+	dc *runtimehost.DockerHandle,
 ) (*MissionHealthMonitor, error) {
-	if cli == nil {
-		var err error
-		cli, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-		if err != nil {
-			return nil, fmt.Errorf("mission health monitor: docker client: %w", err)
-		}
+	if logger == nil {
+		logger = slog.Default()
 	}
 	return &MissionHealthMonitor{
 		mm:     mm,
-		cli:    cli,
+		docker: dc,
 		alert:  alertFn,
 		pause:  pauseFn,
 		logger: logger,
@@ -76,6 +69,10 @@ func NewMissionHealthMonitorWithClient(
 // Start launches the background health-check goroutine.
 // The monitor runs until the returned context is cancelled.
 func (m *MissionHealthMonitor) Start(ctx context.Context) {
+	if m.docker == nil {
+		m.logger.Info("mission health monitor disabled: docker client unavailable")
+		return
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	m.cancel = cancel
 
@@ -219,23 +216,10 @@ func (m *MissionHealthMonitor) checkCapabilities(mission *models.Mission) []stri
 // runningContainers returns a map of container name → state for all agency
 // containers that are currently listed by Docker.
 func (m *MissionHealthMonitor) runningContainers(ctx context.Context) map[string]string {
-	result := make(map[string]string)
-	containers, err := m.cli.ContainerList(ctx, container.ListOptions{
-		All:     true,
-		Filters: filters.NewArgs(filters.Arg("name", prefix+"-")),
-	})
+	result, err := runtimehost.ListAgencyContainerStates(ctx, m.docker)
 	if err != nil {
 		m.logger.Warn("mission health: docker list failed", "error", err)
-		return result
-	}
-	for _, c := range containers {
-		for _, n := range c.Names {
-			name := n
-			if len(name) > 0 && name[0] == '/' {
-				name = name[1:]
-			}
-			result[name] = c.State
-		}
+		return map[string]string{}
 	}
 	return result
 }

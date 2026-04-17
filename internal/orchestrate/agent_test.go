@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"log/slog"
 	"gopkg.in/yaml.v3"
+	"log/slog"
 
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
@@ -126,6 +126,24 @@ func TestArchiveAuditLogs_NoOpWhenAuditDirMissing(t *testing.T) {
 	am.archiveAuditLogs("nonexistent-agent")
 }
 
+func TestRemovePathAllRemovesTree(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "agent")
+	if err := os.MkdirAll(filepath.Join(target, "state"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "state", "agent-signals.jsonl"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := removePathAll(target); err != nil {
+		t.Fatalf("removePathAll: %v", err)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("target still exists: %v", err)
+	}
+}
+
 func TestStaleTaskClearedWhenTaskComplete(t *testing.T) {
 	// Integration test: simulate a stale session-context with current_task
 	// and a signals file with task_complete. Verify loadAgentDetail
@@ -164,8 +182,7 @@ func TestStaleTaskClearedWhenTaskComplete(t *testing.T) {
 
 	// Create a minimal AgentManager and call loadAgentDetail
 	am := &AgentManager{Home: dir}
-	running := map[string]containerInfo{}
-	detail := am.loadAgentDetail("testbot", filepath.Join(dir, "agents"), running, map[string]string{})
+	detail := am.loadAgentDetail("testbot", filepath.Join(dir, "agents"), map[string]string{})
 
 	// CurrentTask should be nil (task_complete signal found)
 	if detail.CurrentTask != nil {
@@ -222,8 +239,7 @@ func TestLoadAgentDetail_GeneratesLifecycleID_WhenMissing(t *testing.T) {
 	os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("type: standard\npreset: default\n"), 0644)
 
 	am := &AgentManager{Home: dir}
-	running := map[string]containerInfo{}
-	detail := am.loadAgentDetail("old-agent", filepath.Join(dir, "agents"), running, map[string]string{})
+	detail := am.loadAgentDetail("old-agent", filepath.Join(dir, "agents"), map[string]string{})
 
 	// LifecycleID should be populated in the returned detail
 	if detail.LifecycleID == "" {
@@ -251,43 +267,31 @@ func TestLoadAgentDetail_GeneratesLifecycleID_WhenMissing(t *testing.T) {
 	}
 }
 
-func TestLoadAgentDetail_UnhealthyWhenEnforcerDown(t *testing.T) {
+func TestLoadAgentDetail_UsesPersistedStoppedStatusWithoutRuntime(t *testing.T) {
 	dir := t.TempDir()
 	agentDir := filepath.Join(dir, "agents", "testbot")
-	os.MkdirAll(agentDir, 0755)
+	runtimeDir := filepath.Join(agentDir, "runtime")
+	os.MkdirAll(runtimeDir, 0755)
 	os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("type: standard\n"), 0644)
 	os.WriteFile(filepath.Join(agentDir, "constraints.yaml"), []byte("identity:\n  role: assistant\n"), 0644)
+	manifest := runtimeManifest{
+		Status: runtimecontract.RuntimeStatus{
+			RuntimeID: "testbot",
+			Phase:     runtimecontract.RuntimePhaseStopped,
+			Healthy:   false,
+			Backend:   "probe",
+			Transport: runtimecontract.RuntimeTransportStatus{
+				EnforcerConnected: false,
+			},
+		},
+	}
+	data, _ := yaml.Marshal(manifest)
+	os.WriteFile(filepath.Join(runtimeDir, "manifest.yaml"), data, 0644)
 
-	am := &AgentManager{Home: dir}
-
-	// Workspace running, enforcer exited → unhealthy
-	running := map[string]containerInfo{
-		"agency-testbot-workspace": {State: "running"},
-		"agency-testbot-enforcer":  {State: "exited"},
-	}
-	detail := am.loadAgentDetail("testbot", filepath.Join(dir, "agents"), running, map[string]string{})
-	if detail.Status != "unhealthy" {
-		t.Errorf("expected status=unhealthy when enforcer exited, got %q", detail.Status)
-	}
-	if detail.Workspace != "running" {
-		t.Errorf("expected workspace=running, got %q", detail.Workspace)
-	}
-	if detail.Enforcer != "exited" {
-		t.Errorf("expected enforcer=exited, got %q", detail.Enforcer)
-	}
-
-	// Both running → running (healthy)
-	running["agency-testbot-enforcer"] = containerInfo{State: "running"}
-	detail = am.loadAgentDetail("testbot", filepath.Join(dir, "agents"), running, map[string]string{})
-	if detail.Status != "running" {
-		t.Errorf("expected status=running when both containers running, got %q", detail.Status)
-	}
-
-	// Workspace running, enforcer missing → unhealthy
-	delete(running, "agency-testbot-enforcer")
-	detail = am.loadAgentDetail("testbot", filepath.Join(dir, "agents"), running, map[string]string{})
-	if detail.Status != "unhealthy" {
-		t.Errorf("expected status=unhealthy when enforcer missing, got %q", detail.Status)
+	am := &AgentManager{Home: dir, Runtime: NewRuntimeSupervisor(dir, "0.1.0", "", "build-1", "probe", nil, nil, nil, nil)}
+	detail := am.loadAgentDetail("testbot", filepath.Join(dir, "agents"), map[string]string{})
+	if detail.Status != "stopped" || detail.Workspace != "stopped" || detail.Enforcer != "stopped" {
+		t.Fatalf("unexpected persisted stopped detail: %+v", detail)
 	}
 }
 
@@ -301,8 +305,7 @@ func TestLoadAgentDetail_PreservesExistingLifecycleID(t *testing.T) {
 	os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte(yamlContent), 0644)
 
 	am := &AgentManager{Home: dir}
-	running := map[string]containerInfo{}
-	detail := am.loadAgentDetail("existing-agent", filepath.Join(dir, "agents"), running, map[string]string{})
+	detail := am.loadAgentDetail("existing-agent", filepath.Join(dir, "agents"), map[string]string{})
 
 	if detail.LifecycleID != existingID {
 		t.Errorf("expected existing lifecycle_id %q to be preserved, got %q", existingID, detail.LifecycleID)
@@ -358,7 +361,7 @@ func TestLoadAgentDetail_UsesRuntimeStatusProjection(t *testing.T) {
 	}
 
 	am := &AgentManager{Home: dir, Runtime: rs}
-	detail := am.loadAgentDetail("runtime-agent", filepath.Join(dir, "agents"), map[string]containerInfo{}, map[string]string{})
+	detail := am.loadAgentDetail("runtime-agent", filepath.Join(dir, "agents"), map[string]string{})
 	if detail.Status != "unhealthy" {
 		t.Fatalf("status = %q, want unhealthy", detail.Status)
 	}
@@ -421,7 +424,7 @@ func TestLoadAgentDetail_RuntimeStoppedRespectsActiveHalt(t *testing.T) {
 	}
 
 	am := &AgentManager{Home: dir, Runtime: rs}
-	detail := am.loadAgentDetail("halted-agent", filepath.Join(dir, "agents"), map[string]containerInfo{}, map[string]string{})
+	detail := am.loadAgentDetail("halted-agent", filepath.Join(dir, "agents"), map[string]string{})
 	if detail.Status != "halted" {
 		t.Fatalf("status = %q, want halted", detail.Status)
 	}

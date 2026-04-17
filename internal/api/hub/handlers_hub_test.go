@@ -210,6 +210,89 @@ func TestHubRemoveConnectorSignalsIntakeAndRemovesPublishedYAML(t *testing.T) {
 	}
 }
 
+func TestHubDeactivateConnector_NonDockerSkipsInfraSignal(t *testing.T) {
+	home := t.TempDir()
+	mgr := hubpkg.NewManager(home)
+	inst, err := mgr.Registry.Create("fixture-connector", "connector", "local/fixture-connector")
+	if err != nil {
+		t.Fatalf("create connector instance: %v", err)
+	}
+	if err := mgr.Registry.SetState(inst.Name, "active"); err != nil {
+		t.Fatalf("activate connector instance: %v", err)
+	}
+
+	signal := &recordingSignalSender{}
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{
+		Config: &config.Config{
+			Home: home,
+			Hub: config.HubConfig{
+				DeploymentBackend: "probe",
+			},
+		},
+		Signal: signal,
+		Audit:  logs.NewWriter(home),
+		Logger: slog.Default(),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hub/"+inst.Name+"/deactivate", strings.NewReader("{}"))
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if len(signal.calls) != 0 {
+		t.Fatalf("expected no infra signal for non-docker backend, got %+v", signal.calls)
+	}
+}
+
+func TestHubDeployPackNonDockerBackendUnavailable(t *testing.T) {
+	home := t.TempDir()
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{
+		Config: &config.Config{
+			Home: home,
+			Hub: config.HubConfig{
+				DeploymentBackend: "probe",
+			},
+		},
+		Audit:  logs.NewWriter(home),
+		Logger: slog.Default(),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hub/deploy", bytes.NewBufferString(`{"pack":{"name":"demo"}}`))
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHubTeardownPackNonDockerBackendUnavailable(t *testing.T) {
+	home := t.TempDir()
+	r := chi.NewRouter()
+	RegisterRoutes(r, Deps{
+		Config: &config.Config{
+			Home: home,
+			Hub: config.HubConfig{
+				DeploymentBackend: "probe",
+			},
+		},
+		Audit:  logs.NewWriter(home),
+		Logger: slog.Default(),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/hub/teardown/demo", bytes.NewBufferString(`{}`))
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestHubRemovePackCleansAutoInstalledConnectorDependencies(t *testing.T) {
 	home := t.TempDir()
 	mgr := hubpkg.NewManager(home)

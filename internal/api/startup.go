@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"log/slog"
 
@@ -11,7 +12,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/config"
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/credstore"
-	"github.com/geoffbelknap/agency/internal/docker"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/hub"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
 	"github.com/geoffbelknap/agency/internal/knowledge"
@@ -49,23 +50,31 @@ type StartupResult struct {
 // Core component failures (Infra, AgentManager, HaltController) are fatal and
 // return an error — the gateway will not start. Optional component failures
 // log warnings and leave the corresponding field nil.
-func Startup(cfg *config.Config, dc *docker.Client, logger *slog.Logger) (*StartupResult, error) {
-	if dc == nil {
-		return nil, fmt.Errorf("docker client is required")
+func Startup(cfg *config.Config, dc *runtimehost.Client, logger *slog.Logger) (*StartupResult, error) {
+	backendName := cfg.Hub.DeploymentBackend
+	if strings.TrimSpace(backendName) == "" {
+		backendName = runtimehost.BackendDocker
+	}
+	if dc == nil && runtimehost.IsContainerBackend(backendName) {
+		return nil, fmt.Errorf("%s client is required", runtimehost.NormalizeContainerBackend(backendName))
 	}
 
-	infra, err := orchestrate.NewInfra(cfg.Home, cfg.Version, dc, logger, cfg.HMACKey)
-	if err != nil {
-		return nil, fmt.Errorf("infra init: %w", err)
+	var infra *orchestrate.Infra
+	var err error
+	if dc != nil {
+		infra, err = orchestrate.NewInfra(cfg.Home, cfg.Version, dc, logger, cfg.HMACKey)
+		if err != nil {
+			return nil, fmt.Errorf("infra init: %w", err)
+		}
+		if infra == nil {
+			return nil, fmt.Errorf("infra init returned nil")
+		}
+		infra.SourceDir = cfg.SourceDir
+		infra.BuildID = cfg.BuildID
+		infra.GatewayAddr = cfg.GatewayAddr
+		infra.GatewayToken = cfg.Token
+		infra.EgressToken = cfg.EgressToken
 	}
-	if infra == nil {
-		return nil, fmt.Errorf("infra init returned nil")
-	}
-	infra.SourceDir = cfg.SourceDir
-	infra.BuildID = cfg.BuildID
-	infra.GatewayAddr = cfg.GatewayAddr
-	infra.GatewayToken = cfg.Token
-	infra.EgressToken = cfg.EgressToken
 
 	agents, err := orchestrate.NewAgentManager(cfg.Home, dc, logger)
 	if err != nil {
@@ -84,7 +93,7 @@ func Startup(cfg *config.Config, dc *docker.Client, logger *slog.Logger) (*Start
 	}
 	halt.SourceDir = cfg.SourceDir
 	halt.BuildID = cfg.BuildID
-	halt.BackendName = cfg.Hub.DeploymentBackend
+	halt.BackendName = backendName
 	halt.Comms = dc
 
 	audit := logs.NewWriter(cfg.Home)
@@ -113,7 +122,7 @@ func Startup(cfg *config.Config, dc *docker.Client, logger *slog.Logger) (*Start
 		cfg.Version,
 		cfg.SourceDir,
 		cfg.BuildID,
-		cfg.Hub.DeploymentBackend,
+		backendName,
 		dc,
 		dc,
 		logger,
@@ -122,7 +131,7 @@ func Startup(cfg *config.Config, dc *docker.Client, logger *slog.Logger) (*Start
 	agents.Version = cfg.Version
 	agents.SourceDir = cfg.SourceDir
 	agents.BuildID = cfg.BuildID
-	agents.BackendName = cfg.Hub.DeploymentBackend
+	agents.BackendName = backendName
 	agents.Runtime = runtimeSupervisor
 	halt.Runtime = runtimeSupervisor
 

@@ -2,16 +2,18 @@ package infra
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
-	"github.com/geoffbelknap/agency/internal/docker"
 	"github.com/geoffbelknap/agency/internal/events"
 	"github.com/geoffbelknap/agency/internal/features"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 )
@@ -19,8 +21,8 @@ import (
 // Deps holds the dependencies required by the infra module.
 type Deps struct {
 	Infra        *orchestrate.Infra
-	DC           *docker.Client
-	DockerStatus *docker.Status // may be nil
+	DC           *runtimehost.Client
+	DockerStatus *runtimehost.Status // may be nil
 	CredStore    *credstore.Store
 	EventBus     *events.Bus // may be nil
 	Config       *config.Config
@@ -65,9 +67,29 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Get("/api/v1/infra/setup/config", h.setupConfig)
 }
 
-// dockerRequired returns true if Docker is available. If not, writes a 503
-// response with a human-readable error and returns false.
-func (h *handler) dockerRequired(w http.ResponseWriter) bool {
+func (h *handler) configuredBackend() string {
+	if h.deps.Config != nil && strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend) != "" {
+		return strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend)
+	}
+	return runtimehost.BackendDocker
+}
+
+// containerBackendRequired returns true when container-backed infra control is available.
+func (h *handler) containerBackendRequired(w http.ResponseWriter) bool {
+	backend := h.configuredBackend()
+	if !runtimehost.IsContainerBackend(backend) {
+		writeJSON(w, 503, map[string]string{
+			"error":   fmt.Sprintf("infrastructure container lifecycle is only available for container backends (current: %s)", backend),
+			"backend": backend,
+		})
+		return false
+	}
+	if h.deps.DC == nil {
+		writeJSON(w, 503, map[string]string{
+			"error": fmt.Sprintf("%s infrastructure client is not initialized.", runtimehost.NormalizeContainerBackend(backend)),
+		})
+		return false
+	}
 	if h.deps.DockerStatus != nil && !h.deps.DockerStatus.Available() {
 		writeJSON(w, 503, map[string]string{
 			"error": "Docker is not available. Container operations are unavailable.",

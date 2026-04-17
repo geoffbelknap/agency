@@ -8,13 +8,11 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
 	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/comms"
 	"github.com/geoffbelknap/agency/internal/credstore"
-	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 )
 
 // HaltRecord describes a halt event.
@@ -39,7 +37,7 @@ var validHaltTypes = map[string]bool{
 type HaltController struct {
 	Home         string
 	Version      string
-	Docker       *agencyDocker.Client
+	Docker       *runtimehost.DockerHandle
 	SourceDir    string
 	BuildID      string
 	BackendName  string
@@ -47,22 +45,11 @@ type HaltController struct {
 	CredStore    *credstore.Store
 	Runtime      *RuntimeSupervisor
 	StopSuppress *StopSuppression
-	cli          *client.Client
 	log          *slog.Logger
 }
 
-func NewHaltController(home, version string, dc *agencyDocker.Client, logger *slog.Logger) (*HaltController, error) {
-	var cli *client.Client
-	if dc != nil {
-		cli = dc.RawClient()
-	} else {
-		var err error
-		cli, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &HaltController{Home: home, Version: version, Docker: dc, cli: cli, log: logger}, nil
+func NewHaltController(home, version string, dc *runtimehost.DockerHandle, logger *slog.Logger) (*HaltController, error) {
+	return &HaltController{Home: home, Version: version, Docker: dc, log: logger}, nil
 }
 
 // Halt stops an agent's containers, records the halt event, and preserves
@@ -95,25 +82,11 @@ func (hc *HaltController) Halt(ctx context.Context, agentName, haltType, reason,
 			return nil, err
 		}
 	} else {
-		containers := []string{
-			fmt.Sprintf("%s-%s-workspace", prefix, agentName),
-			fmt.Sprintf("%s-%s-enforcer", prefix, agentName),
+		if hc.Docker == nil {
+			return nil, fmt.Errorf("runtime backend stop is unavailable")
 		}
-
-		for _, cname := range containers {
-			info, err := hc.cli.ContainerInspect(ctx, cname)
-			if err != nil {
-				continue
-			}
-			if info.State.Running || info.State.Paused {
-				timeout := 30
-				if err := hc.cli.ContainerStop(ctx, cname, container.StopOptions{Timeout: &timeout}); err != nil {
-					hc.log.Warn("stop failed", "container", cname, "err", err)
-				}
-			}
-			if err := hc.cli.ContainerRemove(ctx, cname, container.RemoveOptions{Force: true}); err != nil {
-				hc.log.Warn("remove failed", "container", cname, "err", err)
-			}
+		if err := runtimehost.StopRuntime(ctx, hc.Docker, agentName); err != nil {
+			return nil, err
 		}
 	}
 
@@ -139,16 +112,31 @@ func (hc *HaltController) Resume(ctx context.Context, agentName, initiator strin
 		initiator = "operator"
 	}
 
-	wsName := fmt.Sprintf("%s-%s-workspace", prefix, agentName)
-	info, err := hc.cli.ContainerInspect(ctx, wsName)
-	if err == nil && info.State.Running && !info.State.Paused {
-		return fmt.Errorf("agent %s is already running", agentName)
-	}
-	if err != nil && !activeHaltExists(hc.Home, agentName) {
-		return fmt.Errorf("agent %s is stopped — use start instead", agentName)
-	}
-	if err == nil && !info.State.Paused && !activeHaltExists(hc.Home, agentName) {
-		return fmt.Errorf("agent %s is stopped — use start instead", agentName)
+	if hc.Runtime != nil {
+		status, err := hc.Runtime.Get(ctx, agentName)
+		if err == nil && status.Phase == "running" && !activeHaltExists(hc.Home, agentName) {
+			return fmt.Errorf("agent %s is already running", agentName)
+		}
+		if err != nil && !activeHaltExists(hc.Home, agentName) {
+			return fmt.Errorf("agent %s is stopped — use start instead", agentName)
+		}
+		if err == nil && status.Phase != "stopped" && !activeHaltExists(hc.Home, agentName) {
+			return fmt.Errorf("agent %s is stopped — use start instead", agentName)
+		}
+	} else {
+		if hc.Docker == nil {
+			return fmt.Errorf("agent %s is stopped — use start instead", agentName)
+		}
+		state, err := runtimehost.InspectWorkspaceState(ctx, hc.Docker, agentName)
+		if err == nil && state == runtimehost.RuntimeStateRunning {
+			return fmt.Errorf("agent %s is already running", agentName)
+		}
+		if err != nil && !activeHaltExists(hc.Home, agentName) {
+			return fmt.Errorf("agent %s is stopped — use start instead", agentName)
+		}
+		if err == nil && state != runtimehost.RuntimeStatePaused && !activeHaltExists(hc.Home, agentName) {
+			return fmt.Errorf("agent %s is stopped — use start instead", agentName)
+		}
 	}
 
 	if hc.StopSuppress != nil {
@@ -162,29 +150,31 @@ func (hc *HaltController) Resume(ctx context.Context, agentName, initiator strin
 
 	// Clean up any legacy paused or stopped containers before replaying the
 	// full start sequence.
-	for _, cname := range []string{
-		wsName,
-		fmt.Sprintf("%s-%s-enforcer", prefix, agentName),
-	} {
-		if _, err := hc.cli.ContainerInspect(ctx, cname); err == nil {
-			timeout := 30
-			_ = hc.cli.ContainerStop(ctx, cname, container.StopOptions{Timeout: &timeout})
-			_ = hc.cli.ContainerRemove(ctx, cname, container.RemoveOptions{Force: true})
+	if hc.Runtime != nil {
+		if err := hc.Runtime.Stop(ctx, agentName); err != nil {
+			return fmt.Errorf("cleanup existing runtime: %w", err)
+		}
+	} else {
+		if hc.Docker == nil {
+			return fmt.Errorf("cleanup existing runtime: docker is not available")
+		}
+		if err := runtimehost.StopRuntime(ctx, hc.Docker, agentName); err != nil {
+			return fmt.Errorf("cleanup existing runtime: %w", err)
 		}
 	}
 
 	ss := &StartSequence{
-		AgentName: agentName,
-		Home:      hc.Home,
-		Version:   hc.Version,
-		SourceDir: hc.SourceDir,
-		BuildID:   hc.BuildID,
+		AgentName:   agentName,
+		Home:        hc.Home,
+		Version:     hc.Version,
+		SourceDir:   hc.SourceDir,
+		BuildID:     hc.BuildID,
 		BackendName: hc.BackendName,
-		Docker:    hc.Docker,
-		Comms:     hc.Comms,
-		Log:       hc.log,
-		CredStore: hc.CredStore,
-		Runtime:   hc.Runtime,
+		Docker:      hc.Docker,
+		Comms:       hc.Comms,
+		Log:         hc.log,
+		CredStore:   hc.CredStore,
+		Runtime:     hc.Runtime,
 	}
 	if _, err := ss.Run(ctx, nil); err != nil {
 		return fmt.Errorf("resume start sequence: %w", err)
@@ -197,12 +187,29 @@ func (hc *HaltController) Resume(ctx context.Context, agentName, initiator strin
 
 // Status returns the halt status of an agent.
 func (hc *HaltController) Status(ctx context.Context, agentName string) string {
-	wsName := fmt.Sprintf("%s-%s-workspace", prefix, agentName)
-	info, err := hc.cli.ContainerInspect(ctx, wsName)
-	if err == nil && info.State.Paused {
+	if hc.Runtime != nil {
+		if status, err := hc.Runtime.Get(ctx, agentName); err == nil {
+			switch status.Phase {
+			case "running", "starting", "degraded":
+				return "running"
+			}
+		}
+		if activeHaltExists(hc.Home, agentName) {
+			return "halted"
+		}
+		return "stopped"
+	}
+	if hc.Docker == nil {
+		if activeHaltExists(hc.Home, agentName) {
+			return "halted"
+		}
+		return "stopped"
+	}
+	state, err := runtimehost.InspectWorkspaceState(ctx, hc.Docker, agentName)
+	if err == nil && state == runtimehost.RuntimeStatePaused {
 		return "halted"
 	}
-	if err == nil && info.State.Running {
+	if err == nil && state == runtimehost.RuntimeStateRunning {
 		return "running"
 	}
 	if activeHaltExists(hc.Home, agentName) {
@@ -253,6 +260,3 @@ func (hc *HaltController) setActiveHalt(agentName string, record *HaltRecord) {
 func (hc *HaltController) clearActiveHalt(agentName string) {
 	_ = os.Remove(activeHaltPath(hc.Home, agentName))
 }
-
-// Suppress unused import
-var _ = container.StopOptions{}

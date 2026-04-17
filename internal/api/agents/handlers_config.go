@@ -164,8 +164,18 @@ func (h *handler) updateAgentConfig(w http.ResponseWriter, r *http.Request) {
 func (h *handler) signalConfigReload(agentName string) {
 	go func() {
 		ctx := context.Background()
+		if h.deps.AgentManager != nil && h.deps.AgentManager.Runtime != nil {
+			if err := h.deps.AgentManager.Runtime.ReloadEnforcer(ctx, agentName); err != nil {
+				h.deps.Logger.Debug("config reload: runtime reload failed", "agent", agentName, "err", err)
+			}
+			return
+		}
 		enforcerName := fmt.Sprintf("agency-%s-enforcer", agentName)
-		if err := h.deps.Signal.SignalContainer(ctx, enforcerName, "SIGHUP"); err != nil {
+		if h.deps.Signal != nil {
+			err := h.deps.Signal.SignalContainer(ctx, enforcerName, "SIGHUP")
+			if err == nil {
+				return
+			}
 			h.deps.Logger.Debug("config reload: enforcer SIGHUP failed (may not be running)", "agent", agentName, "err", err)
 		}
 	}()

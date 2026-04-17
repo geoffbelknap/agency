@@ -15,12 +15,13 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/comms"
 	"github.com/geoffbelknap/agency/internal/credstore"
-	agencyDocker "github.com/geoffbelknap/agency/internal/docker"
+	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	runtimebackend "github.com/geoffbelknap/agency/internal/runtime/backend"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
-const defaultRuntimeBackend = "docker"
+const defaultRuntimeBackend = runtimehost.BackendDocker
 
 type RuntimeSupervisor struct {
 	Home        string
@@ -28,7 +29,7 @@ type RuntimeSupervisor struct {
 	SourceDir   string
 	BuildID     string
 	BackendName string
-	Docker      *agencyDocker.Client
+	Docker      *runtimehost.DockerHandle
 	Comms       comms.Client
 	Log         *slog.Logger
 	CredStore   *credstore.Store
@@ -51,7 +52,11 @@ type componentBackend interface {
 	EnsureWorkspace(ctx context.Context, spec runtimecontract.RuntimeSpec) error
 }
 
-func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string, dc *agencyDocker.Client, comms comms.Client, logger *slog.Logger, credStore *credstore.Store) *RuntimeSupervisor {
+type enforcerReloadBackend interface {
+	ReloadEnforcer(ctx context.Context, spec runtimecontract.RuntimeSpec) error
+}
+
+func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string, dc *runtimehost.DockerHandle, comms comms.Client, logger *slog.Logger, credStore *credstore.Store) *RuntimeSupervisor {
 	rs := &RuntimeSupervisor{
 		Home:        home,
 		Version:     version,
@@ -64,15 +69,71 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 		CredStore:   credStore,
 		registry:    runtimebackend.NewRegistry(),
 	}
-	rs.registry.Register(defaultRuntimeBackend, func() (runtimecontract.Backend, error) {
-		return &dockerRuntimeBackend{
-			home:      rs.Home,
-			version:   rs.Version,
-			sourceDir: rs.SourceDir,
-			buildID:   rs.BuildID,
-			docker:    rs.Docker,
-			log:       rs.Log,
-		}, nil
+	registerContainerBackend := func(backendName string) {
+		rs.registry.Register(backendName, func() (runtimecontract.Backend, error) {
+			return &hostruntimebackend.DockerRuntimeBackend{
+				BackendName: backendName,
+				Docker:      rs.Docker,
+				EnsureAgentNetwork: func(ctx context.Context, runtimeID string) error {
+					if rs.Docker == nil {
+						return fmt.Errorf("%s is not available", backendName)
+					}
+					infra, err := NewInfra(rs.Home, rs.Version, rs.Docker, rs.Log, nil)
+					if err != nil {
+						return err
+					}
+					infra.SourceDir = rs.SourceDir
+					infra.BuildID = rs.BuildID
+					return infra.EnsureAgentNetwork(ctx, fmt.Sprintf("%s-%s-internal", prefix, runtimeID))
+				},
+				EnsureEnforcerFn: func(ctx context.Context, spec runtimecontract.RuntimeSpec, rotateKey bool) error {
+					if rs.Docker == nil {
+						return fmt.Errorf("%s is not available", backendName)
+					}
+					sharedCli := rs.Docker.RawClient()
+					enf, err := NewEnforcerWithClient(spec.RuntimeID, rs.Home, rs.Version, rs.Log, nil, sharedCli)
+					if err != nil {
+						return err
+					}
+					enf.SourceDir = rs.SourceDir
+					enf.BuildID = rs.BuildID
+					enf.ConstraintHostPort = hostPortFromEndpoint(spec.Transport.Enforcer.Endpoint)
+					if rotateKey {
+						_, err = enf.StartWithKeyRotation(ctx)
+					} else {
+						_, err = enf.Start(ctx)
+					}
+					if err != nil {
+						return err
+					}
+					return enf.HealthCheck(ctx, 30*time.Second)
+				},
+				EnsureWorkspaceFn: func(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
+					if rs.Docker == nil {
+						return fmt.Errorf("%s is not available", backendName)
+					}
+					sharedCli := rs.Docker.RawClient()
+					ws, err := NewWorkspaceWithClient(spec.RuntimeID, rs.Home, rs.Version, rs.Log, sharedCli)
+					if err != nil {
+						return err
+					}
+					ws.Backend = backendName
+					ws.SourceDir = rs.SourceDir
+					ws.BuildID = rs.BuildID
+					return ws.Start(ctx, StartOptions{
+						ScopedKey:  readScopedAPIKey(spec.Transport.Enforcer.TokenRef),
+						Model:      spec.Package.Env["AGENCY_MODEL"],
+						AdminModel: spec.Package.Env["AGENCY_ADMIN_MODEL"],
+						Env:        spec.Package.Env,
+					})
+				},
+			}, nil
+		})
+	}
+	registerContainerBackend(defaultRuntimeBackend)
+	registerContainerBackend(runtimehost.BackendPodman)
+	rs.registry.Register(probeRuntimeBackendName, func() (runtimecontract.Backend, error) {
+		return &probeRuntimeBackend{home: rs.Home}, nil
 	})
 	return rs
 }
@@ -132,7 +193,7 @@ func (rs *RuntimeSupervisor) Compile(ctx context.Context, runtimeID string) (run
 		Storage: runtimecontract.RuntimeStorageSpec{
 			ConfigPath:    filepath.Join(rs.Home, "agents", agentID),
 			StatePath:     filepath.Join(rs.Home, "agents", agentID, "state"),
-			WorkspacePath: "/workspace",
+			WorkspacePath: rs.workspacePath(agentID),
 		},
 		Lifecycle: runtimecontract.RuntimeLifecycleSpec{
 			RestartPolicy: "unless-stopped",
@@ -147,6 +208,13 @@ func (rs *RuntimeSupervisor) Compile(ctx context.Context, runtimeID string) (run
 		},
 	}
 	return spec, nil
+}
+
+func (rs *RuntimeSupervisor) workspacePath(agentID string) string {
+	if normalizeRuntimeBackendName(rs.BackendName) == probeRuntimeBackendName {
+		return filepath.Join(rs.Home, "agents", agentID, "workspace")
+	}
+	return "/workspace"
 }
 
 func (rs *RuntimeSupervisor) Reconcile(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
@@ -165,11 +233,11 @@ func (rs *RuntimeSupervisor) Reconcile(ctx context.Context, spec runtimecontract
 	now := time.Now().UTC()
 	caps, _ := rs.capabilities(context.Background(), spec.Backend)
 	return rs.saveManifest(runtimeManifest{
-		Spec:       spec,
-		Status:     status,
+		Spec:         spec,
+		Status:       status,
 		Capabilities: caps,
-		CompiledAt: now,
-		UpdatedAt:  now,
+		CompiledAt:   now,
+		UpdatedAt:    now,
 	})
 }
 
@@ -216,6 +284,22 @@ func (rs *RuntimeSupervisor) EnsureWorkspace(ctx context.Context, runtimeID stri
 		return err
 	}
 	return rs.refreshStatus(ctx, spec)
+}
+
+func (rs *RuntimeSupervisor) ReloadEnforcer(ctx context.Context, runtimeID string) error {
+	spec, err := rs.loadSpec(runtimeID)
+	if err != nil {
+		return err
+	}
+	backend, err := rs.backend(spec.Backend)
+	if err != nil {
+		return err
+	}
+	reloader, ok := backend.(enforcerReloadBackend)
+	if !ok {
+		return nil
+	}
+	return reloader.ReloadEnforcer(ctx, spec)
 }
 
 func (rs *RuntimeSupervisor) Restart(ctx context.Context, runtimeID string) error {
@@ -420,6 +504,16 @@ func (rs *RuntimeSupervisor) loadManifest(runtimeID string) (runtimeManifest, er
 }
 
 func (rs *RuntimeSupervisor) saveManifest(manifest runtimeManifest) error {
+	if strings.TrimSpace(manifest.Spec.RuntimeID) == "" {
+		return fmt.Errorf("runtime manifest missing runtime id")
+	}
+	agentPath := filepath.Join(rs.Home, "agents", manifest.Spec.RuntimeID, "agent.yaml")
+	if _, err := os.Stat(agentPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat agent definition: %w", err)
+	}
 	path := rs.manifestPath(manifest.Spec.RuntimeID)
 	if manifest.UpdatedAt.IsZero() {
 		manifest.UpdatedAt = time.Now().UTC()

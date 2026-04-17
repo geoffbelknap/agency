@@ -515,9 +515,7 @@ func (h *handler) applyDeployment(ctx context.Context, nameOrID string) error {
 		h.autoActivate(mgr, inst)
 	}
 	h.signalInfraComponent("egress")
-	if h.deps.Signal != nil {
-		_ = h.deps.Signal.SignalContainer(ctx, "agency-intake", "SIGHUP")
-	}
+	h.signalInfraComponent("intake")
 	if err := h.deploymentStore().Update(ctx, dep.ID, func(stored *deploymentspkg.Deployment, _ *deploymentspkg.Schema) error {
 		if stored.Owner.AgencyID != "" {
 			stored.Owner.Heartbeat = time.Now().UTC()
