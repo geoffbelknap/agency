@@ -4200,37 +4200,67 @@ func adminCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if checks, ok := result["checks"].([]interface{}); ok {
-				// Group by agent
+			renderChecks := func(title string, checks []interface{}) {
+				if len(checks) == 0 {
+					return
+				}
+				fmt.Println()
+				fmt.Println(bold.Render("  " + title + ":"))
 				currentAgent := ""
 				for _, check := range checks {
-					if m, ok := check.(map[string]interface{}); ok {
-						name, _ := m["name"].(string)
-						agent, _ := m["agent"].(string)
-						status, _ := m["status"].(string)
-						detail, _ := m["detail"].(string)
-						fix, _ := m["fix"].(string)
-						if agent != currentAgent {
-							if currentAgent != "" {
-								fmt.Println()
-							}
-							fmt.Printf("  %s\n", bold.Render(agent))
-							currentAgent = agent
+					m, ok := check.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					name, _ := m["name"].(string)
+					agent, _ := m["agent"].(string)
+					status, _ := m["status"].(string)
+					detail, _ := m["detail"].(string)
+					fix, _ := m["fix"].(string)
+					if agent != "" && agent != currentAgent {
+						if currentAgent != "" {
+							fmt.Println()
 						}
-						icon := green.Render("✓")
-						if status != "pass" {
-							icon = red.Render("✗")
-						}
-						line := fmt.Sprintf("    %s %s", icon, name)
-						if status != "pass" && detail != "" {
-							line += dim.Render("  " + detail)
-						}
-						fmt.Println(line)
-						if status != "pass" && fix != "" {
+						fmt.Printf("    %s\n", bold.Render(agent))
+						currentAgent = agent
+					}
+					icon := green.Render("✓")
+					switch status {
+					case "warn":
+						icon = yellow.Render("⚠")
+					case "fail":
+						icon = red.Render("✗")
+					}
+					line := "      "
+					if agent == "" {
+						line = "    "
+					}
+					line += fmt.Sprintf("%s %s", icon, name)
+					if status != "pass" && detail != "" {
+						line += dim.Render("  " + detail)
+					}
+					fmt.Println(line)
+					if status != "pass" && fix != "" {
+						if agent == "" {
 							fmt.Printf("      %s %s\n", cyan.Render("fix:"), fix)
+						} else {
+							fmt.Printf("        %s %s\n", cyan.Render("fix:"), fix)
 						}
 					}
 				}
+			}
+
+			if runtimeChecks, ok := result["runtime_checks"].([]interface{}); ok {
+				renderChecks("Runtime", runtimeChecks)
+				if backendChecks, ok := result["backend_checks"].([]interface{}); ok {
+					backendName, _ := result["backend"].(string)
+					if backendName == "" {
+						backendName = "docker"
+					}
+					renderChecks("Backend: "+strings.ToUpper(backendName[:1])+backendName[1:], backendChecks)
+				}
+			} else if checks, ok := result["checks"].([]interface{}); ok {
+				renderChecks("Checks", checks)
 			} else {
 				prettyPrint(result)
 			}
