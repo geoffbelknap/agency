@@ -19,6 +19,7 @@ import (
 const (
 	startLockWaitTimeout = 15 * time.Second
 	startLockStaleAfter  = 30 * time.Second
+	defaultStartTimeout  = 10 * time.Second
 )
 
 func agencyHome() string {
@@ -47,6 +48,20 @@ func startupLockFile() string {
 		return ""
 	}
 	return filepath.Join(home, "gateway.start.lock")
+}
+
+func daemonStartTimeout() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("AGENCY_DAEMON_START_TIMEOUT"))
+	if raw == "" {
+		return defaultStartTimeout
+	}
+	if seconds, err := strconv.Atoi(raw); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	if duration, err := time.ParseDuration(raw); err == nil && duration > 0 {
+		return duration
+	}
+	return defaultStartTimeout
 }
 
 // IsRunning checks if a daemon is running by:
@@ -168,7 +183,8 @@ func Start(port int) error {
 
 	// Wait for health endpoint with exponential backoff
 	delay := 100 * time.Millisecond
-	deadline := time.Now().Add(10 * time.Second)
+	timeout := daemonStartTimeout()
+	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		time.Sleep(delay)
 		if isHealthy(port) {
@@ -180,8 +196,8 @@ func Start(port int) error {
 		}
 	}
 
-	return fmt.Errorf("daemon started (pid %d) but health check timed out after 10s; check %s",
-		cmd.Process.Pid, logPath)
+	return fmt.Errorf("daemon started (pid %d) but health check timed out after %s; check %s",
+		cmd.Process.Pid, timeout.Round(time.Second), logPath)
 }
 
 // Stop sends SIGTERM to the daemon process and removes the PID file.
