@@ -199,6 +199,17 @@ tiers:
 settings:
   default_tier: standard
 EOF
+  cat >"$SEED_HOME/capacity.yaml" <<'EOF'
+host_memory_mb: 8192
+host_cpu_cores: 4
+system_reserve_mb: 2048
+infra_overhead_mb: 1264
+max_agents: 4
+max_concurrent_meesks: 4
+agent_slot_mb: 640
+meeseeks_slot_mb: 640
+network_pool_configured: false
+EOF
 }
 
 patch_seed_config() {
