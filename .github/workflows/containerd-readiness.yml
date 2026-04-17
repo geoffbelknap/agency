@@ -44,7 +44,7 @@ jobs:
         if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.run == 'true' }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y uidmap containernetworking-plugins
+          sudo apt-get install -y uidmap rootlesskit containernetworking-plugins
 
       - name: Install nerdctl and buildkit
         if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.run == 'true' }}

@@ -67,8 +67,9 @@ jobs:
         if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.run == 'true' }}
         run: |
           nohup podman system service --time=0 unix:///tmp/podman.sock >/tmp/podman-service.log 2>&1 &
-          for _ in $(seq 1 20); do
+          for _ in $(seq 1 40); do
             if curl --silent --fail --unix-socket /tmp/podman.sock http://d/_ping >/dev/null; then
+              podman info --format json >/dev/null
               exit 0
             fi
             sleep 0.5
