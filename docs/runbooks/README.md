@@ -14,7 +14,7 @@ Use these as the default validation sequence after a change:
   [Backend Adapter Release Checklist](backend-adapter-release-checklist.md)
   -> [Runtime Smoke](runtime-smoke.md)
   -> [Validation Checklist](validation-checklist.md)
-  Podman shortcut: `make podman-readiness` or `make podman-readiness-full`
+  Podman shortcut: `make podman-readiness` for CI smoke, `make podman-readiness-full` for release validation, or manual GitHub dispatch of `Podman Readiness` with `full_e2e=true`
 - Runtime, lifecycle, transport, or manifest changes:
   [Runtime Smoke](runtime-smoke.md) -> [Validation Checklist](validation-checklist.md) -> [Agent Recovery](agent-recovery.md)
 - Web, operator, DM, or comms changes:

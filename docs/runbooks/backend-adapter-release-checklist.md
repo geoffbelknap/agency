@@ -208,6 +208,22 @@ Run the disposable live path after runtime or lifecycle changes:
 - [ ] live disposable flow passes
 - [ ] cleanup leaves no leaked adapter-managed runtime artifacts
 
+Release gate policy:
+
+- Docker and Podman smoke must stay automated
+- full Podman disposable E2E is a release requirement, not a per-PR requirement
+- the supported manual CI path is:
+
+```bash
+gh workflow run "Podman Readiness" --ref main -f full_e2e=true
+```
+
+- local equivalent:
+
+```bash
+make podman-readiness-full
+```
+
 If the backend has a dedicated readiness or cleanup script, run it here and
 record the result.
 
@@ -257,6 +273,7 @@ go build ./cmd/gateway
 podman info --format json
 bash ./scripts/runtime-contract-smoke.sh --agent <agent-name>
 AGENCY_SOURCE_HOME=/tmp/agency-podman-seed.<id> ./scripts/e2e-live-disposable.sh --skip-build
+gh workflow run "Podman Readiness" --ref main -f full_e2e=true
 ```
 
 Repeatable automation lane:
