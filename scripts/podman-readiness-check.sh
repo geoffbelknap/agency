@@ -11,6 +11,14 @@ SEED_HOME=""
 SOCKET_OVERRIDE="${AGENCY_PODMAN_SOCKET:-}"
 BOOTSTRAP_PROVIDER="${AGENCY_PODMAN_SETUP_PROVIDER:-openai}"
 BOOTSTRAP_API_KEY="${AGENCY_PODMAN_SETUP_API_KEY:-podman-readiness-placeholder-key}"
+GATEWAY_PORT="${AGENCY_PODMAN_GATEWAY_PORT:-18400}"
+WEB_PORT="${AGENCY_PODMAN_WEB_PORT:-18480}"
+PROXY_PORT="${AGENCY_PODMAN_GATEWAY_PROXY_PORT:-18402}"
+PROXY_KNOWLEDGE_PORT="${AGENCY_PODMAN_GATEWAY_PROXY_KNOWLEDGE_PORT:-18404}"
+PROXY_INTAKE_PORT="${AGENCY_PODMAN_GATEWAY_PROXY_INTAKE_PORT:-18405}"
+KNOWLEDGE_PORT="${AGENCY_PODMAN_KNOWLEDGE_PORT:-18414}"
+INTAKE_PORT="${AGENCY_PODMAN_INTAKE_PORT:-18415}"
+WEB_FETCH_PORT="${AGENCY_PODMAN_WEB_FETCH_PORT:-18416}"
 AGENT_NAME="podman-readiness-$(date +%s)"
 
 usage() {
@@ -41,6 +49,18 @@ fail() {
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
+}
+
+port_in_use() {
+  python3 -c 'import socket,sys; s=socket.socket(); s.settimeout(0.2); code=s.connect_ex(("127.0.0.1", int(sys.argv[1]))); s.close(); raise SystemExit(0 if code == 0 else 1)' "$1"
+}
+
+pick_free_port() {
+  python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
+}
+
+sanitize_instance() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//'
 }
 
 resolve_agency_bin() {
@@ -117,16 +137,29 @@ bootstrap_seed_home() {
 
 patch_seed_config() {
   local socket="$1"
+  local gateway_addr="127.0.0.1:${GATEWAY_PORT}"
   ruby -e '
     require "yaml"
     path = ARGV[0]
     socket = ARGV[1]
+    gateway_addr = ARGV[2]
     data = YAML.load_file(path) || {}
     data["hub"] ||= {}
+    data["gateway_addr"] = gateway_addr
     data["hub"]["deployment_backend"] = "podman"
     data["hub"]["deployment_backend_config"] = {"host" => socket}
     File.write(path, YAML.dump(data))
-  ' "$SEED_HOME/config.yaml" "$socket"
+  ' "$SEED_HOME/config.yaml" "$socket" "$gateway_addr"
+}
+
+choose_ports() {
+  local var_name
+  for var_name in GATEWAY_PORT WEB_PORT PROXY_PORT PROXY_KNOWLEDGE_PORT PROXY_INTAKE_PORT KNOWLEDGE_PORT INTAKE_PORT WEB_FETCH_PORT; do
+    local port="${!var_name}"
+    if port_in_use "$port"; then
+      printf -v "$var_name" '%s' "$(pick_free_port)"
+    fi
+  done
 }
 
 cleanup() {
@@ -185,6 +218,7 @@ fi
 PODMAN_SOCKET="$(detect_podman_socket)"
 log "Using Podman socket: $PODMAN_SOCKET"
 
+choose_ports
 create_seed_home
 patch_seed_config "$PODMAN_SOCKET"
 
@@ -192,6 +226,14 @@ log "Seed home: $SEED_HOME"
 
 export AGENCY_HOME="$SEED_HOME"
 export AGENCY_BIN
+export AGENCY_INFRA_INSTANCE="$(sanitize_instance "$(basename "$SEED_HOME")")"
+export AGENCY_GATEWAY_PROXY_PORT="$PROXY_PORT"
+export AGENCY_GATEWAY_PROXY_KNOWLEDGE_PORT="$PROXY_KNOWLEDGE_PORT"
+export AGENCY_GATEWAY_PROXY_INTAKE_PORT="$PROXY_INTAKE_PORT"
+export AGENCY_KNOWLEDGE_PORT="$KNOWLEDGE_PORT"
+export AGENCY_INTAKE_PORT="$INTAKE_PORT"
+export AGENCY_WEB_FETCH_PORT="$WEB_FETCH_PORT"
+export AGENCY_WEB_PORT="$WEB_PORT"
 
 log "Restarting gateway on Podman-backed seed home"
 "$AGENCY_BIN" serve restart >/dev/null
