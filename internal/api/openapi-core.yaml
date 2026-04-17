@@ -538,7 +538,9 @@ paths:
             description: |
                 Returns the persisted runtime contract for the agent, including the
                 compiled spec, projected runtime status, backend inspection details, and
-                backend capabilities.
+                backend capabilities. This is the operator-facing source of truth for
+                runtime state; callers should not reconstruct runtime state from raw
+                Docker conventions.
             tags: [Agents]
             parameters:
                 - $ref: "#/components/parameters/agentName"
