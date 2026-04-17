@@ -8,7 +8,18 @@ SOURCE_HOME="${AGENCY_SOURCE_HOME:-$HOME/.agency}"
 KEEP_HOME="${AGENCY_PODMAN_KEEP_HOME:-0}"
 RUN_FULL_E2E=0
 SEED_HOME=""
+BOOTSTRAPPED_HOME=0
 SOCKET_OVERRIDE="${AGENCY_PODMAN_SOCKET:-}"
+BOOTSTRAP_PROVIDER="${AGENCY_PODMAN_SETUP_PROVIDER:-openai}"
+BOOTSTRAP_API_KEY="${AGENCY_PODMAN_SETUP_API_KEY:-podman-readiness-placeholder-key}"
+GATEWAY_PORT="${AGENCY_PODMAN_GATEWAY_PORT:-18400}"
+WEB_PORT="${AGENCY_PODMAN_WEB_PORT:-18480}"
+PROXY_PORT="${AGENCY_PODMAN_GATEWAY_PROXY_PORT:-18402}"
+PROXY_KNOWLEDGE_PORT="${AGENCY_PODMAN_GATEWAY_PROXY_KNOWLEDGE_PORT:-18404}"
+PROXY_INTAKE_PORT="${AGENCY_PODMAN_GATEWAY_PROXY_INTAKE_PORT:-18405}"
+KNOWLEDGE_PORT="${AGENCY_PODMAN_KNOWLEDGE_PORT:-18414}"
+INTAKE_PORT="${AGENCY_PODMAN_INTAKE_PORT:-18415}"
+WEB_FETCH_PORT="${AGENCY_PODMAN_WEB_FETCH_PORT:-18416}"
 AGENT_NAME="podman-readiness-$(date +%s)"
 
 usage() {
@@ -22,7 +33,7 @@ and optionally running the full disposable live web E2E.
 Options:
   --full                Run the full disposable Playwright suite after smoke
   --keep-home           Preserve the generated Podman seed home
-  --source-home <path>  Source Agency home to clone (default: ~/.agency)
+  --source-home <path>  Source Agency home to clone (default: ~/.agency; bootstraps one if missing)
   --socket <uri>        Override the Podman socket URI
   -h, --help            Show this help
 EOF
@@ -39,6 +50,32 @@ fail() {
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
+}
+
+port_in_use() {
+  python3 -c 'import socket,sys; s=socket.socket(); s.settimeout(0.2); code=s.connect_ex(("127.0.0.1", int(sys.argv[1]))); s.close(); raise SystemExit(0 if code == 0 else 1)' "$1"
+}
+
+pick_free_port() {
+  python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
+}
+
+sanitize_instance() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//'
+}
+
+provider_env_var() {
+  case "$1" in
+    anthropic)
+      printf '%s\n' "ANTHROPIC_API_KEY"
+      ;;
+    google)
+      printf '%s\n' "GEMINI_API_KEY"
+      ;;
+    *)
+      printf '%s\n' "OPENAI_API_KEY"
+      ;;
+  esac
 }
 
 resolve_agency_bin() {
@@ -95,21 +132,116 @@ import tempfile
 print(tempfile.mkdtemp(prefix="agency-podman-seed.", dir="/tmp"))
 PY
 )"
-  cp -R "$SOURCE_HOME"/. "$SEED_HOME"/
+  if [ -d "$SOURCE_HOME" ]; then
+    cp -R "$SOURCE_HOME"/. "$SEED_HOME"/
+    return 0
+  fi
+  bootstrap_seed_home
+}
+
+bootstrap_seed_home() {
+  log "Source Agency home not found at $SOURCE_HOME; bootstrapping disposable setup"
+  BOOTSTRAPPED_HOME=1
+  mkdir -p \
+    "$SEED_HOME/agents" \
+    "$SEED_HOME/teams" \
+    "$SEED_HOME/departments" \
+    "$SEED_HOME/connectors" \
+    "$SEED_HOME/hub" \
+    "$SEED_HOME/profiles" \
+    "$SEED_HOME/registry/services" \
+    "$SEED_HOME/registry/mcp-servers" \
+    "$SEED_HOME/registry/skills" \
+    "$SEED_HOME/infrastructure/comms/data/channels" \
+    "$SEED_HOME/infrastructure/comms/data/cursors" \
+    "$SEED_HOME/infrastructure/egress/certs" \
+    "$SEED_HOME/infrastructure/egress/blocklists" \
+    "$SEED_HOME/run" \
+    "$SEED_HOME/knowledge/ontology.d"
+  mkdir -m 700 -p "$SEED_HOME/audit"
+  cat >"$SEED_HOME/infrastructure/routing.yaml" <<'EOF'
+version: "0.1"
+providers:
+  anthropic:
+    api_base: https://api.anthropic.com/v1
+    auth_env: ANTHROPIC_API_KEY
+    auth_header: x-api-key
+    auth_prefix: ""
+  openai:
+    api_base: https://api.openai.com/v1
+    auth_env: OPENAI_API_KEY
+    auth_header: Authorization
+    auth_prefix: "Bearer "
+models:
+  claude-sonnet:
+    provider: anthropic
+    provider_model: claude-sonnet-4-20250514
+  claude-haiku:
+    provider: anthropic
+    provider_model: claude-haiku-4-5-20251001
+  gpt-4o:
+    provider: openai
+    provider_model: gpt-4o
+  gpt-4o-mini:
+    provider: openai
+    provider_model: gpt-4o-mini
+tiers:
+  standard:
+    - model: claude-sonnet
+      preference: 0
+    - model: gpt-4o
+      preference: 1
+  mini:
+    - model: claude-haiku
+      preference: 0
+    - model: gpt-4o-mini
+      preference: 1
+settings:
+  default_tier: standard
+EOF
+  cat >"$SEED_HOME/capacity.yaml" <<'EOF'
+host_memory_mb: 8192
+host_cpu_cores: 4
+system_reserve_mb: 2048
+infra_overhead_mb: 1264
+max_agents: 4
+max_concurrent_meesks: 4
+agent_slot_mb: 640
+meeseeks_slot_mb: 640
+network_pool_configured: false
+EOF
 }
 
 patch_seed_config() {
   local socket="$1"
+  local gateway_addr="127.0.0.1:${GATEWAY_PORT}"
   ruby -e '
+    require "securerandom"
     require "yaml"
     path = ARGV[0]
     socket = ARGV[1]
-    data = YAML.load_file(path) || {}
+    gateway_addr = ARGV[2]
+    provider = ARGV[3]
+    data = File.exist?(path) ? (YAML.load_file(path) || {}) : {}
+    data["token"] ||= SecureRandom.hex(32)
+    data["egress_token"] ||= SecureRandom.hex(32)
+    data["llm_provider"] ||= provider
     data["hub"] ||= {}
+    data["gateway_addr"] = gateway_addr
     data["hub"]["deployment_backend"] = "podman"
     data["hub"]["deployment_backend_config"] = {"host" => socket}
     File.write(path, YAML.dump(data))
-  ' "$SEED_HOME/config.yaml" "$socket"
+  ' "$SEED_HOME/config.yaml" "$socket" "$gateway_addr" "$BOOTSTRAP_PROVIDER"
+}
+
+choose_ports() {
+  local var_name
+  for var_name in GATEWAY_PORT WEB_PORT PROXY_PORT PROXY_KNOWLEDGE_PORT PROXY_INTAKE_PORT KNOWLEDGE_PORT INTAKE_PORT WEB_FETCH_PORT; do
+    local port="${!var_name}"
+    if port_in_use "$port"; then
+      printf -v "$var_name" '%s' "$(pick_free_port)"
+    fi
+  done
 }
 
 cleanup() {
@@ -161,7 +293,6 @@ require_cmd podman
 require_cmd python3
 require_cmd ruby
 
-[ -d "$SOURCE_HOME" ] || fail "Source Agency home does not exist: $SOURCE_HOME"
 if ! AGENCY_BIN="$(resolve_agency_bin)"; then
   fail "Could not resolve agency binary. Build it first."
 fi
@@ -169,6 +300,7 @@ fi
 PODMAN_SOCKET="$(detect_podman_socket)"
 log "Using Podman socket: $PODMAN_SOCKET"
 
+choose_ports
 create_seed_home
 patch_seed_config "$PODMAN_SOCKET"
 
@@ -176,6 +308,20 @@ log "Seed home: $SEED_HOME"
 
 export AGENCY_HOME="$SEED_HOME"
 export AGENCY_BIN
+export AGENCY_INFRA_INSTANCE="$(sanitize_instance "$(basename "$SEED_HOME")")"
+export AGENCY_GATEWAY_PROXY_PORT="$PROXY_PORT"
+export AGENCY_GATEWAY_PROXY_KNOWLEDGE_PORT="$PROXY_KNOWLEDGE_PORT"
+export AGENCY_GATEWAY_PROXY_INTAKE_PORT="$PROXY_INTAKE_PORT"
+export AGENCY_KNOWLEDGE_PORT="$KNOWLEDGE_PORT"
+export AGENCY_INTAKE_PORT="$INTAKE_PORT"
+export AGENCY_WEB_FETCH_PORT="$WEB_FETCH_PORT"
+export AGENCY_WEB_PORT="$WEB_PORT"
+if [ "$BOOTSTRAPPED_HOME" = "1" ]; then
+  provider_env="$(provider_env_var "$BOOTSTRAP_PROVIDER")"
+  if [ -z "${!provider_env:-}" ]; then
+    export "$provider_env=$BOOTSTRAP_API_KEY"
+  fi
+fi
 
 log "Restarting gateway on Podman-backed seed home"
 "$AGENCY_BIN" serve restart >/dev/null

@@ -10,8 +10,8 @@ permissions:
 
 jobs:
   podman-smoke:
-    runs-on: macos-latest
-    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v6
@@ -22,17 +22,21 @@ jobs:
           cache: true
 
       - name: Install Podman
-        run: brew install podman
-
-      - name: Start Podman machine
         run: |
-          podman machine init --cpus 4 --memory 4096 --disk-size 40 || true
-          podman machine start
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Start Podman service
+        run: |
           podman info --format json
+          nohup podman system service --time=0 unix:///tmp/podman.sock >/tmp/podman-service.log 2>&1 &
+          sleep 2
+          curl --unix-socket /tmp/podman.sock http://d/_ping
 
       - name: Build gateway binary
         run: go build -o ./agency ./cmd/gateway
 
       - name: Run Podman readiness smoke
         run: make podman-readiness
-
+        env:
+          AGENCY_PODMAN_SOCKET: unix:///tmp/podman.sock
