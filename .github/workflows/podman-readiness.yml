@@ -1,6 +1,8 @@
 name: Podman Readiness
 
 on:
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       full_e2e:
@@ -21,8 +23,25 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect Podman-relevant changes
+        id: changes
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          if git diff --name-only "origin/${{ github.base_ref }}"...HEAD | grep -E '^(cmd/gateway/|internal/|web/|scripts/|images/|Makefile|go\.mod|go\.sum|\.github/workflows/podman-readiness\.yml|docs/runbooks/)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip Podman smoke for unrelated PR changes
+        if: ${{ github.event_name == 'pull_request' && steps.changes.outputs.run != 'true' }}
+        run: echo "No Podman-relevant changes detected; skipping Podman smoke."
 
       - uses: actions/setup-go@v6
+        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.run == 'true' }}
         with:
           go-version: '1.26'
           cache: true
@@ -35,11 +54,13 @@ jobs:
           cache-dependency-path: 'web/package-lock.json'
 
       - name: Install Podman
+        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.run == 'true' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y podman
 
       - name: Start Podman service
+        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.run == 'true' }}
         run: |
           podman info --format json
           nohup podman system service --time=0 unix:///tmp/podman.sock >/tmp/podman-service.log 2>&1 &
@@ -47,9 +68,11 @@ jobs:
           curl --unix-socket /tmp/podman.sock http://d/_ping
 
       - name: Build gateway binary
+        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.run == 'true' }}
         run: go build -o ./agency ./cmd/gateway
 
       - name: Run Podman readiness smoke
+        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.run == 'true' }}
         run: make podman-readiness
         env:
           AGENCY_PODMAN_SOCKET: unix:///tmp/podman.sock

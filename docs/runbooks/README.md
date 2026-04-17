@@ -15,6 +15,7 @@ Use these as the default validation sequence after a change:
   -> [Runtime Smoke](runtime-smoke.md)
   -> [Validation Checklist](validation-checklist.md)
   Podman shortcut: `make podman-readiness` for CI smoke, `make podman-readiness-full` for release validation, or manual GitHub dispatch of `Podman Readiness` with `full_e2e=true`
+  PR policy: `Podman Readiness` smoke runs on PRs that touch backend-relevant paths and is intended to stay required on `main`
 - Runtime, lifecycle, transport, or manifest changes:
   [Runtime Smoke](runtime-smoke.md) -> [Validation Checklist](validation-checklist.md) -> [Agent Recovery](agent-recovery.md)
 - Web, operator, DM, or comms changes:
