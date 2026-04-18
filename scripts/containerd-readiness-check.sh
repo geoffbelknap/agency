@@ -405,17 +405,13 @@ log "Running runtime contract smoke"
 CONFIG_PATH="$SEED_HOME/config.yaml" AGENT_NAME="$AGENT_NAME" bash "$ROOT_DIR/scripts/runtime-contract-smoke.sh" --agent "$AGENT_NAME" --skip-tests
 
 log "Asserting reported containerd backend endpoint and mode"
-python3 - "$GATEWAY_PORT" "$AGENT_NAME" "$EXPECTED_MODE" <<'PY'
+runtime_status_json="$("$AGENCY_BIN" -q runtime status "$AGENT_NAME")"
+python3 - "$EXPECTED_MODE" <<'PY' <<<"$runtime_status_json"
 import json
 import sys
-import urllib.request
 
-port = sys.argv[1]
-agent = sys.argv[2]
-expected_mode = sys.argv[3]
-url = f"http://127.0.0.1:{port}/api/v1/agents/{agent}/runtime/status"
-with urllib.request.urlopen(url, timeout=5) as resp:
-    body = json.load(resp)
+expected_mode = sys.argv[1]
+body = json.load(sys.stdin)
 
 if body.get("backend") != "containerd":
     raise SystemExit(f"unexpected backend in runtime status: {body.get('backend')!r}")
