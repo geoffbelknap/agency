@@ -2,6 +2,7 @@ package runtimehost
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -71,6 +72,32 @@ func TestResolvedBackendModeContainerdRootful(t *testing.T) {
 	})
 	if got != "rootful" {
 		t.Fatalf("ResolvedBackendMode(containerd rootful) = %q", got)
+	}
+}
+
+func TestValidateBackendConfigRejectsContainerdLegacyHostKey(t *testing.T) {
+	err := ValidateBackendConfig(BackendContainerd, map[string]string{
+		"host": "/run/containerd/containerd.sock",
+	})
+	if err == nil || !strings.Contains(err.Error(), "does not accept generic host config") {
+		t.Fatalf("ValidateBackendConfig(containerd host) error = %v", err)
+	}
+}
+
+func TestValidateBackendConfigRejectsContainerdLegacySocketKey(t *testing.T) {
+	err := ValidateBackendConfig(BackendContainerd, map[string]string{
+		"socket": "/run/containerd/containerd.sock",
+	})
+	if err == nil || !strings.Contains(err.Error(), "does not accept generic socket config") {
+		t.Fatalf("ValidateBackendConfig(containerd socket) error = %v", err)
+	}
+}
+
+func TestValidateBackendConfigAcceptsNativeContainerdSocketKey(t *testing.T) {
+	if err := ValidateBackendConfig(BackendContainerd, map[string]string{
+		"native_socket": "/run/user/1000/containerd/containerd.sock",
+	}); err != nil {
+		t.Fatalf("ValidateBackendConfig(containerd native_socket) error = %v", err)
 	}
 }
 

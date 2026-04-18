@@ -22,6 +22,7 @@ WEB_FETCH_PORT="${AGENCY_CONTAINERD_WEB_FETCH_PORT:-18516}"
 GATEWAY_START_TIMEOUT="${AGENCY_CONTAINERD_GATEWAY_START_TIMEOUT:-240}"
 INFRA_UP_ATTEMPTS="${AGENCY_CONTAINERD_INFRA_UP_ATTEMPTS:-3}"
 INFRA_UP_RETRY_DELAY="${AGENCY_CONTAINERD_INFRA_UP_RETRY_DELAY:-5}"
+EXPECTED_MODE="${AGENCY_CONTAINERD_EXPECTED_MODE:-}"
 AGENT_NAME="containerd-readiness-$(date +%s)"
 
 usage() {
@@ -34,7 +35,7 @@ This lane expects a native containerd + nerdctl environment on Linux.
 Options:
   --keep-home           Preserve the generated seed home
   --source-home <path>  Source Agency home to clone (default: ~/.agency)
-  --socket <uri>        Override the compatibility socket URI
+  --socket <uri>        Override the native containerd socket URI
   -h, --help            Show this help
 EOF
 }
@@ -350,6 +351,20 @@ fi
 
 CONTAINERD_SOCKET="$(detect_containerd_socket)"
 log "Using containerd socket for containerd backend: $CONTAINERD_SOCKET"
+if [ -z "$EXPECTED_MODE" ]; then
+  case "$CONTAINERD_SOCKET" in
+    unix:///run/user/*|unix://${XDG_RUNTIME_DIR:-}/containerd/containerd.sock)
+      EXPECTED_MODE="rootless"
+      ;;
+    unix:///run/containerd/*)
+      EXPECTED_MODE="rootful"
+      ;;
+    *)
+      EXPECTED_MODE="unknown"
+      ;;
+  esac
+fi
+log "Expecting runtime status to report containerd mode: $EXPECTED_MODE"
 
 choose_ports
 create_seed_home
@@ -388,6 +403,28 @@ log "Creating disposable readiness agent: $AGENT_NAME"
 
 log "Running runtime contract smoke"
 CONFIG_PATH="$SEED_HOME/config.yaml" AGENT_NAME="$AGENT_NAME" bash "$ROOT_DIR/scripts/runtime-contract-smoke.sh" --agent "$AGENT_NAME" --skip-tests
+
+log "Asserting reported containerd backend endpoint and mode"
+python3 - "$GATEWAY_PORT" "$AGENT_NAME" "$EXPECTED_MODE" <<'PY'
+import json
+import sys
+import urllib.request
+
+port = sys.argv[1]
+agent = sys.argv[2]
+expected_mode = sys.argv[3]
+url = f"http://127.0.0.1:{port}/api/v1/agents/{agent}/runtime/status"
+with urllib.request.urlopen(url, timeout=5) as resp:
+    body = json.load(resp)
+
+if body.get("backend") != "containerd":
+    raise SystemExit(f"unexpected backend in runtime status: {body.get('backend')!r}")
+if body.get("backendMode") != expected_mode:
+    raise SystemExit(f"unexpected backendMode in runtime status: {body.get('backendMode')!r}")
+endpoint = body.get("backendEndpoint", "")
+if "containerd/containerd.sock" not in endpoint:
+    raise SystemExit(f"unexpected backendEndpoint in runtime status: {endpoint!r}")
+PY
 
 log "Exercising lifecycle controls"
 "$AGENCY_BIN" -q stop "$AGENT_NAME" >/dev/null

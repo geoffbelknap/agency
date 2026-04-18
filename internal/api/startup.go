@@ -128,6 +128,7 @@ func Startup(cfg *config.Config, dc *runtimehost.Client, logger *slog.Logger) (*
 		logger,
 		cs,
 	)
+	runtimeSupervisor.BackendConfig = cfg.Hub.DeploymentBackendConfig
 	agents.Version = cfg.Version
 	agents.SourceDir = cfg.SourceDir
 	agents.BuildID = cfg.BuildID

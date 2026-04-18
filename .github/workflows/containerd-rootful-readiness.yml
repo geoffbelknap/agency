@@ -1,0 +1,33 @@
+name: Containerd Rootful Readiness
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  containerd-rootful-smoke:
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Verify rootful containerd prerequisites
+        run: |
+          command -v nerdctl >/dev/null 2>&1
+          test -S /run/containerd/containerd.sock
+
+      - name: Build gateway binary
+        run: go build -o ./agency ./cmd/gateway
+
+      - name: Run rootful containerd readiness smoke
+        run: make containerd-readiness-rootful

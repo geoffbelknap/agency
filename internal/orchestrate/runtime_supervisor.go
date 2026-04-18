@@ -24,15 +24,16 @@ import (
 const defaultRuntimeBackend = runtimehost.BackendDocker
 
 type RuntimeSupervisor struct {
-	Home        string
-	Version     string
-	SourceDir   string
-	BuildID     string
-	BackendName string
-	Docker      *runtimehost.DockerHandle
-	Comms       comms.Client
-	Log         *slog.Logger
-	CredStore   *credstore.Store
+	Home          string
+	Version       string
+	SourceDir     string
+	BuildID       string
+	BackendName   string
+	BackendConfig map[string]string
+	Docker        *runtimehost.DockerHandle
+	Comms         comms.Client
+	Log           *slog.Logger
+	CredStore     *credstore.Store
 
 	registry *runtimebackend.Registry
 }
@@ -228,11 +229,13 @@ func (rs *RuntimeSupervisor) enforcerHost(agentID string) string {
 func (rs *RuntimeSupervisor) Reconcile(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
 	_ = ctx
 	status := runtimecontract.RuntimeStatus{
-		RuntimeID: spec.RuntimeID,
-		AgentID:   spec.AgentID,
-		Phase:     runtimecontract.RuntimePhaseReconciled,
-		Healthy:   false,
-		Backend:   spec.Backend,
+		RuntimeID:       spec.RuntimeID,
+		AgentID:         spec.AgentID,
+		Phase:           runtimecontract.RuntimePhaseReconciled,
+		Healthy:         false,
+		Backend:         spec.Backend,
+		BackendEndpoint: runtimehost.ResolvedBackendEndpoint(spec.Backend, rs.BackendConfig),
+		BackendMode:     runtimehost.ResolvedBackendMode(spec.Backend, rs.BackendConfig),
 		Transport: runtimecontract.RuntimeTransportStatus{
 			Type:     spec.Transport.Enforcer.Type,
 			Endpoint: spec.Transport.Enforcer.Endpoint,
@@ -341,11 +344,13 @@ func (rs *RuntimeSupervisor) Stop(ctx context.Context, runtimeID string) error {
 		manifest.Spec = spec
 	}
 	manifest.Status = runtimecontract.RuntimeStatus{
-		RuntimeID: runtimeID,
-		AgentID:   manifest.Spec.AgentID,
-		Phase:     runtimecontract.RuntimePhaseStopped,
-		Healthy:   false,
-		Backend:   spec.Backend,
+		RuntimeID:       runtimeID,
+		AgentID:         manifest.Spec.AgentID,
+		Phase:           runtimecontract.RuntimePhaseStopped,
+		Healthy:         false,
+		Backend:         spec.Backend,
+		BackendEndpoint: runtimehost.ResolvedBackendEndpoint(spec.Backend, rs.BackendConfig),
+		BackendMode:     runtimehost.ResolvedBackendMode(spec.Backend, rs.BackendConfig),
 		Transport: runtimecontract.RuntimeTransportStatus{
 			Type:     manifest.Spec.Transport.Enforcer.Type,
 			Endpoint: manifest.Spec.Transport.Enforcer.Endpoint,
@@ -376,11 +381,13 @@ func (rs *RuntimeSupervisor) Get(ctx context.Context, runtimeID string) (runtime
 		return runtimecontract.RuntimeStatus{}, err
 	}
 	status := runtimecontract.RuntimeStatus{
-		RuntimeID: runtimeID,
-		AgentID:   spec.AgentID,
-		Phase:     backendStatus.Phase,
-		Healthy:   backendStatus.Healthy,
-		Backend:   spec.Backend,
+		RuntimeID:       runtimeID,
+		AgentID:         spec.AgentID,
+		Phase:           backendStatus.Phase,
+		Healthy:         backendStatus.Healthy,
+		Backend:         spec.Backend,
+		BackendEndpoint: runtimehost.ResolvedBackendEndpoint(spec.Backend, rs.BackendConfig),
+		BackendMode:     runtimehost.ResolvedBackendMode(spec.Backend, rs.BackendConfig),
 		Transport: runtimecontract.RuntimeTransportStatus{
 			Type:              spec.Transport.Enforcer.Type,
 			Endpoint:          spec.Transport.Enforcer.Endpoint,

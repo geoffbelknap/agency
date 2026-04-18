@@ -40,7 +40,7 @@ Backend selection reminder:
 - set `hub.deployment_backend` in `config.yaml` to the adapter under test
 - for Podman, set `hub.deployment_backend_config.host` or `hub.deployment_backend_config.socket` if auto-detection is not enough
 - for `containerd`, set `hub.deployment_backend_config.native_socket` or `hub.deployment_backend_config.address` to the native containerd socket when auto-detection is not enough
-- do not use generic `host` or `socket` keys for `containerd`; keep those for Docker-compatible backends only
+- for `containerd`, do not use generic `host` or `socket` keys; those remain Docker/Podman-shaped and are rejected to avoid mixing native and Docker-compatible sockets
 - common Podman socket sources:
   `podman info --format json | jq -r '.host.remoteSocket.path'`
 - current `containerd` slice is Linux-only and nerdctl-backed
@@ -259,11 +259,22 @@ make podman-readiness-full
 If the backend has a dedicated readiness or cleanup script, run it here and
 record the result.
 
-Current `containerd` compatibility smoke:
+Current automated `containerd` rootless smoke:
 
 ```bash
 make containerd-readiness
 ```
+
+Manual rootful `containerd` release gate:
+
+```bash
+make containerd-readiness-rootful
+gh workflow run "Containerd Rootful Readiness" --ref main
+```
+
+- the rootful lane is Linux-only and manual by design
+- it expects a self-hosted Linux runner or host with `nerdctl` and a usable native rootful socket at `/run/containerd/containerd.sock`
+- this lane validates the native rootful path, not a Docker-compatible API socket
 
 ## 9. Recovery Gates
 

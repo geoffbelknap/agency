@@ -66,12 +66,14 @@ type RuntimeRevisionSpec struct {
 }
 
 type RuntimeStatus struct {
-	RuntimeID string                 `yaml:"runtimeId" json:"runtimeId"`
-	AgentID   string                 `yaml:"agentId" json:"agentId"`
-	Phase     string                 `yaml:"phase" json:"phase"`
-	Healthy   bool                   `yaml:"healthy" json:"healthy"`
-	Backend   string                 `yaml:"backend,omitempty" json:"backend,omitempty"`
-	Transport RuntimeTransportStatus `yaml:"transport" json:"transport"`
+	RuntimeID       string                 `yaml:"runtimeId" json:"runtimeId"`
+	AgentID         string                 `yaml:"agentId" json:"agentId"`
+	Phase           string                 `yaml:"phase" json:"phase"`
+	Healthy         bool                   `yaml:"healthy" json:"healthy"`
+	Backend         string                 `yaml:"backend,omitempty" json:"backend,omitempty"`
+	BackendEndpoint string                 `yaml:"backendEndpoint,omitempty" json:"backendEndpoint,omitempty"`
+	BackendMode     string                 `yaml:"backendMode,omitempty" json:"backendMode,omitempty"`
+	Transport       RuntimeTransportStatus `yaml:"transport" json:"transport"`
 }
 
 type RuntimeTransportStatus struct {
