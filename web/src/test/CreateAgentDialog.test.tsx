@@ -139,11 +139,7 @@ describe('CreateAgentDialog', () => {
       http.get(`${BASE}/hub/presets`, () => HttpResponse.error()),
     );
     renderDialog();
-    await waitFor(() => {
-      expect(screen.getByLabelText(/preset/i)).toBeInTheDocument();
-    });
-    // Should be a text input, not a select
-    const presetInput = screen.getByLabelText(/preset/i);
+    const presetInput = await screen.findByRole('textbox', { name: /preset/i });
     expect(presetInput.tagName).toBe('INPUT');
   });
 });

@@ -50,10 +50,16 @@ export function MentionInput({ value, onChange, onSubmit, placeholder, className
   const [mentionStart, setMentionStart] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load mention targets (agents + operator) — cached across instances
   useEffect(() => {
     fetchMentionTargets().then(setTargets);
+    return () => {
+      if (blurTimeoutRef.current !== null) {
+        clearTimeout(blurTimeoutRef.current);
+      }
+    };
   }, []);
 
   const filtered = targets.filter((t) =>
@@ -138,6 +144,17 @@ export function MentionInput({ value, onChange, onSubmit, placeholder, className
     }
   };
 
+  const handleBlur = () => {
+    if (blurTimeoutRef.current !== null) {
+      clearTimeout(blurTimeoutRef.current);
+    }
+    // Delay close so click on menu item registers.
+    blurTimeoutRef.current = setTimeout(() => {
+      setShowMenu(false);
+      blurTimeoutRef.current = null;
+    }, 150);
+  };
+
   return (
     <div className="relative flex-1">
       <Input
@@ -145,10 +162,7 @@ export function MentionInput({ value, onChange, onSubmit, placeholder, className
         value={value}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        onBlur={() => {
-          // Delay close so click on menu item registers
-          setTimeout(() => setShowMenu(false), 150);
-        }}
+        onBlur={handleBlur}
         placeholder={placeholder}
         className={className}
         aria-autocomplete="list"
