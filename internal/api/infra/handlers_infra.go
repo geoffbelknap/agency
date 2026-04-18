@@ -34,6 +34,8 @@ func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 			"infra_llm_daily_used":    infraState.DailyUsed,
 			"infra_llm_daily_limit":   limits.InfraDaily,
 			"backend":                 backend,
+			"backend_endpoint":        runtimehost.ResolvedBackendEndpoint(backend, h.deps.Config.Hub.DeploymentBackendConfig),
+			"backend_mode":            runtimehost.ResolvedBackendMode(backend, h.deps.Config.Hub.DeploymentBackendConfig),
 			"infra_control_available": false,
 			"docker":                  "not_applicable",
 			"host_runtime":            "not_applicable",
@@ -64,6 +66,8 @@ func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 		"infra_llm_daily_used":    infraState.DailyUsed,
 		"infra_llm_daily_limit":   limits.InfraDaily,
 		"backend":                 backend,
+		"backend_endpoint":        runtimehost.ResolvedBackendEndpoint(backend, h.deps.Config.Hub.DeploymentBackendConfig),
+		"backend_mode":            runtimehost.ResolvedBackendMode(backend, h.deps.Config.Hub.DeploymentBackendConfig),
 		"infra_control_available": true,
 		"docker": func() string {
 			if backend != runtimehost.BackendDocker {

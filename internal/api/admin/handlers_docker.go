@@ -3,8 +3,10 @@ package admin
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
+	"github.com/docker/docker/api/types/container"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 )
 
@@ -182,7 +184,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 				violations = append(violations, agentName+"(inspect error: "+err.Error()+")")
 				continue
 			}
-			if info.HostConfig == nil || info.HostConfig.PidsLimit == nil || *info.HostConfig.PidsLimit <= 0 {
+			if !containerHasPIDLimit(info, backend) {
 				violations = append(violations, agentName)
 			}
 		}
@@ -241,12 +243,7 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 			if err != nil {
 				continue
 			}
-			if info.HostConfig == nil {
-				missing = append(missing, name)
-				continue
-			}
-			// max-size must be configured in LogConfig options
-			if _, ok := info.HostConfig.LogConfig.Config["max-size"]; !ok {
+			if !containerHasLogRotation(info, backend) {
 				missing = append(missing, name)
 			}
 		}
@@ -261,4 +258,36 @@ func (h *handler) runDockerChecks(ctx context.Context, runningAgents []string) [
 	}()
 
 	return results
+}
+
+func containerHasPIDLimit(info *container.InspectResponse, backend string) bool {
+	if info == nil {
+		return false
+	}
+	if info.HostConfig != nil && info.HostConfig.PidsLimit != nil && *info.HostConfig.PidsLimit > 0 {
+		return true
+	}
+	if runtimehost.NormalizeContainerBackend(backend) != runtimehost.BackendContainerd || info.Config == nil {
+		return false
+	}
+	value := strings.TrimSpace(info.Config.Labels["agency.policy.pids_limit"])
+	limit, err := strconv.ParseInt(value, 10, 64)
+	return err == nil && limit > 0
+}
+
+func containerHasLogRotation(info *container.InspectResponse, backend string) bool {
+	if info == nil {
+		return false
+	}
+	if info.HostConfig != nil {
+		if _, ok := info.HostConfig.LogConfig.Config["max-size"]; ok {
+			return true
+		}
+	}
+	if runtimehost.NormalizeContainerBackend(backend) != runtimehost.BackendContainerd || info.Config == nil {
+		return false
+	}
+	labels := info.Config.Labels
+	return strings.TrimSpace(labels["agency.policy.log_driver"]) != "" &&
+		strings.TrimSpace(labels["agency.policy.log_max_size"]) != ""
 }

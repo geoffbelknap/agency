@@ -17,7 +17,10 @@ const (
 )
 
 func HostConfigDefaults(role ContainerRole) *HostConfig { return containerops.HostConfigDefaults(role) }
-func SeccompProfilePath(homeDir string) string          { return containerops.SeccompProfilePath(homeDir) }
+func ApplyAgencyContainerPolicyLabels(config *Config, hostConfig *HostConfig) {
+	containerops.ApplyAgencyContainerPolicyLabels(config, hostConfig)
+}
+func SeccompProfilePath(homeDir string) string { return containerops.SeccompProfilePath(homeDir) }
 func WorkspaceSecurityOpts(homeDir, backend string) []string {
 	return containerops.WorkspaceSecurityOpts(homeDir, backend)
 }

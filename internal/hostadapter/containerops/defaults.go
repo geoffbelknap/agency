@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/docker/docker/api/types/container"
@@ -29,6 +30,26 @@ type (
 )
 
 func ptrInt64(v int64) *int64 { return &v }
+
+func ApplyAgencyContainerPolicyLabels(config *container.Config, hostConfig *container.HostConfig) {
+	if config == nil || hostConfig == nil {
+		return
+	}
+	if config.Labels == nil {
+		config.Labels = map[string]string{}
+	}
+	if hostConfig.Resources.PidsLimit != nil && *hostConfig.Resources.PidsLimit > 0 {
+		config.Labels["agency.policy.pids_limit"] = strconv.FormatInt(*hostConfig.Resources.PidsLimit, 10)
+	}
+	if strings.TrimSpace(hostConfig.LogConfig.Type) != "" {
+		config.Labels["agency.policy.log_driver"] = hostConfig.LogConfig.Type
+	}
+	for _, key := range []string{"max-size", "max-file"} {
+		if value := strings.TrimSpace(hostConfig.LogConfig.Config[key]); value != "" {
+			config.Labels["agency.policy.log_"+strings.ReplaceAll(key, "-", "_")] = value
+		}
+	}
+}
 
 func HostConfigDefaults(role ContainerRole) *container.HostConfig {
 	hc := &container.HostConfig{

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -782,6 +783,21 @@ func nerdctlCreateArgs(config *dockercontainer.Config, hostConfig *dockercontain
 		}
 		if hostConfig.Resources.PidsLimit != nil {
 			args = append(args, "--pids-limit", strconv.FormatInt(*hostConfig.Resources.PidsLimit, 10))
+		}
+		if strings.TrimSpace(hostConfig.LogConfig.Type) != "" {
+			args = append(args, "--log-driver", hostConfig.LogConfig.Type)
+		}
+		logOptKeys := make([]string, 0, len(hostConfig.LogConfig.Config))
+		for key := range hostConfig.LogConfig.Config {
+			logOptKeys = append(logOptKeys, key)
+		}
+		sort.Strings(logOptKeys)
+		for _, key := range logOptKeys {
+			value := strings.TrimSpace(hostConfig.LogConfig.Config[key])
+			if value == "" {
+				continue
+			}
+			args = append(args, "--log-opt", key+"="+value)
 		}
 		if restart := restartPolicyArg(hostConfig.RestartPolicy); restart != "" {
 			args = append(args, "--restart", restart)
