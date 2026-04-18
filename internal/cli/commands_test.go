@@ -144,3 +144,46 @@ func TestBuildCredentialSetBodyRequiresNameAndValue(t *testing.T) {
 		t.Fatal("expected missing value to fail")
 	}
 }
+
+func TestFormatBackendStatusLine(t *testing.T) {
+	tests := []struct {
+		name     string
+		backend  string
+		mode     string
+		endpoint string
+		want     string
+	}{
+		{
+			name:     "backend only",
+			backend:  "docker",
+			want:     "docker",
+		},
+		{
+			name:     "backend and mode",
+			backend:  "containerd",
+			mode:     "rootless",
+			want:     "containerd (rootless)",
+		},
+		{
+			name:     "backend mode and endpoint",
+			backend:  "containerd",
+			mode:     "rootful",
+			endpoint: "/run/containerd/containerd.sock",
+			want:     "containerd (rootful) /run/containerd/containerd.sock",
+		},
+		{
+			name:     "empty backend suppresses line",
+			mode:     "rootless",
+			endpoint: "/run/user/1000/containerd/containerd.sock",
+			want:     "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := formatBackendStatusLine(tt.backend, tt.mode, tt.endpoint); got != tt.want {
+				t.Fatalf("formatBackendStatusLine() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

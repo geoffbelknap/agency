@@ -16,7 +16,8 @@ Use these as the default validation sequence after a change:
   -> [Validation Checklist](validation-checklist.md)
   Docker shortcut: `make docker-readiness` for CI smoke
   Podman shortcut: `make podman-readiness` for CI smoke, `make podman-readiness-full` for release validation, or manual GitHub dispatch of `Podman Readiness` with `full_e2e=true`
-  PR policy: `Docker Readiness`, `Podman Readiness`, and `Containerd Readiness` smoke run on PRs that touch backend-relevant paths and are intended to stay required on `main`
+  Containerd shortcut: `make containerd-readiness` for Linux rootless CI smoke, `make containerd-readiness-rootful` for the manual Linux rootful release gate
+  PR policy: `docker-smoke`, `podman-smoke`, and `containerd-smoke` run on PRs that touch backend-relevant paths and should remain required checks on `main`
 - Runtime, lifecycle, transport, or manifest changes:
   [Runtime Smoke](runtime-smoke.md) -> [Validation Checklist](validation-checklist.md) -> [Agent Recovery](agent-recovery.md)
 - Web, operator, DM, or comms changes:
