@@ -243,6 +243,8 @@ Release gate policy:
 - `main` branch protection should require the per-PR smoke checks:
   `go-test`, `python-unit-test`, `python-knowledge-test`, `web-test`, `docker-smoke`, `podman-smoke`, and `containerd-smoke`
 - do not enable auto-merge for adapter work unless the smoke lanes above are enforced as required checks
+- verify branch-protection drift with:
+  `make verify-required-status-checks`
 - Docker smoke local equivalent:
 
 ```bash

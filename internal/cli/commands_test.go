@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -186,4 +188,111 @@ func TestFormatBackendStatusLine(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWriteInfraBackendLine(t *testing.T) {
+	var out bytes.Buffer
+	writeInfraBackendLine(&out, "podman", "rootless", "unix:///run/user/1000/podman/podman.sock")
+	if got := out.String(); got != "Backend: podman (rootless) unix:///run/user/1000/podman/podman.sock\n" {
+		t.Fatalf("writeInfraBackendLine() = %q", got)
+	}
+}
+
+func TestStatusCmdShowsBackendDetails(t *testing.T) {
+	tests := []struct {
+		name          string
+		backend       string
+		backendMode   string
+		backendSocket string
+		want          string
+	}{
+		{name: "docker", backend: "docker", backendSocket: "unix:///var/run/docker.sock", want: "Backend: docker unix:///var/run/docker.sock"},
+		{name: "podman", backend: "podman", backendMode: "rootless", backendSocket: "unix:///run/user/1000/podman/podman.sock", want: "Backend: podman (rootless) unix:///run/user/1000/podman/podman.sock"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := newCLIInfraStatusServer(t, map[string]any{
+				"version":          "0.2.2",
+				"build_id":         "test-build",
+				"gateway_url":      "http://127.0.0.1:8200",
+				"web_url":          "http://127.0.0.1:8280",
+				"docker":           "available",
+				"backend":          tt.backend,
+				"backend_mode":     tt.backendMode,
+				"backend_endpoint": tt.backendSocket,
+				"components":       []map[string]any{},
+			})
+			defer srv.Close()
+
+			t.Setenv("AGENCY_GATEWAY_URL", srv.URL)
+			t.Setenv("HOME", t.TempDir())
+			var out bytes.Buffer
+			cmd := statusCmd()
+			cmd.SetOut(&out)
+			cmd.SetErr(&out)
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("statusCmd.Execute() error = %v", err)
+			}
+			if !strings.Contains(out.String(), tt.want) {
+				t.Fatalf("status output = %q, want substring %q", out.String(), tt.want)
+			}
+		})
+	}
+}
+
+func TestInfraStatusCmdShowsBackendDetails(t *testing.T) {
+	tests := []struct {
+		name          string
+		backend       string
+		backendMode   string
+		backendSocket string
+		want          string
+	}{
+		{name: "docker", backend: "docker", backendSocket: "unix:///var/run/docker.sock", want: "Backend: docker unix:///var/run/docker.sock"},
+		{name: "podman", backend: "podman", backendMode: "rootful", backendSocket: "unix:///run/podman/podman.sock", want: "Backend: podman (rootful) unix:///run/podman/podman.sock"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := newCLIInfraStatusServer(t, map[string]any{
+				"version":          "0.2.2",
+				"build_id":         "test-build",
+				"backend":          tt.backend,
+				"backend_mode":     tt.backendMode,
+				"backend_endpoint": tt.backendSocket,
+				"components":       []map[string]any{},
+			})
+			defer srv.Close()
+
+			t.Setenv("AGENCY_GATEWAY_URL", srv.URL)
+			t.Setenv("HOME", t.TempDir())
+			var out bytes.Buffer
+			cmd := infraCmd()
+			cmd.SetOut(&out)
+			cmd.SetErr(&out)
+			cmd.SetArgs([]string{"status"})
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("infra status Execute() error = %v", err)
+			}
+			if !strings.Contains(out.String(), tt.want) {
+				t.Fatalf("infra status output = %q, want substring %q", out.String(), tt.want)
+			}
+		})
+	}
+}
+
+func newCLIInfraStatusServer(t *testing.T, infraStatus map[string]any) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/infra/status", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(infraStatus)
+	})
+	mux.HandleFunc("/api/v1/agents", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode([]map[string]any{})
+	})
+	mux.HandleFunc("/api/v1/meeseeks", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode([]map[string]any{})
+	})
+	return httptest.NewServer(mux)
 }

@@ -75,6 +75,27 @@ func TestResolvedBackendModeContainerdRootful(t *testing.T) {
 	}
 }
 
+func TestResolvedBackendModePodmanRootless(t *testing.T) {
+	got := ResolvedBackendMode(BackendPodman, map[string]string{"socket": "/run/user/1000/podman/podman.sock"})
+	if got != "rootless" {
+		t.Fatalf("ResolvedBackendMode(podman rootless) = %q", got)
+	}
+}
+
+func TestResolvedBackendModePodmanRootful(t *testing.T) {
+	got := ResolvedBackendMode(BackendPodman, map[string]string{"socket": "/run/podman/podman.sock"})
+	if got != "rootful" {
+		t.Fatalf("ResolvedBackendMode(podman rootful) = %q", got)
+	}
+}
+
+func TestResolvedBackendModeDockerIsEmpty(t *testing.T) {
+	got := ResolvedBackendMode(BackendDocker, map[string]string{"host": "/var/run/docker.sock"})
+	if got != "" {
+		t.Fatalf("ResolvedBackendMode(docker) = %q, want empty", got)
+	}
+}
+
 func TestValidateBackendConfigRejectsContainerdLegacyHostKey(t *testing.T) {
 	err := ValidateBackendConfig(BackendContainerd, map[string]string{
 		"host": "/run/containerd/containerd.sock",
