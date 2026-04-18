@@ -214,6 +214,9 @@ Release gate policy:
 
 - Docker and Podman smoke must stay automated
 - the `containerd` smoke lane is automated on Linux against a native containerd socket via `nerdctl`
+- `main` branch protection should require the per-PR smoke checks:
+  `go-test`, `python-unit-test`, `python-knowledge-test`, `web-test`, `podman-smoke`, and `containerd-smoke`
+- do not enable auto-merge for adapter work unless the smoke lanes above are enforced as required checks
 - full Podman disposable E2E is a release requirement, not a per-PR requirement
 - the supported manual CI path is:
 

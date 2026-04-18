@@ -20,6 +20,9 @@ PROXY_INTAKE_PORT="${AGENCY_PODMAN_GATEWAY_PROXY_INTAKE_PORT:-18405}"
 KNOWLEDGE_PORT="${AGENCY_PODMAN_KNOWLEDGE_PORT:-18414}"
 INTAKE_PORT="${AGENCY_PODMAN_INTAKE_PORT:-18415}"
 WEB_FETCH_PORT="${AGENCY_PODMAN_WEB_FETCH_PORT:-18416}"
+GATEWAY_START_TIMEOUT="${AGENCY_PODMAN_GATEWAY_START_TIMEOUT:-180}"
+INFRA_UP_ATTEMPTS="${AGENCY_PODMAN_INFRA_UP_ATTEMPTS:-3}"
+INFRA_UP_RETRY_DELAY="${AGENCY_PODMAN_INFRA_UP_RETRY_DELAY:-5}"
 AGENT_NAME="podman-readiness-$(date +%s)"
 
 usage() {
@@ -58,6 +61,56 @@ port_in_use() {
 
 pick_free_port() {
   python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
+}
+
+gateway_health_ok() {
+  python3 - "$1" <<'PY'
+import sys
+import urllib.request
+
+url = sys.argv[1]
+try:
+    with urllib.request.urlopen(url, timeout=2) as resp:
+        raise SystemExit(0 if resp.status == 200 else 1)
+except Exception:
+    raise SystemExit(1)
+PY
+}
+
+start_gateway() {
+  local health_url="http://127.0.0.1:${GATEWAY_PORT}/api/v1/health"
+  local deadline=$((SECONDS + GATEWAY_START_TIMEOUT))
+
+  "$AGENCY_BIN" serve stop >/dev/null 2>&1 || true
+  nohup "$AGENCY_BIN" serve >>"$SEED_HOME/gateway.log" 2>&1 &
+
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if gateway_health_ok "$health_url"; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  tail -n 80 "$SEED_HOME/gateway.log" >&2 || true
+  fail "gateway did not become healthy within ${GATEWAY_START_TIMEOUT}s; check $SEED_HOME/gateway.log"
+}
+
+run_with_retries() {
+  local attempts="$1"
+  local delay="$2"
+  shift 2
+  local try=1
+  while true; do
+    if "$@"; then
+      return 0
+    fi
+    if [ "$try" -ge "$attempts" ]; then
+      return 1
+    fi
+    log "Command failed; retrying (${try}/${attempts}) in ${delay}s: $*"
+    sleep "$delay"
+    try=$((try + 1))
+  done
 }
 
 sanitize_instance() {
@@ -324,10 +377,10 @@ if [ "$BOOTSTRAPPED_HOME" = "1" ]; then
 fi
 
 log "Restarting gateway on Podman-backed seed home"
-"$AGENCY_BIN" serve restart >/dev/null
+start_gateway
 
 log "Ensuring shared infrastructure is up"
-"$AGENCY_BIN" -q infra up >/dev/null
+run_with_retries "$INFRA_UP_ATTEMPTS" "$INFRA_UP_RETRY_DELAY" "$AGENCY_BIN" -q infra up >/dev/null
 
 log "Creating disposable readiness agent: $AGENT_NAME"
 "$AGENCY_BIN" -q create "$AGENT_NAME" >/dev/null

@@ -87,3 +87,34 @@ func TestAcquireStartLockTimesOutWhenAnotherStartStalls(t *testing.T) {
 		t.Fatalf("expected timeout error, got: %v", err)
 	}
 }
+
+func TestDaemonStartTimeoutDefaultsToTenSeconds(t *testing.T) {
+	t.Setenv("AGENCY_DAEMON_START_TIMEOUT", "")
+	if got := daemonStartTimeout(); got != defaultStartTimeout {
+		t.Fatalf("expected default start timeout %v, got %v", defaultStartTimeout, got)
+	}
+}
+
+func TestDaemonStartTimeoutAcceptsSecondsOrDuration(t *testing.T) {
+	t.Setenv("AGENCY_DAEMON_START_TIMEOUT", "30")
+	if got := daemonStartTimeout(); got != 30*time.Second {
+		t.Fatalf("expected 30s from integer seconds, got %v", got)
+	}
+
+	t.Setenv("AGENCY_DAEMON_START_TIMEOUT", "45s")
+	if got := daemonStartTimeout(); got != 45*time.Second {
+		t.Fatalf("expected 45s from duration string, got %v", got)
+	}
+}
+
+func TestDaemonStartTimeoutFallsBackOnInvalidValues(t *testing.T) {
+	t.Setenv("AGENCY_DAEMON_START_TIMEOUT", "invalid")
+	if got := daemonStartTimeout(); got != defaultStartTimeout {
+		t.Fatalf("expected fallback timeout %v, got %v", defaultStartTimeout, got)
+	}
+
+	t.Setenv("AGENCY_DAEMON_START_TIMEOUT", "0")
+	if got := daemonStartTimeout(); got != defaultStartTimeout {
+		t.Fatalf("expected fallback timeout %v for zero value, got %v", defaultStartTimeout, got)
+	}
+}

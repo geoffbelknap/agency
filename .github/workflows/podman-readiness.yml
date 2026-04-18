@@ -56,16 +56,27 @@ jobs:
       - name: Install Podman
         if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.run == 'true' }}
         run: |
+          if command -v podman >/dev/null 2>&1; then
+            podman --version
+            exit 0
+          fi
           sudo apt-get update
-          sudo apt-get install -y podman
+          sudo apt-get install -y --no-install-recommends podman
 
       - name: Start Podman service
         if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.run == 'true' }}
         run: |
-          podman info --format json
           nohup podman system service --time=0 unix:///tmp/podman.sock >/tmp/podman-service.log 2>&1 &
-          sleep 2
-          curl --unix-socket /tmp/podman.sock http://d/_ping
+          for _ in $(seq 1 40); do
+            if curl --silent --fail --unix-socket /tmp/podman.sock http://d/_ping >/dev/null; then
+              podman info --format json >/dev/null
+              exit 0
+            fi
+            sleep 0.5
+          done
+          echo "Podman service did not become ready" >&2
+          cat /tmp/podman-service.log >&2 || true
+          exit 1
 
       - name: Build gateway binary
         if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.run == 'true' }}

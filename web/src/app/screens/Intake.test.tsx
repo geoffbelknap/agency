@@ -65,6 +65,8 @@ describe('Intake', () => {
     renderWithRouter(<Intake />);
 
     await waitFor(() => {
+      expect(screen.getByText('github-webhook')).toBeInTheDocument();
+      expect(screen.getByText('custom-sync')).toBeInTheDocument();
       expect(screen.getByText('Active')).toBeInTheDocument();
       expect(screen.getByText('Inactive')).toBeInTheDocument();
       expect(screen.getByText('Healthy Polling')).toBeInTheDocument();
