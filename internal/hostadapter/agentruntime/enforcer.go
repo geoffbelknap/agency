@@ -72,7 +72,9 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (string, error) {
 		return "", fmt.Errorf("resolve enforcer image: %w", err)
 	}
 
-	_ = e.cli.ContainerRemove(ctx, e.ContainerName, container.RemoveOptions{Force: true})
+	if err := containers.StopAndRemove(ctx, e.cli, e.ContainerName, 5); err != nil {
+		return "", fmt.Errorf("remove previous enforcer container: %w", err)
+	}
 
 	policyDir := e.ensurePolicy()
 	configDir := e.ensureConfig(rotateKey)
@@ -150,7 +152,7 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (string, error) {
 
 	hostConfig := containers.HostConfigDefaults(containers.RoleEnforcer)
 	hostConfig.Binds = binds
-	hostConfig.NetworkMode = container.NetworkMode(gatewayNetName())
+	hostConfig.NetworkMode = container.NetworkMode(internalNet)
 	hostConfig.Tmpfs = map[string]string{"/tmp": "size=64M", "/run": "size=32M"}
 	hostPort := e.ConstraintHostPort
 	if hostPort == "" {
@@ -176,13 +178,17 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (string, error) {
 
 	netCfg := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
-			gatewayNetName():   {},
-			internalNet:        {},
-			egressIntNetName(): {},
+			internalNet: {
+				Aliases: []string{"enforcer"},
+			},
 		},
 	}
+	if e.cli.Backend() == runtimehost.BackendContainerd {
+		netCfg.EndpointsConfig[gatewayNetName()] = &network.EndpointSettings{}
+		netCfg.EndpointsConfig[egressIntNetName()] = &network.EndpointSettings{}
+	}
 
-	_, err := containers.CreateAndStart(ctx, e.cli,
+	enforcerContainerID, err := containers.CreateAndStart(ctx, e.cli,
 		e.ContainerName,
 		&container.Config{
 			Image:    enforcerImage,
@@ -226,6 +232,21 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (string, error) {
 
 	if err := waitContainerRunning(ctx, e.cli, e.ContainerName, 10*time.Second); err != nil {
 		return "", err
+	}
+	if e.cli.Backend() != runtimehost.BackendContainerd {
+		_ = e.cli.NetworkConnect(ctx, gatewayNetName(), enforcerContainerID, &network.EndpointSettings{
+			Aliases: []string{"enforcer"},
+		})
+		_ = e.cli.NetworkConnect(ctx, egressIntNetName(), enforcerContainerID, &network.EndpointSettings{
+			Aliases: []string{"enforcer"},
+		})
+		if err := waitContainerNetworks(ctx, e.cli, e.ContainerName, []string{
+			internalNet,
+			gatewayNetName(),
+			egressIntNetName(),
+		}, 5*time.Second); err != nil {
+			return "", err
+		}
 	}
 
 	return e.readAPIKey(), nil
