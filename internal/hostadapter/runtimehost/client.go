@@ -245,6 +245,10 @@ func newRawClientForBackend(backend string, backendConfig map[string]string) (*R
 }
 
 func resolveBackendHost(backend string, backendConfig map[string]string) string {
+	backend = NormalizeContainerBackend(backend)
+	if backend == BackendContainerd {
+		return resolveContainerdHost(backendConfig)
+	}
 	if backendConfig != nil {
 		if host := strings.TrimSpace(backendConfig["host"]); host != "" {
 			return hostFromPath(host)
@@ -253,17 +257,9 @@ func resolveBackendHost(backend string, backendConfig map[string]string) string 
 			return hostFromPath(socket)
 		}
 	}
-	switch NormalizeContainerBackend(backend) {
+	switch backend {
 	case BackendPodman:
 		return defaultPodmanHost()
-	case BackendContainerd:
-		if host := strings.TrimSpace(os.Getenv("CONTAINERD_HOST")); host != "" {
-			return hostFromPath(host)
-		}
-		if host := strings.TrimSpace(os.Getenv("CONTAINER_HOST")); host != "" {
-			return hostFromPath(host)
-		}
-		return "unix:///run/containerd/containerd.sock"
 	case BackendDocker:
 		if host := desktopDockerHost(); host != "" {
 			return host
@@ -272,6 +268,23 @@ func resolveBackendHost(backend string, backendConfig map[string]string) string 
 	default:
 		return ""
 	}
+}
+
+func resolveContainerdHost(backendConfig map[string]string) string {
+	if backendConfig != nil {
+		for _, key := range []string{"native_socket", "address", "containerd_address"} {
+			if value := strings.TrimSpace(backendConfig[key]); value != "" {
+				return hostFromPath(value)
+			}
+		}
+	}
+	if host := strings.TrimSpace(os.Getenv("CONTAINERD_HOST")); host != "" {
+		return hostFromPath(host)
+	}
+	if host := strings.TrimSpace(os.Getenv("CONTAINER_HOST")); host != "" {
+		return hostFromPath(host)
+	}
+	return "unix:///run/containerd/containerd.sock"
 }
 
 func hostFromPath(value string) string {

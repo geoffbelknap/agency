@@ -39,7 +39,8 @@ Backend selection reminder:
 
 - set `hub.deployment_backend` in `config.yaml` to the adapter under test
 - for Podman, set `hub.deployment_backend_config.host` or `hub.deployment_backend_config.socket` if auto-detection is not enough
-- for `containerd`, set `hub.deployment_backend_config.host` or `hub.deployment_backend_config.socket` to the native containerd socket when auto-detection is not enough
+- for `containerd`, set `hub.deployment_backend_config.native_socket` or `hub.deployment_backend_config.address` to the native containerd socket when auto-detection is not enough
+- do not use generic `host` or `socket` keys for `containerd`; keep those for Docker-compatible backends only
 - common Podman socket sources:
   `podman info --format json | jq -r '.host.remoteSocket.path'`
 - current `containerd` slice is Linux-only and nerdctl-backed

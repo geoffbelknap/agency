@@ -14,10 +14,37 @@ func TestResolveBackendHostUsesConfiguredSocket(t *testing.T) {
 	}
 }
 
+func TestResolveBackendHostUsesContainerdNativeSocketConfig(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "containerd.sock")
+	got := resolveBackendHost(BackendContainerd, map[string]string{"native_socket": socket})
+	want := "unix://" + socket
+	if got != want {
+		t.Fatalf("resolveBackendHost(containerd native_socket) = %q, want %q", got, want)
+	}
+}
+
+func TestResolveBackendHostUsesContainerdAddressConfig(t *testing.T) {
+	got := resolveBackendHost(BackendContainerd, map[string]string{"address": "unix:///tmp/containerd.sock"})
+	if got != "unix:///tmp/containerd.sock" {
+		t.Fatalf("resolveBackendHost(containerd address) = %q", got)
+	}
+}
+
 func TestResolveBackendHostUsesContainerdEnv(t *testing.T) {
 	t.Setenv("CONTAINERD_HOST", "unix:///tmp/containerd-compat.sock")
 	if got := resolveBackendHost(BackendContainerd, nil); got != "unix:///tmp/containerd-compat.sock" {
 		t.Fatalf("resolveBackendHost(containerd) = %q", got)
+	}
+}
+
+func TestResolveBackendHostIgnoresLegacyContainerdKeys(t *testing.T) {
+	t.Setenv("CONTAINERD_HOST", "")
+	t.Setenv("CONTAINER_HOST", "")
+	socket := filepath.Join(t.TempDir(), "legacy-containerd.sock")
+	got := resolveBackendHost(BackendContainerd, map[string]string{"socket": socket, "host": socket})
+	want := "unix:///run/containerd/containerd.sock"
+	if got != want {
+		t.Fatalf("resolveBackendHost(containerd legacy keys) = %q, want %q", got, want)
 	}
 }
 
