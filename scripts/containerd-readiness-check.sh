@@ -284,7 +284,7 @@ data["hub"] = hub
 data["gateway_addr"] = gateway_addr
 data["llm_provider"] = "openai"
 hub["deployment_backend"] = "containerd"
-hub["deployment_backend_config"] = {"host": socket}
+hub["deployment_backend_config"] = {"native_socket": socket}
 path.write_text(yaml.safe_dump(data, sort_keys=False))
 PY
 }
