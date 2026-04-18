@@ -406,12 +406,12 @@ CONFIG_PATH="$SEED_HOME/config.yaml" AGENT_NAME="$AGENT_NAME" bash "$ROOT_DIR/sc
 
 log "Asserting reported containerd backend endpoint and mode"
 runtime_status_json="$("$AGENCY_BIN" -q runtime status "$AGENT_NAME")"
-python3 - "$EXPECTED_MODE" <<'PY' <<<"$runtime_status_json"
+python3 - "$EXPECTED_MODE" "$runtime_status_json" <<'PY'
 import json
 import sys
 
 expected_mode = sys.argv[1]
-body = json.load(sys.stdin)
+body = json.loads(sys.argv[2])
 
 if body.get("backend") != "containerd":
     raise SystemExit(f"unexpected backend in runtime status: {body.get('backend')!r}")
