@@ -151,6 +151,7 @@
         "setuid", "setgid", "setgroups", "setresgid", "setresuid",
         "chdir", "fchdir",
         "pivot_root", "mount", "umount2",
+        "open_tree", "move_mount", "fsopen", "fsconfig", "fsmount", "mount_setattr",
         "chroot",
         "sethostname", "setdomainname",
         "seccomp",
