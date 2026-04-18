@@ -65,6 +65,12 @@ func formatBackendStatusLine(backend, mode, endpoint string) string {
 	return line
 }
 
+func writeInfraBackendLine(w io.Writer, backend, mode, endpoint string) {
+	if line := formatBackendStatusLine(backend, mode, endpoint); line != "" {
+		fmt.Fprintf(w, "Backend: %s\n", line)
+	}
+}
+
 // spinner displays an animated spinner with a status message on the current line.
 type spinner struct {
 	mu     sync.Mutex
@@ -913,30 +919,31 @@ func statusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			out := cmd.OutOrStdout()
 
 			// No args: show overview (infra + agents summary)
 			infraResp, _ := c.InfraStatus()
 			if infraResp != nil && infraResp.Version != "" {
 				buildDate := time.Now().Format("2006-01-02")
-				fmt.Printf("Agency v%s (%s, %s)\n", infraResp.Version, infraResp.BuildID, buildDate)
+				fmt.Fprintf(out, "Agency v%s (%s, %s)\n", infraResp.Version, infraResp.BuildID, buildDate)
 				if infraResp.GatewayURL != "" {
-					fmt.Printf("  Gateway: %s\n", infraResp.GatewayURL)
+					fmt.Fprintf(out, "  Gateway: %s\n", infraResp.GatewayURL)
 				}
 				if infraResp.WebURL != "" {
-					fmt.Printf("  Web UI:  %s\n", infraResp.WebURL)
+					fmt.Fprintf(out, "  Web UI:  %s\n", infraResp.WebURL)
 				}
 				if infraResp.Docker == "unavailable" {
-					fmt.Printf("  Docker:  %s\n", red.Render("unavailable"))
+					fmt.Fprintf(out, "  Docker:  %s\n", red.Render("unavailable"))
 				}
 				if backendLine := formatBackendStatusLine(infraResp.Backend, infraResp.BackendMode, infraResp.BackendEndpoint); backendLine != "" {
-					fmt.Printf("  Backend: %s\n", backendLine)
+					fmt.Fprintf(out, "  Backend: %s\n", backendLine)
 				}
-				fmt.Println()
+				fmt.Fprintln(out)
 			}
 			if infraResp != nil && infraResp.InfraLLMDailyUsed > 0 {
-				fmt.Printf("Infrastructure LLM: $%.2f / $%.2f today\n\n", infraResp.InfraLLMDailyUsed, infraResp.InfraLLMDailyLimit)
+				fmt.Fprintf(out, "Infrastructure LLM: $%.2f / $%.2f today\n\n", infraResp.InfraLLMDailyUsed, infraResp.InfraLLMDailyLimit)
 			}
-			fmt.Println(bold.Render("Infrastructure:"))
+			fmt.Fprintln(out, bold.Render("Infrastructure:"))
 			if infraResp != nil {
 				gatewayBuild := infraResp.BuildID
 				for _, ic := range infraResp.Components {
@@ -954,7 +961,7 @@ func statusCmd() *cobra.Command {
 							buildCol = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(bid + " ⚠ stale")
 						}
 					}
-					fmt.Printf("  %s %s %s %s\n", icon, bold.Render(fmt.Sprintf("%-14s", ic["name"])), dim.Render(fmt.Sprintf("%-10s", ic["state"])), buildCol)
+					fmt.Fprintf(out, "  %s %s %s %s\n", icon, bold.Render(fmt.Sprintf("%-14s", ic["name"])), dim.Render(fmt.Sprintf("%-10s", ic["state"])), buildCol)
 				}
 			}
 
@@ -969,17 +976,17 @@ func statusCmd() *cobra.Command {
 				}
 			}
 
-			fmt.Printf("\n%s\n", bold.Render("Agents:"))
+			fmt.Fprintf(out, "\n%s\n", bold.Render("Agents:"))
 			if len(agents) == 0 {
-				fmt.Println(dim.Render("  No agents"))
+				fmt.Fprintln(out, dim.Render("  No agents"))
 			} else {
-				fmt.Printf("  %s %s %s %s %s\n",
+				fmt.Fprintf(out, "  %s %s %s %s %s\n",
 					bold.Render(fmt.Sprintf("%-20s", "Name")),
 					bold.Render(fmt.Sprintf("%-12s", "Status")),
 					bold.Render(fmt.Sprintf("%-12s", "Enforcer")),
 					bold.Render(fmt.Sprintf("%-16s", "Build")),
 					bold.Render("Mission"))
-				fmt.Println(dim.Render("  " + strings.Repeat("─", 78)))
+				fmt.Fprintln(out, dim.Render("  "+strings.Repeat("─", 78)))
 				gatewayBuild := ""
 				if infraResp != nil {
 					gatewayBuild = infraResp.BuildID
@@ -1002,7 +1009,7 @@ func statusCmd() *cobra.Command {
 						ms, _ := a["mission_status"].(string)
 						missionCol = fmt.Sprintf("%s (%s)", m, ms)
 					}
-					fmt.Printf("  %s %s %s %s %s\n",
+					fmt.Fprintf(out, "  %s %s %s %s %s\n",
 						bold.Render(fmt.Sprintf("%-20s", name)), renderStatePadded(status, 12), renderStatePadded(enforcer, 12), buildCol, dim.Render(missionCol))
 
 					// Show active Meeseeks nested under their parent agent
@@ -1018,7 +1025,7 @@ func statusCmd() *cobra.Command {
 							if i == len(mksList)-1 {
 								connector = "└"
 							}
-							fmt.Printf("    %s %s  %s  %s\n",
+							fmt.Fprintf(out, "    %s %s  %s  %s\n",
 								dim.Render(connector),
 								cyan.Render(fmt.Sprintf("%-14s", mksID)),
 								renderStatePadded(mksStatus, 10),
@@ -1611,9 +1618,8 @@ func infraCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if backendLine := formatBackendStatusLine(resp.Backend, resp.BackendMode, resp.BackendEndpoint); backendLine != "" {
-				fmt.Printf("Backend: %s\n", backendLine)
-			}
+			out := cmd.OutOrStdout()
+			writeInfraBackendLine(out, resp.Backend, resp.BackendMode, resp.BackendEndpoint)
 			for _, ic := range resp.Components {
 				icon := green.Render("●")
 				if ic["health"] != "healthy" && ic["state"] != "running" {
@@ -1627,7 +1633,7 @@ func infraCmd() *cobra.Command {
 						buildCol = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(bid + " ⚠ stale")
 					}
 				}
-				fmt.Printf("  %s %s %s %s\n", icon, bold.Render(fmt.Sprintf("%-14s", ic["name"])), dim.Render(fmt.Sprintf("%-10s", ic["state"])), buildCol)
+				fmt.Fprintf(out, "  %s %s %s %s\n", icon, bold.Render(fmt.Sprintf("%-14s", ic["name"])), dim.Render(fmt.Sprintf("%-10s", ic["state"])), buildCol)
 			}
 			return nil
 		},

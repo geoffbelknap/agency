@@ -92,6 +92,66 @@ func TestGeneratedCoreSpecIsInSync(t *testing.T) {
 	}
 }
 
+func TestCoreInfraStatusSchemaIncludesOperatorBackendFields(t *testing.T) {
+	specPath := filepath.Join(repoRoot(t), "internal", "api", "openapi.yaml")
+	data, err := os.ReadFile(specPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filtered, err := FilterByTier(data, "core")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var doc map[string]any
+	if err := yaml.Unmarshal(filtered, &doc); err != nil {
+		t.Fatal(err)
+	}
+
+	paths, ok := doc["paths"].(map[string]any)
+	if !ok {
+		t.Fatal("core spec missing paths")
+	}
+	infraStatus, ok := paths["/infra/status"].(map[string]any)
+	if !ok {
+		t.Fatal("core spec missing /infra/status")
+	}
+	get, ok := infraStatus["get"].(map[string]any)
+	if !ok {
+		t.Fatal("core spec missing /infra/status GET")
+	}
+	responses, ok := get["responses"].(map[string]any)
+	if !ok {
+		t.Fatal("core spec missing infra responses")
+	}
+	okResponse, ok := responses["200"].(map[string]any)
+	if !ok {
+		t.Fatal("core spec missing infra 200 response")
+	}
+	content, ok := okResponse["content"].(map[string]any)
+	if !ok {
+		t.Fatal("core spec missing infra content")
+	}
+	jsonContent, ok := content["application/json"].(map[string]any)
+	if !ok {
+		t.Fatal("core spec missing infra JSON content")
+	}
+	schema, ok := jsonContent["schema"].(map[string]any)
+	if !ok {
+		t.Fatal("core spec missing infra schema")
+	}
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("core spec missing infra properties")
+	}
+
+	for _, key := range []string{"gateway_url", "web_url", "docker", "backend", "backend_endpoint", "backend_mode", "infra_control_available", "host_runtime", "components"} {
+		if _, ok := properties[key]; !ok {
+			t.Fatalf("core infra status schema missing %q", key)
+		}
+	}
+}
+
 func assertPathPresent(t *testing.T, paths map[string]any, path string) {
 	t.Helper()
 	if _, ok := paths[path]; !ok {
