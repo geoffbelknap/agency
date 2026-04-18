@@ -3,6 +3,7 @@ package daemon
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -116,5 +117,38 @@ func TestDaemonStartTimeoutFallsBackOnInvalidValues(t *testing.T) {
 	t.Setenv("AGENCY_DAEMON_START_TIMEOUT", "0")
 	if got := daemonStartTimeout(); got != defaultStartTimeout {
 		t.Fatalf("expected fallback timeout %v for zero value, got %v", defaultStartTimeout, got)
+	}
+}
+
+func TestParsePSDaemonProcessesMatchesCurrentExecutableOnly(t *testing.T) {
+	out := []byte(`
+101 /Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/agency serve
+102 /usr/local/bin/agency serve
+103 /Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/agency status
+104 /Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/agency serve restart
+105 /Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/agency serve --http 127.0.0.1:8200
+`)
+
+	got := parsePSDaemonProcesses(out, []string{"/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/agency"}, 104)
+	want := []int{101, 105}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("parsePSDaemonProcesses() = %v, want %v", got, want)
+	}
+}
+
+func TestIsMatchingServeArgv(t *testing.T) {
+	exePaths := []string{"/tmp/agency", "/private/tmp/agency"}
+
+	if !isMatchingServeArgv([]string{"/tmp/agency", "serve"}, exePaths) {
+		t.Fatal("expected exact executable path to match")
+	}
+	if !isMatchingServeArgv([]string{"/private/tmp/agency", "serve", "--http", "127.0.0.1:8200"}, exePaths) {
+		t.Fatal("expected resolved executable path with flags to match")
+	}
+	if isMatchingServeArgv([]string{"/usr/local/bin/agency", "serve"}, exePaths) {
+		t.Fatal("did not expect different executable path to match")
+	}
+	if isMatchingServeArgv([]string{"/tmp/agency", "serve", "restart"}, exePaths) {
+		t.Fatal("did not expect daemon management command to match")
 	}
 }
