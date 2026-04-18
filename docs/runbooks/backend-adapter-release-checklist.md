@@ -274,7 +274,7 @@ make containerd-readiness
 Manual rootful `containerd` release gate:
 
 ```bash
-make containerd-readiness-rootful
+./scripts/with-containerd-rootful-env.sh make containerd-readiness-rootful
 gh workflow run "Containerd Rootful Readiness" --ref main
 ```
 
@@ -349,6 +349,49 @@ Notes:
 
 - on this machine, Playwright browser validation must be run outside the Codex app sandbox because bundled Chromium may fail there with a macOS `mach_port_rendezvous` permission error
 - that browser-launch issue is environment-specific and not a Podman backend failure
+
+### Containerd Rootful Validation Record
+
+Use this as the current known-good reference for the manual Linux rootful path
+until superseded by a newer run.
+
+- adapter name: `containerd`
+- runtime mode: `rootful`
+- host OS: `Ubuntu 24.04.4 LTS (linux amd64)`
+- container runtime: `containerd v2.2.2` with `nerdctl v2.2.3`
+- native socket used: `unix:///run/containerd/containerd.sock`
+- backend config:
+
+```yaml
+hub:
+  deployment_backend: containerd
+  deployment_backend_config:
+    native_socket: /run/containerd/containerd.sock
+```
+
+- binary path used: `./agency`
+- validation date: `2026-04-18`
+
+Validated commands:
+
+```bash
+go build -o ./agency ./cmd/gateway
+./scripts/with-containerd-rootful-env.sh make containerd-readiness-rootful
+```
+
+Recorded results:
+
+- startup gates: passed
+- runtime contract smoke: passed
+- `agency admin doctor`: passed with clean runtime and backend hygiene checks
+- backend endpoint and mode assertion: passed (`containerd`, `rootful`, `/run/containerd/containerd.sock`)
+- lifecycle controls: passed (`stop`, `start`, `restart`, `halt`, `resume`)
+- final readiness result: `containerd readiness check passed`
+
+Notes:
+
+- this record was captured on a local Linux host with a usable native rootful socket, not through a Docker-compatible API socket
+- the wrapper-based command form keeps `CONTAINERD_HOST` and related environment selection out of the command line so approval rules can target the script path
 
 ## Minimum Ship Gate
 
