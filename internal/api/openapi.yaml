@@ -3118,9 +3118,29 @@ paths:
                     type: string
                   build_id:
                     type: string
+                  gateway_url:
+                    type: string
+                  web_url:
+                    type: string
+                  docker:
+                    type: string
+                  backend:
+                    type: string
+                  backend_endpoint:
+                    type: string
+                    description: Resolved native backend endpoint when one is configured or detected.
+                  backend_mode:
+                    type: string
+                    description: Resolved backend mode such as rootless or rootful.
+                  infra_control_available:
+                    type: boolean
+                  host_runtime:
+                    type: string
                   components:
-                    type: object
-                    additionalProperties: true
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
                   infra_llm_daily_used:
                     type: number
                   infra_llm_daily_limit:

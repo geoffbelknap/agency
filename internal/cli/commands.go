@@ -51,6 +51,20 @@ func hideWhenExperimentalDisabled(cmd *cobra.Command) *cobra.Command {
 	return cmd
 }
 
+func formatBackendStatusLine(backend, mode, endpoint string) string {
+	if backend == "" {
+		return ""
+	}
+	line := backend
+	if mode != "" {
+		line += " (" + mode + ")"
+	}
+	if endpoint != "" {
+		line += " " + endpoint
+	}
+	return line
+}
+
 // spinner displays an animated spinner with a status message on the current line.
 type spinner struct {
 	mu     sync.Mutex
@@ -914,14 +928,7 @@ func statusCmd() *cobra.Command {
 				if infraResp.Docker == "unavailable" {
 					fmt.Printf("  Docker:  %s\n", red.Render("unavailable"))
 				}
-				if infraResp.Backend != "" {
-					backendLine := infraResp.Backend
-					if infraResp.BackendMode != "" {
-						backendLine += " (" + infraResp.BackendMode + ")"
-					}
-					if infraResp.BackendEndpoint != "" {
-						backendLine += " " + infraResp.BackendEndpoint
-					}
+				if backendLine := formatBackendStatusLine(infraResp.Backend, infraResp.BackendMode, infraResp.BackendEndpoint); backendLine != "" {
 					fmt.Printf("  Backend: %s\n", backendLine)
 				}
 				fmt.Println()
@@ -1604,14 +1611,7 @@ func infraCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if resp.Backend != "" {
-				backendLine := resp.Backend
-				if resp.BackendMode != "" {
-					backendLine += " (" + resp.BackendMode + ")"
-				}
-				if resp.BackendEndpoint != "" {
-					backendLine += " " + resp.BackendEndpoint
-				}
+			if backendLine := formatBackendStatusLine(resp.Backend, resp.BackendMode, resp.BackendEndpoint); backendLine != "" {
 				fmt.Printf("Backend: %s\n", backendLine)
 			}
 			for _, ic := range resp.Components {
