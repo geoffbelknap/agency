@@ -191,6 +191,21 @@ func ResolvedBackendMode(backend string, backendConfig map[string]string) string
 	return backendModeFromEndpoint(backend, resolveBackendHost(backend, backendConfig))
 }
 
+func ValidateBackendConfig(backend string, backendConfig map[string]string) error {
+	backend = NormalizeContainerBackend(backend)
+	if backend != BackendContainerd || backendConfig == nil {
+		return nil
+	}
+	if host := strings.TrimSpace(backendConfig["host"]); host != "" {
+		return fmt.Errorf("containerd backend does not accept generic host config; use native_socket or address for the native containerd socket")
+	}
+	if socket := strings.TrimSpace(backendConfig["socket"]); socket != "" {
+		return fmt.Errorf("containerd backend does not accept generic socket config; use native_socket or address for the native containerd socket")
+	}
+	endpoint := resolveContainerdHost(backendConfig)
+	return validateContainerdAddress(endpoint)
+}
+
 func NewClient() (*Client, error) {
 	return NewClientForBackend(BackendDocker, nil)
 }

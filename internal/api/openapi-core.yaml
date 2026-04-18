@@ -3643,6 +3643,10 @@ components:
                     type: boolean
                 backend:
                     type: string
+                backendEndpoint:
+                    type: string
+                backendMode:
+                    type: string
                 transport:
                     $ref: "#/components/schemas/AgentRuntimeTransportStatus"
         AgentBackendStatus:

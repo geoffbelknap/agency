@@ -36,7 +36,7 @@ func TestShowRuntimeManifest(t *testing.T) {
 		"spec": map[string]any{
 			"runtimeId": "runtime-agent",
 			"agentId":   "ag_runtime",
-			"backend":   "docker",
+			"backend":   "containerd",
 			"transport": map[string]any{
 				"enforcer": map[string]any{
 					"type":     runtimecontract.TransportTypeLoopbackHTTP,
@@ -128,11 +128,13 @@ func TestShowRuntimeStatusAndValidate(t *testing.T) {
 			},
 		},
 		"status": map[string]any{
-			"runtimeId": "runtime-agent",
-			"agentId":   "ag_runtime",
-			"phase":     runtimecontract.RuntimePhaseStopped,
-			"healthy":   false,
-			"backend":   "docker",
+			"runtimeId":       "runtime-agent",
+			"agentId":         "ag_runtime",
+			"phase":           runtimecontract.RuntimePhaseStopped,
+			"healthy":         false,
+			"backend":         "containerd",
+			"backendEndpoint": "unix:///run/user/1000/containerd/containerd.sock",
+			"backendMode":     "rootless",
 			"transport": map[string]any{
 				"type":     runtimecontract.TransportTypeLoopbackHTTP,
 				"endpoint": "http://127.0.0.1:9999",
@@ -149,10 +151,12 @@ func TestShowRuntimeStatusAndValidate(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	rs := orchestrate.NewRuntimeSupervisor(home, "0.1.0", "", "build-1", "containerd", nil, nil, nil, nil)
+	rs.BackendConfig = map[string]string{"native_socket": "/run/user/1000/containerd/containerd.sock"}
 	h := &handler{deps: Deps{
 		AgentManager: &orchestrate.AgentManager{
 			Home:    home,
-			Runtime: orchestrate.NewRuntimeSupervisor(home, "0.1.0", "", "build-1", "docker", nil, nil, nil, nil),
+			Runtime: rs,
 		},
 	}}
 
@@ -164,6 +168,19 @@ func TestShowRuntimeStatusAndValidate(t *testing.T) {
 	h.showRuntimeStatus(statusRec, statusReq)
 	if statusRec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", statusRec.Code, statusRec.Body.String())
+	}
+	var statusBody map[string]any
+	if err := json.Unmarshal(statusRec.Body.Bytes(), &statusBody); err != nil {
+		t.Fatal(err)
+	}
+	if statusBody["backend"] != "containerd" {
+		t.Fatalf("backend = %v, want containerd", statusBody["backend"])
+	}
+	if statusBody["backendMode"] != "rootless" {
+		t.Fatalf("backendMode = %v, want rootless", statusBody["backendMode"])
+	}
+	if statusBody["backendEndpoint"] != "unix:///run/user/1000/containerd/containerd.sock" {
+		t.Fatalf("backendEndpoint = %v", statusBody["backendEndpoint"])
 	}
 
 	validateReq := httptest.NewRequest(http.MethodPost, "/api/v1/agents/runtime-agent/runtime/validate", nil)

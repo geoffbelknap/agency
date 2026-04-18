@@ -915,6 +915,9 @@ func runServe(httpAddr string) error {
 	backendName := runtimehost.NormalizeContainerBackend(cfg.Hub.DeploymentBackend)
 	backendEndpoint := runtimehost.ResolvedBackendEndpoint(backendName, cfg.Hub.DeploymentBackendConfig)
 	backendMode := runtimehost.ResolvedBackendMode(backendName, cfg.Hub.DeploymentBackendConfig)
+	if err := validateConfiguredBackend(cfg); err != nil {
+		return err
+	}
 
 	// Ensure audit directory has correct permissions (0700) — retroactively fix
 	// dirs created before this hardening was in place.
@@ -1353,6 +1356,14 @@ func runServe(httpAddr string) error {
 	}
 
 	logger.Info("shutdown complete")
+	return nil
+}
+
+func validateConfiguredBackend(cfg *config.Config) error {
+	backendName := runtimehost.NormalizeContainerBackend(cfg.Hub.DeploymentBackend)
+	if err := runtimehost.ValidateBackendConfig(backendName, cfg.Hub.DeploymentBackendConfig); err != nil {
+		return fmt.Errorf("backend config: %w", err)
+	}
 	return nil
 }
 
