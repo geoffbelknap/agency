@@ -153,6 +153,14 @@ detect_containerd_socket() {
     printf '%s\n' "$CONTAINERD_HOST"
     return 0
   fi
+  if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -S "${XDG_RUNTIME_DIR}/containerd/containerd.sock" ]; then
+    printf '%s\n' "unix://${XDG_RUNTIME_DIR}/containerd/containerd.sock"
+    return 0
+  fi
+  if [ -S "/run/user/$(id -u)/containerd/containerd.sock" ]; then
+    printf '%s\n' "unix:///run/user/$(id -u)/containerd/containerd.sock"
+    return 0
+  fi
   if [ -n "${CONTAINER_HOST:-}" ]; then
     printf '%s\n' "$CONTAINER_HOST"
     return 0
