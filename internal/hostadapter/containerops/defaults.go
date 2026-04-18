@@ -121,7 +121,7 @@ func SeccompProfilePath(homeDir string) string {
 	defaultDir := filepath.Join(homeDir, "runtime", "security")
 	defaultPath := filepath.Join(defaultDir, "seccomp-workspace.json")
 	if err := os.MkdirAll(defaultDir, 0o755); err == nil {
-		if _, err := os.Stat(defaultPath); err == nil {
+		if existing, err := os.ReadFile(defaultPath); err == nil && strings.TrimSpace(string(existing)) == strings.TrimSpace(embeddedSeccomp) {
 			return defaultPath
 		}
 		if err := os.WriteFile(defaultPath, []byte(embeddedSeccomp), 0o644); err == nil {

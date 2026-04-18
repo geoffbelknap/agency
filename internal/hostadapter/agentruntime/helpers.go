@@ -121,6 +121,36 @@ func WaitContainerRunning(ctx context.Context, cli *runtimehost.RawClient, name 
 	return waitContainerRunning(ctx, cli, name, timeout)
 }
 
+func waitContainerNetworks(ctx context.Context, cli *runtimehost.RawClient, name string, networks []string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if info, err := cli.ContainerInspect(ctx, name); err == nil && info.NetworkSettings != nil {
+			attached := info.NetworkSettings.Networks
+			ready := true
+			for _, networkName := range networks {
+				if _, ok := attached[networkName]; !ok {
+					ready = false
+					break
+				}
+			}
+			if ready {
+				return nil
+			}
+		}
+
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			return fmt.Errorf("container %s did not attach to expected networks within %v", name, timeout)
+		}
+	}
+}
+
 func waitContainerHealthy(ctx context.Context, cli *runtimehost.RawClient, name string, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
