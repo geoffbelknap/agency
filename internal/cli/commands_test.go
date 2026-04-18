@@ -156,15 +156,15 @@ func TestFormatBackendStatusLine(t *testing.T) {
 		want     string
 	}{
 		{
-			name:     "backend only",
-			backend:  "docker",
-			want:     "docker",
+			name:    "backend only",
+			backend: "docker",
+			want:    "docker",
 		},
 		{
-			name:     "backend and mode",
-			backend:  "containerd",
-			mode:     "rootless",
-			want:     "containerd (rootless)",
+			name:    "backend and mode",
+			backend: "containerd",
+			mode:    "rootless",
+			want:    "containerd (rootless)",
 		},
 		{
 			name:     "backend mode and endpoint",
@@ -234,8 +234,11 @@ func TestStatusCmdShowsBackendDetails(t *testing.T) {
 			if err := cmd.Execute(); err != nil {
 				t.Fatalf("statusCmd.Execute() error = %v", err)
 			}
-			if !strings.Contains(out.String(), tt.want) {
-				t.Fatalf("status output = %q, want substring %q", out.String(), tt.want)
+			got := out.String()
+			for _, needle := range []string{"Agency v0.2.2 (test-build,", "Infrastructure:", "Agents:", tt.want} {
+				if !strings.Contains(got, needle) {
+					t.Fatalf("status output = %q, want substring %q", got, needle)
+				}
 			}
 		})
 	}

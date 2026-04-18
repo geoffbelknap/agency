@@ -1,0 +1,21 @@
+name: Required Status Checks
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 16 * * 3'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-required-status-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify required branch-protection checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/verify-required-status-checks.sh

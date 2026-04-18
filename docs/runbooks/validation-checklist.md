@@ -34,6 +34,16 @@ go test ./...
 
 Expected: all packages pass. Covers: route wiring, auth enforcement, config auto-generation, module isolation, conditional registration, unauthenticated paths.
 
+### Branch protection verification
+
+```bash
+make verify-required-status-checks
+```
+
+Expected: the required checks on `main` still include `go-test`,
+`python-unit-test`, `python-knowledge-test`, `web-test`, `docker-smoke`,
+`podman-smoke`, and `containerd-smoke`.
+
 ### E2E test (Docker required)
 
 ```bash
@@ -127,6 +137,7 @@ Run through each section. Mark each item as you verify it.
 - [ ] `./agency --version` — shows expected local build when validating a patch
 - [ ] `agency --version` — matches the installed/operator binary you intend to use
 - [ ] `agency status` — no unintended version mismatches between binary and containers
+- [ ] `make verify-required-status-checks` — branch protection still enforces the expected smoke and test gates on `main`
 
 ### Error Verification
 

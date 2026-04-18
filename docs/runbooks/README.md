@@ -24,6 +24,8 @@ Use these as the default validation sequence after a change:
   [Validation Checklist](validation-checklist.md) with the disposable live web E2E section, then [Monitoring & Observability](monitoring-and-observability.md)
 - Infrastructure or Docker hygiene changes:
   [Initial Setup](initial-setup.md) or [Upgrade](upgrade.md), then [Validation Checklist](validation-checklist.md), then [Infrastructure Recovery](infrastructure-recovery.md) if anything degrades
+- Mainline maintenance or repo-policy verification:
+  [Validation Checklist](validation-checklist.md), including `make verify-required-status-checks`
 
 ## Index
 
