@@ -56,6 +56,24 @@ func TestResolveBackendHostUsesNativeContainerdDefault(t *testing.T) {
 	}
 }
 
+func TestResolvedBackendModeContainerdRootless(t *testing.T) {
+	got := ResolvedBackendMode(BackendContainerd, map[string]string{
+		"native_socket": "/run/user/1000/containerd/containerd.sock",
+	})
+	if got != "rootless" {
+		t.Fatalf("ResolvedBackendMode(containerd rootless) = %q", got)
+	}
+}
+
+func TestResolvedBackendModeContainerdRootful(t *testing.T) {
+	got := ResolvedBackendMode(BackendContainerd, map[string]string{
+		"native_socket": "/run/containerd/containerd.sock",
+	})
+	if got != "rootful" {
+		t.Fatalf("ResolvedBackendMode(containerd rootful) = %q", got)
+	}
+}
+
 func TestNormalizeContainerBackend(t *testing.T) {
 	if got := NormalizeContainerBackend(""); got != BackendDocker {
 		t.Fatalf("NormalizeContainerBackend(\"\") = %q, want %q", got, BackendDocker)

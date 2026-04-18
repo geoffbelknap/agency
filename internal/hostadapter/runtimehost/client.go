@@ -183,6 +183,14 @@ func EnsureUsableHostEnvForBackend(backend string, backendConfig map[string]stri
 	return os.Getenv("DOCKER_HOST")
 }
 
+func ResolvedBackendEndpoint(backend string, backendConfig map[string]string) string {
+	return resolveBackendHost(backend, backendConfig)
+}
+
+func ResolvedBackendMode(backend string, backendConfig map[string]string) string {
+	return backendModeFromEndpoint(backend, resolveBackendHost(backend, backendConfig))
+}
+
 func NewClient() (*Client, error) {
 	return NewClientForBackend(BackendDocker, nil)
 }
@@ -285,6 +293,37 @@ func resolveContainerdHost(backendConfig map[string]string) string {
 		return hostFromPath(host)
 	}
 	return "unix:///run/containerd/containerd.sock"
+}
+
+func backendModeFromEndpoint(backend, endpoint string) string {
+	backend = NormalizeContainerBackend(backend)
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return ""
+	}
+	path := strings.TrimPrefix(endpoint, "unix://")
+	switch backend {
+	case BackendContainerd:
+		switch {
+		case strings.HasPrefix(path, "/run/user/"):
+			return "rootless"
+		case strings.HasPrefix(path, "/run/containerd/"):
+			return "rootful"
+		default:
+			return "unknown"
+		}
+	case BackendPodman:
+		switch {
+		case strings.HasPrefix(path, "/run/user/"):
+			return "rootless"
+		case strings.HasPrefix(path, "/run/podman/"), strings.HasPrefix(path, "/var/run/podman/"):
+			return "rootful"
+		default:
+			return ""
+		}
+	default:
+		return ""
+	}
 }
 
 func hostFromPath(value string) string {

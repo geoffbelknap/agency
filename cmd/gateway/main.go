@@ -913,6 +913,8 @@ func runServe(httpAddr string) error {
 	}
 	logger.Info("agency home", "path", cfg.Home)
 	backendName := runtimehost.NormalizeContainerBackend(cfg.Hub.DeploymentBackend)
+	backendEndpoint := runtimehost.ResolvedBackendEndpoint(backendName, cfg.Hub.DeploymentBackendConfig)
+	backendMode := runtimehost.ResolvedBackendMode(backendName, cfg.Hub.DeploymentBackendConfig)
 
 	// Ensure audit directory has correct permissions (0700) — retroactively fix
 	// dirs created before this hardening was in place.
@@ -935,9 +937,17 @@ func runServe(httpAddr string) error {
 		dc = runtimehost.TryNewClientForBackend(backendName, cfg.Hub.DeploymentBackendConfig, logger)
 	}
 	if dc != nil {
-		logger.Info("container backend connected", "backend", backendName)
+		if backendMode != "" {
+			logger.Info("container backend connected", "backend", backendName, "endpoint", backendEndpoint, "mode", backendMode)
+		} else {
+			logger.Info("container backend connected", "backend", backendName, "endpoint", backendEndpoint)
+		}
 	} else if runtimehost.IsContainerBackend(backendName) {
-		logger.Warn("container backend unavailable — gateway starting in degraded mode", "backend", backendName)
+		if backendMode != "" {
+			logger.Warn("container backend unavailable — gateway starting in degraded mode", "backend", backendName, "endpoint", backendEndpoint, "mode", backendMode)
+		} else {
+			logger.Warn("container backend unavailable — gateway starting in degraded mode", "backend", backendName, "endpoint", backendEndpoint)
+		}
 	} else {
 		logger.Info("gateway starting without a container backend client", "backend", backendName)
 	}

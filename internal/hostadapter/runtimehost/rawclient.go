@@ -40,6 +40,25 @@ type RawClient struct {
 	nerdctl *nerdctlConfig
 }
 
+func containerdSocketTypeError(address string) error {
+	return fmt.Errorf("containerd backend requires a native containerd socket, not a Docker-compatible API socket: %s", address)
+}
+
+func validateContainerdAddress(address string) error {
+	trimmed := strings.TrimSpace(strings.TrimPrefix(address, "unix://"))
+	if trimmed == "" {
+		return nil
+	}
+	switch {
+	case strings.HasSuffix(trimmed, "/api.sock"),
+		strings.HasSuffix(trimmed, "/docker.sock"),
+		strings.HasSuffix(trimmed, "/podman.sock"):
+		return containerdSocketTypeError(address)
+	default:
+		return nil
+	}
+}
+
 func newDockerRawClient(backend, host string) (*RawClient, error) {
 	opts := []dockerclient.Opt{dockerclient.WithAPIVersionNegotiation()}
 	if host != "" {
@@ -70,6 +89,9 @@ func newNerdctlRawClient(backendConfig map[string]string) (*RawClient, error) {
 	}
 	if cfg.namespace == "" {
 		cfg.namespace = "default"
+	}
+	if err := validateContainerdAddress(cfg.address); err != nil {
+		return nil, err
 	}
 	return &RawClient{backend: BackendContainerd, nerdctl: cfg}, nil
 }
@@ -609,6 +631,9 @@ func (c *RawClient) runNerdctl(ctx context.Context, args ...string) ([]byte, []b
 		}
 		if msg == "" {
 			msg = err.Error()
+		}
+		if c.usesNerdctl() && strings.Contains(msg, "frame too large") && strings.Contains(msg, "HTTP/1.1 header") {
+			return stdout.Bytes(), stderr.Bytes(), containerdSocketTypeError(c.nerdctl.address)
 		}
 		return stdout.Bytes(), stderr.Bytes(), fmt.Errorf("nerdctl %s: %s", strings.Join(args, " "), msg)
 	}
