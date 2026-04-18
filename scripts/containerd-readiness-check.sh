@@ -181,9 +181,18 @@ PY
 )"
   if [ -d "$SOURCE_HOME" ]; then
     cp -R "$SOURCE_HOME"/. "$SEED_HOME"/
+    purge_synthetic_readiness_agents
     return 0
   fi
   bootstrap_seed_home
+}
+
+purge_synthetic_readiness_agents() {
+  local agents_dir="$SEED_HOME/agents"
+  [ -d "$agents_dir" ] || return 0
+  find "$agents_dir" -mindepth 1 -maxdepth 1 -type d \
+    \( -name 'containerd-readiness-*' -o -name 'podman-readiness-*' -o -name 'docker-readiness-*' \) \
+    -exec rm -rf {} +
 }
 
 bootstrap_seed_home() {

@@ -29,6 +29,7 @@ func CreateAndStart(
 	hostConfig *container.HostConfig,
 	netConfig *network.NetworkingConfig,
 ) (string, error) {
+	ApplyAgencyContainerPolicyLabels(config, hostConfig)
 	resp, err := cli.ContainerCreate(ctx, config, hostConfig, netConfig, nil, name)
 	if err != nil {
 		return "", err

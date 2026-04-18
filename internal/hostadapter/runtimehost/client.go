@@ -11,6 +11,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -590,12 +591,107 @@ func (c *Client) InspectContainer(ctx context.Context, name string) (*ContainerI
 	for _, m := range info.Mounts {
 		ci.Mounts = append(ci.Mounts, MountInfo{Source: m.Source, Destination: m.Destination, RW: m.RW})
 	}
+	ci.Networks = c.containerNetworkNames(ctx, info)
+	return ci, nil
+}
+
+func (c *Client) containerNetworkNames(ctx context.Context, info dockercontainer.InspectResponse) []string {
+	resolve := func(networkID string) string {
+		if strings.TrimSpace(networkID) == "" || c == nil || c.cli == nil {
+			return ""
+		}
+		inspect, err := c.cli.NetworkInspect(ctx, networkID, dockernetwork.InspectOptions{})
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(inspect.Name)
+	}
+	var networks map[string]*dockernetwork.EndpointSettings
 	if info.NetworkSettings != nil {
-		for netName := range info.NetworkSettings.Networks {
-			ci.Networks = append(ci.Networks, netName)
+		networks = info.NetworkSettings.Networks
+	}
+	names := normalizeContainerNetworkNames(networks, resolve)
+	if len(names) > 0 && hasNonSyntheticNetworkName(names) {
+		return names
+	}
+	if fromLabels := containerNetworkNamesFromLabels(info.Config); len(fromLabels) > 0 {
+		return fromLabels
+	}
+	return names
+}
+
+func normalizeContainerNetworkNames(networks map[string]*dockernetwork.EndpointSettings, resolve func(string) string) []string {
+	if len(networks) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(networks))
+	for key, endpoint := range networks {
+		name := strings.TrimSpace(key)
+		if looksLikeSyntheticNetworkName(name) && endpoint != nil {
+			if resolved := resolve(endpoint.NetworkID); resolved != "" {
+				name = resolved
+			}
+		}
+		if name == "" && endpoint != nil {
+			name = resolve(endpoint.NetworkID)
+		}
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func looksLikeSyntheticNetworkName(name string) bool {
+	if name == "" {
+		return true
+	}
+	return strings.HasPrefix(name, "unknown-") || strings.HasPrefix(name, "eth")
+}
+
+func hasNonSyntheticNetworkName(names []string) bool {
+	for _, name := range names {
+		if !looksLikeSyntheticNetworkName(name) {
+			return true
 		}
 	}
-	return ci, nil
+	return false
+}
+
+func containerNetworkNamesFromLabels(config *dockercontainer.Config) []string {
+	if config == nil || config.Labels == nil {
+		return nil
+	}
+	raw := strings.TrimSpace(config.Labels["nerdctl/networks"])
+	if raw == "" {
+		return nil
+	}
+	var names []string
+	if err := json.Unmarshal([]byte(raw), &names); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(names))
+	seen := map[string]struct{}{}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (c *Client) ListAgentWorkspaces(ctx context.Context) ([]string, error) {

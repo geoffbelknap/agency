@@ -914,6 +914,16 @@ func statusCmd() *cobra.Command {
 				if infraResp.Docker == "unavailable" {
 					fmt.Printf("  Docker:  %s\n", red.Render("unavailable"))
 				}
+				if infraResp.Backend != "" {
+					backendLine := infraResp.Backend
+					if infraResp.BackendMode != "" {
+						backendLine += " (" + infraResp.BackendMode + ")"
+					}
+					if infraResp.BackendEndpoint != "" {
+						backendLine += " " + infraResp.BackendEndpoint
+					}
+					fmt.Printf("  Backend: %s\n", backendLine)
+				}
 				fmt.Println()
 			}
 			if infraResp != nil && infraResp.InfraLLMDailyUsed > 0 {
@@ -1593,6 +1603,16 @@ func infraCmd() *cobra.Command {
 			resp, err := c.InfraStatus()
 			if err != nil {
 				return err
+			}
+			if resp.Backend != "" {
+				backendLine := resp.Backend
+				if resp.BackendMode != "" {
+					backendLine += " (" + resp.BackendMode + ")"
+				}
+				if resp.BackendEndpoint != "" {
+					backendLine += " " + resp.BackendEndpoint
+				}
+				fmt.Printf("Backend: %s\n", backendLine)
 			}
 			for _, ic := range resp.Components {
 				icon := green.Render("●")

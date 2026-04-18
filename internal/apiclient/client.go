@@ -517,6 +517,9 @@ type InfraStatusResponse struct {
 	GatewayURL         string              `json:"gateway_url"`
 	WebURL             string              `json:"web_url"`
 	Docker             string              `json:"docker,omitempty"`
+	Backend            string              `json:"backend,omitempty"`
+	BackendEndpoint    string              `json:"backend_endpoint,omitempty"`
+	BackendMode        string              `json:"backend_mode,omitempty"`
 	Components         []map[string]string `json:"components"`
 	InfraLLMDailyUsed  float64             `json:"infra_llm_daily_used"`
 	InfraLLMDailyLimit float64             `json:"infra_llm_daily_limit"`

@@ -122,6 +122,25 @@ func TestHostConfigDefaults_AllRolesHaveSecurityBaseline(t *testing.T) {
 	}
 }
 
+func TestApplyAgencyContainerPolicyLabels(t *testing.T) {
+	cfg := &Config{}
+	hc := HostConfigDefaults(RoleWorkspace)
+	ApplyAgencyContainerPolicyLabels(cfg, hc)
+
+	if cfg.Labels["agency.policy.pids_limit"] != "512" {
+		t.Fatalf("agency.policy.pids_limit = %q", cfg.Labels["agency.policy.pids_limit"])
+	}
+	if cfg.Labels["agency.policy.log_driver"] != "json-file" {
+		t.Fatalf("agency.policy.log_driver = %q", cfg.Labels["agency.policy.log_driver"])
+	}
+	if cfg.Labels["agency.policy.log_max_size"] != "10m" {
+		t.Fatalf("agency.policy.log_max_size = %q", cfg.Labels["agency.policy.log_max_size"])
+	}
+	if cfg.Labels["agency.policy.log_max_file"] != "3" {
+		t.Fatalf("agency.policy.log_max_file = %q", cfg.Labels["agency.policy.log_max_file"])
+	}
+}
+
 func TestSeccompProfilePath_FallsBackToEmbeddedFile(t *testing.T) {
 	dir := t.TempDir()
 	profilePath := SeccompProfilePath(dir)
