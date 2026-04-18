@@ -192,6 +192,27 @@ func TestAdminDoctorUsesRuntimeContractForProbeBackend(t *testing.T) {
 	}
 }
 
+func TestBackendConnectionDetailsIncludesContainerdEndpointAndMode(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Home: t.TempDir(),
+		Hub: config.HubConfig{
+			DeploymentBackend: "containerd",
+			DeploymentBackendConfig: map[string]string{
+				"native_socket": "/run/user/1000/containerd/containerd.sock",
+			},
+		},
+	}
+	endpoint, mode := backendConnectionDetails(cfg)
+	if endpoint != "unix:///run/user/1000/containerd/containerd.sock" {
+		t.Fatalf("endpoint = %q", endpoint)
+	}
+	if mode != "rootless" {
+		t.Fatalf("mode = %q", mode)
+	}
+}
+
 func TestSyntheticReadinessAgentIsIgnoredForUnscopedAudit(t *testing.T) {
 	t.Parallel()
 

@@ -31,3 +31,16 @@ func TestSupportsEventStream(t *testing.T) {
 		t.Fatal("containerd nerdctl client should not report event stream support")
 	}
 }
+
+func TestValidateContainerdAddressRejectsDockerCompatibleSocket(t *testing.T) {
+	err := validateContainerdAddress("unix:///run/user/1000/containerd-rootless/api.sock")
+	if err == nil {
+		t.Fatal("expected Docker-compatible api.sock to be rejected")
+	}
+}
+
+func TestValidateContainerdAddressAcceptsNativeSocket(t *testing.T) {
+	if err := validateContainerdAddress("unix:///run/user/1000/containerd/containerd.sock"); err != nil {
+		t.Fatalf("expected native socket to pass validation, got %v", err)
+	}
+}

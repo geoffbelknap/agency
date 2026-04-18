@@ -40,6 +40,8 @@ type doctorScopeInfo struct {
 type doctorReport struct {
 	AllPassed     bool                `json:"all_passed"`
 	Backend       string              `json:"backend,omitempty"`
+	BackendEndpoint string            `json:"backend_endpoint,omitempty"`
+	BackendMode   string              `json:"backend_mode,omitempty"`
 	TestedAgents  []string            `json:"tested_agents"`
 	Checks        []doctorCheckResult `json:"checks"`
 	RuntimeChecks []doctorCheckResult `json:"runtime_checks,omitempty"`
@@ -50,6 +52,18 @@ type doctorReport struct {
 
 type checkResult = doctorCheckResult
 type scopeInfo = doctorScopeInfo
+
+func backendConnectionDetails(cfg *config.Config) (string, string) {
+	if cfg == nil {
+		return "", ""
+	}
+	backend := configuredRuntimeBackend(cfg)
+	if !runtimehost.IsContainerBackend(backend) {
+		return "", ""
+	}
+	return runtimehost.ResolvedBackendEndpoint(backend, cfg.Hub.DeploymentBackendConfig),
+		runtimehost.ResolvedBackendMode(backend, cfg.Hub.DeploymentBackendConfig)
+}
 
 func configuredRuntimeBackend(cfg *config.Config) string {
 	if cfg != nil && strings.TrimSpace(cfg.Hub.DeploymentBackend) != "" {
@@ -113,7 +127,8 @@ func managedRuntimeAgents(home string) ([]string, error) {
 }
 
 func (h *handler) adminDoctorRuntimeContract(ctx context.Context) doctorReport {
-	report := doctorReport{AllPassed: true, Backend: configuredRuntimeBackend(h.deps.Config)}
+	endpoint, mode := backendConnectionDetails(h.deps.Config)
+	report := doctorReport{AllPassed: true, Backend: configuredRuntimeBackend(h.deps.Config), BackendEndpoint: endpoint, BackendMode: mode}
 	if h.deps.AgentManager == nil || h.deps.AgentManager.Runtime == nil {
 		report.AllPassed = false
 		report.Checks = append(report.Checks, doctorCheckResult{
@@ -227,7 +242,8 @@ func (h *handler) adminDoctorRuntimeContract(ctx context.Context) doctorReport {
 
 func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	report := doctorReport{AllPassed: true, Backend: configuredRuntimeBackend(h.deps.Config)}
+	endpoint, mode := backendConnectionDetails(h.deps.Config)
+	report := doctorReport{AllPassed: true, Backend: configuredRuntimeBackend(h.deps.Config), BackendEndpoint: endpoint, BackendMode: mode}
 	if !runtimehost.IsContainerBackend(report.Backend) {
 		writeJSON(w, 200, h.adminDoctorRuntimeContract(ctx))
 		return

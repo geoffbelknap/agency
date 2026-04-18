@@ -45,6 +45,31 @@ Backend selection reminder:
   `podman info --format json | jq -r '.host.remoteSocket.path'`
 - current `containerd` slice is Linux-only and nerdctl-backed
 
+Examples:
+
+Rootless containerd:
+
+```yaml
+hub:
+  deployment_backend: containerd
+  deployment_backend_config:
+    native_socket: /run/user/1000/containerd/containerd.sock
+```
+
+Rootful containerd:
+
+```yaml
+hub:
+  deployment_backend: containerd
+  deployment_backend_config:
+    native_socket: /run/containerd/containerd.sock
+```
+
+Misconfiguration guard:
+
+- do not point `containerd` at Docker-compatible API sockets such as `.../containerd-rootless/api.sock`
+- if you do, Agency should fail fast with a native-socket error instead of silently degrading to an unsafe fallback
+
 If you are validating a local patch, make sure the binary you are exercising is
 the one you just built:
 
