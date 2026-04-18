@@ -193,6 +193,15 @@ func TestWorkspaceSecurityOpts_DockerIncludesSeccompProfile(t *testing.T) {
 	if !strings.HasPrefix(opts[1], "seccomp={") {
 		t.Fatalf("second security opt = %q, want embedded seccomp JSON", opts[1])
 	}
+	profile := strings.TrimPrefix(opts[1], "seccomp=")
+	if !strings.Contains(profile, "\"statx\"") {
+		t.Fatalf("embedded seccomp profile is missing statx syscall coverage")
+	}
+	for _, syscall := range []string{"open_tree", "move_mount", "fsopen", "fsconfig", "fsmount", "mount_setattr"} {
+		if !strings.Contains(profile, "\""+syscall+"\"") {
+			t.Fatalf("embedded seccomp profile is missing %s syscall coverage", syscall)
+		}
+	}
 }
 
 func TestWorkspaceSecurityOpts_PodmanSkipsHostSeccompPath(t *testing.T) {

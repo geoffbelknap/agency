@@ -238,11 +238,17 @@ Run the disposable live path after runtime or lifecycle changes:
 
 Release gate policy:
 
-- Docker and Podman smoke must stay automated
+- Docker, Podman, and `containerd` smoke must stay automated
 - the `containerd` smoke lane is automated on Linux against a native containerd socket via `nerdctl`
 - `main` branch protection should require the per-PR smoke checks:
-  `go-test`, `python-unit-test`, `python-knowledge-test`, `web-test`, `podman-smoke`, and `containerd-smoke`
+  `go-test`, `python-unit-test`, `python-knowledge-test`, `web-test`, `docker-smoke`, `podman-smoke`, and `containerd-smoke`
 - do not enable auto-merge for adapter work unless the smoke lanes above are enforced as required checks
+- Docker smoke local equivalent:
+
+```bash
+make docker-readiness
+```
+
 - full Podman disposable E2E is a release requirement, not a per-PR requirement
 - the supported manual CI path is:
 

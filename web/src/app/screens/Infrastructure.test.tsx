@@ -214,7 +214,7 @@ describe('Infrastructure', () => {
     });
     releaseRefresh!();
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /refresh infrastructure/i })).not.toBeDisabled();
+      expect(screen.getByRole('button', { name: /refresh(?:ing)? infrastructure/i })).not.toBeDisabled();
     });
   });
 });
