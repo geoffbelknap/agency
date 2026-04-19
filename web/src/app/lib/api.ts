@@ -419,7 +419,9 @@ export interface RawPolicyValidation {
 
 export interface RawEgress {
   allowed_domains?: string[];
-  domains?: string[];
+  domains?: Array<string | { domain?: string; approved_by?: string; reason?: string; approved_at?: string }>;
+  mode?: string;
+  agent?: string;
   [key: string]: unknown;
 }
 
@@ -1044,6 +1046,12 @@ export const api = {
       req<OkResponse>('/admin/trust', { method: 'POST', body: JSON.stringify({ action, args: { agent, level } }) }),
     audit: (agent: string) => req<RawAuditEntry[]>(`/agents/${agent}/logs`),
     egress: (agent?: string) => req<RawEgress>(`/admin/egress${agent ? `?agent=${encodeURIComponent(agent)}` : ''}`),
+    approveEgressDomain: (agent: string, domain: string, reason?: string) =>
+      req<RawEgress>(`/admin/egress/${encodeURIComponent(agent)}/domains`, { method: 'POST', body: JSON.stringify({ domain, reason }) }),
+    revokeEgressDomain: (agent: string, domain: string) =>
+      req<RawEgress>(`/admin/egress/${encodeURIComponent(agent)}/domains/${encodeURIComponent(domain)}`, { method: 'DELETE' }),
+    updateEgressMode: (agent: string, mode: 'denylist' | 'allowlist' | 'supervised-strict' | 'supervised-permissive') =>
+      req<RawEgress>(`/admin/egress/${encodeURIComponent(agent)}/mode`, { method: 'PUT', body: JSON.stringify({ mode }) }),
     destroy: () => req<OkResponse>('/admin/destroy', { method: 'POST', body: '{}' }),
     department: (action: string, name?: string) =>
       req<OkResponse>('/admin/department', { method: 'POST', body: JSON.stringify({ action, name }) }),

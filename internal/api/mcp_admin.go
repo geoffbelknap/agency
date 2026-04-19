@@ -14,6 +14,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/capabilities"
 	agencyconsent "github.com/geoffbelknap/agency/internal/consent"
 	"github.com/geoffbelknap/agency/internal/credstore"
+	"github.com/geoffbelknap/agency/internal/egresspolicy"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
@@ -585,17 +586,14 @@ func registerAdminTools(reg *MCPToolRegistry) {
 				return `{"error":"invalid agent name"}`, false
 			}
 
-			egressPath := filepath.Join(d.cfg.Home, "agents", agent, "egress.yaml")
-			var egress map[string]interface{}
-			if data, err := os.ReadFile(egressPath); err == nil {
-				yaml.Unmarshal(data, &egress)
-			}
-			if egress == nil {
-				egress = map[string]interface{}{"agent": agent, "mode": "allowlist", "domains": []interface{}{}}
-			}
+			service := egresspolicy.Service{Home: d.cfg.Home, Audit: d.audit}
 
 			switch action {
 			case "list":
+				egress, err := service.List(agent)
+				if err != nil {
+					return "Error: " + err.Error(), true
+				}
 				lines := []string{fmt.Sprintf("Egress config for %s:", agent)}
 				mode, _ := egress["mode"].(string)
 				if mode == "" {
@@ -618,52 +616,36 @@ func registerAdminTools(reg *MCPToolRegistry) {
 
 			case "approve":
 				domain := mapStr(args, "domain")
-				if domain == "" {
+				if strings.TrimSpace(domain) == "" {
 					return "Error: domain is required for approve action", true
 				}
 				reason := mapStr(args, "reason")
-				domains, _ := egress["domains"].([]interface{})
-				domains = append(domains, map[string]interface{}{
-					"domain":      domain,
-					"approved_by": "operator",
-					"reason":      reason,
-					"approved_at": time.Now().UTC().Format(time.RFC3339),
-				})
-				egress["domains"] = domains
-				data, _ := yaml.Marshal(egress)
-				os.WriteFile(egressPath, data, 0644)
-				d.audit.Write(agent, "egress_domain_approved", map[string]interface{}{"domain": domain, "reason": reason})
+				if _, err := service.ApproveDomain(agent, domain, reason); err != nil {
+					return "Error: " + err.Error(), true
+				}
+				domain = egresspolicy.NormalizeDomainNoError(domain)
 				return fmt.Sprintf("Domain '%s' approved for %s.", domain, agent), false
 
 			case "revoke":
 				domain := mapStr(args, "domain")
-				if domain == "" {
+				if strings.TrimSpace(domain) == "" {
 					return "Error: domain is required for revoke action", true
 				}
-				domains, _ := egress["domains"].([]interface{})
-				var filtered []interface{}
-				for _, d := range domains {
-					if dm, ok := d.(map[string]interface{}); ok {
-						if mapStr(dm, "domain") != domain {
-							filtered = append(filtered, d)
-						}
-					}
+				if _, err := service.RevokeDomain(agent, domain); err != nil {
+					return "Error: " + err.Error(), true
 				}
-				egress["domains"] = filtered
-				data, _ := yaml.Marshal(egress)
-				os.WriteFile(egressPath, data, 0644)
-				d.audit.Write(agent, "egress_domain_revoked", map[string]interface{}{"domain": domain})
+				domain = egresspolicy.NormalizeDomainNoError(domain)
 				return fmt.Sprintf("Domain '%s' revoked from %s.", domain, agent), false
 
 			case "mode":
 				newMode := mapStr(args, "mode")
-				if newMode == "" {
+				if strings.TrimSpace(newMode) == "" {
 					return "Error: mode is required for mode action", true
 				}
-				egress["mode"] = newMode
-				data, _ := yaml.Marshal(egress)
-				os.WriteFile(egressPath, data, 0644)
-				d.audit.Write(agent, "egress_mode_changed", map[string]interface{}{"mode": newMode})
+				if _, err := service.SetMode(agent, newMode); err != nil {
+					return "Error: " + err.Error(), true
+				}
+				newMode = strings.TrimSpace(strings.ToLower(newMode))
 				return fmt.Sprintf("Egress mode for %s set to %s.", agent, newMode), false
 
 			default:

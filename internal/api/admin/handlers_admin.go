@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/geoffbelknap/agency/internal/config"
+	"github.com/geoffbelknap/agency/internal/egresspolicy"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
@@ -38,16 +40,16 @@ type doctorScopeInfo struct {
 }
 
 type doctorReport struct {
-	AllPassed     bool                `json:"all_passed"`
-	Backend       string              `json:"backend,omitempty"`
-	BackendEndpoint string            `json:"backend_endpoint,omitempty"`
-	BackendMode   string              `json:"backend_mode,omitempty"`
-	TestedAgents  []string            `json:"tested_agents"`
-	Checks        []doctorCheckResult `json:"checks"`
-	RuntimeChecks []doctorCheckResult `json:"runtime_checks,omitempty"`
-	BackendChecks []doctorCheckResult `json:"backend_checks,omitempty"`
-	Scopes        []doctorScopeInfo   `json:"scopes,omitempty"`
-	Unscoped      []string            `json:"unscoped_agents,omitempty"`
+	AllPassed       bool                `json:"all_passed"`
+	Backend         string              `json:"backend,omitempty"`
+	BackendEndpoint string              `json:"backend_endpoint,omitempty"`
+	BackendMode     string              `json:"backend_mode,omitempty"`
+	TestedAgents    []string            `json:"tested_agents"`
+	Checks          []doctorCheckResult `json:"checks"`
+	RuntimeChecks   []doctorCheckResult `json:"runtime_checks,omitempty"`
+	BackendChecks   []doctorCheckResult `json:"backend_checks,omitempty"`
+	Scopes          []doctorScopeInfo   `json:"scopes,omitempty"`
+	Unscoped        []string            `json:"unscoped_agents,omitempty"`
 }
 
 type checkResult = doctorCheckResult
@@ -981,14 +983,74 @@ func (h *handler) adminEgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read egress config for the agent
-	egressPath := filepath.Join(h.deps.Config.Home, "agents", agent, "egress.yaml")
-	var egress map[string]interface{}
-	if data, err := os.ReadFile(egressPath); err == nil {
-		yaml.Unmarshal(data, &egress)
+	egress, err := h.egressPolicy().List(agent)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
 	}
-	if egress == nil {
-		egress = map[string]interface{}{"agent": agent, "domains": []string{}}
+	writeJSON(w, 200, egress)
+}
+
+func (h *handler) adminEgressApproveDomain(w http.ResponseWriter, r *http.Request) {
+	agent, ok := requireName(w, chi.URLParam(r, "agent"))
+	if !ok {
+		return
+	}
+	var body struct {
+		Domain string `json:"domain"`
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	egress, err := h.egressPolicy().ApproveDomain(agent, body.Domain, body.Reason)
+	h.writeEgressMutationResponse(w, err, egress)
+}
+
+func (h *handler) adminEgressRevokeDomain(w http.ResponseWriter, r *http.Request) {
+	agent, ok := requireName(w, chi.URLParam(r, "agent"))
+	if !ok {
+		return
+	}
+	egress, err := h.egressPolicy().RevokeDomain(agent, chi.URLParam(r, "domain"))
+	h.writeEgressMutationResponse(w, err, egress)
+}
+
+func (h *handler) adminEgressMode(w http.ResponseWriter, r *http.Request) {
+	agent, ok := requireName(w, chi.URLParam(r, "agent"))
+	if !ok {
+		return
+	}
+	var body struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	egress, err := h.egressPolicy().SetMode(agent, body.Mode)
+	h.writeEgressMutationResponse(w, err, egress)
+}
+
+func (h *handler) egressPolicy() egresspolicy.Service {
+	return egresspolicy.Service{
+		Home:  h.deps.Config.Home,
+		Audit: h.deps.Audit,
+	}
+}
+
+func (h *handler) writeEgressMutationResponse(w http.ResponseWriter, err error, egress map[string]interface{}) {
+	if err != nil {
+		switch {
+		case errors.Is(err, egresspolicy.ErrInvalidDomain):
+			writeJSON(w, 400, map[string]string{"error": "invalid domain"})
+		case errors.Is(err, egresspolicy.ErrInvalidMode):
+			writeJSON(w, 400, map[string]string{"error": "invalid egress mode"})
+		default:
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+		}
+		return
 	}
 	writeJSON(w, 200, egress)
 }
