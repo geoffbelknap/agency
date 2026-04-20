@@ -5906,6 +5906,98 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /graph/memory:
+    get:
+      operationId: knowledgeMemories
+      summary: List durable memories
+      description: Returns promoted durable memories. Operator-only (ASK tenet 5).
+      tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
+      parameters:
+        - name: type
+          in: query
+          required: false
+          description: Durable memory type.
+          schema:
+            type: string
+            enum: [semantic, episodic, procedural]
+        - name: agent
+          in: query
+          required: false
+          description: Agent that contributed the memory.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Maximum memories to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 250
+            default: 100
+      responses:
+        "200":
+          description: Durable memories
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphMemoryListResponse"
+        "400":
+          description: Invalid type or limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Knowledge service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /graph/memory/{id}/actions:
+    post:
+      operationId: knowledgeMemoryAction
+      summary: Apply durable memory action
+      description: Applies an operator-owned lifecycle action to a promoted durable memory. Operator-only (ASK tenet 5).
+      tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Durable memory node ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GraphMemoryActionRequest"
+      responses:
+        "200":
+          description: Memory action result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphMemoryActionResponse"
+        "400":
+          description: Invalid request (missing ID, invalid action, or malformed body)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Knowledge service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /graph/memory/proposals:
     get:
       operationId: knowledgeMemoryProposals
@@ -5937,8 +6029,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
+                $ref: "#/components/schemas/GraphMemoryProposalListResponse"
         "400":
           description: Invalid status or limit
           content:
@@ -5972,24 +6063,14 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [action]
-              properties:
-                action:
-                  type: string
-                  enum: [approve, reject]
-                  description: Review action
-                reason:
-                  type: string
-                  description: Optional reason for the review decision
+              $ref: "#/components/schemas/GraphMemoryProposalReviewRequest"
       responses:
         "200":
           description: Memory proposal review result
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
+                $ref: "#/components/schemas/GraphMemoryProposalReviewResponse"
         "400":
           description: Invalid request (missing ID, invalid action, or malformed body)
           content:
@@ -6556,6 +6637,160 @@ components:
       properties:
         error:
           type: string
+
+    GraphMemoryNode:
+      type: object
+      description: Promoted durable memory graph node.
+      properties:
+        id:
+          type: string
+          description: Knowledge graph node ID
+        label:
+          type: string
+        kind:
+          type: string
+          enum: [fact, episode, procedure]
+          description: Graph node kind derived from memory_type
+        summary:
+          type: string
+        properties:
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: string
+          description: JSON object or encoded JSON containing memory_type, provenance, evidence, and approval metadata
+        source_type:
+          type: string
+        source_channels:
+          oneOf:
+            - type: array
+              items:
+                type: string
+            - type: string
+          description: Source channels as an array or encoded JSON array
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        curation_status:
+          type: string
+          nullable: true
+        curation_reason:
+          type: string
+          nullable: true
+        curation_at:
+          type: string
+          nullable: true
+        scope:
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: string
+          description: Visibility scope as an object or encoded JSON object
+
+    GraphMemoryListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphMemoryNode"
+
+    GraphMemoryActionRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [revoke]
+          description: Lifecycle action to apply to a promoted durable memory
+        reason:
+          type: string
+          description: Optional reason for the lifecycle action
+
+    GraphMemoryActionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Durable memory node ID
+        action:
+          type: string
+          enum: [revoke]
+
+    GraphMemoryProposal:
+      type: object
+      description: Durable-memory proposal graph node.
+      properties:
+        id:
+          type: string
+          description: Knowledge graph node ID
+        label:
+          type: string
+        kind:
+          type: string
+          enum: [memory_proposal]
+        summary:
+          type: string
+        properties:
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: string
+          description: JSON object or encoded JSON containing status, memory_type, confidence, evidence, and decision metadata
+        source_type:
+          type: string
+        source_channels:
+          oneOf:
+            - type: array
+              items:
+                type: string
+            - type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        scope:
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: string
+
+    GraphMemoryProposalListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphMemoryProposal"
+
+    GraphMemoryProposalReviewRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [approve, reject]
+          description: Review action
+        reason:
+          type: string
+          description: Optional reason for the review decision
+
+    GraphMemoryProposalReviewResponse:
+      type: object
+      properties:
+        proposal_id:
+          type: string
+        action:
+          type: string
+          enum: [approve, reject]
+        promoted_node_id:
+          type: string
+          description: Present when a proposal is approved and promoted
 
     InstalledPackage:
       type: object

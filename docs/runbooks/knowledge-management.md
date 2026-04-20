@@ -217,6 +217,70 @@ Org-structural knowledge contributions may require operator review:
 # Via API: POST /api/v1/graph/review/{id}
 ```
 
+## Durable Memory Lifecycle
+
+Durable agent memory is graph-backed. Agents and the body runtime may submit
+memory proposals, but the knowledge manager owns promotion into durable memory
+and operators own review/revocation. This keeps preference, identity, and
+knowledge boundaries visible and auditable.
+
+Memory proposals use `kind=memory_proposal` and include:
+
+- `memory_type`: `semantic`, `episodic`, or `procedural`
+- `status`: `pending_review`, `needs_review`, `approved`, or `rejected`
+- `confidence`, `reason`, `entities`, `evidence_message_ids`
+- provenance fields such as `agent`, `task_id`, `channel`, and `participant`
+
+Promoted durable memories are graph nodes with kind:
+
+- `fact` for semantic memory
+- `episode` for episodic memory
+- `procedure` for procedural memory
+
+The promoted node keeps `properties.promoted_from`, `memory_type`,
+`approved_by`, evidence IDs, source channels, and agent/task provenance.
+
+### Review proposals
+
+```bash
+# List proposals that require operator review
+# Via API: GET /api/v1/graph/memory/proposals?status=needs_review&limit=100
+
+# Approve or reject a proposal
+# Via API: POST /api/v1/graph/memory/proposals/{id}/review
+# Body: {"action":"approve","reason":"operator confirmed"}
+# Body: {"action":"reject","reason":"not durable enough"}
+```
+
+High-confidence low-risk proposals may be approved by the knowledge manager.
+Preference-affecting memories require review even when the proposed memory type
+is procedural.
+
+### List approved memories
+
+```bash
+# All durable memories
+# Via API: GET /api/v1/graph/memory
+
+# Filter by memory type or contributing agent
+# Via API: GET /api/v1/graph/memory?type=procedural&agent=jarvis&limit=50
+```
+
+### Revoke durable memory
+
+Revocation is a soft delete that leaves a curation audit trail and removes the
+memory from retrieval.
+
+```bash
+# Via API: POST /api/v1/graph/memory/{id}/actions
+# Body: {"action":"revoke","reason":"operator superseded this preference"}
+```
+
+The web UI exposes the same lifecycle in Knowledge administration:
+
+- `Memory Review` lists proposals awaiting operator decision.
+- `Durable Memory` lists promoted memories and exposes `Revoke`.
+
 ## GraphRAG Security
 
 All knowledge graph content injected into agent system prompts is:

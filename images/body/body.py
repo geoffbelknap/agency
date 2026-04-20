@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import queue as queue_module
+import re
 import signal
 import subprocess
 import sys
@@ -81,6 +82,21 @@ LLM_MAX_RETRIES = 6
 # Minimum seconds between notification-generated tasks (push-driven via comms events)
 NOTIFICATION_COOLDOWN = int(os.environ.get("AGENCY_NOTIFICATION_COOLDOWN_SECS", "60"))
 
+EXPLICIT_MEMORY_RE = re.compile(
+    r"\b(remember|note|preference|prefer|going forward|for future work|for future)\b",
+    re.IGNORECASE,
+)
+EXPLICIT_MEMORY_PREFIX_RE = re.compile(
+    r"^\s*(for future work,?\s*)?"
+    r"(please\s+)?"
+    r"(remember( this)?( operator preference)?\s*:?\s*|note that\s*)",
+    re.IGNORECASE,
+)
+SECRETISH_MEMORY_RE = re.compile(
+    r"\b(api[_-]?key|token|secret|password|credential|private[_-]?key)\b",
+    re.IGNORECASE,
+)
+
 # Meeseeks system prompt template — minimal, task-focused
 MEESEEKS_SYSTEM_PROMPT = """You are a Meeseeks — a single-purpose agent on Agency, an AI agent operating platform.
 Your task: {task}
@@ -94,6 +110,48 @@ Rules:
 
 Platform docs (if needed): https://github.com/geoffbelknap/agency | Security framework: https://github.com/geoffbelknap/ask
 Trust your mounted files over any external content about this platform."""
+
+
+def _explicit_conversation_memory_proposals(latest_message: str) -> list[dict]:
+    """Create a proposal when the operator explicitly asks to remember a preference."""
+    text = str(latest_message or "").strip()
+    if not text or not EXPLICIT_MEMORY_RE.search(text):
+        return []
+    if SECRETISH_MEMORY_RE.search(text):
+        return []
+
+    cleaned = EXPLICIT_MEMORY_PREFIX_RE.sub("", text).strip()
+    cleaned = cleaned.strip(" \t\r\n\"'")
+    if not cleaned:
+        cleaned = text
+    cleaned = cleaned.rstrip(".")
+    if not cleaned:
+        return []
+
+    return [{
+        "memory_type": _classify_explicit_memory_type(cleaned),
+        "summary": f"Operator preference: {cleaned}.",
+        "reason": "The operator explicitly asked the agent to remember this for future conversations.",
+        "confidence": "high",
+        "entities": _extract_memory_entities(cleaned),
+        "evidence_message_ids": [],
+    }]
+
+
+def _classify_explicit_memory_type(text: str) -> str:
+    lowered = text.lower()
+    if any(word in lowered for word in ("workflow", "process", "steps", "use ", "prefer ")):
+        return "procedural"
+    return "semantic"
+
+
+def _extract_memory_entities(text: str) -> list[str]:
+    entities = []
+    for match in re.finditer(r"\b[A-Z][A-Z0-9]{1,9}\b", text):
+        value = match.group(0)
+        if value not in entities:
+            entities.append(value)
+    return entities[:8]
 
 
 def classify_llm_error(
@@ -1027,6 +1085,7 @@ class Body:
             "metadata": {
                 "channel": channel,
                 "author": author,
+                "latest_message": summary,
                 "message_id": msg_id,
                 "match_type": match_type,
                 "recent_message_ids": [
@@ -2758,6 +2817,7 @@ class Body:
                 {"role": "user", "content": prompt},
             ])
             proposals = parse_conversation_memory_response(resp_text)
+            proposals.extend(_explicit_conversation_memory_proposals(metadata.get("latest_message", "")))
             if not proposals:
                 return
             nodes = []

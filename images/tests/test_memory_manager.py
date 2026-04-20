@@ -76,6 +76,24 @@ def test_preference_semantic_proposal_requires_review(tmp_path):
     assert "preference" in props["decision_reason"]
 
 
+def test_preference_procedural_proposal_requires_review(tmp_path):
+    store = KnowledgeStore(tmp_path)
+    proposal_id = _proposal(
+        store,
+        memory_type="procedural",
+        confidence="high",
+        summary="Operator preference: when asked for SEC filings, use SEC EDGAR first.",
+    )
+
+    stats = MemoryManager(store).process_pending()
+
+    assert stats["needs_review"] == 1
+    props = json.loads(store.get_node(proposal_id)["properties"])
+    assert props["status"] == "needs_review"
+    assert "preference" in props["decision_reason"]
+    assert store.find_nodes_by_kind("procedure") == []
+
+
 def test_secret_like_proposal_is_rejected(tmp_path):
     store = KnowledgeStore(tmp_path)
     proposal_id = _proposal(

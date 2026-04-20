@@ -2797,6 +2797,152 @@ components:
             properties:
                 error:
                     type: string
+        GraphMemoryNode:
+            type: object
+            description: Promoted durable memory graph node.
+            properties:
+                id:
+                    type: string
+                    description: Knowledge graph node ID
+                label:
+                    type: string
+                kind:
+                    type: string
+                    enum: [fact, episode, procedure]
+                    description: Graph node kind derived from memory_type
+                summary:
+                    type: string
+                properties:
+                    oneOf:
+                        - type: object
+                          additionalProperties: true
+                        - type: string
+                    description: JSON object or encoded JSON containing memory_type, provenance, evidence, and approval metadata
+                source_type:
+                    type: string
+                source_channels:
+                    oneOf:
+                        - type: array
+                          items:
+                            type: string
+                        - type: string
+                    description: Source channels as an array or encoded JSON array
+                created_at:
+                    type: string
+                    format: date-time
+                updated_at:
+                    type: string
+                    format: date-time
+                curation_status:
+                    type: string
+                    nullable: true
+                curation_reason:
+                    type: string
+                    nullable: true
+                curation_at:
+                    type: string
+                    nullable: true
+                scope:
+                    oneOf:
+                        - type: object
+                          additionalProperties: true
+                        - type: string
+                    description: Visibility scope as an object or encoded JSON object
+        GraphMemoryListResponse:
+            type: object
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/GraphMemoryNode"
+        GraphMemoryActionRequest:
+            type: object
+            required: [action]
+            properties:
+                action:
+                    type: string
+                    enum: [revoke]
+                    description: Lifecycle action to apply to a promoted durable memory
+                reason:
+                    type: string
+                    description: Optional reason for the lifecycle action
+        GraphMemoryActionResponse:
+            type: object
+            properties:
+                id:
+                    type: string
+                    description: Durable memory node ID
+                action:
+                    type: string
+                    enum: [revoke]
+        GraphMemoryProposal:
+            type: object
+            description: Durable-memory proposal graph node.
+            properties:
+                id:
+                    type: string
+                    description: Knowledge graph node ID
+                label:
+                    type: string
+                kind:
+                    type: string
+                    enum: [memory_proposal]
+                summary:
+                    type: string
+                properties:
+                    oneOf:
+                        - type: object
+                          additionalProperties: true
+                        - type: string
+                    description: JSON object or encoded JSON containing status, memory_type, confidence, evidence, and decision metadata
+                source_type:
+                    type: string
+                source_channels:
+                    oneOf:
+                        - type: array
+                          items:
+                            type: string
+                        - type: string
+                created_at:
+                    type: string
+                    format: date-time
+                updated_at:
+                    type: string
+                    format: date-time
+                scope:
+                    oneOf:
+                        - type: object
+                          additionalProperties: true
+                        - type: string
+        GraphMemoryProposalListResponse:
+            type: object
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: "#/components/schemas/GraphMemoryProposal"
+        GraphMemoryProposalReviewRequest:
+            type: object
+            required: [action]
+            properties:
+                action:
+                    type: string
+                    enum: [approve, reject]
+                    description: Review action
+                reason:
+                    type: string
+                    description: Optional reason for the review decision
+        GraphMemoryProposalReviewResponse:
+            type: object
+            properties:
+                proposal_id:
+                    type: string
+                action:
+                    type: string
+                    enum: [approve, reject]
+                promoted_node_id:
+                    type: string
+                    description: Present when a proposal is approved and promoted
         InstalledPackage:
             type: object
             properties:

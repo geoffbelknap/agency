@@ -203,6 +203,34 @@ func (p *Proxy) Review(ctx context.Context, id string, action string, reason str
 	return p.post(ctx, "/review/"+id, body)
 }
 
+// Memories returns promoted durable memories.
+func (p *Proxy) Memories(ctx context.Context, memoryType string, agent string, limit int) ([]byte, error) {
+	path := "/memory"
+	params := []string{}
+	if memoryType != "" {
+		params = append(params, "type="+urlEncode(memoryType))
+	}
+	if agent != "" {
+		params = append(params, "agent="+urlEncode(agent))
+	}
+	if limit > 0 {
+		params = append(params, "limit="+strconv.Itoa(limit))
+	}
+	if len(params) > 0 {
+		path += "?" + strings.Join(params, "&")
+	}
+	return p.get(ctx, path)
+}
+
+// MemoryAction applies an operator action to a durable memory.
+func (p *Proxy) MemoryAction(ctx context.Context, id string, action string, reason string) ([]byte, error) {
+	body := map[string]string{
+		"action": action,
+		"reason": reason,
+	}
+	return p.post(ctx, "/memory/"+urlEncode(id)+"/actions", body)
+}
+
 // MemoryProposals returns durable-memory proposals matching a review status.
 func (p *Proxy) MemoryProposals(ctx context.Context, status string, limit int) ([]byte, error) {
 	path := "/memory/proposals"

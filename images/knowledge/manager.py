@@ -84,8 +84,8 @@ class MemoryManager:
             return MemoryDecision("reject", "proposal appears to contain secret material")
         if confidence != "high":
             return MemoryDecision("review", f"confidence is {confidence or 'missing'}")
-        if memory_type == "semantic" and IDENTITY_RE.search(summary):
-            return MemoryDecision("review", "identity or preference-affecting semantic memory")
+        if IDENTITY_RE.search(summary):
+            return MemoryDecision("review", "identity or preference-affecting memory")
 
         return MemoryDecision(
             "approve",

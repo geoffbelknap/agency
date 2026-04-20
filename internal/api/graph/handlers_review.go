@@ -26,6 +26,74 @@ func (h *handler) handleKnowledgePending(w http.ResponseWriter, r *http.Request)
 	w.Write(data)
 }
 
+// handleMemories handles GET /api/v1/graph/memory
+// Returns promoted durable memories. Operator-only (ASK tenet 5).
+func (h *handler) handleMemories(w http.ResponseWriter, r *http.Request) {
+	memoryType := r.URL.Query().Get("type")
+	if memoryType != "" && memoryType != "semantic" && memoryType != "episodic" && memoryType != "procedural" {
+		writeJSON(w, 400, map[string]string{"error": "invalid memory type"})
+		return
+	}
+	limit := 100
+	if rawLimit := r.URL.Query().Get("limit"); rawLimit != "" {
+		parsed, err := strconv.Atoi(rawLimit)
+		if err != nil {
+			writeJSON(w, 400, map[string]string{"error": "limit must be an integer"})
+			return
+		}
+		limit = parsed
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 250 {
+		limit = 250
+	}
+
+	proxy := knowledge.NewProxy()
+	data, err := proxy.Memories(r.Context(), memoryType, r.URL.Query().Get("agent"), limit)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": "knowledge service unavailable: " + err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
+// handleMemoryAction handles POST /api/v1/graph/memory/{id}/actions.
+// ASK tenet 5: durable memory lifecycle is operator-owned.
+func (h *handler) handleMemoryAction(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeJSON(w, 400, map[string]string{"error": "memory ID required"})
+		return
+	}
+
+	var body struct {
+		Action string `json:"action"`
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid request body"})
+		return
+	}
+	if body.Action != "revoke" {
+		writeJSON(w, 400, map[string]string{"error": "action must be 'revoke'"})
+		return
+	}
+
+	proxy := knowledge.NewProxy()
+	data, err := proxy.MemoryAction(r.Context(), id, body.Action, body.Reason)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": "knowledge service unavailable: " + err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
 // handleMemoryProposals handles GET /api/v1/graph/memory/proposals
 // Returns durable-memory proposals awaiting operator review.
 func (h *handler) handleMemoryProposals(w http.ResponseWriter, r *http.Request) {

@@ -19,6 +19,7 @@ function mockGraphAdminData({
   curationEntries = [],
   pending = [],
   memoryProposals = [],
+  approvedMemories = [],
   quarantined = [],
   classification = { tiers: [] },
   principals = [],
@@ -29,6 +30,7 @@ function mockGraphAdminData({
   curationEntries?: unknown[];
   pending?: unknown[];
   memoryProposals?: unknown[];
+  approvedMemories?: unknown[];
   quarantined?: unknown[];
   classification?: unknown;
   principals?: unknown;
@@ -47,6 +49,9 @@ function mockGraphAdminData({
     ),
     http.get(`${BASE}/graph/memory/proposals`, () =>
       HttpResponse.json({ items: memoryProposals }),
+    ),
+    http.get(`${BASE}/graph/memory`, () =>
+      HttpResponse.json({ items: approvedMemories }),
     ),
     http.get(`${BASE}/graph/quarantine`, () =>
       HttpResponse.json({ nodes: quarantined }),
@@ -97,6 +102,19 @@ describe('Knowledge admin', () => {
           }),
         },
       ],
+      approvedMemories: [
+        {
+          id: 'approved-memory-1',
+          summary: 'Operator prefers SEC EDGAR primary filings.',
+          kind: 'procedure',
+          properties: JSON.stringify({
+            memory_type: 'procedural',
+            agent: 'jarvis',
+            channel: 'dm-jarvis',
+            approved_by: 'knowledge_manager',
+          }),
+        },
+      ],
       quarantined: [
         {
           id: 'quarantine-1',
@@ -134,6 +152,7 @@ describe('Knowledge admin', () => {
       expect(screen.getByText('100')).toBeInTheDocument();
       expect(screen.getByText('Structural Review')).toBeInTheDocument();
       expect(screen.getByText('Memory Review')).toBeInTheDocument();
+      expect(screen.getByText('Durable Memory')).toBeInTheDocument();
       expect(screen.getByText('Graph Topology')).toBeInTheDocument();
       expect(screen.getByText('Quarantine')).toBeInTheDocument();
       expect(screen.getByText('Ontology Review')).toBeInTheDocument();
@@ -141,6 +160,7 @@ describe('Knowledge admin', () => {
 
     expect(screen.getByText('Promote release process')).toBeInTheDocument();
     expect(screen.getByText('Use SEC primary filings first.')).toBeInTheDocument();
+    expect(screen.getByText('Operator prefers SEC EDGAR primary filings.')).toBeInTheDocument();
     expect(screen.getByText('untrusted note')).toBeInTheDocument();
     expect(screen.getByText('field_report')).toBeInTheDocument();
     expect(screen.getByText('restricted')).toBeInTheDocument();
@@ -196,6 +216,32 @@ describe('Knowledge admin', () => {
 
     await waitFor(() => {
       expect(reviewed).toEqual({ id: 'memory-approve', action: 'approve' });
+    });
+  });
+
+  it('revokes approved durable memory through the memory action API', async () => {
+    let actioned: { id?: string; action?: string } = {};
+    server.use(
+      http.get(`${BASE}/graph/stats`, () =>
+        HttpResponse.json({ node_count: 0, edge_count: 0 }),
+      ),
+      http.post(`${BASE}/graph/memory/:id/actions`, async ({ params, request }) => {
+        const body = await request.json() as { action?: string };
+        actioned = { id: String(params.id), action: body.action };
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    mockGraphAdminData({
+      approvedMemories: [{ id: 'approved-memory-revoke', summary: 'Old SEC preference', properties: { memory_type: 'procedural', agent: 'jarvis' } }],
+    });
+
+    renderWithRouter(<Knowledge />);
+
+    await screen.findByText('Old SEC preference');
+    await userEvent.click(screen.getByRole('button', { name: /^revoke$/i }));
+
+    await waitFor(() => {
+      expect(actioned).toEqual({ id: 'approved-memory-revoke', action: 'revoke' });
     });
   });
 

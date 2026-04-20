@@ -862,9 +862,9 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("knowledge"))
 
 	knowledgeDir := filepath.Join(inf.Home, "knowledge", "data")
-	os.MkdirAll(knowledgeDir, 0777)
-	os.Chmod(knowledgeDir, 0777)
-	fixDirPerms(knowledgeDir, 0777)
+	if err := prepareKnowledgeDataDir(knowledgeDir); err != nil {
+		return fmt.Errorf("prepare knowledge data: %w", err)
+	}
 
 	env := map[string]string{
 		"HTTPS_PROXY":          "http://" + inf.egressContainerHost() + ":3128",
@@ -1593,6 +1593,48 @@ func prepareCommsDataDir(dataDir string) error {
 	return nil
 }
 
+func prepareKnowledgeDataDir(dataDir string) error {
+	if err := os.MkdirAll(dataDir, 0o777); err != nil {
+		return err
+	}
+	if err := os.Chmod(dataDir, 0o777); err != nil {
+		return err
+	}
+
+	// Rootless containers can leave SQLite files owned by shifted or nobody
+	// UIDs after backend changes. Chmod what we can, then fail early if any
+	// existing database file remains unwritable by the current user.
+	fixDirPerms(dataDir, 0o777)
+
+	for _, name := range []string{
+		"knowledge.db",
+		"knowledge.db-shm",
+		"knowledge.db-wal",
+		".ontology-migrated",
+	} {
+		path := filepath.Join(dataDir, name)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		if err := ensureExistingFileWritable(path); err != nil {
+			return knowledgeDataRepairError(path, err)
+		}
+	}
+
+	return probeWritableDir(dataDir)
+}
+
+func ensureExistingFileWritable(path string) error {
+	_ = os.Chmod(path, 0o666)
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND, 0)
+	if err != nil {
+		return err
+	}
+	return f.Close()
+}
+
 func ensureWritableSeedFile(path string, content []byte) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		if err := os.WriteFile(path, content, 0o666); err != nil {
@@ -1628,10 +1670,30 @@ func commsDataRepairError(path string, err error) error {
 		path, err, os.Getuid(), os.Getgid(), root, root)
 }
 
+func knowledgeDataRepairError(path string, err error) error {
+	root := knowledgeDataRootForRepair(path)
+	return fmt.Errorf("%s is not writable by the current user: %w; repair with: sudo chown -R %d:%d %s && chmod -R u+rwX,go+rwX %s",
+		path, err, os.Getuid(), os.Getgid(), root, root)
+}
+
 func commsDataRootForRepair(path string) string {
 	current := path
 	for {
 		if filepath.Base(current) == "data" && filepath.Base(filepath.Dir(current)) == "comms" {
+			return current
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return path
+		}
+		current = parent
+	}
+}
+
+func knowledgeDataRootForRepair(path string) string {
+	current := path
+	for {
+		if filepath.Base(current) == "data" && filepath.Base(filepath.Dir(current)) == "knowledge" {
 			return current
 		}
 		parent := filepath.Dir(current)
