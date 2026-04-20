@@ -107,6 +107,62 @@ def test_build_direct_idle_prompt_prioritizes_identity():
     assert "Only fall back to normal concise conversational help when your identity is silent" in prompt
 
 
+def test_build_direct_idle_prompt_includes_recent_context():
+    from body import Body
+
+    body = Body.__new__(Body)
+    body.config_dir = Path("/nonexistent")
+    body._config_overrides = {}
+
+    prompt = body._build_direct_idle_prompt(
+        "dm-jarvis",
+        "_operator",
+        "Whatever one is most recent",
+        "Recent conversation in this channel:\n"
+        "_operator: PLTR's more recent SEC filing\n"
+        "jarvis: Could you clarify the filing type?",
+    )
+
+    assert "PLTR's more recent SEC filing" in prompt
+    assert "Whatever one is most recent" in prompt
+    assert "resolve follow-up references" in prompt
+
+
+def test_fetch_recent_channel_context_formats_bounded_messages():
+    from body import Body
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return [
+                {"author": "_operator", "content": "PLTR's more recent SEC filing"},
+                {"author": "jarvis", "content": "Could you clarify the filing type?"},
+                {"author": "_operator", "content": "Whatever one is most recent"},
+            ]
+
+    class Client:
+        def get(self, url, params=None, timeout=None):
+            self.url = url
+            self.params = params
+            self.timeout = timeout
+            return Response()
+
+    client = Client()
+    body = Body.__new__(Body)
+    body.agent_name = "jarvis"
+    body._http_client = client
+
+    context = body._fetch_recent_channel_context("dm-jarvis", limit=3)
+
+    assert client.params == {"reader": "jarvis", "limit": "3"}
+    assert "Recent conversation in this channel:" in context
+    assert "_operator: PLTR's more recent SEC filing" in context
+    assert "jarvis: Could you clarify the filing type?" in context
+    assert "_operator: Whatever one is most recent" in context
+
+
 def test_cache_filters_include_policy_hash_and_mission_scope():
     from body import Body
 

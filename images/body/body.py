@@ -809,7 +809,41 @@ class Body:
     _IDLE_REPLY_COOLDOWN: float = 60.0  # seconds between idle replies
     _recent_idle_message_ids: set = None  # dedup set for message IDs
 
-    def _build_direct_idle_prompt(self, channel: str, author: str, summary: str) -> str:
+    def _fetch_recent_channel_context(self, channel: str, limit: int = 8) -> str:
+        """Fetch a bounded channel transcript for lightweight idle replies."""
+        comms_url = os.environ.get("AGENCY_COMMS_URL", "http://enforcer:8081/mediation/comms")
+        client = self._http_client or httpx
+        try:
+            resp = client.get(
+                f"{comms_url}/channels/{channel}/messages",
+                params={"reader": self.agent_name, "limit": str(limit)},
+                timeout=5,
+            )
+            resp.raise_for_status()
+            messages = resp.json()
+        except Exception as exc:
+            log.info("recent channel context unavailable | channel=%s error=%s", channel, exc)
+            return ""
+
+        if not isinstance(messages, list):
+            return ""
+
+        lines = []
+        for msg in messages[-limit:]:
+            if not isinstance(msg, dict):
+                continue
+            sender = msg.get("author", "unknown")
+            content = str(msg.get("content", "")).strip()
+            if not content:
+                continue
+            if len(content) > 500:
+                content = content[:500] + "..."
+            lines.append(f"{sender}: {content}")
+        if not lines:
+            return ""
+        return "Recent conversation in this channel:\n" + "\n".join(lines)
+
+    def _build_direct_idle_prompt(self, channel: str, author: str, summary: str, recent_context: str = "") -> str:
         """Build the direct-DM/mention idle prompt.
 
         This path must preserve operator-authored identity changes in live
@@ -829,11 +863,13 @@ class Body:
             f"You received a direct message in #{channel} from {author}: \"{summary}\"\n\n"
             f"{identity_clause}"
             f"Use your current identity and system prompt as the response policy for this message.\n\n"
+            f"{recent_context.strip() + chr(10) + chr(10) if recent_context.strip() else ''}"
             f"Rules:\n"
             f"- If your identity dictates exact wording, a fixed phrase, a refusal, a persona, or another specific response shape, use that literally.\n"
             f"- Do not answer the underlying question in a default helpful style when your identity gives a conflicting instruction.\n"
             f"- Only fall back to normal concise conversational help when your identity is silent on how to respond.\n"
-            f"- Only call read_messages('{channel}') if you need earlier conversation context.\n"
+            f"- Use the recent conversation transcript to resolve follow-up references like 'that', 'it', or 'whatever one'.\n"
+            f"- If the transcript is insufficient, ask one concise clarifying question instead of guessing.\n"
             f"- Reply with the exact message text only. Do not call tools unless you truly need context.\n"
             f"- The platform will deliver your reply to #{channel}.\n"
             f"- If the person follows up, continue the conversation."
@@ -922,7 +958,12 @@ class Body:
                 f"greeting), respond briefly and complete."
             )
         elif match_type == "direct":
-            prompt = self._build_direct_idle_prompt(channel, author, summary)
+            prompt = self._build_direct_idle_prompt(
+                channel,
+                author,
+                summary,
+                self._fetch_recent_channel_context(channel),
+            )
         else:
             # Interest match — agent's expertise is relevant
             kw_str = ", ".join(matched_kws) if matched_kws else "your area of expertise"
