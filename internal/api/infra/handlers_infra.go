@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -296,4 +297,43 @@ func (h *handler) infraReload(w http.ResponseWriter, r *http.Request) {
 		reloaded = append(reloaded, comp)
 	}
 	writeJSON(w, 200, map[string]interface{}{"status": "reloaded", "components": reloaded})
+}
+
+func (h *handler) infraLogs(w http.ResponseWriter, r *http.Request) {
+	if !h.containerBackendRequired(w) {
+		return
+	}
+	component := chi.URLParam(r, "component")
+	tail := 200
+	if raw := r.URL.Query().Get("tail"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "tail must be a positive integer"})
+			return
+		}
+		if parsed > 1000 {
+			parsed = 1000
+		}
+		tail = parsed
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	out, err := h.deps.DC.InfraLogs(ctx, component, tail)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	if h.deps.Audit != nil {
+		_ = h.deps.Audit.WriteSystem("infra_logs_read", map[string]interface{}{
+			"component": component,
+			"tail":      tail,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"component": component,
+		"tail":      tail,
+		"logs":      out,
+	})
 }

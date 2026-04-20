@@ -43,6 +43,19 @@ from agency_core.models.subscriptions import InterestDeclaration
 logger = logging.getLogger("agency.comms")
 
 
+def _parse_since(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    # A raw + in a query value is decoded as a space. Accept that legacy shape
+    # so older body runtimes do not turn catch-up reads into server tracebacks.
+    if len(normalized) >= 6 and normalized[-6] == " " and normalized[-3] == ":":
+        normalized = normalized[:-6] + "+" + normalized[-5:]
+    return datetime.fromisoformat(normalized)
+
+
 def create_app(data_dir: Path | None = None, agents_dir: Path | None = None) -> web.Application:
     app = web.Application()
     resolved_data_dir = data_dir or Path("/app/data")
@@ -267,7 +280,10 @@ async def handle_read_messages(request: web.Request) -> web.Response:
     limit = int(request.query.get("limit", "50"))
     reader = request.query.get("reader")
 
-    since_dt = datetime.fromisoformat(since) if since else None
+    try:
+        since_dt = _parse_since(since)
+    except ValueError:
+        return web.json_response({"error": "since must be an ISO timestamp"}, status=400)
 
     if request.app.get("mode") == "cache":
         return await _cache_read_messages(request, store, channel, since, since_dt, limit, reader)
@@ -1060,7 +1076,7 @@ def main():
     parser.add_argument("--agents-dir", type=str, default="/app/agents")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="[comms] %(message)s")
+    logging.basicConfig(level=logging.INFO, format="[comms] %(message)s", force=True)
     app = create_app(data_dir=Path(args.data_dir), agents_dir=Path(args.agents_dir))
     logger.info("Starting comms server on port %d", args.port)
     web.run_app(app, host="0.0.0.0", port=args.port, print=None)

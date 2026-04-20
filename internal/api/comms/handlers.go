@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -25,8 +26,8 @@ func (h *handler) listChannels(w http.ResponseWriter, r *http.Request) {
 
 	// Merge: parse both, deduplicate by name
 	var openChannels, dmChannels []map[string]interface{}
-	json.Unmarshal(openData, &openChannels)   //nolint:errcheck
-	json.Unmarshal(dmData, &dmChannels)        //nolint:errcheck
+	json.Unmarshal(openData, &openChannels) //nolint:errcheck
+	json.Unmarshal(dmData, &dmChannels)     //nolint:errcheck
 	knownAgents := h.knownAgentNames(ctx)
 
 	seen := make(map[string]bool)
@@ -67,6 +68,19 @@ func channelState(ch map[string]interface{}) string {
 func (h *handler) knownAgentNames(ctx context.Context) map[string]struct{} {
 	known := make(map[string]struct{})
 	if h.deps.AgentManager == nil {
+		return known
+	}
+	if namer, ok := h.deps.AgentManager.(agentNamer); ok {
+		names, err := namer.Names(ctx)
+		if err != nil {
+			return known
+		}
+		for _, name := range names {
+			if name == "" {
+				continue
+			}
+			known[name] = struct{}{}
+		}
 		return known
 	}
 	agents, err := h.deps.AgentManager.List(ctx)
@@ -127,11 +141,15 @@ func (h *handler) createChannel(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) readMessages(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	limit := r.URL.Query().Get("limit")
-	if limit == "" {
-		limit = "50"
+	q := url.Values{}
+	q.Set("reader", "_operator")
+	q.Set("limit", "50")
+	for _, key := range []string{"limit", "since"} {
+		if value := r.URL.Query().Get(key); value != "" {
+			q.Set(key, value)
+		}
 	}
-	path := "/channels/" + name + "/messages?limit=" + limit + "&reader=_operator"
+	path := "/channels/" + url.PathEscape(name) + "/messages?" + q.Encode()
 	data, err := h.deps.Comms.CommsRequest(r.Context(), "GET", path, nil)
 	if err != nil {
 		writeJSON(w, 502, map[string]string{"error": err.Error()})

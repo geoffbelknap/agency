@@ -55,6 +55,7 @@ func (h *handler) grantAgent(w http.ResponseWriter, r *http.Request) {
 	if err := h.generateAgentManifest(name); err != nil {
 		h.deps.Logger.Warn("grant: failed to rebuild services manifest", "agent", name, "err", err)
 	}
+	h.signalConfigReload(name)
 
 	h.deps.Logger.Info("capability granted", "agent", name, "capability", body.Capability)
 	h.deps.Audit.Write(name, "capability_granted", map[string]interface{}{"capability": body.Capability})
@@ -107,5 +108,6 @@ func (h *handler) revokeAgent(w http.ResponseWriter, r *http.Request) {
 
 	h.deps.Logger.Info("capability revoked", "agent", name, "capability", body.Capability)
 	h.deps.Audit.Write(name, "capability_revoked", map[string]interface{}{"capability": body.Capability})
+	h.signalConfigReload(name)
 	writeJSON(w, 200, map[string]string{"status": "revoked", "agent": name, "capability": body.Capability})
 }

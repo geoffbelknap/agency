@@ -61,7 +61,7 @@ var registry = map[string]Feature{
 	TrustAdmin:       {ID: TrustAdmin, Tier: TierExperimental},
 	RegistryAdmin:    {ID: RegistryAdmin, Tier: TierExperimental},
 	DepartmentAdmin:  {ID: DepartmentAdmin, Tier: TierExperimental},
-	GraphAdmin:       {ID: GraphAdmin, Tier: TierExperimental},
+	GraphAdmin:       {ID: GraphAdmin, Tier: TierCore},
 	Relay:            {ID: Relay, Tier: TierExperimental},
 	WebFetch:         {ID: WebFetch, Tier: TierExperimental},
 	Embeddings:       {ID: Embeddings, Tier: TierInternal},

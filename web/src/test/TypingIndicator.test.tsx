@@ -20,6 +20,6 @@ describe('TypingIndicator', () => {
 
   it('renders animated dots', () => {
     const { container } = render(<TypingIndicator agents={['researcher']} />);
-    expect(container.querySelectorAll('.animate-bounce')).toHaveLength(3);
+    expect(container.querySelectorAll('[style*="agencyPulse"]')).toHaveLength(3);
   });
 });

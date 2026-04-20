@@ -165,6 +165,26 @@ class TestMessageEndpoints:
         data = await resp.json()
         assert len(data) == 2
 
+    async def test_read_messages_accepts_legacy_decoded_utc_offset(self, aiohttp_client, comms_app):
+        client = await aiohttp_client(comms_app)
+        await client.post("/channels", json={
+            "name": "test", "type": "team", "created_by": "operator",
+            "members": ["scout"],
+        })
+        resp = await client.get("/channels/test/messages?since=2026-04-19T01:39:35.833388+00:00")
+        assert resp.status == 200
+
+    async def test_read_messages_rejects_invalid_since_without_traceback(self, aiohttp_client, comms_app):
+        client = await aiohttp_client(comms_app)
+        await client.post("/channels", json={
+            "name": "test", "type": "team", "created_by": "operator",
+            "members": ["scout"],
+        })
+        resp = await client.get("/channels/test/messages", params={"since": "not-a-time"})
+        data = await resp.json()
+        assert resp.status == 400
+        assert data["error"] == "since must be an ISO timestamp"
+
 
 class TestUnreadEndpoints:
     async def test_get_unreads(self, aiohttp_client, comms_app):

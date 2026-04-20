@@ -32,9 +32,9 @@ describe('AgencyMessage', () => {
     expect(screen.getByText('world')).toBeInTheDocument(); // bold rendered
   });
 
-  it('shows AGENT badge for agent messages', () => {
+  it('does not show legacy AGENT badge for agent messages', () => {
     renderMsg();
-    expect(screen.getByText('AGENT')).toBeInTheDocument();
+    expect(screen.queryByText('AGENT')).not.toBeInTheDocument();
   });
 
   it('does not show AGENT badge for operator messages', () => {
@@ -55,5 +55,20 @@ describe('AgencyMessage', () => {
     renderMsg({ message: msg });
     expect(screen.getByText('View full report')).toBeInTheDocument();
     expect(screen.getByText('Download .md')).toBeInTheDocument();
+  });
+
+  it('renders tool calls as compact terminal pills', () => {
+    const msg: Message = {
+      ...baseMessage,
+      metadata: {
+        tool_calls: [
+          { tool: 'knowledge.search', input: { q: 'field notes Q2', k: 20 }, output: '18 matches' },
+        ],
+      },
+    };
+    renderMsg({ message: msg });
+    expect(screen.getByText(/knowledge\.search/)).toBeInTheDocument();
+    expect(screen.getByText(/18 matches/)).toBeInTheDocument();
+    expect(screen.queryByText(/ran/)).not.toBeInTheDocument();
   });
 });

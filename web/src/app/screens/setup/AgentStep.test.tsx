@@ -12,14 +12,28 @@ describe('AgentStep', () => {
   it('reuses and starts an existing agent during repeat setup', async () => {
     const onUpdate = vi.fn();
     const onNext = vi.fn();
-    let startCalled = false;
+    const granted: string[] = [];
 
     server.use(
+      http.get(`${BASE}/agents`, () => HttpResponse.json([{ name: 'henry', status: 'running' }])),
       http.post(`${BASE}/agents`, () =>
         HttpResponse.json({ error: 'agent "henry" already exists' }, { status: 409 }),
       ),
-      http.post(`${BASE}/agents/henry/start`, () => {
-        startCalled = true;
+      http.get(`${BASE}/admin/capabilities`, () => HttpResponse.json([
+        { name: 'standard-tool', state: 'available' },
+        { name: 'advanced-tool', state: 'available' },
+        { name: 'provider-web-fetch', state: 'available' },
+        { name: 'provider-web-search', state: 'available' },
+      ])),
+      http.get(`${BASE}/infra/setup/config`, () => HttpResponse.json({
+        capability_tiers: {
+          standard: { capabilities: ['standard-tool'] },
+          advanced: { capabilities: ['advanced-tool'] },
+        },
+      })),
+      http.post(`${BASE}/agents/henry/grant`, async ({ request }) => {
+        const body = await request.json() as { capability?: string };
+        if (body.capability) granted.push(body.capability);
         return HttpResponse.json({ ok: true });
       }),
     );
@@ -27,26 +41,25 @@ describe('AgentStep', () => {
     render(
       <AgentStep
         agentName="henry"
-        agentPreset="platform-expert"
-        platformExpert
         onUpdate={onUpdate}
-        onPlatformExpertToggle={() => {}}
         onNext={onNext}
         onBack={() => {}}
       />,
     );
 
-    await userEvent.click(screen.getByRole('button', { name: /create or start/i }));
+    expect(await screen.findByText(/@henry already exists/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /continue with henry/i }));
 
     await waitFor(() => {
-      expect(startCalled).toBe(true);
       expect(onUpdate).toHaveBeenCalledWith('henry', 'platform-expert');
       expect(onNext).toHaveBeenCalled();
     });
+    expect(granted).toEqual(['standard-tool', 'provider-web-fetch', 'provider-web-search']);
   });
 
   it('still shows actionable errors for non-idempotent create failures', async () => {
     server.use(
+      http.get(`${BASE}/agents`, () => HttpResponse.json([])),
       http.post(`${BASE}/agents`, () =>
         HttpResponse.json({ error: 'Docker is not running' }, { status: 500 }),
       ),
@@ -55,16 +68,13 @@ describe('AgentStep', () => {
     render(
       <AgentStep
         agentName="henry"
-        agentPreset="platform-expert"
-        platformExpert
         onUpdate={() => {}}
-        onPlatformExpertToggle={() => {}}
         onNext={() => {}}
         onBack={() => {}}
       />,
     );
 
-    await userEvent.click(screen.getByRole('button', { name: /create or start/i }));
+    await userEvent.click(screen.getByRole('button', { name: /create agent/i }));
 
     expect(await screen.findByText('Docker is required to run agents. Please start Docker and try again.')).toBeInTheDocument();
   });

@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import { afterAll, afterEach, beforeAll } from 'vitest';
-import { server } from './server';
+
+let server: typeof import('./server')['server'];
 
 const originalConsoleError = console.error.bind(console);
 console.error = (...args: unknown[]) => {
@@ -20,18 +21,21 @@ process.stderr.write = ((chunk: string | Uint8Array, ...args: unknown[]) => {
   return originalStderrWrite(chunk as never, ...(args as []));
 }) as typeof process.stderr.write;
 
-// Polyfill localStorage for jsdom (not fully functional by default)
-if (typeof globalThis.localStorage === 'undefined' || typeof globalThis.localStorage.clear !== 'function') {
-  const store: Record<string, string> = {};
-  globalThis.localStorage = {
+// Install this before MSW imports. Node 25 exposes an experimental localStorage
+// accessor that warns unless started with --localstorage-file.
+const store: Record<string, string> = {};
+Object.defineProperty(globalThis, 'localStorage', {
+  configurable: true,
+  writable: true,
+  value: {
     getItem: (key: string) => store[key] ?? null,
     setItem: (key: string, value: string) => { store[key] = String(value); },
     removeItem: (key: string) => { delete store[key]; },
     clear: () => { Object.keys(store).forEach(k => delete store[k]); },
     get length() { return Object.keys(store).length; },
     key: (index: number) => Object.keys(store)[index] ?? null,
-  } as Storage;
-}
+  } as Storage,
+});
 
 // Polyfill ResizeObserver for jsdom (required by @radix-ui/react-scroll-area)
 globalThis.ResizeObserver = class ResizeObserver {
@@ -72,6 +76,9 @@ Object.defineProperty(HTMLFormElement.prototype, 'requestSubmit', {
   },
 });
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'warn' }));
+beforeAll(async () => {
+  server = (await import('./server')).server;
+  server.listen({ onUnhandledRequest: 'warn' });
+});
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());

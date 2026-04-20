@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
@@ -9,137 +9,183 @@ import { Capabilities } from './Capabilities';
 const BASE = 'http://localhost:8200/api/v1';
 
 describe('Capabilities', () => {
-  it('renders capabilities from API', async () => {
+  it('renders the redesign capability surface from API data', async () => {
     server.use(
       http.get(`${BASE}/admin/capabilities`, () =>
         HttpResponse.json([
-          { name: 'slack-api', kind: 'service', state: 'enabled', agents: ['steve'] },
+          { name: 'fs.read', kind: 'tool', state: 'available', agents: [], spec: { risk: 'low', scope: 'any path' } },
+          { name: 'shell.exec', kind: 'tool', state: 'restricted', agents: ['henry'], spec: { risk: 'high', scope: 'whitelist (8 cmds)' } },
         ]),
       ),
     );
+
     renderWithRouter(<Capabilities />);
+
     await waitFor(() => {
-      expect(screen.getByText('slack-api')).toBeInTheDocument();
-      expect(screen.getByText('steve')).toBeInTheDocument();
+      expect(screen.getByText('Total')).toBeInTheDocument();
+      expect(screen.getByText('Enabled')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /explain selected/i })).toBeInTheDocument();
+      expect(screen.getByText('Action')).toBeInTheDocument();
+      expect(screen.getByText('From')).toBeInTheDocument();
+      expect(screen.getByText('Risk')).toBeInTheDocument();
+      expect(screen.getByText('Scope')).toBeInTheDocument();
+      expect(screen.getByText('Used by')).toBeInTheDocument();
+      expect(screen.getByText('fs.read')).toBeInTheDocument();
+      expect(screen.getByText('shell.exec')).toBeInTheDocument();
+      expect(screen.getByText('whitelist (8 cmds)')).toBeInTheDocument();
+      expect(screen.getByText('1 agents')).toBeInTheDocument();
     });
   });
 
-  it('shows confirmation before delete', async () => {
+  it('renders provider tools as grantable capability rows', async () => {
     server.use(
       http.get(`${BASE}/admin/capabilities`, () =>
         HttpResponse.json([
-          { name: 'test-cap', kind: 'tool', state: 'disabled', agents: [] },
+          {
+            name: 'provider-web-search',
+            kind: 'provider-tool',
+            state: 'disabled',
+            agents: [],
+            description: 'Provider-side web search or search grounding.',
+            spec: { risk: 'medium', execution: 'provider_hosted' },
+          },
         ]),
       ),
     );
-    renderWithRouter(<Capabilities />);
-    await waitFor(() => {
-      expect(screen.getByText('test-cap')).toBeInTheDocument();
-    });
-    await userEvent.click(screen.getByRole('button', { name: /delete/i }));
-    await waitFor(() => {
-      expect(screen.getByText(/cannot be undone/i)).toBeInTheDocument();
-    });
-  });
 
-  it('has correct kind options in add form', async () => {
-    server.use(http.get(`${BASE}/admin/capabilities`, () => HttpResponse.json([])));
     renderWithRouter(<Capabilities />, { route: '/admin/capabilities' });
-    await userEvent.click(screen.getByRole('button', { name: /add capability/i }));
-    // The add-form select should have service as default value
-    const select = screen.getByDisplayValue('service');
-    expect(select).toBeInTheDocument();
-  });
 
-  it('shows operator guidance and cross-links when empty', async () => {
-    server.use(http.get(`${BASE}/admin/capabilities`, () => HttpResponse.json([])));
-    renderWithRouter(<Capabilities />, { route: '/admin/capabilities' });
     await waitFor(() => {
-      expect(screen.getByText(/use capabilities to control what agents can touch/i)).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'Open Presets' })).toHaveAttribute('href', '/admin/presets');
-      expect(screen.getByRole('link', { name: 'Review Policy' })).toHaveAttribute('href', '/admin/policy');
-      expect(screen.getByText(/add a capability only when you need to expose a new tool/i)).toBeInTheDocument();
+      expect(screen.getByText('provider-web-search')).toBeInTheDocument();
+      expect(screen.getByText('provider')).toBeInTheDocument();
+      expect(screen.getByText('medium')).toBeInTheDocument();
+      expect(screen.getByText('provider hosted')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /enable provider-web-search/i })).toBeInTheDocument();
     });
   });
 
-  it('enables a disabled capability', async () => {
+  it('keeps provider tools visible when the registry has not exposed them yet', async () => {
+    server.use(
+      http.get(`${BASE}/admin/capabilities`, () => HttpResponse.json([])),
+      http.get(`${BASE}/infra/provider-tools`, () =>
+        HttpResponse.json({
+          version: '0.1',
+          capabilities: {
+            'provider-web-search': {
+              title: 'Web search',
+              risk: 'medium',
+              default_grant: false,
+              execution: 'provider_hosted',
+              description: 'Provider-side web search or search grounding.',
+            },
+          },
+        }),
+      ),
+    );
+
+    renderWithRouter(<Capabilities />, { route: '/admin/capabilities' });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /provider tools 1/i })).toBeInTheDocument();
+      expect(screen.getByText('provider-web-search')).toBeInTheDocument();
+      expect(screen.getByText('provider')).toBeInTheDocument();
+      expect(screen.getByText('medium')).toBeInTheDocument();
+      expect(screen.getByText('provider hosted')).toBeInTheDocument();
+    });
+  });
+
+  it('reflects enable state for provider tools loaded from fallback inventory', async () => {
+    server.use(
+      http.get(`${BASE}/admin/capabilities`, () => HttpResponse.json([])),
+      http.get(`${BASE}/infra/provider-tools`, () =>
+        HttpResponse.json({
+          version: '0.1',
+          capabilities: {
+            'provider-web-search': {
+              title: 'Web search',
+              risk: 'medium',
+              default_grant: false,
+              execution: 'provider_hosted',
+              description: 'Provider-side web search or search grounding.',
+            },
+          },
+        }),
+      ),
+      http.get(`${BASE}/agents`, () => HttpResponse.json([])),
+      http.post(`${BASE}/admin/capabilities/:name/enable`, () => HttpResponse.json({ ok: true })),
+    );
+
+    renderWithRouter(<Capabilities />, { route: '/admin/capabilities' });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /enable provider-web-search/i })).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('button', { name: /enable provider-web-search/i }));
+    await waitFor(() => {
+      expect(screen.getByText('Enable provider-web-search')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('button', { name: /^enable$/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /disable provider-web-search/i })).toBeInTheDocument();
+    });
+  });
+
+  it('opens configure flow from the compact enable toggle', async () => {
     server.use(
       http.get(`${BASE}/admin/capabilities`, () =>
         HttpResponse.json([
           { name: 'web-search', kind: 'service', state: 'disabled', agents: [] },
         ]),
       ),
-      http.post(`${BASE}/capabilities/:name/enable`, () => HttpResponse.json({ ok: true })),
+      http.get(`${BASE}/agents`, () => HttpResponse.json([{ name: 'henry', status: 'running' }])),
+      http.post(`${BASE}/admin/capabilities/:name/enable`, () => HttpResponse.json({ ok: true })),
     );
+
     renderWithRouter(<Capabilities />);
+
     await waitFor(() => {
       expect(screen.getByText('web-search')).toBeInTheDocument();
     });
-    const enableButton = screen.getByRole('button', { name: /^enable$/i });
-    await userEvent.click(enableButton);
+    await userEvent.click(screen.getByRole('button', { name: /enable web-search/i }));
+    await waitFor(() => {
+      expect(screen.getByText('Enable web-search')).toBeInTheDocument();
+      expect(screen.getByText('henry')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('button', { name: /^enable$/i }));
     await waitFor(() => {
       expect(screen.queryByText(/failed to enable/i)).not.toBeInTheDocument();
     });
   });
 
-  it('disables an enabled capability', async () => {
+  it('disables an active capability from the compact toggle', async () => {
     server.use(
       http.get(`${BASE}/admin/capabilities`, () =>
         HttpResponse.json([
-          { name: 'web-search', kind: 'service', state: 'enabled', agents: [] },
+          { name: 'http.get', kind: 'tool', state: 'available', agents: [] },
         ]),
       ),
-      http.post(`${BASE}/capabilities/:name/disable`, () => HttpResponse.json({ ok: true })),
+      http.post(`${BASE}/admin/capabilities/:name/disable`, () => HttpResponse.json({ ok: true })),
     );
+
     renderWithRouter(<Capabilities />);
+
     await waitFor(() => {
-      expect(screen.getByText('web-search')).toBeInTheDocument();
+      expect(screen.getByText('http.get')).toBeInTheDocument();
     });
-    const disableButton = screen.getByRole('button', { name: /^disable$/i });
-    await userEvent.click(disableButton);
+    await userEvent.click(screen.getByRole('button', { name: /disable http.get/i }));
     await waitFor(() => {
       expect(screen.queryByText(/failed to disable/i)).not.toBeInTheDocument();
     });
   });
 
-  it('confirms delete and calls API', async () => {
-    server.use(
-      http.get(`${BASE}/admin/capabilities`, () =>
-        HttpResponse.json([
-          { name: 'file-write', kind: 'tool', state: 'disabled', agents: [] },
-        ]),
-      ),
-      http.delete(`${BASE}/capabilities/:name`, () => HttpResponse.json({ ok: true })),
-    );
-    renderWithRouter(<Capabilities />);
-    await waitFor(() => {
-      expect(screen.getByText('file-write')).toBeInTheDocument();
-    });
-    await userEvent.click(screen.getByRole('button', { name: /delete/i }));
-    await waitFor(() => {
-      expect(screen.getByText(/cannot be undone/i)).toBeInTheDocument();
-    });
-    // Click the confirm button in the dialog
-    const confirmButton = screen.getByRole('button', { name: /^delete$/i });
-    await userEvent.click(confirmButton);
-    await waitFor(() => {
-      expect(screen.queryByText(/failed to delete/i)).not.toBeInTheDocument();
-    });
-  });
+  it('shows the compact empty state', async () => {
+    server.use(http.get(`${BASE}/admin/capabilities`, () => HttpResponse.json([])));
 
-  it('adds a new capability', async () => {
-    server.use(
-      http.get(`${BASE}/admin/capabilities`, () => HttpResponse.json([])),
-      http.post(`${BASE}/admin/capabilities`, () => HttpResponse.json({ ok: true })),
-    );
-    renderWithRouter(<Capabilities />);
-    await userEvent.click(screen.getByRole('button', { name: /add capability/i }));
-    const nameInput = screen.getByPlaceholderText(/capability name/i);
-    await userEvent.type(nameInput, 'my-new-cap');
-    const addButton = screen.getByRole('button', { name: /^add$/i });
-    await userEvent.click(addButton);
+    renderWithRouter(<Capabilities />, { route: '/admin/capabilities' });
+
     await waitFor(() => {
-      expect(screen.queryByText(/failed to add/i)).not.toBeInTheDocument();
+      expect(screen.getByText('No entries found.')).toBeInTheDocument();
+      expect(screen.getByText('0%')).toBeInTheDocument();
     });
   });
 });

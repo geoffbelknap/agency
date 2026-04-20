@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
@@ -6,9 +6,15 @@ import { server } from '../../test/server';
 import { renderWithRouter } from '../../test/render';
 import { Knowledge } from './Knowledge';
 
+vi.mock('../lib/features', () => ({
+  adminFeatureFlags: {
+    graphAdmin: true,
+  },
+}));
+
 const BASE = 'http://localhost:8200/api/v1';
 
-function mockOntologyReviewData({
+function mockGraphAdminData({
   candidates = [],
   curationEntries = [],
   pending = [],
@@ -55,139 +61,48 @@ function mockOntologyReviewData({
   );
 }
 
-describe('Knowledge', () => {
-  it('renders stats on mount', async () => {
+describe('Knowledge admin', () => {
+  it('renders graph administration surfaces from graph governance APIs', async () => {
     server.use(
       http.get(`${BASE}/graph/stats`, () =>
         HttpResponse.json({ node_count: 42, edge_count: 100 }),
       ),
     );
-    mockOntologyReviewData();
-    renderWithRouter(<Knowledge />);
-    await waitFor(() => {
-      expect(screen.getByText('42')).toBeInTheDocument();
-      expect(screen.getByText('100')).toBeInTheDocument();
-    });
-  });
-
-  it('queries who-knows and renders results', async () => {
-    server.use(
-      http.get(`${BASE}/graph/stats`, () =>
-        HttpResponse.json({ node_count: 0, edge_count: 0 }),
-      ),
-      http.get(`${BASE}/graph/who-knows`, () =>
-        HttpResponse.json({
-          agents: [
-            { name: 'alice', confidence: 0.95, topics: ['deployment', 'docker'] },
-          ],
-        }),
-      ),
-    );
-    mockOntologyReviewData();
-    renderWithRouter(<Knowledge />);
-    const input = screen.getByPlaceholderText(/enter a topic/i);
-    await userEvent.type(input, 'deployment');
-    await userEvent.click(screen.getByRole('button', { name: /^find$/i }));
-    await waitFor(() => {
-      expect(screen.getByText('alice')).toBeInTheDocument();
-    });
-    expect(screen.getByText('deployment')).toBeInTheDocument();
-  });
-
-  it('queries knowledge graph', async () => {
-    server.use(
-      http.get(`${BASE}/graph/stats`, () =>
-        HttpResponse.json({ node_count: 0, edge_count: 0 }),
-      ),
-      http.post(`${BASE}/graph/query`, async ({ request }) => {
-        const body = await request.json() as { query?: string };
-        if (body.query === 'deployment') {
-          return HttpResponse.json({
-            results: [
-              { label: 'CI/CD', kind: 'topic', summary: 'Deployment pipeline info', source_type: 'agent', updated_at: '2026-03-16', connections: 3 },
-            ],
-          });
-        }
-        return HttpResponse.json({ results: [] });
-      }),
-    );
-    mockOntologyReviewData();
-    renderWithRouter(<Knowledge />);
-    const input = screen.getByPlaceholderText(/search topics and content/i);
-    await userEvent.type(input, 'deployment');
-    await userEvent.click(screen.getByRole('button', { name: /^search$/i }));
-    await waitFor(() => {
-      expect(screen.getByText('CI/CD')).toBeInTheDocument();
-    });
-  });
-
-  it('hides experimental graph governance sections in the default core workspace', async () => {
-    server.use(
-      http.get(`${BASE}/graph/stats`, () =>
-        HttpResponse.json({ node_count: 0, edge_count: 0 }),
-      ),
-    );
-    mockOntologyReviewData({
+    mockGraphAdminData({
+      pending: [
+        {
+          id: 'pending-1',
+          title: 'Promote release process',
+          subject: 'release',
+          proposed: 'runbook',
+          agent: 'henry',
+          confidence: 0.91,
+        },
+      ],
+      quarantined: [
+        {
+          id: 'quarantine-1',
+          label: 'untrusted note',
+          reason: 'source boundary mismatch',
+        },
+      ],
+      candidates: [
+        {
+          id: 'candidate-1',
+          value: 'field_report',
+          count: 3,
+          status: 'candidate',
+        },
+      ],
       curationEntries: [
         {
-          id: 'entry-detail-1',
+          id: 'decision-1',
           action: 'ontology_promote',
-          node_id: 'cand-detail-1',
-          detail: JSON.stringify({ value: 'mystery_kind', occurrence_count: 12 }),
+          node_id: 'candidate-2',
+          detail: JSON.stringify({ value: 'governance_note' }),
           timestamp: '2026-04-09T10:10:00Z',
         },
       ],
-    });
-
-    renderWithRouter(<Knowledge />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Core Knowledge Surface')).toBeInTheDocument();
-      expect(screen.getByText(/advanced graph governance, ontology review, quarantine, and topology inspection are experimental/i)).toBeInTheDocument();
-      expect(screen.queryByText('Structural Review')).not.toBeInTheDocument();
-      expect(screen.queryByText('Graph Topology')).not.toBeInTheDocument();
-      expect(screen.queryByText('Quarantine')).not.toBeInTheDocument();
-      expect(screen.queryByText('Ontology Review')).not.toBeInTheDocument();
-    });
-  });
-
-  it('keeps experimental contribution-review data from surfacing in core mode', async () => {
-    server.use(
-      http.get(`${BASE}/graph/stats`, () =>
-        HttpResponse.json({ node_count: 0, edge_count: 0 }),
-      ),
-    );
-
-    renderWithRouter(<Knowledge />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Core Knowledge Surface')).toBeInTheDocument();
-      expect(screen.queryByText('Structural Review')).not.toBeInTheDocument();
-    });
-  });
-
-  it('keeps experimental quarantine data hidden in core mode', async () => {
-    server.use(
-      http.get(`${BASE}/graph/stats`, () =>
-        HttpResponse.json({ node_count: 0, edge_count: 0 }),
-      ),
-    );
-
-    renderWithRouter(<Knowledge />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Core Knowledge Surface')).toBeInTheDocument();
-      expect(screen.queryByText('Quarantine')).not.toBeInTheDocument();
-    });
-  });
-
-  it('keeps experimental topology summaries hidden in core mode', async () => {
-    server.use(
-      http.get(`${BASE}/graph/stats`, () =>
-        HttpResponse.json({ node_count: 0, edge_count: 0 }),
-      ),
-    );
-    mockOntologyReviewData({
       classification: { tiers: [{ tier: 'restricted', description: 'Operator-only facts' }] },
       principals: [{ uuid: 'agent:alice', type: 'agent', name: 'alice' }],
       communities: { communities: [{ id: 'community-1', label: 'Platform Ops', node_count: 4 }] },
@@ -197,8 +112,60 @@ describe('Knowledge', () => {
     renderWithRouter(<Knowledge />);
 
     await waitFor(() => {
-      expect(screen.getByText('Core Knowledge Surface')).toBeInTheDocument();
-      expect(screen.queryByText('Graph Topology')).not.toBeInTheDocument();
+      expect(screen.getByText('42')).toBeInTheDocument();
+      expect(screen.getByText('100')).toBeInTheDocument();
+      expect(screen.getByText('Structural Review')).toBeInTheDocument();
+      expect(screen.getByText('Graph Topology')).toBeInTheDocument();
+      expect(screen.getByText('Quarantine')).toBeInTheDocument();
+      expect(screen.getByText('Ontology Review')).toBeInTheDocument();
     });
+
+    expect(screen.getByText('Promote release process')).toBeInTheDocument();
+    expect(screen.getByText('untrusted note')).toBeInTheDocument();
+    expect(screen.getByText('field_report')).toBeInTheDocument();
+    expect(screen.getByText('restricted')).toBeInTheDocument();
+  });
+
+  it('approves pending structural contributions through the review API', async () => {
+    let reviewed: { id?: string; action?: string } = {};
+    server.use(
+      http.get(`${BASE}/graph/stats`, () =>
+        HttpResponse.json({ node_count: 0, edge_count: 0 }),
+      ),
+      http.post(`${BASE}/graph/review/:id`, async ({ params, request }) => {
+        const body = await request.json() as { action?: string };
+        reviewed = { id: String(params.id), action: body.action };
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    mockGraphAdminData({
+      pending: [{ id: 'pending-approve', title: 'Approve me' }],
+    });
+
+    renderWithRouter(<Knowledge />);
+
+    await screen.findByText('Approve me');
+    await userEvent.click(screen.getByRole('button', { name: /^approve$/i }));
+
+    await waitFor(() => {
+      expect(reviewed).toEqual({ id: 'pending-approve', action: 'approve' });
+    });
+  });
+
+  it('does not expose feature-tab search affordances in admin', async () => {
+    server.use(
+      http.get(`${BASE}/graph/stats`, () =>
+        HttpResponse.json({ node_count: 0, edge_count: 0 }),
+      ),
+    );
+    mockGraphAdminData();
+
+    renderWithRouter(<Knowledge />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Knowledge metrics')).toBeInTheDocument();
+    });
+    expect(screen.queryByPlaceholderText(/search topics and content/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Who knows')).not.toBeInTheDocument();
   });
 });

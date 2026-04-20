@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
-import { api } from '../lib/api';
-import { Button } from '../components/ui/button';
-import { AlertTriangle, Copy, FileText, Plus, Save, Trash2, X } from 'lucide-react';
+import { Copy, Package, Pencil, Plus, Save, UserPlus } from 'lucide-react';
+import { api, type RawAgent } from '../lib/api';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+
+type BadgeTone = 'teal' | 'amber' | 'red' | 'neutral';
 
 interface PresetSummary {
   name: string;
@@ -13,11 +14,7 @@ interface PresetSummary {
   source: string;
 }
 
-interface PresetDetail {
-  name: string;
-  description: string;
-  type: string;
-  source: string;
+interface PresetDetail extends PresetSummary {
   tools?: string[];
   capabilities?: string[];
   model_tier?: string;
@@ -38,6 +35,7 @@ const EMPTY_PRESET: PresetDetail = {
   type: 'standard',
   source: 'user',
   tools: ['python3'],
+  capabilities: [],
   hard_limits: [
     { rule: 'never expose credentials, tokens, or secrets in any output', reason: 'credential exposure is a critical security risk' },
     { rule: 'never send data to external services without explicit approval', reason: 'data exfiltration risk' },
@@ -50,10 +48,92 @@ const EMPTY_PRESET: PresetDetail = {
   identity: { purpose: '', body: '' },
 };
 
+function Badge({ children, tone = 'neutral' }: { children: React.ReactNode; tone?: BadgeTone }) {
+  const tones = {
+    teal: { bg: 'var(--teal-tint)', color: 'var(--teal-dark)', border: 'var(--teal-border)' },
+    amber: { bg: 'var(--amber-tint)', color: 'var(--amber-foreground)', border: 'var(--amber)' },
+    red: { bg: 'var(--red-tint)', color: 'var(--red)', border: 'var(--red)' },
+    neutral: { bg: 'var(--warm-3)', color: 'var(--ink-mid)', border: 'var(--ink-hairline-strong)' },
+  }[tone];
+  return (
+    <span className="mono" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', background: tones.bg, color: tones.color, border: `0.5px solid ${tones.border}`, borderRadius: 4, whiteSpace: 'nowrap' }}>
+      {children}
+    </span>
+  );
+}
+
+function actionStyle(variant: 'default' | 'primary' | 'ghost' | 'danger' = 'default', disabled = false): React.CSSProperties {
+  const variants = {
+    default: { bg: 'var(--warm)', color: 'var(--ink)', border: '0.5px solid var(--ink-hairline-strong)' },
+    primary: { bg: 'var(--ink)', color: 'var(--warm)', border: '0.5px solid var(--ink)' },
+    ghost: { bg: 'transparent', color: 'var(--ink-mid)', border: '0.5px solid transparent' },
+    danger: { bg: 'transparent', color: 'var(--red)', border: '0.5px solid transparent' },
+  }[variant];
+  return { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 10px', fontSize: 12, fontWeight: 400, fontFamily: 'var(--sans)', cursor: disabled ? 'default' : 'pointer', background: variants.bg, color: variants.color, border: variants.border, borderRadius: 999, opacity: disabled ? 0.5 : 1, whiteSpace: 'nowrap', textDecoration: 'none' };
+}
+
+function DesignButton({ children, icon, variant = 'default', disabled = false, onClick }: { children: React.ReactNode; icon?: React.ReactNode; variant?: 'default' | 'primary' | 'ghost' | 'danger'; disabled?: boolean; onClick?: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={actionStyle(variant, disabled)}
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+function DesignLink({ children, icon, to, variant = 'default' }: { children: React.ReactNode; icon?: React.ReactNode; to: string; variant?: 'default' | 'primary' | 'ghost' | 'danger' }) {
+  return (
+    <Link to={to} style={actionStyle(variant)}>
+      {icon}
+      {children}
+    </Link>
+  );
+}
+
+function MetaStat({ label, value, tone }: { label: string; value: string | number; tone?: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <span className="eyebrow" style={{ fontSize: 9 }}>{label}</span>
+      <span className="mono" style={{ fontSize: 14, color: tone || 'var(--ink)' }}>{value}</span>
+    </div>
+  );
+}
+
+function Card({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ background: 'var(--warm-2)', border: '0.5px solid var(--ink-hairline)', borderLeft: '2px solid transparent', borderRadius: 10, padding: 18, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 210 }}>
+      {children}
+    </div>
+  );
+}
+
+function presetCaps(preset?: PresetDetail | PresetSummary | null) {
+  if (!preset) return [];
+  const detail = preset as PresetDetail;
+  return [...(detail.capabilities || []), ...(detail.tools || [])].filter(Boolean).slice(0, 6);
+}
+
+function normalizeDetail(summary: PresetSummary, detail?: Record<string, unknown>): PresetDetail {
+  return {
+    ...summary,
+    ...(detail || {}),
+    name: String(detail?.name || summary.name),
+    description: String(detail?.description || summary.description || ''),
+    type: String(detail?.type || summary.type || 'standard'),
+    source: String(detail?.source || summary.source || 'built-in'),
+  } as PresetDetail;
+}
+
 export function Presets() {
   const [presets, setPresets] = useState<PresetSummary[]>([]);
+  const [agents, setAgents] = useState<RawAgent[]>([]);
+  const [details, setDetails] = useState<Record<string, PresetDetail>>({});
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<PresetDetail | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<PresetDetail>(EMPTY_PRESET);
   const [saving, setSaving] = useState(false);
@@ -63,10 +143,15 @@ export function Presets() {
   const loadPresets = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await api.presets.list();
-      setPresets(data ?? []);
+      const [presetData, agentData] = await Promise.all([
+        api.presets.list(),
+        api.agents.list().catch(() => [] as RawAgent[]),
+      ]);
+      setPresets(presetData ?? []);
+      setAgents(agentData ?? []);
     } catch {
       setPresets([]);
+      setAgents([]);
     } finally {
       setLoading(false);
     }
@@ -74,42 +159,78 @@ export function Presets() {
 
   useEffect(() => { loadPresets(); }, [loadPresets]);
 
-  const selectPreset = async (p: PresetSummary) => {
-    if (p.source === 'user') {
-      try {
-        const detail = await api.presets.show(p.name);
-        setSelected(detail as unknown as PresetDetail);
-        setDraft(detail as unknown as PresetDetail);
-        setEditing(false);
-        setIsNew(false);
-      } catch {
-        // Fall back to summary
-        setSelected({ ...p, tools: [], hard_limits: [], identity: { purpose: p.description, body: '' } });
-        setDraft({ ...p, tools: [], hard_limits: [], identity: { purpose: p.description, body: '' } });
-        setEditing(false);
-        setIsNew(false);
-      }
-    } else {
-      // Built-in — show summary only (detail endpoint not available)
-      setSelected({ ...p, tools: [], hard_limits: [], identity: { purpose: p.description, body: '' } });
-      setEditing(false);
-      setIsNew(false);
+  const agentCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const agent of agents) {
+      if (!agent.preset) continue;
+      counts[agent.preset] = (counts[agent.preset] || 0) + 1;
+    }
+    return counts;
+  }, [agents]);
+
+  const userPresets = presets.filter((preset) => preset.source === 'user');
+  const builtinPresets = presets.filter((preset) => preset.source !== 'user');
+  const assignedCount = Object.values(agentCounts).reduce((sum, count) => sum + count, 0);
+
+  const getPresetDetail = async (preset: PresetSummary | PresetDetail) => {
+    if (details[preset.name]) return details[preset.name];
+    try {
+      const detail = await api.presets.show(preset.name);
+      const normalized = normalizeDetail(preset, detail);
+      setDetails((prev) => ({ ...prev, [preset.name]: normalized }));
+      return normalized;
+    } catch {
+      const normalized = normalizeDetail(preset);
+      setDetails((prev) => ({ ...prev, [preset.name]: normalized }));
+      return normalized;
     }
   };
 
   const startNew = () => {
-    setSelected(null);
-    setDraft({ ...EMPTY_PRESET });
+    setDraft({ ...EMPTY_PRESET, hard_limits: [...(EMPTY_PRESET.hard_limits || [])], escalation: { ...EMPTY_PRESET.escalation }, identity: { ...EMPTY_PRESET.identity } });
     setEditing(true);
     setIsNew(true);
   };
 
-  const duplicatePreset = (p: PresetSummary) => {
-    const base = selected || { ...p, tools: [], hard_limits: [...EMPTY_PRESET.hard_limits!], escalation: { ...EMPTY_PRESET.escalation }, identity: { purpose: p.description, body: '' } };
-    setDraft({ ...base, name: `${p.name}-copy`, source: 'user' } as PresetDetail);
+  const duplicatePreset = async (preset: PresetSummary | PresetDetail) => {
+    const source = await getPresetDetail(preset);
+    setDraft({
+      ...EMPTY_PRESET,
+      ...source,
+      name: `${source.name}-copy`,
+      source: 'user',
+      hard_limits: [...(source.hard_limits || EMPTY_PRESET.hard_limits || [])],
+      escalation: { ...(source.escalation || EMPTY_PRESET.escalation) },
+      identity: { ...(source.identity || { purpose: source.description, body: '' }) },
+    });
     setEditing(true);
     setIsNew(true);
-    setSelected(null);
+  };
+
+  const editPreset = async (preset: PresetSummary | PresetDetail) => {
+    const source = await getPresetDetail(preset);
+    if (source.source === 'user') {
+      setDraft({
+        ...EMPTY_PRESET,
+        ...source,
+        hard_limits: [...(source.hard_limits || [])],
+        escalation: { ...(source.escalation || EMPTY_PRESET.escalation) },
+        identity: { ...(source.identity || { purpose: source.description, body: '' }) },
+      });
+      setIsNew(false);
+    } else {
+      setDraft({
+        ...EMPTY_PRESET,
+        ...source,
+        name: `${source.name}-custom`,
+        source: 'user',
+        hard_limits: [...(source.hard_limits || EMPTY_PRESET.hard_limits || [])],
+        escalation: { ...(source.escalation || EMPTY_PRESET.escalation) },
+        identity: { ...(source.identity || { purpose: source.description, body: '' }) },
+      });
+      setIsNew(true);
+    }
+    setEditing(true);
   };
 
   const handleSave = async () => {
@@ -125,8 +246,9 @@ export function Presets() {
       }
       await loadPresets();
       const detail = await api.presets.show(draft.name).catch(() => draft as unknown as Record<string, unknown>);
-      setSelected(detail as unknown as PresetDetail);
-      setDraft(detail as unknown as PresetDetail);
+      const saved = normalizeDetail(draft, detail);
+      setDetails((prev) => ({ ...prev, [saved.name]: saved }));
+      setDraft(saved);
       setEditing(false);
       setIsNew(false);
     } catch (e: any) {
@@ -141,8 +263,12 @@ export function Presets() {
     try {
       await api.presets.delete(deleteTarget);
       toast.success(`Preset "${deleteTarget}" deleted`);
-      if (selected?.name === deleteTarget) { setSelected(null); setEditing(false); }
       setDeleteTarget(null);
+      setDetails((prev) => {
+        const next = { ...prev };
+        delete next[deleteTarget];
+        return next;
+      });
       await loadPresets();
     } catch (e: any) {
       toast.error(e.message || 'Failed to delete');
@@ -150,7 +276,6 @@ export function Presets() {
     }
   };
 
-  // Helpers for editing arrays
   const updateDraftField = (path: string, value: any) => {
     setDraft((prev) => {
       const next = { ...prev };
@@ -166,332 +291,110 @@ export function Presets() {
     });
   };
 
-  const userPresets = presets.filter((p) => p.source === 'user');
-  const builtinPresets = presets.filter((p) => p.source === 'built-in');
+  const renderPresetCard = (preset: PresetSummary) => {
+    const detail = details[preset.name] || preset;
+    const caps = presetCaps(detail);
+    const count = agentCounts[preset.name] || 0;
+    return (
+      <Card key={preset.name}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Package size={16} style={{ color: 'var(--ink-mid)' }} />
+            <span className="mono" style={{ fontSize: 14, color: 'var(--ink)' }}>{preset.name}</span>
+            <span className="mono" style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ink-faint)' }}>
+              {count} agent{count === 1 ? '' : 's'}
+            </span>
+          </div>
+          <p style={{ margin: '7px 0 0', fontSize: 12, color: 'var(--ink-mid)', lineHeight: 1.5 }}>{preset.description || 'No description provided.'}</p>
+        </div>
+        <div>
+          <div className="eyebrow" style={{ fontSize: 9, marginBottom: 6 }}>Access shape</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            <Badge tone={preset.source === 'user' ? 'teal' : 'neutral'}>{preset.source === 'user' ? 'custom' : 'built-in'}</Badge>
+            <Badge tone="neutral">{preset.type || 'standard'}</Badge>
+            {caps.length === 0 && <Badge tone="neutral">declared on open</Badge>}
+            {caps.map((cap) => <Badge key={cap} tone="neutral">{cap}</Badge>)}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 'auto', paddingTop: 8, borderTop: '0.5px solid var(--ink-hairline)' }}>
+          <DesignButton variant="ghost" icon={<Pencil size={12} />} onClick={() => editPreset(details[preset.name] || preset)}>{preset.source === 'user' ? 'Edit' : 'Edit copy'}</DesignButton>
+          <DesignButton variant="ghost" icon={<Copy size={12} />} onClick={() => duplicatePreset(details[preset.name] || preset)}>Duplicate</DesignButton>
+          <div style={{ flex: 1 }} />
+          <DesignLink to="/agents" variant="ghost" icon={<UserPlus size={12} />}>Assign</DesignLink>
+        </div>
+      </Card>
+    );
+  };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">Reusable agent role presets</p>
-        <Button size="sm" onClick={startNew}>
-          <Plus className="w-4 h-4 mr-1" />
-          New Preset
-        </Button>
-      </div>
-
-      <div className="rounded-lg border border-border bg-card p-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="space-y-1">
-              <div className="text-sm font-medium text-foreground">Use presets to standardize agent behavior before enabling tools</div>
-              <p className="text-xs text-muted-foreground">
-              Start from a built-in preset when the role already exists, then duplicate it only when you need a custom identity, limits, or escalation rules.
-              </p>
-            </div>
-          <div className="flex flex-wrap gap-2">
-            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
-              <Link to="/admin/capabilities">Open Capabilities</Link>
-            </Button>
-            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
-              <Link to="/agents">Open Agents</Link>
-            </Button>
+    <>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            <MetaStat label="Total" value={presets.length} />
+            <MetaStat label="Built-in" value={builtinPresets.length} />
+            <MetaStat label="Custom" value={userPresets.length} tone="var(--teal-dark)" />
+            <MetaStat label="Assigned" value={assignedCount} tone="var(--teal-dark)" />
           </div>
+          <DesignButton variant="primary" icon={<Plus size={13} />} onClick={startNew}>New preset</DesignButton>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Preset list */}
-        <div className="space-y-3">
-          {userPresets.length > 0 && (
+      {loading ? (
+        <div style={{ padding: 32, border: '0.5px solid var(--ink-hairline)', borderRadius: 10, background: 'var(--warm-2)', color: 'var(--ink-mid)', fontSize: 13, textAlign: 'center' }}>Loading presets...</div>
+      ) : editing ? (
+        <section style={{ border: '0.5px solid var(--ink-hairline)', borderRadius: 12, background: 'var(--warm-2)', padding: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 16 }}>
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">Custom</div>
-              <div className="space-y-1">
-                {userPresets.map((p) => (
-                  <button
-                    key={p.name}
-                    onClick={() => selectPreset(p)}
-                    className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
-                      selected?.name === p.name ? 'bg-primary/10 text-primary' : 'bg-card border border-border hover:bg-secondary'
-                    }`}
-                  >
-                    <div className="font-medium">{p.name}</div>
-                    <div className="text-[10px] text-muted-foreground">{p.description} · {p.type}</div>
-                  </button>
-                ))}
-              </div>
+              <div className="display" style={{ fontSize: 22, color: 'var(--ink)' }}>{isNew ? 'New preset' : `Edit ${draft.name}`}</div>
+              <div style={{ fontSize: 12, color: 'var(--ink-mid)', marginTop: 4 }}>Presets stay external to agents; runtime enforcement still depends on explicit grants and policy.</div>
             </div>
-          )}
-          <div>
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">Built-in</div>
-            <div className="space-y-1">
-              {builtinPresets.map((p) => (
-                <button
-                  key={p.name}
-                  onClick={() => selectPreset(p)}
-                  className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
-                    selected?.name === p.name ? 'bg-primary/10 text-primary' : 'bg-card border border-border hover:bg-secondary'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">{p.name}</span>
-                    <span className="text-[9px] text-muted-foreground/60 uppercase">read-only</span>
-                  </div>
-                  <div className="text-[10px] text-muted-foreground">{p.description} · {p.type}</div>
-                </button>
-              ))}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <DesignButton variant="primary" icon={<Save size={13} />} disabled={saving} onClick={handleSave}>{saving ? 'Saving...' : 'Save'}</DesignButton>
+              <DesignButton onClick={() => setEditing(false)}>Cancel</DesignButton>
             </div>
           </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <span className="eyebrow" style={{ fontSize: 9 }}>Name</span>
+              <input id="preset-name" name="preset-name" value={draft.name} disabled={!isNew} onChange={(e) => updateDraftField('name', e.target.value)} style={{ height: 38, border: '0.5px solid var(--ink-hairline)', borderRadius: 10, background: 'var(--warm)', color: 'var(--ink)', padding: '0 12px', opacity: !isNew ? 0.55 : 1 }} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <span className="eyebrow" style={{ fontSize: 9 }}>Type</span>
+              <select id="preset-type" name="preset-type" value={draft.type} onChange={(e) => updateDraftField('type', e.target.value)} style={{ height: 38, border: '0.5px solid var(--ink-hairline)', borderRadius: 10, background: 'var(--warm)', color: 'var(--ink)', padding: '0 12px' }}>
+                <option value="standard">standard</option>
+                <option value="function">function</option>
+                <option value="coordinator">coordinator</option>
+              </select>
+            </label>
+          </div>
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 12 }}>
+            <span className="eyebrow" style={{ fontSize: 9 }}>Description</span>
+            <input id="preset-description" name="preset-description" value={draft.description} onChange={(e) => updateDraftField('description', e.target.value)} style={{ height: 38, border: '0.5px solid var(--ink-hairline)', borderRadius: 10, background: 'var(--warm)', color: 'var(--ink)', padding: '0 12px' }} />
+          </label>
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 12 }}>
+            <span className="eyebrow" style={{ fontSize: 9 }}>Purpose</span>
+            <input id="preset-purpose" name="preset-purpose" value={draft.identity?.purpose || ''} onChange={(e) => updateDraftField('identity.purpose', e.target.value)} placeholder="One-line purpose statement" style={{ height: 38, border: '0.5px solid var(--ink-hairline)', borderRadius: 10, background: 'var(--warm)', color: 'var(--ink)', padding: '0 12px' }} />
+          </label>
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 12 }}>
+            <span className="eyebrow" style={{ fontSize: 9 }}>Identity prompt</span>
+            <textarea id="preset-identity" name="preset-identity" value={draft.identity?.body || ''} onChange={(e) => updateDraftField('identity.body', e.target.value)} placeholder="Agent personality prompt..." style={{ minHeight: 140, border: '0.5px solid var(--ink-hairline)', borderRadius: 10, background: 'var(--warm)', color: 'var(--ink)', padding: 12, fontFamily: 'var(--mono)', fontSize: 12, resize: 'vertical' }} />
+          </label>
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 12 }}>
+            <span className="eyebrow" style={{ fontSize: 9 }}>Tools</span>
+            <input id="preset-tools" name="preset-tools" value={(draft.tools || []).join(', ')} onChange={(e) => updateDraftField('tools', e.target.value.split(',').map((item) => item.trim()).filter(Boolean))} placeholder="python3, git, curl" style={{ height: 38, border: '0.5px solid var(--ink-hairline)', borderRadius: 10, background: 'var(--warm)', color: 'var(--ink)', padding: '0 12px' }} />
+          </label>
+        </section>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
+          {presets.map(renderPresetCard)}
         </div>
-
-        {/* Detail / Editor panel */}
-        <div className="lg:col-span-2">
-          {!editing && !selected ? (
-            <div className="bg-card border border-border rounded p-8 text-center">
-              <div className="flex items-center justify-center gap-2 text-sm font-medium text-amber-300">
-                <AlertTriangle className="h-4 w-4" />
-                Select a preset to review before creating a custom one
-              </div>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Built-in presets are the fastest path for the default core workflow. Create a custom preset only when the built-ins no longer match the role you need.
-              </p>
-            </div>
-          ) : editing ? (
-            /* Editor form */
-            <div className="bg-card border border-border rounded p-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-foreground">{isNew ? 'New Preset' : `Edit: ${draft.name}`}</h3>
-                <div className="flex gap-1">
-                  <Button size="sm" onClick={handleSave} disabled={saving}>
-                    <Save className="w-3 h-3 mr-1" />
-                    {saving ? 'Saving...' : 'Save'}
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => { setEditing(false); if (isNew) setSelected(null); }}>
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Name</label>
-                  <input
-                    value={draft.name}
-                    onChange={(e) => updateDraftField('name', e.target.value)}
-                    disabled={!isNew}
-                    className="w-full bg-background border border-border rounded px-2.5 py-1.5 text-sm text-foreground disabled:opacity-50"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Type</label>
-                  <select
-                    value={draft.type}
-                    onChange={(e) => updateDraftField('type', e.target.value)}
-                    className="w-full bg-background border border-border rounded px-2.5 py-1.5 text-sm text-foreground"
-                  >
-                    <option value="standard">standard</option>
-                    <option value="function">function</option>
-                    <option value="coordinator">coordinator</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Description</label>
-                <input
-                  value={draft.description}
-                  onChange={(e) => updateDraftField('description', e.target.value)}
-                  className="w-full bg-background border border-border rounded px-2.5 py-1.5 text-sm text-foreground"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Purpose</label>
-                <input
-                  value={draft.identity?.purpose || ''}
-                  onChange={(e) => updateDraftField('identity.purpose', e.target.value)}
-                  placeholder="One-line purpose statement"
-                  className="w-full bg-background border border-border rounded px-2.5 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Identity / Personality (Markdown)</label>
-                <textarea
-                  value={draft.identity?.body || ''}
-                  onChange={(e) => updateDraftField('identity.body', e.target.value)}
-                  placeholder="Agent personality prompt..."
-                  className="w-full h-40 bg-background border border-border rounded px-2.5 py-1.5 text-xs font-mono text-foreground resize-y placeholder:text-muted-foreground/50"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Tools (comma-separated)</label>
-                <input
-                  value={(draft.tools || []).join(', ')}
-                  onChange={(e) => updateDraftField('tools', e.target.value.split(',').map((s) => s.trim()).filter(Boolean))}
-                  placeholder="python3, git, curl"
-                  className="w-full bg-background border border-border rounded px-2.5 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50"
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Hard Limits</label>
-                  <button
-                    onClick={() => updateDraftField('hard_limits', [...(draft.hard_limits || []), { rule: '', reason: '' }])}
-                    className="text-[10px] text-primary hover:underline"
-                  >
-                    + Add
-                  </button>
-                </div>
-                <div className="space-y-1.5">
-                  {(draft.hard_limits || []).map((h, i) => (
-                    <div key={i} className="flex gap-2 items-start">
-                      <div className="flex-1 space-y-1">
-                        <input
-                          value={h.rule}
-                          onChange={(e) => {
-                            const updated = [...(draft.hard_limits || [])];
-                            updated[i] = { ...updated[i], rule: e.target.value };
-                            updateDraftField('hard_limits', updated);
-                          }}
-                          placeholder="Rule"
-                          className="w-full bg-background border border-border rounded px-2 py-1 text-xs text-foreground"
-                        />
-                        <input
-                          value={h.reason}
-                          onChange={(e) => {
-                            const updated = [...(draft.hard_limits || [])];
-                            updated[i] = { ...updated[i], reason: e.target.value };
-                            updateDraftField('hard_limits', updated);
-                          }}
-                          placeholder="Reason"
-                          className="w-full bg-background border border-border rounded px-2 py-1 text-xs text-muted-foreground"
-                        />
-                      </div>
-                      <button
-                        onClick={() => updateDraftField('hard_limits', (draft.hard_limits || []).filter((_, j) => j !== i))}
-                        className="text-muted-foreground hover:text-destructive p-1 mt-1"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Always Escalate (one per line)</label>
-                <textarea
-                  value={(draft.escalation?.always_escalate || []).join('\n')}
-                  onChange={(e) => updateDraftField('escalation.always_escalate', e.target.value.split('\n').filter(Boolean))}
-                  rows={3}
-                  className="w-full bg-background border border-border rounded px-2.5 py-1.5 text-xs text-foreground resize-y"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Flag Before Proceeding (one per line)</label>
-                <textarea
-                  value={(draft.escalation?.flag_before_proceeding || []).join('\n')}
-                  onChange={(e) => updateDraftField('escalation.flag_before_proceeding', e.target.value.split('\n').filter(Boolean))}
-                  rows={3}
-                  className="w-full bg-background border border-border rounded px-2.5 py-1.5 text-xs text-foreground resize-y"
-                />
-              </div>
-            </div>
-          ) : selected ? (
-            /* Read-only detail view */
-            <div className="bg-card border border-border rounded p-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground">{selected.name}</h3>
-                  <div className="text-xs text-muted-foreground">{selected.description} · {selected.type} · {selected.source}</div>
-                </div>
-                <div className="flex gap-1">
-                  {selected.source === 'user' && (
-                    <>
-                      <Button variant="outline" size="sm" onClick={() => { setDraft({ ...selected }); setEditing(true); setIsNew(false); }}>
-                        Edit
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => setDeleteTarget(selected.name)}>
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
-                    </>
-                  )}
-                  <Button variant="outline" size="sm" onClick={() => duplicatePreset(selected as PresetSummary)}>
-                    <Copy className="w-3 h-3 mr-1" />
-                    Duplicate
-                  </Button>
-                </div>
-              </div>
-
-              {selected.identity?.purpose && (
-                <div>
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Purpose</div>
-                  <div className="text-xs text-foreground/80">{selected.identity.purpose}</div>
-                </div>
-              )}
-
-              {selected.identity?.body && (
-                <div>
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Identity / Personality</div>
-                  <div className="bg-background rounded p-3 text-xs font-mono text-foreground/80 whitespace-pre-wrap max-h-48 overflow-y-auto">
-                    {selected.identity.body}
-                  </div>
-                </div>
-              )}
-
-              {selected.tools && selected.tools.length > 0 && (
-                <div>
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Tools</div>
-                  <div className="flex flex-wrap gap-1">
-                    {selected.tools.map((t) => (
-                      <span key={t} className="text-xs bg-secondary text-foreground/80 px-2 py-0.5 rounded">{t}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {selected.hard_limits && selected.hard_limits.length > 0 && (
-                <div>
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Hard Limits</div>
-                  <div className="space-y-1">
-                    {selected.hard_limits.map((h, i) => (
-                      <div key={i} className="text-xs text-amber-700 dark:text-amber-400/80 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30 rounded px-2.5 py-1.5">
-                        {h.rule}{h.reason && <span className="text-muted-foreground ml-1">— {h.reason}</span>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {selected.escalation && (
-                <div>
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Escalation</div>
-                  <div className="space-y-1">
-                    {(selected.escalation.always_escalate || []).map((e, i) => (
-                      <div key={`a-${i}`} className="text-xs text-red-700 dark:text-red-400/80 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/30 rounded px-2.5 py-1.5">
-                        Always escalate: {e}
-                      </div>
-                    ))}
-                    {(selected.escalation.flag_before_proceeding || []).map((e, i) => (
-                      <div key={`f-${i}`} className="text-xs text-blue-700 dark:text-blue-400/80 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/30 rounded px-2.5 py-1.5">
-                        Flag: {e}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {selected.source === 'built-in' && (
-                <div className="text-xs text-muted-foreground/70 italic pt-2">
-                  Built-in presets are read-only. Use Duplicate to create an editable copy.
-                </div>
-              )}
-            </div>
-          ) : null}
-        </div>
-      </div>
+      )}
 
       <ConfirmDialog
         open={!!deleteTarget}
@@ -502,6 +405,6 @@ export function Presets() {
         variant="destructive"
         onConfirm={handleDelete}
       />
-    </div>
+    </>
   );
 }

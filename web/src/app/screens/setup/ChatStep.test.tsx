@@ -143,6 +143,73 @@ describe('ChatStep', () => {
     expect(initialPromptSent).toBe(false);
   });
 
+  it('trusts setup startup completion instead of polling stale agent status', async () => {
+    let initialPromptSent = false;
+
+    server.use(
+      http.get(`${BASE}/agents/henry`, () => HttpResponse.json({ name: 'henry', status: 'stopped' })),
+      http.get(`${BASE}/comms/channels`, () => HttpResponse.json([{ name: 'dm-henry', type: 'dm' }])),
+      http.get(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json([])),
+      http.post(`${BASE}/comms/channels/dm-henry/messages`, () => {
+        initialPromptSent = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+
+    render(
+      <ChatStep
+        agentName="henry"
+        operatorName="Geoff"
+        onFinish={() => {}}
+        onBack={() => {}}
+        initialAgentReady
+      />,
+    );
+
+    await waitFor(() => {
+      expect(initialPromptSent).toBe(true);
+      expect(screen.getByPlaceholderText(/what can you help me with/i)).toBeEnabled();
+    });
+  });
+
+  it('uses the production chat avatar treatment for setup messages', async () => {
+    server.use(
+      http.get(`${BASE}/comms/channels`, () => HttpResponse.json([{ name: 'dm-henry', type: 'dm' }])),
+      http.get(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json([
+        {
+          id: 'm1',
+          author: 'operator',
+          content: 'test',
+          timestamp: new Date().toISOString(),
+          flags: {},
+        },
+        {
+          id: 'm2',
+          author: 'henry',
+          content: 'Ready.',
+          timestamp: new Date().toISOString(),
+          flags: {},
+        },
+      ])),
+      http.post(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json({ ok: true })),
+    );
+
+    render(
+      <ChatStep
+        agentName="henry"
+        operatorName="Geoff"
+        onFinish={() => {}}
+        onBack={() => {}}
+        initialAgentReady
+      />,
+    );
+
+    expect(await screen.findByText('Ready.')).toBeInTheDocument();
+    expect(screen.getAllByLabelText('Avatar for Geoff').length).toBeGreaterThan(0);
+    expect(screen.getByLabelText('View agent: henry')).toBeInTheDocument();
+    expect(screen.queryByText('AGENT')).not.toBeInTheDocument();
+  });
+
   it('marks the setup chat ready from an agent_status event', async () => {
     server.use(
       http.get(`${BASE}/agents/henry`, () => HttpResponse.json({ name: 'henry', status: 'stopped' })),

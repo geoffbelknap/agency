@@ -41,7 +41,7 @@ describe('MessageArea', () => {
   });
 
   it('shows member count', () => {
-    render(<MessageArea channel={channel} messages={messages} loading={false} onSend={() => {}} />);
+    render(<MessageArea channel={{ ...channel, topic: '' }} messages={messages} loading={false} onSend={() => {}} />);
     expect(screen.getByText('2 members')).toBeInTheDocument();
   });
 

@@ -182,7 +182,7 @@ func TestStaleTaskClearedWhenTaskComplete(t *testing.T) {
 
 	// Create a minimal AgentManager and call loadAgentDetail
 	am := &AgentManager{Home: dir}
-	detail := am.loadAgentDetail("testbot", filepath.Join(dir, "agents"), map[string]string{})
+	detail := am.loadAgentDetail(context.Background(), "testbot", filepath.Join(dir, "agents"), map[string]string{})
 
 	// CurrentTask should be nil (task_complete signal found)
 	if detail.CurrentTask != nil {
@@ -239,7 +239,7 @@ func TestLoadAgentDetail_GeneratesLifecycleID_WhenMissing(t *testing.T) {
 	os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("type: standard\npreset: default\n"), 0644)
 
 	am := &AgentManager{Home: dir}
-	detail := am.loadAgentDetail("old-agent", filepath.Join(dir, "agents"), map[string]string{})
+	detail := am.loadAgentDetail(context.Background(), "old-agent", filepath.Join(dir, "agents"), map[string]string{})
 
 	// LifecycleID should be populated in the returned detail
 	if detail.LifecycleID == "" {
@@ -289,7 +289,7 @@ func TestLoadAgentDetail_UsesPersistedStoppedStatusWithoutRuntime(t *testing.T) 
 	os.WriteFile(filepath.Join(runtimeDir, "manifest.yaml"), data, 0644)
 
 	am := &AgentManager{Home: dir, Runtime: NewRuntimeSupervisor(dir, "0.1.0", "", "build-1", "probe", nil, nil, nil, nil)}
-	detail := am.loadAgentDetail("testbot", filepath.Join(dir, "agents"), map[string]string{})
+	detail := am.loadAgentDetail(context.Background(), "testbot", filepath.Join(dir, "agents"), map[string]string{})
 	if detail.Status != "stopped" || detail.Workspace != "stopped" || detail.Enforcer != "stopped" {
 		t.Fatalf("unexpected persisted stopped detail: %+v", detail)
 	}
@@ -305,7 +305,7 @@ func TestLoadAgentDetail_PreservesExistingLifecycleID(t *testing.T) {
 	os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte(yamlContent), 0644)
 
 	am := &AgentManager{Home: dir}
-	detail := am.loadAgentDetail("existing-agent", filepath.Join(dir, "agents"), map[string]string{})
+	detail := am.loadAgentDetail(context.Background(), "existing-agent", filepath.Join(dir, "agents"), map[string]string{})
 
 	if detail.LifecycleID != existingID {
 		t.Errorf("expected existing lifecycle_id %q to be preserved, got %q", existingID, detail.LifecycleID)
@@ -361,7 +361,7 @@ func TestLoadAgentDetail_UsesRuntimeStatusProjection(t *testing.T) {
 	}
 
 	am := &AgentManager{Home: dir, Runtime: rs}
-	detail := am.loadAgentDetail("runtime-agent", filepath.Join(dir, "agents"), map[string]string{})
+	detail := am.loadAgentDetail(context.Background(), "runtime-agent", filepath.Join(dir, "agents"), map[string]string{})
 	if detail.Status != "unhealthy" {
 		t.Fatalf("status = %q, want unhealthy", detail.Status)
 	}
@@ -424,7 +424,7 @@ func TestLoadAgentDetail_RuntimeStoppedRespectsActiveHalt(t *testing.T) {
 	}
 
 	am := &AgentManager{Home: dir, Runtime: rs}
-	detail := am.loadAgentDetail("halted-agent", filepath.Join(dir, "agents"), map[string]string{})
+	detail := am.loadAgentDetail(context.Background(), "halted-agent", filepath.Join(dir, "agents"), map[string]string{})
 	if detail.Status != "halted" {
 		t.Fatalf("status = %q, want halted", detail.Status)
 	}

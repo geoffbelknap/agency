@@ -1,3 +1,5 @@
+import { Bot } from 'lucide-react';
+
 interface TypingIndicatorProps {
   agents: string[];
   activity?: Record<string, string>;
@@ -19,22 +21,32 @@ export function TypingIndicator({ agents, activity }: TypingIndicatorProps) {
   if (agents.length === 0) return null;
 
   return (
-    <div className="flex items-center gap-2 px-4 py-1.5 text-xs text-muted-foreground" aria-live="polite" aria-atomic="true">
-      <div className="flex items-center gap-0.5">
-        <span
-          className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce"
-          style={{ animationDelay: '0ms' }}
-        />
-        <span
-          className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce"
-          style={{ animationDelay: '150ms' }}
-        />
-        <span
-          className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce"
-          style={{ animationDelay: '300ms' }}
-        />
+    <div
+      className="flex items-center gap-3 px-7 py-2"
+      aria-live="polite"
+      aria-atomic="true"
+      aria-label={formatAgents(agents, activity)}
+      style={{ background: 'var(--warm)' }}
+    >
+      <div
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+        style={{ background: 'var(--warm-3)', color: 'var(--ink-mid)' }}
+      >
+        <Bot size={14} strokeWidth={1.7} />
       </div>
-      <span>{formatAgents(agents, activity)}</span>
+      <div className="flex h-8 items-center gap-1 opacity-70">
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            className="h-[5px] w-[5px] rounded-full"
+            style={{
+              background: 'var(--ink-mid)',
+              animation: `agencyPulse 1.2s ease-out ${i * 0.2}s infinite`,
+            }}
+          />
+        ))}
+      </div>
+      <span className="sr-only">{formatAgents(agents, activity)}</span>
     </div>
   );
 }

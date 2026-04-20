@@ -32,6 +32,8 @@ type Summary struct {
 	ByProvider     map[string]Totals `json:"by_provider"`
 	BySource       map[string]Totals `json:"by_source"`
 	ByProviderTool map[string]Totals `json:"by_provider_tool,omitempty"`
+	ByHour         []HourlyBucket    `json:"by_hour,omitempty"`
+	RecentCalls    []CallEntry       `json:"recent_calls,omitempty"`
 	RecentErrors   []ErrorEntry      `json:"recent_errors,omitempty"`
 }
 
@@ -46,8 +48,12 @@ type Totals struct {
 	Requests                   int     `json:"requests"`
 	InputTokens                int64   `json:"input_tokens"`
 	OutputTokens               int64   `json:"output_tokens"`
+	CachedTokens               int64   `json:"cached_tokens,omitempty"`
+	CacheCreationInputTokens   int64   `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens       int64   `json:"cache_read_input_tokens,omitempty"`
 	TotalTokens                int64   `json:"total_tokens"`
 	EstCostUSD                 float64 `json:"est_cost_usd"`
+	CachedCostUSD              float64 `json:"cached_cost_usd,omitempty"`
 	Errors                     int     `json:"errors"`
 	AvgLatencyMs               int64   `json:"avg_latency_ms"`
 	P95LatencyMs               int64   `json:"p95_latency_ms"`
@@ -82,6 +88,37 @@ type ErrorEntry struct {
 	Error         string `json:"error"`
 }
 
+type HourlyBucket struct {
+	Hour    string            `json:"hour"`
+	Totals  Totals            `json:"totals"`
+	ByModel map[string]Totals `json:"by_model,omitempty"`
+}
+
+type CallEntry struct {
+	Timestamp                string  `json:"ts"`
+	Agent                    string  `json:"agent"`
+	Source                   string  `json:"source,omitempty"`
+	Model                    string  `json:"model"`
+	ProviderModel            string  `json:"provider_model,omitempty"`
+	Status                   int     `json:"status"`
+	Error                    string  `json:"error,omitempty"`
+	DurationMs               int64   `json:"duration_ms,omitempty"`
+	InputTokens              int     `json:"input_tokens"`
+	OutputTokens             int     `json:"output_tokens"`
+	CachedTokens             int     `json:"cached_tokens,omitempty"`
+	CacheCreationInputTokens int     `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int     `json:"cache_read_input_tokens,omitempty"`
+	TotalTokens              int     `json:"total_tokens"`
+	EstCostUSD               float64 `json:"est_cost_usd"`
+	TokenCostUSD             float64 `json:"token_cost_usd"`
+	CachedCostUSD            float64 `json:"cached_cost_usd,omitempty"`
+	ProviderToolCalls        int     `json:"provider_tool_calls,omitempty"`
+	ProviderToolCostUSD      float64 `json:"provider_tool_cost_usd,omitempty"`
+	ProviderToolUnpriced     int     `json:"provider_tool_unpriced_calls,omitempty"`
+	ProviderToolCapabilities string  `json:"provider_tool_capabilities,omitempty"`
+	Retry                    bool    `json:"retry,omitempty"`
+}
+
 // ModelCost holds per-million-token cost rates for a model alias.
 type ModelCost struct {
 	CostPerMTokIn       float64
@@ -114,6 +151,9 @@ type auditRecord struct {
 	DurationMs                   int64
 	InputTokens                  int
 	OutputTokens                 int
+	CachedTokens                 int
+	CacheCreationInputTokens     int
+	CacheReadInputTokens         int
 	TTFTMs                       int64
 	TPOTMs                       float64
 	StepIndex                    int
@@ -141,6 +181,9 @@ func (r auditRecord) MarshalJSON() ([]byte, error) {
 		DurationMs                   int64   `json:"duration_ms"`
 		InputTokens                  int     `json:"input_tokens"`
 		OutputTokens                 int     `json:"output_tokens"`
+		CachedTokens                 int     `json:"cached_tokens,omitempty"`
+		CacheCreationInputTokens     int     `json:"cache_creation_input_tokens,omitempty"`
+		CacheReadInputTokens         int     `json:"cache_read_input_tokens,omitempty"`
 		TTFTMs                       int64   `json:"ttft_ms,omitempty"`
 		TPOTMs                       float64 `json:"tpot_ms,omitempty"`
 		StepIndex                    int     `json:"step_index,omitempty"`
@@ -153,7 +196,7 @@ func (r auditRecord) MarshalJSON() ([]byte, error) {
 		ProviderToolUnpricedCount    int     `json:"provider_tool_unpriced_count,omitempty"`
 		ProviderToolCostConfidence   string  `json:"provider_tool_cost_confidence,omitempty"`
 		ProviderToolCostSource       string  `json:"provider_tool_cost_source,omitempty"`
-	}{r.Timestamp, r.Type, r.Agent, r.Source, r.Model, r.ProviderModel, r.Status, r.Error, r.DurationMs, r.InputTokens, r.OutputTokens, r.TTFTMs, r.TPOTMs, r.StepIndex, r.ToolCallValid, r.RetryOf, r.ContextTokens, r.ProviderToolCallCount, r.ProviderToolEstimatedCostUSD, r.ProviderToolCapabilities, r.ProviderToolUnpricedCount, r.ProviderToolCostConfidence, r.ProviderToolCostSource})
+	}{r.Timestamp, r.Type, r.Agent, r.Source, r.Model, r.ProviderModel, r.Status, r.Error, r.DurationMs, r.InputTokens, r.OutputTokens, r.CachedTokens, r.CacheCreationInputTokens, r.CacheReadInputTokens, r.TTFTMs, r.TPOTMs, r.StepIndex, r.ToolCallValid, r.RetryOf, r.ContextTokens, r.ProviderToolCallCount, r.ProviderToolEstimatedCostUSD, r.ProviderToolCapabilities, r.ProviderToolUnpricedCount, r.ProviderToolCostConfidence, r.ProviderToolCostSource})
 }
 
 func (r *auditRecord) UnmarshalJSON(data []byte) error {
@@ -175,6 +218,9 @@ func (r *auditRecord) UnmarshalJSON(data []byte) error {
 		DurationMs                   int64             `json:"duration_ms"`
 		InputTokens                  int               `json:"input_tokens"`
 		OutputTokens                 int               `json:"output_tokens"`
+		CachedTokens                 interface{}       `json:"cached_tokens"`
+		CacheCreationInputTokens     interface{}       `json:"cache_creation_input_tokens"`
+		CacheReadInputTokens         interface{}       `json:"cache_read_input_tokens"`
 		TTFTMs                       int64             `json:"ttft_ms"`
 		TPOTMs                       float64           `json:"tpot_ms"`
 		StepIndex                    int               `json:"step_index"`
@@ -215,6 +261,9 @@ func (r *auditRecord) UnmarshalJSON(data []byte) error {
 	r.DurationMs = raw.DurationMs
 	r.InputTokens = raw.InputTokens
 	r.OutputTokens = raw.OutputTokens
+	r.CachedTokens = intFromAny(raw.CachedTokens)
+	r.CacheCreationInputTokens = intFromAny(raw.CacheCreationInputTokens)
+	r.CacheReadInputTokens = intFromAny(raw.CacheReadInputTokens)
 	r.TTFTMs = raw.TTFTMs
 	r.TPOTMs = raw.TPOTMs
 	r.StepIndex = raw.StepIndex
@@ -245,6 +294,15 @@ func (r *auditRecord) UnmarshalJSON(data []byte) error {
 		}
 		if r.ProviderToolCostSource == "" {
 			r.ProviderToolCostSource = raw.Extra["provider_tool_cost_source"]
+		}
+		if r.CachedTokens == 0 {
+			r.CachedTokens = intFromAny(raw.Extra["cached_tokens"])
+		}
+		if r.CacheCreationInputTokens == 0 {
+			r.CacheCreationInputTokens = intFromAny(raw.Extra["cache_creation_input_tokens"])
+		}
+		if r.CacheReadInputTokens == 0 {
+			r.CacheReadInputTokens = intFromAny(raw.Extra["cache_read_input_tokens"])
 		}
 	}
 	return nil
@@ -288,6 +346,9 @@ func CollectWithCosts(homeDir string, q MetricsQuery, costs map[string]ModelCost
 	if err != nil {
 		return nil, err
 	}
+	sort.Slice(records, func(i, j int) bool {
+		return parseTS(records[i].Timestamp).Before(parseTS(records[j].Timestamp))
+	})
 
 	s := &Summary{
 		Period: Period{
@@ -300,19 +361,22 @@ func CollectWithCosts(homeDir string, q MetricsQuery, costs map[string]ModelCost
 		BySource:       make(map[string]Totals),
 		ByProviderTool: make(map[string]Totals),
 	}
+	hourly := map[string]*HourlyBucket{}
 
 	for _, rec := range records {
 		isErr := rec.Status >= 400 || rec.Error != ""
 
 		providerToolCost := calcProviderToolCost(rec, costs)
-		cost := calcTokenCost(rec, costs) + providerToolCost
-		accumWithCost(&s.Totals, rec, cost, providerToolCost)
-		accumMapWithCost(s.ByAgent, rec.Agent, rec, cost, providerToolCost)
-		accumMapWithCost(s.ByModel, rec.Model, rec, cost, providerToolCost)
+		tokenCost := calcTokenCost(rec, costs)
+		cachedCost := calcCachedTokenCost(rec, costs)
+		cost := tokenCost + cachedCost + providerToolCost
+		accumWithCost(&s.Totals, rec, cost, providerToolCost, cachedCost)
+		accumMapWithCost(s.ByAgent, rec.Agent, rec, cost, providerToolCost, cachedCost)
+		accumMapWithCost(s.ByModel, rec.Model, rec, cost, providerToolCost, cachedCost)
 
 		provider := inferProvider(rec.ProviderModel)
-		accumMapWithCost(s.ByProvider, provider, rec, cost, providerToolCost)
-		accumMapWithCost(s.BySource, rec.Source, rec, cost, providerToolCost)
+		accumMapWithCost(s.ByProvider, provider, rec, cost, providerToolCost, cachedCost)
+		accumMapWithCost(s.BySource, rec.Source, rec, cost, providerToolCost, cachedCost)
 		for cap, capCost := range calcProviderToolCostsByCapability(rec, costs) {
 			capRec := rec
 			capRec.ProviderToolCallCount = 1
@@ -321,8 +385,42 @@ func CollectWithCosts(homeDir string, q MetricsQuery, costs map[string]ModelCost
 			} else {
 				capRec.ProviderToolUnpricedCount = 0
 			}
-			accumMapWithCost(s.ByProviderTool, cap, capRec, capCost, capCost)
+			accumMapWithCost(s.ByProviderTool, cap, capRec, capCost, capCost, 0)
 		}
+		if ts := parseTS(rec.Timestamp); !ts.IsZero() {
+			hourKey := ts.UTC().Truncate(time.Hour).Format(time.RFC3339)
+			bucket := hourly[hourKey]
+			if bucket == nil {
+				bucket = &HourlyBucket{Hour: hourKey, ByModel: map[string]Totals{}}
+				hourly[hourKey] = bucket
+			}
+			accumWithCost(&bucket.Totals, rec, cost, providerToolCost, cachedCost)
+			accumMapWithCost(bucket.ByModel, rec.Model, rec, cost, providerToolCost, cachedCost)
+		}
+		s.RecentCalls = append(s.RecentCalls, CallEntry{
+			Timestamp:                rec.Timestamp,
+			Agent:                    rec.Agent,
+			Source:                   rec.Source,
+			Model:                    rec.Model,
+			ProviderModel:            rec.ProviderModel,
+			Status:                   rec.Status,
+			Error:                    rec.Error,
+			DurationMs:               rec.DurationMs,
+			InputTokens:              rec.InputTokens,
+			OutputTokens:             rec.OutputTokens,
+			CachedTokens:             cachedTokenCount(rec),
+			CacheCreationInputTokens: rec.CacheCreationInputTokens,
+			CacheReadInputTokens:     rec.CacheReadInputTokens,
+			TotalTokens:              rec.InputTokens + rec.OutputTokens,
+			EstCostUSD:               math.Round(cost*1e6) / 1e6,
+			TokenCostUSD:             math.Round(tokenCost*1e6) / 1e6,
+			CachedCostUSD:            math.Round(cachedCost*1e6) / 1e6,
+			ProviderToolCalls:        rec.ProviderToolCallCount,
+			ProviderToolCostUSD:      math.Round(providerToolCost*1e6) / 1e6,
+			ProviderToolUnpriced:     rec.ProviderToolUnpricedCount,
+			ProviderToolCapabilities: rec.ProviderToolCapabilities,
+			Retry:                    rec.RetryOf != "",
+		})
 
 		if isErr {
 			s.RecentErrors = append(s.RecentErrors, ErrorEntry{
@@ -358,10 +456,27 @@ func CollectWithCosts(homeDir string, q MetricsQuery, costs map[string]ModelCost
 		finalise(&v)
 		s.ByProviderTool[k] = v
 	}
+	hours := make([]string, 0, len(hourly))
+	for hour := range hourly {
+		hours = append(hours, hour)
+	}
+	sort.Strings(hours)
+	for _, hour := range hours {
+		bucket := hourly[hour]
+		finalise(&bucket.Totals)
+		for model, totals := range bucket.ByModel {
+			finalise(&totals)
+			bucket.ByModel[model] = totals
+		}
+		s.ByHour = append(s.ByHour, *bucket)
+	}
 
 	// Cap recent errors to last 25.
 	if len(s.RecentErrors) > 25 {
 		s.RecentErrors = s.RecentErrors[len(s.RecentErrors)-25:]
+	}
+	if len(s.RecentCalls) > 50 {
+		s.RecentCalls = s.RecentCalls[len(s.RecentCalls)-50:]
 	}
 
 	return s, nil
@@ -378,6 +493,28 @@ func calcTokenCost(rec auditRecord, costs map[string]ModelCost) float64 {
 	}
 	return (float64(rec.InputTokens)*mc.CostPerMTokIn +
 		float64(rec.OutputTokens)*mc.CostPerMTokOut) / 1_000_000
+}
+
+func calcCachedTokenCost(rec auditRecord, costs map[string]ModelCost) float64 {
+	cached := cachedTokenCount(rec)
+	if cached == 0 || costs == nil {
+		return 0
+	}
+	mc, ok := costs[rec.Model]
+	if !ok || mc.CostPerMTokCached == 0 {
+		return 0
+	}
+	return float64(cached) * mc.CostPerMTokCached / 1_000_000
+}
+
+func cachedTokenCount(rec auditRecord) int {
+	if rec.CachedTokens > 0 {
+		return rec.CachedTokens
+	}
+	// Cache reads are the discounted reuse path. Cache creation remains part
+	// of normal input-token pricing unless a provider-specific write rate is
+	// added to the model catalog.
+	return rec.CacheReadInputTokens
 }
 
 func calcProviderToolCost(rec auditRecord, costs map[string]ModelCost) float64 {
@@ -602,11 +739,15 @@ func inferProvider(providerModel string) string {
 }
 
 // accumWithCost adds a record's values and cost into a Totals bucket.
-func accumWithCost(t *Totals, rec auditRecord, cost float64, providerToolCost float64) {
+func accumWithCost(t *Totals, rec auditRecord, cost float64, providerToolCost float64, cachedCost float64) {
 	t.Requests++
 	t.InputTokens += int64(rec.InputTokens)
 	t.OutputTokens += int64(rec.OutputTokens)
+	t.CachedTokens += int64(cachedTokenCount(rec))
+	t.CacheCreationInputTokens += int64(rec.CacheCreationInputTokens)
+	t.CacheReadInputTokens += int64(rec.CacheReadInputTokens)
 	t.EstCostUSD += cost
+	t.CachedCostUSD += cachedCost
 	t.ProviderToolCalls += rec.ProviderToolCallCount
 	t.ProviderToolCostUSD += providerToolCost
 	t.ProviderToolUnpricedCalls += rec.ProviderToolUnpricedCount
@@ -635,12 +776,12 @@ func accumWithCost(t *Totals, rec auditRecord, cost float64, providerToolCost fl
 	}
 }
 
-func accumMapWithCost(m map[string]Totals, key string, rec auditRecord, cost float64, providerToolCost float64) {
+func accumMapWithCost(m map[string]Totals, key string, rec auditRecord, cost float64, providerToolCost float64, cachedCost float64) {
 	if key == "" {
 		key = "unknown"
 	}
 	t := m[key]
-	accumWithCost(&t, rec, cost, providerToolCost)
+	accumWithCost(&t, rec, cost, providerToolCost, cachedCost)
 	m[key] = t
 }
 
@@ -675,6 +816,7 @@ func finalise(t *Totals) {
 	}
 	// Round cost to 6 decimal places.
 	t.EstCostUSD = math.Round(t.EstCostUSD*1e6) / 1e6
+	t.CachedCostUSD = math.Round(t.CachedCostUSD*1e6) / 1e6
 	t.ProviderToolCostUSD = math.Round(t.ProviderToolCostUSD*1e6) / 1e6
 	t.RetryCostUSD = math.Round(t.RetryCostUSD*1e6) / 1e6
 	t.ProviderToolCostConfidence = strings.Join(sortedBoolKeys(t.providerToolConfidences), ",")

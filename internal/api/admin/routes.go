@@ -57,6 +57,9 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Post("/api/v1/admin/prune-images", h.adminPruneImages)
 	r.Get("/api/v1/admin/audit", h.adminAudit)
 	r.Get("/api/v1/admin/egress", h.adminEgress)
+	r.Post("/api/v1/admin/egress/{agent}/domains", h.adminEgressApproveDomain)
+	r.Delete("/api/v1/admin/egress/{agent}/domains/{domain}", h.adminEgressRevokeDomain)
+	r.Put("/api/v1/admin/egress/{agent}/mode", h.adminEgressMode)
 
 	// Capabilities
 	r.Get("/api/v1/admin/capabilities", h.listCapabilities)

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { Shield } from 'lucide-react';
 import { api, type RawCapability, type RawPolicyValidation, type RawAuditEntry, type RawProviderToolCapability } from '../../lib/api';
 import { Agent } from '../../types';
@@ -27,6 +27,37 @@ interface Props {
   onSubTabChange: (tab: SystemSubTab) => void;
 }
 
+const cardStyle = { background: 'var(--warm-2)', border: '0.5px solid var(--ink-hairline)', borderRadius: 10, padding: 20 } as const;
+const innerStyle = { background: 'var(--warm)', border: '0.5px solid var(--ink-hairline)', borderRadius: 8 } as const;
+
+function SmallButton({ children, onClick, disabled = false, primary = false, danger = false }: { children: ReactNode; onClick?: () => void; disabled?: boolean; primary?: boolean; danger?: boolean }) {
+  return (
+    <button type="button" disabled={disabled} onClick={onClick} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: primary ? '0.5px solid var(--ink)' : '0.5px solid var(--ink-hairline-strong)', background: primary ? 'var(--ink)' : 'var(--warm)', color: danger ? 'var(--red)' : primary ? 'var(--warm)' : 'var(--ink)', fontFamily: 'var(--font-sans)', fontSize: 12, padding: '5px 10px', borderRadius: 999, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1 }}>
+      {children}
+    </button>
+  );
+}
+
+function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'active' | 'warn' | 'danger' }) {
+  const colors = {
+    neutral: { bg: 'var(--warm-3)', color: 'var(--ink-mid)' },
+    active: { bg: 'var(--teal-tint)', color: 'var(--teal-dark)' },
+    warn: { bg: 'var(--amber-tint)', color: '#8B5A00' },
+    danger: { bg: 'var(--red-tint)', color: 'var(--red)' },
+  }[tone];
+  return <span className="font-mono" style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 7px', borderRadius: 4, fontSize: 10, background: colors.bg, color: colors.color }}>{children}</span>;
+}
+
+function PanelHeader({ title, meta, action }: { title: string; meta?: string; action?: ReactNode }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+      <div className="eyebrow">{title}</div>
+      {meta && <span className="font-mono" style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ink-faint)' }}>{meta}</span>}
+      {action}
+    </div>
+  );
+}
+
 function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, handleGrant, handleRevoke, handleSaveConfig }: {
   agent: Agent;
   agentConfig: Record<string, any> | null;
@@ -44,9 +75,7 @@ function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, h
   const [providerToolCatalogError, setProviderToolCatalogError] = useState('');
 
   useEffect(() => {
-    if (agentConfig?.identity) {
-      setIdentityDraft(agentConfig.identity);
-    }
+    if (agentConfig?.identity) setIdentityDraft(agentConfig.identity);
   }, [agentConfig]);
 
   useEffect(() => {
@@ -78,208 +107,103 @@ function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, h
   ];
 
   return (
-    <div className="space-y-4 p-4">
-      {/* Identity editor */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {agentConfig && (
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-xs uppercase tracking-wide text-muted-foreground">Identity & Personality</div>
-            {!editingIdentity ? (
-              <button
-                onClick={() => { setIdentityDraft(agentConfig.identity || ''); setEditingIdentity(true); }}
-                className="text-[10px] px-2 py-0.5 rounded bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Edit
-              </button>
+        <div style={cardStyle}>
+          <PanelHeader
+            title="Identity & personality"
+            action={!editingIdentity ? (
+              <SmallButton onClick={() => { setIdentityDraft(agentConfig.identity || ''); setEditingIdentity(true); }}>Edit</SmallButton>
             ) : (
-              <div className="flex gap-1">
-                <button
-                  onClick={async () => {
-                    setSavingConfig(true);
-                    try {
-                      const updated = await handleSaveConfig(agent.name, identityDraft);
-                      if (updated) {
-                        setEditingIdentity(false);
-                      }
-                    } finally {
-                      setSavingConfig(false);
-                    }
-                  }}
-                  disabled={savingConfig}
-                  className="text-[10px] px-2 py-0.5 rounded bg-primary text-primary-foreground hover:opacity-90 transition-colors disabled:opacity-50"
-                >
-                  {savingConfig ? 'Saving...' : 'Save'}
-                </button>
-                <button
-                  onClick={() => setEditingIdentity(false)}
-                  className="text-[10px] px-2 py-0.5 rounded bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
+              <>
+                <SmallButton primary disabled={savingConfig} onClick={async () => { setSavingConfig(true); try { const updated = await handleSaveConfig(agent.name, identityDraft); if (updated) setEditingIdentity(false); } finally { setSavingConfig(false); } }}>{savingConfig ? 'Saving...' : 'Save'}</SmallButton>
+                <SmallButton onClick={() => setEditingIdentity(false)}>Cancel</SmallButton>
+              </>
             )}
-          </div>
+          />
           {editingIdentity ? (
-            <textarea
-              value={identityDraft}
-              onChange={(e) => setIdentityDraft(e.target.value)}
-              className="w-full h-48 bg-background border border-border rounded p-3 text-xs font-mono text-foreground resize-y"
-              placeholder="Agent identity markdown..."
-            />
+            <textarea value={identityDraft} onChange={(e) => setIdentityDraft(e.target.value)} placeholder="Agent identity markdown..." style={{ width: '100%', minHeight: 190, resize: 'vertical', border: '0.5px solid var(--ink-hairline)', borderRadius: 8, background: 'var(--warm)', color: 'var(--ink)', outline: 0, padding: 12, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.6 }} />
           ) : (
-            <div className="bg-secondary rounded p-3 text-xs text-foreground/80 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
+            <div className="scrollbar-none" style={{ ...innerStyle, maxHeight: 160, overflowY: 'auto', padding: 12, whiteSpace: 'pre-wrap', color: 'var(--ink-mid)', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.6 }}>
               {agentConfig.identity || 'No identity configured'}
             </div>
           )}
         </div>
       )}
 
-      {/* Constraints summary */}
       {agentConfig?.constraints && (
-        <div>
-          <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Constraints</div>
-          <div className="space-y-2">
-            {agentConfig.constraints.hard_limits?.length > 0 && (
-              <div>
-                <div className="text-[10px] text-muted-foreground mb-1">Hard Limits</div>
-                <div className="space-y-1">
-                  {agentConfig.constraints.hard_limits.map((h: any, i: number) => (
-                    <div key={i} className="text-xs text-amber-700 dark:text-amber-400/80 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30 rounded px-2.5 py-1.5">
-                      {h.rule}
-                      {h.reason && <span className="text-muted-foreground ml-1">— {h.reason}</span>}
-                    </div>
-                  ))}
-                </div>
+        <div style={cardStyle}>
+          <PanelHeader title="Constraints" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {agentConfig.constraints.hard_limits?.map((h: any, index: number) => (
+              <div key={`hard-${index}`} style={{ ...innerStyle, padding: 12, color: 'var(--ink)', fontSize: 12 }}>
+                <Badge tone="warn">hard limit</Badge>
+                <span style={{ marginLeft: 8 }}>{h.rule}</span>
+                {h.reason && <span style={{ color: 'var(--ink-mid)', marginLeft: 6 }}>- {h.reason}</span>}
               </div>
-            )}
-            {agentConfig.constraints.escalation && (
-              <div>
-                <div className="text-[10px] text-muted-foreground mb-1">Escalation</div>
-                <div className="space-y-1">
-                  {(agentConfig.constraints.escalation.always_escalate || []).map((e: string, i: number) => (
-                    <div key={i} className="text-xs text-red-700 dark:text-red-400/80 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/30 rounded px-2.5 py-1.5">
-                      Always escalate: {e}
-                    </div>
-                  ))}
-                  {(agentConfig.constraints.escalation.flag_before_proceeding || []).map((e: string, i: number) => (
-                    <div key={i} className="text-xs text-blue-700 dark:text-blue-400/80 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/30 rounded px-2.5 py-1.5">
-                      Flag: {e}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            ))}
+            {(agentConfig.constraints.escalation?.always_escalate || []).map((item: string, index: number) => (
+              <div key={`always-${index}`} style={{ ...innerStyle, padding: 12, color: 'var(--ink)', fontSize: 12 }}><Badge tone="danger">escalate</Badge><span style={{ marginLeft: 8 }}>{item}</span></div>
+            ))}
+            {(agentConfig.constraints.escalation?.flag_before_proceeding || []).map((item: string, index: number) => (
+              <div key={`flag-${index}`} style={{ ...innerStyle, padding: 12, color: 'var(--ink)', fontSize: 12 }}><Badge>flag</Badge><span style={{ marginLeft: 8 }}>{item}</span></div>
+            ))}
             {agentConfig.constraints.autonomy && (
-              <div className="flex gap-3 text-xs text-muted-foreground">
-                <span>Mode: <span className="text-foreground/80">{agentConfig.constraints.autonomy.default_mode}</span></span>
-                <span>Max duration: <span className="text-foreground/80">{agentConfig.constraints.autonomy.autonomous_max_duration}</span></span>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                <Badge>default: {agentConfig.constraints.autonomy.default_mode}</Badge>
+                <Badge>max: {agentConfig.constraints.autonomy.autonomous_max_duration}</Badge>
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* Unified capabilities list */}
-      <div>
-        <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Capabilities</div>
-        {visibleCapabilities.length === 0 ? (
-          <div className="text-xs text-muted-foreground/70">No capabilities available.</div>
-        ) : (
-          <div className="space-y-1.5">
-            {visibleCapabilities.map((c: any) => {
-              const agentGrants = agent.grantedCapabilities || [];
-              const granted = agentGrants.includes(c.name);
-              const providerTool = c.kind === 'provider-tool';
-              const providerToolMeta = providerToolCatalog[c.name];
-              const platformActive = !providerTool && (c.state === 'enabled' || c.state === 'available' || c.state === 'restricted');
-              const scopedAll = platformActive && (c.scoped_agents?.length === 0 || !c.scoped_agents);
-              const scopedToThis = platformActive && c.scoped_agents?.includes(agent.name);
-              const effectiveAccess = granted || scopedAll || scopedToThis;
-              const providerStatuses = providerToolMeta?.providers
-                ? Object.entries(providerToolMeta.providers)
-                    .filter(([, provider]) => provider.status && provider.status !== 'no_equivalent')
-                    .map(([provider, meta]) => `${provider}: ${meta.status}`)
-                : [];
-
-              let actionStyle = 'bg-border text-muted-foreground hover:bg-blue-50 dark:hover:bg-blue-950 hover:text-blue-700 dark:hover:text-blue-400';
-
-              if (effectiveAccess && granted) {
-                actionStyle = 'bg-blue-50 dark:bg-blue-900/50 text-blue-700 dark:text-blue-400 hover:bg-red-50 dark:hover:bg-red-950 hover:text-red-700 dark:hover:text-red-400';
-              } else if (effectiveAccess && !granted) {
-                actionStyle = 'bg-green-50 dark:bg-green-900/50 text-green-700 dark:text-green-400';
-              }
-
-              const bgClass = effectiveAccess
-                ? granted ? 'bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/50' : 'bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900/30'
-                : platformActive ? 'bg-secondary border border-border' : 'bg-secondary/50 border border-transparent opacity-60';
-
-              return (
-                <div key={c.name} className={`flex items-start justify-between gap-3 rounded px-3 py-2 transition-colors ${bgClass}`}>
-                  <div className="flex items-start gap-2 min-w-0">
-                    <Shield className={`w-3.5 h-3.5 flex-shrink-0 mt-0.5 ${effectiveAccess ? granted ? 'text-blue-400' : 'text-green-400' : 'text-muted-foreground/70'}`} />
-                    <div className="min-w-0">
-                      <span className={`text-xs ${effectiveAccess ? granted ? 'text-blue-300' : 'text-green-300' : 'text-foreground/80'}`}>{c.name}</span>
-                      {c.description && <div className="text-[10px] text-muted-foreground line-clamp-1">{c.description}</div>}
-                      {providerToolMeta && (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          <span className="rounded border border-border bg-background/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">risk: {providerToolMeta.risk}</span>
-                          <span className="rounded border border-border bg-background/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">{providerToolMeta.execution.replace(/_/g, ' ')}</span>
-                          {providerToolMeta.default_grant && (
-                            <span className="rounded border border-green-200 dark:border-green-900/40 bg-green-50 dark:bg-green-950/20 px-1.5 py-0.5 text-[10px] text-green-700 dark:text-green-400">default</span>
-                          )}
-                          {providerStatuses.slice(0, 3).map((status) => (
-                            <span key={status} className="rounded border border-border bg-background/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">{status}</span>
-                          ))}
-                        </div>
-                      )}
-                      {effectiveAccess && !granted && (
-                        <div className="text-[10px] text-green-600">Enabled platform-wide</div>
-                      )}
-                    </div>
+      <div style={cardStyle}>
+        <PanelHeader title="Capabilities" meta={`${visibleCapabilities.length} available`} />
+        <div style={{ border: '0.5px solid var(--ink-hairline)', borderRadius: 8, overflow: 'hidden', background: 'var(--warm)' }}>
+          {visibleCapabilities.length === 0 ? (
+            <div style={{ padding: 16, fontSize: 13, color: 'var(--ink-faint)' }}>No capabilities available.</div>
+          ) : visibleCapabilities.map((cap: any, index: number) => {
+            const agentGrants = agent.grantedCapabilities || [];
+            const granted = agentGrants.includes(cap.name);
+            const providerTool = cap.kind === 'provider-tool';
+            const providerToolMeta = providerToolCatalog[cap.name];
+            const platformActive = !providerTool && (cap.state === 'enabled' || cap.state === 'available' || cap.state === 'restricted');
+            const scopedAll = platformActive && (cap.scoped_agents?.length === 0 || !cap.scoped_agents);
+            const scopedToThis = platformActive && cap.scoped_agents?.includes(agent.name);
+            const effectiveAccess = granted || scopedAll || scopedToThis;
+            return (
+              <div key={cap.name} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 12, padding: 14, borderTop: index === 0 ? 0 : '0.5px solid var(--ink-hairline)', alignItems: 'start' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Shield size={14} style={{ color: effectiveAccess ? 'var(--teal-dark)' : 'var(--ink-faint)' }} />
+                    <span className="font-mono" style={{ fontSize: 12, color: 'var(--ink)' }}>{cap.name}</span>
+                    {effectiveAccess && <Badge tone="active">active</Badge>}
+                    {providerTool && <Badge>provider tool</Badge>}
                   </div>
-                  {(providerTool || c.state !== 'disabled' || granted) && (
-                    <button
-                      onClick={() => granted ? handleRevoke(agent.name, c.name) : (platformActive || providerTool) ? handleGrant(agent.name, c.name) : undefined}
-                      disabled={capLoading === c.name || (!granted && !platformActive && !providerTool)}
-                      className={`text-[10px] px-2.5 py-1 rounded cursor-pointer transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 ${actionStyle}`}>
-                      {capLoading === c.name ? '...' : effectiveAccess && !granted ? 'active' : granted ? 'revoke' : 'grant'}
-                    </button>
-                  )}
+                  {cap.description && <div style={{ marginTop: 4, fontSize: 12, color: 'var(--ink-mid)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cap.description}</div>}
+                  {providerToolMeta && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}><Badge>risk: {providerToolMeta.risk}</Badge><Badge>{providerToolMeta.execution.replace(/_/g, ' ')}</Badge>{providerToolMeta.default_grant && <Badge tone="active">default</Badge>}</div>}
                 </div>
-              );
-            })}
-            {providerToolCatalogError && (
-              <div className="text-[10px] text-amber-700 dark:text-amber-400/80">
-                Provider tool catalog unavailable: {providerToolCatalogError}
+                {(providerTool || cap.state !== 'disabled' || granted) && (
+                  <SmallButton disabled={capLoading === cap.name || (!granted && !platformActive && !providerTool)} danger={granted} onClick={() => void (granted ? handleRevoke(agent.name, cap.name) : handleGrant(agent.name, cap.name))}>
+                    {capLoading === cap.name ? '...' : granted ? 'revoke' : effectiveAccess ? 'active' : 'grant'}
+                  </SmallButton>
+                )}
               </div>
-            )}
-          </div>
-        )}
+            );
+          })}
+        </div>
+        {providerToolCatalogError && <div style={{ marginTop: 10, fontSize: 12, color: '#8B5A00' }}>Provider tool catalog unavailable: {providerToolCatalogError}</div>}
       </div>
 
-      {/* Policy summary */}
       {policy && (
-        <div>
-          <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Policy</div>
-          <div className="bg-secondary rounded p-3 space-y-2">
-            {policy.valid != null && (
-              <span className={`text-xs ${policy.valid ? 'text-green-400' : 'text-red-400'}`}>
-                {policy.valid ? 'Valid' : 'Invalid'}
-              </span>
-            )}
-            {policy.violations && policy.violations.length > 0 && (
-              <div className="space-y-1">
-                {policy.violations.map((v: string, i: number) => (
-                  <div key={i} className="text-xs text-red-400">{v}</div>
-                ))}
-              </div>
-            )}
-            {policy.effective && (
-              <pre className="text-[10px] text-muted-foreground overflow-x-auto">{JSON.stringify(policy.effective, null, 2)}</pre>
-            )}
-            {!policy.effective && !policy.violations && (
-              <div className="text-xs text-muted-foreground">Default policy applied.</div>
-            )}
+        <div style={cardStyle}>
+          <PanelHeader title="Policy" />
+          <div style={{ ...innerStyle, padding: 12 }}>
+            {policy.valid != null && <Badge tone={policy.valid ? 'active' : 'danger'}>{policy.valid ? 'valid' : 'invalid'}</Badge>}
+            {policy.violations?.length > 0 && <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>{policy.violations.map((violation: string, index: number) => <div key={index} style={{ fontSize: 12, color: 'var(--red)' }}>{violation}</div>)}</div>}
+            {policy.effective && <pre style={{ marginTop: 10, background: 'transparent', border: 0, color: 'var(--ink-mid)', fontSize: 11, overflowX: 'auto' }}>{JSON.stringify(policy.effective, null, 2)}</pre>}
+            {!policy.effective && !policy.violations && <div style={{ marginTop: 10, fontSize: 12, color: 'var(--ink-mid)' }}>Default policy applied.</div>}
           </div>
         </div>
       )}
@@ -287,54 +211,19 @@ function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, h
   );
 }
 
-export function AgentSystemTab({
-  agent,
-  agentConfig,
-  capabilities,
-  policy,
-  capLoading,
-  logs,
-  refreshingLogs,
-  refreshLogs,
-  handleGrant,
-  handleRevoke,
-  handleSaveConfig,
-  subTab,
-  onSubTabChange,
-}: Props) {
+export function AgentSystemTab({ agent, agentConfig, capabilities, policy, capLoading, logs, refreshingLogs, refreshLogs, handleGrant, handleRevoke, handleSaveConfig, subTab, onSubTabChange }: Props) {
   return (
-    <div className="flex flex-col h-full">
-      <div role="tablist" className="flex gap-2 px-2 py-1 border-b border-border">
-        {SYSTEM_TABS.map((t) => (
-          <button key={t.id} role="tab" aria-selected={subTab === t.id} aria-controls={`sys-panel-${t.id}`} onClick={() => onSubTabChange(t.id)}
-            className={`text-xs px-2 py-1 rounded transition-colors ${
-              subTab === t.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'
-            }`}>
-            {t.label}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div role="tablist" style={{ display: 'flex', gap: 18, borderBottom: '0.5px solid var(--ink-hairline)' }}>
+        {SYSTEM_TABS.map((tab) => (
+          <button key={tab.id} type="button" role="tab" aria-selected={subTab === tab.id} aria-controls={`sys-panel-${tab.id}`} onClick={() => onSubTabChange(tab.id)} style={{ background: 'transparent', border: 0, borderBottom: subTab === tab.id ? '1.5px solid var(--teal)' : '1.5px solid transparent', color: subTab === tab.id ? 'var(--ink)' : 'var(--ink-mid)', cursor: 'pointer', fontFamily: 'var(--font-sans)', fontSize: 12, marginBottom: -0.5, padding: '8px 0' }}>
+            {tab.label}
           </button>
         ))}
       </div>
-      <div role="tabpanel" id={`sys-panel-${subTab}`} className="flex-1 overflow-auto">
-        {subTab === 'config' && (
-          <ConfigContent
-            agent={agent}
-            agentConfig={agentConfig}
-            capabilities={capabilities}
-            policy={policy}
-            capLoading={capLoading}
-            handleGrant={handleGrant}
-            handleRevoke={handleRevoke}
-            handleSaveConfig={handleSaveConfig}
-          />
-        )}
-        {subTab === 'logs' && (
-          <LogsSection
-            agentName={agent.name}
-            logs={logs}
-            refreshingLogs={refreshingLogs}
-            refreshLogs={refreshLogs}
-          />
-        )}
+      <div role="tabpanel" id={`sys-panel-${subTab}`}>
+        {subTab === 'config' && <ConfigContent agent={agent} agentConfig={agentConfig} capabilities={capabilities} policy={policy} capLoading={capLoading} handleGrant={handleGrant} handleRevoke={handleRevoke} handleSaveConfig={handleSaveConfig} />}
+        {subTab === 'logs' && <LogsSection agentName={agent.name} logs={logs} refreshingLogs={refreshingLogs} refreshLogs={refreshLogs} />}
       </div>
     </div>
   );

@@ -3,7 +3,6 @@ import { Loader2 } from 'lucide-react';
 import { AgencyMessage } from './AgencyMessage';
 import { ScrollArea } from '../ui/scroll-area';
 import { Skeleton } from '../ui/skeleton';
-import { dateKey, formatDateLabel } from '../../lib/time';
 import type { Message } from '../../types';
 
 interface MessageListProps {
@@ -26,14 +25,14 @@ interface MessageListProps {
 
 function MessageSkeletons() {
   return (
-    <div className="space-y-5 px-5 py-5">
+    <div className="space-y-5 px-7 py-6">
       {[1, 2, 3, 4].map((i) => (
-        <div key={i} className="flex gap-3">
-          <Skeleton className="h-8 w-8 rounded-2xl flex-shrink-0" />
-          <div className="flex-1 space-y-1.5">
-            <Skeleton className="h-3 w-24" />
+        <div key={i} className="flex gap-4">
+          <Skeleton className="h-9 w-9 shrink-0 rounded-xl" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-3 w-28" />
             <Skeleton className="h-3 w-full" />
-            <Skeleton className="h-3 w-3/4" />
+            <Skeleton className="h-3 w-2/3" />
           </div>
         </div>
       ))}
@@ -95,7 +94,6 @@ export function MessageList({ messages, loading, agentStatuses, processingAgents
       const isNearTop = viewport.scrollTop <= 120;
       const isAtBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 4;
 
-      // Prevent scroll from escaping the message list at boundaries
       if ((isNearTop && isScrollingUp) || (isAtBottom && isScrollingDown)) {
         event.preventDefault();
         event.stopPropagation();
@@ -107,7 +105,6 @@ export function MessageList({ messages, loading, agentStatuses, processingAgents
       }
     };
 
-    // Initial measurement should never trigger loading-more side effects.
     updateScrollState();
     viewport.addEventListener('scroll', handleScroll);
     viewport.addEventListener('wheel', handleWheel, { passive: false });
@@ -123,7 +120,6 @@ export function MessageList({ messages, loading, agentStatuses, processingAgents
     }
   }, [loadingMore]);
 
-  // useLayoutEffect to scroll before paint — prevents flash of top content
   useLayoutEffect(() => {
     const viewport = getViewport();
     if (!viewport) return;
@@ -153,7 +149,6 @@ export function MessageList({ messages, loading, agentStatuses, processingAgents
     prevLastIdRef.current = lastId;
   }, [messages, loading, getViewport]);
 
-  // If the latest chunk does not fill the viewport, pull older messages until it does.
   useEffect(() => {
     if (loading || loadingMore || !hasMore) return;
     const viewport = getViewport();
@@ -169,7 +164,6 @@ export function MessageList({ messages, loading, agentStatuses, processingAgents
     }
   }, [scrollToMessageId]);
 
-  // Scroll to bottom when processing indicator appears
   useEffect(() => {
     if ((processingAgents ?? []).length > 0 && isAtBottomRef.current) {
       const viewport = getViewport();
@@ -180,10 +174,10 @@ export function MessageList({ messages, loading, agentStatuses, processingAgents
   }, [processingAgents, getViewport]);
 
   return (
-    <ScrollArea ref={scrollAreaRef} className="min-h-0 flex-1 overscroll-contain">
-      <div className="space-y-1 px-5 py-4">
+    <ScrollArea ref={scrollAreaRef} className="scrollbar-none min-h-0 flex-1 overscroll-contain" style={{ background: 'var(--warm)' }}>
+      <div style={{ padding: '24px 28px 28px' }}>
         {loadingMore && !loading && showLoadingEarlier && (
-          <div className="flex justify-center pb-2 text-xs text-muted-foreground">
+          <div className="mb-4 flex justify-center text-xs" style={{ color: 'var(--ink-muted)' }}>
             <Loader2 className="mr-1 h-3 w-3 animate-spin" />
             Loading earlier messages...
           </div>
@@ -191,43 +185,29 @@ export function MessageList({ messages, loading, agentStatuses, processingAgents
         {loading ? (
           <MessageSkeletons />
         ) : messages.length === 0 ? (
-          <div className="flex h-40 items-center justify-center">
-            <div className="rounded-2xl border border-dashed border-border bg-card px-5 py-6 text-center">
-              <div className="text-sm font-medium text-foreground">No messages yet</div>
-              <div className="mt-1 text-xs text-muted-foreground">Start the thread with a direct instruction, question, or decision.</div>
+          <div className="flex min-h-40 items-center justify-center text-center" style={{ padding: 24 }}>
+            <div>
+              <div style={{ fontSize: 15, color: 'var(--ink)' }}>No messages yet</div>
+              <div className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>Start with a direct instruction, question, or decision.</div>
             </div>
           </div>
         ) : (
-          messages.map((msg, idx) => {
-            const prevKey = idx > 0 ? dateKey(messages[idx - 1].rawTimestamp) : '';
-            const curKey = dateKey(msg.rawTimestamp);
-            const showDate = curKey && curKey !== prevKey;
-            return (
-              <div key={msg.id}>
-                {showDate && (
-                  <div className="flex items-center gap-3 my-3">
-                    <div className="flex-1 h-px bg-border" />
-                    <span className="text-xs text-muted-foreground font-medium px-2">
-                      {formatDateLabel(msg.rawTimestamp)}
-                    </span>
-                    <div className="flex-1 h-px bg-border" />
-                  </div>
-                )}
-                <div id={msg.id}>
-                  <AgencyMessage
-                    message={msg}
-                    agentStatus={agentStatuses?.[msg.author]}
-                    onReply={onReply}
-                    onEdit={onEdit}
-                    onDelete={onDelete}
-                    onReact={onReact}
-                    onUnreact={onUnreact}
-                    onAgentClick={onAgentClick}
-                  />
-                </div>
+          <div className="space-y-[14px]">
+            {messages.map((msg) => (
+              <div key={msg.id} id={msg.id}>
+                <AgencyMessage
+                  message={msg}
+                  agentStatus={agentStatuses?.[msg.author]}
+                  onReply={onReply}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                  onReact={onReact}
+                  onUnreact={onUnreact}
+                  onAgentClick={onAgentClick}
+                />
               </div>
-            );
-          })
+            ))}
+          </div>
         )}
       </div>
     </ScrollArea>

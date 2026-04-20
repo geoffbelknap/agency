@@ -21,7 +21,7 @@
   },
   {
     "id": "graph_admin",
-    "tier": "experimental"
+    "tier": "core"
   },
   {
     "id": "hub",

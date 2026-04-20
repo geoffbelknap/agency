@@ -7,23 +7,25 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/geoffbelknap/agency/internal/config"
+	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
+	"github.com/go-chi/chi/v5"
 	"gopkg.in/yaml.v3"
 )
 
-func TestSplitDoctorChecksSeparatesDockerBackendHygiene(t *testing.T) {
+func TestSplitDoctorChecksSeparatesBackendScopedChecks(t *testing.T) {
 	t.Parallel()
 
 	checks := []doctorCheckResult{
 		{Name: "credentials_isolated", Agent: "henry", Status: "pass"},
 		{Name: "host_capacity", Status: "pass"},
-		{Name: "docker_dangling_images", Status: "warn"},
-		{Name: "network_pool", Status: "warn"},
+		{Name: "pid_limits", Scope: "backend", Backend: "docker", Status: "pass"},
 	}
 
 	runtimeChecks, backendChecks := splitDoctorChecks(checks, "docker")
@@ -31,18 +33,18 @@ func TestSplitDoctorChecksSeparatesDockerBackendHygiene(t *testing.T) {
 	if len(runtimeChecks) != 2 {
 		t.Fatalf("runtimeChecks len = %d, want 2", len(runtimeChecks))
 	}
-	if len(backendChecks) != 2 {
-		t.Fatalf("backendChecks len = %d, want 2", len(backendChecks))
+	if len(backendChecks) != 1 {
+		t.Fatalf("backendChecks len = %d, want 1", len(backendChecks))
 	}
 	if runtimeChecks[0].Name != "credentials_isolated" || runtimeChecks[1].Name != "host_capacity" {
 		t.Fatalf("unexpected runtime checks: %#v", runtimeChecks)
 	}
-	if backendChecks[0].Name != "docker_dangling_images" || backendChecks[1].Name != "network_pool" {
+	if backendChecks[0].Name != "pid_limits" || backendChecks[0].Backend != "docker" {
 		t.Fatalf("unexpected backend checks: %#v", backendChecks)
 	}
 }
 
-func TestSplitDoctorChecksKeepsNetworkPoolOutOfPodmanBackendChecks(t *testing.T) {
+func TestSplitDoctorChecksTreatsNetworkPoolAsRuntimeAdvisoryWithoutScope(t *testing.T) {
 	t.Parallel()
 
 	checks := []doctorCheckResult{
@@ -61,14 +63,13 @@ func TestSplitDoctorChecksKeepsNetworkPoolOutOfPodmanBackendChecks(t *testing.T)
 	}
 }
 
-func TestSplitDoctorChecksSeparatesContainerdBackendHygiene(t *testing.T) {
+func TestSplitDoctorChecksKeepsLegacyPrefixedBackendChecksGrouped(t *testing.T) {
 	t.Parallel()
 
 	checks := []doctorCheckResult{
 		{Name: "credentials_isolated", Agent: "henry", Status: "pass"},
 		{Name: "containerd_dangling_images", Status: "warn"},
 		{Name: "containerd_log_rotation", Status: "warn"},
-		{Name: "network_pool", Status: "warn"},
 	}
 
 	runtimeChecks, backendChecks := splitDoctorChecks(checks, "containerd")
@@ -76,8 +77,8 @@ func TestSplitDoctorChecksSeparatesContainerdBackendHygiene(t *testing.T) {
 	if len(backendChecks) != 2 {
 		t.Fatalf("backendChecks len = %d, want 2", len(backendChecks))
 	}
-	if len(runtimeChecks) != 2 {
-		t.Fatalf("runtimeChecks len = %d, want 2", len(runtimeChecks))
+	if len(runtimeChecks) != 1 {
+		t.Fatalf("runtimeChecks len = %d, want 1", len(runtimeChecks))
 	}
 	if backendChecks[0].Name != "containerd_dangling_images" || backendChecks[1].Name != "containerd_log_rotation" {
 		t.Fatalf("unexpected backend checks: %#v", backendChecks)
@@ -272,5 +273,143 @@ func TestAdminDestroyNonDockerBackendUnavailable(t *testing.T) {
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("code = %d, want 503", rec.Code)
+	}
+}
+
+func TestAdminEgressRESTApproveRevokeAndMode(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	router := chi.NewRouter()
+	RegisterRoutes(router, Deps{
+		Config: &config.Config{Home: home},
+		Audit:  logs.NewWriter(home),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/egress/test-agent/domains", strings.NewReader(`{"domain":"API.Example.COM.","reason":"provider access"}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("approve code = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	var approved map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &approved); err != nil {
+		t.Fatal(err)
+	}
+	if approved["mode"] != "allowlist" {
+		t.Fatalf("mode = %v, want allowlist", approved["mode"])
+	}
+	domains, ok := approved["domains"].([]interface{})
+	if !ok || len(domains) != 1 {
+		t.Fatalf("domains = %#v, want one entry", approved["domains"])
+	}
+	entry, ok := domains[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("domain entry = %#v, want map", domains[0])
+	}
+	if entry["domain"] != "api.example.com" || entry["reason"] != "provider access" || entry["approved_by"] != "operator" {
+		t.Fatalf("unexpected approved entry: %#v", entry)
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/admin/egress/test-agent/mode", strings.NewReader(`{"mode":"supervised-strict"}`))
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("mode code = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/admin/egress/test-agent/domains/API.Example.COM.", nil)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("revoke code = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	raw, err := os.ReadFile(filepath.Join(home, "agents", "test-agent", "egress.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var onDisk map[string]interface{}
+	if err := yaml.Unmarshal(raw, &onDisk); err != nil {
+		t.Fatal(err)
+	}
+	if onDisk["mode"] != "supervised-strict" {
+		t.Fatalf("on-disk mode = %v, want supervised-strict", onDisk["mode"])
+	}
+	if got := onDisk["domains"].([]interface{}); len(got) != 0 {
+		t.Fatalf("on-disk domains = %#v, want empty", got)
+	}
+
+	auditRaw, err := os.ReadFile(filepath.Join(home, "audit", "test-agent", "gateway.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit := string(auditRaw)
+	for _, event := range []string{"egress_domain_approved", "egress_mode_changed", "egress_domain_revoked"} {
+		if !strings.Contains(audit, `"event":"`+event+`"`) {
+			t.Fatalf("audit log missing %s: %s", event, audit)
+		}
+	}
+}
+
+func TestAdminEgressRESTRejectsInvalidInputs(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	router := chi.NewRouter()
+	RegisterRoutes(router, Deps{
+		Config: &config.Config{Home: home},
+		Audit:  logs.NewWriter(home),
+	})
+
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "invalid agent", method: http.MethodPost, path: "/api/v1/admin/egress/Bad_Agent/domains", body: `{"domain":"api.example.com"}`},
+		{name: "empty domain", method: http.MethodPost, path: "/api/v1/admin/egress/test-agent/domains", body: `{"domain":" "}`},
+		{name: "invalid domain", method: http.MethodPost, path: "/api/v1/admin/egress/test-agent/domains", body: `{"domain":"https://api.example.com/path"}`},
+		{name: "open mode", method: http.MethodPut, path: "/api/v1/admin/egress/test-agent/mode", body: `{"mode":"open"}`},
+		{name: "unknown mode", method: http.MethodPut, path: "/api/v1/admin/egress/test-agent/mode", body: `{"mode":"monitor"}`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("code = %d, want 400: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestAdminAuditAllReturnsEmptyWhenNoAuditLogs(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	router := chi.NewRouter()
+	RegisterRoutes(router, Deps{
+		Config: &config.Config{Home: home},
+		Audit:  logs.NewWriter(home),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var events []map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &events); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("events len = %d, want 0", len(events))
 	}
 }

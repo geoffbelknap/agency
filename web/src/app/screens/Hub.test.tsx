@@ -42,7 +42,7 @@ describe('Hub', () => {
     await waitFor(() => {
       expect(screen.getByText('google-drive-admin')).toBeInTheDocument();
       expect(screen.getByText('Installed packages')).toBeInTheDocument();
-      expect(screen.getByText('Ready to instantiate')).toBeInTheDocument();
+      expect(screen.getAllByText('Ready').length).toBeGreaterThan(0);
       expect(screen.getByText(/ASK-Partial via automated/i)).toBeInTheDocument();
       expect(screen.getByText(/hub:official:agency/i)).toBeInTheDocument();
     });
@@ -207,9 +207,9 @@ describe('Hub', () => {
     renderWithRouter(<Hub />);
 
     await waitFor(() => {
-      expect(screen.getByText('More assurance required')).toBeInTheDocument();
+      expect(screen.getByText('Needs assurance')).toBeInTheDocument();
       expect(screen.getByText(/This package cannot be instantiated yet because it does not meet the local assurance policy./i)).toBeInTheDocument();
-      expect(screen.getByText(/Assurance:/i)).toBeInTheDocument();
+      expect(screen.getAllByText('Assurance').length).toBeGreaterThan(0);
       expect(screen.getByText(/publisher_verified/i)).toBeInTheDocument();
       expect(screen.getByText(/ASK-Fail via automated/i)).toBeInTheDocument();
       expect(screen.getByText(/hub:partner:example/i)).toBeInTheDocument();

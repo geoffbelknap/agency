@@ -46,10 +46,12 @@ type (
 	ImageInspect        = dockerimage.InspectResponse
 	ImageBuildResponse  = dockertypes.ImageBuildResponse
 	InfraComponent      struct {
-		Name    string `json:"name"`
-		State   string `json:"state"`
-		Health  string `json:"health"`
-		BuildID string `json:"build_id,omitempty"`
+		Name        string `json:"name"`
+		State       string `json:"state"`
+		Health      string `json:"health"`
+		BuildID     string `json:"build_id,omitempty"`
+		ContainerID string `json:"container_id,omitempty"`
+		Uptime      string `json:"uptime,omitempty"`
 	}
 	ContainerInspect struct {
 		Name     string
@@ -473,7 +475,6 @@ func (c *Client) ListAgents(ctx context.Context) ([]AgentStatus, error) {
 
 func (c *Client) InfraStatus(ctx context.Context) ([]InfraComponent, error) {
 	components := infratier.StatusComponents()
-	instance := strings.Trim(strings.ToLower(os.Getenv("AGENCY_INFRA_INSTANCE")), "-")
 	containers, err := c.cli.ContainerList(ctx, dockercontainer.ListOptions{
 		All:     true,
 		Filters: dockerfilters.NewArgs(dockerfilters.Arg("label", "agency.role=infra")),
@@ -490,12 +491,9 @@ func (c *Client) InfraStatus(ctx context.Context) ([]InfraComponent, error) {
 		for _, n := range ctr.Names {
 			n = strings.TrimPrefix(n, "/")
 			for _, comp := range components {
-				expected := prefix + "-infra-" + comp
-				if instance != "" {
-					expected += "-" + instance
-				}
+				expected := infraContainerName(comp)
 				if n == expected {
-					ic := InfraComponent{Name: comp, State: ctr.State}
+					ic := InfraComponent{Name: comp, State: ctr.State, ContainerID: shortContainerID(ctr.ID), Uptime: formatContainerUptime(ctr.Created, ctr.State, ctr.Status)}
 					if ctr.Status != "" && strings.Contains(ctr.Status, "healthy") {
 						ic.Health = "healthy"
 					} else if ctr.Status != "" && strings.Contains(ctr.Status, "unhealthy") {
@@ -520,6 +518,63 @@ func (c *Client) InfraStatus(ctx context.Context) ([]InfraComponent, error) {
 		}
 	}
 	return result, nil
+}
+
+func (c *Client) InfraLogs(ctx context.Context, component string, tail int) (string, error) {
+	component = strings.TrimSpace(component)
+	if !validInfraComponent(component) {
+		return "", fmt.Errorf("unknown infrastructure component %q", component)
+	}
+	if c == nil || c.cli == nil {
+		return "", fmt.Errorf("container client unavailable")
+	}
+	return c.cli.ContainerLogs(ctx, infraContainerName(component), tail)
+}
+
+func validInfraComponent(component string) bool {
+	for _, candidate := range infratier.StatusComponents() {
+		if component == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func infraContainerName(component string) string {
+	name := prefix + "-infra-" + component
+	instance := strings.Trim(strings.ToLower(strings.TrimSpace(os.Getenv("AGENCY_INFRA_INSTANCE"))), "-")
+	if instance != "" {
+		name += "-" + instance
+	}
+	return name
+}
+
+func shortContainerID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
+}
+
+func formatContainerUptime(created int64, state, status string) string {
+	if state != "running" {
+		return ""
+	}
+	if strings.HasPrefix(status, "Up ") {
+		uptime := strings.TrimPrefix(status, "Up ")
+		if idx := strings.Index(uptime, " ("); idx >= 0 {
+			uptime = uptime[:idx]
+		}
+		return strings.TrimSpace(uptime)
+	}
+	if created <= 0 {
+		return ""
+	}
+	duration := time.Since(time.Unix(created, 0)).Round(time.Second)
+	if duration < 0 {
+		return ""
+	}
+	return duration.String()
 }
 
 func (c *Client) ExecInContainer(ctx context.Context, containerName string, cmd []string) (string, error) {

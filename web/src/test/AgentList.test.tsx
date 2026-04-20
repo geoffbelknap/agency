@@ -17,16 +17,15 @@ describe('AgentList', () => {
   });
 
   it('shows status for each agent', () => {
-    render(<AgentList agents={agents} selectedAgent={null} onSelect={vi.fn()} />);
-    expect(screen.getByText('running')).toBeInTheDocument();
-    expect(screen.getByText('stopped')).toBeInTheDocument();
+    const { container } = render(<AgentList agents={agents} selectedAgent={null} onSelect={vi.fn()} />);
+    const statusDots = container.querySelectorAll('[aria-hidden="true"][style*="border-radius: 50%"]');
+    expect(statusDots).toHaveLength(2);
   });
 
   it('highlights selected agent', () => {
-    const { container } = render(<AgentList agents={agents} selectedAgent="alice" onSelect={vi.fn()} />);
-    const rows = container.querySelectorAll('tr');
-    const aliceRow = Array.from(rows).find((r) => r.textContent?.includes('alice'));
-    expect(aliceRow?.className).toMatch(/primary/);
+    render(<AgentList agents={agents} selectedAgent="alice" onSelect={vi.fn()} />);
+    const aliceRow = screen.getByRole('button', { name: /alice/i });
+    expect(aliceRow.getAttribute('style')).toContain('border-left: 2px solid var(--teal)');
   });
 
   it('calls onSelect when row is clicked', () => {
@@ -39,7 +38,7 @@ describe('AgentList', () => {
   it('shows budget bar with warning color when usage > 95%', () => {
     const { container } = render(<AgentList agents={agents} selectedAgent={null} onSelect={vi.fn()} />);
     const bars = container.querySelectorAll('[data-budget-bar]');
-    const bobBar = Array.from(bars).find((b) => b.closest('tr')?.textContent?.includes('bob'));
-    expect(bobBar?.className).toMatch(/red/);
+    const bobBar = Array.from(bars).find((b) => b.closest('button')?.textContent?.includes('bob'));
+    expect(bobBar).toHaveStyle({ background: 'var(--red)' });
   });
 });

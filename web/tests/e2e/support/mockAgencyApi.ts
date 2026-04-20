@@ -722,6 +722,18 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
       await route.fulfill(json({ node_count: 2, edge_count: 1, source_count: 2, avg_confidence: 0.92 }));
       return;
     }
+    if (method === 'GET' && pathname === '/api/v1/graph/neighbors') {
+      await route.fulfill(json({
+        neighbors: [
+          { label: 'Deployment plan', kind: 'document', relation: 'references' },
+        ],
+      }));
+      return;
+    }
+    if (method === 'GET' && pathname === '/api/v1/graph/context') {
+      await route.fulfill(json({ summary: 'Release notes connect deployment planning and weekly rollout context.' }));
+      return;
+    }
     if (method === 'POST' && pathname === '/api/v1/graph/query') {
       await route.fulfill(json({
         results: [
@@ -1023,6 +1035,11 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
     }
     if (method === 'GET' && pathname === '/api/v1/admin/egress') {
       await route.fulfill(json({ allowed_domains: ['api.anthropic.com', 'slack.com'] }));
+      return;
+    }
+    if (method === 'GET' && pathname === '/api/v1/admin/audit') {
+      const agent = url.searchParams.get('agent') || '_all';
+      await route.fulfill(json(agentLogs[agent] ?? []));
       return;
     }
     if (method === 'POST' && pathname === '/api/v1/admin/audit/summarize') {

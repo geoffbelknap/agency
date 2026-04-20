@@ -46,6 +46,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 		r.Post("/rebuild/{component}", h.infraRebuild)
 		r.Post("/reload", h.infraReload)
 		r.Get("/capacity", h.infraCapacity)
+		r.Get("/services/{component}/logs", h.infraLogs)
 	})
 
 	r.Post("/api/v1/infra/internal/llm", h.internalLLM)

@@ -73,28 +73,21 @@ describe('Channels', () => {
     });
   });
 
-  it('marks DM targets without a live backing agent as unavailable', async () => {
-    let channelListCalls = 0;
+  it('renders DM targets in the compact conversation rail', async () => {
     server.use(
       operatorProfilesHandler,
-      http.get(`${BASE}/comms/channels`, () => {
-        channelListCalls += 1;
-        if (channelListCalls > 1) {
-          return HttpResponse.json([
-            { name: 'general', topic: 'General chat', state: 'active' },
-            {
-              name: 'dm-retired-agent',
-              topic: 'Legacy DM',
-              type: 'dm',
-              state: 'active',
-              availability: 'unavailable',
-            },
-          ]);
-        }
-        return HttpResponse.json([
+      http.get(`${BASE}/comms/channels`, () =>
+        HttpResponse.json([
           { name: 'general', topic: 'General chat', state: 'active' },
-        ]);
-      }),
+          {
+            name: 'dm-retired-agent',
+            topic: 'Legacy DM',
+            type: 'dm',
+            state: 'active',
+            availability: 'unavailable',
+          },
+        ]),
+      ),
       http.get(`${BASE}/comms/channels/general/messages`, () =>
         HttpResponse.json([
           { id: 'm1', author: 'steve', content: 'Hello world', timestamp: '2026-03-16T10:00:00Z' },
@@ -113,11 +106,9 @@ describe('Channels', () => {
       expect(screen.queryByText('UNAVAILABLE')).not.toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByRole('button', { name: /show inactive/i }));
-
     await waitFor(() => {
-      expect(screen.getByText('retired-agent')).toBeInTheDocument();
-      expect(screen.getByLabelText('Unavailable')).toBeInTheDocument();
+      expect(screen.getAllByText('retired-agent').length).toBeGreaterThanOrEqual(1);
+      expect(screen.queryByLabelText('Unavailable')).not.toBeInTheDocument();
     });
   });
 
@@ -139,7 +130,7 @@ describe('Channels', () => {
     await waitFor(() => {
       expect(screen.getAllByText('general').length).toBeGreaterThanOrEqual(1);
     });
-    const input = screen.getByPlaceholderText(/message #general/i);
+    const input = screen.getByPlaceholderText(/message general/i);
     await userEvent.type(input, 'Test message{Enter}');
     await waitFor(() => {
       expect(sent).toBe(true);
@@ -164,7 +155,7 @@ describe('Channels', () => {
     await waitFor(() => {
       expect(screen.getAllByText('general').length).toBeGreaterThanOrEqual(1);
     });
-    const input = screen.getByPlaceholderText(/message #general/i);
+    const input = screen.getByPlaceholderText(/message general/i);
     await userEvent.type(input, 'Hello from button');
     const buttons = screen.getAllByRole('button');
     await userEvent.click(buttons[buttons.length - 1]);
@@ -185,8 +176,8 @@ describe('Channels', () => {
 
     await waitFor(() => {
       expect(screen.getByText('No channels yet')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Create channel' })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'Open Agents' })).toHaveAttribute('href', '/agents');
+      expect(screen.queryByRole('button', { name: 'Create channel' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Open Agents' })).not.toBeInTheDocument();
     });
   });
 });

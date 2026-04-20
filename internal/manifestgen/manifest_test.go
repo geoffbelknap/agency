@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -414,6 +415,43 @@ workspace:
 	}
 	if _, err := os.Stat(filepath.Join(agentDir, "services.yaml")); err != nil {
 		t.Fatalf("services.yaml not written: %v", err)
+	}
+}
+
+func TestGeneratorWritesEffectiveProviderToolGrants(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, "agents", "henry")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "constraints.yaml"), []byte("agent: henry\ngranted_capabilities:\n  - provider-code-execution\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "capabilities.yaml"), []byte("capabilities:\n  provider-web-search:\n    state: restricted\n    agents:\n      - henry\n  provider-url-context:\n    state: restricted\n    agents:\n      - jules\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("version: \"0.1\"\nname: henry\nrole: test\nbody:\n  runtime: body\n  version: \"1.0\"\nworkspace:\n  ref: default\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	gen := Generator{Home: home, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if err := gen.GenerateAgentManifest("henry"); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(agentDir, "provider-tools.yaml"))
+	if err != nil {
+		t.Fatalf("provider-tools.yaml not written: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "provider-web-search") {
+		t.Fatalf("provider-tools.yaml missing platform grant:\n%s", text)
+	}
+	if !strings.Contains(text, "provider-code-execution") {
+		t.Fatalf("provider-tools.yaml missing explicit grant:\n%s", text)
+	}
+	if strings.Contains(text, "provider-url-context") {
+		t.Fatalf("provider-tools.yaml included grant for another agent:\n%s", text)
 	}
 }
 

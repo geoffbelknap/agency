@@ -62,6 +62,23 @@ func LoadProviderToolPolicy(agentDir string) *ProviderToolPolicy {
 	for _, cap := range cfg.GrantedCapabilities {
 		p.Granted[strings.TrimSpace(cap)] = true
 	}
+	effectiveData, err := os.ReadFile(filepath.Join(agentDir, "provider-tools.yaml"))
+	if err != nil {
+		return p
+	}
+	var effective struct {
+		Grants []struct {
+			Capability string `yaml:"capability"`
+		} `yaml:"grants"`
+	}
+	if err := yaml.Unmarshal(effectiveData, &effective); err != nil {
+		return p
+	}
+	for _, grant := range effective.Grants {
+		if capability := strings.TrimSpace(grant.Capability); capability != "" {
+			p.Granted[capability] = true
+		}
+	}
 	return p
 }
 

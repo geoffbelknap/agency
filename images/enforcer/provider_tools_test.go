@@ -156,3 +156,21 @@ func TestLoadProviderToolPolicy(t *testing.T) {
 		t.Fatal("unexpected provider-code-execution grant")
 	}
 }
+
+func TestLoadProviderToolPolicyIncludesEffectiveGrants(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "constraints.yaml"), []byte("granted_capabilities: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "provider-tools.yaml"), []byte("agent: henry\ngrants:\n  - capability: provider-code-execution\n    source: capabilities.yaml\n    granted_by: operator\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	policy := LoadProviderToolPolicy(dir)
+	if !policy.Allows(capProviderCodeExecution) {
+		t.Fatal("expected provider-code-execution effective grant")
+	}
+	if policy.Allows(capProviderWebSearch) {
+		t.Fatal("unexpected provider-web-search grant")
+	}
+}

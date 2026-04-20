@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
@@ -7,6 +7,11 @@ import { renderWithRouter } from '../../test/render';
 import { Usage } from './Usage';
 
 const BASE = 'http://localhost:8200/api/v1';
+const featureState = vi.hoisted(() => ({ routingOptimizer: false }));
+
+vi.mock('../lib/features', () => ({
+  featureEnabled: (id: string) => id === 'routing_optimizer' ? featureState.routingOptimizer : true,
+}));
 
 const metrics = {
   period: { since: '2026-04-08T00:00:00Z', until: '2026-04-09T00:00:00Z' },
@@ -55,7 +60,12 @@ function mockUsageData(suggestions: unknown[] = [], stats: unknown[] = []) {
 }
 
 describe('Usage', () => {
+  afterEach(() => {
+    featureState.routingOptimizer = false;
+  });
+
   it('renders pending routing suggestions', async () => {
+    featureState.routingOptimizer = true;
     mockUsageData([
       {
         id: 'suggestion-1',
@@ -71,7 +81,7 @@ describe('Usage', () => {
 
     renderWithRouter(<Usage />);
 
-    await screen.findByText('Breakdowns');
+    await screen.findByText('Cost components');
     await userEvent.click(screen.getByRole('button', { name: /optimizer/i }));
     expect(await screen.findByText('Routing Suggestions')).toBeInTheDocument();
     expect(screen.getByText('summarization')).toBeInTheDocument();
@@ -81,6 +91,7 @@ describe('Usage', () => {
   });
 
   it('approves a routing suggestion and refreshes the pending list', async () => {
+    featureState.routingOptimizer = true;
     let suggestions: unknown[] = [
       {
         id: 'suggestion-1',
@@ -115,6 +126,7 @@ describe('Usage', () => {
   });
 
   it('renders routing optimizer stats', async () => {
+    featureState.routingOptimizer = true;
     mockUsageData([], [
       {
         model: 'claude-haiku',
@@ -141,23 +153,45 @@ describe('Usage', () => {
     expect(screen.getByText('$0.0120')).toBeInTheDocument();
   });
 
-  it('renders provider tool economics and unknown pricing warning', async () => {
+  it('renders provider tool costs as cost components', async () => {
     mockUsageData();
 
     renderWithRouter(<Usage />);
 
-    await screen.findByRole('button', { name: /economics/i });
-    await userEvent.click(screen.getByRole('button', { name: /economics/i }));
-    expect(await screen.findByText('Provider Tool Breakdown')).toBeInTheDocument();
+    expect(await screen.findByText('Cost components')).toBeInTheDocument();
+    expect(screen.getByText('Provider tools')).toBeInTheDocument();
+    expect(screen.getByText('Unpriced tools')).toBeInTheDocument();
     expect(screen.getAllByText('provider-web-search').length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/missing pricing metadata/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/calls without pricing metadata/i)).toBeInTheDocument();
-    expect(screen.getByText(/priced tool spend/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 calls missing pricing metadata/i)).toBeInTheDocument();
     expect(screen.getAllByText('exact, unknown').length).toBeGreaterThan(0);
     expect(screen.getAllByText('$0.0200').length).toBeGreaterThan(0);
   });
 
-  it('shows recovery guidance when recent routing errors exist', async () => {
+  it('does not call optimizer-only endpoints when the feature is disabled', async () => {
+    let suggestionCalls = 0;
+    let statsCalls = 0;
+    server.use(
+      http.get('*/__agency/config', () => HttpResponse.json({ gateway: 'http://localhost:8200' })),
+      http.get(`${BASE}/infra/routing/metrics`, () => HttpResponse.json(metrics)),
+      http.get(`${BASE}/infra/routing/suggestions`, () => {
+        suggestionCalls += 1;
+        return HttpResponse.json([]);
+      }),
+      http.get(`${BASE}/infra/routing/stats`, () => {
+        statsCalls += 1;
+        return HttpResponse.json([]);
+      }),
+    );
+
+    renderWithRouter(<Usage />);
+
+    await screen.findByText('Cost components');
+    expect(screen.queryByRole('button', { name: /optimizer/i })).not.toBeInTheDocument();
+    expect(suggestionCalls).toBe(0);
+    expect(statsCalls).toBe(0);
+  });
+
+  it('shows recent routing errors in the recent calls ledger', async () => {
     server.use(
       http.get('*/__agency/config', () => HttpResponse.json({ gateway: 'http://localhost:8200' })),
       http.get(`${BASE}/infra/routing/metrics`, () =>
@@ -166,7 +200,7 @@ describe('Usage', () => {
           totals: { ...metrics.totals, errors: 2 },
           recent_errors: [
             {
-              ts: '2026-04-09T12:00:00Z',
+              ts: new Date().toISOString(),
               agent: 'alice',
               model: 'claude-sonnet',
               status: 429,
@@ -181,18 +215,10 @@ describe('Usage', () => {
 
     renderWithRouter(<Usage />, { route: '/admin/usage' });
 
-    await waitFor(() => {
-      expect(screen.getByText(/recent routing error/i)).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /errors/i })).toBeInTheDocument();
-    });
-
-    await userEvent.click(screen.getByRole('button', { name: /errors/i }));
-
-    await waitFor(() => {
-      expect(screen.getAllByRole('link', { name: 'Open Agent: alice' }).length).toBeGreaterThan(0);
-      expect(screen.getAllByRole('link', { name: 'Open Doctor' }).length).toBeGreaterThan(0);
-      expect(screen.getByText('Rate limit exceeded')).toBeInTheDocument();
-      expect(screen.getByText(/looks like a provider or rate-limit issue/i)).toBeInTheDocument();
-    });
+    expect(await screen.findByText('Recent calls')).toBeInTheDocument();
+    expect(screen.getByText('alice')).toBeInTheDocument();
+    expect(screen.getByText('claude-sonnet')).toBeInTheDocument();
+    expect(screen.getByText('429')).toBeInTheDocument();
   });
+
 });

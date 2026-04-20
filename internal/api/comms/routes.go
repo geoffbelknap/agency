@@ -5,16 +5,20 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"log/slog"
 	"github.com/go-chi/chi/v5"
+	"log/slog"
 
-	"github.com/geoffbelknap/agency/internal/config"
 	commsClient "github.com/geoffbelknap/agency/internal/comms"
+	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 )
 
 type agentLister interface {
 	List(ctx context.Context) ([]orchestrate.AgentDetail, error)
+}
+
+type agentNamer interface {
+	Names(ctx context.Context) ([]string, error)
 }
 
 // Deps holds the dependencies required by the comms module.

@@ -17,22 +17,25 @@ const (
 
 // AuditEntry represents a single audit log entry.
 type AuditEntry struct {
-	Timestamp     string `json:"ts"`
-	Type          string `json:"type"`
-	Agent         string `json:"agent,omitempty"`
-	LifecycleID   string `json:"lifecycle_id,omitempty"`
-	Method        string `json:"method,omitempty"`
-	URL           string `json:"url,omitempty"`
-	Host          string `json:"host,omitempty"`
-	Status        int    `json:"status,omitempty"`
-	Model         string `json:"model,omitempty"`
-	ProviderModel string `json:"provider_model,omitempty"`
-	CorrelationID string `json:"correlation_id,omitempty"`
-	Service       string `json:"service,omitempty"`
-	Error         string `json:"error,omitempty"`
-	DurationMs    int64  `json:"duration_ms,omitempty"`
-	InputTokens   int    `json:"input_tokens,omitempty"`
-	OutputTokens  int    `json:"output_tokens,omitempty"`
+	Timestamp                string `json:"ts"`
+	Type                     string `json:"type"`
+	Agent                    string `json:"agent,omitempty"`
+	LifecycleID              string `json:"lifecycle_id,omitempty"`
+	Method                   string `json:"method,omitempty"`
+	URL                      string `json:"url,omitempty"`
+	Host                     string `json:"host,omitempty"`
+	Status                   int    `json:"status,omitempty"`
+	Model                    string `json:"model,omitempty"`
+	ProviderModel            string `json:"provider_model,omitempty"`
+	CorrelationID            string `json:"correlation_id,omitempty"`
+	Service                  string `json:"service,omitempty"`
+	Error                    string `json:"error,omitempty"`
+	DurationMs               int64  `json:"duration_ms,omitempty"`
+	InputTokens              int    `json:"input_tokens,omitempty"`
+	OutputTokens             int    `json:"output_tokens,omitempty"`
+	CachedTokens             int    `json:"cached_tokens,omitempty"`
+	CacheCreationInputTokens int    `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int    `json:"cache_read_input_tokens,omitempty"`
 
 	// Memory mutation fields (ASK Tenet 25: identity writes are logged with provenance).
 	File      string `json:"file,omitempty"`

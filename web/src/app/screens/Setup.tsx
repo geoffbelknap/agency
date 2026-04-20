@@ -1,74 +1,68 @@
 import { useReducer, useCallback } from 'react';
 import { useNavigate } from 'react-router';
+import { Check } from 'lucide-react';
 import { PlatformReadyStep } from './setup/PlatformReadyStep';
-import { WelcomeStep } from './setup/WelcomeStep';
 import { ProvidersStep } from './setup/ProvidersStep';
 import { AgentStep } from './setup/AgentStep';
-import { CapabilitiesStep } from './setup/CapabilitiesStep';
+import { StartingAgentStep } from './setup/StartingAgentStep';
 import { ChatStep } from './setup/ChatStep';
 
-type WizardStep = 'platform-ready' | 'welcome' | 'providers' | 'agent' | 'capabilities' | 'chat';
+type WizardStep = 'platform-ready' | 'providers' | 'agent' | 'chat';
 
-const STEPS: WizardStep[] = ['platform-ready', 'welcome', 'providers', 'agent', 'capabilities', 'chat'];
-const STEP_META: Record<WizardStep, { title: string; description: string }> = {
+const STEPS: WizardStep[] = ['platform-ready', 'providers', 'agent', 'chat'];
+const STEP_META: Record<WizardStep, { label: string; title: string; headline: JSX.Element; description: string }> = {
   'platform-ready': {
+    label: 'Platform',
     title: 'Prepare the workspace',
-    description: 'Verify the local runtime is reachable and that the core platform pieces are ready before you configure anything else.',
-  },
-  welcome: {
-    title: 'Name the operator',
-    description: 'Establish the operator identity Agency will use in chat, audit trails, and first-run guidance.',
+    headline: <>Verify the local <em style={{ color: 'var(--teal-dark)' }}>platform</em>.</>,
+    description: 'Confirm the gateway, runtime, and routing surface are reachable before setup changes state.',
   },
   providers: {
-    title: 'Connect model providers',
-    description: 'Add at least one verified model backend so the first agent can actually run useful work.',
+    label: 'Providers',
+    title: 'Connect providers',
+    headline: <>Connect a model <em style={{ color: 'var(--teal-dark)' }}>provider</em>.</>,
+    description: 'Verify at least one provider credential. Routing stays best-effort by default.',
   },
   agent: {
-    title: 'Create the first agent',
-    description: 'Start with one agent and one clear role instead of configuring the whole system up front.',
-  },
-  capabilities: {
-    title: 'Choose capabilities',
-    description: 'Grant only the capabilities you want available now. You can adjust this safely later in Admin.',
+    label: 'Agent',
+    title: 'Name your agent',
+    headline: <>Name your <em style={{ color: 'var(--teal-dark)' }}>agent</em>.</>,
+    description: 'Setup will use safe defaults: general assistant behavior, Agency platform knowledge, standard capabilities, and provider web tools.',
   },
   chat: {
+    label: 'Chat',
     title: 'Open the first conversation',
-    description: 'Confirm the agent is reachable, ask a grounded first question, and continue into the direct-message workflow when ready.',
+    headline: <>Test the first <em style={{ color: 'var(--teal-dark)' }}>conversation</em>.</>,
+    description: 'Confirm the agent is reachable and continue into the direct-message workflow.',
   },
 };
 
 interface WizardState {
   step: WizardStep;
-  operatorName: string;
   providers: Record<string, { configured: boolean; validated: boolean }>;
-  tierStrategy: 'strict' | 'best_effort' | 'catch_all';
   agentName: string;
   agentPreset: string;
-  platformExpert: boolean;
-  capabilities: string[];
+  agentStarting: boolean;
+  agentReady: boolean;
   platformPrepared: boolean;
 }
 
 type WizardAction =
   | { type: 'SET_STEP'; step: WizardStep }
-  | { type: 'SET_OPERATOR'; name: string }
   | { type: 'SET_PROVIDER'; name: string; configured: boolean; validated: boolean }
-  | { type: 'SET_TIER_STRATEGY'; strategy: WizardState['tierStrategy'] }
   | { type: 'SET_AGENT'; name: string; preset: string }
-  | { type: 'SET_PLATFORM_EXPERT'; enabled: boolean }
-  | { type: 'SET_CAPABILITIES'; capabilities: string[] }
+  | { type: 'SET_AGENT_STARTING'; starting: boolean }
+  | { type: 'SET_AGENT_READY'; ready: boolean }
   | { type: 'PLATFORM_PREPARED' };
 
 function wizardReducer(state: WizardState, action: WizardAction): WizardState {
   switch (action.type) {
-    case 'SET_STEP': return { ...state, step: action.step };
-    case 'SET_OPERATOR': return { ...state, operatorName: action.name };
+    case 'SET_STEP': return { ...state, step: action.step, agentStarting: action.step === 'agent' ? state.agentStarting : false };
     case 'SET_PROVIDER':
       return { ...state, providers: { ...state.providers, [action.name]: { configured: action.configured, validated: action.validated } } };
-    case 'SET_TIER_STRATEGY': return { ...state, tierStrategy: action.strategy };
     case 'SET_AGENT': return { ...state, agentName: action.name, agentPreset: action.preset };
-    case 'SET_PLATFORM_EXPERT': return { ...state, platformExpert: action.enabled };
-    case 'SET_CAPABILITIES': return { ...state, capabilities: action.capabilities };
+    case 'SET_AGENT_STARTING': return { ...state, agentStarting: action.starting, agentReady: action.starting ? false : state.agentReady };
+    case 'SET_AGENT_READY': return { ...state, agentReady: action.ready };
     case 'PLATFORM_PREPARED': return { ...state, platformPrepared: true };
     default: return state;
   }
@@ -76,15 +70,24 @@ function wizardReducer(state: WizardState, action: WizardAction): WizardState {
 
 const initialState: WizardState = {
   step: 'platform-ready',
-  operatorName: '',
   providers: {},
-  tierStrategy: 'best_effort',
   agentName: 'henry',
   agentPreset: 'platform-expert',
-  platformExpert: true,
-  capabilities: [],
+  agentStarting: false,
+  agentReady: false,
   platformPrepared: false,
 };
+
+function AgencyMark() {
+  return (
+    <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--warm-2)', border: '0.5px solid var(--teal-border)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, padding: 4 }}>
+      <div style={{ background: 'var(--teal)', borderRadius: 2 }} />
+      <div style={{ background: 'var(--ink)', borderRadius: 2 }} />
+      <div style={{ background: 'var(--ink)', borderRadius: 2 }} />
+      <div style={{ background: 'var(--ink)', borderRadius: 2 }} />
+    </div>
+  );
+}
 
 export function Setup() {
   const navigate = useNavigate();
@@ -92,6 +95,7 @@ export function Setup() {
 
   const currentIdx = STEPS.indexOf(state.step);
   const activeMeta = STEP_META[state.step];
+  const currentTitle = state.step === 'agent' && state.agentStarting ? 'Starting your agent' : activeMeta.title;
 
   const goNext = useCallback(() => {
     const nextIdx = currentIdx + 1;
@@ -112,131 +116,110 @@ export function Setup() {
   }, [navigate]);
 
   return (
-    <div className="min-h-screen bg-background px-4 py-8 md:px-6 md:py-12">
-      <div className="mx-auto grid w-full max-w-6xl gap-8 lg:grid-cols-[minmax(18rem,24rem)_minmax(0,34rem)] lg:items-start">
-        <section className="rounded-[2rem] border border-border bg-surface-alt/75 px-6 py-6 md:px-7 md:py-7">
-          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            Setup
+    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', background: 'var(--warm)' }}>
+      <div style={{ maxWidth: 960, margin: '0 auto', padding: '44px 36px 72px' }}>
+        <header style={{ marginBottom: 34 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+            <AgencyMark />
+            <span className="display" style={{ fontSize: 20, color: 'var(--ink)' }}>Agency</span>
+          </div>
+          <div className="eyebrow" style={{ marginBottom: 8 }}>Step {String(currentIdx + 1).padStart(2, '0')} of {String(STEPS.length).padStart(2, '0')}</div>
+          <h1 className="display" style={{ margin: 0, fontSize: 52, fontWeight: 300, letterSpacing: '-0.035em', lineHeight: 1.05, color: 'var(--ink)' }}>
+            {activeMeta.headline}
+          </h1>
+          <p style={{ color: 'var(--ink-mid)', fontSize: 15, maxWidth: 650, margin: '14px 0 0', lineHeight: 1.55 }}>
+            {activeMeta.description}
           </p>
-          <h1 className="mt-3 text-3xl text-foreground">Bring Agency online with a calmer first run.</h1>
-          <p className="mt-3 text-sm leading-6 text-muted-foreground">
-            Setup should feel guided, progressive, and easy to recover from. Each step does one job and gets you to a working governed agent quickly.
-          </p>
+        </header>
 
-          <div className="mt-8 space-y-3">
-            {STEPS.map((step, i) => {
-              const isComplete = i < currentIdx;
-              const isCurrent = i === currentIdx;
-              return (
-                <div
-                  key={step}
-                  className={`rounded-2xl border px-4 py-3 transition-colors ${
-                    isCurrent
-                      ? 'border-primary/35 bg-card'
-                      : isComplete
-                        ? 'border-border bg-card/70'
-                        : 'border-border/70 bg-transparent'
-                  }`}
+        <nav style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 32, overflowX: 'auto', paddingBottom: 2 }}>
+          {STEPS.map((step, i) => {
+            const isComplete = i < currentIdx;
+            const isCurrent = i === currentIdx;
+            return (
+              <div key={step} style={{ display: 'flex', alignItems: 'center', flex: i < STEPS.length - 1 ? '1 0 auto' : '0 0 auto' }}>
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: 'SET_STEP', step })}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, border: 0, background: 'transparent', padding: 0, cursor: 'pointer' }}
                 >
-                  <div className="flex items-start gap-3">
-                    <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-medium ${
-                      isCurrent ? 'bg-primary text-primary-foreground' : isComplete ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground'
-                    }`}>
-                      {i + 1}
-                    </div>
-                    <div className="min-w-0">
-                      <div className={`text-sm font-medium ${isCurrent || isComplete ? 'text-foreground' : 'text-muted-foreground'}`}>
-                        {STEP_META[step].title}
-                      </div>
-                      <div className="mt-1 text-sm text-muted-foreground">
-                        {STEP_META[step].description}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
+                  <span style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: '50%',
+                    background: isCurrent ? 'var(--ink)' : isComplete ? 'var(--teal)' : 'var(--warm-2)',
+                    border: `0.5px solid ${isCurrent ? 'var(--ink)' : 'var(--ink-hairline-strong)'}`,
+                    color: isComplete || isCurrent ? 'var(--warm)' : 'var(--ink-mid)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontFamily: 'var(--mono)',
+                    fontSize: 10,
+                  }}>
+                    {isComplete ? <Check size={11} /> : i + 1}
+                  </span>
+                  <span className="mono" style={{ fontSize: 11, color: isCurrent ? 'var(--ink)' : 'var(--ink-mid)', whiteSpace: 'nowrap' }}>
+                    {STEP_META[step].label}
+                  </span>
+                </button>
+                {i < STEPS.length - 1 && (
+                  <div style={{ flex: '1 1 42px', minWidth: 38, height: 0.5, background: isComplete ? 'var(--teal)' : 'var(--ink-hairline)', margin: '0 12px' }} />
+                )}
+              </div>
+            );
+          })}
+        </nav>
 
-        <section className="rounded-[2rem] border border-border bg-card px-5 py-6 md:px-8 md:py-8">
-          <div className="mb-8 flex items-center gap-2">
-            {STEPS.map((s, i) => (
-              <div
-                key={s}
-                className={`h-2 flex-1 rounded-full transition-colors ${
-                  i < currentIdx ? 'bg-primary' :
-                  i === currentIdx ? 'bg-foreground' :
-                  'bg-muted'
-                }`}
+        <section style={{ border: '0.5px solid var(--ink-hairline)', borderRadius: 14, background: 'var(--warm-2)', overflow: 'hidden' }}>
+          <div style={{ borderBottom: '0.5px solid var(--ink-hairline)' }}>
+            <div style={{ padding: '22px 28px' }}>
+              <div className="eyebrow" style={{ fontSize: 9, marginBottom: 8 }}>Current task</div>
+              <h2 style={{ margin: 0, color: 'var(--ink)', fontSize: 28, fontWeight: 400, letterSpacing: '-0.03em' }}>{currentTitle}</h2>
+            </div>
+          </div>
+
+          <div style={{ padding: '30px 32px 28px', background: 'var(--warm)' }}>
+            {state.step === 'platform-ready' && (
+              <PlatformReadyStep onComplete={() => { dispatch({ type: 'PLATFORM_PREPARED' }); goNext(); }} />
+            )}
+            {state.step === 'providers' && (
+              <ProvidersStep
+                providers={state.providers}
+                onProviderUpdate={(name, configured, validated) =>
+                  dispatch({ type: 'SET_PROVIDER', name, configured, validated })
+                }
+                onNext={goNext}
+                onBack={goBack}
               />
-            ))}
-          </div>
-
-          <div className="mb-8 max-w-2xl">
-            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              Step {currentIdx + 1} of {STEPS.length}
-            </p>
-            <h2 className="mt-2 text-2xl text-foreground">{activeMeta.title}</h2>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              {activeMeta.description}
-            </p>
-          </div>
-
-          <div className="w-full">
-        {state.step === 'platform-ready' && (
-          <PlatformReadyStep onComplete={() => { dispatch({ type: 'PLATFORM_PREPARED' }); goNext(); }} />
-        )}
-        {state.step === 'welcome' && (
-          <WelcomeStep
-            operatorName={state.operatorName}
-            onUpdate={(name) => dispatch({ type: 'SET_OPERATOR', name })}
-            onNext={goNext}
-            onSkip={finish}
-            isReSetup={Object.keys(state.providers).length > 0}
-          />
-        )}
-        {state.step === 'providers' && (
-          <ProvidersStep
-            providers={state.providers}
-            tierStrategy={state.tierStrategy}
-            onProviderUpdate={(name, configured, validated) =>
-              dispatch({ type: 'SET_PROVIDER', name, configured, validated })
-            }
-            onTierStrategyUpdate={(strategy) =>
-              dispatch({ type: 'SET_TIER_STRATEGY', strategy })
-            }
-            onNext={goNext}
-            onBack={goBack}
-          />
-        )}
-        {state.step === 'agent' && (
-          <AgentStep
-            agentName={state.agentName}
-            agentPreset={state.agentPreset}
-            platformExpert={state.platformExpert}
-            onUpdate={(name, preset) => dispatch({ type: 'SET_AGENT', name, preset })}
-            onPlatformExpertToggle={(enabled) => dispatch({ type: 'SET_PLATFORM_EXPERT', enabled })}
-            onNext={goNext}
-            onBack={goBack}
-          />
-        )}
-        {state.step === 'capabilities' && (
-          <CapabilitiesStep
-            capabilities={state.capabilities}
-            onUpdate={(capabilities) => dispatch({ type: 'SET_CAPABILITIES', capabilities })}
-            onNext={goNext}
-            onBack={goBack}
-          />
-        )}
-        {state.step === 'chat' && (
-          <ChatStep
-            agentName={state.agentName}
-            operatorName={state.operatorName}
-            onFinish={finish}
-            onBack={goBack}
-          />
-        )}
+            )}
+            {state.step === 'agent' && (
+              state.agentStarting ? (
+                <StartingAgentStep
+                  agentName={state.agentName}
+                  onReady={() => {
+                    dispatch({ type: 'SET_AGENT_STARTING', starting: false });
+                    dispatch({ type: 'SET_AGENT_READY', ready: true });
+                    dispatch({ type: 'SET_STEP', step: 'chat' });
+                  }}
+                  onBack={() => dispatch({ type: 'SET_AGENT_STARTING', starting: false })}
+                />
+              ) : (
+                <AgentStep
+                  agentName={state.agentName}
+                  onUpdate={(name, preset) => dispatch({ type: 'SET_AGENT', name, preset })}
+                  onNext={() => dispatch({ type: 'SET_AGENT_STARTING', starting: true })}
+                  onBack={goBack}
+                />
+              )
+            )}
+            {state.step === 'chat' && (
+              <ChatStep
+                agentName={state.agentName}
+                initialAgentReady={state.agentReady}
+                onFinish={finish}
+                onBack={goBack}
+              />
+            )}
           </div>
         </section>
       </div>

@@ -60,10 +60,21 @@ const agentHandlers = [
       { timestamp: '2026-03-16T10:00:00Z', event: 'started', detail: 'Started' },
     ]),
   ),
+  http.get(`${BASE}/admin/audit`, ({ request }) => {
+    const url = new URL(request.url);
+    expect(url.searchParams.get('agent')).not.toBe('_all');
+    return HttpResponse.json([
+      { timestamp: '2026-03-16T10:00:00Z', event: 'started', detail: 'Started', agent: url.searchParams.get('agent') || 'system' },
+      { timestamp: '2026-03-16T10:01:00Z', event: 'DOMAIN_BLOCKED', domain: 'example.com', agent: url.searchParams.get('agent') || 'system' },
+    ]);
+  }),
 ];
 
 describe('Admin — Egress tab', () => {
   it('fetches egress config for selected agent', async () => {
+    let approvedDomain = '';
+    let revokedDomain = '';
+    let updatedMode = '';
     server.use(
       ...agentHandlers,
       http.get(`${BASE}/admin/egress`, ({ request }) => {
@@ -71,9 +82,47 @@ describe('Admin — Egress tab', () => {
         const agent = url.searchParams.get('agent');
         return HttpResponse.json({
           agent,
+          mode: 'allowlist',
           domains: ['github.com'],
         });
       }),
+      http.post(`${BASE}/admin/egress/:agent/domains`, async ({ request, params }) => {
+        const body = await request.json() as { domain: string; reason?: string };
+        approvedDomain = body.domain;
+        return HttpResponse.json({
+          agent: params.agent,
+          mode: 'allowlist',
+          domains: ['github.com', body.domain],
+        });
+      }),
+      http.delete(`${BASE}/admin/egress/:agent/domains/:domain`, ({ params }) => {
+        revokedDomain = String(params.domain);
+        return HttpResponse.json({
+          agent: params.agent,
+          mode: 'allowlist',
+          domains: ['github.com'],
+        });
+      }),
+      http.put(`${BASE}/admin/egress/:agent/mode`, async ({ request, params }) => {
+        const body = await request.json() as { mode: string };
+        updatedMode = body.mode;
+        return HttpResponse.json({
+          agent: params.agent,
+          mode: body.mode,
+          domains: ['github.com', 'api.example.com'],
+        });
+      }),
+      http.get(`${BASE}/hub/egress/domains`, () =>
+        HttpResponse.json({
+          domains: [
+            {
+              domain: 'api.anthropic.com',
+              auto_managed: true,
+              sources: [{ type: 'connector', name: 'anthropic' }],
+            },
+          ],
+        }),
+      ),
     );
     renderAdminInForm('egress');
     await waitFor(() => {
@@ -81,7 +130,29 @@ describe('Admin — Egress tab', () => {
     });
     selectRadixValue('alice');
     await waitFor(() => {
+      expect(screen.getByLabelText('Mode')).toHaveValue('allowlist');
+      expect(screen.getByText('api.anthropic.com')).toBeInTheDocument();
       expect(screen.getAllByText(/github\.com/).length).toBeGreaterThanOrEqual(1);
+    });
+
+    await userEvent.type(screen.getByLabelText('Host'), 'api.example.com');
+    await userEvent.type(screen.getByLabelText('Reason'), 'provider access');
+    await userEvent.click(screen.getByRole('button', { name: /allow host/i }));
+
+    await waitFor(() => {
+      expect(approvedDomain).toBe('api.example.com');
+      expect(screen.getAllByText('api.example.com').length).toBeGreaterThan(0);
+    });
+
+    fireEvent.change(screen.getByLabelText('Mode'), { target: { value: 'supervised-strict' } });
+    await waitFor(() => {
+      expect(updatedMode).toBe('supervised-strict');
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /revoke api\.example\.com/i }));
+    await waitFor(() => {
+      expect(revokedDomain).toBe('api.example.com');
+      expect(screen.queryAllByText('api.example.com')).toHaveLength(0);
     });
   });
 });
@@ -91,15 +162,15 @@ describe('Admin — Policy tab', () => {
     server.use(...agentHandlers);
     renderAdminInForm();
     await userEvent.click(screen.getByRole('button', { name: /governance/i }));
-    expect(screen.getByRole('tab', { name: /policy/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /policy/i })).toBeInTheDocument();
+    });
   });
 
-  it('shows the active section summary', async () => {
+  it('shows policy controls without the removed section summary', async () => {
     server.use(...agentHandlers);
     renderAdmin('policy');
-    expect(screen.getByRole('heading', { name: 'Policy' })).toBeInTheDocument();
-    expect(screen.getAllByText(/inspect and validate per-agent policy state/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/capabilities, presets, policy, and agent operating boundaries/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: /validate policy/i })).toBeInTheDocument();
   });
 
   it('validates policy', async () => {
@@ -205,6 +276,10 @@ describe('Admin — Doctor tab', () => {
       ),
     );
     renderAdmin('doctor');
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /run doctor/i })).not.toBeDisabled();
+    });
+    await userEvent.click(screen.getByRole('button', { name: /run doctor/i }));
 
     await waitFor(() => {
       expect(screen.getByText('2 issues need attention')).toBeInTheDocument();
@@ -218,7 +293,7 @@ describe('Admin — Trust tab', () => {
   it('is hidden in the default core admin UI', async () => {
     renderAdmin('trust');
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Infrastructure' })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /infrastructure/i })).toHaveAttribute('aria-selected', 'true');
     });
     expect(screen.queryByText('alice')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /elevate/i })).not.toBeInTheDocument();
@@ -242,5 +317,34 @@ describe('Admin — Audit tab', () => {
       const hasEmpty = screen.queryByText(/no audit entries/i) !== null;
       expect(hasEntry || hasLoading || hasEmpty).toBe(true);
     });
+  });
+
+  it('filters and pages audit entries', async () => {
+    server.use(...agentHandlers);
+    renderAdminInForm('audit');
+
+    await waitFor(() => {
+      expect(screen.getAllByText('All verdicts').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('25 rows').length).toBeGreaterThan(0);
+      expect(screen.getByText(/Showing 1-2 of 2 entries/i)).toBeInTheDocument();
+    });
+
+    selectRadixValue('deny');
+
+    await waitFor(() => {
+      expect(screen.getByText(/Showing 1-1 of 1 entries/i)).toBeInTheDocument();
+      expect(screen.getAllByText('domain.blocked').length).toBeGreaterThan(0);
+    });
+  });
+});
+
+describe('Admin — Setup tab', () => {
+  it('links out to the full setup wizard instead of embedding it', async () => {
+    server.use(...agentHandlers);
+    renderAdmin('setup');
+
+    expect(screen.getByRole('heading', { name: 'Re-run setup wizard' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Re-run setup wizard' })).toHaveAttribute('href', '/setup');
+    expect(screen.queryByText(/Name your agent/i)).not.toBeInTheDocument();
   });
 });

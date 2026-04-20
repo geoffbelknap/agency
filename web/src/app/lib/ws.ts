@@ -35,7 +35,7 @@ class GatewaySocket {
   }
 
   async connect() {
-    if (this.ws?.readyState === WebSocket.OPEN) return;
+    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) return;
 
     try {
       if (!this.wsUrl) this.wsUrl = await resolveWsUrl();
@@ -77,6 +77,7 @@ class GatewaySocket {
       };
 
       this.ws.onclose = () => {
+        this.ws = null;
         this._connected = false;
         this._reconnectAttempts++;
         this.connectionHandlers.forEach((h) => h(false));
@@ -119,8 +120,12 @@ class GatewaySocket {
   }
 
   disconnect() {
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.ws?.close();
+    this.ws = null;
   }
 }
 
