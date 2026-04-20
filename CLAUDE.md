@@ -81,9 +81,19 @@ Network rules that must remain true:
   - `GET /api/v1/agents/{name}/runtime/manifest`
   - `GET /api/v1/agents/{name}/runtime/status`
   - `POST /api/v1/agents/{name}/runtime/validate`
+- durable memory lifecycle is graph-backed and operator-owned:
+  - `GET /api/v1/graph/memory` lists promoted durable memories
+  - `POST /api/v1/graph/memory/{id}/actions` applies lifecycle actions such as `revoke`
+  - `GET /api/v1/graph/memory/proposals` lists proposed durable memories by review status
+  - `POST /api/v1/graph/memory/proposals/{id}/review` applies operator approval or rejection
 - `agency quickstart` is the guided first-run path
 - `agency setup` is the idempotent setup/infrastructure command
 - `agency admin doctor` is the authoritative deployment-safety check
+
+Agents may propose semantic, episodic, or procedural memories, but durable
+promotion and lifecycle changes belong to the knowledge manager and operator
+review surfaces. Preference-affecting memory must require review even when the
+proposal is procedural.
 
 The runtime model is backend-neutral now. Treat runtime health and backend
 hygiene as distinct concerns:

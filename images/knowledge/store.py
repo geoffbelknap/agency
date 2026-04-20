@@ -1213,6 +1213,54 @@ class KnowledgeStore:
                 break
         return proposals
 
+    def list_approved_memories(self, memory_type: str = "", agent: str = "", limit: int = 100) -> list[dict]:
+        """List promoted durable memory nodes."""
+        limit = max(1, min(limit, 250))
+        params: list[object] = []
+        where = [
+            "kind IN ('fact', 'procedure', 'episode')",
+            "(curation_status IS NULL OR curation_status = 'flagged')",
+            "json_extract(properties, '$.approved_by') IS NOT NULL",
+        ]
+        if memory_type:
+            where.append("json_extract(properties, '$.memory_type') = ?")
+            params.append(memory_type)
+        if agent:
+            where.append("json_extract(properties, '$.agent') = ?")
+            params.append(agent)
+        params.append(limit)
+        rows = self._db.execute(
+            f"SELECT * FROM nodes WHERE {' AND '.join(where)} ORDER BY created_at DESC LIMIT ?",
+            params,
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def revoke_memory(self, node_id: str, reason: str = "") -> bool:
+        """Soft-delete a promoted durable memory node by ID."""
+        node = self.get_node(node_id)
+        if not node or node.get("kind") not in {"fact", "procedure", "episode"}:
+            return False
+        try:
+            props = json.loads(node.get("properties") or "{}")
+        except json.JSONDecodeError:
+            props = {}
+        if not props.get("approved_by"):
+            return False
+
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        review_reason = reason.strip() or "operator revoked durable memory"
+        cursor = self._db.execute(
+            "UPDATE nodes SET curation_status = 'soft_deleted', "
+            "curation_reason = ?, curation_at = ?, updated_at = ? "
+            "WHERE id = ? AND (curation_status IS NULL OR curation_status = 'flagged')",
+            (review_reason, now, now, node_id),
+        )
+        self._db.commit()
+        if cursor.rowcount > 0:
+            self.log_curation("memory_revoked", node_id, {"reason": review_reason, "label": node.get("label", "")})
+            return True
+        return False
+
     def update_memory_proposal_status(
         self,
         node_id: str,

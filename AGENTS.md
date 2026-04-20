@@ -38,6 +38,12 @@ Primary areas:
 - Experimental and internal surfaces must stay explicitly gated in API, CLI, web, MCP, and release flows.
 - Preserve fail-closed behavior during startup, enforcement, mediation, and teardown.
 - Do not loosen container, network, credential, or capability boundaries casually.
+- Durable memory is graph-backed and operator-owned. Agents may propose memory, but promotion, rejection, revocation, and review visibility must remain mediated through the gateway/knowledge manager surfaces:
+  - `GET /api/v1/graph/memory`
+  - `POST /api/v1/graph/memory/{id}/actions`
+  - `GET /api/v1/graph/memory/proposals`
+  - `POST /api/v1/graph/memory/proposals/{id}/review`
+- Preference-affecting memory must require review even when classified as procedural. Do not let agent-authored content directly mutate durable preferences or identity-shaped behavior.
 - Hub-managed files must not be edited directly when the expected customization point is elsewhere.
 - Enforcers must remain on the internal mediation plane only: per-agent internal network + `agency-gateway` + `agency-egress-int`. They must not attach to `agency-operator` or any other external-facing network.
 - The runtime contract is now backend-neutral. Runtime health should be reasoned about through the runtime supervisor, persisted runtime manifest, and runtime status/validate surfaces, not through raw Docker assumptions.

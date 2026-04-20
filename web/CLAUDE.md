@@ -30,8 +30,14 @@ npm test                 # Run tests (Vitest)
   - `GET /api/v1/agents/{name}/runtime/manifest`
   - `GET /api/v1/agents/{name}/runtime/status`
   - `POST /api/v1/agents/{name}/runtime/validate`
+- Durable memory lifecycle is backend-owned and graph-backed:
+  - `GET /api/v1/graph/memory` lists promoted durable memories
+  - `POST /api/v1/graph/memory/{id}/actions` applies lifecycle actions such as `revoke`
+  - `GET /api/v1/graph/memory/proposals` lists proposed durable memories by review status
+  - `POST /api/v1/graph/memory/proposals/{id}/review` applies operator approval or rejection
 - `agency admin doctor` now separates runtime checks from backend-specific hygiene checks. UI/operator copy should preserve that distinction and should not present Docker hygiene warnings as generic runtime failure.
 - Runtime health should come from the runtime APIs and the backend contract, not from hardcoded Docker assumptions such as container names, network names, or enforcer hostnames.
+- Durable memory review and revocation should remain visible operator actions. Do not infer approval in the browser or make preference-affecting memory changes appear automatic.
 
 ### Real-Time Features
 

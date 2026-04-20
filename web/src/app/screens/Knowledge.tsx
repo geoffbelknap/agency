@@ -58,6 +58,17 @@ interface MemoryProposal {
   createdAt?: string;
 }
 
+interface ApprovedMemory {
+  id: string;
+  summary: string;
+  memoryType?: string;
+  kind?: string;
+  agent?: string;
+  channel?: string;
+  approvedBy?: string;
+  createdAt?: string;
+}
+
 interface QuarantinedNode {
   id: string;
   label: string;
@@ -264,6 +275,34 @@ function parseMemoryProposals(raw: unknown): MemoryProposal[] {
   });
 }
 
+function parseApprovedMemories(raw: unknown): ApprovedMemory[] {
+  const record = asRecord(raw);
+  const entries = Array.isArray(raw)
+    ? raw
+    : Array.isArray(record.items)
+      ? record.items
+      : Array.isArray(record.memories)
+        ? record.memories
+        : [];
+
+  return entries.map((entry, index) => {
+    const item = asRecord(entry);
+    const props = parseJSONRecord(item.properties);
+    const merged = { ...props, ...item };
+    const id = firstString(merged, ['id', 'node_id', 'uuid']) ?? `approved-memory-${index}`;
+    return {
+      id,
+      summary: firstString(merged, ['summary', 'label', 'title']) ?? id,
+      memoryType: firstString(merged, ['memory_type', 'type']),
+      kind: firstString(merged, ['kind']),
+      agent: firstString(merged, ['agent', 'source_agent', 'author']),
+      channel: firstString(merged, ['channel', 'source_channel']),
+      approvedBy: firstString(merged, ['approved_by']),
+      createdAt: firstString(merged, ['created_at', 'timestamp', 'created']),
+    };
+  });
+}
+
 function parseQuarantinedNodes(raw: unknown): QuarantinedNode[] {
   const record = asRecord(raw);
   const entries = Array.isArray(raw)
@@ -317,6 +356,7 @@ function parseTopologyItems(raw: unknown, keys: string[], fallbackPrefix: string
 type ButtonTone = 'default' | 'primary' | 'ghost';
 const REVIEW_WIDTHS = 'minmax(180px, 1.4fr) minmax(150px, 1fr) 82px 118px';
 const MEMORY_WIDTHS = 'minmax(180px, 1.35fr) minmax(120px, 0.75fr) minmax(150px, 1fr) 118px';
+const APPROVED_MEMORY_WIDTHS = 'minmax(190px, 1.35fr) 98px minmax(150px, 1fr) 92px';
 const QUARANTINE_WIDTHS = 'minmax(180px, 1.2fr) minmax(160px, 1fr) 92px';
 const ONTOLOGY_WIDTHS = 'minmax(0, 1fr) 92px minmax(0, 1.35fr) 154px';
 const TOPOLOGY_WIDTHS = '118px minmax(0, 1.05fr) minmax(0, 1.3fr) 54px';
@@ -454,6 +494,7 @@ export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?
   const [pendingLoading, setPendingLoading] = useState(false);
   const [reviewActionLoading, setReviewActionLoading] = useState<string | null>(null);
   const [memoryProposals, setMemoryProposals] = useState<MemoryProposal[]>([]);
+  const [approvedMemories, setApprovedMemories] = useState<ApprovedMemory[]>([]);
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [memoryActionLoading, setMemoryActionLoading] = useState<string | null>(null);
   const [quarantinedNodes, setQuarantinedNodes] = useState<QuarantinedNode[]>([]);
@@ -490,10 +531,27 @@ export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?
   const loadMemoryProposals = async () => {
     try {
       setMemoryLoading(true);
-      const data = await api.knowledge.memoryProposals('needs_review');
-      setMemoryProposals(parseMemoryProposals(data));
+      const [proposalData, memoryData] = await Promise.all([
+        api.knowledge.memoryProposals('needs_review'),
+        api.knowledge.memories({ limit: 100 }),
+      ]);
+      setMemoryProposals(parseMemoryProposals(proposalData));
+      setApprovedMemories(parseApprovedMemories(memoryData));
     } catch {
       setMemoryProposals([]);
+      setApprovedMemories([]);
+    } finally {
+      setMemoryLoading(false);
+    }
+  };
+
+  const loadApprovedMemories = async () => {
+    try {
+      setMemoryLoading(true);
+      const data = await api.knowledge.memories({ limit: 100 });
+      setApprovedMemories(parseApprovedMemories(data));
+    } catch {
+      setApprovedMemories([]);
     } finally {
       setMemoryLoading(false);
     }
@@ -623,6 +681,20 @@ export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?
     }
   };
 
+  const handleRevokeMemory = async (memory: ApprovedMemory) => {
+    try {
+      setMemoryActionLoading(`${memory.id}:revoke`);
+      await api.knowledge.memoryAction(memory.id, 'revoke');
+      toast.success('Revoked durable memory');
+      await loadApprovedMemories();
+      await loadStats();
+    } catch (e: any) {
+      toast.error(e.message || 'Memory revoke failed');
+    } finally {
+      setMemoryActionLoading(null);
+    }
+  };
+
   const handleReleaseQuarantine = async (node: QuarantinedNode) => {
     try {
       setQuarantineActionLoading(node.id);
@@ -649,7 +721,8 @@ export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?
     { label: 'Nodes', value: statsLoading ? '...' : stats ? stats.node_count.toLocaleString() : '0' },
     { label: 'Edges', value: statsLoading ? '...' : stats ? stats.edge_count.toLocaleString() : '0' },
     { label: 'Pending', value: pendingLoading ? '...' : pendingContributions.length.toLocaleString() },
-    { label: 'Memory', value: memoryLoading ? '...' : memoryProposals.length.toLocaleString() },
+    { label: 'Review', value: memoryLoading ? '...' : memoryProposals.length.toLocaleString() },
+    { label: 'Memory', value: memoryLoading ? '...' : approvedMemories.length.toLocaleString() },
     { label: 'Quarantined', value: quarantineLoading ? '...' : quarantinedNodes.length.toLocaleString() },
     { label: 'Ontology', value: ontologyLoading ? '...' : (ontologyCandidates.length + ontologyDecisions.length).toLocaleString() },
     { label: 'Topology', value: topologyLoading ? '...' : topologyCount.toLocaleString() },
@@ -660,7 +733,7 @@ export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }} aria-label="Knowledge metrics">
           {statItems.map((item) => (
-            <MetaStat key={item.label} label={item.label} value={item.value} tone={(item.label === 'Pending' || item.label === 'Memory') && item.value !== '0' ? 'var(--amber)' : item.label === 'Quarantined' && item.value !== '0' ? 'var(--red)' : undefined} />
+            <MetaStat key={item.label} label={item.label} value={item.value} tone={(item.label === 'Pending' || item.label === 'Review') && item.value !== '0' ? 'var(--amber)' : item.label === 'Quarantined' && item.value !== '0' ? 'var(--red)' : undefined} />
           ))}
         </div>
         <ActionButton onClick={reloadAll} disabled={refreshing}>{refreshing ? 'Refreshing...' : 'Refresh'}</ActionButton>
@@ -698,6 +771,21 @@ export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?
                 <span className="mono" style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{proposal.memoryType || 'memory'}</span>,
                 <Truncate style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{[proposal.confidence, proposal.agent, proposal.channel, proposal.reason].filter(Boolean).join(' · ') || '...'}</Truncate>,
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}><ActionButton tone="ghost" onClick={() => handleReviewMemoryProposal(proposal, 'reject')} disabled={memoryActionLoading === `${proposal.id}:reject`}>Reject</ActionButton><ActionButton tone="primary" onClick={() => handleReviewMemoryProposal(proposal, 'approve')} disabled={memoryActionLoading === `${proposal.id}:approve`}>Approve</ActionButton></div>,
+              ]} />
+            ))}
+          </Card>
+        </div>
+
+        <div>
+          <SectionTitle title="Durable Memory" />
+          <Card>
+            <TableHeader widths={APPROVED_MEMORY_WIDTHS} cols={['Memory', 'Type', 'Provenance', '']} />
+            {approvedMemories.length === 0 ? <EmptyLine>No approved durable memories</EmptyLine> : approvedMemories.map((memory) => (
+              <TableRow key={memory.id} widths={APPROVED_MEMORY_WIDTHS} cols={[
+                <div><Truncate style={{ fontSize: 13, color: 'var(--ink)' }}>{memory.summary}</Truncate><Truncate className="mono" style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-faint)' }}>{memory.id}</Truncate></div>,
+                <span className="mono" style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{memory.memoryType || memory.kind || 'memory'}</span>,
+                <Truncate style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{[memory.agent, memory.channel, memory.approvedBy, memory.createdAt ? formatDateTimeShort(memory.createdAt) : ''].filter(Boolean).join(' · ') || '...'}</Truncate>,
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}><ActionButton tone="ghost" onClick={() => handleRevokeMemory(memory)} disabled={memoryActionLoading === `${memory.id}:revoke`}>Revoke</ActionButton></div>,
               ]} />
             ))}
           </Card>

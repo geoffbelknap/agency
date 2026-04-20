@@ -1069,6 +1069,15 @@ export const api = {
       req<unknown>(`/graph/memory/proposals?status=${encodeURIComponent(status)}&limit=${limit}`),
     reviewMemoryProposal: (id: string, action: 'approve' | 'reject', reason = '') =>
       req<Record<string, unknown>>(`/graph/memory/proposals/${encodeURIComponent(id)}/review`, { method: 'POST', body: JSON.stringify({ action, reason }) }),
+    memories: (opts: { type?: string; agent?: string; limit?: number } = {}) => {
+      const params = new URLSearchParams();
+      if (opts.type) params.set('type', opts.type);
+      if (opts.agent) params.set('agent', opts.agent);
+      params.set('limit', String(opts.limit ?? 100));
+      return req<unknown>(`/graph/memory?${params.toString()}`);
+    },
+    memoryAction: (id: string, action: 'revoke', reason = '') =>
+      req<Record<string, unknown>>(`/graph/memory/${encodeURIComponent(id)}/actions`, { method: 'POST', body: JSON.stringify({ action, reason }) }),
     quarantineList: (agent?: string) =>
       req<unknown>(`/graph/quarantine${agent ? `?agent=${encodeURIComponent(agent)}` : ''}`),
     quarantineRelease: (opts: { node_id?: string; agent?: string }) =>

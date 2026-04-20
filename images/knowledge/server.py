@@ -219,6 +219,8 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     app.router.add_post("/migrate-kind", handle_migrate_kind)
     app.router.add_get("/pending", handle_pending)
     app.router.add_post("/review/{pending_id}", handle_review)
+    app.router.add_get("/memory", handle_memories)
+    app.router.add_post("/memory/{memory_id}/actions", handle_memory_action)
     app.router.add_get("/memory/proposals", handle_memory_proposals)
     app.router.add_post("/memory/proposals/{proposal_id}/review", handle_memory_proposal_review)
     app.router.add_get("/graph/node/{node_id}", handle_graph_node)
@@ -941,6 +943,42 @@ async def handle_memory_proposals(request: web.Request) -> web.Response:
         return web.json_response({"error": "limit must be an integer"}, status=400)
     limit = max(1, min(limit, 250))
     return web.json_response({"items": store.list_memory_proposals(status=status, limit=limit)})
+
+
+async def handle_memories(request: web.Request) -> web.Response:
+    """GET /memory — list promoted durable memories."""
+    if not _require_platform(request):
+        return web.json_response({"error": "platform access required"}, status=403)
+    store: KnowledgeStore = request.app["store"]
+    memory_type = request.query.get("type", "")
+    if memory_type and memory_type not in ("semantic", "episodic", "procedural"):
+        return web.json_response({"error": "invalid memory type"}, status=400)
+    agent = request.query.get("agent", "")
+    try:
+        limit = int(request.query.get("limit", "100"))
+    except ValueError:
+        return web.json_response({"error": "limit must be an integer"}, status=400)
+    return web.json_response({
+        "items": store.list_approved_memories(memory_type=memory_type, agent=agent, limit=limit),
+    })
+
+
+async def handle_memory_action(request: web.Request) -> web.Response:
+    """POST /memory/{memory_id}/actions — apply an operator action to durable memory."""
+    if not _require_platform(request):
+        return web.json_response({"error": "platform access required"}, status=403)
+    memory_id = request.match_info["memory_id"]
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "JSON body required"}, status=400)
+    action = body.get("action", "")
+    if action != "revoke":
+        return web.json_response({"error": "action must be 'revoke'"}, status=400)
+    store: KnowledgeStore = request.app["store"]
+    if not store.revoke_memory(memory_id, str(body.get("reason", ""))):
+        return web.json_response({"error": "memory not found"}, status=404)
+    return web.json_response({"id": memory_id, "action": action})
 
 
 async def handle_memory_proposal_review(request: web.Request) -> web.Response:

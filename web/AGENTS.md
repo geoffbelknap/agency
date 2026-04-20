@@ -29,6 +29,11 @@ When in doubt, preserve the backend contract rather than smoothing over it in UI
   - `GET /api/v1/agents/{name}/runtime/manifest`
   - `GET /api/v1/agents/{name}/runtime/status`
   - `POST /api/v1/agents/{name}/runtime/validate`
+- Durable memory lifecycle is a backend-owned graph contract:
+  - `GET /api/v1/graph/memory`
+  - `POST /api/v1/graph/memory/{id}/actions`
+  - `GET /api/v1/graph/memory/proposals`
+  - `POST /api/v1/graph/memory/proposals/{id}/review`
 - `agency admin doctor` separates runtime checks from backend-specific hygiene checks.
 
 UI/operator behavior should preserve those distinctions:
@@ -36,6 +41,7 @@ UI/operator behavior should preserve those distinctions:
 - runtime health comes from runtime APIs
 - backend hygiene warnings stay backend-specific
 - Docker-specific warnings should not be presented as generic runtime failure
+- durable memory review and revocation must stay visibly operator-owned; do not auto-hide or silently apply preference-affecting memory changes in the UI
 
 ## Architecture
 

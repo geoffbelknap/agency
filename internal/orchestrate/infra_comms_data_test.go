@@ -66,3 +66,43 @@ func TestCommsDataRootForRepair(t *testing.T) {
 		t.Fatalf("commsDataRootForRepair() = %q, want %q", got, want)
 	}
 }
+
+func TestPrepareKnowledgeDataDirKeepsSQLiteFilesWritable(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "knowledge", "data")
+	if err := os.MkdirAll(dataDir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"knowledge.db", "knowledge.db-shm", "knowledge.db-wal", ".ontology-migrated"} {
+		if err := os.WriteFile(filepath.Join(dataDir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := prepareKnowledgeDataDir(dataDir); err != nil {
+		t.Fatalf("prepareKnowledgeDataDir() error = %v", err)
+	}
+
+	for _, name := range []string{"knowledge.db", "knowledge.db-shm", "knowledge.db-wal", ".ontology-migrated"} {
+		path := filepath.Join(dataDir, name)
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat %s: %v", path, err)
+		}
+		if info.Mode().Perm() != 0o666 {
+			t.Fatalf("%s mode = %o, want 666", path, info.Mode().Perm())
+		}
+		f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND, 0)
+		if err != nil {
+			t.Fatalf("%s is not writable: %v", path, err)
+		}
+		_ = f.Close()
+	}
+}
+
+func TestKnowledgeDataRootForRepair(t *testing.T) {
+	path := "/home/me/.agency/knowledge/data/knowledge.db"
+	want := "/home/me/.agency/knowledge/data"
+	if got := knowledgeDataRootForRepair(path); got != want {
+		t.Fatalf("knowledgeDataRootForRepair() = %q, want %q", got, want)
+	}
+}

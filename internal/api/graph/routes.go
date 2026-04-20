@@ -45,6 +45,8 @@ func RegisterRoutes(r chi.Router, d Deps) {
 		// Review (operator-only — org-structural contributions)
 		r.Get("/pending", h.handleKnowledgePending)
 		r.Post("/review/{id}", h.handleKnowledgeReview)
+		r.Get("/memory", h.handleMemories)
+		r.Post("/memory/{id}/actions", h.handleMemoryAction)
 		r.Get("/memory/proposals", h.handleMemoryProposals)
 		r.Post("/memory/proposals/{id}/review", h.handleMemoryProposalReview)
 
