@@ -572,7 +572,7 @@ export function Usage() {
   const modelRows = byModel
     .map(([model, bucket]) => ({ model, bucket, color: colorForModel(model), cost: costValue(bucket, model), chartValue: chartValue(bucket, model) }))
     .sort((a, b) => b.chartValue - a.chartValue || b.bucket.requests - a.bucket.requests);
-  const fallbackModelRows = modelRows.length > 0 ? modelRows : t ? [{ model: 'gateway traffic', bucket: t, color: colorForModel('gateway traffic'), cost: costValue(t), chartValue: chartValue(t) }] : [];
+  const fallbackModelRows = modelRows;
   const visibleChartModelRows = fallbackModelRows.slice(0, MAX_CHART_MODEL_SERIES);
   const overflowModelRows = fallbackModelRows.slice(MAX_CHART_MODEL_SERIES);
   const chartModelRows = overflowModelRows.length > 0
@@ -603,12 +603,10 @@ export function Usage() {
   modelColorByName['other models'] = OTHER_MODEL_COLOR;
   const totalModelCost = fallbackModelRows.reduce((sum, row) => sum + row.cost, 0);
   const totalAgentCost = byAgent.reduce((sum, [, bucket]) => sum + costValue(bucket, byModel.length === 1 ? byModel[0][0] : undefined), 0);
-  const chartShape = [0.3, 0.3, 0.4, 0.4, 0.5, 0.5, 0.7, 1.0, 1.4, 1.6, 1.4, 1.1, 1.3, 1.5, 1.7, 1.8, 1.5, 1.3, 1.0, 0.9, 1.1, 1.4, 1.2, 0.9];
-  const shapeTotal = chartShape.reduce((sum, value) => sum + value, 0);
-  const chartStacks = byHour.length > 0
+  const chartStacks = byHour.length > 0 && chartModelRows.length > 0
     ? byHour.slice(-24).map((bucket, hourIndex) => {
       const modelEntries = Object.entries(bucket.by_model ?? {});
-      const seriesValues = (modelEntries.length > 0 ? modelEntries : [['unknown', bucket.totals]] as [string, MetricsBucket][])
+      const seriesValues = modelEntries
         .reduce<Record<string, number>>((series, [model, bucket]) => {
           const key = chartModelSet.has(model) || fallbackModelRows.length <= MAX_CHART_MODEL_SERIES ? model : 'other models';
           series[key] = (series[key] ?? 0) + chartValue(bucket, model);
@@ -616,19 +614,11 @@ export function Usage() {
         }, {});
       const segments = chartModelRows
         .map((row) => ({ id: row.model, color: modelColorByName[row.model] ?? row.color, value: Math.max(0, seriesValues[row.model] ?? 0) }))
-        .filter((segment) => segment.value > 0)
-        .map((segment) => ({ ...segment, value: Math.max(0.000001, segment.value) }));
+        .filter((segment) => segment.value > 0);
       return { hour: hourIndex, segments, total: segments.reduce((sum, segment) => sum + segment.value, 0) };
     })
-    : chartShape.map((shape, hour) => {
-      const segments = chartModelRows.map((row, index) => {
-        const phase = 0.82 + (((hour + index * 3) % 5) * 0.08);
-        const value = Math.max(0.000001, (row.chartValue || 0.000001) * shape * phase / shapeTotal);
-        return { id: row.model, color: row.color, value };
-      });
-      return { hour, segments, total: segments.reduce((sum, segment) => sum + segment.value, 0) };
-    });
-  const maxChartStack = Math.max(...chartStacks.map((stack) => stack.total), 0.000001);
+    : [];
+  const maxChartStack = Math.max(...chartStacks.map((stack) => stack.total), 0);
   const recentRows = recentCalls.length > 0
     ? recentCalls.slice(-10).reverse().map((entry) => ({
       id: `${entry.ts}:${entry.agent}:${entry.model}:${entry.status}`,
@@ -817,29 +807,43 @@ export function Usage() {
                   <span className="mono" style={{ color: 'var(--ink-faint)', fontSize: 11 }}>{rangeLabel}</span>
                 </div>
                 <div style={{ padding: '16px 20px 18px' }}>
-                  <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginBottom: 18 }}>
-                    {chartModelRows.map((row) => (
-                      <div key={row.model} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                        <span style={{ width: 10, height: 10, borderRadius: 2, background: row.color }} />
-                        <span className="mono" style={{ fontSize: 11, color: 'var(--ink)' }}>{row.model}</span>
-                        <span className="mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>{chartLegendValue(row.bucket, row.model)}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 160 }}>
-                    {chartStacks.map((stack) => (
-                      <div key={stack.hour} title={`bucket ${stack.hour + 1}`} style={{ flex: 1, display: 'flex', flexDirection: 'column-reverse', minWidth: 4, height: `${Math.max(2, (stack.total / maxChartStack) * 100)}%` }}>
-                        {stack.segments.map((segment) => (
-                          <div key={segment.id} style={{ height: `${Math.max(2, (segment.value / stack.total) * 100)}%`, background: segment.color }} />
+                  {chartModelRows.length === 0 ? (
+                    <div style={{ height: 160, display: 'grid', placeItems: 'center', color: 'var(--ink-mid)', fontSize: 13 }}>
+                      No per-model usage recorded in the selected period.
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginBottom: 18 }}>
+                        {chartModelRows.map((row) => (
+                          <div key={row.model} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                            <span style={{ width: 10, height: 10, borderRadius: 2, background: row.color }} />
+                            <span className="mono" style={{ fontSize: 11, color: 'var(--ink)' }}>{row.model}</span>
+                            <span className="mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>{chartLegendValue(row.bucket, row.model)}</span>
+                          </div>
                         ))}
                       </div>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-                    {['-24h', '-18h', '-12h', '-6h'].map((label) => (
-                      <span key={label} className="mono" style={{ fontSize: 10, color: 'var(--ink-faint)' }}>{label}</span>
-                    ))}
-                  </div>
+                      {chartStacks.length === 0 || maxChartStack <= 0 ? (
+                        <div style={{ height: 160, display: 'grid', placeItems: 'center', color: 'var(--ink-mid)', fontSize: 13 }}>
+                          No hourly model buckets recorded yet.
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 160 }}>
+                          {chartStacks.map((stack) => (
+                            <div key={stack.hour} title={`bucket ${stack.hour + 1}`} style={{ flex: 1, display: 'flex', flexDirection: 'column-reverse', minWidth: 4, height: stack.total > 0 ? `${Math.max(2, (stack.total / maxChartStack) * 100)}%` : 0 }}>
+                              {stack.segments.map((segment) => (
+                                <div key={segment.id} style={{ height: stack.total > 0 ? `${(segment.value / stack.total) * 100}%` : 0, background: segment.color }} />
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+                        {['-24h', '-18h', '-12h', '-6h'].map((label) => (
+                          <span key={label} className="mono" style={{ fontSize: 10, color: 'var(--ink-faint)' }}>{label}</span>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               </Panel>
 
@@ -858,7 +862,9 @@ export function Usage() {
                         <div key={label} style={ledgerHeaderStyle}>{label}</div>
                       ))}
                     </div>
-                    {fallbackModelRows.map((row) => {
+                    {fallbackModelRows.length === 0 ? (
+                      <div style={{ padding: 20, color: 'var(--ink-mid)' }}>No per-model usage recorded in the selected period.</div>
+                    ) : fallbackModelRows.map((row) => {
                       const share = totalModelCost > 0 ? (row.cost / totalModelCost) * 100 : 0;
                       const pricing = pricingForModel(row.model);
                       return (
@@ -874,8 +880,8 @@ export function Usage() {
                           <div style={{ ...ledgerCellStyle, color: 'var(--ink-faint)' }}>{formatRate(pricing.input)}</div>
                           <div style={{ ...ledgerCellStyle, color: 'var(--ink-faint)' }}>{formatRate(pricing.output)}</div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                            <div style={{ width: 96, height: 6, background: 'var(--warm-3)', borderRadius: 3, overflow: 'hidden' }}>
-                              <div style={{ width: `${Math.max(1, share)}%`, height: '100%', background: row.color }} />
+                            <div aria-label={`${row.model} share ${share.toFixed(0)}%`} style={{ width: 96, height: 6, background: 'var(--warm-3)', borderRadius: 3, overflow: 'hidden' }}>
+                              <div style={{ width: `${share}%`, height: '100%', background: row.color }} />
                             </div>
                             <span style={{ ...ledgerCellStyle, color: 'var(--ink-faint)', fontSize: 13 }}>{share.toFixed(0)}%</span>
                           </div>
@@ -907,8 +913,8 @@ export function Usage() {
                           <div style={ledgerCellStyle}>{formatTokens(bucket.input_tokens)}</div>
                           <div style={ledgerCellStyle}>{bucket.output_tokens > 0 ? formatTokens(bucket.output_tokens) : '-'}</div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                            <div style={{ width: 96, height: 6, background: 'var(--warm-3)', borderRadius: 3, overflow: 'hidden' }}>
-                              <div style={{ width: `${Math.max(1, share)}%`, height: '100%', background: color }} />
+                            <div aria-label={`${agent} share ${share.toFixed(0)}%`} style={{ width: 96, height: 6, background: 'var(--warm-3)', borderRadius: 3, overflow: 'hidden' }}>
+                              <div style={{ width: `${share}%`, height: '100%', background: color }} />
                             </div>
                             <span style={{ ...ledgerCellStyle, color: 'var(--ink-faint)', fontSize: 13 }}>{share.toFixed(0)}%</span>
                           </div>
