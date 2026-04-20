@@ -412,10 +412,11 @@ func setupCmd() *cobra.Command {
 		provider      string
 		apiKey        string
 		notifyURL     string
+		backend       string
 		configurePool bool
 		noInfra       bool
 		noBrowser     bool
-		noDockerStart bool
+		noDockerStart bool //nolint:unused // retained for backward-compat flag --no-docker-start
 		cliMode       bool
 	)
 
@@ -423,17 +424,26 @@ func setupCmd() *cobra.Command {
 		Use:   "setup",
 		Short: "Set up the Agency platform (config, daemon, infrastructure)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Check Docker first — fail fast with clear guidance
+			// Select a container backend (podman/docker/containerd) before
+			// anything writes config or starts a daemon. selectContainerBackend
+			// prints guidance and returns a non-nil error when no reachable
+			// backend is available — fail fast with actionable output.
+			var (
+				backendName string
+				backendCfg  map[string]string
+			)
 			if !noInfra {
-				if err := checkDocker(noDockerStart); err != nil {
+				b, cfg, err := selectContainerBackend(backend)
+				if err != nil {
 					return err
 				}
+				backendName, backendCfg = b, cfg
 			}
 
 			if cliMode {
 				// Quick setup: if --name or --preset flags are set, skip prompts
 				if name != "" || preset != "" {
-					return runSetup(provider, apiKey, notifyURL, noInfra, true, noBrowser, configurePool)
+					return runSetup(provider, apiKey, notifyURL, backendName, backendCfg, noInfra, true, noBrowser, configurePool)
 				}
 
 				// Interactive: prompt for provider/key if not set via flags
@@ -479,12 +489,12 @@ func setupCmd() *cobra.Command {
 					}
 				}
 
-				return runSetup(provider, apiKey, notifyURL, noInfra, true, noBrowser, configurePool)
+				return runSetup(provider, apiKey, notifyURL, backendName, backendCfg, noInfra, true, noBrowser, configurePool)
 			}
 
 			// Default: web-assisted setup — no prompts.
 			// Pass through --provider/--api-key if given (supports non-interactive use).
-			return runSetup(provider, apiKey, notifyURL, noInfra, false, noBrowser, configurePool)
+			return runSetup(provider, apiKey, notifyURL, backendName, backendCfg, noInfra, false, noBrowser, configurePool)
 		},
 	}
 
@@ -493,10 +503,11 @@ func setupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", "", "LLM provider (anthropic, openai, google)")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "LLM provider API key")
 	cmd.Flags().StringVar(&notifyURL, "notify-url", "", "Notification URL (ntfy or webhook) for operator alerts")
-	cmd.Flags().BoolVar(&configurePool, "configure-network-pool", false, "Configure Docker default-address-pools before infrastructure startup")
-	cmd.Flags().BoolVar(&noInfra, "no-infra", false, "Skip Docker check and infrastructure startup")
+	cmd.Flags().StringVar(&backend, "backend", "", "Container backend to use (docker, podman, containerd); autodetects when unset. Also respected via AGENCY_CONTAINER_BACKEND.")
+	cmd.Flags().BoolVar(&configurePool, "configure-network-pool", false, "Configure Docker default-address-pools before infrastructure startup (docker backend only)")
+	cmd.Flags().BoolVar(&noInfra, "no-infra", false, "Skip the container-backend check and infrastructure startup")
 	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Don't open the web UI in a browser (also respected via AGENCY_NO_BROWSER=1)")
-	cmd.Flags().BoolVar(&noDockerStart, "no-docker-start", false, "Don't try to start Docker Desktop automatically (also respected via AGENCY_NO_DOCKER_START=1)")
+	cmd.Flags().BoolVar(&noDockerStart, "no-docker-start", false, "Don't try to start Docker Desktop automatically (docker backend only; also respected via AGENCY_NO_DOCKER_START=1)")
 	cmd.Flags().BoolVar(&cliMode, "cli", false, "Run full interactive setup in the terminal")
 
 	return cmd
@@ -649,76 +660,166 @@ func tryStartDockerDesktop(wsl bool) bool {
 	}
 }
 
-func checkDocker(noDockerStart bool) error {
-	wsl := isWSL()
-
-	if _, err := exec.LookPath("docker"); err != nil {
-		fmt.Fprintln(os.Stderr, "Docker is not installed.")
-		fmt.Fprintln(os.Stderr, "")
-		switch {
-		case runtime.GOOS == "darwin":
-			fmt.Fprintln(os.Stderr, "  Install Docker Desktop: https://docs.docker.com/desktop/install/mac-install/")
-		case wsl:
-			fmt.Fprintln(os.Stderr, "  Install Docker Desktop for Windows and enable WSL integration:")
-			fmt.Fprintln(os.Stderr, "    1. Install: https://docs.docker.com/desktop/install/windows-install/")
-			fmt.Fprintln(os.Stderr, "    2. Open Docker Desktop → Settings → Resources → WSL Integration")
-			fmt.Fprintln(os.Stderr, "    3. Enable integration for your WSL distro")
-		case runtime.GOOS == "linux":
-			fmt.Fprintln(os.Stderr, "  Install Docker: curl -fsSL https://get.docker.com | sh")
-		default:
-			fmt.Fprintln(os.Stderr, "  Install Docker: https://docs.docker.com/get-docker/")
+// selectContainerBackend probes the host for a reachable container backend
+// and returns its canonical name plus the socket config to persist in
+// config.yaml (hub.deployment_backend + hub.deployment_backend_config).
+//
+// Selection rules:
+//   - If override is non-empty (from --backend or AGENCY_CONTAINER_BACKEND),
+//     probe only that backend. A requested-but-unreachable backend is a
+//     hard error — the user asked for a specific one, don't silently fall
+//     back to something else.
+//   - Otherwise probe all KnownBackends; preference order is
+//     podman > docker > containerd. The first reachable one wins.
+//   - If nothing reaches, print the platform-appropriate install hint and
+//     return an error so setup exits cleanly with actionable guidance.
+//
+// Prints a one-line summary to stderr explaining which backend was picked
+// and, when multiple are available, how to pick a different one.
+func selectContainerBackend(override string) (string, map[string]string, error) {
+	override = strings.TrimSpace(strings.ToLower(override))
+	if override == "" {
+		override = strings.TrimSpace(strings.ToLower(os.Getenv("AGENCY_CONTAINER_BACKEND")))
+	}
+	// Honor an existing choice persisted in config.yaml so re-running setup
+	// without a flag doesn't silently flip the backend when multiple are
+	// installed. Flag and env still win over the persisted value.
+	var configuredCfg map[string]string
+	if override == "" {
+		cfg := config.Load()
+		if existing := strings.TrimSpace(cfg.Hub.DeploymentBackend); existing != "" {
+			override = existing
+			configuredCfg = cfg.Hub.DeploymentBackendConfig
 		}
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Then re-run: agency setup")
-		return fmt.Errorf("Docker is required but not installed")
 	}
 
-	// Check if Docker daemon is responsive
-	cmd := exec.Command("docker", "info")
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	if err := cmd.Run(); err != nil {
-		if !noDockerStart && !dockerAutoStartDisabled() && tryStartDockerDesktop(wsl) {
-			fmt.Fprintln(os.Stderr, "Docker is installed but not running. Trying to start Docker Desktop...")
-			deadline := time.Now().Add(45 * time.Second)
-			for time.Now().Before(deadline) {
-				time.Sleep(2 * time.Second)
-				retry := exec.Command("docker", "info")
-				retry.Stdout = nil
-				retry.Stderr = nil
-				if retry.Run() == nil {
-					return nil
-				}
+	if override != "" {
+		var match *runtimehost.BackendProbe
+		for _, p := range runtimehost.KnownBackends() {
+			if p.Name == override {
+				pp := p
+				match = &pp
+				break
 			}
-			fmt.Fprintln(os.Stderr, "Docker Desktop did not become ready in time.")
+		}
+		if match == nil {
+			return "", nil, fmt.Errorf("unknown container backend %q (known: docker, podman, containerd)", override)
+		}
+		d := runtimehost.ProbeBackend(*match)
+		if !d.Reachable {
+			fmt.Fprintf(os.Stderr, "Requested backend %q is not reachable: %v\n", override, d.Err)
 			fmt.Fprintln(os.Stderr, "")
+			if !d.CLIFound {
+				fmt.Fprintln(os.Stderr, runtimehost.InstallHint())
+				fmt.Fprintln(os.Stderr, "")
+			}
+			fmt.Fprintln(os.Stderr, "Then re-run: agency setup")
+			return "", nil, fmt.Errorf("container backend %q not available", override)
 		}
-
-		fmt.Fprintln(os.Stderr, "Docker is installed but not running.")
-		fmt.Fprintln(os.Stderr, "")
-		switch {
-		case runtime.GOOS == "darwin":
-			fmt.Fprintln(os.Stderr, "  Open Docker Desktop and wait for it to start.")
-		case wsl:
-			fmt.Fprintln(os.Stderr, "  Open Docker Desktop on Windows and ensure WSL integration is enabled:")
-			fmt.Fprintln(os.Stderr, "    Docker Desktop → Settings → Resources → WSL Integration")
-		case runtime.GOOS == "linux":
-			fmt.Fprintln(os.Stderr, "  Start Docker: sudo systemctl start docker")
-		}
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Then re-run: agency setup")
-		return fmt.Errorf("Docker is not running")
+		fmt.Fprintf(os.Stderr, "Using %s backend (%s).\n", d.Name(), backendModeDescription(d))
+		return d.Name(), mergeBackendSocketConfig(configuredCfg, d.Config), nil
 	}
 
-	return nil
+	detections := runtimehost.ProbeAllBackends()
+	reachable := runtimehost.SelectReachable(detections)
+
+	switch len(reachable) {
+	case 0:
+		fmt.Fprintln(os.Stderr, "No container backend detected on this host.")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, runtimehost.InstallHint())
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Then re-run: agency setup")
+		return "", nil, fmt.Errorf("no container backend available")
+	case 1:
+		d := reachable[0]
+		fmt.Fprintf(os.Stderr, "Using %s backend (%s).\n", d.Name(), backendModeDescription(d))
+		return d.Name(), d.Config, nil
+	default:
+		chosen := reachable[0]
+		others := make([]string, 0, len(reachable)-1)
+		for _, d := range reachable[1:] {
+			others = append(others, d.Name())
+		}
+		fmt.Fprintf(os.Stderr,
+			"Multiple container backends detected: %s, %s.\n",
+			chosen.Name(), strings.Join(others, ", "),
+		)
+		fmt.Fprintf(os.Stderr,
+			"Using %s (%s). To pick a different one, re-run with --backend %s or set AGENCY_CONTAINER_BACKEND.\n",
+			chosen.Name(), backendModeDescription(chosen), others[0],
+		)
+		return chosen.Name(), chosen.Config, nil
+	}
 }
 
-func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser, configurePool bool) error {
+// backendModeDescription returns a short human-readable descriptor for the
+// detection — "rootless"/"rootful" for podman/containerd, or "available"
+// as a fallback when no mode is exposed by the backend.
+func backendModeDescription(d runtimehost.BackendDetection) string {
+	if d.Mode != "" {
+		return d.Mode
+	}
+	return "available"
+}
+
+// mergeBackendSocketConfig preserves any socket keys from an existing config
+// (e.g. a custom socket URI set by the operator) while filling in values
+// the probe freshly resolved on this host.
+func mergeBackendSocketConfig(existing, fresh map[string]string) map[string]string {
+	if len(existing) == 0 {
+		if len(fresh) == 0 {
+			return nil
+		}
+		out := make(map[string]string, len(fresh))
+		for k, v := range fresh {
+			out[k] = v
+		}
+		return out
+	}
+	out := make(map[string]string, len(existing)+len(fresh))
+	for k, v := range existing {
+		out[k] = v
+	}
+	for k, v := range fresh {
+		if _, ok := out[k]; !ok {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// persistPendingKeysToEnv writes provider API keys to ~/.agency/.env so
+// they survive a daemon startup failure. The envfile.Upsert primitive is
+// idempotent — callers may run it repeatedly with the same entries safely.
+//
+// Keys land in the credential store on the next successful setup/serve
+// via the ReadExistingKeys migration path.
+func persistPendingKeysToEnv(agencyHome string, keys []config.KeyEntry) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	entries := make(map[string]string, len(keys))
+	for _, k := range keys {
+		if k.EnvVar == "" || k.Key == "" {
+			continue
+		}
+		entries[k.EnvVar] = k.Key
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	return envfile.Upsert(filepath.Join(agencyHome, ".env"), entries)
+}
+
+func runSetup(provider, apiKey, notifyURL, backend string, backendCfg map[string]string, noInfra, cliMode, noBrowser, configurePool bool) error {
 	provider = normalizeProvider(provider)
 	pendingKeys, err := config.RunInit(config.InitOptions{
-		Provider:  provider,
-		APIKey:    apiKey,
-		NotifyURL: notifyURL,
+		Provider:                provider,
+		APIKey:                  apiKey,
+		NotifyURL:               notifyURL,
+		DeploymentBackend:       backend,
+		DeploymentBackendConfig: backendCfg,
 	})
 	if err != nil {
 		return err
@@ -729,11 +830,27 @@ func runSetup(provider, apiKey, notifyURL string, noInfra, cliMode, noBrowser, c
 	fmt.Println("Agency platform initialized at", agencyHome)
 	fmt.Println()
 
+	// Persist API keys to ~/.agency/.env BEFORE starting the daemon. If the
+	// daemon fails to start (e.g. container backend unreachable mid-setup),
+	// the keys survive in .env and the next setup/serve will migrate them
+	// into the credential store via the ReadExistingKeys path further down.
+	// Without this, a daemon startup failure silently drops the API key the
+	// user just typed.
+	if len(pendingKeys) > 0 {
+		if err := persistPendingKeysToEnv(agencyHome, pendingKeys); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not persist API key to %s/.env: %v\n", agencyHome, err)
+		}
+	}
+
 	// Start the daemon
 	fmt.Println("Starting daemon...")
 	if err := daemon.Start(gatewayPortFromConfig()); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: daemon did not start: %v\n", err)
 		fmt.Println()
+		if len(pendingKeys) > 0 {
+			fmt.Fprintf(os.Stderr, "Your API key(s) were saved to %s/.env and will be migrated to the secure credential store on the next successful setup.\n", agencyHome)
+			fmt.Println()
+		}
 		fmt.Println("Next steps:")
 		fmt.Println("  agency serve     # Start the daemon manually")
 		return nil

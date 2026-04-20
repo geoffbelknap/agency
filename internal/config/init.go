@@ -44,6 +44,21 @@ type InitOptions struct {
 	Operator        string // operator name (informational)
 	Force           bool   // reinitialize even if already set up
 	NotifyURL       string // optional ntfy or webhook URL for operator alerts
+
+	// DeploymentBackend is the container backend Agency should drive —
+	// "docker", "podman", or "containerd". When empty, any existing value
+	// in config.yaml is preserved; if no existing value is set, the backend
+	// stays unset and the gateway's legacy default (docker) applies. Callers
+	// performing fresh installs are expected to detect the available backend
+	// (see runtimehost.ProbeAllBackends) and set this explicitly so the
+	// config captures the chosen backend persistently.
+	DeploymentBackend string
+
+	// DeploymentBackendConfig holds backend-specific wiring, typically the
+	// resolved socket path under key "host" (docker/podman) or
+	// "native_socket" (containerd). Persisted verbatim under
+	// hub.deployment_backend_config.
+	DeploymentBackendConfig map[string]string
 }
 
 // KeyEntry holds a provider API key to be stored in the credential store
@@ -201,6 +216,27 @@ func RunInit(opts InitOptions) ([]KeyEntry, error) {
 					"registry": "ghcr.io/geoffbelknap/agency-hub",
 				},
 			},
+		}
+	}
+
+	// Persist the selected container backend (and its socket config) when
+	// the caller supplied one — typically a fresh install after probing
+	// for docker/podman/containerd. Empty values preserve whatever the
+	// existing config.yaml already specifies, so re-running setup never
+	// downgrades an explicit choice.
+	if opts.DeploymentBackend != "" {
+		hubMap, ok := cfg["hub"].(map[string]interface{})
+		if !ok {
+			hubMap = map[string]interface{}{}
+			cfg["hub"] = hubMap
+		}
+		hubMap["deployment_backend"] = opts.DeploymentBackend
+		if len(opts.DeploymentBackendConfig) > 0 {
+			backendCfg := make(map[string]interface{}, len(opts.DeploymentBackendConfig))
+			for k, v := range opts.DeploymentBackendConfig {
+				backendCfg[k] = v
+			}
+			hubMap["deployment_backend_config"] = backendCfg
 		}
 	}
 

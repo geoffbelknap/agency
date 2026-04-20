@@ -117,9 +117,10 @@ type quickstartOptions struct {
 	key           string
 	preset        string
 	name          string
+	backend       string
 	noDemo        bool
 	noBrowser     bool
-	noDockerStart bool
+	noDockerStart bool //nolint:unused // retained for backward-compat flag --no-docker-start
 	verbose       bool
 }
 
@@ -150,7 +151,8 @@ Run with --no-browser to print the Web UI URL without opening it.`,
 	cmd.Flags().StringVar(&opts.name, "name", "", "Name for the first agent")
 	cmd.Flags().BoolVar(&opts.noDemo, "no-demo", false, "Skip the demo task")
 	cmd.Flags().BoolVar(&opts.noBrowser, "no-browser", false, "Don't open the web UI in a browser (also respected via AGENCY_NO_BROWSER=1)")
-	cmd.Flags().BoolVar(&opts.noDockerStart, "no-docker-start", false, "Don't try to start Docker Desktop automatically (also respected via AGENCY_NO_DOCKER_START=1)")
+	cmd.Flags().StringVar(&opts.backend, "backend", "", "Container backend to use (docker, podman, containerd); autodetects when unset. Also respected via AGENCY_CONTAINER_BACKEND.")
+	cmd.Flags().BoolVar(&opts.noDockerStart, "no-docker-start", false, "Don't try to start Docker Desktop automatically (docker backend only; also respected via AGENCY_NO_DOCKER_START=1)")
 	cmd.Flags().BoolVar(&opts.verbose, "verbose", false, "Show detailed output")
 
 	return cmd
@@ -345,16 +347,15 @@ func runQuickstart(opts quickstartOptions) error {
 	var pendingKeys []config.KeyEntry
 	configExistedBefore := quickstartConfigExists()
 
-	// Phase 1: Environment — check Docker
-	if err := checkDocker(opts.noDockerStart); err != nil {
-		fmt.Printf("  %s environment     Docker not available\n", qsRed.Render("✗"))
+	// Phase 1: Environment — pick a container backend
+	backendName, backendCfg, err := selectContainerBackend(opts.backend)
+	if err != nil {
+		fmt.Printf("  %s environment     %s\n", qsRed.Render("✗"), err)
 		fmt.Println()
-		fmt.Println(err.Error())
-		fmt.Println()
-		fmt.Println("Run `agency quickstart` again after installing Docker.")
-		return fmt.Errorf("Docker required")
+		fmt.Println("Run `agency quickstart` again after installing a container backend.")
+		return err
 	}
-	fmt.Printf("  %s environment     Docker running\n", qsGreen.Render("✓"))
+	fmt.Printf("  %s environment     %s running\n", qsGreen.Render("✓"), backendName)
 
 	// Phase 2: Provider — detect or prompt for LLM provider and API key
 	providerExplicit := strings.TrimSpace(opts.provider) != ""
@@ -445,12 +446,16 @@ func runQuickstart(opts quickstartOptions) error {
 		fmt.Printf("\r  %s Key validated.                \n", qsGreen.Render("✓"))
 	}
 
-	// Run config init to set up ~/.agency/ and collect pending keys
+	// Run config init to set up ~/.agency/ and collect pending keys. The
+	// backend selection from Phase 1 is persisted so the gateway starts
+	// against the same backend on every subsequent invocation.
 	if apiKey != "" {
 		var err error
 		pendingKeys, err = config.RunInit(config.InitOptions{
-			Provider: providerName,
-			APIKey:   apiKey,
+			Provider:                providerName,
+			APIKey:                  apiKey,
+			DeploymentBackend:       backendName,
+			DeploymentBackendConfig: backendCfg,
 		})
 		if err != nil {
 			fmt.Printf("  %s config init failed: %s\n", qsRed.Render("✗"), err)
@@ -460,7 +465,9 @@ func runQuickstart(opts quickstartOptions) error {
 		// No new key but ensure ~/.agency/ exists
 		var err error
 		pendingKeys, err = config.RunInit(config.InitOptions{
-			Provider: providerName,
+			Provider:                providerName,
+			DeploymentBackend:       backendName,
+			DeploymentBackendConfig: backendCfg,
 		})
 		if err != nil {
 			fmt.Printf("  %s config init failed: %s\n", qsRed.Render("✗"), err)

@@ -1829,8 +1829,17 @@ func (inf *Infra) suppressDirectServiceHostPorts() bool {
 	if inf == nil || inf.cli == nil || inf.cli.Backend() != runtimehost.BackendPodman {
 		return false
 	}
+	// Rootless podman allocates host ports through rootlessport, which
+	// refuses to bind a port that's already held by another container in
+	// the same infra bundle. gateway-proxy is the authoritative front door
+	// for knowledge/intake (ports 8204/8205), so duplicating the same host
+	// port on the backend service collides. Docker's userland proxy tends
+	// to forgive this collision; rootless podman doesn't. Suppress the
+	// direct host-port bindings for the backend services whenever podman
+	// is running rootless — they remain reachable via gateway-proxy, which
+	// is the supported access path.
 	endpoint := strings.TrimPrefix(inf.cli.Endpoint(), "unix://")
-	return strings.HasPrefix(endpoint, "/run/user/") && detectWSLHost()
+	return strings.HasPrefix(endpoint, "/run/user/")
 }
 
 func envPort(envKey, fallback string) string {

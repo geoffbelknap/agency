@@ -13,6 +13,75 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func TestRunInit_PersistsBackendSelection(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	_, err := RunInit(InitOptions{
+		DeploymentBackend:       "podman",
+		DeploymentBackendConfig: map[string]string{"host": "unix:///run/user/1000/podman/podman.sock"},
+	})
+	if err != nil {
+		t.Fatalf("RunInit failed: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmpDir, ".agency", "config.yaml"))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var got map[string]any
+	if err := yaml.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	hub, _ := got["hub"].(map[string]any)
+	if hub == nil {
+		t.Fatalf("hub missing from config: %v", got)
+	}
+	if hub["deployment_backend"] != "podman" {
+		t.Errorf("deployment_backend = %v, want podman", hub["deployment_backend"])
+	}
+	backendCfg, _ := hub["deployment_backend_config"].(map[string]any)
+	if backendCfg == nil {
+		t.Fatalf("deployment_backend_config missing: %v", hub)
+	}
+	if backendCfg["host"] != "unix:///run/user/1000/podman/podman.sock" {
+		t.Errorf("host = %v, want podman socket", backendCfg["host"])
+	}
+	// Ensure default hub sources are still present.
+	if _, ok := hub["sources"]; !ok {
+		t.Error("hub.sources wiped by backend persistence")
+	}
+}
+
+func TestRunInit_PreservesExistingBackendWhenEmpty(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	if _, err := RunInit(InitOptions{DeploymentBackend: "docker"}); err != nil {
+		t.Fatalf("first RunInit: %v", err)
+	}
+	if _, err := RunInit(InitOptions{}); err != nil {
+		t.Fatalf("second RunInit: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmpDir, ".agency", "config.yaml"))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var got map[string]any
+	if err := yaml.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	hub, _ := got["hub"].(map[string]any)
+	if hub["deployment_backend"] != "docker" {
+		t.Errorf("deployment_backend = %v, want docker preserved", hub["deployment_backend"])
+	}
+}
+
 func TestRunInit_NotificationConfig(t *testing.T) {
 	origHome := os.Getenv("HOME")
 	tmpDir := t.TempDir()
