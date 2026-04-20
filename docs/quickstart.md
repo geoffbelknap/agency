@@ -16,6 +16,51 @@ You need:
 If you need a provider key first, see [Getting API Keys](/getting-api-keys).
 Google Gemini is the easiest no-credit-card starting point for many users.
 
+### Podman On WSL2
+
+Agency can use rootless Podman as a container backend on WSL2, but use the
+Linux distro packages. Homebrew Podman inside WSL can miss rootless helpers
+such as `newuidmap`, `slirp4netns`, or the systemd user socket.
+
+Install the WSL distro packages:
+
+```bash
+sudo apt-get install -y podman uidmap slirp4netns fuse-overlayfs crun
+systemctl --user enable --now podman.socket
+```
+
+Verify the rootless API socket:
+
+```text
+curl --unix-socket "$XDG_RUNTIME_DIR/podman/podman.sock" http://d/v1.41/_ping
+```
+
+Expected output:
+
+```text
+OK
+```
+
+Then configure Agency:
+
+```yaml
+hub:
+  deployment_backend: podman
+  deployment_backend_config:
+    host: /run/user/1000/podman/podman.sock
+```
+
+Replace `1000` with your user ID if needed:
+
+```bash
+id -u
+```
+
+Agency keeps its gateway, mediation, egress, and operator-facing network
+boundaries intact. On WSL2 rootless Podman, Agency avoids publishing direct
+host ports for internal services that are already reachable through the gateway
+proxy.
+
 ## Install
 
 **macOS (Homebrew):**

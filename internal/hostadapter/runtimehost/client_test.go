@@ -15,6 +15,18 @@ func TestResolveBackendHostUsesConfiguredSocket(t *testing.T) {
 	}
 }
 
+func TestRawClientEndpointTracksResolvedHost(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "podman.sock")
+	client, err := NewRawClientForBackend(BackendPodman, map[string]string{"host": socket})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "unix://" + socket
+	if got := client.Endpoint(); got != want {
+		t.Fatalf("Endpoint() = %q, want %q", got, want)
+	}
+}
+
 func TestResolveBackendHostUsesContainerdNativeSocketConfig(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "containerd.sock")
 	got := resolveBackendHost(BackendContainerd, map[string]string{"native_socket": socket})
@@ -161,6 +173,15 @@ func TestInfraStatusFormattingHelpers(t *testing.T) {
 	}
 	if got := formatContainerUptime(0, "exited", "Exited 3 minutes ago"); got != "" {
 		t.Fatalf("formatContainerUptime(exited) = %q, want empty", got)
+	}
+	if got := infraHealthFromStatus("Up 2 minutes (unhealthy)"); got != "unhealthy" {
+		t.Fatalf("infraHealthFromStatus(unhealthy) = %q", got)
+	}
+	if got := infraHealthFromStatus("Up 2 minutes (healthy)"); got != "healthy" {
+		t.Fatalf("infraHealthFromStatus(healthy) = %q", got)
+	}
+	if got := infraHealthFromStatus("running"); got != "none" {
+		t.Fatalf("infraHealthFromStatus(running) = %q", got)
 	}
 }
 

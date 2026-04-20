@@ -53,6 +53,44 @@ sudo systemctl start docker
 podman info --format json
 ```
 
+### Podman On WSL2 Rootless Setup
+
+If rootless Podman on WSL2 fails before Agency can start containers, first make
+sure the WSL distro packages and user socket are installed:
+
+```bash
+sudo apt-get install -y podman uidmap slirp4netns fuse-overlayfs crun
+systemctl --user enable --now podman.socket
+curl --unix-socket "$XDG_RUNTIME_DIR/podman/podman.sock" http://d/v1.41/_ping
+```
+
+Expected output:
+
+```text
+OK
+```
+
+Then set Agency to the rootless socket:
+
+```yaml
+hub:
+  deployment_backend: podman
+  deployment_backend_config:
+    host: /run/user/1000/podman/podman.sock
+```
+
+Replace `1000` with `id -u` if your user ID is different.
+
+If you see a rootless port collision such as:
+
+```text
+rootlessport listen tcp 127.0.0.1:8204: bind: address already in use
+```
+
+upgrade Agency and rerun `agency infra up`. On WSL2 rootless Podman, Agency
+publishes internal service access through the gateway proxy instead of
+publishing duplicate direct host ports for those same services.
+
 ### Start Sequence Fails at a Specific Phase
 
 The seven-phase start sequence is all-or-nothing. If it fails, check which phase:

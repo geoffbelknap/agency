@@ -27,6 +27,21 @@ routing.local.yaml
 .env
 .env.*
 
+# Local secret/helper artifacts
+.curlrc
+*.curlrc
+*.token
+*.tokens
+*.secret
+*.secrets
+.agency-api-curl.*
+scripts/*.local.sh
+scripts/*.secret.sh
+scripts/*.token.sh
+scripts/*-secret.sh
+scripts/*-token.sh
+scripts/.secrets/
+
 # Node artifacts
 package-lock.json
 node_modules/

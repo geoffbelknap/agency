@@ -76,6 +76,10 @@ Agency is built around them first.
 > **Windows:** Install
 > [Docker Desktop](https://docs.docker.com/desktop/install/windows-install/)
 > with WSL integration enabled, then run Agency inside WSL2.
+>
+> **WSL2 with Podman:** Use the Linux distro's rootless Podman packages and
+> user socket; Homebrew Podman inside WSL is missing pieces Agency needs. See
+> [docs/quickstart.md](docs/quickstart.md#podman-on-wsl2).
 
 ### Install
 
