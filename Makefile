@@ -17,6 +17,17 @@ SOURCE_DIR := $(shell pwd)
 LDFLAGS  := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE) -X main.buildID=$(BUILD_ID) -X main.sourceDir=$(SOURCE_DIR)
 IMAGE_DIR = images
 
+# Container backend used to build images. Preference order matches the
+# gateway's runtime default: podman (rootless) first, then docker, then
+# nerdctl (containerd). Override with CONTAINER_CMD=<path> if you want to
+# pin a specific tool, or set AGENCY_CONTAINER_BUILDER=<name> to pick by
+# name (podman/docker/nerdctl).
+ifneq ($(AGENCY_CONTAINER_BUILDER),)
+CONTAINER_CMD := $(shell command -v $(AGENCY_CONTAINER_BUILDER) 2>/dev/null)
+else
+CONTAINER_CMD ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null || command -v nerdctl 2>/dev/null)
+endif
+
 # Core images built by `make images`.
 CORE_IMAGES = body enforcer comms knowledge intake egress workspace web-fetch gateway-proxy
 
@@ -94,14 +105,25 @@ verify-required-status-checks:
 clean:
 	rm -f agency gateway
 
-# Shared Python base image — prerequisite for Python service images
-python-base:
-	@echo "Building agency-python-base..."
-	docker build -f $(IMAGE_DIR)/python-base/Dockerfile -t agency-python-base:latest $(IMAGE_DIR)/python-base
+# Guard: fail fast with a clear message when no container builder is
+# installed, instead of emitting "docker: command not found" halfway
+# through a long build.
+require-container-cmd:
+	@if [ -z "$(CONTAINER_CMD)" ]; then \
+		echo "ERROR: no container builder found on PATH."; \
+		echo "Install one of: podman (recommended), docker, or nerdctl."; \
+		echo "Or set CONTAINER_CMD=/path/to/builder."; \
+		exit 1; \
+	fi
 
-workspace-base:
-	@echo "Building agency-workspace-base..."
-	docker build -f $(IMAGE_DIR)/workspace-base/Dockerfile -t agency-workspace-base:latest $(IMAGE_DIR)/workspace-base
+# Shared Python base image — prerequisite for Python service images
+python-base: require-container-cmd
+	@echo "Building agency-python-base with $(CONTAINER_CMD)..."
+	$(CONTAINER_CMD) build -f $(IMAGE_DIR)/python-base/Dockerfile -t agency-python-base:latest $(IMAGE_DIR)/python-base
+
+workspace-base: require-container-cmd
+	@echo "Building agency-workspace-base with $(CONTAINER_CMD)..."
+	$(CONTAINER_CMD) build -f $(IMAGE_DIR)/workspace-base/Dockerfile -t agency-workspace-base:latest $(IMAGE_DIR)/workspace-base
 
 # Python service images depend on the shared base (egress excluded — uses mitmproxy)
 body comms knowledge intake: python-base
@@ -117,15 +139,15 @@ images-all: images web relay
 # images/ as a named build context; repo-context images still use repo root.
 define IMAGE_RULE
 .PHONY: $(1)
-$(1):
-	@echo "Building agency-$(1)..."
+$(1): require-container-cmd
+	@echo "Building agency-$(1) with $$(CONTAINER_CMD)..."
 	$$(if $$(filter $(1),$(SHARED_CONTEXT_IMAGES)),\
-		docker build --build-context shared=$(IMAGE_DIR) --build-arg BUILD_ID=$(BUILD_ID) \
+		$$(CONTAINER_CMD) build --build-context shared=$(IMAGE_DIR) --build-arg BUILD_ID=$(BUILD_ID) \
 			-f $(IMAGE_DIR)/$(1)/Dockerfile -t agency-$(1):latest $(IMAGE_DIR)/$(1),\
 	$$(if $$(filter $(1),$(REPO_CONTEXT_IMAGES)),\
-		docker build --build-arg BUILD_ID=$(BUILD_ID) \
+		$$(CONTAINER_CMD) build --build-arg BUILD_ID=$(BUILD_ID) \
 			-f $(IMAGE_DIR)/$(1)/Dockerfile -t agency-$(1):latest .,\
-		docker build --build-arg BUILD_ID=$(BUILD_ID) \
+		$$(CONTAINER_CMD) build --build-arg BUILD_ID=$(BUILD_ID) \
 			$$(if $$(filter workspace,$(1)),--build-arg WORKSPACE_BASE_IMAGE=agency-workspace-base:latest,) \
 			-f $(IMAGE_DIR)/$(1)/Dockerfile -t agency-$(1):latest $(IMAGE_DIR)/$(1)))
 endef
@@ -136,23 +158,23 @@ $(foreach img,$(CORE_IMAGES),$(eval $(call IMAGE_RULE,$(img))))
 AGENCY_WEB_DIR ?= $(SOURCE_DIR)/web
 WEB_SOURCE_HASH := $(shell go run ./cmd/sourcehash web)
 
-web:
-	@echo "Building agency-web..."
+web: require-container-cmd
+	@echo "Building agency-web with $(CONTAINER_CMD)..."
 	@if [ ! -d "$(AGENCY_WEB_DIR)" ]; then \
 		echo "Error: agency-web not found at $(AGENCY_WEB_DIR)"; exit 1; \
 	fi
-	docker build --build-arg BUILD_ID=$(BUILD_ID) --build-arg SOURCE_HASH=$(WEB_SOURCE_HASH) \
+	$(CONTAINER_CMD) build --build-arg BUILD_ID=$(BUILD_ID) --build-arg SOURCE_HASH=$(WEB_SOURCE_HASH) \
 		-f $(AGENCY_WEB_DIR)/Dockerfile -t agency-web:latest $(AGENCY_WEB_DIR)
 
 # agency-relay source (sibling repo in workspace)
 AGENCY_RELAY_DIR ?= $(SOURCE_DIR)/../agency-relay
 
-relay:
-	@echo "Building agency-relay..."
+relay: require-container-cmd
+	@echo "Building agency-relay with $(CONTAINER_CMD)..."
 	@if [ ! -d "$(AGENCY_RELAY_DIR)" ]; then \
 		echo "Error: agency-relay not found at $(AGENCY_RELAY_DIR)"; exit 1; \
 	fi
-	docker build --build-arg BUILD_ID=$(BUILD_ID) \
+	$(CONTAINER_CMD) build --build-arg BUILD_ID=$(BUILD_ID) \
 		-f $(AGENCY_RELAY_DIR)/Dockerfile -t agency-relay:latest $(AGENCY_RELAY_DIR)
 
 e2e-live-web:

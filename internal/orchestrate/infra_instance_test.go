@@ -111,19 +111,28 @@ func TestInfraHostPortsRespectOverrides(t *testing.T) {
 	}
 }
 
-func TestSuppressDirectServiceHostPortsOnlyForRootlessPodmanOnWSL(t *testing.T) {
+func TestSuppressDirectServiceHostPortsForAnyRootlessPodman(t *testing.T) {
+	// gateway-proxy is the authoritative front door for the services that
+	// otherwise collide on their host port (knowledge on 8204, intake on
+	// 8205). Rootless podman refuses overlapping host-port bindings via
+	// rootlessport, so we suppress the direct bindings for every rootless
+	// endpoint — the WSL-only carveout that used to live here was
+	// incomplete and broke native Linux rootless installs.
 	origDetect := detectWSLHost
 	defer func() { detectWSLHost = origDetect }()
 
-	detectWSLHost = func() bool { return true }
 	rootlessPodman, err := runtimehost.NewRawClientForBackend(runtimehost.BackendPodman, map[string]string{
 		"host": "/run/user/1000/podman/podman.sock",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := (&Infra{cli: rootlessPodman}).suppressDirectServiceHostPorts(); !got {
-		t.Fatal("rootless Podman on WSL should suppress direct service host ports")
+
+	for _, wsl := range []bool{true, false} {
+		detectWSLHost = func() bool { return wsl }
+		if got := (&Infra{cli: rootlessPodman}).suppressDirectServiceHostPorts(); !got {
+			t.Fatalf("rootless Podman (wsl=%v) should suppress direct service host ports", wsl)
+		}
 	}
 
 	rootfulPodman, err := runtimehost.NewRawClientForBackend(runtimehost.BackendPodman, map[string]string{
@@ -134,11 +143,6 @@ func TestSuppressDirectServiceHostPortsOnlyForRootlessPodmanOnWSL(t *testing.T) 
 	}
 	if got := (&Infra{cli: rootfulPodman}).suppressDirectServiceHostPorts(); got {
 		t.Fatal("rootful Podman should keep direct service host ports")
-	}
-
-	detectWSLHost = func() bool { return false }
-	if got := (&Infra{cli: rootlessPodman}).suppressDirectServiceHostPorts(); got {
-		t.Fatal("native Linux rootless Podman should keep direct service host ports")
 	}
 }
 
