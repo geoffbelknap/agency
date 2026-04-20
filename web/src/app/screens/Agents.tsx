@@ -7,6 +7,7 @@ import { api, type RawAgent, type RawCapability } from '../lib/api';
 import { socket } from '../lib/ws';
 import { useIsMobile } from '../components/ui/use-mobile';
 import { CreateAgentDialog } from '../components/CreateAgentDialog';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { AgentList } from './agents/AgentList';
 import { AgentDetail } from './agents/AgentDetail';
 
@@ -352,6 +353,7 @@ export function Agents() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [refreshingAgents, setRefreshingAgents] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [budgets, setBudgets] = useState<Record<string, { daily_used: number; daily_limit: number }>>({});
   const [variant, setVariant] = useState<AgentViewVariant>(() => readVariant());
 
@@ -425,6 +427,23 @@ export function Agents() {
       navigate(`/channels/${encodeURIComponent(result.channel || `dm-${name}`)}`);
     } catch (e: any) {
       toast.error(e.message || 'Failed to open DM');
+    }
+  };
+
+  const handleDeleteAgent = async () => {
+    if (!deleteTarget) return;
+    const name = deleteTarget;
+    try {
+      await api.agents.delete(name);
+      toast.success(`Agent "${name}" deleted`);
+      setDeleteTarget(null);
+      if (urlAgentName === name) {
+        navigate('/agents', { replace: true });
+      }
+      await load();
+    } catch (e: any) {
+      toast.error(e.message || `Failed to delete agent "${name}"`);
+      throw e;
     }
   };
 
@@ -522,6 +541,7 @@ export function Agents() {
               onAction={handleAction}
               actionLoading={actionLoading}
               onRefreshAgents={load}
+              onRequestDelete={setDeleteTarget}
             />
           ) : (
             <div className="flex h-full min-h-[320px] items-center justify-center px-6 text-center">
@@ -564,6 +584,15 @@ export function Agents() {
             navigate(`/agents/${encodeURIComponent(name)}`);
           }
         }}
+      />
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        title={deleteTarget ? `Delete agent "${deleteTarget}"?` : 'Delete agent?'}
+        description="This deletes the agent runtime, workspace state, local agent files, and comms membership. Audit logs are archived and preserved."
+        confirmLabel="Delete agent"
+        variant="destructive"
+        onConfirm={handleDeleteAgent}
       />
     </div>
   );

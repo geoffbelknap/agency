@@ -18,6 +18,7 @@ interface Props {
   onAction: (name: string, action: string) => Promise<void>;
   actionLoading: string | null;
   onRefreshAgents: () => void;
+  onRequestDelete: (name: string) => void;
 }
 
 const STATUS_DOT: Record<string, string> = {
@@ -104,7 +105,7 @@ function StatCell({ label, value, sub, accent = false }: { label: string; value:
   );
 }
 
-export function AgentDetail({ agent, capabilities: initialCapabilities, onAction, actionLoading, onRefreshAgents }: Props) {
+export function AgentDetail({ agent, capabilities: initialCapabilities, onAction, actionLoading, onRefreshAgents, onRequestDelete }: Props) {
   const [primaryTab, setPrimaryTab] = useState<PrimaryTab>('overview');
   const [opsSubTab, setOpsSubTab] = useState<OperationsSubTab>('channels');
   const [sysSubTab, setSysSubTab] = useState<SystemSubTab>('config');
@@ -265,6 +266,7 @@ export function AgentDetail({ agent, capabilities: initialCapabilities, onAction
             handleGrant={data.handleGrant}
             handleRevoke={data.handleRevoke}
             handleSaveConfig={data.handleSaveConfig}
+            onRequestDelete={onRequestDelete}
             subTab={sysSubTab}
             onSubTabChange={setSysSubTab}
           />

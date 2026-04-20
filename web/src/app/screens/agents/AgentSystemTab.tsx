@@ -1,5 +1,5 @@
 import { useState, useEffect, type ReactNode } from 'react';
-import { Shield } from 'lucide-react';
+import { Shield, Trash2 } from 'lucide-react';
 import { api, type RawCapability, type RawPolicyValidation, type RawAuditEntry, type RawProviderToolCapability } from '../../lib/api';
 import { Agent } from '../../types';
 import { LogsSection } from './AgentActivityTab';
@@ -23,6 +23,7 @@ interface Props {
   handleGrant: (agentName: string, capability: string) => Promise<void>;
   handleRevoke: (agentName: string, capability: string) => Promise<void>;
   handleSaveConfig: (agentName: string, identity: string) => Promise<Record<string, any> | null>;
+  onRequestDelete: (agentName: string) => void;
   subTab: SystemSubTab;
   onSubTabChange: (tab: SystemSubTab) => void;
 }
@@ -30,9 +31,10 @@ interface Props {
 const cardStyle = { background: 'var(--warm-2)', border: '0.5px solid var(--ink-hairline)', borderRadius: 10, padding: 20 } as const;
 const innerStyle = { background: 'var(--warm)', border: '0.5px solid var(--ink-hairline)', borderRadius: 8 } as const;
 
-function SmallButton({ children, onClick, disabled = false, primary = false, danger = false }: { children: ReactNode; onClick?: () => void; disabled?: boolean; primary?: boolean; danger?: boolean }) {
+function SmallButton({ children, icon, onClick, disabled = false, primary = false, danger = false }: { children: ReactNode; icon?: ReactNode; onClick?: () => void; disabled?: boolean; primary?: boolean; danger?: boolean }) {
   return (
     <button type="button" disabled={disabled} onClick={onClick} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: primary ? '0.5px solid var(--ink)' : '0.5px solid var(--ink-hairline-strong)', background: primary ? 'var(--ink)' : 'var(--warm)', color: danger ? 'var(--red)' : primary ? 'var(--warm)' : 'var(--ink)', fontFamily: 'var(--font-sans)', fontSize: 12, padding: '5px 10px', borderRadius: 999, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1 }}>
+      {icon}
       {children}
     </button>
   );
@@ -58,7 +60,7 @@ function PanelHeader({ title, meta, action }: { title: string; meta?: string; ac
   );
 }
 
-function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, handleGrant, handleRevoke, handleSaveConfig }: {
+function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, handleGrant, handleRevoke, handleSaveConfig, onRequestDelete }: {
   agent: Agent;
   agentConfig: Record<string, any> | null;
   capabilities: RawCapability[];
@@ -67,6 +69,7 @@ function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, h
   handleGrant: (agentName: string, capability: string) => Promise<void>;
   handleRevoke: (agentName: string, capability: string) => Promise<void>;
   handleSaveConfig: (agentName: string, identity: string) => Promise<Record<string, any> | null>;
+  onRequestDelete: (agentName: string) => void;
 }) {
   const [editingIdentity, setEditingIdentity] = useState(false);
   const [identityDraft, setIdentityDraft] = useState('');
@@ -207,11 +210,25 @@ function ConfigContent({ agent, agentConfig, capabilities, policy, capLoading, h
           </div>
         </div>
       )}
+
+      <div style={{ ...cardStyle, borderColor: 'var(--red)' }}>
+        <PanelHeader
+          title="Danger zone"
+          action={
+            <SmallButton danger icon={<Trash2 size={13} aria-hidden="true" />} onClick={() => onRequestDelete(agent.name)}>
+              Delete agent
+            </SmallButton>
+          }
+        />
+        <div style={{ ...innerStyle, padding: 12, color: 'var(--ink-mid)', fontSize: 12, lineHeight: 1.5 }}>
+          Deletes the agent runtime, workspace state, local agent files, and comms membership. Audit logs are archived and preserved.
+        </div>
+      </div>
     </div>
   );
 }
 
-export function AgentSystemTab({ agent, agentConfig, capabilities, policy, capLoading, logs, refreshingLogs, refreshLogs, handleGrant, handleRevoke, handleSaveConfig, subTab, onSubTabChange }: Props) {
+export function AgentSystemTab({ agent, agentConfig, capabilities, policy, capLoading, logs, refreshingLogs, refreshLogs, handleGrant, handleRevoke, handleSaveConfig, onRequestDelete, subTab, onSubTabChange }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div role="tablist" style={{ display: 'flex', gap: 18, borderBottom: '0.5px solid var(--ink-hairline)' }}>
@@ -222,7 +239,7 @@ export function AgentSystemTab({ agent, agentConfig, capabilities, policy, capLo
         ))}
       </div>
       <div role="tabpanel" id={`sys-panel-${subTab}`}>
-        {subTab === 'config' && <ConfigContent agent={agent} agentConfig={agentConfig} capabilities={capabilities} policy={policy} capLoading={capLoading} handleGrant={handleGrant} handleRevoke={handleRevoke} handleSaveConfig={handleSaveConfig} />}
+        {subTab === 'config' && <ConfigContent agent={agent} agentConfig={agentConfig} capabilities={capabilities} policy={policy} capLoading={capLoading} handleGrant={handleGrant} handleRevoke={handleRevoke} handleSaveConfig={handleSaveConfig} onRequestDelete={onRequestDelete} />}
         {subTab === 'logs' && <LogsSection agentName={agent.name} logs={logs} refreshingLogs={refreshingLogs} refreshLogs={refreshLogs} />}
       </div>
     </div>
