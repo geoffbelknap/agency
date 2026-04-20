@@ -7,12 +7,15 @@ SQLite FTS5 index for full-text search.
 """
 
 import json
+import logging
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
 from typing import Optional
 from images.models.comms import Channel, ChannelState, ChannelType, Message, MessageFlags
+
+log = logging.getLogger("agency.comms.store")
 
 
 class MessageStore:
@@ -157,10 +160,11 @@ class MessageStore:
         with open(jsonl_path, "a") as f:
             f.write(msg.model_dump_json() + "\n")
 
-        # Index for search
+        # Search indexing and cursors are derived state. Message persistence is
+        # the JSONL append above, so do not fail the send if these side effects
+        # are temporarily unwritable.
         self._index_message(msg)
 
-        # Auto-advance cursor for the author
         self._set_cursor(channel, author, msg.timestamp)
 
         return msg
@@ -386,12 +390,15 @@ class MessageStore:
     # -- Search --
 
     def _index_message(self, msg: Message) -> None:
-        self._db.execute(
-            "INSERT INTO messages_fts (id, channel, author, content, timestamp) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (msg.id, msg.channel, msg.author, msg.content, msg.timestamp.isoformat()),
-        )
-        self._db.commit()
+        try:
+            self._db.execute(
+                "INSERT INTO messages_fts (id, channel, author, content, timestamp) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (msg.id, msg.channel, msg.author, msg.content, msg.timestamp.isoformat()),
+            )
+            self._db.commit()
+        except Exception as exc:
+            log.warning("message search indexing failed", extra={"error": str(exc), "channel": msg.channel})
 
     def search_messages(
         self,
@@ -513,14 +520,17 @@ class MessageStore:
         return datetime.fromisoformat(ts)
 
     def _set_cursor(self, channel: str, participant: str, ts: datetime) -> None:
-        cursor_path = self._cursors_dir / f"{participant}.json"
-        cursors = {}
-        if cursor_path.exists():
-            cursors = json.loads(cursor_path.read_text())
-        current = cursors.get(channel)
-        if current is None or datetime.fromisoformat(current) < ts:
-            cursors[channel] = ts.isoformat()
-            cursor_path.write_text(json.dumps(cursors, indent=2))
+        try:
+            cursor_path = self._cursors_dir / f"{participant}.json"
+            cursors = {}
+            if cursor_path.exists():
+                cursors = json.loads(cursor_path.read_text())
+            current = cursors.get(channel)
+            if current is None or datetime.fromisoformat(current) < ts:
+                cursors[channel] = ts.isoformat()
+                cursor_path.write_text(json.dumps(cursors, indent=2))
+        except Exception as exc:
+            log.warning("read cursor update failed", extra={"error": str(exc), "channel": channel, "participant": participant})
 
     # -- Write buffer (cache mode) --
 
