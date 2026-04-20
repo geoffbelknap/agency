@@ -21,8 +21,15 @@ import (
 	"log/slog"
 	"github.com/gorilla/websocket"
 
+	"github.com/geoffbelknap/agency/internal/authz"
 	"github.com/geoffbelknap/agency/internal/registry"
 )
+
+// Auditor writes system-level audit records. *logs.Writer satisfies this
+// interface; kept minimal to avoid pulling the logs package into ws.
+type Auditor interface {
+	WriteSystem(event string, detail map[string]interface{}) error
+}
 
 // AppSubprotocol is the WebSocket subprotocol name this hub speaks. Clients
 // that authenticate via Sec-WebSocket-Protocol (browsers) must include this
@@ -172,10 +179,14 @@ type Client struct {
 	// at upgrade time from the bearer token. May be nil if the bearer token
 	// validated but the registry could not resolve it to a principal
 	// (backward-compatible transitional state).
-	//
-	// Future scope enforcement (TASK-ios-ws-scope-002) will filter outbound
-	// events against this principal's authorization.
 	principal *registry.Principal
+
+	// scope captures what events this client is authorized to observe.
+	// Computed once at connect time from principal + registry. Events are
+	// filtered against this scope before client.subscription preferences
+	// are applied. An empty client subscription means "all events within
+	// my scope" — never the full bus.
+	scope *authz.Scope
 
 	mu           sync.Mutex
 	subscription *Subscription
@@ -185,6 +196,108 @@ type Client struct {
 // if none was resolved. Intended for use by scope filtering and audit logic.
 func (c *Client) Principal() *registry.Principal {
 	return c.principal
+}
+
+// allowsEvent chains scope and subscription preference: the scope determines
+// what the client is authorized to receive; the subscription further narrows
+// delivery by client preference. A missing scope defaults to allow-all for
+// backward compatibility; see Scope doc for the nil-principal window.
+func (c *Client) allowsEvent(e *Event) bool {
+	if !scopeAllowsEvent(c.scope, e) {
+		return false
+	}
+	c.mu.Lock()
+	sub := c.subscription
+	c.mu.Unlock()
+	return sub.matches(e)
+}
+
+// scopeAllowsEvent consults the authz scope for an event. Events that are
+// not keyed to an agent or channel (e.g. "ack", "pong") are always allowed
+// by scope — subscription preference still applies.
+func scopeAllowsEvent(s *authz.Scope, e *Event) bool {
+	if s == nil || s.All {
+		return true
+	}
+	switch e.Type {
+	case "ack", "pong":
+		return true
+	case "message":
+		return s.AllowsChannel(e.Channel)
+	case "agent_status", "phase", "halt", "task_complete", "approval_request":
+		return s.AllowsAgent(e.Agent)
+	case "infra_status", "deploy_progress":
+		return s.AllowsInfra()
+	default:
+		// agent_signal_* events are agent-scoped; everything else defaults
+		// to agent-scoped if Agent is set, otherwise deny for unknown types
+		// to stay fail-closed.
+		if strings.HasPrefix(e.Type, "agent_signal_") {
+			return s.AllowsAgent(e.Agent)
+		}
+		if e.Agent != "" {
+			return s.AllowsAgent(e.Agent)
+		}
+		return false
+	}
+}
+
+// scopeTarget tags which set of the Scope a name should be tested against.
+type scopeTarget int
+
+const (
+	scopeChannel scopeTarget = iota
+	scopeAgent
+)
+
+// filterByScope partitions names into those the scope admits and those it
+// denies. If the scope is nil or All, every name is allowed.
+func filterByScope(names []string, s *authz.Scope, target scopeTarget) (allowed, denied []string) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	if s == nil || s.All {
+		return names, nil
+	}
+	for _, n := range names {
+		var ok bool
+		switch target {
+		case scopeChannel:
+			ok = s.AllowsChannel(n)
+		case scopeAgent:
+			ok = s.AllowsAgent(n)
+		}
+		if ok {
+			allowed = append(allowed, n)
+		} else {
+			denied = append(denied, n)
+		}
+	}
+	return allowed, denied
+}
+
+// auditSubscribeDenial records a client's attempt to subscribe to something
+// outside its scope. Silent to the client (T14 information asymmetry), but
+// surfaced to operators via the system audit log.
+func (c *Client) auditSubscribeDenial(target, name string) {
+	auditor := c.hub.auditor()
+	if auditor == nil {
+		return
+	}
+	detail := map[string]interface{}{
+		"target": target,
+		"name":   name,
+	}
+	if c.principal != nil {
+		detail["principal_type"] = c.principal.Type
+		detail["principal_name"] = c.principal.Name
+		if c.principal.UUID != "" {
+			detail["principal_uuid"] = c.principal.UUID
+		}
+	}
+	if err := auditor.WriteSystem("ws_subscribe_denied", detail); err != nil {
+		c.log.Warn("ws subscribe denial audit write failed", "err", err)
+	}
 }
 
 // readPump reads messages from the WebSocket connection and processes
@@ -223,11 +336,29 @@ func (c *Client) readPump() {
 
 		switch msg.Type {
 		case "subscribe":
+			// Intersect the requested subscription with the client's scope.
+			// A client cannot widen its scope by subscribing — the request
+			// is a preference within what they're already authorized to see.
+			// Any requested entry that exceeds scope is dropped and audited.
+			allowedChannels, deniedChannels := filterByScope(msg.Channels, c.scope, scopeChannel)
+			allowedAgents, deniedAgents := filterByScope(msg.Agents, c.scope, scopeAgent)
+			infra := msg.Infra
+			if infra != nil && *infra && c.scope != nil && !c.scope.AllowsInfra() {
+				f := false
+				infra = &f
+				c.auditSubscribeDenial("infra", "")
+			}
+			for _, name := range deniedChannels {
+				c.auditSubscribeDenial("channel", name)
+			}
+			for _, name := range deniedAgents {
+				c.auditSubscribeDenial("agent", name)
+			}
 			c.mu.Lock()
 			c.subscription = &Subscription{
-				Channels: msg.Channels,
-				Agents:   msg.Agents,
-				Infra:    msg.Infra,
+				Channels: allowedChannels,
+				Agents:   allowedAgents,
+				Infra:    infra,
 			}
 			c.mu.Unlock()
 
@@ -293,6 +424,44 @@ type Hub struct {
 	eventPublisher       EventPublishFunc
 	agentSignalPublisher AgentSignalPublishFunc
 	taskCompleteHandler  TaskCompleteFunc
+
+	// registry and auditWriter are optional dependencies used for scope
+	// resolution (registry) and subscribe-denial audit (auditWriter). Both
+	// are set via SetRegistry / SetAuditor after NewHub. When nil, scope
+	// resolution falls back to allow-all (see authz.Scope).
+	registry    *registry.Registry
+	auditWriter Auditor
+}
+
+// SetRegistry attaches a registry used to resolve a principal's scope at
+// connect time. Safe to call before clients connect; not meant for hot
+// swapping.
+func (h *Hub) SetRegistry(reg *registry.Registry) {
+	h.mu.Lock()
+	h.registry = reg
+	h.mu.Unlock()
+}
+
+// SetAuditor attaches a system-level audit writer used to record subscribe
+// attempts that exceed scope.
+func (h *Hub) SetAuditor(a Auditor) {
+	h.mu.Lock()
+	h.auditWriter = a
+	h.mu.Unlock()
+}
+
+// auditor returns the currently attached audit writer, or nil if none.
+func (h *Hub) auditor() Auditor {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.auditWriter
+}
+
+// reg returns the currently attached registry, or nil if none.
+func (h *Hub) reg() *registry.Registry {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.registry
 }
 
 // NewHub creates a new Hub and starts its run loop.
@@ -341,11 +510,7 @@ func (h *Hub) run() {
 			var toDrop []*Client
 			h.mu.RLock()
 			for client := range h.clients {
-				client.mu.Lock()
-				sub := client.subscription
-				client.mu.Unlock()
-
-				if !sub.matches(&event) {
+				if !client.allowsEvent(&event) {
 					continue
 				}
 
@@ -504,12 +669,18 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request, principal 
 		return
 	}
 
+	// Resolve the client's authorization scope once per connection. The
+	// registry may be nil in unit/integration test setups; the resolver
+	// falls back to allow-all in that case.
+	scope := authz.Resolve(principal, h.reg())
+
 	client := &Client{
 		hub:       h,
 		conn:      conn,
 		send:      make(chan []byte, sendBufSize),
 		log:       h.log,
 		principal: principal,
+		scope:     scope,
 	}
 
 	h.register <- client
