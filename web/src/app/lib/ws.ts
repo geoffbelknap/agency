@@ -39,7 +39,13 @@ class GatewaySocket {
 
     try {
       if (!this.wsUrl) this.wsUrl = await resolveWsUrl();
-      this.ws = new WebSocket(this.wsUrl);
+      // Auth travels in Sec-WebSocket-Protocol because browser WebSocket API
+      // cannot set arbitrary request headers. The server accepts a
+      // "bearer.<token>" entry, echoes back only "agency.v1", and the token
+      // is never reflected in the response.
+      const token = getToken();
+      const protocols = token ? ['agency.v1', `bearer.${token}`] : ['agency.v1'];
+      this.ws = new WebSocket(this.wsUrl, protocols);
 
       this.ws.onopen = () => {
         this._connected = true;
@@ -51,12 +57,9 @@ class GatewaySocket {
           clearTimeout(this.reconnectTimer);
           this.reconnectTimer = null;
         }
-        // Authenticate the WebSocket connection
-        const token = getToken();
-        if (token) {
-          this.ws?.send(JSON.stringify({ type: 'auth', token }));
-        }
-        // Subscribe to all events — empty arrays = match everything
+        // Subscribe to all events — empty arrays = match everything.
+        // The server enforces scope based on the authenticated principal;
+        // the client's subscription is a preference within that scope.
         this.ws?.send(JSON.stringify({
           type: 'subscribe',
           channels: [],
