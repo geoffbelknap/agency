@@ -96,11 +96,8 @@ func (am *AgentManager) SetInfra(inf *Infra) {
 // List returns all defined agents with their runtime status.
 func (am *AgentManager) List(ctx context.Context) ([]AgentDetail, error) {
 	agentsDir := filepath.Join(am.Home, "agents")
-	entries, err := os.ReadDir(agentsDir)
+	names, err := am.Names(ctx)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return []AgentDetail{}, nil
-		}
 		return nil, err
 	}
 
@@ -108,8 +105,32 @@ func (am *AgentManager) List(ctx context.Context) ([]AgentDetail, error) {
 	// team YAML files once per agent (O(agents*teams) → O(teams)).
 	teamIndex := buildTeamIndex(am.Home)
 
-	var agents []AgentDetail
+	agents := make([]AgentDetail, 0, len(names))
+	for _, name := range names {
+		detail := am.loadAgentDetail(ctx, name, agentsDir, teamIndex)
+		agents = append(agents, detail)
+	}
+
+	sort.Slice(agents, func(i, j int) bool { return agents[i].Name < agents[j].Name })
+	return agents, nil
+}
+
+// Names returns all defined agent names without loading runtime detail.
+func (am *AgentManager) Names(ctx context.Context) ([]string, error) {
+	agentsDir := filepath.Join(am.Home, "agents")
+	entries, err := os.ReadDir(agentsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+
+	names := make([]string, 0, len(entries))
 	for _, e := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if !e.IsDir() {
 			continue
 		}
@@ -117,13 +138,10 @@ func (am *AgentManager) List(ctx context.Context) ([]AgentDetail, error) {
 		if _, err := os.Stat(agentYAML); err != nil {
 			continue
 		}
-
-		detail := am.loadAgentDetail(e.Name(), agentsDir, teamIndex)
-		agents = append(agents, detail)
+		names = append(names, e.Name())
 	}
-
-	sort.Slice(agents, func(i, j int) bool { return agents[i].Name < agents[j].Name })
-	return agents, nil
+	sort.Strings(names)
+	return names, nil
 }
 
 // Show returns details for a single agent.
@@ -135,7 +153,7 @@ func (am *AgentManager) Show(ctx context.Context, name string) (*AgentDetail, er
 	}
 
 	teamIndex := buildTeamIndex(am.Home)
-	detail := am.loadAgentDetail(name, agentsDir, teamIndex)
+	detail := am.loadAgentDetail(ctx, name, agentsDir, teamIndex)
 	return &detail, nil
 }
 
@@ -398,7 +416,7 @@ func (am *AgentManager) StopContainers(ctx context.Context, name string) {
 
 // -- Internal helpers --
 
-func (am *AgentManager) loadAgentDetail(name, agentsDir string, teamIndex map[string]string) AgentDetail {
+func (am *AgentManager) loadAgentDetail(ctx context.Context, name, agentsDir string, teamIndex map[string]string) AgentDetail {
 	agentDir := filepath.Join(agentsDir, name)
 	d := AgentDetail{
 		Name:     name,
@@ -545,7 +563,7 @@ func (am *AgentManager) loadAgentDetail(name, agentsDir string, teamIndex map[st
 		}
 	}
 
-	applyPersistedAgentStatus(&d, am, name)
+	applyPersistedAgentStatus(ctx, &d, am, name)
 	if activeHaltExists(am.Home, name) && d.Status != "running" {
 		d.Status = "halted"
 	}
@@ -594,9 +612,11 @@ func applyRuntimeStatus(d *AgentDetail, status runtimecontract.RuntimeStatus) {
 	}
 }
 
-func applyPersistedAgentStatus(d *AgentDetail, am *AgentManager, name string) {
+func applyPersistedAgentStatus(ctx context.Context, d *AgentDetail, am *AgentManager, name string) {
 	if am.Runtime != nil {
-		if status, err := am.Runtime.Get(context.Background(), name); err == nil {
+		statusCtx, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
+		defer cancel()
+		if status, err := am.Runtime.Get(statusCtx, name); err == nil {
 			applyRuntimeStatus(d, status)
 			return
 		}

@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
+	"github.com/geoffbelknap/agency/internal/providercatalog"
 	"gopkg.in/yaml.v3"
 )
 
-// Entry represents a registered capability (MCP server, service, or skill).
+// Entry represents a registered capability (MCP server, service, skill, or provider tool).
 type Entry struct {
 	Name        string                 `json:"name" yaml:"name"`
 	Kind        string                 `json:"kind" yaml:"kind"` // mcp-server, service, skill
@@ -152,6 +154,13 @@ func (r *Registry) List() []Entry {
 		}
 	}
 
+	entries = append(entries, r.providerToolEntries(states, entries)...)
+	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].Kind != entries[j].Kind {
+			return entries[i].Kind < entries[j].Kind
+		}
+		return entries[i].Name < entries[j].Name
+	})
 	return entries
 }
 
@@ -239,6 +248,44 @@ func (r *Registry) Delete(name string) error {
 }
 
 // --- internal helpers ---
+
+func (r *Registry) providerToolEntries(states map[string]capState, existing []Entry) []Entry {
+	seen := make(map[string]bool, len(existing))
+	for _, entry := range existing {
+		seen[entry.Name] = true
+	}
+	inventory, err := providercatalog.ProviderTools()
+	if err != nil {
+		return nil
+	}
+	out := make([]Entry, 0, len(inventory.Capabilities))
+	for name, tool := range inventory.Capabilities {
+		if seen[name] {
+			continue
+		}
+		state := "disabled"
+		var agents []string
+		if s, ok := states[name]; ok {
+			state = s.State
+			agents = s.Agents
+		}
+		out = append(out, Entry{
+			Name:        name,
+			Kind:        "provider-tool",
+			Description: tool.Description,
+			State:       state,
+			Agents:      agents,
+			Spec: map[string]interface{}{
+				"title":         tool.Title,
+				"risk":          tool.Risk,
+				"default_grant": tool.DefaultGrant,
+				"execution":     tool.Execution,
+				"providers":     tool.Providers,
+			},
+		})
+	}
+	return out
+}
 
 func (r *Registry) configPath() string {
 	return filepath.Join(r.Home, "capabilities.yaml")

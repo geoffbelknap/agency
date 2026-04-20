@@ -38,7 +38,7 @@ describe('Infrastructure', () => {
     await waitFor(() => {
       expect(screen.getByText('gateway')).toBeInTheDocument();
       expect(screen.getByText('redis')).toBeInTheDocument();
-      expect(screen.getByText('2 / 2 healthy')).toBeInTheDocument();
+      expect(screen.getByText('2 / 2 services healthy')).toBeInTheDocument();
     });
   });
 
@@ -68,9 +68,9 @@ describe('Infrastructure', () => {
     await waitFor(() => {
       expect(screen.getByText('Host capacity')).toBeInTheDocument();
       expect(screen.getByText('3 / 8')).toBeInTheDocument();
-      expect(screen.getByText('5 available')).toBeInTheDocument();
-      expect(screen.getByText('Configured')).toBeInTheDocument();
-      expect(screen.getByText('10 CPU cores')).toBeInTheDocument();
+      expect(screen.getByText('3 slots used / 5 available / 4.0 GB per agent')).toBeInTheDocument();
+      expect(screen.queryByText(/network pool/i)).not.toBeInTheDocument();
+      expect(screen.getByText('10 cores')).toBeInTheDocument();
     });
   });
 
@@ -141,9 +141,8 @@ describe('Infrastructure', () => {
     renderWithRouter(<Infrastructure />);
 
     await waitFor(() => {
-      expect(screen.getByText('1 service is unhealthy')).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'Open Doctor' })).toHaveAttribute('href', '/admin/doctor');
-      expect(screen.getByRole('button', { name: 'Restart infrastructure' })).toBeInTheDocument();
+      expect(screen.getByText(/1 service is unhealthy/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /restart all/i })).toBeInTheDocument();
     });
   });
 
@@ -207,14 +206,14 @@ describe('Infrastructure', () => {
       expect(screen.getByText('gateway')).toBeInTheDocument();
     });
     const countBefore = fetchCount;
-    await userEvent.click(screen.getByRole('button', { name: /refresh infrastructure/i }));
+    await userEvent.click(screen.getByRole('button', { name: /reload config/i }));
     await waitFor(() => {
       expect(fetchCount).toBeGreaterThan(countBefore);
-      expect(screen.getByRole('button', { name: /refreshing infrastructure/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /reload config/i })).toBeDisabled();
     });
     releaseRefresh!();
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /refresh(?:ing)? infrastructure/i })).not.toBeDisabled();
+      expect(screen.getByRole('button', { name: /reload config/i })).not.toBeDisabled();
     });
   });
 });

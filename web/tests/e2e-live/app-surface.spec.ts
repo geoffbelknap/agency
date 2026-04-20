@@ -76,7 +76,7 @@ test('live admin tabs render across the real stack', async ({ page }) => {
     { path: '/admin/events', tab: 'Events', optional: true, assert: async () => expect(page.getByRole('button', { name: 'Refresh' })).toBeVisible() },
     { path: '/admin/webhooks', tab: 'Webhooks', optional: true, assert: async () => expect(page.getByText('Inbound webhooks for external event delivery')).toBeVisible() },
     { path: '/admin/notifications', tab: 'Notifications', optional: true, assert: async () => expect(page.getByText('Operator notification destinations')).toBeVisible() },
-    { path: '/admin/audit', tab: 'Audit', assert: async () => expect(page.getByRole('button', { name: 'Summarize' })).toBeVisible() },
+    { path: '/admin/audit', tab: 'Audit', assert: async () => expect(page.getByRole('button', { name: 'Search' })).toBeVisible() },
     { path: '/admin/setup', tab: 'Setup Wizard', assert: async () => expect(page.getByText('Re-run Setup Wizard')).toBeVisible() },
     { path: '/admin/danger', tab: 'Danger Zone', assert: async () => expect(page.getByRole('button', { name: 'Destroy All' })).toBeVisible() },
   ];

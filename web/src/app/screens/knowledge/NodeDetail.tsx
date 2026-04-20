@@ -5,7 +5,7 @@ import { formatDateTimeShort } from '../../lib/time';
 import { api } from '../../lib/api';
 import { KnowledgeNode } from './types';
 import { KIND_COLORS } from './constants';
-import { KindBadge, SourceBadge } from './badges';
+import { SourceBadge } from './badges';
 
 export function NodeDetail({
   node,
@@ -72,51 +72,57 @@ export function NodeDetail({
   };
 
   return (
-    <div className="space-y-0">
-      {/* Entity header */}
-      <div className="sticky top-0 bg-card z-10 pb-3 border-b border-border mb-3">
-        <div className="flex items-start justify-between gap-2 mb-2">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: KIND_COLORS[node.kind] || KIND_COLORS.unknown }} />
-            <h3 className="text-sm font-semibold text-foreground break-all leading-tight">{node.label}</h3>
+    <div className="space-y-5">
+      <div className="sticky top-0 z-10 border-b border-border bg-secondary pb-4">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="mb-2 flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              <span className="h-2 w-2 rounded-[2px]" style={{ backgroundColor: KIND_COLORS[node.kind] || KIND_COLORS.unknown }} />
+              Node
+            </div>
+            <h3 className="break-all font-mono text-xl leading-tight text-foreground">{node.label}</h3>
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex-shrink-0 rounded-md w-7 h-7 flex items-center justify-center" title="Close">
+          <button onClick={onClose} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground" title="Close">
             <X className="w-4 h-4" />
           </button>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
-          <KindBadge kind={node.kind} />
+          <span className="rounded-full border border-border bg-background px-2 py-1 text-[10px] text-muted-foreground">{node.kind}</span>
           {node.source_type && <SourceBadge source={node.source_type} />}
           {contributor && (
-            <span className="text-[10px] bg-green-500/10 text-green-600 dark:text-green-400 px-1.5 py-0.5 rounded">
+            <span className="rounded-full border border-border bg-background px-2 py-1 text-[10px] text-muted-foreground">
               {contributor}
             </span>
           )}
         </div>
       </div>
 
-      {/* Summary */}
       {node.summary && (
-        <div className="mb-3">
-          <p className="text-xs text-foreground/80 leading-relaxed">{node.summary}</p>
+        <div>
+          <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Summary</div>
+          <p className="text-sm leading-6 text-foreground/85">{node.summary}</p>
         </div>
       )}
 
-      {/* Metadata strip */}
-      <div className="flex gap-3 text-[10px] text-muted-foreground mb-3">
-        {node.created_at && <span>Created {formatDateTimeShort(node.created_at)}</span>}
-        {node.updated_at && node.updated_at !== node.created_at && <span>Updated {formatDateTimeShort(node.updated_at)}</span>}
+      <div className="grid grid-cols-2 border-y border-border text-[10px] text-muted-foreground">
+        <div className="border-r border-border py-3 pr-3">
+          <div className="uppercase tracking-[0.16em]">Created</div>
+          <div className="mt-1 font-mono text-xs text-foreground">{node.created_at ? formatDateTimeShort(node.created_at) : 'unknown'}</div>
+        </div>
+        <div className="py-3 pl-3">
+          <div className="uppercase tracking-[0.16em]">Updated</div>
+          <div className="mt-1 font-mono text-xs text-foreground">{node.updated_at ? formatDateTimeShort(node.updated_at) : 'unknown'}</div>
+        </div>
       </div>
 
-      {/* Properties */}
       {node.properties && Object.keys(node.properties).length > 0 && (
-        <div className="mb-3">
-          <div className="text-[10px] text-muted-foreground/70 uppercase tracking-widest font-medium mb-1.5">Properties</div>
-          <div className="bg-background rounded border border-border p-2">
+        <div>
+          <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Properties</div>
+          <div className="border-y border-border bg-background">
             {Object.entries(node.properties).map(([key, value]) => (
-              <div key={key} className="flex gap-2 py-1 border-b border-border/50 last:border-0">
-                <span className="text-[10px] text-muted-foreground font-mono w-28 flex-shrink-0 truncate" title={key}>{key}</span>
-                <span className="text-[10px] text-foreground/80 break-all">
+              <div key={key} className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2 border-b border-border px-2 py-2 last:border-0">
+                <span className="truncate font-mono text-[10px] text-muted-foreground" title={key}>{key}</span>
+                <span className="break-all text-[11px] text-foreground/80">
                   {typeof value === 'string' ? value : JSON.stringify(value)}
                 </span>
               </div>
@@ -125,18 +131,17 @@ export function NodeDetail({
         </div>
       )}
 
-      {/* Connected nodes */}
       {connected.length > 0 && (
-        <div className="mb-3">
-          <div className="text-[10px] text-muted-foreground/70 uppercase tracking-widest font-medium mb-1.5">
+        <div>
+          <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
             Connected ({connected.length})
           </div>
-          <div className="space-y-1">
+          <div className="border-y border-border">
             {connected.slice(0, 8).map((n) => (
               <button
                 key={n.label}
                 onClick={() => onNavigate(n)}
-                className="w-full text-left bg-background rounded border border-border px-2.5 py-1.5 hover:border-primary/50 hover:bg-primary/5 transition-colors"
+                className="w-full border-b border-border bg-background px-2.5 py-2 text-left transition-colors last:border-b-0 hover:bg-primary/5"
               >
                 <div className="flex items-center gap-1.5">
                   <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: KIND_COLORS[n.kind] || KIND_COLORS.unknown }} />
@@ -145,22 +150,21 @@ export function NodeDetail({
               </button>
             ))}
             {connected.length > 8 && (
-              <div className="text-[10px] text-muted-foreground px-2.5">+{connected.length - 8} more</div>
+              <div className="px-2.5 py-2 text-[10px] text-muted-foreground">+{connected.length - 8} more</div>
             )}
           </div>
         </div>
       )}
 
-      {/* Search Around */}
-      <div className="border-t border-border pt-3">
+      <div className="border-t border-border pt-4">
         {!showSearchAround ? (
-          <Button size="sm" variant="outline" className="w-full text-xs" onClick={handleSearchAround}>
+          <Button size="sm" variant="outline" className="w-full rounded-full text-xs" onClick={handleSearchAround}>
             <Search className="w-3 h-3 mr-1.5" />
             Search Around
           </Button>
         ) : (
           <div>
-            <div className="text-[10px] text-muted-foreground/70 uppercase tracking-widest font-medium mb-1.5">
+            <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
               Search Around Results
             </div>
             {searchAroundLoading ? (
@@ -168,7 +172,7 @@ export function NodeDetail({
             ) : searchAroundResults.length === 0 ? (
               <div className="text-xs text-muted-foreground py-2">No related nodes found</div>
             ) : (
-              <div className="space-y-1">
+              <div className="border-y border-border">
                 {searchAroundResults.map((r: any) => {
                   const edgeInfo = searchAroundEdges.find((e) => e.label === r.label);
                   return (
@@ -178,11 +182,11 @@ export function NodeDetail({
                         const match = allNodes.find((n) => n.label === r.label);
                         if (match) onNavigate(match);
                       }}
-                      className="w-full text-left bg-background rounded border border-border px-2.5 py-1.5 hover:border-primary/50 hover:bg-primary/5 transition-colors"
+                      className="w-full border-b border-border bg-background px-2.5 py-2 text-left transition-colors last:border-b-0 hover:bg-primary/5"
                     >
                       <div className="flex items-center gap-1.5">
                         <div className="text-[11px] text-foreground truncate">{r.label}</div>
-                        <span className="text-[9px] font-mono text-muted-foreground/70 bg-secondary px-1 py-0.5 rounded flex-shrink-0">{r.kind}</span>
+                        <span className="flex-shrink-0 rounded-full border border-border bg-secondary px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground/70">{r.kind}</span>
                       </div>
                       {edgeInfo?.relation && (
                         <div className="text-[10px] text-muted-foreground/70 mt-0.5">{edgeInfo.relation}</div>

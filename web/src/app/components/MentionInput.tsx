@@ -1,11 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useId } from 'react';
 import { Input } from './ui/input';
 import { api } from '../lib/api';
 
 interface MentionTarget {
   name: string;
   type: 'agent' | 'operator';
-  status?: string;
 }
 
 // Module-level cache so all MentionInput instances share one fetch
@@ -20,7 +19,6 @@ function fetchMentionTargets(): Promise<MentionTarget[]> {
       ...agents.map((a: any) => ({
         name: a.name,
         type: 'agent' as const,
-        status: a.status,
       })),
     ];
     cachedTargets = items;
@@ -40,9 +38,11 @@ interface MentionInputProps {
   onSubmit: () => void;
   placeholder?: string;
   className?: string;
+  id?: string;
+  name?: string;
 }
 
-export function MentionInput({ value, onChange, onSubmit, placeholder, className }: MentionInputProps) {
+export function MentionInput({ value, onChange, onSubmit, placeholder, className, id, name = 'message' }: MentionInputProps) {
   const [targets, setTargets] = useState<MentionTarget[]>([]);
   const [showMenu, setShowMenu] = useState(false);
   const [menuFilter, setMenuFilter] = useState('');
@@ -51,10 +51,14 @@ export function MentionInput({ value, onChange, onSubmit, placeholder, className
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const generatedId = useId();
+  const inputId = id ?? `mention-input-${generatedId}`;
 
-  // Load mention targets (agents + operator) — cached across instances
-  useEffect(() => {
+  const loadTargets = useCallback(() => {
     fetchMentionTargets().then(setTargets);
+  }, []);
+
+  useEffect(() => {
     return () => {
       if (blurTimeoutRef.current !== null) {
         clearTimeout(blurTimeoutRef.current);
@@ -100,6 +104,7 @@ export function MentionInput({ value, onChange, onSubmit, placeholder, className
       const fragment = textBeforeCursor.slice(atIndex + 1);
       // Only trigger if fragment has no spaces (still typing the mention)
       if ((charBefore === ' ' || atIndex === 0) && !/\s/.test(fragment)) {
+        if (targets.length === 0) loadTargets();
         setShowMenu(true);
         setMenuFilter(fragment);
         setMentionStart(atIndex);
@@ -159,6 +164,8 @@ export function MentionInput({ value, onChange, onSubmit, placeholder, className
     <div className="relative flex-1">
       <Input
         ref={inputRef}
+        id={inputId}
+        name={name}
         value={value}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
@@ -203,13 +210,6 @@ export function MentionInput({ value, onChange, onSubmit, placeholder, className
                   {target.name.charAt(0).toUpperCase()}
                 </span>
                 <span className="flex-1">{target.name}</span>
-                {target.type === 'agent' && target.status && (
-                  <span
-                    className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                      target.status === 'running' ? 'bg-green-500' : 'bg-muted-foreground/70'
-                    }`}
-                  />
-                )}
                 {target.type === 'operator' && (
                   <span className="text-xs text-muted-foreground">you</span>
                 )}

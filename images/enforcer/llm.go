@@ -646,7 +646,7 @@ func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, 
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, 0, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
 }
 
 // emitTrajectoryAnomaly logs a trajectory anomaly to the audit log and relays
@@ -762,7 +762,7 @@ func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, mo
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, 0, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
 }
 
 func extractStreamJSONObjects(chunk string) []interface{} {
@@ -912,7 +912,7 @@ func (lh *LLMHandler) relayGeminiStream(w http.ResponseWriter, resp *http.Respon
 		"chunks": rawChunks,
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, 0, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
 }
 
 // relayAnthropicBuffered relays a non-streaming Anthropic response, translating
@@ -944,7 +944,7 @@ func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.R
 	// Extract usage from translated response for audit
 	var respBody map[string]interface{}
 	var rawRespBody map[string]interface{}
-	inputTokens, outputTokens := 0, 0
+	inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens := 0, 0, 0, 0
 	_ = json.Unmarshal(body, &rawRespBody)
 	if json.Unmarshal(translated, &respBody) == nil {
 		if usage, ok := respBody["usage"].(map[string]interface{}); ok {
@@ -954,6 +954,8 @@ func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.R
 			if v, ok := usage["completion_tokens"].(float64); ok {
 				outputTokens = int(v)
 			}
+			cacheCreationTokens = intFromJSON(usage["cache_creation_input_tokens"])
+			cacheReadTokens = intFromJSON(usage["cache_read_input_tokens"])
 		}
 	}
 
@@ -994,26 +996,29 @@ func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.R
 	durationMs := time.Since(start).Milliseconds()
 
 	lh.audit.Log(AuditEntry{
-		Type:          "LLM_DIRECT",
-		Model:         modelAlias,
-		ProviderModel: providerModel,
-		CorrelationID: correlationID,
-		EventID:       eventID,
-		Status:        resp.StatusCode,
-		InputTokens:   inputTokens,
-		OutputTokens:  outputTokens,
-		DurationMs:    durationMs,
-		TTFTMs:        durationMs,
-		ToolCallValid: toolCallValid,
-		StepIndex:     stepIndex,
-		RetryOf:       retryOf,
-		Extra:         lh.providerToolAuditExtra(modelAlias, providerToolUses, rawRespBody),
+		Type:                     "LLM_DIRECT",
+		Model:                    modelAlias,
+		ProviderModel:            providerModel,
+		CorrelationID:            correlationID,
+		EventID:                  eventID,
+		Status:                   resp.StatusCode,
+		InputTokens:              inputTokens,
+		OutputTokens:             outputTokens,
+		CachedTokens:             cacheReadTokens,
+		CacheCreationInputTokens: cacheCreationTokens,
+		CacheReadInputTokens:     cacheReadTokens,
+		DurationMs:               durationMs,
+		TTFTMs:                   durationMs,
+		ToolCallValid:            toolCallValid,
+		StepIndex:                stepIndex,
+		RetryOf:                  retryOf,
+		Extra:                    lh.providerToolAuditExtra(modelAlias, providerToolUses, rawRespBody),
 	})
 	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, rawRespBody)
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, cacheReadTokens, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
 }
 
 // relayGeminiBuffered relays a non-streaming Gemini native response,
@@ -1066,7 +1071,7 @@ func (lh *LLMHandler) relayGeminiBuffered(w http.ResponseWriter, resp *http.Resp
 	})
 	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, rawRespBody)
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, 0, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
 }
 
 // relayGeminiResponsesBuffered relays a non-streaming Gemini native response
@@ -1119,7 +1124,7 @@ func (lh *LLMHandler) relayGeminiResponsesBuffered(w http.ResponseWriter, resp *
 	})
 	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, rawRespBody)
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, 0, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
 }
 
 // relayAnthropicStream relays an Anthropic SSE streaming response, translating
@@ -1183,19 +1188,22 @@ func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Res
 	}
 
 	lh.audit.Log(AuditEntry{
-		Type:          "LLM_DIRECT_STREAM",
-		Model:         modelAlias,
-		ProviderModel: providerModel,
-		CorrelationID: correlationID,
-		EventID:       eventID,
-		Status:        resp.StatusCode,
-		InputTokens:   translator.inputTokens,
-		OutputTokens:  translator.outputTokens,
-		DurationMs:    durationMs,
-		TTFTMs:        ttftMs,
-		TPOTMs:        tpotMs,
-		StepIndex:     stepIndex,
-		RetryOf:       retryOf,
+		Type:                     "LLM_DIRECT_STREAM",
+		Model:                    modelAlias,
+		ProviderModel:            providerModel,
+		CorrelationID:            correlationID,
+		EventID:                  eventID,
+		Status:                   resp.StatusCode,
+		InputTokens:              translator.inputTokens,
+		OutputTokens:             translator.outputTokens,
+		CachedTokens:             translator.cacheRead,
+		CacheCreationInputTokens: translator.cacheCreation,
+		CacheReadInputTokens:     translator.cacheRead,
+		DurationMs:               durationMs,
+		TTFTMs:                   ttftMs,
+		TPOTMs:                   tpotMs,
+		StepIndex:                stepIndex,
+		RetryOf:                  retryOf,
 		Extra: lh.providerToolAuditExtra(modelAlias, providerToolUses, map[string]interface{}{
 			"chunks": rawChunks,
 		}),
@@ -1206,7 +1214,7 @@ func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Res
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, translator.inputTokens, translator.outputTokens, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, time.Since(start).Milliseconds())
+	lh.reportUsage(modelAlias, providerModel, translator.inputTokens, translator.outputTokens, translator.cacheRead, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, time.Since(start).Milliseconds())
 }
 
 // acquireRateSlot blocks until a rate limit slot is available from the
@@ -1288,8 +1296,8 @@ func atofOr(s string, fallback float64) float64 {
 }
 
 // reportUsage records token usage for budget tracking and rate limiting.
-func (lh *LLMHandler) reportUsage(modelAlias, providerModel string, inputTokens, outputTokens int, providerToolCostUSD float64, statusCode int, latencyMs int64) {
-	if inputTokens == 0 && outputTokens == 0 && providerToolCostUSD <= 0 {
+func (lh *LLMHandler) reportUsage(modelAlias, providerModel string, inputTokens, outputTokens, cachedTokens int, providerToolCostUSD float64, statusCode int, latencyMs int64) {
+	if inputTokens == 0 && outputTokens == 0 && cachedTokens == 0 && providerToolCostUSD <= 0 {
 		return
 	}
 	model, ok := lh.routing.Models[modelAlias]
@@ -1300,7 +1308,7 @@ func (lh *LLMHandler) reportUsage(modelAlias, providerModel string, inputTokens,
 	// Record to budget tracker for per-task cost tracking
 	if lh.budget != nil {
 		lh.budget.RecordUsage(
-			int64(inputTokens), int64(outputTokens), 0,
+			int64(inputTokens), int64(outputTokens), int64(cachedTokens),
 			model.CostIn, model.CostOut, model.CostCached,
 		)
 		lh.budget.RecordCost(providerToolCostUSD, 0, 0, 0)

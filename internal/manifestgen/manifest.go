@@ -51,9 +51,13 @@ func (g Generator) GenerateAgentManifest(agentName string) error {
 	reg := capabilities.NewRegistry(g.Home)
 	allCaps := reg.List()
 	enabledServices := map[string]capabilities.Entry{}
+	providerToolCaps := map[string]capabilities.Entry{}
 	for _, cap := range allCaps {
 		if cap.Kind == "service" && cap.State != "disabled" {
 			enabledServices[cap.Name] = cap
+		}
+		if cap.Kind == "provider-tool" {
+			providerToolCaps[cap.Name] = cap
 		}
 	}
 
@@ -208,10 +212,63 @@ func (g Generator) GenerateAgentManifest(agentName string) error {
 	if err := os.WriteFile(filepath.Join(agentDir, "services.yaml"), grantsData, 0o644); err != nil {
 		return fmt.Errorf("write services.yaml: %w", err)
 	}
+	if err := g.writeProviderToolGrants(agentName, agentDir, granted, providerToolCaps); err != nil {
+		return err
+	}
 
 	g.logger().Info("agent manifest generated",
 		"agent", agentName,
 		"services", len(services))
+	return nil
+}
+
+func (g Generator) writeProviderToolGrants(agentName, agentDir string, explicitGrants map[string]bool, providerToolCaps map[string]capabilities.Entry) error {
+	granted := map[string]string{}
+	for name := range explicitGrants {
+		if strings.HasPrefix(name, "provider-") {
+			granted[name] = "constraints.yaml"
+		}
+	}
+	for name, cap := range providerToolCaps {
+		if cap.State == "available" {
+			granted[name] = "capabilities.yaml"
+			continue
+		}
+		if cap.State != "restricted" {
+			continue
+		}
+		for _, allowedAgent := range cap.Agents {
+			if allowedAgent == agentName {
+				granted[name] = "capabilities.yaml"
+				break
+			}
+		}
+	}
+
+	names := make([]string, 0, len(granted))
+	for name := range granted {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	grantEntries := make([]map[string]interface{}, 0, len(names))
+	for _, name := range names {
+		grantEntries = append(grantEntries, map[string]interface{}{
+			"capability": name,
+			"source":     granted[name],
+			"granted_by": "operator",
+		})
+	}
+	data, err := yaml.Marshal(map[string]interface{}{
+		"agent":  agentName,
+		"grants": grantEntries,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal provider-tools.yaml: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "provider-tools.yaml"), data, 0o644); err != nil {
+		return fmt.Errorf("write provider-tools.yaml: %w", err)
+	}
 	return nil
 }
 

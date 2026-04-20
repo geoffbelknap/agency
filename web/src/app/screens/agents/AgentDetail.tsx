@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Play, Pause, RefreshCw, X, Loader2 } from 'lucide-react';
-import { Button } from '../../components/ui/button';
+import { useState, useEffect, type ReactNode } from 'react';
+import { Bot, MessageSquare, Play, Pause, Loader2 } from 'lucide-react';
 import { Agent } from '../../types';
 import { type RawCapability } from '../../lib/api';
 import { useAgentDetailData } from './useAgentDetailData';
@@ -8,159 +7,226 @@ import { AgentOverviewTab } from './AgentOverviewTab';
 import { AgentActivityTab } from './AgentActivityTab';
 import { AgentOperationsTab } from './AgentOperationsTab';
 import { AgentSystemTab } from './AgentSystemTab';
-import { formatDateTimeShort } from '../../lib/time';
-import { adminFeatureFlags, featureEnabled } from '../../lib/features';
 
-type PrimaryTab = 'overview' | 'activity' | 'operations' | 'system';
+type PrimaryTab = 'overview' | 'activity' | 'memory' | 'operations' | 'system';
 type OperationsSubTab = 'channels' | 'knowledge' | 'meeseeks' | 'economics';
 type SystemSubTab = 'config' | 'logs';
 
 interface Props {
   agent: Agent;
-  infraBuildId: string;
   capabilities: RawCapability[];
-  onClose: () => void;
   onAction: (name: string, action: string) => Promise<void>;
   actionLoading: string | null;
   onRefreshAgents: () => void;
 }
 
-export function AgentDetail({ agent, infraBuildId, capabilities: initialCapabilities, onClose, onAction, actionLoading, onRefreshAgents }: Props) {
+const STATUS_DOT: Record<string, string> = {
+  running: 'var(--teal)',
+  active: 'var(--teal)',
+  halted: 'var(--amber)',
+  paused: 'var(--amber)',
+  stopped: 'var(--red)',
+  unhealthy: 'var(--red)',
+  idle: 'var(--ink-faint)',
+};
+
+function StatusDot({ status, label = false, pulse = false, size = 8 }: { status: string; label?: boolean; pulse?: boolean; size?: number }) {
+  const color = STATUS_DOT[status] ?? 'var(--ink-faint)';
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
+      <span style={{ position: 'relative', width: size, height: size, borderRadius: '50%', background: color, flexShrink: 0 }}>
+        {pulse && <span style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: color, animation: 'agencyPulse 1.8s ease-out infinite' }} />}
+      </span>
+      {label && <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-mid)', textTransform: 'lowercase' }}>{status}</span>}
+    </span>
+  );
+}
+
+function Btn({ children, icon, variant = 'default', disabled = false, onClick, ariaLabel }: {
+  children?: ReactNode;
+  icon?: ReactNode;
+  variant?: 'default' | 'primary' | 'ghost';
+  disabled?: boolean;
+  onClick?: () => void;
+  ariaLabel?: string;
+}) {
+  const variants = {
+    default: { bg: 'var(--warm)', color: 'var(--ink)', border: '0.5px solid var(--ink-hairline-strong)' },
+    primary: { bg: 'var(--ink)', color: 'var(--warm)', border: '0.5px solid var(--ink)' },
+    ghost: { bg: 'transparent', color: 'var(--ink-mid)', border: '0.5px solid transparent' },
+  }[variant];
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      aria-label={ariaLabel}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: children ? '5px 10px' : 5,
+        minWidth: children ? undefined : 30,
+        minHeight: 30,
+        justifyContent: 'center',
+        fontSize: 12,
+        fontWeight: 400,
+        fontFamily: 'var(--font-sans)',
+        cursor: disabled ? 'default' : 'pointer',
+        background: variants.bg,
+        color: variants.color,
+        border: variants.border,
+        borderRadius: 999,
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+function Badge({ children }: { children: ReactNode }) {
+  return (
+    <span className="font-mono" style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 8px', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', background: 'var(--warm-3)', color: 'var(--ink-mid)', border: '0.5px solid var(--ink-hairline-strong)', borderRadius: 4 }}>
+      {children}
+    </span>
+  );
+}
+
+function StatCell({ label, value, sub, accent = false }: { label: string; value: ReactNode; sub?: ReactNode; accent?: boolean }) {
+  return (
+    <div style={{ padding: '14px 18px', borderRight: '0.5px solid var(--ink-hairline)', background: accent ? 'var(--red-tint)' : 'transparent', minWidth: 0 }}>
+      <div className="eyebrow" style={{ fontSize: 9, marginBottom: 6 }}>{label}</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap' }}>{value}</div>
+      {sub && <div>{sub}</div>}
+    </div>
+  );
+}
+
+export function AgentDetail({ agent, capabilities: initialCapabilities, onAction, actionLoading, onRefreshAgents }: Props) {
   const [primaryTab, setPrimaryTab] = useState<PrimaryTab>('overview');
   const [opsSubTab, setOpsSubTab] = useState<OperationsSubTab>('channels');
   const [sysSubTab, setSysSubTab] = useState<SystemSubTab>('config');
 
-  // Reset tab when agent changes
   useEffect(() => {
     setPrimaryTab('overview');
     setOpsSubTab('channels');
     setSysSubTab('config');
   }, [agent.name]);
 
-  // Compute effective data tab for lazy loading in the hook
-  const effectiveDataTab = primaryTab === 'operations' ? opsSubTab
+  const effectiveDataTab = primaryTab === 'memory' ? 'knowledge'
+    : primaryTab === 'operations' ? opsSubTab
     : primaryTab === 'system' ? sysSubTab
     : primaryTab;
 
   const data = useAgentDetailData(agent.name, initialCapabilities, effectiveDataTab, onRefreshAgents);
-  const showTeams = featureEnabled('teams');
-  const showMissions = featureEnabled('missions');
-  const showTrust = adminFeatureFlags.trust;
+  const dailyUsed = data.budget?.daily_used ?? 0;
+  const dailyLimit = data.budget?.daily_limit ?? 0;
+  const dailyPct = dailyLimit > 0 ? Math.min(100, (dailyUsed / dailyLimit) * 100) : 0;
+  const budgetColor = dailyPct > 90 ? 'var(--red)' : dailyPct > 75 ? 'var(--amber)' : 'var(--teal)';
+  const visibleCapabilities = Array.from(new Set(agent.grantedCapabilities || [])).slice(0, 5);
+  const roleLine = [agent.role || agent.preset || agent.type, agent.mission].filter(Boolean).join(' · ');
+  const displayName = agent.name.length > 1 ? `${agent.name[0]}\u200b${agent.name.slice(1)}` : agent.name;
 
   return (
-    <div className="flex flex-col h-full bg-card">
-      {/* Header */}
-      <div className="shrink-0 border-b border-border p-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 space-y-3">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <code className="truncate text-lg text-foreground">{agent.name}</code>
-                <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                  {agent.status}
-                </span>
-              {agent.buildId && infraBuildId && agent.buildId !== infraBuildId && (
-                <span className="text-[10px] bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded">
-                  stale
-                </span>
-              )}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {[agent.type, agent.role, showTeams && agent.team && `team: ${agent.team}`].filter(Boolean).join(' · ')}
-              </div>
-              {showMissions && agent.mission && (
-                <div className="rounded-xl border border-border bg-muted/40 px-3 py-2">
-                  <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Mission</div>
-                  <div className="mt-1 text-sm text-foreground">{agent.mission}</div>
-                </div>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-              {agent.mode && (
-                <span className="rounded-full bg-secondary px-2.5 py-1">
-                  Mode: <span className="text-foreground">{agent.mode}</span>
-                </span>
-              )}
-              {showTrust && agent.trustLevel != null && agent.trustLevel > 0 && (
-                <span className="rounded-full bg-secondary px-2.5 py-1">
-                  Trust: <span className="text-foreground">{agent.trustLevel}/5</span>
-                </span>
-              )}
-              {agent.lastActive && (
-                <span className="rounded-full bg-secondary px-2.5 py-1">
-                  Last active: <span className="text-foreground">{formatDateTimeShort(agent.lastActive)}</span>
-                </span>
-              )}
-            </div>
+    <div className="scrollbar-none" style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', padding: '24px 32px', minWidth: 0, minHeight: 0, background: 'var(--warm)' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 20 }}>
+        <div style={{ width: 56, height: 56, borderRadius: 12, background: 'var(--warm-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Bot size={26} style={{ color: 'var(--ink-mid)' }} aria-hidden="true" />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+            <h2 style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 32, fontWeight: 300, lineHeight: 1.05, letterSpacing: '-0.02em', color: 'var(--ink)' }}>{displayName}</h2>
+            <StatusDot status={agent.status} label pulse={agent.status === 'running'} />
           </div>
-          <Button size="sm" variant="ghost" onClick={onClose} className="h-8 w-8 p-0" aria-label="Close">
-            <X className="w-4 h-4" aria-hidden="true" />
-          </Button>
+          <p style={{ margin: '4px 0 0', color: 'var(--ink-mid)', fontSize: 13 }}>
+            {roleLine || 'no mission'}
+          </p>
         </div>
-        <div className="mt-3 flex flex-wrap gap-2 items-center">
-          {agent.status !== 'running' && agent.status !== 'halted' && agent.status !== 'unhealthy' && (
-            <Button size="sm" variant="outline" className="h-7 text-xs"
-              disabled={!!actionLoading}
-              onClick={() => onAction(agent.name, 'start')}>
-              {actionLoading === `${agent.name}-start`
-                ? <Loader2 className="w-3 h-3 mr-1 animate-spin" aria-hidden="true" />
-                : <Play className="w-3 h-3 mr-1" />}
-              {actionLoading === `${agent.name}-start` ? 'Starting...' : 'Start'}
-            </Button>
-          )}
-          {agent.status === 'halted' && (
-            <Button size="sm" variant="outline" className="h-7 text-xs"
-              disabled={!!actionLoading}
-              onClick={() => onAction(agent.name, 'resume')}>
-              {actionLoading === `${agent.name}-resume`
-                ? <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                : <Play className="w-3 h-3 mr-1" />}
-              {actionLoading === `${agent.name}-resume` ? 'Resuming...' : 'Resume'}
-            </Button>
-          )}
-          {(agent.status === 'running' || agent.status === 'unhealthy') && (
-            <>
-              <Button size="sm" variant="outline" className="h-7 text-xs"
-                disabled={!!actionLoading}
-                onClick={() => onAction(agent.name, 'restart')}>
-                {actionLoading === `${agent.name}-restart`
-                  ? <Loader2 className="w-3 h-3 mr-1 animate-spin" aria-hidden="true" />
-                  : <RefreshCw className="w-3 h-3 mr-1" />}
-                {actionLoading === `${agent.name}-restart` ? 'Restarting…' : 'Restart'}
-              </Button>
-              <Button size="sm" variant="outline" className="h-7 text-xs"
-                disabled={!!actionLoading}
-                onClick={() => onAction(agent.name, 'pause')}>
-                {actionLoading === `${agent.name}-pause`
-                  ? <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                  : <Pause className="w-3 h-3 mr-1" />}
-                {actionLoading === `${agent.name}-pause` ? 'Pausing…' : 'Pause'}
-              </Button>
-            </>
-          )}
-        </div>
+
+        {agent.status !== 'running' && agent.status !== 'halted' && agent.status !== 'unhealthy' && (
+          <Btn
+            disabled={!!actionLoading}
+            onClick={() => onAction(agent.name, 'start')}
+            icon={actionLoading === `${agent.name}-start` ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+          >
+            {actionLoading === `${agent.name}-start` ? 'Starting...' : 'Start'}
+          </Btn>
+        )}
+        {agent.status === 'halted' && (
+          <Btn
+            disabled={!!actionLoading}
+            onClick={() => onAction(agent.name, 'resume')}
+            icon={actionLoading === `${agent.name}-resume` ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+          >
+            {actionLoading === `${agent.name}-resume` ? 'Resuming...' : 'Resume'}
+          </Btn>
+        )}
+        {(agent.status === 'running' || agent.status === 'unhealthy') && (
+          <Btn
+            disabled={!!actionLoading}
+            onClick={() => onAction(agent.name, 'pause')}
+            icon={actionLoading === `${agent.name}-pause` ? <Loader2 size={13} className="animate-spin" /> : <Pause size={13} />}
+          >
+            {actionLoading === `${agent.name}-pause` ? 'Pausing...' : 'Pause'}
+          </Btn>
+        )}
+        <Btn variant="primary" icon={<MessageSquare size={13} />} onClick={() => void data.handleOpenDM(agent.name)}>Open DM</Btn>
       </div>
 
-      {/* Primary tabs */}
-      <div role="tablist" className="shrink-0 flex border-b border-border px-2 overflow-x-auto">
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 1fr) minmax(190px, 1.15fr) minmax(210px, 1.5fr)', gap: 0, background: 'var(--warm-2)', border: '0.5px solid var(--ink-hairline)', borderRadius: 10, marginBottom: 24, overflow: 'hidden' }}>
+        <StatCell
+          label="Budget (24h)"
+          accent={dailyPct > 90}
+          value={<><span style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 300, letterSpacing: '-0.02em', color: dailyPct > 90 ? 'var(--red)' : 'var(--ink)' }}>${dailyUsed.toFixed(2)}</span>{dailyLimit > 0 && <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-faint)', marginLeft: 6 }}>/ ${dailyLimit.toFixed(2)}</span>}</>}
+          sub={<div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}><div style={{ flex: 1, height: 3, background: 'var(--warm-3)', borderRadius: 2, overflow: 'hidden' }}><div style={{ width: `${dailyPct}%`, height: '100%', background: budgetColor, borderRadius: 2 }} /></div><span className="font-mono" style={{ fontSize: 10, color: 'var(--ink-faint)' }}>{dailyPct.toFixed(0)}%</span></div>}
+        />
+        <StatCell
+          label="Model"
+          value={<span className="font-mono" style={{ fontSize: 13, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{agent.model || 'default provider'}</span>}
+          sub={<span className="font-mono" style={{ fontSize: 10, color: 'var(--ink-faint)', whiteSpace: 'nowrap' }}>via provider · trust: {agent.trustLevel ? agent.trustLevel : 'full'}</span>}
+        />
+        <StatCell
+          label="Capabilities"
+          value={<div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 2 }}>{(visibleCapabilities.length > 0 ? visibleCapabilities : ['fs.read', 'http.get']).map((cap) => <Badge key={cap}>{cap}</Badge>)}</div>}
+        />
+      </div>
+
+      <div role="tablist" style={{ display: 'flex', gap: 22, borderBottom: '0.5px solid var(--ink-hairline)', marginBottom: 20, overflowX: 'auto' }}>
         {([
           { id: 'overview' as PrimaryTab, label: 'Overview' },
           { id: 'activity' as PrimaryTab, label: 'Activity' },
+          { id: 'memory' as PrimaryTab, label: 'Memory' },
           { id: 'operations' as PrimaryTab, label: 'Operations' },
           { id: 'system' as PrimaryTab, label: 'System' },
         ]).map((tab) => (
-          <button key={tab.id} role="tab" aria-selected={primaryTab === tab.id} aria-controls={`panel-${tab.id}`} onClick={() => setPrimaryTab(tab.id)}
-            className={`py-2 px-3 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${primaryTab === tab.id ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground/80'}`}>
+          <button
+            key={tab.id}
+            role="tab"
+            aria-selected={primaryTab === tab.id}
+            aria-controls={`panel-${tab.id}`}
+            onClick={() => setPrimaryTab(tab.id)}
+            style={{
+              background: 'transparent',
+              border: 0,
+              padding: '10px 0',
+              fontFamily: 'var(--font-sans)',
+              fontSize: 13,
+              cursor: 'pointer',
+              color: primaryTab === tab.id ? 'var(--ink)' : 'var(--ink-mid)',
+              borderBottom: primaryTab === tab.id ? '1.5px solid var(--teal)' : '1.5px solid transparent',
+              marginBottom: -0.5,
+              whiteSpace: 'nowrap',
+            }}
+          >
             {tab.label}
           </button>
         ))}
       </div>
 
-      {/* Tab content */}
-      <div role="tabpanel" id={`panel-${primaryTab}`} className="flex-1 overflow-auto">
-        {primaryTab === 'overview' && (
-          <AgentOverviewTab agent={agent} budget={data.budget} />
-        )}
+      <div role="tabpanel" id={`panel-${primaryTab}`}>
+        {primaryTab === 'overview' && <AgentOverviewTab agent={agent} logs={data.logs} />}
         {primaryTab === 'activity' && (
           <AgentActivityTab
             agentName={agent.name}
@@ -170,6 +236,7 @@ export function AgentDetail({ agent, infraBuildId, capabilities: initialCapabili
             handleSendDM={data.handleSendDM}
           />
         )}
+        {primaryTab === 'memory' && <AgentMemoryTab knowledge={data.knowledge} />}
         {primaryTab === 'operations' && (
           <AgentOperationsTab
             agentName={agent.name}
@@ -202,6 +269,34 @@ export function AgentDetail({ agent, infraBuildId, capabilities: initialCapabili
             onSubTabChange={setSysSubTab}
           />
         )}
+      </div>
+    </div>
+  );
+}
+
+function AgentMemoryTab({ knowledge }: { knowledge: Record<string, any>[] }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ background: 'var(--warm-2)', border: '0.5px solid var(--ink-hairline)', borderRadius: 10, padding: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+          <div className="eyebrow">Memory</div>
+          <span className="font-mono" style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ink-faint)' }}>{knowledge.length} nodes</span>
+        </div>
+        <div style={{ border: '0.5px solid var(--ink-hairline)', borderRadius: 8, overflow: 'hidden', background: 'var(--warm)' }}>
+          {knowledge.length === 0 ? (
+            <div style={{ padding: 16, fontSize: 13, color: 'var(--ink-faint)' }}>No memory records reported for this agent yet.</div>
+          ) : (
+            knowledge.slice(0, 8).map((node: any, index) => (
+              <div key={node.id || index} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 12, padding: 14, borderTop: index === 0 ? 0 : '0.5px solid var(--ink-hairline)', alignItems: 'center' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div className="font-mono" style={{ fontSize: 12, color: 'var(--ink)' }}>{node.label || node.topic || node.id || 'knowledge node'}</div>
+                  {(node.summary || node.content) && <div style={{ marginTop: 4, fontSize: 12, color: 'var(--ink-mid)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.summary || node.content}</div>}
+                </div>
+                {node.confidence != null && <div className="font-mono" style={{ fontSize: 10, color: 'var(--ink-faint)' }}>{Math.round(node.confidence * 100)}%</div>}
+              </div>
+            ))
+          )}
+        </div>
       </div>
     </div>
   );

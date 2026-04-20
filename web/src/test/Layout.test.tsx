@@ -1,7 +1,11 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Layout } from '../app/components/Layout';
+
+const mockInfraStatus = vi.hoisted(() => ({
+  value: { components: [] as Array<{ name: string; state: string; health: string }>, build_id: '' },
+}));
 
 vi.mock('../app/lib/ws', () => ({
   socket: {
@@ -14,7 +18,7 @@ vi.mock('../app/lib/ws', () => ({
 vi.mock('../app/lib/api', () => ({
   api: {
     routing: { config: () => Promise.resolve({ configured: true }) },
-    infra: { status: () => Promise.resolve({ components: [] }) },
+    infra: { status: () => Promise.resolve(mockInfraStatus.value) },
   },
   ensureConfig: () => Promise.resolve(),
   getVia: () => 'local' as const,
@@ -44,6 +48,10 @@ async function renderLayoutAt(path: string) {
 }
 
 describe('Layout scrolling behavior', () => {
+  beforeEach(() => {
+    mockInfraStatus.value = { components: [], build_id: '' };
+  });
+
   it('uses overflow-hidden for channels routes to keep page chrome fixed', async () => {
     const outletContainer = await renderLayoutAt('/channels/general');
 
@@ -58,5 +66,24 @@ describe('Layout scrolling behavior', () => {
     expect(outletContainer).toBeTruthy();
     expect(outletContainer).toHaveClass('overflow-auto');
     expect(outletContainer).not.toHaveClass('overflow-hidden');
+  });
+
+  it('renders infrastructure footer from reported components', async () => {
+    mockInfraStatus.value = {
+      build_id: 'build-123',
+      components: [
+        { name: 'gateway', state: 'running', health: 'healthy' },
+        { name: 'knowledge', state: 'running', health: 'starting' },
+        { name: 'comms', state: 'exited', health: 'unhealthy' },
+      ],
+    };
+
+    await renderLayoutAt('/');
+
+    expect(screen.getByText('gateway')).toBeInTheDocument();
+    expect(screen.getByText('knowledge')).toBeInTheDocument();
+    expect(screen.getByText('comms')).toBeInTheDocument();
+    expect(screen.queryByText('postgres')).not.toBeInTheDocument();
+    expect(screen.getByText('build-123 build')).toBeInTheDocument();
   });
 });

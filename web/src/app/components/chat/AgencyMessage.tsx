@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { FileText, Download } from 'lucide-react';
+import { Bot, FileText, Download, Terminal } from 'lucide-react';
 import type { Message } from '../../types';
 import { api, authenticatedFetch } from '../../lib/api';
 import { cn } from '../ui/utils';
@@ -26,6 +26,12 @@ interface AgencyMessageProps {
   onAgentClick?: (agentName: string) => void;
 }
 
+interface AgencyMessageAvatarProps {
+  message: Message;
+  agentStatus?: string;
+  onAgentClick?: (agentName: string) => void;
+}
+
 interface GroupedReaction {
   emoji: string;
   count: number;
@@ -46,6 +52,58 @@ function groupReactions(reactions: Array<{ emoji: string; author: string }> | un
     count,
     hasReacted,
   }));
+}
+
+function initials(message: Message): string {
+  if (message.isSystem) return 'A';
+  return (message.displayAuthor || message.author || '?').slice(0, 2).toUpperCase();
+}
+
+function avatarStyles(message: Message): React.CSSProperties {
+  if (message.isSystem) {
+    return { background: 'var(--ink)', color: 'var(--warm)' };
+  }
+  if (message.isAgent) {
+    return { background: 'var(--warm-3)', color: 'var(--ink-muted)' };
+  }
+  return { background: 'var(--ink)', color: 'var(--warm)' };
+}
+
+function statusColor(status?: string): string {
+  switch (status) {
+    case 'running':
+      return 'var(--teal)';
+    case 'halted':
+      return '#d64b4b';
+    case 'idle':
+      return '#e0a31a';
+    default:
+      return 'var(--ink-faint)';
+  }
+}
+
+export function AgencyMessageAvatar({ message, agentStatus, onAgentClick }: AgencyMessageAvatarProps) {
+  return (
+    <div className="relative shrink-0">
+      <button
+        type="button"
+        className="mono flex h-8 w-8 items-center justify-center rounded-lg text-[11px] transition-colors"
+        style={avatarStyles(message)}
+        onClick={message.isAgent && onAgentClick ? () => onAgentClick(message.author) : undefined}
+        aria-label={message.isAgent ? `View agent: ${message.author}` : `Avatar for ${message.displayAuthor}`}
+        tabIndex={message.isAgent && onAgentClick ? 0 : -1}
+      >
+        {message.isAgent ? <Bot size={14} strokeWidth={1.7} /> : initials(message)}
+      </button>
+      {message.isAgent && (
+        <span
+          aria-hidden="true"
+          className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full"
+          style={{ background: statusColor(agentStatus), border: '2px solid var(--warm)' }}
+        />
+      )}
+    </div>
+  );
 }
 
 export function AgencyMessage({
@@ -72,12 +130,11 @@ export function AgencyMessage({
     const agent = message.metadata?.agent;
     if (!artifactId || !agent) return;
     setReportOpen(true);
-    if (reportContent !== null) return; // already loaded
+    if (reportContent !== null) return;
     setReportLoading(true);
     try {
       const resp = await authenticatedFetch(api.agents.resultUrl(agent, artifactId));
       const text = await resp.text();
-      // Strip YAML frontmatter (---...---) from the artifact
       const stripped = text.replace(/^---[\s\S]*?---\s*/, '');
       setReportContent(stripped);
     } catch {
@@ -95,71 +152,63 @@ export function AgencyMessage({
   const handleReactFromPicker = (emoji: string) => {
     onReact?.(message, emoji);
   };
+  const toolCalls = Array.isArray(message.metadata?.tool_calls) ? message.metadata.tool_calls : [];
+  const isToolOnly = message.metadata?.kind === 'tool' || message.content.startsWith('→ ');
 
   if (message.isError) {
     return (
-      <div className="flex items-center gap-2 py-1.5 px-3 mx-2 my-1 rounded bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-amber-700 dark:text-amber-300 text-sm">
-        <span className="flex-shrink-0">⚠</span>
+      <div
+        className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm"
+        style={{ border: '0.5px solid rgba(214, 75, 75, 0.28)', background: 'rgba(214, 75, 75, 0.06)', color: '#9b2c2c' }}
+      >
+        <span className="shrink-0">!</span>
         <span>{message.content}</span>
-        <span className="text-xs text-amber-500/70 ml-auto flex-shrink-0">{message.timestamp}</span>
+        <span className="ml-auto shrink-0 text-xs opacity-60">{message.timestamp}</span>
+      </div>
+    );
+  }
+
+  if (isToolOnly) {
+    return (
+      <div style={{ marginLeft: 44 }}>
+        <div
+          className="mono inline-flex items-center gap-2"
+          style={{ padding: '5px 10px', background: 'var(--warm-2)', border: '0.5px solid var(--ink-hairline)', borderRadius: 6, fontSize: 11, color: 'var(--ink-mid)' }}
+        >
+          <Terminal size={11} />
+          <span>{message.content}</span>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className={`group flex gap-3 py-1.5 relative ${message.id.startsWith('optimistic-') ? 'opacity-60' : ''}`}>
-      {/* Avatar */}
-      <div className="relative flex-shrink-0">
-        <button
-          type="button"
-          className={`w-8 h-8 rounded flex items-center justify-center border-0 ${
-            message.isSystem ? 'bg-cyan-800' : message.isAgent && onAgentClick ? 'bg-primary cursor-pointer hover:bg-primary/80 transition-colors' : message.isAgent ? 'bg-primary' : 'bg-border'
-          }`}
-          onClick={message.isAgent && onAgentClick ? () => onAgentClick(message.author) : undefined}
-          aria-label={message.isAgent ? `View agent: ${message.author}` : `Avatar for ${message.displayAuthor}`}
-          tabIndex={message.isAgent && onAgentClick ? 0 : -1}
-        >
-          <span className="text-xs font-semibold text-white uppercase">
-            {message.isSystem ? 'A' : message.displayAuthor.charAt(0)}
-          </span>
-        </button>
-      </div>
+    <div className={cn('group relative flex gap-3', message.id.startsWith('optimistic-') && 'opacity-60')}>
+      <AgencyMessageAvatar message={message} agentStatus={agentStatus} onAgentClick={onAgentClick} />
 
-      {/* Content */}
-      <div className="flex-1 min-w-0">
+      <div className="min-w-0 flex-1">
         {message.parentId && (
-          <div className="text-xs text-muted-foreground mb-0.5">
-            ↩ In thread
+          <div className="mb-1 text-xs" style={{ color: 'var(--ink-faint)' }}>
+            In thread
           </div>
         )}
-        <div className="flex items-center gap-2 mb-0.5">
+        <div className="mb-[3px] flex flex-wrap items-baseline gap-2">
           {message.isAgent && onAgentClick ? (
             <button
               type="button"
-              className="text-sm font-medium text-primary hover:text-primary/80 cursor-pointer transition-colors font-mono bg-transparent border-0 p-0"
+              className="mono border-0 bg-transparent p-0 text-sm transition-colors"
+              style={{ color: 'var(--ink)' }}
               onClick={() => onAgentClick(message.author)}
               aria-label={`View agent: ${message.author}`}
             >
               {message.displayAuthor}
             </button>
           ) : (
-            <code className={`text-sm font-medium ${
-              message.isSystem ? 'text-cyan-400' : 'text-foreground'
-            }`}>
+            <code className="mono text-sm" style={{ color: 'var(--ink)' }}>
               {message.displayAuthor}
             </code>
           )}
-          {message.isSystem && (
-            <span className="text-xs bg-cyan-50 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-400 px-1.5 py-0.5 rounded">
-              SYSTEM
-            </span>
-          )}
-          {message.isAgent && (
-            <span className="text-xs bg-accent text-accent-foreground px-1.5 py-0.5 rounded">
-              AGENT
-            </span>
-          )}
-          <span className="text-xs text-muted-foreground">{message.timestamp}</span>
+          <span className="mono text-[10px]" style={{ color: 'var(--ink-faint)' }}>{message.timestamp}</span>
           <MessageFlagBadge flag={message.flag} />
         </div>
 
@@ -169,33 +218,30 @@ export function AgencyMessage({
             onSave={handleSaveEdit}
             onCancel={() => setEditing(false)}
           />
+        ) : message.isAgent ? (
+          <StructuredOutput content={message.content} metadata={message.metadata} />
         ) : (
-          <>
-            {message.isAgent ? (
-              <StructuredOutput content={message.content} metadata={message.metadata} />
-            ) : (
-              <div className="text-sm text-foreground/80 prose prose-gray dark:prose-invert prose-sm max-w-none prose-p:my-1 prose-table:text-xs prose-th:px-2 prose-th:py-1 prose-td:px-2 prose-td:py-1 prose-pre:bg-card prose-pre:text-xs">
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents} allowedElements={ALLOWED_ELEMENTS} unwrapDisallowed>{message.content}</ReactMarkdown>
-              </div>
-            )}
-          </>
+          <div className="text-sm leading-[1.55] text-foreground/90 prose prose-gray dark:prose-invert prose-sm max-w-none prose-p:my-0 prose-table:text-xs prose-th:px-2 prose-th:py-1 prose-td:px-2 prose-td:py-1 prose-pre:bg-card prose-pre:text-xs">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents} allowedElements={ALLOWED_ELEMENTS} unwrapDisallowed>{message.content}</ReactMarkdown>
+          </div>
         )}
 
-        {Array.isArray(message.metadata?.tool_calls) && message.metadata.tool_calls.length > 0 && (
+        {toolCalls.length > 0 && (
           <div className="mt-2 space-y-1">
-            {message.metadata.tool_calls.map((call: any, i: number) => (
+            {toolCalls.map((call: any, i: number) => (
               <ToolCallCard key={i} call={call} agent={message.author} />
             ))}
           </div>
         )}
 
         {message.metadata?.has_artifact && message.metadata?.agent && (message.metadata?.task_id || message.metadata?.attachment_id) && (
-          <div className="mt-2 flex items-center gap-2">
+          <div className="mt-3 flex items-center gap-2">
             <button
               onClick={handleViewReport}
-              className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 bg-accent border border-border rounded px-2.5 py-1.5 transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition-colors"
+              style={{ border: '0.5px solid var(--ink-hairline)', background: 'var(--warm-2)', color: 'var(--ink)' }}
             >
-              <FileText className="w-3 h-3" />
+              <FileText className="h-3 w-3" />
               View full report
             </button>
             <button
@@ -211,20 +257,21 @@ export function AgencyMessage({
                   URL.revokeObjectURL(url);
                 } catch { toast.error('Failed to download report'); }
               }}
-              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground/80 bg-secondary border border-border rounded px-2.5 py-1.5 transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition-colors"
+              style={{ border: '0.5px solid var(--ink-hairline)', background: 'transparent', color: 'var(--ink-muted)' }}
             >
-              <Download className="w-3 h-3" />
+              <Download className="h-3 w-3" />
               Download .md
             </button>
             <Dialog open={reportOpen} onOpenChange={setReportOpen}>
-              <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto bg-card">
+              <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto bg-card">
                 <DialogHeader>
                   <DialogTitle className="text-sm font-medium">
-                    Report — {message.metadata.agent}
+                    Report - {message.metadata.agent}
                   </DialogTitle>
                 </DialogHeader>
                 {reportLoading ? (
-                  <div className="text-sm text-muted-foreground py-8 text-center">Loading…</div>
+                  <div className="py-8 text-center text-sm text-muted-foreground">Loading...</div>
                 ) : (
                   <div className="prose prose-gray dark:prose-invert prose-sm max-w-none prose-p:my-1 prose-pre:bg-secondary prose-pre:text-xs">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{reportContent || ''}</ReactMarkdown>
@@ -235,19 +282,19 @@ export function AgencyMessage({
           </div>
         )}
 
-        {/* Reaction badges */}
         {groupedReactions.length > 0 && (
-          <div className="flex gap-1 mt-1 flex-wrap">
+          <div className="mt-2 flex flex-wrap gap-1">
             {groupedReactions.map(({ emoji, count, hasReacted }) => (
               <button
                 key={emoji}
                 onClick={() => hasReacted ? onUnreact?.(message, emoji) : onReact?.(message, emoji)}
                 aria-label={hasReacted ? `Remove ${emoji} reaction (${count})` : `Add ${emoji} reaction (${count})`}
                 aria-pressed={hasReacted}
-                className={cn(
-                  "inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full border",
-                  hasReacted ? "bg-accent border-primary/40" : "bg-secondary border-border"
-                )}
+                className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs"
+                style={{
+                  borderColor: hasReacted ? 'rgba(0, 153, 121, 0.38)' : 'var(--ink-hairline)',
+                  background: hasReacted ? 'rgba(0, 153, 121, 0.08)' : 'var(--warm-2)',
+                }}
               >
                 {emoji} <span>{count}</span>
               </button>
@@ -256,9 +303,8 @@ export function AgencyMessage({
         )}
       </div>
 
-      {/* Message actions toolbar — visible on hover */}
-      {!editing && (
-        <div className="absolute top-0 right-0 -translate-y-1/2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity z-10">
+      {!editing && showReplyButton && (
+        <div className="absolute right-0 top-0 z-10 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           <ReactionPicker
             open={reactionPickerOpen}
             onOpenChange={setReactionPickerOpen}

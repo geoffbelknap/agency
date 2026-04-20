@@ -1,7 +1,6 @@
 // src/app/screens/Channels.tsx
-import { useState, useEffect, useCallback } from 'react';
-import { Link, useParams } from 'react-router';
-import { Search } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useParams } from 'react-router';
 import { useIsMobile } from '../components/ui/use-mobile';
 import { ChannelSidebar } from '../components/chat/ChannelSidebar';
 import { ChannelBrowser } from '../components/chat/ChannelBrowser';
@@ -9,7 +8,6 @@ import { CreateChannelDialog } from '../components/chat/CreateChannelDialog';
 import { MessageArea } from '../components/chat/MessageArea';
 import { ThreadPanel } from '../components/chat/ThreadPanel';
 import { SearchPanel } from '../components/chat/SearchPanel';
-import { Button } from '../components/ui/button';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useChannelSocket, SYSTEM_SENDERS } from '../hooks/useChannelSocket';
 import { useChannelMessages, INITIAL_MESSAGE_PAGE_SIZE } from '../hooks/useChannelMessages';
@@ -20,12 +18,50 @@ import { fetchOperatorDisplayName, getOperatorDisplayName } from '../lib/operato
 import { formatMessageTime } from '../lib/time';
 import type { Channel, Message } from '../types';
 
+type ChannelFilter = 'all' | 'dms' | 'channels';
+const LAST_CHANNEL_KEY = 'agency.channels.lastSelected';
+
+function isDmChannel(channel: Channel): boolean {
+  return channel.type === 'dm' || channel.name.startsWith('dm-');
+}
+
+function isInfrastructureChannel(channel: Channel): boolean {
+  return channel.name.startsWith('_');
+}
+
+function filterChannels(channels: Channel[], filter: ChannelFilter, showInfrastructure: boolean): Channel[] {
+  return channels
+    .filter((channel) => showInfrastructure || !isInfrastructureChannel(channel))
+    .filter((channel) => {
+      if (filter === 'dms') return isDmChannel(channel);
+      if (filter === 'channels') return !isDmChannel(channel);
+      return true;
+    });
+}
+
+function readLastChannelName(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage.getItem(LAST_CHANNEL_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeLastChannelName(name: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(LAST_CHANNEL_KEY, name);
+  } catch {
+    // Channel recency is optional.
+  }
+}
+
 export function Channels() {
   const { name: urlChannelName } = useParams<{ name: string }>();
   const isMobile = useIsMobile();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [channels, setChannels] = useState<Channel[]>([]);
-  const [agentStatuses, setAgentStatuses] = useState<Record<string, 'running' | 'idle' | 'halted' | 'unknown'>>({});
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [threadParent, setThreadParent] = useState<Message | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -34,8 +70,9 @@ export function Channels() {
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
+  const [channelFilter, setChannelFilter] = useState<ChannelFilter>('all');
+  const [showInfrastructureChannels, setShowInfrastructureChannels] = useState(false);
 
-  // Agent detail overlay
   const [agentDetailName, setAgentDetailName] = useState<string | null>(null);
   const [agentDetail, setAgentDetail] = useState<RawAgent | null>(null);
   const [agentBudget, setAgentBudget] = useState<RawBudgetResponse | null>(null);
@@ -68,10 +105,7 @@ export function Channels() {
 
   const loadChannels = useCallback(async () => {
     try {
-      const [data, agents] = await Promise.all([
-        api.channels.list({ includeArchived: showInactive, includeUnavailable: showInactive }),
-        api.agents.list().catch(() => [] as RawAgent[]),
-      ]);
+      const data = await api.channels.list({ includeArchived: showInactive, includeUnavailable: showInactive });
       const mapped: Channel[] = data.map((c: RawChannel) => ({
         id: c.name,
         name: c.name,
@@ -84,40 +118,36 @@ export function Channels() {
         lastActivity: '',
         members: (c.members || []).filter((m: string) => m !== '_operator'),
       })).filter((channel) => showInactive || channel.state !== 'archived');
-      const nextStatuses: Record<string, 'running' | 'idle' | 'halted' | 'unknown'> = {};
-      for (const agent of agents ?? []) {
-        if (agent.status === 'running') {
-          nextStatuses[agent.name] = 'running';
-        } else if (agent.status === 'halted' || agent.status === 'stopped' || agent.status === 'paused' || agent.status === 'unhealthy') {
-          nextStatuses[agent.name] = 'halted';
-        } else {
-          nextStatuses[agent.name] = 'unknown';
-        }
-      }
-      setAgentStatuses(nextStatuses);
       setChannels(mapped);
       return mapped;
     } catch (err) {
       console.error('loadChannels error:', err);
       return [];
     }
-  }, []);
+  }, [showInactive]);
 
-  // Initial load — runs once on mount (or when urlChannelName changes)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     let active = true;
     setLoading(true);
-    // Fetch operator display name for message rendering (fire-and-forget, cached after first call)
     fetchOperatorDisplayName();
     loadChannels().then((mapped) => {
       if (!active) return;
       if (mapped.length > 0) {
-        const defaultChannel = mapped.find((c) => !c.name.startsWith('_')) || mapped[0];
+        if (urlChannelName && urlChannelName.startsWith('_')) setShowInfrastructureChannels(true);
+        const defaultPool = mapped.filter((channel) => urlChannelName?.startsWith('_') || !isInfrastructureChannel(channel));
+        const fallbackPool = defaultPool.length > 0 ? defaultPool : mapped;
+        const lastChannelName = readLastChannelName();
+        const defaultChannel =
+          (lastChannelName ? fallbackPool.find((c) => c.name === lastChannelName) : null) ||
+          fallbackPool.find((c) => c.name === 'general') ||
+          fallbackPool.find((c) => !isDmChannel(c)) ||
+          fallbackPool.find(isDmChannel) ||
+          fallbackPool[0];
         const target = urlChannelName
           ? mapped.find((c) => c.name === urlChannelName) || defaultChannel
           : defaultChannel;
         setSelectedChannel(target);
+        writeLastChannelName(target.name);
         loadMessages(target.name, INITIAL_MESSAGE_PAGE_SIZE).finally(() => {
           if (active) setLoading(false);
         });
@@ -126,9 +156,8 @@ export function Channels() {
       }
     });
     return () => { active = false; };
-  }, [urlChannelName, showInactive]);
+  }, [urlChannelName, showInactive]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Stable callbacks for useChannelSocket
   const handleAppendMessage = useCallback((msg: Message) => {
     appendMessage(msg);
   }, [appendMessage]);
@@ -138,8 +167,8 @@ export function Channels() {
       prev.map((ch) =>
         ch.name === channelName
           ? { ...ch, unreadCount: ch.unreadCount + 1 }
-          : ch
-      )
+          : ch,
+      ),
     );
   }, []);
 
@@ -155,18 +184,17 @@ export function Channels() {
 
   const handleChannelSelect = useCallback((channel: Channel) => {
     setSelectedChannel(channel);
+    writeLastChannelName(channel.name);
     resetForChannel();
     setProcessingAgents([]);
     setThreadParent(null);
     setLoading(true);
     loadMessages(channel.name, INITIAL_MESSAGE_PAGE_SIZE).finally(() => setLoading(false));
-    // Zero out unread/mention counts locally
     setChannels((prev) =>
       prev.map((ch) =>
-        ch.id === channel.id ? { ...ch, unreadCount: 0, mentionCount: 0 } : ch
-      )
+        ch.id === channel.id ? { ...ch, unreadCount: 0, mentionCount: 0 } : ch,
+      ),
     );
-    // Mark read on server — fire and forget
     api.channels.markRead(channel.name).catch(() => {});
   }, [loadMessages, resetForChannel, setLoading, setProcessingAgents]);
 
@@ -186,11 +214,7 @@ export function Channels() {
   );
 
   useKeyboardShortcuts([
-    {
-      key: 'k',
-      ctrl: true,
-      handler: () => setSearchOpen((prev) => !prev),
-    },
+    { key: 'k', ctrl: true, handler: () => setSearchOpen((prev) => !prev) },
     {
       key: 'Escape',
       handler: () => {
@@ -199,25 +223,37 @@ export function Channels() {
       },
       ignoreWhenEditing: false,
     },
-    {
-      key: 'ArrowUp',
-      alt: true,
-      handler: () => navigateChannel(-1),
-    },
-    {
-      key: 'ArrowDown',
-      alt: true,
-      handler: () => navigateChannel(1),
-    },
-    {
-      key: '?',
-      handler: () => setHelpOpen(true),
-    },
+    { key: 'ArrowUp', alt: true, handler: () => navigateChannel(-1) },
+    { key: 'ArrowDown', alt: true, handler: () => navigateChannel(1) },
+    { key: '?', handler: () => setHelpOpen(true) },
   ]);
 
   const threadReplies = threadParent
     ? messages.filter((m) => m.parentId === threadParent.id)
     : [];
+
+  const visibleChannels = useMemo(() => filterChannels(channels, channelFilter, showInfrastructureChannels), [channels, channelFilter, showInfrastructureChannels]);
+
+  const hiddenInfrastructureCount = channels.filter(isInfrastructureChannel).length;
+  const countableChannels = channels.filter((channel) => showInfrastructureChannels || !isInfrastructureChannel(channel));
+  const dmCount = countableChannels.filter(isDmChannel).length;
+  const sharedCount = countableChannels.length - dmCount;
+  const unreadTotal = countableChannels.reduce((total, channel) => total + (channel.unreadCount || 0), 0);
+
+  const handleFilterChange = (next: ChannelFilter) => {
+    setChannelFilter(next);
+    const nextVisible = filterChannels(channels, next, showInfrastructureChannels);
+    if (selectedChannel && nextVisible.some((channel) => channel.id === selectedChannel.id)) return;
+    if (nextVisible[0]) handleChannelSelect(nextVisible[0]);
+  };
+
+  const handleInfrastructureToggle = () => {
+    const nextShow = !showInfrastructureChannels;
+    setShowInfrastructureChannels(nextShow);
+    const nextVisible = filterChannels(channels, channelFilter, nextShow);
+    if (selectedChannel && nextVisible.some((channel) => channel.id === selectedChannel.id)) return;
+    if (nextVisible[0]) handleChannelSelect(nextVisible[0]);
+  };
 
   const handleJumpToMessage = (channelName: string, messageId: string) => {
     const channel = channels.find((c) => c.name === channelName);
@@ -293,7 +329,6 @@ export function Channels() {
     flags?: { decision?: boolean; blocker?: boolean; question?: boolean },
   ) => {
     if (!selectedChannel) return;
-    // Optimistic append
     const optimisticMsg: Message = {
       id: `optimistic-${crypto.randomUUID()}`,
       channelId: selectedChannel.name,
@@ -308,8 +343,6 @@ export function Channels() {
     };
     setMessages((prev) => [...prev, optimisticMsg]);
 
-    // Optimistically show processing indicator for agents likely to respond.
-    // DM channels: all agent members. Other channels: only @mentioned agents.
     const isDM = selectedChannel.name.startsWith('dm-');
     const agentMembers = selectedChannel.members.filter((m) => !SYSTEM_SENDERS.has(m) && m !== 'operator' && m !== '_operator');
     const respondingAgents = isDM
@@ -325,13 +358,10 @@ export function Channels() {
 
     try {
       await api.channels.send(selectedChannel.name, content, undefined, flags);
-      // Sync to get server-assigned ID and any concurrent messages
       await loadMessages(selectedChannel.name);
     } catch (err) {
       console.error('handleSend error:', err);
-      // Roll back optimistic message on failure
       setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
-      // Roll back optimistic processing indicators
       if (agentMembers.length > 0) {
         setProcessingAgents((prev) => prev.filter((a) => !agentMembers.includes(a)));
       }
@@ -340,90 +370,106 @@ export function Channels() {
 
   return (
     <>
-      <div className="flex h-full min-h-0 bg-background">
-        <ChannelSidebar
-          channels={channels}
-          selectedChannel={selectedChannel}
-          onSelect={(ch) => { handleChannelSelect(ch); setMobileSidebarOpen(false); }}
-          dmStatuses={agentStatuses}
-          onBrowseChannels={() => setBrowserOpen(true)}
-          onCreateChannel={() => setCreateChannelOpen(true)}
-          showInactive={showInactive}
-          onToggleInactive={() => setShowInactive((prev) => !prev)}
-          mobileOpen={mobileSidebarOpen}
-          onMobileClose={() => setMobileSidebarOpen(false)}
-        />
-        {selectedChannel ? (
-          <>
-            <MessageArea
-              key={selectedChannel.id}
-              channel={selectedChannel}
-              messages={messages}
-              loading={loading}
-              onSend={handleSend}
-              typingAgents={typingAgents}
-              processingAgents={processingAgents}
-              agentActivity={agentActivity}
-              onReply={handleReply}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-              onReact={handleReact}
-              onUnreact={handleUnreact}
-              scrollToMessageId={scrollTarget}
-              hasMore={hasMore}
-              onLoadMore={() => selectedChannel && loadMoreMessages(selectedChannel.name)}
-              loadingMore={loadingMore}
-              onOpenSidebar={isMobile ? () => setMobileSidebarOpen(true) : undefined}
-              onAgentClick={handleAgentClick}
-              headerActions={
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSearchOpen((prev) => !prev)}
-                  aria-label="Toggle search"
-                  className="text-muted-foreground hover:text-accent-foreground"
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', background: 'var(--warm)' }}>
+        <div style={{ minHeight: 58, padding: '8px 16px', borderBottom: '0.5px solid var(--ink-hairline)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', background: 'var(--warm)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', minWidth: 0 }}>
+            <div className="eyebrow" style={{ fontSize: 9 }}>Channels</div>
+            <div style={{ display: 'inline-flex', padding: 2, gap: 2, background: 'var(--warm-2)', border: '0.5px solid var(--ink-hairline)', borderRadius: 999 }}>
+              {[
+                ['all', 'All'],
+                ['dms', 'DMs'],
+                ['channels', 'Channels'],
+              ].map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => handleFilterChange(id as ChannelFilter)}
+                  style={{ padding: '5px 13px', border: 0, borderRadius: 999, background: channelFilter === id ? 'var(--ink)' : 'transparent', color: channelFilter === id ? 'var(--warm)' : 'var(--ink-mid)', fontFamily: 'var(--sans)', fontSize: 12, cursor: 'pointer' }}
                 >
-                  <Search className="w-4 h-4" />
-                </Button>
-              }
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="mono" style={{ fontSize: 10, color: 'var(--ink-faint)', whiteSpace: 'nowrap' }}>
+              {countableChannels.length.toLocaleString()} conversations · {dmCount.toLocaleString()} DMs · {sharedCount.toLocaleString()} channels{unreadTotal > 0 ? ` · ${unreadTotal.toLocaleString()} unread` : ''}{!showInfrastructureChannels && hiddenInfrastructureCount > 0 ? ` · ${hiddenInfrastructureCount.toLocaleString()} infra hidden` : ''}
+            </div>
+          </div>
+          {hiddenInfrastructureCount > 0 && (
+            <button
+              type="button"
+              onClick={handleInfrastructureToggle}
+              style={{ padding: '5px 11px', border: '0.5px solid var(--ink-hairline-strong)', borderRadius: 999, background: showInfrastructureChannels ? 'var(--ink)' : 'var(--warm)', color: showInfrastructureChannels ? 'var(--warm)' : 'var(--ink-mid)', fontFamily: 'var(--sans)', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}
+            >
+              {showInfrastructureChannels ? 'Hide infra' : 'Show infra'}
+            </button>
+          )}
+        </div>
+
+        <div style={{ flex: 1, display: 'flex', minHeight: 0, background: 'var(--warm)' }}>
+            <ChannelSidebar
+              channels={visibleChannels}
+              selectedChannel={selectedChannel}
+              onSelect={(ch) => { handleChannelSelect(ch); setMobileSidebarOpen(false); }}
+              onBrowseChannels={() => setBrowserOpen(true)}
+              onCreateChannel={() => setCreateChannelOpen(true)}
+              showInactive={showInactive}
+              onToggleInactive={() => setShowInactive((prev) => !prev)}
+              mobileOpen={mobileSidebarOpen}
+              onMobileClose={() => setMobileSidebarOpen(false)}
             />
-            {threadParent && (
-              <ThreadPanel
-                parentMessage={threadParent}
-                replies={threadReplies}
-                onClose={handleCloseThread}
-                onSend={handleThreadSend}
-              />
-            )}
-            {searchOpen && (
-              <SearchPanel
-                onClose={() => setSearchOpen(false)}
-                onJumpToMessage={handleJumpToMessage}
-              />
-            )}
-          </>
-        ) : (
-          <div className="flex flex-1 items-center justify-center p-6">
-            {loading ? (
-              <div className="text-sm text-muted-foreground">Loading...</div>
+            {selectedChannel ? (
+              <>
+                <MessageArea
+                  key={selectedChannel.id}
+                  channel={selectedChannel}
+                  messages={messages}
+                  loading={loading}
+                  onSend={handleSend}
+                  typingAgents={typingAgents}
+                  processingAgents={processingAgents}
+                  agentActivity={agentActivity}
+                  onReply={handleReply}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                  onReact={handleReact}
+                  onUnreact={handleUnreact}
+                  scrollToMessageId={scrollTarget}
+                  hasMore={hasMore}
+                  onLoadMore={() => selectedChannel && loadMoreMessages(selectedChannel.name)}
+                  loadingMore={loadingMore}
+                  onOpenSidebar={isMobile ? () => setMobileSidebarOpen(true) : undefined}
+                  onAgentClick={handleAgentClick}
+                />
+                {threadParent && (
+                  <ThreadPanel
+                    parentMessage={threadParent}
+                    replies={threadReplies}
+                    onClose={handleCloseThread}
+                    onSend={handleThreadSend}
+                  />
+                )}
+                {searchOpen && (
+                  <SearchPanel
+                    onClose={() => setSearchOpen(false)}
+                    onJumpToMessage={handleJumpToMessage}
+                  />
+                )}
+              </>
             ) : (
-              <div className="w-full max-w-md rounded-3xl border border-border bg-card px-6 py-8 text-center">
-                <h3 className="text-lg font-medium text-foreground">No channels yet</h3>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  Start with a direct message to an agent or create a shared channel for operator coordination.
-                </p>
-                <div className="mt-4 flex flex-wrap justify-center gap-2">
-                  <Button size="sm" onClick={() => setCreateChannelOpen(true)}>
-                    Create channel
-                  </Button>
-                  <Button asChild variant="outline" size="sm">
-                    <Link to="/agents">Open Agents</Link>
-                  </Button>
-                </div>
+              <div className="flex flex-1 items-center justify-center p-6">
+                {loading ? (
+                  <div style={{ fontSize: 13, color: 'var(--ink-faint)' }}>Loading...</div>
+                ) : (
+                  <div style={{ width: '100%', maxWidth: 420, border: '0.5px solid var(--ink-hairline)', borderRadius: 12, background: 'var(--warm-2)', padding: '28px 24px', textAlign: 'center' }}>
+                    <h3 style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 400, color: 'var(--ink)' }}>No channels yet</h3>
+                    <p style={{ margin: '10px 0 0', fontSize: 13, color: 'var(--ink-mid)' }}>
+                      Start with a direct message to an agent or create a shared channel for operator coordination.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
+      </div>
       </div>
 
       <ChannelBrowser

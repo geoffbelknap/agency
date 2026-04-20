@@ -46,7 +46,7 @@ test.describe('Agency app routes', () => {
       { path: '/knowledge/graph', locator: page.getByText('2 nodes') },
       { path: '/knowledge/search', locator: page.getByText('Query Knowledge') },
       { path: '/admin/infrastructure', locator: page.getByText('gateway', { exact: true }) },
-      { path: '/admin/audit', locator: page.getByRole('button', { name: 'Summarize' }) },
+      { path: '/admin/audit', locator: page.getByRole('button', { name: 'Search' }) },
     ];
 
     for (const route of routeExpectations) {

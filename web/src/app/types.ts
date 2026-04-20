@@ -18,8 +18,8 @@ export type MessageFlag = 'DECISION' | 'BLOCKER' | 'QUESTION' | null;
 export type ConnectorState = 'active' | 'inactive';
 export type WorkItemState = 'pending' | 'processing' | 'done' | 'failed';
 export type CheckStatus = 'pass' | 'warn' | 'fail';
-export type CapabilityKind = 'service' | 'tool' | 'integration';
-export type CapabilityState = 'enabled' | 'disabled';
+export type CapabilityKind = 'service' | 'tool' | 'integration' | 'provider-tool' | 'mcp-server' | 'skill';
+export type CapabilityState = 'enabled' | 'available' | 'restricted' | 'disabled';
 
 export interface AgentTask {
   task_id: string;
@@ -121,6 +121,8 @@ export interface DoctorCheck {
   id: string;
   agentName?: string;
   name: string;
+  scope?: string;
+  backend?: string;
   status: CheckStatus;
   message: string;
   fix?: string;
@@ -169,6 +171,7 @@ export interface Capability {
   state: CapabilityState;
   scopedAgents: string[];
   description?: string;
+  spec?: Record<string, any>;
 }
 
 export type MissionStatus = 'unassigned' | 'active' | 'paused' | 'completed';

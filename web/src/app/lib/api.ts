@@ -97,6 +97,17 @@ export interface RawAgent {
   mission_status?: string;
 }
 
+export interface RawAgentStartProgress {
+  type: string;
+  phase?: number;
+  name?: string;
+  description?: string;
+  agent?: string;
+  model?: string;
+  phases?: number;
+  error?: string;
+}
+
 export interface RawChannel {
   name: string;
   topic?: string;
@@ -320,6 +331,7 @@ export interface RawCapability {
   state: string;
   agents?: string[];
   description?: string;
+  spec?: Record<string, unknown>;
 }
 
 export interface RawProviderToolProvider {
@@ -401,7 +413,13 @@ export interface RawAuditEntry {
 }
 
 export interface RawDoctorResult {
-  checks: Array<{ name: string; agent?: string; status: string; detail?: string; fix?: string }>;
+  checks: Array<{ name: string; agent?: string; scope?: string; backend?: string; status: string; detail?: string; fix?: string }>;
+}
+
+export interface RawPruneImagesResult {
+  status: string;
+  pruned: number;
+  skipped: number;
 }
 
 export interface RawKnowledgeStats {
@@ -418,7 +436,7 @@ export interface RawPolicyValidation {
 }
 
 export interface RawEgress {
-  allowed_domains?: string[];
+  allowed_domains?: Array<string | { domain?: string; approved_by?: string; reason?: string; approved_at?: string }>;
   domains?: Array<string | { domain?: string; approved_by?: string; reason?: string; approved_at?: string }>;
   mode?: string;
   agent?: string;
@@ -610,6 +628,66 @@ export const api = {
       req<OkResponse>('/agents', { method: 'POST', body: JSON.stringify({ name, preset, mode }) }),
     delete: (name: string) => req<OkResponse>(`/agents/${name}`, { method: 'DELETE' }),
     start: (name: string) => req<OkResponse>(`/agents/${name}/start`, { method: 'POST', body: '{}' }),
+    startStream: async (name: string, onProgress: (event: RawAgentStartProgress) => void) => {
+      await ensureConfig();
+      const headers: Record<string, string> = {
+        Accept: 'application/x-ndjson',
+        'Content-Type': 'application/json',
+        ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+      };
+      const res = await fetch(`${BASE}/agents/${encodeURIComponent(name)}/start`, {
+        method: 'POST',
+        headers,
+        body: '{}',
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        let detail = '';
+        try { detail = JSON.parse(text).error || text; } catch { detail = text; }
+        throw new Error(detail || `API /agents/${name}/start returned ${res.status}`);
+      }
+
+      let complete = false;
+      const parseLine = (line: string) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        const event = JSON.parse(trimmed) as RawAgentStartProgress;
+        if (!event.type) return;
+        onProgress(event);
+        if (event.type === 'error') throw new Error(event.error || 'Agent startup failed');
+        if (event.type === 'complete') complete = true;
+      };
+
+      if (!res.body?.getReader) {
+        const text = await res.text();
+        for (const line of text.split('\n')) {
+          parseLine(line);
+          if (complete) return;
+        }
+        throw new Error('Agent startup stream ended before completion');
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          parseLine(line);
+          if (complete) {
+            reader.cancel().catch(() => {});
+            return;
+          }
+        }
+      }
+      buffer += decoder.decode();
+      parseLine(buffer);
+      if (!complete) throw new Error('Agent startup stream ended before completion');
+    },
     stop: (name: string) => req<OkResponse>(`/agents/${name}/stop`, { method: 'POST', body: '{}' }),
     halt: (name: string, tier = 'supervised', reason = '') =>
       req<OkResponse>(`/agents/${name}/halt`, { method: 'POST', body: JSON.stringify({ tier, reason }) }),
@@ -724,6 +802,8 @@ export const api = {
       req<OkResponse>(`/infra/rebuild/${component}`, { method: 'POST', body: '{}' }),
     reload: () => req<OkResponse>('/infra/reload', { method: 'POST', body: '{}' }),
     capacity: () => req<RawInfraCapacity>('/infra/capacity'),
+    logs: (component: string, tail = 200) =>
+      req<{ component: string; tail: number; logs: string }>(`/infra/services/${encodeURIComponent(component)}/logs?tail=${tail}`),
   },
 
   packages: {
@@ -944,6 +1024,8 @@ export const api = {
     whoKnows: (topic: string) => req<Record<string, unknown>>(`/graph/who-knows?topic=${encodeURIComponent(topic)}`),
     stats: () => req<RawKnowledgeStats>('/graph/stats'),
     export: (format = 'json') => req<Record<string, unknown>[]>(`/graph/export?format=${format}`),
+    ingest: (input: { content?: string; filename?: string; content_type?: string; scope?: unknown }) =>
+      req<Record<string, unknown>>('/graph/ingest', { method: 'POST', body: JSON.stringify(input) }),
     neighbors: (nodeId: string) => req<Record<string, unknown>>(`/graph/neighbors?node_id=${encodeURIComponent(nodeId)}`),
     context: (subject: string) => req<Record<string, unknown>>(`/graph/context?subject=${encodeURIComponent(subject)}`),
     ontologyCandidates: () =>
@@ -971,13 +1053,13 @@ export const api = {
 
   capabilities: {
     list: () => req<RawCapability[]>('/admin/capabilities'),
-    show: (name: string) => req<RawCapability>(`/admin/capabilities/${name}`),
+    show: (name: string) => req<RawCapability>(`/admin/capabilities/${encodeURIComponent(name)}`),
     enable: (name: string, key?: string, agents?: string[]) =>
-      req<OkResponse>(`/admin/capabilities/${name}/enable`, { method: 'POST', body: JSON.stringify({ key, agents }) }),
-    disable: (name: string) => req<OkResponse>(`/admin/capabilities/${name}/disable`, { method: 'POST', body: '{}' }),
+      req<OkResponse>(`/admin/capabilities/${encodeURIComponent(name)}/enable`, { method: 'POST', body: JSON.stringify({ key, agents }) }),
+    disable: (name: string) => req<OkResponse>(`/admin/capabilities/${encodeURIComponent(name)}/disable`, { method: 'POST', body: '{}' }),
     add: (name: string, kind: string) =>
       req<OkResponse>('/admin/capabilities', { method: 'POST', body: JSON.stringify({ name, kind }) }),
-    delete: (name: string) => req<OkResponse>(`/admin/capabilities/${name}`, { method: 'DELETE' }),
+    delete: (name: string) => req<OkResponse>(`/admin/capabilities/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   },
 
   credentials: {
@@ -1026,12 +1108,12 @@ export const api = {
 
   presets: {
     list: () => req<{ name: string; description: string; type: string; source: string }[]>('/hub/presets'),
-    show: (name: string) => req<Record<string, unknown>>(`/hub/presets/${name}`),
+    show: (name: string) => req<Record<string, unknown>>(`/hub/presets/${encodeURIComponent(name)}`),
     create: (data: Record<string, unknown>) =>
       req<OkResponse>('/hub/presets', { method: 'POST', body: JSON.stringify(data) }),
     update: (name: string, data: Record<string, unknown>) =>
-      req<OkResponse>(`/hub/presets/${name}`, { method: 'PUT', body: JSON.stringify(data) }),
-    delete: (name: string) => req<OkResponse>(`/hub/presets/${name}`, { method: 'DELETE' }),
+      req<OkResponse>(`/hub/presets/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (name: string) => req<OkResponse>(`/hub/presets/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   },
 
   agentConfig: {
@@ -1041,10 +1123,18 @@ export const api = {
   },
 
   admin: {
-    doctor: () => req<RawDoctorResult>('/admin/doctor'),
+    doctor: (options?: RequestInit) => req<RawDoctorResult>('/admin/doctor', options),
+    pruneImages: () => req<RawPruneImagesResult>('/admin/prune-images', { method: 'POST', body: '{}' }),
     trust: (action: string, agent?: string, level?: string) =>
       req<OkResponse>('/admin/trust', { method: 'POST', body: JSON.stringify({ action, args: { agent, level } }) }),
-    audit: (agent: string) => req<RawAuditEntry[]>(`/agents/${agent}/logs`),
+    audit: (agent: string, params?: { since?: string; until?: string }) => {
+      const query = new URLSearchParams();
+      if (agent && agent !== '_all') query.set('agent', agent);
+      if (params?.since) query.set('since', params.since);
+      if (params?.until) query.set('until', params.until);
+      const suffix = query.toString();
+      return req<RawAuditEntry[]>(`/admin/audit${suffix ? `?${suffix}` : ''}`);
+    },
     egress: (agent?: string) => req<RawEgress>(`/admin/egress${agent ? `?agent=${encodeURIComponent(agent)}` : ''}`),
     approveEgressDomain: (agent: string, domain: string, reason?: string) =>
       req<RawEgress>(`/admin/egress/${encodeURIComponent(agent)}/domains`, { method: 'POST', body: JSON.stringify({ domain, reason }) }),

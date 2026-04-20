@@ -8,13 +8,16 @@ import (
 	"testing"
 
 	"github.com/geoffbelknap/agency/internal/orchestrate"
+	"github.com/go-chi/chi/v5"
 )
 
 type stubCommsClient struct {
 	responses map[string][]byte
+	requests  []string
 }
 
 func (s *stubCommsClient) CommsRequest(_ context.Context, method, path string, _ interface{}) ([]byte, error) {
+	s.requests = append(s.requests, method+" "+path)
 	return s.responses[method+" "+path], nil
 }
 
@@ -26,10 +29,26 @@ func (s *stubAgentLister) List(_ context.Context) ([]orchestrate.AgentDetail, er
 	return s.agents, nil
 }
 
+type stubAgentNamer struct {
+	names      []string
+	listCalls  int
+	namesCalls int
+}
+
+func (s *stubAgentNamer) List(_ context.Context) ([]orchestrate.AgentDetail, error) {
+	s.listCalls++
+	return nil, nil
+}
+
+func (s *stubAgentNamer) Names(_ context.Context) ([]string, error) {
+	s.namesCalls++
+	return s.names, nil
+}
+
 func TestListChannelsExcludesArchivedByDefault(t *testing.T) {
 	h := &handler{deps: Deps{
 		Comms: &stubCommsClient{responses: map[string][]byte{
-			"GET /channels":               []byte(`[{"name":"general","state":"active"},{"name":"playwright-old","state":"archived"}]`),
+			"GET /channels":                  []byte(`[{"name":"general","state":"active"},{"name":"playwright-old","state":"archived"}]`),
 			"GET /channels?member=_operator": []byte(`[{"name":"dm-playwright-agent","state":"archived"},{"name":"dm-henry","state":"active"}]`),
 		}},
 		AgentManager: &stubAgentLister{agents: []orchestrate.AgentDetail{{Name: "henry"}}},
@@ -57,10 +76,35 @@ func TestListChannelsExcludesArchivedByDefault(t *testing.T) {
 	}
 }
 
+func TestListChannelsUsesAgentNamesWithoutLoadingDetails(t *testing.T) {
+	agents := &stubAgentNamer{names: []string{"henry"}}
+	h := &handler{deps: Deps{
+		Comms: &stubCommsClient{responses: map[string][]byte{
+			"GET /channels":                  []byte(`[{"name":"general","state":"active"}]`),
+			"GET /channels?member=_operator": []byte(`[{"name":"dm-retired-agent","state":"active"},{"name":"dm-henry","state":"active"}]`),
+		}},
+		AgentManager: agents,
+	}}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/comms/channels", nil)
+	rec := httptest.NewRecorder()
+	h.listChannels(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if agents.namesCalls != 1 {
+		t.Fatalf("expected one Names call, got %d", agents.namesCalls)
+	}
+	if agents.listCalls != 0 {
+		t.Fatalf("expected no List calls, got %d", agents.listCalls)
+	}
+}
+
 func TestListChannelsIncludesArchivedWhenRequested(t *testing.T) {
 	h := &handler{deps: Deps{
 		Comms: &stubCommsClient{responses: map[string][]byte{
-			"GET /channels":               []byte(`[{"name":"general","state":"active"},{"name":"playwright-old","state":"archived"}]`),
+			"GET /channels":                  []byte(`[{"name":"general","state":"active"},{"name":"playwright-old","state":"archived"}]`),
 			"GET /channels?member=_operator": []byte(`[]`),
 		}},
 		AgentManager: &stubAgentLister{},
@@ -86,7 +130,7 @@ func TestListChannelsIncludesArchivedWhenRequested(t *testing.T) {
 func TestListChannelsExcludesOrphanDMsByDefault(t *testing.T) {
 	h := &handler{deps: Deps{
 		Comms: &stubCommsClient{responses: map[string][]byte{
-			"GET /channels":               []byte(`[{"name":"general","state":"active"}]`),
+			"GET /channels":                  []byte(`[{"name":"general","state":"active"}]`),
 			"GET /channels?member=_operator": []byte(`[{"name":"dm-retired-agent","state":"active"},{"name":"dm-henry","state":"active"}]`),
 		}},
 		AgentManager: &stubAgentLister{agents: []orchestrate.AgentDetail{{Name: "henry"}}},
@@ -115,7 +159,7 @@ func TestListChannelsExcludesOrphanDMsByDefault(t *testing.T) {
 func TestListChannelsIncludesOrphanDMsWhenArchivedRequested(t *testing.T) {
 	h := &handler{deps: Deps{
 		Comms: &stubCommsClient{responses: map[string][]byte{
-			"GET /channels":               []byte(`[{"name":"general","state":"active"}]`),
+			"GET /channels":                  []byte(`[{"name":"general","state":"active"}]`),
 			"GET /channels?member=_operator": []byte(`[{"name":"dm-retired-agent","state":"active"}]`),
 		}},
 		AgentManager: &stubAgentLister{},
@@ -141,7 +185,7 @@ func TestListChannelsIncludesOrphanDMsWhenArchivedRequested(t *testing.T) {
 func TestListChannelsIncludesUnavailableDMsWhenRequested(t *testing.T) {
 	h := &handler{deps: Deps{
 		Comms: &stubCommsClient{responses: map[string][]byte{
-			"GET /channels":               []byte(`[{"name":"general","state":"active"}]`),
+			"GET /channels":                  []byte(`[{"name":"general","state":"active"}]`),
 			"GET /channels?member=_operator": []byte(`[{"name":"dm-retired-agent","state":"active"}]`),
 		}},
 		AgentManager: &stubAgentLister{},
@@ -171,4 +215,29 @@ func TestListChannelsIncludesUnavailableDMsWhenRequested(t *testing.T) {
 		}
 	}
 	t.Fatalf("expected unavailable DM to be present, got %s", rec.Body.String())
+}
+
+func TestReadMessagesForwardsEncodedSince(t *testing.T) {
+	comms := &stubCommsClient{responses: map[string][]byte{
+		"GET /channels/dm-henry/messages?limit=25&reader=_operator&since=2026-04-19T01%3A39%3A35.833388%2B00%3A00": []byte(`[]`),
+	}}
+	h := &handler{deps: Deps{Comms: comms}}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/comms/channels/dm-henry/messages?since=2026-04-19T01%3A39%3A35.833388%2B00%3A00&limit=25", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("name", "dm-henry")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+	h.readMessages(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(comms.requests) != 1 {
+		t.Fatalf("expected one comms request, got %d", len(comms.requests))
+	}
+	want := "GET /channels/dm-henry/messages?limit=25&reader=_operator&since=2026-04-19T01%3A39%3A35.833388%2B00%3A00"
+	if comms.requests[0] != want {
+		t.Fatalf("expected %q, got %q", want, comms.requests[0])
+	}
 }

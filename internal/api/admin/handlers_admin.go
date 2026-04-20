@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/egresspolicy"
+	"github.com/geoffbelknap/agency/internal/hostadapter"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
@@ -25,11 +25,13 @@ import (
 )
 
 type doctorCheckResult struct {
-	Name   string `json:"name"`
-	Agent  string `json:"agent,omitempty"`
-	Status string `json:"status"`
-	Detail string `json:"detail,omitempty"`
-	Fix    string `json:"fix,omitempty"`
+	Name    string `json:"name"`
+	Agent   string `json:"agent,omitempty"`
+	Scope   string `json:"scope,omitempty"`
+	Backend string `json:"backend,omitempty"`
+	Status  string `json:"status"`
+	Detail  string `json:"detail,omitempty"`
+	Fix     string `json:"fix,omitempty"`
 }
 
 type doctorScopeInfo struct {
@@ -77,8 +79,10 @@ func configuredRuntimeBackend(cfg *config.Config) string {
 func isBackendSpecificDoctorCheck(name, backend string) bool {
 	switch backend {
 	case runtimehost.BackendDocker, runtimehost.BackendPodman, runtimehost.BackendContainerd:
+		// Prefix handling is kept only as a compatibility fallback for older
+		// checks. New Doctor checks should use backend-neutral names plus
+		// scope/backend metadata.
 		return name == "docker_connectivity" ||
-			(name == "network_pool" && backend == runtimehost.BackendDocker) ||
 			strings.HasPrefix(name, "docker_") ||
 			strings.HasPrefix(name, backend+"_")
 	default:
@@ -90,13 +94,65 @@ func splitDoctorChecks(checks []doctorCheckResult, backend string) ([]doctorChec
 	var runtimeChecks []doctorCheckResult
 	var backendChecks []doctorCheckResult
 	for _, check := range checks {
-		if isBackendSpecificDoctorCheck(check.Name, backend) {
+		if check.Scope == "backend" || strings.TrimSpace(check.Backend) != "" || isBackendSpecificDoctorCheck(check.Name, backend) {
 			backendChecks = append(backendChecks, check)
 			continue
 		}
 		runtimeChecks = append(runtimeChecks, check)
 	}
 	return runtimeChecks, backendChecks
+}
+
+func appendBackendDiagnosticChecks(report *doctorReport, checks []hostadapter.DiagnosticCheck) {
+	for _, check := range checks {
+		if check.Status != "pass" {
+			report.AllPassed = false
+		}
+		report.Checks = append(report.Checks, doctorCheckResult{
+			Name:    check.Name,
+			Agent:   check.Agent,
+			Scope:   check.Scope,
+			Backend: check.Backend,
+			Status:  check.Status,
+			Detail:  check.Detail,
+			Fix:     check.Fix,
+		})
+	}
+}
+
+func (h *handler) backendAdapter() hostadapter.Adapter {
+	if h.deps.Host != nil {
+		return h.deps.Host
+	}
+	backend := configuredRuntimeBackend(h.deps.Config)
+	if runtimehost.IsContainerBackend(backend) && h.deps.DC != nil {
+		return hostadapter.NewAdapter(backend, h.deps.DC, h.deps.Logger)
+	}
+	return nil
+}
+
+func (h *handler) backendRunningAgents(ctx context.Context) ([]string, error) {
+	adapter := h.backendAdapter()
+	if adapter == nil {
+		return nil, fmt.Errorf("runtime backend adapter is unavailable")
+	}
+	return adapter.ListRunningAgents(ctx)
+}
+
+func (h *handler) backendRuntimeChecks(ctx context.Context, runningAgents []string) []hostadapter.DiagnosticCheck {
+	adapter := h.backendAdapter()
+	if adapter != nil {
+		return adapter.RuntimeDiagnostics(ctx, runningAgents)
+	}
+	return nil
+}
+
+func (h *handler) backendDiagnosticChecks(ctx context.Context, runningAgents []string) []hostadapter.DiagnosticCheck {
+	adapter := h.backendAdapter()
+	if adapter != nil {
+		return adapter.BackendDiagnostics(ctx, runningAgents)
+	}
+	return nil
 }
 
 func isSyntheticReadinessAgent(name string) bool {
@@ -243,7 +299,8 @@ func (h *handler) adminDoctorRuntimeContract(ctx context.Context) doctorReport {
 // ── Admin ───────────────────────────────────────────────────────────────────
 
 func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
 	endpoint, mode := backendConnectionDetails(h.deps.Config)
 	report := doctorReport{AllPassed: true, Backend: configuredRuntimeBackend(h.deps.Config), BackendEndpoint: endpoint, BackendMode: mode}
 	if !runtimehost.IsContainerBackend(report.Backend) {
@@ -251,13 +308,12 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find running agents via docker (workspace containers)
-	agents, err := h.deps.DC.ListAgentWorkspaces(ctx)
+	agents, err := h.backendRunningAgents(ctx)
 	if err != nil {
 		report.AllPassed = false
 		report.Checks = append(report.Checks, doctorCheckResult{
-			Name: backendCheckName(report.Backend, "connectivity"), Status: "fail",
-			Detail: "Cannot list containers: " + err.Error(),
+			Name: "connectivity", Scope: "backend", Backend: report.Backend, Status: "fail",
+			Detail: "Cannot list runtime containers: " + err.Error(),
 		})
 		report.RuntimeChecks, report.BackendChecks = splitDoctorChecks(report.Checks, report.Backend)
 		writeJSON(w, 200, report)
@@ -270,279 +326,14 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 			Name: "no_running_agents", Status: "pass",
 			Detail: "No running agents to check",
 		})
-		// Still run infra-level Docker checks even with no agents
-		dockerChecks := h.runDockerChecks(ctx, nil)
-		for _, dc := range dockerChecks {
-			if dc.Status != "pass" {
-				report.AllPassed = false
-			}
-			report.Checks = append(report.Checks, doctorCheckResult{
-				Name:   dc.Name,
-				Agent:  dc.Agent,
-				Status: dc.Status,
-				Detail: dc.Detail,
-				Fix:    dc.Fix,
-			})
-		}
+		appendBackendDiagnosticChecks(&report, h.backendDiagnosticChecks(ctx, nil))
 		report.RuntimeChecks, report.BackendChecks = splitDoctorChecks(report.Checks, report.Backend)
 		writeJSON(w, 200, report)
 		return
 	}
 
-	// Run the 7 security guarantee checks for each agent
-	for _, agentName := range agents {
-		wsName := "agency-" + agentName + "-workspace"
-		enfName := "agency-" + agentName + "-enforcer"
-
-		// ── 1. LLM credentials isolated ───────────────────────────────
-		func() {
-			ws, err := h.deps.DC.InspectContainer(ctx, wsName)
-			if err != nil {
-				report.AllPassed = false
-				report.Checks = append(report.Checks, checkResult{
-					Name: "credentials_isolated", Agent: agentName, Status: "fail",
-					Detail: "Cannot inspect workspace: " + err.Error(),
-				})
-				return
-			}
-			// Real provider keys must never be in the workspace.
-			// OPENAI_API_KEY is allowed only if it holds an agency-scoped token
-			// (prefix "agency-scoped--"). Real provider keys (sk-*, aip-*, etc.) are violations.
-			realKeyPrefixes := []string{"ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY", "AWS_SECRET_ACCESS_KEY"}
-			var leaked []string
-			for _, env := range ws.Env {
-				for _, key := range realKeyPrefixes {
-					if strings.HasPrefix(env, key+"=") {
-						parts := strings.SplitN(env, "=", 2)
-						if len(parts) == 2 && parts[1] != "" {
-							leaked = append(leaked, key)
-						}
-					}
-				}
-				// OPENAI_API_KEY: scoped tokens start with "agency-scoped--"
-				if strings.HasPrefix(env, "OPENAI_API_KEY=") {
-					parts := strings.SplitN(env, "=", 2)
-					if len(parts) == 2 && parts[1] != "" && !strings.HasPrefix(parts[1], "agency-scoped--") {
-						leaked = append(leaked, "OPENAI_API_KEY (not an agency-scoped token)")
-					}
-				}
-			}
-			if len(leaked) > 0 {
-				report.AllPassed = false
-				report.Checks = append(report.Checks, checkResult{
-					Name: "credentials_isolated", Agent: agentName, Status: "fail",
-					Detail: "LLM credentials visible in workspace env: " + strings.Join(leaked, ", "),
-				})
-			} else {
-				report.Checks = append(report.Checks, checkResult{
-					Name: "credentials_isolated", Agent: agentName, Status: "pass",
-					Detail: "No LLM API keys in workspace environment",
-				})
-			}
-		}()
-
-		// ── 2. Network mediation complete ─────────────────────────────
-		func() {
-			ws, err := h.deps.DC.InspectContainer(ctx, wsName)
-			if err != nil {
-				report.AllPassed = false
-				report.Checks = append(report.Checks, checkResult{
-					Name: "network_mediation", Agent: agentName, Status: "fail",
-					Detail: "Cannot inspect workspace: " + err.Error(),
-				})
-				return
-			}
-			var forbidden []string
-			for _, net := range ws.Networks {
-				if strings.Contains(net, "egress") || strings.HasPrefix(net, "agency-gateway") {
-					forbidden = append(forbidden, net)
-				}
-			}
-			if len(forbidden) > 0 {
-				report.AllPassed = false
-				report.Checks = append(report.Checks, checkResult{
-					Name: "network_mediation", Agent: agentName, Status: "fail",
-					Detail: "Workspace on forbidden network(s): " + strings.Join(forbidden, ", "),
-				})
-			} else {
-				report.Checks = append(report.Checks, checkResult{
-					Name: "network_mediation", Agent: agentName, Status: "pass",
-					Detail: "Workspace on internal network(s) only: " + strings.Join(ws.Networks, ", "),
-				})
-			}
-		}()
-
-		// ── 3. Constraints read-only ──────────────────────────────────
-		func() {
-			ws, err := h.deps.DC.InspectContainer(ctx, wsName)
-			if err != nil {
-				report.AllPassed = false
-				report.Checks = append(report.Checks, checkResult{
-					Name: "constraints_readonly", Agent: agentName, Status: "fail",
-					Detail: "Cannot inspect workspace: " + err.Error(),
-				})
-				return
-			}
-			found := false
-			for _, m := range ws.Mounts {
-				if strings.Contains(m.Destination, "constraints.yaml") {
-					found = true
-					if m.RW {
-						report.AllPassed = false
-						report.Checks = append(report.Checks, checkResult{
-							Name: "constraints_readonly", Agent: agentName, Status: "fail",
-							Detail: "constraints.yaml mounted read-write at " + m.Destination,
-						})
-						return
-					}
-				}
-			}
-			if found {
-				report.Checks = append(report.Checks, checkResult{
-					Name: "constraints_readonly", Agent: agentName, Status: "pass",
-					Detail: "constraints.yaml mounted read-only",
-				})
-			} else {
-				// Mount not found — not necessarily a failure, but worth noting
-				report.Checks = append(report.Checks, checkResult{
-					Name: "constraints_readonly", Agent: agentName, Status: "pass",
-					Detail: "constraints.yaml mount not found (may be embedded in image)",
-				})
-			}
-		}()
-
-		// ── 4. Enforcer audit active ──────────────────────────────────
-		func() {
-			enf, err := h.deps.DC.InspectContainer(ctx, enfName)
-			if err != nil {
-				report.AllPassed = false
-				report.Checks = append(report.Checks, checkResult{
-					Name: "enforcer_audit", Agent: agentName, Status: "fail",
-					Detail: "Enforcer container not found: " + err.Error(),
-				})
-				return
-			}
-			if enf.State != "running" {
-				report.AllPassed = false
-				report.Checks = append(report.Checks, checkResult{
-					Name: "enforcer_audit", Agent: agentName, Status: "fail",
-					Detail: "Enforcer status: " + enf.State,
-				})
-			} else {
-				detail := "Enforcer running"
-				if enf.Health != "none" && enf.Health != "" {
-					detail += ", health: " + enf.Health
-				}
-				report.Checks = append(report.Checks, checkResult{
-					Name: "enforcer_audit", Agent: agentName, Status: "pass",
-					Detail: detail,
-				})
-			}
-		}()
-
-		// ── 5. Audit log not writable by agent ────────────────────────
-		func() {
-			ws, err := h.deps.DC.InspectContainer(ctx, wsName)
-			if err != nil {
-				report.AllPassed = false
-				report.Checks = append(report.Checks, checkResult{
-					Name: "audit_not_writable", Agent: agentName, Status: "fail",
-					Detail: "Cannot inspect workspace: " + err.Error(),
-				})
-				return
-			}
-			for _, m := range ws.Mounts {
-				if strings.Contains(m.Destination, "audit") {
-					if m.RW {
-						report.AllPassed = false
-						report.Checks = append(report.Checks, checkResult{
-							Name: "audit_not_writable", Agent: agentName, Status: "fail",
-							Detail: "Audit directory mounted read-write at " + m.Destination,
-						})
-						return
-					}
-				}
-			}
-			// Either mounted read-only or not mounted at all — both are safe
-			report.Checks = append(report.Checks, checkResult{
-				Name: "audit_not_writable", Agent: agentName, Status: "pass",
-				Detail: "Audit directory not writable by agent",
-			})
-		}()
-
-		// ── 6. Halt functional ────────────────────────────────────────
-		func() {
-			ws, err := h.deps.DC.InspectContainer(ctx, wsName)
-			if err != nil {
-				report.AllPassed = false
-				report.Checks = append(report.Checks, checkResult{
-					Name: "halt_functional", Agent: agentName, Status: "fail",
-					Detail: "Cannot inspect workspace: " + err.Error(),
-				})
-				return
-			}
-			// Container must be running to be pauseable (docker pause requirement)
-			if ws.State == "running" {
-				report.Checks = append(report.Checks, checkResult{
-					Name: "halt_functional", Agent: agentName, Status: "pass",
-					Detail: "Workspace container is running and pauseable",
-				})
-			} else {
-				report.AllPassed = false
-				report.Checks = append(report.Checks, checkResult{
-					Name: "halt_functional", Agent: agentName, Status: "fail",
-					Detail: "Workspace state '" + ws.State + "' — cannot pause",
-				})
-			}
-		}()
-
-		// ── 7. Operator override available ────────────────────────────
-		func() {
-			enf, err := h.deps.DC.InspectContainer(ctx, enfName)
-			if err != nil {
-				report.AllPassed = false
-				report.Checks = append(report.Checks, checkResult{
-					Name: "operator_override", Agent: agentName, Status: "fail",
-					Detail: "Cannot inspect enforcer: " + err.Error(),
-				})
-				return
-			}
-			if !runtimehost.EnforcerHasOperatorOverridePath(enf.Networks) {
-				report.AllPassed = false
-				report.Checks = append(report.Checks, checkResult{
-					Name: "operator_override", Agent: agentName, Status: "fail",
-					Detail: "Enforcer missing gateway mediation network: " + strings.Join(enf.Networks, ", "),
-				})
-				return
-			}
-			if unexpected := runtimehost.EnforcerUnexpectedExternalNetworks(enf.Networks); len(unexpected) > 0 {
-				report.AllPassed = false
-				report.Checks = append(report.Checks, checkResult{
-					Name: "operator_override", Agent: agentName, Status: "fail",
-					Detail: "Enforcer attached to external network(s): " + strings.Join(unexpected, ", "),
-				})
-				return
-			}
-			report.Checks = append(report.Checks, checkResult{
-				Name: "operator_override", Agent: agentName, Status: "pass",
-				Detail: "Enforcer reachable on gateway mediation network",
-			})
-		}()
-	}
-
-	// ── Infrastructure Docker hygiene checks ──────────────────────────────────
-	dockerChecks := h.runDockerChecks(ctx, agents)
-	for _, dc := range dockerChecks {
-		if dc.Status != "pass" {
-			report.AllPassed = false
-		}
-		report.Checks = append(report.Checks, checkResult{
-			Name:   dc.Name,
-			Agent:  dc.Agent,
-			Status: dc.Status,
-			Detail: dc.Detail,
-		})
-	}
+	appendBackendDiagnosticChecks(&report, h.backendRuntimeChecks(ctx, agents))
+	appendBackendDiagnosticChecks(&report, h.backendDiagnosticChecks(ctx, agents))
 
 	// Scope audit: collect per-agent scope declarations from presets
 	agentsDir := filepath.Join(h.deps.Config.Home, "agents")
@@ -647,27 +438,6 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 			report.Checks = append(report.Checks, checkResult{
 				Name: "host_capacity", Status: "pass",
 				Detail: fmt.Sprintf("%d/%d slots used (%d available)", total, capCfg.MaxAgents, capCfg.MaxAgents-total),
-			})
-		}
-	}
-
-	// Network pool check
-	if capErr == nil && report.Backend == runtimehost.BackendDocker {
-		if capCfg.NetworkPoolConfigured {
-			report.Checks = append(report.Checks, checkResult{
-				Name: "network_pool", Status: "pass",
-				Detail: "Docker network pool configured for /24 subnets",
-			})
-		} else {
-			detail := "Default Docker address pool still in use (limits agent-network fan-out)"
-			fix := "Run `agency setup --configure-network-pool`, let Agency apply the Docker network pool change, then rerun `agency admin doctor`."
-			if runtime.GOOS == "darwin" {
-				detail += " — Docker Desktop must be restarted for the new pool to take effect"
-			}
-			report.Checks = append(report.Checks, checkResult{
-				Name: "network_pool", Status: "warn",
-				Detail: detail,
-				Fix:    fix,
 			})
 		}
 	}
@@ -963,14 +733,18 @@ func (h *handler) adminAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// export / retention / default: require agent
-	if agent == "" {
-		writeJSON(w, 400, map[string]string{"error": "agent query parameter required"})
-		return
+	var events []logs.Event
+	var err error
+	if agent == "" || agent == "_all" {
+		events, err = reader.ReadAllLogs(since, until)
+	} else {
+		events, err = reader.ReadAgentLog(agent, since, until)
 	}
-
-	events, err := reader.ReadAgentLog(agent, since, until)
 	if err != nil {
+		if agent == "" || agent == "_all" {
+			writeJSON(w, 200, []logs.Event{})
+			return
+		}
 		writeJSON(w, 404, map[string]string{"error": "no audit logs for agent"})
 		return
 	}

@@ -27,9 +27,10 @@ describe('ToolCallCard', () => {
     expect(screen.getByText(/total 42/)).toBeInTheDocument();
   });
 
-  it('shows agent name in header', () => {
+  it('keeps the compact header focused on the tool call', () => {
     render(<ToolCallCard call={toolCall} agent="engineer" />);
-    expect(screen.getByText(/engineer/)).toBeInTheDocument();
+    expect(screen.getByText(/execute_command/)).toBeInTheDocument();
+    expect(screen.queryByText(/engineer/)).not.toBeInTheDocument();
   });
 
   it('handles missing duration gracefully', () => {

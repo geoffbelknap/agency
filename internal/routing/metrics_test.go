@@ -217,6 +217,68 @@ func TestCollectWithCostConfig(t *testing.T) {
 	}
 }
 
+func TestCollectWithCachedTokenCost(t *testing.T) {
+	dir := t.TempDir()
+	today := time.Now().UTC().Format("2006-01-02")
+	now := time.Now().UTC()
+
+	enfDir := filepath.Join(dir, "audit", "agent-x", "enforcer")
+	os.MkdirAll(enfDir, 0755)
+
+	rec := auditRecord{
+		Timestamp:                now.Add(-1 * time.Hour).Format(time.RFC3339Nano),
+		Type:                     "LLM_DIRECT",
+		Agent:                    "agent-x",
+		Model:                    "claude-sonnet",
+		ProviderModel:            "claude-sonnet-4-20250514",
+		Status:                   200,
+		DurationMs:               1000,
+		InputTokens:              1000000,
+		OutputTokens:             100000,
+		CacheCreationInputTokens: 300000,
+		CacheReadInputTokens:     2000000,
+	}
+	b, _ := json.Marshal(rec)
+	b = append(b, '\n')
+	os.WriteFile(filepath.Join(enfDir, "enforcer-"+today+".jsonl"), b, 0644)
+
+	costs := map[string]ModelCost{
+		"claude-sonnet": {CostPerMTokIn: 3.0, CostPerMTokOut: 15.0, CostPerMTokCached: 0.30},
+	}
+
+	s, err := CollectWithCosts(dir, MetricsQuery{}, costs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Totals.CachedTokens != 2000000 {
+		t.Fatalf("cached tokens = %d", s.Totals.CachedTokens)
+	}
+	if s.Totals.CacheCreationInputTokens != 300000 {
+		t.Fatalf("cache creation tokens = %d", s.Totals.CacheCreationInputTokens)
+	}
+	if s.Totals.CacheReadInputTokens != 2000000 {
+		t.Fatalf("cache read tokens = %d", s.Totals.CacheReadInputTokens)
+	}
+	if s.Totals.CachedCostUSD != 0.6 {
+		t.Fatalf("cached cost = %f", s.Totals.CachedCostUSD)
+	}
+	if s.Totals.EstCostUSD < 5.09 || s.Totals.EstCostUSD > 5.11 {
+		t.Fatalf("estimated cost should include cached token cost, got %f", s.Totals.EstCostUSD)
+	}
+	if len(s.ByHour) != 1 || s.ByHour[0].Totals.CachedCostUSD != 0.6 {
+		t.Fatalf("hourly cached cost = %+v", s.ByHour)
+	}
+	if len(s.RecentCalls) != 1 {
+		t.Fatalf("expected 1 recent call, got %d", len(s.RecentCalls))
+	}
+	if s.RecentCalls[0].CachedTokens != 2000000 {
+		t.Fatalf("recent call cached tokens = %d", s.RecentCalls[0].CachedTokens)
+	}
+	if s.RecentCalls[0].CachedCostUSD != 0.6 {
+		t.Fatalf("recent call cached cost = %f", s.RecentCalls[0].CachedCostUSD)
+	}
+}
+
 func TestCollectWithProviderToolCost(t *testing.T) {
 	dir := t.TempDir()
 	today := time.Now().UTC().Format("2006-01-02")
@@ -267,6 +329,21 @@ func TestCollectWithProviderToolCost(t *testing.T) {
 	}
 	if s.ByProviderTool["provider-web-search"].ProviderToolCostUSD != 0.01 {
 		t.Fatalf("provider tool breakdown cost = %f", s.ByProviderTool["provider-web-search"].ProviderToolCostUSD)
+	}
+	if len(s.ByHour) != 1 {
+		t.Fatalf("expected 1 hourly bucket, got %d", len(s.ByHour))
+	}
+	if s.ByHour[0].ByModel["gemini-flash"].ProviderToolCostUSD != 0.01 {
+		t.Fatalf("hourly model provider tool cost = %f", s.ByHour[0].ByModel["gemini-flash"].ProviderToolCostUSD)
+	}
+	if len(s.RecentCalls) != 1 {
+		t.Fatalf("expected 1 recent call, got %d", len(s.RecentCalls))
+	}
+	if s.RecentCalls[0].ProviderToolCostUSD != 0.01 {
+		t.Fatalf("recent call provider tool cost = %f", s.RecentCalls[0].ProviderToolCostUSD)
+	}
+	if s.RecentCalls[0].TotalTokens != 2000 {
+		t.Fatalf("recent call total tokens = %d", s.RecentCalls[0].TotalTokens)
 	}
 }
 

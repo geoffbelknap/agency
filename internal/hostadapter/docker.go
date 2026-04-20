@@ -59,6 +59,13 @@ func (a *ContainerAdapter) requireContainerBackend() error {
 	return nil
 }
 
+func (a *ContainerAdapter) ListRunningAgents(ctx context.Context) ([]string, error) {
+	if err := a.requireContainerBackend(); err != nil {
+		return nil, err
+	}
+	return a.dc.ListAgentWorkspaces(ctx)
+}
+
 func (a *ContainerAdapter) CountRunningMeeseeks(ctx context.Context) (int, error) {
 	if err := a.requireContainerBackend(); err != nil {
 		return 0, err

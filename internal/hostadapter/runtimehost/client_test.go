@@ -151,3 +151,28 @@ func TestHostGatewayAliasesEnv(t *testing.T) {
 		t.Fatalf("HostGatewayAliasesEnv(podman) = %q", got)
 	}
 }
+
+func TestInfraStatusFormattingHelpers(t *testing.T) {
+	if got := shortContainerID("1234567890abcdef"); got != "1234567890ab" {
+		t.Fatalf("shortContainerID() = %q", got)
+	}
+	if got := formatContainerUptime(0, "running", "Up 2 hours (healthy)"); got != "2 hours" {
+		t.Fatalf("formatContainerUptime(status) = %q", got)
+	}
+	if got := formatContainerUptime(0, "exited", "Exited 3 minutes ago"); got != "" {
+		t.Fatalf("formatContainerUptime(exited) = %q, want empty", got)
+	}
+}
+
+func TestInfraContainerNameUsesInstance(t *testing.T) {
+	t.Setenv("AGENCY_INFRA_INSTANCE", " local-test ")
+	if got := infraContainerName("comms"); got != "agency-infra-comms-local-test" {
+		t.Fatalf("infraContainerName() = %q", got)
+	}
+	if !validInfraComponent("comms") {
+		t.Fatal("comms should be a valid infra component")
+	}
+	if validInfraComponent("../comms") {
+		t.Fatal("path-like component should not be valid")
+	}
+}

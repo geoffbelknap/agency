@@ -1228,6 +1228,48 @@ paths:
                         application/x-ndjson:
                             schema:
                                 description: Stream of progress events
+    /infra/services/{component}/logs:
+        get:
+            operationId: infraServiceLogs
+            summary: Read recent logs for a shared infrastructure component
+            tags: [Infra]
+            x-agency-tier: core
+            x-agency-stability: supported
+            parameters:
+                - name: component
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                    enum: [egress, comms, knowledge, web]
+                - name: tail
+                  in: query
+                  required: false
+                  schema:
+                    type: integer
+                    minimum: 1
+                    maximum: 1000
+                    default: 200
+            responses:
+                "200":
+                    description: Recent component logs
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    component:
+                                        type: string
+                                    tail:
+                                        type: integer
+                                    logs:
+                                        type: string
+                "404":
+                    description: Component not found or logs unavailable
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/ErrorResponse"
     /infra/reload:
         post:
             operationId: infraReload
@@ -3707,6 +3749,11 @@ components:
                                 type: string
                             agent:
                                 type: string
+                            scope:
+                                type: string
+                                enum: [runtime, backend]
+                            backend:
+                                type: string
                             status:
                                 type: string
                                 enum: [pass, warn, fail]
@@ -3723,6 +3770,11 @@ components:
                                 type: string
                             agent:
                                 type: string
+                            scope:
+                                type: string
+                                enum: [runtime, backend]
+                            backend:
+                                type: string
                             status:
                                 type: string
                                 enum: [pass, warn, fail]
@@ -3738,6 +3790,11 @@ components:
                             name:
                                 type: string
                             agent:
+                                type: string
+                            scope:
+                                type: string
+                                enum: [runtime, backend]
+                            backend:
                                 type: string
                             status:
                                 type: string

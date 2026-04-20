@@ -14,6 +14,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlencode
 
 logger = logging.getLogger("body.ws_listener")
 
@@ -42,6 +43,11 @@ def read_context_fallback(context_file: Path) -> Optional[dict]:
         return data.get("current_task")
     except (OSError, FileNotFoundError, json.JSONDecodeError, AttributeError):
         return None
+
+
+def _messages_url(comms_url: str, channel: str, disconnect_at: str, agent_name: str) -> str:
+    params = urlencode({"since": disconnect_at, "reader": agent_name})
+    return f"{comms_url}/channels/{channel}/messages?{params}"
 
 
 class WSListener:
@@ -244,10 +250,7 @@ class WSListener:
                 if not ch_name or ch_name.startswith("_"):
                     continue  # skip internal channels
 
-                msgs_url = (
-                    f"{self.comms_url}/channels/{ch_name}/messages"
-                    f"?since={disconnect_at}&reader={self.agent_name}"
-                )
+                msgs_url = _messages_url(self.comms_url, ch_name, disconnect_at, self.agent_name)
                 async with session.get(msgs_url) as resp:
                     if resp.status != 200:
                         continue

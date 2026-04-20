@@ -21,6 +21,7 @@ export interface AgentDetailData {
 
   // Actions
   refreshLogs: (name: string) => Promise<void>;
+  handleOpenDM: (agentName: string) => Promise<void>;
   handleSendDM: (agentName: string, dmText: string) => Promise<boolean>;
   handleGrant: (agentName: string, capability: string) => Promise<void>;
   handleRevoke: (agentName: string, capability: string) => Promise<void>;
@@ -69,10 +70,13 @@ export function useAgentDetailData(
     }
   }, []);
 
-  // Fetch logs on mount / agent change
+  // Fetch logs only when a visible tab needs them. This runs after first paint,
+  // so the overview can use recent audit events without blocking the shell.
   useEffect(() => {
-    refreshLogs(agentName);
-  }, [agentName, refreshLogs]);
+    if (effectiveDataTab === 'overview' || effectiveDataTab === 'activity' || effectiveDataTab === 'logs') {
+      refreshLogs(agentName);
+    }
+  }, [agentName, effectiveDataTab, refreshLogs]);
 
   // Fetch budget
   useEffect(() => {
@@ -104,6 +108,15 @@ export function useAgentDetailData(
       });
     }
   }, [agentName, effectiveDataTab]);
+
+  const handleOpenDM = useCallback(async (name: string) => {
+    try {
+      const result = await api.agents.ensureDM(name);
+      navigate(`/channels/${encodeURIComponent(result.channel || `dm-${name}`)}`);
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to open DM');
+    }
+  }, [navigate]);
 
   const handleSendDM = useCallback(async (name: string, dmText: string): Promise<boolean> => {
     if (!dmText.trim()) return false;
@@ -230,6 +243,7 @@ export function useAgentDetailData(
     capLoading,
     refreshingLogs,
     refreshLogs,
+    handleOpenDM,
     handleSendDM,
     handleGrant,
     handleRevoke,

@@ -10,29 +10,31 @@ vi.mock('./setup/PlatformReadyStep', () => ({
   ),
 }));
 
-vi.mock('./setup/WelcomeStep', () => ({
-  WelcomeStep: ({ onSkip }: { onSkip: (channelName?: string) => void }) => (
-    <div>
-      <button type="button" onClick={() => onSkip()}>Skip setup</button>
-      <button type="button" onClick={() => onSkip('dm-henry')}>Finish to DM</button>
-    </div>
+vi.mock('./setup/AgentStep', () => ({
+  AgentStep: ({ onNext }: { onNext: () => void }) => (
+    <button type="button" onClick={onNext}>Create agent</button>
   ),
 }));
 
 vi.mock('./setup/ProvidersStep', () => ({
-  ProvidersStep: () => <div>Providers step</div>,
+  ProvidersStep: ({ onNext }: { onNext: () => void }) => (
+    <button type="button" onClick={onNext}>Continue providers</button>
+  ),
 }));
 
-vi.mock('./setup/AgentStep', () => ({
-  AgentStep: () => <div>Agent step</div>,
-}));
-
-vi.mock('./setup/CapabilitiesStep', () => ({
-  CapabilitiesStep: () => <div>Capabilities step</div>,
+vi.mock('./setup/StartingAgentStep', () => ({
+  StartingAgentStep: ({ onReady }: { onReady: () => void }) => (
+    <button type="button" onClick={onReady}>Agent ready</button>
+  ),
 }));
 
 vi.mock('./setup/ChatStep', () => ({
-  ChatStep: () => <div>Chat step</div>,
+  ChatStep: ({ onFinish }: { onFinish: (channelName?: string) => void }) => (
+    <div>
+      <button type="button" onClick={() => onFinish()}>Finish setup</button>
+      <button type="button" onClick={() => onFinish('dm-henry')}>Finish to DM</button>
+    </div>
+  ),
 }));
 
 function renderSetup() {
@@ -48,11 +50,14 @@ function renderSetup() {
 }
 
 describe('Setup', () => {
-  it('routes to overview when setup is skipped without a channel', async () => {
+  it('routes to overview when setup finishes without a channel', async () => {
     renderSetup();
 
     await userEvent.click(screen.getByRole('button', { name: 'Complete platform prep' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Skip setup' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Continue providers' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Create agent' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Agent ready' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Finish setup' }));
 
     expect(screen.getByText('overview page')).toBeInTheDocument();
   });
@@ -61,6 +66,9 @@ describe('Setup', () => {
     renderSetup();
 
     await userEvent.click(screen.getByRole('button', { name: 'Complete platform prep' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Continue providers' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Create agent' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Agent ready' }));
     await userEvent.click(screen.getByRole('button', { name: 'Finish to DM' }));
 
     expect(screen.getByText('channel page')).toBeInTheDocument();

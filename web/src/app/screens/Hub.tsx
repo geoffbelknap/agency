@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Boxes, CheckCircle2, Package, RefreshCw, Rocket } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Check, Package, Plus, RefreshCw, Rocket, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   api,
@@ -7,18 +7,12 @@ import {
   type RawInstance,
   type RawInstanceApplyResult,
 } from '../lib/api';
-import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 
 const INSTANCEABLE_PACKAGE_KINDS = new Set(['connector']);
 
-function formatTimestamp(value?: string) {
-  if (!value) return 'Unknown';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-}
+type ViewMode = 'packages' | 'instances';
+type PackageFilter = 'all' | 'installed' | 'updates' | 'available';
+type BadgeTone = 'teal' | 'amber' | 'red' | 'neutral';
 
 function packageKey(pkg: RawInstalledPackage) {
   return `${pkg.kind}:${pkg.name}`;
@@ -45,6 +39,12 @@ function meetsInstanceAssurance(pkg: RawInstalledPackage) {
   return statements.has('publisher_verified');
 }
 
+function packageStatus(pkg: RawInstalledPackage) {
+  if (!isInstanceable(pkg)) return { label: 'Package only', tone: 'amber' as BadgeTone };
+  if (!meetsInstanceAssurance(pkg)) return { label: 'Needs assurance', tone: 'red' as BadgeTone };
+  return { label: 'Ready', tone: 'teal' as BadgeTone };
+}
+
 function assuranceSummary(pkg: RawInstalledPackage) {
   const statements = pkg.assurance ?? [];
   if (statements.length === 0) return 'No assurance recorded';
@@ -59,10 +59,101 @@ function assuranceIssuer(pkg: RawInstalledPackage) {
   return pkg.assurance_issuer || primaryAskReview(pkg)?.issuer_hub_id || null;
 }
 
+function formatTimestamp(value?: string) {
+  if (!value) return 'Unknown';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
+function packageDescription(pkg: RawInstalledPackage) {
+  const spec = pkg.spec ?? {};
+  const description = spec.description;
+  if (typeof description === 'string' && description.trim()) return description;
+  if (pkg.path) return pkg.path;
+  return 'Installed package metadata from the local gateway registry.';
+}
+
+function packageCaps(pkg: RawInstalledPackage) {
+  const spec = pkg.spec ?? {};
+  const capabilities = spec.capabilities;
+  if (Array.isArray(capabilities)) return capabilities.length;
+  const grants = spec.grants;
+  if (Array.isArray(grants)) return grants.length;
+  return pkg.assurance?.length ?? 0;
+}
+
+function hasUpdate(_pkg: RawInstalledPackage) {
+  return false;
+}
+
+function Badge({ children, tone = 'neutral' }: { children: React.ReactNode; tone?: BadgeTone }) {
+  const styles = {
+    teal: { bg: 'var(--teal-tint)', color: 'var(--teal-dark)', border: 'var(--teal-border)' },
+    amber: { bg: 'var(--amber-tint)', color: '#8B5A00', border: 'var(--amber)' },
+    red: { bg: 'var(--red-tint)', color: 'var(--red)', border: 'var(--red)' },
+    neutral: { bg: 'var(--warm-3)', color: 'var(--ink-mid)', border: 'var(--ink-hairline-strong)' },
+  }[tone];
+  return (
+    <span className="mono" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 7px', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', background: styles.bg, color: styles.color, border: `0.5px solid ${styles.border}`, borderRadius: 4, whiteSpace: 'nowrap' }}>
+      {children}
+    </span>
+  );
+}
+
+function DesignButton({ children, icon, variant = 'default', disabled = false, onClick }: { children: React.ReactNode; icon?: React.ReactNode; variant?: 'default' | 'primary' | 'ghost'; disabled?: boolean; onClick?: () => void }) {
+  const variants = {
+    default: { bg: 'var(--warm)', color: 'var(--ink)', border: '0.5px solid var(--ink-hairline-strong)' },
+    primary: { bg: 'var(--ink)', color: 'var(--warm)', border: '0.5px solid var(--ink)' },
+    ghost: { bg: 'transparent', color: 'var(--ink-mid)', border: '0.5px solid transparent' },
+  }[variant];
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '5px 10px', minHeight: 28, borderRadius: 6, background: variants.bg, color: variants.color, border: variants.border, fontFamily: 'var(--sans)', fontSize: 12, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.45 : 1, whiteSpace: 'nowrap' }}
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+function MetaStat({ label, value, tone }: { label: string; value: string | number; tone?: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <span className="eyebrow" style={{ fontSize: 9 }}>{label}</span>
+      <span className="mono" style={{ fontSize: 14, color: tone || 'var(--ink)' }}>{value}</span>
+    </div>
+  );
+}
+
+function TableHeader({ cols, widths }: { cols: string[]; widths: string }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: widths, gap: 16, padding: '10px 18px', background: 'var(--warm-2)' }}>
+      {cols.map((col) => <div key={col} className="eyebrow" style={{ fontSize: 9 }}>{col}</div>)}
+    </div>
+  );
+}
+
+function TableRow({ children, widths, accent, selected, onClick }: { children: React.ReactNode[]; widths: string; accent?: string; selected?: boolean; onClick?: () => void }) {
+  return (
+    <div
+      onClick={onClick}
+      style={{ display: 'grid', gridTemplateColumns: widths, gap: 16, padding: '12px 18px', alignItems: 'center', borderTop: '0.5px solid var(--ink-hairline)', borderLeft: `2px solid ${accent || (selected ? 'var(--teal)' : 'transparent')}`, background: selected ? 'var(--warm)' : 'transparent', cursor: onClick ? 'pointer' : 'default' }}
+    >
+      {children.map((child, index) => <div key={index} style={{ minWidth: 0 }}>{child}</div>)}
+    </div>
+  );
+}
+
 export function Hub() {
   const [packages, setPackages] = useState<RawInstalledPackage[]>([]);
   const [instances, setInstances] = useState<RawInstance[]>([]);
   const [selectedInstance, setSelectedInstance] = useState<RawInstance | null>(null);
+  const [view, setView] = useState<ViewMode>('packages');
+  const [filter, setFilter] = useState<PackageFilter>('all');
   const [draftNames, setDraftNames] = useState<Record<string, string>>({});
   const [actionState, setActionState] = useState<Record<string, string>>({});
   const [lastApply, setLastApply] = useState<Record<string, RawInstanceApplyResult>>({});
@@ -128,15 +219,13 @@ export function Hub() {
     try {
       setBusy(`create:${key}`, 'Creating...');
       setError(null);
-      const body: Record<string, unknown> = {
-        kind: pkg.kind,
-        name: pkg.name,
-      };
+      const body: Record<string, unknown> = { kind: pkg.kind, name: pkg.name };
       const instanceName = draftNames[key]?.trim();
       if (instanceName) body.instance_name = instanceName;
       const created = await api.instances.createFromPackage(body);
       toast.success(`Created instance ${created.name}`);
       setSelectedInstance(created);
+      setView('instances');
       await loadInstances();
     } catch (e: any) {
       setError(e.message || 'Failed to create instance');
@@ -190,324 +279,227 @@ export function Hub() {
     }
   };
 
-  const instanceCount = instances.length;
-  const claimedCount = instances.filter((item) => item.claim).length;
-  const authorityNodeCount = instances.reduce(
-    (sum, item) => sum + (item.nodes ?? []).filter((node) => node.kind === 'connector.authority').length,
-    0,
-  );
+  const counts = useMemo(() => {
+    const instanceable = packages.filter(isInstanceable).length;
+    const ready = packages.filter((pkg) => isInstanceable(pkg) && meetsInstanceAssurance(pkg)).length;
+    const claimed = instances.filter((item) => item.claim).length;
+    const authorityNodes = instances.reduce((sum, item) => sum + (item.nodes ?? []).filter((node) => node.kind === 'connector.authority').length, 0);
+    return { instanceable, ready, claimed, authorityNodes };
+  }, [packages, instances]);
+
+  const shownPackages = packages.filter((pkg) => {
+    if (filter === 'installed') return Boolean(pkg.installed || pkg.path);
+    if (filter === 'updates') return hasUpdate(pkg);
+    if (filter === 'available') return !pkg.installed && !pkg.path;
+    return true;
+  });
+
+  const filters: Array<[PackageFilter, string, number]> = [
+    ['all', 'All', packages.length],
+    ['installed', 'Installed', packages.filter((pkg) => pkg.installed || pkg.path).length],
+    ['updates', 'Updates', packages.filter(hasUpdate).length],
+    ['available', 'Available', packages.filter((pkg) => !pkg.installed && !pkg.path).length],
+  ];
 
   return (
-    <div className="space-y-6">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       {error && (
-        <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+        <div style={{ padding: '10px 12px', border: '0.5px solid var(--red)', background: 'var(--red-tint)', color: 'var(--red)', borderRadius: 8, fontSize: 12 }}>
           {error}
         </div>
       )}
 
-      <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card px-4 py-4 md:flex-row md:items-start md:justify-between md:px-5">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-            <Boxes className="h-4 w-4" />
-            Packages and instances
-          </div>
-          <p className="max-w-3xl text-sm text-muted-foreground">
-            Installed packages are reusable local building blocks. Instances are the governed local realizations
-            created from those packages with bindings, grants, and runtime state.
-          </p>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+          <MetaStat label="Installed packages" value={packages.length} />
+          <MetaStat label="Instanceable" value={counts.instanceable} />
+          <MetaStat label="Ready" value={counts.ready} tone="var(--teal-dark)" />
+          <MetaStat label="Instances" value={instances.length} />
+          <MetaStat label="Authority nodes" value={counts.authorityNodes} />
         </div>
-        <Button variant="outline" size="sm" onClick={refreshAll} disabled={refreshing}>
-          <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-          {refreshing ? 'Refreshing...' : 'Refresh'}
-        </Button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <DesignButton icon={<Search size={13} />} disabled>Browse registry</DesignButton>
+          <DesignButton variant="primary" icon={<Plus size={13} />} disabled>Install from file</DesignButton>
+          <DesignButton icon={<RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />} onClick={refreshAll} disabled={refreshing}>
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </DesignButton>
+        </div>
       </div>
 
-      <Tabs defaultValue="packages" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="packages">Packages</TabsTrigger>
-          <TabsTrigger value="instances">Instances</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="packages" className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-2xl border border-border bg-card px-4 py-3">
-              <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Installed packages</div>
-              <div className="mt-1 text-2xl font-semibold text-foreground">{packages.length}</div>
-              <div className="text-xs text-muted-foreground">Local packages available to scaffold new instances.</div>
-            </div>
-            <div className="rounded-2xl border border-border bg-card px-4 py-3">
-              <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Instanceable now</div>
-              <div className="mt-1 text-2xl font-semibold text-foreground">
-                {packages.filter((pkg) => isInstanceable(pkg)).length}
-              </div>
-              <div className="text-xs text-muted-foreground">Currently limited to connector packages on the V2 path.</div>
-            </div>
-            <div className="rounded-2xl border border-border bg-card px-4 py-3">
-              <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Trust modes</div>
-              <div className="mt-1 text-2xl font-semibold text-foreground">
-                {new Set(packages.map((pkg) => pkg.trust || 'unspecified')).size}
-              </div>
-              <div className="text-xs text-muted-foreground">Review trust and version before instantiating authority packages.</div>
-            </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div role="tablist" style={{ display: 'inline-flex', background: 'var(--warm-2)', border: '0.5px solid var(--ink-hairline)', borderRadius: 999, padding: 2 }}>
+          {(['packages', 'instances'] as ViewMode[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              role="tab"
+              aria-selected={view === mode}
+              onClick={() => setView(mode)}
+              style={{ padding: '6px 12px', border: 0, background: view === mode ? 'var(--ink)' : 'transparent', color: view === mode ? 'var(--warm)' : 'var(--ink-mid)', fontFamily: 'var(--sans)', fontSize: 12, borderRadius: 999, cursor: 'pointer', textTransform: 'capitalize' }}
+            >
+              {mode}
+            </button>
+          ))}
+        </div>
+        {view === 'packages' && (
+          <div style={{ display: 'inline-flex', background: 'var(--warm-2)', border: '0.5px solid var(--ink-hairline)', borderRadius: 999, padding: 2 }}>
+            {filters.map(([id, label, count]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setFilter(id)}
+                style={{ padding: '6px 12px', border: 0, background: filter === id ? 'var(--ink)' : 'transparent', color: filter === id ? 'var(--warm)' : 'var(--ink-mid)', fontFamily: 'var(--sans)', fontSize: 12, borderRadius: 999, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              >
+                {label} <span className="mono" style={{ fontSize: 10, opacity: 0.7 }}>{count}</span>
+              </button>
+            ))}
           </div>
+        )}
+        <div style={{ flex: 1 }} />
+        <span className="mono" style={{ fontSize: 10, color: 'var(--ink-faint)' }}>
+          registry · local gateway · {packages.length + instances.length} records
+        </span>
+      </div>
 
+      {view === 'packages' ? (
+        <div style={{ border: '0.5px solid var(--ink-hairline)', borderRadius: 12, overflow: 'hidden', background: 'var(--warm)' }}>
+          <TableHeader widths="minmax(220px,1.8fr) 90px 92px 72px 110px 160px" cols={['Package', 'Version', 'Kind', 'Caps', 'Assurance', '']} />
           {loadingPackages ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">Loading packages...</div>
-          ) : packages.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
-              No local packages are installed yet.
-            </div>
-          ) : (
-            <div className="grid gap-4 lg:grid-cols-2">
-              {packages.map((pkg) => {
-                const key = packageKey(pkg);
-                const busy = actionState[`create:${key}`];
-                const instanceable = isInstanceable(pkg);
-                const assuranceOkay = meetsInstanceAssurance(pkg);
-                const askReview = primaryAskReview(pkg);
-                const issuer = assuranceIssuer(pkg);
-                return (
-                    <div key={key} className="rounded-2xl border border-border bg-card p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <Package className="h-4 w-4 text-muted-foreground" />
-                          <h3 className="text-sm font-semibold text-foreground">{pkg.name}</h3>
-                        </div>
-                        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                          <span className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-900">{pkg.kind}</span>
-                          <span className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-900">
-                            {pkg.version || 'unversioned'}
-                          </span>
-                          <span className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-900">
-                            trust: {pkg.trust || 'unspecified'}
-                          </span>
-                        </div>
-                      </div>
-                      {instanceable && assuranceOkay ? (
-                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-                          Ready to instantiate
-                        </span>
-                      ) : instanceable ? (
-                        <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] text-red-700 dark:bg-red-950 dark:text-red-300">
-                          More assurance required
-                        </span>
-                      ) : (
-                        <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-                          Package only
-                        </span>
-                      )}
+            <div style={{ padding: 32, textAlign: 'center', color: 'var(--ink-mid)', fontSize: 13 }}>Loading packages...</div>
+          ) : shownPackages.length === 0 ? (
+            <div style={{ padding: 32, textAlign: 'center', color: 'var(--ink-mid)', fontSize: 13 }}>No packages match this filter.</div>
+          ) : shownPackages.map((pkg) => {
+            const key = packageKey(pkg);
+            const busy = actionState[`create:${key}`];
+            const status = packageStatus(pkg);
+            const askReview = primaryAskReview(pkg);
+            const issuer = assuranceIssuer(pkg);
+            const instanceable = isInstanceable(pkg);
+            const assuranceOkay = meetsInstanceAssurance(pkg);
+            return (
+              <TableRow
+                key={key}
+                widths="minmax(220px,1.8fr) 90px 92px 72px 110px 160px"
+                accent={status.tone === 'red' ? 'var(--red)' : status.tone === 'teal' ? 'var(--teal)' : 'transparent'}
+              >
+                {[
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                      <Package size={14} color="var(--ink-mid)" />
+                      <span className="mono" style={{ fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pkg.name}</span>
+                      <Badge tone={status.tone}>{status.label}</Badge>
                     </div>
-
-                    <div className="mt-3 space-y-2 text-xs text-muted-foreground">
-                      <div>
-                        <span className="font-medium text-foreground">Local path:</span> {pkg.path || 'Unknown'}
+                    <div style={{ fontSize: 11, color: 'var(--ink-mid)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{packageDescription(pkg)}</div>
+                    {(askReview || issuer) && (
+                      <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginTop: 2 }}>
+                        {askReview ? `${askReview.result}${askReview.reviewer_type ? ` via ${askReview.reviewer_type}` : ''}` : ''}
+                        {issuer ? `${askReview ? ' · ' : ''}${issuer}` : ''}
                       </div>
-                      <div>
-                        <span className="font-medium text-foreground">Assurance:</span> {assuranceSummary(pkg)}
-                      </div>
-                      {askReview && (
-                        <div>
-                          <span className="font-medium text-foreground">ASK review:</span> {askReview.result}
-                          {askReview.reviewer_type ? ` via ${askReview.reviewer_type}` : ''}
-                        </div>
-                      )}
-                      {issuer && (
-                        <div>
-                          <span className="font-medium text-foreground">Assurance hub:</span> {issuer}
-                        </div>
-                      )}
-                      {pkg.publisher && (
-                        <div>
-                          <span className="font-medium text-foreground">Publisher:</span> {pkg.publisher}
-                        </div>
-                      )}
-                      <div>
-                        {instanceable
-                          ? assuranceOkay
-                            ? 'Create a local instance from this package, then validate and apply it from the Instances tab.'
-                            : 'This package cannot be instantiated yet because it does not meet the local assurance policy.'
-                          : 'This package kind is not scaffoldable into a V2 instance yet.'}
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                      <Input
-                        aria-label={`Instance name for ${pkg.name}`}
-                        value={draftNames[key] ?? ''}
-                        onChange={(event) =>
-                          setDraftNames((current) => ({ ...current, [key]: event.target.value }))
-                        }
-                        placeholder={`Optional instance name for ${pkg.name}`}
-                        disabled={!instanceable || !assuranceOkay || !!busy}
-                      />
-                      <Button
-                        onClick={() => handleCreateInstance(pkg)}
-                        disabled={!instanceable || !assuranceOkay || !!busy}
-                        className="sm:w-auto"
-                      >
-                        <Rocket className="mr-2 h-4 w-4" />
-                        {busy || 'Create instance'}
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="instances" className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-2xl border border-border bg-card px-4 py-3">
-              <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Local instances</div>
-              <div className="mt-1 text-2xl font-semibold text-foreground">{instanceCount}</div>
-              <div className="text-xs text-muted-foreground">Governed realizations ready for validate and apply.</div>
-            </div>
-            <div className="rounded-2xl border border-border bg-card px-4 py-3">
-              <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Claimed instances</div>
-              <div className="mt-1 text-2xl font-semibold text-foreground">{claimedCount}</div>
-              <div className="text-xs text-muted-foreground">Instances currently owned by a named operator or process.</div>
-            </div>
-            <div className="rounded-2xl border border-border bg-card px-4 py-3">
-              <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Authority nodes</div>
-              <div className="mt-1 text-2xl font-semibold text-foreground">{authorityNodeCount}</div>
-              <div className="text-xs text-muted-foreground">Authority runtime nodes available for mediated actions.</div>
-            </div>
+                    )}
+                    {!assuranceOkay && instanceable && (
+                      <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 2 }}>This package cannot be instantiated yet because it does not meet the local assurance policy.</div>
+                    )}
+                  </div>,
+                  <span className="mono" style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{pkg.version || 'unversioned'}</span>,
+                  <Badge>{pkg.kind}</Badge>,
+                  <span className="mono" style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{packageCaps(pkg)}</span>,
+                  <span className="mono" style={{ display: 'block', fontSize: 11, color: 'var(--ink-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{assuranceSummary(pkg)}</span>,
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
+                    <input
+                      aria-label={`Instance name for ${pkg.name}`}
+                      value={draftNames[key] ?? ''}
+                      onChange={(event) => setDraftNames((current) => ({ ...current, [key]: event.target.value }))}
+                      placeholder="name"
+                      disabled={!instanceable || !assuranceOkay || !!busy}
+                      style={{ width: 74, minHeight: 28, padding: '4px 7px', borderRadius: 6, border: '0.5px solid var(--ink-hairline-strong)', background: 'var(--warm-2)', color: 'var(--ink)', fontFamily: 'var(--mono)', fontSize: 11, opacity: (!instanceable || !assuranceOkay) ? 0.45 : 1 }}
+                    />
+                    <DesignButton variant={instanceable && assuranceOkay ? 'primary' : 'default'} icon={<Rocket size={13} />} disabled={!instanceable || !assuranceOkay || !!busy} onClick={() => handleCreateInstance(pkg)}>
+                      {busy || 'Create instance'}
+                    </DesignButton>
+                  </div>,
+                ]}
+              </TableRow>
+            );
+          })}
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(280px,0.8fr)', gap: 14 }}>
+          <div style={{ border: '0.5px solid var(--ink-hairline)', borderRadius: 12, overflow: 'hidden', background: 'var(--warm)' }}>
+            <TableHeader widths="minmax(180px,1.4fr) minmax(160px,1fr) 70px 70px 140px 160px" cols={['Instance', 'Source', 'Nodes', 'Grants', 'Updated', '']} />
+            {loadingInstances ? (
+              <div style={{ padding: 32, textAlign: 'center', color: 'var(--ink-mid)', fontSize: 13 }}>Loading instances...</div>
+            ) : instances.length === 0 ? (
+              <div style={{ padding: 32, textAlign: 'center', color: 'var(--ink-mid)', fontSize: 13 }}>No instances exist yet. Create one from the Packages view first.</div>
+            ) : instances.map((instance) => {
+              const validateBusy = actionState[`validate:${instance.id}`];
+              const applyBusy = actionState[`apply:${instance.id}`];
+              const applyResult = lastApply[instance.id];
+              return (
+                <TableRow
+                  key={instance.id}
+                  widths="minmax(180px,1.4fr) minmax(160px,1fr) 70px 70px 140px 160px"
+                  selected={selectedInstance?.id === instance.id}
+                  onClick={() => handleSelectInstance(instance.id)}
+                >
+                  {[
+                    <div>
+                      <div className="mono" style={{ fontSize: 13, color: 'var(--ink)' }}>{instance.name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-mid)' }}>{instance.claim ? `claimed by ${instance.claim.owner}` : 'unclaimed'}</div>
+                      {applyResult && <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--teal-dark)', fontSize: 11, marginTop: 2 }}><Check size={12} /> Last apply reconciled {applyResult.nodes?.length ?? 0} runtime node(s).</div>}
+                    </div>,
+                    <span className="mono" style={{ fontSize: 11, color: 'var(--ink-mid)' }}>{sourceLabel(instance)}</span>,
+                    <span className="mono" style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{(instance.nodes ?? []).length}</span>,
+                    <span className="mono" style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{(instance.grants ?? []).length}</span>,
+                    <span className="mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>{formatTimestamp(instance.updated_at)}</span>,
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                      <DesignButton onClick={() => handleValidate(instance.id)} disabled={!!validateBusy}>{validateBusy || 'Validate'}</DesignButton>
+                      <DesignButton variant="primary" onClick={() => handleApply(instance.id)} disabled={!!applyBusy}>{applyBusy || 'Apply'}</DesignButton>
+                    </div>,
+                  ]}
+                </TableRow>
+              );
+            })}
           </div>
 
-          {loadingInstances ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">Loading instances...</div>
-          ) : instances.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
-              No instances exist yet. Create one from the Packages tab first.
-            </div>
-          ) : (
-            <div className="grid gap-4 xl:grid-cols-[1.3fr_0.9fr]">
-              <div className="space-y-4">
-                {instances.map((instance) => {
-                  const validateBusy = actionState[`validate:${instance.id}`];
-                  const applyBusy = actionState[`apply:${instance.id}`];
-                  const showBusy = actionState[`show:${instance.id}`];
-                  const applyResult = lastApply[instance.id];
-                  return (
-                    <div key={instance.id} className="rounded-2xl border border-border bg-card p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="space-y-1">
-                          <h3 className="text-sm font-semibold text-foreground">{instance.name}</h3>
-                          <div className="text-xs text-muted-foreground">Source: {sourceLabel(instance)}</div>
-                        </div>
-                        {instance.claim ? (
-                          <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[11px] text-sky-700 dark:bg-sky-950 dark:text-sky-300">
-                            Claimed by {instance.claim.owner}
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700 dark:bg-slate-900 dark:text-slate-300">
-                            Unclaimed
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="mt-3 grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
-                        <div>
-                          <span className="font-medium text-foreground">Nodes:</span> {(instance.nodes ?? []).length}
-                        </div>
-                        <div>
-                          <span className="font-medium text-foreground">Grants:</span> {(instance.grants ?? []).length}
-                        </div>
-                        <div>
-                          <span className="font-medium text-foreground">Created:</span> {formatTimestamp(instance.created_at)}
-                        </div>
-                        <div>
-                          <span className="font-medium text-foreground">Updated:</span> {formatTimestamp(instance.updated_at)}
-                        </div>
-                      </div>
-
-                      {applyResult && (
-                        <div className="mt-3 flex items-center gap-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
-                          <CheckCircle2 className="h-4 w-4" />
-                          Last apply reconciled {applyResult.nodes?.length ?? 0} runtime node(s).
-                        </div>
-                      )}
-
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        <Button variant="outline" size="sm" onClick={() => handleSelectInstance(instance.id)} disabled={!!showBusy}>
-                          {showBusy || 'Details'}
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => handleValidate(instance.id)} disabled={!!validateBusy}>
-                          {validateBusy || 'Validate'}
-                        </Button>
-                        <Button size="sm" onClick={() => handleApply(instance.id)} disabled={!!applyBusy}>
-                          {applyBusy || 'Apply'}
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="rounded-xl border border-border bg-card/70 p-4">
-                <div className="space-y-1">
-                  <h3 className="text-sm font-semibold text-foreground">Instance detail</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Inspect the selected instance graph before testing runtime behavior.
-                  </p>
+          <div style={{ border: '0.5px solid var(--ink-hairline)', borderRadius: 12, background: 'var(--warm)', padding: 16, minHeight: 280 }}>
+            <div className="eyebrow" style={{ marginBottom: 10 }}>Instance detail</div>
+            {!selectedInstance ? (
+              <div style={{ color: 'var(--ink-mid)', fontSize: 13 }}>Select an instance to inspect nodes and grants.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div>
+                  <div className="mono" style={{ fontSize: 15, color: 'var(--ink)' }}>{selectedInstance.name}</div>
+                  <div className="mono" style={{ fontSize: 10, color: 'var(--ink-faint)', marginTop: 2 }}>{selectedInstance.id}</div>
+                  <div style={{ color: 'var(--ink-mid)', fontSize: 12, marginTop: 4 }}>{sourceLabel(selectedInstance)}</div>
                 </div>
-
-                {!selectedInstance ? (
-                  <div className="py-10 text-sm text-muted-foreground">Select an instance to inspect its nodes and grants.</div>
-                ) : (
-                  <div className="mt-4 space-y-4">
-                    <div>
-                      <div className="text-sm font-medium text-foreground">{selectedInstance.name}</div>
-                      <div className="text-xs text-muted-foreground">ID: {selectedInstance.id}</div>
-                      <div className="text-xs text-muted-foreground">Source: {sourceLabel(selectedInstance)}</div>
+                <div>
+                  <div className="eyebrow" style={{ fontSize: 9, marginBottom: 6 }}>Nodes</div>
+                  {(selectedInstance.nodes ?? []).length === 0 ? (
+                    <div style={{ color: 'var(--ink-mid)', fontSize: 12 }}>No nodes recorded.</div>
+                  ) : (selectedInstance.nodes ?? []).map((node) => (
+                    <div key={node.id} style={{ borderTop: '0.5px solid var(--ink-hairline)', padding: '8px 0' }}>
+                      <div className="mono" style={{ fontSize: 12, color: 'var(--ink)' }}>{node.id}</div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-mid)' }}>{node.kind}</div>
                     </div>
-
-                    <div className="space-y-2">
-                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Nodes</div>
-                      {(selectedInstance.nodes ?? []).length === 0 ? (
-                        <div className="text-sm text-muted-foreground">No nodes recorded.</div>
-                      ) : (
-                        <div className="space-y-2">
-                          {(selectedInstance.nodes ?? []).map((node) => (
-                            <div key={node.id} className="rounded border border-border px-3 py-2">
-                              <div className="text-sm font-medium text-foreground">{node.id}</div>
-                              <div className="text-xs text-muted-foreground">{node.kind}</div>
-                              {node.package && (
-                                <div className="text-xs text-muted-foreground">
-                                  package: {node.package.kind}/{node.package.name}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                  ))}
+                </div>
+                <div>
+                  <div className="eyebrow" style={{ fontSize: 9, marginBottom: 6 }}>Grants</div>
+                  {(selectedInstance.grants ?? []).length === 0 ? (
+                    <div style={{ color: 'var(--ink-mid)', fontSize: 12 }}>No grants configured.</div>
+                  ) : (selectedInstance.grants ?? []).map((grant, index) => (
+                    <div key={`${grant.principal}:${grant.action}:${index}`} style={{ borderTop: '0.5px solid var(--ink-hairline)', padding: '8px 0' }}>
+                      <div className="mono" style={{ fontSize: 12, color: 'var(--ink)' }}>{grant.action}</div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-mid)' }}>{grant.principal}</div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-faint)' }}>{grant.resource || 'instance-scoped'}</div>
                     </div>
-
-                    <div className="space-y-2">
-                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Grants</div>
-                      {(selectedInstance.grants ?? []).length === 0 ? (
-                        <div className="text-sm text-muted-foreground">No grants configured.</div>
-                      ) : (
-                        <div className="space-y-2">
-                          {(selectedInstance.grants ?? []).map((grant, index) => (
-                            <div key={`${grant.principal}:${grant.action}:${index}`} className="rounded border border-border px-3 py-2">
-                              <div className="text-sm font-medium text-foreground">{grant.action}</div>
-                              <div className="text-xs text-muted-foreground">principal: {grant.principal}</div>
-                              <div className="text-xs text-muted-foreground">resource: {grant.resource || 'instance-scoped'}</div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

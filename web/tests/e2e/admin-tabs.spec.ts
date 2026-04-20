@@ -21,7 +21,7 @@ test.describe('Admin tabs', () => {
       { path: '/admin/policy', locator: page.getByRole('button', { name: 'Validate' }) },
       { path: '/admin/doctor', locator: page.getByRole('button', { name: 'Run Doctor' }) },
       { path: '/admin/usage', locator: page.getByText('Model traffic, spend, and routing quality for the selected period.') },
-      { path: '/admin/audit', locator: page.getByRole('button', { name: 'Summarize' }) },
+      { path: '/admin/audit', locator: page.getByRole('button', { name: 'Search' }) },
       { path: '/admin/setup', locator: page.getByText('Re-run Setup Wizard') },
       { path: '/admin/danger', locator: page.getByRole('button', { name: 'Destroy All' }) },
     ];

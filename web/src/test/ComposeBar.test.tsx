@@ -27,13 +27,13 @@ describe('ComposeBar', () => {
 
   it('renders input and send button', () => {
     render(<ComposeBar {...defaultProps} />);
-    expect(screen.getByPlaceholderText('Message #general')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Message general...')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument();
   });
 
-  it('renders flag button', () => {
+  it('does not render the old flag dropdown', () => {
     render(<ComposeBar {...defaultProps} />);
-    expect(screen.getByRole('button', { name: /set message flag/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /set message flag/i })).not.toBeInTheDocument();
   });
 
   it('send button is disabled when input is empty', () => {
@@ -44,14 +44,14 @@ describe('ComposeBar', () => {
   it('send button is enabled when input has content', async () => {
     const user = userEvent.setup();
     render(<ComposeBar {...defaultProps} />);
-    await user.type(screen.getByPlaceholderText('Message #general'), 'hello');
+    await user.type(screen.getByPlaceholderText('Message general...'), 'hello');
     expect(screen.getByRole('button', { name: /send/i })).not.toBeDisabled();
   });
 
   it('calls onSend with content on Enter key', async () => {
     const user = userEvent.setup();
     render(<ComposeBar {...defaultProps} />);
-    const input = screen.getByPlaceholderText('Message #general');
+    const input = screen.getByPlaceholderText('Message general...');
     await user.type(input, 'hello world{Enter}');
     await waitFor(() => {
       expect(defaultProps.onSend).toHaveBeenCalledWith('hello world', undefined);
@@ -61,7 +61,7 @@ describe('ComposeBar', () => {
   it('clears input after send via Enter', async () => {
     const user = userEvent.setup();
     render(<ComposeBar {...defaultProps} />);
-    const input = screen.getByPlaceholderText('Message #general');
+    const input = screen.getByPlaceholderText('Message general...');
     await user.type(input, 'hello{Enter}');
     await waitFor(() => {
       expect(input).toHaveValue('');
@@ -71,7 +71,7 @@ describe('ComposeBar', () => {
   it('calls onSend with content on send button click', async () => {
     const user = userEvent.setup();
     render(<ComposeBar {...defaultProps} />);
-    await user.type(screen.getByPlaceholderText('Message #general'), 'hello');
+    await user.type(screen.getByPlaceholderText('Message general...'), 'hello');
     await user.click(screen.getByRole('button', { name: /send/i }));
     await waitFor(() => {
       expect(defaultProps.onSend).toHaveBeenCalledWith('hello', undefined);
@@ -81,7 +81,7 @@ describe('ComposeBar', () => {
   it('clears input after send via button click', async () => {
     const user = userEvent.setup();
     render(<ComposeBar {...defaultProps} />);
-    const input = screen.getByPlaceholderText('Message #general');
+    const input = screen.getByPlaceholderText('Message general...');
     await user.type(input, 'hello');
     await user.click(screen.getByRole('button', { name: /send/i }));
     await waitFor(() => {
@@ -92,7 +92,7 @@ describe('ComposeBar', () => {
   it('does not call onSend on Shift+Enter', async () => {
     const user = userEvent.setup();
     render(<ComposeBar {...defaultProps} />);
-    const input = screen.getByPlaceholderText('Message #general');
+    const input = screen.getByPlaceholderText('Message general...');
     await user.type(input, 'hello');
     await user.keyboard('{Shift>}{Enter}{/Shift}');
     expect(defaultProps.onSend).not.toHaveBeenCalled();
@@ -101,7 +101,7 @@ describe('ComposeBar', () => {
   it('does not call onSend when input is only whitespace', async () => {
     const user = userEvent.setup();
     render(<ComposeBar {...defaultProps} />);
-    const input = screen.getByPlaceholderText('Message #general');
+    const input = screen.getByPlaceholderText('Message general...');
     await user.type(input, '   {Enter}');
     expect(defaultProps.onSend).not.toHaveBeenCalled();
   });
@@ -109,7 +109,7 @@ describe('ComposeBar', () => {
   it('supports @mention autocomplete via MentionInput', async () => {
     const user = userEvent.setup();
     render(<ComposeBar {...defaultProps} />);
-    const input = screen.getByPlaceholderText('Message #general');
+    const input = screen.getByPlaceholderText('Message general...');
     await user.type(input, '@');
     // MentionInput shows a "Mentions" dropdown header when @ is typed and targets exist
     await waitFor(() => {
@@ -119,44 +119,6 @@ describe('ComposeBar', () => {
 
   it('uses channelName in placeholder', () => {
     render(<ComposeBar onSend={vi.fn()} channelName="ops-alerts" />);
-    expect(screen.getByPlaceholderText('Message #ops-alerts')).toBeInTheDocument();
-  });
-
-  it('calls onSend with flag when flag is selected', async () => {
-    const user = userEvent.setup();
-    render(<ComposeBar {...defaultProps} />);
-    // Open flag dropdown
-    await user.click(screen.getByRole('button', { name: /set message flag/i }));
-    // Select DECISION
-    await waitFor(() => expect(screen.getByText('DECISION')).toBeInTheDocument());
-    await user.click(screen.getByText('DECISION'));
-    // Type and send
-    await user.type(screen.getByPlaceholderText('Message #general'), 'decided');
-    await user.click(screen.getByRole('button', { name: /send/i }));
-    await waitFor(() => {
-      expect(defaultProps.onSend).toHaveBeenCalledWith('decided', {
-        decision: true,
-        blocker: false,
-        question: false,
-      });
-    });
-  });
-
-  it('clears selectedFlag after send', async () => {
-    const user = userEvent.setup();
-    render(<ComposeBar {...defaultProps} />);
-    // Select a flag
-    await user.click(screen.getByRole('button', { name: /set message flag/i }));
-    await waitFor(() => expect(screen.getByText('BLOCKER')).toBeInTheDocument());
-    await user.click(screen.getByText('BLOCKER'));
-    // Badge should be visible
-    await waitFor(() => expect(screen.getByText('BLOCKER', { selector: 'span' })).toBeInTheDocument());
-    // Type and send
-    await user.type(screen.getByPlaceholderText('Message #general'), 'blocked');
-    await user.click(screen.getByRole('button', { name: /send/i }));
-    // Badge should be gone after send
-    await waitFor(() => {
-      expect(screen.queryByText('BLOCKER', { selector: 'span' })).not.toBeInTheDocument();
-    });
+    expect(screen.getByPlaceholderText('Message ops-alerts...')).toBeInTheDocument();
   });
 });

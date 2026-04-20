@@ -14,27 +14,27 @@ import (
 )
 
 const (
-	llmMaxRetries      = 3
-	llmRetryDelay      = 500 * time.Millisecond
-	llmReadTimeout     = 300 * time.Second
-	llmMaxRequestBody  = 10 << 20 // 10 MB
+	llmMaxRetries     = 3
+	llmRetryDelay     = 500 * time.Millisecond
+	llmReadTimeout    = 300 * time.Second
+	llmMaxRequestBody = 10 << 20 // 10 MB
 )
 
 // safeResponseHeaders are the only headers relayed from LLM provider responses.
 var safeResponseHeaders = map[string]bool{
-	"content-type":    true,
-	"content-length":  true,
-	"cache-control":   true,
-	"retry-after":     true,
-	"x-request-id":    true,
+	"content-type":     true,
+	"content-length":   true,
+	"cache-control":    true,
+	"retry-after":      true,
+	"x-request-id":     true,
 	"x-correlation-id": true,
 }
 
 // safeStreamHeaders are relayed for SSE streaming responses.
 var safeStreamHeaders = map[string]bool{
-	"content-type":    true,
-	"cache-control":   true,
-	"x-request-id":    true,
+	"content-type":     true,
+	"cache-control":    true,
+	"x-request-id":     true,
 	"x-correlation-id": true,
 }
 
@@ -337,7 +337,7 @@ func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, 
 
 	// Extract usage from response
 	var respBody map[string]interface{}
-	inputTokens, outputTokens := 0, 0
+	inputTokens, outputTokens, cachedTokens := 0, 0, 0
 	if json.Unmarshal(body, &respBody) == nil {
 		if usage, ok := respBody["usage"].(map[string]interface{}); ok {
 			if v, ok := usage["input_tokens"].(float64); ok {
@@ -352,24 +352,27 @@ func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, 
 			if v, ok := usage["completion_tokens"].(float64); ok {
 				outputTokens = int(v)
 			}
+			cachedTokens = intFromJSON(usage["cache_read_input_tokens"])
 		}
 	}
 
 	auditType := "LLM_DIRECT"
 	lh.audit.Log(AuditEntry{
-		Type:          auditType,
-		Model:         modelAlias,
-		ProviderModel: providerModel,
-		CorrelationID: correlationID,
-		Status:        resp.StatusCode,
-		InputTokens:   inputTokens,
-		OutputTokens:  outputTokens,
-		DurationMs:    time.Since(start).Milliseconds(),
+		Type:                 auditType,
+		Model:                modelAlias,
+		ProviderModel:        providerModel,
+		CorrelationID:        correlationID,
+		Status:               resp.StatusCode,
+		InputTokens:          inputTokens,
+		OutputTokens:         outputTokens,
+		CachedTokens:         cachedTokens,
+		CacheReadInputTokens: cachedTokens,
+		DurationMs:           time.Since(start).Milliseconds(),
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, resp.StatusCode, time.Since(start).Milliseconds())
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, cachedTokens, resp.StatusCode, time.Since(start).Milliseconds())
 
 	// XPIA scan on response content
 	lh.scanContent(string(body), "response")
@@ -432,7 +435,7 @@ func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, mo
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, resp.StatusCode, time.Since(start).Milliseconds())
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, 0, resp.StatusCode, time.Since(start).Milliseconds())
 }
 
 // relayAnthropicBuffered relays a non-streaming Anthropic response, translating
@@ -463,7 +466,7 @@ func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.R
 
 	// Extract usage from translated response for audit
 	var respBody map[string]interface{}
-	inputTokens, outputTokens := 0, 0
+	inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens := 0, 0, 0, 0
 	if json.Unmarshal(translated, &respBody) == nil {
 		if usage, ok := respBody["usage"].(map[string]interface{}); ok {
 			if v, ok := usage["prompt_tokens"].(float64); ok {
@@ -472,23 +475,28 @@ func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.R
 			if v, ok := usage["completion_tokens"].(float64); ok {
 				outputTokens = int(v)
 			}
+			cacheCreationTokens = intFromJSON(usage["cache_creation_input_tokens"])
+			cacheReadTokens = intFromJSON(usage["cache_read_input_tokens"])
 		}
 	}
 
 	lh.audit.Log(AuditEntry{
-		Type:          "LLM_DIRECT",
-		Model:         modelAlias,
-		ProviderModel: providerModel,
-		CorrelationID: correlationID,
-		Status:        resp.StatusCode,
-		InputTokens:   inputTokens,
-		OutputTokens:  outputTokens,
-		DurationMs:    time.Since(start).Milliseconds(),
+		Type:                     "LLM_DIRECT",
+		Model:                    modelAlias,
+		ProviderModel:            providerModel,
+		CorrelationID:            correlationID,
+		Status:                   resp.StatusCode,
+		InputTokens:              inputTokens,
+		OutputTokens:             outputTokens,
+		CachedTokens:             cacheReadTokens,
+		CacheCreationInputTokens: cacheCreationTokens,
+		CacheReadInputTokens:     cacheReadTokens,
+		DurationMs:               time.Since(start).Milliseconds(),
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, resp.StatusCode, time.Since(start).Milliseconds())
+	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, cacheReadTokens, resp.StatusCode, time.Since(start).Milliseconds())
 
 	// XPIA scan on response content
 	lh.scanContent(string(translated), "response")
@@ -536,19 +544,22 @@ func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Res
 	}
 
 	lh.audit.Log(AuditEntry{
-		Type:          "LLM_DIRECT_STREAM",
-		Model:         modelAlias,
-		ProviderModel: providerModel,
-		CorrelationID: correlationID,
-		Status:        resp.StatusCode,
-		InputTokens:   translator.inputTokens,
-		OutputTokens:  translator.outputTokens,
-		DurationMs:    time.Since(start).Milliseconds(),
+		Type:                     "LLM_DIRECT_STREAM",
+		Model:                    modelAlias,
+		ProviderModel:            providerModel,
+		CorrelationID:            correlationID,
+		Status:                   resp.StatusCode,
+		InputTokens:              translator.inputTokens,
+		OutputTokens:             translator.outputTokens,
+		CachedTokens:             translator.cacheRead,
+		CacheCreationInputTokens: translator.cacheCreation,
+		CacheReadInputTokens:     translator.cacheRead,
+		DurationMs:               time.Since(start).Milliseconds(),
 	})
 	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
 
 	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, translator.inputTokens, translator.outputTokens, resp.StatusCode, time.Since(start).Milliseconds())
+	lh.reportUsage(modelAlias, providerModel, translator.inputTokens, translator.outputTokens, translator.cacheRead, resp.StatusCode, time.Since(start).Milliseconds())
 }
 
 // acquireRateSlot blocks until a rate limit slot is available from the analysis
@@ -630,8 +641,8 @@ func atofOr(s string, fallback float64) float64 {
 
 // reportUsage sends token usage to the analysis service for budget tracking
 // and per-model metrics collection (used by the auto-router).
-func (lh *LLMHandler) reportUsage(modelAlias, providerModel string, inputTokens, outputTokens int, statusCode int, latencyMs int64) {
-	if inputTokens == 0 && outputTokens == 0 {
+func (lh *LLMHandler) reportUsage(modelAlias, providerModel string, inputTokens, outputTokens, cachedTokens int, statusCode int, latencyMs int64) {
+	if inputTokens == 0 && outputTokens == 0 && cachedTokens == 0 {
 		return
 	}
 	model, ok := lh.routing.Models[modelAlias]
@@ -642,7 +653,7 @@ func (lh *LLMHandler) reportUsage(modelAlias, providerModel string, inputTokens,
 	// Record to budget tracker for per-task cost tracking
 	if lh.budget != nil {
 		lh.budget.RecordUsage(
-			int64(inputTokens), int64(outputTokens), 0,
+			int64(inputTokens), int64(outputTokens), int64(cachedTokens),
 			model.CostIn, model.CostOut, model.CostCached,
 		)
 	}

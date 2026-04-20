@@ -1,20 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from 'react';
 import { api } from '../lib/api';
 import { formatDateTimeShort } from '../lib/time';
-import { Input } from '../components/ui/input';
-import { Button } from '../components/ui/button';
-import { Search, Database, Sparkles, Check, X, RotateCcw, ShieldCheck, ShieldAlert, Network } from 'lucide-react';
 import { toast } from 'sonner';
 import { adminFeatureFlags } from '../lib/features';
-
-interface QueryResult {
-  label: string;
-  kind: string;
-  summary: string;
-  source_type: string;
-  updated_at: string;
-  connections: number;
-}
 
 interface KnowledgeStats {
   node_count: number;
@@ -276,21 +264,137 @@ function parseTopologyItems(raw: unknown, keys: string[], fallbackPrefix: string
   });
 }
 
-export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string, kind: string) => void }) {
+type ButtonTone = 'default' | 'primary' | 'ghost';
+const REVIEW_WIDTHS = 'minmax(180px, 1.4fr) minmax(150px, 1fr) 82px 118px';
+const QUARANTINE_WIDTHS = 'minmax(180px, 1.2fr) minmax(160px, 1fr) 92px';
+const ONTOLOGY_WIDTHS = 'minmax(0, 1fr) 92px minmax(0, 1.35fr) 154px';
+const TOPOLOGY_WIDTHS = '118px minmax(0, 1.05fr) minmax(0, 1.3fr) 54px';
+
+function actionStyle(tone: ButtonTone = 'default', disabled = false): CSSProperties {
+  const variants = {
+    default: { bg: 'var(--warm)', color: 'var(--ink)', border: '0.5px solid var(--ink-hairline-strong)' },
+    primary: { bg: 'var(--ink)', color: 'var(--warm)', border: '0.5px solid var(--ink)' },
+    ghost: { bg: 'transparent', color: 'var(--ink-mid)', border: '0.5px solid transparent' },
+  }[tone];
+  return { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '5px 10px', fontSize: 12, fontWeight: 400, fontFamily: 'var(--sans)', cursor: disabled ? 'default' : 'pointer', background: variants.bg, color: variants.color, border: variants.border, borderRadius: 999, opacity: disabled ? 0.5 : 1, whiteSpace: 'nowrap' };
+}
+
+function ActionButton({ children, tone = 'default', style, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { tone?: ButtonTone }) {
+  return <button type="button" {...props} style={{ ...actionStyle(tone, Boolean(props.disabled)), ...style }}>{children}</button>;
+}
+
+function Card({ children, padded = false }: { children: ReactNode; padded?: boolean }) {
+  return <div style={{ background: 'var(--warm-2)', border: '0.5px solid var(--ink-hairline)', borderRadius: 10, padding: padded ? 14 : 0, overflow: 'hidden' }}>{children}</div>;
+}
+
+function MetaStat({ label, value, tone }: { label: string; value: string | number; tone?: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <span className="eyebrow" style={{ fontSize: 9 }}>{label}</span>
+      <span className="mono" style={{ fontSize: 14, color: tone || 'var(--ink)' }}>{value}</span>
+    </div>
+  );
+}
+
+function TableHeader({ cols, widths }: { cols: ReactNode[]; widths: string }) {
+  return <div style={{ display: 'grid', gridTemplateColumns: widths, gap: 14, padding: '9px 16px', background: 'var(--warm-2)' }}>{cols.map((col, index) => <div key={index} className="eyebrow" style={{ fontSize: 9 }}>{col}</div>)}</div>;
+}
+
+function TableRow({ cols, widths, accent }: { cols: ReactNode[]; widths: string; accent?: string }) {
+  return <div style={{ display: 'grid', gridTemplateColumns: widths, gap: 14, padding: '10px 16px', alignItems: 'center', borderTop: '0.5px solid var(--ink-hairline)', borderLeft: accent ? `2px solid ${accent}` : '2px solid transparent' }}>{cols.map((col, index) => <div key={index} style={{ minWidth: 0 }}>{col}</div>)}</div>;
+}
+
+function EmptyLine({ children }: { children: ReactNode }) {
+  return <div style={{ padding: 22, textAlign: 'center', color: 'var(--ink-mid)', fontSize: 13 }}>{children}</div>;
+}
+
+function SectionTitle({ title, action }: { title: string; action?: ReactNode }) {
+  return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}><div className="eyebrow" style={{ fontSize: 9 }}>{title}</div>{action}</div>;
+}
+
+function InlineGroupLabel({ children }: { children: ReactNode }) {
+  return (
+    <div
+      className="eyebrow"
+      style={{
+        padding: '10px 16px 8px',
+        borderTop: '0.5px solid var(--ink-hairline)',
+        background: 'var(--warm)',
+        color: 'var(--ink-mid)',
+        fontSize: 9,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function Truncate({ children, className, style }: { children: ReactNode; className?: string; style?: CSSProperties }) {
+  return (
+    <span
+      className={className}
+      style={{
+        display: 'block',
+        minWidth: 0,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        ...style,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function TopologyRows({ label, items }: { label: string; items: TopologyItem[] }) {
+  if (items.length === 0) {
+    return (
+      <TableRow
+        widths={TOPOLOGY_WIDTHS}
+        cols={[
+          <span className="mono" style={{ fontSize: 12, color: 'var(--ink-faint)' }}>{label}</span>,
+          <span style={{ fontSize: 12, color: 'var(--ink-mid)' }}>No data</span>,
+          <span />,
+          <span className="mono" style={{ fontSize: 11, color: 'var(--ink-faint)', textAlign: 'right', display: 'block' }}>0</span>,
+        ]}
+      />
+    );
+  }
+
+  return (
+    <>
+      {items.slice(0, 5).map((item, index) => (
+        <TableRow
+          key={`${label}-${item.id}`}
+          widths={TOPOLOGY_WIDTHS}
+          cols={[
+            <span className="mono" style={{ fontSize: 12, color: index === 0 ? 'var(--ink)' : 'var(--ink-faint)' }}>{index === 0 ? label : ''}</span>,
+            <Truncate className="mono" style={{ fontSize: 12, color: 'var(--ink)' }}>{item.label}</Truncate>,
+            <Truncate style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{item.detail || '...'}</Truncate>,
+            <span className="mono" style={{ fontSize: 11, color: 'var(--ink-faint)', textAlign: 'right', display: 'block' }}>{item.count ?? ''}</span>,
+          ]}
+        />
+      ))}
+      {items.length > 5 && (
+        <TableRow
+          widths={TOPOLOGY_WIDTHS}
+          cols={[
+            <span />,
+            <span className="mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>+ {items.length - 5} more</span>,
+            <span />,
+            <span />,
+          ]}
+        />
+      )}
+    </>
+  );
+}
+
+export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?: (label: string, kind: string) => void }) {
   const graphAdminEnabled = adminFeatureFlags.graphAdmin;
-  const [queryText, setQueryText] = useState('');
-  const [queryResults, setQueryResults] = useState<QueryResult[]>([]);
-  const [queryLoading, setQueryLoading] = useState(false);
-  const [queryError, setQueryError] = useState<string | null>(null);
-
-  const [whoKnowsText, setWhoKnowsText] = useState('');
-  const [whoKnowsResults, setWhoKnowsResults] = useState<any>(null);
-  const [whoKnowsLoading, setWhoKnowsLoading] = useState(false);
-  const [whoKnowsError, setWhoKnowsError] = useState<string | null>(null);
-
   const [stats, setStats] = useState<KnowledgeStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
-
   const [ontologyCandidates, setOntologyCandidates] = useState<OntologyCandidate[]>([]);
   const [ontologyLoading, setOntologyLoading] = useState(false);
   const [ontologyDecisions, setOntologyDecisions] = useState<OntologyDecision[]>([]);
@@ -303,6 +407,19 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
   const [quarantineActionLoading, setQuarantineActionLoading] = useState<string | null>(null);
   const [topology, setTopology] = useState<GraphTopology>({ tiers: [], principals: [], communities: [], hubs: [] });
   const [topologyLoading, setTopologyLoading] = useState(false);
+
+  const loadStats = async () => {
+    try {
+      setStatsLoading(true);
+      const data = await api.knowledge.stats();
+      const d = data as any;
+      setStats({ node_count: d.nodes ?? d.node_count ?? 0, edge_count: d.edges ?? d.edge_count ?? 0 });
+    } catch {
+      setStats(null);
+    } finally {
+      setStatsLoading(false);
+    }
+  };
 
   const loadPendingContributions = async () => {
     try {
@@ -360,15 +477,27 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
     }
   };
 
+  const reloadAll = async () => {
+    await Promise.all([loadStats(), loadOntologyReviewData(), loadPendingContributions(), loadQuarantinedNodes(), loadTopology()]);
+  };
+
+  useEffect(() => {
+    if (!graphAdminEnabled) {
+      setStatsLoading(false);
+      return;
+    }
+    reloadAll();
+  }, [graphAdminEnabled]);
+
   const handlePromote = async (candidate: OntologyCandidate) => {
     const value = candidateValue(candidate, candidate.id);
     try {
       setOntologyActionLoading(candidate.id);
       await api.knowledge.ontologyPromote(candidate.id, value);
-      toast.success(`Promoted "${value}" to ontology`);
+      toast.success(`Accepted "${value}"`);
       await loadOntologyReviewData();
     } catch (e: any) {
-      toast.error(e.message || 'Promote failed');
+      toast.error(e.message || 'Accept failed');
     } finally {
       setOntologyActionLoading(null);
     }
@@ -379,10 +508,10 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
     try {
       setOntologyActionLoading(candidate.id);
       await api.knowledge.ontologyReject(candidate.id, value);
-      toast.success(`Rejected "${value}"`);
+      toast.success(`Dismissed "${value}"`);
       await loadOntologyReviewData();
     } catch (e: any) {
-      toast.error(e.message || 'Reject failed');
+      toast.error(e.message || 'Dismiss failed');
     } finally {
       setOntologyActionLoading(null);
     }
@@ -427,528 +556,111 @@ export function Knowledge({ onSelectResult }: { onSelectResult?: (label: string,
     }
   };
 
-  useEffect(() => {
-    if (graphAdminEnabled) {
-      loadOntologyReviewData();
-      loadPendingContributions();
-      loadQuarantinedNodes();
-      loadTopology();
-    }
-    const loadStats = async () => {
-      try {
-        setStatsLoading(true);
-        const data = await api.knowledge.stats();
-        const d = data as any;
-        setStats({ node_count: d.nodes ?? d.node_count ?? 0, edge_count: d.edges ?? d.edge_count ?? 0 });
-      } catch {
-        setStats(null);
-      } finally {
-        setStatsLoading(false);
-      }
-    };
-    loadStats();
-  }, [graphAdminEnabled]);
+  if (!graphAdminEnabled) return null;
 
-  const handleQuery = async () => {
-    if (!queryText.trim()) return;
-    try {
-      setQueryLoading(true);
-      setQueryError(null);
-      const data = await api.knowledge.query(queryText.trim());
-      setQueryResults((data as any).results || []);
-    } catch (e: any) {
-      setQueryError(e.message || 'Query failed');
-      setQueryResults([]);
-    } finally {
-      setQueryLoading(false);
-    }
-  };
-
-  const handleWhoKnows = async () => {
-    if (!whoKnowsText.trim()) return;
-    try {
-      setWhoKnowsLoading(true);
-      setWhoKnowsError(null);
-      const data = await api.knowledge.whoKnows(whoKnowsText.trim());
-      setWhoKnowsResults(data);
-    } catch (e: any) {
-      setWhoKnowsError(e.message || 'Who Knows query failed');
-      setWhoKnowsResults(null);
-    } finally {
-      setWhoKnowsLoading(false);
-    }
-  };
+  const topologyCount = topology.tiers.length + topology.principals.length + topology.communities.length + topology.hubs.length;
+  const refreshing = statsLoading || pendingLoading || quarantineLoading || topologyLoading || ontologyLoading;
+  const evidenceText = (candidate: OntologyCandidate, count?: number, source?: string) => [
+    count != null ? `${count} occ.` : '',
+    source || '',
+    candidate.candidate_type || '',
+  ].filter(Boolean).join(' · ') || '...';
+  const statItems = [
+    { label: 'Nodes', value: statsLoading ? '...' : stats ? stats.node_count.toLocaleString() : '0' },
+    { label: 'Edges', value: statsLoading ? '...' : stats ? stats.edge_count.toLocaleString() : '0' },
+    { label: 'Pending', value: pendingLoading ? '...' : pendingContributions.length.toLocaleString() },
+    { label: 'Quarantined', value: quarantineLoading ? '...' : quarantinedNodes.length.toLocaleString() },
+    { label: 'Ontology', value: ontologyLoading ? '...' : (ontologyCandidates.length + ontologyDecisions.length).toLocaleString() },
+    { label: 'Topology', value: topologyLoading ? '...' : topologyCount.toLocaleString() },
+  ];
 
   return (
-    <div className="space-y-6">
-      {/* Stats */}
-      {!stats && !statsLoading ? (
-        <div className="bg-card border border-border rounded p-4 md:p-6 text-center">
-          <Database className="w-8 h-8 text-muted-foreground/70 mx-auto mb-2" />
-          <p className="text-sm text-muted-foreground mb-1">Knowledge graph is empty</p>
-          <p className="text-xs text-muted-foreground/70">Add agents or content to populate the knowledge graph.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-card border border-border rounded p-4">
-            <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Nodes</div>
-            <div className="text-2xl font-semibold text-foreground">
-              {statsLoading ? '—' : stats ? stats.node_count.toLocaleString() : '—'}
-            </div>
-          </div>
-          <div className="bg-card border border-border rounded p-4">
-            <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Edges</div>
-            <div className="text-2xl font-semibold text-foreground">
-              {statsLoading ? '—' : stats ? stats.edge_count.toLocaleString() : '—'}
-            </div>
-          </div>
-          <div className="bg-card border border-border rounded p-4">
-            <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
-              Query Results
-            </div>
-            <div className="text-2xl font-semibold text-foreground">{queryResults.length}</div>
-          </div>
-          <div className="bg-card border border-border rounded p-4">
-            <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
-              Who Knows
-            </div>
-            <div className="text-sm text-muted-foreground">
-              {whoKnowsResults ? 'Results loaded' : 'No query yet'}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-        {/* Query */}
-        <div className="bg-card border border-border rounded p-4 md:p-6">
-          <h2 className="text-sm font-semibold text-foreground/80 mb-4 flex items-center gap-2">
-            <Search className="w-4 h-4" />
-            Query Knowledge
-          </h2>
-          <div className="flex gap-2 mb-4">
-            <Input
-              value={queryText}
-              onChange={(e) => setQueryText(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleQuery()}
-              placeholder="Search topics and content..."
-              className="bg-background border-border text-foreground placeholder:text-muted-foreground/70"
-            />
-            <Button size="sm" onClick={handleQuery} disabled={queryLoading}>
-              {queryLoading ? '...' : 'Search'}
-            </Button>
-          </div>
-          {queryError && (
-            <div className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded px-3 py-2 mb-3">
-              {queryError.includes('502') || queryError.includes('503')
-                ? 'Knowledge service is starting up. Try again in a moment.'
-                : queryError}
-            </div>
-          )}
-          <div className="space-y-2 max-h-80 overflow-y-auto">
-            {queryResults.length === 0 && !queryLoading ? (
-              <div className="text-sm text-muted-foreground text-center py-8">
-                Enter a query to search the knowledge graph
-              </div>
-            ) : (
-              queryResults.map((node, idx) => (
-                <div
-                  key={idx}
-                  onClick={() => onSelectResult?.(node.label, node.kind)}
-                  className="bg-background border border-border rounded p-3 hover:border-border transition-colors cursor-pointer"
-                >
-                  <div className="flex items-start justify-between mb-1">
-                    <h3 className="text-sm font-medium text-foreground">{node.label}</h3>
-                    <span className="text-[10px] font-mono text-muted-foreground bg-secondary px-1.5 py-0.5 rounded">
-                      {node.kind}
-                    </span>
-                  </div>
-                  {node.summary && (
-                    <p className="text-xs text-muted-foreground mb-2">{node.summary}</p>
-                  )}
-                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground/70">
-                    <code>{node.source_type}</code>
-                    <span>·</span>
-                    <span>{formatDateTimeShort(node.updated_at)}</span>
-                    {node.connections > 0 && (
-                      <>
-                        <span>·</span>
-                        <span>{node.connections} connections</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Who Knows */}
-        <div className="bg-card border border-border rounded p-4 md:p-6">
-          <h2 className="text-sm font-semibold text-foreground/80 mb-4 flex items-center gap-2">
-            <Database className="w-4 h-4" />
-            Who Knows
-          </h2>
-
-          <div className="flex gap-2 mb-4">
-            <Input
-              value={whoKnowsText}
-              onChange={(e) => setWhoKnowsText(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleWhoKnows()}
-              placeholder="Enter a topic..."
-              className="bg-background border-border text-foreground placeholder:text-muted-foreground/70"
-            />
-            <Button size="sm" onClick={handleWhoKnows} disabled={whoKnowsLoading}>
-              {whoKnowsLoading ? '...' : 'Find'}
-            </Button>
-          </div>
-          {whoKnowsError && (
-            <div className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded px-3 py-2 mb-3">
-              {whoKnowsError.includes('502') || whoKnowsError.includes('503')
-                ? 'Knowledge service is starting up. Try again in a moment.'
-                : whoKnowsError}
-            </div>
-          )}
-          <div className="space-y-2 max-h-80 overflow-y-auto">
-            {whoKnowsResults === null ? (
-              <div className="text-sm text-muted-foreground text-center py-8">
-                Enter a topic to find agents with expertise
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {(whoKnowsResults.agents || []).length === 0 ? (
-                  <div className="text-sm text-muted-foreground text-center py-4">No agents found for this topic</div>
-                ) : (
-                  (whoKnowsResults.agents || []).map((agent: any) => (
-                    <div key={agent.name} className="bg-background border border-border rounded p-3">
-                      <div className="flex items-center justify-between mb-1">
-                        <code className="text-sm text-foreground">{agent.name}</code>
-                        <span className="text-xs text-muted-foreground">{Math.round((agent.confidence || 0) * 100)}%</span>
-                      </div>
-                      {agent.topics && (
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {agent.topics.map((t: string) => (
-                            <span key={t} className="text-[10px] bg-secondary text-muted-foreground px-1.5 py-0.5 rounded">{t}</span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {!graphAdminEnabled && (
-        <div className="bg-card border border-border rounded p-4 md:p-6">
-          <div className="flex items-center gap-2 mb-2">
-            <ShieldCheck className="w-4 h-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground/80">Core Knowledge Surface</h2>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Advanced graph governance, ontology review, quarantine, and topology inspection are experimental and hidden in the default core workspace.
-          </p>
-        </div>
-      )}
-
-      {/* Structural Review */}
-      {graphAdminEnabled && <div className="bg-card border border-border rounded p-4 md:p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-foreground/80 flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4" />
-            Structural Review
-          </h2>
-          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={loadPendingContributions} disabled={pendingLoading}>
-            {pendingLoading ? '...' : 'Refresh'}
-          </Button>
-        </div>
-        <p className="text-xs text-muted-foreground mb-3">
-          Operator-owned review for proposed organizational knowledge changes before they affect structure, trust, or routing.
-        </p>
-        {pendingContributions.length === 0 ? (
-          <div className="text-sm text-muted-foreground text-center py-8">
-            No pending structural contributions
-          </div>
-        ) : (
-          <div className="space-y-2 max-h-80 overflow-y-auto">
-            {pendingContributions.map((item) => (
-              <div key={item.id} className="bg-background border border-border rounded p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-medium text-foreground">{item.title}</span>
-                      {item.type && (
-                        <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                          {item.type}
-                        </span>
-                      )}
-                      {item.confidence != null && (
-                        <span className="text-[10px] text-muted-foreground">{Math.round(item.confidence * 100)}%</span>
-                      )}
-                    </div>
-                    {(item.subject || item.proposed) && (
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {[item.subject, item.proposed].filter(Boolean).join(' -> ')}
-                      </div>
-                    )}
-                    {item.summary && (
-                      <div className="mt-2 text-xs text-muted-foreground/80">{item.summary}</div>
-                    )}
-                    <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground/70">
-                      <code>{item.id}</code>
-                      {item.agent && <span>agent: {item.agent}</span>}
-                      {item.createdAt && <span>{formatDateTimeShort(item.createdAt)}</span>}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2 text-xs text-green-500 hover:text-green-400 hover:bg-green-950/30"
-                      onClick={() => handleReviewContribution(item, 'approve')}
-                      disabled={reviewActionLoading === `${item.id}:approve`}
-                    >
-                      Approve
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2 text-xs text-red-500 hover:text-red-400 hover:bg-red-950/30"
-                      onClick={() => handleReviewContribution(item, 'reject')}
-                      disabled={reviewActionLoading === `${item.id}:reject`}
-                    >
-                      Reject
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>}
-
-      {/* Topology */}
-      {graphAdminEnabled && <div className="bg-card border border-border rounded p-4 md:p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-foreground/80 flex items-center gap-2">
-            <Network className="w-4 h-4" />
-            Graph Topology
-          </h2>
-          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={loadTopology} disabled={topologyLoading}>
-            {topologyLoading ? '...' : 'Refresh'}
-          </Button>
-        </div>
-        <p className="text-xs text-muted-foreground mb-3">
-          Read-only view of classification tiers, registered principals, communities, and highly connected hubs.
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {([
-            ['Classification', topology.tiers],
-            ['Principals', topology.principals],
-            ['Communities', topology.communities],
-            ['Hubs', topology.hubs],
-          ] as const).map(([label, items]) => (
-            <div key={label} className="bg-background border border-border rounded p-3">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{label}</div>
-                <span className="text-[10px] text-muted-foreground">{items.length}</span>
-              </div>
-              {items.length === 0 ? (
-                <div className="text-xs text-muted-foreground/70 py-3">No data</div>
-              ) : (
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {items.slice(0, 8).map((item) => (
-                    <div key={item.id} className="rounded bg-secondary/50 px-2 py-1.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-medium text-foreground truncate">{item.label}</span>
-                        {item.count != null && <span className="text-[10px] text-muted-foreground">{item.count}</span>}
-                      </div>
-                      {item.detail && <div className="mt-0.5 text-[10px] text-muted-foreground truncate">{item.detail}</div>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }} aria-label="Knowledge metrics">
+          {statItems.map((item) => (
+            <MetaStat key={item.label} label={item.label} value={item.value} tone={item.label === 'Pending' && item.value !== '0' ? 'var(--amber)' : item.label === 'Quarantined' && item.value !== '0' ? 'var(--red)' : undefined} />
           ))}
         </div>
-      </div>}
+        <ActionButton onClick={reloadAll} disabled={refreshing}>{refreshing ? 'Refreshing...' : 'Refresh'}</ActionButton>
+      </div>
 
-      {/* Quarantine */}
-      {graphAdminEnabled && <div className="bg-card border border-border rounded p-4 md:p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-foreground/80 flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4" />
-            Quarantine
-          </h2>
-          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={loadQuarantinedNodes} disabled={quarantineLoading}>
-            {quarantineLoading ? '...' : 'Refresh'}
-          </Button>
+      {!stats && !statsLoading && (
+        <div style={{ padding: '10px 12px', border: '0.5px solid var(--amber)', background: 'var(--amber-tint)', color: '#8B5A00', borderRadius: 8, fontSize: 12 }}>
+          Knowledge graph stats are unavailable. Administration controls remain available if the graph APIs respond.
         </div>
-        <p className="text-xs text-muted-foreground mb-3">
-          Review knowledge that has been isolated from active graph use. Release only when the source and boundary are understood.
-        </p>
-        {quarantinedNodes.length === 0 ? (
-          <div className="text-sm text-muted-foreground text-center py-8">
-            No quarantined knowledge
-          </div>
-        ) : (
-          <div className="space-y-2 max-h-80 overflow-y-auto">
-            {quarantinedNodes.map((node) => (
-              <div key={node.id} className="bg-background border border-border rounded p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-medium text-foreground">{node.label}</span>
-                      {node.type && (
-                        <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                          {node.type}
-                        </span>
-                      )}
-                    </div>
-                    {node.reason && (
-                      <div className="mt-2 text-xs text-muted-foreground/80">{node.reason}</div>
-                    )}
-                    <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground/70">
-                      <code>{node.id}</code>
-                      {node.agent && <span>agent: {node.agent}</span>}
-                      {node.quarantinedAt && <span>{formatDateTimeShort(node.quarantinedAt)}</span>}
-                    </div>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-xs text-amber-600 hover:text-amber-500 hover:bg-amber-950/20"
-                    onClick={() => handleReleaseQuarantine(node)}
-                    disabled={quarantineActionLoading === node.id}
-                  >
-                    Release
-                  </Button>
-                </div>
-              </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 520px), 1fr))', gap: 14 }}>
+        <div>
+          <SectionTitle title="Structural Review" />
+          <Card>
+            <TableHeader widths={REVIEW_WIDTHS} cols={['Proposal', 'Subject', 'Confidence', '']} />
+            {pendingContributions.length === 0 ? <EmptyLine>No pending structural contributions</EmptyLine> : pendingContributions.map((item) => (
+              <TableRow key={item.id} widths={REVIEW_WIDTHS} accent="var(--amber)" cols={[
+                <div><Truncate className="mono" style={{ fontSize: 13, color: 'var(--ink)' }}>{item.title}</Truncate><Truncate className="mono" style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-faint)' }}>{item.id}</Truncate>{item.summary && <Truncate style={{ marginTop: 4, fontSize: 12, color: 'var(--ink-mid)' }}>{item.summary}</Truncate>}</div>,
+                <Truncate style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{[item.subject, item.proposed].filter(Boolean).join(' -> ') || item.type || '...'}</Truncate>,
+                <span className="mono" style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{item.confidence != null ? `${Math.round(item.confidence * 100)}%` : '...'}</span>,
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}><ActionButton tone="ghost" onClick={() => handleReviewContribution(item, 'reject')} disabled={reviewActionLoading === `${item.id}:reject`}>Reject</ActionButton><ActionButton tone="primary" onClick={() => handleReviewContribution(item, 'approve')} disabled={reviewActionLoading === `${item.id}:approve`}>Approve</ActionButton></div>,
+              ]} />
             ))}
-          </div>
-        )}
-      </div>}
-
-      {/* Ontology Candidates */}
-      {graphAdminEnabled && (ontologyCandidates.length > 0 || ontologyDecisions.length > 0) && (
-        <div className="bg-card border border-border rounded p-4 md:p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-foreground/80 flex items-center gap-2">
-              <Sparkles className="w-4 h-4" />
-              Ontology Review
-            </h2>
-            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={loadOntologyReviewData} disabled={ontologyLoading}>
-              {ontologyLoading ? '...' : 'Refresh'}
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground mb-3">
-            Emerged concepts from the knowledge graph. Promote or reject candidates, and restore recent ontology decisions when a judgment needs to be revisited.
-          </p>
-          {ontologyCandidates.length > 0 && (
-            <div className="mb-5">
-              <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                Pending Candidates
-              </div>
-              <div className="space-y-2 max-h-72 overflow-y-auto">
-                {ontologyCandidates.map((candidate, idx) => {
-                  const val = candidateValue(candidate, `candidate_${idx}`);
-                  const count = candidate.count ?? candidate.properties?.occurrence_count;
-                  const source = candidate.source ?? (candidate.properties?.source_count ? 'knowledge' : undefined);
-                  const status = candidateStatus(candidate);
-                  return (
-                    <div key={candidate.id || val} className="flex items-center justify-between bg-background border border-border rounded px-3 py-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm text-foreground font-mono">{val}</span>
-                          <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                            {status}
-                          </span>
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                          {count != null && <span>{count} occurrences</span>}
-                          {source && <span>from {source}</span>}
-                          {candidate.candidate_type && <span>type: {candidate.candidate_type}</span>}
-                        </div>
-                      </div>
-                      <div className="flex gap-1 ml-2 shrink-0">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 text-green-500 hover:text-green-400 hover:bg-green-950/30"
-                          onClick={() => handlePromote(candidate)}
-                          disabled={ontologyActionLoading === candidate.id}
-                          title="Promote to ontology"
-                        >
-                          <Check className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 text-red-500 hover:text-red-400 hover:bg-red-950/30"
-                          onClick={() => handleReject(candidate)}
-                          disabled={ontologyActionLoading === candidate.id}
-                          title="Reject candidate"
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+          </Card>
         </div>
-      )}
 
-          {ontologyDecisions.length > 0 && (
-            <div>
-              <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                Recent Decisions
-              </div>
-              <div className="space-y-2 max-h-72 overflow-y-auto">
-                {ontologyDecisions.map((decision) => (
-                  <div key={decision.id} className="flex items-center justify-between bg-background border border-border rounded px-3 py-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm text-foreground font-mono">{decision.value}</span>
-                        <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                          {decision.action}
-                        </span>
-                      </div>
-                      {decision.timestamp && (
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          {formatDateTimeShort(decision.timestamp)}
-                        </div>
-                      )}
-                    </div>
-                    {decision.action !== 'restore' && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs text-amber-600 hover:text-amber-500 hover:bg-amber-950/20"
-                        onClick={() => handleRestore(decision.nodeId, decision.value)}
-                        disabled={ontologyActionLoading === decision.nodeId}
-                        title="Restore to ontology review"
-                      >
-                        <RotateCcw className="mr-1 h-3.5 w-3.5" />
-                        Restore
-                      </Button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+        <div>
+          <SectionTitle title="Quarantine" />
+          <Card>
+            <TableHeader widths={QUARANTINE_WIDTHS} cols={['Node', 'Reason', '']} />
+            {quarantinedNodes.length === 0 ? <EmptyLine>No quarantined knowledge</EmptyLine> : quarantinedNodes.map((node) => (
+              <TableRow key={node.id} widths={QUARANTINE_WIDTHS} accent="var(--red)" cols={[
+                <div><Truncate className="mono" style={{ fontSize: 13, color: 'var(--ink)' }}>{node.label}</Truncate><Truncate className="mono" style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-faint)' }}>{node.id}</Truncate></div>,
+                <Truncate style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{node.reason || node.type || node.agent || '...'}</Truncate>,
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}><ActionButton tone="ghost" onClick={() => handleReleaseQuarantine(node)} disabled={quarantineActionLoading === node.id}>Release</ActionButton></div>,
+              ]} />
+            ))}
+          </Card>
+        </div>
 
-          {ontologyCandidates.length === 0 && ontologyDecisions.length === 0 && (
-            <div className="text-sm text-muted-foreground text-center py-8">
-              No ontology candidates or recent decisions
-            </div>
-          )}
-          </div>
-      )}
+        <div>
+          <SectionTitle title="Graph Topology" />
+          <Card>
+            <TableHeader widths={TOPOLOGY_WIDTHS} cols={['Type', 'Node', 'Detail', 'Count']} />
+            <TopologyRows label="Classification" items={topology.tiers} />
+            <TopologyRows label="Principals" items={topology.principals} />
+            <TopologyRows label="Communities" items={topology.communities} />
+            <TopologyRows label="Hubs" items={topology.hubs} />
+          </Card>
+        </div>
+
+        <div>
+          <SectionTitle title="Ontology Review" />
+          <Card>
+            <TableHeader widths={ONTOLOGY_WIDTHS} cols={['Concept', 'Status', 'Evidence', '']} />
+            {ontologyCandidates.length === 0 && ontologyDecisions.length === 0 ? <EmptyLine>No ontology candidates or recent decisions</EmptyLine> : <>
+              {ontologyCandidates.length > 0 && <InlineGroupLabel>Pending Candidates</InlineGroupLabel>}
+              {ontologyCandidates.map((candidate, idx) => {
+                const val = candidateValue(candidate, `candidate_${idx}`);
+                const count = candidate.count ?? candidate.properties?.occurrence_count;
+                const source = candidate.source ?? (candidate.properties?.source_count ? 'knowledge' : undefined);
+                const status = candidateStatus(candidate);
+                return <TableRow key={candidate.id || val} widths={ONTOLOGY_WIDTHS} accent="var(--teal)" cols={[
+                  <Truncate className="mono" style={{ fontSize: 13, color: 'var(--ink)' }}>{val}</Truncate>,
+                  <span className="mono" style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{status}</span>,
+                  <Truncate style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{evidenceText(candidate, count, source)}</Truncate>,
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}><ActionButton tone="ghost" onClick={() => handleReject(candidate)} disabled={ontologyActionLoading === candidate.id}>Dismiss</ActionButton><ActionButton tone="primary" onClick={() => handlePromote(candidate)} disabled={ontologyActionLoading === candidate.id}>Accept</ActionButton></div>,
+                ]} />;
+              })}
+              {ontologyDecisions.length > 0 && <InlineGroupLabel>Recent Decisions</InlineGroupLabel>}
+              {ontologyDecisions.map((decision) => <TableRow key={decision.id} widths={ONTOLOGY_WIDTHS} cols={[
+                <Truncate className="mono" style={{ fontSize: 13, color: 'var(--ink)' }}>{decision.value}</Truncate>,
+                <span className="mono" style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{decision.action}</span>,
+                <Truncate style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{decision.timestamp ? formatDateTimeShort(decision.timestamp) : 'recent decision'}</Truncate>,
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>{decision.action !== 'restore' && <ActionButton tone="ghost" onClick={() => handleRestore(decision.nodeId, decision.value)} disabled={ontologyActionLoading === decision.nodeId}>Restore</ActionButton>}</div>,
+              ]} />)}
+            </>}
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }

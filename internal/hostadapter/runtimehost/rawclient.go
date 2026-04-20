@@ -600,6 +600,37 @@ func (c *RawClient) Exec(ctx context.Context, containerName, user string, cmd []
 	return out, nil
 }
 
+func (c *RawClient) ContainerLogs(ctx context.Context, containerName string, tail int) (string, error) {
+	if tail <= 0 {
+		tail = 200
+	}
+	if !c.usesNerdctl() {
+		reader, err := c.docker.ContainerLogs(ctx, containerName, dockercontainer.LogsOptions{
+			ShowStdout: true,
+			ShowStderr: true,
+			Tail:       strconv.Itoa(tail),
+		})
+		if err != nil {
+			return "", err
+		}
+		defer reader.Close()
+
+		var out bytes.Buffer
+		if _, err := stdcopy.StdCopy(&out, &out, reader); err != nil {
+			out.Reset()
+			_, _ = out.ReadFrom(reader)
+		}
+		return out.String(), nil
+	}
+
+	stdout, stderr, err := c.runNerdctl(ctx, "logs", "--tail", strconv.Itoa(tail), containerName)
+	out := string(append(stdout, stderr...))
+	if err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
 func (c *RawClient) nerdctlBaseArgs() []string {
 	args := make([]string, 0, 6)
 	if c.nerdctl == nil {

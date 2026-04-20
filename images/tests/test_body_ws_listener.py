@@ -12,6 +12,7 @@ import pytest
 from images.body.ws_listener import (
     WSListener,
     _backoff_delay,
+    _messages_url,
     read_context_fallback,
 )
 
@@ -147,6 +148,19 @@ class TestHttpToWs:
 
     def test_already_wss_unchanged(self):
         assert WSListener._http_to_ws("wss://host:18091") == "wss://host:18091"
+
+
+def test_messages_url_encodes_utc_offset_plus():
+    url = _messages_url(
+        "http://agency-comms:18091",
+        "dm-henry",
+        "2026-04-19T01:39:35.833388+00:00",
+        "henry",
+    )
+    assert url == (
+        "http://agency-comms:18091/channels/dm-henry/messages"
+        "?since=2026-04-19T01%3A39%3A35.833388%2B00%3A00&reader=henry"
+    )
 
 
 # ---------------------------------------------------------------------------

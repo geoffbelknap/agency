@@ -1025,6 +1025,11 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
       await route.fulfill(json({ allowed_domains: ['api.anthropic.com', 'slack.com'] }));
       return;
     }
+    if (method === 'GET' && pathname === '/api/v1/admin/audit') {
+      const agent = url.searchParams.get('agent') || '_all';
+      await route.fulfill(json(agentLogs[agent] ?? []));
+      return;
+    }
     if (method === 'POST' && pathname === '/api/v1/admin/audit/summarize') {
       await route.fulfill(json({ metrics: [{ event: 'LLM_DIRECT', count: 1 }], count: 1 }));
       return;

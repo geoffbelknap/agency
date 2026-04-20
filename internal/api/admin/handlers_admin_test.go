@@ -19,14 +19,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestSplitDoctorChecksSeparatesDockerBackendHygiene(t *testing.T) {
+func TestSplitDoctorChecksSeparatesBackendScopedChecks(t *testing.T) {
 	t.Parallel()
 
 	checks := []doctorCheckResult{
 		{Name: "credentials_isolated", Agent: "henry", Status: "pass"},
 		{Name: "host_capacity", Status: "pass"},
-		{Name: "docker_dangling_images", Status: "warn"},
-		{Name: "network_pool", Status: "warn"},
+		{Name: "pid_limits", Scope: "backend", Backend: "docker", Status: "pass"},
 	}
 
 	runtimeChecks, backendChecks := splitDoctorChecks(checks, "docker")
@@ -34,18 +33,18 @@ func TestSplitDoctorChecksSeparatesDockerBackendHygiene(t *testing.T) {
 	if len(runtimeChecks) != 2 {
 		t.Fatalf("runtimeChecks len = %d, want 2", len(runtimeChecks))
 	}
-	if len(backendChecks) != 2 {
-		t.Fatalf("backendChecks len = %d, want 2", len(backendChecks))
+	if len(backendChecks) != 1 {
+		t.Fatalf("backendChecks len = %d, want 1", len(backendChecks))
 	}
 	if runtimeChecks[0].Name != "credentials_isolated" || runtimeChecks[1].Name != "host_capacity" {
 		t.Fatalf("unexpected runtime checks: %#v", runtimeChecks)
 	}
-	if backendChecks[0].Name != "docker_dangling_images" || backendChecks[1].Name != "network_pool" {
+	if backendChecks[0].Name != "pid_limits" || backendChecks[0].Backend != "docker" {
 		t.Fatalf("unexpected backend checks: %#v", backendChecks)
 	}
 }
 
-func TestSplitDoctorChecksKeepsNetworkPoolOutOfPodmanBackendChecks(t *testing.T) {
+func TestSplitDoctorChecksTreatsNetworkPoolAsRuntimeAdvisoryWithoutScope(t *testing.T) {
 	t.Parallel()
 
 	checks := []doctorCheckResult{
@@ -64,14 +63,13 @@ func TestSplitDoctorChecksKeepsNetworkPoolOutOfPodmanBackendChecks(t *testing.T)
 	}
 }
 
-func TestSplitDoctorChecksSeparatesContainerdBackendHygiene(t *testing.T) {
+func TestSplitDoctorChecksKeepsLegacyPrefixedBackendChecksGrouped(t *testing.T) {
 	t.Parallel()
 
 	checks := []doctorCheckResult{
 		{Name: "credentials_isolated", Agent: "henry", Status: "pass"},
 		{Name: "containerd_dangling_images", Status: "warn"},
 		{Name: "containerd_log_rotation", Status: "warn"},
-		{Name: "network_pool", Status: "warn"},
 	}
 
 	runtimeChecks, backendChecks := splitDoctorChecks(checks, "containerd")
@@ -79,8 +77,8 @@ func TestSplitDoctorChecksSeparatesContainerdBackendHygiene(t *testing.T) {
 	if len(backendChecks) != 2 {
 		t.Fatalf("backendChecks len = %d, want 2", len(backendChecks))
 	}
-	if len(runtimeChecks) != 2 {
-		t.Fatalf("runtimeChecks len = %d, want 2", len(runtimeChecks))
+	if len(runtimeChecks) != 1 {
+		t.Fatalf("runtimeChecks len = %d, want 1", len(runtimeChecks))
 	}
 	if backendChecks[0].Name != "containerd_dangling_images" || backendChecks[1].Name != "containerd_log_rotation" {
 		t.Fatalf("unexpected backend checks: %#v", backendChecks)
@@ -387,5 +385,31 @@ func TestAdminEgressRESTRejectsInvalidInputs(t *testing.T) {
 				t.Fatalf("code = %d, want 400: %s", rec.Code, rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestAdminAuditAllReturnsEmptyWhenNoAuditLogs(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	router := chi.NewRouter()
+	RegisterRoutes(router, Deps{
+		Config: &config.Config{Home: home},
+		Audit:  logs.NewWriter(home),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var events []map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &events); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("events len = %d, want 0", len(events))
 	}
 }

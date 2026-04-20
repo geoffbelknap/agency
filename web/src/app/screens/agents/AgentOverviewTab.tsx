@@ -1,186 +1,88 @@
-import { StatusIndicator } from '../../components/StatusIndicator';
+import { type ReactNode } from 'react';
 import { Agent } from '../../types';
-import { type RawBudgetResponse } from '../../lib/api';
-import { formatDateTimeShort } from '../../lib/time';
-import { adminFeatureFlags, featureEnabled } from '../../lib/features';
+import { type RawAuditEntry } from '../../lib/api';
 
 interface Props {
   agent: Agent;
-  budget: RawBudgetResponse | null;
+  logs: RawAuditEntry[];
 }
 
-function usageTone(used: number, limit: number): string {
-  if (limit <= 0) return 'text-foreground';
-  const ratio = used / limit;
-  if (ratio > 0.95) return 'text-red-500';
-  if (ratio > 0.8) return 'text-amber-500';
-  return 'text-foreground';
+function Card({ children }: { children: ReactNode }) {
+  return (
+    <div style={{ background: 'var(--warm-2)', border: '0.5px solid var(--ink-hairline)', borderRadius: 10, padding: 20 }}>
+      {children}
+    </div>
+  );
 }
 
-function progressTone(used: number, limit: number): string {
-  if (limit <= 0) return 'bg-primary';
-  const ratio = used / limit;
-  if (ratio > 0.95) return 'bg-red-500';
-  if (ratio > 0.8) return 'bg-amber-500';
-  return 'bg-primary';
+function eventTimestamp(entry: RawAuditEntry): string {
+  const raw = entry.timestamp || entry.ts || '';
+  if (!raw) return '--:--:--';
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw.slice(11, 19) || raw;
+  return date.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-export function AgentOverviewTab({ agent, budget }: Props) {
-  const showMissions = featureEnabled('missions');
-  const showTeams = featureEnabled('teams');
-  const showTrust = adminFeatureFlags.trust;
+function eventDetail(entry: RawAuditEntry): string {
+  return entry.detail
+    || entry.task_content
+    || entry.capability
+    || entry.provider_tool_capability
+    || entry.error
+    || entry.reason
+    || entry.source
+    || '';
+}
 
-  const summaryItems = [
-    {
-      label: 'Status',
-      value: agent.status,
-      detail: agent.mode ? `Mode: ${agent.mode}` : undefined,
-    },
-    {
-      label: 'Last active',
-      value: agent.lastActive ? formatDateTimeShort(agent.lastActive) : 'No recent activity',
-      detail: agent.uptime ? `Uptime: ${agent.uptime}` : undefined,
-    },
-    {
-      label: 'Daily budget',
-      value: budget && budget.daily_limit > 0
-        ? `$${budget.daily_used.toFixed(2)} / $${budget.daily_limit.toFixed(2)}`
-        : 'No daily budget',
-      detail: budget && budget.daily_limit > 0
-        ? `${Math.round((budget.daily_used / budget.daily_limit) * 100)}% used`
-        : undefined,
-      valueClassName: budget && budget.daily_limit > 0
-        ? usageTone(budget.daily_used, budget.daily_limit)
-        : undefined,
-    },
-  ];
-  if (showMissions) {
-    summaryItems.splice(1, 0, {
-      label: 'Mission',
-      value: agent.mission || 'No mission assigned',
-      detail: agent.missionStatus ? `State: ${agent.missionStatus}` : undefined,
-    });
-  }
-
-  const identityItems = [
-    ['Preset', agent.preset],
-    ['Role', agent.role],
-    ['Model', agent.model],
-    [showTeams ? 'Team' : '', showTeams ? agent.team : undefined],
-    ['Type', agent.type],
-    [showTrust ? 'Trust' : '', showTrust && agent.trustLevel != null && agent.trustLevel > 0 ? `${agent.trustLevel}/5` : undefined],
-    ['Enforcer', agent.enforcerState],
-    ['Build', agent.buildId],
-  ].filter(([, value]) => value);
+export function AgentOverviewTab({ agent, logs }: Props) {
+  const recentEvents = logs
+    .slice(-6)
+    .reverse()
+    .map((entry) => ({
+      ts: eventTimestamp(entry),
+      event: entry.event || entry.type || 'event',
+      detail: eventDetail(entry),
+    }));
 
   return (
-    <div className="space-y-4 p-4">
-      {/* Current Task */}
-      {agent.currentTask && (
-        <div className="rounded-2xl border border-primary/20 bg-accent p-4">
-          <div className="text-xs uppercase tracking-wide text-primary mb-1.5">Current Task</div>
-          <div className="text-sm text-foreground">{agent.currentTask.content}</div>
-          <div className="text-[10px] text-muted-foreground mt-1">
-            {agent.currentTask.task_id} · {formatDateTimeShort(agent.currentTask.timestamp)}
-          </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
+          <div className="eyebrow">Current task</div>
+          {agent.currentTask && (
+            <span className="font-mono" style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--teal-dark)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ position: 'relative', width: 6, height: 6, borderRadius: '50%', background: 'var(--teal)' }}>
+                <span style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: 'var(--teal)', animation: 'agencyPulse 1.8s ease-out infinite' }} />
+              </span>
+              in progress
+            </span>
+          )}
         </div>
-      )}
-
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {summaryItems.map((item) => (
-          <div key={item.label} className="rounded-2xl border border-border bg-background/60 p-4">
-            <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              {item.label}
-            </div>
-            <div className={`mt-2 text-sm font-medium ${item.valueClassName ?? 'text-foreground'}`}>
-              {item.value}
-            </div>
-            {item.detail && (
-              <div className="mt-1 text-xs text-muted-foreground">{item.detail}</div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      <div className="rounded-2xl border border-border bg-background/60 p-4">
-        <div className="flex items-center gap-3">
-          <StatusIndicator status={agent.status} />
-          <div>
-            <div className="text-sm font-medium capitalize text-foreground">{agent.status}</div>
-            <div className="text-xs text-muted-foreground">
-              {agent.currentTask ? 'Currently executing work.' : 'No active task reported.'}
-            </div>
-          </div>
+        <div style={{ fontSize: 15, color: 'var(--ink)', lineHeight: 1.55, maxWidth: 680 }}>
+          {agent.currentTask ? agent.currentTask.content : 'No active task reported.'}
         </div>
-      </div>
+      </Card>
 
-      <div className="rounded-2xl border border-border bg-background/60 p-4">
-        <div className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Identity</div>
-        <div className="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-3">
-          {identityItems.map(([label, value]) => (
-            <div key={label as string} className="rounded-xl bg-secondary px-3 py-2">
-              <div className="text-[10px] text-muted-foreground">{label}</div>
-              <div className="mt-1 text-xs text-foreground">{value}</div>
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+          <div className="eyebrow">Recent events</div>
+          <span className="font-mono" style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ink-faint)' }}>last 15 min</span>
+        </div>
+        <div style={{ fontSize: 12, display: 'flex', flexDirection: 'column' }}>
+          {recentEvents.length === 0 && (
+            <div style={{ fontSize: 13, color: 'var(--ink-faint)', padding: '4px 0' }}>
+              No recent events reported.
+            </div>
+          )}
+          {recentEvents.map((event, index) => (
+            <div key={`${event.ts}-${event.event}-${index}`} style={{ display: 'grid', gridTemplateColumns: '72px 110px 1fr', gap: 12, padding: '8px 0', borderTop: index === 0 ? 'none' : '0.5px solid var(--ink-hairline)', alignItems: 'baseline' }}>
+              <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>{event.ts}</span>
+              <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-mid)' }}>{event.event}</span>
+              <span style={{ fontSize: 13, color: 'var(--ink)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{event.detail}</span>
             </div>
           ))}
         </div>
-      </div>
-
-      {/* Granted Capabilities */}
-      {agent.grantedCapabilities && agent.grantedCapabilities.length > 0 && (
-        <div className="rounded-2xl border border-border bg-background/60 p-4">
-          <div className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Capabilities</div>
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {agent.grantedCapabilities.map((c) => (
-              <span key={c} className="text-xs bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900/40 rounded px-2 py-0.5">
-                {c}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Budget */}
-      {budget && (budget.daily_limit > 0 || budget.monthly_limit > 0) && (
-        <div className="rounded-2xl border border-border bg-background/60 p-4">
-          <div className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Budget</div>
-          <div className="mt-3 space-y-3">
-            {budget.daily_limit > 0 && (
-              <div>
-                <div className="flex items-center justify-between text-[10px] mb-1">
-                  <span className="text-muted-foreground">Daily</span>
-                  <span className={usageTone(budget.daily_used, budget.daily_limit)}>${budget.daily_used.toFixed(2)} / ${budget.daily_limit.toFixed(2)}</span>
-                </div>
-                <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${progressTone(budget.daily_used, budget.daily_limit)}`}
-                    style={{ width: `${Math.min(100, (budget.daily_used / budget.daily_limit) * 100)}%` }}
-                  />
-                </div>
-              </div>
-            )}
-            {budget.monthly_limit > 0 && (
-              <div>
-                <div className="flex items-center justify-between text-[10px] mb-1">
-                  <span className="text-muted-foreground">Monthly</span>
-                  <span className={usageTone(budget.monthly_used, budget.monthly_limit)}>${budget.monthly_used.toFixed(2)} / ${budget.monthly_limit.toFixed(2)}</span>
-                </div>
-                <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${progressTone(budget.monthly_used, budget.monthly_limit)}`}
-                    style={{ width: `${Math.min(100, (budget.monthly_used / budget.monthly_limit) * 100)}%` }}
-                  />
-                </div>
-              </div>
-            )}
-            <div className="flex gap-3 text-[10px] text-muted-foreground">
-              <span>LLM calls: <span className="text-foreground/80">{budget.today_llm_calls}</span></span>
-              <span>In: <span className="text-foreground/80">{(budget.today_input_tokens / 1000).toFixed(1)}K</span></span>
-              <span>Out: <span className="text-foreground/80">{(budget.today_output_tokens / 1000).toFixed(1)}K</span></span>
-            </div>
-          </div>
-        </div>
-      )}
+      </Card>
     </div>
   );
 }

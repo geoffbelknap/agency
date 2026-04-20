@@ -20,32 +20,34 @@ const (
 
 // AuditEntry represents a single audit log entry.
 type AuditEntry struct {
-	Timestamp     string `json:"ts"`
-	Type          string `json:"type"`
-	Agent         string `json:"agent,omitempty"`
-	LifecycleID   string `json:"lifecycle_id,omitempty"`
-	Method        string `json:"method,omitempty"`
-	URL           string `json:"url,omitempty"`
-	Host          string `json:"host,omitempty"`
-	Status        int    `json:"status,omitempty"`
-	Model         string `json:"model,omitempty"`
-	ProviderModel string `json:"provider_model,omitempty"`
-	CorrelationID string `json:"correlation_id,omitempty"`
-	Service       string `json:"service,omitempty"`
-	EventID       string `json:"event_id,omitempty"`
-	Error         string `json:"error,omitempty"`
-	DurationMs    int64  `json:"duration_ms,omitempty"`
-	InputTokens   int    `json:"input_tokens,omitempty"`
-	OutputTokens  int    `json:"output_tokens,omitempty"`
-	CachedTokens  int               `json:"cached_tokens,omitempty"`
-	TTFTMs        int64             `json:"ttft_ms,omitempty"`
-	TPOTMs        float64           `json:"tpot_ms,omitempty"`
-	ContextTokens int64             `json:"context_tokens,omitempty"`
-	StepIndex     int               `json:"step_index,omitempty"`
-	ToolCallValid *bool             `json:"tool_call_valid,omitempty"`
-	RetryOf       string            `json:"retry_of,omitempty"`
-	Sig           string            `json:"sig,omitempty"`
-	Extra         map[string]string `json:"extra,omitempty"`
+	Timestamp                string            `json:"ts"`
+	Type                     string            `json:"type"`
+	Agent                    string            `json:"agent,omitempty"`
+	LifecycleID              string            `json:"lifecycle_id,omitempty"`
+	Method                   string            `json:"method,omitempty"`
+	URL                      string            `json:"url,omitempty"`
+	Host                     string            `json:"host,omitempty"`
+	Status                   int               `json:"status,omitempty"`
+	Model                    string            `json:"model,omitempty"`
+	ProviderModel            string            `json:"provider_model,omitempty"`
+	CorrelationID            string            `json:"correlation_id,omitempty"`
+	Service                  string            `json:"service,omitempty"`
+	EventID                  string            `json:"event_id,omitempty"`
+	Error                    string            `json:"error,omitempty"`
+	DurationMs               int64             `json:"duration_ms,omitempty"`
+	InputTokens              int               `json:"input_tokens,omitempty"`
+	OutputTokens             int               `json:"output_tokens,omitempty"`
+	CachedTokens             int               `json:"cached_tokens,omitempty"`
+	CacheCreationInputTokens int               `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int               `json:"cache_read_input_tokens,omitempty"`
+	TTFTMs                   int64             `json:"ttft_ms,omitempty"`
+	TPOTMs                   float64           `json:"tpot_ms,omitempty"`
+	ContextTokens            int64             `json:"context_tokens,omitempty"`
+	StepIndex                int               `json:"step_index,omitempty"`
+	ToolCallValid            *bool             `json:"tool_call_valid,omitempty"`
+	RetryOf                  string            `json:"retry_of,omitempty"`
+	Sig                      string            `json:"sig,omitempty"`
+	Extra                    map[string]string `json:"extra,omitempty"`
 }
 
 // AuditLogger is an async buffered JSONL logger that writes audit entries

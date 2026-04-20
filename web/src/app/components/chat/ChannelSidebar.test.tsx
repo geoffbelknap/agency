@@ -30,40 +30,30 @@ describe('ChannelSidebar', () => {
     expect(onSelect).toHaveBeenCalledWith(channels[1]);
   });
 
-  it('filters channels by search query', async () => {
-    render(<ChannelSidebar channels={channels} selectedChannel={null} onSelect={() => {}} />);
-    const searchInput = screen.getByRole('textbox');
-    await userEvent.type(searchInput, 'gen');
-    expect(screen.getByText('general')).toBeInTheDocument();
-    expect(screen.queryByText('ops')).not.toBeInTheDocument();
-  });
-
   it('shows active state for selected channel', () => {
     render(<ChannelSidebar channels={channels} selectedChannel={channels[0]} onSelect={() => {}} />);
     const buttons = screen.getAllByRole('button');
     const generalButton = buttons.find((btn) => btn.textContent?.includes('general'));
-    expect(generalButton).toHaveClass('bg-accent/80');
+    expect(generalButton).toHaveClass('is-active');
   });
 
-  it('shows DM status without legacy agent pills', () => {
+  it('renders DMs as compact rows without legacy agent pills', () => {
     render(
       <ChannelSidebar
         channels={channels}
         selectedChannel={null}
         onSelect={() => {}}
-        dmStatuses={{ alice: 'running' }}
       />,
     );
 
-    expect(screen.getByLabelText('Running')).toBeInTheDocument();
-    expect(screen.getByLabelText('Unavailable')).toBeInTheDocument();
-    expect(screen.getByText('Direct messages')).toBeInTheDocument();
+    expect(screen.getByText('alice')).toBeInTheDocument();
+    expect(screen.getByText('retired-agent')).toBeInTheDocument();
     expect(screen.queryByText('AGENT')).not.toBeInTheDocument();
     expect(screen.queryByText('LEGACY')).not.toBeInTheDocument();
     expect(screen.queryByText('UNAVAILABLE')).not.toBeInTheDocument();
   });
 
-  it('can toggle the inactive conversation view', async () => {
+  it('does not render the inactive toggle as visible chrome', () => {
     const onToggleInactive = vi.fn();
     render(
       <ChannelSidebar
@@ -76,7 +66,7 @@ describe('ChannelSidebar', () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole('button', { name: /show inactive/i }));
-    expect(onToggleInactive).toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /show inactive/i })).not.toBeInTheDocument();
+    expect(onToggleInactive).not.toHaveBeenCalled();
   });
 });

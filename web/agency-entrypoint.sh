@@ -22,4 +22,4 @@ if [ -f /etc/nginx/nginx.conf ]; then
   sed "s|include /etc/nginx/conf.d/\\*\\.conf;|include $NGINX_RUNTIME_CONFD/*.conf;|g" /etc/nginx/nginx.conf > "$NGINX_RUNTIME_CONF"
 fi
 
-exec nginx -c "$NGINX_RUNTIME_CONF" -g 'daemon off;'
+exec nginx -e /dev/stderr -c "$NGINX_RUNTIME_CONF" -g 'daemon off;'

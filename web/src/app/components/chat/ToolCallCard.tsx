@@ -1,7 +1,4 @@
-import { useState } from 'react';
-import { ChevronRight } from 'lucide-react';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
-import { cn } from '../ui/utils';
+import { Terminal } from 'lucide-react';
 
 interface ToolCall {
   tool: string;
@@ -15,57 +12,41 @@ interface ToolCallCardProps {
   agent: string;
 }
 
-export function ToolCallCard({ call, agent }: ToolCallCardProps) {
-  const [open, setOpen] = useState(false);
+function compactInput(input: any): string {
+  if (input === undefined || input === null) return '';
+  if (typeof input === 'string') return input;
+  if (typeof input === 'object') {
+    const entries = Object.entries(input)
+      .slice(0, 3)
+      .map(([key, value]) => `${key}=${JSON.stringify(value)}`);
+    return entries.length > 0 ? `(${entries.join(', ')})` : '';
+  }
+  return String(input);
+}
 
-  const durationLabel =
-    call.duration_ms !== undefined
-      ? `${(call.duration_ms / 1000).toFixed(1)}s`
-      : null;
+export function ToolCallCard({ call }: ToolCallCardProps) {
+  const durationLabel = call.duration_ms !== undefined ? ` · ${(call.duration_ms / 1000).toFixed(1)}s` : '';
+  const inputLabel = compactInput(call.input);
+  const outputLabel = call.output ? ` → ${call.output}` : '';
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
+    <div style={{ marginLeft: 44 }}>
       <div
-        className={cn(
-          'border-l-2 border-border bg-card/50 rounded-r px-2 py-1 text-xs',
-        )}
+        className="mono inline-flex max-w-full items-center gap-2"
+        style={{
+          padding: '5px 10px',
+          background: 'var(--warm-2)',
+          border: '0.5px solid var(--ink-hairline)',
+          borderRadius: 6,
+          fontSize: 11,
+          color: 'var(--ink-mid)',
+        }}
       >
-        <CollapsibleTrigger asChild>
-          <button className="flex w-full items-center gap-1.5 text-left text-muted-foreground hover:text-foreground/80">
-            <ChevronRight
-              className={cn(
-                'w-3 h-3 flex-shrink-0 transition-transform duration-150',
-                open && 'rotate-90',
-              )}
-            />
-            <span>
-              {agent} ran <span className="font-mono text-foreground/80">{call.tool}</span>
-            </span>
-            {durationLabel && (
-              <span className="ml-auto text-muted-foreground">{durationLabel}</span>
-            )}
-          </button>
-        </CollapsibleTrigger>
-
-        <CollapsibleContent>
-          <div className="mt-1.5 space-y-1.5 pl-4">
-            <div>
-              <div className="text-muted-foreground mb-0.5">Input</div>
-              <pre className="text-foreground/80 whitespace-pre-wrap break-all bg-card rounded px-2 py-1 text-xs overflow-x-auto">
-                {JSON.stringify(call.input, null, 2)}
-              </pre>
-            </div>
-            {call.output !== undefined && (
-              <div>
-                <div className="text-muted-foreground mb-0.5">Output</div>
-                <pre className="text-foreground/80 whitespace-pre-wrap break-all bg-card rounded px-2 py-1 text-xs overflow-x-auto">
-                  {call.output}
-                </pre>
-              </div>
-            )}
-          </div>
-        </CollapsibleContent>
+        <Terminal size={11} className="shrink-0" />
+        <span className="truncate">
+          {call.tool}{inputLabel}{outputLabel}{durationLabel}
+        </span>
       </div>
-    </Collapsible>
+    </div>
   );
 }

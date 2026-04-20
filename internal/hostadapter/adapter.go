@@ -18,6 +18,9 @@ type DeployOptions struct {
 
 type Adapter interface {
 	Backend() string
+	ListRunningAgents(ctx context.Context) ([]string, error)
+	RuntimeDiagnostics(ctx context.Context, runningAgents []string) []DiagnosticCheck
+	BackendDiagnostics(ctx context.Context, runningAgents []string) []DiagnosticCheck
 	CountRunningMeeseeks(ctx context.Context) (int, error)
 	PruneDanglingAgencyImages(ctx context.Context) (pruned, skipped int, err error)
 	TeardownInfrastructure(ctx context.Context, infra *orchestrate.Infra) error
