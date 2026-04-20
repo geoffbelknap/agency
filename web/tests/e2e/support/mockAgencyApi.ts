@@ -769,6 +769,14 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
       await route.fulfill(json({ ok: true }));
       return;
     }
+    if (method === 'GET' && pathname === '/api/v1/graph/memory/proposals') {
+      await route.fulfill(json({ items: [] }));
+      return;
+    }
+    if (method === 'POST' && /^\/api\/v1\/graph\/memory\/proposals\/[^/]+\/review$/.test(pathname)) {
+      await route.fulfill(json({ ok: true }));
+      return;
+    }
     if (method === 'GET' && pathname === '/api/v1/graph/quarantine') {
       await route.fulfill(json({ nodes: [] }));
       return;

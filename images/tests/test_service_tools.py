@@ -32,6 +32,16 @@ def test_service_tool_dispatcher_supports_passthrough_schema(tmp_path):
     assert defs[0]["function"]["parameters"]["properties"] == {}
 
 
+def test_service_tool_dispatcher_treats_null_manifest_as_empty(tmp_path):
+    path = tmp_path / "services-manifest.json"
+    path.write_text("null")
+
+    dispatcher = ServiceToolDispatcher(path)
+    dispatcher.load()
+
+    assert dispatcher.get_tool_definitions() == []
+
+
 def test_service_tool_dispatcher_posts_passthrough_arguments(tmp_path):
     manifest = {
         "services": [{

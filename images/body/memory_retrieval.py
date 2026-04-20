@@ -142,6 +142,79 @@ def fetch_episodic_memory(knowledge_url, agent_name, mission_id, max_retrieved=5
         return ""
 
 
+def fetch_conversation_memory(knowledge_url, agent_name, query, max_retrieved=5):
+    """Query long-term graph memory relevant to the current conversation.
+
+    This is read-only prompt context. Durable writes still happen through
+    explicit mediated knowledge contribution or post-task capture flows.
+    """
+    if not query:
+        return ""
+
+    try:
+        full_query = f"agent:{agent_name} {query}"
+        results = _query_knowledge(knowledge_url, full_query, limit=max_retrieved)
+        if not results:
+            return ""
+
+        lines = [
+            "## Relevant Long-Term Memory",
+            "",
+            "Graph-backed memories that may help with this conversation:",
+            "",
+        ]
+        included = 0
+        for node in results[:max_retrieved]:
+            attrs = node.get("attributes", node)
+            if str(attrs.get("kind", "")).lower() == "memory_proposal":
+                continue
+            props = attrs.get("properties") or {}
+            if isinstance(props, str):
+                try:
+                    props = json.loads(props)
+                except json.JSONDecodeError:
+                    props = {}
+            memory_type = props.get("memory_type") or _memory_type_for_kind(attrs.get("kind", ""))
+            label = attrs.get("label", "memory")
+            summary = attrs.get("summary", "")
+            if not summary and props.get("full_result"):
+                summary = props.get("full_result", "")[:500]
+            lines.append(f"- ({memory_type}) {label}: {summary}".strip())
+            included += 1
+
+        if included == 0:
+            return ""
+
+        lines.append("")
+        lines.append(
+            "Use these memories as contextual hints with provenance limits; prefer "
+            "current user instructions and fresh evidence when they conflict."
+        )
+        content = "\n".join(lines)
+
+        node_ids = [n.get("id", "") for n in results if isinstance(n, dict)]
+        node_ids = [nid for nid in node_ids if nid]
+        tagged = f"{GRAPHRAG_START}\n"
+        if node_ids:
+            tagged += f"<!-- source_node_ids: {','.join(node_ids)} -->\n"
+        tagged += "<!-- source: conversation_memory -->\n"
+        tagged += content
+        tagged += f"\n{GRAPHRAG_END}"
+        return tagged
+    except Exception as e:
+        logger.warning(f"Failed to fetch conversation memory: {e}")
+        return ""
+
+
+def _memory_type_for_kind(kind):
+    kind = str(kind or "").lower()
+    if kind in {"episode", "event", "incident", "narrative"}:
+        return "episodic"
+    if kind in {"procedure", "process", "runbook", "workflow", "lesson"}:
+        return "procedural"
+    return "semantic"
+
+
 def handle_recall_episodes(knowledge_url, agent_name, query, from_date=None, to_date=None,
                            entity=None, tag=None, outcome=None, mission=None, limit=10):
     """Handler for the recall_episodes tool.

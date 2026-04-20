@@ -47,6 +47,17 @@ interface PendingContribution {
   createdAt?: string;
 }
 
+interface MemoryProposal {
+  id: string;
+  summary: string;
+  memoryType?: string;
+  confidence?: string;
+  agent?: string;
+  channel?: string;
+  reason?: string;
+  createdAt?: string;
+}
+
 interface QuarantinedNode {
   id: string;
   label: string;
@@ -72,6 +83,17 @@ interface GraphTopology {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function parseJSONRecord(value: unknown): Record<string, unknown> {
+  if (typeof value === 'string') {
+    try {
+      return asRecord(JSON.parse(value));
+    } catch {
+      return {};
+    }
+  }
+  return asRecord(value);
 }
 
 function firstString(record: Record<string, unknown>, keys: string[]): string | undefined {
@@ -214,6 +236,34 @@ function parsePendingContributions(raw: unknown): PendingContribution[] {
   });
 }
 
+function parseMemoryProposals(raw: unknown): MemoryProposal[] {
+  const record = asRecord(raw);
+  const entries = Array.isArray(raw)
+    ? raw
+    : Array.isArray(record.items)
+      ? record.items
+      : Array.isArray(record.proposals)
+        ? record.proposals
+        : [];
+
+  return entries.map((entry, index) => {
+    const item = asRecord(entry);
+    const props = parseJSONRecord(item.properties);
+    const merged = { ...props, ...item };
+    const id = firstString(merged, ['id', 'node_id', 'uuid']) ?? `memory-${index}`;
+    return {
+      id,
+      summary: firstString(merged, ['summary', 'label', 'title']) ?? id,
+      memoryType: firstString(merged, ['memory_type', 'type', 'kind']),
+      confidence: firstString(merged, ['confidence', 'score']),
+      agent: firstString(merged, ['agent', 'source_agent', 'author']),
+      channel: firstString(merged, ['channel', 'source_channel']),
+      reason: firstString(merged, ['decision_reason', 'reason', 'rationale']),
+      createdAt: firstString(merged, ['created_at', 'timestamp', 'created']),
+    };
+  });
+}
+
 function parseQuarantinedNodes(raw: unknown): QuarantinedNode[] {
   const record = asRecord(raw);
   const entries = Array.isArray(raw)
@@ -266,6 +316,7 @@ function parseTopologyItems(raw: unknown, keys: string[], fallbackPrefix: string
 
 type ButtonTone = 'default' | 'primary' | 'ghost';
 const REVIEW_WIDTHS = 'minmax(180px, 1.4fr) minmax(150px, 1fr) 82px 118px';
+const MEMORY_WIDTHS = 'minmax(180px, 1.35fr) minmax(120px, 0.75fr) minmax(150px, 1fr) 118px';
 const QUARANTINE_WIDTHS = 'minmax(180px, 1.2fr) minmax(160px, 1fr) 92px';
 const ONTOLOGY_WIDTHS = 'minmax(0, 1fr) 92px minmax(0, 1.35fr) 154px';
 const TOPOLOGY_WIDTHS = '118px minmax(0, 1.05fr) minmax(0, 1.3fr) 54px';
@@ -402,6 +453,9 @@ export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?
   const [pendingContributions, setPendingContributions] = useState<PendingContribution[]>([]);
   const [pendingLoading, setPendingLoading] = useState(false);
   const [reviewActionLoading, setReviewActionLoading] = useState<string | null>(null);
+  const [memoryProposals, setMemoryProposals] = useState<MemoryProposal[]>([]);
+  const [memoryLoading, setMemoryLoading] = useState(false);
+  const [memoryActionLoading, setMemoryActionLoading] = useState<string | null>(null);
   const [quarantinedNodes, setQuarantinedNodes] = useState<QuarantinedNode[]>([]);
   const [quarantineLoading, setQuarantineLoading] = useState(false);
   const [quarantineActionLoading, setQuarantineActionLoading] = useState<string | null>(null);
@@ -430,6 +484,18 @@ export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?
       setPendingContributions([]);
     } finally {
       setPendingLoading(false);
+    }
+  };
+
+  const loadMemoryProposals = async () => {
+    try {
+      setMemoryLoading(true);
+      const data = await api.knowledge.memoryProposals('needs_review');
+      setMemoryProposals(parseMemoryProposals(data));
+    } catch {
+      setMemoryProposals([]);
+    } finally {
+      setMemoryLoading(false);
     }
   };
 
@@ -478,7 +544,7 @@ export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?
   };
 
   const reloadAll = async () => {
-    await Promise.all([loadStats(), loadOntologyReviewData(), loadPendingContributions(), loadQuarantinedNodes(), loadTopology()]);
+    await Promise.all([loadStats(), loadOntologyReviewData(), loadPendingContributions(), loadMemoryProposals(), loadQuarantinedNodes(), loadTopology()]);
   };
 
   useEffect(() => {
@@ -543,6 +609,20 @@ export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?
     }
   };
 
+  const handleReviewMemoryProposal = async (proposal: MemoryProposal, action: 'approve' | 'reject') => {
+    try {
+      setMemoryActionLoading(`${proposal.id}:${action}`);
+      await api.knowledge.reviewMemoryProposal(proposal.id, action);
+      toast.success(`${action === 'approve' ? 'Approved' : 'Rejected'} memory proposal`);
+      await loadMemoryProposals();
+      await loadStats();
+    } catch (e: any) {
+      toast.error(e.message || 'Memory review failed');
+    } finally {
+      setMemoryActionLoading(null);
+    }
+  };
+
   const handleReleaseQuarantine = async (node: QuarantinedNode) => {
     try {
       setQuarantineActionLoading(node.id);
@@ -559,7 +639,7 @@ export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?
   if (!graphAdminEnabled) return null;
 
   const topologyCount = topology.tiers.length + topology.principals.length + topology.communities.length + topology.hubs.length;
-  const refreshing = statsLoading || pendingLoading || quarantineLoading || topologyLoading || ontologyLoading;
+  const refreshing = statsLoading || pendingLoading || memoryLoading || quarantineLoading || topologyLoading || ontologyLoading;
   const evidenceText = (candidate: OntologyCandidate, count?: number, source?: string) => [
     count != null ? `${count} occ.` : '',
     source || '',
@@ -569,6 +649,7 @@ export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?
     { label: 'Nodes', value: statsLoading ? '...' : stats ? stats.node_count.toLocaleString() : '0' },
     { label: 'Edges', value: statsLoading ? '...' : stats ? stats.edge_count.toLocaleString() : '0' },
     { label: 'Pending', value: pendingLoading ? '...' : pendingContributions.length.toLocaleString() },
+    { label: 'Memory', value: memoryLoading ? '...' : memoryProposals.length.toLocaleString() },
     { label: 'Quarantined', value: quarantineLoading ? '...' : quarantinedNodes.length.toLocaleString() },
     { label: 'Ontology', value: ontologyLoading ? '...' : (ontologyCandidates.length + ontologyDecisions.length).toLocaleString() },
     { label: 'Topology', value: topologyLoading ? '...' : topologyCount.toLocaleString() },
@@ -579,7 +660,7 @@ export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }} aria-label="Knowledge metrics">
           {statItems.map((item) => (
-            <MetaStat key={item.label} label={item.label} value={item.value} tone={item.label === 'Pending' && item.value !== '0' ? 'var(--amber)' : item.label === 'Quarantined' && item.value !== '0' ? 'var(--red)' : undefined} />
+            <MetaStat key={item.label} label={item.label} value={item.value} tone={(item.label === 'Pending' || item.label === 'Memory') && item.value !== '0' ? 'var(--amber)' : item.label === 'Quarantined' && item.value !== '0' ? 'var(--red)' : undefined} />
           ))}
         </div>
         <ActionButton onClick={reloadAll} disabled={refreshing}>{refreshing ? 'Refreshing...' : 'Refresh'}</ActionButton>
@@ -602,6 +683,21 @@ export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?
                 <Truncate style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{[item.subject, item.proposed].filter(Boolean).join(' -> ') || item.type || '...'}</Truncate>,
                 <span className="mono" style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{item.confidence != null ? `${Math.round(item.confidence * 100)}%` : '...'}</span>,
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}><ActionButton tone="ghost" onClick={() => handleReviewContribution(item, 'reject')} disabled={reviewActionLoading === `${item.id}:reject`}>Reject</ActionButton><ActionButton tone="primary" onClick={() => handleReviewContribution(item, 'approve')} disabled={reviewActionLoading === `${item.id}:approve`}>Approve</ActionButton></div>,
+              ]} />
+            ))}
+          </Card>
+        </div>
+
+        <div>
+          <SectionTitle title="Memory Review" />
+          <Card>
+            <TableHeader widths={MEMORY_WIDTHS} cols={['Memory', 'Type', 'Evidence', '']} />
+            {memoryProposals.length === 0 ? <EmptyLine>No memory proposals awaiting review</EmptyLine> : memoryProposals.map((proposal) => (
+              <TableRow key={proposal.id} widths={MEMORY_WIDTHS} accent="var(--amber)" cols={[
+                <div><Truncate style={{ fontSize: 13, color: 'var(--ink)' }}>{proposal.summary}</Truncate><Truncate className="mono" style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-faint)' }}>{proposal.id}</Truncate></div>,
+                <span className="mono" style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{proposal.memoryType || 'memory'}</span>,
+                <Truncate style={{ fontSize: 12, color: 'var(--ink-mid)' }}>{[proposal.confidence, proposal.agent, proposal.channel, proposal.reason].filter(Boolean).join(' · ') || '...'}</Truncate>,
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}><ActionButton tone="ghost" onClick={() => handleReviewMemoryProposal(proposal, 'reject')} disabled={memoryActionLoading === `${proposal.id}:reject`}>Reject</ActionButton><ActionButton tone="primary" onClick={() => handleReviewMemoryProposal(proposal, 'approve')} disabled={memoryActionLoading === `${proposal.id}:approve`}>Approve</ActionButton></div>,
               ]} />
             ))}
           </Card>

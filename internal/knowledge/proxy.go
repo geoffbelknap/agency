@@ -203,6 +203,31 @@ func (p *Proxy) Review(ctx context.Context, id string, action string, reason str
 	return p.post(ctx, "/review/"+id, body)
 }
 
+// MemoryProposals returns durable-memory proposals matching a review status.
+func (p *Proxy) MemoryProposals(ctx context.Context, status string, limit int) ([]byte, error) {
+	path := "/memory/proposals"
+	params := []string{}
+	if status != "" {
+		params = append(params, "status="+urlEncode(status))
+	}
+	if limit > 0 {
+		params = append(params, "limit="+strconv.Itoa(limit))
+	}
+	if len(params) > 0 {
+		path += "?" + strings.Join(params, "&")
+	}
+	return p.get(ctx, path)
+}
+
+// ReviewMemoryProposal approves or rejects a durable-memory proposal by ID.
+func (p *Proxy) ReviewMemoryProposal(ctx context.Context, id string, action string, reason string) ([]byte, error) {
+	body := map[string]string{
+		"action": action,
+		"reason": reason,
+	}
+	return p.post(ctx, "/memory/proposals/"+urlEncode(id)+"/review", body)
+}
+
 // Principals returns the list of registered principals, optionally filtered by type.
 func (p *Proxy) Principals(ctx context.Context, principalType string) ([]byte, error) {
 	path := "/principals"
@@ -282,6 +307,7 @@ func (p *Proxy) get(ctx context.Context, path string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("knowledge GET %s: %w", path, err)
 	}
+	req.Header.Set("X-Agency-Platform", "true")
 	resp, err := p.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("knowledge GET %s: %w", path, err)
@@ -307,6 +333,7 @@ func (p *Proxy) post(ctx context.Context, path string, body interface{}) ([]byte
 		return nil, fmt.Errorf("knowledge POST %s: %w", path, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Agency-Platform", "true")
 	resp, err := p.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("knowledge POST %s: %w", path, err)

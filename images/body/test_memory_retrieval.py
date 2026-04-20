@@ -4,6 +4,7 @@ from unittest.mock import patch, MagicMock
 from memory_retrieval import (
     fetch_procedural_memory,
     fetch_episodic_memory,
+    fetch_conversation_memory,
     handle_recall_episodes,
 )
 
@@ -95,6 +96,55 @@ def test_episodic_memory_empty(mock_query):
 def test_episodic_memory_no_mission(mock_query):
     result = fetch_episodic_memory("http://fake", "henrybot", "")
     assert result == ""
+
+@patch("memory_retrieval._query_knowledge")
+def test_conversation_memory_classifies_graph_results(mock_query):
+    mock_query.return_value = [
+        {
+            "id": "n1",
+            "label": "operator-sec-preference",
+            "kind": "preference",
+            "summary": "Operator prefers primary SEC filings.",
+            "properties": {"memory_type": "semantic"},
+        },
+        {
+            "id": "n2",
+            "label": "sec-filing-workflow",
+            "kind": "procedure",
+            "summary": "Use SEC company submissions before web search.",
+            "properties": {},
+        },
+    ]
+
+    result = fetch_conversation_memory("http://fake", "jarvis", "PLTR SEC filing")
+
+    assert "Relevant Long-Term Memory" in result
+    assert "<!-- source: conversation_memory -->" in result
+    assert "source_node_ids: n1,n2" in result
+    assert "(semantic) operator-sec-preference" in result
+    assert "(procedural) sec-filing-workflow" in result
+
+@patch("memory_retrieval._query_knowledge")
+def test_conversation_memory_skips_pending_proposals(mock_query):
+    mock_query.return_value = [
+        {
+            "id": "n1",
+            "label": "memory-proposal:jarvis:t1:1",
+            "kind": "memory_proposal",
+            "summary": "Pending preference.",
+            "properties": {"memory_type": "semantic", "status": "pending_review"},
+        },
+    ]
+
+    result = fetch_conversation_memory("http://fake", "jarvis", "PLTR SEC filing")
+
+    assert result == ""
+
+@patch("memory_retrieval._query_knowledge")
+def test_conversation_memory_empty_without_query(mock_query):
+    result = fetch_conversation_memory("http://fake", "jarvis", "")
+    assert result == ""
+    mock_query.assert_not_called()
 
 @patch("memory_retrieval._query_knowledge")
 def test_recall_episodes_returns_json(mock_query):

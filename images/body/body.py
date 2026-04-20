@@ -27,10 +27,23 @@ import yaml
 from fallback import FallbackTracker
 from interruption import InterruptionController
 from mcp_client import MCPClient
-from memory_retrieval import fetch_procedural_memory, fetch_episodic_memory, handle_recall_episodes
+from memory_retrieval import (
+    fetch_procedural_memory,
+    fetch_episodic_memory,
+    fetch_conversation_memory,
+    handle_recall_episodes,
+)
 from knowledge_tools import GRAPHRAG_START, GRAPHRAG_END
 from xpia_scan import sanitize_knowledge_section
-from post_task import build_capture_prompt, parse_capture_response, enrich_procedure, enrich_episode
+from post_task import (
+    build_capture_prompt,
+    parse_capture_response,
+    enrich_procedure,
+    enrich_episode,
+    build_conversation_memory_prompt,
+    parse_conversation_memory_response,
+)
+from session_scratchpad import build_session_scratchpad, format_recent_transcript
 from reflection import ReflectionState, build_reflection_prompt, parse_reflection_verdict
 from task_tier import classify_task_tier, expand_cost_mode, get_active_features
 from tools import BuiltinToolRegistry, ServiceToolDispatcher, SkillsManager
@@ -809,7 +822,42 @@ class Body:
     _IDLE_REPLY_COOLDOWN: float = 60.0  # seconds between idle replies
     _recent_idle_message_ids: set = None  # dedup set for message IDs
 
-    def _build_direct_idle_prompt(self, channel: str, author: str, summary: str) -> str:
+    def _fetch_recent_channel_messages(self, channel: str, limit: int = 8) -> list[dict]:
+        """Fetch bounded raw channel messages for session prompt derivation."""
+        comms_url = os.environ.get("AGENCY_COMMS_URL", "http://enforcer:8081/mediation/comms")
+        client = self._http_client or httpx
+        try:
+            resp = client.get(
+                f"{comms_url}/channels/{channel}/messages",
+                params={"reader": self.agent_name, "limit": str(limit)},
+                timeout=5,
+            )
+            resp.raise_for_status()
+            messages = resp.json()
+        except Exception as exc:
+            log.info("recent channel context unavailable | channel=%s error=%s", channel, exc)
+            return []
+
+        if not isinstance(messages, list):
+            return []
+        return messages[-limit:]
+
+    def _fetch_recent_channel_context(self, channel: str, limit: int = 8) -> str:
+        """Fetch a bounded channel transcript for lightweight idle replies."""
+        return format_recent_transcript(
+            self._fetch_recent_channel_messages(channel, limit=limit),
+            limit=limit,
+        )
+
+    def _build_direct_idle_prompt(
+        self,
+        channel: str,
+        author: str,
+        summary: str,
+        recent_context: str = "",
+        session_scratchpad: str = "",
+        graph_memory_context: str = "",
+    ) -> str:
         """Build the direct-DM/mention idle prompt.
 
         This path must preserve operator-authored identity changes in live
@@ -829,11 +877,15 @@ class Body:
             f"You received a direct message in #{channel} from {author}: \"{summary}\"\n\n"
             f"{identity_clause}"
             f"Use your current identity and system prompt as the response policy for this message.\n\n"
+            f"{recent_context.strip() + chr(10) + chr(10) if recent_context.strip() else ''}"
+            f"{session_scratchpad.strip() + chr(10) + chr(10) if session_scratchpad.strip() else ''}"
+            f"{graph_memory_context.strip() + chr(10) + chr(10) if graph_memory_context.strip() else ''}"
             f"Rules:\n"
             f"- If your identity dictates exact wording, a fixed phrase, a refusal, a persona, or another specific response shape, use that literally.\n"
             f"- Do not answer the underlying question in a default helpful style when your identity gives a conflicting instruction.\n"
             f"- Only fall back to normal concise conversational help when your identity is silent on how to respond.\n"
-            f"- Only call read_messages('{channel}') if you need earlier conversation context.\n"
+            f"- Use the recent conversation transcript to resolve follow-up references like 'that', 'it', or 'whatever one'.\n"
+            f"- If the transcript is insufficient, ask one concise clarifying question instead of guessing.\n"
             f"- Reply with the exact message text only. Do not call tools unless you truly need context.\n"
             f"- The platform will deliver your reply to #{channel}.\n"
             f"- If the person follows up, continue the conversation."
@@ -901,6 +953,8 @@ class Body:
             and self._active_mission.get("status") == "active"
         )
 
+        recent_messages = []
+
         # Construct prompt based on match type and mission status
         if is_mission_task:
             mission_name = self._active_mission.get("name", "unknown")
@@ -922,7 +976,31 @@ class Body:
                 f"greeting), respond briefly and complete."
             )
         elif match_type == "direct":
-            prompt = self._build_direct_idle_prompt(channel, author, summary)
+            recent_messages = self._fetch_recent_channel_messages(channel)
+            scratchpad = build_session_scratchpad(
+                channel=channel,
+                participant=author,
+                latest_message=summary,
+                recent_messages=recent_messages,
+            )
+            graph_query = " ".join([
+                summary,
+                scratchpad.previous_user_request,
+                " ".join(scratchpad.active_entities),
+            ]).strip()
+            prompt = self._build_direct_idle_prompt(
+                channel,
+                author,
+                summary,
+                format_recent_transcript(recent_messages),
+                scratchpad.to_prompt_section(),
+                fetch_conversation_memory(
+                    self._knowledge_url,
+                    self.agent_name,
+                    graph_query,
+                    max_retrieved=5,
+                ),
+            )
         else:
             # Interest match — agent's expertise is relevant
             kw_str = ", ".join(matched_kws) if matched_kws else "your area of expertise"
@@ -946,6 +1024,16 @@ class Body:
             "task_id": f"{task_prefix}-{int(time.time())}",
             "content": prompt,
             "source": f"idle_{match_type}:{channel}:{author}",
+            "metadata": {
+                "channel": channel,
+                "author": author,
+                "message_id": msg_id,
+                "match_type": match_type,
+                "recent_message_ids": [
+                    str(m.get("id", "")) for m in recent_messages
+                    if isinstance(m, dict) and m.get("id")
+                ],
+            },
         }
 
         self._interruption_controller.start_task(task["task_id"])
@@ -1474,6 +1562,7 @@ class Body:
         self._current_task_id = task_id
         self._current_task_tier = task.get("tier")
         self._task_content = task_content  # saved for cache write
+        self._task_metadata = task.get("metadata", {}) if isinstance(task.get("metadata"), dict) else {}
         self._event_id = task.get("event_id")
         self._task_complete_called = False
         self._current_task_turns = 0
@@ -2623,13 +2712,92 @@ class Body:
                 },
             )
 
+        self._capture_conversation_memory_proposals(task_id)
+
         self._clear_conversation_log()
         self._current_task_id = None
         self._task_content = ''
+        self._task_metadata = {}
         self._task_result_summary = ''
         self._channel_reminder_sent = False
         self._checkpoint_injected = False
         log.info("Task %s complete via complete_task (%d turns)", task_id, turn + 1)
+
+    def _capture_conversation_memory_proposals(self, task_id: str) -> None:
+        """Submit pending graph memory proposals from completed DM conversations."""
+        if os.environ.get("AGENCY_CONVERSATION_MEMORY_CAPTURE", "true").lower() not in ("1", "true", "yes", "on"):
+            return
+        metadata = getattr(self, "_task_metadata", {}) or {}
+        channel = metadata.get("channel", "")
+        match_type = metadata.get("match_type", "")
+        if match_type != "direct" or not channel.startswith("dm-"):
+            return
+        if not hasattr(self, "_messages") or not self._messages:
+            return
+
+        try:
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            capture_metadata = {
+                "agent": self.agent_name,
+                "task_id": task_id,
+                "channel": channel,
+                "participant": metadata.get("author", ""),
+                "message_id": metadata.get("message_id", ""),
+                "timestamp": now,
+            }
+            context_text = "\n".join(
+                f"{m.get('role', '?')}: {str(m.get('content', ''))[:800]}"
+                for m in self._messages[-12:]
+                if m.get("role") != "system" and str(m.get("content", "")).strip()
+            )
+            if not context_text:
+                return
+            prompt = build_conversation_memory_prompt(capture_metadata)
+            resp_text = self._call_llm_for_capture([
+                {"role": "system", "content": f"Conversation transcript:\n{context_text}"},
+                {"role": "user", "content": prompt},
+            ])
+            proposals = parse_conversation_memory_response(resp_text)
+            if not proposals:
+                return
+            nodes = []
+            evidence_ids = [
+                str(mid) for mid in metadata.get("recent_message_ids", [])
+                if str(mid).strip()
+            ]
+            if metadata.get("message_id"):
+                evidence_ids.append(str(metadata["message_id"]))
+            evidence_ids = list(dict.fromkeys(evidence_ids))
+            for idx, proposal in enumerate(proposals[:5], start=1):
+                proposal_evidence = proposal.get("evidence_message_ids") or evidence_ids
+                nodes.append({
+                    "label": f"memory-proposal:{self.agent_name}:{task_id}:{idx}",
+                    "kind": "memory_proposal",
+                    "summary": proposal["summary"][:500],
+                    "source_type": "agent",
+                    "source_channels": [channel],
+                    "properties": {
+                        "status": "pending_review",
+                        "memory_type": proposal["memory_type"],
+                        "confidence": proposal["confidence"],
+                        "reason": proposal.get("reason", ""),
+                        "entities": proposal.get("entities", []),
+                        "evidence_message_ids": proposal_evidence,
+                        "agent": self.agent_name,
+                        "task_id": task_id,
+                        "channel": channel,
+                        "participant": metadata.get("author", ""),
+                        "created_at": now,
+                    },
+                })
+            self._http_client.post(
+                f"{self._knowledge_url}/ingest/nodes",
+                json={"nodes": nodes},
+                timeout=10.0,
+            )
+            log.info("Submitted %d conversation memory proposals for task %s", len(nodes), task_id)
+        except Exception as e:
+            log.warning("Conversation memory proposal capture failed for task %s: %s", task_id, e)
 
     def _handle_complete_task(self, summary: str) -> str:
         """Handle the complete_task tool call from the agent."""

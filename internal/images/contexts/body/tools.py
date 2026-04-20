@@ -31,6 +31,14 @@ class ServiceToolDispatcher:
         self._tools: list[dict] = []
         self._last_mtime: float = 0.0
 
+    def _normalize_manifest(self, manifest) -> dict:
+        if not isinstance(manifest, dict):
+            return {"services": []}
+        services = manifest.get("services")
+        if not isinstance(services, list):
+            manifest["services"] = []
+        return manifest
+
     def load(self) -> None:
         """Load and parse the services manifest."""
         if not self.manifest_path.exists():
@@ -39,7 +47,7 @@ class ServiceToolDispatcher:
             return
         self._last_mtime = self.manifest_path.stat().st_mtime
         content = self.manifest_path.read_text()
-        self._manifest = json.loads(content)
+        self._manifest = self._normalize_manifest(json.loads(content))
         self._build_tools()
 
     def check_reload(self) -> bool:
@@ -63,6 +71,7 @@ class ServiceToolDispatcher:
     def _build_tools(self) -> None:
         """Build tool definitions from the manifest."""
         self._tools = []
+        self._manifest = self._normalize_manifest(self._manifest)
         for service in self._manifest.get("services", []):
             for tool in service.get("tools", []):
                 # Build parameters schema from tool definition

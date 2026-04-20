@@ -51,6 +51,36 @@ Rules for episode:
 - Tags should be specific: prefer "config-error" over "error", "deploy-related" over "deployment"
 - operational_tone: routine = smooth/unremarkable, notable = interesting but not problematic, problematic = errors/stress/degraded"""
 
+CONVERSATION_MEMORY_PROMPT_TEMPLATE = """You are proposing durable memory records from the conversation above.
+
+The session scratchpad is temporary working state. Only propose memory when the conversation contains information that should outlive this session.
+
+Return valid JSON only:
+{{
+  "memories": [
+    {{
+      "memory_type": "semantic|episodic|procedural",
+      "summary": "specific durable memory",
+      "reason": "why this should be remembered",
+      "confidence": "low|medium|high",
+      "entities": ["specific entities"],
+      "evidence_message_ids": ["message ids from the transcript when available"]
+    }}
+  ]
+}}
+
+Classification:
+- semantic: stable facts, user preferences, durable entity/project facts
+- episodic: notable events that should be remembered as something that happened
+- procedural: reusable workflows, source preferences, or steps for future similar work
+
+Rules:
+- Return {{"memories": []}} for routine chatter, acknowledgments, or facts with no future value.
+- Prefer low confidence when the memory is inferred rather than explicitly stated.
+- Do not turn the scratchpad itself into memory.
+- Do not propose secrets, credentials, or transient implementation details.
+- Every proposed memory must be grounded in the transcript or task metadata."""
+
 
 def build_capture_prompt(task_metadata, procedural_enabled=True, episodic_enabled=True):
     """Build the post-task capture prompt for procedure and/or episode extraction.
@@ -156,3 +186,78 @@ def enrich_episode(episode, task_metadata):
     if "tags" not in episode:
         episode["tags"] = []
     return episode
+
+
+def build_conversation_memory_prompt(task_metadata):
+    """Build a prompt for proposing durable conversation memories."""
+    return CONVERSATION_MEMORY_PROMPT_TEMPLATE + (
+        "\n\n## Task Metadata\n"
+        f"- Agent: {task_metadata.get('agent', '')}\n"
+        f"- Task ID: {task_metadata.get('task_id', '')}\n"
+        f"- Channel: {task_metadata.get('channel', '')}\n"
+        f"- Participant: {task_metadata.get('participant', '')}\n"
+        f"- Source message ID: {task_metadata.get('message_id', '')}\n"
+        f"- Timestamp: {task_metadata.get('timestamp', '')}\n"
+    )
+
+
+def parse_conversation_memory_response(response_text):
+    """Parse proposed conversation memories from an LLM response."""
+    parsed = _parse_json_object(response_text)
+    if not isinstance(parsed, dict):
+        return []
+    memories = parsed.get("memories", [])
+    if not isinstance(memories, list):
+        return []
+    result = []
+    for item in memories:
+        if not isinstance(item, dict):
+            continue
+        memory_type = str(item.get("memory_type", "")).lower()
+        summary = str(item.get("summary", "")).strip()
+        if memory_type not in {"semantic", "episodic", "procedural"} or not summary:
+            continue
+        confidence = str(item.get("confidence", "low")).lower()
+        if confidence not in {"low", "medium", "high"}:
+            confidence = "low"
+        result.append({
+            "memory_type": memory_type,
+            "summary": summary,
+            "reason": str(item.get("reason", "")).strip(),
+            "confidence": confidence,
+            "entities": _string_list(item.get("entities", [])),
+            "evidence_message_ids": _string_list(item.get("evidence_message_ids", [])),
+        })
+    return result
+
+
+def _parse_json_object(response_text):
+    if not response_text:
+        return None
+    try:
+        text = response_text.strip()
+        start = text.find("{")
+        if start < 0:
+            return None
+        depth = 0
+        end = -1
+        for i in range(start, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        if end <= start:
+            return None
+        parsed = json.loads(text[start:end])
+        return parsed if isinstance(parsed, dict) else None
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+def _string_list(value):
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]

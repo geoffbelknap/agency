@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"log/slog"
 	"github.com/go-chi/chi/v5"
+	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/knowledge"
@@ -45,6 +45,8 @@ func RegisterRoutes(r chi.Router, d Deps) {
 		// Review (operator-only — org-structural contributions)
 		r.Get("/pending", h.handleKnowledgePending)
 		r.Post("/review/{id}", h.handleKnowledgeReview)
+		r.Get("/memory/proposals", h.handleMemoryProposals)
+		r.Post("/memory/proposals/{id}/review", h.handleMemoryProposalReview)
 
 		// Ontology
 		r.Get("/ontology", h.knowledgeOntology)

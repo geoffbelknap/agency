@@ -47,8 +47,15 @@ class TestSynthesisPrompt:
     def test_should_not_synthesize_below_threshold(self, tmp_path):
         store = KnowledgeStore(tmp_path)
         synth = LLMSynthesizer(store, message_threshold=50)
+        synth.mode = "batch"
         synth.record_message("msg1")
         assert synth.should_synthesize() is False
+
+    def test_event_mode_synthesizes_after_one_message(self, tmp_path):
+        store = KnowledgeStore(tmp_path)
+        synth = LLMSynthesizer(store, message_threshold=50)
+        synth.record_message("msg1")
+        assert synth.should_synthesize() is True
 
 
 class TestGatewayLLMFormat:
@@ -191,17 +198,20 @@ class TestConfigurableThresholds:
         """Default thresholds are lower for low-traffic environments."""
         store = KnowledgeStore(tmp_path)
         synth = LLMSynthesizer(store)
-        assert synth.message_threshold == 10
+        assert synth.mode == "event"
+        assert synth.message_threshold == 1
         assert synth.time_threshold_seconds == 3600  # 1 hour
-        assert synth.min_interval_seconds == 300  # 5 minutes
+        assert synth.min_interval_seconds == 60  # 1 minute
 
     def test_thresholds_from_env(self, tmp_path, monkeypatch):
         """Thresholds can be configured via environment variables."""
+        monkeypatch.setenv("AGENCY_SYNTH_MODE", "batch")
         monkeypatch.setenv("AGENCY_SYNTH_MSG_THRESHOLD", "25")
         monkeypatch.setenv("AGENCY_SYNTH_TIME_THRESHOLD_HOURS", "3")
         monkeypatch.setenv("AGENCY_SYNTH_MIN_INTERVAL_SECS", "600")
         store = KnowledgeStore(tmp_path)
         synth = LLMSynthesizer(store)
+        assert synth.mode == "batch"
         assert synth.message_threshold == 25
         assert synth.time_threshold_seconds == 10800  # 3 hours
         assert synth.min_interval_seconds == 600

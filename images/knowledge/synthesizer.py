@@ -7,10 +7,13 @@ extraction, and writes results to the knowledge graph.
 The gateway resolves models via routing.yaml — operators configure
 which provider and model to use for synthesis there.
 
-Trigger conditions (whichever comes first):
-  - 10 new messages since last synthesis
-  - 1 hour since last synthesis
-  - Max once per 5 minutes
+Default trigger conditions favor low/intermittent usage:
+  - event mode: synthesize after each new message/content item
+  - max once per minute
+
+Set AGENCY_SYNTH_MODE=batch, AGENCY_SYNTH_MSG_THRESHOLD, and
+AGENCY_SYNTH_MIN_INTERVAL_SECS to batch more aggressively if budget pressure
+appears.
 """
 
 import json
@@ -27,9 +30,10 @@ from images.knowledge.store import KnowledgeStore
 
 logger = logging.getLogger("agency.knowledge.synthesizer")
 
-DEFAULT_MESSAGE_THRESHOLD = 10
+DEFAULT_SYNTH_MODE = "event"
+DEFAULT_MESSAGE_THRESHOLD = 1
 DEFAULT_TIME_THRESHOLD_HOURS = 1
-DEFAULT_MIN_INTERVAL_SECONDS = 300
+DEFAULT_MIN_INTERVAL_SECONDS = 60
 
 MAX_SYNTHESIS_BATCH = 25
 
@@ -130,6 +134,9 @@ class LLMSynthesizer:
     ):
         self.store = store
         self.curator = curator
+        self.mode = os.environ.get("AGENCY_SYNTH_MODE", DEFAULT_SYNTH_MODE).lower()
+        if self.mode not in ("event", "batch"):
+            self.mode = DEFAULT_SYNTH_MODE
         self.message_threshold = message_threshold or int(
             os.environ.get("AGENCY_SYNTH_MSG_THRESHOLD", str(DEFAULT_MESSAGE_THRESHOLD))
         )
@@ -198,6 +205,8 @@ class LLMSynthesizer:
         now = time.monotonic()
         if self._last_synthesis and now - self._last_synthesis < self.min_interval_seconds:
             return False
+        if self.mode == "event" and (self._pending_ids or self._pending_content):
+            return True
         if len(self._pending_ids) >= self.message_threshold:
             return True
         if self._pending_content:

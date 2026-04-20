@@ -27,7 +27,7 @@ logger = logging.getLogger("agency.knowledge.store")
 
 STRUCTURAL_KINDS = {"agent", "channel", "task", "OntologyCandidate", "RelationshipCandidate"}
 
-_SOURCE_PRIORITY = {"agent": 3, "llm": 2, "local": 1, "rule": 1}
+_SOURCE_PRIORITY = {"manager": 4, "agent": 3, "llm": 2, "local": 1, "rule": 1}
 
 # Org-structural kinds require operator review before being committed to the
 # graph. A compromised agent could inject false leadership/team data that
@@ -361,7 +361,7 @@ class KnowledgeStore:
 
     def update_node(self, node_id: str, **kwargs) -> None:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        allowed = {"label", "summary", "properties", "source_channels", "kind"}
+        allowed = {"label", "summary", "properties", "source_channels", "kind", "curation_status", "curation_reason"}
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             return
@@ -1191,6 +1191,59 @@ class KnowledgeStore:
         return "\n".join(lines)
 
     # -- Org-structural review gate --
+
+    def list_memory_proposals(self, status: str = "pending_review", limit: int = 100) -> list[dict]:
+        """List memory proposal nodes with a matching proposal status."""
+        rows = self._db.execute(
+            "SELECT * FROM nodes WHERE kind = 'memory_proposal' "
+            "AND (curation_status IS NULL OR curation_status != 'soft_deleted') "
+            "ORDER BY created_at LIMIT ?",
+            (limit * 3,),
+        ).fetchall()
+        proposals = []
+        for row in rows:
+            node = dict(row)
+            try:
+                props = json.loads(node.get("properties") or "{}")
+            except json.JSONDecodeError:
+                props = {}
+            if props.get("status", "pending_review") == status:
+                proposals.append(node)
+            if len(proposals) >= limit:
+                break
+        return proposals
+
+    def update_memory_proposal_status(
+        self,
+        node_id: str,
+        status: str,
+        reason: str = "",
+        promoted_node_id: str = "",
+    ) -> None:
+        """Update a memory proposal's status and audit the decision."""
+        node = self.get_node(node_id)
+        if not node:
+            return
+        try:
+            props = json.loads(node.get("properties") or "{}")
+        except json.JSONDecodeError:
+            props = {}
+        props["status"] = status
+        if reason:
+            props["decision_reason"] = reason
+        if promoted_node_id:
+            props["promoted_node_id"] = promoted_node_id
+        self.update_node(node_id, properties=props)
+        self.log_curation(
+            action=f"memory_proposal_{status}",
+            node_id=node_id,
+            detail={
+                "label": node.get("label", ""),
+                "memory_type": props.get("memory_type", ""),
+                "reason": reason,
+                "promoted_node_id": promoted_node_id,
+            },
+        )
 
     def is_org_structural(self, kind: str) -> bool:
         """Determine if a knowledge contribution is org-structural.

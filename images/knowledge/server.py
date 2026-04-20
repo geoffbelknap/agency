@@ -17,6 +17,8 @@ Endpoints:
     GET  /stats                   - Graph statistics
     GET  /pending                 - List pending org-structural contributions
     POST /review/{pending_id}     - Approve or reject a pending contribution
+    GET  /memory/proposals        - List memory proposals awaiting review
+    POST /memory/proposals/{id}/review - Approve or reject a memory proposal
     GET  /principals              - List all principals (optional ?type= filter)
     POST /principals              - Register a principal ({type, name, metadata?})
     GET  /principals/{uuid}       - Resolve a principal UUID
@@ -61,6 +63,7 @@ from images.knowledge.principal_registry import PrincipalRegistry
 from images.knowledge.classification import ClassificationConfig
 from images.knowledge.store import KnowledgeStore
 from images.knowledge.synthesizer import LLMSynthesizer
+from images.knowledge.manager import KnowledgeManager, MemoryManager
 from images.knowledge.gateway_client import GatewayClient
 
 logger = logging.getLogger("agency.knowledge")
@@ -163,8 +166,12 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
         gateway = GatewayClient(base_url=gateway_url, token=gateway_token)
         ingester = RuleIngester(store, curator=app.get("curator"))
         synthesizer = LLMSynthesizer(store, curator=app.get("curator"))
+        memory_manager = MemoryManager(store)
+        knowledge_manager = KnowledgeManager(store, memory_manager=memory_manager)
         app["ingester"] = ingester
         app["synthesizer"] = synthesizer
+        app["memory_manager"] = memory_manager
+        app["knowledge_manager"] = knowledge_manager
         app["gateway"] = gateway
         app.on_startup.append(_start_ingestion_loop)
         app.on_cleanup.append(_stop_ingestion_loop)
@@ -212,6 +219,8 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     app.router.add_post("/migrate-kind", handle_migrate_kind)
     app.router.add_get("/pending", handle_pending)
     app.router.add_post("/review/{pending_id}", handle_review)
+    app.router.add_get("/memory/proposals", handle_memory_proposals)
+    app.router.add_post("/memory/proposals/{proposal_id}/review", handle_memory_proposal_review)
     app.router.add_get("/graph/node/{node_id}", handle_graph_node)
     app.router.add_get("/graph/neighbors/{node_id}", handle_graph_neighbors)
     app.router.add_get("/graph/filter", handle_graph_filter)
@@ -657,7 +666,7 @@ async def handle_ingest_nodes(request: web.Request) -> web.Response:
         )
         # Only publish channel updates for meaningful findings, not raw telemetry.
         # DNS queries, network connections, and device inventory are too noisy.
-        _SILENT_KINDS = {"dns_query", "network_connection", "device", "sensor", "ip_address", "domain"}
+        _SILENT_KINDS = {"dns_query", "network_connection", "device", "sensor", "ip_address", "domain", "memory_proposal"}
         if kind.lower() not in _SILENT_KINDS:
             node_summary = node.get("summary") or node["label"]
             publish_knowledge_update(
@@ -671,7 +680,14 @@ async def handle_ingest_nodes(request: web.Request) -> web.Response:
                 },
             )
         count += 1
-    return web.json_response({"ingested": count, "pending_review": pending_review})
+    manager = request.app.get("knowledge_manager")
+    memory_processed = None
+    if manager is not None:
+        memory_processed = manager.process_cycle().get("memory")
+    response = {"ingested": count, "pending_review": pending_review}
+    if memory_processed:
+        response["memory_processed"] = memory_processed
+    return web.json_response(response)
 
 
 async def _cache_ingest_nodes(request, store):
@@ -909,6 +925,41 @@ async def handle_review(request: web.Request) -> web.Response:
     if not found:
         return web.json_response({"error": "pending contribution not found"}, status=404)
     return web.json_response({"pending_id": pending_id, "action": action})
+
+
+async def handle_memory_proposals(request: web.Request) -> web.Response:
+    """GET /memory/proposals — list durable-memory proposals for operator review."""
+    if not _require_platform(request):
+        return web.json_response({"error": "platform access required"}, status=403)
+    store: KnowledgeStore = request.app["store"]
+    status = request.query.get("status", "needs_review")
+    if status not in ("pending_review", "needs_review", "approved", "rejected"):
+        return web.json_response({"error": "invalid proposal status"}, status=400)
+    try:
+        limit = int(request.query.get("limit", "100"))
+    except ValueError:
+        return web.json_response({"error": "limit must be an integer"}, status=400)
+    limit = max(1, min(limit, 250))
+    return web.json_response({"items": store.list_memory_proposals(status=status, limit=limit)})
+
+
+async def handle_memory_proposal_review(request: web.Request) -> web.Response:
+    """POST /memory/proposals/{proposal_id}/review — approve or reject a memory proposal."""
+    if not _require_platform(request):
+        return web.json_response({"error": "platform access required"}, status=403)
+    proposal_id = request.match_info["proposal_id"]
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "JSON body required"}, status=400)
+    action = body.get("action", "")
+    if action not in ("approve", "reject"):
+        return web.json_response({"error": "action must be 'approve' or 'reject'"}, status=400)
+    manager = request.app.get("memory_manager") or MemoryManager(request.app["store"])
+    result = manager.review_proposal(proposal_id, action, str(body.get("reason", "")))
+    if result is None:
+        return web.json_response({"error": "memory proposal not found"}, status=404)
+    return web.json_response(result)
 
 
 async def handle_graph_node(request: web.Request) -> web.Response:
@@ -1358,6 +1409,9 @@ async def _ingestion_loop(app: web.Application) -> None:
                     synthesizer.synthesize(
                         synthesizer._pending_messages, all_channels
                     )
+                manager = app.get("knowledge_manager")
+                if manager is not None:
+                    manager.process_cycle()
 
         except asyncio.CancelledError:
             raise
