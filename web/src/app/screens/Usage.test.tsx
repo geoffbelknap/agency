@@ -167,6 +167,44 @@ describe('Usage', () => {
     expect(screen.getAllByText('$0.0200').length).toBeGreaterThan(0);
   });
 
+  it('does not invent a model row when gateway metrics have no model breakdown', async () => {
+    mockUsageData();
+
+    renderWithRouter(<Usage />);
+
+    expect((await screen.findAllByText('No per-model usage recorded in the selected period.')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('gateway traffic')).not.toBeInTheDocument();
+  });
+
+  it('renders zero share bars at zero width', async () => {
+    server.use(
+      http.get('*/__agency/config', () => HttpResponse.json({ gateway: 'http://localhost:8200' })),
+      http.get(`${BASE}/infra/routing/metrics`, () =>
+        HttpResponse.json({
+          ...metrics,
+          by_model: {
+            'claude-sonnet': {
+              requests: 1,
+              input_tokens: 0,
+              output_tokens: 0,
+              total_tokens: 0,
+              est_cost_usd: 0,
+              errors: 0,
+              avg_latency_ms: 0,
+            },
+          },
+        }),
+      ),
+      http.get(`${BASE}/infra/routing/suggestions`, () => HttpResponse.json([])),
+      http.get(`${BASE}/infra/routing/stats`, () => HttpResponse.json([])),
+    );
+
+    renderWithRouter(<Usage />);
+
+    const shareBar = await screen.findByLabelText('claude-sonnet share 0%');
+    expect((shareBar.firstElementChild as HTMLElement).style.width).toBe('0%');
+  });
+
   it('does not call optimizer-only endpoints when the feature is disabled', async () => {
     let suggestionCalls = 0;
     let statsCalls = 0;

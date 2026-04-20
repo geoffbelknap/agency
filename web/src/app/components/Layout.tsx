@@ -250,7 +250,7 @@ export function Layout() {
   };
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-background text-foreground">
+    <div className="flex h-dvh overflow-hidden border border-border bg-background text-foreground">
       <div className="fixed inset-x-0 top-0 z-50 border-b border-border bg-background/95 backdrop-blur lg:hidden">
         <div className="flex items-center justify-between px-4 py-3 safe-top">
           <Link to="/overview" className="flex items-center gap-3" style={{ textDecoration: 'none' }} aria-label="Go to Today">
