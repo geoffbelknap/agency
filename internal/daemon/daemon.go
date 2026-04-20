@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net"
@@ -209,38 +210,58 @@ func Stop() error {
 		return fmt.Errorf("cannot determine PID file path")
 	}
 
-	pid, err := readPID(pidFile)
+	pids, err := daemonPIDs()
 	if err != nil {
-		// PID file missing or invalid — try to find the process by command line
-		foundPID, findErr := findDaemonProcess()
-		if findErr != nil || foundPID == 0 {
-			return fmt.Errorf("no daemon PID file found and could not locate process: %w", err)
+		return err
+	}
+	if len(pids) == 0 {
+		if _, readErr := readPID(pidFile); readErr != nil {
+			return fmt.Errorf("no daemon PID file found and could not locate process: %w", readErr)
 		}
-		pid = foundPID
+		return fmt.Errorf("daemon PID file exists but no matching agency serve process was found")
 	}
 
-	proc, err := os.FindProcess(pid)
-	if err != nil {
+	procs := make(map[int]*os.Process, len(pids))
+	for _, pid := range pids {
+		proc, findErr := os.FindProcess(pid)
+		if findErr != nil {
+			continue
+		}
+		procs[pid] = proc
+	}
+	if len(procs) == 0 {
 		os.Remove(pidFile)
-		return fmt.Errorf("process not found: %w", err)
+		return fmt.Errorf("process not found")
 	}
 
-	if err := proc.Signal(syscall.SIGTERM); err != nil {
-		os.Remove(pidFile)
-		return fmt.Errorf("send SIGTERM: %w", err)
+	for pid, proc := range procs {
+		if err := proc.Signal(syscall.SIGTERM); err != nil && !isProcessGone(err) {
+			os.Remove(pidFile)
+			return fmt.Errorf("send SIGTERM to pid %d: %w", pid, err)
+		}
 	}
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if err := proc.Signal(syscall.Signal(0)); err != nil {
+		allExited := true
+		for _, proc := range procs {
+			if err := proc.Signal(syscall.Signal(0)); err == nil {
+				allExited = false
+				break
+			}
+		}
+		if allExited {
 			os.Remove(pidFile)
 			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	if err := proc.Signal(syscall.SIGKILL); err != nil {
-		os.Remove(pidFile)
-		return fmt.Errorf("daemon did not exit after SIGTERM and SIGKILL failed: %w", err)
+
+	for pid, proc := range procs {
+		if err := proc.Signal(syscall.SIGKILL); err != nil && !isProcessGone(err) {
+			os.Remove(pidFile)
+			return fmt.Errorf("daemon did not exit after SIGTERM and SIGKILL failed for pid %d: %w", pid, err)
+		}
 	}
 
 	os.Remove(pidFile)
@@ -261,14 +282,40 @@ func readPID(path string) (int, error) {
 	return pid, nil
 }
 
-// findDaemonProcess scans /proc for a running "agency serve" process.
-// Returns the PID if found, 0 otherwise.
-func findDaemonProcess() (int, error) {
+func daemonPIDs() ([]int, error) {
+	pids, err := findDaemonProcesses()
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[int]struct{}, len(pids)+1)
+	ordered := make([]int, 0, len(pids)+1)
+	if pid, err := readPID(PIDFile()); err == nil && pid > 0 {
+		seen[pid] = struct{}{}
+		ordered = append(ordered, pid)
+	}
+	for _, pid := range pids {
+		if pid <= 0 {
+			continue
+		}
+		if _, ok := seen[pid]; ok {
+			continue
+		}
+		seen[pid] = struct{}{}
+		ordered = append(ordered, pid)
+	}
+	return ordered, nil
+}
+
+// findDaemonProcesses scans for running "agency serve" processes launched
+// from the current executable path. Returns every matching PID.
+func findDaemonProcesses() ([]int, error) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return findDaemonProcessWithPS()
 	}
+	exePaths := expectedExecutablePaths()
 	self := os.Getpid()
+	var pids []int
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())
 		if err != nil || pid == self {
@@ -278,21 +325,66 @@ func findDaemonProcess() (int, error) {
 		if err != nil {
 			continue
 		}
-		// cmdline is null-separated; check for "agency" and "serve"
-		s := string(cmdline)
-		if strings.Contains(s, "agency") && strings.Contains(s, "serve") {
-			return pid, nil
+		if isMatchingServeArgv(splitCmdline(cmdline), exePaths) {
+			pids = append(pids, pid)
 		}
 	}
-	return 0, nil
+	return pids, nil
 }
 
-func findDaemonProcessWithPS() (int, error) {
+func findDaemonProcessWithPS() ([]int, error) {
 	out, err := exec.Command("ps", "-axo", "pid=,command=").Output()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	self := os.Getpid()
+	return parsePSDaemonProcesses(out, expectedExecutablePaths(), os.Getpid()), nil
+}
+
+func expectedExecutablePaths() []string {
+	exePath, err := os.Executable()
+	if err != nil || exePath == "" {
+		return nil
+	}
+	paths := []string{exePath}
+	if resolved, err := filepath.EvalSymlinks(exePath); err == nil && resolved != "" && resolved != exePath {
+		paths = append(paths, resolved)
+	}
+	return paths
+}
+
+func splitCmdline(cmdline []byte) []string {
+	cmdline = bytes.TrimRight(cmdline, "\x00")
+	if len(cmdline) == 0 {
+		return nil
+	}
+	raw := bytes.Split(cmdline, []byte{0})
+	argv := make([]string, 0, len(raw))
+	for _, part := range raw {
+		if len(part) == 0 {
+			continue
+		}
+		argv = append(argv, string(part))
+	}
+	return argv
+}
+
+func isMatchingServeArgv(argv []string, exePaths []string) bool {
+	if len(argv) < 2 || argv[1] != "serve" {
+		return false
+	}
+	if len(argv) > 2 && !strings.HasPrefix(argv[2], "-") {
+		return false
+	}
+	for _, exePath := range exePaths {
+		if argv[0] == exePath {
+			return true
+		}
+	}
+	return false
+}
+
+func parsePSDaemonProcesses(out []byte, exePaths []string, self int) []int {
+	var pids []int
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -306,12 +398,28 @@ func findDaemonProcessWithPS() (int, error) {
 		if err != nil || pid == self {
 			continue
 		}
-		command := strings.Join(fields[1:], " ")
-		if strings.Contains(command, "agency") && strings.Contains(command, "serve") {
-			return pid, nil
+		if isMatchingServeCommand(strings.Join(fields[1:], " "), exePaths) {
+			pids = append(pids, pid)
 		}
 	}
-	return 0, nil
+	return pids
+}
+
+func isMatchingServeCommand(command string, exePaths []string) bool {
+	fields := strings.Fields(command)
+	if !isMatchingServeArgv(fields, exePaths) {
+		return false
+	}
+	for _, exePath := range exePaths {
+		if fields[0] == exePath {
+			return true
+		}
+	}
+	return false
+}
+
+func isProcessGone(err error) bool {
+	return err != nil && (errors.Is(err, os.ErrProcessDone) || errors.Is(err, syscall.ESRCH))
 }
 
 // EnsureRunning starts the daemon if not already running.

@@ -156,6 +156,35 @@ func TestSeccompProfilePath_FallsBackToEmbeddedFile(t *testing.T) {
 	}
 }
 
+func TestSeccompProfilePath_RefreshesGeneratedDefault(t *testing.T) {
+	dir := t.TempDir()
+	defaultDir := filepath.Join(dir, "runtime", "security")
+	if err := os.MkdirAll(defaultDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	profilePath := filepath.Join(defaultDir, "seccomp-workspace.json")
+	if err := os.WriteFile(profilePath, []byte(`{"stale":"profile"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := SeccompProfilePath(dir)
+	if got != profilePath {
+		t.Errorf("SeccompProfilePath = %q, want %q", got, profilePath)
+	}
+	data, err := os.ReadFile(got)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", got, err)
+	}
+	if strings.Contains(string(data), `"stale"`) {
+		t.Fatalf("generated default seccomp profile was not refreshed: %s", string(data))
+	}
+	for _, syscall := range []string{"statx", "open_tree", "move_mount", "fsopen", "fsconfig", "fsmount", "mount_setattr"} {
+		if !strings.Contains(string(data), `"`+syscall+`"`) {
+			t.Fatalf("refreshed seccomp profile is missing %s", syscall)
+		}
+	}
+}
+
 func TestSeccompProfilePath_ReadsOverrideFile(t *testing.T) {
 	dir := t.TempDir()
 	infraDir := filepath.Join(dir, "infrastructure")

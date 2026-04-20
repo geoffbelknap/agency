@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/volume"
@@ -79,7 +80,9 @@ func (w *Workspace) Start(ctx context.Context, opts StartOptions) error {
 		return fmt.Errorf("resolve body image: %w", err)
 	}
 
-	_ = w.cli.ContainerRemove(ctx, w.ContainerName, container.RemoveOptions{Force: true})
+	if err := containers.StopAndRemove(ctx, w.cli, w.ContainerName, 5); err != nil {
+		return fmt.Errorf("remove previous workspace container: %w", err)
+	}
 
 	agentDir := filepath.Join(w.Home, "agents", w.AgentName)
 	internalNet := fmt.Sprintf("%s-%s-internal", prefix, w.AgentName)
@@ -207,25 +210,20 @@ func (w *Workspace) Start(ctx context.Context, opts StartOptions) error {
 	hostConfig.Tmpfs = workspaceTmpfs(opts.Deps)
 	hostConfig.SecurityOpt = containers.WorkspaceSecurityOpts(w.Home, w.Backend)
 
-	if _, err := containers.CreateAndStart(ctx, w.cli,
-		w.ContainerName,
-		&container.Config{
-			Image:    bodyImage,
-			Hostname: "workspace",
-			User:     agencyUID + ":" + agencyGID,
-			Env:      mapToEnv(env),
-			Labels: map[string]string{
-				"agency.managed":        "true",
-				"agency.agent":          w.AgentName,
-				"agency.type":           "workspace",
-				"agency.principal.uuid": w.PrincipalUUID,
-				"agency.build.id":       imageops.ImageBuildLabel(ctx, w.cli, bodyImage),
-				"agency.build.gateway":  w.BuildID,
-			},
+	if _, err := w.createAndStartWorkspace(ctx, &container.Config{
+		Image:    bodyImage,
+		Hostname: "workspace",
+		User:     agencyUID + ":" + agencyGID,
+		Env:      mapToEnv(env),
+		Labels: map[string]string{
+			"agency.managed":        "true",
+			"agency.agent":          w.AgentName,
+			"agency.type":           "workspace",
+			"agency.principal.uuid": w.PrincipalUUID,
+			"agency.build.id":       imageops.ImageBuildLabel(ctx, w.cli, bodyImage),
+			"agency.build.gateway":  w.BuildID,
 		},
-		hostConfig,
-		nil,
-	); err != nil {
+	}, hostConfig); err != nil {
 		return fmt.Errorf("create/start workspace: %w", err)
 	}
 
@@ -360,4 +358,41 @@ func (w *Workspace) ensureVolume(ctx context.Context, name string) {
 			"agency.type":  "workspace",
 		},
 	})
+}
+
+func (w *Workspace) createAndStartWorkspace(ctx context.Context, config *container.Config, hostConfig *container.HostConfig) (string, error) {
+	backoff := []time.Duration{0, 250 * time.Millisecond, 750 * time.Millisecond}
+	var lastErr error
+
+	for attempt, delay := range backoff {
+		if delay > 0 {
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+
+		id, err := containers.CreateAndStart(ctx, w.cli, w.ContainerName, config, hostConfig, nil)
+		if err == nil {
+			return id, nil
+		}
+		lastErr = err
+		if !isTransientNetnsStartupError(err) || attempt == len(backoff)-1 {
+			break
+		}
+		_ = containers.StopAndRemove(ctx, w.cli, w.ContainerName, 5)
+	}
+
+	return "", lastErr
+}
+
+func isTransientNetnsStartupError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "bind-mount /proc/") &&
+		strings.Contains(msg, "ns/net") &&
+		strings.Contains(msg, "no such file or directory")
 }
