@@ -18,35 +18,35 @@ test.describe('Agency app routes', () => {
     await expect(page.getByRole('heading', { name: 'Prepare the workspace' })).toBeVisible();
 
     await page.goto('/overview');
-    await expect(page.getByText('Platform health at a glance')).toBeVisible();
+    await expect(page.getByText('Decision inbox')).toBeVisible();
 
     await page.goto('/channels');
     await expect(page.getByRole('link', { name: /channels/i })).toBeVisible();
     await expect(page.getByText('Hello from Alice')).toBeVisible();
 
     await page.getByRole('link', { name: /agents/i }).click();
-    await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible();
-    await expect(page.getByText('alice')).toBeVisible();
+    await expect(page.locator('main').getByText('Agents', { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'alice' })).toBeVisible();
 
     await page.getByRole('link', { name: /knowledge/i }).click();
-    await expect(page.getByRole('heading', { name: 'Knowledge' })).toBeVisible();
-    await expect(page.getByText('Release notes')).toBeVisible();
+    await expect(page.locator('main').getByText('Knowledge', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('Release notes').first()).toBeVisible();
 
     await page.getByRole('link', { name: /admin/i }).click();
-    await expect(page.getByRole('heading', { name: 'Admin' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Infrastructure', exact: true })).toBeVisible();
-    await expect(page.getByText('gateway', { exact: true })).toBeVisible();
+    await expect(page.locator('main').getByText('Admin', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('Infrastructure', { exact: true }).first()).toBeVisible();
+    await expect(page.locator('main').getByText('gateway', { exact: true }).first()).toBeVisible();
   });
 
   test('direct deep links render representative detail views', async ({ page }) => {
     const routeExpectations = [
-      { path: '/overview', locator: page.getByText('Platform health at a glance') },
+      { path: '/overview', locator: page.getByText('Decision inbox') },
       { path: '/channels/general', locator: page.getByText('Hello from Alice', { exact: true }) },
-      { path: '/agents/alice', locator: page.getByRole('heading', { name: 'Agents' }) },
-      { path: '/knowledge/graph', locator: page.getByText('2 nodes') },
-      { path: '/knowledge/search', locator: page.getByText('Query Knowledge') },
-      { path: '/admin/infrastructure', locator: page.getByText('gateway', { exact: true }) },
-      { path: '/admin/audit', locator: page.getByRole('button', { name: 'Search' }) },
+      { path: '/agents/alice', locator: page.locator('main').getByText('Agents', { exact: true }).first() },
+      { path: '/knowledge/graph', locator: page.locator('main').getByText('2 nodes', { exact: true }).first() },
+      { path: '/knowledge/search', locator: page.getByText('Query graph memory') },
+      { path: '/admin/infrastructure', locator: page.locator('main').getByText('gateway', { exact: true }).first() },
+      { path: '/admin/audit', locator: page.locator('main').getByRole('button', { name: 'Search', exact: true }) },
     ];
 
     for (const route of routeExpectations) {

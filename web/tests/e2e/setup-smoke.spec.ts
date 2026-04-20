@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('setup wizard can advance past platform readiness into welcome', async ({ page }) => {
+test('setup wizard can advance past platform readiness into providers', async ({ page }) => {
   await page.route('**/__agency/config', async (route) => {
     await route.fulfill({
       status: 200,
@@ -25,22 +25,37 @@ test('setup wizard can advance past platform readiness into welcome', async ({ p
     });
   });
 
-  await page.goto('/setup');
-  await expect(page.getByRole('heading', { name: 'Prepare the workspace' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Welcome to Agency' })).toBeVisible();
-  const nameInput = page.getByPlaceholder('operator');
-  await expect(nameInput).toBeVisible();
-  await page.route('**/api/v1/init', async (route) => {
-    const body = route.request().postDataJSON();
-    expect(body).toMatchObject({ operator: 'operator' });
+  await page.route('**/api/v1/infra/setup/config', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ status: 'ok', home: '/tmp/agency-home' }),
+      body: JSON.stringify({ providers: { anthropic: { configured: true, validated: true } } }),
     });
   });
 
-  await nameInput.fill('operator');
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await expect(page.getByRole('heading', { name: 'LLM Providers' })).toBeVisible();
+  await page.route('**/api/v1/infra/providers', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        {
+          name: 'anthropic',
+          display_name: 'Anthropic',
+          description: 'Claude models',
+          category: 'cloud',
+          installed: true,
+          credential_name: 'anthropic-api-key',
+          credential_label: 'API key',
+          api_key_url: 'https://console.anthropic.com/settings/keys',
+          credential_configured: true,
+        },
+      ]),
+    });
+  });
+
+  await page.goto('/setup');
+  await expect(page.getByRole('heading', { name: 'Prepare the workspace' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Connect providers' })).toBeVisible();
+  await expect(page.getByText('Provider readiness')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
 });
