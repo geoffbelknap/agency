@@ -1159,6 +1159,13 @@ func runServe(httpAddr string) error {
 		logger.Warn("principal registry unavailable — permission enforcement disabled", "error", regErr)
 	}
 
+	// Wire the WebSocket hub's scope filter: registry resolves each client's
+	// authorization scope at connect time; the audit writer records subscribe
+	// attempts that exceed scope. Both are optional — when nil, the hub
+	// defaults to allow-all (backward compatibility).
+	wsHub.SetRegistry(reg)
+	wsHub.SetAuditor(audit)
+
 	// Routing optimizer — tracks LLM call patterns and generates
 	// cost-saving suggestions. Persisted to ~/.agency/routing-stats.json.
 	optimizer := routing.NewOptimizer(
