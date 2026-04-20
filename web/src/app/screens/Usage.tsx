@@ -105,6 +105,11 @@ function formatMoneyShort(value: number): string {
   return `$${value.toFixed(value >= 1 ? 2 : 3)}`;
 }
 
+function formatChartAxisValue(value: number, metric: 'cost' | 'tokens'): string {
+  if (metric === 'tokens') return formatTokens(Math.round(value));
+  return formatMoneyShort(value);
+}
+
 function formatCostCell(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return '$0.0000';
   if (value < 0.01) return '<$0.01';
@@ -619,6 +624,7 @@ export function Usage() {
     })
     : [];
   const maxChartStack = Math.max(...chartStacks.map((stack) => stack.total), 0);
+  const chartAxisTicks = maxChartStack > 0 ? [maxChartStack, maxChartStack / 2, 0] : [];
   const recentRows = recentCalls.length > 0
     ? recentCalls.slice(-10).reverse().map((entry) => ({
       id: `${entry.ts}:${entry.agent}:${entry.model}:${entry.status}`,
@@ -827,20 +833,32 @@ export function Usage() {
                           No hourly model buckets recorded yet.
                         </div>
                       ) : (
-                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 160 }}>
-                          {chartStacks.map((stack) => (
-                            <div key={stack.hour} title={`bucket ${stack.hour + 1}`} style={{ flex: 1, display: 'flex', flexDirection: 'column-reverse', minWidth: 4, height: stack.total > 0 ? `${Math.max(2, (stack.total / maxChartStack) * 100)}%` : 0 }}>
-                              {stack.segments.map((segment) => (
-                                <div key={segment.id} style={{ height: stack.total > 0 ? `${(segment.value / stack.total) * 100}%` : 0, background: segment.color }} />
-                              ))}
-                            </div>
-                          ))}
+                        <div style={{ display: 'grid', gridTemplateColumns: '56px minmax(0, 1fr)', gap: 10, alignItems: 'stretch', height: 160 }}>
+                          <div aria-label={`${chartMetric} y axis`} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-end', paddingBottom: 1 }}>
+                            {chartAxisTicks.map((tick, index) => (
+                              <span key={`${tick}:${index}`} className="mono" style={{ fontSize: 10, color: 'var(--ink-faint)', lineHeight: 1 }}>
+                                {formatChartAxisValue(tick, chartMetric)}
+                              </span>
+                            ))}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, minWidth: 0, borderLeft: '0.5px solid var(--ink-hairline)', borderBottom: '0.5px solid var(--ink-hairline)', paddingLeft: 8 }}>
+                            {chartStacks.map((stack) => (
+                              <div key={stack.hour} title={`bucket ${stack.hour + 1}`} style={{ flex: 1, display: 'flex', flexDirection: 'column-reverse', minWidth: 4, height: stack.total > 0 ? `${Math.max(2, (stack.total / maxChartStack) * 100)}%` : 0 }}>
+                                {stack.segments.map((segment) => (
+                                  <div key={segment.id} style={{ height: stack.total > 0 ? `${(segment.value / stack.total) * 100}%` : 0, background: segment.color }} />
+                                ))}
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-                        {['-24h', '-18h', '-12h', '-6h'].map((label) => (
-                          <span key={label} className="mono" style={{ fontSize: 10, color: 'var(--ink-faint)' }}>{label}</span>
-                        ))}
+                      <div style={{ display: 'grid', gridTemplateColumns: chartStacks.length === 0 || maxChartStack <= 0 ? '1fr' : '56px minmax(0, 1fr)', gap: 10, marginTop: 8 }}>
+                        {chartStacks.length > 0 && maxChartStack > 0 && <span aria-hidden="true" />}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: chartStacks.length > 0 && maxChartStack > 0 ? 8 : 0 }}>
+                          {['-24h', '-18h', '-12h', '-6h'].map((label) => (
+                            <span key={label} className="mono" style={{ fontSize: 10, color: 'var(--ink-faint)' }}>{label}</span>
+                          ))}
+                        </div>
                       </div>
                     </>
                   )}
