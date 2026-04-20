@@ -103,3 +103,36 @@ def test_list_memory_proposals_filters_by_status(tmp_path):
     pending = store.list_memory_proposals(status="pending_review")
 
     assert [p["id"] for p in pending] == [pending_id]
+
+
+def test_operator_approve_promotes_reviewed_memory(tmp_path):
+    store = KnowledgeStore(tmp_path)
+    proposal_id = _proposal(store, confidence="medium")
+    manager = MemoryManager(store)
+    manager.process_pending()
+
+    result = manager.review_proposal(proposal_id, "approve", "operator confirmed")
+
+    assert result["proposal_id"] == proposal_id
+    assert result["action"] == "approve"
+    assert result["promoted_node_id"]
+    props = json.loads(store.get_node(proposal_id)["properties"])
+    assert props["status"] == "approved"
+    assert props["decision_reason"] == "operator confirmed"
+    promoted = store.get_node(result["promoted_node_id"])
+    assert promoted["kind"] == "procedure"
+
+
+def test_operator_reject_keeps_reviewed_memory_unpromoted(tmp_path):
+    store = KnowledgeStore(tmp_path)
+    proposal_id = _proposal(store, confidence="medium")
+    manager = MemoryManager(store)
+    manager.process_pending()
+
+    result = manager.review_proposal(proposal_id, "reject", "not useful")
+
+    assert result == {"proposal_id": proposal_id, "action": "reject"}
+    props = json.loads(store.get_node(proposal_id)["properties"])
+    assert props["status"] == "rejected"
+    assert props["decision_reason"] == "not useful"
+    assert store.find_nodes_by_kind("procedure") == []

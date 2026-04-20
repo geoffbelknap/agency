@@ -129,6 +129,33 @@ class MemoryManager:
         )
         return node_id
 
+    def review_proposal(self, proposal_id: str, action: str, reason: str = "") -> dict | None:
+        """Apply an operator decision to a memory proposal."""
+        proposal = self.store.get_node(proposal_id)
+        if not proposal or proposal.get("kind") != "memory_proposal":
+            return None
+
+        review_reason = reason.strip() or "operator reviewed memory proposal"
+        if action == "approve":
+            props = _props(proposal)
+            memory_type = str(props.get("memory_type", "")).lower()
+            decision = MemoryDecision(
+                "approve",
+                review_reason,
+                target_kind=_target_kind(memory_type),
+            )
+            promoted_id = self.promote_proposal(proposal, decision)
+            self.store.update_memory_proposal_status(
+                proposal_id,
+                "approved",
+                reason=review_reason,
+                promoted_node_id=promoted_id,
+            )
+            return {"proposal_id": proposal_id, "action": action, "promoted_node_id": promoted_id}
+
+        self.store.update_memory_proposal_status(proposal_id, "rejected", reason=review_reason)
+        return {"proposal_id": proposal_id, "action": action}
+
 
 class KnowledgeManager:
     """Thin coordinator for knowledge-service management tasks."""

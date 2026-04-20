@@ -1065,6 +1065,10 @@ export const api = {
     pending: () => req<unknown>('/graph/pending'),
     review: (id: string, action: 'approve' | 'reject', reason = '') =>
       req<Record<string, unknown>>(`/graph/review/${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify({ action, reason }) }),
+    memoryProposals: (status = 'needs_review', limit = 100) =>
+      req<unknown>(`/graph/memory/proposals?status=${encodeURIComponent(status)}&limit=${limit}`),
+    reviewMemoryProposal: (id: string, action: 'approve' | 'reject', reason = '') =>
+      req<Record<string, unknown>>(`/graph/memory/proposals/${encodeURIComponent(id)}/review`, { method: 'POST', body: JSON.stringify({ action, reason }) }),
     quarantineList: (agent?: string) =>
       req<unknown>(`/graph/quarantine${agent ? `?agent=${encodeURIComponent(agent)}` : ''}`),
     quarantineRelease: (opts: { node_id?: string; agent?: string }) =>

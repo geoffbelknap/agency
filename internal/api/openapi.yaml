@@ -5906,6 +5906,103 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /graph/memory/proposals:
+    get:
+      operationId: knowledgeMemoryProposals
+      summary: List memory proposals
+      description: Returns durable-memory proposals by review status. Operator-only (ASK tenet 5).
+      tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Proposal review status. Defaults to needs_review.
+          schema:
+            type: string
+            enum: [pending_review, needs_review, approved, rejected]
+        - name: limit
+          in: query
+          required: false
+          description: Maximum proposals to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 250
+            default: 100
+      responses:
+        "200":
+          description: Memory proposals
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          description: Invalid status or limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Knowledge service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /graph/memory/proposals/{id}/review:
+    post:
+      operationId: knowledgeMemoryProposalReview
+      summary: Approve or reject a memory proposal
+      description: Approves or rejects a durable-memory proposal by ID. Operator-only (ASK tenet 5).
+      tags: [Graph]
+      x-agency-tier: experimental
+      x-agency-stability: experimental
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Memory proposal ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [approve, reject]
+                  description: Review action
+                reason:
+                  type: string
+                  description: Optional reason for the review decision
+      responses:
+        "200":
+          description: Memory proposal review result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          description: Invalid request (missing ID, invalid action, or malformed body)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Knowledge service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   # ── Intake Polling ────────────────────────────────────────────────────────────
   /hub/intake/poll-health:
     get:
