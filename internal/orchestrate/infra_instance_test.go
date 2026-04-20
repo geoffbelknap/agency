@@ -4,6 +4,8 @@ import (
 	"context"
 	"runtime"
 	"testing"
+
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 )
 
 func TestScopedInfraNameUsesInstance(t *testing.T) {
@@ -106,6 +108,37 @@ func TestInfraHostPortsRespectOverrides(t *testing.T) {
 	}
 	if got, want := inf.webPort(), "19280"; got != want {
 		t.Fatalf("webPort() = %q, want %q", got, want)
+	}
+}
+
+func TestSuppressDirectServiceHostPortsOnlyForRootlessPodmanOnWSL(t *testing.T) {
+	origDetect := detectWSLHost
+	defer func() { detectWSLHost = origDetect }()
+
+	detectWSLHost = func() bool { return true }
+	rootlessPodman, err := runtimehost.NewRawClientForBackend(runtimehost.BackendPodman, map[string]string{
+		"host": "/run/user/1000/podman/podman.sock",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := (&Infra{cli: rootlessPodman}).suppressDirectServiceHostPorts(); !got {
+		t.Fatal("rootless Podman on WSL should suppress direct service host ports")
+	}
+
+	rootfulPodman, err := runtimehost.NewRawClientForBackend(runtimehost.BackendPodman, map[string]string{
+		"host": "/run/podman/podman.sock",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := (&Infra{cli: rootfulPodman}).suppressDirectServiceHostPorts(); got {
+		t.Fatal("rootful Podman should keep direct service host ports")
+	}
+
+	detectWSLHost = func() bool { return false }
+	if got := (&Infra{cli: rootlessPodman}).suppressDirectServiceHostPorts(); got {
+		t.Fatal("native Linux rootless Podman should keep direct service host ports")
 	}
 }
 

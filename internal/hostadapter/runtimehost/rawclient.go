@@ -36,9 +36,10 @@ type nerdctlConfig struct {
 // Podman delegate to the Docker-compatible SDK. Containerd uses nerdctl so the
 // public backend remains `containerd` without depending on a Docker API socket.
 type RawClient struct {
-	backend string
-	docker  *dockerclient.Client
-	nerdctl *nerdctlConfig
+	backend  string
+	endpoint string
+	docker   *dockerclient.Client
+	nerdctl  *nerdctlConfig
 }
 
 func containerdSocketTypeError(address string) error {
@@ -71,7 +72,7 @@ func newDockerRawClient(backend, host string) (*RawClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &RawClient{backend: backend, docker: cli}, nil
+	return &RawClient{backend: backend, endpoint: hostFromPath(host), docker: cli}, nil
 }
 
 func newNerdctlRawClient(backendConfig map[string]string) (*RawClient, error) {
@@ -94,7 +95,7 @@ func newNerdctlRawClient(backendConfig map[string]string) (*RawClient, error) {
 	if err := validateContainerdAddress(cfg.address); err != nil {
 		return nil, err
 	}
-	return &RawClient{backend: BackendContainerd, nerdctl: cfg}, nil
+	return &RawClient{backend: BackendContainerd, endpoint: cfg.address, nerdctl: cfg}, nil
 }
 
 func (c *RawClient) Backend() string {
@@ -102,6 +103,13 @@ func (c *RawClient) Backend() string {
 		return BackendDocker
 	}
 	return NormalizeContainerBackend(c.backend)
+}
+
+func (c *RawClient) Endpoint() string {
+	if c == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.endpoint)
 }
 
 func (c *RawClient) usesNerdctl() bool {

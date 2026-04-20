@@ -895,8 +895,10 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
 	hc.NetworkMode = containerops.NetworkMode(inf.gatewayNetName())
-	hc.PortBindings = containerops.PortMap{
-		"8080/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.knowledgePort()}},
+	if !inf.suppressDirectServiceHostPorts() {
+		hc.PortBindings = containerops.PortMap{
+			"8080/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.knowledgePort()}},
+		}
 	}
 
 	mergeEnv(env, inf.loggingEnv("knowledge"))
@@ -995,8 +997,10 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 	hc.Binds = binds
 	hc.NetworkMode = containerops.NetworkMode(inf.gatewayNetName())
 	hc.Resources.Memory = 128 * 1024 * 1024 // 128MB — intake is lightweight
-	hc.PortBindings = containerops.PortMap{
-		"8080/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.intakePort()}},
+	if !inf.suppressDirectServiceHostPorts() {
+		hc.PortBindings = containerops.PortMap{
+			"8080/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.intakePort()}},
+		}
 	}
 
 	mergeEnv(env, inf.loggingEnv("intake"))
@@ -1079,8 +1083,10 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
 	hc.NetworkMode = containerops.NetworkMode(inf.gatewayNetName())
-	hc.PortBindings = containerops.PortMap{
-		"8080/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.webFetchPort()}},
+	if !inf.suppressDirectServiceHostPorts() {
+		hc.PortBindings = containerops.PortMap{
+			"8080/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.webFetchPort()}},
+		}
 	}
 
 	mergeEnv(env, inf.loggingEnv("web-fetch"))
@@ -1654,6 +1660,23 @@ func (inf *Infra) intakePort() string {
 
 func (inf *Infra) webFetchPort() string {
 	return envPort("AGENCY_WEB_FETCH_PORT", "8206")
+}
+
+var detectWSLHost = func() bool {
+	data, err := os.ReadFile("/proc/version")
+	if err != nil {
+		return false
+	}
+	s := strings.ToLower(string(data))
+	return strings.Contains(s, "microsoft") || strings.Contains(s, "wsl")
+}
+
+func (inf *Infra) suppressDirectServiceHostPorts() bool {
+	if inf == nil || inf.cli == nil || inf.cli.Backend() != runtimehost.BackendPodman {
+		return false
+	}
+	endpoint := strings.TrimPrefix(inf.cli.Endpoint(), "unix://")
+	return strings.HasPrefix(endpoint, "/run/user/") && detectWSLHost()
 }
 
 func envPort(envKey, fallback string) string {

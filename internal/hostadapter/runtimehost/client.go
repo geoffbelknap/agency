@@ -494,12 +494,11 @@ func (c *Client) InfraStatus(ctx context.Context) ([]InfraComponent, error) {
 				expected := infraContainerName(comp)
 				if n == expected {
 					ic := InfraComponent{Name: comp, State: ctr.State, ContainerID: shortContainerID(ctr.ID), Uptime: formatContainerUptime(ctr.Created, ctr.State, ctr.Status)}
-					if ctr.Status != "" && strings.Contains(ctr.Status, "healthy") {
-						ic.Health = "healthy"
-					} else if ctr.Status != "" && strings.Contains(ctr.Status, "unhealthy") {
-						ic.Health = "unhealthy"
-					} else {
-						ic.Health = "none"
+					ic.Health = infraHealthFromStatus(ctr.Status)
+					if ic.Health == "none" {
+						if inspect, err := c.cli.ContainerInspect(ctx, expected); err == nil && inspect.State != nil && inspect.State.Health != nil && inspect.State.Health.Status != "" {
+							ic.Health = inspect.State.Health.Status
+						}
 					}
 					if bid, ok := ctr.Labels["agency.build.gateway"]; ok {
 						ic.BuildID = bid
@@ -518,6 +517,17 @@ func (c *Client) InfraStatus(ctx context.Context) ([]InfraComponent, error) {
 		}
 	}
 	return result, nil
+}
+
+func infraHealthFromStatus(status string) string {
+	status = strings.ToLower(status)
+	if strings.Contains(status, "unhealthy") {
+		return "unhealthy"
+	}
+	if strings.Contains(status, "healthy") {
+		return "healthy"
+	}
+	return "none"
 }
 
 func (c *Client) InfraLogs(ctx context.Context, component string, tail int) (string, error) {
