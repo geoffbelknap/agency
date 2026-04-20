@@ -105,6 +105,26 @@ class TestMessages:
         assert len(msgs) == 1
         assert msgs[0].content == "After"
 
+    def test_read_messages_survives_unwritable_cursor(self, store):
+        store.create_channel("test", ChannelType.TEAM, "operator", members=["scout", "pm"])
+        store.post_message("test", "pm", "Readable")
+        cursor_path = store.data_dir / "cursors" / "scout.json"
+        cursor_path.write_text("{}")
+        cursor_path.chmod(0o400)
+        try:
+            msgs = store.read_messages("test", reader="scout")
+        finally:
+            cursor_path.chmod(0o600)
+        assert [m.content for m in msgs] == ["Readable"]
+
+    def test_post_message_survives_unwritable_search_index(self, store):
+        store.create_channel("test", ChannelType.TEAM, "operator", members=["scout"])
+        store._db.close()
+        msg = store.post_message("test", "scout", "Persist even when search is down")
+        assert msg.content == "Persist even when search is down"
+        jsonl_path = store.data_dir / "channels" / "test.jsonl"
+        assert "Persist even when search is down" in jsonl_path.read_text()
+
     def test_post_with_reply_to(self, store):
         store.create_channel("test", ChannelType.TEAM, "operator", members=["scout"])
         parent = store.post_message("test", "scout", "Question?")

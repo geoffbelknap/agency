@@ -89,6 +89,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
     try {
       await api.agents.create(name, preset, mode);
       let startFailed = false;
+      let startError = '';
       let dmChannel: string | undefined;
       if (autoStart) {
         try {
@@ -99,8 +100,9 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
           } catch {
             // DM establishment is best-effort here; the agent is still usable from the fleet view.
           }
-        } catch {
+        } catch (err) {
           startFailed = true;
+          startError = err instanceof Error ? err.message : 'unknown start error';
         }
       }
       if (autoStart && !startFailed) {
@@ -108,7 +110,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
       } else {
         toast.success(`Agent "${name}" created`);
         if (autoStart) {
-          toast.info(`Agent "${name}" was created, but did not start. Start it from the agent detail view.`);
+          toast.error(`Agent "${name}" was created, but did not start: ${startError}`);
         }
       }
       onCreated({ name, started: autoStart && !startFailed, dmChannel });

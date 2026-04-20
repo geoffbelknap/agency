@@ -122,7 +122,12 @@ describe('Channels', () => {
       http.get(`${BASE}/comms/channels/general/messages`, () => HttpResponse.json([])),
       http.post(`${BASE}/comms/channels/general/messages`, () => {
         sent = true;
-        return HttpResponse.json({ ok: true });
+        return HttpResponse.json({
+          id: 'server-message-1',
+          author: '_operator',
+          content: 'Test message',
+          timestamp: '2026-04-20T17:30:00Z',
+        });
       }),
       http.get(`${BASE}/agents`, () => HttpResponse.json([])),
     );
@@ -147,7 +152,12 @@ describe('Channels', () => {
       http.get(`${BASE}/comms/channels/general/messages`, () => HttpResponse.json([])),
       http.post(`${BASE}/comms/channels/general/messages`, () => {
         sent = true;
-        return HttpResponse.json({ ok: true });
+        return HttpResponse.json({
+          id: 'server-message-2',
+          author: '_operator',
+          content: 'Hello from button',
+          timestamp: '2026-04-20T17:31:00Z',
+        });
       }),
       http.get(`${BASE}/agents`, () => HttpResponse.json([])),
     );
@@ -163,6 +173,42 @@ describe('Channels', () => {
       expect(sent).toBe(true);
     });
     expect(input).toHaveValue('');
+  });
+
+  it('keeps the sent message visible when the immediate channel read is stale', async () => {
+    server.use(
+      operatorProfilesHandler,
+      http.get(`${BASE}/comms/channels`, () =>
+        HttpResponse.json([{ name: 'dm-jarvis', type: 'dm', members: ['jarvis', '_operator'] }]),
+      ),
+      http.get(`${BASE}/comms/channels/dm-jarvis/messages`, () =>
+        HttpResponse.json([
+          { id: 'old-1', author: 'jarvis', content: 'Previous message', timestamp: '2026-04-20T17:00:00Z' },
+        ]),
+      ),
+      http.post(`${BASE}/comms/channels/dm-jarvis/messages`, async ({ request }) => {
+        const body = await request.json() as { content: string };
+        return HttpResponse.json({
+          id: 'server-message-jarvis',
+          author: '_operator',
+          content: body.content,
+          timestamp: '2026-04-20T17:32:00Z',
+        });
+      }),
+      http.get(`${BASE}/agents`, () => HttpResponse.json([{ name: 'jarvis', status: 'running' }])),
+    );
+
+    renderWithRouter(<Channels />, { route: '/channels/dm-jarvis' });
+    await waitFor(() => {
+      expect(screen.getByText('Previous message')).toBeInTheDocument();
+    });
+
+    const input = screen.getByPlaceholderText(/message jarvis/i);
+    await userEvent.type(input, 'Stay visible{Enter}');
+
+    await waitFor(() => {
+      expect(screen.getByText('Stay visible')).toBeInTheDocument();
+    });
   });
 
   it('shows a core-first empty state when no channels exist', async () => {

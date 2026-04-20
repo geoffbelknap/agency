@@ -202,6 +202,65 @@ describe('Admin — Policy tab', () => {
   });
 });
 
+describe('Admin — Providers tab', () => {
+  it('renders provider operations and configures a provider', async () => {
+    let storedCredential = '';
+    let installedProvider = '';
+    server.use(
+      ...agentHandlers,
+      http.get(`${BASE}/infra/providers`, () =>
+        HttpResponse.json([
+          {
+            name: 'anthropic',
+            display_name: 'Anthropic',
+            description: 'Claude models',
+            category: 'cloud',
+            installed: false,
+            credential_name: 'ANTHROPIC_API_KEY',
+            credential_label: 'Anthropic API key',
+            api_key_url: 'https://console.anthropic.com/settings/keys',
+            credential_configured: false,
+          },
+        ]),
+      ),
+      http.get(`${BASE}/infra/routing/config`, () =>
+        HttpResponse.json({
+          configured: false,
+          providers: {},
+          models: {},
+          tiers: {},
+          settings: { default_tier: 'standard' },
+        }),
+      ),
+      http.post(`${BASE}/creds`, async ({ request }) => {
+        const body = await request.json() as { name: string };
+        storedCredential = body.name;
+        return HttpResponse.json({ ok: true });
+      }),
+      http.post(`${BASE}/creds/ANTHROPIC_API_KEY/test`, () =>
+        HttpResponse.json({ ok: true, message: 'ok' }),
+      ),
+      http.post(`${BASE}/infra/providers/anthropic/install`, () => {
+        installedProvider = 'anthropic';
+        return HttpResponse.json({ status: 'installed', provider: 'anthropic' });
+      }),
+    );
+
+    renderAdmin('providers');
+
+    expect(await screen.findByText('Model provider operations')).toBeInTheDocument();
+    const providerLabel = await screen.findByText('Anthropic');
+    await userEvent.click(providerLabel.closest('button')!);
+    await userEvent.type(screen.getByLabelText(/anthropic api key/i), 'sk-test');
+    await userEvent.click(screen.getByRole('button', { name: /install provider/i }));
+
+    await waitFor(() => {
+      expect(storedCredential).toBe('ANTHROPIC_API_KEY');
+      expect(installedProvider).toBe('anthropic');
+    });
+  });
+});
+
 describe('Admin — Danger Zone tab', () => {
   it('requires confirmation before destroy', async () => {
     renderAdmin('danger');

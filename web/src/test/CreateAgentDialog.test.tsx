@@ -94,7 +94,7 @@ describe('CreateAgentDialog', () => {
     expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('created'));
   });
 
-  it('reports create success separately when auto-start fails', async () => {
+  it('reports the start error when auto-start fails', async () => {
     const user = userEvent.setup();
     server.use(
       http.post(`${BASE}/agents`, async ({ request }) => {
@@ -114,7 +114,7 @@ describe('CreateAgentDialog', () => {
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
     expect(toast.success).toHaveBeenCalledWith('Agent "test-agent" created');
-    expect(toast.info).toHaveBeenCalledWith('Agent "test-agent" was created, but did not start. Start it from the agent detail view.');
+    expect(toast.error).toHaveBeenCalledWith('Agent "test-agent" was created, but did not start: agent failed to start');
   });
 
   it('shows error toast on API failure', async () => {

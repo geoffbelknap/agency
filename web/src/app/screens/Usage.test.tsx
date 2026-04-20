@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../../test/server';
@@ -203,6 +203,69 @@ describe('Usage', () => {
 
     const shareBar = await screen.findByLabelText('claude-sonnet share 0%');
     expect((shareBar.firstElementChild as HTMLElement).style.width).toBe('0%');
+  });
+
+  it('renders y-axis values on the usage chart', async () => {
+    server.use(
+      http.get('*/__agency/config', () => HttpResponse.json({ gateway: 'http://localhost:8200' })),
+      http.get(`${BASE}/infra/routing/metrics`, () =>
+        HttpResponse.json({
+          ...metrics,
+          by_model: {
+            'claude-sonnet': {
+              requests: 2,
+              input_tokens: 12000,
+              output_tokens: 4000,
+              total_tokens: 16000,
+              est_cost_usd: 0.25,
+              errors: 0,
+              avg_latency_ms: 900,
+            },
+          },
+          by_hour: [
+            {
+              hour: '2026-04-08T00:00:00Z',
+              totals: {
+                requests: 1,
+                input_tokens: 6000,
+                output_tokens: 2000,
+                total_tokens: 8000,
+                est_cost_usd: 0.125,
+                errors: 0,
+                avg_latency_ms: 900,
+              },
+              by_model: {
+                'claude-sonnet': {
+                  requests: 1,
+                  input_tokens: 6000,
+                  output_tokens: 2000,
+                  total_tokens: 8000,
+                  est_cost_usd: 0.125,
+                  errors: 0,
+                  avg_latency_ms: 900,
+                },
+              },
+            },
+          ],
+        }),
+      ),
+      http.get(`${BASE}/infra/routing/suggestions`, () => HttpResponse.json([])),
+      http.get(`${BASE}/infra/routing/stats`, () => HttpResponse.json([])),
+    );
+
+    renderWithRouter(<Usage />);
+
+    const costAxis = await screen.findByLabelText('cost y axis');
+    expect(within(costAxis).getByText('$0.125')).toBeInTheDocument();
+    expect(within(costAxis).getByText('$0.063')).toBeInTheDocument();
+    expect(within(costAxis).getByText('$0.00')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /tokens/i }));
+
+    const tokenAxis = await screen.findByLabelText('tokens y axis');
+    expect(within(tokenAxis).getByText('8.0K')).toBeInTheDocument();
+    expect(within(tokenAxis).getByText('4.0K')).toBeInTheDocument();
+    expect(within(tokenAxis).getByText('0')).toBeInTheDocument();
   });
 
   it('does not call optimizer-only endpoints when the feature is disabled', async () => {

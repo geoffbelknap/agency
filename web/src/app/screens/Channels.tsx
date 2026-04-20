@@ -293,8 +293,14 @@ export function Channels() {
     }
 
     try {
-      await api.channels.send(selectedChannel.name, content, threadParent.id);
-      await loadMessages(selectedChannel.name);
+      const sent = await api.channels.send(selectedChannel.name, content, threadParent.id);
+      const mapped = mapRawMessages([sent], selectedChannel.name)[0];
+      if (mapped) {
+        setMessages((prev) => [
+          ...prev.filter((m) => m.id !== optimisticReply.id && m.id !== mapped.id),
+          mapped,
+        ]);
+      }
     } catch (err) {
       console.error('handleThreadSend error:', err);
       setMessages((prev) => prev.filter((m) => m.id !== optimisticReply.id));
@@ -357,8 +363,14 @@ export function Channels() {
     }
 
     try {
-      await api.channels.send(selectedChannel.name, content, undefined, flags);
-      await loadMessages(selectedChannel.name);
+      const sent = await api.channels.send(selectedChannel.name, content, undefined, flags);
+      const mapped = mapRawMessages([sent], selectedChannel.name)[0];
+      if (mapped) {
+        setMessages((prev) => [
+          ...prev.filter((m) => m.id !== optimisticMsg.id && m.id !== mapped.id),
+          mapped,
+        ]);
+      }
     } catch (err) {
       console.error('handleSend error:', err);
       setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));

@@ -252,6 +252,46 @@ describe('Agents', () => {
     });
   });
 
+  it('confirms and deletes an agent from the system tab', async () => {
+    let deleted = false;
+    server.use(
+      http.get(`${BASE}/agents`, () => HttpResponse.json(deleted ? [defaultAgents[1]] : defaultAgents)),
+      http.get(`${BASE}/agents/alice/logs`, () => HttpResponse.json([])),
+      http.get(`${BASE}/agents/alice/budget`, () =>
+        HttpResponse.json({ daily_limit: 0, monthly_limit: 0, daily_used: 0, monthly_used: 0, today_llm_calls: 0, today_input_tokens: 0, today_output_tokens: 0 }),
+      ),
+      http.get(`${BASE}/capabilities`, () => HttpResponse.json([])),
+      http.get(`${BASE}/admin/policy/alice`, () => HttpResponse.json({ valid: true })),
+      http.get(`${BASE}/agents/alice/config`, () => HttpResponse.json({ identity: 'Alice identity' })),
+      http.delete(`${BASE}/agents/alice`, () => {
+        deleted = true;
+        return HttpResponse.json({ status: 'deleted', name: 'alice' });
+      }),
+    );
+
+    renderAgents('/agents/alice');
+
+    await waitFor(() => {
+      expect(screen.getByText('alice')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('tab', { name: /system/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Danger zone')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('button', { name: /delete agent/i }));
+
+    expect(screen.getByText('Delete agent "alice"?')).toBeInTheDocument();
+    await userEvent.click(screen.getAllByRole('button', { name: /delete agent/i }).at(-1)!);
+
+    await waitFor(() => {
+      expect(deleted).toBe(true);
+      expect(toastSuccess).toHaveBeenCalledWith('Agent "alice" deleted');
+      expect(screen.queryByText('Delete agent "alice"?')).not.toBeInTheDocument();
+      expect(screen.queryByText('Alice identity')).not.toBeInTheDocument();
+    });
+  });
+
   it('hides meeseeks operations in the default core UI', async () => {
     server.use(
       http.get(`${BASE}/agents`, () => HttpResponse.json(defaultAgents)),

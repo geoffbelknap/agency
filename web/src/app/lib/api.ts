@@ -361,6 +361,31 @@ export interface RawProviderToolInventory {
   capabilities?: Record<string, RawProviderToolCapability>;
 }
 
+export interface RawRoutingConfig {
+  configured: boolean;
+  version?: string;
+  providers?: Record<string, {
+    api_base?: string;
+    auth_env?: string;
+    caching?: boolean;
+  }>;
+  models?: Record<string, {
+    provider?: string;
+    provider_model?: string;
+    provider_tool_capabilities?: string[];
+    cost_per_mtok_in?: number;
+    cost_per_mtok_out?: number;
+    cost_per_mtok_cached?: number;
+  }>;
+  tiers?: Record<string, Array<{ model: string; preference?: number }>>;
+  settings?: {
+    default_tier?: string;
+    tier_strategy?: string;
+    default_timeout?: number;
+  };
+  error?: string;
+}
+
 export interface RawAuditEntry {
   // Core fields
   timestamp?: string;
@@ -757,7 +782,7 @@ export const api = {
     },
     read: (name: string, limit = 50) => req<RawMessage[]>(`/comms/channels/${name}/messages?limit=${limit}&reader=operator`),
     send: (name: string, content: string, replyTo?: string, flags?: Record<string, boolean>) =>
-      req<OkResponse>(`/comms/channels/${name}/messages`, {
+      req<RawMessage>(`/comms/channels/${name}/messages`, {
         method: 'POST',
         body: JSON.stringify({ author: 'operator', content, reply_to: replyTo, flags }),
       }),
@@ -1077,6 +1102,7 @@ export const api = {
 
   providers: {
     list: () => req<import('../types').Provider[]>('/infra/providers'),
+    routingConfig: () => req<RawRoutingConfig>('/infra/routing/config'),
     tools: () => req<RawProviderToolInventory>('/infra/provider-tools'),
     install: (name: string) =>
       req<OkResponse>(`/infra/providers/${encodeURIComponent(name)}/install`, { method: 'POST', body: '{}' }),

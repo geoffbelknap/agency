@@ -811,11 +811,9 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("comms"))
 
 	commsData := filepath.Join(inf.Home, "infrastructure", "comms", "data")
-	os.MkdirAll(commsData, 0777)
-	os.Chmod(commsData, 0777)
-	// Fix subdirectory permissions — Docker creates these as root with restrictive
-	// perms, but CAP_DROP ALL removes DAC_OVERRIDE so the container can't write.
-	fixDirPerms(commsData, 0777)
+	if err := prepareCommsDataDir(commsData); err != nil {
+		return fmt.Errorf("prepare comms data: %w", err)
+	}
 	agentsDir := filepath.Join(inf.Home, "agents")
 	os.MkdirAll(agentsDir, 0755)
 
@@ -1548,6 +1546,100 @@ func fixDirPerms(dir string, perm os.FileMode) {
 		os.Chmod(path, perm)
 		return nil
 	})
+}
+
+func prepareCommsDataDir(dataDir string) error {
+	for _, dir := range []string{
+		dataDir,
+		filepath.Join(dataDir, "channels"),
+		filepath.Join(dataDir, "cursors"),
+	} {
+		if err := os.MkdirAll(dir, 0o777); err != nil {
+			return err
+		}
+		if err := os.Chmod(dir, 0o777); err != nil {
+			return err
+		}
+	}
+
+	// Fix subdirectory permissions — containers may have created these with
+	// restrictive ownership/perms on an earlier backend. Best-effort chmod
+	// handles normal same-user files; explicit writable probes below surface
+	// root-owned files with a useful repair command.
+	fixDirPerms(dataDir, 0o777)
+
+	for _, seed := range []struct {
+		path    string
+		content []byte
+	}{
+		{filepath.Join(dataDir, "index.db"), nil},
+		{filepath.Join(dataDir, "subscriptions.db"), nil},
+		{filepath.Join(dataDir, "cursors", "_operator.json"), []byte("{}")},
+	} {
+		if err := ensureWritableSeedFile(seed.path, seed.content); err != nil {
+			return err
+		}
+	}
+
+	for _, dir := range []string{
+		dataDir,
+		filepath.Join(dataDir, "channels"),
+		filepath.Join(dataDir, "cursors"),
+	} {
+		if err := probeWritableDir(dir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureWritableSeedFile(path string, content []byte) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		if err := os.WriteFile(path, content, 0o666); err != nil {
+			return commsDataRepairError(path, err)
+		}
+	} else if err != nil {
+		return err
+	}
+	_ = os.Chmod(path, 0o666)
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND, 0)
+	if err != nil {
+		return commsDataRepairError(path, err)
+	}
+	return f.Close()
+}
+
+func probeWritableDir(dir string) error {
+	probe, err := os.CreateTemp(dir, ".agency-write-test-*")
+	if err != nil {
+		return commsDataRepairError(dir, err)
+	}
+	name := probe.Name()
+	if err := probe.Close(); err != nil {
+		_ = os.Remove(name)
+		return err
+	}
+	return os.Remove(name)
+}
+
+func commsDataRepairError(path string, err error) error {
+	root := commsDataRootForRepair(path)
+	return fmt.Errorf("%s is not writable by the current user: %w; repair with: sudo chown -R %d:%d %s && chmod -R u+rwX,go+rwX %s",
+		path, err, os.Getuid(), os.Getgid(), root, root)
+}
+
+func commsDataRootForRepair(path string) string {
+	current := path
+	for {
+		if filepath.Base(current) == "data" && filepath.Base(filepath.Dir(current)) == "comms" {
+			return current
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return path
+		}
+		current = parent
+	}
 }
 
 func mapToEnv(m map[string]string) []string {
