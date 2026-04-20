@@ -577,6 +577,9 @@ func (ss *StartSequence) resolveModelTier(tier string) string {
 
 	entries := tierEntries(rc.Tiers, tier)
 	if len(entries) == 0 {
+		entries = inferredTierEntries(rc.Models, tier)
+	}
+	if len(entries) == 0 {
 		return ""
 	}
 	sort.SliceStable(entries, func(i, j int) bool {
@@ -614,6 +617,32 @@ func (ss *StartSequence) resolveModelTier(tier string) string {
 		}
 	}
 	return ""
+}
+
+func inferredTierEntries(modelConfigs map[string]models.ModelConfig, tier string) []models.TierEntry {
+	preferred := map[string][]string{
+		"frontier": {"claude-opus", "gpt-4.1", "gpt-4o"},
+		"standard": {"claude-sonnet", "gpt-4o", "gpt-4.1"},
+		"fast":     {"claude-haiku", "gpt-4o-mini", "gpt-4.1-mini"},
+		"mini":     {"gpt-4.1-nano", "gpt-4o-mini", "claude-haiku"},
+		"nano":     {"gpt-4.1-nano"},
+		"batch":    {"claude-haiku", "gpt-4o-mini", "gpt-4.1-mini"},
+	}
+
+	var entries []models.TierEntry
+	for preference, model := range preferred[tier] {
+		if _, ok := modelConfigs[model]; ok {
+			entries = append(entries, models.TierEntry{Model: model, Preference: preference})
+		}
+	}
+	if len(entries) > 0 || len(modelConfigs) != 1 {
+		return entries
+	}
+
+	for model := range modelConfigs {
+		return []models.TierEntry{{Model: model, Preference: 0}}
+	}
+	return nil
 }
 
 func tierEntries(tiers models.TierConfig, tier string) []models.TierEntry {

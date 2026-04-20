@@ -42,6 +42,25 @@ settings:
 	}
 }
 
+func TestResolveModelTierInfersDefaultsWhenTiersMissing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	writeFile(t, filepath.Join(home, "infrastructure", "routing.yaml"), `providers:
+  anthropic:
+    api_base: https://api.anthropic.com/v1
+    auth_env: ANTHROPIC_API_KEY
+models:
+  claude-sonnet:
+    provider: anthropic
+    provider_model: claude-sonnet-4-20250514
+`)
+
+	ss := &StartSequence{Home: home}
+	if got := ss.resolveModelTier("standard"); got != "claude-sonnet" {
+		t.Fatalf("resolveModelTier() = %q, want claude-sonnet", got)
+	}
+}
+
 func TestDefaultModelTier(t *testing.T) {
 	home := t.TempDir()
 	writeFile(t, filepath.Join(home, "infrastructure", "routing.yaml"), `settings:
