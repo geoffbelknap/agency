@@ -6,8 +6,8 @@ operates the platform. Real Docker containers, real infrastructure, real flows.
 
 ## Prerequisites
 
-- Docker running and accessible
-- Agency installed (`./install.sh` or `cd agency-gateway && make install`)
+- A container backend running and accessible (podman, docker, or containerd)
+- Agency installed (`brew install geoffbelknap/tap/agency` or `make install` from a source checkout)
 - At least one API key in env (or dummy — tests don't make real LLM calls)
 
 ## Running
