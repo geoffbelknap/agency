@@ -96,3 +96,22 @@ def test_capture_conversation_memory_proposals_ignores_non_direct_tasks():
     body._call_llm_for_capture = lambda messages: "{}"
 
     body._capture_conversation_memory_proposals("idle-reply-123")
+
+
+def test_capture_conversation_memory_proposals_can_be_disabled(monkeypatch):
+    from body import Body
+
+    class Client:
+        def post(self, *args, **kwargs):
+            raise AssertionError("should not write proposals")
+
+    monkeypatch.setenv("AGENCY_CONVERSATION_MEMORY_CAPTURE", "false")
+    body = Body.__new__(Body)
+    body.agent_name = "jarvis"
+    body._knowledge_url = "http://knowledge"
+    body._http_client = Client()
+    body._task_metadata = {"channel": "dm-jarvis", "match_type": "direct"}
+    body._messages = [{"role": "user", "content": "remember this"}]
+    body._call_llm_for_capture = lambda messages: "{}"
+
+    body._capture_conversation_memory_proposals("idle-reply-123")

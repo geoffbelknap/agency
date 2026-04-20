@@ -2725,6 +2725,8 @@ class Body:
 
     def _capture_conversation_memory_proposals(self, task_id: str) -> None:
         """Submit pending graph memory proposals from completed DM conversations."""
+        if os.environ.get("AGENCY_CONVERSATION_MEMORY_CAPTURE", "true").lower() not in ("1", "true", "yes", "on"):
+            return
         metadata = getattr(self, "_task_metadata", {}) or {}
         channel = metadata.get("channel", "")
         match_type = metadata.get("match_type", "")
