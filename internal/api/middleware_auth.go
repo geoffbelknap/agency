@@ -41,6 +41,17 @@ func GetPrincipal(r *http.Request) *registry.Principal {
 // The reg parameter is optional — if non-nil, the middleware resolves the
 // incoming token to a principal and stores it in the request context.
 // Handlers retrieve it via getPrincipal(r).
+//
+// Three accepted credential shapes, in order:
+//
+//  1. Full config token (identity slot matches cfg.Token) — operator access.
+//  2. Scoped egress token on its one allowed endpoint.
+//  3. Registry-resolvable token carried in the identity slot, with the
+//     shared config token in X-Agency-Token as a relay trust gate.
+//     This enables per-operator identity when a trusted relay forwards
+//     a client's own bearer alongside its own shared secret. Without the
+//     trust gate, unknown bearers never bypass the first two checks.
+//     See TASK-ios-relay-fwd-003 and agency-relay PRs #5 / #6.
 func BearerAuth(token, egressToken string, reg *registry.Registry) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -76,11 +87,61 @@ func BearerAuth(token, egressToken string, reg *registry.Registry) func(http.Han
 				return
 			}
 
+			// Registry-resolvable per-operator token, gated by relay trust.
+			// The incoming token must resolve to a Principal in the registry,
+			// AND the X-Agency-Token header must carry the shared config
+			// token, proving this request came through the trusted relay
+			// path — not a direct caller who happens to know a bearer.
+			if resolved := resolveTrustedRegistryToken(r, token, reg, incoming); resolved != nil {
+				r = principal.With(r, resolved)
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 		})
 	}
+}
+
+// resolveTrustedRegistryToken attempts to authenticate `incoming` as a
+// registry-known bearer forwarded by a trusted relay. Returns a Principal
+// only when:
+//   - registry is available
+//   - X-Agency-Token carries the shared config token (relay trust gate)
+//   - the shared token is non-empty (fail-closed if misconfigured)
+//   - the incoming token is not the shared token itself (would be handled
+//     by the first constant-time check; avoids registry work and closes a
+//     theoretical self-gating loop)
+//   - the registry resolves the incoming token to a Principal
+//
+// Any failure returns nil and the caller moves on to 401. The trust gate
+// check runs in constant time to avoid leaking whether a bearer is known
+// to the registry.
+func resolveTrustedRegistryToken(r *http.Request, configToken string, reg *registry.Registry, incoming string) *registry.Principal {
+	if reg == nil || configToken == "" || incoming == "" {
+		return nil
+	}
+	// Relay trust gate. Read X-Agency-Token directly rather than going
+	// through extractToken, since we need to know it came from THIS header
+	// specifically (relay trust is a specific channel, not a token
+	// preference order).
+	relayTrust := r.Header.Get("X-Agency-Token")
+	if !constantTimeEqual(configToken, relayTrust) {
+		return nil
+	}
+	// If incoming happens to be the shared token, the first BearerAuth
+	// check already handled it; short-circuit so we don't do a pointless
+	// registry lookup (and don't give the shared token two interpretations).
+	if constantTimeEqual(configToken, incoming) {
+		return nil
+	}
+	p, err := reg.ResolveToken(incoming)
+	if err != nil || p == nil {
+		return nil
+	}
+	return p
 }
 
 // resolvePrincipal attempts to resolve the token to a principal via the registry
@@ -99,8 +160,15 @@ func resolvePrincipal(r *http.Request, reg *registry.Registry, token string) *ht
 
 // extractToken pulls the bearer token from, in order of preference:
 //  1. Authorization: Bearer <token>
-//  2. X-Agency-Token: <token>
-//  3. Sec-WebSocket-Protocol: agency.v1, bearer.<token>
+//  2. Sec-WebSocket-Protocol: agency.v1, bearer.<token>
+//  3. X-Agency-Token: <token>
+//
+// Sec-WebSocket-Protocol comes before X-Agency-Token so that a relay-
+// forwarded browser WebSocket upgrade — which carries the client's token
+// in the subprotocol AND the shared relay trust token in X-Agency-Token —
+// resolves to the client's identity, not the shared token. X-Agency-Token
+// remains the identity slot for direct callers that set only that header
+// (dev scripts, the knowledge synthesizer, etc.).
 //
 // The Sec-WebSocket-Protocol path exists because browser WebSocket clients
 // cannot set arbitrary headers on the upgrade request. Clients include
@@ -112,10 +180,10 @@ func extractToken(r *http.Request) string {
 			return strings.TrimPrefix(auth, "Bearer ")
 		}
 	}
-	if t := r.Header.Get("X-Agency-Token"); t != "" {
+	if t := extractBearerSubprotocol(r.Header.Get("Sec-WebSocket-Protocol")); t != "" {
 		return t
 	}
-	return extractBearerSubprotocol(r.Header.Get("Sec-WebSocket-Protocol"))
+	return r.Header.Get("X-Agency-Token")
 }
 
 // extractBearerSubprotocol scans a Sec-WebSocket-Protocol header for a
