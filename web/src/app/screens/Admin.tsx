@@ -15,6 +15,7 @@ const Knowledge = lazy(() => import('./Knowledge').then(m => ({ default: m.Knowl
 const Capabilities = lazy(() => import('./Capabilities').then(m => ({ default: m.Capabilities })));
 const Usage = lazy(() => import('./Usage').then(m => ({ default: m.Usage })));
 const Presets = lazy(() => import('./Presets').then(m => ({ default: m.Presets })));
+const AdminProviders = lazy(() => import('./AdminProviders').then(m => ({ default: m.AdminProviders })));
 const Events = lazy(() => import('./Events').then(m => ({ default: m.Events })));
 const Webhooks = lazy(() => import('./Webhooks').then(m => ({ default: m.Webhooks })));
 const Notifications = lazy(() => import('./Notifications').then(m => ({ default: m.Notifications })));
@@ -42,6 +43,7 @@ const TAB_GROUPS = [
     description: 'Capabilities, presets, policy, and agent operating boundaries.',
     tabs: [
       { value: 'capabilities', label: 'Capabilities', description: 'Review scoped capabilities and assignment rules.' },
+      { value: 'providers', label: 'Providers', description: 'Configure model providers, credentials, and routing visibility.' },
       { value: 'presets', label: 'Presets', description: 'Manage reusable agent role presets for core operator workflows.' },
       { value: 'trust', label: 'Trust', description: 'Adjust agent trust tiers and restrictions.', enabled: adminFeatureFlags.trust, experimental: true },
       { value: 'egress', label: 'Egress', description: 'Define allowed outbound network destinations.' },
@@ -347,6 +349,7 @@ export function Admin() {
             {activeTab === 'intake' && <Intake />}
             {activeTab === 'knowledge' && <Knowledge />}
             {activeTab === 'capabilities' && <Capabilities />}
+            {activeTab === 'providers' && <AdminProviders />}
             {activeTab === 'presets' && <Presets />}
             {activeTab === 'events' && <Events />}
             {activeTab === 'webhooks' && <Webhooks />}
