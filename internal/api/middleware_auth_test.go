@@ -140,3 +140,93 @@ func TestBearerAuth(t *testing.T) {
 		})
 	}
 }
+
+// TestBearerAuth_WebSocketSubprotocol verifies that a bearer token carried in
+// the Sec-WebSocket-Protocol header as "bearer.<token>" is accepted on the
+// /ws endpoint (the browser-friendly auth path) and rejected when absent
+// or malformed.
+func TestBearerAuth_WebSocketSubprotocol(t *testing.T) {
+	const testToken = "test-ws-token"
+
+	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := BearerAuth(testToken, "", nil)(ok)
+
+	tests := []struct {
+		name       string
+		subprotos  string
+		wantStatus int
+	}{
+		{
+			name:       "valid bearer in subprotocol is accepted",
+			subprotos:  "agency.v1, bearer." + testToken,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "bearer first then app protocol is accepted",
+			subprotos:  "bearer." + testToken + ", agency.v1",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "app protocol only is rejected",
+			subprotos:  "agency.v1",
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "wrong bearer token is rejected",
+			subprotos:  "agency.v1, bearer.wrong",
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "no subprotocol header is rejected",
+			subprotos:  "",
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "malformed entry without bearer prefix is rejected",
+			subprotos:  "agency.v1, " + testToken,
+			wantStatus: http.StatusUnauthorized,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+			if tc.subprotos != "" {
+				req.Header.Set("Sec-WebSocket-Protocol", tc.subprotos)
+			}
+
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+
+			if rr.Code != tc.wantStatus {
+				t.Errorf("subprotos=%q: got status %d, want %d", tc.subprotos, rr.Code, tc.wantStatus)
+			}
+		})
+	}
+}
+
+// TestExtractBearerSubprotocol covers the parser directly.
+func TestExtractBearerSubprotocol(t *testing.T) {
+	tests := []struct {
+		header string
+		want   string
+	}{
+		{"", ""},
+		{"agency.v1", ""},
+		{"agency.v1, bearer.abc123", "abc123"},
+		{"bearer.abc123, agency.v1", "abc123"},
+		{"  bearer.abc123  , agency.v1", "abc123"},
+		{"bearer.", ""}, // empty token after prefix → returns ""
+		{"beaRer.abc123", ""}, // case-sensitive per spec
+	}
+	for _, tc := range tests {
+		t.Run(tc.header, func(t *testing.T) {
+			got := extractBearerSubprotocol(tc.header)
+			if got != tc.want {
+				t.Errorf("extractBearerSubprotocol(%q) = %q, want %q", tc.header, got, tc.want)
+			}
+		})
+	}
+}

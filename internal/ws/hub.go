@@ -20,7 +20,15 @@ import (
 
 	"log/slog"
 	"github.com/gorilla/websocket"
+
+	"github.com/geoffbelknap/agency/internal/registry"
 )
+
+// AppSubprotocol is the WebSocket subprotocol name this hub speaks. Clients
+// that authenticate via Sec-WebSocket-Protocol (browsers) must include this
+// entry alongside "bearer.<token>". The upgrader echoes only this name back,
+// so the bearer entry is never reflected to the client.
+const AppSubprotocol = "agency.v1"
 
 // ── Event envelope ──────────────────────────────────────────────────────────
 
@@ -160,8 +168,23 @@ type Client struct {
 	send chan []byte
 	log  *slog.Logger
 
+	// principal is the authenticated identity for this connection, resolved
+	// at upgrade time from the bearer token. May be nil if the bearer token
+	// validated but the registry could not resolve it to a principal
+	// (backward-compatible transitional state).
+	//
+	// Future scope enforcement (TASK-ios-ws-scope-002) will filter outbound
+	// events against this principal's authorization.
+	principal *registry.Principal
+
 	mu           sync.Mutex
 	subscription *Subscription
+}
+
+// Principal returns the authenticated principal for this connection, or nil
+// if none was resolved. Intended for use by scope filtering and audit logic.
+func (c *Client) Principal() *registry.Principal {
+	return c.principal
 }
 
 // readPump reads messages from the WebSocket connection and processes
@@ -460,11 +483,21 @@ var upgrader = websocket.Upgrader{
 		// The gateway is localhost-bound; origin checking is not needed.
 		return true
 	},
+	// When the client offers Sec-WebSocket-Protocol (browser auth path),
+	// echo back ONLY the app protocol name. The gorilla upgrader picks
+	// the first match from this list, so any "bearer.<token>" entry the
+	// client sent is silently dropped from the response.
+	Subprotocols: []string{AppSubprotocol},
 }
 
 // HandleWebSocket upgrades an HTTP connection to WebSocket and registers
 // the client with the hub. It sends an ack event on successful connection.
-func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+//
+// principal is the authenticated identity resolved by BearerAuth middleware.
+// It may be nil if the middleware validated the token but the registry did
+// not produce a Principal (transitional; future scope enforcement will
+// require non-nil).
+func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request, principal *registry.Principal) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		h.log.Warn("ws upgrade failed", "err", err)
@@ -472,10 +505,11 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := &Client{
-		hub:  h,
-		conn: conn,
-		send: make(chan []byte, sendBufSize),
-		log:  h.log,
+		hub:       h,
+		conn:      conn,
+		send:      make(chan []byte, sendBufSize),
+		log:       h.log,
+		principal: principal,
 	}
 
 	h.register <- client

@@ -1,32 +1,25 @@
 package api
 
 import (
-	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"strings"
 
+	"github.com/geoffbelknap/agency/internal/principal"
 	"github.com/geoffbelknap/agency/internal/registry"
 )
-
-// contextKey is a private type for context keys to avoid collisions.
-type contextKey string
-
-// principalContextKey is the context key for the resolved principal.
-const principalContextKey contextKey = "principal"
 
 // getPrincipal extracts the principal from the request context.
 // Returns nil if no principal is resolved (backward compatibility).
 func getPrincipal(r *http.Request) *registry.Principal {
-	p, _ := r.Context().Value(principalContextKey).(*registry.Principal)
-	return p
+	return principal.Get(r)
 }
 
 // GetPrincipal returns the resolved principal from request context.
 // Exported for resource-scoped authorization checks in subpackages.
 func GetPrincipal(r *http.Request) *registry.Principal {
-	return getPrincipal(r)
+	return principal.Get(r)
 }
 
 // BearerAuth returns a middleware that validates the Authorization: Bearer <token>
@@ -35,6 +28,11 @@ func GetPrincipal(r *http.Request) *registry.Principal {
 // Empty tokens are rejected. config.Load() should generate and persist a
 // non-empty token before the gateway starts, including on clean first run.
 // Paths ending in "/health" are always allowed without authentication.
+//
+// WebSocket clients that cannot set an Authorization header (browsers) may
+// present the token as a Sec-WebSocket-Protocol entry of the form
+// "bearer.<token>". The upgrade handler echoes back the agreed app
+// subprotocol ("agency.v1") and never echoes the bearer entry.
 //
 // The egressToken parameter is a scoped token that only grants access to
 // the credential resolve endpoint (/api/v1/creds/internal/resolve).
@@ -46,10 +44,11 @@ func GetPrincipal(r *http.Request) *registry.Principal {
 func BearerAuth(token, egressToken string, reg *registry.Registry) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Allow health checks, web UI config, and the platform event bus at
-			// root /ws without auth. Agent-scoped websocket routes must still
-			// authenticate normally.
-			if strings.HasSuffix(r.URL.Path, "/health") || r.URL.Path == "/__agency/config" || r.URL.Path == "/ws" {
+			// Allow health checks and web UI config without auth. The WebSocket
+			// endpoint (/ws) is NOT exempt: the upgrade must carry a valid
+			// token via Authorization, X-Agency-Token, or Sec-WebSocket-Protocol
+			// bearer entry. See extractToken().
+			if strings.HasSuffix(r.URL.Path, "/health") || r.URL.Path == "/__agency/config" {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -95,18 +94,44 @@ func resolvePrincipal(r *http.Request, reg *registry.Registry, token string) *ht
 	if err != nil {
 		return r
 	}
-	ctx := context.WithValue(r.Context(), principalContextKey, p)
-	return r.WithContext(ctx)
+	return principal.With(r, p)
 }
 
-// extractToken pulls the bearer token from Authorization header or X-Agency-Token header.
+// extractToken pulls the bearer token from, in order of preference:
+//  1. Authorization: Bearer <token>
+//  2. X-Agency-Token: <token>
+//  3. Sec-WebSocket-Protocol: agency.v1, bearer.<token>
+//
+// The Sec-WebSocket-Protocol path exists because browser WebSocket clients
+// cannot set arbitrary headers on the upgrade request. Clients include
+// "bearer.<token>" alongside the app protocol ("agency.v1"); the upgrader
+// only echoes "agency.v1" back, so the token is never reflected.
 func extractToken(r *http.Request) string {
 	if auth := r.Header.Get("Authorization"); auth != "" {
 		if strings.HasPrefix(auth, "Bearer ") {
 			return strings.TrimPrefix(auth, "Bearer ")
 		}
 	}
-	return r.Header.Get("X-Agency-Token")
+	if t := r.Header.Get("X-Agency-Token"); t != "" {
+		return t
+	}
+	return extractBearerSubprotocol(r.Header.Get("Sec-WebSocket-Protocol"))
+}
+
+// extractBearerSubprotocol scans a Sec-WebSocket-Protocol header for a
+// "bearer.<token>" entry and returns the token, or "" if none is present.
+// The header is a comma-separated list; each value is a protocol name.
+func extractBearerSubprotocol(hdr string) string {
+	if hdr == "" {
+		return ""
+	}
+	for _, p := range strings.Split(hdr, ",") {
+		p = strings.TrimSpace(p)
+		if strings.HasPrefix(p, "bearer.") {
+			return strings.TrimPrefix(p, "bearer.")
+		}
+	}
+	return ""
 }
 
 // constantTimeEqual compares two strings in constant time to prevent timing attacks.

@@ -65,16 +65,23 @@ func TestAuth_Validation(t *testing.T) {
 	}{
 		// Exempt paths — no token required
 		{
-			name:     "websocket path bypasses auth",
-			cfgToken: testToken, egressTok: egressToken,
-			path: "/ws", method: http.MethodGet,
-			wantCode: http.StatusOK,
-		},
-		{
 			name:     "agent websocket path does not bypass auth",
 			cfgToken: testToken, egressTok: egressToken,
 			path: "/api/v1/agents/test-agent/context/ws", method: http.MethodGet,
 			wantCode: http.StatusUnauthorized,
+		},
+		{
+			name:     "websocket path requires auth",
+			cfgToken: testToken, egressTok: egressToken,
+			path: "/ws", method: http.MethodGet,
+			wantCode: http.StatusUnauthorized,
+		},
+		{
+			name:     "websocket path accepts valid bearer",
+			cfgToken: testToken, egressTok: egressToken,
+			path: "/ws", method: http.MethodGet,
+			authHeader: "Bearer " + testToken,
+			wantCode:   http.StatusOK, // bare handler; real upgrade path covered in ws tests
 		},
 		{
 			name:     "agency config endpoint bypasses auth",
@@ -104,10 +111,10 @@ func TestAuth_Validation(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
-			name:     "empty config token still allows websocket",
+			name:     "empty config token rejects websocket",
 			cfgToken: "", egressTok: "",
 			path: "/ws", method: http.MethodGet,
-			wantCode: http.StatusOK,
+			wantCode: http.StatusUnauthorized,
 		},
 		{
 			name:     "empty config token still allows agency config",
@@ -517,7 +524,6 @@ func TestUnauthenticatedPaths(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/v1/health"},
 		{http.MethodGet, "/__agency/config"},
-		{http.MethodGet, "/ws"},
 	}
 
 	for _, ep := range exemptPaths {
@@ -549,6 +555,7 @@ func TestUnauthenticatedPaths(t *testing.T) {
 		{http.MethodGet, "/api/v1/packages"},
 		{http.MethodGet, "/api/v1/instances"},
 		{http.MethodPost, "/api/v1/authz/resolve"},
+		{http.MethodGet, "/ws"},
 	}
 
 	for _, pp := range protectedPaths {

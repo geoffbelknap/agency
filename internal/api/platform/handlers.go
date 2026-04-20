@@ -9,6 +9,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/openapispec"
+	"github.com/geoffbelknap/agency/internal/principal"
 )
 
 func (h *handler) openapiSpec(w http.ResponseWriter, r *http.Request) {
@@ -105,5 +106,8 @@ func (h *handler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "websocket hub not initialized"})
 		return
 	}
-	h.deps.WSHub.HandleWebSocket(w, r)
+	// BearerAuth middleware has already validated the token and (best-effort)
+	// resolved the principal into the request context. Pass it to the hub
+	// so the Client carries its identity for scope filtering and audit.
+	h.deps.WSHub.HandleWebSocket(w, r, principal.Get(r))
 }
