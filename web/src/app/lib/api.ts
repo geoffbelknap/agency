@@ -782,7 +782,7 @@ export const api = {
     },
     read: (name: string, limit = 50) => req<RawMessage[]>(`/comms/channels/${name}/messages?limit=${limit}&reader=operator`),
     send: (name: string, content: string, replyTo?: string, flags?: Record<string, boolean>) =>
-      req<OkResponse>(`/comms/channels/${name}/messages`, {
+      req<RawMessage>(`/comms/channels/${name}/messages`, {
         method: 'POST',
         body: JSON.stringify({ author: 'operator', content, reply_to: replyTo, flags }),
       }),
