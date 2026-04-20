@@ -936,17 +936,26 @@ func runSetup(provider, apiKey, notifyURL, backend string, backendCfg map[string
 	}
 
 	if capErr == nil {
-		fmt.Println()
-		poolConfigured, poolPath, err := reconcileDockerNetworkPool(configurePool)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not inspect Docker network pool: %v\n", err)
-		} else {
-			capCfg.NetworkPoolConfigured = poolConfigured
-			if poolConfigured {
-				fmt.Printf("Docker network pool configured (%s)\n", poolPath)
-			} else if poolPath != "" {
-				fmt.Printf("Docker network pool uses defaults (%s)\n", poolPath)
+		// The network pool tuning reads /etc/docker/daemon.json and is
+		// meaningful only for the docker engine. Podman and containerd
+		// manage their own network pools through different mechanisms,
+		// so skip the reconcile and its accompanying stdout lines on
+		// non-docker backends.
+		if runtimehost.NormalizeContainerBackend(backend) == runtimehost.BackendDocker {
+			fmt.Println()
+			poolConfigured, poolPath, err := reconcileDockerNetworkPool(configurePool)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not inspect Docker network pool: %v\n", err)
+			} else {
+				capCfg.NetworkPoolConfigured = poolConfigured
+				if poolConfigured {
+					fmt.Printf("Docker network pool configured (%s)\n", poolPath)
+				} else if poolPath != "" {
+					fmt.Printf("Docker network pool uses defaults (%s)\n", poolPath)
+				}
 			}
+		} else if configurePool {
+			fmt.Fprintf(os.Stderr, "Warning: --configure-network-pool is docker-specific; ignored on %s backend.\n", backend)
 		}
 	}
 
