@@ -61,6 +61,7 @@ from images.knowledge.principal_registry import PrincipalRegistry
 from images.knowledge.classification import ClassificationConfig
 from images.knowledge.store import KnowledgeStore
 from images.knowledge.synthesizer import LLMSynthesizer
+from images.knowledge.manager import KnowledgeManager, MemoryManager
 from images.knowledge.gateway_client import GatewayClient
 
 logger = logging.getLogger("agency.knowledge")
@@ -163,8 +164,12 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
         gateway = GatewayClient(base_url=gateway_url, token=gateway_token)
         ingester = RuleIngester(store, curator=app.get("curator"))
         synthesizer = LLMSynthesizer(store, curator=app.get("curator"))
+        memory_manager = MemoryManager(store)
+        knowledge_manager = KnowledgeManager(store, memory_manager=memory_manager)
         app["ingester"] = ingester
         app["synthesizer"] = synthesizer
+        app["memory_manager"] = memory_manager
+        app["knowledge_manager"] = knowledge_manager
         app["gateway"] = gateway
         app.on_startup.append(_start_ingestion_loop)
         app.on_cleanup.append(_stop_ingestion_loop)
@@ -657,7 +662,7 @@ async def handle_ingest_nodes(request: web.Request) -> web.Response:
         )
         # Only publish channel updates for meaningful findings, not raw telemetry.
         # DNS queries, network connections, and device inventory are too noisy.
-        _SILENT_KINDS = {"dns_query", "network_connection", "device", "sensor", "ip_address", "domain"}
+        _SILENT_KINDS = {"dns_query", "network_connection", "device", "sensor", "ip_address", "domain", "memory_proposal"}
         if kind.lower() not in _SILENT_KINDS:
             node_summary = node.get("summary") or node["label"]
             publish_knowledge_update(
@@ -671,7 +676,14 @@ async def handle_ingest_nodes(request: web.Request) -> web.Response:
                 },
             )
         count += 1
-    return web.json_response({"ingested": count, "pending_review": pending_review})
+    manager = request.app.get("knowledge_manager")
+    memory_processed = None
+    if manager is not None:
+        memory_processed = manager.process_cycle().get("memory")
+    response = {"ingested": count, "pending_review": pending_review}
+    if memory_processed:
+        response["memory_processed"] = memory_processed
+    return web.json_response(response)
 
 
 async def _cache_ingest_nodes(request, store):
@@ -1358,6 +1370,9 @@ async def _ingestion_loop(app: web.Application) -> None:
                     synthesizer.synthesize(
                         synthesizer._pending_messages, all_channels
                     )
+                manager = app.get("knowledge_manager")
+                if manager is not None:
+                    manager.process_cycle()
 
         except asyncio.CancelledError:
             raise
