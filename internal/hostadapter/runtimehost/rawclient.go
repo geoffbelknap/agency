@@ -24,6 +24,7 @@ import (
 	dockervolume "github.com/docker/docker/api/types/volume"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -88,6 +89,45 @@ type appleContainerNetwork struct {
 		IPv6Subnet  string `json:"ipv6Subnet"`
 		IPv4Gateway string `json:"ipv4Gateway"`
 	} `json:"status"`
+}
+
+type appleContainerImageListItem struct {
+	Reference  string `json:"reference"`
+	FullSize   string `json:"fullSize"`
+	Descriptor struct {
+		Digest    string `json:"digest"`
+		MediaType string `json:"mediaType"`
+		Size      int64  `json:"size"`
+	} `json:"descriptor"`
+}
+
+type appleContainerImageInspect struct {
+	Name  string `json:"name"`
+	Index struct {
+		Digest    string `json:"digest"`
+		Size      int64  `json:"size"`
+		MediaType string `json:"mediaType"`
+	} `json:"index"`
+	Variants []struct {
+		Size   int64 `json:"size"`
+		Config struct {
+			Created      string `json:"created"`
+			OS           string `json:"os"`
+			Architecture string `json:"architecture"`
+			Variant      string `json:"variant"`
+			Config       struct {
+				Env        []string          `json:"Env"`
+				WorkingDir string            `json:"WorkingDir"`
+				Cmd        []string          `json:"Cmd"`
+				Labels     map[string]string `json:"Labels"`
+			} `json:"config"`
+		} `json:"config"`
+		Platform struct {
+			OS           string `json:"os"`
+			Architecture string `json:"architecture"`
+			Variant      string `json:"variant"`
+		} `json:"platform"`
+	} `json:"variants"`
 }
 
 // RawClient is Agency's owned container-runtime client wrapper. Docker and
@@ -694,7 +734,22 @@ func (c *RawClient) VolumeRemove(ctx context.Context, volumeID string, force boo
 
 func (c *RawClient) ImageInspectWithRaw(ctx context.Context, image string) (dockerimage.InspectResponse, []byte, error) {
 	if c.usesAppleContainer() {
-		return dockerimage.InspectResponse{}, nil, c.appleContainerUnsupported("inspect images")
+		stdout, stderr, err := c.runAppleContainer(ctx, "image", "inspect", image)
+		raw := bytes.TrimSpace(stdout)
+		if len(raw) == 0 {
+			raw = bytes.TrimSpace(stderr)
+		}
+		if err != nil {
+			if isAppleContainerNotFound(raw, err) {
+				return dockerimage.InspectResponse{}, raw, fmt.Errorf("No such image: %s", image)
+			}
+			return dockerimage.InspectResponse{}, raw, err
+		}
+		inspect, err := parseAppleContainerImageInspect(raw)
+		if err != nil {
+			return dockerimage.InspectResponse{}, raw, err
+		}
+		return appleContainerImageInspectResponse(inspect), raw, nil
 	}
 	if !c.usesNerdctl() {
 		return c.docker.ImageInspectWithRaw(ctx, image)
@@ -719,7 +774,23 @@ func (c *RawClient) ImageInspectWithRaw(ctx context.Context, image string) (dock
 
 func (c *RawClient) ImageList(ctx context.Context, options dockerimage.ListOptions) ([]dockerimage.Summary, error) {
 	if c.usesAppleContainer() {
-		return nil, c.appleContainerUnsupported("list images")
+		stdout, _, err := c.runAppleContainer(ctx, "image", "list", "--format", "json")
+		if err != nil {
+			return nil, err
+		}
+		images, err := parseAppleContainerImageList(stdout)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]dockerimage.Summary, 0, len(images))
+		for _, image := range images {
+			summary := appleContainerImageSummary(image)
+			if !appleContainerImageMatchesFilters(summary, options.Filters) {
+				continue
+			}
+			out = append(out, summary)
+		}
+		return out, nil
 	}
 	if !c.usesNerdctl() {
 		return c.docker.ImageList(ctx, options)
@@ -1052,6 +1123,175 @@ func parseAppleContainerList(raw []byte) ([]appleContainerInspect, error) {
 		return nil, err
 	}
 	return []appleContainerInspect{single}, nil
+}
+
+func parseAppleContainerImageList(raw []byte) ([]appleContainerImageListItem, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var list []appleContainerImageListItem
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+func parseAppleContainerImageInspect(raw []byte) (appleContainerImageInspect, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return appleContainerImageInspect{}, fmt.Errorf("empty apple-container image inspect output")
+	}
+	var list []appleContainerImageInspect
+	if err := json.Unmarshal(raw, &list); err == nil {
+		if len(list) == 0 {
+			return appleContainerImageInspect{}, fmt.Errorf("empty apple-container image inspect output")
+		}
+		return list[0], nil
+	}
+	var inspect appleContainerImageInspect
+	if err := json.Unmarshal(raw, &inspect); err != nil {
+		return appleContainerImageInspect{}, err
+	}
+	return inspect, nil
+}
+
+func appleContainerImageInspectResponse(image appleContainerImageInspect) dockerimage.InspectResponse {
+	ref := strings.TrimSpace(image.Name)
+	digest := strings.TrimSpace(image.Index.Digest)
+	id := digest
+	if id != "" && !strings.HasPrefix(id, "sha256:") {
+		id = "sha256:" + id
+	}
+	size := image.Index.Size
+	architecture := ""
+	osName := ""
+	variant := ""
+	created := ""
+	env := []string(nil)
+	cmd := []string(nil)
+	workingDir := ""
+	labels := map[string]string(nil)
+	if len(image.Variants) > 0 {
+		variantInfo := image.Variants[0]
+		if variantInfo.Size > size {
+			size = variantInfo.Size
+		}
+		architecture = firstNonEmpty(variantInfo.Platform.Architecture, variantInfo.Config.Architecture)
+		osName = firstNonEmpty(variantInfo.Platform.OS, variantInfo.Config.OS)
+		variant = firstNonEmpty(variantInfo.Platform.Variant, variantInfo.Config.Variant)
+		created = variantInfo.Config.Created
+		env = nonEmptyStrings(variantInfo.Config.Config.Env...)
+		cmd = nonEmptyStrings(variantInfo.Config.Config.Cmd...)
+		workingDir = strings.TrimSpace(variantInfo.Config.Config.WorkingDir)
+		labels = variantInfo.Config.Config.Labels
+	}
+	repoTags := []string(nil)
+	if ref != "" {
+		repoTags = []string{ref}
+	}
+	repoDigests := []string(nil)
+	if ref != "" && digest != "" {
+		name := imageNameWithoutTag(ref)
+		repoDigests = []string{name + "@" + digest}
+	}
+	return dockerimage.InspectResponse{
+		ID:          id,
+		RepoTags:    repoTags,
+		RepoDigests: repoDigests,
+		Created:     created,
+		Config: &dockerspec.DockerOCIImageConfig{
+			ImageConfig: specs.ImageConfig{
+				Env:        env,
+				Cmd:        cmd,
+				WorkingDir: workingDir,
+				Labels:     labels,
+			},
+		},
+		Architecture: architecture,
+		Variant:      variant,
+		Os:           osName,
+		Size:         size,
+	}
+}
+
+func appleContainerImageSummary(image appleContainerImageListItem) dockerimage.Summary {
+	ref := strings.TrimSpace(image.Reference)
+	digest := strings.TrimSpace(image.Descriptor.Digest)
+	id := digest
+	if id != "" && !strings.HasPrefix(id, "sha256:") {
+		id = "sha256:" + id
+	}
+	repoTags := []string(nil)
+	if ref != "" {
+		repoTags = []string{ref}
+	}
+	repoDigests := []string(nil)
+	if ref != "" && digest != "" {
+		repoDigests = []string{imageNameWithoutTag(ref) + "@" + digest}
+	}
+	return dockerimage.Summary{
+		ID:          id,
+		RepoTags:    repoTags,
+		RepoDigests: repoDigests,
+		Size:        image.Descriptor.Size,
+	}
+}
+
+func imageNameWithoutTag(ref string) string {
+	name := strings.TrimSpace(ref)
+	if at := strings.Index(name, "@"); at >= 0 {
+		name = name[:at]
+	}
+	if colon := strings.LastIndex(name, ":"); colon > strings.LastIndex(name, "/") {
+		name = name[:colon]
+	}
+	return name
+}
+
+func appleContainerImageMatchesFilters(summary dockerimage.Summary, filters dockerfilters.Args) bool {
+	if filters.Contains("dangling") && filters.ExactMatch("dangling", "true") {
+		return false
+	}
+	referenceFilters := filters.Get("reference")
+	if len(referenceFilters) > 0 {
+		for _, ref := range append(append([]string{}, summary.RepoTags...), summary.RepoDigests...) {
+			for _, want := range referenceFilters {
+				if imageReferenceMatches(want, ref) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return true
+}
+
+func imageReferenceMatches(pattern, ref string) bool {
+	pattern = strings.TrimSpace(pattern)
+	ref = strings.TrimSpace(ref)
+	if pattern == "" || ref == "" {
+		return false
+	}
+	if pattern == ref || strings.Contains(ref, pattern) {
+		return true
+	}
+	if ok, err := filepath.Match(pattern, ref); err == nil && ok {
+		return true
+	}
+	name := imageNameWithoutTag(ref)
+	if ok, err := filepath.Match(pattern, name); err == nil && ok {
+		return true
+	}
+	return false
+}
+
+func isAppleContainerNotFound(raw []byte, err error) bool {
+	text := strings.ToLower(strings.TrimSpace(string(raw)))
+	if text == "" && err != nil {
+		text = strings.ToLower(err.Error())
+	}
+	return strings.Contains(text, "notfound") || strings.Contains(text, "not found")
 }
 
 func parseAppleContainerNetworks(raw []byte) ([]appleContainerNetwork, error) {

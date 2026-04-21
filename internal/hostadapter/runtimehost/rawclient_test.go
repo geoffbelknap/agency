@@ -9,6 +9,7 @@ import (
 
 	dockercontainer "github.com/docker/docker/api/types/container"
 	dockerfilters "github.com/docker/docker/api/types/filters"
+	dockerimage "github.com/docker/docker/api/types/image"
 	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/docker/go-connections/nat"
 )
@@ -320,6 +321,61 @@ func TestAppleContainerCommandEnvDropsAgencyHome(t *testing.T) {
 	want := []string{"PATH=/bin", "HOME=/Users/test"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("appleContainerCommandEnv() = %#v, want %#v", got, want)
+	}
+}
+
+func TestAppleContainerImageCommands(t *testing.T) {
+	listJSON := []byte(`[{
+		"reference":"docker.io/library/alpine:latest",
+		"fullSize":"4.2 MB",
+		"descriptor":{"digest":"sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11","mediaType":"application/vnd.oci.image.index.v1+json","size":9218}
+	}]`)
+	inspectJSON := []byte(`[{
+		"name":"docker.io/library/alpine:latest",
+		"index":{"digest":"sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11","size":9218,"mediaType":"application/vnd.oci.image.index.v1+json"},
+		"variants":[{
+			"size":4201522,
+			"config":{"created":"2026-04-15T20:01:25Z","os":"linux","architecture":"arm64","variant":"v8","config":{"Env":["PATH=/bin"],"WorkingDir":"/","Cmd":["/bin/sh"],"Labels":{"agency.build.id":"abc123"}}},
+			"platform":{"variant":"v8","architecture":"arm64","os":"linux"}
+		}]
+	}]`)
+	var calls [][]string
+	client := &RawClient{
+		backend: BackendAppleContainer,
+		appleContainer: &appleContainerConfig{run: func(ctx context.Context, args ...string) ([]byte, []byte, error) {
+			calls = append(calls, append([]string(nil), args...))
+			switch strings.Join(args, " ") {
+			case "image list --format json":
+				return listJSON, nil, nil
+			case "image inspect docker.io/library/alpine:latest":
+				return inspectJSON, nil, nil
+			default:
+				t.Fatalf("unexpected args: %#v", args)
+			}
+			return nil, nil, nil
+		}},
+	}
+	images, err := client.ImageList(context.Background(), dockerimage.ListOptions{
+		Filters: dockerfilters.NewArgs(dockerfilters.Arg("reference", "alpine")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(images) != 1 || images[0].RepoTags[0] != "docker.io/library/alpine:latest" {
+		t.Fatalf("images = %#v", images)
+	}
+	inspect, _, err := client.ImageInspectWithRaw(context.Background(), "docker.io/library/alpine:latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspect.ID != "sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11" || inspect.Architecture != "arm64" || inspect.Os != "linux" {
+		t.Fatalf("inspect = %#v", inspect)
+	}
+	if inspect.Config == nil || inspect.Config.Labels["agency.build.id"] != "abc123" {
+		t.Fatalf("inspect labels = %#v", inspect.Config)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("calls = %#v", calls)
 	}
 }
 
