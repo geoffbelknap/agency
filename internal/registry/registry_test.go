@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -252,6 +253,18 @@ func TestSnapshotContainsAllPrincipals(t *testing.T) {
 	}
 	if len(snap.Principals) != 2 {
 		t.Errorf("expected 2 principals in snapshot, got %d", len(snap.Principals))
+	}
+}
+
+func TestSnapshotEmptyPrincipalsUsesEmptyArray(t *testing.T) {
+	r := tempDB(t)
+
+	data, err := r.Snapshot()
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if !strings.Contains(string(data), `"principals":[]`) {
+		t.Fatalf("snapshot = %s, want principals empty array", string(data))
 	}
 }
 

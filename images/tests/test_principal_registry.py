@@ -67,6 +67,10 @@ class TestLoadData:
         reg = PrincipalRegistry(snapshot_data={"principals": []})
         assert reg.list_all() == []
 
+    def test_load_null_principals(self):
+        reg = PrincipalRegistry(snapshot_data={"principals": None})
+        assert reg.list_all() == []
+
     def test_load_missing_principals_key(self):
         reg = PrincipalRegistry(snapshot_data={})
         assert reg.list_all() == []
