@@ -235,6 +235,9 @@ func WaitHealthy(ctx context.Context, cli *RawClient, name string, timeout time.
 		select {
 		case <-ticker.C:
 		case <-ctx.Done():
+			if logs, err := cli.ContainerLogs(context.Background(), name, 80); err == nil && strings.TrimSpace(logs) != "" {
+				return fmt.Errorf("container %s did not become healthy within %v; recent logs:\n%s", name, timeout, logs)
+			}
 			return fmt.Errorf("container %s did not become healthy within %v", name, timeout)
 		}
 	}
