@@ -1319,9 +1319,6 @@ func appleContainerCreateArgs(config *dockercontainer.Config, hostConfig *docker
 				args = append(args, "--tmpfs", target)
 			}
 		}
-		if networkMode := strings.TrimSpace(string(hostConfig.NetworkMode)); networkMode != "" && networkMode != "default" {
-			args = append(args, "--network", networkMode)
-		}
 		for port, bindings := range hostConfig.PortBindings {
 			for _, binding := range bindings {
 				published := appleContainerPublishSpec(string(port), binding.HostIP, binding.HostPort)
@@ -1331,11 +1328,8 @@ func appleContainerCreateArgs(config *dockercontainer.Config, hostConfig *docker
 			}
 		}
 	}
-	for name := range networkingConfigEndpoints(networkingConfig) {
-		name = strings.TrimSpace(name)
-		if name != "" && name != "default" {
-			args = append(args, "--network", name)
-		}
+	for _, networkName := range networkNames(hostConfig, networkingConfig) {
+		args = append(args, "--network", networkName)
 	}
 	args = append(args, image)
 	args = append(args, config.Cmd...)
@@ -1398,13 +1392,6 @@ func appleContainerMemoryBytes(memory int64) int64 {
 		return minAppleContainerMemory
 	}
 	return memory
-}
-
-func networkingConfigEndpoints(networkingConfig *dockernetwork.NetworkingConfig) map[string]*dockernetwork.EndpointSettings {
-	if networkingConfig == nil || networkingConfig.EndpointsConfig == nil {
-		return nil
-	}
-	return networkingConfig.EndpointsConfig
 }
 
 func (c *RawClient) inspectContainers(ctx context.Context, ids ...string) ([]dockercontainer.InspectResponse, error) {
@@ -1610,7 +1597,8 @@ func networkNames(hostConfig *dockercontainer.HostConfig, networkingConfig *dock
 	}
 	if networkingConfig != nil {
 		for name := range networkingConfig.EndpointsConfig {
-			if seen[name] || strings.TrimSpace(name) == "" {
+			name = strings.TrimSpace(name)
+			if seen[name] || name == "" || name == "default" {
 				continue
 			}
 			seen[name] = true

@@ -283,6 +283,34 @@ func TestAppleContainerLifecycleCommands(t *testing.T) {
 	}
 }
 
+func TestAppleContainerCreateArgsDedupeNetworks(t *testing.T) {
+	args, err := appleContainerCreateArgs(
+		&dockercontainer.Config{Image: "alpine:latest"},
+		&dockercontainer.HostConfig{NetworkMode: "agency-henry-internal"},
+		&dockernetwork.NetworkingConfig{EndpointsConfig: map[string]*dockernetwork.EndpointSettings{
+			"agency-henry-internal": {},
+			"agency-gateway":        {},
+			"agency-egress-int":     {},
+		}},
+		nil,
+		"agency-henry-enforcer",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]int{}
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == "--network" {
+			counts[args[i+1]]++
+		}
+	}
+	for _, networkName := range []string{"agency-henry-internal", "agency-gateway", "agency-egress-int"} {
+		if counts[networkName] != 1 {
+			t.Fatalf("network %q count = %d, want 1 in %#v", networkName, counts[networkName], args)
+		}
+	}
+}
+
 func TestAppleContainerNetworkCommands(t *testing.T) {
 	sample := []byte(`[
 		{
@@ -305,9 +333,22 @@ func TestAppleContainerNetworkCommands(t *testing.T) {
 		backend: BackendAppleContainer,
 		appleContainer: &appleContainerConfig{run: func(ctx context.Context, args ...string) ([]byte, []byte, error) {
 			calls = append(calls, append([]string(nil), args...))
-			switch strings.Join(args, " ") {
-			case "network create --label agency.agent=smoke --label agency.type=internal --internal --subnet 192.168.128.0/24 agency-smoke-net":
+			if len(args) >= 3 && args[0] == "network" && args[1] == "create" {
+				joined := strings.Join(args, " ")
+				for _, want := range []string{
+					"--label agency.agent=smoke",
+					"--label agency.type=internal",
+					"--internal",
+					"--subnet 192.168.128.0/24",
+					"agency-smoke-net",
+				} {
+					if !strings.Contains(joined, want) {
+						t.Fatalf("network create args missing %q in %q", want, joined)
+					}
+				}
 				return []byte("agency-smoke-net\n"), nil, nil
+			}
+			switch strings.Join(args, " ") {
 			case "network list --format json", "network inspect agency-smoke-net":
 				return sample, nil, nil
 			case "network delete agency-smoke-net":

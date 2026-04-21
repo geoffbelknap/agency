@@ -158,7 +158,7 @@ func (ms *MeeseeksStartSequence) phase2Enforcement(ctx context.Context) error {
 	hc.NetworkMode = container.NetworkMode(netName)
 	hc.Tmpfs = map[string]string{"/tmp": "size=64M", "/run": "size=32M"}
 	netCfg := &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{netName: {}}}
-	if ms.cli.Backend() == runtimehost.BackendContainerd {
+	if usesCreateTimeMediationNetworks(ms.cli.Backend()) {
 		netCfg.EndpointsConfig[gatewayNetName()] = &network.EndpointSettings{}
 		netCfg.EndpointsConfig[egressIntNetName()] = &network.EndpointSettings{}
 	}
@@ -194,7 +194,7 @@ func (ms *MeeseeksStartSequence) phase2Enforcement(ctx context.Context) error {
 		return err
 	}
 
-	if ms.cli.Backend() != runtimehost.BackendContainerd {
+	if !usesCreateTimeMediationNetworks(ms.cli.Backend()) {
 		_ = ms.cli.NetworkConnect(ctx, gatewayNetName(), enforcerContainerID, &network.EndpointSettings{
 			Aliases: []string{"enforcer"},
 		})
@@ -338,4 +338,13 @@ func meeseeksEnforcerHost(id, backend string) string {
 		return fmt.Sprintf("%s-%s-enforcer", prefix, id)
 	}
 	return "enforcer"
+}
+
+func usesCreateTimeMediationNetworks(backend string) bool {
+	switch runtimehost.NormalizeContainerBackend(backend) {
+	case runtimehost.BackendContainerd, runtimehost.BackendAppleContainer:
+		return true
+	default:
+		return false
+	}
 }
