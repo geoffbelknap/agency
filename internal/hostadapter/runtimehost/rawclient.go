@@ -35,6 +35,44 @@ type nerdctlConfig struct {
 
 type appleContainerConfig struct {
 	binary string
+	run    func(context.Context, ...string) ([]byte, []byte, error)
+}
+
+type appleContainerInspect struct {
+	Status    string `json:"status"`
+	CreatedAt string `json:"createdAt"`
+	Networks  []struct {
+		Address     string `json:"address"`
+		IPv4Address string `json:"ipv4Address"`
+		IPv6Address string `json:"ipv6Address"`
+		Gateway     string `json:"gateway"`
+		IPv4Gateway string `json:"ipv4Gateway"`
+		Hostname    string `json:"hostname"`
+		Network     string `json:"network"`
+	} `json:"networks"`
+	Configuration struct {
+		ID       string `json:"id"`
+		Hostname string `json:"hostname"`
+		Image    string `json:"image"`
+		ImageRef struct {
+			Reference string `json:"reference"`
+		} `json:"image"`
+		Labels map[string]string `json:"labels"`
+		Env    []string          `json:"env"`
+		Init   struct {
+			Environment []string `json:"environment"`
+		} `json:"initProcess"`
+		Mounts []struct {
+			Source      string `json:"source"`
+			Target      string `json:"target"`
+			Destination string `json:"destination"`
+			ReadOnly    bool   `json:"readonly"`
+			Readonly    bool   `json:"readOnly"`
+		} `json:"mounts"`
+		Resources struct {
+			MemoryInBytes int64 `json:"memoryInBytes"`
+		} `json:"resources"`
+	} `json:"configuration"`
 }
 
 // RawClient is Agency's owned container-runtime client wrapper. Docker and
@@ -185,7 +223,30 @@ func (c *RawClient) Ping(ctx context.Context) (dockertypes.Ping, error) {
 
 func (c *RawClient) ContainerList(ctx context.Context, options dockercontainer.ListOptions) ([]dockercontainer.Summary, error) {
 	if c.usesAppleContainer() {
-		return nil, c.appleContainerUnsupported("list containers")
+		args := []string{"list", "--format", "json"}
+		if options.All {
+			args = append(args, "--all")
+		}
+		stdout, _, err := c.runAppleContainer(ctx, args...)
+		if err != nil {
+			return nil, err
+		}
+		containers, err := parseAppleContainerList(stdout)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]dockercontainer.Summary, 0, len(containers))
+		for _, ctr := range containers {
+			summary := appleContainerSummary(ctr)
+			if !options.All && summary.State != "running" {
+				continue
+			}
+			if !appleContainerSummaryMatchesFilters(summary, options.Filters) {
+				continue
+			}
+			out = append(out, summary)
+		}
+		return out, nil
 	}
 	if !c.usesNerdctl() {
 		return c.docker.ContainerList(ctx, options)
@@ -216,7 +277,18 @@ func (c *RawClient) ContainerList(ctx context.Context, options dockercontainer.L
 
 func (c *RawClient) ContainerInspect(ctx context.Context, containerID string) (dockercontainer.InspectResponse, error) {
 	if c.usesAppleContainer() {
-		return dockercontainer.InspectResponse{}, c.appleContainerUnsupported("inspect containers")
+		stdout, _, err := c.runAppleContainer(ctx, "inspect", containerID)
+		if err != nil {
+			return dockercontainer.InspectResponse{}, err
+		}
+		containers, err := parseAppleContainerList(stdout)
+		if err != nil {
+			return dockercontainer.InspectResponse{}, err
+		}
+		if len(containers) == 0 {
+			return dockercontainer.InspectResponse{}, fmt.Errorf("container %q not found", containerID)
+		}
+		return appleContainerInspectResponse(containers[0]), nil
 	}
 	if !c.usesNerdctl() {
 		return c.docker.ContainerInspect(ctx, containerID)
@@ -756,7 +828,17 @@ func (c *RawClient) Exec(ctx context.Context, containerName, user string, cmd []
 
 func (c *RawClient) ContainerLogs(ctx context.Context, containerName string, tail int) (string, error) {
 	if c.usesAppleContainer() {
-		return "", c.appleContainerUnsupported("read container logs")
+		args := []string{"logs"}
+		if tail > 0 {
+			args = append(args, "-n", strconv.Itoa(tail))
+		}
+		args = append(args, containerName)
+		stdout, stderr, err := c.runAppleContainer(ctx, args...)
+		out := string(append(stdout, stderr...))
+		if err != nil {
+			return out, err
+		}
+		return out, nil
 	}
 	if tail <= 0 {
 		tail = 200
@@ -834,6 +916,9 @@ func (c *RawClient) runNerdctl(ctx context.Context, args ...string) ([]byte, []b
 }
 
 func (c *RawClient) runAppleContainer(ctx context.Context, args ...string) ([]byte, []byte, error) {
+	if c != nil && c.appleContainer != nil && c.appleContainer.run != nil {
+		return c.appleContainer.run(ctx, args...)
+	}
 	binary := "container"
 	if c != nil && c.appleContainer != nil && strings.TrimSpace(c.appleContainer.binary) != "" {
 		binary = c.appleContainer.binary
@@ -855,6 +940,163 @@ func (c *RawClient) runAppleContainer(ctx context.Context, args ...string) ([]by
 		return stdout.Bytes(), stderr.Bytes(), fmt.Errorf("container %s: %s", strings.Join(args, " "), msg)
 	}
 	return stdout.Bytes(), stderr.Bytes(), nil
+}
+
+func parseAppleContainerList(raw []byte) ([]appleContainerInspect, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var list []appleContainerInspect
+	if err := json.Unmarshal(raw, &list); err == nil {
+		return list, nil
+	}
+	var single appleContainerInspect
+	if err := json.Unmarshal(raw, &single); err != nil {
+		return nil, err
+	}
+	return []appleContainerInspect{single}, nil
+}
+
+func appleContainerSummary(ctr appleContainerInspect) dockercontainer.Summary {
+	inspect := appleContainerInspectResponse(ctr)
+	summary := containerSummaryFromInspect(inspect)
+	if inspect.NetworkSettings != nil {
+		summary.NetworkSettings = &dockercontainer.NetworkSettingsSummary{Networks: inspect.NetworkSettings.Networks}
+	}
+	return summary
+}
+
+func appleContainerSummaryMatchesFilters(summary dockercontainer.Summary, filters dockerfilters.Args) bool {
+	if !filters.MatchKVList("label", summary.Labels) {
+		return false
+	}
+	if !filters.ExactMatch("status", string(summary.State)) {
+		return false
+	}
+	for _, name := range summary.Names {
+		trimmed := strings.TrimPrefix(name, "/")
+		if !filters.FuzzyMatch("name", trimmed) && !filters.FuzzyMatch("name", name) {
+			return false
+		}
+	}
+	return true
+}
+
+func appleContainerInspectResponse(ctr appleContainerInspect) dockercontainer.InspectResponse {
+	id := strings.TrimSpace(ctr.Configuration.ID)
+	hostname := strings.TrimSpace(ctr.Configuration.Hostname)
+	if hostname == "" {
+		hostname = id
+	}
+	labels := map[string]string{}
+	for k, v := range ctr.Configuration.Labels {
+		labels[k] = v
+	}
+	state := strings.TrimSpace(strings.ToLower(ctr.Status))
+	if state == "" {
+		state = "unknown"
+	}
+	networks := map[string]*dockernetwork.EndpointSettings{}
+	for _, net := range ctr.Networks {
+		name := strings.TrimSpace(net.Network)
+		if name == "" {
+			name = "default"
+		}
+		address, prefixLen := splitCIDRAddress(firstNonEmpty(net.IPv4Address, net.Address, net.IPv6Address))
+		networks[name] = &dockernetwork.EndpointSettings{
+			Gateway:     firstNonEmpty(net.IPv4Gateway, net.Gateway),
+			IPAddress:   address,
+			IPPrefixLen: prefixLen,
+			DNSNames:    nonEmptyStrings(hostname, strings.TrimSuffix(net.Hostname, ".")),
+		}
+	}
+	mounts := make([]dockercontainer.MountPoint, 0, len(ctr.Configuration.Mounts))
+	for _, mount := range ctr.Configuration.Mounts {
+		destination := strings.TrimSpace(mount.Destination)
+		if destination == "" {
+			destination = strings.TrimSpace(mount.Target)
+		}
+		mounts = append(mounts, dockercontainer.MountPoint{
+			Source:      mount.Source,
+			Destination: destination,
+			RW:          !mount.ReadOnly && !mount.Readonly,
+		})
+	}
+	created := strings.TrimSpace(ctr.CreatedAt)
+	image := firstNonEmpty(ctr.Configuration.ImageRef.Reference, ctr.Configuration.Image)
+	env := ctr.Configuration.Env
+	if len(env) == 0 {
+		env = ctr.Configuration.Init.Environment
+	}
+	return dockercontainer.InspectResponse{
+		ContainerJSONBase: &dockercontainer.ContainerJSONBase{
+			ID:      id,
+			Created: created,
+			Name:    "/" + id,
+			Image:   image,
+			State: &dockercontainer.State{
+				Status:  dockercontainer.ContainerState(state),
+				Running: state == "running",
+				Paused:  state == "paused",
+				Dead:    state == "dead",
+			},
+			HostConfig: &dockercontainer.HostConfig{},
+		},
+		Config: &dockercontainer.Config{
+			Hostname: hostname,
+			Image:    image,
+			Env:      env,
+			Labels:   labels,
+		},
+		Mounts: mounts,
+		NetworkSettings: &dockercontainer.NetworkSettings{
+			Networks: networks,
+		},
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func splitCIDRAddress(raw string) (string, int) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", 0
+	}
+	addr, prefix, ok := strings.Cut(raw, "/")
+	if !ok {
+		return raw, 0
+	}
+	prefixLen, err := strconv.Atoi(prefix)
+	if err != nil {
+		return addr, 0
+	}
+	return addr, prefixLen
+}
+
+func nonEmptyStrings(values ...string) []string {
+	out := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 func (c *RawClient) inspectContainers(ctx context.Context, ids ...string) ([]dockercontainer.InspectResponse, error) {

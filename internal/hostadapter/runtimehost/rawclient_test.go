@@ -2,10 +2,13 @@ package runtimehost
 
 import (
 	"bytes"
+	"context"
+	"reflect"
 	"strings"
 	"testing"
 
 	dockercontainer "github.com/docker/docker/api/types/container"
+	dockerfilters "github.com/docker/docker/api/types/filters"
 	dockernetwork "github.com/docker/docker/api/types/network"
 )
 
@@ -77,6 +80,112 @@ func TestValidateAppleContainerConfigRejectsSocketShapedKeys(t *testing.T) {
 func TestValidateAppleContainerConfigAcceptsBinaryOverride(t *testing.T) {
 	if err := validateAppleContainerConfig(map[string]string{"binary": "/usr/local/bin/container"}); err != nil {
 		t.Fatalf("expected binary override to pass validation, got %v", err)
+	}
+}
+
+func TestAppleContainerReadOnlyDiscovery(t *testing.T) {
+	sample := []byte(`[
+		{
+			"status": "running",
+			"networks": [{"ipv4Address": "192.168.64.3/24", "ipv4Gateway": "192.168.64.1", "hostname": "agency-henry-workspace", "network": "default"}],
+			"configuration": {
+				"id": "agency-henry-workspace",
+				"hostname": "agency-henry-workspace",
+				"image": {"reference": "docker.io/library/alpine:latest"},
+				"initProcess": {"environment": ["AGENCY_HOME=/home/agency"]},
+				"labels": {"agency.type": "workspace", "agency.agent": "henry"},
+				"mounts": [{"source": "/host/constraints.yaml", "target": "/agency/constraints.yaml", "readonly": true}]
+			}
+		},
+		{
+			"status": "stopped",
+			"configuration": {
+				"id": "agency-old-workspace",
+				"labels": {"agency.type": "workspace", "agency.agent": "old"}
+			}
+		}
+	]`)
+	client := &RawClient{
+		backend: BackendAppleContainer,
+		appleContainer: &appleContainerConfig{run: func(ctx context.Context, args ...string) ([]byte, []byte, error) {
+			if !reflect.DeepEqual(args, []string{"list", "--format", "json"}) {
+				t.Fatalf("args = %#v", args)
+			}
+			return sample, nil, nil
+		}},
+	}
+
+	containers, err := client.ContainerList(context.Background(), dockercontainer.ListOptions{
+		Filters: dockerfilters.NewArgs(dockerfilters.Arg("label", "agency.type=workspace")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(containers) != 1 {
+		t.Fatalf("containers len = %d, want 1: %#v", len(containers), containers)
+	}
+	got := containers[0]
+	if got.ID != "agency-henry-workspace" || got.State != "running" || got.Labels["agency.agent"] != "henry" {
+		t.Fatalf("unexpected summary: %#v", got)
+	}
+	if len(got.Names) != 1 || got.Names[0] != "/agency-henry-workspace" {
+		t.Fatalf("names = %#v", got.Names)
+	}
+	if got.NetworkSettings == nil || got.NetworkSettings.Networks["default"].IPAddress != "192.168.64.3" {
+		t.Fatalf("network settings = %#v", got.NetworkSettings)
+	}
+}
+
+func TestAppleContainerInspectAndLogs(t *testing.T) {
+	sample := []byte(`[
+		{
+			"status": "running",
+			"networks": [{"ipv4Address": "192.168.64.3/24", "ipv4Gateway": "192.168.64.1", "hostname": "agency-henry-workspace", "network": "default"}],
+			"configuration": {
+				"id": "agency-henry-workspace",
+				"hostname": "agency-henry-workspace",
+				"image": {"reference": "docker.io/library/alpine:latest"},
+				"initProcess": {"environment": ["AGENCY_HOME=/home/agency"]},
+				"labels": {"agency.type": "workspace", "agency.agent": "henry"},
+				"mounts": [{"source": "/host/constraints.yaml", "target": "/agency/constraints.yaml", "readonly": true}]
+			}
+		}
+	]`)
+	client := &RawClient{
+		backend: BackendAppleContainer,
+		appleContainer: &appleContainerConfig{run: func(ctx context.Context, args ...string) ([]byte, []byte, error) {
+			switch strings.Join(args, " ") {
+			case "inspect agency-henry-workspace":
+				return sample, nil, nil
+			case "logs -n 25 agency-henry-workspace":
+				return []byte("hello\n"), nil, nil
+			default:
+				t.Fatalf("unexpected args: %#v", args)
+			}
+			return nil, nil, nil
+		}},
+	}
+
+	inspect, err := client.ContainerInspect(context.Background(), "agency-henry-workspace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspect.State == nil || !inspect.State.Running || inspect.State.Status != "running" {
+		t.Fatalf("state = %#v", inspect.State)
+	}
+	if inspect.Config == nil || inspect.Config.Labels["agency.agent"] != "henry" || inspect.Config.Env[0] != "AGENCY_HOME=/home/agency" {
+		t.Fatalf("config = %#v", inspect.Config)
+	}
+	if len(inspect.Mounts) != 1 || inspect.Mounts[0].RW {
+		t.Fatalf("mounts = %#v", inspect.Mounts)
+	}
+
+	logs, err := client.ContainerLogs(context.Background(), "agency-henry-workspace", 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if logs != "hello\n" {
+		t.Fatalf("logs = %q", logs)
 	}
 }
 
