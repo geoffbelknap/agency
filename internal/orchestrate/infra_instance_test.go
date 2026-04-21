@@ -42,6 +42,40 @@ func TestInfraContainerNameUsesInstance(t *testing.T) {
 	}
 }
 
+func TestGatewayProxyServiceHostsDefaultToServiceAliases(t *testing.T) {
+	inf := &Infra{}
+	hosts := inf.gatewayProxyServiceHosts(context.Background())
+	for role, want := range map[string]string{
+		"comms":     "comms",
+		"knowledge": "knowledge",
+		"intake":    "intake",
+	} {
+		if got := hosts[role]; got != want {
+			t.Fatalf("gatewayProxyServiceHosts()[%q] = %q, want %q", role, got, want)
+		}
+	}
+}
+
+func TestGatewayProxyServiceHostsUseAppleContainerNames(t *testing.T) {
+	t.Setenv("AGENCY_INFRA_INSTANCE", "apple-home")
+
+	appleContainer, err := runtimehost.NewRawClientForBackend(runtimehost.BackendAppleContainer, nil)
+	if err != nil {
+		t.Skipf("Apple container raw client unavailable: %v", err)
+	}
+	inf := &Infra{Instance: infraInstanceName(), cli: appleContainer}
+	hosts := inf.gatewayProxyServiceHosts(context.Background())
+	for role, want := range map[string]string{
+		"comms":     "agency-infra-comms-apple-home",
+		"knowledge": "agency-infra-knowledge-apple-home",
+		"intake":    "agency-infra-intake-apple-home",
+	} {
+		if got := hosts[role]; got != want {
+			t.Fatalf("gatewayProxyServiceHosts()[%q] = %q, want %q", role, got, want)
+		}
+	}
+}
+
 func TestInfraInstanceLabelDefaultsWithoutInstance(t *testing.T) {
 	inf := &Infra{}
 	if got, want := inf.instanceLabel(), "default"; got != want {
@@ -144,6 +178,13 @@ func TestSuppressDirectServiceHostPortsForAnyRootlessPodman(t *testing.T) {
 	if got := (&Infra{cli: rootfulPodman}).suppressDirectServiceHostPorts(); got {
 		t.Fatal("rootful Podman should keep direct service host ports")
 	}
+
+	appleContainer, err := runtimehost.NewRawClientForBackend(runtimehost.BackendAppleContainer, nil)
+	if err == nil {
+		if got := (&Infra{cli: appleContainer}).suppressDirectServiceHostPorts(); !got {
+			t.Fatal("Apple container should suppress direct service host ports")
+		}
+	}
 }
 
 func TestInfraWebGatewayRoutingDefaults(t *testing.T) {
@@ -170,6 +211,24 @@ func TestInfraWebGatewayRoutingDefaults(t *testing.T) {
 		t.Fatal("non-Linux web should keep bridge networking")
 	}
 	if got, want := inf.webGatewayHost(), "gateway"; got != want {
+		t.Fatalf("webGatewayHost() = %q, want %q", got, want)
+	}
+	if got, want := inf.webListenAddr(), "8280"; got != want {
+		t.Fatalf("webListenAddr() = %q, want %q", got, want)
+	}
+}
+
+func TestInfraWebGatewayRoutingForAppleContainer(t *testing.T) {
+	appleContainer, err := runtimehost.NewRawClientForBackend(runtimehost.BackendAppleContainer, nil)
+	if err != nil {
+		t.Skipf("Apple container raw client unavailable: %v", err)
+	}
+	inf := &Infra{GatewayAddr: "192.168.128.1:8200", cli: appleContainer}
+
+	if inf.webUsesHostNetwork() {
+		t.Fatal("Apple container web should keep bridge networking")
+	}
+	if got, want := inf.webGatewayHost(), "192.168.128.1"; got != want {
 		t.Fatalf("webGatewayHost() = %q, want %q", got, want)
 	}
 	if got, want := inf.webListenAddr(), "8280"; got != want {

@@ -209,6 +209,16 @@ bash ./scripts/runtime-contract-smoke.sh --agent <agent>
 ./scripts/e2e-live-disposable.sh --skip-build
 ```
 
+Apple Container backend work is currently experimental and opt-in. On macOS
+Apple silicon, adapter developers can run a manual smoke with:
+
+```bash
+./scripts/apple-container-smoke.sh
+```
+
+That path is not part of required CI or branch protection yet; Docker, Podman,
+and containerd remain the automated backend validation lanes.
+
 See [docs/runbooks/runtime-smoke.md](docs/runbooks/runtime-smoke.md) and
 [docs/runbooks/validation-checklist.md](docs/runbooks/validation-checklist.md)
 for the current operator validation flow.
@@ -239,6 +249,12 @@ agency/
 
 Linux (`x86_64`, `arm64`) and macOS (Apple Silicon, Intel) natively. Windows
 via WSL2.
+
+Docker is the default quickstart container backend. Podman and containerd have
+automated readiness paths. Apple Container support is experimental,
+macOS-Apple-silicon-only, and should be treated as a manual adapter development
+surface until its lifecycle, event, network, cleanup, and doctor behavior
+reaches parity with the supported lanes.
 
 ## Contributing
 

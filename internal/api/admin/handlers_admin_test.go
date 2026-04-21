@@ -214,6 +214,67 @@ func TestBackendConnectionDetailsIncludesContainerdEndpointAndMode(t *testing.T)
 	}
 }
 
+func TestBackendConnectionDetailsIncludesAppleContainerEndpointAndMode(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Home: t.TempDir(),
+		Hub:  config.HubConfig{DeploymentBackend: "apple-container"},
+	}
+	endpoint, mode := backendConnectionDetails(cfg)
+	if endpoint != "container://local" {
+		t.Fatalf("endpoint = %q", endpoint)
+	}
+	if mode != "macos-vm" {
+		t.Fatalf("mode = %q", mode)
+	}
+}
+
+func TestAdminDoctorAppleContainerReportsServiceAndGatedRuntime(t *testing.T) {
+	orig := appleContainerStatus
+	appleContainerStatus = func(ctx context.Context, backendConfig map[string]string) error {
+		return nil
+	}
+	t.Cleanup(func() { appleContainerStatus = orig })
+
+	h := &handler{deps: Deps{
+		Config: &config.Config{
+			Home: t.TempDir(),
+			Hub:  config.HubConfig{DeploymentBackend: "apple-container"},
+		},
+	}}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/doctor", nil)
+	rec := httptest.NewRecorder()
+	h.adminDoctor(rec, req.WithContext(context.Background()))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var report doctorReport
+	if err := json.Unmarshal(rec.Body.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if !report.AllPassed {
+		t.Fatalf("expected all_passed, got false: %s", rec.Body.String())
+	}
+	if report.Backend != "apple-container" || report.BackendEndpoint != "container://local" || report.BackendMode != "macos-vm" {
+		t.Fatalf("unexpected backend fields: %#v", report)
+	}
+	if len(report.RuntimeChecks) != 0 {
+		t.Fatalf("expected no runtime checks before lifecycle support, got %#v", report.RuntimeChecks)
+	}
+	seen := map[string]bool{}
+	for _, check := range report.BackendChecks {
+		if check.Backend == "apple-container" && check.Status == "pass" {
+			seen[check.Name] = true
+		}
+	}
+	if !seen["apple_container_service"] || !seen["apple_container_runtime_gated"] {
+		t.Fatalf("backend checks = %#v", report.BackendChecks)
+	}
+}
+
 func TestSyntheticReadinessAgentIsIgnoredForUnscopedAudit(t *testing.T) {
 	t.Parallel()
 

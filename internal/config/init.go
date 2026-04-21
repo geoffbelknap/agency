@@ -44,13 +44,14 @@ type InitOptions struct {
 	Operator        string // operator name (informational)
 	Force           bool   // reinitialize even if already set up
 	NotifyURL       string // optional ntfy or webhook URL for operator alerts
+	GatewayAddr     string // optional gateway listen address to persist
 
 	// DeploymentBackend is the container backend Agency should drive —
-	// "docker", "podman", or "containerd". When empty, any existing value
-	// in config.yaml is preserved; if no existing value is set, the backend
-	// stays unset and the gateway's legacy default (docker) applies. Callers
-	// performing fresh installs are expected to detect the available backend
-	// (see runtimehost.ProbeAllBackends) and set this explicitly so the
+	// "docker", "podman", "apple-container", or "containerd". When empty, any
+	// existing value in config.yaml is preserved; if no existing value is set,
+	// the backend stays unset and the gateway's legacy default (docker) applies.
+	// Callers performing fresh installs are expected to detect the available
+	// backend (see runtimehost.ProbeAllBackends) and set this explicitly so the
 	// config captures the chosen backend persistently.
 	DeploymentBackend string
 
@@ -238,6 +239,9 @@ func RunInit(opts InitOptions) ([]KeyEntry, error) {
 			}
 			hubMap["deployment_backend_config"] = backendCfg
 		}
+	}
+	if gatewayAddr := strings.TrimSpace(opts.GatewayAddr); gatewayAddr != "" {
+		cfg["gateway_addr"] = gatewayAddr
 	}
 
 	// Generate auth token if not already present

@@ -50,7 +50,8 @@ const pingTimeout = 3 * time.Second
 // Preference order (first = default when multiple are reachable):
 //  1. podman     — rootless by default, aligns with ASK least-privilege
 //  2. docker     — mature, broad compatibility
-//  3. containerd — via nerdctl, for minimal/k8s-style hosts
+//  3. apple-container — native macOS VM-backed containers
+//  4. containerd — via nerdctl, for minimal/k8s-style hosts
 //
 // Order is deliberate — a host with both docker and podman will default
 // to podman. Callers can override via config or AGENCY_CONTAINER_BACKEND.
@@ -70,6 +71,11 @@ func knownBackendsFor(platform string) []BackendProbe {
 			Name:       BackendDocker,
 			CLICommand: "docker",
 			Platforms:  []string{"linux", "darwin", "wsl", "windows"},
+		},
+		{
+			Name:       BackendAppleContainer,
+			CLICommand: "container",
+			Platforms:  []string{"darwin"},
 		},
 		{
 			Name:       BackendContainerd,

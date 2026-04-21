@@ -62,6 +62,15 @@ func isContainerdBackend(backend string) bool {
 	return runtimehost.NormalizeContainerBackend(backend) == runtimehost.BackendContainerd
 }
 
+func usesCreateTimeMediationNetworks(backend string) bool {
+	switch runtimehost.NormalizeContainerBackend(backend) {
+	case runtimehost.BackendContainerd, runtimehost.BackendAppleContainer:
+		return true
+	default:
+		return false
+	}
+}
+
 func gatewayHost(backend string) string {
 	if isContainerdBackend(backend) {
 		return scopedInfraName(prefix + "-infra-gateway")

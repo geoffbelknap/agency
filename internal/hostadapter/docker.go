@@ -22,6 +22,7 @@ type ContainerAdapter struct {
 type DockerAdapter = ContainerAdapter
 type PodmanAdapter = ContainerAdapter
 type ContainerdAdapter = ContainerAdapter
+type AppleContainerAdapter = ContainerAdapter
 
 func NewDockerAdapter(dc *runtimehost.Client, logger *slog.Logger) *ContainerAdapter {
 	return &ContainerAdapter{dc: dc, logger: logger, backend: runtimehost.BackendDocker}
@@ -35,8 +36,14 @@ func NewContainerdAdapter(dc *runtimehost.Client, logger *slog.Logger) *Containe
 	return &ContainerAdapter{dc: dc, logger: logger, backend: runtimehost.BackendContainerd}
 }
 
+func NewAppleContainerAdapter(dc *runtimehost.Client, logger *slog.Logger) *ContainerAdapter {
+	return &ContainerAdapter{dc: dc, logger: logger, backend: runtimehost.BackendAppleContainer}
+}
+
 func NewAdapter(backend string, dc *runtimehost.Client, logger *slog.Logger) Adapter {
-	switch strings.TrimSpace(strings.ToLower(backend)) {
+	switch runtimehost.NormalizeContainerBackend(backend) {
+	case runtimehost.BackendAppleContainer:
+		return NewAppleContainerAdapter(dc, logger)
 	case runtimehost.BackendContainerd:
 		return NewContainerdAdapter(dc, logger)
 	case runtimehost.BackendPodman:

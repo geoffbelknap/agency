@@ -9,7 +9,8 @@ COPY --from=shared logging_config.py /app/logging_config.py
 COPY --from=shared _sitecustomize.py /app/sitecustomize.py
 
 COPY *.py /app/
-COPY --from=shared models/ /app/images/models/
+RUN mkdir -p /app/images/models
+COPY --from=shared models/*.py /app/images/models/
 COPY --from=shared exceptions.py /app/images/exceptions.py
 RUN touch /app/images/__init__.py /app/images/models/__init__.py \
     && mkdir -p /app/images/comms \

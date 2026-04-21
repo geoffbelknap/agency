@@ -47,6 +47,7 @@ Primary areas:
 - Hub-managed files must not be edited directly when the expected customization point is elsewhere.
 - Enforcers must remain on the internal mediation plane only: per-agent internal network + `agency-gateway` + `agency-egress-int`. They must not attach to `agency-operator` or any other external-facing network.
 - The runtime contract is now backend-neutral. Runtime health should be reasoned about through the runtime supervisor, persisted runtime manifest, and runtime status/validate surfaces, not through raw Docker assumptions.
+- The `apple-container` host adapter is experimental and opt-in. Keep its live validation manual via `scripts/apple-container-smoke.sh`; do not make it a default backend, required CI lane, branch-protection check, or release-blocking path until lifecycle, event, network, cleanup, and doctor semantics are complete.
 - Agent runtime introspection is a first-class contract:
   - `GET /api/v1/agents/{name}/runtime/manifest`
   - `GET /api/v1/agents/{name}/runtime/status`
@@ -68,6 +69,10 @@ pytest images/tests/
 bash ./scripts/runtime-contract-smoke.sh --agent <agent>
 ./scripts/e2e-live-disposable.sh --skip-build
 ```
+
+For Apple Container adapter work on macOS Apple silicon, use
+`./scripts/apple-container-smoke.sh` as a manual experimental smoke. It should
+not be wired into required CI yet.
 
 Repo-specific end-to-end paths also exist and should be used when the change warrants them.
 
