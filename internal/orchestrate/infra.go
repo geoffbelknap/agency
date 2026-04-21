@@ -869,6 +869,9 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 	if err := prepareKnowledgeDataDir(knowledgeDir); err != nil {
 		return fmt.Errorf("prepare knowledge data: %w", err)
 	}
+	if err := prepareKnowledgeRegistrySnapshot(inf.Home, knowledgeDir); err != nil {
+		return fmt.Errorf("prepare knowledge registry snapshot: %w", err)
+	}
 
 	env := map[string]string{
 		"HTTPS_PROXY":          "http://" + inf.egressContainerHost() + ":3128",
@@ -1632,11 +1635,23 @@ func knowledgeContainerBinds(home, knowledgeDir string) []string {
 	binds := []string{
 		knowledgeDir + ":/data:rw",
 	}
-	registrySnapshot := filepath.Join(home, "registry.json")
-	if fileExists(registrySnapshot) {
-		binds = append(binds, registrySnapshot+":/app/registry.json:ro")
-	}
 	return binds
+}
+
+func prepareKnowledgeRegistrySnapshot(home, knowledgeDir string) error {
+	registrySnapshot := filepath.Join(home, "registry.json")
+	if !fileExists(registrySnapshot) {
+		return nil
+	}
+	data, err := os.ReadFile(registrySnapshot)
+	if err != nil {
+		return err
+	}
+	dst := filepath.Join(knowledgeDir, "registry.json")
+	if err := os.WriteFile(dst, data, 0o644); err != nil {
+		return err
+	}
+	return os.Chmod(dst, 0o644)
 }
 
 func ensureExistingFileWritable(path string) error {

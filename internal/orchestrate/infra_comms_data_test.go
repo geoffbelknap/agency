@@ -107,7 +107,7 @@ func TestKnowledgeDataRootForRepair(t *testing.T) {
 	}
 }
 
-func TestKnowledgeContainerBindsMountsRegistrySnapshot(t *testing.T) {
+func TestPrepareKnowledgeRegistrySnapshotCopiesReadableFallback(t *testing.T) {
 	home := t.TempDir()
 	knowledgeDir := filepath.Join(home, "knowledge", "data")
 	if err := os.MkdirAll(knowledgeDir, 0o777); err != nil {
@@ -117,16 +117,23 @@ func TestKnowledgeContainerBindsMountsRegistrySnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	binds := knowledgeContainerBinds(home, knowledgeDir)
-	want := filepath.Join(home, "registry.json") + ":/app/registry.json:ro"
-	found := false
-	for _, bind := range binds {
-		if bind == want {
-			found = true
-			break
-		}
+	if err := prepareKnowledgeRegistrySnapshot(home, knowledgeDir); err != nil {
+		t.Fatalf("prepareKnowledgeRegistrySnapshot() error = %v", err)
 	}
-	if !found {
-		t.Fatalf("knowledgeContainerBinds() missing %q in %#v", want, binds)
+
+	dst := filepath.Join(knowledgeDir, "registry.json")
+	data, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(data)) != `{"principals":[]}` {
+		t.Fatalf("registry snapshot = %q", string(data))
+	}
+	info, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("%s mode = %o, want 644", dst, info.Mode().Perm())
 	}
 }
