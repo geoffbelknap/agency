@@ -668,7 +668,7 @@ paths:
                 $ref: "#/components/schemas/StartResult"
             application/x-ndjson:
               schema:
-                description: Stream of phase progress events ending with a complete event
+                description: Stream of phase progress events ending with a complete event. Events include gateway-measured elapsed_ms; phase events also include phase_elapsed_ms.
 
   /agents/{name}/restart:
     post:

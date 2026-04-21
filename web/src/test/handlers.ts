@@ -3,14 +3,18 @@ import { http, HttpResponse } from 'msw';
 // Use wildcard prefix so handlers match regardless of the resolved gateway
 // origin (localhost:8200 in prod, jsdom origin in tests, etc.)
 const BASE = '*/api/v1';
+const ndjson = (lines: unknown[]) => lines.map((line) => JSON.stringify(line)).join('\n') + '\n';
 
 export const handlers = [
   // Agents
   http.get(`${BASE}/agents`, () => HttpResponse.json([])),
   http.get(`${BASE}/agents/:name`, () => HttpResponse.json({ name: 'test', status: 'stopped' })),
+  http.get(`${BASE}/agents/:name/runtime/status`, () => HttpResponse.json({ phase: 'running', healthy: true, transport: { enforcerConnected: true } })),
   http.post(`${BASE}/agents`, () => HttpResponse.json({ ok: true })),
   http.delete(`${BASE}/agents/:name`, () => HttpResponse.json({ ok: true })),
-  http.post(`${BASE}/agents/:name/start`, () => HttpResponse.json({ ok: true })),
+  http.post(`${BASE}/agents/:name/start`, () =>
+    new HttpResponse(ndjson([{ type: 'complete', agent: 'test' }]), { headers: { 'Content-Type': 'application/x-ndjson' } }),
+  ),
   http.post(`${BASE}/agents/:name/stop`, () => HttpResponse.json({ ok: true })),
   http.post(`${BASE}/agents/:name/halt`, () => HttpResponse.json({ ok: true })),
   http.post(`${BASE}/agents/:name/resume`, () => HttpResponse.json({ ok: true })),
