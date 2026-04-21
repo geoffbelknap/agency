@@ -14,6 +14,7 @@ const toastInfo = vi.fn();
 vi.mock('sonner', () => ({ toast: { success: (...args: any[]) => toastSuccess(...args), error: (...args: any[]) => toastError(...args), info: (...args: any[]) => toastInfo(...args) } }));
 
 const BASE = 'http://localhost:8200/api/v1';
+const ndjson = (lines: unknown[]) => lines.map((line) => JSON.stringify(line)).join('\n') + '\n';
 
 const defaultAgents = [
   { name: 'alice', status: 'running', mode: 'autonomous', type: 'agent', preset: 'default', team: 'alpha', enforcer: 'active' },
@@ -37,6 +38,8 @@ describe('Agents', () => {
     toastSuccess.mockClear();
     toastError.mockClear();
     toastInfo.mockClear();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
   });
 
   it('renders agents from API', async () => {
@@ -99,6 +102,7 @@ describe('Agents', () => {
       http.get(`${BASE}/agents`, () =>
         HttpResponse.json(defaultAgents)
       ),
+      http.get(`${BASE}/agents/bob`, () => HttpResponse.json({ name: 'bob', status: 'running' })),
       http.get(`${BASE}/agents/bob/logs`, () => HttpResponse.json([])),
       http.get(`${BASE}/agents/bob/budget`, () => HttpResponse.json({ daily_limit: 0, monthly_limit: 0, daily_used: 0, monthly_used: 0, today_llm_calls: 0, today_input_tokens: 0, today_output_tokens: 0 })),
     );
@@ -114,6 +118,34 @@ describe('Agents', () => {
     await waitFor(() => {
       expect(toastError).not.toHaveBeenCalled();
     });
+  });
+
+  it('opens roster actions and routes settings to the system tab', async () => {
+    window.localStorage.setItem('agency.agents.variant', 'roster');
+    server.use(
+      http.get(`${BASE}/agents`, () =>
+        HttpResponse.json(defaultAgents)
+      ),
+      http.get(`${BASE}/agents/alice/logs`, () => HttpResponse.json([])),
+      http.get(`${BASE}/agents/alice/budget`, () => HttpResponse.json({ daily_limit: 10, monthly_limit: 100, daily_used: 1, monthly_used: 1, today_llm_calls: 0, today_input_tokens: 0, today_output_tokens: 0 })),
+      http.get(`${BASE}/agents/alice/config`, () => HttpResponse.json({ identity: 'Alice identity', constraints: {} })),
+      http.get(`${BASE}/admin/policy/alice`, () => HttpResponse.json({ valid: true })),
+      http.get(`${BASE}/capabilities`, () => HttpResponse.json([])),
+      http.get(`${BASE}/infra/provider-tools`, () => HttpResponse.json({ capabilities: {} })),
+    );
+    renderAgents();
+    await waitFor(() => {
+      expect(screen.getByText('alice')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /actions for alice/i }));
+    expect(screen.getByRole('menuitem', { name: /restart/i })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('menuitem', { name: /settings/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /system/i })).toHaveAttribute('aria-selected', 'true');
+    });
+    expect(screen.getByRole('tab', { name: /config/i })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('pauses a running agent', async () => {
@@ -329,7 +361,10 @@ describe('Agents', () => {
         const body = await request.json() as any;
         return HttpResponse.json({ status: 'created', name: body.name }, { status: 201 });
       }),
-      http.post(`${BASE}/agents/research-pal/start`, () => HttpResponse.json({ status: 'running' })),
+      http.post(`${BASE}/agents/research-pal/start`, () =>
+        new HttpResponse(ndjson([{ type: 'complete', agent: 'research-pal' }]), { headers: { 'Content-Type': 'application/x-ndjson' } }),
+      ),
+      http.get(`${BASE}/agents/research-pal`, () => HttpResponse.json({ name: 'research-pal', status: 'running' })),
       http.post(`${BASE}/agents/research-pal/dm`, () => HttpResponse.json({ status: 'ready', channel: 'dm-research-pal' })),
     );
 

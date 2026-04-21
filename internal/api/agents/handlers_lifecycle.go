@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -329,16 +330,31 @@ func (h *handler) startAgent(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 	}
 
+	startedAt := time.Now()
+	lastProgressAt := startedAt
 	result, err := ss.Run(r.Context(), func(phase int, phaseName, desc string) {
+		now := time.Now()
+		elapsedMs := now.Sub(startedAt).Milliseconds()
+		phaseElapsedMs := now.Sub(lastProgressAt).Milliseconds()
+		lastProgressAt = now
 		h.deps.Logger.Info("start phase", "agent", name, "phase", phase, "name", phaseName)
 		h.deps.Audit.Write(name, "start_phase", map[string]interface{}{
-			"phase":       phase,
-			"phase_name":  phaseName,
-			"instance_id": h.containerInstanceID(r.Context(), name, "enforcer"),
-			"build_id":    h.deps.Config.BuildID,
+			"phase":            phase,
+			"phase_name":       phaseName,
+			"elapsed_ms":       elapsedMs,
+			"phase_elapsed_ms": phaseElapsedMs,
+			"instance_id":      h.containerInstanceID(r.Context(), name, "enforcer"),
+			"build_id":         h.deps.Config.BuildID,
 		})
 		if streaming && flusher != nil {
-			event := map[string]interface{}{"type": "phase", "phase": phase, "name": phaseName, "description": desc}
+			event := map[string]interface{}{
+				"type":             "phase",
+				"phase":            phase,
+				"name":             phaseName,
+				"description":      desc,
+				"elapsed_ms":       elapsedMs,
+				"phase_elapsed_ms": phaseElapsedMs,
+			}
 			data, _ := json.Marshal(event)
 			w.Write(data)
 			w.Write([]byte("\n"))
@@ -346,9 +362,10 @@ func (h *handler) startAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 	if err != nil {
-		h.deps.Audit.Write(name, "start_failed", map[string]interface{}{"error": err.Error(), "build_id": h.deps.Config.BuildID})
+		elapsedMs := time.Since(startedAt).Milliseconds()
+		h.deps.Audit.Write(name, "start_failed", map[string]interface{}{"error": err.Error(), "elapsed_ms": elapsedMs, "build_id": h.deps.Config.BuildID})
 		if streaming && flusher != nil {
-			event := map[string]interface{}{"type": "error", "error": err.Error()}
+			event := map[string]interface{}{"type": "error", "error": err.Error(), "elapsed_ms": elapsedMs}
 			data, _ := json.Marshal(event)
 			w.Write(data)
 			w.Write([]byte("\n"))
@@ -364,11 +381,12 @@ func (h *handler) startAgent(w http.ResponseWriter, r *http.Request) {
 
 	h.deps.Audit.Write(name, "agent_started", map[string]interface{}{
 		"instance_id": h.containerInstanceID(r.Context(), name, "workspace"),
+		"elapsed_ms":  time.Since(startedAt).Milliseconds(),
 		"build_id":    h.deps.Config.BuildID,
 	})
 	events.EmitAgentEvent(h.deps.EventBus, "agent_started", name, nil)
 	if streaming && flusher != nil {
-		event := map[string]interface{}{"type": "complete", "agent": result.Agent, "model": result.Model, "phases": result.Phases}
+		event := map[string]interface{}{"type": "complete", "agent": result.Agent, "model": result.Model, "phases": result.Phases, "elapsed_ms": time.Since(startedAt).Milliseconds()}
 		data, _ := json.Marshal(event)
 		w.Write(data)
 		w.Write([]byte("\n"))

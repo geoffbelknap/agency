@@ -44,6 +44,36 @@ export function getVia(): 'relay' | 'local' { return VIA; }
 /** Returns true when the relay session is authenticated. */
 export function getAuthenticated(): boolean { return AUTHENTICATED; }
 
+function extractErrorDetail(text: string, status: number, path: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return `API ${path} returned ${status}`;
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (typeof parsed?.error === 'string' && parsed.error.trim()) return parsed.error.trim();
+    if (typeof parsed?.message === 'string' && parsed.message.trim()) return parsed.message.trim();
+  } catch {
+    // Fall through to text/html cleanup.
+  }
+
+  const title = trimmed.match(/<title>(.*?)<\/title>/is)?.[1] || trimmed.match(/<h1>(.*?)<\/h1>/is)?.[1];
+  const withoutTags = (title || trimmed)
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (status === 504 || /gateway time-out|gateway timeout/i.test(withoutTags)) {
+    if (/\/agents\/[^/]+\/start$/.test(path)) {
+      return 'Gateway timed out while waiting for the agent to start. Startup may still be running; refresh the agent status or retry.';
+    }
+    return 'Gateway timed out while waiting for the request to complete. The operation may still be running; refresh status or retry.';
+  }
+  return withoutTags || `API ${path} returned ${status}`;
+}
+
 /** Authenticated fetch — attaches Bearer token to any request. */
 export async function authenticatedFetch(url: string, options?: RequestInit): Promise<Response> {
   await ensureConfig();
@@ -67,9 +97,7 @@ async function req<T>(path: string, options?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text();
-    let detail = '';
-    try { detail = JSON.parse(text).error || text; } catch { detail = text; }
-    throw new Error(detail || `API ${path} returned ${res.status}`);
+    throw new Error(extractErrorDetail(text, res.status, path));
   }
   return res.json();
 }
@@ -106,6 +134,24 @@ export interface RawAgentStartProgress {
   model?: string;
   phases?: number;
   error?: string;
+  elapsed_ms?: number;
+  phase_elapsed_ms?: number;
+}
+
+export interface RawAgentRuntimeStatus {
+  runtimeId?: string;
+  agentId?: string;
+  phase?: string;
+  healthy?: boolean;
+  backend?: string;
+  backendEndpoint?: string;
+  backendMode?: string;
+  transport?: {
+    type?: string;
+    endpoint?: string;
+    enforcerConnected?: boolean;
+    lastError?: string;
+  };
 }
 
 export interface RawChannel {
@@ -663,6 +709,7 @@ export const api = {
       req<OkResponse>('/agents', { method: 'POST', body: JSON.stringify({ name, preset, mode }) }),
     delete: (name: string) => req<OkResponse>(`/agents/${name}`, { method: 'DELETE' }),
     start: (name: string) => req<OkResponse>(`/agents/${name}/start`, { method: 'POST', body: '{}' }),
+    runtimeStatus: (name: string) => req<RawAgentRuntimeStatus>(`/agents/${encodeURIComponent(name)}/runtime/status`),
     startStream: async (name: string, onProgress: (event: RawAgentStartProgress) => void) => {
       await ensureConfig();
       const headers: Record<string, string> = {
@@ -677,9 +724,7 @@ export const api = {
       });
       if (!res.ok) {
         const text = await res.text();
-        let detail = '';
-        try { detail = JSON.parse(text).error || text; } catch { detail = text; }
-        throw new Error(detail || `API /agents/${name}/start returned ${res.status}`);
+        throw new Error(extractErrorDetail(text, res.status, `/agents/${name}/start`));
       }
 
       let complete = false;

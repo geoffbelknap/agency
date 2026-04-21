@@ -11,6 +11,7 @@ vi.mock('../app/lib/ws', () => ({ socket: { on: () => () => {} } }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
 const BASE = 'http://localhost:8200/api/v1';
+const ndjson = (lines: unknown[]) => lines.map((line) => JSON.stringify(line)).join('\n') + '\n';
 
 function renderDialog(props: Partial<{ open: boolean; onOpenChange: (v: boolean) => void; onCreated: (result: { name: string; started: boolean; dmChannel?: string }) => void }> = {}) {
   const defaultProps = {
@@ -83,6 +84,10 @@ describe('CreateAgentDialog', () => {
         const body = await request.json() as any;
         return HttpResponse.json({ status: 'created', name: body.name }, { status: 201 });
       }),
+      http.post(`${BASE}/agents/test-agent/start`, () =>
+        new HttpResponse(ndjson([{ type: 'complete', agent: 'test-agent' }]), { headers: { 'Content-Type': 'application/x-ndjson' } }),
+      ),
+      http.get(`${BASE}/agents/test-agent`, () => HttpResponse.json({ name: 'test-agent', status: 'running' })),
     );
     const { onCreated, onOpenChange } = renderDialog();
     const nameInput = await screen.findByLabelText(/name/i);
@@ -102,7 +107,7 @@ describe('CreateAgentDialog', () => {
         return HttpResponse.json({ status: 'created', name: body.name }, { status: 201 });
       }),
       http.post(`${BASE}/agents/test-agent/start`, () =>
-        HttpResponse.json({ error: 'agent failed to start' }, { status: 500 }),
+        new HttpResponse(ndjson([{ type: 'error', error: 'agent failed to start' }]), { headers: { 'Content-Type': 'application/x-ndjson' } }),
       ),
     );
     const { onCreated, onOpenChange } = renderDialog();
@@ -111,10 +116,34 @@ describe('CreateAgentDialog', () => {
     await user.click(screen.getByRole('button', { name: /create/i }));
     await waitFor(() => {
       expect(onCreated).toHaveBeenCalled();
-      expect(onOpenChange).toHaveBeenCalledWith(false);
     });
+    expect(screen.getByText('Startup stream')).toBeInTheDocument();
     expect(toast.success).toHaveBeenCalledWith('Agent "test-agent" created');
     expect(toast.error).toHaveBeenCalledWith('Agent "test-agent" was created, but did not start: agent failed to start');
+  });
+
+  it('summarizes gateway timeout HTML when auto-start fails', async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(`${BASE}/agents`, async ({ request }) => {
+        const body = await request.json() as any;
+        return HttpResponse.json({ status: 'created', name: body.name }, { status: 201 });
+      }),
+      http.post(`${BASE}/agents/test-agent/start`, () =>
+        new HttpResponse('<html><head><title>504 Gateway Time-out</title></head><body><h1>504 Gateway Time-out</h1></body></html>', {
+          status: 504,
+          headers: { 'Content-Type': 'text/html' },
+        }),
+      ),
+    );
+    renderDialog();
+    const nameInput = await screen.findByLabelText(/name/i);
+    await user.type(nameInput, 'test-agent');
+    await user.click(screen.getByRole('button', { name: /create/i }));
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Gateway timed out while waiting for the agent to start'));
+    });
+    expect(screen.queryByText(/padding to disable MSIE/i)).not.toBeInTheDocument();
   });
 
   it('shows error toast on API failure', async () => {

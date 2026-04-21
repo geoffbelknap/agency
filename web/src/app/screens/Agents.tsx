@@ -1,15 +1,24 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { Bot, MessageSquare, MoreHorizontal, Pause, Play, Plus, RefreshCw, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import { Agent } from '../types';
-import { api, type RawAgent, type RawCapability } from '../lib/api';
+import { api, type RawAgent, type RawAgentStartProgress, type RawCapability } from '../lib/api';
 import { socket } from '../lib/ws';
 import { useIsMobile } from '../components/ui/use-mobile';
 import { CreateAgentDialog } from '../components/CreateAgentDialog';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { Dialog, DialogContent } from '../components/ui/dialog';
+import { AgentStartupProgress, applyStartupProgress, type StartupLine } from '../components/AgentStartupProgress';
+import {
+  diagnosticsForStartup,
+  initialStartupInstrumentation,
+  markActiveStartupLines,
+  verifyStartupReportedRunning,
+  type StartupInstrumentation,
+} from '../lib/agentStartupInstrumentation';
 import { AgentList } from './agents/AgentList';
-import { AgentDetail } from './agents/AgentDetail';
+import { AgentDetail, type AgentDetailFocus } from './agents/AgentDetail';
 
 function mapAgent(a: RawAgent): Agent {
   return {
@@ -122,7 +131,7 @@ function AgentIcon({ size = 44, iconSize = 20, status }: { size?: number; iconSi
 function SparkBar({ value, height = 24 }: { value: number; height?: number }) {
   const bars = Array.from({ length: 14 }, (_, index) => Math.max(2, Math.round(((value + index * 13) % 37) / 2)));
   return (
-    <div style={{ display: 'flex', alignItems: 'end', gap: 2, height, minWidth: 86 }}>
+    <div style={{ display: 'flex', flexDirection: 'row-reverse', alignItems: 'end', gap: 2, height, minWidth: 86 }}>
       {bars.map((bar, index) => (
         <span key={index} style={{ width: 3, height: `${Math.min(100, 18 + bar * 3)}%`, borderRadius: 2, background: index > 10 ? 'var(--teal)' : 'var(--warm-3)' }} />
       ))}
@@ -137,6 +146,8 @@ function RosterView({
   onCreate,
   onOpenDM,
   onAction,
+  onFocusSystem,
+  onRequestDelete,
   actionLoading,
 }: {
   agents: Agent[];
@@ -145,24 +156,56 @@ function RosterView({
   onCreate: () => void;
   onOpenDM: (name: string) => void;
   onAction: (name: string, action: string) => void;
+  onFocusSystem: (name: string, subTab: 'config' | 'logs') => void;
+  onRequestDelete: (name: string) => void;
   actionLoading: string | null;
 }) {
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const choose = (callback: () => void) => {
+    setOpenMenu(null);
+    callback();
+  };
+
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: '28px 40px', minHeight: 0 }}>
+    <div style={{ flex: 1, overflowY: 'auto', padding: '28px 40px', minHeight: 0 }} onClick={() => setOpenMenu(null)}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
         {agents.map((agent) => {
           const budget = budgets[agent.name];
           const pct = budgetPct(budget);
+          const stateAction = agent.status === 'running' ? 'pause' : agent.status === 'halted' || agent.status === 'paused' ? 'resume' : 'start';
+          const stateLabel = stateAction === 'pause' ? 'Pause' : stateAction === 'resume' ? 'Resume' : 'Start';
           return (
             <div key={agent.name} style={{ background: 'var(--warm)', border: '0.5px solid var(--ink-hairline)', borderRadius: 12, padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <button type="button" onClick={() => onSelect(agent.name)} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, border: 0, padding: 0, background: 'transparent', textAlign: 'left', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                 <AgentIcon status={agent.status} />
-                <span style={{ flex: 1, minWidth: 0 }}>
+                <button type="button" onClick={() => onSelect(agent.name)} style={{ flex: 1, minWidth: 0, border: 0, padding: 0, background: 'transparent', textAlign: 'left', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>
                   <span style={{ display: 'block', fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)' }}>{agent.name}</span>
                   <span style={{ display: 'block', fontSize: 12, color: 'var(--ink-mid)', marginTop: 2 }}>{agent.role || agent.preset || agent.type}</span>
-                </span>
-                <MoreHorizontal size={14} style={{ color: 'var(--ink-faint)', marginTop: 4 }} aria-hidden="true" />
-              </button>
+                </button>
+                <div style={{ position: 'relative' }} onClick={(event) => event.stopPropagation()}>
+                  <button
+                    type="button"
+                    aria-label={`Actions for ${agent.name}`}
+                    aria-expanded={openMenu === agent.name}
+                    onClick={() => setOpenMenu(openMenu === agent.name ? null : agent.name)}
+                    style={{ ...iconButtonStyle, marginTop: -2 }}
+                  >
+                    <MoreHorizontal size={15} aria-hidden="true" />
+                  </button>
+                  {openMenu === agent.name && (
+                    <div role="menu" style={rosterMenuStyle}>
+                      <RosterMenuItem onClick={() => choose(() => onAction(agent.name, stateAction))}>{stateLabel}</RosterMenuItem>
+                      <RosterMenuItem onClick={() => choose(() => onAction(agent.name, 'restart'))}>Restart</RosterMenuItem>
+                      <RosterMenuItem onClick={() => choose(() => onOpenDM(agent.name))}>Open DM</RosterMenuItem>
+                      <RosterMenuItem onClick={() => choose(() => onSelect(agent.name))}>View details</RosterMenuItem>
+                      <RosterMenuItem onClick={() => choose(() => onFocusSystem(agent.name, 'config'))}>Settings</RosterMenuItem>
+                      <RosterMenuItem onClick={() => choose(() => onFocusSystem(agent.name, 'logs'))}>Logs</RosterMenuItem>
+                      <div style={{ height: 1, background: 'var(--ink-hairline)', margin: '4px 0' }} />
+                      <RosterMenuItem tone="danger" onClick={() => choose(() => onRequestDelete(agent.name))}>Delete</RosterMenuItem>
+                    </div>
+                  )}
+                </div>
+              </div>
               <div style={{ padding: '10px 12px', background: 'var(--warm-2)', border: '0.5px solid var(--ink-hairline)', borderRadius: 8, fontSize: 12, color: 'var(--ink)', lineHeight: 1.4, minHeight: 56, display: 'flex', alignItems: 'center' }}>
                 {agent.mission || <em style={{ color: 'var(--ink-faint)', fontStyle: 'italic' }}>No mission assigned</em>}
               </div>
@@ -180,12 +223,12 @@ function RosterView({
               </div>
               <div style={{ display: 'flex', gap: 6, paddingTop: 6, borderTop: '0.5px solid var(--ink-hairline)' }}>
                 <button type="button" onClick={() => onOpenDM(agent.name)} style={smallGhostButtonStyle}><MessageSquare size={13} />DM</button>
-                <button type="button" disabled={!!actionLoading} onClick={() => onAction(agent.name, agent.status === 'running' ? 'pause' : 'start')} style={smallGhostButtonStyle}>
-                  {agent.status === 'running' ? <Pause size={13} /> : <Play size={13} />}
-                  {agent.status === 'running' ? 'Pause' : 'Start'}
+                <button type="button" disabled={!!actionLoading} onClick={() => onAction(agent.name, stateAction)} style={smallGhostButtonStyle}>
+                  {stateAction === 'pause' ? <Pause size={13} /> : <Play size={13} />}
+                  {stateLabel}
                 </button>
                 <div style={{ flex: 1 }} />
-                <button type="button" onClick={() => onSelect(agent.name)} aria-label={`Settings for ${agent.name}`} style={smallGhostButtonStyle}><Settings size={13} /></button>
+                <button type="button" onClick={() => onFocusSystem(agent.name, 'config')} aria-label={`Settings for ${agent.name}`} style={smallGhostButtonStyle}><Settings size={13} /></button>
               </div>
             </div>
           );
@@ -199,6 +242,30 @@ function RosterView({
         </button>
       </div>
     </div>
+  );
+}
+
+function RosterMenuItem({ children, onClick, tone = 'default' }: { children: ReactNode; onClick: () => void; tone?: 'default' | 'danger' }) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      style={{
+        width: '100%',
+        border: 0,
+        background: 'transparent',
+        color: tone === 'danger' ? 'var(--red)' : 'var(--ink)',
+        fontFamily: 'var(--font-sans)',
+        fontSize: 12,
+        textAlign: 'left',
+        padding: '7px 9px',
+        borderRadius: 6,
+        cursor: 'pointer',
+      }}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -322,6 +389,32 @@ const smallGhostButtonStyle = {
   cursor: 'pointer',
 } as const;
 
+const iconButtonStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 28,
+  height: 28,
+  border: '0.5px solid transparent',
+  background: 'transparent',
+  color: 'var(--ink-faint)',
+  borderRadius: 999,
+  cursor: 'pointer',
+} as const;
+
+const rosterMenuStyle = {
+  position: 'absolute',
+  top: 32,
+  right: 0,
+  zIndex: 20,
+  minWidth: 150,
+  padding: 5,
+  background: 'var(--warm)',
+  border: '0.5px solid var(--ink-hairline-strong)',
+  borderRadius: 8,
+  boxShadow: '0 16px 40px rgba(31, 27, 23, 0.14)',
+} as const;
+
 function readCachedAgents(): Agent[] {
   if (!AGENTS_CACHE_ENABLED || typeof window === 'undefined') return [];
   try {
@@ -356,6 +449,12 @@ export function Agents() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [budgets, setBudgets] = useState<Record<string, { daily_used: number; daily_limit: number }>>({});
   const [variant, setVariant] = useState<AgentViewVariant>(() => readVariant());
+  const [startupAgent, setStartupAgent] = useState('');
+  const [startupLines, setStartupLines] = useState<StartupLine[]>([]);
+  const [startupError, setStartupError] = useState('');
+  const [startupComplete, setStartupComplete] = useState(false);
+  const [startupInstrumentation, setStartupInstrumentation] = useState<StartupInstrumentation>(() => initialStartupInstrumentation());
+  const [detailFocus, setDetailFocus] = useState<AgentDetailFocus | null>(null);
 
   const routeSelectedAgent = urlAgentName ? agents.find((a) => a.name === urlAgentName) ?? null : null;
 
@@ -397,7 +496,42 @@ export function Agents() {
   const handleAction = async (name: string, action: string) => {
     setActionLoading(`${name}-${action}`);
     try {
-      if (action === 'start') { await api.agents.start(name); toast.success(`Agent "${name}" started`); }
+      if (action === 'start') {
+        setStartupAgent(name);
+        setStartupError('');
+        setStartupComplete(false);
+        const startedAtMs = Date.now();
+        setStartupInstrumentation(initialStartupInstrumentation(startedAtMs));
+        setStartupLines([{ id: 'request-start', label: 'Requesting agent startup', state: 'active' }]);
+        const appendProgress = (event: RawAgentStartProgress) => {
+          const clientElapsedMs = Date.now() - startedAtMs;
+          const elapsedMs = event.elapsed_ms ?? clientElapsedMs;
+          setStartupInstrumentation((current) => ({
+            ...current,
+            eventCount: current.eventCount + 1,
+            streamState: event.type === 'complete' ? 'complete' : event.type === 'error' ? 'error' : 'streaming',
+            streamElapsedMs: event.type === 'complete' || event.type === 'error' ? elapsedMs : current.streamElapsedMs,
+            lastEvent: event.type,
+          }));
+          setStartupLines((current) => applyStartupProgress(current, event, clientElapsedMs));
+        };
+        try {
+          await api.agents.startStream(name, appendProgress);
+          const streamElapsedMs = Date.now() - startedAtMs;
+          setStartupInstrumentation((current) => ({ ...current, streamState: 'complete', streamElapsedMs }));
+          setStartupLines((current) => markActiveStartupLines(current, 'done'));
+          await verifyStartupReportedRunning(name, startedAtMs, setStartupInstrumentation, setStartupLines);
+          setStartupComplete(true);
+          toast.success(`Agent "${name}" started`);
+        } catch (e: any) {
+          const message = e.message || 'Agent startup failed';
+          setStartupError(message);
+          setStartupInstrumentation((current) => ({ ...current, streamState: current.streamState === 'complete' ? current.streamState : 'error', verificationState: current.verificationState === 'confirmed' ? current.verificationState : 'failed' }));
+          setStartupLines((current) => markActiveStartupLines(current, 'error'));
+          toast.error(message);
+          return;
+        }
+      }
       else if (action === 'pause') { await api.agents.halt(name, 'supervised'); toast.success(`Agent "${name}" paused`); }
       else if (action === 'resume') { await api.agents.resume(name); toast.success(`Agent "${name}" resumed`); }
       else if (action === 'restart') { await api.agents.restart(name); toast.success(`Agent "${name}" restarted`); }
@@ -410,6 +544,20 @@ export function Agents() {
   };
 
   const handleSelect = (name: string) => {
+    navigate(`/agents/${name}`, { replace: true });
+  };
+
+  const viewAgentDetail = (name: string) => {
+    setVariant('split');
+    writeVariant('split');
+    setDetailFocus({ token: Date.now(), primaryTab: 'overview' });
+    navigate(`/agents/${name}`, { replace: true });
+  };
+
+  const focusAgentSystem = (name: string, systemSubTab: 'config' | 'logs') => {
+    setVariant('split');
+    writeVariant('split');
+    setDetailFocus({ token: Date.now(), primaryTab: 'system', systemSubTab });
     navigate(`/agents/${name}`, { replace: true });
   };
 
@@ -542,6 +690,7 @@ export function Agents() {
               actionLoading={actionLoading}
               onRefreshAgents={load}
               onRequestDelete={setDeleteTarget}
+              focus={detailFocus}
             />
           ) : (
             <div className="flex h-full min-h-[320px] items-center justify-center px-6 text-center">
@@ -560,10 +709,12 @@ export function Agents() {
         <RosterView
           agents={agents}
           budgets={budgets}
-          onSelect={handleSelect}
+          onSelect={viewAgentDetail}
           onCreate={() => setCreateOpen(true)}
           onOpenDM={(name) => void handleOpenDM(name)}
           onAction={(name, action) => void handleAction(name, action)}
+          onFocusSystem={focusAgentSystem}
+          onRequestDelete={setDeleteTarget}
           actionLoading={actionLoading}
         />
       )}
@@ -585,6 +736,19 @@ export function Agents() {
           }
         }}
       />
+      <Dialog open={!!startupAgent} onOpenChange={(open) => { if (!open && !actionLoading) setStartupAgent(''); }}>
+        <DialogContent className="bg-card border-border">
+          <AgentStartupProgress
+            agentName={startupAgent}
+            lines={startupLines}
+            error={startupError}
+            complete={startupComplete}
+            diagnostics={diagnosticsForStartup(startupInstrumentation)}
+            onRetry={startupError ? () => void handleAction(startupAgent, 'start') : undefined}
+            onCancel={startupError || startupComplete ? () => setStartupAgent('') : undefined}
+          />
+        </DialogContent>
+      </Dialog>
       <ConfirmDialog
         open={deleteTarget !== null}
         onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}

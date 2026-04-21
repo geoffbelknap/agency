@@ -12,6 +12,13 @@ type PrimaryTab = 'overview' | 'activity' | 'memory' | 'operations' | 'system';
 type OperationsSubTab = 'channels' | 'knowledge' | 'meeseeks' | 'economics';
 type SystemSubTab = 'config' | 'logs';
 
+export type AgentDetailFocus = {
+  token: number;
+  primaryTab: PrimaryTab;
+  operationsSubTab?: OperationsSubTab;
+  systemSubTab?: SystemSubTab;
+};
+
 interface Props {
   agent: Agent;
   capabilities: RawCapability[];
@@ -19,6 +26,7 @@ interface Props {
   actionLoading: string | null;
   onRefreshAgents: () => void;
   onRequestDelete: (name: string) => void;
+  focus?: AgentDetailFocus | null;
 }
 
 const STATUS_DOT: Record<string, string> = {
@@ -105,7 +113,7 @@ function StatCell({ label, value, sub, accent = false }: { label: string; value:
   );
 }
 
-export function AgentDetail({ agent, capabilities: initialCapabilities, onAction, actionLoading, onRefreshAgents, onRequestDelete }: Props) {
+export function AgentDetail({ agent, capabilities: initialCapabilities, onAction, actionLoading, onRefreshAgents, onRequestDelete, focus }: Props) {
   const [primaryTab, setPrimaryTab] = useState<PrimaryTab>('overview');
   const [opsSubTab, setOpsSubTab] = useState<OperationsSubTab>('channels');
   const [sysSubTab, setSysSubTab] = useState<SystemSubTab>('config');
@@ -115,6 +123,13 @@ export function AgentDetail({ agent, capabilities: initialCapabilities, onAction
     setOpsSubTab('channels');
     setSysSubTab('config');
   }, [agent.name]);
+
+  useEffect(() => {
+    if (!focus) return;
+    setPrimaryTab(focus.primaryTab);
+    if (focus.operationsSubTab) setOpsSubTab(focus.operationsSubTab);
+    if (focus.systemSubTab) setSysSubTab(focus.systemSubTab);
+  }, [focus]);
 
   const effectiveDataTab = primaryTab === 'memory' ? 'knowledge'
     : primaryTab === 'operations' ? opsSubTab
