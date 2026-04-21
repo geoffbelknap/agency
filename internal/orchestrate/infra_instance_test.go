@@ -144,6 +144,13 @@ func TestSuppressDirectServiceHostPortsForAnyRootlessPodman(t *testing.T) {
 	if got := (&Infra{cli: rootfulPodman}).suppressDirectServiceHostPorts(); got {
 		t.Fatal("rootful Podman should keep direct service host ports")
 	}
+
+	appleContainer, err := runtimehost.NewRawClientForBackend(runtimehost.BackendAppleContainer, nil)
+	if err == nil {
+		if got := (&Infra{cli: appleContainer}).suppressDirectServiceHostPorts(); !got {
+			t.Fatal("Apple container should suppress direct service host ports")
+		}
+	}
 }
 
 func TestInfraWebGatewayRoutingDefaults(t *testing.T) {
