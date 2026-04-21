@@ -346,6 +346,18 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 		return fmt.Errorf("infrastructure failures: %s", strings.Join(errs, "; "))
 	}
 
+	if runtimehost.NormalizeContainerBackend(inf.backendName()) == runtimehost.BackendAppleContainer {
+		// Apple container does not currently provide Docker-style service DNS
+		// on these networks. Recreate the proxy after services exist so it can
+		// target inspected service IPs instead of unresolved hostnames.
+		progress("gateway-proxy", "Refreshing gateway proxy service targets")
+		_ = inf.stopAndRemove(ctx, inf.containerName("gateway-proxy"), stopTimeoutFor("gateway-proxy"))
+		if err := inf.ensureGatewayProxy(ctx); err != nil {
+			return fmt.Errorf("refresh gateway-proxy: %w", err)
+		}
+		progress("gateway-proxy", "Refreshed gateway-proxy")
+	}
+
 	if err := inf.waitCommsReady(ctx, 30*time.Second); err != nil {
 		return fmt.Errorf("comms bridge: %w", err)
 	}
@@ -605,12 +617,18 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 		return fmt.Errorf("resolve gateway-proxy image: %w", err)
 	}
 	name := inf.containerName("gateway-proxy")
-	hostGatewayHosts := runtimehost.HostGatewayAliasesEnv(inf.backendName())
+	hostGatewayHosts := inf.hostGatewayHosts(ctx)
+	serviceHosts := inf.gatewayProxyServiceHosts(ctx)
+	runDir := filepath.Join(inf.Home, "run")
 	if inf.isRunning(ctx, name) &&
 		inf.isCurrentBuild(ctx, name) &&
 		inf.isHealthyOrNoCheck(ctx, name) &&
 		inf.hasContainerEnv(ctx, name, "AGENCY_HOST_GATEWAY_PORT", inf.gatewayPort()) &&
-		inf.hasContainerEnv(ctx, name, "AGENCY_HOST_GATEWAY_HOSTS", hostGatewayHosts) {
+		inf.hasContainerEnv(ctx, name, "AGENCY_HOST_GATEWAY_HOSTS", hostGatewayHosts) &&
+		inf.hasContainerEnv(ctx, name, "AGENCY_COMMS_HOST", serviceHosts["comms"]) &&
+		inf.hasContainerEnv(ctx, name, "AGENCY_KNOWLEDGE_HOST", serviceHosts["knowledge"]) &&
+		inf.hasContainerEnv(ctx, name, "AGENCY_INTAKE_HOST", serviceHosts["intake"]) &&
+		inf.hasContainerMount(ctx, name, runDir, "/run") {
 		return nil
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("gateway-proxy"))
@@ -634,7 +652,6 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	// Mount the run directory so socat can reach the gateway Unix socket.
 	// Mount the directory (not the socket file) so new sockets from daemon
 	// restarts are picked up without recreating the container.
-	runDir := filepath.Join(inf.Home, "run")
 	hc.Binds = []string{runDir + ":/run:ro"}
 
 	netCfg := &containerops.NetworkingConfig{
@@ -654,6 +671,9 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 			Env: mapToEnv(map[string]string{
 				"AGENCY_HOST_GATEWAY_PORT":  inf.gatewayPort(),
 				"AGENCY_HOST_GATEWAY_HOSTS": hostGatewayHosts,
+				"AGENCY_COMMS_HOST":         serviceHosts["comms"],
+				"AGENCY_KNOWLEDGE_HOST":     serviceHosts["knowledge"],
+				"AGENCY_INTAKE_HOST":        serviceHosts["intake"],
 			}),
 			ExposedPorts: containerops.PortSet{
 				"8202/tcp": struct{}{},
@@ -676,10 +696,13 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 }
 
 func (inf *Infra) backendName() string {
-	if inf.Docker == nil {
-		return runtimehost.BackendDocker
+	if inf.Docker != nil {
+		return inf.Docker.Backend()
 	}
-	return inf.Docker.Backend()
+	if inf.cli != nil {
+		return inf.cli.Backend()
+	}
+	return runtimehost.BackendDocker
 }
 
 func (inf *Infra) ensureEgress(ctx context.Context) error {
@@ -806,7 +829,13 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 		return fmt.Errorf("resolve comms image: %w", err)
 	}
 	name := inf.containerName("comms")
-	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
+	commsData := filepath.Join(inf.Home, "infrastructure", "comms", "data")
+	agentsDir := filepath.Join(inf.Home, "agents")
+	if inf.isRunning(ctx, name) &&
+		inf.isCurrentBuild(ctx, name) &&
+		inf.isHealthyOrNoCheck(ctx, name) &&
+		inf.hasContainerMount(ctx, name, commsData, "/app/data") &&
+		inf.hasContainerMount(ctx, name, agentsDir, "/app/agents") {
 		if err := inf.ensureSystemChannels(ctx); err != nil {
 			return fmt.Errorf("system channels: %w", err)
 		}
@@ -814,11 +843,9 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("comms"))
 
-	commsData := filepath.Join(inf.Home, "infrastructure", "comms", "data")
 	if err := prepareCommsDataDir(commsData); err != nil {
 		return fmt.Errorf("prepare comms data: %w", err)
 	}
-	agentsDir := filepath.Join(inf.Home, "agents")
 	os.MkdirAll(agentsDir, 0755)
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
@@ -1138,7 +1165,12 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 		return nil // non-fatal — web UI is optional
 	}
 	name := inf.containerName("web")
-	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
+	if inf.isRunning(ctx, name) &&
+		inf.isCurrentBuild(ctx, name) &&
+		inf.isHealthyOrNoCheck(ctx, name) &&
+		inf.hasContainerEnv(ctx, name, "AGENCY_GATEWAY_HOST", inf.webGatewayHost()) &&
+		inf.hasContainerEnv(ctx, name, "AGENCY_GATEWAY_PORT", inf.gatewayPort()) &&
+		inf.hasContainerEnv(ctx, name, "AGENCY_WEB_LISTEN", inf.webListenAddr()) {
 		return nil
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("web"))
@@ -1451,6 +1483,20 @@ func (inf *Infra) hasContainerEnv(ctx context.Context, containerName, key, want 
 	for _, envVar := range inspect.Config.Env {
 		if strings.HasPrefix(envVar, prefix) {
 			return strings.TrimPrefix(envVar, prefix) == want
+		}
+	}
+	return false
+}
+
+func (inf *Infra) hasContainerMount(ctx context.Context, containerName, source, destination string) bool {
+	inspect, err := inf.cli.ContainerInspect(ctx, containerName)
+	if err != nil {
+		return false
+	}
+	source = filepath.Clean(source)
+	for _, mount := range inspect.Mounts {
+		if filepath.Clean(mount.Source) == source && mount.Destination == destination {
+			return true
 		}
 	}
 	return false
@@ -1771,6 +1817,92 @@ func (inf *Infra) gatewayHostIsLoopback() bool {
 	return host == "localhost" || strings.HasPrefix(host, "127.") || host == "::1"
 }
 
+func (inf *Infra) hostGatewayHosts(ctx context.Context) string {
+	hosts := runtimehost.HostGatewayAliases(inf.backendName())
+	if runtimehost.NormalizeContainerBackend(inf.backendName()) == runtimehost.BackendAppleContainer {
+		var appleHosts []string
+		if gateway := inf.gatewayNetworkGateway(ctx); gateway != "" {
+			appleHosts = append(appleHosts, gateway)
+		}
+		if host := inf.gatewayHost(); host != "" && !inf.gatewayHostIsLoopback() && host != "0.0.0.0" && host != "::" {
+			appleHosts = append(appleHosts, host)
+		}
+		hosts = append(appleHosts, hosts...)
+	}
+	return strings.Join(dedupeStrings(hosts), ",")
+}
+
+func (inf *Infra) gatewayProxyServiceHosts(ctx context.Context) map[string]string {
+	if runtimehost.NormalizeContainerBackend(inf.backendName()) == runtimehost.BackendAppleContainer {
+		return map[string]string{
+			"comms":     inf.serviceNetworkHost(ctx, "comms"),
+			"knowledge": inf.serviceNetworkHost(ctx, "knowledge"),
+			"intake":    inf.serviceNetworkHost(ctx, "intake"),
+		}
+	}
+	return map[string]string{
+		"comms":     "comms",
+		"knowledge": "knowledge",
+		"intake":    "intake",
+	}
+}
+
+func (inf *Infra) serviceNetworkHost(ctx context.Context, role string) string {
+	name := inf.containerName(role)
+	if ip := inf.containerNetworkIP(ctx, name, inf.gatewayNetName()); ip != "" {
+		return ip
+	}
+	return name
+}
+
+func (inf *Infra) containerNetworkIP(ctx context.Context, containerName, networkName string) string {
+	if inf.cli == nil {
+		return ""
+	}
+	inspect, err := inf.cli.ContainerInspect(ctx, containerName)
+	if err != nil || inspect.NetworkSettings == nil {
+		return ""
+	}
+	settings := inspect.NetworkSettings.Networks[networkName]
+	if settings == nil {
+		return ""
+	}
+	return strings.TrimSpace(settings.IPAddress)
+}
+
+func (inf *Infra) gatewayNetworkGateway(ctx context.Context) string {
+	if inf.cli == nil {
+		return ""
+	}
+	inspect, err := inf.cli.NetworkInspect(ctx, inf.gatewayNetName(), containerops.InspectOptions{})
+	if err != nil {
+		return ""
+	}
+	for _, cfg := range inspect.IPAM.Config {
+		if gateway := strings.TrimSpace(cfg.Gateway); gateway != "" {
+			return gateway
+		}
+	}
+	return ""
+}
+
+func dedupeStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
 func (inf *Infra) webUsesHostNetwork() bool {
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv("AGENCY_WEB_NETWORK_MODE")))
 	if mode == "bridge" {
@@ -1788,6 +1920,9 @@ func (inf *Infra) webUsesHostNetwork() bool {
 func (inf *Infra) webGatewayHost() string {
 	if inf.webUsesHostNetwork() {
 		return "127.0.0.1"
+	}
+	if runtimehost.NormalizeContainerBackend(inf.backendName()) == runtimehost.BackendAppleContainer {
+		return inf.gatewayHost()
 	}
 	return "gateway"
 }
@@ -1854,7 +1989,13 @@ var detectWSLHost = func() bool {
 }
 
 func (inf *Infra) suppressDirectServiceHostPorts() bool {
-	if inf == nil || inf.cli == nil || inf.cli.Backend() != runtimehost.BackendPodman {
+	if inf == nil || inf.cli == nil {
+		return false
+	}
+	if inf.cli.Backend() == runtimehost.BackendAppleContainer {
+		return true
+	}
+	if inf.cli.Backend() != runtimehost.BackendPodman {
 		return false
 	}
 	// Rootless podman allocates host ports through rootlessport, which
@@ -1862,10 +2003,10 @@ func (inf *Infra) suppressDirectServiceHostPorts() bool {
 	// the same infra bundle. gateway-proxy is the authoritative front door
 	// for knowledge/intake (ports 8204/8205), so duplicating the same host
 	// port on the backend service collides. Docker's userland proxy tends
-	// to forgive this collision; rootless podman doesn't. Suppress the
-	// direct host-port bindings for the backend services whenever podman
-	// is running rootless — they remain reachable via gateway-proxy, which
-	// is the supported access path.
+	// to forgive this collision; rootless podman and Apple container don't.
+	// Suppress the direct host-port bindings for backend services in those
+	// runtimes — they remain reachable via gateway-proxy, which is the
+	// supported access path.
 	endpoint := strings.TrimPrefix(inf.cli.Endpoint(), "unix://")
 	return strings.HasPrefix(endpoint, "/run/user/")
 }

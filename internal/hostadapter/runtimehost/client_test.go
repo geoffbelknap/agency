@@ -1,10 +1,21 @@
 package runtimehost
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func shortTempSocketPath(t *testing.T, name string) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "agency-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return filepath.Join(dir, name)
+}
 
 func TestResolveBackendHostUsesConfiguredSocket(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "podman.sock")
@@ -16,7 +27,7 @@ func TestResolveBackendHostUsesConfiguredSocket(t *testing.T) {
 }
 
 func TestRawClientEndpointTracksResolvedHost(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "podman.sock")
+	socket := shortTempSocketPath(t, "podman.sock")
 	client, err := NewRawClientForBackend(BackendPodman, map[string]string{"host": socket})
 	if err != nil {
 		t.Fatal(err)
@@ -108,6 +119,13 @@ func TestResolvedBackendModeDockerIsEmpty(t *testing.T) {
 	}
 }
 
+func TestResolvedBackendModeAppleContainer(t *testing.T) {
+	got := ResolvedBackendMode(BackendAppleContainer, nil)
+	if got != "macos-vm" {
+		t.Fatalf("ResolvedBackendMode(apple-container) = %q, want macos-vm", got)
+	}
+}
+
 func TestValidateBackendConfigRejectsContainerdLegacyHostKey(t *testing.T) {
 	err := ValidateBackendConfig(BackendContainerd, map[string]string{
 		"host": "/run/containerd/containerd.sock",
@@ -144,11 +162,17 @@ func TestNormalizeContainerBackend(t *testing.T) {
 	if got := NormalizeContainerBackend("CONTAINERD"); got != BackendContainerd {
 		t.Fatalf("NormalizeContainerBackend(\"CONTAINERD\") = %q, want %q", got, BackendContainerd)
 	}
+	if got := NormalizeContainerBackend("container"); got != BackendAppleContainer {
+		t.Fatalf("NormalizeContainerBackend(\"container\") = %q, want %q", got, BackendAppleContainer)
+	}
 	if !IsContainerBackend("podman") {
 		t.Fatal("expected podman to be a container backend")
 	}
 	if !IsContainerBackend("containerd") {
 		t.Fatal("expected containerd to be a container backend")
+	}
+	if !IsContainerBackend("apple-container") {
+		t.Fatal("expected apple-container to be a container backend")
 	}
 	if IsContainerBackend("probe") {
 		t.Fatal("probe should not be a container backend")

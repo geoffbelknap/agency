@@ -74,9 +74,10 @@ type (
 )
 
 const (
-	BackendDocker     = "docker"
-	BackendPodman     = "podman"
-	BackendContainerd = "containerd"
+	BackendDocker         = "docker"
+	BackendPodman         = "podman"
+	BackendContainerd     = "containerd"
+	BackendAppleContainer = "apple-container"
 )
 
 func NormalizeContainerBackend(name string) string {
@@ -84,8 +85,10 @@ func NormalizeContainerBackend(name string) string {
 	switch name {
 	case "", BackendDocker:
 		return BackendDocker
-	case BackendPodman, BackendContainerd:
+	case BackendPodman, BackendContainerd, BackendAppleContainer:
 		return name
+	case "apple", "container", "macos-container":
+		return BackendAppleContainer
 	default:
 		return name
 	}
@@ -93,7 +96,7 @@ func NormalizeContainerBackend(name string) string {
 
 func IsContainerBackend(name string) bool {
 	switch NormalizeContainerBackend(name) {
-	case BackendDocker, BackendPodman, BackendContainerd:
+	case BackendDocker, BackendPodman, BackendContainerd, BackendAppleContainer:
 		return true
 	default:
 		return false
@@ -196,6 +199,12 @@ func ResolvedBackendMode(backend string, backendConfig map[string]string) string
 
 func ValidateBackendConfig(backend string, backendConfig map[string]string) error {
 	backend = NormalizeContainerBackend(backend)
+	if backend == BackendAppleContainer {
+		if err := validateAppleContainerPlatform(runtime.GOOS, runtime.GOARCH); err != nil {
+			return err
+		}
+		return validateAppleContainerConfig(backendConfig)
+	}
 	if backend != BackendContainerd || backendConfig == nil {
 		return nil
 	}
@@ -259,10 +268,22 @@ func NewRawClientForBackend(backend string, backendConfig map[string]string) (*R
 	return newRawClientForBackend(backend, backendConfig)
 }
 
+func AppleContainerStatus(ctx context.Context, backendConfig map[string]string) error {
+	cli, err := newAppleContainerRawClient(backendConfig)
+	if err != nil {
+		return err
+	}
+	_, err = cli.Ping(ctx)
+	return err
+}
+
 func newRawClientForBackend(backend string, backendConfig map[string]string) (*RawClient, error) {
 	backend = NormalizeContainerBackend(backend)
 	if !IsContainerBackend(backend) {
 		return nil, fmt.Errorf("unsupported container backend %q", backend)
+	}
+	if backend == BackendAppleContainer {
+		return newAppleContainerRawClient(backendConfig)
 	}
 	if backend == BackendContainerd {
 		return newNerdctlRawClient(backendConfig)
@@ -274,6 +295,9 @@ func resolveBackendHost(backend string, backendConfig map[string]string) string 
 	backend = NormalizeContainerBackend(backend)
 	if backend == BackendContainerd {
 		return resolveContainerdHost(backendConfig)
+	}
+	if backend == BackendAppleContainer {
+		return "container://local"
 	}
 	if backendConfig != nil {
 		if host := strings.TrimSpace(backendConfig["host"]); host != "" {
@@ -330,6 +354,8 @@ func backendModeFromEndpoint(backend, endpoint string) string {
 		default:
 			return "unknown"
 		}
+	case BackendAppleContainer:
+		return "macos-vm"
 	case BackendPodman:
 		switch {
 		case strings.HasPrefix(path, "/run/user/"):

@@ -89,6 +89,11 @@ func TestGatewayProxyNotSelfLoop(t *testing.T) {
 	if !strings.Contains(content, "AGENCY_HOST_GATEWAY_PORT") {
 		t.Error("gateway-proxy entrypoint must use AGENCY_HOST_GATEWAY_PORT for disposable gateways")
 	}
+	for _, envName := range []string{"AGENCY_COMMS_HOST", "AGENCY_KNOWLEDGE_HOST", "AGENCY_INTAKE_HOST"} {
+		if !strings.Contains(content, envName) {
+			t.Errorf("gateway-proxy entrypoint missing %s", envName)
+		}
+	}
 }
 
 // TestDefaultImagesHaveHealthChecks verifies that every infra image in

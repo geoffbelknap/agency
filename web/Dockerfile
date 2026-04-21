@@ -4,7 +4,9 @@ WORKDIR /app
 ARG BUILD_ID=unknown
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
-COPY . .
+COPY index.html tsconfig.json vite.config.ts ./
+COPY public ./public
+COPY src ./src
 RUN VITE_BUILD_ID="$BUILD_ID" npm run build
 
 # Stage 2: Serve with nginx (plain alpine to avoid inherited EXPOSE 80)

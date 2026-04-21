@@ -34,6 +34,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/daemon"
 	"github.com/geoffbelknap/agency/internal/events"
+	"github.com/geoffbelknap/agency/internal/hostadapter/containerops"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	agencylog "github.com/geoffbelknap/agency/internal/logging"
 	"github.com/geoffbelknap/agency/internal/logs"
@@ -424,7 +425,7 @@ func setupCmd() *cobra.Command {
 		Use:   "setup",
 		Short: "Set up the Agency platform (config, daemon, infrastructure)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Select a container backend (podman/docker/containerd) before
+			// Select a container backend (podman/docker/apple-container/containerd) before
 			// anything writes config or starts a daemon. selectContainerBackend
 			// prints guidance and returns a non-nil error when no reachable
 			// backend is available — fail fast with actionable output.
@@ -503,7 +504,7 @@ func setupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", "", "LLM provider (anthropic, openai, google)")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "LLM provider API key")
 	cmd.Flags().StringVar(&notifyURL, "notify-url", "", "Notification URL (ntfy or webhook) for operator alerts")
-	cmd.Flags().StringVar(&backend, "backend", "", "Container backend to use (docker, podman, containerd); autodetects when unset. Also respected via AGENCY_CONTAINER_BACKEND.")
+	cmd.Flags().StringVar(&backend, "backend", "", "Container backend to use (docker, podman, apple-container, containerd); autodetects when unset. Also respected via AGENCY_CONTAINER_BACKEND.")
 	cmd.Flags().BoolVar(&configurePool, "configure-network-pool", false, "Configure Docker default-address-pools before infrastructure startup (docker backend only)")
 	cmd.Flags().BoolVar(&noInfra, "no-infra", false, "Skip the container-backend check and infrastructure startup")
 	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Don't open the web UI in a browser (also respected via AGENCY_NO_BROWSER=1)")
@@ -623,13 +624,13 @@ func isWSL() bool {
 	return strings.Contains(s, "microsoft") || strings.Contains(s, "WSL")
 }
 
-// webHost derives the web UI hostname from the gateway address config.
-// Returns "localhost" if the gateway binds to 0.0.0.0 or if the address
-// cannot be parsed.
+// webHost derives the local web UI hostname. The web container publishes its
+// host port on loopback, even when the gateway daemon listens on a backend
+// bridge address for VM-backed runtimes.
 func webHost() string {
 	cfg := config.Load()
 	if host, _, err := net.SplitHostPort(cfg.GatewayAddr); err == nil && host != "" {
-		if host != "0.0.0.0" {
+		if host == "localhost" || strings.HasPrefix(host, "127.") || host == "::1" {
 			return host
 		}
 	}
@@ -670,7 +671,7 @@ func tryStartDockerDesktop(wsl bool) bool {
 //     hard error — the user asked for a specific one, don't silently fall
 //     back to something else.
 //   - Otherwise probe all KnownBackends; preference order is
-//     podman > docker > containerd. The first reachable one wins.
+//     podman > docker > apple-container > containerd. The first reachable one wins.
 //   - If nothing reaches, print the platform-appropriate install hint and
 //     return an error so setup exits cleanly with actionable guidance.
 //
@@ -703,7 +704,7 @@ func selectContainerBackend(override string) (string, map[string]string, error) 
 			}
 		}
 		if match == nil {
-			return "", nil, fmt.Errorf("unknown container backend %q (known: docker, podman, containerd)", override)
+			return "", nil, fmt.Errorf("unknown container backend %q (known: docker, podman, apple-container, containerd)", override)
 		}
 		d := runtimehost.ProbeBackend(*match)
 		if !d.Reachable {
@@ -835,10 +836,21 @@ func persistPendingKeysToEnv(agencyHome string, keys []config.KeyEntry) error {
 
 func runSetup(provider, apiKey, notifyURL, backend string, backendCfg map[string]string, noInfra, cliMode, noBrowser, configurePool bool) error {
 	provider = normalizeProvider(provider)
+	gatewayAddr := ""
+	if runtimehost.NormalizeContainerBackend(backend) == runtimehost.BackendAppleContainer {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		addr, err := appleContainerGatewayListenAddr(ctx, backendCfg)
+		if err != nil {
+			return fmt.Errorf("prepare apple-container gateway address: %w", err)
+		}
+		gatewayAddr = addr
+	}
 	pendingKeys, err := config.RunInit(config.InitOptions{
 		Provider:                provider,
 		APIKey:                  apiKey,
 		NotifyURL:               notifyURL,
+		GatewayAddr:             gatewayAddr,
 		DeploymentBackend:       backend,
 		DeploymentBackendConfig: backendCfg,
 	})
@@ -1039,6 +1051,38 @@ func runSetup(provider, apiKey, notifyURL, backend string, backendCfg map[string
 	}
 
 	return nil
+}
+
+func appleContainerGatewayListenAddr(ctx context.Context, backendCfg map[string]string) (string, error) {
+	cli, err := runtimehost.NewRawClientForBackend(runtimehost.BackendAppleContainer, backendCfg)
+	if err != nil {
+		return "", err
+	}
+	netName := runtimehost.GatewayNetName()
+	inspect, err := cli.NetworkInspect(ctx, netName, containerops.InspectOptions{})
+	if err != nil {
+		if !containerops.IsNetworkNotFound(err) {
+			return "", fmt.Errorf("inspect %s: %w", netName, err)
+		}
+		labels := map[string]string{
+			"agency.role":      "infra",
+			"agency.component": netName,
+			"agency.instance":  runtimehost.InfraInstanceName(),
+		}
+		if createErr := containerops.CreateMediationNetwork(ctx, cli, netName, labels); createErr != nil && !containerops.IsNetworkAlreadyExists(createErr) {
+			return "", fmt.Errorf("create %s: %w", netName, createErr)
+		}
+		inspect, err = cli.NetworkInspect(ctx, netName, containerops.InspectOptions{})
+		if err != nil {
+			return "", fmt.Errorf("verify %s: %w", netName, err)
+		}
+	}
+	for _, cfg := range inspect.IPAM.Config {
+		if gateway := strings.TrimSpace(cfg.Gateway); gateway != "" {
+			return net.JoinHostPort(gateway, "8200"), nil
+		}
+	}
+	return "", fmt.Errorf("network %s has no gateway address", netName)
 }
 
 func runServe(httpAddr string) error {

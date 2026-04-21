@@ -24,7 +24,7 @@ jobs:
         id: changes
         if: ${{ github.event_name == 'pull_request' }}
         run: |
-          if git diff --name-only "origin/${{ github.base_ref }}"...HEAD | grep -E '^(cmd/gateway/|internal/|scripts/|images/|Makefile|go\.mod|go\.sum|\.github/workflows/containerd-readiness\.yml|docs/runbooks/)'; then
+          if ./scripts/ci-backend-smoke-needed.sh containerd "origin/${{ github.base_ref }}" HEAD; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
