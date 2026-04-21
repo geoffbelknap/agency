@@ -725,17 +725,38 @@ func selectContainerBackend(override string) (string, map[string]string, error) 
 
 	switch len(reachable) {
 	case 0:
-		fmt.Fprintln(os.Stderr, "No container backend detected on this host.")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, runtimehost.InstallHint())
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Then re-run: agency setup")
+		// No backend present. Offer an install when we have a TTY and the
+		// user hasn't opted out of interactive prompts. If that produces a
+		// working backend, use it directly. Otherwise print the hint and
+		// exit so the caller can re-run after a manual install.
+		if interactiveInstallEnabled() {
+			if d := offerBackendInstall(); d != nil {
+				fmt.Fprintf(os.Stderr, "Using %s backend (%s).\n", d.Name(), backendModeDescription(*d))
+				return d.Name(), d.Config, nil
+			}
+		} else {
+			fmt.Fprintln(os.Stderr, "No container backend detected on this host.")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, runtimehost.InstallHint())
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "Then re-run: agency setup")
+		}
 		return "", nil, fmt.Errorf("no container backend available")
 	case 1:
 		d := reachable[0]
 		fmt.Fprintf(os.Stderr, "Using %s backend (%s).\n", d.Name(), backendModeDescription(d))
 		return d.Name(), d.Config, nil
 	default:
+		// With a TTY available, ask the user to pick. Default is podman
+		// (first in reachable — preference order comes from KnownBackends).
+		// Non-interactive callers get the default silently so MCP servers
+		// and scripted installs remain deterministic.
+		if interactiveInstallEnabled() {
+			if pick := promptPickBackend(reachable); pick != nil {
+				fmt.Fprintf(os.Stderr, "Using %s backend (%s).\n", pick.Name(), backendModeDescription(*pick))
+				return pick.Name(), pick.Config, nil
+			}
+		}
 		chosen := reachable[0]
 		others := make([]string, 0, len(reachable)-1)
 		for _, d := range reachable[1:] {
