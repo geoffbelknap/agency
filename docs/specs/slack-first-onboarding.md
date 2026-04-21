@@ -1,5 +1,40 @@
 # Slack-First Onboarding
 
+## Status: Superseded (2026-04-21)
+
+This spec predates Agency's Go rewrite and the backend-neutral install
+work in #234 / #238. Its implementation plan is stale — it references a
+Python codebase (`agency/agency/commands/setup_cmd.py`), an `install.sh`
+that handles Python venvs and Docker checks, and an `install.ps1` that
+never shipped. None of those artefacts exist in the current repo.
+
+**What has since landed:**
+
+- `agency setup` is a Go command with an interactive preflight that
+  detects and optionally installs a container backend (docker, podman,
+  or containerd) and writes provider keys to the encrypted credential
+  store. Replaces the proposed Python Rich wizard in Phase 1D.
+- `install.sh` is now a curl-pipe safety intercept that prints the real
+  install commands and a nyan cat — see #236. The proposed Docker
+  Desktop auto-start path in Phase 1C doesn't apply: setup preflight
+  handles backend detection backend-neutrally (not just Docker).
+- Homebrew + `make install` are the supported install paths;
+  `install.ps1` is not planned. Windows users run Agency inside WSL2
+  and follow the Linux path.
+
+**What remains open and would need a fresh spec if pursued:**
+
+- Slack App manifest generation (Phase 1A)
+- Socket Mode bridge container (Phase 1E)
+- Getting-started pack tuned for non-developer onboarding (Phase 1F)
+- Agent identity polish in Slack (Phase 2A), knowledge web dashboard
+  (Phase 2B)
+
+The material below is preserved as design context only. Do not treat it
+as an active implementation plan.
+
+---
+
 ## Context
 
 Agency has two personas: developers (CLI, Docker, YAML power users) and information workers (want agent value without becoming platform experts). Today's setup requires Python, Docker, CLI commands, manual Slack app creation, and env var configuration. The information worker persona has no viable path to get started.

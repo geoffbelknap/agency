@@ -63,23 +63,26 @@ proxy.
 
 ## Install
 
-**macOS (Homebrew):**
+**macOS / Linux (Homebrew or Linuxbrew):**
 
 ```bash
 brew install geoffbelknap/tap/agency
 ```
 
-**Linux / macOS / WSL2:**
+**From source (any Linux or macOS with Go 1.24+):**
 
 ```bash
-curl -fsSL https://geoffbelknap.github.io/agency/install.sh | bash
+git clone https://github.com/geoffbelknap/agency.git
+cd agency && make install
 ```
 
-**Windows (PowerShell):**
+**Windows:** install inside a WSL2 Ubuntu distro and follow the Linux path
+above. There is no native Windows installer.
 
-```powershell
-irm https://raw.githubusercontent.com/geoffbelknap/agency/main/install.ps1 | iex
-```
+The hosted `install.sh` at `geoffbelknap.github.io/agency/install.sh`
+deliberately does not install anything; it prints the commands above and
+politely suggests you don't pipe scripts from the internet into your
+shell. See `install.sh` in this repo for the source.
 
 ## First Run
 
