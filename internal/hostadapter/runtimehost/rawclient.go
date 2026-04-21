@@ -52,15 +52,12 @@ type appleContainerInspect struct {
 		Network     string `json:"network"`
 	} `json:"networks"`
 	Configuration struct {
-		ID       string `json:"id"`
-		Hostname string `json:"hostname"`
-		Image    string `json:"image"`
-		ImageRef struct {
-			Reference string `json:"reference"`
-		} `json:"image"`
-		Labels map[string]string `json:"labels"`
-		Env    []string          `json:"env"`
-		Init   struct {
+		ID       string                     `json:"id"`
+		Hostname string                     `json:"hostname"`
+		Image    appleContainerInspectImage `json:"image"`
+		Labels   map[string]string          `json:"labels"`
+		Env      []string                   `json:"env"`
+		Init     struct {
 			Environment []string `json:"environment"`
 		} `json:"initProcess"`
 		Mounts []struct {
@@ -74,6 +71,31 @@ type appleContainerInspect struct {
 			MemoryInBytes int64 `json:"memoryInBytes"`
 		} `json:"resources"`
 	} `json:"configuration"`
+}
+
+type appleContainerInspectImage struct {
+	Value     string
+	Reference string `json:"reference"`
+}
+
+func (i *appleContainerInspectImage) UnmarshalJSON(data []byte) error {
+	var value string
+	if err := json.Unmarshal(data, &value); err == nil {
+		i.Value = value
+		return nil
+	}
+	var obj struct {
+		Reference string `json:"reference"`
+	}
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	i.Reference = obj.Reference
+	return nil
+}
+
+func (i appleContainerInspectImage) String() string {
+	return firstNonEmpty(i.Reference, i.Value)
 }
 
 type appleContainerNetwork struct {
@@ -1474,7 +1496,7 @@ func appleContainerInspectResponse(ctr appleContainerInspect) dockercontainer.In
 		})
 	}
 	created := strings.TrimSpace(ctr.CreatedAt)
-	image := firstNonEmpty(ctr.Configuration.ImageRef.Reference, ctr.Configuration.Image)
+	image := ctr.Configuration.Image.String()
 	env := ctr.Configuration.Env
 	if len(env) == 0 {
 		env = ctr.Configuration.Init.Environment
