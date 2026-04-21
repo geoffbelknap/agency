@@ -1060,7 +1060,11 @@ func runServe(httpAddr string) error {
 		}
 	}
 
-	// Container backend client — optional, gateway starts in degraded mode if unavailable.
+	// Container backend client. When a backend is configured, an unreachable
+	// client is fatal downstream in api.Startup — ASK tenet 4 requires that
+	// enforcement failure default to denial, so we fail closed rather than
+	// silently run without the mediation plane. The Warn here is advisory;
+	// the fatal lives in Startup() with the actionable error text.
 	var dc *runtimehost.Client
 	if runtimehost.IsContainerBackend(backendName) {
 		dc = runtimehost.TryNewClientForBackend(backendName, cfg.Hub.DeploymentBackendConfig, logger)
@@ -1073,9 +1077,9 @@ func runServe(httpAddr string) error {
 		}
 	} else if runtimehost.IsContainerBackend(backendName) {
 		if backendMode != "" {
-			logger.Warn("container backend unavailable — gateway starting in degraded mode", "backend", backendName, "endpoint", backendEndpoint, "mode", backendMode)
+			logger.Warn("container backend unavailable", "backend", backendName, "endpoint", backendEndpoint, "mode", backendMode)
 		} else {
-			logger.Warn("container backend unavailable — gateway starting in degraded mode", "backend", backendName, "endpoint", backendEndpoint)
+			logger.Warn("container backend unavailable", "backend", backendName, "endpoint", backendEndpoint)
 		}
 	} else {
 		logger.Info("gateway starting without a container backend client", "backend", backendName)
