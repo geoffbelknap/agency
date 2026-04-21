@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from images.knowledge.server import create_app
+from images.knowledge.server import create_app, _run_schema_migrations
 from .conftest import PlatformClient
 
 
@@ -25,6 +25,31 @@ class TestHealth:
         assert resp.status == 200
         data = await resp.json()
         assert data["status"] == "ok"
+
+
+class TestStartupMigrations:
+    @pytest.mark.asyncio
+    async def test_schema_migrations_use_store_thread(self, tmp_path):
+        app = create_app(data_dir=tmp_path)
+        store = app["store"]
+        source_id = store.add_node(
+            "source",
+            "concept",
+            source_type="rule",
+            source_channels=["#legacy"],
+        )
+        target_id = store.add_node("target", "concept")
+        edge_id = store.add_edge(source_id, target_id, "mentions")
+        store._db.execute("UPDATE nodes SET scope = '{}' WHERE id = ?", (source_id,))
+        store._db.commit()
+
+        await _run_schema_migrations(app)
+
+        source = store.get_node(source_id)
+        edge = store.get_edges(source_id, relation="mentions")[0]
+        assert json.loads(source["scope"])["channels"] == ["#legacy"]
+        assert edge["id"] == edge_id
+        assert edge["provenance"] == "EXTRACTED"
 
 
 class TestNodeIngestion:

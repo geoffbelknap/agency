@@ -273,6 +273,10 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 	// Write default classification config if it doesn't exist
 	inf.ensureDefaultClassification()
 
+	if err := inf.WriteRegistrySnapshot(); err != nil {
+		inf.log.Warn("write registry snapshot", "err", err)
+	}
+
 	progress("networks", "Creating managed networks")
 	if err := inf.ensureNetworks(ctx); err != nil {
 		return fmt.Errorf("ensure networks: %w", err)
@@ -874,9 +878,7 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 		"AGENCY_CALLER":        "knowledge",
 	}
 
-	binds := []string{
-		knowledgeDir + ":/data:rw",
-	}
+	binds := knowledgeContainerBinds(inf.Home, knowledgeDir)
 
 	// Mount merged ontology into knowledge container (read-only)
 	ontologyFile := filepath.Join(inf.Home, "knowledge", "ontology.yaml")
@@ -1624,6 +1626,17 @@ func prepareKnowledgeDataDir(dataDir string) error {
 	}
 
 	return probeWritableDir(dataDir)
+}
+
+func knowledgeContainerBinds(home, knowledgeDir string) []string {
+	binds := []string{
+		knowledgeDir + ":/data:rw",
+	}
+	registrySnapshot := filepath.Join(home, "registry.json")
+	if fileExists(registrySnapshot) {
+		binds = append(binds, registrySnapshot+":/app/registry.json:ro")
+	}
+	return binds
 }
 
 func ensureExistingFileWritable(path string) error {

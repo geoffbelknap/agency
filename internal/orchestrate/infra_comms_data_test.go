@@ -106,3 +106,27 @@ func TestKnowledgeDataRootForRepair(t *testing.T) {
 		t.Fatalf("knowledgeDataRootForRepair() = %q, want %q", got, want)
 	}
 }
+
+func TestKnowledgeContainerBindsMountsRegistrySnapshot(t *testing.T) {
+	home := t.TempDir()
+	knowledgeDir := filepath.Join(home, "knowledge", "data")
+	if err := os.MkdirAll(knowledgeDir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "registry.json"), []byte(`{"principals":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	binds := knowledgeContainerBinds(home, knowledgeDir)
+	want := filepath.Join(home, "registry.json") + ":/app/registry.json:ro"
+	found := false
+	for _, bind := range binds {
+		if bind == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("knowledgeContainerBinds() missing %q in %#v", want, binds)
+	}
+}
