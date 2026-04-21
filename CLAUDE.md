@@ -101,6 +101,13 @@ hygiene as distinct concerns:
 - runtime health: runtime manifest, runtime status, runtime validate, fail-closed startup/restart behavior
 - backend hygiene: Docker-specific image/network/log/pid checks when Docker is the selected backend
 
+`apple-container` is an experimental, opt-in host adapter. Keep it out of
+default backend selection, required CI, branch protection, and release-blocking
+checks until lifecycle, event-stream/reconciliation, network attach, cleanup,
+and doctor semantics are complete. Use `scripts/apple-container-smoke.sh` only
+as a manual macOS Apple silicon validation path for adapter development
+evidence.
+
 ## Feature Gating
 
 Feature tiering must stay aligned across:
@@ -140,6 +147,11 @@ pytest images/tests/
 bash ./scripts/runtime-contract-smoke.sh --agent <agent>
 ./scripts/e2e-live-disposable.sh --skip-build
 ```
+
+For Apple Container adapter changes, additionally run
+`./scripts/apple-container-smoke.sh` manually on macOS Apple silicon when the
+local Apple `container` service is available. Do not add that smoke to required
+CI yet.
 
 Use the smallest sufficient validation for the change, but validate shipped
 behavior when the change affects runtime, API, or release behavior.

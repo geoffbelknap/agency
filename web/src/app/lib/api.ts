@@ -433,6 +433,7 @@ export interface RawRoutingConfig {
 }
 
 export interface RawAuditEntry {
+  [key: string]: unknown;
   // Core fields
   timestamp?: string;
   ts?: string;
@@ -465,6 +466,15 @@ export interface RawAuditEntry {
   error?: string;
   domain?: string;
   host?: string;
+  scan_type?: string;
+  scan_surface?: string;
+  scan_action?: string;
+  scan_mode?: string;
+  finding_count?: number;
+  findings?: string[];
+  content_sha256?: string;
+  content_bytes?: number;
+  content_count?: number;
   // LLM/HTTP fields
   model?: string;
   duration_ms?: number;

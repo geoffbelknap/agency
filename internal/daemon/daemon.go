@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 )
 
@@ -83,7 +84,7 @@ func IsRunning(port int) bool {
 				if err := proc.Signal(syscall.Signal(0)); err == nil {
 					// Process exists — verify health endpoint
 					client := &http.Client{Timeout: 2 * time.Second}
-					resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/api/v1/health", port))
+					resp, err := client.Get(healthURL(port))
 					if err == nil {
 						resp.Body.Close()
 						if resp.StatusCode == 200 {
@@ -475,17 +476,36 @@ func acquireStartLock(waitForHealthy func() bool, timeout time.Duration) (releas
 
 // isHealthy checks if the health endpoint responds with 200.
 func isHealthy(port int) bool {
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 500*time.Millisecond)
+	addr := healthAddr(port)
+	conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
 	if err != nil {
 		return false
 	}
 	conn.Close()
 
 	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/api/v1/health", port))
+	resp, err := client.Get(healthURL(port))
 	if err != nil {
 		return false
 	}
 	resp.Body.Close()
 	return resp.StatusCode == 200
+}
+
+func healthURL(port int) string {
+	return "http://" + healthAddr(port) + "/api/v1/health"
+}
+
+func healthAddr(port int) string {
+	cfg := config.Load()
+	if cfg != nil && strings.TrimSpace(cfg.GatewayAddr) != "" {
+		host, cfgPort, err := net.SplitHostPort(cfg.GatewayAddr)
+		if err == nil && cfgPort != "" {
+			if host == "" || host == "0.0.0.0" || host == "::" {
+				host = "127.0.0.1"
+			}
+			return net.JoinHostPort(host, cfgPort)
+		}
+	}
+	return net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 }

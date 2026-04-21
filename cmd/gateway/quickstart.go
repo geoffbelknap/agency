@@ -151,7 +151,7 @@ Run with --no-browser to print the Web UI URL without opening it.`,
 	cmd.Flags().StringVar(&opts.name, "name", "", "Name for the first agent")
 	cmd.Flags().BoolVar(&opts.noDemo, "no-demo", false, "Skip the demo task")
 	cmd.Flags().BoolVar(&opts.noBrowser, "no-browser", false, "Don't open the web UI in a browser (also respected via AGENCY_NO_BROWSER=1)")
-	cmd.Flags().StringVar(&opts.backend, "backend", "", "Container backend to use (docker, podman, containerd); autodetects when unset. Also respected via AGENCY_CONTAINER_BACKEND.")
+	cmd.Flags().StringVar(&opts.backend, "backend", "", "Container backend to use (docker, podman, apple-container, containerd); autodetects when unset. Also respected via AGENCY_CONTAINER_BACKEND.")
 	cmd.Flags().BoolVar(&opts.noDockerStart, "no-docker-start", false, "Don't try to start Docker Desktop automatically (docker backend only; also respected via AGENCY_NO_DOCKER_START=1)")
 	cmd.Flags().BoolVar(&opts.verbose, "verbose", false, "Show detailed output")
 

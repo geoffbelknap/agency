@@ -25,7 +25,7 @@ func TestKnownBackendsForLinux(t *testing.T) {
 
 func TestKnownBackendsForDarwin(t *testing.T) {
 	got := knownBackendsFor("darwin")
-	wantOrder := []string{BackendPodman, BackendDocker}
+	wantOrder := []string{BackendPodman, BackendDocker, BackendAppleContainer}
 	if len(got) != len(wantOrder) {
 		t.Fatalf("want %d backends on darwin, got %d", len(wantOrder), len(got))
 	}

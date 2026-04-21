@@ -41,9 +41,11 @@ Backend selection reminder:
 - for Podman, set `hub.deployment_backend_config.host` or `hub.deployment_backend_config.socket` if auto-detection is not enough
 - for `containerd`, set `hub.deployment_backend_config.native_socket` or `hub.deployment_backend_config.address` to the native containerd socket when auto-detection is not enough
 - for `containerd`, do not use generic `host` or `socket` keys; those remain Docker/Podman-shaped and are rejected to avoid mixing native and Docker-compatible sockets
+- for `apple-container`, set `hub.deployment_backend: apple-container`; socket-shaped backend config is rejected because the adapter uses the local Apple `container` CLI service
 - common Podman socket sources:
   `podman info --format json | jq -r '.host.remoteSocket.path'`
 - current `containerd` slice is Linux-only and nerdctl-backed
+- current `apple-container` slice is macOS Apple silicon only and gated until runtime lifecycle, mediation-network, and validation semantics are implemented
 
 Examples:
 
@@ -65,10 +67,18 @@ hub:
     native_socket: /run/containerd/containerd.sock
 ```
 
+Apple container:
+
+```yaml
+hub:
+  deployment_backend: apple-container
+```
+
 Misconfiguration guard:
 
 - do not point `containerd` at Docker-compatible API sockets such as `.../containerd-rootless/api.sock`
 - if you do, Agency should fail fast with a native-socket error instead of silently degrading to an unsafe fallback
+- do not point `apple-container` at Docker, Podman, or containerd sockets; Agency should fail fast instead of crossing backend boundaries
 
 If you are validating a local patch, make sure the binary you are exercising is
 the one you just built:
@@ -240,8 +250,14 @@ Release gate policy:
 
 - Docker, Podman, and `containerd` smoke must stay automated
 - the `containerd` smoke lane is automated on Linux against a native containerd socket via `nerdctl`
+- `apple-container` remains experimental and manual-only; do not add it to
+  branch protection or required PR smoke until the adapter has complete
+  lifecycle, event, network, cleanup, and doctor semantics
 - `main` branch protection should require the per-PR smoke checks:
   `go-test`, `python-unit-test`, `python-knowledge-test`, `web-test`, `docker-smoke`, `podman-smoke`, and `containerd-smoke`
+- Docker, Podman, and `containerd` PR smoke workflows use
+  `scripts/ci-backend-smoke-needed.sh` to skip expensive runtime setup when a
+  PR only touches docs, README files, Apple-only smoke code, or unrelated tests
 - do not enable auto-merge for adapter work unless the smoke lanes above are enforced as required checks
 - verify branch-protection drift with:
   `make verify-required-status-checks`
@@ -266,6 +282,18 @@ make podman-readiness-full
 
 If the backend has a dedicated readiness or cleanup script, run it here and
 record the result.
+
+Current manual `apple-container` smoke:
+
+```bash
+./scripts/apple-container-smoke.sh --skip-build
+```
+
+- this lane is macOS Apple silicon only and expects the Apple `container`
+  service to already be running
+- it is for adapter development evidence, not required PR validation
+- Apple-only script changes should not trigger Docker, Podman, or `containerd`
+  smoke lanes
 
 Current automated `containerd` rootless smoke:
 

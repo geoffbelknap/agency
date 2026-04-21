@@ -183,7 +183,7 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (string, error) {
 			},
 		},
 	}
-	if e.cli.Backend() == runtimehost.BackendContainerd {
+	if usesCreateTimeMediationNetworks(e.cli.Backend()) {
 		netCfg.EndpointsConfig[gatewayNetName()] = &network.EndpointSettings{}
 		netCfg.EndpointsConfig[egressIntNetName()] = &network.EndpointSettings{}
 	}
@@ -233,13 +233,15 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (string, error) {
 	if err := waitContainerRunning(ctx, e.cli, e.ContainerName, 10*time.Second); err != nil {
 		return "", err
 	}
-	if e.cli.Backend() != runtimehost.BackendContainerd {
+	if !usesCreateTimeMediationNetworks(e.cli.Backend()) {
 		_ = e.cli.NetworkConnect(ctx, gatewayNetName(), enforcerContainerID, &network.EndpointSettings{
 			Aliases: []string{"enforcer"},
 		})
 		_ = e.cli.NetworkConnect(ctx, egressIntNetName(), enforcerContainerID, &network.EndpointSettings{
 			Aliases: []string{"enforcer"},
 		})
+	}
+	if e.cli.Backend() != runtimehost.BackendContainerd {
 		if err := waitContainerNetworks(ctx, e.cli, e.ContainerName, []string{
 			internalNet,
 			gatewayNetName(),

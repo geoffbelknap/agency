@@ -4,6 +4,10 @@
 # Direction 2 (gateway→container): TCP:PORT → TCP:service:8080
 set -e
 
+COMMS_HOST="${AGENCY_COMMS_HOST:-comms}"
+KNOWLEDGE_HOST="${AGENCY_KNOWLEDGE_HOST:-knowledge}"
+INTAKE_HOST="${AGENCY_INTAKE_HOST:-intake}"
+
 # Determine how to reach the gateway daemon.
 # On Linux: Unix socket works through bind mount (native filesystem).
 # On VM-backed runtimes: Unix sockets don't work through bind mounts
@@ -43,9 +47,10 @@ echo "gateway-proxy: target=$GATEWAY_TARGET"
 socat TCP-LISTEN:8200,fork,reuseaddr "$GATEWAY_TARGET" &
 
 # Direction 2: gateway→services
-socat TCP-LISTEN:8202,fork,reuseaddr TCP:comms:8080 &
-socat TCP-LISTEN:8204,fork,reuseaddr TCP:knowledge:8080 &
-socat TCP-LISTEN:8205,fork,reuseaddr TCP:intake:8080 &
+echo "gateway-proxy: service targets comms=${COMMS_HOST} knowledge=${KNOWLEDGE_HOST} intake=${INTAKE_HOST}"
+socat TCP-LISTEN:8202,fork,reuseaddr TCP:${COMMS_HOST}:8080 &
+socat TCP-LISTEN:8204,fork,reuseaddr TCP:${KNOWLEDGE_HOST}:8080 &
+socat TCP-LISTEN:8205,fork,reuseaddr TCP:${INTAKE_HOST}:8080 &
 
 echo "gateway-proxy: all bridges started"
 wait -n

@@ -352,15 +352,17 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		lh.audit.Log(AuditEntry{
 			Type:          "PROVIDER_TOOL_ALLOWED",
 			Model:         modelAlias,
+			ProviderModel: providerModel,
 			CorrelationID: correlationID,
 			Status:        http.StatusOK,
 			Extra:         summarizeProviderToolUses(providerToolUses),
 		})
+		lh.auditProviderToolContentBoundary(modelAlias, providerModel, correlationID, providerToolUses)
 	}
 
 	// Scan tool-role messages for injection patterns (ASK Tenet 1 + 17).
-	// This runs automatically — the body cannot skip it.
-	if flags := scanToolMessages(reqBody); len(flags) > 0 {
+	// This runs in the enforcer boundary and records pass/flag/skip outcomes.
+	if flags := lh.auditXPIAToolMessageScan(reqBody, modelAlias, correlationID); len(flags) > 0 {
 		lh.audit.Log(AuditEntry{
 			Type:          "XPIA_TOOL_OUTPUT",
 			Model:         modelAlias,
@@ -370,7 +372,7 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Track tool definitions for mutation detection (ASK Tenet 17).
-	if flag := trackToolDefinitions(reqBody, lh.toolTracker); flag != "" {
+	if flag := lh.auditToolDefinitionScan(reqBody, correlationID); flag != "" {
 		lh.audit.Log(AuditEntry{
 			Type:          "MCP_TOOL_MUTATION",
 			CorrelationID: correlationID,
