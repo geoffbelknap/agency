@@ -124,6 +124,78 @@ func TestRewriteDockerfileForNamedContextsPreservesDirectorySlash(t *testing.T) 
 	}
 }
 
+func TestRewriteDockerfileForAppleDirectoryCopiesExpandsLocalDirs(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "src", "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "public"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "src", "main.tsx"), []byte("main"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "src", "app", "App.tsx"), []byte("app"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "public", "favicon.svg"), []byte("icon"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	input := strings.Join([]string{
+		"COPY package.json package-lock.json ./",
+		"COPY public ./public",
+		"COPY src ./src",
+		"COPY --from=build /app/dist /usr/share/nginx/html",
+		"",
+	}, "\n")
+	got, err := rewriteDockerfileForAppleDirectoryCopies(input, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Join([]string{
+		"COPY package.json package-lock.json ./",
+		"COPY public/favicon.svg public/favicon.svg",
+		"COPY src/app/App.tsx src/app/App.tsx",
+		"COPY src/main.tsx src/main.tsx",
+		"COPY --from=build /app/dist /usr/share/nginx/html",
+		"",
+	}, "\n")
+	if got != want {
+		t.Fatalf("rewriteDockerfileForAppleDirectoryCopies() = %q, want %q", got, want)
+	}
+}
+
+func TestCopyDirContentsHonorsDockerignore(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(src, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(src, "node_modules", ".bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, ".dockerignore"), []byte("node_modules\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "src", "main.tsx"), []byte("main"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "node_modules", ".bin", "vite"), []byte("vite"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := copyDirContents(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "src", "main.tsx")); err != nil {
+		t.Fatalf("expected copied source file: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "node_modules")); !os.IsNotExist(err) {
+		t.Fatalf("node_modules should be ignored, stat err=%v", err)
+	}
+}
+
 // TestRepoContextMatchesMakefile verifies the repoContextNames map in
 // buildFromSource matches REPO_CONTEXT_IMAGES in the Makefile.
 func TestRepoContextMatchesMakefile(t *testing.T) {

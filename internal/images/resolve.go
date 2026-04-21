@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -258,7 +259,20 @@ func BuildFromSource(ctx context.Context, cli *runtimehost.RawClient, name, sour
 		buildArgs["SOURCE_HASH"] = &sourceHash
 	}
 	if len(spec.namedContexts) == 0 {
-		return dockerBuild(ctx, cli, spec.contextDir, spec.dockerfilePath, tag, buildArgs)
+		contextDir, dockerfilePath := spec.contextDir, spec.dockerfilePath
+		if cli != nil && cli.Backend() == runtimehost.BackendAppleContainer {
+			var err error
+			if name == "web" {
+				contextDir, dockerfilePath, err = prepareAppleWebBuildContext(ctx, spec.contextDir, buildID)
+			} else {
+				contextDir, dockerfilePath, err = prepareAppleBuildContext(spec)
+			}
+			if err != nil {
+				return err
+			}
+			defer os.RemoveAll(contextDir)
+		}
+		return dockerBuild(ctx, cli, contextDir, dockerfilePath, tag, buildArgs)
 	}
 
 	contextDir, dockerfilePath, err := prepareBuildContext(spec)
@@ -266,6 +280,11 @@ func BuildFromSource(ctx context.Context, cli *runtimehost.RawClient, name, sour
 		return err
 	}
 	defer os.RemoveAll(contextDir)
+	if cli != nil && cli.Backend() == runtimehost.BackendAppleContainer {
+		if err := rewriteAppleBuildContextDockerfile(contextDir, dockerfilePath); err != nil {
+			return err
+		}
+	}
 
 	return dockerBuild(ctx, cli, contextDir, dockerfilePath, tag, buildArgs)
 }
@@ -431,7 +450,125 @@ func prepareBuildContext(spec buildSpec) (string, string, error) {
 	return tempDir, spec.dockerfilePath, nil
 }
 
+func prepareAppleBuildContext(spec buildSpec) (string, string, error) {
+	tempDir, err := os.MkdirTemp("", "agency-apple-image-build-*")
+	if err != nil {
+		return "", "", err
+	}
+	if err := copyDirContents(spec.contextDir, tempDir); err != nil {
+		os.RemoveAll(tempDir)
+		return "", "", err
+	}
+	if err := rewriteAppleBuildContextDockerfile(tempDir, spec.dockerfilePath); err != nil {
+		os.RemoveAll(tempDir)
+		return "", "", err
+	}
+	return tempDir, spec.dockerfilePath, nil
+}
+
+func prepareAppleWebBuildContext(ctx context.Context, webDir, buildID string) (string, string, error) {
+	cmd := exec.CommandContext(ctx, "npm", "run", "build")
+	cmd.Dir = webDir
+	cmd.Env = os.Environ()
+	if buildID != "" {
+		cmd.Env = append(cmd.Env, "VITE_BUILD_ID="+buildID)
+	}
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", "", fmt.Errorf("build web dist: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+
+	tempDir, err := os.MkdirTemp("", "agency-apple-web-build-*")
+	if err != nil {
+		return "", "", err
+	}
+	for _, name := range []string{"nginx.conf", "agency-entrypoint.sh"} {
+		if err := copyFile(filepath.Join(webDir, name), filepath.Join(tempDir, name)); err != nil {
+			os.RemoveAll(tempDir)
+			return "", "", err
+		}
+	}
+	if err := copyDirContents(filepath.Join(webDir, "dist"), filepath.Join(tempDir, "dist")); err != nil {
+		os.RemoveAll(tempDir)
+		return "", "", err
+	}
+	if err := os.WriteFile(filepath.Join(tempDir, "Dockerfile"), []byte(appleWebDockerfile), 0o644); err != nil {
+		os.RemoveAll(tempDir)
+		return "", "", err
+	}
+	if err := rewriteAppleBuildContextDockerfile(tempDir, "Dockerfile"); err != nil {
+		os.RemoveAll(tempDir)
+		return "", "", err
+	}
+	return tempDir, "Dockerfile", nil
+}
+
+func rewriteAppleBuildContextDockerfile(contextDir, dockerfilePath string) error {
+	path := filepath.Join(contextDir, dockerfilePath)
+	originalDockerfile, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	rewritten, err := rewriteDockerfileForAppleDirectoryCopies(string(originalDockerfile), contextDir)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, []byte(rewritten), 0o644); err != nil {
+		return err
+	}
+	return nil
+}
+
+const appleWebDockerfile = `FROM alpine:3.21
+
+ARG BUILD_ID=unknown
+ARG SOURCE_HASH=unknown
+
+RUN apk add --no-cache nginx \
+    && addgroup -g 101 -S nginx 2>/dev/null || true \
+    && adduser -S -D -H -u 101 -h /var/cache/nginx -s /sbin/nologin -G nginx nginx 2>/dev/null || true \
+    && mkdir -p /etc/nginx/conf.d /var/cache/nginx \
+    && rm -f /etc/nginx/http.d/default.conf
+
+RUN printf 'worker_processes auto;\n\
+pid /tmp/nginx.pid;\n\
+error_log /dev/stderr warn;\n\
+events { worker_connections 1024; }\n\
+http {\n\
+    include /etc/nginx/mime.types;\n\
+    default_type application/octet-stream;\n\
+    log_format agency escape=json '"'"'{"ts":"$time_iso8601","level":"info","component":"web","msg":"access","method":"$request_method","path":"$uri","status":$status,"duration_s":$request_time,"bytes":$bytes_sent,"remote":"$remote_addr"}'"'"';\n\
+    access_log /dev/stdout agency;\n\
+    sendfile on;\n\
+    keepalive_timeout 65;\n\
+    client_body_temp_path /tmp/client_temp;\n\
+    proxy_temp_path /tmp/proxy_temp;\n\
+    fastcgi_temp_path /tmp/fastcgi_temp;\n\
+    uwsgi_temp_path /tmp/uwsgi_temp;\n\
+    scgi_temp_path /tmp/scgi_temp;\n\
+    include /etc/nginx/conf.d/*.conf;\n\
+}\n' > /etc/nginx/nginx.conf
+
+COPY nginx.conf /etc/nginx/conf.d/agency-web.conf
+COPY dist /usr/share/nginx/html
+COPY agency-entrypoint.sh /agency-entrypoint.sh
+RUN chmod 0644 /etc/nginx/conf.d/agency-web.conf \
+    && chmod 0755 /agency-entrypoint.sh
+
+LABEL agency.build.id="${BUILD_ID}"
+LABEL agency.source.hash="${SOURCE_HASH}"
+
+USER nginx
+EXPOSE 8280
+
+HEALTHCHECK --interval=5s --timeout=2s --start-period=2s --retries=3 \
+    CMD wget -q -O /dev/null http://127.0.0.1:8280/health || exit 1
+
+ENTRYPOINT ["/agency-entrypoint.sh"]
+`
+
 func copyDirContents(srcDir, dstDir string) error {
+	ignorePatterns := dockerIgnorePatterns(srcDir)
 	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -441,6 +578,12 @@ func copyDirContents(srcDir, dstDir string) error {
 			return err
 		}
 		if rel == "." {
+			return nil
+		}
+		if matchesIgnore(rel, info.IsDir(), ignorePatterns) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		dst := filepath.Join(dstDir, rel)
@@ -456,6 +599,21 @@ func copyDirContents(srcDir, dstDir string) error {
 		}
 		return os.WriteFile(dst, data, info.Mode())
 	})
+}
+
+func copyFile(src, dst string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, info.Mode())
 }
 
 func copySelectedPaths(srcDir, dstDir string, paths []string) error {
@@ -526,6 +684,133 @@ func rewriteDockerfileForNamedContexts(content string, namedContexts map[string]
 		lines[i] = strings.Join(rewritten, " ")
 	}
 	return strings.Join(lines, "\n")
+}
+
+func rewriteDockerfileForAppleDirectoryCopies(content, contextDir string) (string, error) {
+	ignorePatterns := dockerIgnorePatterns(contextDir)
+	lines := strings.Split(content, "\n")
+	var out []string
+	for _, line := range lines {
+		rewritten, expanded, err := expandAppleDirectoryCopyLine(line, contextDir, ignorePatterns)
+		if err != nil {
+			return "", err
+		}
+		if expanded {
+			out = append(out, rewritten...)
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n"), nil
+}
+
+func expandAppleDirectoryCopyLine(line, contextDir string, ignorePatterns []string) ([]string, bool, error) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return nil, false, nil
+	}
+	fields := strings.Fields(trimmed)
+	if len(fields) < 3 {
+		return nil, false, nil
+	}
+	instruction := strings.ToUpper(fields[0])
+	if instruction != "COPY" && instruction != "ADD" {
+		return nil, false, nil
+	}
+
+	idx := 1
+	var flags []string
+	for idx < len(fields)-2 && strings.HasPrefix(fields[idx], "--") {
+		if strings.HasPrefix(fields[idx], "--from=") {
+			return nil, false, nil
+		}
+		flags = append(flags, fields[idx])
+		idx++
+	}
+	if len(fields)-idx < 2 {
+		return nil, false, nil
+	}
+	sources := fields[idx : len(fields)-1]
+	dest := strings.Trim(fields[len(fields)-1], `"'`)
+
+	var expanded []string
+	changed := false
+	for _, source := range sources {
+		cleanSource := strings.Trim(source, `"'`)
+		if cleanSource == "" || strings.ContainsAny(cleanSource, "*?[") {
+			continue
+		}
+		fullSource := filepath.Clean(filepath.Join(contextDir, cleanSource))
+		if !strings.HasPrefix(fullSource, filepath.Clean(contextDir)+string(os.PathSeparator)) && fullSource != filepath.Clean(contextDir) {
+			return nil, false, fmt.Errorf("path %q escapes build context", source)
+		}
+		info, err := os.Stat(fullSource)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		files, err := appleDirectoryCopyFiles(contextDir, cleanSource, ignorePatterns)
+		if err != nil {
+			return nil, false, err
+		}
+		for _, rel := range files {
+			target := appleDirectoryCopyTarget(cleanSource, rel, dest, len(sources) > 1)
+			parts := append([]string{fields[0]}, flags...)
+			parts = append(parts, filepath.ToSlash(filepath.Join(cleanSource, rel)), target)
+			expanded = append(expanded, strings.Join(parts, " "))
+		}
+		changed = true
+	}
+	if !changed {
+		return nil, false, nil
+	}
+	return expanded, true, nil
+}
+
+func appleDirectoryCopyFiles(contextDir, source string, ignorePatterns []string) ([]string, error) {
+	source = strings.TrimSuffix(strings.Trim(source, `"'`), "/")
+	root := filepath.Clean(filepath.Join(contextDir, source))
+	var files []string
+	if err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relToContext, err := filepath.Rel(contextDir, path)
+		if err != nil {
+			return err
+		}
+		if relToContext == "." {
+			return nil
+		}
+		if matchesIgnore(relToContext, d.IsDir(), ignorePatterns) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		relToSource, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		files = append(files, filepath.ToSlash(relToSource))
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+func appleDirectoryCopyTarget(source, rel, dest string, multipleSources bool) string {
+	dest = strings.Trim(dest, `"'`)
+	rel = filepath.ToSlash(rel)
+	if multipleSources {
+		base := filepath.Base(strings.TrimSuffix(source, "/"))
+		return filepath.ToSlash(filepath.Join(dest, base, rel))
+	}
+	return filepath.ToSlash(filepath.Join(dest, rel))
 }
 
 func expandFingerprintPaths(contextDir string, paths []string) ([]string, error) {

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -294,9 +295,35 @@ func TestAppleContainerMountFromFileBindUsesVolume(t *testing.T) {
 	if err := os.WriteFile(file, []byte("routes: []\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	flag, value := appleContainerMountFromBind(file + ":/app/routing.yaml:ro")
+	flag, value, err := appleContainerMountFromBind(file + ":/app/routing.yaml:ro")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if flag != "--volume" || value != file+":/app/routing.yaml:ro" {
 		t.Fatalf("appleContainerMountFromBind() = %q %q", flag, value)
+	}
+}
+
+func TestAppleContainerMountFromNamedVolumeUsesManagedHostPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("AGENCY_HOME", home)
+
+	flag, value, err := appleContainerMountFromBind("agency-smoke-workspace-data:/workspace:rw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flag != "--mount" {
+		t.Fatalf("flag = %q, want --mount; value=%q", flag, value)
+	}
+	wantSource := filepath.Join(home, "runtime", "apple-container", "volumes", "agency-smoke-workspace-data")
+	if !strings.Contains(value, "source="+wantSource) {
+		t.Fatalf("mount value = %q, want source %q", value, wantSource)
+	}
+	if !strings.Contains(value, "target=/workspace") {
+		t.Fatalf("mount value = %q, want /workspace target", value)
+	}
+	if _, err := os.Stat(wantSource); err != nil {
+		t.Fatalf("managed volume path not created: %v", err)
 	}
 }
 

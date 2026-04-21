@@ -1165,7 +1165,12 @@ func (inf *Infra) ensureWeb(ctx context.Context) error {
 		return nil // non-fatal — web UI is optional
 	}
 	name := inf.containerName("web")
-	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) {
+	if inf.isRunning(ctx, name) &&
+		inf.isCurrentBuild(ctx, name) &&
+		inf.isHealthyOrNoCheck(ctx, name) &&
+		inf.hasContainerEnv(ctx, name, "AGENCY_GATEWAY_HOST", inf.webGatewayHost()) &&
+		inf.hasContainerEnv(ctx, name, "AGENCY_GATEWAY_PORT", inf.gatewayPort()) &&
+		inf.hasContainerEnv(ctx, name, "AGENCY_WEB_LISTEN", inf.webListenAddr()) {
 		return nil
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("web"))
@@ -1915,6 +1920,9 @@ func (inf *Infra) webUsesHostNetwork() bool {
 func (inf *Infra) webGatewayHost() string {
 	if inf.webUsesHostNetwork() {
 		return "127.0.0.1"
+	}
+	if runtimehost.NormalizeContainerBackend(inf.backendName()) == runtimehost.BackendAppleContainer {
+		return inf.gatewayHost()
 	}
 	return "gateway"
 }

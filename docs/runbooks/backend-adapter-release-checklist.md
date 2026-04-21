@@ -250,8 +250,14 @@ Release gate policy:
 
 - Docker, Podman, and `containerd` smoke must stay automated
 - the `containerd` smoke lane is automated on Linux against a native containerd socket via `nerdctl`
+- `apple-container` remains experimental and manual-only; do not add it to
+  branch protection or required PR smoke until the adapter has complete
+  lifecycle, event, network, cleanup, and doctor semantics
 - `main` branch protection should require the per-PR smoke checks:
   `go-test`, `python-unit-test`, `python-knowledge-test`, `web-test`, `docker-smoke`, `podman-smoke`, and `containerd-smoke`
+- Docker, Podman, and `containerd` PR smoke workflows use
+  `scripts/ci-backend-smoke-needed.sh` to skip expensive runtime setup when a
+  PR only touches docs, README files, Apple-only smoke code, or unrelated tests
 - do not enable auto-merge for adapter work unless the smoke lanes above are enforced as required checks
 - verify branch-protection drift with:
   `make verify-required-status-checks`
@@ -276,6 +282,18 @@ make podman-readiness-full
 
 If the backend has a dedicated readiness or cleanup script, run it here and
 record the result.
+
+Current manual `apple-container` smoke:
+
+```bash
+./scripts/apple-container-smoke.sh --skip-build
+```
+
+- this lane is macOS Apple silicon only and expects the Apple `container`
+  service to already be running
+- it is for adapter development evidence, not required PR validation
+- Apple-only script changes should not trigger Docker, Podman, or `containerd`
+  smoke lanes
 
 Current automated `containerd` rootless smoke:
 

@@ -218,6 +218,24 @@ func TestInfraWebGatewayRoutingDefaults(t *testing.T) {
 	}
 }
 
+func TestInfraWebGatewayRoutingForAppleContainer(t *testing.T) {
+	appleContainer, err := runtimehost.NewRawClientForBackend(runtimehost.BackendAppleContainer, nil)
+	if err != nil {
+		t.Skipf("Apple container raw client unavailable: %v", err)
+	}
+	inf := &Infra{GatewayAddr: "192.168.128.1:8200", cli: appleContainer}
+
+	if inf.webUsesHostNetwork() {
+		t.Fatal("Apple container web should keep bridge networking")
+	}
+	if got, want := inf.webGatewayHost(), "192.168.128.1"; got != want {
+		t.Fatalf("webGatewayHost() = %q, want %q", got, want)
+	}
+	if got, want := inf.webListenAddr(), "8280"; got != want {
+		t.Fatalf("webListenAddr() = %q, want %q", got, want)
+	}
+}
+
 func TestInfraWebNetworkModeOverride(t *testing.T) {
 	inf := &Infra{GatewayAddr: "127.0.0.1:18300"}
 

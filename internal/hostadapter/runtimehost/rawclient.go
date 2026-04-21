@@ -1632,7 +1632,11 @@ func appleContainerCreateArgs(config *dockercontainer.Config, hostConfig *docker
 			args = append(args, "--cpus", formatNanoCPUs(hostConfig.Resources.NanoCPUs))
 		}
 		for _, bind := range hostConfig.Binds {
-			if flag, value := appleContainerMountFromBind(bind); value != "" {
+			flag, value, err := appleContainerMountFromBind(bind)
+			if err != nil {
+				return nil, err
+			}
+			if value != "" {
 				args = append(args, flag, value)
 			}
 		}
@@ -1659,15 +1663,15 @@ func appleContainerCreateArgs(config *dockercontainer.Config, hostConfig *docker
 	return args, nil
 }
 
-func appleContainerMountFromBind(bind string) (string, string) {
+func appleContainerMountFromBind(bind string) (string, string, error) {
 	parts := strings.Split(bind, ":")
 	if len(parts) < 2 {
-		return "", ""
+		return "", "", nil
 	}
 	source := strings.TrimSpace(parts[0])
 	target := strings.TrimSpace(parts[1])
 	if source == "" || target == "" {
-		return "", ""
+		return "", "", nil
 	}
 	readonly := false
 	for _, opt := range parts[2:] {
@@ -1675,18 +1679,56 @@ func appleContainerMountFromBind(bind string) (string, string) {
 			readonly = true
 		}
 	}
+	if appleContainerNamedVolumeSource(source) {
+		hostPath, err := appleContainerVolumeHostPath(source)
+		if err != nil {
+			return "", "", err
+		}
+		source = hostPath
+	}
 	if info, err := os.Stat(source); err == nil && !info.IsDir() {
 		volume := source + ":" + target
 		if readonly {
 			volume += ":ro"
 		}
-		return "--volume", volume
+		return "--volume", volume, nil
 	}
 	mount := "type=bind,source=" + source + ",target=" + target
 	if readonly {
 		mount += ",readonly"
 	}
-	return "--mount", mount
+	return "--mount", mount, nil
+}
+
+func appleContainerNamedVolumeSource(source string) bool {
+	source = strings.TrimSpace(source)
+	if source == "" || filepath.IsAbs(source) {
+		return false
+	}
+	if strings.HasPrefix(source, ".") || strings.HasPrefix(source, "~") {
+		return false
+	}
+	return !strings.ContainsAny(source, `/\`)
+}
+
+func appleContainerVolumeHostPath(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("apple-container named volume requires a name")
+	}
+	home := strings.TrimSpace(os.Getenv("AGENCY_HOME"))
+	if home == "" {
+		userHome, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		home = filepath.Join(userHome, ".agency")
+	}
+	path := filepath.Join(home, "runtime", "apple-container", "volumes", name)
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func appleContainerPublishSpec(containerPort, hostIP, hostPort string) string {

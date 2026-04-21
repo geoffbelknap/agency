@@ -32,6 +32,31 @@ run_diag() {
   "$@" || true
 }
 
+require_cmd() {
+  printf '\n$ %s\n' "$*"
+  "$@"
+}
+
+require_log_contains() {
+  local file="$1"
+  local pattern="$2"
+  local message="$3"
+  if ! grep -Fq "$pattern" "$file"; then
+    echo "$message" >&2
+    exit 1
+  fi
+}
+
+require_log_absent() {
+  local file="$1"
+  local pattern="$2"
+  local message="$3"
+  if grep -Fq "$pattern" "$file"; then
+    echo "$message" >&2
+    exit 1
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --home)
@@ -62,6 +87,8 @@ done
 if [[ -z "$AGENCY_HOME_DIR" ]]; then
   AGENCY_HOME_DIR="$(mktemp -d /tmp/agency-apple-smoke.XXXXXX)"
 fi
+SETUP_LOG="$AGENCY_HOME_DIR/setup.log"
+CHANNELS_BODY="$AGENCY_HOME_DIR/channels.json"
 
 cd "$ROOT"
 
@@ -76,7 +103,7 @@ if [[ "$BUILD" == "1" ]]; then
 fi
 
 log "container service"
-run_diag container system status
+require_cmd container system status
 
 log "port preflight"
 if lsof -nP -iTCP:8200 -sTCP:LISTEN; then
@@ -90,18 +117,28 @@ AGENCY_HOME="$AGENCY_HOME_DIR" "$AGENCY_BIN" setup \
   --backend apple-container \
   --provider openai \
   --api-key "$API_KEY" \
-  --no-browser
-setup_status=$?
+  --no-browser 2>&1 | tee "$SETUP_LOG"
+setup_status=${PIPESTATUS[0]}
 set -e
 printf 'setup_exit=%s\n' "$setup_status"
+if [[ "$setup_status" != "0" ]]; then
+  exit "$setup_status"
+fi
+require_log_contains "$SETUP_LOG" "Infrastructure running." "setup completed without confirming infrastructure is running"
+require_log_absent "$SETUP_LOG" "Warning: infrastructure did not start" "setup reported that infrastructure did not start"
+require_log_absent "$SETUP_LOG" "agency-web image not available, skipping" "web image was unavailable during Apple container smoke"
 
 log "gateway"
-run_diag env AGENCY_HOME="$AGENCY_HOME_DIR" "$AGENCY_BIN" serve status
+require_cmd env AGENCY_HOME="$AGENCY_HOME_DIR" "$AGENCY_BIN" serve status
 run_diag lsof -nP -iTCP:8200 -sTCP:LISTEN
-run_diag curl -fsS "http://192.168.128.1:8200/api/v1/health"
+require_cmd curl -fsS "http://192.168.128.1:8200/api/v1/health"
 
 log "host reverse bridge"
-run_diag curl -v --max-time 5 "http://127.0.0.1:8202/channels"
+require_cmd curl -fsS --max-time 5 "http://127.0.0.1:8202/channels" -o "$CHANNELS_BODY"
+require_log_contains "$CHANNELS_BODY" '"general"' "host reverse bridge did not return the general channel"
+
+log "web"
+require_cmd curl -fsS --max-time 5 "http://127.0.0.1:8280/health"
 
 log "containers"
 run_diag container list --all --format json
@@ -113,7 +150,7 @@ log "comms logs"
 run_diag container logs -n 160 agency-infra-comms
 
 log "comms image import"
-run_diag container run --rm agency-comms:latest /bin/sh -c 'find /app/images/models -type f | sort; python - <<PY
+require_cmd container run --rm agency-comms:latest /bin/sh -c 'find /app/images/models -type f | sort; python - <<PY
 import images.models.comms
 print("images.models.comms ok")
 PY'
