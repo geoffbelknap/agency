@@ -268,6 +268,15 @@ func NewRawClientForBackend(backend string, backendConfig map[string]string) (*R
 	return newRawClientForBackend(backend, backendConfig)
 }
 
+func AppleContainerStatus(ctx context.Context, backendConfig map[string]string) error {
+	cli, err := newAppleContainerRawClient(backendConfig)
+	if err != nil {
+		return err
+	}
+	_, err = cli.Ping(ctx)
+	return err
+}
+
 func newRawClientForBackend(backend string, backendConfig map[string]string) (*RawClient, error) {
 	backend = NormalizeContainerBackend(backend)
 	if !IsContainerBackend(backend) {

@@ -57,6 +57,8 @@ type doctorReport struct {
 type checkResult = doctorCheckResult
 type scopeInfo = doctorScopeInfo
 
+var appleContainerStatus = runtimehost.AppleContainerStatus
+
 func backendConnectionDetails(cfg *config.Config) (string, string) {
 	if cfg == nil {
 		return "", ""
@@ -153,6 +155,41 @@ func (h *handler) backendDiagnosticChecks(ctx context.Context, runningAgents []s
 		return adapter.BackendDiagnostics(ctx, runningAgents)
 	}
 	return nil
+}
+
+func (h *handler) adminDoctorAppleContainer(ctx context.Context, report doctorReport) doctorReport {
+	backendConfig := map[string]string(nil)
+	if h.deps.Config != nil {
+		backendConfig = h.deps.Config.Hub.DeploymentBackendConfig
+	}
+	if err := appleContainerStatus(ctx, backendConfig); err != nil {
+		report.AllPassed = false
+		report.Checks = append(report.Checks, doctorCheckResult{
+			Name:    "apple_container_service",
+			Scope:   "backend",
+			Backend: runtimehost.BackendAppleContainer,
+			Status:  "fail",
+			Detail:  err.Error(),
+			Fix:     "Install and start Apple container, or select a different deployment backend.",
+		})
+	} else {
+		report.Checks = append(report.Checks, doctorCheckResult{
+			Name:    "apple_container_service",
+			Scope:   "backend",
+			Backend: runtimehost.BackendAppleContainer,
+			Status:  "pass",
+			Detail:  "`container system status` succeeded",
+		})
+	}
+	report.Checks = append(report.Checks, doctorCheckResult{
+		Name:    "apple_container_runtime_gated",
+		Scope:   "backend",
+		Backend: runtimehost.BackendAppleContainer,
+		Status:  "pass",
+		Detail:  "Lifecycle, runtime inspection, and mediation-network validation remain gated until Apple container adapter semantics are implemented.",
+	})
+	report.RuntimeChecks, report.BackendChecks = splitDoctorChecks(report.Checks, report.Backend)
+	return report
 }
 
 func isSyntheticReadinessAgent(name string) bool {
@@ -305,6 +342,10 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 	report := doctorReport{AllPassed: true, Backend: configuredRuntimeBackend(h.deps.Config), BackendEndpoint: endpoint, BackendMode: mode}
 	if !runtimehost.IsContainerBackend(report.Backend) {
 		writeJSON(w, 200, h.adminDoctorRuntimeContract(ctx))
+		return
+	}
+	if runtimehost.NormalizeContainerBackend(report.Backend) == runtimehost.BackendAppleContainer {
+		writeJSON(w, 200, h.adminDoctorAppleContainer(ctx, report))
 		return
 	}
 
