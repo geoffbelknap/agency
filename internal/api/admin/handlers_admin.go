@@ -78,7 +78,7 @@ func configuredRuntimeBackend(cfg *config.Config) string {
 
 func isBackendSpecificDoctorCheck(name, backend string) bool {
 	switch backend {
-	case runtimehost.BackendDocker, runtimehost.BackendPodman, runtimehost.BackendContainerd:
+	case runtimehost.BackendDocker, runtimehost.BackendPodman, runtimehost.BackendContainerd, runtimehost.BackendAppleContainer:
 		// Prefix handling is kept only as a compatibility fallback for older
 		// checks. New Doctor checks should use backend-neutral names plus
 		// scope/backend metadata.

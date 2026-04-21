@@ -34,6 +34,9 @@ func TestSupportsEventStream(t *testing.T) {
 	if (&RawClient{backend: BackendContainerd, nerdctl: &nerdctlConfig{}}).SupportsEventStream() != false {
 		t.Fatal("containerd nerdctl client should not report event stream support")
 	}
+	if (&RawClient{backend: BackendAppleContainer, appleContainer: &appleContainerConfig{}}).SupportsEventStream() != false {
+		t.Fatal("apple-container client should not report event stream support before event mapping exists")
+	}
 }
 
 func TestValidateContainerdAddressRejectsDockerCompatibleSocket(t *testing.T) {
@@ -46,6 +49,34 @@ func TestValidateContainerdAddressRejectsDockerCompatibleSocket(t *testing.T) {
 func TestValidateContainerdAddressAcceptsNativeSocket(t *testing.T) {
 	if err := validateContainerdAddress("unix:///run/user/1000/containerd/containerd.sock"); err != nil {
 		t.Fatalf("expected native socket to pass validation, got %v", err)
+	}
+}
+
+func TestValidateAppleContainerPlatform(t *testing.T) {
+	if err := validateAppleContainerPlatform("darwin", "arm64"); err != nil {
+		t.Fatalf("expected darwin/arm64 to pass validation, got %v", err)
+	}
+	if err := validateAppleContainerPlatform("linux", "arm64"); err == nil {
+		t.Fatal("expected non-macOS host to be rejected")
+	}
+	if err := validateAppleContainerPlatform("darwin", "amd64"); err == nil {
+		t.Fatal("expected non-Apple-silicon host to be rejected")
+	}
+}
+
+func TestValidateAppleContainerConfigRejectsSocketShapedKeys(t *testing.T) {
+	for _, key := range []string{"host", "socket", "native_socket", "address", "containerd_address", "namespace", "data_root"} {
+		t.Run(key, func(t *testing.T) {
+			if err := validateAppleContainerConfig(map[string]string{key: "value"}); err == nil {
+				t.Fatalf("expected %s to be rejected", key)
+			}
+		})
+	}
+}
+
+func TestValidateAppleContainerConfigAcceptsBinaryOverride(t *testing.T) {
+	if err := validateAppleContainerConfig(map[string]string{"binary": "/usr/local/bin/container"}); err != nil {
+		t.Fatalf("expected binary override to pass validation, got %v", err)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -32,14 +33,19 @@ type nerdctlConfig struct {
 	dataRoot  string
 }
 
+type appleContainerConfig struct {
+	binary string
+}
+
 // RawClient is Agency's owned container-runtime client wrapper. Docker and
 // Podman delegate to the Docker-compatible SDK. Containerd uses nerdctl so the
 // public backend remains `containerd` without depending on a Docker API socket.
 type RawClient struct {
-	backend  string
-	endpoint string
-	docker   *dockerclient.Client
-	nerdctl  *nerdctlConfig
+	backend        string
+	endpoint       string
+	docker         *dockerclient.Client
+	nerdctl        *nerdctlConfig
+	appleContainer *appleContainerConfig
 }
 
 func containerdSocketTypeError(address string) error {
@@ -98,6 +104,47 @@ func newNerdctlRawClient(backendConfig map[string]string) (*RawClient, error) {
 	return &RawClient{backend: BackendContainerd, endpoint: cfg.address, nerdctl: cfg}, nil
 }
 
+func validateAppleContainerPlatform(goos, goarch string) error {
+	if goos != "darwin" || goarch != "arm64" {
+		return fmt.Errorf("apple-container backend requires macOS on Apple silicon")
+	}
+	return nil
+}
+
+func validateAppleContainerConfig(backendConfig map[string]string) error {
+	if backendConfig == nil {
+		return nil
+	}
+	for _, key := range []string{"host", "socket", "native_socket", "address", "containerd_address", "namespace", "data_root"} {
+		if strings.TrimSpace(backendConfig[key]) != "" {
+			return fmt.Errorf("apple-container backend does not accept %q config; it uses the local Apple container CLI service", key)
+		}
+	}
+	return nil
+}
+
+func newAppleContainerRawClient(backendConfig map[string]string) (*RawClient, error) {
+	if err := validateAppleContainerPlatform(runtime.GOOS, runtime.GOARCH); err != nil {
+		return nil, err
+	}
+	if err := validateAppleContainerConfig(backendConfig); err != nil {
+		return nil, err
+	}
+	binary := strings.TrimSpace(os.Getenv("AGENCY_APPLE_CONTAINER_BIN"))
+	if backendConfig != nil {
+		if configured := strings.TrimSpace(backendConfig["binary"]); configured != "" {
+			binary = configured
+		}
+	}
+	if binary == "" {
+		binary = "container"
+	}
+	return &RawClient{
+		backend:        BackendAppleContainer,
+		appleContainer: &appleContainerConfig{binary: binary},
+	}, nil
+}
+
 func (c *RawClient) Backend() string {
 	if c == nil || strings.TrimSpace(c.backend) == "" {
 		return BackendDocker
@@ -116,7 +163,17 @@ func (c *RawClient) usesNerdctl() bool {
 	return c != nil && c.nerdctl != nil && c.docker == nil
 }
 
+func (c *RawClient) usesAppleContainer() bool {
+	return c != nil && c.appleContainer != nil && c.docker == nil
+}
+
 func (c *RawClient) Ping(ctx context.Context) (dockertypes.Ping, error) {
+	if c.usesAppleContainer() {
+		if _, _, err := c.runAppleContainer(ctx, "system", "status"); err != nil {
+			return dockertypes.Ping{}, err
+		}
+		return dockertypes.Ping{APIVersion: "apple-container"}, nil
+	}
 	if !c.usesNerdctl() {
 		return c.docker.Ping(ctx)
 	}
@@ -127,6 +184,9 @@ func (c *RawClient) Ping(ctx context.Context) (dockertypes.Ping, error) {
 }
 
 func (c *RawClient) ContainerList(ctx context.Context, options dockercontainer.ListOptions) ([]dockercontainer.Summary, error) {
+	if c.usesAppleContainer() {
+		return nil, c.appleContainerUnsupported("list containers")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.ContainerList(ctx, options)
 	}
@@ -155,6 +215,9 @@ func (c *RawClient) ContainerList(ctx context.Context, options dockercontainer.L
 }
 
 func (c *RawClient) ContainerInspect(ctx context.Context, containerID string) (dockercontainer.InspectResponse, error) {
+	if c.usesAppleContainer() {
+		return dockercontainer.InspectResponse{}, c.appleContainerUnsupported("inspect containers")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.ContainerInspect(ctx, containerID)
 	}
@@ -169,6 +232,9 @@ func (c *RawClient) ContainerInspect(ctx context.Context, containerID string) (d
 }
 
 func (c *RawClient) ContainerCreate(ctx context.Context, config *dockercontainer.Config, hostConfig *dockercontainer.HostConfig, networkingConfig *dockernetwork.NetworkingConfig, platform *specs.Platform, containerName string) (dockercontainer.CreateResponse, error) {
+	if c.usesAppleContainer() {
+		return dockercontainer.CreateResponse{}, c.appleContainerUnsupported("create containers")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.ContainerCreate(ctx, config, hostConfig, networkingConfig, platform, containerName)
 	}
@@ -188,6 +254,9 @@ func (c *RawClient) ContainerCreate(ctx context.Context, config *dockercontainer
 }
 
 func (c *RawClient) ContainerStart(ctx context.Context, containerID string, options dockercontainer.StartOptions) error {
+	if c.usesAppleContainer() {
+		return c.appleContainerUnsupported("start containers")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.ContainerStart(ctx, containerID, options)
 	}
@@ -196,6 +265,9 @@ func (c *RawClient) ContainerStart(ctx context.Context, containerID string, opti
 }
 
 func (c *RawClient) ContainerStop(ctx context.Context, containerID string, options dockercontainer.StopOptions) error {
+	if c.usesAppleContainer() {
+		return c.appleContainerUnsupported("stop containers")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.ContainerStop(ctx, containerID, options)
 	}
@@ -209,6 +281,9 @@ func (c *RawClient) ContainerStop(ctx context.Context, containerID string, optio
 }
 
 func (c *RawClient) ContainerRemove(ctx context.Context, containerID string, options dockercontainer.RemoveOptions) error {
+	if c.usesAppleContainer() {
+		return c.appleContainerUnsupported("remove containers")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.ContainerRemove(ctx, containerID, options)
 	}
@@ -225,6 +300,9 @@ func (c *RawClient) ContainerRemove(ctx context.Context, containerID string, opt
 }
 
 func (c *RawClient) ContainerKill(ctx context.Context, containerID, signal string) error {
+	if c.usesAppleContainer() {
+		return c.appleContainerUnsupported("signal containers")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.ContainerKill(ctx, containerID, signal)
 	}
@@ -238,6 +316,9 @@ func (c *RawClient) ContainerKill(ctx context.Context, containerID, signal strin
 }
 
 func (c *RawClient) ContainerPause(ctx context.Context, containerID string) error {
+	if c.usesAppleContainer() {
+		return c.appleContainerUnsupported("pause containers")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.ContainerPause(ctx, containerID)
 	}
@@ -246,6 +327,9 @@ func (c *RawClient) ContainerPause(ctx context.Context, containerID string) erro
 }
 
 func (c *RawClient) ContainerUnpause(ctx context.Context, containerID string) error {
+	if c.usesAppleContainer() {
+		return c.appleContainerUnsupported("unpause containers")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.ContainerUnpause(ctx, containerID)
 	}
@@ -254,6 +338,9 @@ func (c *RawClient) ContainerUnpause(ctx context.Context, containerID string) er
 }
 
 func (c *RawClient) ContainerExecCreate(ctx context.Context, containerID string, options dockercontainer.ExecOptions) (dockercontainer.ExecCreateResponse, error) {
+	if c.usesAppleContainer() {
+		return dockercontainer.ExecCreateResponse{}, c.appleContainerUnsupported("create exec sessions")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.ContainerExecCreate(ctx, containerID, options)
 	}
@@ -261,6 +348,9 @@ func (c *RawClient) ContainerExecCreate(ctx context.Context, containerID string,
 }
 
 func (c *RawClient) ContainerExecAttach(ctx context.Context, execID string, config dockercontainer.ExecAttachOptions) (dockertypes.HijackedResponse, error) {
+	if c.usesAppleContainer() {
+		return dockertypes.HijackedResponse{}, c.appleContainerUnsupported("attach exec sessions")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.ContainerExecAttach(ctx, execID, config)
 	}
@@ -268,6 +358,9 @@ func (c *RawClient) ContainerExecAttach(ctx context.Context, execID string, conf
 }
 
 func (c *RawClient) ContainerExecInspect(ctx context.Context, execID string) (dockercontainer.ExecInspect, error) {
+	if c.usesAppleContainer() {
+		return dockercontainer.ExecInspect{}, c.appleContainerUnsupported("inspect exec sessions")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.ContainerExecInspect(ctx, execID)
 	}
@@ -275,6 +368,9 @@ func (c *RawClient) ContainerExecInspect(ctx context.Context, execID string) (do
 }
 
 func (c *RawClient) NetworkCreate(ctx context.Context, name string, options dockernetwork.CreateOptions) (dockernetwork.CreateResponse, error) {
+	if c.usesAppleContainer() {
+		return dockernetwork.CreateResponse{}, c.appleContainerUnsupported("create networks")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.NetworkCreate(ctx, name, options)
 	}
@@ -301,6 +397,9 @@ func (c *RawClient) NetworkCreate(ctx context.Context, name string, options dock
 }
 
 func (c *RawClient) NetworkRemove(ctx context.Context, networkID string) error {
+	if c.usesAppleContainer() {
+		return c.appleContainerUnsupported("remove networks")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.NetworkRemove(ctx, networkID)
 	}
@@ -309,6 +408,9 @@ func (c *RawClient) NetworkRemove(ctx context.Context, networkID string) error {
 }
 
 func (c *RawClient) NetworkInspect(ctx context.Context, networkID string, options dockernetwork.InspectOptions) (dockernetwork.Inspect, error) {
+	if c.usesAppleContainer() {
+		return dockernetwork.Inspect{}, c.appleContainerUnsupported("inspect networks")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.NetworkInspect(ctx, networkID, options)
 	}
@@ -325,6 +427,9 @@ func (c *RawClient) NetworkInspect(ctx context.Context, networkID string, option
 }
 
 func (c *RawClient) NetworkList(ctx context.Context, options dockernetwork.ListOptions) ([]dockernetwork.Summary, error) {
+	if c.usesAppleContainer() {
+		return nil, c.appleContainerUnsupported("list networks")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.NetworkList(ctx, options)
 	}
@@ -357,6 +462,9 @@ func (c *RawClient) NetworkList(ctx context.Context, options dockernetwork.ListO
 }
 
 func (c *RawClient) NetworkConnect(ctx context.Context, networkID, container string, config *dockernetwork.EndpointSettings) error {
+	if c.usesAppleContainer() {
+		return c.appleContainerUnsupported("connect networks")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.NetworkConnect(ctx, networkID, container, config)
 	}
@@ -370,6 +478,9 @@ func (c *RawClient) NetworkConnect(ctx context.Context, networkID, container str
 }
 
 func (c *RawClient) VolumeCreate(ctx context.Context, options dockervolume.CreateOptions) (dockervolume.Volume, error) {
+	if c.usesAppleContainer() {
+		return dockervolume.Volume{}, c.appleContainerUnsupported("create volumes")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.VolumeCreate(ctx, options)
 	}
@@ -392,6 +503,9 @@ func (c *RawClient) VolumeCreate(ctx context.Context, options dockervolume.Creat
 }
 
 func (c *RawClient) VolumeInspect(ctx context.Context, volumeID string) (dockervolume.Volume, error) {
+	if c.usesAppleContainer() {
+		return dockervolume.Volume{}, c.appleContainerUnsupported("inspect volumes")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.VolumeInspect(ctx, volumeID)
 	}
@@ -408,6 +522,9 @@ func (c *RawClient) VolumeInspect(ctx context.Context, volumeID string) (dockerv
 }
 
 func (c *RawClient) VolumeRemove(ctx context.Context, volumeID string, force bool) error {
+	if c.usesAppleContainer() {
+		return c.appleContainerUnsupported("remove volumes")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.VolumeRemove(ctx, volumeID, force)
 	}
@@ -421,6 +538,9 @@ func (c *RawClient) VolumeRemove(ctx context.Context, volumeID string, force boo
 }
 
 func (c *RawClient) ImageInspectWithRaw(ctx context.Context, image string) (dockerimage.InspectResponse, []byte, error) {
+	if c.usesAppleContainer() {
+		return dockerimage.InspectResponse{}, nil, c.appleContainerUnsupported("inspect images")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.ImageInspectWithRaw(ctx, image)
 	}
@@ -443,6 +563,9 @@ func (c *RawClient) ImageInspectWithRaw(ctx context.Context, image string) (dock
 }
 
 func (c *RawClient) ImageList(ctx context.Context, options dockerimage.ListOptions) ([]dockerimage.Summary, error) {
+	if c.usesAppleContainer() {
+		return nil, c.appleContainerUnsupported("list images")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.ImageList(ctx, options)
 	}
@@ -475,6 +598,9 @@ func (c *RawClient) ImageList(ctx context.Context, options dockerimage.ListOptio
 }
 
 func (c *RawClient) ImageRemove(ctx context.Context, image string, options dockerimage.RemoveOptions) ([]dockerimage.DeleteResponse, error) {
+	if c.usesAppleContainer() {
+		return nil, c.appleContainerUnsupported("remove images")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.ImageRemove(ctx, image, options)
 	}
@@ -491,6 +617,9 @@ func (c *RawClient) ImageRemove(ctx context.Context, image string, options docke
 }
 
 func (c *RawClient) ImagePull(ctx context.Context, ref string, options dockerimage.PullOptions) (io.ReadCloser, error) {
+	if c.usesAppleContainer() {
+		return nil, c.appleContainerUnsupported("pull images")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.ImagePull(ctx, ref, options)
 	}
@@ -502,6 +631,9 @@ func (c *RawClient) ImagePull(ctx context.Context, ref string, options dockerima
 }
 
 func (c *RawClient) ImageTag(ctx context.Context, source, target string) error {
+	if c.usesAppleContainer() {
+		return c.appleContainerUnsupported("tag images")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.ImageTag(ctx, source, target)
 	}
@@ -510,6 +642,9 @@ func (c *RawClient) ImageTag(ctx context.Context, source, target string) error {
 }
 
 func (c *RawClient) ImageBuild(ctx context.Context, buildContext io.Reader, options dockertypes.ImageBuildOptions) (dockertypes.ImageBuildResponse, error) {
+	if c.usesAppleContainer() {
+		return dockertypes.ImageBuildResponse{}, c.appleContainerUnsupported("build images")
+	}
 	if !c.usesNerdctl() {
 		return c.docker.ImageBuild(ctx, buildContext, options)
 	}
@@ -547,6 +682,14 @@ func (c *RawClient) ImageBuild(ctx context.Context, buildContext io.Reader, opti
 }
 
 func (c *RawClient) Events(ctx context.Context, options dockerevents.ListOptions) (<-chan dockerevents.Message, <-chan error) {
+	if c.usesAppleContainer() {
+		out := make(chan dockerevents.Message)
+		errOut := make(chan error, 1)
+		close(out)
+		errOut <- c.appleContainerUnsupported("stream events")
+		close(errOut)
+		return out, errOut
+	}
 	if !c.usesNerdctl() {
 		return c.docker.Events(ctx, options)
 	}
@@ -559,10 +702,13 @@ func (c *RawClient) Events(ctx context.Context, options dockerevents.ListOptions
 }
 
 func (c *RawClient) SupportsEventStream() bool {
-	return !c.usesNerdctl()
+	return !c.usesNerdctl() && !c.usesAppleContainer()
 }
 
 func (c *RawClient) Exec(ctx context.Context, containerName, user string, cmd []string) (string, error) {
+	if c.usesAppleContainer() {
+		return "", c.appleContainerUnsupported("exec commands")
+	}
 	if !c.usesNerdctl() {
 		execID, err := c.ContainerExecCreate(ctx, containerName, dockercontainer.ExecOptions{
 			Cmd:          cmd,
@@ -609,6 +755,9 @@ func (c *RawClient) Exec(ctx context.Context, containerName, user string, cmd []
 }
 
 func (c *RawClient) ContainerLogs(ctx context.Context, containerName string, tail int) (string, error) {
+	if c.usesAppleContainer() {
+		return "", c.appleContainerUnsupported("read container logs")
+	}
 	if tail <= 0 {
 		tail = 200
 	}
@@ -637,6 +786,10 @@ func (c *RawClient) ContainerLogs(ctx context.Context, containerName string, tai
 		return out, err
 	}
 	return out, nil
+}
+
+func (c *RawClient) appleContainerUnsupported(action string) error {
+	return fmt.Errorf("apple-container backend cannot %s yet; runtime contract support is gated until mediation, networking, and lifecycle semantics are implemented", action)
 }
 
 func (c *RawClient) nerdctlBaseArgs() []string {
@@ -676,6 +829,30 @@ func (c *RawClient) runNerdctl(ctx context.Context, args ...string) ([]byte, []b
 			return stdout.Bytes(), stderr.Bytes(), containerdSocketTypeError(c.nerdctl.address)
 		}
 		return stdout.Bytes(), stderr.Bytes(), fmt.Errorf("nerdctl %s: %s", strings.Join(args, " "), msg)
+	}
+	return stdout.Bytes(), stderr.Bytes(), nil
+}
+
+func (c *RawClient) runAppleContainer(ctx context.Context, args ...string) ([]byte, []byte, error) {
+	binary := "container"
+	if c != nil && c.appleContainer != nil && strings.TrimSpace(c.appleContainer.binary) != "" {
+		binary = c.appleContainer.binary
+	}
+	cmd := exec.CommandContext(ctx, binary, args...)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = strings.TrimSpace(stdout.String())
+		}
+		if msg == "" {
+			msg = err.Error()
+		}
+		return stdout.Bytes(), stderr.Bytes(), fmt.Errorf("container %s: %s", strings.Join(args, " "), msg)
 	}
 	return stdout.Bytes(), stderr.Bytes(), nil
 }
