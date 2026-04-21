@@ -239,13 +239,13 @@ func TryNewClientForBackend(backend string, backendConfig map[string]string, log
 	backend = NormalizeContainerBackend(backend)
 	cli, err := newRawClientForBackend(backend, backendConfig)
 	if err != nil {
-		logger.Warn("container backend client unavailable, starting in degraded mode", "backend", backend, "err", err)
+		logger.Warn("container backend client unavailable", "backend", backend, "err", err)
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if _, err := cli.Ping(ctx); err != nil {
-		logger.Warn("container backend not responding, starting in degraded mode", "backend", backend, "err", err)
+		logger.Warn("container backend not responding", "backend", backend, "err", err)
 		return nil
 	}
 	return &Client{cli: cli, backend: backend}

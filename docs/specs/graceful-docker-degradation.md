@@ -1,6 +1,22 @@
 # Graceful Docker Degradation
 
-## Status: Approved
+## Status: Rejected (2026-04-21)
+
+Rejected in favour of honest fail-closed behaviour. When a container
+backend is configured but unreachable, the gateway halts startup with
+`%s client is required` rather than serving a partial surface.
+
+Rationale: ASK tenet #4 ("enforcement failure defaults to denial")
+requires that a missing mediation plane stop the platform, not silently
+degrade it. A gateway serving reads from filesystem state while the
+enforcer network is unreachable is a partial-trust surface — operators
+may believe the platform is running when the policy plane is actually
+down. Failing fast surfaces the real problem immediately.
+
+The read-only conveniences this spec proposed (inspect config,
+list credentials, view agents) are available via `agency admin doctor`
+and direct filesystem inspection of `~/.agency/` when the gateway is
+down. They do not require a running gateway.
 
 ## Problem
 
