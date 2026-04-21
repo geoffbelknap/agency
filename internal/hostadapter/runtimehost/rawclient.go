@@ -1632,8 +1632,8 @@ func appleContainerCreateArgs(config *dockercontainer.Config, hostConfig *docker
 			args = append(args, "--cpus", formatNanoCPUs(hostConfig.Resources.NanoCPUs))
 		}
 		for _, bind := range hostConfig.Binds {
-			if mount := appleContainerMountFromBind(bind); mount != "" {
-				args = append(args, "--mount", mount)
+			if flag, value := appleContainerMountFromBind(bind); value != "" {
+				args = append(args, flag, value)
 			}
 		}
 		for target := range hostConfig.Tmpfs {
@@ -1659,15 +1659,15 @@ func appleContainerCreateArgs(config *dockercontainer.Config, hostConfig *docker
 	return args, nil
 }
 
-func appleContainerMountFromBind(bind string) string {
+func appleContainerMountFromBind(bind string) (string, string) {
 	parts := strings.Split(bind, ":")
 	if len(parts) < 2 {
-		return ""
+		return "", ""
 	}
 	source := strings.TrimSpace(parts[0])
 	target := strings.TrimSpace(parts[1])
 	if source == "" || target == "" {
-		return ""
+		return "", ""
 	}
 	readonly := false
 	for _, opt := range parts[2:] {
@@ -1675,11 +1675,18 @@ func appleContainerMountFromBind(bind string) string {
 			readonly = true
 		}
 	}
+	if info, err := os.Stat(source); err == nil && !info.IsDir() {
+		volume := source + ":" + target
+		if readonly {
+			volume += ":ro"
+		}
+		return "--volume", volume
+	}
 	mount := "type=bind,source=" + source + ",target=" + target
 	if readonly {
 		mount += ",readonly"
 	}
-	return mount
+	return "--mount", mount
 }
 
 func appleContainerPublishSpec(containerPort, hostIP, hostPort string) string {

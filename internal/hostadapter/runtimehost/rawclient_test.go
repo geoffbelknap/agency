@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -285,6 +286,17 @@ func TestAppleContainerLifecycleCommands(t *testing.T) {
 	}
 	if got := strings.Join(calls[3], " "); got != "delete --force agency-smoke-workspace" {
 		t.Fatalf("delete = %q", got)
+	}
+}
+
+func TestAppleContainerMountFromFileBindUsesVolume(t *testing.T) {
+	file := t.TempDir() + "/routing.yaml"
+	if err := os.WriteFile(file, []byte("routes: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	flag, value := appleContainerMountFromBind(file + ":/app/routing.yaml:ro")
+	if flag != "--volume" || value != file+":/app/routing.yaml:ro" {
+		t.Fatalf("appleContainerMountFromBind() = %q %q", flag, value)
 	}
 }
 
