@@ -314,6 +314,9 @@ func (r *Registry) Snapshot() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if principals == nil {
+		principals = []Principal{}
+	}
 	snap := RegistrySnapshot{
 		Version:     1,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),

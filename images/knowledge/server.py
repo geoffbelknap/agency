@@ -1332,15 +1332,14 @@ async def handle_save_insight(request: web.Request) -> web.Response:
 async def _run_schema_migrations(app: web.Application) -> None:
     """Run store schema migrations on startup."""
     store: KnowledgeStore = app["store"]
-    loop = asyncio.get_event_loop()
     try:
-        result = await loop.run_in_executor(None, store.migrate_edge_provenance)
+        result = store.migrate_edge_provenance()
         if result.get("migrated", 0) > 0:
             logger.info("Edge provenance migration: %s", result)
     except Exception as e:
         logger.warning("Edge provenance migration failed: %s", e)
     try:
-        result = await loop.run_in_executor(None, store.migrate_node_scopes)
+        result = store.migrate_node_scopes()
         if result.get("migrated", 0) > 0:
             logger.info("Node scopes migration: %s", result)
     except Exception as e:

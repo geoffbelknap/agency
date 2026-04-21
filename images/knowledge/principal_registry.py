@@ -34,7 +34,8 @@ class PrincipalRegistry:
     def load_data(self, data):
         self._principals = {}
         self._by_type_name = {}
-        for p in data.get("principals", []):
+        principals = data.get("principals") or []
+        for p in principals:
             uuid = p["uuid"]
             self._principals[uuid] = p
             self._by_type_name[(p["type"], p["name"])] = uuid

@@ -106,3 +106,34 @@ func TestKnowledgeDataRootForRepair(t *testing.T) {
 		t.Fatalf("knowledgeDataRootForRepair() = %q, want %q", got, want)
 	}
 }
+
+func TestPrepareKnowledgeRegistrySnapshotCopiesReadableFallback(t *testing.T) {
+	home := t.TempDir()
+	knowledgeDir := filepath.Join(home, "knowledge", "data")
+	if err := os.MkdirAll(knowledgeDir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "registry.json"), []byte(`{"principals":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := prepareKnowledgeRegistrySnapshot(home, knowledgeDir); err != nil {
+		t.Fatalf("prepareKnowledgeRegistrySnapshot() error = %v", err)
+	}
+
+	dst := filepath.Join(knowledgeDir, "registry.json")
+	data, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(data)) != `{"principals":[]}` {
+		t.Fatalf("registry snapshot = %q", string(data))
+	}
+	info, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("%s mode = %o, want 644", dst, info.Mode().Perm())
+	}
+}
