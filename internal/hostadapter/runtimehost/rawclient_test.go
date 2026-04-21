@@ -1,12 +1,14 @@
 package runtimehost
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"reflect"
 	"strings"
 	"testing"
 
+	dockertypes "github.com/docker/docker/api/types"
 	dockercontainer "github.com/docker/docker/api/types/container"
 	dockerfilters "github.com/docker/docker/api/types/filters"
 	dockerimage "github.com/docker/docker/api/types/image"
@@ -377,6 +379,78 @@ func TestAppleContainerImageCommands(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("calls = %#v", calls)
 	}
+}
+
+func TestAppleContainerImageMutationCommands(t *testing.T) {
+	var calls [][]string
+	client := &RawClient{
+		backend: BackendAppleContainer,
+		appleContainer: &appleContainerConfig{run: func(ctx context.Context, args ...string) ([]byte, []byte, error) {
+			calls = append(calls, append([]string(nil), args...))
+			return []byte(strings.Join(args, " ")), nil, nil
+		}},
+	}
+	reader, err := client.ImagePull(context.Background(), "docker.io/library/alpine:latest", dockerimage.PullOptions{Platform: "linux/arm64"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader.Close()
+	if err := client.ImageTag(context.Background(), "docker.io/library/alpine:latest", "agency-alpine:latest"); err != nil {
+		t.Fatal(err)
+	}
+	buildArg := "abc123"
+	resp, err := client.ImageBuild(context.Background(), testTarContext(t), dockertypes.ImageBuildOptions{
+		Tags:       []string{"agency-test:latest"},
+		Dockerfile: "Dockerfile",
+		Platform:   "linux/arm64",
+		BuildArgs:  map[string]*string{"BUILD_ID": &buildArg},
+		Labels:     map[string]string{"agency.build.id": "abc123"},
+		NoCache:    true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if len(calls) != 3 {
+		t.Fatalf("calls = %#v", calls)
+	}
+	if got := strings.Join(calls[0], " "); got != "image pull --progress none --platform linux/arm64 docker.io/library/alpine:latest" {
+		t.Fatalf("pull args = %q", got)
+	}
+	if got := strings.Join(calls[1], " "); got != "image tag docker.io/library/alpine:latest agency-alpine:latest" {
+		t.Fatalf("tag args = %q", got)
+	}
+	build := strings.Join(calls[2], " ")
+	for _, want := range []string{
+		"build --progress plain",
+		"--platform linux/arm64",
+		"-f ",
+		"-t agency-test:latest",
+		"--build-arg BUILD_ID=abc123",
+		"--label agency.build.id=abc123",
+		"--no-cache",
+	} {
+		if !strings.Contains(build, want) {
+			t.Fatalf("build args missing %q in %q", want, build)
+		}
+	}
+}
+
+func testTarContext(t *testing.T) *bytes.Reader {
+	t.Helper()
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	content := []byte("FROM scratch\n")
+	if err := tw.WriteHeader(&tar.Header{Name: "Dockerfile", Mode: 0o644, Size: int64(len(content))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return bytes.NewReader(buf.Bytes())
 }
 
 func TestAppleContainerNetworkCommands(t *testing.T) {

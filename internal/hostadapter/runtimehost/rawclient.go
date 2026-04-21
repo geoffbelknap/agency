@@ -844,7 +844,16 @@ func (c *RawClient) ImageRemove(ctx context.Context, image string, options docke
 
 func (c *RawClient) ImagePull(ctx context.Context, ref string, options dockerimage.PullOptions) (io.ReadCloser, error) {
 	if c.usesAppleContainer() {
-		return nil, c.appleContainerUnsupported("pull images")
+		args := []string{"image", "pull", "--progress", "none"}
+		if platform := strings.TrimSpace(options.Platform); platform != "" {
+			args = append(args, "--platform", platform)
+		}
+		args = append(args, ref)
+		stdout, stderr, err := c.runAppleContainer(ctx, args...)
+		if err != nil {
+			return nil, err
+		}
+		return io.NopCloser(bytes.NewReader(append(stdout, stderr...))), nil
 	}
 	if !c.usesNerdctl() {
 		return c.docker.ImagePull(ctx, ref, options)
@@ -858,7 +867,8 @@ func (c *RawClient) ImagePull(ctx context.Context, ref string, options dockerima
 
 func (c *RawClient) ImageTag(ctx context.Context, source, target string) error {
 	if c.usesAppleContainer() {
-		return c.appleContainerUnsupported("tag images")
+		_, _, err := c.runAppleContainer(ctx, "image", "tag", source, target)
+		return err
 	}
 	if !c.usesNerdctl() {
 		return c.docker.ImageTag(ctx, source, target)
@@ -869,7 +879,51 @@ func (c *RawClient) ImageTag(ctx context.Context, source, target string) error {
 
 func (c *RawClient) ImageBuild(ctx context.Context, buildContext io.Reader, options dockertypes.ImageBuildOptions) (dockertypes.ImageBuildResponse, error) {
 	if c.usesAppleContainer() {
-		return dockertypes.ImageBuildResponse{}, c.appleContainerUnsupported("build images")
+		buildDir, err := os.MkdirTemp("", "agency-apple-container-build-*")
+		if err != nil {
+			return dockertypes.ImageBuildResponse{}, err
+		}
+		defer os.RemoveAll(buildDir)
+		if err := untarBuildContext(buildDir, buildContext); err != nil {
+			return dockertypes.ImageBuildResponse{}, err
+		}
+		args := []string{"build", "--progress", "plain"}
+		if strings.TrimSpace(options.Platform) != "" {
+			args = append(args, "--platform", options.Platform)
+		}
+		if strings.TrimSpace(options.Dockerfile) != "" {
+			args = append(args, "-f", filepath.Join(buildDir, options.Dockerfile))
+		}
+		for _, tag := range options.Tags {
+			if strings.TrimSpace(tag) != "" {
+				args = append(args, "-t", tag)
+			}
+		}
+		for key, value := range options.BuildArgs {
+			if value == nil {
+				args = append(args, "--build-arg", key)
+			} else {
+				args = append(args, "--build-arg", key+"="+*value)
+			}
+		}
+		for key, value := range options.Labels {
+			if strings.TrimSpace(key) != "" {
+				args = append(args, "--label", key+"="+value)
+			}
+		}
+		if options.NoCache {
+			args = append(args, "--no-cache")
+		}
+		if strings.TrimSpace(options.Target) != "" {
+			args = append(args, "--target", options.Target)
+		}
+		args = append(args, buildDir)
+		stdout, stderr, err := c.runAppleContainer(ctx, args...)
+		body := append(stdout, stderr...)
+		if err != nil {
+			return dockertypes.ImageBuildResponse{}, err
+		}
+		return dockertypes.ImageBuildResponse{Body: io.NopCloser(bytes.NewReader(body))}, nil
 	}
 	if !c.usesNerdctl() {
 		return c.docker.ImageBuild(ctx, buildContext, options)
