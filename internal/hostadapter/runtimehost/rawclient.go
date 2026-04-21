@@ -1007,6 +1007,7 @@ func (c *RawClient) runAppleContainer(ctx context.Context, args ...string) ([]by
 		binary = c.appleContainer.binary
 	}
 	cmd := exec.CommandContext(ctx, binary, args...)
+	cmd.Env = appleContainerCommandEnv(os.Environ())
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -1023,6 +1024,18 @@ func (c *RawClient) runAppleContainer(ctx context.Context, args ...string) ([]by
 		return stdout.Bytes(), stderr.Bytes(), fmt.Errorf("container %s: %s", strings.Join(args, " "), msg)
 	}
 	return stdout.Bytes(), stderr.Bytes(), nil
+}
+
+func appleContainerCommandEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, entry := range env {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok || key == "AGENCY_HOME" {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 func parseAppleContainerList(raw []byte) ([]appleContainerInspect, error) {

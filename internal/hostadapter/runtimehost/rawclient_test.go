@@ -311,6 +311,18 @@ func TestAppleContainerCreateArgsDedupeNetworks(t *testing.T) {
 	}
 }
 
+func TestAppleContainerCommandEnvDropsAgencyHome(t *testing.T) {
+	got := appleContainerCommandEnv([]string{
+		"PATH=/bin",
+		"AGENCY_HOME=/tmp/agency-test",
+		"HOME=/Users/test",
+	})
+	want := []string{"PATH=/bin", "HOME=/Users/test"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("appleContainerCommandEnv() = %#v, want %#v", got, want)
+	}
+}
+
 func TestAppleContainerNetworkCommands(t *testing.T) {
 	sample := []byte(`[
 		{
