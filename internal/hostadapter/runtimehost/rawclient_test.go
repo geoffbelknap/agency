@@ -10,6 +10,7 @@ import (
 	dockercontainer "github.com/docker/docker/api/types/container"
 	dockerfilters "github.com/docker/docker/api/types/filters"
 	dockernetwork "github.com/docker/docker/api/types/network"
+	"github.com/docker/go-connections/nat"
 )
 
 func TestNerdctlJSONOutputPrefersStdout(t *testing.T) {
@@ -186,6 +187,99 @@ func TestAppleContainerInspectAndLogs(t *testing.T) {
 	}
 	if logs != "hello\n" {
 		t.Fatalf("logs = %q", logs)
+	}
+}
+
+func TestAppleContainerLifecycleCommands(t *testing.T) {
+	var calls [][]string
+	client := &RawClient{
+		backend: BackendAppleContainer,
+		appleContainer: &appleContainerConfig{run: func(ctx context.Context, args ...string) ([]byte, []byte, error) {
+			calls = append(calls, append([]string(nil), args...))
+			switch args[0] {
+			case "create":
+				return []byte("agency-smoke-workspace\n"), nil, nil
+			default:
+				return []byte(strings.Join(args[1:], " ")), nil, nil
+			}
+		}},
+	}
+
+	timeout := 7
+	resp, err := client.ContainerCreate(
+		context.Background(),
+		&dockercontainer.Config{
+			Image:      "alpine:latest",
+			Env:        []string{"AGENCY_HOME=/home/agency"},
+			Labels:     map[string]string{"agency.type": "workspace", "agency.agent": "smoke"},
+			Cmd:        []string{"/bin/sh", "-c", "sleep 120"},
+			WorkingDir: "/workspace",
+			User:       "1000:1000",
+		},
+		&dockercontainer.HostConfig{
+			ReadonlyRootfs: true,
+			Binds:          []string{"/host/constraints.yaml:/agency/constraints.yaml:ro"},
+			Tmpfs:          map[string]string{"/tmp": "size=64M"},
+			Resources: dockercontainer.Resources{
+				Memory:   128 * 1024 * 1024,
+				NanoCPUs: 500_000_000,
+			},
+			PortBindings: nat.PortMap{
+				"8080/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "18080"}},
+			},
+		},
+		nil,
+		nil,
+		"agency-smoke-workspace",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.ID != "agency-smoke-workspace" {
+		t.Fatalf("id = %q", resp.ID)
+	}
+	if err := client.ContainerStart(context.Background(), resp.ID, dockercontainer.StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.ContainerStop(context.Background(), resp.ID, dockercontainer.StopOptions{Timeout: &timeout}); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.ContainerRemove(context.Background(), resp.ID, dockercontainer.RemoveOptions{Force: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(calls) != 4 {
+		t.Fatalf("calls len = %d, want 4: %#v", len(calls), calls)
+	}
+	create := strings.Join(calls[0], " ")
+	for _, want := range []string{
+		"create",
+		"--name agency-smoke-workspace",
+		"--env AGENCY_HOME=/home/agency",
+		"--label agency.type=workspace",
+		"--label agency.agent=smoke",
+		"--user 1000:1000",
+		"--workdir /workspace",
+		"--read-only",
+		"--memory 209715200",
+		"--cpus 1",
+		"--mount type=bind,source=/host/constraints.yaml,target=/agency/constraints.yaml,readonly",
+		"--tmpfs /tmp",
+		"--publish 127.0.0.1:18080:8080/tcp",
+		"alpine:latest /bin/sh -c sleep 120",
+	} {
+		if !strings.Contains(create, want) {
+			t.Fatalf("create args missing %q in %q", want, create)
+		}
+	}
+	if got := strings.Join(calls[1], " "); got != "start agency-smoke-workspace" {
+		t.Fatalf("start = %q", got)
+	}
+	if got := strings.Join(calls[2], " "); got != "stop --time 7 agency-smoke-workspace" {
+		t.Fatalf("stop = %q", got)
+	}
+	if got := strings.Join(calls[3], " "); got != "delete --force agency-smoke-workspace" {
+		t.Fatalf("delete = %q", got)
 	}
 }
 

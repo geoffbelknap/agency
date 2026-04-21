@@ -305,7 +305,22 @@ func (c *RawClient) ContainerInspect(ctx context.Context, containerID string) (d
 
 func (c *RawClient) ContainerCreate(ctx context.Context, config *dockercontainer.Config, hostConfig *dockercontainer.HostConfig, networkingConfig *dockernetwork.NetworkingConfig, platform *specs.Platform, containerName string) (dockercontainer.CreateResponse, error) {
 	if c.usesAppleContainer() {
-		return dockercontainer.CreateResponse{}, c.appleContainerUnsupported("create containers")
+		args, err := appleContainerCreateArgs(config, hostConfig, networkingConfig, platform, containerName)
+		if err != nil {
+			return dockercontainer.CreateResponse{}, err
+		}
+		stdout, _, err := c.runAppleContainer(ctx, args...)
+		if err != nil {
+			return dockercontainer.CreateResponse{}, err
+		}
+		id := strings.TrimSpace(string(stdout))
+		if id == "" {
+			id = strings.TrimSpace(containerName)
+		}
+		if id == "" {
+			return dockercontainer.CreateResponse{}, fmt.Errorf("apple-container create did not return a container id")
+		}
+		return dockercontainer.CreateResponse{ID: id}, nil
 	}
 	if !c.usesNerdctl() {
 		return c.docker.ContainerCreate(ctx, config, hostConfig, networkingConfig, platform, containerName)
@@ -327,7 +342,8 @@ func (c *RawClient) ContainerCreate(ctx context.Context, config *dockercontainer
 
 func (c *RawClient) ContainerStart(ctx context.Context, containerID string, options dockercontainer.StartOptions) error {
 	if c.usesAppleContainer() {
-		return c.appleContainerUnsupported("start containers")
+		_, _, err := c.runAppleContainer(ctx, "start", containerID)
+		return err
 	}
 	if !c.usesNerdctl() {
 		return c.docker.ContainerStart(ctx, containerID, options)
@@ -338,7 +354,13 @@ func (c *RawClient) ContainerStart(ctx context.Context, containerID string, opti
 
 func (c *RawClient) ContainerStop(ctx context.Context, containerID string, options dockercontainer.StopOptions) error {
 	if c.usesAppleContainer() {
-		return c.appleContainerUnsupported("stop containers")
+		args := []string{"stop"}
+		if options.Timeout != nil {
+			args = append(args, "--time", strconv.Itoa(*options.Timeout))
+		}
+		args = append(args, containerID)
+		_, _, err := c.runAppleContainer(ctx, args...)
+		return err
 	}
 	if !c.usesNerdctl() {
 		return c.docker.ContainerStop(ctx, containerID, options)
@@ -354,7 +376,13 @@ func (c *RawClient) ContainerStop(ctx context.Context, containerID string, optio
 
 func (c *RawClient) ContainerRemove(ctx context.Context, containerID string, options dockercontainer.RemoveOptions) error {
 	if c.usesAppleContainer() {
-		return c.appleContainerUnsupported("remove containers")
+		args := []string{"delete"}
+		if options.Force {
+			args = append(args, "--force")
+		}
+		args = append(args, containerID)
+		_, _, err := c.runAppleContainer(ctx, args...)
+		return err
 	}
 	if !c.usesNerdctl() {
 		return c.docker.ContainerRemove(ctx, containerID, options)
@@ -1097,6 +1125,160 @@ func nonEmptyStrings(values ...string) []string {
 		out = append(out, value)
 	}
 	return out
+}
+
+func appleContainerCreateArgs(config *dockercontainer.Config, hostConfig *dockercontainer.HostConfig, networkingConfig *dockernetwork.NetworkingConfig, platform *specs.Platform, containerName string) ([]string, error) {
+	if config == nil {
+		return nil, fmt.Errorf("apple-container create requires container config")
+	}
+	image := strings.TrimSpace(config.Image)
+	if image == "" {
+		return nil, fmt.Errorf("apple-container create requires an image")
+	}
+	args := []string{"create"}
+	if name := strings.TrimSpace(containerName); name != "" {
+		args = append(args, "--name", name)
+	}
+	for _, env := range config.Env {
+		if strings.TrimSpace(env) != "" {
+			args = append(args, "--env", env)
+		}
+	}
+	for key, value := range config.Labels {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		args = append(args, "--label", key+"="+value)
+	}
+	if user := strings.TrimSpace(config.User); user != "" {
+		args = append(args, "--user", user)
+	}
+	if workdir := strings.TrimSpace(config.WorkingDir); workdir != "" {
+		args = append(args, "--workdir", workdir)
+	}
+	if len(config.Entrypoint) > 0 {
+		args = append(args, "--entrypoint", strings.Join(config.Entrypoint, " "))
+	}
+	if platform != nil {
+		if platform.OS != "" && platform.Architecture != "" {
+			args = append(args, "--platform", platform.OS+"/"+platform.Architecture)
+		} else {
+			if platform.OS != "" {
+				args = append(args, "--os", platform.OS)
+			}
+			if platform.Architecture != "" {
+				args = append(args, "--arch", platform.Architecture)
+			}
+		}
+	}
+	if hostConfig != nil {
+		if hostConfig.ReadonlyRootfs {
+			args = append(args, "--read-only")
+		}
+		if hostConfig.Resources.Memory > 0 {
+			args = append(args, "--memory", strconv.FormatInt(appleContainerMemoryBytes(hostConfig.Resources.Memory), 10))
+		}
+		if hostConfig.Resources.NanoCPUs > 0 {
+			args = append(args, "--cpus", formatNanoCPUs(hostConfig.Resources.NanoCPUs))
+		}
+		for _, bind := range hostConfig.Binds {
+			if mount := appleContainerMountFromBind(bind); mount != "" {
+				args = append(args, "--mount", mount)
+			}
+		}
+		for target := range hostConfig.Tmpfs {
+			target = strings.TrimSpace(target)
+			if target != "" {
+				args = append(args, "--tmpfs", target)
+			}
+		}
+		if networkMode := strings.TrimSpace(string(hostConfig.NetworkMode)); networkMode != "" && networkMode != "default" {
+			args = append(args, "--network", networkMode)
+		}
+		for port, bindings := range hostConfig.PortBindings {
+			for _, binding := range bindings {
+				published := appleContainerPublishSpec(string(port), binding.HostIP, binding.HostPort)
+				if published != "" {
+					args = append(args, "--publish", published)
+				}
+			}
+		}
+	}
+	for name := range networkingConfigEndpoints(networkingConfig) {
+		name = strings.TrimSpace(name)
+		if name != "" && name != "default" {
+			args = append(args, "--network", name)
+		}
+	}
+	args = append(args, image)
+	args = append(args, config.Cmd...)
+	return args, nil
+}
+
+func appleContainerMountFromBind(bind string) string {
+	parts := strings.Split(bind, ":")
+	if len(parts) < 2 {
+		return ""
+	}
+	source := strings.TrimSpace(parts[0])
+	target := strings.TrimSpace(parts[1])
+	if source == "" || target == "" {
+		return ""
+	}
+	readonly := false
+	for _, opt := range parts[2:] {
+		if strings.TrimSpace(opt) == "ro" {
+			readonly = true
+		}
+	}
+	mount := "type=bind,source=" + source + ",target=" + target
+	if readonly {
+		mount += ",readonly"
+	}
+	return mount
+}
+
+func appleContainerPublishSpec(containerPort, hostIP, hostPort string) string {
+	containerPort = strings.TrimSpace(containerPort)
+	hostIP = strings.TrimSpace(hostIP)
+	hostPort = strings.TrimSpace(hostPort)
+	if containerPort == "" || hostPort == "" {
+		return ""
+	}
+	port, proto, _ := strings.Cut(containerPort, "/")
+	spec := hostPort + ":" + port
+	if hostIP != "" {
+		spec = hostIP + ":" + spec
+	}
+	if proto != "" {
+		spec += "/" + proto
+	}
+	return spec
+}
+
+func formatNanoCPUs(nano int64) string {
+	if nano%1_000_000_000 == 0 {
+		return strconv.FormatInt(nano/1_000_000_000, 10)
+	}
+	// Apple container accepts whole CPU counts. Round up so a fractional Docker
+	// NanoCPUs limit remains at least as permissive as requested.
+	return strconv.FormatInt((nano+999_999_999)/1_000_000_000, 10)
+}
+
+func appleContainerMemoryBytes(memory int64) int64 {
+	const minAppleContainerMemory = 200 * 1024 * 1024
+	if memory > 0 && memory < minAppleContainerMemory {
+		return minAppleContainerMemory
+	}
+	return memory
+}
+
+func networkingConfigEndpoints(networkingConfig *dockernetwork.NetworkingConfig) map[string]*dockernetwork.EndpointSettings {
+	if networkingConfig == nil || networkingConfig.EndpointsConfig == nil {
+		return nil
+	}
+	return networkingConfig.EndpointsConfig
 }
 
 func (c *RawClient) inspectContainers(ctx context.Context, ids ...string) ([]dockercontainer.InspectResponse, error) {
