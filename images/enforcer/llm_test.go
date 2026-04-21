@@ -461,7 +461,6 @@ func TestLLMProviderToolAllowedWithGrant(t *testing.T) {
 
 	auditDir := t.TempDir()
 	audit := NewAuditLogger(auditDir, "test-agent")
-	defer audit.Close()
 
 	lh := NewLLMHandler(rc, provider.URL, audit)
 	lh.SetProviderToolPolicy(&ProviderToolPolicy{Granted: map[string]bool{capProviderWebSearch: true}})
@@ -471,12 +470,40 @@ func TestLLMProviderToolAllowedWithGrant(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	lh.ServeHTTP(rr, req)
+	audit.Close()
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
 	if !llmCalled {
 		t.Fatal("provider should be called when provider tool is granted")
+	}
+	var allowedEntry *AuditEntry
+	var boundaryEntry *AuditEntry
+	entries := readAuditEntries(t, auditDir)
+	for i := range entries {
+		entry := entries[i]
+		switch entry.Type {
+		case "PROVIDER_TOOL_ALLOWED":
+			allowedEntry = &entry
+		case securityScanNA:
+			boundaryEntry = &entry
+		}
+	}
+	if allowedEntry == nil {
+		t.Fatal("missing PROVIDER_TOOL_ALLOWED audit entry")
+	}
+	if allowedEntry.ProviderModel != "claude-sonnet-4-20250514" {
+		t.Fatalf("provider model missing on allowed event: %#v", allowedEntry)
+	}
+	if boundaryEntry == nil {
+		t.Fatal("missing provider tool security boundary audit entry")
+	}
+	if boundaryEntry.ScanSurface != "provider_tool_content" || boundaryEntry.ScanAction != "not_applicable" {
+		t.Fatalf("wrong boundary scan fields: %#v", boundaryEntry)
+	}
+	if boundaryEntry.Extra["security_boundary"] != "provider_hosted_raw_content_not_visible" {
+		t.Fatalf("missing boundary reason: %#v", boundaryEntry.Extra)
 	}
 }
 
@@ -999,15 +1026,18 @@ func TestLLMAuditLogWritten(t *testing.T) {
 
 	audit.Close()
 
-	// Read audit log
-	today := time.Now().UTC().Format("2006-01-02")
-	data, err := os.ReadFile(filepath.Join(auditDir, "enforcer-"+today+".jsonl"))
-	if err != nil {
-		t.Fatalf("read audit: %v", err)
-	}
-
 	var entry AuditEntry
-	json.Unmarshal([]byte(strings.TrimSpace(string(data))), &entry)
+	found := false
+	for _, candidate := range readAuditEntries(t, auditDir) {
+		if candidate.Type == "LLM_DIRECT" {
+			entry = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("missing LLM_DIRECT audit entry")
+	}
 
 	if entry.Type != "LLM_DIRECT" {
 		t.Errorf("wrong type: %s", entry.Type)

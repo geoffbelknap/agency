@@ -227,7 +227,11 @@ func LoadRoutingConfig(path string) (*RoutingConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read routing config: %w", err)
 	}
-	var rc RoutingConfig
+	rc := RoutingConfig{
+		Settings: Settings{
+			XPIAScan: true,
+		},
+	}
 	if err := yaml.Unmarshal(data, &rc); err != nil {
 		return nil, fmt.Errorf("parse routing config: %w", err)
 	}

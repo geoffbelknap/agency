@@ -35,6 +35,15 @@ type AuditEntry struct {
 	EventID                  string            `json:"event_id,omitempty"`
 	Error                    string            `json:"error,omitempty"`
 	DurationMs               int64             `json:"duration_ms,omitempty"`
+	ScanType                 string            `json:"scan_type,omitempty"`
+	ScanSurface              string            `json:"scan_surface,omitempty"`
+	ScanAction               string            `json:"scan_action,omitempty"`
+	ScanMode                 string            `json:"scan_mode,omitempty"`
+	FindingCount             *int              `json:"finding_count,omitempty"`
+	Findings                 []string          `json:"findings,omitempty"`
+	ContentSHA256            string            `json:"content_sha256,omitempty"`
+	ContentBytes             int               `json:"content_bytes,omitempty"`
+	ContentCount             int               `json:"content_count,omitempty"`
 	InputTokens              int               `json:"input_tokens,omitempty"`
 	OutputTokens             int               `json:"output_tokens,omitempty"`
 	CachedTokens             int               `json:"cached_tokens,omitempty"`
