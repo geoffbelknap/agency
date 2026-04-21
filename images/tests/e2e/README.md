@@ -6,8 +6,8 @@ Docker containers and infrastructure. These complement the ~1,700 unit tests
 
 ## Prerequisites
 
-- Docker running and accessible
-- Agency installed (`./install.sh` or `cd agency-gateway && make install`)
+- A container backend running and accessible (podman, docker, or containerd)
+- Agency installed (`brew install geoffbelknap/tap/agency` or `make install` from a source checkout)
 - At least 4 GB RAM available (shared infra + test agents)
 
 ## Running Tests
