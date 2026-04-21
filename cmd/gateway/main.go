@@ -424,7 +424,7 @@ func setupCmd() *cobra.Command {
 		Use:   "setup",
 		Short: "Set up the Agency platform (config, daemon, infrastructure)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Select a container backend (podman/docker/containerd) before
+			// Select a container backend (podman/docker/apple-container/containerd) before
 			// anything writes config or starts a daemon. selectContainerBackend
 			// prints guidance and returns a non-nil error when no reachable
 			// backend is available — fail fast with actionable output.
@@ -503,7 +503,7 @@ func setupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", "", "LLM provider (anthropic, openai, google)")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "LLM provider API key")
 	cmd.Flags().StringVar(&notifyURL, "notify-url", "", "Notification URL (ntfy or webhook) for operator alerts")
-	cmd.Flags().StringVar(&backend, "backend", "", "Container backend to use (docker, podman, containerd); autodetects when unset. Also respected via AGENCY_CONTAINER_BACKEND.")
+	cmd.Flags().StringVar(&backend, "backend", "", "Container backend to use (docker, podman, apple-container, containerd); autodetects when unset. Also respected via AGENCY_CONTAINER_BACKEND.")
 	cmd.Flags().BoolVar(&configurePool, "configure-network-pool", false, "Configure Docker default-address-pools before infrastructure startup (docker backend only)")
 	cmd.Flags().BoolVar(&noInfra, "no-infra", false, "Skip the container-backend check and infrastructure startup")
 	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Don't open the web UI in a browser (also respected via AGENCY_NO_BROWSER=1)")
@@ -670,7 +670,7 @@ func tryStartDockerDesktop(wsl bool) bool {
 //     hard error — the user asked for a specific one, don't silently fall
 //     back to something else.
 //   - Otherwise probe all KnownBackends; preference order is
-//     podman > docker > containerd. The first reachable one wins.
+//     podman > docker > apple-container > containerd. The first reachable one wins.
 //   - If nothing reaches, print the platform-appropriate install hint and
 //     return an error so setup exits cleanly with actionable guidance.
 //
@@ -703,7 +703,7 @@ func selectContainerBackend(override string) (string, map[string]string, error) 
 			}
 		}
 		if match == nil {
-			return "", nil, fmt.Errorf("unknown container backend %q (known: docker, podman, containerd)", override)
+			return "", nil, fmt.Errorf("unknown container backend %q (known: docker, podman, apple-container, containerd)", override)
 		}
 		d := runtimehost.ProbeBackend(*match)
 		if !d.Reachable {
