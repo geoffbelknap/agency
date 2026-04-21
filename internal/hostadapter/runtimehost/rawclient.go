@@ -923,7 +923,7 @@ func (c *RawClient) ImageBuild(ctx context.Context, buildContext io.Reader, opti
 		if err != nil {
 			return dockertypes.ImageBuildResponse{}, err
 		}
-		return dockertypes.ImageBuildResponse{Body: io.NopCloser(bytes.NewReader(body))}, nil
+		return dockertypes.ImageBuildResponse{Body: io.NopCloser(bytes.NewReader(dockerJSONStream(body)))}, nil
 	}
 	if !c.usesNerdctl() {
 		return c.docker.ImageBuild(ctx, buildContext, options)
@@ -1338,6 +1338,22 @@ func imageReferenceMatches(pattern, ref string) bool {
 		return true
 	}
 	return false
+}
+
+func dockerJSONStream(output []byte) []byte {
+	lines := bytes.Split(output, []byte("\n"))
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	for _, line := range lines {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		_ = enc.Encode(map[string]string{"stream": string(line) + "\n"})
+	}
+	if buf.Len() == 0 {
+		_ = enc.Encode(map[string]string{"stream": ""})
+	}
+	return buf.Bytes()
 }
 
 func isAppleContainerNotFound(raw []byte, err error) bool {

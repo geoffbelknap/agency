@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -410,7 +412,14 @@ func TestAppleContainerImageMutationCommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	body, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid(body) {
+		t.Fatalf("build response is not docker JSON stream: %q", string(body))
+	}
 	if len(calls) != 3 {
 		t.Fatalf("calls = %#v", calls)
 	}
