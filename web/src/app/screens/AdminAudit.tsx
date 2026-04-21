@@ -9,7 +9,7 @@ import {
   SelectValue,
 } from '../components/ui/select';
 import { ExportButton } from '../components/ExportButton';
-import { RefreshCw, Search } from 'lucide-react';
+import { ChevronDown, ChevronRight, RefreshCw, Search } from 'lucide-react';
 
 interface AuditEntry {
   timestamp: string;
@@ -20,6 +20,14 @@ interface AuditEntry {
   hash: string;
   raw: RawAuditEntry & Record<string, any>;
 }
+
+const CORE_FIELDS = ['timestamp', 'ts', 'event', 'type', 'agent', 'agent_name', 'actor', 'source', 'event_id', 'request_id', 'task_id'];
+const ACTION_FIELDS = ['action', 'method', 'path', 'url', 'host', 'domain', 'capability', 'provider_tool_capability', 'provider_tool_capabilities', 'tool', 'name'];
+const SECURITY_FIELDS = ['scan_type', 'scan_surface', 'scan_action', 'scan_mode', 'finding_count', 'findings', 'content_sha256', 'content_bytes', 'content_count', 'security_boundary'];
+const RESULT_FIELDS = ['status', 'error', 'reason', 'detail', 'duration_ms', 'elapsed_ms', 'phase_elapsed_ms', 'input_tokens', 'output_tokens', 'cost', 'model', 'provider_model'];
+const PROVENANCE_FIELDS = ['initiator', 'delivered_by', 'mode', 'provider_tool_type', 'provider_tool_types', 'provider_source_count', 'provider_citation_count', 'provider_search_query_count', 'provider_source_urls'];
+const PAYLOAD_FIELDS = ['task_content', 'content', 'data', 'args'];
+const KNOWN_AUDIT_FIELDS = new Set([...CORE_FIELDS, ...ACTION_FIELDS, ...SECURITY_FIELDS, ...RESULT_FIELDS, ...PROVENANCE_FIELDS, ...PAYLOAD_FIELDS, 'target', 'hash', 'sig', 'phase', 'phase_name', 'preset']);
 
 function stableHash(value: string): string {
   let hash = 2166136261;
@@ -34,13 +42,71 @@ function formatTimestamp(ts: string): string {
   if (!ts) return '';
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return ts;
-  const date = d.toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' }).replaceAll('/', '-');
+  const date = d.toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
   const time = d.toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
   return `${date} ${time}`;
 }
 
 function eventName(raw: RawAuditEntry & Record<string, any>): string {
   return String(raw.event || raw.type || raw.action || 'event').trim();
+}
+
+function text(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return '';
+}
+
+function numberValue(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function valueSummary(value: unknown): string {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function truncate(value: string, max = 120): string {
+  return value.length > max ? `${value.slice(0, max - 1)}...` : value;
+}
+
+function isSecurityEntry(raw: RawAuditEntry & Record<string, any>): boolean {
+  const evt = eventName(raw);
+  return /SECURITY_SCAN|XPIA|MCP_TOOL_MUTATION/i.test(evt) || raw.scan_type != null || raw.findings != null || raw.finding_count != null;
+}
+
+function securitySummary(raw: RawAuditEntry & Record<string, any>): string {
+  const evt = eventName(raw);
+  const scanType = text(raw.scan_type) || (evt.toUpperCase().includes('XPIA') ? 'xpia' : 'security');
+  const surface = text(raw.scan_surface);
+  const action = text(raw.scan_action);
+  const findingCount = numberValue(raw.finding_count);
+  const contentCount = numberValue(raw.content_count);
+  const contentBytes = numberValue(raw.content_bytes);
+  const boundary = text(raw.security_boundary);
+  const findingText = valueSummary(raw.findings) || text(raw.error);
+  return [
+    scanType,
+    surface,
+    action,
+    findingCount !== undefined ? `${findingCount} findings` : '',
+    contentCount !== undefined ? `${contentCount} items` : '',
+    contentBytes !== undefined ? `${contentBytes} bytes` : '',
+    boundary,
+    findingText ? truncate(findingText, 90) : '',
+  ].filter(Boolean).join(' · ');
 }
 
 function actorFor(raw: RawAuditEntry & Record<string, any>): string {
@@ -55,12 +121,13 @@ function actorFor(raw: RawAuditEntry & Record<string, any>): string {
 function dottedAction(raw: RawAuditEntry & Record<string, any>): string {
   const evt = eventName(raw);
   const normalized = evt.toLowerCase().replace(/^llm_direct_stream$/, 'llm.stream').replace(/^llm_direct$/, 'llm.call');
-  return normalized.replaceAll('_', '.');
+  return normalized.replace(/_/g, '.');
 }
 
 function targetFor(raw: RawAuditEntry & Record<string, any>): string {
   const evt = eventName(raw);
   if (raw.target) return String(raw.target);
+  if (isSecurityEntry(raw)) return securitySummary(raw) || 'security scan';
   if (raw.domain) return String(raw.domain);
   if (raw.host) return String(raw.host);
   if (raw.capability) return String(raw.capability);
@@ -84,6 +151,8 @@ function verdictFor(raw: RawAuditEntry & Record<string, any>): AuditEntry['verdi
   const status = Number(raw.status || 0);
   if (evt.includes('deny') || evt.includes('blocked') || evt.includes('unsupported')) return 'deny';
   if (evt.includes('halt') || evt.includes('budget.exceeded') || evt.includes('budget_exceeded')) return 'halt';
+  if (evt.includes('security_scan_flagged') || evt.includes('xpia') || evt.includes('mcp_tool_mutation')) return 'warn';
+  if (evt.includes('security_scan_skipped') || evt.includes('security_scan_not_applicable')) return 'review';
   if (evt.includes('request') || evt.includes('review')) return 'review';
   if (evt.includes('warn') || evt.includes('error') || status >= 400) return 'warn';
   return 'ok';
@@ -135,6 +204,52 @@ function MetaStat({ label, value, tone }: { label: string; value: string | numbe
   );
 }
 
+function groupedFields(raw: RawAuditEntry & Record<string, any>) {
+  const section = (title: string, fields: string[]) => ({
+    title,
+    rows: fields
+      .map((field) => [field, valueSummary(raw[field])] as const)
+      .filter(([, value]) => value !== ''),
+  });
+  const remaining = Object.keys(raw)
+    .filter((key) => !KNOWN_AUDIT_FIELDS.has(key) && valueSummary(raw[key]) !== '')
+    .sort()
+    .map((key) => [key, valueSummary(raw[key])] as const);
+  return [
+    section('Actor and identity', CORE_FIELDS),
+    section('Action', ACTION_FIELDS),
+    section('Security scan', SECURITY_FIELDS),
+    section('Result', RESULT_FIELDS),
+    section('Mediation and provenance', PROVENANCE_FIELDS),
+    section('Payload', PAYLOAD_FIELDS),
+    { title: 'Additional fields', rows: remaining },
+  ].filter((group) => group.rows.length > 0);
+}
+
+function AuditFieldGroups({ entry }: { entry: AuditEntry }) {
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      {groupedFields(entry.raw).map((group) => (
+        <div key={group.title}>
+          <div className="eyebrow" style={{ fontSize: 8, marginBottom: 6 }}>{group.title}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(112px, 180px) minmax(0, 1fr)', border: '0.5px solid var(--ink-hairline)', borderRadius: 8, overflow: 'hidden', background: 'var(--warm)' }}>
+            {group.rows.map(([key, value], index) => (
+              <div key={key} style={{ display: 'contents' }}>
+                <div className="mono" style={{ padding: '7px 9px', fontSize: 10, color: 'var(--ink-faint)', borderTop: index === 0 ? 0 : '0.5px solid var(--ink-hairline)', background: 'var(--warm-2)' }}>{key}</div>
+                <div className="mono" style={{ padding: '7px 9px', fontSize: 11, color: 'var(--ink-mid)', borderTop: index === 0 ? 0 : '0.5px solid var(--ink-hairline)', overflowWrap: 'anywhere', whiteSpace: value.length > 180 ? 'pre-wrap' : 'normal' }}>{value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      <details>
+        <summary className="mono" style={{ cursor: 'pointer', fontSize: 10, color: 'var(--teal-dark)' }}>Raw JSON</summary>
+        <pre style={{ margin: '8px 0 0', maxHeight: 260, overflow: 'auto', background: 'var(--warm)', border: '0.5px solid var(--ink-hairline)', borderRadius: 8, padding: 10, color: 'var(--ink-mid)', fontSize: 11, lineHeight: 1.5 }}>{JSON.stringify(entry.raw, null, 2)}</pre>
+      </details>
+    </div>
+  );
+}
+
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
 const TIME_FILTERS = [
   { value: 'all', label: 'All time' },
@@ -180,6 +295,7 @@ export function AdminAudit() {
   const [timeFilter, setTimeFilter] = useState<string>('all');
   const [pageSize, setPageSize] = useState<number>(25);
   const [page, setPage] = useState<number>(1);
+  const [expandedEntry, setExpandedEntry] = useState<string | null>(null);
 
   const loadAgents = useCallback(async () => {
     try {
@@ -196,7 +312,7 @@ export function AdminAudit() {
     try {
       const raw = await api.admin.audit(agent, { since: sinceForTimeFilter(timeRange) });
       const list = Array.isArray(raw) ? raw : (raw as any)?.entries ?? [];
-      setEntries(list.map((entry: any) => toAuditEntry(entry)).sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp))));
+      setEntries(list.map((entry: any) => toAuditEntry(entry)).sort((a: AuditEntry, b: AuditEntry) => String(b.timestamp).localeCompare(String(a.timestamp))));
     } catch (err: any) {
       setError(err.message || 'Failed to load audit log');
       setEntries([]);
@@ -215,6 +331,7 @@ export function AdminAudit() {
 
   useEffect(() => {
     setPage(1);
+    setExpandedEntry(null);
   }, [selectedAgent, query, verdictFilter, actionFilter, timeFilter, pageSize]);
 
   const actionOptions = useMemo(() => {
@@ -224,7 +341,7 @@ export function AdminAudit() {
   const filtered = entries.filter((entry) => {
     if (!query.trim()) return true;
     const needle = query.trim().toLowerCase();
-    return [entry.timestamp, entry.actor, entry.action, entry.target, entry.verdict, entry.hash].some((value) => value.toLowerCase().includes(needle));
+    return [entry.timestamp, entry.actor, entry.action, entry.target, entry.verdict, entry.hash, JSON.stringify(entry.raw)].some((value) => value.toLowerCase().includes(needle));
   }).filter((entry) => {
     if (verdictFilter !== 'all' && entry.verdict !== verdictFilter) return false;
     if (actionFilter !== 'all' && entry.action !== actionFilter) return false;
@@ -237,6 +354,7 @@ export function AdminAudit() {
   const visibleEntries = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
   const lastHash = entries[0]?.hash || '—';
   const chainVerified = entries.length > 0 ? 'verified' : 'waiting';
+  const securityEvents = entries.filter((entry) => isSecurityEntry(entry.raw)).length;
   const exportRows = filtered.map(({ timestamp, actor, action, target, verdict, hash }) => ({ timestamp, actor, action, target, verdict, hash }));
 
   return (
@@ -259,6 +377,7 @@ export function AdminAudit() {
         <MetaStat label="Retention" value="7 years" />
         <MetaStat label="Last hash" value={lastHash} tone="var(--teal-dark)" />
         <MetaStat label="Chain" value={chainVerified} tone={entries.length > 0 ? 'var(--teal-dark)' : 'var(--ink-faint)'} />
+        <MetaStat label="Security" value={securityEvents.toLocaleString()} tone={securityEvents > 0 ? 'var(--amber)' : 'var(--ink-faint)'} />
         <div style={{ marginLeft: 'auto', minWidth: 190 }}>
           <Select value={selectedAgent} onValueChange={setSelectedAgent}>
             <SelectTrigger className="w-full bg-card border-border">
@@ -335,8 +454,8 @@ export function AdminAudit() {
       {error && <div style={{ border: '0.5px solid var(--red)', borderRadius: 10, background: 'var(--red-tint)', color: 'var(--red)', padding: '10px 12px', fontSize: 13 }}>{error}</div>}
 
       <section style={{ border: '0.5px solid var(--ink-hairline)', borderRadius: 12, background: 'var(--warm-2)', overflow: 'hidden' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '160px 160px 150px minmax(180px, 1fr) 80px 80px', gap: 12, padding: '12px 16px', borderBottom: '0.5px solid var(--ink-hairline)' }}>
-          {['Timestamp', 'Actor', 'Action', 'Target', 'Verdict', 'Hash'].map((col) => (
+        <div style={{ display: 'grid', gridTemplateColumns: '28px 160px 160px 150px minmax(180px, 1fr) 80px 80px', gap: 12, padding: '12px 16px', borderBottom: '0.5px solid var(--ink-hairline)' }}>
+          {['', 'Timestamp', 'Actor', 'Action', 'Target', 'Verdict', 'Hash'].map((col) => (
             <div key={col} className="mono" style={{ color: 'var(--teal-dark)', fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase' }}>{col}</div>
           ))}
         </div>
@@ -344,16 +463,35 @@ export function AdminAudit() {
           <div style={{ padding: 28, textAlign: 'center', color: 'var(--ink-mid)' }}>Loading audit log...</div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: 28, textAlign: 'center', color: 'var(--ink-mid)' }}>No audit entries found</div>
-        ) : visibleEntries.map((entry, index) => (
-          <div key={`${entry.timestamp}:${entry.hash}:${index}`} style={{ display: 'grid', gridTemplateColumns: '160px 160px 150px minmax(180px, 1fr) 80px 80px', gap: 12, padding: '15px 16px', borderBottom: '0.5px solid var(--ink-hairline)', alignItems: 'center' }}>
-            <span className="mono" style={{ fontSize: 11, color: 'var(--ink-faint)', whiteSpace: 'nowrap' }}>{formatTimestamp(entry.timestamp)}</span>
-            <span className="mono" style={{ fontSize: 12, color: 'var(--ink-mid)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.actor}</span>
-            <span className="mono" style={{ fontSize: 12, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.action}</span>
-            <span style={{ fontSize: 12, color: 'var(--ink-mid)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.target}</span>
-            <span><span style={badgeStyle(entry.verdict)}>{entry.verdict}</span></span>
-            <span className="mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>{entry.hash}</span>
-          </div>
-        ))}
+        ) : visibleEntries.map((entry, index) => {
+          const rowId = `${entry.timestamp}:${entry.hash}:${index}`;
+          const expanded = expandedEntry === rowId;
+          return (
+            <div key={rowId} style={{ borderBottom: '0.5px solid var(--ink-hairline)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '28px 160px 160px 150px minmax(180px, 1fr) 80px 80px', gap: 12, padding: '15px 16px', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  aria-label={expanded ? 'Collapse audit entry' : 'Expand audit entry'}
+                  onClick={() => setExpandedEntry(expanded ? null : rowId)}
+                  style={{ width: 24, height: 24, border: '0.5px solid var(--ink-hairline)', borderRadius: 6, background: 'var(--warm)', color: 'var(--ink-mid)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                >
+                  {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                </button>
+                <span className="mono" style={{ fontSize: 11, color: 'var(--ink-faint)', whiteSpace: 'nowrap' }}>{formatTimestamp(entry.timestamp)}</span>
+                <span className="mono" style={{ fontSize: 12, color: 'var(--ink-mid)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.actor}</span>
+                <span className="mono" style={{ fontSize: 12, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.action}</span>
+                <span style={{ fontSize: 12, color: 'var(--ink-mid)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.target}</span>
+                <span><span style={badgeStyle(entry.verdict)}>{entry.verdict}</span></span>
+                <span className="mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>{entry.hash}</span>
+              </div>
+              {expanded && (
+                <div style={{ padding: '0 16px 16px 56px' }}>
+                  <AuditFieldGroups entry={entry} />
+                </div>
+              )}
+            </div>
+          );
+        })}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', borderTop: '0.5px solid var(--ink-hairline)', background: 'var(--warm-1)', flexWrap: 'wrap' }}>
           <span className="mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>
             Showing {pageStart.toLocaleString()}-{pageEnd.toLocaleString()} of {filtered.length.toLocaleString()} entries
