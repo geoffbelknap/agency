@@ -75,6 +75,21 @@ type appleContainerInspect struct {
 	} `json:"configuration"`
 }
 
+type appleContainerNetwork struct {
+	ID     string `json:"id"`
+	State  string `json:"state"`
+	Config struct {
+		ID     string            `json:"id"`
+		Mode   string            `json:"mode"`
+		Labels map[string]string `json:"labels"`
+	} `json:"config"`
+	Status struct {
+		IPv4Subnet  string `json:"ipv4Subnet"`
+		IPv6Subnet  string `json:"ipv6Subnet"`
+		IPv4Gateway string `json:"ipv4Gateway"`
+	} `json:"status"`
+}
+
 // RawClient is Agency's owned container-runtime client wrapper. Docker and
 // Podman delegate to the Docker-compatible SDK. Containerd uses nerdctl so the
 // public backend remains `containerd` without depending on a Docker API socket.
@@ -469,7 +484,16 @@ func (c *RawClient) ContainerExecInspect(ctx context.Context, execID string) (do
 
 func (c *RawClient) NetworkCreate(ctx context.Context, name string, options dockernetwork.CreateOptions) (dockernetwork.CreateResponse, error) {
 	if c.usesAppleContainer() {
-		return dockernetwork.CreateResponse{}, c.appleContainerUnsupported("create networks")
+		args := appleContainerNetworkCreateArgs(name, options)
+		stdout, _, err := c.runAppleContainer(ctx, args...)
+		if err != nil {
+			return dockernetwork.CreateResponse{}, err
+		}
+		id := strings.TrimSpace(string(stdout))
+		if id == "" {
+			id = strings.TrimSpace(name)
+		}
+		return dockernetwork.CreateResponse{ID: id}, nil
 	}
 	if !c.usesNerdctl() {
 		return c.docker.NetworkCreate(ctx, name, options)
@@ -498,7 +522,8 @@ func (c *RawClient) NetworkCreate(ctx context.Context, name string, options dock
 
 func (c *RawClient) NetworkRemove(ctx context.Context, networkID string) error {
 	if c.usesAppleContainer() {
-		return c.appleContainerUnsupported("remove networks")
+		_, _, err := c.runAppleContainer(ctx, "network", "delete", networkID)
+		return err
 	}
 	if !c.usesNerdctl() {
 		return c.docker.NetworkRemove(ctx, networkID)
@@ -509,7 +534,18 @@ func (c *RawClient) NetworkRemove(ctx context.Context, networkID string) error {
 
 func (c *RawClient) NetworkInspect(ctx context.Context, networkID string, options dockernetwork.InspectOptions) (dockernetwork.Inspect, error) {
 	if c.usesAppleContainer() {
-		return dockernetwork.Inspect{}, c.appleContainerUnsupported("inspect networks")
+		stdout, _, err := c.runAppleContainer(ctx, "network", "inspect", networkID)
+		if err != nil {
+			return dockernetwork.Inspect{}, err
+		}
+		networks, err := parseAppleContainerNetworks(stdout)
+		if err != nil {
+			return dockernetwork.Inspect{}, err
+		}
+		if len(networks) == 0 {
+			return dockernetwork.Inspect{}, fmt.Errorf("network %q not found", networkID)
+		}
+		return appleContainerNetworkInspect(networks[0]), nil
 	}
 	if !c.usesNerdctl() {
 		return c.docker.NetworkInspect(ctx, networkID, options)
@@ -528,7 +564,26 @@ func (c *RawClient) NetworkInspect(ctx context.Context, networkID string, option
 
 func (c *RawClient) NetworkList(ctx context.Context, options dockernetwork.ListOptions) ([]dockernetwork.Summary, error) {
 	if c.usesAppleContainer() {
-		return nil, c.appleContainerUnsupported("list networks")
+		stdout, _, err := c.runAppleContainer(ctx, "network", "list", "--format", "json")
+		if err != nil {
+			return nil, err
+		}
+		networks, err := parseAppleContainerNetworks(stdout)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]dockernetwork.Summary, 0, len(networks))
+		for _, network := range networks {
+			summary := appleContainerNetworkInspect(network)
+			if !options.Filters.MatchKVList("label", summary.Labels) {
+				continue
+			}
+			if !options.Filters.FuzzyMatch("name", summary.Name) {
+				continue
+			}
+			out = append(out, summary)
+		}
+		return out, nil
 	}
 	if !c.usesNerdctl() {
 		return c.docker.NetworkList(ctx, options)
@@ -986,6 +1041,50 @@ func parseAppleContainerList(raw []byte) ([]appleContainerInspect, error) {
 	return []appleContainerInspect{single}, nil
 }
 
+func parseAppleContainerNetworks(raw []byte) ([]appleContainerNetwork, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var list []appleContainerNetwork
+	if err := json.Unmarshal(raw, &list); err == nil {
+		return list, nil
+	}
+	var single appleContainerNetwork
+	if err := json.Unmarshal(raw, &single); err != nil {
+		return nil, err
+	}
+	return []appleContainerNetwork{single}, nil
+}
+
+func appleContainerNetworkInspect(network appleContainerNetwork) dockernetwork.Inspect {
+	name := firstNonEmpty(network.Config.ID, network.ID)
+	mode := strings.TrimSpace(network.Config.Mode)
+	ipamConfig := []dockernetwork.IPAMConfig{}
+	if subnet := strings.TrimSpace(network.Status.IPv4Subnet); subnet != "" {
+		ipamConfig = append(ipamConfig, dockernetwork.IPAMConfig{
+			Subnet:  subnet,
+			Gateway: network.Status.IPv4Gateway,
+		})
+	}
+	if subnet := strings.TrimSpace(network.Status.IPv6Subnet); subnet != "" {
+		ipamConfig = append(ipamConfig, dockernetwork.IPAMConfig{Subnet: subnet})
+	}
+	return dockernetwork.Inspect{
+		Name:       name,
+		ID:         firstNonEmpty(network.ID, name),
+		Driver:     "apple-container",
+		Scope:      "local",
+		EnableIPv4: network.Status.IPv4Subnet != "",
+		EnableIPv6: network.Status.IPv6Subnet != "",
+		Internal:   mode == "hostOnly",
+		Labels:     network.Config.Labels,
+		IPAM: dockernetwork.IPAM{
+			Config: ipamConfig,
+		},
+	}
+}
+
 func appleContainerSummary(ctr appleContainerInspect) dockercontainer.Summary {
 	inspect := appleContainerInspectResponse(ctr)
 	summary := containerSummaryFromInspect(inspect)
@@ -1125,6 +1224,33 @@ func nonEmptyStrings(values ...string) []string {
 		out = append(out, value)
 	}
 	return out
+}
+
+func appleContainerNetworkCreateArgs(name string, options dockernetwork.CreateOptions) []string {
+	args := []string{"network", "create"}
+	for key, value := range options.Labels {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		args = append(args, "--label", key+"="+value)
+	}
+	if options.Internal {
+		args = append(args, "--internal")
+	}
+	if options.IPAM != nil {
+		for _, cfg := range options.IPAM.Config {
+			if subnet := strings.TrimSpace(cfg.Subnet); subnet != "" {
+				if strings.Contains(subnet, ":") {
+					args = append(args, "--subnet-v6", subnet)
+				} else {
+					args = append(args, "--subnet", subnet)
+				}
+			}
+		}
+	}
+	args = append(args, name)
+	return args
 }
 
 func appleContainerCreateArgs(config *dockercontainer.Config, hostConfig *dockercontainer.HostConfig, networkingConfig *dockernetwork.NetworkingConfig, platform *specs.Platform, containerName string) ([]string, error) {

@@ -283,6 +283,79 @@ func TestAppleContainerLifecycleCommands(t *testing.T) {
 	}
 }
 
+func TestAppleContainerNetworkCommands(t *testing.T) {
+	sample := []byte(`[
+		{
+			"id": "agency-smoke-net",
+			"state": "running",
+			"config": {
+				"id": "agency-smoke-net",
+				"mode": "hostOnly",
+				"labels": {"agency.agent": "smoke", "agency.type": "internal"}
+			},
+			"status": {
+				"ipv4Subnet": "192.168.128.0/24",
+				"ipv4Gateway": "192.168.128.1",
+				"ipv6Subnet": "fd0a:c0a8:1d80:435f::/64"
+			}
+		}
+	]`)
+	var calls [][]string
+	client := &RawClient{
+		backend: BackendAppleContainer,
+		appleContainer: &appleContainerConfig{run: func(ctx context.Context, args ...string) ([]byte, []byte, error) {
+			calls = append(calls, append([]string(nil), args...))
+			switch strings.Join(args, " ") {
+			case "network create --label agency.agent=smoke --label agency.type=internal --internal --subnet 192.168.128.0/24 agency-smoke-net":
+				return []byte("agency-smoke-net\n"), nil, nil
+			case "network list --format json", "network inspect agency-smoke-net":
+				return sample, nil, nil
+			case "network delete agency-smoke-net":
+				return []byte("agency-smoke-net\n"), nil, nil
+			default:
+				t.Fatalf("unexpected args: %#v", args)
+			}
+			return nil, nil, nil
+		}},
+	}
+
+	resp, err := client.NetworkCreate(context.Background(), "agency-smoke-net", dockernetwork.CreateOptions{
+		Internal: true,
+		Labels:   map[string]string{"agency.agent": "smoke", "agency.type": "internal"},
+		IPAM: &dockernetwork.IPAM{Config: []dockernetwork.IPAMConfig{{
+			Subnet: "192.168.128.0/24",
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.ID != "agency-smoke-net" {
+		t.Fatalf("network id = %q", resp.ID)
+	}
+	networks, err := client.NetworkList(context.Background(), dockernetwork.ListOptions{
+		Filters: dockerfilters.NewArgs(dockerfilters.Arg("label", "agency.agent=smoke")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(networks) != 1 || !networks[0].Internal || networks[0].Labels["agency.type"] != "internal" {
+		t.Fatalf("networks = %#v", networks)
+	}
+	inspect, err := client.NetworkInspect(context.Background(), "agency-smoke-net", dockernetwork.InspectOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspect.Name != "agency-smoke-net" || !inspect.Internal || inspect.IPAM.Config[0].Gateway != "192.168.128.1" {
+		t.Fatalf("inspect = %#v", inspect)
+	}
+	if err := client.NetworkRemove(context.Background(), "agency-smoke-net"); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 4 {
+		t.Fatalf("calls len = %d, want 4: %#v", len(calls), calls)
+	}
+}
+
 func TestNerdctlCreateArgsIncludeLogConfig(t *testing.T) {
 	config := &dockercontainer.Config{Image: "agency-body:latest"}
 	hostConfig := &dockercontainer.HostConfig{
