@@ -34,6 +34,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/daemon"
 	"github.com/geoffbelknap/agency/internal/events"
+	"github.com/geoffbelknap/agency/internal/hostadapter/containerops"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	agencylog "github.com/geoffbelknap/agency/internal/logging"
 	"github.com/geoffbelknap/agency/internal/logs"
@@ -623,13 +624,13 @@ func isWSL() bool {
 	return strings.Contains(s, "microsoft") || strings.Contains(s, "WSL")
 }
 
-// webHost derives the web UI hostname from the gateway address config.
-// Returns "localhost" if the gateway binds to 0.0.0.0 or if the address
-// cannot be parsed.
+// webHost derives the local web UI hostname. The web container publishes its
+// host port on loopback, even when the gateway daemon listens on a backend
+// bridge address for VM-backed runtimes.
 func webHost() string {
 	cfg := config.Load()
 	if host, _, err := net.SplitHostPort(cfg.GatewayAddr); err == nil && host != "" {
-		if host != "0.0.0.0" {
+		if host == "localhost" || strings.HasPrefix(host, "127.") || host == "::1" {
 			return host
 		}
 	}
@@ -835,10 +836,21 @@ func persistPendingKeysToEnv(agencyHome string, keys []config.KeyEntry) error {
 
 func runSetup(provider, apiKey, notifyURL, backend string, backendCfg map[string]string, noInfra, cliMode, noBrowser, configurePool bool) error {
 	provider = normalizeProvider(provider)
+	gatewayAddr := ""
+	if runtimehost.NormalizeContainerBackend(backend) == runtimehost.BackendAppleContainer {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		addr, err := appleContainerGatewayListenAddr(ctx, backendCfg)
+		if err != nil {
+			return fmt.Errorf("prepare apple-container gateway address: %w", err)
+		}
+		gatewayAddr = addr
+	}
 	pendingKeys, err := config.RunInit(config.InitOptions{
 		Provider:                provider,
 		APIKey:                  apiKey,
 		NotifyURL:               notifyURL,
+		GatewayAddr:             gatewayAddr,
 		DeploymentBackend:       backend,
 		DeploymentBackendConfig: backendCfg,
 	})
@@ -1039,6 +1051,38 @@ func runSetup(provider, apiKey, notifyURL, backend string, backendCfg map[string
 	}
 
 	return nil
+}
+
+func appleContainerGatewayListenAddr(ctx context.Context, backendCfg map[string]string) (string, error) {
+	cli, err := runtimehost.NewRawClientForBackend(runtimehost.BackendAppleContainer, backendCfg)
+	if err != nil {
+		return "", err
+	}
+	netName := runtimehost.GatewayNetName()
+	inspect, err := cli.NetworkInspect(ctx, netName, containerops.InspectOptions{})
+	if err != nil {
+		if !containerops.IsNetworkNotFound(err) {
+			return "", fmt.Errorf("inspect %s: %w", netName, err)
+		}
+		labels := map[string]string{
+			"agency.role":      "infra",
+			"agency.component": netName,
+			"agency.instance":  runtimehost.InfraInstanceName(),
+		}
+		if createErr := containerops.CreateMediationNetwork(ctx, cli, netName, labels); createErr != nil && !containerops.IsNetworkAlreadyExists(createErr) {
+			return "", fmt.Errorf("create %s: %w", netName, createErr)
+		}
+		inspect, err = cli.NetworkInspect(ctx, netName, containerops.InspectOptions{})
+		if err != nil {
+			return "", fmt.Errorf("verify %s: %w", netName, err)
+		}
+	}
+	for _, cfg := range inspect.IPAM.Config {
+		if gateway := strings.TrimSpace(cfg.Gateway); gateway != "" {
+			return net.JoinHostPort(gateway, "8200"), nil
+		}
+	}
+	return "", fmt.Errorf("network %s has no gateway address", netName)
 }
 
 func runServe(httpAddr string) error {

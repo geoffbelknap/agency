@@ -115,6 +115,15 @@ func checkSourcePaths(t *testing.T, name string, lineNum int, contextDir string,
 	}
 }
 
+func TestRewriteDockerfileForNamedContextsPreservesDirectorySlash(t *testing.T) {
+	input := "COPY --from=shared models/ /app/images/models/\n"
+	got := rewriteDockerfileForNamedContexts(input, map[string]string{"shared": "/repo/images"})
+	want := "COPY _ctx_shared/models/ /app/images/models/\n"
+	if got != want {
+		t.Fatalf("rewriteDockerfileForNamedContexts() = %q, want %q", got, want)
+	}
+}
+
 // TestRepoContextMatchesMakefile verifies the repoContextNames map in
 // buildFromSource matches REPO_CONTEXT_IMAGES in the Makefile.
 func TestRepoContextMatchesMakefile(t *testing.T) {

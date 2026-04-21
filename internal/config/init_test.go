@@ -82,6 +82,29 @@ func TestRunInit_PreservesExistingBackendWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestRunInit_PersistsGatewayAddr(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpDir := t.TempDir()
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	if _, err := RunInit(InitOptions{GatewayAddr: "192.168.128.1:8200"}); err != nil {
+		t.Fatalf("RunInit failed: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmpDir, ".agency", "config.yaml"))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var got map[string]any
+	if err := yaml.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got["gateway_addr"] != "192.168.128.1:8200" {
+		t.Errorf("gateway_addr = %v, want 192.168.128.1:8200", got["gateway_addr"])
+	}
+}
+
 func TestRunInit_NotificationConfig(t *testing.T) {
 	origHome := os.Getenv("HOME")
 	tmpDir := t.TempDir()

@@ -27,6 +27,8 @@ const (
 	OllamaVersion  = "0.9.3"
 )
 
+const buildContextTransformVersion = "named-context-dir-slash-v2"
+
 var sourceImageDependencies = map[string][]string{
 	"body":      {"python-base"},
 	"comms":     {"python-base"},
@@ -317,6 +319,12 @@ func sourceFingerprint(contextDir, dockerfilePath string, namedContexts map[stri
 	})
 
 	h := sha256.New()
+	if len(namedSources) > 0 {
+		h.Write([]byte("build-context-transform"))
+		h.Write([]byte{0})
+		h.Write([]byte(buildContextTransformVersion))
+		h.Write([]byte{0})
+	}
 	for _, file := range allFiles {
 		rel, err := filepath.Rel(file.baseDir, file.path)
 		if err != nil {
@@ -507,7 +515,12 @@ func rewriteDockerfileForNamedContexts(content string, namedContexts map[string]
 				rewritten = append(rewritten, source)
 				continue
 			}
-			rewritten = append(rewritten, filepath.ToSlash(filepath.Join("_ctx_"+ctxName, strings.Trim(source, `"'`))))
+			trimmed := strings.Trim(source, `"'`)
+			rewrittenSource := filepath.ToSlash(filepath.Join("_ctx_"+ctxName, trimmed))
+			if strings.HasSuffix(trimmed, "/") && !strings.HasSuffix(rewrittenSource, "/") {
+				rewrittenSource += "/"
+			}
+			rewritten = append(rewritten, rewrittenSource)
 		}
 		rewritten = append(rewritten, fields[len(fields)-1])
 		lines[i] = strings.Join(rewritten, " ")

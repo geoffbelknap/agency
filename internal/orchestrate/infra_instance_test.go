@@ -42,6 +42,40 @@ func TestInfraContainerNameUsesInstance(t *testing.T) {
 	}
 }
 
+func TestGatewayProxyServiceHostsDefaultToServiceAliases(t *testing.T) {
+	inf := &Infra{}
+	hosts := inf.gatewayProxyServiceHosts(context.Background())
+	for role, want := range map[string]string{
+		"comms":     "comms",
+		"knowledge": "knowledge",
+		"intake":    "intake",
+	} {
+		if got := hosts[role]; got != want {
+			t.Fatalf("gatewayProxyServiceHosts()[%q] = %q, want %q", role, got, want)
+		}
+	}
+}
+
+func TestGatewayProxyServiceHostsUseAppleContainerNames(t *testing.T) {
+	t.Setenv("AGENCY_INFRA_INSTANCE", "apple-home")
+
+	appleContainer, err := runtimehost.NewRawClientForBackend(runtimehost.BackendAppleContainer, nil)
+	if err != nil {
+		t.Skipf("Apple container raw client unavailable: %v", err)
+	}
+	inf := &Infra{Instance: infraInstanceName(), cli: appleContainer}
+	hosts := inf.gatewayProxyServiceHosts(context.Background())
+	for role, want := range map[string]string{
+		"comms":     "agency-infra-comms-apple-home",
+		"knowledge": "agency-infra-knowledge-apple-home",
+		"intake":    "agency-infra-intake-apple-home",
+	} {
+		if got := hosts[role]; got != want {
+			t.Fatalf("gatewayProxyServiceHosts()[%q] = %q, want %q", role, got, want)
+		}
+	}
+}
+
 func TestInfraInstanceLabelDefaultsWithoutInstance(t *testing.T) {
 	inf := &Infra{}
 	if got, want := inf.instanceLabel(), "default"; got != want {
