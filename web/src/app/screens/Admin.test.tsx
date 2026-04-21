@@ -395,6 +395,45 @@ describe('Admin — Audit tab', () => {
       expect(screen.getAllByText('domain.blocked').length).toBeGreaterThan(0);
     });
   });
+
+  it('shows security scan detail in admin audit rows', async () => {
+    server.use(...agentHandlers);
+    server.use(
+      http.get(`${BASE}/admin/audit`, () =>
+        HttpResponse.json([
+          {
+            timestamp: '2026-03-16T10:02:00Z',
+            event: 'SECURITY_SCAN_NOT_APPLICABLE',
+            agent: 'alice',
+            source: 'enforcer',
+            scan_type: 'xpia',
+            scan_surface: 'provider_tool_content',
+            scan_action: 'not_applicable',
+            scan_mode: 'provider_hosted',
+            finding_count: 0,
+            content_count: 1,
+            security_boundary: 'provider_hosted_raw_content_not_visible',
+          },
+        ]),
+      ),
+    );
+
+    renderAdminInForm('audit');
+
+    await waitFor(() => {
+      expect(screen.getAllByText('security.scan.not.applicable').length).toBeGreaterThan(0);
+      expect(screen.getByText(/provider_hosted_raw_content_not_visible/)).toBeInTheDocument();
+      expect(screen.getByText(/Security/)).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByLabelText('Expand audit entry'));
+
+    expect(screen.getByText('Security scan')).toBeInTheDocument();
+    expect(screen.getByText('scan_surface')).toBeInTheDocument();
+    expect(screen.getAllByText('provider_tool_content').length).toBeGreaterThan(0);
+    expect(screen.getByText('scan_mode')).toBeInTheDocument();
+    expect(screen.getByText('provider_hosted')).toBeInTheDocument();
+  });
 });
 
 describe('Admin — Setup tab', () => {
