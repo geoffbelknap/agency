@@ -918,7 +918,7 @@ Foundational registered PACT kinds are:
 | Kind | Current Role |
 | --- | --- |
 | `current_info` | Current or externally verifiable facts requiring fresh source/tool evidence. |
-| `code_change` | Code changes requiring changed-file evidence and validation evidence or a blocker. |
+| `code_change` | Code changes requiring runtime changed-file evidence, validation evidence, and a summary that names both. |
 | `file_artifact` | File/report/artifact-producing work requiring runtime artifact evidence plus a concrete artifact reference. |
 | `external_side_effect` | Work that mutates external systems and requires authority plus outcome evidence. |
 | `operator_blocked` | Explicit blocked work requiring a blocker and unblock condition. |
@@ -1075,13 +1075,19 @@ fields.
   represented by runtime observations, provider metadata, audit events, and
   artifact frontmatter rather than a typed PACT ledger resource.
 - The named contract registry and body-local `PactEvaluator` exist, and
-  `current_info` plus `file_artifact` now have deterministic completion gates.
-- `code_change`, `external_side_effect`, and `operator_blocked` are registered
-  but not yet broadly classified or validated by contract-specific evaluators.
+  `current_info`, `file_artifact`, and `code_change` now have deterministic
+  completion gates.
+- `external_side_effect` and `operator_blocked` are registered but not yet
+  broadly classified or validated by contract-specific evaluators.
 - File-artifact work is classified for explicit artifact-producing requests.
   The body runtime materializes file-artifact completions into result artifacts,
   records the path as runtime-owned evidence, and requires the completion to
   include that concrete path.
+- Code-change work is classified for explicit code/test/build fix requests. The
+  body runtime records changed-file evidence from mediated `write_file` calls,
+  records validation evidence from test/build `execute_command` calls, and
+  requires completions to name both the changed files and passing validation
+  commands.
 - Contract-validated blocked completions are terminal in the body runtime: they
   commit task completion with a blocked terminal outcome instead of entering the
   generic "call complete_task" retry path.
@@ -1097,7 +1103,7 @@ Known gaps:
 
 - evidence has a typed runtime write model, but not a durable typed ledger
 - contracts are registered by name, but validation remains limited to
-  current-info and file-artifact contracts
+  current-info, file-artifact, and code-change contracts
 - activation sources are represented for body message intake, but not yet across
   every gateway activation source
 - planning is mostly prompt-level
@@ -1162,10 +1168,9 @@ Priority targets:
    audit exports without requiring UI reconstruction.
 
 5. **Outcome contract validation beyond current information.**
-   `file_artifact` now has a first deterministic path. Next, wire
-   `code_change`, `external_side_effect`, and `operator_blocked` into real
-   classification paths and deterministic evaluators before generalizing to more
-   complex workflows.
+   `file_artifact` and `code_change` now have deterministic paths. Next, wire
+   `external_side_effect` and `operator_blocked` into real classification paths
+   and deterministic evaluators before generalizing to more complex workflows.
 
 6. **Policy/admin observability.**
    Add administrative surfaces for contract health, blocked verdict trends,
