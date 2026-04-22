@@ -297,6 +297,16 @@ def test_classifies_code_change_request_as_code_change():
     assert contract.answer_requirements == ["files_changed", "tests_run_or_blocker"]
 
 
+def test_classifies_operator_blocked_request_as_operator_blocked():
+    contract = classify_work("I am blocked waiting for operator approval to continue")
+
+    assert contract.kind == "operator_blocked"
+    assert contract.requires_action is True
+    assert contract.required_evidence == ["blocker_reason"]
+    assert contract.answer_requirements == ["next_actor_or_unblocker"]
+    assert contract.allowed_terminal_states == ["blocked", "needs_clarification"]
+
+
 def test_unknown_contract_kind_fails_closed():
     with pytest.raises(ValueError, match="unknown work contract kind"):
         build_contract("not_registered", requires_action=True, reason="test")
@@ -532,6 +542,32 @@ def test_code_change_completion_accepts_changed_files_and_validation():
     )
 
     assert verdict["verdict"] == "completed"
+
+
+def test_operator_blocked_completion_requires_unblocker():
+    contract = classify_work("I am blocked waiting for operator approval").to_dict()
+
+    verdict = validate_completion(
+        contract,
+        {},
+        "I am blocked because approval is missing.",
+    )
+
+    assert verdict["verdict"] == "needs_action"
+    assert verdict["missing_evidence"] == ["next_actor_or_unblocker"]
+
+
+def test_operator_blocked_completion_accepts_blocker_and_unblocker():
+    contract = classify_work("I am blocked waiting for operator approval").to_dict()
+
+    verdict = validate_completion(
+        contract,
+        {},
+        "Blocked: approval is missing. What would unblock this: operator approval to continue.",
+    )
+
+    assert verdict["verdict"] == "blocked"
+    assert "operator approval" in verdict["message"]
 
 
 def test_extract_urls_trims_trailing_sentence_punctuation():
