@@ -160,6 +160,51 @@ class WorkContract:
         }
 
 
+@dataclass(frozen=True)
+class EvidenceView:
+    tool_results: tuple[dict, ...] = ()
+    observed: frozenset[str] = frozenset()
+    source_urls: tuple[str, ...] = ()
+
+    @classmethod
+    def from_dict(cls, evidence: dict | None) -> "EvidenceView":
+        evidence = evidence or {}
+        tool_results = tuple(
+            item for item in evidence.get("tool_results") or []
+            if isinstance(item, dict)
+        )
+        observed = frozenset(str(item) for item in evidence.get("observed") or [])
+        source_urls: list[str] = []
+        for value in evidence.get("source_urls") or []:
+            if isinstance(value, str):
+                for url in extract_urls(value):
+                    if url not in source_urls:
+                        source_urls.append(url)
+        return cls(
+            tool_results=tool_results,
+            observed=observed,
+            source_urls=tuple(source_urls),
+        )
+
+    def has_tool_or_observation(self) -> bool:
+        return bool(self.tool_results or self.observed)
+
+
+@dataclass(frozen=True)
+class EvaluationResult:
+    verdict: str
+    missing_evidence: tuple[str, ...] = ()
+    message: str = ""
+
+    def to_dict(self) -> dict:
+        result: dict[str, object] = {"verdict": self.verdict}
+        if self.missing_evidence:
+            result["missing_evidence"] = list(self.missing_evidence)
+        if self.message:
+            result["message"] = self.message
+        return result
+
+
 class PactEvaluator:
     """Registry-backed evaluator for body-runtime PACT contracts."""
 
@@ -258,15 +303,15 @@ class PactEvaluator:
         content: str = "",
         checked_at: str | None = None,
     ) -> str:
-        evidence = evidence or {}
+        evidence_view = EvidenceView.from_dict(evidence)
         kind = (contract or {}).get("kind")
         if kind != "current_info":
             return str(content or "I cannot complete this task with the available evidence.")
 
-        source_urls = _evidence_source_urls(evidence)
+        source_urls = list(evidence_view.source_urls)
         if source_urls:
             reason = "Available source URLs did not satisfy the official/current-source evidence contract."
-        elif evidence.get("tool_results") or "current_source" in set(evidence.get("observed") or []):
+        elif evidence_view.tool_results or "current_source" in evidence_view.observed:
             reason = "Current-information tool evidence was insufficient to verify the requested fact."
         else:
             reason = "No current-information source or tool result was available."
@@ -287,48 +332,54 @@ class PactEvaluator:
         return "\n".join(lines)
 
     def validate_completion(self, contract: dict | None, evidence: dict | None, content: str) -> dict:
-        if not contract or not contract.get("requires_action"):
-            return {"verdict": "completed"}
+        return self.evaluate_completion(contract, evidence, content).to_dict()
 
-        evidence = evidence or {}
+    def evaluate_completion(
+        self,
+        contract: dict | None,
+        evidence: dict | None,
+        content: str,
+    ) -> EvaluationResult:
+        if not contract or not contract.get("requires_action"):
+            return EvaluationResult("completed")
+
+        evidence_view = EvidenceView.from_dict(evidence)
         content = str(content or "")
         kind = str(contract.get("kind") or "")
         if kind not in self._registry:
-            return {
-                "verdict": "blocked",
-                "missing_evidence": ["known_contract_kind"],
-                "message": f"Unknown work contract kind: {kind or '(missing)'}.",
-            }
+            return EvaluationResult(
+                "blocked",
+                missing_evidence=("known_contract_kind",),
+                message=f"Unknown work contract kind: {kind or '(missing)'}.",
+            )
         if BLOCKER_RE.search(content):
-            return {
-                "verdict": "blocked",
-                "message": self.format_blocked_completion(contract, evidence, content),
-            }
+            return EvaluationResult(
+                "blocked",
+                message=self.format_blocked_completion(contract, evidence, content),
+            )
 
         required = set(contract.get("required_evidence") or [])
-        tool_results = evidence.get("tool_results") or []
-        observed = set(evidence.get("observed") or [])
 
         if "current_source_or_blocker" in required:
-            if tool_results or "current_source" in observed:
-                return _validate_current_info_answer(contract, evidence, content)
-            return {
-                "verdict": "needs_action",
-                "missing_evidence": ["current_source_or_blocker"],
-                "message": (
+            if evidence_view.tool_results or "current_source" in evidence_view.observed:
+                return _validate_current_info_answer(contract, evidence_view, content)
+            return EvaluationResult(
+                "needs_action",
+                missing_evidence=("current_source_or_blocker",),
+                message=(
                     "This work requires current external evidence. Use an available "
                     "current-info/search/fetch tool, or report the specific blocker."
                 ),
-            }
+            )
 
-        if "action_result_or_blocker" in required and not (tool_results or observed):
-            return {
-                "verdict": "needs_action",
-                "missing_evidence": ["action_result_or_blocker"],
-                "message": "This work requires an observed action result or a specific blocker.",
-            }
+        if "action_result_or_blocker" in required and not evidence_view.has_tool_or_observation():
+            return EvaluationResult(
+                "needs_action",
+                missing_evidence=("action_result_or_blocker",),
+                message="This work requires an observed action result or a specific blocker.",
+            )
 
-        return {"verdict": "completed"}
+        return EvaluationResult("completed")
 
 
 DEFAULT_EVALUATOR = PactEvaluator()
@@ -374,16 +425,6 @@ def extract_urls(text: str) -> list[str]:
     return urls
 
 
-def _evidence_source_urls(evidence: dict) -> list[str]:
-    urls: list[str] = []
-    for value in evidence.get("source_urls") or []:
-        if isinstance(value, str):
-            for url in extract_urls(value):
-                if url not in urls:
-                    urls.append(url)
-    return urls
-
-
 def _checked_date(checked_at: str | None = None) -> str:
     if checked_at:
         return checked_at
@@ -421,12 +462,16 @@ def format_blocked_completion(
     return DEFAULT_EVALUATOR.format_blocked_completion(contract, evidence, content, checked_at)
 
 
-def _validate_current_info_answer(contract: dict, evidence: dict, content: str) -> dict:
+def _validate_current_info_answer(
+    contract: dict,
+    evidence: EvidenceView,
+    content: str,
+) -> EvaluationResult:
     requirements = set(contract.get("answer_requirements") or [])
     missing: list[str] = []
     answer_without_checked_clause = CHECKED_CLAUSE_RE.sub("", content)
     answer_urls = extract_urls(content)
-    evidence_urls = _evidence_source_urls(evidence)
+    evidence_urls = list(evidence.source_urls)
 
     if "source_url" in requirements and not answer_urls:
         missing.append("source_url")
@@ -440,17 +485,17 @@ def _validate_current_info_answer(contract: dict, evidence: dict, content: str) 
         missing.append("named_source")
 
     if not missing:
-        return {"verdict": "completed"}
+        return EvaluationResult("completed")
 
-    return {
-        "verdict": "needs_action",
-        "missing_evidence": missing,
-        "message": (
+    return EvaluationResult(
+        "needs_action",
+        missing_evidence=tuple(missing),
+        message=(
             "The answer has current-source evidence but does not satisfy the "
             "answer contract. Provide direct source links, a checked/as-of date, "
             "and name sources instead of referring vaguely to search results."
         ),
-    }
+    )
 
 
 def validate_completion(contract: dict | None, evidence: dict | None, content: str) -> dict:

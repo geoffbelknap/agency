@@ -7,6 +7,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "body"))
 
 from images.body.work_contract import (
     ContractDefinition,
+    EvaluationResult,
+    EvidenceView,
     PactEvaluator,
     WorkContract,
     build_contract,
@@ -18,6 +20,38 @@ from images.body.work_contract import (
     list_contract_kinds,
     validate_completion,
 )
+
+
+def test_evaluation_result_serializes_compatibly():
+    assert EvaluationResult("completed").to_dict() == {"verdict": "completed"}
+    assert EvaluationResult(
+        "needs_action",
+        missing_evidence=("source_url",),
+        message="Missing source.",
+    ).to_dict() == {
+        "verdict": "needs_action",
+        "missing_evidence": ["source_url"],
+        "message": "Missing source.",
+    }
+
+
+def test_evidence_view_normalizes_runtime_evidence():
+    evidence = EvidenceView.from_dict({
+        "tool_results": [{"tool": "provider-web-search"}, "ignored"],
+        "observed": ["current_source", 7],
+        "source_urls": [
+            "https://nodejs.org/en,https://github.com/nodejs/node/releases.",
+            "https://nodejs.org/en",
+        ],
+    })
+
+    assert evidence.has_tool_or_observation() is True
+    assert evidence.tool_results == ({"tool": "provider-web-search"},)
+    assert evidence.observed == frozenset({"current_source", "7"})
+    assert evidence.source_urls == (
+        "https://nodejs.org/en",
+        "https://github.com/nodejs/node/releases",
+    )
 
 
 def test_pact_evaluator_uses_explicit_registry():
@@ -38,6 +72,22 @@ def test_pact_evaluator_uses_explicit_registry():
     assert contract.answer_requirements == ["custom_answer"]
     with pytest.raises(ValueError, match="unknown work contract kind"):
         evaluator.contract_definition("current_info")
+
+
+def test_pact_evaluator_returns_typed_evaluation_result():
+    evaluator = PactEvaluator()
+    contract = evaluator.classify_work("latest SEC filing").to_dict()
+
+    verdict = evaluator.evaluate_completion(
+        contract,
+        {"tool_results": [{"tool": "web_search", "ok": True}]},
+        "The source says X.",
+    )
+
+    assert isinstance(verdict, EvaluationResult)
+    assert verdict.verdict == "needs_action"
+    assert verdict.missing_evidence == ("source_url", "checked_date")
+    assert verdict.to_dict()["missing_evidence"] == ["source_url", "checked_date"]
 
 
 def test_contract_registry_contains_foundational_contracts():
