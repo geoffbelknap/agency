@@ -33,6 +33,10 @@ reference implementation of both.
 - PACT does not rely on provider or model training as honesty enforcement.
   Provider primitives complement but do not replace PACT's external
   enforcement of the honesty invariant.
+- PACT does not assume invention authority by default. `chat`-kind contracts
+  do not grant invention authority; they narrow the required evidence shape
+  but preserve the default grounded generation mode unless the activation
+  classifier recognizes an explicit invention authorization.
 
 ## Design Principles
 
@@ -88,6 +92,21 @@ reference implementation of both.
    The model may draft plans, call tools, and propose outputs. The runtime decides
    whether a plan can execute, whether evidence satisfies the contract, and
    whether an outcome can be committed.
+
+9. **Invention is authorized, not assumed.**
+   Agents default to grounded output. Invention of content from the model's
+   own weights is a narrow, explicit authorization recognized at activation
+   time by the runtime — not inferred by the agent. Social interaction,
+   persona responses, creative output, and intermediate reasoning are
+   distinct authorizations that narrow — but do not remove — the grounding
+   requirement for claims about external state. Per ASK tenet #4, unknown
+   generation context defaults to grounded.
+
+   The `chat` contract kind does not by itself grant invention authority; it
+   narrows the required shape of evidence. Authorizing invention is a
+   separate decision made at activation-classification time based on
+   explicit signals in the request. Conversational phrasing alone never
+   authorizes invention.
 
 ## Agentic Execution Harness
 
@@ -260,10 +279,68 @@ success_criteria
 ambiguities
 assumptions
 risk_level
+generation_mode
 ```
 
 Objectives are not merely summaries. They are the target against which planning,
 execution, evaluation, and outcome commitment are checked.
+
+### Generation Mode
+
+Every PACT execution carries a generation mode that determines what kind of
+output the agent is authorized to produce. Generation mode travels on the
+objective alongside kind and constraints. The runtime — not the agent —
+decides the mode at activation-classification time.
+
+Modes:
+
+- `grounded` — default. Factual claims about external state require evidence
+  ledger entries with `mediated`, `provider`, or `runtime` provenance.
+  Applies to analytical, investigative, informational, and instrumented
+  work.
+- `social` — low-stakes conversational interaction: greetings,
+  acknowledgment, meta-conversation about the agent or the task. The agent
+  may produce subjective conversational content. Claims about external
+  state remain grounded.
+- `persona` — first-person responses about the agent itself (name, role,
+  preferences, capabilities). The agent may produce persona-consistent
+  content. Claims about external state remain grounded.
+- `creative` — explicit creative or playful output: jokes, poems,
+  brainstorms, roleplay. Invention is the expected output. Claims about
+  external state remain grounded.
+- `reasoning` — thinking through a problem in the open. Intermediate
+  steps may be model-authored. Conclusions about external state remain
+  grounded.
+
+Default generation mode is `grounded`. The runtime promotes a non-grounded
+mode only when the activation contains an explicit authorization pattern
+(e.g., "tell me a joke", "how are you", "write a poem", "brainstorm with
+me"). Ambiguity defaults to `grounded`; the classifier does not escalate
+invention authority on inference or conversational phrasing alone.
+
+Mode interacts with the honesty invariant (Design Principle 4): no mode
+exempts agent claims about external state from requiring mediated evidence.
+Invention-authorized modes narrow the check to claims the mode permits
+inventing (e.g., subjective persona responses in `persona` mode) but never
+override the grounding requirement for factual assertions.
+
+Mode affects:
+
+- system prompt construction — the runtime may tailor the prompt to the
+  authorized mode
+- honesty-check semantics — grounded-mode prose announcing tool use without
+  matching mediated evidence blocks commit; non-grounded modes apply a
+  narrowed variant of the same check
+- evaluator layers — modes may alter which layers fire or how they
+  interpret evidence sufficiency
+
+Generation mode is a property of the typed `Objective`, populated by the
+objective builder. It is not a field on `WorkContract`; contracts describe
+what kind of work is being done, modes describe what kind of output is
+authorized. A single contract kind may carry different generation modes
+depending on the activation (e.g., a `chat` contract normally carries
+`grounded` mode, but a `chat` activation asking for a joke carries
+`creative` mode).
 
 ### Execution Contract
 
