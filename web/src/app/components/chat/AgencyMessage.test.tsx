@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { AgencyMessage } from './AgencyMessage';
@@ -25,6 +25,28 @@ function renderMsg(props: Partial<Parameters<typeof AgencyMessage>[0]> = {}) {
 }
 
 describe('AgencyMessage', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => {
+      const target = String(url);
+      if (target.includes('/metadata')) {
+        return new Response(JSON.stringify({
+          task_id: 'task-1',
+          has_metadata: true,
+          pact: {
+            kind: 'current_info',
+            verdict: 'completed',
+            source_urls: ['https://nodejs.org/en/blog/release/v24.15.0'],
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('renders author, timestamp, and markdown content', () => {
     renderMsg();
     expect(screen.getByText('scout')).toBeInTheDocument();
@@ -55,6 +77,17 @@ describe('AgencyMessage', () => {
     renderMsg({ message: msg });
     expect(screen.getByText('View full report')).toBeInTheDocument();
     expect(screen.getByText('Download .md')).toBeInTheDocument();
+  });
+
+  it('renders PACT status for artifact metadata', async () => {
+    const msg: Message = {
+      ...baseMessage,
+      metadata: { has_artifact: true, agent: 'scout', task_id: 'task-1' },
+    };
+    renderMsg({ message: msg });
+    expect(await screen.findByText('completed')).toBeInTheDocument();
+    expect(screen.getByText('1 source')).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/api/v1/agents/scout/results/task-1/metadata'), expect.any(Object));
   });
 
   it('renders tool calls as compact terminal pills', () => {

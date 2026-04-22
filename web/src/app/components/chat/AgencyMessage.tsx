@@ -1,8 +1,8 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Bot, FileText, Download, Terminal, ExternalLink } from 'lucide-react';
+import { Bot, FileText, Download, Terminal, ExternalLink, ShieldCheck } from 'lucide-react';
 import type { Message } from '../../types';
 import { api, authenticatedFetch } from '../../lib/api';
 import { cn } from '../ui/utils';
@@ -36,6 +36,13 @@ interface GroupedReaction {
   emoji: string;
   count: number;
   hasReacted: boolean;
+}
+
+interface PactMetadata {
+  kind?: string;
+  verdict?: string;
+  source_urls?: unknown[];
+  missing_evidence?: unknown[];
 }
 
 function groupReactions(reactions: Array<{ emoji: string; author: string }> | undefined): GroupedReaction[] {
@@ -123,6 +130,36 @@ function metadataLinks(metadata?: Record<string, any>): Array<{ label: string; u
   return links;
 }
 
+function extractPactMetadata(payload: Record<string, unknown> | null | undefined): PactMetadata | null {
+  const direct = payload?.pact;
+  const nested = (payload?.metadata as Record<string, unknown> | undefined)?.pact;
+  const pact = (direct || nested) as PactMetadata | undefined;
+  if (!pact || typeof pact !== 'object') return null;
+  if (!pact.verdict && !pact.kind) return null;
+  return pact;
+}
+
+function pactVerdictColor(verdict?: string): string {
+  switch (verdict) {
+    case 'completed':
+      return 'var(--teal)';
+    case 'blocked':
+      return '#d64b4b';
+    case 'needs_action':
+      return '#b7791f';
+    default:
+      return 'var(--ink-muted)';
+  }
+}
+
+function pactSummary(pact: PactMetadata): string {
+  const sources = Array.isArray(pact.source_urls) ? pact.source_urls.length : 0;
+  const missing = Array.isArray(pact.missing_evidence) ? pact.missing_evidence.length : 0;
+  if (sources > 0) return `${sources} source${sources === 1 ? '' : 's'}`;
+  if (missing > 0) return `${missing} gap${missing === 1 ? '' : 's'}`;
+  return pact.kind || 'PACT';
+}
+
 export function AgencyMessageAvatar({ message, agentStatus, onAgentClick }: AgencyMessageAvatarProps) {
   return (
     <div className="relative shrink-0">
@@ -163,19 +200,38 @@ export function AgencyMessage({
   const [reportOpen, setReportOpen] = useState(false);
   const [reportContent, setReportContent] = useState<string | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
+  const [resultPact, setResultPact] = useState<PactMetadata | null>(null);
 
   const groupedReactions = groupReactions(message.metadata?.reactions);
   const parsedContent = splitInlineToolNoise(message.content);
+  const artifactId = message.metadata?.task_id || message.metadata?.attachment_id;
+  const artifactAgent = message.metadata?.agent;
+  const hasArtifact = Boolean(message.metadata?.has_artifact && artifactAgent && artifactId);
+
+  useEffect(() => {
+    setResultPact(null);
+    if (!hasArtifact) return;
+
+    let cancelled = false;
+    api.agents.resultMetadata(artifactAgent, artifactId)
+      .then((payload) => {
+        if (!cancelled) setResultPact(extractPactMetadata(payload));
+      })
+      .catch(() => {
+        if (!cancelled) setResultPact(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [artifactAgent, artifactId, hasArtifact]);
 
   const handleViewReport = useCallback(async () => {
-    const artifactId = message.metadata?.task_id || message.metadata?.attachment_id;
-    const agent = message.metadata?.agent;
-    if (!artifactId || !agent) return;
+    if (!artifactId || !artifactAgent) return;
     setReportOpen(true);
     if (reportContent !== null) return;
     setReportLoading(true);
     try {
-      const resp = await authenticatedFetch(api.agents.resultUrl(agent, artifactId));
+      const resp = await authenticatedFetch(api.agents.resultUrl(artifactAgent, artifactId));
       const text = await resp.text();
       const stripped = text.replace(/^---[\s\S]*?---\s*/, '');
       setReportContent(stripped);
@@ -184,7 +240,7 @@ export function AgencyMessage({
     } finally {
       setReportLoading(false);
     }
-  }, [message.metadata, reportContent]);
+  }, [artifactAgent, artifactId, reportContent]);
 
   const handleSaveEdit = (newContent: string) => {
     onEdit?.(message, newContent);
@@ -298,8 +354,8 @@ export function AgencyMessage({
           </div>
         )}
 
-        {message.metadata?.has_artifact && message.metadata?.agent && (message.metadata?.task_id || message.metadata?.attachment_id) && (
-          <div className="mt-3 flex items-center gap-2">
+        {hasArtifact && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
               onClick={handleViewReport}
               className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition-colors"
@@ -327,6 +383,21 @@ export function AgencyMessage({
               <Download className="h-3 w-3" />
               Download .md
             </button>
+            {resultPact && (
+              <span
+                className="mono inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px]"
+                style={{
+                  border: '0.5px solid var(--ink-hairline)',
+                  background: 'var(--warm-2)',
+                  color: pactVerdictColor(resultPact.verdict),
+                }}
+                title={resultPact.kind ? `PACT ${resultPact.kind}` : 'PACT metadata'}
+              >
+                <ShieldCheck className="h-3 w-3" />
+                <span>{resultPact.verdict || 'PACT'}</span>
+                <span style={{ color: 'var(--ink-faint)' }}>{pactSummary(resultPact)}</span>
+              </span>
+            )}
             <Dialog open={reportOpen} onOpenChange={setReportOpen}>
               <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto bg-card">
                 <DialogHeader>
