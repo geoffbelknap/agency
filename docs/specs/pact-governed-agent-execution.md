@@ -276,6 +276,22 @@ Evidence must distinguish between:
 - unverified external claim
 - blocked or failed observation
 
+Agency's current body runtime has an in-memory `EvidenceLedger` write model for
+runtime and provider observations. It preserves the legacy evidence projection
+used by existing PACT checks:
+
+```text
+tool_results
+observed
+source_urls
+```
+
+and adds typed entries for runtime-owned observations. This is not yet the
+durable PACT evidence ledger resource described above. It is the compatibility
+step that lets body code record evidence through one typed API while existing
+completion checks, verdict payloads, and tests continue to consume the older
+projection.
+
 ### Trajectory
 
 The trajectory is the ordered record of execution.
@@ -844,6 +860,7 @@ The current evaluator types are:
 
 ```text
 ActivationContext
+EvidenceLedger
 EvidenceView
 EvaluationResult
 WorkContract
@@ -866,9 +883,13 @@ classifies via `classify_activation`. The old `classify_work(content,
 match_type, mission_active)` helper remains available as a wrapper for existing
 tests and call sites.
 
-`EvidenceView` normalizes currently scattered runtime evidence fields into typed
-views of tool results, observed signals, and source URLs. It is not yet a durable
-ledger.
+`EvidenceLedger` is the runtime write-side evidence model. It records typed
+entries for mediated tool results, provider-tool observations, local runtime
+observations, and source URLs, then projects those entries into the legacy
+evidence shape.
+
+`EvidenceView` is the evaluator read-side projection of evidence fields into
+tool results, observed signals, and source URLs. It is not yet a durable ledger.
 
 `EvaluationResult` owns verdict serialization. Runtime callers still receive the
 same dictionary shape from `validate_completion`, preserving existing body,
@@ -1049,15 +1070,19 @@ fields.
 
 ### Current Limits
 
-- The durable evidence ledger is still represented by body runtime observations,
-  provider metadata, audit events, and artifact frontmatter rather than a typed
-  PACT ledger resource.
+- The body runtime now records provider and local tool observations through a
+  typed in-memory `EvidenceLedger`, but the durable evidence ledger is still
+  represented by runtime observations, provider metadata, audit events, and
+  artifact frontmatter rather than a typed PACT ledger resource.
 - The named contract registry and body-local `PactEvaluator` exist, but
   `current_info` is still the only implemented contract family with meaningful
   answer gating.
 - `code_change`, `file_artifact`, `external_side_effect`, and
   `operator_blocked` are registered but not yet broadly classified or validated
   by contract-specific evaluators.
+- Contract-validated blocked completions are terminal in the body runtime: they
+  commit task completion with a blocked terminal outcome instead of entering the
+  generic "call complete_task" retry path.
 - PACT runs are not yet first-class gateway resources.
 - Result artifacts are task-oriented markdown files, not a general artifact
   model.
@@ -1068,8 +1093,7 @@ fields.
 
 Known gaps:
 
-- blocked outcomes may publish without reliably finalizing current task state
-- evidence is not yet a durable typed ledger
+- evidence has a typed runtime write model, but not a durable typed ledger
 - contracts are registered by name, but validation remains narrow and
   current-info oriented
 - activation sources are represented for body message intake, but not yet across
@@ -1091,9 +1115,11 @@ Scope:
 2. Adapt DM/channel-triggered tasks into PACT activation objects.
 3. Convert current `WorkContract` into the first `ExecutionContract`.
 4. Convert provider tool and local tool observations into evidence ledger
-   entries.
+   entries. Done for the body runtime's in-memory ledger; durable storage remains
+   future work.
 5. Treat current-info answer requirements as the first outcome contract.
-6. Ensure `blocked` is a terminal outcome that finalizes task state.
+6. Ensure `blocked` is a terminal outcome that finalizes task state. Done for
+   body runtime work-contract validation.
 7. Add trajectory tests for:
    - current-info answer succeeds with source evidence
    - current-info answer blocks without evidence
@@ -1121,9 +1147,9 @@ Priority targets:
    Move the body-local evaluator boundary toward a backend-owned PACT evaluator
    module with explicit body/runtime adapters.
 
-2. **Typed evidence ledger.**
-   Move from scattered observation fields toward durable evidence entries with
-   producer, provenance, visibility, and contract relevance.
+2. **Durable typed evidence ledger.**
+   Promote the body runtime's in-memory `EvidenceLedger` into durable evidence
+   entries with producer, provenance, visibility, and contract relevance.
 
 3. **First-class PACT run resource.**
    Expose an execution/run view keyed by activation or task ID that joins

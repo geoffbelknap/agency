@@ -8,6 +8,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "body"))
 from images.body.work_contract import (
     ActivationContext,
     ContractDefinition,
+    EvidenceEntry,
+    EvidenceLedger,
     EvaluationResult,
     EvidenceView,
     PactEvaluator,
@@ -80,6 +82,75 @@ def test_evidence_view_normalizes_runtime_evidence():
         "https://nodejs.org/en",
         "https://github.com/nodejs/node/releases",
     )
+
+
+def test_evidence_entry_serializes_optional_fields():
+    assert EvidenceEntry(
+        kind="source_url",
+        producer="provider-web-search",
+        source_url="https://nodejs.org/en",
+        metadata={"rank": 1},
+    ).to_dict() == {
+        "kind": "source_url",
+        "producer": "provider-web-search",
+        "source_url": "https://nodejs.org/en",
+        "metadata": {"rank": 1},
+    }
+
+
+def test_evidence_ledger_preserves_legacy_evidence_shape():
+    ledger = EvidenceLedger()
+    ledger.record_tool_result("provider-web-search", True)
+    ledger.record_tool_result("web_fetch", None, metadata={"status": 200})
+    ledger.observe("current_source")
+    ledger.observe("current_source")
+    ledger.record_source_url("https://nodejs.org/en,https://github.com/nodejs/node/releases.")
+    ledger.record_source_url("https://nodejs.org/en")
+
+    assert ledger.to_dict() == {
+        "tool_results": [
+            {"tool": "provider-web-search", "ok": True},
+            {"tool": "web_fetch", "status": 200},
+        ],
+        "observed": ["current_source"],
+        "source_urls": [
+            "https://nodejs.org/en",
+            "https://github.com/nodejs/node/releases",
+        ],
+        "entries": [
+            {"kind": "tool_result", "producer": "provider-web-search", "ok": True},
+            {"kind": "tool_result", "producer": "web_fetch", "metadata": {"status": 200}},
+            {"kind": "observation", "producer": "runtime", "value": "current_source"},
+            {
+                "kind": "source_url",
+                "producer": "runtime",
+                "source_url": "https://nodejs.org/en",
+            },
+            {
+                "kind": "source_url",
+                "producer": "runtime",
+                "source_url": "https://github.com/nodejs/node/releases",
+            },
+        ],
+    }
+    assert ledger.to_view().source_urls == (
+        "https://nodejs.org/en",
+        "https://github.com/nodejs/node/releases",
+    )
+
+
+def test_evidence_ledger_can_load_existing_runtime_evidence():
+    ledger = EvidenceLedger.from_dict({
+        "tool_results": [{"tool": "provider-web-search", "ok": True, "latency_ms": 12}],
+        "observed": ["current_source"],
+        "source_urls": ["https://nodejs.org/en"],
+    })
+
+    assert ledger.tool_results() == [
+        {"tool": "provider-web-search", "ok": True, "latency_ms": 12},
+    ]
+    assert ledger.observed() == ["current_source"]
+    assert ledger.source_urls() == ["https://nodejs.org/en"]
 
 
 def test_pact_evaluator_uses_explicit_registry():
