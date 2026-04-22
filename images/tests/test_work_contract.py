@@ -1,15 +1,58 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "body"))
 
 from images.body.work_contract import (
+    WorkContract,
+    build_contract,
     classify_work,
+    contract_definition,
     contract_prompt,
     extract_urls,
     format_blocked_completion,
+    list_contract_kinds,
     validate_completion,
 )
+
+
+def test_contract_registry_contains_foundational_contracts():
+    assert {
+        "current_info",
+        "code_change",
+        "file_artifact",
+        "external_side_effect",
+        "operator_blocked",
+    }.issubset(set(list_contract_kinds()))
+
+
+def test_current_info_registry_entry_matches_classification_defaults():
+    definition = contract_definition("current_info")
+    contract = classify_work("Find me MSFT's most recent SEC filing")
+
+    assert contract.required_evidence == list(definition.required_evidence)
+    assert contract.answer_requirements == list(definition.answer_requirements)
+    assert contract.summary == definition.summary
+
+
+def test_unknown_contract_kind_fails_closed():
+    with pytest.raises(ValueError, match="unknown work contract kind"):
+        build_contract("not_registered", requires_action=True, reason="test")
+
+    verdict = validate_completion(
+        {"kind": "not_registered", "requires_action": True},
+        {},
+        "Done.",
+    )
+    assert verdict["verdict"] == "blocked"
+    assert verdict["missing_evidence"] == ["known_contract_kind"]
+
+
+def test_contract_prompt_fails_closed_for_unknown_action_contract():
+    with pytest.raises(ValueError, match="unknown work contract kind"):
+        contract_prompt(WorkContract(kind="not_registered", requires_action=True))
 
 
 def test_classifies_latest_request_as_current_info():
