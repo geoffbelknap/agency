@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "body"))
 
 from images.body.body import (
     Body,
+    _activation_task_id,
     _provider_tool_definitions,
     _provider_tool_prompt_section,
     _sanitize_outbound_content,
@@ -69,6 +70,61 @@ def test_sanitize_outbound_content_replaces_simulated_tool_markup():
 
     assert "<search>" not in sanitized
     assert "without guessing" in sanitized
+
+
+def test_activation_task_id_prefers_explicit_event_task_id(tmp_path):
+    task_id = _activation_task_id(
+        {"task_id": "task-explicit"},
+        tmp_path / "missing.json",
+        "work-current_info",
+    )
+
+    assert task_id == "task-explicit"
+
+
+def test_activation_task_id_claims_matching_current_task(tmp_path):
+    ctx = tmp_path / "session-context.json"
+    ctx.write_text(json.dumps({
+        "current_task": {
+            "task_id": "task-20260422-2cd2fa",
+            "content": "[Mission trigger: channel dm-test / message]\n\nNew event from dm-test:\n  content: Find the latest stable Node.js release.",
+            "work_item_id": "evt-msg-abc123",
+            "metadata": {
+                "channel": "dm-test",
+                "event_id": "evt-msg-abc123",
+            },
+        }
+    }), encoding="utf-8")
+
+    task_id = _activation_task_id({
+        "type": "message",
+        "channel": "dm-test",
+        "message": {
+            "id": "msg-abc123",
+            "content": "Find the latest stable Node.js release.",
+        },
+    }, ctx, "work-current_info")
+
+    assert task_id == "task-20260422-2cd2fa"
+
+
+def test_activation_task_id_does_not_claim_unmatched_current_task(tmp_path):
+    ctx = tmp_path / "session-context.json"
+    ctx.write_text(json.dumps({
+        "current_task": {
+            "task_id": "task-stale",
+            "content": "Old unrelated request",
+            "metadata": {"channel": "dm-test"},
+        }
+    }), encoding="utf-8")
+
+    task_id = _activation_task_id({
+        "type": "message",
+        "channel": "dm-test",
+        "message": {"id": "msg-new", "content": "New request"},
+    }, ctx, "work-current_info")
+
+    assert task_id.startswith("work-current_info-")
 
 
 def test_body_tool_collection_includes_provider_web_search(tmp_path):

@@ -216,6 +216,66 @@ def _provider_tool_prompt_section(config_dir: Path) -> str:
     )
 
 
+def _read_current_task(context_file: Path | None) -> dict | None:
+    if context_file is None:
+        return None
+    try:
+        data = json.loads(context_file.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    task = data.get("current_task") if isinstance(data, dict) else None
+    return task if isinstance(task, dict) else None
+
+
+def _matches_current_task_event(task: dict, event: dict) -> bool:
+    metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+    msg = event.get("message") if isinstance(event.get("message"), dict) else {}
+    channel = event.get("channel")
+    msg_id = str(msg.get("id", "") or "")
+    task_event_id = str(
+        task.get("event_id") or task.get("work_item_id") or metadata.get("event_id") or ""
+    )
+
+    if msg_id and task_event_id in {msg_id, f"evt-{msg_id}"}:
+        return True
+
+    if channel and metadata.get("channel") != channel:
+        return False
+
+    summary = str(event.get("summary") or msg.get("summary") or msg.get("content") or "")
+    task_content = str(task.get("content") or "")
+    return bool(summary and summary in task_content)
+
+
+def _activation_task_id(event: dict, context_file: Path | None, fallback_prefix: str) -> str:
+    """Preserve externally assigned task ids for event-backed work."""
+    candidates = [
+        event.get("task_id"),
+        event.get("work_item_id"),
+    ]
+    metadata = event.get("metadata")
+    if isinstance(metadata, dict):
+        candidates.extend([metadata.get("task_id"), metadata.get("work_item_id")])
+    msg = event.get("message")
+    if isinstance(msg, dict):
+        candidates.extend([msg.get("task_id"), msg.get("work_item_id")])
+        msg_metadata = msg.get("metadata")
+        if isinstance(msg_metadata, dict):
+            candidates.extend([msg_metadata.get("task_id"), msg_metadata.get("work_item_id")])
+
+    for value in candidates:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    current_task = _read_current_task(context_file)
+    if current_task and _matches_current_task_event(current_task, event):
+        task_id = current_task.get("task_id")
+        if isinstance(task_id, str) and task_id.strip():
+            return task_id.strip()
+
+    return f"{fallback_prefix}-{int(time.time())}"
+
+
 def _sanitize_outbound_content(content: str) -> str:
     """Fail closed when model text tries to impersonate a tool call."""
     if not SIMULATED_TOOL_TAG_RE.search(content or ""):
@@ -1158,7 +1218,7 @@ class Body:
         task_prefix = "mission-task" if is_mission_task else ("work-" + work_contract.kind if work_contract.requires_action else "idle-reply")
         task = {
             "type": "task",
-            "task_id": f"{task_prefix}-{int(time.time())}",
+            "task_id": _activation_task_id(event, self.context_file, task_prefix),
             "content": prompt,
             "source": f"idle_{match_type}:{channel}:{author}",
             "metadata": {
