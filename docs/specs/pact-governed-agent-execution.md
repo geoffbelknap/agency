@@ -901,6 +901,7 @@ activation
 objective
 strategy
 contract
+plan
 evidence
 tool_observations
 recovery_state
@@ -924,6 +925,13 @@ route to planned execution by default; all other work routes to the tool loop.
 Advisory hints for tool scope, model tier, memory, and budget are surfaced as
 strategy notes but are not yet enforced by any runtime gate.
 `contract` wraps the existing body work contract as a typed `WorkContract`.
+`plan` is populated by the Wave 2 #3 planner builder when the selected strategy
+requires planning. The builder is deterministic and model-free, and emits typed
+ordered steps for the `code_change`, `file_artifact`, `external_side_effect`,
+and `current_info` contract templates. Side-effecting plans enforce the
+structural ASK invariant that an approval step appears before any step requiring
+`external_state`. The plan is advisory in this checkpoint; `body.py` does not
+yet execute plan steps directly, which is deferred to Wave 2 #3b.
 `evidence` owns the existing in-memory `EvidenceLedger`; legacy flattened
 evidence remains a projection of that ledger.
 `recovery_state` is the runtime-owned advisory recovery machine. It exposes the
@@ -952,7 +960,6 @@ surface real demand.
 Placeholder fields are present but not yet populated by runtime logic:
 
 ```text
-plan
 step_history
 partial_outputs
 errors
