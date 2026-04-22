@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "body"))
 from images.body.body import (
     Body,
     _activation_task_id,
+    _pact_activation_for_storage,
     _pact_metadata_for_storage,
     _pact_verdict_payload,
     _provider_tool_definitions,
@@ -232,6 +233,29 @@ def test_pact_metadata_for_storage_drops_task_id_but_keeps_audit_fields():
     }
 
 
+def test_pact_activation_for_storage_keeps_activation_audit_fields():
+    metadata = _pact_activation_for_storage({
+        "pact_activation": {
+            "content": "Find the latest Node.js release",
+            "match_type": "direct",
+            "source": "idle_direct",
+            "channel": "dm-test",
+            "author": "operator",
+            "mission_active": False,
+            "ignored": "value",
+        }
+    })
+
+    assert metadata == {
+        "content": "Find the latest Node.js release",
+        "match_type": "direct",
+        "source": "idle_direct",
+        "channel": "dm-test",
+        "author": "operator",
+        "mission_active": False,
+    }
+
+
 def test_emit_pact_verdict_skips_non_action_contract():
     body = Body.__new__(Body)
     body._work_contract = {"kind": "chat", "requires_action": False}
@@ -292,6 +316,16 @@ def test_save_result_artifact_includes_pact_frontmatter(tmp_path):
         "source_urls": ["https://nodejs.org/en/blog/release/v24.15.0"],
         "tools": ["provider-web-search"],
     }
+    body._task_metadata = {
+        "pact_activation": {
+            "content": "Find latest Node.js",
+            "match_type": "direct",
+            "source": "idle_direct",
+            "channel": "dm-scout",
+            "author": "operator",
+            "mission_active": False,
+        }
+    }
 
     body._save_result_artifact("task-123", "Find latest Node.js", "Node.js 24.15.0", 2)
 
@@ -301,6 +335,8 @@ def test_save_result_artifact_includes_pact_frontmatter(tmp_path):
     assert "kind: current_info" in frontmatter
     assert "verdict: completed" in frontmatter
     assert "https://nodejs.org/en/blog/release/v24.15.0" in frontmatter
+    assert "pact_activation:" in frontmatter
+    assert "channel: dm-scout" in frontmatter
 
 
 def test_write_cache_entry_includes_pact_metadata():
@@ -329,6 +365,16 @@ def test_write_cache_entry_includes_pact_metadata():
         "source_urls": ["https://nodejs.org/en"],
         "tools": ["provider-web-search"],
     }
+    body._task_metadata = {
+        "pact_activation": {
+            "content": "Find latest Node.js",
+            "match_type": "direct",
+            "source": "idle_direct",
+            "channel": "dm-scout",
+            "author": "operator",
+            "mission_active": False,
+        }
+    }
 
     body._write_cache_entry("task-123", "Find latest Node.js", "Node.js 24.15.0", {})
 
@@ -336,6 +382,9 @@ def test_write_cache_entry_includes_pact_metadata():
     assert pact["kind"] == "current_info"
     assert pact["verdict"] == "completed"
     assert pact["source_urls"] == ["https://nodejs.org/en"]
+    activation = posted[0][1]["nodes"][0]["properties"]["pact_activation"]
+    assert activation["channel"] == "dm-scout"
+    assert activation["source"] == "idle_direct"
 
 
 def test_stream_records_provider_tool_evidence_and_ignores_empty_tool_delta():

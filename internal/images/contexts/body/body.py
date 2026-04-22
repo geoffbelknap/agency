@@ -302,6 +302,22 @@ def _pact_metadata_for_storage(payload: dict | None) -> dict | None:
     }
 
 
+def _pact_activation_for_storage(metadata: dict | None) -> dict | None:
+    if not isinstance(metadata, dict):
+        return None
+    activation = metadata.get("pact_activation")
+    if not isinstance(activation, dict):
+        return None
+    return {
+        "content": str(activation.get("content") or ""),
+        "match_type": str(activation.get("match_type") or ""),
+        "source": str(activation.get("source") or ""),
+        "channel": str(activation.get("channel") or ""),
+        "author": str(activation.get("author") or ""),
+        "mission_active": bool(activation.get("mission_active")),
+    }
+
+
 def _sanitize_outbound_content(content: str) -> str:
     """Fail closed when model text tries to impersonate a tool call."""
     if not SIMULATED_TOOL_TAG_RE.search(content or ""):
@@ -2912,6 +2928,9 @@ class Body:
         pact = _pact_metadata_for_storage(getattr(self, "_last_pact_verdict", None))
         if pact:
             frontmatter["pact"] = pact
+        pact_activation = _pact_activation_for_storage(getattr(self, "_task_metadata", None))
+        if pact_activation:
+            frontmatter["pact_activation"] = pact_activation
         artifact = (
             f"---\n"
             f"{yaml.safe_dump(frontmatter, sort_keys=False)}"
