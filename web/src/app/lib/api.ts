@@ -444,6 +444,8 @@ export interface RawAuditEntry {
   // Task fields
   task_content?: string;
   task_id?: string;
+  has_result?: boolean;
+  result?: { task_id?: string; url?: string };
   delivered_by?: string;
   initiator?: string;
   // Agent/execution fields

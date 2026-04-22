@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { LogsSection } from './AgentActivityTab';
-import type { RawAgentResult, RawAuditEntry } from '../../lib/api';
+import type { RawAuditEntry } from '../../lib/api';
 
 const logs: RawAuditEntry[] = [
   {
@@ -68,14 +68,6 @@ const logs: RawAuditEntry[] = [
     source_urls: ['https://nodejs.org/en/blog/release/v24.15.0'],
     missing_evidence: [],
     tools: ['provider-web-search'],
-  },
-];
-
-const results: RawAgentResult[] = [
-  {
-    task_id: 'task-20260422-node',
-    has_metadata: true,
-    pact: { kind: 'current_info', verdict: 'completed' },
   },
 ];
 
@@ -156,7 +148,10 @@ describe('LogsSection', () => {
 
   it('links task events to saved result artifacts', async () => {
     const user = userEvent.setup();
-    render(<LogsSection agentName="test-1" logs={logs} refreshingLogs={false} refreshLogs={vi.fn()} results={results} />);
+    const correlatedLogs = logs.map((entry) => entry.task_id === 'task-20260422-node'
+      ? { ...entry, has_result: true, result: { task_id: 'task-20260422-node', url: '/api/v1/agents/test-1/results/task-20260422-node' } }
+      : entry);
+    render(<LogsSection agentName="test-1" logs={correlatedLogs} refreshingLogs={false} refreshLogs={vi.fn()} />);
 
     await user.click(screen.getByRole('button', { name: /view result/i }));
 

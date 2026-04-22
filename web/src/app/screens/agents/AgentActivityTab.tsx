@@ -430,8 +430,9 @@ function LogsSection({ agentName, logs, refreshingLogs, refreshLogs, results = [
           visibleLogs.map((e, i) => {
             const isExpanded = expandedLog === i;
             const summary = summarizeAuditEntry(e);
-            const taskID = text(e.task_id);
-            const hasResult = taskID && resultTaskIDs.has(taskID);
+            const result = e.result && typeof e.result === 'object' ? e.result as { task_id?: unknown } : null;
+            const taskID = text(result?.task_id) || text(e.task_id);
+            const hasResult = Boolean(taskID && (e.has_result === true || resultTaskIDs.has(taskID)));
             return (
               <div key={i} style={{ borderTop: i === 0 ? 0 : '0.5px solid var(--ink-hairline)' }}>
                 <button

@@ -1152,6 +1152,20 @@ paths:
                 items:
                   type: object
                   additionalProperties: true
+                  properties:
+                    task_id:
+                      type: string
+                    has_result:
+                      type: boolean
+                      description: True when this audit event's task_id has a saved result artifact.
+                    result:
+                      type: object
+                      nullable: true
+                      properties:
+                        task_id:
+                          type: string
+                        url:
+                          type: string
 
   # ── Budget ──────────────────────────────────────────────────────────────────
   /agents/{name}/budget:
