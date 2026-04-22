@@ -50,6 +50,7 @@ from task_tier import classify_task_tier, expand_cost_mode, get_active_features
 from tools import BuiltinToolRegistry, ServiceToolDispatcher, SkillsManager
 from work_contract import (
     ActivationContext,
+    EvidenceLedger,
     classify_activation,
     contract_prompt,
     extract_urls,
@@ -1889,7 +1890,8 @@ class Body:
         self._current_task_turns = 0
         self._simulated_tool_retry_sent = False
         self._work_contract = self._task_metadata.get("work_contract") if isinstance(self._task_metadata, dict) else None
-        self._work_evidence = {"tool_results": [], "observed": []}
+        self._work_evidence_ledger = EvidenceLedger()
+        self._work_evidence = self._work_evidence_ledger.to_dict()
         self._last_pact_verdict = None
         self._work_contract_retry_sent = False
 
@@ -3262,15 +3264,16 @@ class Body:
         except Exception:
             parsed = {}
         ok = not (isinstance(parsed, dict) and parsed.get("error"))
-        evidence.setdefault("tool_results", []).append({"tool": tool_name, "ok": ok})
+        ledger = getattr(self, "_work_evidence_ledger", None)
+        if not isinstance(ledger, EvidenceLedger):
+            ledger = EvidenceLedger.from_dict(evidence)
+            self._work_evidence_ledger = ledger
+        ledger.record_tool_result(tool_name, ok)
         if ok and any(part in tool_name.lower() for part in ("web", "search", "fetch", "browse", "sec")):
-            observed = evidence.setdefault("observed", [])
-            if "current_source" not in observed:
-                observed.append("current_source")
+            ledger.observe("current_source")
             for url in extract_urls(result):
-                source_urls = evidence.setdefault("source_urls", [])
-                if url not in source_urls:
-                    source_urls.append(url)
+                ledger.record_source_url(url, producer=tool_name)
+        self._work_evidence = ledger.to_dict()
 
     def _record_provider_tool_evidence(self, extra: dict) -> None:
         evidence = getattr(self, "_work_evidence", None)
@@ -3286,22 +3289,19 @@ class Body:
         ]
         if not capabilities:
             capabilities = ["provider-hosted-tool"]
-        existing = {
-            item.get("tool")
-            for item in evidence.setdefault("tool_results", [])
-            if isinstance(item, dict)
-        }
+        ledger = getattr(self, "_work_evidence_ledger", None)
+        if not isinstance(ledger, EvidenceLedger):
+            ledger = EvidenceLedger.from_dict(evidence)
+            self._work_evidence_ledger = ledger
+        existing = {item.get("tool") for item in ledger.tool_results()}
         for capability in capabilities:
             if capability not in existing:
-                evidence["tool_results"].append({"tool": capability, "ok": True})
-        observed = evidence.setdefault("observed", [])
+                ledger.record_tool_result(capability, True)
         if any(part in response_types.lower() for part in ("web_search", "web_fetch", "citation", "source")):
-            if "current_source" not in observed:
-                observed.append("current_source")
+            ledger.observe("current_source")
         for url in extract_urls(str(extra.get("provider_source_urls") or "")):
-            source_urls = evidence.setdefault("source_urls", [])
-            if url not in source_urls:
-                source_urls.append(url)
+            ledger.record_source_url(url, producer="provider")
+        self._work_evidence = ledger.to_dict()
 
     # -- Signal Emission --
 
