@@ -26,6 +26,26 @@ BLOCKER_RE = re.compile(
     r"do not have|don't have|missing|need .+ access|need .+ tool)\b",
     re.IGNORECASE,
 )
+URL_RE = re.compile(r"https?://[^\s<>)\]]+", re.IGNORECASE)
+CHECKED_DATE_RE = re.compile(
+    r"\b(checked|retrieved|accessed|as of|as-of|verified on)\b",
+    re.IGNORECASE,
+)
+VAGUE_SEARCH_RE = re.compile(
+    r"\b(based on (?:the |my |these )?search results|the search (?:shows|indicates)|search results indicate)\b",
+    re.IGNORECASE,
+)
+DATE_REQUEST_RE = re.compile(r"\b(date|dated|filed|released|release date|as of|as-of)\b", re.IGNORECASE)
+ABSOLUTE_DATE_RE = re.compile(
+    r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|"
+    r"Dec(?:ember)?)\s+\d{1,2},\s+\d{4}\b|\b\d{4}-\d{2}-\d{2}\b",
+    re.IGNORECASE,
+)
+CHECKED_CLAUSE_RE = re.compile(
+    r"\b(?:checked|retrieved|accessed|as of|as-of|verified on)\b[^.\n]*(?:\.|$)",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -33,6 +53,7 @@ class WorkContract:
     kind: str
     requires_action: bool = False
     required_evidence: list[str] = field(default_factory=list)
+    answer_requirements: list[str] = field(default_factory=list)
     allowed_terminal_states: list[str] = field(
         default_factory=lambda: ["completed", "blocked", "needs_clarification"]
     )
@@ -43,6 +64,7 @@ class WorkContract:
             "kind": self.kind,
             "requires_action": self.requires_action,
             "required_evidence": list(self.required_evidence),
+            "answer_requirements": list(self.answer_requirements),
             "allowed_terminal_states": list(self.allowed_terminal_states),
             "reason": self.reason,
         }
@@ -58,10 +80,20 @@ def classify_work(content: str, match_type: str = "direct", mission_active: bool
             reason="active mission direct message",
         )
     if CURRENT_INFO_RE.search(text):
+        answer_requirements = [
+            "direct_answer",
+            "primary_or_official_source",
+            "source_url",
+            "checked_date",
+            "ambiguous_category_clarified",
+        ]
+        if DATE_REQUEST_RE.search(text):
+            answer_requirements.append("requested_absolute_date")
         return WorkContract(
             kind="current_info",
             requires_action=True,
             required_evidence=["current_source_or_blocker"],
+            answer_requirements=answer_requirements,
             reason="time-sensitive or externally verifiable request",
         )
     if ACTION_RE.search(text):
@@ -80,10 +112,30 @@ def contract_prompt(contract: WorkContract) -> str:
     if not contract.requires_action:
         return ""
     evidence = ", ".join(contract.required_evidence) or "task evidence"
+    answer_requirements = ", ".join(contract.answer_requirements)
+    answer_requirement_line = (
+        f"answer_requirements: {answer_requirements}\n" if answer_requirements else ""
+    )
+    current_info_rules = ""
+    if contract.kind == "current_info":
+        current_info_rules = (
+            "\n[ANSWER_CONTRACT]\n"
+            "current_info_rules:\n"
+            "- Give the direct answer first.\n"
+            "- Include an official or primary source URL when available.\n"
+            "- Make sure each source URL directly supports the claimed version, date, status, or fact.\n"
+            "- Include a checked/as-of date for the answer.\n"
+            "- If the user asks for a date, include an absolute date in the answer, not only a relative date.\n"
+            "- If the user's wording is ambiguous, separate the relevant categories instead of collapsing them.\n"
+            "- If only secondary sources are available, mark the answer unverified.\n"
+            "- Avoid saying \"search results\" unless you name and link the source.\n"
+            "[/ANSWER_CONTRACT]"
+        )
     return (
         "\n\n[WORK_CONTRACT]\n"
         f"kind: {contract.kind}\n"
         f"required_evidence: {evidence}\n"
+        f"{answer_requirement_line}"
         "allowed_terminal_states: completed, blocked, needs_clarification\n"
         "rules:\n"
         "- Treat this as work, not casual chat.\n"
@@ -91,7 +143,36 @@ def contract_prompt(contract: WorkContract) -> str:
         "- Do not claim evidence you do not have.\n"
         "- If required evidence cannot be obtained, report a specific blocker instead of guessing.\n"
         "[/WORK_CONTRACT]"
+        f"{current_info_rules}"
     )
+
+
+def _validate_current_info_answer(contract: dict, content: str) -> dict:
+    requirements = set(contract.get("answer_requirements") or [])
+    missing: list[str] = []
+    answer_without_checked_clause = CHECKED_CLAUSE_RE.sub("", content)
+
+    if "source_url" in requirements and not URL_RE.search(content):
+        missing.append("source_url")
+    if "checked_date" in requirements and not CHECKED_DATE_RE.search(content):
+        missing.append("checked_date")
+    if "requested_absolute_date" in requirements and not ABSOLUTE_DATE_RE.search(answer_without_checked_clause):
+        missing.append("requested_absolute_date")
+    if VAGUE_SEARCH_RE.search(content):
+        missing.append("named_source")
+
+    if not missing:
+        return {"verdict": "completed"}
+
+    return {
+        "verdict": "needs_action",
+        "missing_evidence": missing,
+        "message": (
+            "The answer has current-source evidence but does not satisfy the "
+            "answer contract. Provide direct source links, a checked/as-of date, "
+            "and name sources instead of referring vaguely to search results."
+        ),
+    }
 
 
 def validate_completion(contract: dict | None, evidence: dict | None, content: str) -> dict:
@@ -109,7 +190,7 @@ def validate_completion(contract: dict | None, evidence: dict | None, content: s
 
     if "current_source_or_blocker" in required:
         if tool_results or "current_source" in observed:
-            return {"verdict": "completed"}
+            return _validate_current_info_answer(contract, content)
         return {
             "verdict": "needs_action",
             "missing_evidence": ["current_source_or_blocker"],

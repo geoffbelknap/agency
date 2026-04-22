@@ -12,7 +12,18 @@ def test_classifies_latest_request_as_current_info():
     assert contract.kind == "current_info"
     assert contract.requires_action is True
     assert contract.required_evidence == ["current_source_or_blocker"]
-    assert "[WORK_CONTRACT]" in contract_prompt(contract)
+    assert contract.answer_requirements == [
+        "direct_answer",
+        "primary_or_official_source",
+        "source_url",
+        "checked_date",
+        "ambiguous_category_clarified",
+    ]
+    prompt = contract_prompt(contract)
+    assert "[WORK_CONTRACT]" in prompt
+    assert "[ANSWER_CONTRACT]" in prompt
+    assert "official or primary source URL" in prompt
+    assert "checked/as-of date" in prompt
 
 
 def test_classifies_greeting_as_chat():
@@ -38,8 +49,80 @@ def test_current_info_completion_accepts_blocker():
     assert verdict["verdict"] == "blocked"
 
 
-def test_current_info_completion_accepts_tool_evidence():
+def test_current_info_completion_requires_source_url_in_answer():
     contract = classify_work("latest SEC filing").to_dict()
 
     verdict = validate_completion(contract, {"tool_results": [{"tool": "web_search", "ok": True}]}, "The source says X.")
+    assert verdict["verdict"] == "needs_action"
+    assert verdict["missing_evidence"] == ["source_url", "checked_date"]
+
+
+def test_current_info_completion_requires_checked_date_in_answer():
+    contract = classify_work("latest SEC filing").to_dict()
+
+    verdict = validate_completion(
+        contract,
+        {"tool_results": [{"tool": "web_search", "ok": True}]},
+        "Microsoft filed an 8-K. Source: https://www.sec.gov/Archives/example",
+    )
+    assert verdict["verdict"] == "needs_action"
+    assert verdict["missing_evidence"] == ["checked_date"]
+
+
+def test_current_info_completion_rejects_vague_search_results_answer():
+    contract = classify_work("latest SEC filing").to_dict()
+
+    verdict = validate_completion(
+        contract,
+        {"tool_results": [{"tool": "web_search", "ok": True}]},
+        "Based on the search results, Microsoft filed an 8-K. Source: https://www.sec.gov/Archives/example. Checked: April 22, 2026.",
+    )
+    assert verdict["verdict"] == "needs_action"
+    assert verdict["missing_evidence"] == ["named_source"]
+
+
+def test_current_info_completion_rejects_my_search_results_answer():
+    contract = classify_work("latest SEC filing").to_dict()
+
+    verdict = validate_completion(
+        contract,
+        {"tool_results": [{"tool": "web_search", "ok": True}]},
+        "Based on my search results, Microsoft filed an 8-K. Source: https://www.sec.gov/Archives/example. Checked: April 22, 2026.",
+    )
+    assert verdict["verdict"] == "needs_action"
+    assert verdict["missing_evidence"] == ["named_source"]
+
+
+def test_current_info_completion_requires_absolute_date_when_requested():
+    contract = classify_work("Find the latest stable Node.js release. Include the release date.").to_dict()
+
+    assert "requested_absolute_date" in contract["answer_requirements"]
+    verdict = validate_completion(
+        contract,
+        {"tool_results": [{"tool": "web_search", "ok": True}]},
+        "Node.js 25.9.0 is the latest release. Source: https://nodejs.org/en/blog/release/v25.9.0. Checked: April 22, 2026.",
+    )
+    assert verdict["verdict"] == "needs_action"
+    assert verdict["missing_evidence"] == ["requested_absolute_date"]
+
+
+def test_current_info_completion_accepts_absolute_date_when_requested():
+    contract = classify_work("Find the latest stable Node.js release. Include the release date.").to_dict()
+
+    verdict = validate_completion(
+        contract,
+        {"tool_results": [{"tool": "web_search", "ok": True}]},
+        "Node.js 25.9.0 was released on April 1, 2026. Source: Node.js https://nodejs.org/en/blog/release/v25.9.0. Checked: April 22, 2026.",
+    )
+    assert verdict["verdict"] == "completed"
+
+
+def test_current_info_completion_accepts_tool_evidence_and_answer_contract():
+    contract = classify_work("latest SEC filing").to_dict()
+
+    verdict = validate_completion(
+        contract,
+        {"tool_results": [{"tool": "web_search", "ok": True}]},
+        "Microsoft's latest SEC filing is an 8-K. Source: SEC EDGAR https://www.sec.gov/Archives/example. Checked: April 22, 2026.",
+    )
     assert verdict["verdict"] == "completed"
