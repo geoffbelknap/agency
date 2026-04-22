@@ -32,6 +32,8 @@ agent: agent
 pact:
   kind: code_change
   verdict: completed
+  reasons:
+    - committable
   required_evidence:
     - code_change_result_or_blocker
     - tests_or_blocker
@@ -64,7 +66,7 @@ Changed parser.py.
 	if err := os.MkdirAll(auditDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	event := `{"timestamp":"2026-04-22T08:00:00Z","event":"agent_signal_pact_verdict","agent":"agent","task_id":"task-123","kind":"code_change","verdict":"completed","changed_files":["parser.py"]}`
+	event := `{"timestamp":"2026-04-22T08:00:00Z","event":"agent_signal_pact_verdict","agent":"agent","task_id":"task-123","kind":"code_change","verdict":"completed","reasons":["committable"],"changed_files":["parser.py"]}`
 	if err := os.WriteFile(filepath.Join(auditDir, "gateway.jsonl"), []byte(event+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +99,11 @@ Changed parser.py.
 	contract := body["contract"].(map[string]interface{})
 	if contract["kind"] != "code_change" {
 		t.Fatalf("contract.kind = %#v, want code_change", contract["kind"])
+	}
+	verdict := body["verdict"].(map[string]interface{})
+	reasons := verdict["reasons"].([]interface{})
+	if len(reasons) != 1 || reasons[0] != "committable" {
+		t.Fatalf("verdict.reasons = %#v, want [committable]", reasons)
 	}
 	activation := body["activation"].(map[string]interface{})
 	if activation["channel"] != "dm-agent" || activation["mission_active"] != false {
@@ -155,6 +162,10 @@ func TestGetPactRunCanProjectAuditOnlyRun(t *testing.T) {
 	if verdict["verdict"] != "blocked" {
 		t.Fatalf("verdict.verdict = %#v, want blocked", verdict["verdict"])
 	}
+	reasons := verdict["reasons"].([]interface{})
+	if len(reasons) != 0 {
+		t.Fatalf("verdict.reasons = %#v, want empty list for legacy event", reasons)
+	}
 	if _, ok := body["artifact"]; ok {
 		t.Fatalf("artifact should be omitted for audit-only run: %#v", body["artifact"])
 	}
@@ -174,6 +185,8 @@ agent: agent
 pact:
   kind: code_change
   verdict: completed
+  reasons:
+    - committable
   changed_files:
     - parser.py
   evidence_entries:
@@ -190,7 +203,7 @@ Changed parser.py.
 	if err := os.MkdirAll(auditDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	event := `{"timestamp":"2026-04-22T08:00:00Z","event":"agent_signal_pact_verdict","agent":"agent","task_id":"task-123","kind":"code_change","verdict":"completed","evidence_entries":[{"kind":"changed_file","producer":"write_file","value":"parser.py"}]}`
+	event := `{"timestamp":"2026-04-22T08:00:00Z","event":"agent_signal_pact_verdict","agent":"agent","task_id":"task-123","kind":"code_change","verdict":"completed","reasons":["committable"],"evidence_entries":[{"kind":"changed_file","producer":"write_file","value":"parser.py"}]}`
 	if err := os.WriteFile(filepath.Join(auditDir, "gateway.jsonl"), []byte(event+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -255,6 +268,77 @@ Changed parser.py.
 	}
 	if reportA.GeneratedAt == reportB.GeneratedAt {
 		t.Fatalf("generated_at should reflect report generation time")
+	}
+}
+
+func TestGetPactAuditReportHashStableAcrossRepeatedReads(t *testing.T) {
+	home := t.TempDir()
+	workspaceDir := filepath.Join(home, "agents", "agent", "workspace")
+	resultsDir := filepath.Join(workspaceDir, ".results")
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rs := writeRuntimeManifest(t, home, "agent", workspaceDir)
+	if err := os.WriteFile(filepath.Join(resultsDir, "task-123.md"), []byte(`---
+task_id: task-123
+agent: agent
+pact:
+  kind: current_info
+  verdict: completed
+  reasons:
+    - committable
+  source_urls:
+    - https://nodejs.org/en/blog/release/v24.15.0
+---
+
+Node.js 24.15.0.
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	auditDir := filepath.Join(home, "audit", "agent")
+	if err := os.MkdirAll(auditDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	event := `{"timestamp":"2026-04-22T08:00:00Z","event":"agent_signal_pact_verdict","agent":"agent","task_id":"task-123","kind":"current_info","verdict":"completed","reasons":["committable"],"source_urls":["https://nodejs.org/en/blog/release/v24.15.0"]}`
+	if err := os.WriteFile(filepath.Join(auditDir, "gateway.jsonl"), []byte(event+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := &handler{deps: Deps{
+		Config: &config.Config{Home: home},
+		AgentManager: &orchestrate.AgentManager{
+			Home:    home,
+			Runtime: rs,
+		},
+	}}
+
+	req := pactRunRequest(http.MethodGet, "/api/v1/agents/agent/pact/runs/task-123/audit-report", "agent", "task-123")
+	rec := httptest.NewRecorder()
+	h.getPactAuditReport(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var first pactAuditReport
+	if err := json.Unmarshal(rec.Body.Bytes(), &first); err != nil {
+		t.Fatal(err)
+	}
+
+	req = pactRunRequest(http.MethodGet, "/api/v1/agents/agent/pact/runs/task-123/audit-report", "agent", "task-123")
+	rec = httptest.NewRecorder()
+	h.getPactAuditReport(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var second pactAuditReport
+	if err := json.Unmarshal(rec.Body.Bytes(), &second); err != nil {
+		t.Fatal(err)
+	}
+
+	if first.Integrity.Hash != second.Integrity.Hash {
+		t.Fatalf("audit-report hash changed across repeated reads: %s != %s", first.Integrity.Hash, second.Integrity.Hash)
+	}
+	if first.Run.Verdict == nil || len(first.Run.Verdict.Reasons) != 1 || first.Run.Verdict.Reasons[0] != "committable" {
+		t.Fatalf("first verdict reasons = %#v, want [committable]", first.Run.Verdict)
 	}
 }
 

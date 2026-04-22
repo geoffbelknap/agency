@@ -1452,6 +1452,61 @@ def evaluate_pre_commit(
     )
 
 
+def map_pre_commit_verdict(
+    verdict: PreCommitVerdict,
+    task_id: str,
+    kind: str,
+    *,
+    contract: dict | WorkContract | None = None,
+    evidence: dict | EvidenceLedger | None = None,
+) -> dict:
+    """Map a typed pre-commit verdict to the legacy PACT verdict signal shape."""
+
+    contract_dict = contract.to_dict() if isinstance(contract, WorkContract) else dict(contract or {})
+    evidence_dict = evidence.to_dict() if isinstance(evidence, EvidenceLedger) else dict(evidence or {})
+    contract_verdict = dict(verdict.contract_verdict or {})
+
+    tools: list[str] = []
+    for item in evidence_dict.get("tool_results") or []:
+        if not isinstance(item, dict):
+            continue
+        tool = str(item.get("tool") or "").strip()
+        if tool and tool not in tools:
+            tools.append(tool)
+
+    reasons = [str(item) for item in verdict.reasons]
+    contract_needs_action = "contract:needs_action" in reasons
+    if verdict.committable:
+        verdict_value = str(contract_verdict.get("verdict") or "completed")
+        missing_evidence = list(contract_verdict.get("missing_evidence") or [])
+    elif contract_needs_action:
+        verdict_value = "needs_action"
+        missing_evidence = list(contract_verdict.get("missing_evidence") or [])
+    else:
+        verdict_value = "blocked"
+        missing_evidence = list(verdict.missing)
+
+    return {
+        "task_id": str(task_id or ""),
+        "kind": str(kind or contract_dict.get("kind") or ""),
+        "verdict": verdict_value,
+        "required_evidence": list(contract_dict.get("required_evidence") or []),
+        "answer_requirements": list(contract_dict.get("answer_requirements") or []),
+        "missing_evidence": missing_evidence,
+        "observed": list(evidence_dict.get("observed") or []),
+        "source_urls": list(evidence_dict.get("source_urls") or []),
+        "artifact_paths": list(evidence_dict.get("artifact_paths") or []),
+        "changed_files": list(evidence_dict.get("changed_files") or []),
+        "validation_results": list(evidence_dict.get("validation_results") or []),
+        "evidence_entries": [
+            dict(item) for item in evidence_dict.get("entries") or []
+            if isinstance(item, dict)
+        ],
+        "tools": tools,
+        "reasons": reasons,
+    }
+
+
 def _pre_commit_blocked(reason: str, *, evaluated_at: datetime) -> PreCommitVerdict:
     return PreCommitVerdict(
         committable=False,

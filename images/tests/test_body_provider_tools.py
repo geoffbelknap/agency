@@ -17,7 +17,7 @@ from images.body.body import (
     _sanitize_current_info_answer,
     _sanitize_outbound_content,
 )
-from work_contract import EvidenceLedger, classify_work
+from work_contract import ActivationContext, EvidenceLedger, classify_work
 
 
 class _EmptyBuiltins:
@@ -204,6 +204,7 @@ def test_pact_verdict_payload_summarizes_contract_and_evidence():
         {
             "verdict": "needs_action",
             "missing_evidence": ["source_url_from_evidence"],
+            "reasons": ["contract:needs_action"],
         },
     )
 
@@ -228,6 +229,7 @@ def test_pact_verdict_payload_summarizes_contract_and_evidence():
             {"kind": "changed_file", "producer": "write_file", "value": "app.py"},
         ],
         "tools": ["provider-web-search", "web_fetch"],
+        "reasons": ["contract:needs_action"],
     }
 
 
@@ -239,6 +241,7 @@ def test_pact_metadata_for_storage_drops_task_id_but_keeps_audit_fields():
         "required_evidence": ["current_source_or_blocker"],
         "answer_requirements": ["source_url"],
         "missing_evidence": [],
+        "reasons": ["committable"],
         "observed": ["current_source"],
         "source_urls": ["https://nodejs.org/en"],
         "artifact_paths": [".results/report.md"],
@@ -254,6 +257,7 @@ def test_pact_metadata_for_storage_drops_task_id_but_keeps_audit_fields():
         "required_evidence": ["current_source_or_blocker"],
         "answer_requirements": ["source_url"],
         "missing_evidence": [],
+        "reasons": ["committable"],
         "observed": ["current_source"],
         "source_urls": ["https://nodejs.org/en"],
         "artifact_paths": [".results/report.md"],
@@ -325,6 +329,7 @@ def test_emit_pact_verdict_emits_structured_signal():
             "required_evidence": ["current_source_or_blocker"],
             "answer_requirements": [],
             "missing_evidence": [],
+            "reasons": [],
             "observed": ["current_source"],
             "source_urls": ["https://nodejs.org/en"],
             "artifact_paths": [],
@@ -347,6 +352,7 @@ def test_save_result_artifact_includes_pact_frontmatter(tmp_path):
         "required_evidence": ["current_source_or_blocker"],
         "answer_requirements": ["source_url", "checked_date"],
         "missing_evidence": [],
+        "reasons": ["committable"],
         "observed": ["current_source"],
         "source_urls": ["https://nodejs.org/en/blog/release/v24.15.0"],
         "tools": ["provider-web-search"],
@@ -413,6 +419,7 @@ def test_write_cache_entry_includes_pact_metadata():
         "required_evidence": ["current_source_or_blocker"],
         "answer_requirements": ["source_url"],
         "missing_evidence": [],
+        "reasons": ["committable"],
         "observed": ["current_source"],
         "source_urls": ["https://nodejs.org/en"],
         "tools": ["provider-web-search"],
@@ -497,7 +504,9 @@ def test_stream_records_provider_tool_evidence_and_ignores_empty_tool_delta():
 
 def test_blocked_completion_is_terminal_outcome():
     body = Body.__new__(Body)
-    body._work_contract = classify_work("Find the latest SEC filing").to_dict()
+    activation = ActivationContext.from_message("Find the latest SEC filing", match_type="direct")
+    body._work_contract = classify_work(activation.content).to_dict()
+    body._ensure_execution_state().activation = activation
     body._work_evidence = {"tool_results": [], "observed": []}
     body._current_task_id = "task-123"
     body._task_complete_called = False
@@ -516,7 +525,9 @@ def test_file_artifact_completion_materializes_runtime_artifact(tmp_path):
     body = Body.__new__(Body)
     body.workspace_dir = tmp_path
     body.agent_name = "scout"
-    body._work_contract = classify_work("Create a markdown report").to_dict()
+    activation = ActivationContext.from_message("Create a markdown report", match_type="direct")
+    body._work_contract = classify_work(activation.content).to_dict()
+    body._ensure_execution_state().activation = activation
     body._work_evidence_ledger = EvidenceLedger()
     body._work_evidence = body._work_evidence_ledger.to_dict()
     body._current_task_id = "task-123"

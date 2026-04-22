@@ -48,6 +48,7 @@ try:
         extract_urls,
         format_blocked_completion,
         list_contract_kinds,
+        map_pre_commit_verdict,
         validate_completion,
     )
 except ImportError:  # pragma: no cover - runtime imports this as a top-level module.
@@ -91,6 +92,7 @@ except ImportError:  # pragma: no cover - runtime imports this as a top-level mo
         extract_urls,
         format_blocked_completion,
         list_contract_kinds,
+        map_pre_commit_verdict,
         validate_completion,
     )
 
@@ -134,5 +136,6 @@ __all__ = [
     "extract_urls",
     "format_blocked_completion",
     "list_contract_kinds",
+    "map_pre_commit_verdict",
     "validate_completion",
 ]
