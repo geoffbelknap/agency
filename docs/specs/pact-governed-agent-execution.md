@@ -1111,7 +1111,8 @@ Known gaps:
 - activation sources are represented for body message intake, but not yet across
   every gateway activation source
 - planning is mostly prompt-level
-- trajectory evals are limited
+- trajectory evals cover the foundational body-runtime contracts, but not full
+  execution replay or policy-gated workflows
 - artifact disposition is not unified
 - outcome contracts are not first-class
 
@@ -1132,12 +1133,12 @@ Scope:
 5. Treat current-info answer requirements as the first outcome contract.
 6. Ensure `blocked` is a terminal outcome that finalizes task state. Done for
    body runtime work-contract validation.
-7. Add trajectory tests for:
+7. Add trajectory tests for the foundational body-runtime contracts. Done for:
    - current-info answer succeeds with source evidence
    - current-info answer blocks without evidence
-   - simulated tool use retries then blocks
-   - vague source phrasing fails the answer contract
-   - published blocker finalizes execution state
+   - file-artifact answer succeeds with runtime artifact evidence
+   - code-change answer succeeds with changed-file and validation evidence
+   - operator-blocked answer finalizes as a blocked terminal outcome
 
 Non-scope for the first slice:
 
