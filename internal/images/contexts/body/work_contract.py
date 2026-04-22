@@ -44,6 +44,12 @@ ACTION_RE = re.compile(
     r"restart|start|stop|run|test|build|deploy|summarize|analyze)\b",
     re.IGNORECASE,
 )
+FILE_ARTIFACT_RE = re.compile(
+    r"\b(create|write|draft|generate|produce|save|export|attach)\b"
+    r"[^.\n]{0,80}\b(file|report|artifact|document|markdown|csv|json|pdf|summary)\b|"
+    r"\b(file|report|artifact|document)\b[^.\n]{0,80}\b(save|export|attach|downloadable)\b",
+    re.IGNORECASE,
+)
 BLOCKER_RE = re.compile(
     r"\b(can't|cannot|unable|not able|blocked|failed|unavailable|no access|"
     r"do not have|don't have|missing|need .+ access|need .+ tool)\b",
@@ -205,6 +211,7 @@ class EvidenceView:
     tool_results: tuple[dict, ...] = ()
     observed: frozenset[str] = frozenset()
     source_urls: tuple[str, ...] = ()
+    artifact_paths: tuple[str, ...] = ()
 
     @classmethod
     def from_dict(cls, evidence: dict | None) -> "EvidenceView":
@@ -220,10 +227,15 @@ class EvidenceView:
                 for url in extract_urls(value):
                     if url not in source_urls:
                         source_urls.append(url)
+        artifact_paths: list[str] = []
+        for value in evidence.get("artifact_paths") or []:
+            if isinstance(value, str) and value.strip() and value.strip() not in artifact_paths:
+                artifact_paths.append(value.strip())
         return cls(
             tool_results=tool_results,
             observed=observed,
             source_urls=tuple(source_urls),
+            artifact_paths=tuple(artifact_paths),
         )
 
     def has_tool_or_observation(self) -> bool:
@@ -277,6 +289,9 @@ class EvidenceLedger:
             if isinstance(item, str):
                 for url in extract_urls(item):
                     ledger.record_source_url(url)
+        for item in evidence.get("artifact_paths") or []:
+            if isinstance(item, str):
+                ledger.record_artifact_path(item)
         return ledger
 
     def entries(self) -> list[EvidenceEntry]:
@@ -320,6 +335,24 @@ class EvidenceLedger:
                 source_url=extracted,
             ))
 
+    def record_artifact_path(
+        self,
+        path: str,
+        producer: str = "runtime",
+        metadata: dict | None = None,
+    ) -> None:
+        path = str(path or "").strip()
+        if not path:
+            return
+        if path in self.artifact_paths():
+            return
+        self._entries.append(EvidenceEntry(
+            kind="artifact_path",
+            producer=str(producer or "runtime"),
+            value=path,
+            metadata=dict(metadata or {}),
+        ))
+
     def tool_results(self) -> list[dict]:
         results: list[dict] = []
         for entry in self._entries:
@@ -346,11 +379,19 @@ class EvidenceLedger:
                 urls.append(entry.source_url)
         return urls
 
+    def artifact_paths(self) -> list[str]:
+        paths: list[str] = []
+        for entry in self._entries:
+            if entry.kind == "artifact_path" and entry.value and entry.value not in paths:
+                paths.append(entry.value)
+        return paths
+
     def to_dict(self) -> dict:
         return {
             "tool_results": self.tool_results(),
             "observed": self.observed(),
             "source_urls": self.source_urls(),
+            "artifact_paths": self.artifact_paths(),
             "entries": [entry.to_dict() for entry in self._entries],
         }
 
@@ -428,6 +469,12 @@ class PactEvaluator:
                 requires_action=True,
                 reason="time-sensitive or externally verifiable request",
                 extra_answer_requirements=extra_answer_requirements,
+            )
+        if FILE_ARTIFACT_RE.search(text):
+            return self.build_contract(
+                "file_artifact",
+                requires_action=True,
+                reason="artifact-producing request",
             )
         if ACTION_RE.search(text):
             return self.build_contract(
@@ -548,6 +595,15 @@ class PactEvaluator:
                     "current-info/search/fetch tool, or report the specific blocker."
                 ),
             )
+
+        if "artifact_path_or_blocker" in required:
+            if not evidence_view.artifact_paths:
+                return EvaluationResult(
+                    "needs_action",
+                    missing_evidence=("artifact_path_or_blocker",),
+                    message="This work requires a runtime-observed artifact path or a specific blocker.",
+                )
+            return _validate_file_artifact_answer(contract, evidence_view, content)
 
         if "action_result_or_blocker" in required and not evidence_view.has_tool_or_observation():
             return EvaluationResult(
@@ -676,6 +732,28 @@ def _validate_current_info_answer(
             "answer contract. Provide direct source links, a checked/as-of date, "
             "and name sources instead of referring vaguely to search results."
         ),
+    )
+
+
+def _validate_file_artifact_answer(
+    contract: dict,
+    evidence: EvidenceView,
+    content: str,
+) -> EvaluationResult:
+    requirements = set(contract.get("answer_requirements") or [])
+    missing: list[str] = []
+
+    if "artifact_reference" in requirements:
+        if not any(path in content for path in evidence.artifact_paths):
+            missing.append("artifact_reference")
+
+    if not missing:
+        return EvaluationResult("completed")
+
+    return EvaluationResult(
+        "needs_action",
+        missing_evidence=tuple(missing),
+        message="The artifact exists, but the completion must include its concrete path or link.",
     )
 
 

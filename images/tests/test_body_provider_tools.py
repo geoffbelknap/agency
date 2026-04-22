@@ -189,6 +189,7 @@ def test_pact_verdict_payload_summarizes_contract_and_evidence():
             ],
             "observed": ["current_source"],
             "source_urls": ["https://nodejs.org/en"],
+            "artifact_paths": [".results/report.md"],
         },
         {
             "verdict": "needs_action",
@@ -205,6 +206,7 @@ def test_pact_verdict_payload_summarizes_contract_and_evidence():
         "missing_evidence": ["source_url_from_evidence"],
         "observed": ["current_source"],
         "source_urls": ["https://nodejs.org/en"],
+        "artifact_paths": [".results/report.md"],
         "tools": ["provider-web-search", "web_fetch"],
     }
 
@@ -219,6 +221,7 @@ def test_pact_metadata_for_storage_drops_task_id_but_keeps_audit_fields():
         "missing_evidence": [],
         "observed": ["current_source"],
         "source_urls": ["https://nodejs.org/en"],
+        "artifact_paths": [".results/report.md"],
         "tools": ["provider-web-search"],
     })
 
@@ -230,6 +233,7 @@ def test_pact_metadata_for_storage_drops_task_id_but_keeps_audit_fields():
         "missing_evidence": [],
         "observed": ["current_source"],
         "source_urls": ["https://nodejs.org/en"],
+        "artifact_paths": [".results/report.md"],
         "tools": ["provider-web-search"],
     }
 
@@ -297,6 +301,7 @@ def test_emit_pact_verdict_emits_structured_signal():
             "missing_evidence": [],
             "observed": ["current_source"],
             "source_urls": ["https://nodejs.org/en"],
+            "artifact_paths": [],
             "tools": ["provider-web-search"],
         },
     )]
@@ -328,8 +333,9 @@ def test_save_result_artifact_includes_pact_frontmatter(tmp_path):
         }
     }
 
-    body._save_result_artifact("task-123", "Find latest Node.js", "Node.js 24.15.0", 2)
+    artifact_ref = body._save_result_artifact("task-123", "Find latest Node.js", "Node.js 24.15.0", 2)
 
+    assert artifact_ref == ".results/task-123.md"
     artifact = (tmp_path / ".results" / "task-123.md").read_text()
     frontmatter = artifact.split("---", 2)[1]
     assert "pact:" in frontmatter
@@ -338,6 +344,22 @@ def test_save_result_artifact_includes_pact_frontmatter(tmp_path):
     assert "https://nodejs.org/en/blog/release/v24.15.0" in frontmatter
     assert "pact_activation:" in frontmatter
     assert "channel: dm-scout" in frontmatter
+
+
+def test_save_result_artifact_records_artifact_evidence(tmp_path):
+    body = Body.__new__(Body)
+    body.workspace_dir = tmp_path
+    body.agent_name = "scout"
+    body._last_pact_verdict = None
+    body._task_metadata = {}
+    body._work_evidence_ledger = EvidenceLedger()
+    body._work_evidence = body._work_evidence_ledger.to_dict()
+
+    artifact_ref = body._save_result_artifact("task-123", "Create report", "Report body", 1)
+
+    assert artifact_ref == ".results/task-123.md"
+    assert body._work_evidence["artifact_paths"] == [".results/task-123.md"]
+    assert body._work_evidence_ledger.artifact_paths() == [".results/task-123.md"]
 
 
 def test_write_cache_entry_includes_pact_metadata():
@@ -459,3 +481,29 @@ def test_blocked_completion_is_terminal_outcome():
     assert body._task_complete_called is True
     assert body._task_terminal_outcome == "blocked"
     assert "without guessing" in body._task_result_summary
+
+
+def test_file_artifact_completion_materializes_runtime_artifact(tmp_path):
+    body = Body.__new__(Body)
+    body.workspace_dir = tmp_path
+    body.agent_name = "scout"
+    body._work_contract = classify_work("Create a markdown report").to_dict()
+    body._work_evidence_ledger = EvidenceLedger()
+    body._work_evidence = body._work_evidence_ledger.to_dict()
+    body._current_task_id = "task-123"
+    body._task_content = "Create a markdown report"
+    body._current_task_turns = 2
+    body._task_complete_called = False
+    body._task_terminal_outcome = None
+    body._last_pact_verdict = None
+    body._task_metadata = {}
+    body._emit_pact_verdict = lambda _task_id, _verdict: None
+
+    result = json.loads(body._handle_complete_task("Release report body"))
+
+    assert result["status"] == "complete"
+    assert result["summary"].endswith("Artifact: .results/task-123.md")
+    assert body._task_complete_called is True
+    assert body._task_terminal_outcome == "completed"
+    assert body._work_evidence["artifact_paths"] == [".results/task-123.md"]
+    assert (tmp_path / ".results" / "task-123.md").exists()
