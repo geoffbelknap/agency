@@ -848,6 +848,26 @@ class ProposedOutcome:
         }
 
 
+@dataclass(slots=True, frozen=True)
+class PreCommitVerdict:
+    """Outcome of the general pre-commit evaluation."""
+
+    committable: bool
+    reasons: tuple[str, ...] = ()
+    missing: tuple[str, ...] = ()
+    contract_verdict: dict = field(default_factory=dict)
+    evaluated_at: datetime | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "committable": self.committable,
+            "reasons": list(self.reasons),
+            "missing": list(self.missing),
+            "contract_verdict": dict(self.contract_verdict),
+            "evaluated_at": _datetime_to_dict(self.evaluated_at),
+        }
+
+
 @dataclass(slots=True)
 class ExecutionState:
     """Runtime-owned mutable state for a PACT run, introduced by Wave 1 #1."""
@@ -1328,6 +1348,186 @@ class EvidenceLedger:
 
     def to_view(self) -> EvidenceView:
         return EvidenceView.from_dict(self.to_dict())
+
+
+_HALTING_RECOVERY_STATUSES = frozenset({
+    RecoveryStatus.halted.value,
+    RecoveryStatus.failed.value,
+    RecoveryStatus.expired.value,
+    RecoveryStatus.superseded.value,
+})
+_BLOCKING_NEXT_ACTIONS = frozenset({
+    NextAction.escalate.value,
+    NextAction.clarify.value,
+    NextAction.block.value,
+    NextAction.fail.value,
+    NextAction.halt.value,
+})
+_BLOCKING_EXECUTION_MODES = frozenset({
+    ExecutionMode.clarify.value,
+    ExecutionMode.escalate.value,
+})
+_LOAD_BEARING_AMBIGUITIES = frozenset({
+    "ambiguity:target_files_missing",
+    "ambiguity:external_authority_scope",
+})
+
+
+def evaluate_pre_commit(
+    state: ExecutionState,
+    *,
+    content: str = "",
+    now: datetime | None = None,
+) -> PreCommitVerdict:
+    """Evaluate whether the runtime-owned execution state can commit."""
+
+    evaluated_at = now or _utc_now()
+
+    if state.activation is None:
+        return _pre_commit_blocked("incomplete_state:activation", evaluated_at=evaluated_at)
+    if state.contract is None:
+        return _pre_commit_blocked("incomplete_state:contract", evaluated_at=evaluated_at)
+
+    recovery_state = state.recovery_state
+    if recovery_state is not None:
+        status = _enum_value(recovery_state.status)
+        if status in _HALTING_RECOVERY_STATUSES:
+            return _pre_commit_blocked(f"halt:{status}", evaluated_at=evaluated_at)
+
+        next_action = _enum_value(recovery_state.next_action)
+        if next_action in _BLOCKING_NEXT_ACTIONS:
+            return _pre_commit_blocked(f"recovery:{next_action}", evaluated_at=evaluated_at)
+
+    if state.strategy is not None:
+        execution_mode = _enum_value(state.strategy.execution_mode)
+        if execution_mode in _BLOCKING_EXECUTION_MODES:
+            return _pre_commit_blocked(f"strategy:{execution_mode}", evaluated_at=evaluated_at)
+
+    if state.objective is not None:
+        ambiguities = tuple(
+            ambiguity
+            for ambiguity in state.objective.ambiguities
+            if ambiguity in _LOAD_BEARING_AMBIGUITIES
+        )
+        if ambiguities:
+            return PreCommitVerdict(
+                committable=False,
+                reasons=ambiguities,
+                evaluated_at=evaluated_at,
+            )
+
+    if _approval_required(state) and not _has_approval_decision(state):
+        return PreCommitVerdict(
+            committable=False,
+            reasons=("approval_required:no_approval_decision",),
+            missing=("approval_decision",),
+            evaluated_at=evaluated_at,
+        )
+
+    advisory_reasons = tuple(
+        f"plan_advisory:missing:{label}"
+        for label in _missing_plan_evidence(state)
+    )
+    contract_verdict = validate_completion(
+        state.contract.to_dict(),
+        state.evidence.to_dict(),
+        content,
+    )
+    verdict = str(contract_verdict.get("verdict") or "")
+    if verdict == "needs_action":
+        missing = tuple(str(item) for item in contract_verdict.get("missing_evidence") or ())
+        return PreCommitVerdict(
+            committable=False,
+            reasons=("contract:needs_action",),
+            missing=missing,
+            contract_verdict=contract_verdict,
+            evaluated_at=evaluated_at,
+        )
+
+    return PreCommitVerdict(
+        committable=True,
+        reasons=advisory_reasons + ("committable",),
+        contract_verdict=contract_verdict,
+        evaluated_at=evaluated_at,
+    )
+
+
+def _pre_commit_blocked(reason: str, *, evaluated_at: datetime) -> PreCommitVerdict:
+    return PreCommitVerdict(
+        committable=False,
+        reasons=(reason,),
+        evaluated_at=evaluated_at,
+    )
+
+
+def _approval_required(state: ExecutionState) -> bool:
+    if state.strategy is not None and state.strategy.needs_approval:
+        return True
+    if state.plan is None:
+        return False
+    return any(step.requires_approval for step in state.plan.steps)
+
+
+def _has_approval_decision(state: ExecutionState) -> bool:
+    if state.tool_observations:
+        return any(
+            "approval_decision" in observation.evidence_classification
+            for observation in state.tool_observations
+        )
+    return _ledger_has_label(state.evidence.to_dict(), "approval_decision")
+
+
+def _missing_plan_evidence(state: ExecutionState) -> tuple[str, ...]:
+    if state.plan is None or not state.plan.steps:
+        return ()
+
+    evidence = state.evidence.to_dict()
+    missing: list[str] = []
+    for step in state.plan.steps:
+        for label in step.expected_evidence:
+            label = str(label or "").strip()
+            if not label or label in missing:
+                continue
+            if not _ledger_has_label(evidence, label):
+                missing.append(label)
+    return tuple(missing)
+
+
+def _ledger_has_label(evidence: dict, label: str) -> bool:
+    label = str(label or "").strip()
+    if not label:
+        return False
+
+    if label == "tool_result" and evidence.get("tool_results"):
+        return True
+    if label == "current_source" and label in set(str(item) for item in evidence.get("observed") or ()):
+        return True
+    if label == "source_url" and evidence.get("source_urls"):
+        return True
+    if label == "artifact_path" and evidence.get("artifact_paths"):
+        return True
+    if label == "changed_file" and evidence.get("changed_files"):
+        return True
+    if label == "validation_result" and evidence.get("validation_results"):
+        return True
+
+    for entry in evidence.get("entries") or ():
+        if not isinstance(entry, dict):
+            continue
+        values = {
+            str(entry.get("kind") or ""),
+            str(entry.get("value") or ""),
+        }
+        metadata = entry.get("metadata")
+        if isinstance(metadata, dict):
+            classification = metadata.get("classification") or metadata.get("evidence_classification")
+            if isinstance(classification, str):
+                values.add(classification)
+            elif isinstance(classification, (list, tuple)):
+                values.update(str(item) for item in classification)
+        if label in values:
+            return True
+    return False
 
 
 @dataclass(frozen=True)

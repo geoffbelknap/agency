@@ -943,6 +943,17 @@ populated from typed observation failures and contract evaluation gaps for
 visibility only; the existing `body.py` retry behavior is unchanged and will be
 rewired to consume the machine in Wave 2 #5b.
 
+The general pre-commit evaluator now produces a typed `PreCommitVerdict` from
+runtime-owned `ExecutionState`. Its deterministic layers check, in order:
+state completeness, recovery halt or terminal status, blocking recovery next
+action, clarify/escalate strategy route, load-bearing ambiguity, approval
+decision evidence, plan expected evidence, and the existing contract-specific
+`validate_completion` verdict. The plan-evidence layer is advisory until Wave 2
+#3b because `body.py` does not execute plan steps directly yet. In this
+checkpoint the evaluator is a standalone primitive only; `body.py` still uses
+`validate_completion` directly for commit flow until Wave 2 #4b wires the
+pre-commit verdict into runtime commit gating.
+
 The objective builder is deterministic and model-free. Activation content is
 used only as capped statement data and for ambiguity detection; it is not a
 constraint source. Constraints come from task metadata, mission configuration,
