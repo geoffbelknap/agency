@@ -39,6 +39,12 @@ CURRENT_INFO_RE = re.compile(
     r"price|weather|schedule|score|news|filing|sec filing|look up|lookup|find me|search)\b",
     re.IGNORECASE,
 )
+CODE_CHANGE_RE = re.compile(
+    r"\b(debug|fix|patch|implement|modify|update|change|refactor)\b"
+    r"[^.\n]{0,100}\b(code|bug|test|tests|failing|failure|function|module|file|repo|build)\b|"
+    r"\b(code|bug|test|tests|build)\b[^.\n]{0,100}\b(debug|fix|patch|implement|modify|update|change|refactor)\b",
+    re.IGNORECASE,
+)
 ACTION_RE = re.compile(
     r"\b(find|look up|lookup|search|check|verify|debug|fix|create|write|read|"
     r"restart|start|stop|run|test|build|deploy|summarize|analyze)\b",
@@ -212,6 +218,8 @@ class EvidenceView:
     observed: frozenset[str] = frozenset()
     source_urls: tuple[str, ...] = ()
     artifact_paths: tuple[str, ...] = ()
+    changed_files: tuple[str, ...] = ()
+    validation_results: tuple[dict, ...] = ()
 
     @classmethod
     def from_dict(cls, evidence: dict | None) -> "EvidenceView":
@@ -231,11 +239,21 @@ class EvidenceView:
         for value in evidence.get("artifact_paths") or []:
             if isinstance(value, str) and value.strip() and value.strip() not in artifact_paths:
                 artifact_paths.append(value.strip())
+        changed_files: list[str] = []
+        for value in evidence.get("changed_files") or []:
+            if isinstance(value, str) and value.strip() and value.strip() not in changed_files:
+                changed_files.append(value.strip())
+        validation_results = tuple(
+            item for item in evidence.get("validation_results") or []
+            if isinstance(item, dict)
+        )
         return cls(
             tool_results=tool_results,
             observed=observed,
             source_urls=tuple(source_urls),
             artifact_paths=tuple(artifact_paths),
+            changed_files=tuple(changed_files),
+            validation_results=validation_results,
         )
 
     def has_tool_or_observation(self) -> bool:
@@ -292,6 +310,17 @@ class EvidenceLedger:
         for item in evidence.get("artifact_paths") or []:
             if isinstance(item, str):
                 ledger.record_artifact_path(item)
+        for item in evidence.get("changed_files") or []:
+            if isinstance(item, str):
+                ledger.record_changed_file(item)
+        for item in evidence.get("validation_results") or []:
+            if not isinstance(item, dict):
+                continue
+            ledger.record_validation_result(
+                str(item.get("command") or ""),
+                bool(item.get("ok")) if "ok" in item else None,
+                metadata={k: v for k, v in item.items() if k not in {"command", "ok"}},
+            )
         return ledger
 
     def entries(self) -> list[EvidenceEntry]:
@@ -353,6 +382,42 @@ class EvidenceLedger:
             metadata=dict(metadata or {}),
         ))
 
+    def record_changed_file(
+        self,
+        path: str,
+        producer: str = "runtime",
+        metadata: dict | None = None,
+    ) -> None:
+        path = str(path or "").strip()
+        if not path:
+            return
+        if path in self.changed_files():
+            return
+        self._entries.append(EvidenceEntry(
+            kind="changed_file",
+            producer=str(producer or "runtime"),
+            value=path,
+            metadata=dict(metadata or {}),
+        ))
+
+    def record_validation_result(
+        self,
+        command: str,
+        ok: bool | None,
+        producer: str = "runtime",
+        metadata: dict | None = None,
+    ) -> None:
+        command = str(command or "").strip()
+        if not command:
+            return
+        self._entries.append(EvidenceEntry(
+            kind="validation_result",
+            producer=str(producer or "runtime"),
+            value=command,
+            ok=ok,
+            metadata=dict(metadata or {}),
+        ))
+
     def tool_results(self) -> list[dict]:
         results: list[dict] = []
         for entry in self._entries:
@@ -386,12 +451,33 @@ class EvidenceLedger:
                 paths.append(entry.value)
         return paths
 
+    def changed_files(self) -> list[str]:
+        paths: list[str] = []
+        for entry in self._entries:
+            if entry.kind == "changed_file" and entry.value and entry.value not in paths:
+                paths.append(entry.value)
+        return paths
+
+    def validation_results(self) -> list[dict]:
+        results: list[dict] = []
+        for entry in self._entries:
+            if entry.kind != "validation_result":
+                continue
+            result = {"command": entry.value}
+            if entry.ok is not None:
+                result["ok"] = entry.ok
+            result.update(entry.metadata)
+            results.append(result)
+        return results
+
     def to_dict(self) -> dict:
         return {
             "tool_results": self.tool_results(),
             "observed": self.observed(),
             "source_urls": self.source_urls(),
             "artifact_paths": self.artifact_paths(),
+            "changed_files": self.changed_files(),
+            "validation_results": self.validation_results(),
             "entries": [entry.to_dict() for entry in self._entries],
         }
 
@@ -469,6 +555,12 @@ class PactEvaluator:
                 requires_action=True,
                 reason="time-sensitive or externally verifiable request",
                 extra_answer_requirements=extra_answer_requirements,
+            )
+        if CODE_CHANGE_RE.search(text):
+            return self.build_contract(
+                "code_change",
+                requires_action=True,
+                reason="code-change request",
             )
         if FILE_ARTIFACT_RE.search(text):
             return self.build_contract(
@@ -604,6 +696,21 @@ class PactEvaluator:
                     message="This work requires a runtime-observed artifact path or a specific blocker.",
                 )
             return _validate_file_artifact_answer(contract, evidence_view, content)
+
+        if "code_change_result_or_blocker" in required:
+            if not evidence_view.changed_files:
+                return EvaluationResult(
+                    "needs_action",
+                    missing_evidence=("code_change_result_or_blocker",),
+                    message="This work requires runtime-observed changed-file evidence or a specific blocker.",
+                )
+            if "tests_or_blocker" in required and not evidence_view.validation_results:
+                return EvaluationResult(
+                    "needs_action",
+                    missing_evidence=("tests_or_blocker",),
+                    message="This code change requires runtime-observed validation evidence or a specific blocker.",
+                )
+            return _validate_code_change_answer(contract, evidence_view, content)
 
         if "action_result_or_blocker" in required and not evidence_view.has_tool_or_observation():
             return EvaluationResult(
@@ -754,6 +861,36 @@ def _validate_file_artifact_answer(
         "needs_action",
         missing_evidence=tuple(missing),
         message="The artifact exists, but the completion must include its concrete path or link.",
+    )
+
+
+def _validate_code_change_answer(
+    contract: dict,
+    evidence: EvidenceView,
+    content: str,
+) -> EvaluationResult:
+    requirements = set(contract.get("answer_requirements") or [])
+    missing: list[str] = []
+
+    if "files_changed" in requirements:
+        if not any(path in content for path in evidence.changed_files):
+            missing.append("files_changed")
+
+    validations = list(evidence.validation_results)
+    passing_validations = [item for item in validations if item.get("ok") is True]
+    if "tests_run_or_blocker" in requirements:
+        if not passing_validations:
+            missing.append("tests_run_or_blocker")
+        elif not any(str(item.get("command") or "") in content for item in passing_validations):
+            missing.append("tests_run_or_blocker")
+
+    if not missing:
+        return EvaluationResult("completed")
+
+    return EvaluationResult(
+        "needs_action",
+        missing_evidence=tuple(missing),
+        message="The code change evidence exists, but the completion must name changed files and passing validation commands.",
     )
 
 

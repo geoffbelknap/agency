@@ -108,6 +108,9 @@ def test_evidence_ledger_preserves_legacy_evidence_shape():
     ledger.record_source_url("https://nodejs.org/en")
     ledger.record_artifact_path(".results/report.md", metadata={"artifact_id": "report"})
     ledger.record_artifact_path(".results/report.md")
+    ledger.record_changed_file("app.py")
+    ledger.record_changed_file("app.py")
+    ledger.record_validation_result("pytest tests/test_app.py", True, metadata={"exit_code": 0})
 
     assert ledger.to_dict() == {
         "tool_results": [
@@ -120,6 +123,10 @@ def test_evidence_ledger_preserves_legacy_evidence_shape():
             "https://github.com/nodejs/node/releases",
         ],
         "artifact_paths": [".results/report.md"],
+        "changed_files": ["app.py"],
+        "validation_results": [
+            {"command": "pytest tests/test_app.py", "ok": True, "exit_code": 0},
+        ],
         "entries": [
             {"kind": "tool_result", "producer": "provider-web-search", "ok": True},
             {"kind": "tool_result", "producer": "web_fetch", "metadata": {"status": 200}},
@@ -140,6 +147,14 @@ def test_evidence_ledger_preserves_legacy_evidence_shape():
                 "value": ".results/report.md",
                 "metadata": {"artifact_id": "report"},
             },
+            {"kind": "changed_file", "producer": "runtime", "value": "app.py"},
+            {
+                "kind": "validation_result",
+                "producer": "runtime",
+                "value": "pytest tests/test_app.py",
+                "ok": True,
+                "metadata": {"exit_code": 0},
+            },
         ],
     }
     assert ledger.to_view().source_urls == (
@@ -147,6 +162,10 @@ def test_evidence_ledger_preserves_legacy_evidence_shape():
         "https://github.com/nodejs/node/releases",
     )
     assert ledger.to_view().artifact_paths == (".results/report.md",)
+    assert ledger.to_view().changed_files == ("app.py",)
+    assert ledger.to_view().validation_results == (
+        {"command": "pytest tests/test_app.py", "ok": True, "exit_code": 0},
+    )
 
 
 def test_evidence_ledger_can_load_existing_runtime_evidence():
@@ -155,6 +174,8 @@ def test_evidence_ledger_can_load_existing_runtime_evidence():
         "observed": ["current_source"],
         "source_urls": ["https://nodejs.org/en"],
         "artifact_paths": [".results/task-123.md"],
+        "changed_files": ["app.py"],
+        "validation_results": [{"command": "pytest", "ok": True}],
     })
 
     assert ledger.tool_results() == [
@@ -163,6 +184,8 @@ def test_evidence_ledger_can_load_existing_runtime_evidence():
     assert ledger.observed() == ["current_source"]
     assert ledger.source_urls() == ["https://nodejs.org/en"]
     assert ledger.artifact_paths() == [".results/task-123.md"]
+    assert ledger.changed_files() == ["app.py"]
+    assert ledger.validation_results() == [{"command": "pytest", "ok": True}]
 
 
 def test_pact_evaluator_uses_explicit_registry():
@@ -263,6 +286,15 @@ def test_classifies_report_request_as_file_artifact():
     assert contract.requires_action is True
     assert contract.required_evidence == ["artifact_path_or_blocker"]
     assert contract.answer_requirements == ["artifact_reference"]
+
+
+def test_classifies_code_change_request_as_code_change():
+    contract = classify_work("Fix the failing pytest test in the parser module")
+
+    assert contract.kind == "code_change"
+    assert contract.requires_action is True
+    assert contract.required_evidence == ["code_change_result_or_blocker", "tests_or_blocker"]
+    assert contract.answer_requirements == ["files_changed", "tests_run_or_blocker"]
 
 
 def test_unknown_contract_kind_fails_closed():
@@ -440,6 +472,63 @@ def test_file_artifact_completion_accepts_observed_artifact_reference():
         contract,
         {"artifact_paths": [".results/task-123.md"]},
         "I created the report: .results/task-123.md",
+    )
+
+    assert verdict["verdict"] == "completed"
+
+
+def test_code_change_completion_requires_changed_file_evidence():
+    contract = classify_work("Fix the failing test").to_dict()
+
+    verdict = validate_completion(
+        contract,
+        {"validation_results": [{"command": "pytest tests/test_app.py", "ok": True}]},
+        "Changed app.py. Tests: pytest tests/test_app.py",
+    )
+
+    assert verdict["verdict"] == "needs_action"
+    assert verdict["missing_evidence"] == ["code_change_result_or_blocker"]
+
+
+def test_code_change_completion_requires_validation_evidence():
+    contract = classify_work("Fix the failing test").to_dict()
+
+    verdict = validate_completion(
+        contract,
+        {"changed_files": ["app.py"]},
+        "Changed app.py.",
+    )
+
+    assert verdict["verdict"] == "needs_action"
+    assert verdict["missing_evidence"] == ["tests_or_blocker"]
+
+
+def test_code_change_completion_requires_summary_to_name_evidence():
+    contract = classify_work("Fix the failing test").to_dict()
+
+    verdict = validate_completion(
+        contract,
+        {
+            "changed_files": ["app.py"],
+            "validation_results": [{"command": "pytest tests/test_app.py", "ok": True}],
+        },
+        "Fixed it and tests pass.",
+    )
+
+    assert verdict["verdict"] == "needs_action"
+    assert verdict["missing_evidence"] == ["files_changed", "tests_run_or_blocker"]
+
+
+def test_code_change_completion_accepts_changed_files_and_validation():
+    contract = classify_work("Fix the failing test").to_dict()
+
+    verdict = validate_completion(
+        contract,
+        {
+            "changed_files": ["app.py"],
+            "validation_results": [{"command": "pytest tests/test_app.py", "ok": True}],
+        },
+        "Changed app.py. Validation: pytest tests/test_app.py",
     )
 
     assert verdict["verdict"] == "completed"

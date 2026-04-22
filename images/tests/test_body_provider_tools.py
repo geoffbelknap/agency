@@ -190,6 +190,8 @@ def test_pact_verdict_payload_summarizes_contract_and_evidence():
             "observed": ["current_source"],
             "source_urls": ["https://nodejs.org/en"],
             "artifact_paths": [".results/report.md"],
+            "changed_files": ["app.py"],
+            "validation_results": [{"command": "pytest tests/test_app.py", "ok": True}],
         },
         {
             "verdict": "needs_action",
@@ -207,6 +209,8 @@ def test_pact_verdict_payload_summarizes_contract_and_evidence():
         "observed": ["current_source"],
         "source_urls": ["https://nodejs.org/en"],
         "artifact_paths": [".results/report.md"],
+        "changed_files": ["app.py"],
+        "validation_results": [{"command": "pytest tests/test_app.py", "ok": True}],
         "tools": ["provider-web-search", "web_fetch"],
     }
 
@@ -222,6 +226,8 @@ def test_pact_metadata_for_storage_drops_task_id_but_keeps_audit_fields():
         "observed": ["current_source"],
         "source_urls": ["https://nodejs.org/en"],
         "artifact_paths": [".results/report.md"],
+        "changed_files": ["app.py"],
+        "validation_results": [{"command": "pytest tests/test_app.py", "ok": True}],
         "tools": ["provider-web-search"],
     })
 
@@ -234,6 +240,8 @@ def test_pact_metadata_for_storage_drops_task_id_but_keeps_audit_fields():
         "observed": ["current_source"],
         "source_urls": ["https://nodejs.org/en"],
         "artifact_paths": [".results/report.md"],
+        "changed_files": ["app.py"],
+        "validation_results": [{"command": "pytest tests/test_app.py", "ok": True}],
         "tools": ["provider-web-search"],
     }
 
@@ -302,6 +310,8 @@ def test_emit_pact_verdict_emits_structured_signal():
             "observed": ["current_source"],
             "source_urls": ["https://nodejs.org/en"],
             "artifact_paths": [],
+            "changed_files": [],
+            "validation_results": [],
             "tools": ["provider-web-search"],
         },
     )]
@@ -507,3 +517,26 @@ def test_file_artifact_completion_materializes_runtime_artifact(tmp_path):
     assert body._task_terminal_outcome == "completed"
     assert body._work_evidence["artifact_paths"] == [".results/task-123.md"]
     assert (tmp_path / ".results" / "task-123.md").exists()
+
+
+def test_records_code_change_evidence_from_write_and_validation_tools(tmp_path):
+    body = Body.__new__(Body)
+    body.workspace_dir = tmp_path
+    body._work_evidence_ledger = EvidenceLedger()
+    body._work_evidence = body._work_evidence_ledger.to_dict()
+
+    body._record_work_tool_result(
+        "write_file",
+        json.dumps({"status": "ok", "path": str(tmp_path / "app.py"), "bytes": 12}),
+        {"path": "app.py", "content": "print('hi')"},
+    )
+    body._record_work_tool_result(
+        "execute_command",
+        json.dumps({"stdout": ".", "stderr": "", "exit_code": 0}),
+        {"command": "pytest tests/test_app.py"},
+    )
+
+    assert body._work_evidence["changed_files"] == ["app.py"]
+    assert body._work_evidence["validation_results"] == [
+        {"command": "pytest tests/test_app.py", "ok": True, "exit_code": 0},
+    ]

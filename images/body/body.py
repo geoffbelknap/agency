@@ -315,6 +315,8 @@ def _pact_verdict_payload(
         "observed": list(evidence.get("observed") or []),
         "source_urls": list(evidence.get("source_urls") or []),
         "artifact_paths": list(evidence.get("artifact_paths") or []),
+        "changed_files": list(evidence.get("changed_files") or []),
+        "validation_results": list(evidence.get("validation_results") or []),
         "tools": tools,
     }
 
@@ -331,6 +333,8 @@ def _pact_metadata_for_storage(payload: dict | None) -> dict | None:
         "observed": list(payload.get("observed") or []),
         "source_urls": list(payload.get("source_urls") or []),
         "artifact_paths": list(payload.get("artifact_paths") or []),
+        "changed_files": list(payload.get("changed_files") or []),
+        "validation_results": list(payload.get("validation_results") or []),
         "tools": list(payload.get("tools") or []),
     }
 
@@ -2172,7 +2176,7 @@ class Body:
                     # Track tools used for post-task capture
                     if _tool_name:
                         getattr(self, '_tools_used_this_task', set()).add(_tool_name)
-                    self._record_work_tool_result(_tool_name, result)
+                    self._record_work_tool_result(_tool_name, result, self._tool_call_arguments(_tc))
                     if self._task_complete_called:
                         self._finalize_task(task_id, turn)
                         break
@@ -2231,7 +2235,7 @@ class Body:
                         _tn = tc.get("function", {}).get("name", "")
                         if _tn:
                             _tools_used.add(_tn)
-                        self._record_work_tool_result(_tn, results.get(tc["id"], ""))
+                        self._record_work_tool_result(_tn, results.get(tc["id"], ""), self._tool_call_arguments(tc))
                         if self._fallback is not None:
                             _res = results.get(tc["id"], "")
                             try:
@@ -2684,6 +2688,13 @@ class Body:
             )
 
         return json.dumps({"error": f"Unknown tool: {name}"})
+
+    @staticmethod
+    def _tool_call_arguments(tool_call: dict) -> dict:
+        try:
+            return json.loads(tool_call.get("function", {}).get("arguments", "{}"))
+        except Exception:
+            return {}
 
     # -- Context Window Management --
 
@@ -3281,7 +3292,7 @@ class Body:
             payload,
         )
 
-    def _record_work_tool_result(self, tool_name: str, result: str) -> None:
+    def _record_work_tool_result(self, tool_name: str, result: str, arguments: dict | None = None) -> None:
         evidence = getattr(self, "_work_evidence", None)
         if not isinstance(evidence, dict) or not tool_name:
             return
@@ -3302,7 +3313,39 @@ class Body:
             ledger.observe("current_source")
             for url in extract_urls(result):
                 ledger.record_source_url(url, producer=tool_name)
+        self._record_code_change_evidence(ledger, tool_name, parsed, arguments or {})
         self._work_evidence = ledger.to_dict()
+
+    def _record_code_change_evidence(
+        self,
+        ledger: EvidenceLedger,
+        tool_name: str,
+        parsed_result: dict,
+        arguments: dict,
+    ) -> None:
+        if tool_name == "write_file" and not parsed_result.get("error"):
+            path = str(arguments.get("path") or parsed_result.get("path") or "").strip()
+            workspace = str(getattr(self, "workspace_dir", "") or "")
+            if workspace and path.startswith(workspace.rstrip("/") + "/"):
+                path = path[len(workspace.rstrip("/") + "/"):]
+            if path:
+                ledger.record_changed_file(path, producer=tool_name)
+            return
+
+        if tool_name != "execute_command" or parsed_result.get("error"):
+            return
+        command = str(arguments.get("command") or "").strip()
+        if not command:
+            return
+        if not any(token in command.lower() for token in ("test", "pytest", "go test", "npm test", "build", "make")):
+            return
+        exit_code = parsed_result.get("exit_code")
+        ledger.record_validation_result(
+            command,
+            exit_code == 0,
+            producer=tool_name,
+            metadata={"exit_code": exit_code},
+        )
 
     def _record_provider_tool_evidence(self, extra: dict) -> None:
         evidence = getattr(self, "_work_evidence", None)
