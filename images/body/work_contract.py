@@ -8,7 +8,7 @@ the runtime-facing API can move independently from body compatibility shims.
 from __future__ import annotations
 
 try:
-    from .objective_builder import build_objective
+    from .objective_builder import build_objective, detect_generation_mode
     from .pact_engine import (
         ActivationContext,
         ContractDefinition,
@@ -52,7 +52,7 @@ try:
         validate_completion,
     )
 except ImportError:  # pragma: no cover - runtime imports this as a top-level module.
-    from objective_builder import build_objective
+    from objective_builder import build_objective, detect_generation_mode
     from pact_engine import (
         ActivationContext,
         ContractDefinition,
@@ -132,6 +132,7 @@ __all__ = [
     "classify_work",
     "contract_definition",
     "contract_prompt",
+    "detect_generation_mode",
     "evaluate_pre_commit",
     "extract_urls",
     "format_blocked_completion",

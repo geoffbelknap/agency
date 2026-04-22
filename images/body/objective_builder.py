@@ -36,6 +36,48 @@ _OUTPUT_FORMAT_RE = re.compile(
     re.IGNORECASE,
 )
 
+CREATIVE_PATTERNS = (
+    ("tell me a joke", re.compile(r"\btell me (a|an) joke\b", re.IGNORECASE)),
+    ("write a poem", re.compile(r"\bwrite (a|an|me a|me an) poem\b", re.IGNORECASE)),
+    ("write a haiku", re.compile(r"\bwrite (a|an|me a|me an) haiku\b", re.IGNORECASE)),
+    ("write a story", re.compile(r"\bwrite (a|an|me a|me an) story\b", re.IGNORECASE)),
+    ("write a song", re.compile(r"\bwrite (a|an|me a|me an) song\b", re.IGNORECASE)),
+    ("brainstorm", re.compile(r"\bbrainstorm (with me|ideas|on|about)\b", re.IGNORECASE)),
+    ("let's brainstorm", re.compile(r"\blet'?s brainstorm\b", re.IGNORECASE)),
+    ("roleplay", re.compile(r"\broleplay\b", re.IGNORECASE)),
+    ("role-play", re.compile(r"\brole[- ]play\b", re.IGNORECASE)),
+    ("pretend", re.compile(r"\bpretend (to be|you('?re| are))\b", re.IGNORECASE)),
+    ("make up", re.compile(r"\bmake up (a|an|some)\b", re.IGNORECASE)),
+)
+PERSONA_PATTERNS = (
+    ("what's your name", re.compile(r"\bwhat('?s| is) your name\b", re.IGNORECASE)),
+    ("who are you", re.compile(r"\bwho are you\b", re.IGNORECASE)),
+    ("tell me about yourself", re.compile(r"\btell me about yourself\b", re.IGNORECASE)),
+    ("what do you do", re.compile(r"\bwhat do you do\b", re.IGNORECASE)),
+    (
+        "what are your preferences",
+        re.compile(r"\bwhat are your (preferences|capabilities|tools|limits|restrictions)\b", re.IGNORECASE),
+    ),
+    ("what's your role", re.compile(r"\bwhat('?s| is) your (role|job|purpose)\b", re.IGNORECASE)),
+    ("what's your favorite", re.compile(r"\bwhat('?s| is) your favorite\b", re.IGNORECASE)),
+)
+SOCIAL_PATTERNS = (
+    ("greeting", re.compile(r"(hi|hello|hey|yo)[!.?]*", re.IGNORECASE)),
+    ("good time", re.compile(r"good (morning|afternoon|evening|night)[!.?]*", re.IGNORECASE)),
+    ("how are you", re.compile(r"how are you( (doing|today))?[?!.]*", re.IGNORECASE)),
+    ("how's it going", re.compile(r"how('?s| is) it going[?!.]*", re.IGNORECASE)),
+    ("what's up", re.compile(r"what('?s| is) up[?!.]*", re.IGNORECASE)),
+    ("thanks", re.compile(r"thanks( so much)?[!.]*", re.IGNORECASE)),
+    ("thank you", re.compile(r"thank you( (so much|very much))?[!.]*", re.IGNORECASE)),
+    ("goodbye", re.compile(r"goodbye[!.]*", re.IGNORECASE)),
+    ("bye", re.compile(r"bye[!.]*", re.IGNORECASE)),
+    ("see you", re.compile(r"see (you|ya)[!.]*", re.IGNORECASE)),
+    ("ok", re.compile(r"ok[ay]*[!.]*", re.IGNORECASE)),
+    ("got it", re.compile(r"got it[!.]*", re.IGNORECASE)),
+    ("sounds good", re.compile(r"sounds good[!.]*", re.IGNORECASE)),
+)
+_SOCIAL_TRAILING_PUNCTUATION = "!.?"
+
 _DEFAULT_CONSTRAINTS_BY_KIND = {
     "external_side_effect": ["requires_authority", "no_silent_retry"],
 }
@@ -68,6 +110,24 @@ _SUCCESS_CRITERIA = {
 }
 
 
+def detect_generation_mode(content: str) -> str:
+    """Recognize explicit invention authorizations. Defaults to grounded."""
+
+    content = str(content or "")
+    for _, pattern in CREATIVE_PATTERNS:
+        if pattern.search(content):
+            return "creative"
+    for _, pattern in PERSONA_PATTERNS:
+        if pattern.search(content):
+            return "persona"
+
+    normalized_social = content.strip().rstrip(_SOCIAL_TRAILING_PUNCTUATION).strip()
+    for _, pattern in SOCIAL_PATTERNS:
+        if pattern.fullmatch(normalized_social):
+            return "social"
+    return "grounded"
+
+
 def build_objective(
     activation: ActivationContext,
     contract: WorkContract,
@@ -86,6 +146,7 @@ def build_objective(
     task = task if isinstance(task, dict) else {}
     mission = mission if isinstance(mission, dict) else None
     statement = str(activation.content or "").strip()[:500]
+    generation_mode = detect_generation_mode(activation.content)
     ambiguities, assumptions = _detect_ambiguities(activation, contract, task)
 
     return Objective(
@@ -100,6 +161,7 @@ def build_objective(
         ambiguities=ambiguities,
         assumptions=assumptions,
         risk_level=_risk_level(contract, ambiguities, trust_level),
+        generation_mode=generation_mode,
     )
 
 
