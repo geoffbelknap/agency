@@ -2397,6 +2397,7 @@ class Body:
                 content = _sanitize_outbound_content(content)
             if content:
                 content = self._materialize_file_artifact_summary(content)
+                # TODO(Wave 2 #4b): gate runtime commit through evaluate_pre_commit.
                 completion_verdict = validate_completion(
                     getattr(self, "_work_contract", None),
                     getattr(self, "_work_evidence", None),
