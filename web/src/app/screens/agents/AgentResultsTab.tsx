@@ -1,10 +1,7 @@
-import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { Download, FileText, RefreshCw } from 'lucide-react';
-import { api, authenticatedFetch, type RawAgentResult } from '../../lib/api';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
+import { api, type RawAgentResult } from '../../lib/api';
 import { PactStatusBadge, extractPactMetadata } from '../../components/PactStatusBadge';
+import { ResultReportDialog, useResultReport } from './ResultReportDialog';
 
 interface Props {
   agentName: string;
@@ -18,29 +15,8 @@ function resultTimestamp(result: RawAgentResult): string {
   return typeof raw === 'string' && raw.trim() ? raw : '';
 }
 
-function stripFrontmatter(markdown: string): string {
-  return markdown.replace(/^---[\s\S]*?---\s*/, '');
-}
-
 export function AgentResultsTab({ agentName, results, refreshingResults, refreshResults }: Props) {
-  const [openTask, setOpenTask] = useState('');
-  const [reportContent, setReportContent] = useState('');
-  const [reportLoading, setReportLoading] = useState(false);
-
-  async function openReport(taskID: string) {
-    setOpenTask(taskID);
-    setReportContent('');
-    setReportLoading(true);
-    try {
-      const resp = await authenticatedFetch(api.agents.resultUrl(agentName, taskID));
-      const text = await resp.text();
-      setReportContent(stripFrontmatter(text));
-    } catch {
-      setReportContent('_Failed to load report._');
-    } finally {
-      setReportLoading(false);
-    }
-  }
+  const report = useResultReport(agentName);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -81,7 +57,7 @@ export function AgentResultsTab({ agentName, results, refreshingResults, refresh
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
                     <button
                       type="button"
-                      onClick={() => void openReport(result.task_id)}
+                      onClick={() => void report.openReport(result.task_id)}
                       className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs"
                       style={{ border: '0.5px solid var(--ink-hairline)', background: 'var(--warm-2)', color: 'var(--ink)' }}
                     >
@@ -104,20 +80,12 @@ export function AgentResultsTab({ agentName, results, refreshingResults, refresh
         </div>
       </div>
 
-      <Dialog open={!!openTask} onOpenChange={(open) => { if (!open) setOpenTask(''); }}>
-        <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto bg-card">
-          <DialogHeader>
-            <DialogTitle className="text-sm font-medium">Result - {openTask}</DialogTitle>
-          </DialogHeader>
-          {reportLoading ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">Loading...</div>
-          ) : (
-            <div className="prose prose-gray dark:prose-invert prose-sm max-w-none prose-p:my-1 prose-pre:bg-secondary prose-pre:text-xs">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{reportContent}</ReactMarkdown>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      <ResultReportDialog
+        openTask={report.openTask}
+        reportContent={report.reportContent}
+        reportLoading={report.reportLoading}
+        onClose={report.closeReport}
+      />
     </div>
   );
 }

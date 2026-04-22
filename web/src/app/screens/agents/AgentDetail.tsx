@@ -251,6 +251,7 @@ export function AgentDetail({ agent, capabilities: initialCapabilities, onAction
             logs={data.logs}
             refreshingLogs={data.refreshingLogs}
             refreshLogs={data.refreshLogs}
+            results={data.results}
             handleSendDM={data.handleSendDM}
           />
         )}

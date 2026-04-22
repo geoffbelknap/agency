@@ -95,6 +95,12 @@ export function useAgentDetailData(
     }
   }, [agentName, effectiveDataTab, refreshLogs]);
 
+  useEffect(() => {
+    if (effectiveDataTab === 'activity' || effectiveDataTab === 'results') {
+      refreshResults(agentName);
+    }
+  }, [agentName, effectiveDataTab, refreshResults]);
+
   // Fetch budget
   useEffect(() => {
     api.agents.budget(agentName).then(setBudget).catch(() => setBudget(null));
@@ -113,8 +119,6 @@ export function useAgentDetailData(
       api.meeseeks.list(name).then(data => setMeeseeksList(data ?? [])).catch(() => setMeeseeksList([]));
     } else if (effectiveDataTab === 'economics') {
       api.agents.economics(name).then(setEconomics).catch(() => setEconomics(null));
-    } else if (effectiveDataTab === 'results') {
-      refreshResults(name);
     } else if (effectiveDataTab === 'config') {
       Promise.all([
         api.capabilities.list().catch(() => []),

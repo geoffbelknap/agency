@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { LogsSection } from './AgentActivityTab';
-import type { RawAuditEntry } from '../../lib/api';
+import type { RawAgentResult, RawAuditEntry } from '../../lib/api';
 
 const logs: RawAuditEntry[] = [
   {
@@ -71,7 +71,29 @@ const logs: RawAuditEntry[] = [
   },
 ];
 
+const results: RawAgentResult[] = [
+  {
+    task_id: 'task-20260422-node',
+    has_metadata: true,
+    pact: { kind: 'current_info', verdict: 'completed' },
+  },
+];
+
 describe('LogsSection', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => {
+      const target = String(url);
+      if (target.includes('/results/task-20260422-node')) {
+        return new Response('---\ntask_id: task-20260422-node\n---\n\nVerified Node.js release.', { status: 200 });
+      }
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('renders useful audit summaries instead of only event source', async () => {
     render(<LogsSection agentName="test-1" logs={logs} refreshingLogs={false} refreshLogs={vi.fn()} />);
 
@@ -130,5 +152,15 @@ describe('LogsSection', () => {
     expect(screen.getAllByText(/https:\/\/nodejs\.org\/en\/blog\/release\/v24\.15\.0/).length).toBeGreaterThan(0);
     expect(screen.getByText('tools')).toBeInTheDocument();
     expect(screen.getAllByText(/provider-web-search/).length).toBeGreaterThan(0);
+  });
+
+  it('links task events to saved result artifacts', async () => {
+    const user = userEvent.setup();
+    render(<LogsSection agentName="test-1" logs={logs} refreshingLogs={false} refreshLogs={vi.fn()} results={results} />);
+
+    await user.click(screen.getByRole('button', { name: /view result/i }));
+
+    expect(await screen.findByText('Verified Node.js release.')).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/api/v1/agents/test-1/results/task-20260422-node'), expect.any(Object));
   });
 });

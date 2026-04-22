@@ -1,14 +1,16 @@
 import { useState, useMemo, type ReactNode } from 'react';
 import { Link } from 'react-router';
-import { Send, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
-import { type RawAuditEntry } from '../../lib/api';
+import { FileText, Send, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
+import { type RawAgentResult, type RawAuditEntry } from '../../lib/api';
 import { pactSummary } from '../../components/PactStatusBadge';
+import { ResultReportDialog, useResultReport } from './ResultReportDialog';
 
 interface Props {
   agentName: string;
   logs: RawAuditEntry[];
   refreshingLogs: boolean;
   refreshLogs: (name: string) => Promise<void>;
+  results: RawAgentResult[];
   handleSendDM: (agentName: string, dmText: string) => Promise<boolean>;
 }
 
@@ -377,14 +379,17 @@ function AuditFieldGroups({ entry }: { entry: AuditRaw }) {
   );
 }
 
-function LogsSection({ agentName, logs, refreshingLogs, refreshLogs }: {
+function LogsSection({ agentName, logs, refreshingLogs, refreshLogs, results = [] }: {
   agentName: string;
   logs: RawAuditEntry[];
   refreshingLogs: boolean;
   refreshLogs: (name: string) => Promise<void>;
+  results?: RawAgentResult[];
 }) {
   const [expandedLog, setExpandedLog] = useState<number | null>(null);
   const [filter, setFilter] = useState<AuditFilter>('all');
+  const report = useResultReport(agentName);
+  const resultTaskIDs = useMemo(() => new Set(results.map((result) => result.task_id)), [results]);
   const reversedLogs = useMemo(() => logs.slice().reverse() as AuditRaw[], [logs]);
   const visibleLogs = useMemo(() => reversedLogs.filter((entry) => {
     if (filter === 'all') return true;
@@ -425,6 +430,8 @@ function LogsSection({ agentName, logs, refreshingLogs, refreshLogs }: {
           visibleLogs.map((e, i) => {
             const isExpanded = expandedLog === i;
             const summary = summarizeAuditEntry(e);
+            const taskID = text(e.task_id);
+            const hasResult = taskID && resultTaskIDs.has(taskID);
             return (
               <div key={i} style={{ borderTop: i === 0 ? 0 : '0.5px solid var(--ink-hairline)' }}>
                 <button
@@ -458,6 +465,19 @@ function LogsSection({ agentName, logs, refreshingLogs, refreshLogs }: {
                     )}
                   </span>
                 </button>
+                {hasResult && (
+                  <div style={{ padding: '0 12px 10px 118px' }}>
+                    <button
+                      type="button"
+                      onClick={() => void report.openReport(taskID)}
+                      className="font-mono"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 4, border: '0.5px solid var(--ink-hairline)', background: 'var(--warm-3)', color: 'var(--teal-dark)', fontSize: 10, cursor: 'pointer' }}
+                    >
+                      <FileText size={10} />
+                      View result
+                    </button>
+                  </div>
+                )}
                 {isExpanded && (
                   <div style={{ padding: '0 12px 14px 118px', fontSize: 12, color: e.error ? 'var(--red)' : 'var(--ink-mid)', lineHeight: 1.5 }}>
                     <AuditFieldGroups entry={e} />
@@ -468,15 +488,21 @@ function LogsSection({ agentName, logs, refreshingLogs, refreshLogs }: {
           })
         )}
       </div>
+      <ResultReportDialog
+        openTask={report.openTask}
+        reportContent={report.reportContent}
+        reportLoading={report.reportLoading}
+        onClose={report.closeReport}
+      />
     </Card>
   );
 }
 
-export function AgentActivityTab({ agentName, logs, refreshingLogs, refreshLogs, handleSendDM }: Props) {
+export function AgentActivityTab({ agentName, logs, refreshingLogs, refreshLogs, results, handleSendDM }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <DmSection agentName={agentName} handleSendDM={handleSendDM} />
-      <LogsSection agentName={agentName} logs={logs} refreshingLogs={refreshingLogs} refreshLogs={refreshLogs} />
+      <LogsSection agentName={agentName} logs={logs} refreshingLogs={refreshingLogs} refreshLogs={refreshLogs} results={results} />
     </div>
   );
 }
