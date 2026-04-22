@@ -12,6 +12,7 @@ from images.body.body import (
     _pact_verdict_payload,
     _provider_tool_definitions,
     _provider_tool_prompt_section,
+    _sanitize_current_info_answer,
     _sanitize_outbound_content,
 )
 
@@ -71,6 +72,31 @@ def test_sanitize_outbound_content_replaces_simulated_tool_markup():
 
     assert "<search>" not in sanitized
     assert "without guessing" in sanitized
+
+
+def test_sanitize_current_info_answer_strips_search_preamble_lines():
+    content = (
+        "Let me search for more specific and current release information from the Node.js website.\n"
+        "Now let me search for the official Node.js 24.15.0 LTS release blog post.\n"
+        "\n"
+        "Node.js 24.15.0 LTS is the latest stable Node.js release.\n"
+        "Source: https://nodejs.org/en/blog/release/v24.15.0\n"
+        "Checked as of: April 22, 2026"
+    )
+
+    sanitized = _sanitize_current_info_answer({"kind": "current_info"}, content)
+
+    assert sanitized == (
+        "Node.js 24.15.0 LTS is the latest stable Node.js release.\n"
+        "Source: https://nodejs.org/en/blog/release/v24.15.0\n"
+        "Checked as of: April 22, 2026"
+    )
+
+
+def test_sanitize_current_info_answer_preserves_non_current_info_content():
+    content = "Let me search the file.\n\nThe test failed because pytest is missing."
+
+    assert _sanitize_current_info_answer({"kind": "task"}, content) == content
 
 
 def test_activation_task_id_prefers_explicit_event_task_id(tmp_path):

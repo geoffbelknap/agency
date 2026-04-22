@@ -112,6 +112,11 @@ SIMULATED_TOOL_TAG_RE = re.compile(
     r"^\s*(search|web[_\.-]?search|browse|fetch|read_file|write_file)\s*\()",
     re.IGNORECASE | re.MULTILINE,
 )
+CURRENT_INFO_PREAMBLE_RE = re.compile(
+    r"^\s*(?:let me|i(?:'ll| will)|i need to|first,?\s*i(?:'ll| will)|now let me)\s+"
+    r"(?:search|check|look up|find|verify|use|see)\b.*?(?:\.|:)?\s*$",
+    re.IGNORECASE,
+)
 
 # Meeseeks system prompt template — minimal, task-focused
 MEESEEKS_SYSTEM_PROMPT = """You are a Meeseeks — a single-purpose agent on Agency, an AI agent operating platform.
@@ -320,6 +325,23 @@ def _sanitize_outbound_content(content: str) -> str:
         "instead of using a real, successful tool invocation. I need an available "
         "current-information tool or source access to answer this without guessing."
     )
+
+
+def _sanitize_current_info_answer(contract: dict | None, content: str) -> str:
+    if not isinstance(contract, dict) or contract.get("kind") != "current_info":
+        return content
+    kept = []
+    for raw_line in str(content or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            if kept and kept[-1] != "":
+                kept.append("")
+            continue
+        if CURRENT_INFO_PREAMBLE_RE.match(line):
+            continue
+        kept.append(raw_line)
+    sanitized = "\n".join(kept).strip()
+    return sanitized or str(content or "").strip()
 
 
 def classify_llm_error(
@@ -2241,6 +2263,7 @@ class Body:
                         getattr(self, "_work_evidence", None),
                         content,
                     )
+                content = _sanitize_current_info_answer(getattr(self, "_work_contract", None), content)
 
             if finish_reason == "stop" and self._task_complete_called:
                 # Agent explicitly called complete_task — honor it.
@@ -3160,6 +3183,7 @@ class Body:
                 getattr(self, "_work_evidence", None),
                 summary,
             )
+        summary = _sanitize_current_info_answer(getattr(self, "_work_contract", None), summary)
 
         # No reflection — complete immediately (existing behavior)
         self._task_complete_called = True
