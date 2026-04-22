@@ -51,6 +51,8 @@ from tools import BuiltinToolRegistry, ServiceToolDispatcher, SkillsManager
 from work_contract import (
     ActivationContext,
     EvidenceLedger,
+    ExecutionState,
+    WorkContract,
     classify_activation,
     contract_prompt,
     extract_urls,
@@ -537,6 +539,7 @@ class Body:
             "interrupts_acted_on": 0,
             "notifications_queued": 0,
         }
+        self._execution_state: ExecutionState | None = None
 
         # Hook server for real-time constraint and config push notifications
         from hook_server import HookServer
@@ -558,6 +561,100 @@ class Body:
             self.meeseeks_budget_warned_80 = False
             log.info("Meeseeks mode active | id=%s parent=%s task=%s",
                      self.meeseeks_id, self.meeseeks_parent, self.meeseeks_task[:80])
+
+    def _ensure_execution_state(self) -> ExecutionState:
+        state = getattr(self, "_execution_state", None)
+        if not isinstance(state, ExecutionState):
+            state = ExecutionState(
+                task_id="",
+                agent=str(getattr(self, "agent_name", "") or ""),
+            )
+            self._execution_state = state
+        return state
+
+    @property
+    def _current_task_id(self) -> Optional[str]:
+        state = getattr(self, "_execution_state", None)
+        if not isinstance(state, ExecutionState):
+            return None
+        return state.task_id or None
+
+    @_current_task_id.setter
+    def _current_task_id(self, value: str | None) -> None:
+        if value is None:
+            state = getattr(self, "_execution_state", None)
+            if isinstance(state, ExecutionState):
+                state.task_id = ""
+            return
+        self._ensure_execution_state().task_id = str(value)
+
+    @property
+    def _work_contract(self) -> dict | None:
+        state = getattr(self, "_execution_state", None)
+        if not isinstance(state, ExecutionState) or state.contract is None:
+            return None
+        return state.contract.to_dict()
+
+    @_work_contract.setter
+    def _work_contract(self, value: dict | WorkContract | None) -> None:
+        state = self._ensure_execution_state()
+        if isinstance(value, WorkContract):
+            state.contract = value
+            return
+        if not isinstance(value, dict):
+            state.contract = None
+            return
+        kind = str(value.get("kind") or "").strip()
+        if not kind:
+            state.contract = None
+            return
+        state.contract = WorkContract(
+            kind=kind,
+            requires_action=bool(value.get("requires_action")),
+            required_evidence=list(value.get("required_evidence") or []),
+            answer_requirements=list(value.get("answer_requirements") or []),
+            allowed_terminal_states=list(
+                value.get("allowed_terminal_states")
+                or ["completed", "blocked", "needs_clarification"]
+            ),
+            reason=str(value.get("reason") or ""),
+            summary=str(value.get("summary") or ""),
+        )
+
+    @property
+    def _work_evidence_ledger(self) -> EvidenceLedger | None:
+        state = getattr(self, "_execution_state", None)
+        if not isinstance(state, ExecutionState):
+            return None
+        return state.evidence
+
+    @_work_evidence_ledger.setter
+    def _work_evidence_ledger(self, value: EvidenceLedger | None) -> None:
+        state = self._ensure_execution_state()
+        state.evidence = value if isinstance(value, EvidenceLedger) else EvidenceLedger()
+        self.__dict__.pop("_work_evidence_projection_override", None)
+
+    @property
+    def _work_evidence(self) -> dict | None:
+        override = self.__dict__.get("_work_evidence_projection_override")
+        if isinstance(override, dict):
+            return {
+                key: list(value) if isinstance(value, list) else value
+                for key, value in override.items()
+            }
+        ledger = self._work_evidence_ledger
+        if not isinstance(ledger, EvidenceLedger):
+            return None
+        return ledger.to_dict()
+
+    @_work_evidence.setter
+    def _work_evidence(self, value: dict | None) -> None:
+        evidence = value if isinstance(value, dict) else {}
+        self._work_evidence_ledger = EvidenceLedger.from_dict(evidence)
+        self.__dict__["_work_evidence_projection_override"] = {
+            key: list(item) if isinstance(item, list) else item
+            for key, item in evidence.items()
+        }
 
     def _load_mcp_policy(self) -> Optional[dict]:
         """Load MCP policy from constraints.yaml if present.
@@ -1895,20 +1992,17 @@ class Body:
         task_content = task.get("content", task.get("task_content", ""))
         task_id = task.get("task_id", "unknown")
         self._total_tasks += 1
-        self._current_task_id = task_id
-        self._current_task_tier = task.get("tier")
+        self._execution_state = ExecutionState.from_task(task, agent=self.agent_name)
+        self._current_task_tier = task.get("tier")  # TODO(Wave 2 #2): migrate strategy-routing tier state.
         self._task_content = task_content  # saved for cache write
-        self._task_metadata = task.get("metadata", {}) if isinstance(task.get("metadata"), dict) else {}
+        self._task_metadata = task.get("metadata", {}) if isinstance(task.get("metadata"), dict) else {}  # TODO(Wave 2 #1): migrate activation/objective metadata.
         self._event_id = task.get("event_id")
         self._task_complete_called = False
-        self._current_task_turns = 0
+        self._current_task_turns = 0  # TODO(Wave 2 #3): migrate turn tracking into step history.
         self._simulated_tool_retry_sent = False
-        self._work_contract = self._task_metadata.get("work_contract") if isinstance(self._task_metadata, dict) else None
-        self._work_evidence_ledger = EvidenceLedger()
-        self._work_evidence = self._work_evidence_ledger.to_dict()
         self._last_pact_verdict = None
         self._task_terminal_outcome = None
-        self._work_contract_retry_sent = False
+        self._work_contract_retry_sent = False  # TODO(Wave 2 #5): migrate retry state into recovery state.
 
         # Pre-task budget check
         if not self._check_budget(task):
@@ -1918,6 +2012,7 @@ class Body:
                 "message": "Task rejected by pre-task budget check",
                 "task_id": task_id,
             })
+            self._execution_state = None
             return
 
         # Signal that we're processing — drives typing indicators in clients
@@ -1941,8 +2036,8 @@ class Body:
         # Task tier classification — determines which features activate
         mission = self._active_mission
         cost_mode = (mission or {}).get("cost_mode", "balanced")
-        self._task_tier = classify_task_tier(task, mission)
-        self._task_features = get_active_features(self._task_tier)
+        self._task_tier = classify_task_tier(task, mission)  # TODO(Wave 2 #2): migrate routing tier state.
+        self._task_features = get_active_features(self._task_tier)  # TODO(Wave 2 #2): migrate routing feature state.
         self._cost_defaults = expand_cost_mode(cost_mode)
         self._reflection = None
         self._task_start_time = time.time()
@@ -2047,7 +2142,7 @@ class Body:
         turn = 0
         while True:
             turn += 1
-            self._current_task_turns = turn
+            self._current_task_turns = turn  # TODO(Wave 2 #3): migrate turn tracking into step history.
             self._total_turns += 1
 
             # Check if agent already called complete_task in a previous turn
@@ -2305,7 +2400,7 @@ class Body:
                 self._emit_pact_verdict(task_id, completion_verdict)
                 if completion_verdict.get("verdict") == "needs_action":
                     if not getattr(self, "_work_contract_retry_sent", False):
-                        self._work_contract_retry_sent = True
+                        self._work_contract_retry_sent = True  # TODO(Wave 2 #5): migrate retry state into recovery state.
                         messages.append({
                             "role": "user",
                             "content": "[Platform work contract] " + completion_verdict.get("message", "Required evidence is missing."),
@@ -2372,6 +2467,7 @@ class Body:
                 self._auto_summarize_task(task_id, task_content, result_text)
                 self._clear_conversation_log()
                 self._current_task_id = None
+                self._execution_state = None
                 # Note: session-context.json is mounted read-only (ASK tenet 5).
                 # The gateway clears current_task by cross-referencing heartbeat
                 # signals, which report active_task=null after task completion.
@@ -3134,8 +3230,9 @@ class Body:
 
         self._clear_conversation_log()
         self._current_task_id = None
+        self._execution_state = None
         self._task_content = ''
-        self._task_metadata = {}
+        self._task_metadata = {}  # TODO(Wave 2 #1): migrate activation/objective metadata.
         self._task_result_summary = ''
         self._task_terminal_outcome = None
         self._channel_reminder_sent = False
@@ -3626,10 +3723,9 @@ class Body:
 
     _total_tasks: int = 0
     _total_turns: int = 0
-    _current_task_id: Optional[str] = None
-    _current_task_tier: Optional[str] = None
+    _current_task_tier: Optional[str] = None  # TODO(Wave 2 #2): migrate strategy-routing tier state.
     _event_id: Optional[str] = None
-    _current_task_turns: int = 0
+    _current_task_turns: int = 0  # TODO(Wave 2 #3): migrate turn tracking into step history.
     _start_time: float = 0.0
 
     def _current_model(self) -> str:

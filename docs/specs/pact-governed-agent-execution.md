@@ -887,6 +887,45 @@ machine, artifact disposition, memory learning hooks, trajectory-first evals —
 is the primary next phase and the reason PACT exists. Audit and reporting
 projections should follow from better execution state, not substitute for it.
 
+### Execution State Type
+
+The body runtime now has a typed, runtime-owned `ExecutionState` object for the
+active PACT run. It is constructed at task start and cleared at task end.
+
+Currently populated fields:
+
+```text
+task_id
+agent
+activation
+contract
+evidence
+started_at
+updated_at
+```
+
+`activation` is populated from existing task metadata when available.
+`contract` wraps the existing body work contract as a typed `WorkContract`.
+`evidence` owns the existing in-memory `EvidenceLedger`; legacy flattened
+evidence remains a projection of that ledger.
+
+Placeholder fields are present but not yet populated by runtime logic:
+
+```text
+objective
+plan
+step_history
+tool_observations
+partial_outputs
+errors
+recovery_state
+proposed_outcome
+```
+
+These placeholders intentionally do not implement Wave 2 objective, routing,
+planning, evaluator, recovery, or outcome logic. `ToolObservation` is minimal
+until the Wave 1 structured tool observation protocol lands.
+
 ### Verdict Signal
 
 The body runtime emits `pact_verdict` through the existing agent signal channel.
