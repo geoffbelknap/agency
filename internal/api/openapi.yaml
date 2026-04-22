@@ -915,7 +915,7 @@ paths:
         - $ref: "#/components/parameters/agentName"
       responses:
         "200":
-          description: Array of result identifiers
+          description: Array of result identifiers with parsed metadata summaries when available
           content:
             application/json:
               schema:
@@ -924,6 +924,17 @@ paths:
                   type: object
                   properties:
                     task_id:
+                      type: string
+                    has_metadata:
+                      type: boolean
+                    metadata:
+                      type: object
+                      additionalProperties: true
+                    pact:
+                      type: object
+                      nullable: true
+                      additionalProperties: true
+                    metadata_error:
                       type: string
 
   /agents/{name}/results/{taskId}:

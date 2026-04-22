@@ -133,6 +133,96 @@ func TestGetResultMetadataRejectsMalformedFrontmatter(t *testing.T) {
 	}
 }
 
+func TestListResultsIncludesPACTMetadata(t *testing.T) {
+	home := t.TempDir()
+	workspaceDir := filepath.Join(home, "agents", "agent", "workspace")
+	resultsDir := filepath.Join(workspaceDir, ".results")
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rs := writeRuntimeManifest(t, home, "agent", workspaceDir)
+	if err := os.WriteFile(filepath.Join(resultsDir, "task-123.md"), []byte(`---
+task_id: task-123
+agent: agent
+pact:
+  kind: current_info
+  verdict: completed
+  source_urls:
+    - https://nodejs.org/en/blog/release/v24.15.0
+---
+
+Verified answer.
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := &handler{deps: Deps{AgentManager: &orchestrate.AgentManager{
+		Home:    home,
+		Runtime: rs,
+	}}}
+	req := resultRequest(http.MethodGet, "/api/v1/agents/agent/results", "agent", "")
+	rec := httptest.NewRecorder()
+
+	h.listResults(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body []map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body) != 1 {
+		t.Fatalf("len(results) = %d, want 1: %#v", len(body), body)
+	}
+	if body[0]["task_id"] != "task-123" || body[0]["has_metadata"] != true {
+		t.Fatalf("unexpected result item: %#v", body[0])
+	}
+	pact, ok := body[0]["pact"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("pact missing or wrong type: %#v", body[0]["pact"])
+	}
+	if pact["verdict"] != "completed" {
+		t.Fatalf("pact.verdict = %#v, want completed", pact["verdict"])
+	}
+}
+
+func TestListResultsReportsMalformedMetadataWithoutFailing(t *testing.T) {
+	home := t.TempDir()
+	workspaceDir := filepath.Join(home, "agents", "agent", "workspace")
+	resultsDir := filepath.Join(workspaceDir, ".results")
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rs := writeRuntimeManifest(t, home, "agent", workspaceDir)
+	if err := os.WriteFile(filepath.Join(resultsDir, "task-123.md"), []byte("---\ntask_id: task-123\nBody"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := &handler{deps: Deps{AgentManager: &orchestrate.AgentManager{
+		Home:    home,
+		Runtime: rs,
+	}}}
+	req := resultRequest(http.MethodGet, "/api/v1/agents/agent/results", "agent", "")
+	rec := httptest.NewRecorder()
+
+	h.listResults(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body []map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body) != 1 {
+		t.Fatalf("len(results) = %d, want 1: %#v", len(body), body)
+	}
+	if body[0]["metadata_error"] != "invalid result metadata" {
+		t.Fatalf("metadata_error = %#v, want invalid result metadata", body[0]["metadata_error"])
+	}
+}
+
 func resultRequest(method, target, agentName, taskID string) *http.Request {
 	req := httptest.NewRequest(method, target, nil)
 	rctx := chi.NewRouteContext()

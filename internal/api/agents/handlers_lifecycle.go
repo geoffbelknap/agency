@@ -132,18 +132,22 @@ func (h *handler) listResults(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 200, []interface{}{})
 			return
 		}
-		var results []map[string]string
+		var results []resultListItem
 		for _, entry := range entries {
 			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
 				continue
 			}
 			taskID := strings.TrimSuffix(entry.Name(), ".md")
 			if taskID != "" {
-				results = append(results, map[string]string{"task_id": taskID})
+				item := resultListItem{TaskID: taskID}
+				if data, err := os.ReadFile(filepath.Join(dir, entry.Name())); err == nil {
+					item = resultListItemFromData(taskID, data)
+				}
+				results = append(results, item)
 			}
 		}
 		if results == nil {
-			results = []map[string]string{}
+			results = []resultListItem{}
 		}
 		writeJSON(w, 200, results)
 		return
@@ -156,17 +160,46 @@ func (h *handler) listResults(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, []interface{}{})
 		return
 	}
-	var results []map[string]string
+	var results []resultListItem
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" {
-			results = append(results, map[string]string{"task_id": line})
+			item := resultListItem{TaskID: line}
+			if data, err := h.readResultArtifact(r.Context(), name, line); err == nil {
+				item = resultListItemFromData(line, data)
+			}
+			results = append(results, item)
 		}
 	}
 	if results == nil {
-		results = []map[string]string{}
+		results = []resultListItem{}
 	}
 	writeJSON(w, 200, results)
+}
+
+type resultListItem struct {
+	TaskID        string                 `json:"task_id"`
+	HasMetadata   bool                   `json:"has_metadata,omitempty"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	Pact          interface{}            `json:"pact,omitempty"`
+	MetadataError string                 `json:"metadata_error,omitempty"`
+}
+
+func resultListItemFromData(taskID string, data []byte) resultListItem {
+	item := resultListItem{TaskID: taskID}
+	metadata, found, err := parseResultFrontmatter(data)
+	if err != nil {
+		item.HasMetadata = true
+		item.MetadataError = "invalid result metadata"
+		return item
+	}
+	if !found {
+		return item
+	}
+	item.HasMetadata = true
+	item.Metadata = metadata
+	item.Pact = metadata["pact"]
+	return item
 }
 
 func (h *handler) getResult(w http.ResponseWriter, r *http.Request) {
