@@ -394,18 +394,172 @@ def build_strategy(
     )
 
 
+@dataclass(slots=True, frozen=True)
+class PlanStep:
+    """An ordered step in a typed PACT plan."""
+
+    step_id: str
+    phase: str
+    summary: str = ""
+    required_capabilities: tuple[str, ...] = ()
+    expected_evidence: tuple[str, ...] = ()
+    requires_approval: bool = False
+
+    def to_dict(self) -> dict:
+        return {
+            "step_id": self.step_id,
+            "phase": self.phase,
+            "summary": self.summary,
+            "required_capabilities": list(self.required_capabilities),
+            "expected_evidence": list(self.expected_evidence),
+            "requires_approval": self.requires_approval,
+        }
+
+
 @dataclass(slots=True)
 class Plan:
-    """Placeholder for Wave 2 #3 planner runtime object; see spec Wave 2 item 3."""
+    """Runtime-owned plan of typed ordered steps."""
 
-    steps: list[str] = field(default_factory=list)
+    steps: tuple[PlanStep, ...] = ()
+    stop_conditions: tuple[str, ...] = ()
     summary: str = ""
 
     def to_dict(self) -> dict:
         return {
-            "steps": list(self.steps),
+            "steps": [step.to_dict() for step in self.steps],
+            "stop_conditions": list(self.stop_conditions),
             "summary": self.summary,
         }
+
+
+def build_plan(
+    objective: Objective,
+    contract: WorkContract,
+    strategy: Strategy | None,
+    task: dict,
+    *,
+    mission: dict | None = None,
+) -> Plan | None:
+    """Build a deterministic typed plan from runtime-owned inputs."""
+
+    del task, mission
+    if strategy is None or not strategy.needs_planner:
+        return None
+
+    kind = str(contract.kind or "")
+    statement = str(objective.statement or "")[:80]
+    if kind == "code_change":
+        return Plan(
+            steps=(
+                _plan_step("step-01", "preparation", "locate target files", expected_evidence=("target_files_identified",)),
+                _plan_step(
+                    "step-02",
+                    "execution",
+                    "apply changes",
+                    required_capabilities=("write_file",),
+                    expected_evidence=("changed_file",),
+                ),
+                _plan_step(
+                    "step-03",
+                    "validation",
+                    "run tests or build",
+                    required_capabilities=("execute_command",),
+                    expected_evidence=("validation_result",),
+                ),
+                _plan_step("step-04", "validation", "summarize changes", expected_evidence=("tool_result",)),
+            ),
+            stop_conditions=("evidence_satisfied", "budget_exhausted", "validation_failed"),
+            summary=f"Code change plan for {statement}",
+        )
+    if kind == "file_artifact":
+        return Plan(
+            steps=(
+                _plan_step("step-01", "preparation", "gather inputs", expected_evidence=("tool_result",)),
+                _plan_step(
+                    "step-02",
+                    "execution",
+                    "generate artifact",
+                    required_capabilities=("write_file",),
+                    expected_evidence=("artifact_path",),
+                ),
+                _plan_step("step-03", "validation", "validate artifact", expected_evidence=("tool_result",)),
+            ),
+            stop_conditions=("evidence_satisfied", "budget_exhausted"),
+            summary=f"File artifact plan for {statement}",
+        )
+    if kind == "external_side_effect":
+        return Plan(
+            steps=(
+                _plan_step("step-01", "preparation", "verify principal authority", expected_evidence=("authority_check",)),
+                _plan_step(
+                    "step-02",
+                    "approval",
+                    "obtain operator approval",
+                    expected_evidence=("approval_decision",),
+                    requires_approval=True,
+                ),
+                _plan_step(
+                    "step-03",
+                    "execution",
+                    "execute external operation",
+                    required_capabilities=("external_state",),
+                    expected_evidence=("side_effect_confirmation",),
+                ),
+                _plan_step("step-04", "validation", "confirm operation outcome", expected_evidence=("tool_result",)),
+            ),
+            stop_conditions=(
+                "evidence_satisfied",
+                "approval_denied",
+                "authority_check_failed",
+                "budget_exhausted",
+            ),
+            summary=f"External side effect plan for {statement}",
+        )
+    if kind == "current_info":
+        return Plan(
+            steps=(
+                _plan_step(
+                    "step-01",
+                    "preparation",
+                    "search for current source",
+                    required_capabilities=("web", "search"),
+                    expected_evidence=("tool_result",),
+                ),
+                _plan_step("step-02", "validation", "verify source is current", expected_evidence=("current_source",)),
+                _plan_step(
+                    "step-03",
+                    "execution",
+                    "formulate answer with citations",
+                    expected_evidence=("source_url",),
+                ),
+            ),
+            stop_conditions=("evidence_satisfied", "budget_exhausted"),
+            summary=f"Current info plan for {statement}",
+        )
+    return Plan(
+        steps=(),
+        stop_conditions=("evidence_satisfied",),
+        summary=f"No template for contract kind {kind}",
+    )
+
+
+def _plan_step(
+    step_id: str,
+    phase: str,
+    summary: str,
+    *,
+    required_capabilities: tuple[str, ...] = (),
+    expected_evidence: tuple[str, ...] = (),
+    requires_approval: bool = False,
+) -> PlanStep:
+    return PlanStep(
+        step_id=step_id,
+        phase=phase,
+        summary=summary,
+        required_capabilities=required_capabilities,
+        expected_evidence=expected_evidence,
+        requires_approval=requires_approval,
+    )
 
 
 @dataclass(slots=True)
@@ -750,12 +904,14 @@ class ExecutionState:
 
             state.objective = build_objective(state.activation, state.contract, objective_task)
             state.strategy = build_strategy(state.objective, state.contract, objective_task)
+            state.plan = build_plan(state.objective, state.contract, state.strategy, objective_task)
         return state
 
     def attach_mission(self, mission: dict | None) -> None:
         if self.activation is None or self.contract is None:
             self.objective = None
             self.strategy = None
+            self.plan = None
             self.updated_at = _utc_now()
             return
         try:
@@ -776,8 +932,16 @@ class ExecutionState:
                 dict(self._objective_task or {}),
                 mission=mission if isinstance(mission, dict) else None,
             )
+            self.plan = build_plan(
+                self.objective,
+                self.contract,
+                self.strategy,
+                dict(self._objective_task or {}),
+                mission=mission if isinstance(mission, dict) else None,
+            )
         else:
             self.strategy = None
+            self.plan = None
         self.updated_at = _utc_now()
 
     def to_dict(self) -> dict:
