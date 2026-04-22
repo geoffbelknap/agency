@@ -189,6 +189,16 @@ class ActivationContext:
             mission_active=bool(mission_active),
         )
 
+    def to_dict(self) -> dict:
+        return {
+            "content": self.content,
+            "match_type": self.match_type,
+            "source": self.source,
+            "channel": self.channel,
+            "author": self.author,
+            "mission_active": self.mission_active,
+        }
+
 
 @dataclass(frozen=True)
 class EvidenceView:

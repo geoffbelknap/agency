@@ -40,6 +40,14 @@ def test_activation_context_from_message_normalizes_fields():
     assert activation.source == "7"
     assert activation.channel == "dm:test"
     assert activation.author == "operator"
+    assert activation.to_dict() == {
+        "content": "",
+        "match_type": "direct",
+        "source": "7",
+        "channel": "dm:test",
+        "author": "operator",
+        "mission_active": True,
+    }
 
 
 def test_evaluation_result_serializes_compatibly():

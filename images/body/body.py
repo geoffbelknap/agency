@@ -1308,6 +1308,7 @@ class Body:
                 "latest_message": summary,
                 "message_id": msg_id,
                 "match_type": match_type,
+                "pact_activation": activation_context.to_dict(),
                 "work_contract": work_contract.to_dict(),
                 "recent_message_ids": [
                     str(m.get("id", "")) for m in recent_messages
