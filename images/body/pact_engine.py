@@ -505,6 +505,7 @@ class ExecutionState:
     proposed_outcome: ProposedOutcome | None = None
     started_at: datetime = field(default_factory=_utc_now)
     updated_at: datetime = field(default_factory=_utc_now)
+    _objective_task: dict = field(default_factory=dict, repr=False)
 
     @classmethod
     def from_task(cls, task: dict, *, agent: str) -> "ExecutionState":
@@ -512,21 +513,52 @@ class ExecutionState:
         metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
         activation = metadata.get("pact_activation") if isinstance(metadata, dict) else None
         now = _utc_now()
-        return cls(
+        activation_context = ActivationContext.from_message(
+            str(activation.get("content") or ""),
+            match_type=str(activation.get("match_type") or "direct"),
+            mission_active=bool(activation.get("mission_active")),
+            source=str(activation.get("source") or ""),
+            channel=str(activation.get("channel") or ""),
+            author=str(activation.get("author") or ""),
+        ) if isinstance(activation, dict) else None
+        contract = _work_contract_from_dict(metadata.get("work_contract")) if isinstance(metadata, dict) else None
+        objective_task = dict(task)
+        objective_task.setdefault("started_at", _datetime_to_dict(now))
+        state = cls(
             task_id=str(task.get("task_id") or "unknown"),
             agent=str(agent or ""),
-            activation=ActivationContext.from_message(
-                str(activation.get("content") or ""),
-                match_type=str(activation.get("match_type") or "direct"),
-                mission_active=bool(activation.get("mission_active")),
-                source=str(activation.get("source") or ""),
-                channel=str(activation.get("channel") or ""),
-                author=str(activation.get("author") or ""),
-            ) if isinstance(activation, dict) else None,
-            contract=_work_contract_from_dict(metadata.get("work_contract")) if isinstance(metadata, dict) else None,
+            activation=activation_context,
+            contract=contract,
             started_at=now,
             updated_at=now,
+            _objective_task=objective_task,
         )
+        if state.activation is not None and state.contract is not None:
+            try:
+                from .objective_builder import build_objective
+            except ImportError:  # pragma: no cover - runtime imports this as a top-level module.
+                from objective_builder import build_objective
+
+            state.objective = build_objective(state.activation, state.contract, objective_task)
+        return state
+
+    def attach_mission(self, mission: dict | None) -> None:
+        if self.activation is None or self.contract is None:
+            self.objective = None
+            self.updated_at = _utc_now()
+            return
+        try:
+            from .objective_builder import build_objective
+        except ImportError:  # pragma: no cover - runtime imports this as a top-level module.
+            from objective_builder import build_objective
+
+        self.objective = build_objective(
+            self.activation,
+            self.contract,
+            dict(self._objective_task or {}),
+            mission=mission if isinstance(mission, dict) else None,
+        )
+        self.updated_at = _utc_now()
 
     def to_dict(self) -> dict:
         return {

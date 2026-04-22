@@ -898,6 +898,7 @@ Currently populated fields:
 task_id
 agent
 activation
+objective
 contract
 evidence
 tool_observations
@@ -906,14 +907,30 @@ updated_at
 ```
 
 `activation` is populated from existing task metadata when available.
+`objective` is populated by the Wave 2 #1 objective builder when both
+activation and contract are present; when either input is missing, it remains
+null.
 `contract` wraps the existing body work contract as a typed `WorkContract`.
 `evidence` owns the existing in-memory `EvidenceLedger`; legacy flattened
 evidence remains a projection of that ledger.
 
+The objective builder is deterministic and model-free. Activation content is
+used only as capped statement data and for ambiguity detection; it is not a
+constraint source. Constraints come from task metadata, mission configuration,
+contract terminal states, and per-kind defaults.
+
+Initial ambiguity heuristics are deliberately small: current-information
+temporal anchors and release category, code-change target files and validation
+target, file-artifact output format, and external-side-effect authority scope.
+Initial risk rules are ordered and fixed: untrusted/low trust escalates,
+external side effects are high, code changes are high when target files are
+missing otherwise medium, file artifacts and current information are medium,
+and remaining work is low. Richer heuristics arrive only as downstream waves
+surface real demand.
+
 Placeholder fields are present but not yet populated by runtime logic:
 
 ```text
-objective
 plan
 step_history
 partial_outputs
@@ -932,8 +949,8 @@ prose. `retryability` and `side_effects` are classified for operator
 inspectability, but they are not yet consumed by any evaluator; recovery logic
 arrives in Wave 2 #5 and side-effect evaluation in Wave 4 #3.
 
-These placeholders intentionally do not implement Wave 2 objective, routing,
-planning, evaluator, recovery, or outcome logic.
+These placeholders intentionally do not implement Wave 2 routing, planning,
+evaluator, recovery, or outcome logic.
 
 ### Verdict Signal
 
