@@ -48,7 +48,13 @@ from session_scratchpad import build_session_scratchpad, format_recent_transcrip
 from reflection import ReflectionState, build_reflection_prompt, parse_reflection_verdict
 from task_tier import classify_task_tier, expand_cost_mode, get_active_features
 from tools import BuiltinToolRegistry, ServiceToolDispatcher, SkillsManager
-from work_contract import classify_work, contract_prompt, extract_urls, validate_completion
+from work_contract import (
+    classify_work,
+    contract_prompt,
+    extract_urls,
+    format_blocked_completion,
+    validate_completion,
+)
 from ws_listener import WSListener
 from typing import Optional
 
@@ -2198,6 +2204,12 @@ class Body:
                         "I cannot complete this with the required evidence. "
                         + completion_verdict.get("message", "Required evidence is missing.")
                     )
+                elif completion_verdict.get("verdict") == "blocked":
+                    content = completion_verdict.get("message") or format_blocked_completion(
+                        getattr(self, "_work_contract", None),
+                        getattr(self, "_work_evidence", None),
+                        content,
+                    )
 
             if finish_reason == "stop" and self._task_complete_called:
                 # Agent explicitly called complete_task — honor it.
@@ -3110,6 +3122,12 @@ class Body:
                 "missing_evidence": completion_verdict.get("missing_evidence", []),
                 "message": completion_verdict.get("message", "Required evidence is missing."),
             })
+        if completion_verdict.get("verdict") == "blocked":
+            summary = completion_verdict.get("message") or format_blocked_completion(
+                getattr(self, "_work_contract", None),
+                getattr(self, "_work_evidence", None),
+                summary,
+            )
 
         # No reflection — complete immediately (existing behavior)
         self._task_complete_called = True

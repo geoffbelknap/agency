@@ -3,7 +3,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "body"))
 
-from images.body.work_contract import classify_work, contract_prompt, extract_urls, validate_completion
+from images.body.work_contract import (
+    classify_work,
+    contract_prompt,
+    extract_urls,
+    format_blocked_completion,
+    validate_completion,
+)
 
 
 def test_classifies_latest_request_as_current_info():
@@ -47,6 +53,8 @@ def test_current_info_completion_accepts_blocker():
 
     verdict = validate_completion(contract, {"tool_results": [], "observed": []}, "I cannot access a current source.")
     assert verdict["verdict"] == "blocked"
+    assert "I cannot verify this from an official/current source without guessing." in verdict["message"]
+    assert "Evidence checked: tools=none recorded" in verdict["message"]
 
 
 def test_current_info_completion_requires_source_url_in_answer():
@@ -170,3 +178,33 @@ def test_current_info_completion_accepts_answer_url_from_evidence():
     )
 
     assert verdict["verdict"] == "completed"
+
+
+def test_format_blocked_completion_summarizes_tool_evidence():
+    contract = classify_work("Find the latest stable Node.js release").to_dict()
+
+    response = format_blocked_completion(
+        contract,
+        {
+            "tool_results": [{"tool": "provider-web-search", "ok": True}],
+            "source_urls": ["https://nodejs.org/en/blog/release/v25.9.0"],
+        },
+        "I cannot verify this.",
+        checked_at="April 22, 2026",
+    )
+
+    assert response == (
+        "I cannot verify this from an official/current source without guessing.\n"
+        "\n"
+        "Blocked: Available source URLs did not satisfy the official/current-source evidence contract.\n"
+        "Evidence checked: tools=provider-web-search\n"
+        "Source URLs observed: https://nodejs.org/en/blog/release/v25.9.0\n"
+        "What would unblock this: an official or primary source URL that directly supports the requested current fact.\n"
+        "Checked: April 22, 2026."
+    )
+
+
+def test_format_blocked_completion_leaves_non_current_info_content_alone():
+    contract = classify_work("debug the failing test").to_dict()
+
+    assert format_blocked_completion(contract, {}, "I cannot run pytest.") == "I cannot run pytest."

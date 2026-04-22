@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 
 CURRENT_INFO_RE = re.compile(
@@ -167,6 +168,59 @@ def _evidence_source_urls(evidence: dict) -> list[str]:
     return urls
 
 
+def _checked_date(checked_at: str | None = None) -> str:
+    if checked_at:
+        return checked_at
+    now = datetime.now(timezone.utc)
+    return f"{now:%B} {now.day}, {now:%Y}"
+
+
+def _tool_summary(evidence: dict) -> str:
+    tools = []
+    for item in evidence.get("tool_results") or []:
+        if not isinstance(item, dict):
+            continue
+        tool = str(item.get("tool") or "").strip()
+        if tool and tool not in tools:
+            tools.append(tool)
+    return ", ".join(tools) if tools else "none recorded"
+
+
+def format_blocked_completion(
+    contract: dict | None,
+    evidence: dict | None,
+    content: str = "",
+    checked_at: str | None = None,
+) -> str:
+    """Return a concise harness-owned blocker response."""
+    evidence = evidence or {}
+    kind = (contract or {}).get("kind")
+    if kind != "current_info":
+        return str(content or "I cannot complete this task with the available evidence.")
+
+    source_urls = _evidence_source_urls(evidence)
+    if source_urls:
+        reason = "Available source URLs did not satisfy the official/current-source evidence contract."
+    elif evidence.get("tool_results") or "current_source" in set(evidence.get("observed") or []):
+        reason = "Current-information tool evidence was insufficient to verify the requested fact."
+    else:
+        reason = "No current-information source or tool result was available."
+
+    lines = [
+        "I cannot verify this from an official/current source without guessing.",
+        "",
+        f"Blocked: {reason}",
+        f"Evidence checked: tools={_tool_summary(evidence)}",
+    ]
+    if source_urls:
+        lines.append("Source URLs observed: " + ", ".join(source_urls[:5]))
+    lines.extend([
+        "What would unblock this: an official or primary source URL that directly supports the requested current fact.",
+        f"Checked: {_checked_date(checked_at)}.",
+    ])
+    return "\n".join(lines)
+
+
 def _validate_current_info_answer(contract: dict, evidence: dict, content: str) -> dict:
     requirements = set(contract.get("answer_requirements") or [])
     missing: list[str] = []
@@ -206,7 +260,7 @@ def validate_completion(contract: dict | None, evidence: dict | None, content: s
     evidence = evidence or {}
     content = str(content or "")
     if BLOCKER_RE.search(content):
-        return {"verdict": "blocked"}
+        return {"verdict": "blocked", "message": format_blocked_completion(contract, evidence, content)}
 
     required = set(contract.get("required_evidence") or [])
     tool_results = evidence.get("tool_results") or []

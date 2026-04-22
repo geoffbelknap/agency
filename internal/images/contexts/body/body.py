@@ -28,7 +28,13 @@ import yaml
 from interruption import InterruptionController
 from mcp_client import MCPClient
 from tools import BuiltinToolRegistry, ServiceToolDispatcher, SkillsManager
-from work_contract import classify_work, contract_prompt, extract_urls, validate_completion
+from work_contract import (
+    classify_work,
+    contract_prompt,
+    extract_urls,
+    format_blocked_completion,
+    validate_completion,
+)
 from ws_listener import WSListener
 
 logging.basicConfig(
@@ -1826,6 +1832,12 @@ class Body:
                         "I cannot complete this with the required evidence. "
                         + completion_verdict.get("message", "Required evidence is missing.")
                     )
+                elif completion_verdict.get("verdict") == "blocked":
+                    content = completion_verdict.get("message") or format_blocked_completion(
+                        getattr(self, "_work_contract", None),
+                        getattr(self, "_work_evidence", None),
+                        content,
+                    )
 
             if finish_reason == "stop" and self._task_complete_called:
                 # Agent explicitly called complete_task — honor it.
@@ -2340,6 +2352,12 @@ class Body:
                 "missing_evidence": completion_verdict.get("missing_evidence", []),
                 "message": completion_verdict.get("message", "Required evidence is missing."),
             })
+        if completion_verdict.get("verdict") == "blocked":
+            summary = completion_verdict.get("message") or format_blocked_completion(
+                getattr(self, "_work_contract", None),
+                getattr(self, "_work_evidence", None),
+                summary,
+            )
         self._task_complete_called = True
         return json.dumps({"status": "complete", "summary": summary})
 
