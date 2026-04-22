@@ -1,5 +1,8 @@
 import sys
+import json
 from pathlib import Path
+
+import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "body"))
 
@@ -81,3 +84,56 @@ def test_body_tool_collection_includes_provider_web_search(tmp_path):
     body._mcp_tools = {}
 
     assert {"type": "web_search"} in body._get_all_tool_definitions()
+
+
+def test_stream_records_provider_tool_evidence_and_ignores_empty_tool_delta():
+    events = [
+        {
+            "choices": [{
+                "delta": {"content": "Found it."},
+                "finish_reason": None,
+            }],
+        },
+        {
+            "choices": [{
+                "delta": {"tool_calls": [{"index": 0}]},
+                "finish_reason": None,
+            }],
+        },
+        {
+            "object": "agency.provider_tool_evidence",
+            "agency_provider_tool_evidence": {
+                "provider_tool_capabilities": "provider-web-search",
+                "provider_response_tool_types": "server_tool_use,web_search_result,web_search_tool_result",
+                "provider_source_urls": "https://example.com/source",
+            },
+            "choices": [],
+        },
+    ]
+    body_bytes = b"".join(
+        f"data: {json.dumps(event)}\n\n".encode("utf-8")
+        for event in events
+    ) + b"data: [DONE]\n\n"
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=body_bytes,
+        )
+
+    body = Body.__new__(Body)
+    body._http_client = httpx.Client(transport=httpx.MockTransport(handler))
+    body._work_evidence = {"tool_results": [], "observed": []}
+
+    response = body._stream_llm_response(
+        "http://enforcer/v1/chat/completions",
+        {"model": "claude-sonnet", "messages": [], "stream": True},
+        {},
+    )
+
+    message = response["choices"][0]["message"]
+    assert message["content"] == "Found it."
+    assert "tool_calls" not in message
+    assert body._work_evidence["tool_results"] == [{"tool": "provider-web-search", "ok": True}]
+    assert "current_source" in body._work_evidence["observed"]

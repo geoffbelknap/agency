@@ -1947,6 +1947,12 @@ class Body:
                 except json.JSONDecodeError:
                     continue
 
+                if chunk.get("object") == "agency.provider_tool_evidence":
+                    self._record_provider_tool_evidence(
+                        chunk.get("agency_provider_tool_evidence") or {}
+                    )
+                    continue
+
                 choices = chunk.get("choices", [])
                 if not choices:
                     continue
@@ -1967,6 +1973,9 @@ class Body:
                 tc_deltas = delta.get("tool_calls", [])
                 for tc in tc_deltas:
                     idx = tc.get("index", 0)
+                    func = tc.get("function", {}) or {}
+                    if not (tc.get("id") or func.get("name") or func.get("arguments")):
+                        continue
                     if idx not in tool_calls_acc:
                         tool_calls_acc[idx] = {
                             "id": tc.get("id", ""),
@@ -1975,7 +1984,6 @@ class Body:
                         }
                     if tc.get("id"):
                         tool_calls_acc[idx]["id"] = tc["id"]
-                    func = tc.get("function", {})
                     if func.get("name"):
                         tool_calls_acc[idx]["function"]["name"] = func["name"]
                     if func.get("arguments"):
@@ -1991,9 +1999,12 @@ class Body:
         if content:
             message["content"] = content
         if tool_calls_acc:
-            message["tool_calls"] = [
+            complete_tool_calls = [
                 tool_calls_acc[i] for i in sorted(tool_calls_acc.keys())
+                if tool_calls_acc[i].get("function", {}).get("name")
             ]
+            if complete_tool_calls:
+                message["tool_calls"] = complete_tool_calls
 
         return {
             "choices": [{
@@ -2283,6 +2294,33 @@ class Body:
         evidence.setdefault("tool_results", []).append({"tool": tool_name, "ok": ok})
         if ok and any(part in tool_name.lower() for part in ("web", "search", "fetch", "browse", "sec")):
             observed = evidence.setdefault("observed", [])
+            if "current_source" not in observed:
+                observed.append("current_source")
+
+    def _record_provider_tool_evidence(self, extra: dict) -> None:
+        evidence = getattr(self, "_work_evidence", None)
+        if not isinstance(evidence, dict) or not isinstance(extra, dict):
+            return
+        response_types = str(extra.get("provider_response_tool_types") or "")
+        if not response_types:
+            return
+        capabilities = [
+            item.strip()
+            for item in str(extra.get("provider_tool_capabilities") or "").split(",")
+            if item.strip()
+        ]
+        if not capabilities:
+            capabilities = ["provider-hosted-tool"]
+        existing = {
+            item.get("tool")
+            for item in evidence.setdefault("tool_results", [])
+            if isinstance(item, dict)
+        }
+        for capability in capabilities:
+            if capability not in existing:
+                evidence["tool_results"].append({"tool": capability, "ok": True})
+        observed = evidence.setdefault("observed", [])
+        if any(part in response_types.lower() for part in ("web_search", "web_fetch", "citation", "source")):
             if "current_source" not in observed:
                 observed.append("current_source")
 

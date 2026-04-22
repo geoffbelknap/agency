@@ -1174,6 +1174,13 @@ func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Res
 		}
 	}
 
+	if evidenceChunk := providerToolEvidenceStreamChunk(providerToolUses, rawChunks); evidenceChunk != "" {
+		fmt.Fprintf(w, "data: %s\n\n", evidenceChunk)
+		if canFlush {
+			flusher.Flush()
+		}
+	}
+
 	fmt.Fprint(w, "data: [DONE]\n\n")
 	if canFlush {
 		flusher.Flush()
@@ -1217,6 +1224,32 @@ func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Res
 
 	// Report usage for budget tracking
 	lh.reportUsage(modelAlias, providerModel, translator.inputTokens, translator.outputTokens, translator.cacheRead, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, time.Since(start).Milliseconds())
+}
+
+func providerToolEvidenceStreamChunk(uses []ProviderToolUse, rawChunks []interface{}) string {
+	if len(uses) == 0 || len(rawChunks) == 0 {
+		return ""
+	}
+	extra := providerToolAuditExtra(uses, map[string]interface{}{"chunks": rawChunks})
+	if len(extra) == 0 {
+		return ""
+	}
+	if extra["provider_response_tool_types"] == "" &&
+		extra["provider_source_count"] == "" &&
+		extra["provider_citation_count"] == "" &&
+		extra["provider_source_urls"] == "" {
+		return ""
+	}
+	chunk := map[string]interface{}{
+		"object":                        "agency.provider_tool_evidence",
+		"agency_provider_tool_evidence": extra,
+		"choices":                       []interface{}{},
+	}
+	out, err := json.Marshal(chunk)
+	if err != nil {
+		return ""
+	}
+	return string(out)
 }
 
 // acquireRateSlot blocks until a rate limit slot is available from the
