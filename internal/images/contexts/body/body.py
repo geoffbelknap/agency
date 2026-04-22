@@ -1828,9 +1828,10 @@ class Body:
                         })
                         log.info("Work contract completion gate injected for task %s: %s", task_id, completion_verdict.get("missing_evidence"))
                         continue
-                    content = (
-                        "I cannot complete this with the required evidence. "
-                        + completion_verdict.get("message", "Required evidence is missing.")
+                    content = format_blocked_completion(
+                        getattr(self, "_work_contract", None),
+                        getattr(self, "_work_evidence", None),
+                        completion_verdict.get("message", "Required evidence is missing."),
                     )
                 elif completion_verdict.get("verdict") == "blocked":
                     content = completion_verdict.get("message") or format_blocked_completion(
