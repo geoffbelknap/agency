@@ -2007,7 +2007,7 @@ class Body:
         self._simulated_tool_retry_sent = False
         self._last_pact_verdict = None
         self._task_terminal_outcome = None
-        self._work_contract_retry_sent = False  # TODO(Wave 2 #5): migrate retry state into recovery state.
+        self._work_contract_retry_sent = False  # TODO(Wave 2 #5b): consume recovery state after retry-path rewire.
 
         # Pre-task budget check
         if not self._check_budget(task):
@@ -2405,7 +2405,7 @@ class Body:
                 self._emit_pact_verdict(task_id, completion_verdict)
                 if completion_verdict.get("verdict") == "needs_action":
                     if not getattr(self, "_work_contract_retry_sent", False):
-                        self._work_contract_retry_sent = True  # TODO(Wave 2 #5): migrate retry state into recovery state.
+                        self._work_contract_retry_sent = True
                         messages.append({
                             "role": "user",
                             "content": "[Platform work contract] " + completion_verdict.get("message", "Required evidence is missing."),

@@ -902,6 +902,7 @@ objective
 contract
 evidence
 tool_observations
+recovery_state
 started_at
 updated_at
 ```
@@ -913,6 +914,14 @@ null.
 `contract` wraps the existing body work contract as a typed `WorkContract`.
 `evidence` owns the existing in-memory `EvidenceLedger`; legacy flattened
 evidence remains a projection of that ledger.
+`recovery_state` is the runtime-owned advisory recovery machine. It exposes the
+`RecoveryStatus` enum (`idle`, `retrying`, `replanning`, `fallback`,
+`clarifying`, `escalated`, `blocked`, `failed`, `halted`, `expired`,
+`superseded`) and the `NextAction` enum (`none`, `retry`, `replan`, `fallback`,
+`clarify`, `escalate`, `block`, `fail`, `halt`). In this checkpoint it is
+populated from typed observation failures and contract evaluation gaps for
+visibility only; the existing `body.py` retry behavior is unchanged and will be
+rewired to consume the machine in Wave 2 #5b.
 
 The objective builder is deterministic and model-free. Activation content is
 used only as capped statement data and for ambiguity detection; it is not a
@@ -935,7 +944,6 @@ plan
 step_history
 partial_outputs
 errors
-recovery_state
 proposed_outcome
 ```
 
@@ -946,11 +954,11 @@ each observation records tool name, `ToolStatus`, structured data,
 classes are intentionally small and classify status, provenance, retryability,
 and side-effect boundary without asking the model to infer tool outcome from
 prose. `retryability` and `side_effects` are classified for operator
-inspectability, but they are not yet consumed by any evaluator; recovery logic
-arrives in Wave 2 #5 and side-effect evaluation in Wave 4 #3.
+inspectability. `retryability` is now consumed by the advisory recovery state
+machine, while side-effect evaluation remains future Wave 4 #3 work.
 
 These placeholders intentionally do not implement Wave 2 routing, planning,
-evaluator, recovery, or outcome logic.
+evaluator, body retry-path rewiring, or outcome logic.
 
 ### Verdict Signal
 

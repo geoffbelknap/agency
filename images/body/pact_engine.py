@@ -440,7 +440,7 @@ class ToolObservation:
 
 @dataclass(slots=True)
 class ExecutionError:
-    """Placeholder for Wave 2 #5 recovery state machine; see spec Wave 2 item 5."""
+    """Runtime-owned execution error captured for recovery and audit state."""
 
     message: str
     phase: str = ""
@@ -454,20 +454,123 @@ class ExecutionError:
         }
 
 
+class RecoveryStatus(StrEnum):
+    """Classifies the current recovery state for a PACT execution."""
+
+    idle = "idle"
+    retrying = "retrying"
+    replanning = "replanning"
+    fallback = "fallback"
+    clarifying = "clarifying"
+    escalated = "escalated"
+    blocked = "blocked"
+    failed = "failed"
+    halted = "halted"
+    expired = "expired"
+    superseded = "superseded"
+
+
+class NextAction(StrEnum):
+    """Classifies the runtime-owned next recovery action."""
+
+    none = "none"
+    retry = "retry"
+    replan = "replan"
+    fallback = "fallback"
+    clarify = "clarify"
+    escalate = "escalate"
+    block = "block"
+    fail = "fail"
+    halt = "halt"
+
+
 @dataclass(slots=True)
 class RecoveryState:
-    """Placeholder for Wave 2 #5 recovery state machine; see spec Wave 2 item 5."""
+    """Runtime-owned advisory recovery state for a PACT execution."""
 
-    status: str = ""
+    status: RecoveryStatus = RecoveryStatus.idle
     reason: str = ""
+    attempt: int = 0
+    max_attempts: int = 3
+    last_error: ExecutionError | None = None
+    next_action: NextAction = NextAction.none
     updated_at: datetime = field(default_factory=_utc_now)
 
     def to_dict(self) -> dict:
         return {
-            "status": self.status,
+            "status": _enum_value(self.status),
             "reason": self.reason,
+            "attempt": self.attempt,
+            "max_attempts": self.max_attempts,
+            "last_error": self.last_error.to_dict() if self.last_error else None,
+            "next_action": _enum_value(self.next_action),
             "updated_at": _datetime_to_dict(self.updated_at),
         }
+
+    def record_tool_failure(self, obs: ToolObservation, *, now: datetime) -> None:
+        if obs.status != ToolStatus.error:
+            return
+        self.attempt += 1
+        self.last_error = ExecutionError(
+            message=obs.error.message if obs.error else str(obs.summary or "tool failed"),
+            phase=str(obs.tool or ""),
+            observed_at=obs.observed_at,
+        )
+        budget_available = self.attempt < self.max_attempts
+        if obs.retryability in (Retryability.retry_safe, Retryability.retry_with_backoff) and budget_available:
+            self.status = RecoveryStatus.retrying
+            self.next_action = NextAction.retry
+        elif obs.retryability == Retryability.unknown and budget_available:
+            self.status = RecoveryStatus.fallback
+            self.next_action = NextAction.fallback
+        elif obs.retryability == Retryability.unknown:
+            self.status = RecoveryStatus.escalated
+            self.next_action = NextAction.escalate
+        else:
+            self.status = RecoveryStatus.failed
+            self.next_action = NextAction.fail
+        self.reason = f"tool_failure:{obs.tool}:{_enum_value(obs.retryability)}"
+        self.updated_at = now
+
+    def record_evidence_gap(self, missing: list[str], *, now: datetime) -> None:
+        if not missing:
+            return
+        self.status = RecoveryStatus.blocked
+        self.next_action = NextAction.block
+        self.reason = f"evidence_gap:{','.join(sorted(missing))}"
+        self.updated_at = now
+
+    def record_load_bearing_ambiguity(self, ambiguity: str, *, now: datetime) -> None:
+        self.status = RecoveryStatus.clarifying
+        self.next_action = NextAction.clarify
+        self.reason = f"ambiguity:{ambiguity}"
+        self.updated_at = now
+
+    def record_operator_halt(self, reason: str, *, now: datetime) -> None:
+        self.status = RecoveryStatus.halted
+        self.next_action = NextAction.halt
+        self.reason = f"halt:{reason}"
+        self.updated_at = now
+
+    def record_success(self, *, now: datetime) -> None:
+        self.attempt = 0
+        self.last_error = None
+        self.status = RecoveryStatus.idle
+        self.next_action = NextAction.none
+        self.reason = ""
+        self.updated_at = now
+
+    def record_expiration(self, reason: str, *, now: datetime) -> None:
+        self.status = RecoveryStatus.expired
+        self.next_action = NextAction.none
+        self.reason = f"expired:{reason}"
+        self.updated_at = now
+
+    def record_superseded(self, reason: str, *, now: datetime) -> None:
+        self.status = RecoveryStatus.superseded
+        self.next_action = NextAction.none
+        self.reason = f"superseded:{reason}"
+        self.updated_at = now
 
 
 @dataclass(slots=True)
@@ -647,6 +750,26 @@ class ExecutionState:
 
     def record_observation(self, obs: ToolObservation) -> None:
         self.record_tool_observation(obs)
+
+    def _ensure_recovery(self) -> RecoveryState:
+        if self.recovery_state is None:
+            self.recovery_state = RecoveryState()
+        return self.recovery_state
+
+    def note_tool_failure(self, obs: ToolObservation, *, now: datetime | None = None) -> None:
+        transition_time = now or _utc_now()
+        self._ensure_recovery().record_tool_failure(obs, now=transition_time)
+        self.updated_at = transition_time
+
+    def note_evidence_gap(self, missing: list[str], *, now: datetime | None = None) -> None:
+        transition_time = now or _utc_now()
+        self._ensure_recovery().record_evidence_gap(missing, now=transition_time)
+        self.updated_at = transition_time
+
+    def note_load_bearing_ambiguity(self, ambiguity: str, *, now: datetime | None = None) -> None:
+        transition_time = now or _utc_now()
+        self._ensure_recovery().record_load_bearing_ambiguity(ambiguity, now=transition_time)
+        self.updated_at = transition_time
 
 
 @dataclass(frozen=True)
