@@ -209,12 +209,32 @@ def test_format_blocked_completion_summarizes_tool_evidence():
     assert response == (
         "I cannot verify this from an official/current source without guessing.\n"
         "\n"
-        "Blocked: Available source URLs did not satisfy the official/current-source evidence contract.\n"
-        "Evidence checked: tools=provider-web-search\n"
-        "Source URLs observed: https://nodejs.org/en/blog/release/v25.9.0\n"
-        "What would unblock this: an official or primary source URL that directly supports the requested current fact.\n"
-        "Checked: April 22, 2026."
+        "- Blocked: Available source URLs did not satisfy the official/current-source evidence contract.\n"
+        "- Evidence checked: tools=provider-web-search\n"
+        "- Source URLs observed:\n"
+        "  - https://nodejs.org/en/blog/release/v25.9.0\n"
+        "- What would unblock this: an official or primary source URL that directly supports the requested current fact.\n"
+        "- Checked: April 22, 2026."
     )
+
+
+def test_format_blocked_completion_caps_observed_urls():
+    contract = classify_work("Find the latest stable Node.js release").to_dict()
+    urls = [f"https://example.com/{idx}" for idx in range(7)]
+
+    response = format_blocked_completion(
+        contract,
+        {
+            "tool_results": [{"tool": "provider-web-search", "ok": True}],
+            "source_urls": urls,
+        },
+        checked_at="April 22, 2026",
+    )
+
+    assert "https://example.com/0" in response
+    assert "https://example.com/4" in response
+    assert "https://example.com/5" not in response
+    assert "...and 2 more observed URLs." in response
 
 
 def test_format_blocked_completion_leaves_non_current_info_content_alone():

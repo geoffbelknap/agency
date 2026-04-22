@@ -186,6 +186,15 @@ def _tool_summary(evidence: dict) -> str:
     return ", ".join(tools) if tools else "none recorded"
 
 
+def _source_url_lines(source_urls: list[str], limit: int = 5) -> list[str]:
+    shown = source_urls[:limit]
+    lines = [f"  - {url}" for url in shown]
+    remaining = len(source_urls) - len(shown)
+    if remaining > 0:
+        lines.append(f"  - ...and {remaining} more observed URLs.")
+    return lines
+
+
 def format_blocked_completion(
     contract: dict | None,
     evidence: dict | None,
@@ -209,14 +218,15 @@ def format_blocked_completion(
     lines = [
         "I cannot verify this from an official/current source without guessing.",
         "",
-        f"Blocked: {reason}",
-        f"Evidence checked: tools={_tool_summary(evidence)}",
+        f"- Blocked: {reason}",
+        f"- Evidence checked: tools={_tool_summary(evidence)}",
     ]
     if source_urls:
-        lines.append("Source URLs observed: " + ", ".join(source_urls[:5]))
+        lines.append("- Source URLs observed:")
+        lines.extend(_source_url_lines(source_urls))
     lines.extend([
-        "What would unblock this: an official or primary source URL that directly supports the requested current fact.",
-        f"Checked: {_checked_date(checked_at)}.",
+        "- What would unblock this: an official or primary source URL that directly supports the requested current fact.",
+        f"- Checked: {_checked_date(checked_at)}.",
     ])
     return "\n".join(lines)
 

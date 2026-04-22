@@ -94,4 +94,24 @@ describe('AgencyMessage', () => {
     renderMsg({ message: msg });
     expect(screen.getByRole('link', { name: /sec-filing\.md/ })).toHaveAttribute('href', '/api/v1/agents/scout/results/sec-filing?download=true');
   });
+
+  it('renders blocker markdown as a list with wrapped links', () => {
+    const msg: Message = {
+      ...baseMessage,
+      content: [
+        'I cannot verify this from an official/current source without guessing.',
+        '',
+        '- Blocked: Available source URLs did not satisfy the official/current-source evidence contract.',
+        '- Evidence checked: tools=provider-web-search',
+        '- Source URLs observed:',
+        '  - https://nodejs.org/en/blog/release/v25.9.0',
+        '- Checked: April 22, 2026.',
+      ].join('\n'),
+    };
+    const { container } = renderMsg({ message: msg });
+
+    expect(screen.getByText(/Blocked:/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'https://nodejs.org/en/blog/release/v25.9.0' })).toBeInTheDocument();
+    expect(container.querySelector('.break-words')).toBeInTheDocument();
+  });
 });

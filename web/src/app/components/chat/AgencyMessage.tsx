@@ -267,7 +267,7 @@ export function AgencyMessage({
         ) : message.isAgent ? (
           <StructuredOutput content={parsedContent.cleanContent || message.content} metadata={message.metadata} />
         ) : (
-          <div className="text-sm leading-[1.55] text-foreground/90 prose prose-gray dark:prose-invert prose-sm max-w-none prose-p:my-0 prose-table:text-xs prose-th:px-2 prose-th:py-1 prose-td:px-2 prose-td:py-1 prose-pre:bg-card prose-pre:text-xs">
+          <div className="text-sm leading-[1.55] text-foreground/90 prose prose-gray dark:prose-invert prose-sm max-w-none break-words prose-a:break-all prose-p:my-0 prose-table:text-xs prose-th:px-2 prose-th:py-1 prose-td:px-2 prose-td:py-1 prose-pre:bg-card prose-pre:text-xs">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents} allowedElements={ALLOWED_ELEMENTS} unwrapDisallowed>{parsedContent.cleanContent || message.content}</ReactMarkdown>
           </div>
         )}
