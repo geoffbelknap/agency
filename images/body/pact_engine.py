@@ -184,6 +184,38 @@ class WorkContract:
         }
 
 
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _datetime_to_dict(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _work_contract_from_dict(contract: dict | WorkContract | None) -> WorkContract | None:
+    if isinstance(contract, WorkContract):
+        return contract
+    if not isinstance(contract, dict):
+        return None
+    kind = str(contract.get("kind") or "").strip()
+    if not kind:
+        return None
+    return WorkContract(
+        kind=kind,
+        requires_action=bool(contract.get("requires_action")),
+        required_evidence=list(contract.get("required_evidence") or []),
+        answer_requirements=list(contract.get("answer_requirements") or []),
+        allowed_terminal_states=list(
+            contract.get("allowed_terminal_states")
+            or ["completed", "blocked", "needs_clarification"]
+        ),
+        reason=str(contract.get("reason") or ""),
+        summary=str(contract.get("summary") or ""),
+    )
+
+
 @dataclass(frozen=True)
 class ActivationContext:
     content: str = ""
@@ -222,6 +254,208 @@ class ActivationContext:
             "author": self.author,
             "mission_active": self.mission_active,
         }
+
+
+@dataclass(slots=True)
+class Objective:
+    """Placeholder for Wave 2 #1 objective builder; see spec Wave 2 item 1."""
+
+    statement: str = ""
+    kind: str = ""
+    constraints: list[str] = field(default_factory=list)
+    deliverables: list[str] = field(default_factory=list)
+    success_criteria: list[str] = field(default_factory=list)
+    ambiguities: list[str] = field(default_factory=list)
+    assumptions: list[str] = field(default_factory=list)
+    risk_level: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "statement": self.statement,
+            "kind": self.kind,
+            "constraints": list(self.constraints),
+            "deliverables": list(self.deliverables),
+            "success_criteria": list(self.success_criteria),
+            "ambiguities": list(self.ambiguities),
+            "assumptions": list(self.assumptions),
+            "risk_level": self.risk_level,
+        }
+
+
+@dataclass(slots=True)
+class Plan:
+    """Placeholder for Wave 2 #3 planner runtime object; see spec Wave 2 item 3."""
+
+    steps: list[str] = field(default_factory=list)
+    summary: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "steps": list(self.steps),
+            "summary": self.summary,
+        }
+
+
+@dataclass(slots=True)
+class StepRecord:
+    """Placeholder populated by Wave 2 #3 planner/execution state; see spec Wave 2 item 3."""
+
+    step_id: str
+    phase: str = ""
+    turn: int | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    summary: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "step_id": self.step_id,
+            "phase": self.phase,
+            "turn": self.turn,
+            "started_at": _datetime_to_dict(self.started_at),
+            "ended_at": _datetime_to_dict(self.ended_at),
+            "summary": self.summary,
+        }
+
+
+@dataclass(slots=True)
+class ToolObservation:
+    """Placeholder for Wave 1 #2 structured tool observation protocol; see spec Wave 1 item 2."""
+
+    tool: str
+    status: str
+    summary: str = ""
+    observed_at: datetime = field(default_factory=_utc_now)
+
+    def to_dict(self) -> dict:
+        return {
+            "tool": self.tool,
+            "status": self.status,
+            "summary": self.summary,
+            "observed_at": _datetime_to_dict(self.observed_at),
+        }
+
+
+@dataclass(slots=True)
+class ExecutionError:
+    """Placeholder for Wave 2 #5 recovery state machine; see spec Wave 2 item 5."""
+
+    message: str
+    phase: str = ""
+    observed_at: datetime = field(default_factory=_utc_now)
+
+    def to_dict(self) -> dict:
+        return {
+            "message": self.message,
+            "phase": self.phase,
+            "observed_at": _datetime_to_dict(self.observed_at),
+        }
+
+
+@dataclass(slots=True)
+class RecoveryState:
+    """Placeholder for Wave 2 #5 recovery state machine; see spec Wave 2 item 5."""
+
+    status: str = ""
+    reason: str = ""
+    updated_at: datetime = field(default_factory=_utc_now)
+
+    def to_dict(self) -> dict:
+        return {
+            "status": self.status,
+            "reason": self.reason,
+            "updated_at": _datetime_to_dict(self.updated_at),
+        }
+
+
+@dataclass(slots=True)
+class ProposedOutcome:
+    """Placeholder for Wave 2 #4 pre-commit evaluator; see spec Wave 2 item 4."""
+
+    outcome: str = ""
+    summary: str = ""
+    proposed_at: datetime = field(default_factory=_utc_now)
+
+    def to_dict(self) -> dict:
+        return {
+            "outcome": self.outcome,
+            "summary": self.summary,
+            "proposed_at": _datetime_to_dict(self.proposed_at),
+        }
+
+
+@dataclass(slots=True)
+class ExecutionState:
+    """Runtime-owned mutable state for a PACT run, introduced by Wave 1 #1."""
+
+    task_id: str
+    agent: str
+    activation: ActivationContext | None = None
+    objective: Objective | None = None
+    contract: WorkContract | None = None
+    plan: Plan | None = None
+    step_history: list[StepRecord] = field(default_factory=list)
+    tool_observations: list[ToolObservation] = field(default_factory=list)
+    evidence: EvidenceLedger = field(default_factory=lambda: EvidenceLedger())
+    partial_outputs: list[str] = field(default_factory=list)
+    errors: list[ExecutionError] = field(default_factory=list)
+    recovery_state: RecoveryState | None = None
+    proposed_outcome: ProposedOutcome | None = None
+    started_at: datetime = field(default_factory=_utc_now)
+    updated_at: datetime = field(default_factory=_utc_now)
+
+    @classmethod
+    def from_task(cls, task: dict, *, agent: str) -> "ExecutionState":
+        task = task if isinstance(task, dict) else {}
+        metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+        activation = metadata.get("pact_activation") if isinstance(metadata, dict) else None
+        now = _utc_now()
+        return cls(
+            task_id=str(task.get("task_id") or "unknown"),
+            agent=str(agent or ""),
+            activation=ActivationContext.from_message(
+                str(activation.get("content") or ""),
+                match_type=str(activation.get("match_type") or "direct"),
+                mission_active=bool(activation.get("mission_active")),
+                source=str(activation.get("source") or ""),
+                channel=str(activation.get("channel") or ""),
+                author=str(activation.get("author") or ""),
+            ) if isinstance(activation, dict) else None,
+            contract=_work_contract_from_dict(metadata.get("work_contract")) if isinstance(metadata, dict) else None,
+            started_at=now,
+            updated_at=now,
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "task_id": self.task_id,
+            "agent": self.agent,
+            "activation": self.activation.to_dict() if self.activation else None,
+            "objective": self.objective.to_dict() if self.objective else None,
+            "contract": self.contract.to_dict() if self.contract else None,
+            "plan": self.plan.to_dict() if self.plan else None,
+            "step_history": [step.to_dict() for step in self.step_history],
+            "tool_observations": [obs.to_dict() for obs in self.tool_observations],
+            "evidence": self.evidence.to_dict(),
+            "partial_outputs": list(self.partial_outputs),
+            "errors": [error.to_dict() for error in self.errors],
+            "recovery_state": self.recovery_state.to_dict() if self.recovery_state else None,
+            "proposed_outcome": self.proposed_outcome.to_dict() if self.proposed_outcome else None,
+            "started_at": _datetime_to_dict(self.started_at),
+            "updated_at": _datetime_to_dict(self.updated_at),
+        }
+
+    def record_evidence(self, entry: "EvidenceEntry") -> None:
+        self.evidence.record_entry(entry)
+        self.updated_at = _utc_now()
+
+    def record_step(self, step: StepRecord) -> None:
+        self.step_history.append(step)
+        self.updated_at = _utc_now()
+
+    def record_observation(self, obs: ToolObservation) -> None:
+        self.tool_observations.append(obs)
+        self.updated_at = _utc_now()
 
 
 @dataclass(frozen=True)
@@ -337,6 +571,9 @@ class EvidenceLedger:
 
     def entries(self) -> list[EvidenceEntry]:
         return list(self._entries)
+
+    def record_entry(self, entry: EvidenceEntry) -> None:
+        self._entries.append(entry)
 
     def record_tool_result(
         self,
