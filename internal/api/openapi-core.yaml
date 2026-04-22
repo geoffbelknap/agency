@@ -662,6 +662,86 @@ paths:
                                 $ref: "#/components/schemas/ErrorResponse"
                 "404":
                     $ref: "#/components/responses/NotFound"
+    /agents/{name}/pact/runs/{taskId}/audit-report:
+        get:
+            operationId: getPactAuditReport
+            summary: Get a read-only PACT audit report for a task
+            description: |
+                Builds a compliance-oriented PACT report from existing durable sources:
+                the typed PACT run projection, typed evidence entries, result artifact
+                references, and append-only audit events. The report includes a stable
+                SHA-256 integrity hash over deterministic report content, excluding
+                generated_at and the integrity block itself.
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+                - name: taskId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: PACT audit report assembled from run, evidence, artifact, and audit sources
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                required: [report_id, generated_at, agent, task_id, run, evidence_entries, artifact_refs, audit_events, integrity]
+                                properties:
+                                    report_id:
+                                        type: string
+                                    generated_at:
+                                        type: string
+                                        format: date-time
+                                    agent:
+                                        type: string
+                                    task_id:
+                                        type: string
+                                    run:
+                                        type: object
+                                        additionalProperties: true
+                                    evidence_entries:
+                                        type: array
+                                        items:
+                                            type: object
+                                            additionalProperties: true
+                                    artifact_refs:
+                                        type: array
+                                        items:
+                                            type: object
+                                            required: [task_id, url]
+                                            properties:
+                                                task_id:
+                                                    type: string
+                                                url:
+                                                    type: string
+                                                metadata_error:
+                                                    type: string
+                                    audit_events:
+                                        type: array
+                                        items:
+                                            type: object
+                                            additionalProperties: true
+                                    integrity:
+                                        type: object
+                                        required: [algorithm, hash, scope]
+                                        properties:
+                                            algorithm:
+                                                type: string
+                                                enum: [sha256]
+                                            hash:
+                                                type: string
+                                            scope:
+                                                type: string
+                "400":
+                    description: Invalid task ID
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/ErrorResponse"
+                "404":
+                    $ref: "#/components/responses/NotFound"
     /agents/{name}/config:
         get:
             operationId: getAgentConfig

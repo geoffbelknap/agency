@@ -1079,6 +1079,37 @@ contract, observed evidence, terminal verdict, linked result artifact, and
 supporting audit records in one place. Persisted audit JSONL and result
 artifacts remain the underlying records of fact for this implementation slice.
 
+### PACT Audit Report API
+
+The gateway exposes a read-only PACT audit report keyed by agent and task ID:
+
+```text
+GET /api/v1/agents/{name}/pact/runs/{taskId}/audit-report
+```
+
+The report is assembled from the PACT run projection and existing durable
+sources. It does not mutate audit JSONL, result artifacts, or evidence storage.
+
+```text
+report_id
+generated_at
+agent
+task_id
+run
+evidence_entries
+artifact_refs
+audit_events
+integrity:
+  algorithm
+  hash
+  scope
+```
+
+The initial integrity block uses SHA-256 over deterministic report content. The
+hash scope intentionally excludes `generated_at` and the integrity block itself
+so the same underlying PACT run produces a stable report hash across repeated
+reads. This is an integrity report, not yet a cryptographic signature.
+
 ### Log Correlation API
 
 The gateway decorates agent audit log responses with result-artifact correlation
@@ -1165,12 +1196,15 @@ fields.
   generic "call complete_task" retry path.
 - PACT runs now have an initial read-only gateway projection keyed by task ID,
   assembled from result artifact frontmatter and audit events.
+- PACT audit reports provide a deterministic integrity hash for the run,
+  evidence entries, artifact references, and audit events assembled for a task.
 - Result artifacts are task-oriented markdown files, not a general artifact
   model.
 - Log correlation is by `task_id`; it does not yet create a normalized execution
   graph.
 - Audit export includes initial enriched PACT/result correlation on log-entry
-  responses, but not yet a separate signed PACT report shape.
+  responses and a separate PACT audit report shape. The report is hashed but not
+  yet cryptographically signed.
 
 Known gaps:
 
@@ -1245,9 +1279,10 @@ Priority targets:
 
 4. **Audit export correlation.**
    Initial admin audit responses now preserve PACT verdict evidence references
-   and add result artifact links without mutating stored audit events. Next,
-   provide a separate signed PACT audit report shape with run, evidence,
-   artifact, and verdict correlation.
+   and add result artifact links without mutating stored audit events. PACT run
+   audit reports now assemble run, evidence, artifact, and verdict correlation
+   with a deterministic SHA-256 integrity hash. Next, add cryptographic signing
+   and verification semantics for exported reports.
 
 5. **Outcome contract validation beyond current information.**
    `file_artifact`, `code_change`, and `operator_blocked` now have deterministic

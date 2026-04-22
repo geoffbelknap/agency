@@ -95,6 +95,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Get("/api/v1/agents/{name}/results/{taskId}/metadata", h.getResultMetadata)
 	r.Get("/api/v1/agents/{name}/results/{taskId}", h.getResult)
 	r.Get("/api/v1/agents/{name}/pact/runs/{taskId}", h.getPactRun)
+	r.Get("/api/v1/agents/{name}/pact/runs/{taskId}/audit-report", h.getPactAuditReport)
 	r.Get("/api/v1/agents/{name}/config", h.agentConfig)
 	r.Put("/api/v1/agents/{name}/config", h.updateAgentConfig)
 	r.Get("/api/v1/agents/{name}/runtime/manifest", h.showRuntimeManifest)
