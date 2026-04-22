@@ -29,7 +29,8 @@ from interruption import InterruptionController
 from mcp_client import MCPClient
 from tools import BuiltinToolRegistry, ServiceToolDispatcher, SkillsManager
 from work_contract import (
-    classify_work,
+    ActivationContext,
+    classify_activation,
     contract_prompt,
     extract_urls,
     format_blocked_completion,
@@ -1110,7 +1111,15 @@ class Body:
                  channel, author, match_type, matched_kws)
 
         mission_active = bool(self._active_mission and self._active_mission.get("status") == "active" and match_type == "direct")
-        work_contract = classify_work(summary, match_type=match_type, mission_active=mission_active)
+        activation_context = ActivationContext.from_message(
+            summary,
+            match_type=match_type,
+            mission_active=mission_active,
+            source=f"idle_{match_type}",
+            channel=channel,
+            author=author,
+        )
+        work_contract = classify_activation(activation_context)
 
         # Construct prompt based on match type
         if match_type == "direct":

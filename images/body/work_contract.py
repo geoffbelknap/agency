@@ -451,6 +451,10 @@ def classify_work(content: str, match_type: str = "direct", mission_active: bool
     return DEFAULT_EVALUATOR.classify_work(content, match_type=match_type, mission_active=mission_active)
 
 
+def classify_activation(activation: ActivationContext) -> WorkContract:
+    return DEFAULT_EVALUATOR.classify_activation(activation)
+
+
 def contract_prompt(contract: WorkContract) -> str:
     return DEFAULT_EVALUATOR.contract_prompt(contract)
 

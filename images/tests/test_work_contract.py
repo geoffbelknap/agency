@@ -12,6 +12,7 @@ from images.body.work_contract import (
     EvidenceView,
     PactEvaluator,
     WorkContract,
+    classify_activation,
     build_contract,
     classify_work,
     contract_definition,
@@ -116,6 +117,17 @@ def test_pact_evaluator_classifies_typed_activation_contexts():
     assert current_info.kind == "current_info"
     assert mission_task.kind == "mission_task"
     assert coordination.kind == "coordination"
+
+
+def test_classify_activation_wrapper_uses_default_evaluator():
+    contract = classify_activation(ActivationContext(
+        content="Find the latest Node.js release",
+        match_type="direct",
+        source="dm",
+    ))
+
+    assert contract.kind == "current_info"
+    assert contract.requires_action is True
 
 
 def test_pact_evaluator_returns_typed_evaluation_result():

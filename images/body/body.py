@@ -49,7 +49,8 @@ from reflection import ReflectionState, build_reflection_prompt, parse_reflectio
 from task_tier import classify_task_tier, expand_cost_mode, get_active_features
 from tools import BuiltinToolRegistry, ServiceToolDispatcher, SkillsManager
 from work_contract import (
-    classify_work,
+    ActivationContext,
+    classify_activation,
     contract_prompt,
     extract_urls,
     format_blocked_completion,
@@ -1217,7 +1218,15 @@ class Body:
             and self._active_mission
             and self._active_mission.get("status") == "active"
         )
-        work_contract = classify_work(summary, match_type=match_type, mission_active=bool(is_mission_task))
+        activation_context = ActivationContext.from_message(
+            summary,
+            match_type=match_type,
+            mission_active=bool(is_mission_task),
+            source=f"idle_{match_type}",
+            channel=channel,
+            author=author,
+        )
+        work_contract = classify_activation(activation_context)
 
         recent_messages = []
 
