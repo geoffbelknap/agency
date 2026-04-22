@@ -56,6 +56,11 @@ FILE_ARTIFACT_RE = re.compile(
     r"\b(file|report|artifact|document)\b[^.\n]{0,80}\b(save|export|attach|downloadable)\b",
     re.IGNORECASE,
 )
+OPERATOR_BLOCKED_RE = re.compile(
+    r"\b(blocked|stuck|can't proceed|cannot proceed|unable to proceed|need .+ from (?:you|operator|admin)|"
+    r"waiting for (?:you|operator|approval|access|credentials|input)|missing (?:access|credentials|permission|approval|input))\b",
+    re.IGNORECASE,
+)
 BLOCKER_RE = re.compile(
     r"\b(can't|cannot|unable|not able|blocked|failed|unavailable|no access|"
     r"do not have|don't have|missing|need .+ access|need .+ tool)\b",
@@ -79,6 +84,12 @@ ABSOLUTE_DATE_RE = re.compile(
 )
 CHECKED_CLAUSE_RE = re.compile(
     r"\b(?:checked|retrieved|accessed|as of|as-of|verified on)\b[^.\n]*(?:\.|$)",
+    re.IGNORECASE,
+)
+UNBLOCKER_RE = re.compile(
+    r"\b(unblock|what would unblock|would unblock|next step|need (?:you|operator|admin)|"
+    r"please provide|provide .+ (?:access|approval|credential|input|permission)|"
+    r"grant .+ (?:access|permission)|approve|retry after)\b",
     re.IGNORECASE,
 )
 TRAILING_URL_PUNCTUATION = ".,;:!?"
@@ -546,6 +557,12 @@ class PactEvaluator:
                 requires_action=True,
                 reason="active mission direct message",
             )
+        if OPERATOR_BLOCKED_RE.search(text):
+            return self.build_contract(
+                "operator_blocked",
+                requires_action=True,
+                reason="explicit blocker or missing-operator-input signal",
+            )
         if CURRENT_INFO_RE.search(text):
             extra_answer_requirements = []
             if DATE_REQUEST_RE.search(text):
@@ -669,6 +686,8 @@ class PactEvaluator:
                 message=f"Unknown work contract kind: {kind or '(missing)'}.",
             )
         if BLOCKER_RE.search(content):
+            if kind == "operator_blocked":
+                return _validate_operator_blocked_answer(contract, content)
             return EvaluationResult(
                 "blocked",
                 message=self.format_blocked_completion(contract, evidence, content),
@@ -711,6 +730,9 @@ class PactEvaluator:
                     message="This code change requires runtime-observed validation evidence or a specific blocker.",
                 )
             return _validate_code_change_answer(contract, evidence_view, content)
+
+        if "blocker_reason" in required:
+            return _validate_operator_blocked_answer(contract, content)
 
         if "action_result_or_blocker" in required and not evidence_view.has_tool_or_observation():
             return EvaluationResult(
@@ -891,6 +913,25 @@ def _validate_code_change_answer(
         "needs_action",
         missing_evidence=tuple(missing),
         message="The code change evidence exists, but the completion must name changed files and passing validation commands.",
+    )
+
+
+def _validate_operator_blocked_answer(contract: dict, content: str) -> EvaluationResult:
+    requirements = set(contract.get("answer_requirements") or [])
+    missing: list[str] = []
+
+    if not BLOCKER_RE.search(content):
+        missing.append("blocker_reason")
+    if "next_actor_or_unblocker" in requirements and not UNBLOCKER_RE.search(content):
+        missing.append("next_actor_or_unblocker")
+
+    if not missing:
+        return EvaluationResult("blocked", message=content)
+
+    return EvaluationResult(
+        "needs_action",
+        missing_evidence=tuple(missing),
+        message="Blocked work must state the concrete blocker and what operator/admin action would unblock it.",
     )
 
 
