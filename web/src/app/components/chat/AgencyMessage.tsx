@@ -2,9 +2,10 @@ import { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Bot, FileText, Download, Terminal, ExternalLink, ShieldCheck } from 'lucide-react';
+import { Bot, FileText, Download, Terminal, ExternalLink } from 'lucide-react';
 import type { Message } from '../../types';
 import { api, authenticatedFetch } from '../../lib/api';
+import { PactStatusBadge, extractPactMetadata, type PactMetadata } from '../PactStatusBadge';
 import { cn } from '../ui/utils';
 import { MessageFlagBadge } from './MessageFlagBadge';
 import { StructuredOutput, ALLOWED_ELEMENTS, markdownComponents } from './StructuredOutput';
@@ -36,13 +37,6 @@ interface GroupedReaction {
   emoji: string;
   count: number;
   hasReacted: boolean;
-}
-
-interface PactMetadata {
-  kind?: string;
-  verdict?: string;
-  source_urls?: unknown[];
-  missing_evidence?: unknown[];
 }
 
 function groupReactions(reactions: Array<{ emoji: string; author: string }> | undefined): GroupedReaction[] {
@@ -128,36 +122,6 @@ function metadataLinks(metadata?: Record<string, any>): Array<{ label: string; u
   const singleUrl = metadata.url || metadata.href || metadata.file_url;
   if (singleUrl) links.push({ label: metadata.label || metadata.filename || metadata.name || 'Open link', url: singleUrl });
   return links;
-}
-
-function extractPactMetadata(payload: Record<string, unknown> | null | undefined): PactMetadata | null {
-  const direct = payload?.pact;
-  const nested = (payload?.metadata as Record<string, unknown> | undefined)?.pact;
-  const pact = (direct || nested) as PactMetadata | undefined;
-  if (!pact || typeof pact !== 'object') return null;
-  if (!pact.verdict && !pact.kind) return null;
-  return pact;
-}
-
-function pactVerdictColor(verdict?: string): string {
-  switch (verdict) {
-    case 'completed':
-      return 'var(--teal)';
-    case 'blocked':
-      return '#d64b4b';
-    case 'needs_action':
-      return '#b7791f';
-    default:
-      return 'var(--ink-muted)';
-  }
-}
-
-function pactSummary(pact: PactMetadata): string {
-  const sources = Array.isArray(pact.source_urls) ? pact.source_urls.length : 0;
-  const missing = Array.isArray(pact.missing_evidence) ? pact.missing_evidence.length : 0;
-  if (sources > 0) return `${sources} source${sources === 1 ? '' : 's'}`;
-  if (missing > 0) return `${missing} gap${missing === 1 ? '' : 's'}`;
-  return pact.kind || 'PACT';
 }
 
 export function AgencyMessageAvatar({ message, agentStatus, onAgentClick }: AgencyMessageAvatarProps) {
@@ -383,21 +347,7 @@ export function AgencyMessage({
               <Download className="h-3 w-3" />
               Download .md
             </button>
-            {resultPact && (
-              <span
-                className="mono inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px]"
-                style={{
-                  border: '0.5px solid var(--ink-hairline)',
-                  background: 'var(--warm-2)',
-                  color: pactVerdictColor(resultPact.verdict),
-                }}
-                title={resultPact.kind ? `PACT ${resultPact.kind}` : 'PACT metadata'}
-              >
-                <ShieldCheck className="h-3 w-3" />
-                <span>{resultPact.verdict || 'PACT'}</span>
-                <span style={{ color: 'var(--ink-faint)' }}>{pactSummary(resultPact)}</span>
-              </span>
-            )}
+            <PactStatusBadge pact={resultPact} />
             <Dialog open={reportOpen} onOpenChange={setReportOpen}>
               <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto bg-card">
                 <DialogHeader>

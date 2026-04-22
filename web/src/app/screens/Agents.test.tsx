@@ -284,6 +284,43 @@ describe('Agents', () => {
     });
   });
 
+  it('shows saved result artifacts with PACT verdicts', async () => {
+    server.use(
+      http.get(`${BASE}/agents`, () => HttpResponse.json(defaultAgents)),
+      http.get(`${BASE}/agents/alice/logs`, () => HttpResponse.json([])),
+      http.get(`${BASE}/agents/alice/budget`, () =>
+        HttpResponse.json({ daily_limit: 0, monthly_limit: 0, daily_used: 0, monthly_used: 0, today_llm_calls: 0, today_input_tokens: 0, today_output_tokens: 0 }),
+      ),
+      http.get(`${BASE}/agents/alice/results`, () =>
+        HttpResponse.json([
+          {
+            task_id: 'task-20260422-node',
+            has_metadata: true,
+            metadata: { timestamp: '2026-04-22T08:00:00Z' },
+            pact: {
+              kind: 'current_info',
+              verdict: 'completed',
+              source_urls: ['https://nodejs.org/en/blog/release/v24.15.0'],
+            },
+          },
+        ]),
+      ),
+    );
+
+    renderAgents('/agents/alice');
+
+    await waitFor(() => {
+      expect(screen.getByText('alice')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('tab', { name: /results/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('task-20260422-node')).toBeInTheDocument();
+      expect(screen.getByText('completed')).toBeInTheDocument();
+      expect(screen.getByText('1 source')).toBeInTheDocument();
+    });
+  });
+
   it('confirms and deletes an agent from the system tab', async () => {
     let deleted = false;
     server.use(

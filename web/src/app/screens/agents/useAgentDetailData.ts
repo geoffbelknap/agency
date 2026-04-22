@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
-import { api, type RawAuditEntry, type RawChannel, type RawCapability, type RawPolicyValidation, type RawMeeseeks, type RawBudgetResponse, type RawEconomicsResponse } from '../../lib/api';
+import { api, type RawAuditEntry, type RawChannel, type RawCapability, type RawPolicyValidation, type RawMeeseeks, type RawBudgetResponse, type RawEconomicsResponse, type RawAgentResult } from '../../lib/api';
 
 export interface AgentDetailData {
   // Data
@@ -14,13 +14,16 @@ export interface AgentDetailData {
   agentConfig: Record<string, any> | null;
   budget: RawBudgetResponse | null;
   economics: RawEconomicsResponse | null;
+  results: RawAgentResult[];
 
   // Loading states
   capLoading: string | null;
   refreshingLogs: boolean;
+  refreshingResults: boolean;
 
   // Actions
   refreshLogs: (name: string) => Promise<void>;
+  refreshResults: (name: string) => Promise<void>;
   handleOpenDM: (agentName: string) => Promise<void>;
   handleSendDM: (agentName: string, dmText: string) => Promise<boolean>;
   handleGrant: (agentName: string, capability: string) => Promise<void>;
@@ -50,10 +53,12 @@ export function useAgentDetailData(
   const [agentConfig, setAgentConfig] = useState<Record<string, any> | null>(null);
   const [budget, setBudget] = useState<RawBudgetResponse | null>(null);
   const [economics, setEconomics] = useState<RawEconomicsResponse | null>(null);
+  const [results, setResults] = useState<RawAgentResult[]>([]);
 
   // Loading states
   const [capLoading, setCapLoading] = useState<string | null>(null);
   const [refreshingLogs, setRefreshingLogs] = useState(false);
+  const [refreshingResults, setRefreshingResults] = useState(false);
 
   // Sync capabilities from parent
   useEffect(() => { setCapabilities(initialCapabilities); }, [initialCapabilities]);
@@ -67,6 +72,18 @@ export function useAgentDetailData(
       setLogs([]);
     } finally {
       setRefreshingLogs(false);
+    }
+  }, []);
+
+  const refreshResults = useCallback(async (name: string) => {
+    setRefreshingResults(true);
+    try {
+      const data = await api.agents.results(name);
+      setResults(data ?? []);
+    } catch {
+      setResults([]);
+    } finally {
+      setRefreshingResults(false);
     }
   }, []);
 
@@ -96,6 +113,8 @@ export function useAgentDetailData(
       api.meeseeks.list(name).then(data => setMeeseeksList(data ?? [])).catch(() => setMeeseeksList([]));
     } else if (effectiveDataTab === 'economics') {
       api.agents.economics(name).then(setEconomics).catch(() => setEconomics(null));
+    } else if (effectiveDataTab === 'results') {
+      refreshResults(name);
     } else if (effectiveDataTab === 'config') {
       Promise.all([
         api.capabilities.list().catch(() => []),
@@ -240,9 +259,12 @@ export function useAgentDetailData(
     agentConfig,
     budget,
     economics,
+    results,
     capLoading,
     refreshingLogs,
+    refreshingResults,
     refreshLogs,
+    refreshResults,
     handleOpenDM,
     handleSendDM,
     handleGrant,

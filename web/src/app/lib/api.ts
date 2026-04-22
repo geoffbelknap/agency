@@ -503,6 +503,14 @@ export interface RawPruneImagesResult {
   skipped: number;
 }
 
+export interface RawAgentResult {
+  task_id: string;
+  has_metadata?: boolean;
+  metadata?: Record<string, unknown>;
+  pact?: Record<string, unknown>;
+  metadata_error?: string;
+}
+
 export interface RawKnowledgeStats {
   node_count: number;
   edge_count: number;
@@ -786,7 +794,7 @@ export const api = {
     channels: (name: string) => req<RawChannel[]>(`/agents/${name}/channels`),
     ensureDM: (name: string) => req<{ status: string; channel: string }>(`/agents/${name}/dm`, { method: 'POST', body: '{}' }),
     knowledge: (name: string) => req<{ nodes?: unknown[] } | unknown[]>(`/agents/${name}/knowledge`),
-    results: (name: string) => req<Array<Record<string, unknown>>>(`/agents/${name}/results`),
+    results: (name: string) => req<RawAgentResult[]>(`/agents/${name}/results`),
     resultUrl: (name: string, taskId: string) =>
       `${BASE}/agents/${name}/results/${taskId}`,
     resultMetadata: (name: string, taskId: string) =>
