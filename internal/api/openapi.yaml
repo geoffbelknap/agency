@@ -1001,6 +1001,76 @@ paths:
         "422":
           description: Invalid result metadata
 
+  /agents/{name}/pact/runs/{taskId}:
+    get:
+      operationId: getPactRun
+      summary: Get a read-only PACT run projection for a task
+      description: |
+        Assembles a PACT run view from existing durable sources such as result
+        artifact frontmatter and append-only audit events. This endpoint is a
+        projection only; it does not create a new authoritative PACT storage
+        layer.
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: PACT run projection assembled from result and audit evidence
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [task_id, agent, audit_events, sources]
+                properties:
+                  task_id:
+                    type: string
+                  agent:
+                    type: string
+                  activation:
+                    type: object
+                    nullable: true
+                    additionalProperties: true
+                  contract:
+                    type: object
+                    nullable: true
+                    additionalProperties: true
+                  evidence:
+                    type: object
+                    nullable: true
+                    additionalProperties: true
+                  verdict:
+                    type: object
+                    nullable: true
+                    additionalProperties: true
+                  outcome:
+                    type: string
+                  artifact:
+                    type: object
+                    nullable: true
+                    additionalProperties: true
+                  audit_events:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  sources:
+                    type: array
+                    items:
+                      type: string
+        "400":
+          description: Invalid task ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /agents/{name}/config:
     get:
       operationId: getAgentConfig

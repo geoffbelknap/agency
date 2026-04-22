@@ -1019,6 +1019,37 @@ The markdown result endpoint remains the canonical artifact body and supports
 download semantics. Metadata endpoints are read-only projections over saved
 artifacts.
 
+### PACT Run Projection API
+
+The gateway exposes an initial read-only PACT run projection keyed by agent and
+task ID:
+
+```text
+GET /api/v1/agents/{name}/pact/runs/{taskId}
+```
+
+The projection joins existing durable sources without creating a new authority
+or storage layer:
+
+```text
+task_id
+agent
+activation
+contract
+evidence
+verdict
+outcome
+artifact
+audit_events
+sources
+```
+
+Current sources are result artifact frontmatter and append-only audit events.
+The projection exists so operators and future tooling can inspect the work
+contract, observed evidence, terminal verdict, linked result artifact, and
+supporting audit records in one place. Persisted audit JSONL and result
+artifacts remain the underlying records of fact for this implementation slice.
+
 ### Log Correlation API
 
 The gateway decorates agent audit log responses with result-artifact correlation
@@ -1095,7 +1126,8 @@ fields.
 - Contract-validated blocked completions are terminal in the body runtime: they
   commit task completion with a blocked terminal outcome instead of entering the
   generic "call complete_task" retry path.
-- PACT runs are not yet first-class gateway resources.
+- PACT runs now have an initial read-only gateway projection keyed by task ID,
+  assembled from result artifact frontmatter and audit events.
 - Result artifacts are task-oriented markdown files, not a general artifact
   model.
 - Log correlation is by `task_id`; it does not yet create a normalized execution
@@ -1165,8 +1197,10 @@ Priority targets:
    entries with producer, provenance, visibility, and contract relevance.
 
 3. **First-class PACT run resource.**
-   Expose an execution/run view keyed by activation or task ID that joins
-   objective, contract, evidence, verdict, artifact, and audit references.
+   Promote the initial read-only task projection into a typed execution/run
+   resource with stable schema ownership, activation IDs, objective references,
+   contract versions, evidence references, verdict history, artifacts, and audit
+   references.
 
 4. **Audit export correlation.**
    Include PACT verdicts, result artifacts, and evidence references in signed

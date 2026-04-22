@@ -254,6 +254,9 @@ func (h *handler) readResultArtifact(ctx context.Context, name, taskID string) (
 	if dir, ok := h.hostResultsDir(name); ok {
 		return os.ReadFile(filepath.Join(dir, taskID+".md"))
 	}
+	if h.deps.DC == nil {
+		return nil, fmt.Errorf("container client not initialized")
+	}
 	containerName := "agency-" + name + "-workspace"
 	data, err := h.deps.DC.ExecInContainer(ctx, containerName, []string{
 		"cat", "/workspace/.results/" + taskID + ".md",
