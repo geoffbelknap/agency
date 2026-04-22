@@ -1133,6 +1133,13 @@ checked_at
 reason
 ```
 
+Callers may also submit a PACT audit report JSON body to the same endpoint. In
+that mode the gateway checks the submitted report's agent, task ID, algorithm,
+and embedded integrity hash against the current report rebuilt from durable
+sources. A mismatch returns `valid: false` with a reason such as
+`task_id_mismatch`, `agent_mismatch`, `unsupported_algorithm`, or
+`hash_mismatch`.
+
 ### Log Correlation API
 
 The gateway decorates agent audit log responses with result-artifact correlation

@@ -158,12 +158,17 @@ func (h *handler) verifyPactAuditReport(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to build PACT audit report"})
 		return
 	}
-	expectedHash := strings.TrimSpace(r.URL.Query().Get("hash"))
+	expectedHash, reason, err := expectedPactReportHash(r, agentName, taskID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 	if expectedHash == "" {
 		expectedHash = report.Integrity.Hash
 	}
+	valid := expectedHash == report.Integrity.Hash && reason == ""
 	verification := pactAuditReportVerification{
-		Valid:        expectedHash == report.Integrity.Hash,
+		Valid:        valid,
 		Agent:        agentName,
 		TaskID:       taskID,
 		Algorithm:    report.Integrity.Algorithm,
@@ -172,10 +177,39 @@ func (h *handler) verifyPactAuditReport(w http.ResponseWriter, r *http.Request) 
 		ReportID:     report.ReportID,
 		CheckedAt:    time.Now().UTC().Format(time.RFC3339),
 	}
-	if !verification.Valid {
-		verification.Reason = "hash_mismatch"
+	if !valid {
+		if reason != "" {
+			verification.Reason = reason
+		} else {
+			verification.Reason = "hash_mismatch"
+		}
 	}
 	writeJSON(w, http.StatusOK, verification)
+}
+
+func expectedPactReportHash(r *http.Request, agentName, taskID string) (string, string, error) {
+	queryHash := strings.TrimSpace(r.URL.Query().Get("hash"))
+	if r.Body == nil || r.ContentLength == 0 {
+		return queryHash, "", nil
+	}
+	defer r.Body.Close()
+	var submitted pactAuditReport
+	if err := json.NewDecoder(r.Body).Decode(&submitted); err != nil {
+		return "", "", err
+	}
+	if submitted.Agent != "" && submitted.Agent != agentName {
+		return submitted.Integrity.Hash, "agent_mismatch", nil
+	}
+	if submitted.TaskID != "" && submitted.TaskID != taskID {
+		return submitted.Integrity.Hash, "task_id_mismatch", nil
+	}
+	if submitted.Integrity.Algorithm != "" && submitted.Integrity.Algorithm != "sha256" {
+		return submitted.Integrity.Hash, "unsupported_algorithm", nil
+	}
+	if submitted.Integrity.Hash != "" {
+		return submitted.Integrity.Hash, "", nil
+	}
+	return queryHash, "", nil
 }
 
 func (h *handler) buildPactRunProjection(ctx context.Context, agentName, taskID string) (pactRunProjection, bool) {
