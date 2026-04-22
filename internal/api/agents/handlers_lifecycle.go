@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"gopkg.in/yaml.v3"
 
 	apimissions "github.com/geoffbelknap/agency/internal/api/missions"
 	"github.com/geoffbelknap/agency/internal/events"
@@ -171,28 +172,11 @@ func (h *handler) listResults(w http.ResponseWriter, r *http.Request) {
 func (h *handler) getResult(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	taskID := chi.URLParam(r, "taskId")
-	if strings.Contains(taskID, "/") || strings.Contains(taskID, "..") {
+	if invalidResultTaskID(taskID) {
 		writeJSON(w, 400, map[string]string{"error": "invalid task ID"})
 		return
 	}
-	if dir, ok := h.hostResultsDir(name); ok {
-		data, err := os.ReadFile(filepath.Join(dir, taskID+".md"))
-		if err != nil {
-			writeJSON(w, 404, map[string]string{"error": "result not found"})
-			return
-		}
-		if r.URL.Query().Get("download") == "true" {
-			w.Header().Set("Content-Disposition", "attachment; filename=\""+taskID+".md\"")
-		}
-		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-		w.WriteHeader(200)
-		w.Write(data)
-		return
-	}
-	containerName := "agency-" + name + "-workspace"
-	data, err := h.deps.DC.ExecInContainer(r.Context(), containerName, []string{
-		"cat", "/workspace/.results/" + taskID + ".md",
-	})
+	data, err := h.readResultArtifact(r.Context(), name, taskID)
 	if err != nil {
 		writeJSON(w, 404, map[string]string{"error": "result not found"})
 		return
@@ -202,7 +186,76 @@ func (h *handler) getResult(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.WriteHeader(200)
-	w.Write([]byte(data))
+	w.Write(data)
+}
+
+func (h *handler) getResultMetadata(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	taskID := chi.URLParam(r, "taskId")
+	if invalidResultTaskID(taskID) {
+		writeJSON(w, 400, map[string]string{"error": "invalid task ID"})
+		return
+	}
+	data, err := h.readResultArtifact(r.Context(), name, taskID)
+	if err != nil {
+		writeJSON(w, 404, map[string]string{"error": "result not found"})
+		return
+	}
+	metadata, found, err := parseResultFrontmatter(data)
+	if err != nil {
+		writeJSON(w, 422, map[string]string{"error": "invalid result metadata"})
+		return
+	}
+	if !found {
+		metadata = map[string]interface{}{}
+	}
+	writeJSON(w, 200, map[string]interface{}{
+		"task_id":      taskID,
+		"metadata":     metadata,
+		"pact":         metadata["pact"],
+		"has_metadata": found,
+	})
+}
+
+func (h *handler) readResultArtifact(ctx context.Context, name, taskID string) ([]byte, error) {
+	if dir, ok := h.hostResultsDir(name); ok {
+		return os.ReadFile(filepath.Join(dir, taskID+".md"))
+	}
+	containerName := "agency-" + name + "-workspace"
+	data, err := h.deps.DC.ExecInContainer(ctx, containerName, []string{
+		"cat", "/workspace/.results/" + taskID + ".md",
+	})
+	if err != nil {
+		return nil, err
+	}
+	return []byte(data), nil
+}
+
+func invalidResultTaskID(taskID string) bool {
+	return strings.TrimSpace(taskID) == "" || strings.Contains(taskID, "/") || strings.Contains(taskID, "..")
+}
+
+func parseResultFrontmatter(data []byte) (map[string]interface{}, bool, error) {
+	const marker = "---\n"
+	if !strings.HasPrefix(string(data), marker) {
+		return nil, false, nil
+	}
+	rest := string(data[len(marker):])
+	end := strings.Index(rest, "\n---\n")
+	if end < 0 && strings.HasSuffix(rest, "\n---") {
+		end = len(rest) - len("\n---")
+	}
+	if end < 0 {
+		return nil, true, fmt.Errorf("frontmatter terminator not found")
+	}
+	var metadata map[string]interface{}
+	if err := yaml.Unmarshal([]byte(rest[:end]), &metadata); err != nil {
+		return nil, true, err
+	}
+	if metadata == nil {
+		metadata = map[string]interface{}{}
+	}
+	return metadata, true, nil
 }
 
 func (h *handler) hostResultsDir(agentName string) (string, bool) {

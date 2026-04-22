@@ -789,6 +789,8 @@ export const api = {
     results: (name: string) => req<Array<Record<string, unknown>>>(`/agents/${name}/results`),
     resultUrl: (name: string, taskId: string) =>
       `${BASE}/agents/${name}/results/${taskId}`,
+    resultMetadata: (name: string, taskId: string) =>
+      req<Record<string, unknown>>(`/agents/${name}/results/${taskId}/metadata`),
     resultDownloadUrl: (name: string, taskId: string) =>
       `${BASE}/agents/${name}/results/${taskId}?download=true`,
     budget: (name: string) => req<RawBudgetResponse>(`/agents/${name}/budget`),

@@ -953,6 +953,43 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /agents/{name}/results/{taskId}/metadata:
+    get:
+      operationId: getResultMetadata
+      summary: Get structured task result metadata
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: YAML frontmatter metadata parsed from a task result document
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [task_id, metadata, has_metadata]
+                properties:
+                  task_id:
+                    type: string
+                  has_metadata:
+                    type: boolean
+                  metadata:
+                    type: object
+                    additionalProperties: true
+                  pact:
+                    type: object
+                    nullable: true
+                    additionalProperties: true
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid result metadata
+
   /agents/{name}/config:
     get:
       operationId: getAgentConfig
