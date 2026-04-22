@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "body"))
 from images.body.body import (
     Body,
     _activation_task_id,
+    _pact_verdict_payload,
     _provider_tool_definitions,
     _provider_tool_prompt_section,
     _sanitize_outbound_content,
@@ -140,6 +141,88 @@ def test_body_tool_collection_includes_provider_web_search(tmp_path):
     body._mcp_tools = {}
 
     assert {"type": "web_search"} in body._get_all_tool_definitions()
+
+
+def test_pact_verdict_payload_summarizes_contract_and_evidence():
+    payload = _pact_verdict_payload(
+        "task-123",
+        {
+            "kind": "current_info",
+            "requires_action": True,
+            "required_evidence": ["current_source_or_blocker"],
+            "answer_requirements": ["source_url", "checked_date"],
+        },
+        {
+            "tool_results": [
+                {"tool": "provider-web-search", "ok": True},
+                {"tool": "provider-web-search", "ok": True},
+                {"tool": "web_fetch", "ok": True},
+            ],
+            "observed": ["current_source"],
+            "source_urls": ["https://nodejs.org/en"],
+        },
+        {
+            "verdict": "needs_action",
+            "missing_evidence": ["source_url_from_evidence"],
+        },
+    )
+
+    assert payload == {
+        "task_id": "task-123",
+        "kind": "current_info",
+        "verdict": "needs_action",
+        "required_evidence": ["current_source_or_blocker"],
+        "answer_requirements": ["source_url", "checked_date"],
+        "missing_evidence": ["source_url_from_evidence"],
+        "observed": ["current_source"],
+        "source_urls": ["https://nodejs.org/en"],
+        "tools": ["provider-web-search", "web_fetch"],
+    }
+
+
+def test_emit_pact_verdict_skips_non_action_contract():
+    body = Body.__new__(Body)
+    body._work_contract = {"kind": "chat", "requires_action": False}
+    body._work_evidence = {}
+    seen = []
+    body._emit_signal = lambda signal_type, data: seen.append((signal_type, data))
+
+    body._emit_pact_verdict("task-123", {"verdict": "completed"})
+
+    assert seen == []
+
+
+def test_emit_pact_verdict_emits_structured_signal():
+    body = Body.__new__(Body)
+    body._work_contract = {
+        "kind": "current_info",
+        "requires_action": True,
+        "required_evidence": ["current_source_or_blocker"],
+    }
+    body._work_evidence = {
+        "tool_results": [{"tool": "provider-web-search", "ok": True}],
+        "observed": ["current_source"],
+        "source_urls": ["https://nodejs.org/en"],
+    }
+    seen = []
+    body._emit_signal = lambda signal_type, data: seen.append((signal_type, data))
+
+    body._emit_pact_verdict("task-123", {"verdict": "blocked"})
+
+    assert seen == [(
+        "pact_verdict",
+        {
+            "task_id": "task-123",
+            "kind": "current_info",
+            "verdict": "blocked",
+            "required_evidence": ["current_source_or_blocker"],
+            "answer_requirements": [],
+            "missing_evidence": [],
+            "observed": ["current_source"],
+            "source_urls": ["https://nodejs.org/en"],
+            "tools": ["provider-web-search"],
+        },
+    )]
 
 
 def test_stream_records_provider_tool_evidence_and_ignores_empty_tool_delta():

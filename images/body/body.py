@@ -282,6 +282,35 @@ def _activation_task_id(event: dict, context_file: Path | None, fallback_prefix:
     return f"{fallback_prefix}-{int(time.time())}"
 
 
+def _pact_verdict_payload(
+    task_id: str,
+    contract: dict | None,
+    evidence: dict | None,
+    verdict: dict | None,
+) -> dict:
+    contract = contract if isinstance(contract, dict) else {}
+    evidence = evidence if isinstance(evidence, dict) else {}
+    verdict = verdict if isinstance(verdict, dict) else {}
+    tools = []
+    for item in evidence.get("tool_results") or []:
+        if not isinstance(item, dict):
+            continue
+        tool = str(item.get("tool") or "").strip()
+        if tool and tool not in tools:
+            tools.append(tool)
+    return {
+        "task_id": task_id,
+        "kind": contract.get("kind"),
+        "verdict": verdict.get("verdict", "completed"),
+        "required_evidence": list(contract.get("required_evidence") or []),
+        "answer_requirements": list(contract.get("answer_requirements") or []),
+        "missing_evidence": list(verdict.get("missing_evidence") or []),
+        "observed": list(evidence.get("observed") or []),
+        "source_urls": list(evidence.get("source_urls") or []),
+        "tools": tools,
+    }
+
+
 def _sanitize_outbound_content(content: str) -> str:
     """Fail closed when model text tries to impersonate a tool call."""
     if not SIMULATED_TOOL_TAG_RE.search(content or ""):
@@ -2191,6 +2220,7 @@ class Body:
                     getattr(self, "_work_evidence", None),
                     content,
                 )
+                self._emit_pact_verdict(task_id, completion_verdict)
                 if completion_verdict.get("verdict") == "needs_action":
                     if not getattr(self, "_work_contract_retry_sent", False):
                         self._work_contract_retry_sent = True
@@ -3117,6 +3147,7 @@ class Body:
             getattr(self, "_work_evidence", None),
             summary,
         )
+        self._emit_pact_verdict(getattr(self, "_current_task_id", "") or "unknown", completion_verdict)
         if completion_verdict.get("verdict") == "needs_action":
             return json.dumps({
                 "error": "completion blocked by work contract",
@@ -3134,6 +3165,20 @@ class Body:
         self._task_complete_called = True
         self._task_result_summary = summary
         return json.dumps({"status": "complete", "summary": summary})
+
+    def _emit_pact_verdict(self, task_id: str, verdict: dict) -> None:
+        contract = getattr(self, "_work_contract", None)
+        if not isinstance(contract, dict) or not contract.get("requires_action"):
+            return
+        self._emit_signal(
+            "pact_verdict",
+            _pact_verdict_payload(
+                task_id,
+                contract,
+                getattr(self, "_work_evidence", None),
+                verdict,
+            ),
+        )
 
     def _record_work_tool_result(self, tool_name: str, result: str) -> None:
         evidence = getattr(self, "_work_evidence", None)
