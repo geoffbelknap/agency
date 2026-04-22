@@ -77,6 +77,39 @@ VAGUE_SEARCH_RE = re.compile(
     r"\b(based on (?:the |my |these )?search results|the search (?:shows|indicates)|search results indicate)\b",
     re.IGNORECASE,
 )
+TOOL_ANNOUNCEMENT_PATTERNS = (
+    ("I searched", re.compile(r"\bI searched\b", re.IGNORECASE)),
+    ("I've searched", re.compile(r"\bI've searched\b", re.IGNORECASE)),
+    ("I have searched", re.compile(r"\bI have searched\b", re.IGNORECASE)),
+    ("Let me search", re.compile(r"\bLet me search\b", re.IGNORECASE)),
+    ("I looked up", re.compile(r"\bI looked up\b", re.IGNORECASE)),
+    ("I've looked up", re.compile(r"\bI've looked up\b", re.IGNORECASE)),
+    ("I have looked up", re.compile(r"\bI have looked up\b", re.IGNORECASE)),
+    ("Let me look up", re.compile(r"\bLet me look up\b", re.IGNORECASE)),
+    ("I fetched", re.compile(r"\bI fetched\b", re.IGNORECASE)),
+    ("I've fetched", re.compile(r"\bI've fetched\b", re.IGNORECASE)),
+    ("Let me fetch", re.compile(r"\bLet me fetch\b", re.IGNORECASE)),
+    (
+        "I ran",
+        re.compile(
+            r"\bI ran\b(?=[^.\n]{0,30}(?:\b(?:command|query|search)\b|[`$./~-]|(?:\s-{1,2}\w)))",
+            re.IGNORECASE,
+        ),
+    ),
+    ("I executed", re.compile(r"\bI executed\b", re.IGNORECASE)),
+    ("Based on my search", re.compile(r"\bBased on my search(?:es)?\b", re.IGNORECASE)),
+    ("Based on my research", re.compile(r"\bBased on my research\b", re.IGNORECASE)),
+    ("Based on my investigation", re.compile(r"\bBased on my investigation\b", re.IGNORECASE)),
+    ("According to my search", re.compile(r"\bAccording to my search\b", re.IGNORECASE)),
+    (
+        "According to (?:the|my) (?:results|data|findings)",
+        re.compile(r"\bAccording to (?:the|my) (?:results|data|findings)\b", re.IGNORECASE),
+    ),
+    (
+        "My research (?:shows|found|indicates)",
+        re.compile(r"\bMy research (?:shows|found|indicates)\b", re.IGNORECASE),
+    ),
+)
 DATE_REQUEST_RE = re.compile(r"\b(date|dated|filed|released|release date|as of|as-of)\b", re.IGNORECASE)
 ABSOLUTE_DATE_RE = re.compile(
     r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
@@ -1371,6 +1404,11 @@ _LOAD_BEARING_AMBIGUITIES = frozenset({
     "ambiguity:target_files_missing",
     "ambiguity:external_authority_scope",
 })
+_HONESTY_TOOL_PROVENANCE = frozenset({
+    ToolProvenance.mediated.value,
+    ToolProvenance.provider.value,
+    ToolProvenance.runtime.value,
+})
 
 
 def evaluate_pre_commit(
@@ -1428,6 +1466,15 @@ def evaluate_pre_commit(
         f"plan_advisory:missing:{label}"
         for label in _missing_plan_evidence(state)
     )
+    simulated_tool_use = _detect_simulated_tool_use(content, state)
+    if simulated_tool_use is not None:
+        return PreCommitVerdict(
+            committable=False,
+            reasons=(f"honesty:simulated_tool_use:{simulated_tool_use}",),
+            missing=("mediated_tool_result",),
+            evaluated_at=evaluated_at,
+        )
+
     contract_verdict = validate_completion(
         state.contract.to_dict(),
         state.evidence.to_dict(),
@@ -1450,6 +1497,26 @@ def evaluate_pre_commit(
         contract_verdict=contract_verdict,
         evaluated_at=evaluated_at,
     )
+
+
+def _detect_simulated_tool_use(content: str, state: ExecutionState) -> str | None:
+    for label, pattern in TOOL_ANNOUNCEMENT_PATTERNS:
+        if pattern.search(str(content or "")):
+            if _has_qualifying_tool_result(state):
+                return None
+            return label
+    return None
+
+
+def _has_qualifying_tool_result(state: ExecutionState) -> bool:
+    if any(entry.kind == "tool_result" for entry in state.evidence.entries()):
+        return True
+    for observation in state.tool_observations:
+        if observation.status == ToolStatus.error:
+            continue
+        if _enum_value(observation.provenance) in _HONESTY_TOOL_PROVENANCE:
+            return True
+    return False
 
 
 def map_pre_commit_verdict(

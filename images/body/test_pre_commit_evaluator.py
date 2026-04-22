@@ -175,7 +175,7 @@ def test_layer_6_records_plan_evidence_advisory_without_blocking():
     assert "plan_advisory:missing:artifact_path" in verdict.reasons
 
 
-def test_layer_7_blocks_needs_action_contract_verdict():
+def test_layer_8_blocks_needs_action_contract_verdict():
     state = _state(WorkContract(
         kind="task",
         requires_action=True,
@@ -190,7 +190,7 @@ def test_layer_7_blocks_needs_action_contract_verdict():
     assert verdict.contract_verdict["verdict"] == "needs_action"
 
 
-def test_layer_7_passes_completed_contract_verdict():
+def test_layer_8_passes_completed_contract_verdict_and_layer_9_succeeds():
     verdict = evaluate_pre_commit(_state(), content="Hello.", now=NOW)
 
     assert verdict.committable is True
@@ -198,7 +198,7 @@ def test_layer_7_passes_completed_contract_verdict():
     assert verdict.contract_verdict == {"verdict": "completed"}
 
 
-def test_layer_7_passes_blocked_contract_verdict():
+def test_layer_8_passes_blocked_contract_verdict_and_layer_9_succeeds():
     state = _state(WorkContract(
         kind="operator_blocked",
         requires_action=True,
@@ -239,6 +239,21 @@ def test_short_circuit_returns_first_failing_layer_only():
 
     assert verdict.committable is False
     assert verdict.reasons == ("halt:halted",)
+
+
+def test_honesty_layer_short_circuits_before_contract_validator():
+    state = _state(WorkContract(
+        kind="task",
+        requires_action=True,
+        required_evidence=["action_result_or_blocker"],
+    ))
+
+    verdict = evaluate_pre_commit(state, content="I searched the web and found the answer.", now=NOW)
+
+    assert verdict.committable is False
+    assert verdict.reasons == ("honesty:simulated_tool_use:I searched",)
+    assert verdict.missing == ("mediated_tool_result",)
+    assert verdict.contract_verdict == {}
 
 
 def test_evaluate_pre_commit_does_not_mutate_state():

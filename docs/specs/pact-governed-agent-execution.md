@@ -967,15 +967,24 @@ The general pre-commit evaluator now produces a typed `PreCommitVerdict` from
 runtime-owned `ExecutionState`. Its deterministic layers check, in order:
 state completeness, recovery halt or terminal status, blocking recovery next
 action, clarify/escalate strategy route, load-bearing ambiguity, approval
-decision evidence, plan expected evidence, and the existing contract-specific
-`validate_completion` verdict. The plan-evidence layer is advisory until Wave 2
-#3b because `body.py` does not execute plan steps directly yet. In this
-checkpoint `body.py` uses the evaluator as the runtime commit gate. A
-committable pre-commit verdict maps to the contract verdict (`completed` or
-`blocked`). A non-committable `contract:needs_action` verdict maps to
-`needs_action` and receives the existing one-time retry path; after that retry
-is exhausted, it terminates blocked with the original reason preserved. Every
-other non-committable reason terminates blocked without a retry.
+decision evidence, plan expected evidence, the Tier 1 honesty-check layer, and
+the existing contract-specific `validate_completion` verdict. The honesty layer
+uses the module-level `TOOL_ANNOUNCEMENT_PATTERNS` list in
+`images/body/pact_engine.py` to block simulated tool use when agent prose
+announces tool use but the runtime has no qualifying mediated tool-result
+evidence. Its reason label is
+`honesty:simulated_tool_use:<pattern>` with `mediated_tool_result` marked
+missing. This is Tier 1 of the honesty invariant; Tier 2 specific-claim
+grounding is deferred.
+
+The plan-evidence layer is advisory until Wave 2 #3b because `body.py` does not
+execute plan steps directly yet. In this checkpoint `body.py` uses the evaluator
+as the runtime commit gate. A committable pre-commit verdict maps to the
+contract verdict (`completed` or `blocked`). A non-committable
+`contract:needs_action` verdict maps to `needs_action` and receives the existing
+one-time retry path; after that retry is exhausted, it terminates blocked with
+the original reason preserved. Every other non-committable reason terminates
+blocked without a retry.
 
 The objective builder is deterministic and model-free. Activation content is
 used only as capped statement data and for ambiguity detection; it is not a
