@@ -49,7 +49,8 @@ from reflection import ReflectionState, build_reflection_prompt, parse_reflectio
 from task_tier import classify_task_tier, expand_cost_mode, get_active_features
 from tools import BuiltinToolRegistry, ServiceToolDispatcher, SkillsManager
 from work_contract import (
-    classify_work,
+    ActivationContext,
+    classify_activation,
     contract_prompt,
     extract_urls,
     format_blocked_completion,
@@ -328,6 +329,22 @@ def _pact_metadata_for_storage(payload: dict | None) -> dict | None:
         "observed": list(payload.get("observed") or []),
         "source_urls": list(payload.get("source_urls") or []),
         "tools": list(payload.get("tools") or []),
+    }
+
+
+def _pact_activation_for_storage(metadata: dict | None) -> dict | None:
+    if not isinstance(metadata, dict):
+        return None
+    activation = metadata.get("pact_activation")
+    if not isinstance(activation, dict):
+        return None
+    return {
+        "content": str(activation.get("content") or ""),
+        "match_type": str(activation.get("match_type") or ""),
+        "source": str(activation.get("source") or ""),
+        "channel": str(activation.get("channel") or ""),
+        "author": str(activation.get("author") or ""),
+        "mission_active": bool(activation.get("mission_active")),
     }
 
 
@@ -1217,7 +1234,15 @@ class Body:
             and self._active_mission
             and self._active_mission.get("status") == "active"
         )
-        work_contract = classify_work(summary, match_type=match_type, mission_active=bool(is_mission_task))
+        activation_context = ActivationContext.from_message(
+            summary,
+            match_type=match_type,
+            mission_active=bool(is_mission_task),
+            source=f"idle_{match_type}",
+            channel=channel,
+            author=author,
+        )
+        work_contract = classify_activation(activation_context)
 
         recent_messages = []
 
@@ -1299,6 +1324,7 @@ class Body:
                 "latest_message": summary,
                 "message_id": msg_id,
                 "match_type": match_type,
+                "pact_activation": activation_context.to_dict(),
                 "work_contract": work_contract.to_dict(),
                 "recent_message_ids": [
                     str(m.get("id", "")) for m in recent_messages
@@ -2988,6 +3014,7 @@ class Body:
                 "ttl_hours": cache_config.get("ttl_hours", 24),
                 "full_result": result_text,
                 "pact": _pact_metadata_for_storage(getattr(self, "_last_pact_verdict", None)),
+                "pact_activation": _pact_activation_for_storage(getattr(self, "_task_metadata", None)),
                 "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             },
         }
@@ -3877,6 +3904,9 @@ class Body:
         pact = _pact_metadata_for_storage(getattr(self, "_last_pact_verdict", None))
         if pact:
             frontmatter["pact"] = pact
+        pact_activation = _pact_activation_for_storage(getattr(self, "_task_metadata", None))
+        if pact_activation:
+            frontmatter["pact_activation"] = pact_activation
         artifact = (
             f"---\n"
             f"{yaml.safe_dump(frontmatter, sort_keys=False)}"

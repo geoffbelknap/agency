@@ -43,8 +43,14 @@ jobs:
       - name: Install containerd prerequisites
         if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.run == 'true' }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y uidmap rootlesskit containernetworking-plugins
+          sudo timeout 180s apt-get update \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=15 \
+            -o Acquire::https::Timeout=15
+          sudo timeout 180s apt-get install -y --no-install-recommends \
+            uidmap \
+            rootlesskit \
+            containernetworking-plugins
 
       - name: Install nerdctl and buildkit
         if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.run == 'true' }}

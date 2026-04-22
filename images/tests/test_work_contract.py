@@ -6,7 +6,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "body"))
 
 from images.body.work_contract import (
+    ActivationContext,
+    ContractDefinition,
+    EvaluationResult,
+    EvidenceView,
+    PactEvaluator,
     WorkContract,
+    classify_activation,
     build_contract,
     classify_work,
     contract_definition,
@@ -16,6 +22,136 @@ from images.body.work_contract import (
     list_contract_kinds,
     validate_completion,
 )
+
+
+def test_activation_context_from_message_normalizes_fields():
+    activation = ActivationContext.from_message(
+        None,
+        match_type="",
+        mission_active=1,
+        source=7,
+        channel="dm:test",
+        author="operator",
+    )
+
+    assert activation.content == ""
+    assert activation.match_type == "direct"
+    assert activation.mission_active is True
+    assert activation.source == "7"
+    assert activation.channel == "dm:test"
+    assert activation.author == "operator"
+    assert activation.to_dict() == {
+        "content": "",
+        "match_type": "direct",
+        "source": "7",
+        "channel": "dm:test",
+        "author": "operator",
+        "mission_active": True,
+    }
+
+
+def test_evaluation_result_serializes_compatibly():
+    assert EvaluationResult("completed").to_dict() == {"verdict": "completed"}
+    assert EvaluationResult(
+        "needs_action",
+        missing_evidence=("source_url",),
+        message="Missing source.",
+    ).to_dict() == {
+        "verdict": "needs_action",
+        "missing_evidence": ["source_url"],
+        "message": "Missing source.",
+    }
+
+
+def test_evidence_view_normalizes_runtime_evidence():
+    evidence = EvidenceView.from_dict({
+        "tool_results": [{"tool": "provider-web-search"}, "ignored"],
+        "observed": ["current_source", 7],
+        "source_urls": [
+            "https://nodejs.org/en,https://github.com/nodejs/node/releases.",
+            "https://nodejs.org/en",
+        ],
+    })
+
+    assert evidence.has_tool_or_observation() is True
+    assert evidence.tool_results == ({"tool": "provider-web-search"},)
+    assert evidence.observed == frozenset({"current_source", "7"})
+    assert evidence.source_urls == (
+        "https://nodejs.org/en",
+        "https://github.com/nodejs/node/releases",
+    )
+
+
+def test_pact_evaluator_uses_explicit_registry():
+    evaluator = PactEvaluator({
+        "custom": ContractDefinition(
+            kind="custom",
+            summary="Custom test contract.",
+            required_evidence=("custom_evidence",),
+            answer_requirements=("custom_answer",),
+        )
+    })
+
+    contract = evaluator.build_contract("custom", requires_action=True, reason="test")
+
+    assert evaluator.list_contract_kinds() == ["custom"]
+    assert contract.kind == "custom"
+    assert contract.required_evidence == ["custom_evidence"]
+    assert contract.answer_requirements == ["custom_answer"]
+    with pytest.raises(ValueError, match="unknown work contract kind"):
+        evaluator.contract_definition("current_info")
+
+
+def test_pact_evaluator_classifies_typed_activation_contexts():
+    evaluator = PactEvaluator()
+
+    current_info = evaluator.classify_activation(ActivationContext(
+        content="Find me MSFT's most recent SEC filing",
+        match_type="direct",
+        source="dm",
+        channel="dm:test",
+        author="operator",
+    ))
+    mission_task = evaluator.classify_activation(ActivationContext(
+        content="please review the mission status",
+        match_type="direct",
+        mission_active=True,
+    ))
+    coordination = evaluator.classify_activation(ActivationContext(
+        content="interesting background discussion",
+        match_type="interest",
+    ))
+
+    assert current_info.kind == "current_info"
+    assert mission_task.kind == "mission_task"
+    assert coordination.kind == "coordination"
+
+
+def test_classify_activation_wrapper_uses_default_evaluator():
+    contract = classify_activation(ActivationContext(
+        content="Find the latest Node.js release",
+        match_type="direct",
+        source="dm",
+    ))
+
+    assert contract.kind == "current_info"
+    assert contract.requires_action is True
+
+
+def test_pact_evaluator_returns_typed_evaluation_result():
+    evaluator = PactEvaluator()
+    contract = evaluator.classify_work("latest SEC filing").to_dict()
+
+    verdict = evaluator.evaluate_completion(
+        contract,
+        {"tool_results": [{"tool": "web_search", "ok": True}]},
+        "The source says X.",
+    )
+
+    assert isinstance(verdict, EvaluationResult)
+    assert verdict.verdict == "needs_action"
+    assert verdict.missing_evidence == ("source_url", "checked_date")
+    assert verdict.to_dict()["missing_evidence"] == ["source_url", "checked_date"]
 
 
 def test_contract_registry_contains_foundational_contracts():

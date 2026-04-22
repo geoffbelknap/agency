@@ -832,9 +832,51 @@ The verdict signal is audit evidence. It is not enforcement authority. The
 gateway records and displays the signal, but the agent cannot grant itself
 permission or mutate audit history by emitting it.
 
+### Runtime Evaluator
+
+The body runtime now uses a registry-backed `PactEvaluator` as the local
+evaluation boundary for PACT work. Existing module-level helper functions remain
+as compatibility wrappers, but registry lookup, contract construction,
+activation classification, prompt material, blocker formatting, and completion
+validation route through the evaluator.
+
+The current evaluator types are:
+
+```text
+ActivationContext
+EvidenceView
+EvaluationResult
+WorkContract
+ContractDefinition
+```
+
+`ActivationContext` captures intake context for contract selection:
+
+```text
+content
+match_type
+source
+channel
+author
+mission_active
+```
+
+The body intake path now constructs an `ActivationContext` for inbound work and
+classifies via `classify_activation`. The old `classify_work(content,
+match_type, mission_active)` helper remains available as a wrapper for existing
+tests and call sites.
+
+`EvidenceView` normalizes currently scattered runtime evidence fields into typed
+views of tool results, observed signals, and source URLs. It is not yet a durable
+ledger.
+
+`EvaluationResult` owns verdict serialization. Runtime callers still receive the
+same dictionary shape from `validate_completion`, preserving existing body,
+signal, and artifact behavior.
+
 ### Contract Registry
 
-The body runtime now has a named PACT contract registry. Contract definitions
+The body runtime has a named PACT contract registry. Contract definitions
 include:
 
 ```text
@@ -846,10 +888,9 @@ allowed_verdicts
 answer_contract
 ```
 
-The registry is currently implemented in the body runtime context and mirrored
-into the embedded runtime image context. Unknown action contract kinds fail
-closed: contract construction raises an error, and completion validation blocks
-with `known_contract_kind` as missing evidence.
+Unknown action contract kinds fail closed: contract construction raises an
+error, and completion validation blocks with `known_contract_kind` as missing
+evidence.
 
 Foundational registered PACT kinds are:
 
@@ -871,14 +912,15 @@ coordination
 chat
 ```
 
-The registry is not yet the final PACT engine. It is the first durable
-implementation point for named contracts, contract prompt material, and
+The registry and evaluator are not yet the final PACT engine. They are the first
+durable implementation point for named contracts, typed activation context,
+typed evidence views, typed verdict construction, contract prompt material, and
 fail-closed contract lookup.
 
 ### Result Artifact Metadata
 
 When the body runtime writes a saved result artifact under `.results/`, it writes
-YAML frontmatter that may include a `pact` object.
+YAML frontmatter that may include `pact` and `pact_activation` objects.
 
 Example:
 
@@ -904,11 +946,21 @@ pact:
     - https://nodejs.org/en/blog/release/v24.15.0
   tools:
     - provider-web-search
+pact_activation:
+  content: Find the latest stable Node.js release
+  match_type: direct
+  source: idle_direct
+  channel: dm-test-1
+  author: operator
+  mission_active: false
 ---
 ```
 
 Artifacts without PACT metadata remain valid. Malformed frontmatter is surfaced
 as metadata error where possible, but must not prevent listing other artifacts.
+`pact_activation` is additive audit context. It records the activation inputs
+that selected the contract; it is not authority and does not replace principal
+policy or gateway mediation.
 
 ### Result Metadata API
 
@@ -1000,8 +1052,9 @@ fields.
 - The durable evidence ledger is still represented by body runtime observations,
   provider metadata, audit events, and artifact frontmatter rather than a typed
   PACT ledger resource.
-- The named contract registry exists, but `current_info` is still the only
-  implemented contract family with meaningful answer gating.
+- The named contract registry and body-local `PactEvaluator` exist, but
+  `current_info` is still the only implemented contract family with meaningful
+  answer gating.
 - `code_change`, `file_artifact`, `external_side_effect`, and
   `operator_blocked` are registered but not yet broadly classified or validated
   by contract-specific evaluators.
@@ -1019,7 +1072,8 @@ Known gaps:
 - evidence is not yet a durable typed ledger
 - contracts are registered by name, but validation remains narrow and
   current-info oriented
-- activation sources are not represented uniformly
+- activation sources are represented for body message intake, but not yet across
+  every gateway activation source
 - planning is mostly prompt-level
 - trajectory evals are limited
 - artifact disposition is not unified
@@ -1063,10 +1117,9 @@ more ad hoc UI surfaces.
 
 Priority targets:
 
-1. **Central PACT evaluator.**
-   Move contract registry lookup, evidence validation, answer validation, and
-   verdict construction out of ad hoc body helper code into a backend-owned
-   PACT evaluator module with explicit body/runtime adapters.
+1. **Central PACT evaluator extraction.**
+   Move the body-local evaluator boundary toward a backend-owned PACT evaluator
+   module with explicit body/runtime adapters.
 
 2. **Typed evidence ledger.**
    Move from scattered observation fields toward durable evidence entries with

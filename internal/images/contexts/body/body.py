@@ -29,7 +29,8 @@ from interruption import InterruptionController
 from mcp_client import MCPClient
 from tools import BuiltinToolRegistry, ServiceToolDispatcher, SkillsManager
 from work_contract import (
-    classify_work,
+    ActivationContext,
+    classify_activation,
     contract_prompt,
     extract_urls,
     format_blocked_completion,
@@ -298,6 +299,22 @@ def _pact_metadata_for_storage(payload: dict | None) -> dict | None:
         "observed": list(payload.get("observed") or []),
         "source_urls": list(payload.get("source_urls") or []),
         "tools": list(payload.get("tools") or []),
+    }
+
+
+def _pact_activation_for_storage(metadata: dict | None) -> dict | None:
+    if not isinstance(metadata, dict):
+        return None
+    activation = metadata.get("pact_activation")
+    if not isinstance(activation, dict):
+        return None
+    return {
+        "content": str(activation.get("content") or ""),
+        "match_type": str(activation.get("match_type") or ""),
+        "source": str(activation.get("source") or ""),
+        "channel": str(activation.get("channel") or ""),
+        "author": str(activation.get("author") or ""),
+        "mission_active": bool(activation.get("mission_active")),
     }
 
 
@@ -1110,7 +1127,15 @@ class Body:
                  channel, author, match_type, matched_kws)
 
         mission_active = bool(self._active_mission and self._active_mission.get("status") == "active" and match_type == "direct")
-        work_contract = classify_work(summary, match_type=match_type, mission_active=mission_active)
+        activation_context = ActivationContext.from_message(
+            summary,
+            match_type=match_type,
+            mission_active=mission_active,
+            source=f"idle_{match_type}",
+            channel=channel,
+            author=author,
+        )
+        work_contract = classify_activation(activation_context)
 
         # Construct prompt based on match type
         if match_type == "direct":
@@ -1154,6 +1179,7 @@ class Body:
                 "latest_message": summary,
                 "message_id": msg_id,
                 "match_type": match_type,
+                "pact_activation": activation_context.to_dict(),
                 "work_contract": work_contract.to_dict(),
             },
         }
@@ -2902,6 +2928,9 @@ class Body:
         pact = _pact_metadata_for_storage(getattr(self, "_last_pact_verdict", None))
         if pact:
             frontmatter["pact"] = pact
+        pact_activation = _pact_activation_for_storage(getattr(self, "_task_metadata", None))
+        if pact_activation:
+            frontmatter["pact_activation"] = pact_activation
         artifact = (
             f"---\n"
             f"{yaml.safe_dump(frontmatter, sort_keys=False)}"
