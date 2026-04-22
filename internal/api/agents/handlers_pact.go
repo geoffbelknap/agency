@@ -83,6 +83,18 @@ type pactReportIntegrity struct {
 	Scope     string `json:"scope"`
 }
 
+type pactAuditReportVerification struct {
+	Valid        bool   `json:"valid"`
+	Agent        string `json:"agent"`
+	TaskID       string `json:"task_id"`
+	Algorithm    string `json:"algorithm"`
+	ExpectedHash string `json:"expected_hash,omitempty"`
+	ActualHash   string `json:"actual_hash"`
+	ReportID     string `json:"report_id"`
+	CheckedAt    string `json:"checked_at"`
+	Reason       string `json:"reason,omitempty"`
+}
+
 // getPactRun handles GET /api/v1/agents/{name}/pact/runs/{taskId}.
 //
 // The projection is assembled from existing durable surfaces: result artifact
@@ -125,6 +137,45 @@ func (h *handler) getPactAuditReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, report)
+}
+
+func (h *handler) verifyPactAuditReport(w http.ResponseWriter, r *http.Request) {
+	agentName := chi.URLParam(r, "name")
+	taskID := chi.URLParam(r, "taskId")
+	if invalidResultTaskID(taskID) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid task ID"})
+		return
+	}
+
+	projection, found := h.buildPactRunProjection(r.Context(), agentName, taskID)
+	if !found {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "PACT run not found"})
+		return
+	}
+
+	report, err := pactAuditReportFromRun(agentName, taskID, projection, time.Now().UTC())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to build PACT audit report"})
+		return
+	}
+	expectedHash := strings.TrimSpace(r.URL.Query().Get("hash"))
+	if expectedHash == "" {
+		expectedHash = report.Integrity.Hash
+	}
+	verification := pactAuditReportVerification{
+		Valid:        expectedHash == report.Integrity.Hash,
+		Agent:        agentName,
+		TaskID:       taskID,
+		Algorithm:    report.Integrity.Algorithm,
+		ExpectedHash: expectedHash,
+		ActualHash:   report.Integrity.Hash,
+		ReportID:     report.ReportID,
+		CheckedAt:    time.Now().UTC().Format(time.RFC3339),
+	}
+	if !verification.Valid {
+		verification.Reason = "hash_mismatch"
+	}
+	writeJSON(w, http.StatusOK, verification)
 }
 
 func (h *handler) buildPactRunProjection(ctx context.Context, agentName, taskID string) (pactRunProjection, bool) {

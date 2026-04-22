@@ -256,6 +256,86 @@ Changed parser.py.
 	}
 }
 
+func TestVerifyPactAuditReportChecksHash(t *testing.T) {
+	home := t.TempDir()
+	workspaceDir := filepath.Join(home, "agents", "agent", "workspace")
+	resultsDir := filepath.Join(workspaceDir, ".results")
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rs := writeRuntimeManifest(t, home, "agent", workspaceDir)
+	if err := os.WriteFile(filepath.Join(resultsDir, "task-123.md"), []byte(`---
+task_id: task-123
+agent: agent
+pact:
+  kind: code_change
+  verdict: completed
+  evidence_entries:
+    - kind: changed_file
+      producer: write_file
+      value: parser.py
+---
+
+Changed parser.py.
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	auditDir := filepath.Join(home, "audit", "agent")
+	if err := os.MkdirAll(auditDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	event := `{"timestamp":"2026-04-22T08:00:00Z","event":"agent_signal_pact_verdict","agent":"agent","task_id":"task-123","kind":"code_change","verdict":"completed"}`
+	if err := os.WriteFile(filepath.Join(auditDir, "gateway.jsonl"), []byte(event+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := &handler{deps: Deps{
+		Config: &config.Config{Home: home},
+		AgentManager: &orchestrate.AgentManager{
+			Home:    home,
+			Runtime: rs,
+		},
+	}}
+	run, found := h.buildPactRunProjection(context.Background(), "agent", "task-123")
+	if !found {
+		t.Fatal("buildPactRunProjection() found = false")
+	}
+	report, err := pactAuditReportFromRun("agent", "task-123", run, time.Date(2026, 4, 22, 1, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := pactRunRequest(http.MethodPost, "/api/v1/agents/agent/pact/runs/task-123/audit-report/verify?hash="+report.Integrity.Hash, "agent", "task-123")
+	rec := httptest.NewRecorder()
+	h.verifyPactAuditReport(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var validBody map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &validBody); err != nil {
+		t.Fatal(err)
+	}
+	if validBody["valid"] != true || validBody["actual_hash"] != report.Integrity.Hash {
+		t.Fatalf("unexpected valid verification: %#v", validBody)
+	}
+
+	req = pactRunRequest(http.MethodPost, "/api/v1/agents/agent/pact/runs/task-123/audit-report/verify?hash=bad", "agent", "task-123")
+	rec = httptest.NewRecorder()
+	h.verifyPactAuditReport(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var invalidBody map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &invalidBody); err != nil {
+		t.Fatal(err)
+	}
+	if invalidBody["valid"] != false || invalidBody["reason"] != "hash_mismatch" {
+		t.Fatalf("unexpected invalid verification: %#v", invalidBody)
+	}
+}
+
 func TestGetPactRunRejectsInvalidTaskID(t *testing.T) {
 	h := &handler{}
 	req := pactRunRequest(http.MethodGet, "/api/v1/agents/agent/pact/runs/../secret", "agent", "../secret")

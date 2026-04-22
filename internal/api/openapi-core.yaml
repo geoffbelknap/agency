@@ -742,6 +742,65 @@ paths:
                                 $ref: "#/components/schemas/ErrorResponse"
                 "404":
                     $ref: "#/components/responses/NotFound"
+    /agents/{name}/pact/runs/{taskId}/audit-report/verify:
+        post:
+            operationId: verifyPactAuditReport
+            summary: Verify the current PACT audit report hash for a task
+            description: |
+                Rebuilds the current PACT audit report from durable sources and compares
+                its deterministic SHA-256 hash with the optional hash query parameter.
+                If no hash is provided, the endpoint verifies the freshly rebuilt report
+                against its own integrity block.
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+                - name: taskId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: hash
+                  in: query
+                  required: false
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: PACT audit report verification result
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                required: [valid, agent, task_id, algorithm, actual_hash, report_id, checked_at]
+                                properties:
+                                    valid:
+                                        type: boolean
+                                    agent:
+                                        type: string
+                                    task_id:
+                                        type: string
+                                    algorithm:
+                                        type: string
+                                        enum: [sha256]
+                                    expected_hash:
+                                        type: string
+                                    actual_hash:
+                                        type: string
+                                    report_id:
+                                        type: string
+                                    checked_at:
+                                        type: string
+                                        format: date-time
+                                    reason:
+                                        type: string
+                "400":
+                    description: Invalid task ID
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/ErrorResponse"
+                "404":
+                    $ref: "#/components/responses/NotFound"
     /agents/{name}/config:
         get:
             operationId: getAgentConfig

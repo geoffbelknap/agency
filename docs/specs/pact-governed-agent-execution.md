@@ -1110,6 +1110,29 @@ hash scope intentionally excludes `generated_at` and the integrity block itself
 so the same underlying PACT run produces a stable report hash across repeated
 reads. This is an integrity report, not yet a cryptographic signature.
 
+The gateway also exposes report hash verification:
+
+```text
+POST /api/v1/agents/{name}/pact/runs/{taskId}/audit-report/verify?hash=<sha256>
+```
+
+Verification rebuilds the current report from durable sources and compares the
+current report hash with the supplied hash. If no hash is supplied, the endpoint
+verifies the freshly rebuilt report against its own integrity block. The result
+is read-only and machine-readable:
+
+```text
+valid
+agent
+task_id
+algorithm
+expected_hash
+actual_hash
+report_id
+checked_at
+reason
+```
+
 ### Log Correlation API
 
 The gateway decorates agent audit log responses with result-artifact correlation
@@ -1198,6 +1221,8 @@ fields.
   assembled from result artifact frontmatter and audit events.
 - PACT audit reports provide a deterministic integrity hash for the run,
   evidence entries, artifact references, and audit events assembled for a task.
+- PACT audit report verification recomputes the report hash from durable
+  sources and reports whether an expected hash matches the current report.
 - Result artifacts are task-oriented markdown files, not a general artifact
   model.
 - Log correlation is by `task_id`; it does not yet create a normalized execution
@@ -1281,8 +1306,9 @@ Priority targets:
    Initial admin audit responses now preserve PACT verdict evidence references
    and add result artifact links without mutating stored audit events. PACT run
    audit reports now assemble run, evidence, artifact, and verdict correlation
-   with a deterministic SHA-256 integrity hash. Next, add cryptographic signing
-   and verification semantics for exported reports.
+   with a deterministic SHA-256 integrity hash, plus hash verification for the
+   current report. Next, add cryptographic signing semantics for exported
+   reports.
 
 5. **Outcome contract validation beyond current information.**
    `file_artifact`, `code_change`, and `operator_blocked` now have deterministic
