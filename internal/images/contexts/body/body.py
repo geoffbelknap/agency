@@ -287,6 +287,10 @@ def _pact_verdict_payload(
         "artifact_paths": list(evidence.get("artifact_paths") or []),
         "changed_files": list(evidence.get("changed_files") or []),
         "validation_results": list(evidence.get("validation_results") or []),
+        "evidence_entries": [
+            dict(item) for item in evidence.get("entries") or []
+            if isinstance(item, dict)
+        ],
         "tools": tools,
     }
 
@@ -305,6 +309,10 @@ def _pact_metadata_for_storage(payload: dict | None) -> dict | None:
         "artifact_paths": list(payload.get("artifact_paths") or []),
         "changed_files": list(payload.get("changed_files") or []),
         "validation_results": list(payload.get("validation_results") or []),
+        "evidence_entries": [
+            dict(item) for item in payload.get("evidence_entries") or []
+            if isinstance(item, dict)
+        ],
         "tools": list(payload.get("tools") or []),
     }
 

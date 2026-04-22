@@ -851,10 +851,11 @@ permission or mutate audit history by emitting it.
 ### Runtime Evaluator
 
 The body runtime now uses a registry-backed `PactEvaluator` as the local
-evaluation boundary for PACT work. Existing module-level helper functions remain
-as compatibility wrappers, but registry lookup, contract construction,
-activation classification, prompt material, blocker formatting, and completion
-validation route through the evaluator.
+evaluation boundary for PACT work. Core contract definitions, activation
+classification, evidence modeling, prompt material, blocker formatting, and
+completion validation live in the body-local `pact_engine` module. Existing
+`work_contract` module-level helper functions remain as compatibility wrappers
+while body integration moves toward explicit runtime adapters.
 
 The current evaluator types are:
 
@@ -890,6 +891,12 @@ evidence shape.
 
 `EvidenceView` is the evaluator read-side projection of evidence fields into
 tool results, observed signals, and source URLs. It is not yet a durable ledger.
+
+PACT verdict audit signals and result artifact frontmatter now carry
+`evidence_entries` alongside the legacy flattened evidence fields. These entries
+preserve producer and typed evidence shape through existing durable audit and
+artifact surfaces. They are an incremental durable projection, not yet a
+standalone typed evidence ledger resource.
 
 `EvaluationResult` owns verdict serialization. Runtime callers still receive the
 same dictionary shape from `validate_completion`, preserving existing body,
@@ -1019,15 +1026,69 @@ The markdown result endpoint remains the canonical artifact body and supports
 download semantics. Metadata endpoints are read-only projections over saved
 artifacts.
 
+### PACT Run Projection API
+
+The gateway exposes an initial read-only PACT run projection keyed by agent and
+task ID:
+
+```text
+GET /api/v1/agents/{name}/pact/runs/{taskId}
+```
+
+The projection joins existing durable sources without creating a new authority
+or storage layer:
+
+```text
+task_id
+agent
+activation:
+  content
+  match_type
+  source
+  channel
+  author
+  mission_active
+contract:
+  kind
+  required_evidence
+  answer_requirements
+  allowed_terminal_states
+evidence:
+  observed
+  source_urls
+  artifact_paths
+  changed_files
+  validation_results
+  evidence_entries
+  tools
+verdict:
+  verdict
+  missing_evidence
+outcome
+artifact:
+  task_id
+  url
+  metadata_error
+audit_events
+sources
+```
+
+Current sources are result artifact frontmatter and append-only audit events.
+The projection exists so operators and future tooling can inspect the work
+contract, observed evidence, terminal verdict, linked result artifact, and
+supporting audit records in one place. Persisted audit JSONL and result
+artifacts remain the underlying records of fact for this implementation slice.
+
 ### Log Correlation API
 
 The gateway decorates agent audit log responses with result-artifact correlation
 when a log event's `task_id` matches a saved result artifact.
 
-Endpoint:
+Endpoints:
 
 ```text
 GET /api/v1/agents/{name}/logs
+GET /api/v1/admin/audit
 ```
 
 Additive fields:
@@ -1040,7 +1101,10 @@ result:
 ```
 
 This decoration is response-time only. It must not mutate stored audit JSONL.
-Audit remains append-only from the perspective of persisted events.
+Audit remains append-only from the perspective of persisted events. Admin audit
+queries preserve typed PACT `evidence_entries` already present on verdict events
+and add result links when task artifacts exist, so audit export consumers do not
+need to reconstruct basic PACT/result correlation from UI-only state.
 
 ### Operator Surfaces
 
@@ -1061,6 +1125,8 @@ fields.
 - Enforcement remains outside the agent boundary.
 - PACT verdicts are evidence signals, not authority.
 - Audit logs are not mutated when decorated with result links.
+- Admin audit exports include additive PACT/result correlation fields when
+  result artifacts exist.
 - Result metadata is additive and optional.
 - Legacy artifacts without PACT frontmatter continue to work.
 - Malformed metadata must not fail unrelated artifact listings.
@@ -1071,12 +1137,14 @@ fields.
 ### Current Limits
 
 - The body runtime now records provider and local tool observations through a
-  typed in-memory `EvidenceLedger`, but the durable evidence ledger is still
-  represented by runtime observations, provider metadata, audit events, and
-  artifact frontmatter rather than a typed PACT ledger resource.
-- The named contract registry and body-local `PactEvaluator` exist, and
-  `current_info`, `file_artifact`, `code_change`, and `operator_blocked` now
-  have deterministic completion gates.
+  typed in-memory `EvidenceLedger`, and carries typed `evidence_entries` through
+  PACT verdict audit signals and result artifact frontmatter. The durable
+  evidence ledger is still represented by existing audit/artifact surfaces
+  rather than a standalone typed PACT ledger resource.
+- The named contract registry and body-local `PactEvaluator` exist in a
+  dedicated `pact_engine` boundary, and `current_info`, `file_artifact`,
+  `code_change`, and `operator_blocked` now have deterministic completion
+  gates.
 - `external_side_effect` is registered but not yet broadly classified or
   validated by a contract-specific evaluator.
 - File-artifact work is classified for explicit artifact-producing requests.
@@ -1095,13 +1163,14 @@ fields.
 - Contract-validated blocked completions are terminal in the body runtime: they
   commit task completion with a blocked terminal outcome instead of entering the
   generic "call complete_task" retry path.
-- PACT runs are not yet first-class gateway resources.
+- PACT runs now have an initial read-only gateway projection keyed by task ID,
+  assembled from result artifact frontmatter and audit events.
 - Result artifacts are task-oriented markdown files, not a general artifact
   model.
 - Log correlation is by `task_id`; it does not yet create a normalized execution
   graph.
-- Audit export does not yet include enriched PACT/result correlation as a
-  separate report shape.
+- Audit export includes initial enriched PACT/result correlation on log-entry
+  responses, but not yet a separate signed PACT report shape.
 
 Known gaps:
 
@@ -1157,20 +1226,28 @@ more ad hoc UI surfaces.
 Priority targets:
 
 1. **Central PACT evaluator extraction.**
-   Move the body-local evaluator boundary toward a backend-owned PACT evaluator
-   module with explicit body/runtime adapters.
+   The first extraction step is complete inside the body runtime: core
+   classification, evidence, and evaluation logic now lives in `pact_engine`,
+   with `work_contract` preserved as a compatibility facade. Next, move this
+   boundary toward a backend-owned package with explicit body/runtime adapters.
 
 2. **Durable typed evidence ledger.**
-   Promote the body runtime's in-memory `EvidenceLedger` into durable evidence
-   entries with producer, provenance, visibility, and contract relevance.
+   Typed `evidence_entries` now survive through PACT verdict audit signals and
+   result artifact frontmatter. Next, promote them into a standalone ledger with
+   stable IDs, producer, provenance, visibility, contract relevance, and export
+   semantics.
 
 3. **First-class PACT run resource.**
-   Expose an execution/run view keyed by activation or task ID that joins
-   objective, contract, evidence, verdict, artifact, and audit references.
+   Promote the initial read-only task projection into a typed execution/run
+   resource with stable schema ownership, activation IDs, objective references,
+   contract versions, evidence references, verdict history, artifacts, and audit
+   references.
 
 4. **Audit export correlation.**
-   Include PACT verdicts, result artifacts, and evidence references in signed
-   audit exports without requiring UI reconstruction.
+   Initial admin audit responses now preserve PACT verdict evidence references
+   and add result artifact links without mutating stored audit events. Next,
+   provide a separate signed PACT audit report shape with run, evidence,
+   artifact, and verdict correlation.
 
 5. **Outcome contract validation beyond current information.**
    `file_artifact`, `code_change`, and `operator_blocked` now have deterministic

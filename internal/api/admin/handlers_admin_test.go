@@ -474,3 +474,106 @@ func TestAdminAuditAllReturnsEmptyWhenNoAuditLogs(t *testing.T) {
 		t.Fatalf("events len = %d, want 0", len(events))
 	}
 }
+
+func TestAdminAuditAnnotatesPACTResultArtifacts(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	workspaceDir := filepath.Join(home, "agents", "agent", "workspace")
+	resultsDir := filepath.Join(workspaceDir, ".results")
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(resultsDir, "task-123.md"), []byte("result"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rs := writeAdminRuntimeManifest(t, home, "agent", workspaceDir)
+	audit := logs.NewWriter(home)
+	if err := audit.Write("agent", "agent_signal_pact_verdict", map[string]interface{}{
+		"task_id": "task-123",
+		"verdict": "completed",
+		"evidence_entries": []map[string]interface{}{
+			{"kind": "changed_file", "producer": "write_file", "value": "parser.py"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	router := chi.NewRouter()
+	RegisterRoutes(router, Deps{
+		Config: &config.Config{Home: home},
+		Audit:  audit,
+		AgentManager: &orchestrate.AgentManager{
+			Home:    home,
+			Runtime: rs,
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit?agent=agent", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var events []map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &events); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events len = %d, want 1: %#v", len(events), events)
+	}
+	if events[0]["has_result"] != true {
+		t.Fatalf("has_result = %#v, want true", events[0]["has_result"])
+	}
+	result := events[0]["result"].(map[string]interface{})
+	if result["url"] != "/api/v1/agents/agent/results/task-123" {
+		t.Fatalf("result.url = %#v", result["url"])
+	}
+	evidenceEntries := events[0]["evidence_entries"].([]interface{})
+	if len(evidenceEntries) != 1 {
+		t.Fatalf("evidence_entries len = %d, want 1", len(evidenceEntries))
+	}
+}
+
+func writeAdminRuntimeManifest(t *testing.T, home, agentName, workspaceDir string) *orchestrate.RuntimeSupervisor {
+	t.Helper()
+	agentDir := filepath.Join(home, "agents", agentName)
+	stateDir := filepath.Join(agentDir, "state")
+	runtimeDir := filepath.Join(agentDir, "runtime")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(runtimeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("uuid: ag_"+agentName+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tokenFile := filepath.Join(stateDir, "token.yaml")
+	if err := os.WriteFile(tokenFile, []byte("- key: \"abc\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rs := orchestrate.NewRuntimeSupervisor(home, "0.1.0", "", "build-1", "probe", nil, nil, nil, nil)
+	spec := runtimecontract.RuntimeSpec{
+		RuntimeID: agentName,
+		AgentID:   "ag_" + agentName,
+		Backend:   "probe",
+		Transport: runtimecontract.RuntimeTransportSpec{
+			Enforcer: runtimecontract.EnforcerTransportSpec{
+				Type:     runtimecontract.TransportTypeLoopbackHTTP,
+				Endpoint: "http://127.0.0.1:9911",
+				TokenRef: tokenFile,
+			},
+		},
+		Storage: runtimecontract.RuntimeStorageSpec{
+			ConfigPath:    agentDir,
+			StatePath:     stateDir,
+			WorkspacePath: workspaceDir,
+		},
+	}
+	if err := rs.Reconcile(context.Background(), spec); err != nil {
+		t.Fatal(err)
+	}
+	return rs
+}

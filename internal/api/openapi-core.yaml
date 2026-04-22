@@ -524,6 +524,144 @@ paths:
                     $ref: "#/components/responses/NotFound"
                 "422":
                     description: Invalid result metadata
+    /agents/{name}/pact/runs/{taskId}:
+        get:
+            operationId: getPactRun
+            summary: Get a read-only PACT run projection for a task
+            description: |
+                Assembles a PACT run view from existing durable sources such as result
+                artifact frontmatter and append-only audit events. This endpoint is a
+                projection only; it does not create a new authoritative PACT storage
+                layer.
+            tags: [Agents]
+            parameters:
+                - $ref: "#/components/parameters/agentName"
+                - name: taskId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: PACT run projection assembled from result and audit evidence
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                required: [task_id, agent, audit_events, sources]
+                                properties:
+                                    task_id:
+                                        type: string
+                                    agent:
+                                        type: string
+                                    activation:
+                                        type: object
+                                        nullable: true
+                                        properties:
+                                            content:
+                                                type: string
+                                            match_type:
+                                                type: string
+                                            source:
+                                                type: string
+                                            channel:
+                                                type: string
+                                            author:
+                                                type: string
+                                            mission_active:
+                                                type: boolean
+                                    contract:
+                                        type: object
+                                        nullable: true
+                                        properties:
+                                            kind:
+                                                type: string
+                                            required_evidence:
+                                                type: array
+                                                items:
+                                                    type: string
+                                            answer_requirements:
+                                                type: array
+                                                items:
+                                                    type: string
+                                            allowed_terminal_states:
+                                                type: array
+                                                items:
+                                                    type: string
+                                    evidence:
+                                        type: object
+                                        nullable: true
+                                        properties:
+                                            observed:
+                                                type: array
+                                                items:
+                                                    type: string
+                                            source_urls:
+                                                type: array
+                                                items:
+                                                    type: string
+                                            artifact_paths:
+                                                type: array
+                                                items:
+                                                    type: string
+                                            changed_files:
+                                                type: array
+                                                items:
+                                                    type: string
+                                            validation_results:
+                                                type: array
+                                                items:
+                                                    type: object
+                                                    additionalProperties: true
+                                            evidence_entries:
+                                                type: array
+                                                items:
+                                                    type: object
+                                                    additionalProperties: true
+                                            tools:
+                                                type: array
+                                                items:
+                                                    type: string
+                                    verdict:
+                                        type: object
+                                        nullable: true
+                                        properties:
+                                            verdict:
+                                                type: string
+                                            missing_evidence:
+                                                type: array
+                                                items:
+                                                    type: string
+                                    outcome:
+                                        type: string
+                                    artifact:
+                                        type: object
+                                        nullable: true
+                                        required: [task_id, url]
+                                        properties:
+                                            task_id:
+                                                type: string
+                                            url:
+                                                type: string
+                                            metadata_error:
+                                                type: string
+                                    audit_events:
+                                        type: array
+                                        items:
+                                            type: object
+                                            additionalProperties: true
+                                    sources:
+                                        type: array
+                                        items:
+                                            type: string
+                "400":
+                    description: Invalid task ID
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/ErrorResponse"
+                "404":
+                    $ref: "#/components/responses/NotFound"
     /agents/{name}/config:
         get:
             operationId: getAgentConfig
@@ -1932,7 +2070,9 @@ paths:
             summary: Query audit logs
             description: |
                 With action=stats returns aggregate statistics. Otherwise returns log
-                entries filtered by agent, since, and until.
+                entries filtered by agent, since, and until. Log-entry responses are
+                read-time projections over append-only audit JSONL and may include
+                result-artifact correlation fields when a task result exists.
             tags: [Admin]
             x-agency-tier: core
             x-agency-stability: supported
@@ -1960,8 +2100,28 @@ paths:
                     content:
                         application/json:
                             schema:
-                                type: object
-                                additionalProperties: true
+                                oneOf:
+                                    - type: object
+                                      additionalProperties: true
+                                    - type: array
+                                      items:
+                                        type: object
+                                        additionalProperties: true
+                                        properties:
+                                            has_result:
+                                                type: boolean
+                                            result:
+                                                type: object
+                                                properties:
+                                                    task_id:
+                                                        type: string
+                                                    url:
+                                                        type: string
+                                            evidence_entries:
+                                                type: array
+                                                items:
+                                                    type: object
+                                                    additionalProperties: true
     /admin/egress:
         get:
             operationId: adminEgress
