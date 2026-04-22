@@ -286,6 +286,21 @@ def _pact_verdict_payload(
     }
 
 
+def _pact_metadata_for_storage(payload: dict | None) -> dict | None:
+    if not isinstance(payload, dict):
+        return None
+    return {
+        "kind": payload.get("kind"),
+        "verdict": payload.get("verdict"),
+        "required_evidence": list(payload.get("required_evidence") or []),
+        "answer_requirements": list(payload.get("answer_requirements") or []),
+        "missing_evidence": list(payload.get("missing_evidence") or []),
+        "observed": list(payload.get("observed") or []),
+        "source_urls": list(payload.get("source_urls") or []),
+        "tools": list(payload.get("tools") or []),
+    }
+
+
 def _sanitize_outbound_content(content: str) -> str:
     """Fail closed when model text tries to impersonate a tool call."""
     if not SIMULATED_TOOL_TAG_RE.search(content or ""):
@@ -1625,6 +1640,7 @@ class Body:
         self._simulated_tool_retry_sent = False
         self._work_contract = self._task_metadata.get("work_contract") if isinstance(self._task_metadata, dict) else None
         self._work_evidence = {"tool_results": [], "observed": []}
+        self._last_pact_verdict = None
         self._work_contract_retry_sent = False
 
         # Pre-task budget check
@@ -2421,14 +2437,16 @@ class Body:
         contract = getattr(self, "_work_contract", None)
         if not isinstance(contract, dict) or not contract.get("requires_action"):
             return
+        payload = _pact_verdict_payload(
+            task_id,
+            contract,
+            getattr(self, "_work_evidence", None),
+            verdict,
+        )
+        self._last_pact_verdict = payload
         self._emit_signal(
             "pact_verdict",
-            _pact_verdict_payload(
-                task_id,
-                contract,
-                getattr(self, "_work_evidence", None),
-                verdict,
-            ),
+            payload,
         )
 
     def _record_work_tool_result(self, tool_name: str, result: str) -> None:
@@ -2875,12 +2893,18 @@ class Body:
         via GET /agents/{name}/results/{task_id}.
         """
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        frontmatter = {
+            "task_id": task_id,
+            "agent": self.agent_name,
+            "timestamp": timestamp,
+            "turns": turns,
+        }
+        pact = _pact_metadata_for_storage(getattr(self, "_last_pact_verdict", None))
+        if pact:
+            frontmatter["pact"] = pact
         artifact = (
             f"---\n"
-            f"task_id: {task_id}\n"
-            f"agent: {self.agent_name}\n"
-            f"timestamp: {timestamp}\n"
-            f"turns: {turns}\n"
+            f"{yaml.safe_dump(frontmatter, sort_keys=False)}"
             f"---\n\n"
             f"# Task Result: {task_id}\n\n"
             f"**Request:** {task_content}\n\n"

@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "body"))
 from images.body.body import (
     Body,
     _activation_task_id,
+    _pact_metadata_for_storage,
     _pact_verdict_payload,
     _provider_tool_definitions,
     _provider_tool_prompt_section,
@@ -206,6 +207,31 @@ def test_pact_verdict_payload_summarizes_contract_and_evidence():
     }
 
 
+def test_pact_metadata_for_storage_drops_task_id_but_keeps_audit_fields():
+    metadata = _pact_metadata_for_storage({
+        "task_id": "task-123",
+        "kind": "current_info",
+        "verdict": "completed",
+        "required_evidence": ["current_source_or_blocker"],
+        "answer_requirements": ["source_url"],
+        "missing_evidence": [],
+        "observed": ["current_source"],
+        "source_urls": ["https://nodejs.org/en"],
+        "tools": ["provider-web-search"],
+    })
+
+    assert metadata == {
+        "kind": "current_info",
+        "verdict": "completed",
+        "required_evidence": ["current_source_or_blocker"],
+        "answer_requirements": ["source_url"],
+        "missing_evidence": [],
+        "observed": ["current_source"],
+        "source_urls": ["https://nodejs.org/en"],
+        "tools": ["provider-web-search"],
+    }
+
+
 def test_emit_pact_verdict_skips_non_action_contract():
     body = Body.__new__(Body)
     body._work_contract = {"kind": "chat", "requires_action": False}
@@ -249,6 +275,67 @@ def test_emit_pact_verdict_emits_structured_signal():
             "tools": ["provider-web-search"],
         },
     )]
+
+
+def test_save_result_artifact_includes_pact_frontmatter(tmp_path):
+    body = Body.__new__(Body)
+    body.workspace_dir = tmp_path
+    body.agent_name = "scout"
+    body._last_pact_verdict = {
+        "task_id": "task-123",
+        "kind": "current_info",
+        "verdict": "completed",
+        "required_evidence": ["current_source_or_blocker"],
+        "answer_requirements": ["source_url", "checked_date"],
+        "missing_evidence": [],
+        "observed": ["current_source"],
+        "source_urls": ["https://nodejs.org/en/blog/release/v24.15.0"],
+        "tools": ["provider-web-search"],
+    }
+
+    body._save_result_artifact("task-123", "Find latest Node.js", "Node.js 24.15.0", 2)
+
+    artifact = (tmp_path / ".results" / "task-123.md").read_text()
+    frontmatter = artifact.split("---", 2)[1]
+    assert "pact:" in frontmatter
+    assert "kind: current_info" in frontmatter
+    assert "verdict: completed" in frontmatter
+    assert "https://nodejs.org/en/blog/release/v24.15.0" in frontmatter
+
+
+def test_write_cache_entry_includes_pact_metadata():
+    posted = []
+
+    class _Client:
+        def post(self, url, json, timeout):
+            posted.append((url, json, timeout))
+
+    body = Body.__new__(Body)
+    body.agent_name = "scout"
+    body._active_mission = {}
+    body._knowledge_url = "http://knowledge"
+    body._http_client = _Client()
+    body._tools_used_this_task = set()
+    body._get_cache_config = lambda: {"enabled": True, "ttl_hours": 24, "scope": "agent"}
+    body._current_response_policy_hash = lambda: "policy123"
+    body._last_pact_verdict = {
+        "task_id": "task-123",
+        "kind": "current_info",
+        "verdict": "completed",
+        "required_evidence": ["current_source_or_blocker"],
+        "answer_requirements": ["source_url"],
+        "missing_evidence": [],
+        "observed": ["current_source"],
+        "source_urls": ["https://nodejs.org/en"],
+        "tools": ["provider-web-search"],
+    }
+
+    body._write_cache_entry("task-123", "Find latest Node.js", "Node.js 24.15.0", {})
+
+    pact = posted[0][1]["nodes"][0]["properties"]["pact"]
+    assert pact["kind"] == "current_info"
+    assert pact["verdict"] == "completed"
+    assert pact["source_urls"] == ["https://nodejs.org/en"]
 
 
 def test_stream_records_provider_tool_evidence_and_ignores_empty_tool_delta():
