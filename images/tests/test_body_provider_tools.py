@@ -17,7 +17,7 @@ from images.body.body import (
     _sanitize_current_info_answer,
     _sanitize_outbound_content,
 )
-from work_contract import EvidenceLedger
+from work_contract import EvidenceLedger, classify_work
 
 
 class _EmptyBuiltins:
@@ -442,3 +442,20 @@ def test_stream_records_provider_tool_evidence_and_ignores_empty_tool_delta():
     assert body._work_evidence["source_urls"] == ["https://example.com/source"]
     assert isinstance(body._work_evidence_ledger, EvidenceLedger)
     assert body._work_evidence_ledger.source_urls() == ["https://example.com/source"]
+
+
+def test_blocked_completion_is_terminal_outcome():
+    body = Body.__new__(Body)
+    body._work_contract = classify_work("Find the latest SEC filing").to_dict()
+    body._work_evidence = {"tool_results": [], "observed": []}
+    body._current_task_id = "task-123"
+    body._task_complete_called = False
+    body._task_terminal_outcome = None
+    body._emit_pact_verdict = lambda _task_id, _verdict: None
+
+    result = json.loads(body._handle_complete_task("I cannot access a current source."))
+
+    assert result["status"] == "complete"
+    assert body._task_complete_called is True
+    assert body._task_terminal_outcome == "blocked"
+    assert "without guessing" in body._task_result_summary

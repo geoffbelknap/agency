@@ -1669,6 +1669,7 @@ class Body:
         self._work_evidence_ledger = EvidenceLedger()
         self._work_evidence = self._work_evidence_ledger.to_dict()
         self._last_pact_verdict = None
+        self._task_terminal_outcome = None
         self._work_contract_retry_sent = False
 
         # Pre-task budget check
@@ -1935,13 +1936,15 @@ class Body:
                         getattr(self, "_work_evidence", None),
                         content,
                     )
+                    self._commit_pact_terminal_outcome("blocked", content)
                 content = _sanitize_current_info_answer(getattr(self, "_work_contract", None), content)
 
             if finish_reason == "stop" and self._task_complete_called:
                 # Agent explicitly called complete_task — honor it.
                 # Check channel posting reminder first.
                 if (
-                    not self._channel_reminder_sent
+                    getattr(self, "_task_terminal_outcome", None) != "blocked"
+                    and not self._channel_reminder_sent
                     and self._has_channel_posting_intent(task_content)
                 ):
                     self._channel_reminder_sent = True
@@ -1989,6 +1992,7 @@ class Body:
                 # signals, which report active_task=null after task completion.
                 self._channel_reminder_sent = False
                 self._checkpoint_injected = False
+                self._task_terminal_outcome = None
                 log.info("Task %s complete (%d turns)", task_id, turn + 1)
                 break
             elif finish_reason == "stop":
@@ -2435,6 +2439,7 @@ class Body:
         self._current_task_id = None
         self._channel_reminder_sent = False
         self._checkpoint_injected = False
+        self._task_terminal_outcome = None
         log.info("Task %s complete via complete_task (%d turns)", task_id, turn + 1)
 
     def _handle_complete_task(self, summary: str) -> str:
@@ -2457,9 +2462,18 @@ class Body:
                 getattr(self, "_work_evidence", None),
                 summary,
             )
+            self._commit_pact_terminal_outcome("blocked", summary)
+        else:
+            self._commit_pact_terminal_outcome("completed", summary)
         summary = _sanitize_current_info_answer(getattr(self, "_work_contract", None), summary)
-        self._task_complete_called = True
+        self._task_result_summary = summary
         return json.dumps({"status": "complete", "summary": summary})
+
+    def _commit_pact_terminal_outcome(self, outcome: str, summary: str) -> None:
+        """Mark a contract-validated terminal outcome as ready for runtime commit."""
+        self._task_complete_called = True
+        self._task_terminal_outcome = outcome
+        self._task_result_summary = summary
 
     def _emit_pact_verdict(self, task_id: str, verdict: dict) -> None:
         contract = getattr(self, "_work_contract", None)

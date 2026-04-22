@@ -1080,6 +1080,9 @@ fields.
 - `code_change`, `file_artifact`, `external_side_effect`, and
   `operator_blocked` are registered but not yet broadly classified or validated
   by contract-specific evaluators.
+- Contract-validated blocked completions are terminal in the body runtime: they
+  commit task completion with a blocked terminal outcome instead of entering the
+  generic "call complete_task" retry path.
 - PACT runs are not yet first-class gateway resources.
 - Result artifacts are task-oriented markdown files, not a general artifact
   model.
@@ -1090,7 +1093,6 @@ fields.
 
 Known gaps:
 
-- blocked outcomes may publish without reliably finalizing current task state
 - evidence has a typed runtime write model, but not a durable typed ledger
 - contracts are registered by name, but validation remains narrow and
   current-info oriented
@@ -1116,7 +1118,8 @@ Scope:
    entries. Done for the body runtime's in-memory ledger; durable storage remains
    future work.
 5. Treat current-info answer requirements as the first outcome contract.
-6. Ensure `blocked` is a terminal outcome that finalizes task state.
+6. Ensure `blocked` is a terminal outcome that finalizes task state. Done for
+   body runtime work-contract validation.
 7. Add trajectory tests for:
    - current-info answer succeeds with source evidence
    - current-info answer blocks without evidence
