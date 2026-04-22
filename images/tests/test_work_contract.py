@@ -6,6 +6,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "body"))
 
 from images.body.work_contract import (
+    ActivationContext,
     ContractDefinition,
     EvaluationResult,
     EvidenceView,
@@ -20,6 +21,24 @@ from images.body.work_contract import (
     list_contract_kinds,
     validate_completion,
 )
+
+
+def test_activation_context_from_message_normalizes_fields():
+    activation = ActivationContext.from_message(
+        None,
+        match_type="",
+        mission_active=1,
+        source=7,
+        channel="dm:test",
+        author="operator",
+    )
+
+    assert activation.content == ""
+    assert activation.match_type == "direct"
+    assert activation.mission_active is True
+    assert activation.source == "7"
+    assert activation.channel == "dm:test"
+    assert activation.author == "operator"
 
 
 def test_evaluation_result_serializes_compatibly():
@@ -72,6 +91,31 @@ def test_pact_evaluator_uses_explicit_registry():
     assert contract.answer_requirements == ["custom_answer"]
     with pytest.raises(ValueError, match="unknown work contract kind"):
         evaluator.contract_definition("current_info")
+
+
+def test_pact_evaluator_classifies_typed_activation_contexts():
+    evaluator = PactEvaluator()
+
+    current_info = evaluator.classify_activation(ActivationContext(
+        content="Find me MSFT's most recent SEC filing",
+        match_type="direct",
+        source="dm",
+        channel="dm:test",
+        author="operator",
+    ))
+    mission_task = evaluator.classify_activation(ActivationContext(
+        content="please review the mission status",
+        match_type="direct",
+        mission_active=True,
+    ))
+    coordination = evaluator.classify_activation(ActivationContext(
+        content="interesting background discussion",
+        match_type="interest",
+    ))
+
+    assert current_info.kind == "current_info"
+    assert mission_task.kind == "mission_task"
+    assert coordination.kind == "coordination"
 
 
 def test_pact_evaluator_returns_typed_evaluation_result():

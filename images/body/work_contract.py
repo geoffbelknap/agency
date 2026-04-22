@@ -161,6 +161,36 @@ class WorkContract:
 
 
 @dataclass(frozen=True)
+class ActivationContext:
+    content: str = ""
+    match_type: str = "direct"
+    source: str = ""
+    channel: str = ""
+    author: str = ""
+    mission_active: bool = False
+
+    @classmethod
+    def from_message(
+        cls,
+        content: str,
+        *,
+        match_type: str = "direct",
+        mission_active: bool = False,
+        source: str = "",
+        channel: str = "",
+        author: str = "",
+    ) -> "ActivationContext":
+        return cls(
+            content=str(content or ""),
+            match_type=str(match_type or "direct"),
+            source=str(source or ""),
+            channel=str(channel or ""),
+            author=str(author or ""),
+            mission_active=bool(mission_active),
+        )
+
+
+@dataclass(frozen=True)
 class EvidenceView:
     tool_results: tuple[dict, ...] = ()
     observed: frozenset[str] = frozenset()
@@ -243,9 +273,9 @@ class PactEvaluator:
             summary=definition.summary,
         )
 
-    def classify_work(self, content: str, match_type: str = "direct", mission_active: bool = False) -> WorkContract:
-        text = str(content or "").strip()
-        if mission_active:
+    def classify_activation(self, activation: ActivationContext) -> WorkContract:
+        text = str(activation.content or "").strip()
+        if activation.mission_active:
             return self.build_contract(
                 "mission_task",
                 requires_action=True,
@@ -267,9 +297,18 @@ class PactEvaluator:
                 requires_action=True,
                 reason="action verb detected",
             )
-        if match_type != "direct":
+        if activation.match_type != "direct":
             return self.build_contract("coordination", requires_action=False, reason="non-direct channel signal")
         return self.build_contract("chat", requires_action=False, reason="no action requirement detected")
+
+    def classify_work(self, content: str, match_type: str = "direct", mission_active: bool = False) -> WorkContract:
+        return self.classify_activation(
+            ActivationContext.from_message(
+                content,
+                match_type=match_type,
+                mission_active=mission_active,
+            )
+        )
 
     def contract_prompt(self, contract: WorkContract) -> str:
         if not contract.requires_action:
