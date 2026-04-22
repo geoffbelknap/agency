@@ -142,6 +142,19 @@ def test_extract_urls_trims_trailing_sentence_punctuation():
     ]
 
 
+def test_extract_urls_splits_comma_separated_provider_metadata():
+    urls = extract_urls(
+        "https://nodejs.org/en,https://github.com/nodejs/node/releases, "
+        "https://example.com/path."
+    )
+
+    assert urls == [
+        "https://nodejs.org/en",
+        "https://github.com/nodejs/node/releases",
+        "https://example.com/path",
+    ]
+
+
 def test_current_info_completion_requires_answer_url_from_evidence_when_available():
     contract = classify_work("latest SEC filing").to_dict()
 

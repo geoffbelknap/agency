@@ -27,7 +27,7 @@ BLOCKER_RE = re.compile(
     r"do not have|don't have|missing|need .+ access|need .+ tool)\b",
     re.IGNORECASE,
 )
-URL_RE = re.compile(r"https?://[^\s<>)\]]+", re.IGNORECASE)
+URL_RE = re.compile(r"https?://[^\s<>)\],]+", re.IGNORECASE)
 CHECKED_DATE_RE = re.compile(
     r"\b(checked|retrieved|accessed|as of|as-of|verified on)\b",
     re.IGNORECASE,
