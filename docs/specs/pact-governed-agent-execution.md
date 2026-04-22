@@ -30,6 +30,9 @@ reference implementation of both.
 - PACT does not define model provider APIs.
 - PACT does not replace ASK enforcement, mediation, audit, or principal policy.
 - PACT does not make the agent itself the enforcement boundary.
+- PACT does not rely on provider or model training as honesty enforcement.
+  Provider primitives complement but do not replace PACT's external
+  enforcement of the honesty invariant.
 
 ## Design Principles
 
@@ -48,10 +51,20 @@ reference implementation of both.
    obligations, required evidence, allowed terminal outcomes, approval needs,
    resource bounds, and output expectations.
 
-4. **Evidence is observed, not asserted.**
-   Model-authored claims are not evidence. Evidence is recorded by the runtime,
-   mediated tools, provider-tool events, artifact stores, policy decisions, and
-   other trusted observation points.
+4. **Evidence is observed, not asserted. Agent claims cannot exceed mediated evidence.**
+   Evidence is recorded only by trusted observation points — the runtime,
+   mediated tools, provider-tool events, artifact stores, and policy
+   decisions. Every factual or tool-use assertion in an agent's output must be
+   supported by a corresponding evidence ledger entry whose provenance is
+   `mediated`, `provider`, or `runtime`. Agent-authored prose is never its own
+   evidence.
+
+   This invariant applies to every contract kind, including `chat`. Contracts
+   modulate the required *shape* of evidence; they do not modulate the honesty
+   invariant. Provider primitives (native tool-use protocols, citations,
+   grounding modes) are a useful first signal but do not replace external
+   enforcement. Per ASK tenet #1, enforcement must live outside the agent
+   boundary — training priors are not enforcement.
 
 5. **Trajectories matter.**
    A good final answer is insufficient if the path violated constraints, skipped
@@ -358,6 +371,13 @@ Evidence must distinguish between:
 - model-authored interpretation
 - unverified external claim
 - blocked or failed observation
+
+The ledger's provenance field is the structural boundary between observed
+and asserted. Agent-authored prose may describe, summarize, or interpret
+what the ledger contains, but any claim that asserts a fact beyond the
+ledger — a tool call not recorded, a number not from a mediated tool
+result, a source not retrieved — is a fabrication and must be rejected
+at commit, regardless of contract kind. See Design Principle 4.
 
 Agency's current body runtime has an in-memory `EvidenceLedger` write model for
 runtime and provider observations. It preserves the legacy evidence projection
