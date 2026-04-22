@@ -90,6 +90,78 @@ Agency must preserve the ASK invariant that enforcement remains external to the
 agent boundary. PACT may expose contract feedback to the agent, but it must not
 expose enforcement internals, audit controls, credentials, or bypass paths.
 
+## Agentic Execution Harness
+
+PACT's primary product goal is a world-class agentic execution harness that is
+governable by construction. Governance is not a substitute for agent quality.
+The harness must make agents excellent at work even before ASK-specific
+enterprise controls are applied.
+
+The harness layer owns agentic execution quality:
+
+- objective understanding: normalize activations into goals, constraints,
+  deliverables, success criteria, assumptions, and ambiguity
+- strategy routing: choose execution mode, model tier, tools, memory, budget,
+  and whether planning is required
+- planning: produce explicit plans for non-trivial, risky, long-running, or
+  side-effecting work, and revise plans when observations contradict assumptions
+- tool loop quality: request tools deliberately, consume structured results,
+  adapt to failures, and never imply fake tool use
+- execution state: track progress, step history, partial results, assumptions,
+  open questions, budget, errors, and blockers
+- reflection and evaluation: critique trajectories and proposed outcomes before
+  commit, using deterministic checks where possible
+- recovery: retry, replan, fall back, clarify, escalate, or block with bounded
+  loops and explicit reasons
+- artifact disposition: produce files, links, reports, patches, screenshots,
+  PRs, issues, logs, and other outputs without forcing everything through chat
+- memory learning: propose reusable procedures, environment facts, task
+  outcomes, and failed strategies through scoped, reviewable memory paths
+- trajectory evaluation: test complete paths, not just final text
+
+The governance layer owns organizational control:
+
+- authority resolution
+- least privilege
+- tool mediation
+- audit
+- policy enforcement
+- approvals
+- data boundaries
+- durable memory review
+- quarantine and halt
+- compliance reporting
+
+The boundary is intentional. The harness may decide that an execution needs a
+tool, artifact, memory write, delegation, or external side effect. Agency/ASK
+decides whether that action is authorized, how it is mediated, what is audited,
+and where outputs may be retained or published.
+
+The target architecture is:
+
+```text
+Activation
+  -> Objective Builder
+  -> Strategy Router
+  -> Execution Contract
+  -> Planner
+  -> Executor / Tool Loop
+  -> Evidence + State Ledger
+  -> Evaluator / Reflection
+  -> Outcome Committer
+  -> Learning Hooks
+```
+
+ASK attaches at the boundaries:
+
+```text
+Authority + Policy + Mediation + Audit + Constraints
+```
+
+Implementation work must preserve this ordering. Reporting, audit projections,
+and compliance exports are projections of high-quality execution state; they are
+not the execution harness itself.
+
 ## Core Concepts
 
 ### Activation
@@ -1240,15 +1312,25 @@ fields.
 
 Known gaps:
 
+- objective building is not yet a typed runtime stage
+- strategy routing is mostly implicit in prompt/tool availability
+- planning is mostly prompt-level and not represented as execution state
+- execution state is still spread across body runtime fields rather than a
+  single typed state object
+- tool observations are partially typed as evidence, but not yet a complete
+  tool-result protocol with retryability, side effects, and provenance
+- reflection/evaluation exists for contracts, but not yet as a general
+  pre-commit runtime stage
+- recovery is not yet a unified state machine
+- artifact disposition is not unified
+- memory learning hooks are not part of the execution lifecycle
+- trajectory evals cover the foundational body-runtime contracts, but not full
+  execution replay or policy-gated workflows
 - evidence has a typed runtime write model, but not a durable typed ledger
 - contracts are registered by name, but validation remains limited to
   current-info, file-artifact, code-change, and operator-blocked contracts
 - activation sources are represented for body message intake, but not yet across
   every gateway activation source
-- planning is mostly prompt-level
-- trajectory evals cover the foundational body-runtime contracts, but not full
-  execution replay or policy-gated workflows
-- artifact disposition is not unified
 - outcome contracts are not first-class
 
 ## Initial Vertical Slice
@@ -1286,10 +1368,67 @@ Non-scope for the first slice:
 
 ## Next Implementation Targets
 
-The next Agency PACT work should deepen the runtime contract rather than add
-more ad hoc UI surfaces.
+The next Agency PACT work must prioritize the agentic execution harness. Audit,
+reporting, and governance projections should follow from better execution state,
+not replace it.
 
-Priority targets:
+### Harness Quality Targets
+
+1. **Typed execution state object.**
+   Introduce a runtime-owned `ExecutionState` that carries activation, objective,
+   contract, plan, step history, tool observations, evidence, partial outputs,
+   errors, recovery state, and proposed outcome. Existing body fields should move
+   behind this object incrementally.
+
+2. **Objective builder.**
+   Normalize activations into explicit objectives with constraints,
+   deliverables, success criteria, ambiguity, assumptions, and risk. The
+   objective becomes the target for planning and evaluation, not just a summary
+   shown to the model.
+
+3. **Strategy router.**
+   Choose execution mode before work starts: trivial direct response, compact
+   work contract, explicit plan, long-running checkpointed work, clarification,
+   delegation, or external-side-effect workflow. Routing should consider task
+   risk, available tools, memory, budget, model tier, and artifact needs.
+
+4. **Planner and checkpoint model.**
+   Represent plans as runtime objects with steps, expected evidence,
+   dependencies, approval points, fallbacks, and stop conditions. Plans should be
+   optional for trivial work and required for complex or risky work.
+
+5. **Structured tool observation protocol.**
+   Normalize tool results into status, data, provenance, timestamps, errors,
+   retryability, side effects, and evidence classification. The model should not
+   need to infer whether a tool worked from prose.
+
+6. **Evaluator/reflection before commit.**
+   Generalize pre-commit evaluation beyond current contract checks: objective
+   satisfaction, evidence sufficiency, output format, artifact existence,
+   uncertainty disclosure, validation results, and bounded model-assisted
+   critique where deterministic checks are insufficient.
+
+7. **Recovery and failure state machine.**
+   Make retry, replan, fallback, clarification, escalation, blocked, failed,
+   halted, expired, and superseded explicit states with bounded loops and
+   auditable reasons.
+
+8. **Artifact disposition protocol.**
+   Represent generated files, links, reports, patches, logs, screenshots, PRs,
+   issues, and bundles as first-class outputs with visibility, retention, and
+   publication rules.
+
+9. **Memory learning hooks.**
+   Add lifecycle hooks for proposing reusable procedures, environment facts,
+   task outcomes, and failed strategies without directly mutating durable
+   preferences, identity-shaped behavior, or reviewed knowledge.
+
+10. **Trajectory-first eval fixtures.**
+    Expand evals to assert activation, route, plan, tool observations, evidence,
+    state transitions, terminal outcome, final output checks, and audit/ledger
+    projections.
+
+### Governance And Boundary Targets
 
 1. **Central PACT evaluator extraction.**
    The first extraction step is complete inside the body runtime: core
@@ -1309,7 +1448,18 @@ Priority targets:
    contract versions, evidence references, verdict history, artifacts, and audit
    references.
 
-4. **Audit export correlation.**
+4. **Outcome contract validation beyond current information.**
+   `file_artifact`, `code_change`, and `operator_blocked` now have deterministic
+   paths. Next, wire `external_side_effect` into real classification paths and a
+   deterministic evaluator before generalizing to more complex workflows.
+
+5. **Policy/admin observability.**
+   Add administrative surfaces for contract health, blocked verdict trends,
+   missing evidence categories, and agent/runtime compliance.
+
+### Reporting And Compliance Targets
+
+1. **Audit export correlation.**
    Initial admin audit responses now preserve PACT verdict evidence references
    and add result artifact links without mutating stored audit events. PACT run
    audit reports now assemble run, evidence, artifact, and verdict correlation
@@ -1317,14 +1467,14 @@ Priority targets:
    current report. Next, add cryptographic signing semantics for exported
    reports.
 
-5. **Outcome contract validation beyond current information.**
-   `file_artifact`, `code_change`, and `operator_blocked` now have deterministic
-   paths. Next, wire `external_side_effect` into real classification paths and a
-   deterministic evaluator before generalizing to more complex workflows.
+2. **Signed PACT reports.**
+   Add report signing, key IDs, verification metadata, and exported report
+   verification. Hash-only reports remain useful for local integrity, but signed
+   reports are required for portable compliance artifacts.
 
-6. **Policy/admin observability.**
-   Add administrative surfaces for contract health, blocked verdict trends,
-   missing evidence categories, and agent/runtime compliance.
+3. **Report generation from execution state.**
+   As the typed `ExecutionState` matures, PACT reports should project from it
+   rather than reconstructing runs from artifact frontmatter and audit events.
 
 ## Extraction Path
 
