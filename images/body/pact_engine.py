@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import StrEnum
 
 
 DEFAULT_ALLOWED_VERDICTS = ("completed", "blocked", "needs_clarification")
@@ -194,6 +195,12 @@ def _datetime_to_dict(value: datetime | None) -> str | None:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _enum_value(value: StrEnum | str) -> str:
+    if isinstance(value, StrEnum):
+        return value.value
+    return str(value)
+
+
 def _work_contract_from_dict(contract: dict | WorkContract | None) -> WorkContract | None:
     if isinstance(contract, WorkContract):
         return contract
@@ -318,21 +325,116 @@ class StepRecord:
         }
 
 
+class ToolStatus(StrEnum):
+    """Classifies whether a tool observation succeeded, failed, partially succeeded, or is unknown."""
+
+    ok = "ok"
+    error = "error"
+    partial = "partial"
+    unknown = "unknown"
+
+
+class ToolProvenance(StrEnum):
+    """Classifies the runtime boundary that produced a tool observation."""
+
+    mediated = "mediated"
+    provider = "provider"
+    runtime = "runtime"
+    unknown = "unknown"
+
+
+class Retryability(StrEnum):
+    """Classifies whether a failed or partial tool observation can be retried safely."""
+
+    retry_safe = "retry_safe"
+    retry_with_backoff = "retry_with_backoff"
+    not_retryable = "not_retryable"
+    unknown = "unknown"
+
+
+class SideEffectClass(StrEnum):
+    """Classifies the side-effect boundary crossed by a tool observation."""
+
+    read_only = "read_only"
+    local_state = "local_state"
+    external_state = "external_state"
+    unknown = "unknown"
+
+
+TOOL_ERROR_KINDS = frozenset({
+    "timeout",
+    "permission_denied",
+    "not_found",
+    "validation",
+    "transient",
+    "unknown",
+})
+
+
+@dataclass(slots=True)
+class ToolError:
+    """Classifies a structured tool error and optional retry delay."""
+
+    message: str
+    kind: str = "unknown"
+    retry_after_ms: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind not in TOOL_ERROR_KINDS:
+            self.kind = "unknown"
+
+    def to_dict(self) -> dict:
+        return {
+            "message": self.message,
+            "kind": self.kind,
+            "retry_after_ms": self.retry_after_ms,
+        }
+
+
 @dataclass(slots=True)
 class ToolObservation:
-    """Placeholder for Wave 1 #2 structured tool observation protocol; see spec Wave 1 item 2."""
+    """Structured protocol for tool status, provenance, evidence, retry, and side-effect classification."""
 
     tool: str
-    status: str
-    summary: str = ""
+    status: ToolStatus | str
+    data: dict = field(default_factory=dict)
+    provenance: ToolProvenance | str = ToolProvenance.unknown
+    producer: str = ""
+    started_at: datetime | None = None
     observed_at: datetime = field(default_factory=_utc_now)
+    error: ToolError | None = None
+    retryability: Retryability | str = Retryability.unknown
+    side_effects: SideEffectClass | str = SideEffectClass.unknown
+    evidence_classification: tuple[str, ...] = ()
+    summary: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.status, ToolStatus):
+            self.status = ToolStatus(str(self.status or ToolStatus.unknown.value))
+        if not isinstance(self.provenance, ToolProvenance):
+            self.provenance = ToolProvenance(str(self.provenance or ToolProvenance.unknown.value))
+        if not isinstance(self.retryability, Retryability):
+            self.retryability = Retryability(str(self.retryability or Retryability.unknown.value))
+        if not isinstance(self.side_effects, SideEffectClass):
+            self.side_effects = SideEffectClass(str(self.side_effects or SideEffectClass.unknown.value))
+        self.data = dict(self.data or {})
+        self.producer = str(self.producer or self.tool or "")
+        self.evidence_classification = tuple(str(item) for item in self.evidence_classification)
 
     def to_dict(self) -> dict:
         return {
             "tool": self.tool,
-            "status": self.status,
-            "summary": self.summary,
+            "status": _enum_value(self.status),
+            "data": dict(self.data),
+            "provenance": _enum_value(self.provenance),
+            "producer": self.producer,
+            "started_at": _datetime_to_dict(self.started_at),
             "observed_at": _datetime_to_dict(self.observed_at),
+            "error": self.error.to_dict() if self.error else None,
+            "retryability": _enum_value(self.retryability),
+            "side_effects": _enum_value(self.side_effects),
+            "evidence_classification": list(self.evidence_classification),
+            "summary": self.summary,
         }
 
 
@@ -453,9 +555,66 @@ class ExecutionState:
         self.step_history.append(step)
         self.updated_at = _utc_now()
 
-    def record_observation(self, obs: ToolObservation) -> None:
+    def record_tool_observation(self, obs: ToolObservation) -> None:
         self.tool_observations.append(obs)
+        labels = set(obs.evidence_classification)
+        ok = obs.status in (ToolStatus.ok, ToolStatus.partial)
+        data = dict(obs.data or {})
+        producer = str(obs.producer or obs.tool or "runtime")
+        should_record_tool_result = (
+            "tool_result" in labels
+            or bool(labels.intersection({"current_source", "source_url"}))
+        ) and not bool(data.get("suppress_tool_result"))
+        if should_record_tool_result:
+            self.evidence.record_tool_result(
+                obs.tool,
+                ok,
+                metadata=data.get("tool_result_metadata") if isinstance(data.get("tool_result_metadata"), dict) else None,
+            )
+        if "current_source" in labels:
+            self.evidence.observe(
+                "current_source",
+                producer=str(data.get("observation_producer") or "runtime"),
+            )
+        if "source_url" in labels:
+            for url in data.get("source_urls") or []:
+                self.evidence.record_source_url(
+                    str(url),
+                    producer=str(data.get("source_url_producer") or producer),
+                )
+        if "artifact_path" in labels:
+            paths = data.get("artifact_paths")
+            if paths is None:
+                paths = [data.get("path")]
+            for path in paths or []:
+                self.evidence.record_artifact_path(
+                    str(path),
+                    producer=str(data.get("artifact_producer") or "runtime"),
+                    metadata=data.get("metadata") if isinstance(data.get("metadata"), dict) else None,
+                )
+        if "changed_file" in labels:
+            paths = data.get("changed_files")
+            if paths is None:
+                paths = [data.get("path")]
+            for path in paths or []:
+                self.evidence.record_changed_file(
+                    str(path),
+                    producer=str(data.get("changed_file_producer") or producer),
+                    metadata=data.get("metadata") if isinstance(data.get("metadata"), dict) else None,
+                )
+        if "validation_result" in labels:
+            command = str(data.get("command") or "")
+            validation_ok = data.get("validation_ok", ok)
+            self.evidence.record_validation_result(
+                command,
+                bool(validation_ok) if validation_ok is not None else None,
+                producer=str(data.get("validation_producer") or producer),
+                metadata=data.get("metadata") if isinstance(data.get("metadata"), dict) else None,
+            )
         self.updated_at = _utc_now()
+
+    def record_observation(self, obs: ToolObservation) -> None:
+        self.record_tool_observation(obs)
 
 
 @dataclass(frozen=True)
