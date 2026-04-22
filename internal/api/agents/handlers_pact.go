@@ -11,16 +11,53 @@ import (
 )
 
 type pactRunProjection struct {
-	TaskID      string                 `json:"task_id"`
-	Agent       string                 `json:"agent"`
-	Activation  interface{}            `json:"activation,omitempty"`
-	Contract    map[string]interface{} `json:"contract,omitempty"`
-	Evidence    map[string]interface{} `json:"evidence,omitempty"`
-	Verdict     map[string]interface{} `json:"verdict,omitempty"`
-	Outcome     string                 `json:"outcome,omitempty"`
-	Artifact    map[string]interface{} `json:"artifact,omitempty"`
-	AuditEvents []logs.Event           `json:"audit_events"`
-	Sources     []string               `json:"sources"`
+	TaskID      string                    `json:"task_id"`
+	Agent       string                    `json:"agent"`
+	Activation  *pactActivationProjection `json:"activation,omitempty"`
+	Contract    *pactContractProjection   `json:"contract,omitempty"`
+	Evidence    *pactEvidenceProjection   `json:"evidence,omitempty"`
+	Verdict     *pactVerdictProjection    `json:"verdict,omitempty"`
+	Outcome     string                    `json:"outcome,omitempty"`
+	Artifact    *pactArtifactProjection   `json:"artifact,omitempty"`
+	AuditEvents []logs.Event              `json:"audit_events"`
+	Sources     []string                  `json:"sources"`
+}
+
+type pactActivationProjection struct {
+	Content       string `json:"content,omitempty"`
+	MatchType     string `json:"match_type,omitempty"`
+	Source        string `json:"source,omitempty"`
+	Channel       string `json:"channel,omitempty"`
+	Author        string `json:"author,omitempty"`
+	MissionActive *bool  `json:"mission_active,omitempty"`
+}
+
+type pactContractProjection struct {
+	Kind                  interface{} `json:"kind,omitempty"`
+	RequiredEvidence      interface{} `json:"required_evidence,omitempty"`
+	AnswerRequirements    interface{} `json:"answer_requirements,omitempty"`
+	AllowedTerminalStates interface{} `json:"allowed_terminal_states,omitempty"`
+}
+
+type pactEvidenceProjection struct {
+	Observed          interface{} `json:"observed,omitempty"`
+	SourceURLs        interface{} `json:"source_urls,omitempty"`
+	ArtifactPaths     interface{} `json:"artifact_paths,omitempty"`
+	ChangedFiles      interface{} `json:"changed_files,omitempty"`
+	ValidationResults interface{} `json:"validation_results,omitempty"`
+	EvidenceEntries   interface{} `json:"evidence_entries,omitempty"`
+	Tools             interface{} `json:"tools,omitempty"`
+}
+
+type pactVerdictProjection struct {
+	Verdict         interface{} `json:"verdict,omitempty"`
+	MissingEvidence interface{} `json:"missing_evidence,omitempty"`
+}
+
+type pactArtifactProjection struct {
+	TaskID        string `json:"task_id"`
+	URL           string `json:"url"`
+	MetadataError string `json:"metadata_error,omitempty"`
 }
 
 // getPactRun handles GET /api/v1/agents/{name}/pact/runs/{taskId}.
@@ -44,18 +81,20 @@ func (h *handler) getPactRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if data, err := h.readResultArtifact(r.Context(), agentName, taskID); err == nil {
-		projection.Artifact = map[string]interface{}{
-			"task_id": taskID,
-			"url":     "/api/v1/agents/" + url.PathEscape(agentName) + "/results/" + url.PathEscape(taskID),
+		projection.Artifact = &pactArtifactProjection{
+			TaskID: taskID,
+			URL:    "/api/v1/agents/" + url.PathEscape(agentName) + "/results/" + url.PathEscape(taskID),
 		}
 		projection.Sources = appendSource(projection.Sources, "result_artifact")
 		if metadata, found, err := parseResultFrontmatter(data); err == nil && found {
-			projection.Activation = metadata["pact_activation"]
+			if activation, ok := metadata["pact_activation"].(map[string]interface{}); ok {
+				projection.Activation = pactActivationFromMap(activation)
+			}
 			if pact, ok := metadata["pact"].(map[string]interface{}); ok {
 				applyPactMetadataToProjection(&projection, pact)
 			}
 		} else if err != nil {
-			projection.Artifact["metadata_error"] = "invalid result metadata"
+			projection.Artifact.MetadataError = "invalid result metadata"
 		}
 	}
 
@@ -85,24 +124,24 @@ func (h *handler) getPactRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func applyPactMetadataToProjection(projection *pactRunProjection, pact map[string]interface{}) {
-	projection.Contract = map[string]interface{}{
-		"kind":                    pact["kind"],
-		"required_evidence":       pact["required_evidence"],
-		"answer_requirements":     pact["answer_requirements"],
-		"allowed_terminal_states": pact["allowed_terminal_states"],
+	projection.Contract = &pactContractProjection{
+		Kind:                  pact["kind"],
+		RequiredEvidence:      pact["required_evidence"],
+		AnswerRequirements:    pact["answer_requirements"],
+		AllowedTerminalStates: pact["allowed_terminal_states"],
 	}
-	projection.Evidence = map[string]interface{}{
-		"observed":           pact["observed"],
-		"source_urls":        pact["source_urls"],
-		"artifact_paths":     pact["artifact_paths"],
-		"changed_files":      pact["changed_files"],
-		"validation_results": pact["validation_results"],
-		"evidence_entries":   pact["evidence_entries"],
-		"tools":              pact["tools"],
+	projection.Evidence = &pactEvidenceProjection{
+		Observed:          pact["observed"],
+		SourceURLs:        pact["source_urls"],
+		ArtifactPaths:     pact["artifact_paths"],
+		ChangedFiles:      pact["changed_files"],
+		ValidationResults: pact["validation_results"],
+		EvidenceEntries:   pact["evidence_entries"],
+		Tools:             pact["tools"],
 	}
-	projection.Verdict = map[string]interface{}{
-		"verdict":          pact["verdict"],
-		"missing_evidence": pact["missing_evidence"],
+	projection.Verdict = &pactVerdictProjection{
+		Verdict:         pact["verdict"],
+		MissingEvidence: pact["missing_evidence"],
 	}
 	if verdict, _ := pact["verdict"].(string); verdict != "" {
 		projection.Outcome = verdict
@@ -111,34 +150,76 @@ func applyPactMetadataToProjection(projection *pactRunProjection, pact map[strin
 
 func applyPactVerdictEventToProjection(projection *pactRunProjection, event logs.Event) {
 	if projection.Contract == nil {
-		projection.Contract = map[string]interface{}{}
+		projection.Contract = &pactContractProjection{}
 	}
-	for _, key := range []string{"kind", "required_evidence", "answer_requirements"} {
-		if _, exists := projection.Contract[key]; !exists {
-			projection.Contract[key] = event[key]
-		}
+	if projection.Contract.Kind == nil {
+		projection.Contract.Kind = event["kind"]
+	}
+	if projection.Contract.RequiredEvidence == nil {
+		projection.Contract.RequiredEvidence = event["required_evidence"]
+	}
+	if projection.Contract.AnswerRequirements == nil {
+		projection.Contract.AnswerRequirements = event["answer_requirements"]
 	}
 	if projection.Evidence == nil {
-		projection.Evidence = map[string]interface{}{}
+		projection.Evidence = &pactEvidenceProjection{}
 	}
-	for _, key := range []string{"observed", "source_urls", "artifact_paths", "changed_files", "validation_results", "evidence_entries", "tools"} {
-		if _, exists := projection.Evidence[key]; !exists {
-			projection.Evidence[key] = event[key]
-		}
+	if projection.Evidence.Observed == nil {
+		projection.Evidence.Observed = event["observed"]
+	}
+	if projection.Evidence.SourceURLs == nil {
+		projection.Evidence.SourceURLs = event["source_urls"]
+	}
+	if projection.Evidence.ArtifactPaths == nil {
+		projection.Evidence.ArtifactPaths = event["artifact_paths"]
+	}
+	if projection.Evidence.ChangedFiles == nil {
+		projection.Evidence.ChangedFiles = event["changed_files"]
+	}
+	if projection.Evidence.ValidationResults == nil {
+		projection.Evidence.ValidationResults = event["validation_results"]
+	}
+	if projection.Evidence.EvidenceEntries == nil {
+		projection.Evidence.EvidenceEntries = event["evidence_entries"]
+	}
+	if projection.Evidence.Tools == nil {
+		projection.Evidence.Tools = event["tools"]
 	}
 	if projection.Verdict == nil {
-		projection.Verdict = map[string]interface{}{}
+		projection.Verdict = &pactVerdictProjection{}
 	}
-	for _, key := range []string{"verdict", "missing_evidence"} {
-		if _, exists := projection.Verdict[key]; !exists {
-			projection.Verdict[key] = event[key]
-		}
+	if projection.Verdict.Verdict == nil {
+		projection.Verdict.Verdict = event["verdict"]
+	}
+	if projection.Verdict.MissingEvidence == nil {
+		projection.Verdict.MissingEvidence = event["missing_evidence"]
 	}
 	if projection.Outcome == "" {
 		if verdict, _ := event["verdict"].(string); verdict != "" {
 			projection.Outcome = verdict
 		}
 	}
+}
+
+func pactActivationFromMap(metadata map[string]interface{}) *pactActivationProjection {
+	activation := &pactActivationProjection{
+		Content:   stringValue(metadata["content"]),
+		MatchType: stringValue(metadata["match_type"]),
+		Source:    stringValue(metadata["source"]),
+		Channel:   stringValue(metadata["channel"]),
+		Author:    stringValue(metadata["author"]),
+	}
+	if value, ok := metadata["mission_active"].(bool); ok {
+		activation.MissionActive = &value
+	}
+	return activation
+}
+
+func stringValue(value interface{}) string {
+	if s, ok := value.(string); ok {
+		return s
+	}
+	return ""
 }
 
 func appendSource(sources []string, source string) []string {

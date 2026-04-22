@@ -557,25 +557,94 @@ paths:
                                     activation:
                                         type: object
                                         nullable: true
-                                        additionalProperties: true
+                                        properties:
+                                            content:
+                                                type: string
+                                            match_type:
+                                                type: string
+                                            source:
+                                                type: string
+                                            channel:
+                                                type: string
+                                            author:
+                                                type: string
+                                            mission_active:
+                                                type: boolean
                                     contract:
                                         type: object
                                         nullable: true
-                                        additionalProperties: true
+                                        properties:
+                                            kind:
+                                                type: string
+                                            required_evidence:
+                                                type: array
+                                                items:
+                                                    type: string
+                                            answer_requirements:
+                                                type: array
+                                                items:
+                                                    type: string
+                                            allowed_terminal_states:
+                                                type: array
+                                                items:
+                                                    type: string
                                     evidence:
                                         type: object
                                         nullable: true
-                                        additionalProperties: true
+                                        properties:
+                                            observed:
+                                                type: array
+                                                items:
+                                                    type: string
+                                            source_urls:
+                                                type: array
+                                                items:
+                                                    type: string
+                                            artifact_paths:
+                                                type: array
+                                                items:
+                                                    type: string
+                                            changed_files:
+                                                type: array
+                                                items:
+                                                    type: string
+                                            validation_results:
+                                                type: array
+                                                items:
+                                                    type: object
+                                                    additionalProperties: true
+                                            evidence_entries:
+                                                type: array
+                                                items:
+                                                    type: object
+                                                    additionalProperties: true
+                                            tools:
+                                                type: array
+                                                items:
+                                                    type: string
                                     verdict:
                                         type: object
                                         nullable: true
-                                        additionalProperties: true
+                                        properties:
+                                            verdict:
+                                                type: string
+                                            missing_evidence:
+                                                type: array
+                                                items:
+                                                    type: string
                                     outcome:
                                         type: string
                                     artifact:
                                         type: object
                                         nullable: true
-                                        additionalProperties: true
+                                        required: [task_id, url]
+                                        properties:
+                                            task_id:
+                                                type: string
+                                            url:
+                                                type: string
+                                            metadata_error:
+                                                type: string
                                     audit_events:
                                         type: array
                                         items:

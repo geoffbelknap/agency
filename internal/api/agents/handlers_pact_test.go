@@ -95,6 +95,10 @@ Changed parser.py.
 	if contract["kind"] != "code_change" {
 		t.Fatalf("contract.kind = %#v, want code_change", contract["kind"])
 	}
+	activation := body["activation"].(map[string]interface{})
+	if activation["channel"] != "dm-agent" || activation["mission_active"] != false {
+		t.Fatalf("unexpected activation: %#v", activation)
+	}
 	evidence := body["evidence"].(map[string]interface{})
 	changedFiles := evidence["changed_files"].([]interface{})
 	if len(changedFiles) != 1 || changedFiles[0] != "parser.py" {
@@ -105,6 +109,9 @@ Changed parser.py.
 		t.Fatalf("evidence_entries len = %d, want 1", len(evidenceEntries))
 	}
 	artifact := body["artifact"].(map[string]interface{})
+	if artifact["task_id"] != "task-123" {
+		t.Fatalf("artifact.task_id = %#v, want task-123", artifact["task_id"])
+	}
 	if artifact["url"] != "/api/v1/agents/agent/results/task-123" {
 		t.Fatalf("artifact.url = %#v", artifact["url"])
 	}
@@ -140,6 +147,10 @@ func TestGetPactRunCanProjectAuditOnlyRun(t *testing.T) {
 	}
 	if body["outcome"] != "blocked" {
 		t.Fatalf("outcome = %#v, want blocked", body["outcome"])
+	}
+	verdict := body["verdict"].(map[string]interface{})
+	if verdict["verdict"] != "blocked" {
+		t.Fatalf("verdict.verdict = %#v, want blocked", verdict["verdict"])
 	}
 	if _, ok := body["artifact"]; ok {
 		t.Fatalf("artifact should be omitted for audit-only run: %#v", body["artifact"])

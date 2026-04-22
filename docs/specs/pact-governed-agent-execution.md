@@ -1041,12 +1041,34 @@ or storage layer:
 ```text
 task_id
 agent
-activation
-contract
-evidence
-verdict
+activation:
+  content
+  match_type
+  source
+  channel
+  author
+  mission_active
+contract:
+  kind
+  required_evidence
+  answer_requirements
+  allowed_terminal_states
+evidence:
+  observed
+  source_urls
+  artifact_paths
+  changed_files
+  validation_results
+  evidence_entries
+  tools
+verdict:
+  verdict
+  missing_evidence
 outcome
-artifact
+artifact:
+  task_id
+  url
+  metadata_error
 audit_events
 sources
 ```
