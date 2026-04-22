@@ -45,7 +45,9 @@ func (h *handler) grantAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	grants, _ := constraints["granted_capabilities"].([]interface{})
-	grants = append(grants, body.Capability)
+	if !hasGrant(grants, body.Capability) {
+		grants = append(grants, body.Capability)
+	}
 	constraints["granted_capabilities"] = grants
 
 	data, _ := yaml.Marshal(constraints)
@@ -106,8 +108,20 @@ func (h *handler) revokeAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if err := h.generateAgentManifest(name); err != nil {
+		h.deps.Logger.Warn("revoke: failed to rebuild services manifest", "agent", name, "err", err)
+	}
 	h.deps.Logger.Info("capability revoked", "agent", name, "capability", body.Capability)
 	h.deps.Audit.Write(name, "capability_revoked", map[string]interface{}{"capability": body.Capability})
 	h.signalConfigReload(name)
 	writeJSON(w, 200, map[string]string{"status": "revoked", "agent": name, "capability": body.Capability})
+}
+
+func hasGrant(grants []interface{}, capability string) bool {
+	for _, grant := range grants {
+		if existing, ok := grant.(string); ok && existing == capability {
+			return true
+		}
+	}
+	return false
 }

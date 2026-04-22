@@ -73,8 +73,9 @@ func (h *handler) deleteAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	// Remove agent from all channel memberships
 	h.deps.Comms.CommsRequest(r.Context(), "POST", "/participants/"+name+"/leave-all", nil)
-	// Archive the dedicated DM channel so deleted agents do not linger in the UI.
-	h.deps.Comms.CommsRequest(r.Context(), "POST", "/channels/dm-"+name+"/archive", nil)
+	// Retire the dedicated DM alias so future agents can reuse the name without
+	// inheriting old direct-message history.
+	h.deps.Comms.CommsRequest(r.Context(), "POST", "/channels/dm-"+name+"/retire", map[string]interface{}{"retired_by": "_platform"})
 	h.deps.Audit.WriteSystem("agent_deleted", map[string]interface{}{"agent": name})
 	writeJSON(w, 200, map[string]string{"status": "deleted", "name": name})
 }
@@ -263,6 +264,14 @@ func (h *handler) ensureDirectChannel(ctx context.Context, agentName string) (st
 		if !strings.Contains(err.Error(), "409") {
 			return "", fmt.Errorf("create DM channel %s: %w", dmChannel, err)
 		}
+		if !h.directChannelActive(ctx, dmChannel) {
+			_, _ = h.deps.Comms.CommsRequest(ctx, "POST", "/channels/"+dmChannel+"/retire", map[string]interface{}{"retired_by": "_platform"})
+			if _, retryErr := h.deps.Comms.CommsRequest(ctx, "POST", "/channels", dmBody); retryErr != nil {
+				if !strings.Contains(retryErr.Error(), "409") {
+					return "", fmt.Errorf("create DM channel %s: %w", dmChannel, retryErr)
+				}
+			}
+		}
 	}
 
 	dmGrant := map[string]interface{}{"agent": agentName}
@@ -274,6 +283,23 @@ func (h *handler) ensureDirectChannel(ctx context.Context, agentName string) (st
 		return "", fmt.Errorf("grant operator access to %s: %w", dmChannel, err)
 	}
 	return dmChannel, nil
+}
+
+func (h *handler) directChannelActive(ctx context.Context, channelName string) bool {
+	data, err := h.deps.Comms.CommsRequest(ctx, "GET", "/channels?member=_operator&state=all", nil)
+	if err != nil {
+		return false
+	}
+	var channels []map[string]interface{}
+	if err := json.Unmarshal(data, &channels); err != nil {
+		return false
+	}
+	for _, ch := range channels {
+		if ch["name"] == channelName && ch["state"] == models.ChannelStateActive {
+			return true
+		}
+	}
+	return false
 }
 
 // containerInstanceID returns a backend-specific runtime identifier for audit

@@ -373,7 +373,16 @@ func (ss *StartSequence) phase7Session(ctx context.Context) error {
 	}
 	// Retry once — comms may still be initializing during first agent start.
 	if _, err := ss.Comms.CommsRequest(ctx, "POST", "/channels", dmBody); err != nil {
-		if !strings.Contains(err.Error(), "409") { // 409 = already exists, fine
+		if strings.Contains(err.Error(), "409") {
+			if !ss.directChannelActive(ctx, dmChannel) {
+				_, _ = ss.Comms.CommsRequest(ctx, "POST", "/channels/"+dmChannel+"/retire", map[string]interface{}{"retired_by": "_platform"})
+				if _, retryErr := ss.Comms.CommsRequest(ctx, "POST", "/channels", dmBody); retryErr != nil {
+					if !strings.Contains(retryErr.Error(), "409") {
+						return fmt.Errorf("create DM channel %s: %w", dmChannel, retryErr)
+					}
+				}
+			}
+		} else {
 			time.Sleep(2 * time.Second)
 			if _, retryErr := ss.Comms.CommsRequest(ctx, "POST", "/channels", dmBody); retryErr != nil {
 				if !strings.Contains(retryErr.Error(), "409") {
@@ -456,6 +465,23 @@ func (ss *StartSequence) phase7Session(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (ss *StartSequence) directChannelActive(ctx context.Context, channelName string) bool {
+	data, err := ss.Comms.CommsRequest(ctx, "GET", "/channels?member=_operator&state=all", nil)
+	if err != nil {
+		return false
+	}
+	var channels []map[string]interface{}
+	if err := json.Unmarshal(data, &channels); err != nil {
+		return false
+	}
+	for _, ch := range channels {
+		if ch["name"] == channelName && ch["state"] == models.ChannelStateActive {
+			return true
+		}
+	}
+	return false
 }
 
 // checkCapacity loads the host capacity config and verifies a slot is available

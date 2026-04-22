@@ -172,18 +172,7 @@ func (am *AgentManager) Create(ctx context.Context, name, preset string) error {
 	// survives renames, restarts, and shows up in audit trails and knowledge
 	// graph references. Fallback to local generation for test paths where
 	// infra/registry may be nil.
-	var agentUUID string
-	if am.infra != nil && am.infra.Registry != nil {
-		var regErr error
-		agentUUID, regErr = am.infra.Registry.Register("agent", name)
-		if regErr != nil {
-			am.log.Warn("registry: agent registration failed, using local UUID", "err", regErr)
-		} else {
-			if snapErr := am.infra.WriteRegistrySnapshot(); snapErr != nil {
-				am.log.Warn("registry: snapshot write failed", "err", snapErr)
-			}
-		}
-	}
+	agentUUID := am.registerAgentPrincipal(name)
 	if agentUUID == "" {
 		agentUUID = uuid.New().String()
 	}
@@ -337,6 +326,43 @@ func (am *AgentManager) Create(ctx context.Context, name, preset string) error {
 	return nil
 }
 
+func (am *AgentManager) registerAgentPrincipal(name string) string {
+	if am.infra == nil || am.infra.Registry == nil {
+		return ""
+	}
+	agentUUID, regErr := am.infra.Registry.Register("agent", name)
+	if regErr != nil {
+		if _, retireErr := am.infra.Registry.RetireByName("agent", name); retireErr == nil {
+			agentUUID, regErr = am.infra.Registry.Register("agent", name)
+		}
+	}
+	if regErr != nil {
+		if am.log != nil {
+			am.log.Warn("registry: agent registration failed, using local UUID", "err", regErr)
+		}
+		return ""
+	}
+	if snapErr := am.infra.WriteRegistrySnapshot(); snapErr != nil && am.log != nil {
+		am.log.Warn("registry: snapshot write failed", "err", snapErr)
+	}
+	return agentUUID
+}
+
+func (am *AgentManager) retireAgentPrincipal(name string) {
+	if am.infra == nil || am.infra.Registry == nil {
+		return
+	}
+	if _, err := am.infra.Registry.RetireByName("agent", name); err != nil {
+		if am.log != nil {
+			am.log.Warn("registry: agent principal retirement failed", "agent", name, "err", err)
+		}
+		return
+	}
+	if err := am.infra.WriteRegistrySnapshot(); err != nil && am.log != nil {
+		am.log.Warn("registry: snapshot write failed", "err", err)
+	}
+}
+
 // readPreset loads a preset YAML from hub-cache. Returns empty map if not found.
 func (am *AgentManager) readPreset(preset string) map[string]interface{} {
 	if preset == "" {
@@ -390,6 +416,8 @@ func (am *AgentManager) Delete(ctx context.Context, name string) error {
 	if err := removePathAll(filepath.Join(am.Home, "infrastructure", "enforcer", "data", name)); err != nil {
 		return fmt.Errorf("remove enforcer data: %w", err)
 	}
+
+	am.retireAgentPrincipal(name)
 
 	am.log.Info("agent deleted", "name", name)
 	return nil

@@ -76,6 +76,7 @@ var channelNameRE = regexp.MustCompile(`^_?[a-z0-9][a-z0-9-]*[a-z0-9]$|^_?[a-z0-
 
 // Channel represents a communication channel.
 type Channel struct {
+	ID           string     `yaml:"id" json:"id"`
 	Name         string     `yaml:"name" json:"name" validate:"required"`
 	Type         string     `yaml:"type" json:"type" validate:"required,oneof=team direct system"`
 	CreatedBy    string     `yaml:"created_by" json:"created_by" validate:"required"`

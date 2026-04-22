@@ -9,6 +9,7 @@ SQLite FTS5 index for full-text search.
 import json
 import logging
 import sqlite3
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -93,6 +94,31 @@ class MessageStore:
         ch.archived_at = datetime.now(timezone.utc)
         ch.archived_by = archived_by
         meta_path.write_text(ch.model_dump_json(indent=2))
+        return ch
+
+    def retire_channel_name(self, name: str, retired_by: str) -> Channel:
+        meta_path = self._channels_dir / f"{name}.meta.json"
+        jsonl_path = self._channels_dir / f"{name}.jsonl"
+        if not meta_path.exists():
+            raise ValueError(f"Channel {name!r} not found")
+        ch = Channel.model_validate_json(meta_path.read_text())
+        if not ch.id:
+            ch.id = str(uuid.uuid4())
+        suffix = ch.id.replace("-", "")[:12]
+        retired_name = f"{name}-deleted-{suffix}"
+        retired_meta_path = self._channels_dir / f"{retired_name}.meta.json"
+        retired_jsonl_path = self._channels_dir / f"{retired_name}.jsonl"
+        if retired_meta_path.exists() or retired_jsonl_path.exists():
+            raise ValueError(f"Retired channel name {retired_name!r} already exists")
+        ch.name = retired_name
+        ch.base_name = ch.base_name or name
+        ch.state = ChannelState.ARCHIVED
+        ch.archived_at = datetime.now(timezone.utc)
+        ch.archived_by = retired_by
+        retired_meta_path.write_text(ch.model_dump_json(indent=2))
+        meta_path.unlink()
+        if jsonl_path.exists():
+            jsonl_path.rename(retired_jsonl_path)
         return ch
 
     def grant_channel_access(self, name: str, agent_name: str) -> Channel:

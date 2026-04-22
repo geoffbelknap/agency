@@ -1,9 +1,13 @@
 """Tests for comms tool definitions and HTTP handlers."""
 
 import json
+import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "body"))
 
 from images.body.comms_tools import register_comms_tools
 from images.body.body import BuiltinToolRegistry
@@ -29,6 +33,8 @@ class TestCommsToolRegistration:
         params = defn["function"]["parameters"]["properties"]
         assert "channel" in params
         assert "content" in params
+        assert "links" in params
+        assert "attachments" in params
         assert "channel" in defn["function"]["parameters"]["required"]
         assert "content" in defn["function"]["parameters"]["required"]
 
@@ -82,6 +88,33 @@ class TestCommsToolHandlers:
         })
         body = mock_http.post.call_args[1]["json"]
         assert body["author"] == "scout"
+
+    @patch("images.body.comms_tools._http")
+    def test_send_message_includes_links_metadata(self, mock_http):
+        mock_resp = MagicMock()
+        mock_resp.text = json.dumps({"id": "1"})
+        mock_http.post.return_value = mock_resp
+
+        self.registry.call_tool("send_message", {
+            "channel": "dev",
+            "content": "Here is the filing.",
+            "links": [{"label": "SEC filing", "url": "https://www.sec.gov/Archives/example"}],
+        })
+        body = mock_http.post.call_args[1]["json"]
+        assert body["metadata"]["links"] == [
+            {"label": "SEC filing", "url": "https://www.sec.gov/Archives/example"}
+        ]
+
+    @patch("images.body.comms_tools._http")
+    def test_send_message_rejects_simulated_tool_markup(self, mock_http):
+        result = self.registry.call_tool("send_message", {
+            "channel": "dev",
+            "content": "<search> query: MSFT latest SEC filing </search>\nweb_search(query: \"MSFT\")",
+        })
+
+        data = json.loads(result)
+        assert "simulated tool markup is not allowed" in data["error"]
+        mock_http.post.assert_not_called()
 
     @patch("images.body.comms_tools._http")
     def test_read_messages_passes_reader(self, mock_http):

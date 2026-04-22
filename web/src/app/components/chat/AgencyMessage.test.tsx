@@ -71,4 +71,27 @@ describe('AgencyMessage', () => {
     expect(screen.getByText(/18 matches/)).toBeInTheDocument();
     expect(screen.queryByText(/ran/)).not.toBeInTheDocument();
   });
+
+  it('extracts pseudo search markup into compact tool cards', () => {
+    const msg: Message = {
+      ...baseMessage,
+      content: 'I will check.\n\n<search> query: Microsoft latest SEC filing </search>\n\nThe latest filing is here.',
+    };
+    renderMsg({ message: msg });
+    expect(screen.getByText(/web\.search/)).toBeInTheDocument();
+    expect(screen.getByText(/Microsoft latest SEC filing/)).toBeInTheDocument();
+    expect(screen.queryByText(/<search>/)).not.toBeInTheDocument();
+    expect(screen.getByText(/The latest filing is here/)).toBeInTheDocument();
+  });
+
+  it('renders generic metadata links as attachment chips', () => {
+    const msg: Message = {
+      ...baseMessage,
+      metadata: {
+        attachments: [{ label: 'sec-filing.md', url: '/api/v1/agents/scout/results/sec-filing?download=true' }],
+      },
+    };
+    renderMsg({ message: msg });
+    expect(screen.getByRole('link', { name: /sec-filing\.md/ })).toHaveAttribute('href', '/api/v1/agents/scout/results/sec-filing?download=true');
+  });
 });

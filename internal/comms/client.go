@@ -52,7 +52,7 @@ func (c *HTTPClient) CommsRequest(ctx context.Context, method, path string, body
 	}
 
 	// Platform-only endpoints need this header.
-	if strings.Contains(path, "grant-access") || strings.Contains(path, "archive") {
+	if strings.Contains(path, "grant-access") || strings.Contains(path, "archive") || strings.Contains(path, "retire") {
 		req.Header.Set("X-Agency-Platform", "true")
 	}
 
