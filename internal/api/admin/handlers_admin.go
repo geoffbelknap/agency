@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -789,7 +790,90 @@ func (h *handler) adminAudit(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": "no audit logs for agent"})
 		return
 	}
+	h.annotateAuditResultArtifacts(events)
 	writeJSON(w, 200, events)
+}
+
+func (h *handler) annotateAuditResultArtifacts(events []logs.Event) {
+	if len(events) == 0 {
+		return
+	}
+	taskIDsByAgent := map[string]map[string]struct{}{}
+	for _, event := range events {
+		agentName, _ := event["agent"].(string)
+		taskID, _ := event["task_id"].(string)
+		agentName = strings.TrimSpace(agentName)
+		taskID = strings.TrimSpace(taskID)
+		if agentName == "" || taskID == "" {
+			continue
+		}
+		taskIDs, ok := taskIDsByAgent[agentName]
+		if !ok {
+			taskIDs = h.auditResultTaskIDs(agentName)
+			taskIDsByAgent[agentName] = taskIDs
+		}
+		if _, exists := taskIDs[taskID]; !exists {
+			continue
+		}
+		event["has_result"] = true
+		event["result"] = map[string]interface{}{
+			"task_id": taskID,
+			"url":     "/api/v1/agents/" + url.PathEscape(agentName) + "/results/" + url.PathEscape(taskID),
+		}
+	}
+}
+
+func (h *handler) auditResultTaskIDs(agentName string) map[string]struct{} {
+	ids := map[string]struct{}{}
+	if dir, ok := h.auditHostResultsDir(agentName); ok {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return ids
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+				continue
+			}
+			taskID := strings.TrimSuffix(entry.Name(), ".md")
+			if taskID != "" {
+				ids[taskID] = struct{}{}
+			}
+		}
+		return ids
+	}
+	if h.deps.DC == nil {
+		return ids
+	}
+	containerName := "agency-" + agentName + "-workspace"
+	out, err := h.deps.DC.ExecInContainer(context.Background(), containerName, []string{
+		"sh", "-c", "ls -1 /workspace/.results/*.md 2>/dev/null | while read f; do basename \"$f\" .md; done",
+	})
+	if err != nil {
+		return ids
+	}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		taskID := strings.TrimSpace(filepath.Base(line))
+		taskID = strings.TrimSuffix(taskID, ".md")
+		if taskID != "" {
+			ids[taskID] = struct{}{}
+		}
+	}
+	return ids
+}
+
+func (h *handler) auditHostResultsDir(agentName string) (string, bool) {
+	if h.deps.AgentManager == nil || h.deps.AgentManager.Runtime == nil {
+		return "", false
+	}
+	manifest, err := h.deps.AgentManager.Runtime.Manifest(agentName)
+	if err != nil {
+		return "", false
+	}
+	workspacePath := strings.TrimSpace(manifest.Spec.Storage.WorkspacePath)
+	if workspacePath == "" || workspacePath == "/workspace" || !filepath.IsAbs(workspacePath) {
+		return "", false
+	}
+	return filepath.Join(workspacePath, ".results"), true
 }
 
 func (h *handler) adminEgress(w http.ResponseWriter, r *http.Request) {

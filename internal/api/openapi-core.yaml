@@ -2001,7 +2001,9 @@ paths:
             summary: Query audit logs
             description: |
                 With action=stats returns aggregate statistics. Otherwise returns log
-                entries filtered by agent, since, and until.
+                entries filtered by agent, since, and until. Log-entry responses are
+                read-time projections over append-only audit JSONL and may include
+                result-artifact correlation fields when a task result exists.
             tags: [Admin]
             x-agency-tier: core
             x-agency-stability: supported
@@ -2029,8 +2031,28 @@ paths:
                     content:
                         application/json:
                             schema:
-                                type: object
-                                additionalProperties: true
+                                oneOf:
+                                    - type: object
+                                      additionalProperties: true
+                                    - type: array
+                                      items:
+                                        type: object
+                                        additionalProperties: true
+                                        properties:
+                                            has_result:
+                                                type: boolean
+                                            result:
+                                                type: object
+                                                properties:
+                                                    task_id:
+                                                        type: string
+                                                    url:
+                                                        type: string
+                                            evidence_entries:
+                                                type: array
+                                                items:
+                                                    type: object
+                                                    additionalProperties: true
     /admin/egress:
         get:
             operationId: adminEgress

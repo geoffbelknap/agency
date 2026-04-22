@@ -1062,10 +1062,11 @@ artifacts remain the underlying records of fact for this implementation slice.
 The gateway decorates agent audit log responses with result-artifact correlation
 when a log event's `task_id` matches a saved result artifact.
 
-Endpoint:
+Endpoints:
 
 ```text
 GET /api/v1/agents/{name}/logs
+GET /api/v1/admin/audit
 ```
 
 Additive fields:
@@ -1078,7 +1079,10 @@ result:
 ```
 
 This decoration is response-time only. It must not mutate stored audit JSONL.
-Audit remains append-only from the perspective of persisted events.
+Audit remains append-only from the perspective of persisted events. Admin audit
+queries preserve typed PACT `evidence_entries` already present on verdict events
+and add result links when task artifacts exist, so audit export consumers do not
+need to reconstruct basic PACT/result correlation from UI-only state.
 
 ### Operator Surfaces
 
@@ -1099,6 +1103,8 @@ fields.
 - Enforcement remains outside the agent boundary.
 - PACT verdicts are evidence signals, not authority.
 - Audit logs are not mutated when decorated with result links.
+- Admin audit exports include additive PACT/result correlation fields when
+  result artifacts exist.
 - Result metadata is additive and optional.
 - Legacy artifacts without PACT frontmatter continue to work.
 - Malformed metadata must not fail unrelated artifact listings.
@@ -1141,8 +1147,8 @@ fields.
   model.
 - Log correlation is by `task_id`; it does not yet create a normalized execution
   graph.
-- Audit export does not yet include enriched PACT/result correlation as a
-  separate report shape.
+- Audit export includes initial enriched PACT/result correlation on log-entry
+  responses, but not yet a separate signed PACT report shape.
 
 Known gaps:
 
@@ -1216,8 +1222,10 @@ Priority targets:
    references.
 
 4. **Audit export correlation.**
-   Include PACT verdicts, result artifacts, and evidence references in signed
-   audit exports without requiring UI reconstruction.
+   Initial admin audit responses now preserve PACT verdict evidence references
+   and add result artifact links without mutating stored audit events. Next,
+   provide a separate signed PACT audit report shape with run, evidence,
+   artifact, and verdict correlation.
 
 5. **Outcome contract validation beyond current information.**
    `file_artifact`, `code_change`, and `operator_blocked` now have deterministic
