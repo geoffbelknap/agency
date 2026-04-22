@@ -899,6 +899,7 @@ task_id
 agent
 activation
 objective
+strategy
 contract
 evidence
 tool_observations
@@ -910,6 +911,17 @@ updated_at
 `objective` is populated by the Wave 2 #1 objective builder when both
 activation and contract are present; when either input is missing, it remains
 null.
+`strategy` is populated by the Wave 2 #2 strategy router when `objective` is
+present; when `objective` is null, it remains null. The router is deterministic,
+model-free, and reads only typed objective, contract, task metadata, and mission
+context. Routing rules are ordered: escalated risk routes to approval-required
+escalation; load-bearing target-file or external-authority ambiguities route to
+clarification; external side effects route to approval-required planned side
+effect handling; chat and operator-blocked contracts route to trivial direct
+handling; remaining high-risk work routes to planned execution; code changes
+route to planned execution by default; all other work routes to the tool loop.
+Advisory hints for tool scope, model tier, memory, and budget are surfaced as
+strategy notes but are not yet enforced by any runtime gate.
 `contract` wraps the existing body work contract as a typed `WorkContract`.
 `evidence` owns the existing in-memory `EvidenceLedger`; legacy flattened
 evidence remains a projection of that ledger.

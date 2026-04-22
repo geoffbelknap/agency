@@ -265,7 +265,7 @@ class ActivationContext:
 
 @dataclass(slots=True)
 class Objective:
-    """Placeholder for Wave 2 #1 objective builder; see spec Wave 2 item 1."""
+    """Typed objective built from trusted runtime state."""
 
     statement: str = ""
     kind: str = ""
@@ -287,6 +287,111 @@ class Objective:
             "assumptions": list(self.assumptions),
             "risk_level": self.risk_level,
         }
+
+
+class ExecutionMode(StrEnum):
+    """Explicit execution path selected by the strategy router."""
+
+    trivial_direct = "trivial_direct"
+    tool_loop = "tool_loop"
+    planned = "planned"
+    clarify = "clarify"
+    escalate = "escalate"
+    external_side_effect = "external_side_effect"
+    delegated = "delegated"
+
+
+@dataclass(slots=True)
+class Strategy:
+    """Runtime-owned strategy decision for a typed objective and contract."""
+
+    execution_mode: ExecutionMode
+    needs_planner: bool
+    needs_approval: bool
+    notes: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.execution_mode, ExecutionMode):
+            self.execution_mode = ExecutionMode(str(self.execution_mode))
+        self.notes = tuple(str(item) for item in self.notes)
+
+    def to_dict(self) -> dict:
+        return {
+            "execution_mode": _enum_value(self.execution_mode),
+            "needs_planner": self.needs_planner,
+            "needs_approval": self.needs_approval,
+            "notes": list(self.notes),
+        }
+
+
+def build_strategy(
+    objective: Objective,
+    contract: WorkContract,
+    task: dict,
+    *,
+    mission: dict | None = None,
+) -> Strategy:
+    """Choose an execution strategy from typed objective and trusted context."""
+
+    del task, mission
+    if objective.risk_level == "escalated":
+        return Strategy(
+            execution_mode=ExecutionMode.escalate,
+            needs_planner=False,
+            needs_approval=True,
+            notes=("reason:escalated_risk",),
+        )
+    if any(
+        ambiguity in objective.ambiguities
+        for ambiguity in ("ambiguity:target_files_missing", "ambiguity:external_authority_scope")
+    ):
+        return Strategy(
+            execution_mode=ExecutionMode.clarify,
+            needs_planner=False,
+            needs_approval=False,
+            notes=("reason:load_bearing_ambiguity",),
+        )
+    if contract.kind == "external_side_effect":
+        return Strategy(
+            execution_mode=ExecutionMode.external_side_effect,
+            needs_planner=True,
+            needs_approval=True,
+            notes=("reason:external_side_effect",),
+        )
+    if contract.kind == "chat":
+        return Strategy(
+            execution_mode=ExecutionMode.trivial_direct,
+            needs_planner=False,
+            needs_approval=False,
+            notes=("reason:chat",),
+        )
+    if contract.kind == "operator_blocked":
+        return Strategy(
+            execution_mode=ExecutionMode.trivial_direct,
+            needs_planner=False,
+            needs_approval=False,
+            notes=("reason:operator_blocked",),
+        )
+    if objective.risk_level == "high":
+        return Strategy(
+            execution_mode=ExecutionMode.planned,
+            needs_planner=True,
+            needs_approval=False,
+            notes=("reason:high_risk",),
+        )
+    if contract.kind == "code_change":
+        return Strategy(
+            execution_mode=ExecutionMode.planned,
+            needs_planner=True,
+            needs_approval=False,
+            notes=("reason:code_change_default",),
+        )
+    return Strategy(
+        execution_mode=ExecutionMode.tool_loop,
+        needs_planner=False,
+        needs_approval=False,
+        notes=("reason:default_tool_loop",),
+    )
 
 
 @dataclass(slots=True)
@@ -494,6 +599,7 @@ class ExecutionState:
     agent: str
     activation: ActivationContext | None = None
     objective: Objective | None = None
+    strategy: Strategy | None = None
     contract: WorkContract | None = None
     plan: Plan | None = None
     step_history: list[StepRecord] = field(default_factory=list)
@@ -540,11 +646,13 @@ class ExecutionState:
                 from objective_builder import build_objective
 
             state.objective = build_objective(state.activation, state.contract, objective_task)
+            state.strategy = build_strategy(state.objective, state.contract, objective_task)
         return state
 
     def attach_mission(self, mission: dict | None) -> None:
         if self.activation is None or self.contract is None:
             self.objective = None
+            self.strategy = None
             self.updated_at = _utc_now()
             return
         try:
@@ -558,6 +666,15 @@ class ExecutionState:
             dict(self._objective_task or {}),
             mission=mission if isinstance(mission, dict) else None,
         )
+        if self.objective is not None:
+            self.strategy = build_strategy(
+                self.objective,
+                self.contract,
+                dict(self._objective_task or {}),
+                mission=mission if isinstance(mission, dict) else None,
+            )
+        else:
+            self.strategy = None
         self.updated_at = _utc_now()
 
     def to_dict(self) -> dict:
@@ -566,6 +683,7 @@ class ExecutionState:
             "agent": self.agent,
             "activation": self.activation.to_dict() if self.activation else None,
             "objective": self.objective.to_dict() if self.objective else None,
+            "strategy": self.strategy.to_dict() if self.strategy else None,
             "contract": self.contract.to_dict() if self.contract else None,
             "plan": self.plan.to_dict() if self.plan else None,
             "step_history": [step.to_dict() for step in self.step_history],
