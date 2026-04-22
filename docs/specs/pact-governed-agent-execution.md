@@ -900,6 +900,7 @@ agent
 activation
 contract
 evidence
+tool_observations
 started_at
 updated_at
 ```
@@ -915,16 +916,24 @@ Placeholder fields are present but not yet populated by runtime logic:
 objective
 plan
 step_history
-tool_observations
 partial_outputs
 errors
 recovery_state
 proposed_outcome
 ```
 
+`tool_observations` now uses the Wave 1 structured `ToolObservation` protocol:
+each observation records tool name, `ToolStatus`, structured data,
+`ToolProvenance`, producer, timestamps, optional `ToolError`, `Retryability`,
+`SideEffectClass`, ordered evidence classifications, and summary. The enum
+classes are intentionally small and classify status, provenance, retryability,
+and side-effect boundary without asking the model to infer tool outcome from
+prose. `retryability` and `side_effects` are classified for operator
+inspectability, but they are not yet consumed by any evaluator; recovery logic
+arrives in Wave 2 #5 and side-effect evaluation in Wave 4 #3.
+
 These placeholders intentionally do not implement Wave 2 objective, routing,
-planning, evaluator, recovery, or outcome logic. `ToolObservation` is minimal
-until the Wave 1 structured tool observation protocol lands.
+planning, evaluator, recovery, or outcome logic.
 
 ### Verdict Signal
 

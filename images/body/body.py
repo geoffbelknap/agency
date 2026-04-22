@@ -52,6 +52,11 @@ from work_contract import (
     ActivationContext,
     EvidenceLedger,
     ExecutionState,
+    Retryability,
+    SideEffectClass,
+    ToolObservation,
+    ToolProvenance,
+    ToolStatus,
     WorkContract,
     classify_activation,
     contract_prompt,
@@ -3409,21 +3414,34 @@ class Body:
         except Exception:
             parsed = {}
         ok = not (isinstance(parsed, dict) and parsed.get("error"))
-        ledger = getattr(self, "_work_evidence_ledger", None)
-        if not isinstance(ledger, EvidenceLedger):
-            ledger = EvidenceLedger.from_dict(evidence)
-            self._work_evidence_ledger = ledger
-        ledger.record_tool_result(tool_name, ok)
+        state = self._ensure_execution_state()
+        if not isinstance(state.evidence, EvidenceLedger):
+            state.evidence = EvidenceLedger.from_dict(evidence)
+        data: dict = {}
+        evidence_classification = ["tool_result"]
         if ok and any(part in tool_name.lower() for part in ("web", "search", "fetch", "browse", "sec")):
-            ledger.observe("current_source")
-            for url in extract_urls(result):
-                ledger.record_source_url(url, producer=tool_name)
-        self._record_code_change_evidence(ledger, tool_name, parsed, arguments or {})
-        self._work_evidence = ledger.to_dict()
+            data["source_urls"] = extract_urls(result)
+            data["source_url_producer"] = tool_name
+            evidence_classification.extend(("current_source", "source_url"))
+        self._add_code_change_observation_data(data, evidence_classification, tool_name, parsed, arguments or {})
+        state.record_tool_observation(ToolObservation(
+            tool=tool_name,
+            status=ToolStatus.ok if ok else ToolStatus.error,
+            data=data,
+            provenance=ToolProvenance.mediated,
+            producer=tool_name,
+            # TODO(Wave 2 #5): classify retryability from mediated runtime errors.
+            retryability=Retryability.unknown,
+            # TODO(Wave 4 #3): replace this best-effort side-effect guess with runtime mediation metadata.
+            side_effects=self._tool_side_effect_class(tool_name, arguments or {}),
+            evidence_classification=tuple(evidence_classification),
+        ))
+        self.__dict__.pop("_work_evidence_projection_override", None)
 
-    def _record_code_change_evidence(
+    def _add_code_change_observation_data(
         self,
-        ledger: EvidenceLedger,
+        data: dict,
+        evidence_classification: list[str],
         tool_name: str,
         parsed_result: dict,
         arguments: dict,
@@ -3434,7 +3452,9 @@ class Body:
             if workspace and path.startswith(workspace.rstrip("/") + "/"):
                 path = path[len(workspace.rstrip("/") + "/"):]
             if path:
-                ledger.record_changed_file(path, producer=tool_name)
+                data["path"] = path
+                data["changed_file_producer"] = tool_name
+                evidence_classification.append("changed_file")
             return
 
         if tool_name != "execute_command" or parsed_result.get("error"):
@@ -3445,12 +3465,34 @@ class Body:
         if not any(token in command.lower() for token in ("test", "pytest", "go test", "npm test", "build", "make")):
             return
         exit_code = parsed_result.get("exit_code")
-        ledger.record_validation_result(
-            command,
-            exit_code == 0,
-            producer=tool_name,
-            metadata={"exit_code": exit_code},
+        data["command"] = command
+        data["validation_ok"] = exit_code == 0
+        data["validation_producer"] = tool_name
+        data["metadata"] = {"exit_code": exit_code}
+        evidence_classification.append("validation_result")
+
+    def _tool_side_effect_class(self, tool_name: str, arguments: dict) -> SideEffectClass:
+        if tool_name == "write_file":
+            return SideEffectClass.external_state
+        if tool_name != "execute_command":
+            return SideEffectClass.unknown
+        command = str(arguments.get("command") or "").lower()
+        mutation_markers = (
+            ">",
+            "touch ",
+            "mkdir ",
+            "rm ",
+            "mv ",
+            "cp ",
+            "sed -i",
+            "apply_patch",
+            "go build",
+            "npm run build",
+            "make",
         )
+        if any(marker in command for marker in mutation_markers):
+            return SideEffectClass.external_state
+        return SideEffectClass.read_only
 
     def _record_provider_tool_evidence(self, extra: dict) -> None:
         evidence = getattr(self, "_work_evidence", None)
@@ -3466,31 +3508,71 @@ class Body:
         ]
         if not capabilities:
             capabilities = ["provider-hosted-tool"]
-        ledger = getattr(self, "_work_evidence_ledger", None)
-        if not isinstance(ledger, EvidenceLedger):
-            ledger = EvidenceLedger.from_dict(evidence)
-            self._work_evidence_ledger = ledger
-        existing = {item.get("tool") for item in ledger.tool_results()}
-        for capability in capabilities:
-            if capability not in existing:
-                ledger.record_tool_result(capability, True)
+        state = self._ensure_execution_state()
+        if not isinstance(state.evidence, EvidenceLedger):
+            state.evidence = EvidenceLedger.from_dict(evidence)
+        existing = {item.get("tool") for item in state.evidence.tool_results()}
+        source_urls = extract_urls(str(extra.get("provider_source_urls") or ""))
+        provider_source_labels: list[str] = []
         if any(part in response_types.lower() for part in ("web_search", "web_fetch", "citation", "source")):
-            ledger.observe("current_source")
-        for url in extract_urls(str(extra.get("provider_source_urls") or "")):
-            ledger.record_source_url(url, producer="provider")
-        self._work_evidence = ledger.to_dict()
+            provider_source_labels.append("current_source")
+        if source_urls:
+            provider_source_labels.append("source_url")
+        for capability in capabilities:
+            if capability in existing:
+                continue
+            state.record_tool_observation(ToolObservation(
+                tool=capability,
+                status=ToolStatus.ok,
+                data={},
+                provenance=ToolProvenance.provider,
+                producer=capability,
+                # TODO(Wave 2 #5): classify provider retryability from provider/runtime error metadata.
+                retryability=Retryability.unknown,
+                # TODO(Wave 4 #3): provider tool side-effect class is unknown until mediation metadata exists.
+                side_effects=SideEffectClass.unknown,
+                evidence_classification=("tool_result",),
+            ))
+        if provider_source_labels:
+            state.record_tool_observation(ToolObservation(
+                tool="provider",
+                status=ToolStatus.ok,
+                data={
+                    "source_urls": source_urls,
+                    "source_url_producer": "provider",
+                    "suppress_tool_result": True,
+                },
+                provenance=ToolProvenance.provider,
+                producer="provider",
+                # TODO(Wave 2 #5): classify provider retryability from provider/runtime error metadata.
+                retryability=Retryability.unknown,
+                # TODO(Wave 4 #3): provider tool side-effect class is unknown until mediation metadata exists.
+                side_effects=SideEffectClass.unknown,
+                evidence_classification=tuple(provider_source_labels),
+            ))
+        self.__dict__.pop("_work_evidence_projection_override", None)
 
     def _record_work_artifact(self, path: str, artifact_id: str = "") -> None:
         evidence = getattr(self, "_work_evidence", None)
         if not isinstance(evidence, dict) or not path:
             return
-        ledger = getattr(self, "_work_evidence_ledger", None)
-        if not isinstance(ledger, EvidenceLedger):
-            ledger = EvidenceLedger.from_dict(evidence)
-            self._work_evidence_ledger = ledger
+        state = self._ensure_execution_state()
+        if not isinstance(state.evidence, EvidenceLedger):
+            state.evidence = EvidenceLedger.from_dict(evidence)
         metadata = {"artifact_id": artifact_id} if artifact_id else {}
-        ledger.record_artifact_path(path, metadata=metadata)
-        self._work_evidence = ledger.to_dict()
+        state.record_tool_observation(ToolObservation(
+            tool="runtime:artifact",
+            status=ToolStatus.ok,
+            data={"path": path, "metadata": metadata},
+            provenance=ToolProvenance.runtime,
+            producer="runtime:artifact",
+            # TODO(Wave 2 #5): runtime artifact retryability is not consumed until recovery state lands.
+            retryability=Retryability.unknown,
+            # TODO(Wave 4 #3): artifact side effects are local runtime state until the side-effect evaluator lands.
+            side_effects=SideEffectClass.local_state,
+            evidence_classification=("artifact_path",),
+        ))
+        self.__dict__.pop("_work_evidence_projection_override", None)
 
     # -- Signal Emission --
 
