@@ -57,6 +57,18 @@ const logs: RawAuditEntry[] = [
     finding_count: 0,
     content_count: 1,
   },
+  {
+    timestamp: '2026-04-21T19:45:15Z',
+    event: 'agent_signal_pact_verdict',
+    source: 'body',
+    agent: 'test-1',
+    task_id: 'task-20260422-node',
+    kind: 'current_info',
+    verdict: 'completed',
+    source_urls: ['https://nodejs.org/en/blog/release/v24.15.0'],
+    missing_evidence: [],
+    tools: ['provider-web-search'],
+  },
 ];
 
 describe('LogsSection', () => {
@@ -70,6 +82,8 @@ describe('LogsSection', () => {
     expect(screen.getByText('Security scan flagged')).toBeInTheDocument();
     expect(screen.getByText(/xpia · llm_tool_messages · flagged · 2 findings · 1 items · 88 bytes/)).toBeInTheDocument();
     expect(screen.getByText('Security scan not applicable')).toBeInTheDocument();
+    expect(screen.getByText('PACT completed')).toBeInTheDocument();
+    expect(screen.getByText(/current_info · 1 source · 1 tools · task task-20260422-node/)).toBeInTheDocument();
   });
 
   it('expands structured audit fields and preserves raw JSON', async () => {
@@ -103,5 +117,18 @@ describe('LogsSection', () => {
     expect(screen.getByText('Security scan flagged')).toBeInTheDocument();
     expect(screen.getByText('Security scan not applicable')).toBeInTheDocument();
     expect(screen.queryByText('LLM request')).not.toBeInTheDocument();
+  });
+
+  it('expands PACT verdict evidence fields', async () => {
+    const user = userEvent.setup();
+    render(<LogsSection agentName="test-1" logs={logs} refreshingLogs={false} refreshLogs={vi.fn()} />);
+
+    await user.click(screen.getByText('PACT completed'));
+
+    expect(screen.getByText('PACT')).toBeInTheDocument();
+    expect(screen.getByText('source_urls')).toBeInTheDocument();
+    expect(screen.getAllByText(/https:\/\/nodejs\.org\/en\/blog\/release\/v24\.15\.0/).length).toBeGreaterThan(0);
+    expect(screen.getByText('tools')).toBeInTheDocument();
+    expect(screen.getAllByText(/provider-web-search/).length).toBeGreaterThan(0);
   });
 });

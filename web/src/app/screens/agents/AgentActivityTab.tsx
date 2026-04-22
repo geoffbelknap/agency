@@ -2,6 +2,7 @@ import { useState, useMemo, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { Send, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 import { type RawAuditEntry } from '../../lib/api';
+import { pactSummary } from '../../components/PactStatusBadge';
 
 interface Props {
   agentName: string;
@@ -104,8 +105,9 @@ const CORE_FIELDS = ['timestamp', 'ts', 'event', 'type', 'agent', 'agent_name', 
 const ACTION_FIELDS = ['method', 'path', 'url', 'host', 'domain', 'capability', 'provider_tool_capability', 'provider_tool_capabilities', 'tool', 'name', 'phase', 'phase_name', 'scan_type', 'scan_surface', 'scan_action', 'scan_mode'];
 const RESULT_FIELDS = ['status', 'error', 'duration_ms', 'elapsed_ms', 'phase_elapsed_ms', 'input_tokens', 'output_tokens', 'cost', 'model', 'provider_model', 'finding_count', 'findings'];
 const PROVENANCE_FIELDS = ['initiator', 'delivered_by', 'mode', 'provider_tool_type', 'provider_tool_types', 'provider_source_count', 'provider_citation_count', 'provider_search_query_count', 'provider_source_urls'];
+const PACT_FIELDS = ['kind', 'verdict', 'required_evidence', 'answer_requirements', 'missing_evidence', 'observed', 'source_urls', 'tools'];
 const PAYLOAD_FIELDS = ['task_content', 'content', 'detail', 'reason', 'data', 'args', 'content_sha256', 'content_bytes', 'content_count'];
-const KNOWN_AUDIT_FIELDS = new Set([...CORE_FIELDS, ...ACTION_FIELDS, ...RESULT_FIELDS, ...PROVENANCE_FIELDS, ...PAYLOAD_FIELDS]);
+const KNOWN_AUDIT_FIELDS = new Set([...CORE_FIELDS, ...ACTION_FIELDS, ...RESULT_FIELDS, ...PROVENANCE_FIELDS, ...PACT_FIELDS, ...PAYLOAD_FIELDS]);
 
 function eventName(e: AuditRaw): string {
   return text(e.event) || text(e.type) || 'event';
@@ -130,6 +132,12 @@ function numberValue(value: unknown): number | undefined {
     return Number.isFinite(parsed) ? parsed : undefined;
   }
   return undefined;
+}
+
+function arrayCount(value: unknown): number {
+  if (Array.isArray(value)) return value.length;
+  if (typeof value === 'string' && value.trim()) return value.split(',').filter((item) => item.trim()).length;
+  return 0;
 }
 
 function valueSummary(value: unknown): string {
@@ -157,6 +165,7 @@ function classifyAuditEntry(e: AuditRaw): Exclude<AuditFilter, 'all'> {
   const name = eventName(e);
   const status = numberValue(e.status);
   if (e.error || status && status >= 400 || /error|failed|denied|violation/i.test(name)) return 'errors';
+  if (name === 'agent_signal_pact_verdict') return 'lifecycle';
   if (/SECURITY_SCAN|XPIA|MCP_TOOL_MUTATION/i.test(name) || e.scan_type || e.findings || e.finding_count !== undefined) return 'security';
   if (/^LLM_|infra_llm/i.test(name)) return 'llm';
   if (/MEDIATION|HTTP_PROXY|PROXY|capability|credential/i.test(name) || e.method || e.url || e.path || e.host || e.domain) return 'mediation';
@@ -166,6 +175,11 @@ function classifyAuditEntry(e: AuditRaw): Exclude<AuditFilter, 'all'> {
 function toneForEntry(e: AuditRaw): AuditTone {
   const status = numberValue(e.status);
   if (e.error || status && status >= 400 || /error|failed|denied/i.test(eventName(e))) return 'danger';
+  if (eventName(e) === 'agent_signal_pact_verdict') {
+    if (text(e.verdict) === 'completed') return 'success';
+    if (text(e.verdict) === 'blocked') return 'danger';
+    if (text(e.verdict) === 'needs_action') return 'warn';
+  }
   if (/FLAGGED|MUTATION|XPIA/i.test(eventName(e))) return 'warn';
   if (/SECURITY_SCAN_PASSED/i.test(eventName(e))) return 'success';
   if (/SECURITY_SCAN_NOT_APPLICABLE|SECURITY_SCAN_SKIPPED/i.test(eventName(e))) return 'neutral';
@@ -235,6 +249,31 @@ function summarizeAuditEntry(e: AuditRaw) {
     };
   }
 
+  if (name === 'agent_signal_pact_verdict') {
+    const verdict = text(e.verdict) || 'unknown';
+    const kind = text(e.kind) || 'contract';
+    const sources = arrayCount(e.source_urls);
+    const missing = arrayCount(e.missing_evidence);
+    const tools = arrayCount(e.tools);
+    return {
+      title: `PACT ${verdict}`,
+      summary: [
+        kind,
+        pactSummary({ kind, verdict, source_urls: Array.isArray(e.source_urls) ? e.source_urls : [], missing_evidence: Array.isArray(e.missing_evidence) ? e.missing_evidence : [] }),
+        tools > 0 ? `${tools} tools` : '',
+        text(e.task_id) ? `task ${text(e.task_id)}` : '',
+      ].filter(Boolean).join(' · '),
+      chips: [
+        chip('contract', kind),
+        chip('task', e.task_id),
+        chip('sources', sources || ''),
+        chip('missing', missing || ''),
+        chip('tools', tools || ''),
+      ].filter(Boolean),
+      tone: toneForEntry(e),
+    };
+  }
+
   if (/MEDIATION|HTTP_PROXY|PROXY/.test(name) || e.method || e.path || e.url || e.host || e.domain) {
     const target = text(e.path) || text(e.url) || text(e.host) || text(e.domain);
     return {
@@ -298,6 +337,7 @@ function groupedFields(e: AuditRaw) {
     section('Action', ACTION_FIELDS),
     section('Result', RESULT_FIELDS),
     section('Mediation and provenance', PROVENANCE_FIELDS),
+    section('PACT', PACT_FIELDS),
     section('Payload', PAYLOAD_FIELDS),
     { title: 'Additional fields', rows: remaining },
   ].filter((group) => group.rows.length > 0);
