@@ -68,12 +68,106 @@ def _strategy_for(
 
 
 def test_chat_routes_to_trivial_direct_without_planner_or_approval():
-    strategy, _, _, _ = _strategy_for("chat", "hello there")
+    strategy, _, _, _ = _strategy_for("chat", "hi")
 
     assert strategy.execution_mode == ExecutionMode.trivial_direct
     assert strategy.needs_planner is False
     assert strategy.needs_approval is False
     assert strategy.notes == ("reason:chat",)
+
+
+def test_grounded_chat_routes_to_tool_loop_without_planner_or_approval():
+    strategy, _, _, _ = _strategy_for("chat", "Investigate this repository")
+
+    assert strategy.execution_mode == ExecutionMode.tool_loop
+    assert strategy.needs_planner is False
+    assert strategy.needs_approval is False
+    assert strategy.notes == ("reason:grounded_informal_ask",)
+
+
+def test_social_chat_still_routes_to_trivial_direct():
+    strategy, _, _, _ = _strategy_for("chat", "hi")
+
+    assert strategy.execution_mode == ExecutionMode.trivial_direct
+    assert strategy.notes == ("reason:chat",)
+
+
+def test_creative_chat_still_routes_to_trivial_direct():
+    strategy, _, _, _ = _strategy_for("chat", "tell me a joke")
+
+    assert strategy.execution_mode == ExecutionMode.trivial_direct
+    assert strategy.notes == ("reason:chat",)
+
+
+def test_persona_chat_still_routes_to_trivial_direct():
+    strategy, _, _, _ = _strategy_for("chat", "who are you")
+
+    assert strategy.execution_mode == ExecutionMode.trivial_direct
+    assert strategy.notes == ("reason:chat",)
+
+
+def test_escalated_grounded_chat_wins_over_grounded_chat_rule():
+    strategy, objective, _, _ = _strategy_for(
+        "chat",
+        "Investigate this repository",
+        trust_level="untrusted",
+    )
+
+    assert objective.generation_mode == "grounded"
+    assert objective.risk_level == "escalated"
+    assert strategy.execution_mode == ExecutionMode.escalate
+    assert strategy.notes == ("reason:escalated_risk",)
+
+
+def test_load_bearing_ambiguity_wins_over_grounded_chat_rule():
+    contract = _contract("chat")
+    task = _task("Investigate this repository")
+    objective = build_objective(_activation("Investigate this repository"), contract, task)
+    objective.ambiguities.append("ambiguity:target_files_missing")
+
+    strategy = build_strategy(objective, contract, task)
+
+    assert objective.generation_mode == "grounded"
+    assert strategy.execution_mode == ExecutionMode.clarify
+    assert strategy.notes == ("reason:load_bearing_ambiguity",)
+
+
+def test_grounded_current_info_keeps_default_tool_loop_route():
+    strategy, objective, _, _ = _strategy_for("current_info", "Find latest Node.js release")
+
+    assert objective.generation_mode == "grounded"
+    assert strategy.execution_mode == ExecutionMode.tool_loop
+    assert strategy.notes == ("reason:default_tool_loop",)
+
+
+def test_grounded_code_change_keeps_planned_route():
+    task = _task("Fix images/body/pact_engine.py")
+    task["metadata"]["target_files"] = ["images/body/pact_engine.py"]
+
+    strategy, objective, _, _ = _strategy_for("code_change", "Fix images/body/pact_engine.py", task=task)
+
+    assert objective.generation_mode == "grounded"
+    assert strategy.execution_mode == ExecutionMode.planned
+    assert strategy.notes == ("reason:code_change_default",)
+
+
+def test_grounded_operator_blocked_keeps_trivial_direct_route():
+    strategy, objective, _, _ = _strategy_for("operator_blocked", "Blocked waiting for approval")
+
+    assert objective.generation_mode == "grounded"
+    assert strategy.execution_mode == ExecutionMode.trivial_direct
+    assert strategy.notes == ("reason:operator_blocked",)
+
+
+def test_hank_replay_grounded_chat_routes_to_tool_loop():
+    content = "I want to see if you can help me out by investigating this github repository..."
+    strategy, objective, _, _ = _strategy_for("chat", content)
+
+    assert objective.generation_mode == "grounded"
+    assert strategy.execution_mode == ExecutionMode.tool_loop
+    assert strategy.needs_planner is False
+    assert strategy.needs_approval is False
+    assert strategy.notes == ("reason:grounded_informal_ask",)
 
 
 def test_current_info_at_medium_risk_routes_to_tool_loop():
@@ -194,7 +288,7 @@ def test_execution_state_from_task_populates_strategy_only_when_objective_is_pop
 
 def test_execution_state_attach_mission_rebuilds_objective_and_strategy():
     contract = _contract("chat", allowed_terminal_states=["completed"])
-    state = ExecutionState.from_task(_task_with_contract("hello there", contract), agent="scout")
+    state = ExecutionState.from_task(_task_with_contract("hi", contract), agent="scout")
     state.strategy = None
 
     state.attach_mission({"constraints": ["mission-readonly"]})
@@ -203,3 +297,16 @@ def test_execution_state_attach_mission_rebuilds_objective_and_strategy():
     assert state.objective.constraints == ["mission-readonly", "terminal:completed"]
     assert state.strategy is not None
     assert state.strategy.execution_mode == ExecutionMode.trivial_direct
+
+
+def test_execution_state_from_task_routes_hank_replay_to_tool_loop():
+    content = "I want to see if you can help me out by investigating this github repository..."
+    contract = _contract("chat", allowed_terminal_states=["completed"])
+    state = ExecutionState.from_task(_task_with_contract(content, contract), agent="scout")
+
+    assert state.objective is not None
+    assert state.objective.generation_mode == "grounded"
+    assert state.strategy is not None
+    assert state.strategy.execution_mode == ExecutionMode.tool_loop
+    assert state.strategy.needs_planner is False
+    assert state.strategy.notes == ("reason:grounded_informal_ask",)

@@ -393,6 +393,13 @@ def build_strategy(
             needs_approval=True,
             notes=("reason:external_side_effect",),
         )
+    if contract.kind == "chat" and objective is not None and objective.generation_mode == "grounded":
+        return Strategy(
+            execution_mode=ExecutionMode.tool_loop,
+            needs_planner=False,
+            needs_approval=False,
+            notes=("reason:grounded_informal_ask",),
+        )
     if contract.kind == "chat":
         return Strategy(
             execution_mode=ExecutionMode.trivial_direct,

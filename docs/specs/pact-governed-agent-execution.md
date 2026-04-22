@@ -1016,14 +1016,18 @@ invention authority on inference or ambiguous conversational phrasing.
 `strategy` is populated by the Wave 2 #2 strategy router when `objective` is
 present; when `objective` is null, it remains null. The router is deterministic,
 model-free, and reads only typed objective, contract, task metadata, and mission
-context. Routing rules are ordered: escalated risk routes to approval-required
-escalation; load-bearing target-file or external-authority ambiguities route to
-clarification; external side effects route to approval-required planned side
-effect handling; chat and operator-blocked contracts route to trivial direct
-handling; remaining high-risk work routes to planned execution; code changes
-route to planned execution by default; all other work routes to the tool loop.
-Advisory hints for tool scope, model tier, memory, and budget are surfaced as
-strategy notes but are not yet enforced by any runtime gate.
+context. The router now also consumes `objective.generation_mode`. Routing rules
+are ordered: escalated risk routes to approval-required escalation; load-bearing
+target-file or external-authority ambiguities route to clarification; external
+side effects route to approval-required planned side effect handling; grounded
+mode `chat` routes at rule 4 to `tool_loop` with no planner or approval so that
+analytical asks phrased conversationally cannot slip past tool pressure; remaining
+non-grounded `chat` routes to trivial direct handling; operator-blocked contracts
+route to trivial direct handling; remaining high-risk work routes to planned
+execution; code changes route to planned execution by default; all other work
+routes to the tool loop. Advisory hints for tool scope, model tier, memory, and
+budget are surfaced as strategy notes but are not yet enforced by any runtime
+gate.
 `contract` wraps the existing body work contract as a typed `WorkContract`.
 `plan` is populated by the Wave 2 #3 planner builder when the selected strategy
 requires planning. The builder is deterministic and model-free, and emits typed
