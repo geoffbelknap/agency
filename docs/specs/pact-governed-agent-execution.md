@@ -851,10 +851,11 @@ permission or mutate audit history by emitting it.
 ### Runtime Evaluator
 
 The body runtime now uses a registry-backed `PactEvaluator` as the local
-evaluation boundary for PACT work. Existing module-level helper functions remain
-as compatibility wrappers, but registry lookup, contract construction,
-activation classification, prompt material, blocker formatting, and completion
-validation route through the evaluator.
+evaluation boundary for PACT work. Core contract definitions, activation
+classification, evidence modeling, prompt material, blocker formatting, and
+completion validation live in the body-local `pact_engine` module. Existing
+`work_contract` module-level helper functions remain as compatibility wrappers
+while body integration moves toward explicit runtime adapters.
 
 The current evaluator types are:
 
@@ -1105,9 +1106,10 @@ fields.
   typed in-memory `EvidenceLedger`, but the durable evidence ledger is still
   represented by runtime observations, provider metadata, audit events, and
   artifact frontmatter rather than a typed PACT ledger resource.
-- The named contract registry and body-local `PactEvaluator` exist, and
-  `current_info`, `file_artifact`, `code_change`, and `operator_blocked` now
-  have deterministic completion gates.
+- The named contract registry and body-local `PactEvaluator` exist in a
+  dedicated `pact_engine` boundary, and `current_info`, `file_artifact`,
+  `code_change`, and `operator_blocked` now have deterministic completion
+  gates.
 - `external_side_effect` is registered but not yet broadly classified or
   validated by a contract-specific evaluator.
 - File-artifact work is classified for explicit artifact-producing requests.
@@ -1189,8 +1191,10 @@ more ad hoc UI surfaces.
 Priority targets:
 
 1. **Central PACT evaluator extraction.**
-   Move the body-local evaluator boundary toward a backend-owned PACT evaluator
-   module with explicit body/runtime adapters.
+   The first extraction step is complete inside the body runtime: core
+   classification, evidence, and evaluation logic now lives in `pact_engine`,
+   with `work_contract` preserved as a compatibility facade. Next, move this
+   boundary toward a backend-owned package with explicit body/runtime adapters.
 
 2. **Durable typed evidence ledger.**
    Promote the body runtime's in-memory `EvidenceLedger` into durable evidence

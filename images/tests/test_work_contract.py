@@ -24,6 +24,13 @@ from images.body.work_contract import (
     list_contract_kinds,
     validate_completion,
 )
+from images.body import pact_engine
+
+
+def test_work_contract_is_compatibility_facade_for_pact_engine():
+    assert PactEvaluator is pact_engine.PactEvaluator
+    assert EvidenceLedger is pact_engine.EvidenceLedger
+    assert classify_work("Find the latest Node.js release").kind == "current_info"
 
 
 def test_activation_context_from_message_normalizes_fields():
