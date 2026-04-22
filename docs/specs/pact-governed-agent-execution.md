@@ -768,6 +768,192 @@ Current Body Runtime concepts map as follows:
 | task response posting | Disposition |
 | memory capture | Memory proposal disposition |
 
+## Current Implementation Checkpoint
+
+As of the April 2026 vertical slice, Agency has implemented a narrow but
+operator-visible PACT path for body runtime work.
+
+This slice is intentionally not the full PACT object model. It establishes the
+first durable signals, artifacts, API projections, and UI audit surfaces for
+contract-bound execution.
+
+### Verdict Signal
+
+The body runtime emits `pact_verdict` through the existing agent signal channel.
+
+Signal event:
+
+```text
+agent_signal_pact_verdict
+```
+
+Payload fields:
+
+```text
+task_id
+kind
+verdict
+required_evidence
+answer_requirements
+missing_evidence
+observed
+source_urls
+tools
+```
+
+Current verdict values:
+
+```text
+completed
+blocked
+needs_action
+```
+
+Current contract kind:
+
+```text
+current_info
+```
+
+The verdict signal is audit evidence. It is not enforcement authority. The
+gateway records and displays the signal, but the agent cannot grant itself
+permission or mutate audit history by emitting it.
+
+### Result Artifact Metadata
+
+When the body runtime writes a saved result artifact under `.results/`, it writes
+YAML frontmatter that may include a `pact` object.
+
+Example:
+
+```yaml
+---
+task_id: task-20260422-node
+agent: test-1
+timestamp: "2026-04-22T08:00:00Z"
+turns: 3
+pact:
+  kind: current_info
+  verdict: completed
+  required_evidence:
+    - current_source
+    - source_url
+  answer_requirements:
+    - direct_answer
+    - checked_date
+  missing_evidence: []
+  observed:
+    - official source URL observed
+  source_urls:
+    - https://nodejs.org/en/blog/release/v24.15.0
+  tools:
+    - provider-web-search
+---
+```
+
+Artifacts without PACT metadata remain valid. Malformed frontmatter is surfaced
+as metadata error where possible, but must not prevent listing other artifacts.
+
+### Result Metadata API
+
+The gateway exposes structured result metadata without changing the markdown
+artifact endpoint.
+
+Endpoints:
+
+```text
+GET /api/v1/agents/{name}/results
+GET /api/v1/agents/{name}/results/{taskId}
+GET /api/v1/agents/{name}/results/{taskId}/metadata
+```
+
+`GET /results` returns additive metadata on each item:
+
+```text
+task_id
+has_metadata
+metadata
+pact
+metadata_error
+```
+
+`GET /results/{taskId}/metadata` returns:
+
+```text
+task_id
+metadata
+pact
+has_metadata
+```
+
+The markdown result endpoint remains the canonical artifact body and supports
+download semantics. Metadata endpoints are read-only projections over saved
+artifacts.
+
+### Log Correlation API
+
+The gateway decorates agent audit log responses with result-artifact correlation
+when a log event's `task_id` matches a saved result artifact.
+
+Endpoint:
+
+```text
+GET /api/v1/agents/{name}/logs
+```
+
+Additive fields:
+
+```text
+has_result
+result:
+  task_id
+  url
+```
+
+This decoration is response-time only. It must not mutate stored audit JSONL.
+Audit remains append-only from the perspective of persisted events.
+
+### Operator Surfaces
+
+The web UI exposes this slice through:
+
+- PACT status chips on chat result artifacts
+- agent Results tab with saved artifacts and PACT verdict summaries
+- Activity log rendering for `agent_signal_pact_verdict`
+- Activity-to-result linking by `task_id`
+
+The UI may derive convenience displays, but the gateway API owns durable
+correlation. UI code may fall back to client-side `task_id` matching for older
+gateways, but new behavior should prefer API-provided `has_result` and `result`
+fields.
+
+### Implemented Invariants
+
+- Enforcement remains outside the agent boundary.
+- PACT verdicts are evidence signals, not authority.
+- Audit logs are not mutated when decorated with result links.
+- Result metadata is additive and optional.
+- Legacy artifacts without PACT frontmatter continue to work.
+- Malformed metadata must not fail unrelated artifact listings.
+- UI displays may fail open to "no metadata", but must not invent verdicts.
+- Source URLs and tool names are observed evidence fields, not model-only claims
+  when populated by runtime/provider observation paths.
+
+### Current Limits
+
+- The durable evidence ledger is still represented by body runtime observations,
+  provider metadata, audit events, and artifact frontmatter rather than a typed
+  PACT ledger resource.
+- `current_info` is the only implemented contract family with meaningful answer
+  gating.
+- PACT runs are not yet first-class gateway resources.
+- Result artifacts are task-oriented markdown files, not a general artifact
+  model.
+- Log correlation is by `task_id`; it does not yet create a normalized execution
+  graph.
+- Audit export does not yet include enriched PACT/result correlation as a
+  separate report shape.
+
 Known gaps:
 
 - blocked outcomes may publish without reliably finalizing current task state
@@ -809,6 +995,38 @@ Non-scope for the first slice:
 - full artifact disposition
 - UI redesign
 - long-running workflow persistence
+
+## Next Implementation Targets
+
+The next Agency PACT work should deepen the runtime contract rather than add
+more ad hoc UI surfaces.
+
+Priority targets:
+
+1. **Named contract registry.**
+   Define contract kinds as gateway/body runtime data, starting with
+   `current_info`, `code_change`, `file_artifact`, `external_side_effect`, and
+   `operator_blocked`.
+
+2. **Typed evidence ledger.**
+   Move from scattered observation fields toward durable evidence entries with
+   producer, provenance, visibility, and contract relevance.
+
+3. **First-class PACT run resource.**
+   Expose an execution/run view keyed by activation or task ID that joins
+   objective, contract, evidence, verdict, artifact, and audit references.
+
+4. **Audit export correlation.**
+   Include PACT verdicts, result artifacts, and evidence references in signed
+   audit exports without requiring UI reconstruction.
+
+5. **Outcome contract validation beyond current information.**
+   Add deterministic checks for code changes, file artifacts, and external side
+   effects before generalizing to more complex workflows.
+
+6. **Policy/admin observability.**
+   Add administrative surfaces for contract health, blocked verdict trends,
+   missing evidence categories, and agent/runtime compliance.
 
 ## Extraction Path
 
