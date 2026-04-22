@@ -1,9 +1,14 @@
 package agents
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -60,6 +65,36 @@ type pactArtifactProjection struct {
 	MetadataError string `json:"metadata_error,omitempty"`
 }
 
+type pactAuditReport struct {
+	ReportID        string                   `json:"report_id"`
+	GeneratedAt     string                   `json:"generated_at"`
+	Agent           string                   `json:"agent"`
+	TaskID          string                   `json:"task_id"`
+	Run             pactRunProjection        `json:"run"`
+	EvidenceEntries []interface{}            `json:"evidence_entries"`
+	ArtifactRefs    []pactArtifactProjection `json:"artifact_refs"`
+	AuditEvents     []logs.Event             `json:"audit_events"`
+	Integrity       pactReportIntegrity      `json:"integrity"`
+}
+
+type pactReportIntegrity struct {
+	Algorithm string `json:"algorithm"`
+	Hash      string `json:"hash"`
+	Scope     string `json:"scope"`
+}
+
+type pactAuditReportVerification struct {
+	Valid        bool   `json:"valid"`
+	Agent        string `json:"agent"`
+	TaskID       string `json:"task_id"`
+	Algorithm    string `json:"algorithm"`
+	ExpectedHash string `json:"expected_hash,omitempty"`
+	ActualHash   string `json:"actual_hash"`
+	ReportID     string `json:"report_id"`
+	CheckedAt    string `json:"checked_at"`
+	Reason       string `json:"reason,omitempty"`
+}
+
 // getPactRun handles GET /api/v1/agents/{name}/pact/runs/{taskId}.
 //
 // The projection is assembled from existing durable surfaces: result artifact
@@ -73,6 +108,111 @@ func (h *handler) getPactRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	projection, found := h.buildPactRunProjection(r.Context(), agentName, taskID)
+	if !found {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "PACT run not found"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, projection)
+}
+
+func (h *handler) getPactAuditReport(w http.ResponseWriter, r *http.Request) {
+	agentName := chi.URLParam(r, "name")
+	taskID := chi.URLParam(r, "taskId")
+	if invalidResultTaskID(taskID) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid task ID"})
+		return
+	}
+
+	projection, found := h.buildPactRunProjection(r.Context(), agentName, taskID)
+	if !found {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "PACT run not found"})
+		return
+	}
+
+	report, err := pactAuditReportFromRun(agentName, taskID, projection, time.Now().UTC())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to build PACT audit report"})
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}
+
+func (h *handler) verifyPactAuditReport(w http.ResponseWriter, r *http.Request) {
+	agentName := chi.URLParam(r, "name")
+	taskID := chi.URLParam(r, "taskId")
+	if invalidResultTaskID(taskID) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid task ID"})
+		return
+	}
+
+	projection, found := h.buildPactRunProjection(r.Context(), agentName, taskID)
+	if !found {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "PACT run not found"})
+		return
+	}
+
+	report, err := pactAuditReportFromRun(agentName, taskID, projection, time.Now().UTC())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to build PACT audit report"})
+		return
+	}
+	expectedHash, reason, err := expectedPactReportHash(r, agentName, taskID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if expectedHash == "" {
+		expectedHash = report.Integrity.Hash
+	}
+	valid := expectedHash == report.Integrity.Hash && reason == ""
+	verification := pactAuditReportVerification{
+		Valid:        valid,
+		Agent:        agentName,
+		TaskID:       taskID,
+		Algorithm:    report.Integrity.Algorithm,
+		ExpectedHash: expectedHash,
+		ActualHash:   report.Integrity.Hash,
+		ReportID:     report.ReportID,
+		CheckedAt:    time.Now().UTC().Format(time.RFC3339),
+	}
+	if !valid {
+		if reason != "" {
+			verification.Reason = reason
+		} else {
+			verification.Reason = "hash_mismatch"
+		}
+	}
+	writeJSON(w, http.StatusOK, verification)
+}
+
+func expectedPactReportHash(r *http.Request, agentName, taskID string) (string, string, error) {
+	queryHash := strings.TrimSpace(r.URL.Query().Get("hash"))
+	if r.Body == nil || r.ContentLength == 0 {
+		return queryHash, "", nil
+	}
+	defer r.Body.Close()
+	var submitted pactAuditReport
+	if err := json.NewDecoder(r.Body).Decode(&submitted); err != nil {
+		return "", "", err
+	}
+	if submitted.Agent != "" && submitted.Agent != agentName {
+		return submitted.Integrity.Hash, "agent_mismatch", nil
+	}
+	if submitted.TaskID != "" && submitted.TaskID != taskID {
+		return submitted.Integrity.Hash, "task_id_mismatch", nil
+	}
+	if submitted.Integrity.Algorithm != "" && submitted.Integrity.Algorithm != "sha256" {
+		return submitted.Integrity.Hash, "unsupported_algorithm", nil
+	}
+	if submitted.Integrity.Hash != "" {
+		return submitted.Integrity.Hash, "", nil
+	}
+	return queryHash, "", nil
+}
+
+func (h *handler) buildPactRunProjection(ctx context.Context, agentName, taskID string) (pactRunProjection, bool) {
 	projection := pactRunProjection{
 		TaskID:      taskID,
 		Agent:       agentName,
@@ -80,7 +220,7 @@ func (h *handler) getPactRun(w http.ResponseWriter, r *http.Request) {
 		Sources:     []string{},
 	}
 
-	if data, err := h.readResultArtifact(r.Context(), agentName, taskID); err == nil {
+	if data, err := h.readResultArtifact(ctx, agentName, taskID); err == nil {
 		projection.Artifact = &pactArtifactProjection{
 			TaskID: taskID,
 			URL:    "/api/v1/agents/" + url.PathEscape(agentName) + "/results/" + url.PathEscape(taskID),
@@ -116,11 +256,74 @@ func (h *handler) getPactRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if projection.Artifact == nil && len(projection.AuditEvents) == 0 {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "PACT run not found"})
-		return
+		return projection, false
 	}
 
-	writeJSON(w, http.StatusOK, projection)
+	return projection, true
+}
+
+func pactAuditReportFromRun(agentName, taskID string, run pactRunProjection, generatedAt time.Time) (pactAuditReport, error) {
+	report := pactAuditReport{
+		GeneratedAt:     generatedAt.UTC().Format(time.RFC3339),
+		Agent:           agentName,
+		TaskID:          taskID,
+		Run:             run,
+		EvidenceEntries: pactEvidenceEntries(run),
+		ArtifactRefs:    pactArtifactRefs(run),
+		AuditEvents:     run.AuditEvents,
+	}
+	hash, err := pactReportHash(report)
+	if err != nil {
+		return pactAuditReport{}, err
+	}
+	report.ReportID = "pact-report-" + hash[:16]
+	report.Integrity = pactReportIntegrity{
+		Algorithm: "sha256",
+		Hash:      hash,
+		Scope:     "report_without_generated_at_or_integrity",
+	}
+	return report, nil
+}
+
+func pactEvidenceEntries(run pactRunProjection) []interface{} {
+	if run.Evidence == nil || run.Evidence.EvidenceEntries == nil {
+		return []interface{}{}
+	}
+	if entries, ok := run.Evidence.EvidenceEntries.([]interface{}); ok {
+		return entries
+	}
+	return []interface{}{run.Evidence.EvidenceEntries}
+}
+
+func pactArtifactRefs(run pactRunProjection) []pactArtifactProjection {
+	if run.Artifact == nil {
+		return []pactArtifactProjection{}
+	}
+	return []pactArtifactProjection{*run.Artifact}
+}
+
+func pactReportHash(report pactAuditReport) (string, error) {
+	stable := struct {
+		Agent           string                   `json:"agent"`
+		TaskID          string                   `json:"task_id"`
+		Run             pactRunProjection        `json:"run"`
+		EvidenceEntries []interface{}            `json:"evidence_entries"`
+		ArtifactRefs    []pactArtifactProjection `json:"artifact_refs"`
+		AuditEvents     []logs.Event             `json:"audit_events"`
+	}{
+		Agent:           report.Agent,
+		TaskID:          report.TaskID,
+		Run:             report.Run,
+		EvidenceEntries: report.EvidenceEntries,
+		ArtifactRefs:    report.ArtifactRefs,
+		AuditEvents:     report.AuditEvents,
+	}
+	data, err := json.Marshal(stable)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func applyPactMetadataToProjection(projection *pactRunProjection, pact map[string]interface{}) {

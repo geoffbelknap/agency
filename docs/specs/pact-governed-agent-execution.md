@@ -6,19 +6,25 @@ Draft.
 
 ## Purpose
 
-PACT is a governed execution model for agentic work. It binds every activation
-to a principal, objective, execution contract, evidence ledger, trajectory, and
-terminal outcome.
+PACT is a world-class agentic execution harness, governable by construction.
+Its primary goal is to make agents excellent at work: objective understanding,
+planning, tool use, evidence, recovery, evaluation, long-running execution,
+artifact production, memory, and collaboration. Governance bounds that work
+without replacing it.
 
-PACT exists to make agents good at work without making governance an afterthought.
-It is not a chat model, prompt style, agent persona, or tool wrapper. It is the
-runtime shape of agentic execution.
+PACT binds every activation to an objective, execution contract, evidence
+ledger, trajectory, and terminal outcome. It is not a chat model, prompt style,
+agent persona, or tool wrapper. It is the runtime shape of agentic execution.
 
-ASK governs agents as principals. PACT governs agent work as contract-bound
-execution. Agency is the reference implementation of both.
+The harness must stand on its own as a serious execution engine, even before
+enterprise controls are applied. ASK governs agents as principals. PACT governs
+agent work as contract-bound execution layered on that harness. Agency is the
+reference implementation of both.
 
 ## Non-Goals
 
+- PACT is not a governance-only framework. It is first an execution harness;
+  governance attaches at its boundaries.
 - PACT is not an agent framework competing with orchestration libraries.
 - PACT is not limited to inbound messages, chat, DMs, or human prompts.
 - PACT does not define model provider APIs.
@@ -58,13 +64,90 @@ execution. Agency is the reference implementation of both.
 
 7. **Quality and governance are separate layers.**
    PACT defines how agentic work is executed well. ASK defines how that work is
-   governed. Agency binds them through external enforcement, mediation, audit,
-   least privilege, runtime verification, and governed knowledge.
+   governed. The harness layer (objective, planning, tool loop, evidence,
+   reflection, outcome) must be excellent on its own terms, not justified by
+   the governance layer it enables. Agency binds them through external
+   enforcement, mediation, audit, least privilege, runtime verification, and
+   governed knowledge, but a non-governed PACT runtime should still be a
+   serious execution engine.
 
 8. **The runtime commits outcomes.**
    The model may draft plans, call tools, and propose outputs. The runtime decides
    whether a plan can execute, whether evidence satisfies the contract, and
    whether an outcome can be committed.
+
+## Agentic Execution Harness
+
+PACT's primary product goal is a world-class agentic execution harness that is
+governable by construction. Governance is not a substitute for agent quality.
+The harness must make agents excellent at work even before ASK-specific
+enterprise controls are applied. A non-governed PACT runtime should still be a
+serious execution engine — governance is an overlay, not the reason PACT exists.
+
+The harness layer owns agentic execution quality:
+
+- objective understanding: normalize activations into goals, constraints,
+  deliverables, success criteria, assumptions, and ambiguity
+- strategy routing: choose execution mode, model tier, tools, memory, budget,
+  and whether planning is required
+- planning: produce explicit plans for non-trivial, risky, long-running, or
+  side-effecting work, and revise plans when observations contradict assumptions
+- tool loop quality: request tools deliberately, consume structured results,
+  adapt to failures, and never imply fake tool use
+- execution state: track progress, step history, partial results, assumptions,
+  open questions, budget, errors, and blockers
+- reflection and evaluation: critique trajectories and proposed outcomes before
+  commit, using deterministic checks where possible
+- recovery: retry, replan, fall back, clarify, escalate, or block with bounded
+  loops and explicit reasons
+- artifact disposition: produce files, links, reports, patches, screenshots,
+  PRs, issues, logs, and other outputs without forcing everything through chat
+- memory learning: propose reusable procedures, environment facts, task
+  outcomes, and failed strategies through scoped, reviewable memory paths
+- trajectory evaluation: test complete paths, not just final text
+
+The governance layer owns organizational control:
+
+- authority resolution
+- least privilege
+- tool mediation
+- audit
+- policy enforcement
+- approvals
+- data boundaries
+- durable memory review
+- quarantine and halt
+- compliance reporting
+
+The boundary is intentional. The harness may decide that an execution needs a
+tool, artifact, memory write, delegation, or external side effect. Agency/ASK
+decides whether that action is authorized, how it is mediated, what is audited,
+and where outputs may be retained or published.
+
+The target architecture is:
+
+```text
+Activation
+  -> Objective Builder
+  -> Strategy Router
+  -> Execution Contract
+  -> Planner
+  -> Executor / Tool Loop
+  -> Evidence + State Ledger
+  -> Evaluator / Reflection
+  -> Outcome Committer
+  -> Learning Hooks
+```
+
+ASK attaches at the boundaries:
+
+```text
+Authority + Policy + Mediation + Audit + Constraints
+```
+
+Implementation work must preserve this ordering. Reporting, audit projections,
+and compliance exports are projections of high-quality execution state; they are
+not the execution harness itself.
 
 ## Relationship To ASK
 
@@ -793,6 +876,17 @@ This slice is intentionally not the full PACT object model. It establishes the
 first durable signals, artifacts, API projections, and UI audit surfaces for
 contract-bound execution.
 
+The current slice is deliberately governance- and audit-forward: it proves the
+boundary (verdicts as evidence signals, enforcement outside the agent, audit
+append-only, deterministic gates on a handful of contracts) before the harness
+itself is rebuilt. This ordering is a sequencing choice, not the shape of the
+finished system. The harness-quality work — typed `ExecutionState`, objective
+builder, strategy router, planner as runtime object, structured tool
+observation protocol, general pre-commit evaluator, unified recovery state
+machine, artifact disposition, memory learning hooks, trajectory-first evals —
+is the primary next phase and the reason PACT exists. Audit and reporting
+projections should follow from better execution state, not substitute for it.
+
 ### Verdict Signal
 
 The body runtime emits `pact_verdict` through the existing agent signal channel.
@@ -1079,6 +1173,67 @@ contract, observed evidence, terminal verdict, linked result artifact, and
 supporting audit records in one place. Persisted audit JSONL and result
 artifacts remain the underlying records of fact for this implementation slice.
 
+### PACT Audit Report API
+
+The gateway exposes a read-only PACT audit report keyed by agent and task ID:
+
+```text
+GET /api/v1/agents/{name}/pact/runs/{taskId}/audit-report
+```
+
+The report is assembled from the PACT run projection and existing durable
+sources. It does not mutate audit JSONL, result artifacts, or evidence storage.
+
+```text
+report_id
+generated_at
+agent
+task_id
+run
+evidence_entries
+artifact_refs
+audit_events
+integrity:
+  algorithm
+  hash
+  scope
+```
+
+The initial integrity block uses SHA-256 over deterministic report content. The
+hash scope intentionally excludes `generated_at` and the integrity block itself
+so the same underlying PACT run produces a stable report hash across repeated
+reads. This is an integrity report, not yet a cryptographic signature.
+
+The gateway also exposes report hash verification:
+
+```text
+POST /api/v1/agents/{name}/pact/runs/{taskId}/audit-report/verify?hash=<sha256>
+```
+
+Verification rebuilds the current report from durable sources and compares the
+current report hash with the supplied hash. If no hash is supplied, the endpoint
+verifies the freshly rebuilt report against its own integrity block. The result
+is read-only and machine-readable:
+
+```text
+valid
+agent
+task_id
+algorithm
+expected_hash
+actual_hash
+report_id
+checked_at
+reason
+```
+
+Callers may also submit a PACT audit report JSON body to the same endpoint. In
+that mode the gateway checks the submitted report's agent, task ID, algorithm,
+and embedded integrity hash against the current report rebuilt from durable
+sources. A mismatch returns `valid: false` with a reason such as
+`task_id_mismatch`, `agent_mismatch`, `unsupported_algorithm`, or
+`hash_mismatch`.
+
 ### Log Correlation API
 
 The gateway decorates agent audit log responses with result-artifact correlation
@@ -1165,24 +1320,39 @@ fields.
   generic "call complete_task" retry path.
 - PACT runs now have an initial read-only gateway projection keyed by task ID,
   assembled from result artifact frontmatter and audit events.
+- PACT audit reports provide a deterministic integrity hash for the run,
+  evidence entries, artifact references, and audit events assembled for a task.
+- PACT audit report verification recomputes the report hash from durable
+  sources and reports whether an expected hash matches the current report.
 - Result artifacts are task-oriented markdown files, not a general artifact
   model.
 - Log correlation is by `task_id`; it does not yet create a normalized execution
   graph.
 - Audit export includes initial enriched PACT/result correlation on log-entry
-  responses, but not yet a separate signed PACT report shape.
+  responses and a separate PACT audit report shape. The report is hashed but not
+  yet cryptographically signed.
 
 Known gaps:
 
+- objective building is not yet a typed runtime stage
+- strategy routing is mostly implicit in prompt/tool availability
+- planning is mostly prompt-level and not represented as execution state
+- execution state is still spread across body runtime fields rather than a
+  single typed state object
+- tool observations are partially typed as evidence, but not yet a complete
+  tool-result protocol with retryability, side effects, and provenance
+- reflection/evaluation exists for contracts, but not yet as a general
+  pre-commit runtime stage
+- recovery is not yet a unified state machine
+- artifact disposition is not unified
+- memory learning hooks are not part of the execution lifecycle
+- trajectory evals cover the foundational body-runtime contracts, but not full
+  execution replay or policy-gated workflows
 - evidence has a typed runtime write model, but not a durable typed ledger
 - contracts are registered by name, but validation remains limited to
   current-info, file-artifact, code-change, and operator-blocked contracts
 - activation sources are represented for body message intake, but not yet across
   every gateway activation source
-- planning is mostly prompt-level
-- trajectory evals cover the foundational body-runtime contracts, but not full
-  execution replay or policy-gated workflows
-- artifact disposition is not unified
 - outcome contracts are not first-class
 
 ## Initial Vertical Slice
@@ -1220,43 +1390,160 @@ Non-scope for the first slice:
 
 ## Next Implementation Targets
 
-The next Agency PACT work should deepen the runtime contract rather than add
-more ad hoc UI surfaces.
+The next Agency PACT work must rebuild the agentic execution harness before
+expanding governance or compliance surfaces. The current slice produced audit
+and reporting scaffolding on top of a runtime that does not yet have typed
+execution state, a real planner, or structured tool observations. Shipping more
+audit or reporting features first would lock in the wrong abstractions — a
+signed report that projects from reconstructed artifact frontmatter is a signed
+attestation over scaffolding, not over actual execution.
 
-Priority targets:
+Work is organized into waves. Each wave depends on the one before it. Items
+flagged **(Blocked on …)** must not start until their blockers land. PR reviews
+should reject harness or compliance work that tries to skip ahead.
+
+### Wave 1 — Harness Foundations
+
+Load-bearing primitives. Everything else in PACT eventually projects from
+these.
+
+1. **Typed `ExecutionState` object.**
+   Introduce a runtime-owned `ExecutionState` carrying activation, objective,
+   contract, plan, step history, tool observations, evidence, partial outputs,
+   errors, recovery state, and proposed outcome. Existing body runtime fields
+   move behind this object incrementally.
+
+   This also replaces the earlier "first-class PACT run resource" target. The
+   read-only PACT run projection endpoint must eventually source from
+   `ExecutionState` instead of reconstructing runs from artifact frontmatter
+   and audit events.
+
+2. **Structured tool observation protocol.**
+   Normalize tool results into status, data, provenance, timestamps, errors,
+   retryability, side effects, and evidence classification. The model must
+   never need to infer whether a tool worked from prose. This is the shape
+   every tool-produced evidence entry inherits, and it is a hard prerequisite
+   for the recovery state machine, the general pre-commit evaluator, and
+   `external_side_effect` validation.
+
+### Wave 2 — Harness Capabilities
+
+Capabilities that populate and act on `ExecutionState`. Cannot be reliably
+built before Wave 1 lands.
+
+1. **Objective builder.**
+   Normalize activations into explicit typed objectives with statement, kind,
+   constraints, deliverables, success criteria, ambiguity, assumptions, and
+   risk. Preserve ambiguity when it changes required action or risk posture;
+   do not force resolution the runtime cannot defend.
+
+2. **Strategy router.**
+   Choose execution mode before work starts: trivial direct response, compact
+   work contract, explicit plan, long-running checkpointed work, clarification,
+   delegation, or external-side-effect workflow. Routing considers task risk,
+   available tools, memory, budget, model tier, and artifact needs.
+
+3. **Planner as runtime object.**
+   Represent plans as runtime objects with steps, expected evidence,
+   dependencies, approval points, fallbacks, and stop conditions. Plans are
+   optional for trivial work and required for complex, risky, or side-effecting
+   work. A plan requiring unavailable or unauthorized capabilities is rejected
+   to clarification or escalation before execution.
+
+4. **General pre-commit evaluator.**
+   Generalize pre-commit evaluation beyond contract-specific checks: objective
+   satisfaction, evidence sufficiency, output format, artifact existence,
+   uncertainty disclosure, validation results, and bounded model-assisted
+   critique where deterministic checks are insufficient. Runs against the full
+   `ExecutionState` before any outcome commit.
+
+5. **Recovery and failure state machine. (Depends on Wave 1 #2.)**
+   Make retry, replan, fallback, clarification, escalation, blocked, failed,
+   halted, expired, and superseded explicit states with bounded loops and
+   auditable reasons. Classification of retryability and side-effect presence
+   comes from the structured tool observation protocol.
+
+### Wave 3 — Harness Completions
+
+Wraps up the end-to-end harness once capabilities are in place.
+
+1. **Artifact disposition protocol.**
+   Represent generated files, links, reports, patches, logs, screenshots, PRs,
+   issues, and bundles as first-class outputs with visibility, retention, and
+   publication rules. Disposition decisions check recipient authorization and
+   data boundaries before publishing.
+
+2. **Memory learning hooks.**
+   Add lifecycle hooks for proposing reusable procedures, environment facts,
+   task outcomes, and failed strategies without directly mutating durable
+   preferences, identity-shaped behavior, or reviewed knowledge. Depends on
+   outcome commit and the general pre-commit evaluator.
+
+3. **Trajectory-first eval fixtures.**
+   Expand evals to assert activation, route, plan, tool observations, evidence,
+   state transitions, terminal outcome, final output checks, and audit/ledger
+   projections. Depends on every earlier wave item so assertions have typed
+   state to target.
+
+### Wave 4 — Governance And Boundary Surfaces
+
+Governance overlay work. Most items can parallelize with Wave 2/3 where they
+do not introduce foundation dependencies.
 
 1. **Central PACT evaluator extraction.**
-   The first extraction step is complete inside the body runtime: core
-   classification, evidence, and evaluation logic now lives in `pact_engine`,
-   with `work_contract` preserved as a compatibility facade. Next, move this
-   boundary toward a backend-owned package with explicit body/runtime adapters.
+   The first extraction step is complete: core classification, evidence, and
+   evaluation logic now lives in `pact_engine`, with `work_contract` preserved
+   as a compatibility facade. Next, move this boundary toward a backend-owned
+   package with explicit body/runtime adapters. Largely packaging work — may
+   parallelize with Wave 2.
 
 2. **Durable typed evidence ledger.**
    Typed `evidence_entries` now survive through PACT verdict audit signals and
-   result artifact frontmatter. Next, promote them into a standalone ledger with
-   stable IDs, producer, provenance, visibility, contract relevance, and export
-   semantics.
+   result artifact frontmatter. Promote them into a standalone ledger with
+   stable IDs, producer, provenance, visibility, contract relevance, and
+   export semantics. The ledger is the durable projection of
+   `ExecutionState.evidence` — do not invent a parallel state model.
 
-3. **First-class PACT run resource.**
-   Promote the initial read-only task projection into a typed execution/run
-   resource with stable schema ownership, activation IDs, objective references,
-   contract versions, evidence references, verdict history, artifacts, and audit
-   references.
+3. **Outcome contract catalog completion.**
+   `current_info`, `file_artifact`, `code_change`, and `operator_blocked` have
+   deterministic paths. Remaining registered kinds (`external_side_effect`,
+   plus future delegation, approval request, monitoring event, and memory
+   proposal contracts) should land deterministic evaluators as each harness
+   capability they depend on comes online.
 
-4. **Audit export correlation.**
-   Initial admin audit responses now preserve PACT verdict evidence references
-   and add result artifact links without mutating stored audit events. Next,
-   provide a separate signed PACT audit report shape with run, evidence,
-   artifact, and verdict correlation.
+   `external_side_effect` validation is **(Blocked on Wave 1 #2.)** Do not
+   start before the structured tool observation protocol lands. A side-effect
+   evaluator written against ad-hoc tool results will encode the wrong
+   abstraction and need to be rewritten.
 
-5. **Outcome contract validation beyond current information.**
-   `file_artifact`, `code_change`, and `operator_blocked` now have deterministic
-   paths. Next, wire `external_side_effect` into real classification paths and a
-   deterministic evaluator before generalizing to more complex workflows.
-
-6. **Policy/admin observability.**
+4. **Policy/admin observability.**
    Add administrative surfaces for contract health, blocked verdict trends,
-   missing evidence categories, and agent/runtime compliance.
+   missing evidence categories, and agent/runtime compliance. Can start on
+   existing verdict/evidence signals; richness increases as `ExecutionState`
+   projections land.
+
+### Wave 5 — Compliance Artifacts
+
+Compliance and portable-attestation work. Most of this wave is blocked on
+earlier foundations.
+
+1. **Report generation from `ExecutionState`. (Blocked on Wave 1 #1.)**
+   PACT reports must project directly from typed `ExecutionState`, not
+   reconstruct runs from artifact frontmatter and audit events. Do not start
+   before `ExecutionState` is real.
+
+2. **Signed PACT reports. (Blocked on Wave 1 #1 and Wave 4 #2.)**
+   Add report signing, key IDs, verification metadata, and exported report
+   verification. Hash-only reports remain sufficient for local integrity until
+   real `ExecutionState` and a durable evidence ledger exist. Signing a
+   reconstructed-from-artifacts report produces an attestation over
+   scaffolding, not over execution.
+
+3. **Audit export correlation evolution.**
+   Initial admin audit responses now preserve PACT verdict evidence references
+   and add result artifact links. Once `ExecutionState` is real, audit export
+   correlation should source from it rather than reconstructing correlation
+   from `task_id` joins.
 
 ## Extraction Path
 
