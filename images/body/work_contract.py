@@ -46,6 +46,7 @@ CHECKED_CLAUSE_RE = re.compile(
     r"\b(?:checked|retrieved|accessed|as of|as-of|verified on)\b[^.\n]*(?:\.|$)",
     re.IGNORECASE,
 )
+TRAILING_URL_PUNCTUATION = ".,;:!?"
 
 
 @dataclass
@@ -147,13 +148,36 @@ def contract_prompt(contract: WorkContract) -> str:
     )
 
 
-def _validate_current_info_answer(contract: dict, content: str) -> dict:
+def extract_urls(text: str) -> list[str]:
+    urls: list[str] = []
+    for match in URL_RE.finditer(str(text or "")):
+        url = match.group(0).rstrip(TRAILING_URL_PUNCTUATION)
+        if url and url not in urls:
+            urls.append(url)
+    return urls
+
+
+def _evidence_source_urls(evidence: dict) -> list[str]:
+    urls: list[str] = []
+    for value in evidence.get("source_urls") or []:
+        if isinstance(value, str):
+            for url in extract_urls(value):
+                if url not in urls:
+                    urls.append(url)
+    return urls
+
+
+def _validate_current_info_answer(contract: dict, evidence: dict, content: str) -> dict:
     requirements = set(contract.get("answer_requirements") or [])
     missing: list[str] = []
     answer_without_checked_clause = CHECKED_CLAUSE_RE.sub("", content)
+    answer_urls = extract_urls(content)
+    evidence_urls = _evidence_source_urls(evidence)
 
-    if "source_url" in requirements and not URL_RE.search(content):
+    if "source_url" in requirements and not answer_urls:
         missing.append("source_url")
+    elif evidence_urls and not any(url in evidence_urls for url in answer_urls):
+        missing.append("source_url_from_evidence")
     if "checked_date" in requirements and not CHECKED_DATE_RE.search(content):
         missing.append("checked_date")
     if "requested_absolute_date" in requirements and not ABSOLUTE_DATE_RE.search(answer_without_checked_clause):
@@ -190,7 +214,7 @@ def validate_completion(contract: dict | None, evidence: dict | None, content: s
 
     if "current_source_or_blocker" in required:
         if tool_results or "current_source" in observed:
-            return _validate_current_info_answer(contract, content)
+            return _validate_current_info_answer(contract, evidence, content)
         return {
             "verdict": "needs_action",
             "missing_evidence": ["current_source_or_blocker"],

@@ -48,7 +48,7 @@ from session_scratchpad import build_session_scratchpad, format_recent_transcrip
 from reflection import ReflectionState, build_reflection_prompt, parse_reflection_verdict
 from task_tier import classify_task_tier, expand_cost_mode, get_active_features
 from tools import BuiltinToolRegistry, ServiceToolDispatcher, SkillsManager
-from work_contract import classify_work, contract_prompt, validate_completion
+from work_contract import classify_work, contract_prompt, extract_urls, validate_completion
 from ws_listener import WSListener
 from typing import Optional
 
@@ -3133,6 +3133,10 @@ class Body:
             observed = evidence.setdefault("observed", [])
             if "current_source" not in observed:
                 observed.append("current_source")
+            for url in extract_urls(result):
+                source_urls = evidence.setdefault("source_urls", [])
+                if url not in source_urls:
+                    source_urls.append(url)
 
     def _record_provider_tool_evidence(self, extra: dict) -> None:
         evidence = getattr(self, "_work_evidence", None)
@@ -3160,6 +3164,10 @@ class Body:
         if any(part in response_types.lower() for part in ("web_search", "web_fetch", "citation", "source")):
             if "current_source" not in observed:
                 observed.append("current_source")
+        for url in extract_urls(str(extra.get("provider_source_urls") or "")):
+            source_urls = evidence.setdefault("source_urls", [])
+            if url not in source_urls:
+                source_urls.append(url)
 
     # -- Signal Emission --
 

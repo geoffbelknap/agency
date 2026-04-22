@@ -193,3 +193,4 @@ def test_stream_records_provider_tool_evidence_and_ignores_empty_tool_delta():
     assert "tool_calls" not in message
     assert body._work_evidence["tool_results"] == [{"tool": "provider-web-search", "ok": True}]
     assert "current_source" in body._work_evidence["observed"]
+    assert body._work_evidence["source_urls"] == ["https://example.com/source"]

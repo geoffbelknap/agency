@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "body"))
 
-from images.body.work_contract import classify_work, contract_prompt, validate_completion
+from images.body.work_contract import classify_work, contract_prompt, extract_urls, validate_completion
 
 
 def test_classifies_latest_request_as_current_info():
@@ -125,4 +125,48 @@ def test_current_info_completion_accepts_tool_evidence_and_answer_contract():
         {"tool_results": [{"tool": "web_search", "ok": True}]},
         "Microsoft's latest SEC filing is an 8-K. Source: SEC EDGAR https://www.sec.gov/Archives/example. Checked: April 22, 2026.",
     )
+    assert verdict["verdict"] == "completed"
+
+
+def test_extract_urls_trims_trailing_sentence_punctuation():
+    assert extract_urls("Source: https://nodejs.org/en/blog/release/v25.9.0.") == [
+        "https://nodejs.org/en/blog/release/v25.9.0"
+    ]
+
+
+def test_current_info_completion_requires_answer_url_from_evidence_when_available():
+    contract = classify_work("latest SEC filing").to_dict()
+
+    verdict = validate_completion(
+        contract,
+        {
+            "tool_results": [{"tool": "provider-web-search", "ok": True}],
+            "source_urls": ["https://www.sec.gov/Archives/edgar/data/example"],
+        },
+        (
+            "Microsoft's latest SEC filing is an 8-K. "
+            "Source: https://example.com/secondary. Checked: April 22, 2026."
+        ),
+    )
+
+    assert verdict["verdict"] == "needs_action"
+    assert verdict["missing_evidence"] == ["source_url_from_evidence"]
+
+
+def test_current_info_completion_accepts_answer_url_from_evidence():
+    contract = classify_work("latest SEC filing").to_dict()
+
+    verdict = validate_completion(
+        contract,
+        {
+            "tool_results": [{"tool": "provider-web-search", "ok": True}],
+            "source_urls": ["https://www.sec.gov/Archives/edgar/data/example"],
+        },
+        (
+            "Microsoft's latest SEC filing is an 8-K. "
+            "Source: SEC EDGAR https://www.sec.gov/Archives/edgar/data/example. "
+            "Checked: April 22, 2026."
+        ),
+    )
+
     assert verdict["verdict"] == "completed"
