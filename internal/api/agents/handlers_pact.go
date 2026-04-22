@@ -97,6 +97,7 @@ func applyPactMetadataToProjection(projection *pactRunProjection, pact map[strin
 		"artifact_paths":     pact["artifact_paths"],
 		"changed_files":      pact["changed_files"],
 		"validation_results": pact["validation_results"],
+		"evidence_entries":   pact["evidence_entries"],
 		"tools":              pact["tools"],
 	}
 	projection.Verdict = map[string]interface{}{
@@ -120,7 +121,7 @@ func applyPactVerdictEventToProjection(projection *pactRunProjection, event logs
 	if projection.Evidence == nil {
 		projection.Evidence = map[string]interface{}{}
 	}
-	for _, key := range []string{"observed", "source_urls", "artifact_paths", "changed_files", "validation_results", "tools"} {
+	for _, key := range []string{"observed", "source_urls", "artifact_paths", "changed_files", "validation_results", "evidence_entries", "tools"} {
 		if _, exists := projection.Evidence[key]; !exists {
 			projection.Evidence[key] = event[key]
 		}

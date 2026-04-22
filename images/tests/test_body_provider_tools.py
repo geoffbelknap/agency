@@ -192,6 +192,14 @@ def test_pact_verdict_payload_summarizes_contract_and_evidence():
             "artifact_paths": [".results/report.md"],
             "changed_files": ["app.py"],
             "validation_results": [{"command": "pytest tests/test_app.py", "ok": True}],
+            "entries": [
+                {
+                    "kind": "source_url",
+                    "producer": "provider-web-search",
+                    "source_url": "https://nodejs.org/en",
+                },
+                {"kind": "changed_file", "producer": "write_file", "value": "app.py"},
+            ],
         },
         {
             "verdict": "needs_action",
@@ -211,6 +219,14 @@ def test_pact_verdict_payload_summarizes_contract_and_evidence():
         "artifact_paths": [".results/report.md"],
         "changed_files": ["app.py"],
         "validation_results": [{"command": "pytest tests/test_app.py", "ok": True}],
+        "evidence_entries": [
+            {
+                "kind": "source_url",
+                "producer": "provider-web-search",
+                "source_url": "https://nodejs.org/en",
+            },
+            {"kind": "changed_file", "producer": "write_file", "value": "app.py"},
+        ],
         "tools": ["provider-web-search", "web_fetch"],
     }
 
@@ -228,6 +244,7 @@ def test_pact_metadata_for_storage_drops_task_id_but_keeps_audit_fields():
         "artifact_paths": [".results/report.md"],
         "changed_files": ["app.py"],
         "validation_results": [{"command": "pytest tests/test_app.py", "ok": True}],
+        "evidence_entries": [{"kind": "source_url", "producer": "provider-web-search"}],
         "tools": ["provider-web-search"],
     })
 
@@ -242,6 +259,7 @@ def test_pact_metadata_for_storage_drops_task_id_but_keeps_audit_fields():
         "artifact_paths": [".results/report.md"],
         "changed_files": ["app.py"],
         "validation_results": [{"command": "pytest tests/test_app.py", "ok": True}],
+        "evidence_entries": [{"kind": "source_url", "producer": "provider-web-search"}],
         "tools": ["provider-web-search"],
     }
 
@@ -312,6 +330,7 @@ def test_emit_pact_verdict_emits_structured_signal():
             "artifact_paths": [],
             "changed_files": [],
             "validation_results": [],
+            "evidence_entries": [],
             "tools": ["provider-web-search"],
         },
     )]

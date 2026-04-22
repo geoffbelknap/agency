@@ -892,6 +892,12 @@ evidence shape.
 `EvidenceView` is the evaluator read-side projection of evidence fields into
 tool results, observed signals, and source URLs. It is not yet a durable ledger.
 
+PACT verdict audit signals and result artifact frontmatter now carry
+`evidence_entries` alongside the legacy flattened evidence fields. These entries
+preserve producer and typed evidence shape through existing durable audit and
+artifact surfaces. They are an incremental durable projection, not yet a
+standalone typed evidence ledger resource.
+
 `EvaluationResult` owns verdict serialization. Runtime callers still receive the
 same dictionary shape from `validate_completion`, preserving existing body,
 signal, and artifact behavior.
@@ -1103,9 +1109,10 @@ fields.
 ### Current Limits
 
 - The body runtime now records provider and local tool observations through a
-  typed in-memory `EvidenceLedger`, but the durable evidence ledger is still
-  represented by runtime observations, provider metadata, audit events, and
-  artifact frontmatter rather than a typed PACT ledger resource.
+  typed in-memory `EvidenceLedger`, and carries typed `evidence_entries` through
+  PACT verdict audit signals and result artifact frontmatter. The durable
+  evidence ledger is still represented by existing audit/artifact surfaces
+  rather than a standalone typed PACT ledger resource.
 - The named contract registry and body-local `PactEvaluator` exist in a
   dedicated `pact_engine` boundary, and `current_info`, `file_artifact`,
   `code_change`, and `operator_blocked` now have deterministic completion
@@ -1197,8 +1204,10 @@ Priority targets:
    boundary toward a backend-owned package with explicit body/runtime adapters.
 
 2. **Durable typed evidence ledger.**
-   Promote the body runtime's in-memory `EvidenceLedger` into durable evidence
-   entries with producer, provenance, visibility, and contract relevance.
+   Typed `evidence_entries` now survive through PACT verdict audit signals and
+   result artifact frontmatter. Next, promote them into a standalone ledger with
+   stable IDs, producer, provenance, visibility, contract relevance, and export
+   semantics.
 
 3. **First-class PACT run resource.**
    Promote the initial read-only task projection into a typed execution/run

@@ -40,6 +40,10 @@ pact:
   validation_results:
     - command: pytest tests/test_parser.py
       ok: true
+  evidence_entries:
+    - kind: changed_file
+      producer: write_file
+      value: parser.py
 pact_activation:
   content: Fix the parser test
   match_type: direct
@@ -95,6 +99,10 @@ Changed parser.py.
 	changedFiles := evidence["changed_files"].([]interface{})
 	if len(changedFiles) != 1 || changedFiles[0] != "parser.py" {
 		t.Fatalf("changed_files = %#v", changedFiles)
+	}
+	evidenceEntries := evidence["evidence_entries"].([]interface{})
+	if len(evidenceEntries) != 1 {
+		t.Fatalf("evidence_entries len = %d, want 1", len(evidenceEntries))
 	}
 	artifact := body["artifact"].(map[string]interface{})
 	if artifact["url"] != "/api/v1/agents/agent/results/task-123" {
