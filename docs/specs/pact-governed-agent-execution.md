@@ -1009,7 +1009,10 @@ updated_at
 `activation` is populated from existing task metadata when available.
 `objective` is populated by the Wave 2 #1 objective builder when both
 activation and contract are present; when either input is missing, it remains
-null.
+null. `Objective.generation_mode` is now populated by that builder with the
+MVP values `grounded`, `creative`, `persona`, and `social`. Reasoning mode is
+deferred. The default remains `grounded`; the classifier does not escalate
+invention authority on inference or ambiguous conversational phrasing.
 `strategy` is populated by the Wave 2 #2 strategy router when `objective` is
 present; when `objective` is null, it remains null. The router is deterministic,
 model-free, and reads only typed objective, contract, task metadata, and mission

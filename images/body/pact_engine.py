@@ -308,6 +308,7 @@ class Objective:
     ambiguities: list[str] = field(default_factory=list)
     assumptions: list[str] = field(default_factory=list)
     risk_level: str = ""
+    generation_mode: str = "grounded"
 
     def to_dict(self) -> dict:
         return {
@@ -319,6 +320,7 @@ class Objective:
             "ambiguities": list(self.ambiguities),
             "assumptions": list(self.assumptions),
             "risk_level": self.risk_level,
+            "generation_mode": self.generation_mode,
         }
 
 
