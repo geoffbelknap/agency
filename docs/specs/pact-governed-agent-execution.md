@@ -809,15 +809,71 @@ blocked
 needs_action
 ```
 
-Current contract kind:
+Registered contract kinds:
 
 ```text
 current_info
+code_change
+file_artifact
+external_side_effect
+operator_blocked
+mission_task
+task
+coordination
+chat
 ```
+
+`current_info` is the only contract kind in this slice with meaningful
+contract-specific answer validation. The other registry entries establish named
+runtime contracts and fail-closed lookup semantics before their full evaluators
+are wired into all execution paths.
 
 The verdict signal is audit evidence. It is not enforcement authority. The
 gateway records and displays the signal, but the agent cannot grant itself
 permission or mutate audit history by emitting it.
+
+### Contract Registry
+
+The body runtime now has a named PACT contract registry. Contract definitions
+include:
+
+```text
+kind
+summary
+required_evidence
+answer_requirements
+allowed_verdicts
+answer_contract
+```
+
+The registry is currently implemented in the body runtime context and mirrored
+into the embedded runtime image context. Unknown action contract kinds fail
+closed: contract construction raises an error, and completion validation blocks
+with `known_contract_kind` as missing evidence.
+
+Foundational registered PACT kinds are:
+
+| Kind | Current Role |
+| --- | --- |
+| `current_info` | Current or externally verifiable facts requiring fresh source/tool evidence. |
+| `code_change` | Code changes requiring changed-file evidence and validation evidence or a blocker. |
+| `file_artifact` | File/report/artifact-producing work requiring a concrete artifact reference. |
+| `external_side_effect` | Work that mutates external systems and requires authority plus outcome evidence. |
+| `operator_blocked` | Explicit blocked work requiring a blocker and unblock condition. |
+
+Legacy/body runtime kinds are also registered so existing activation behavior
+continues to classify safely:
+
+```text
+mission_task
+task
+coordination
+chat
+```
+
+The registry is not yet the final PACT engine. It is the first durable
+implementation point for named contracts, contract prompt material, and
+fail-closed contract lookup.
 
 ### Result Artifact Metadata
 
@@ -944,8 +1000,11 @@ fields.
 - The durable evidence ledger is still represented by body runtime observations,
   provider metadata, audit events, and artifact frontmatter rather than a typed
   PACT ledger resource.
-- `current_info` is the only implemented contract family with meaningful answer
-  gating.
+- The named contract registry exists, but `current_info` is still the only
+  implemented contract family with meaningful answer gating.
+- `code_change`, `file_artifact`, `external_side_effect`, and
+  `operator_blocked` are registered but not yet broadly classified or validated
+  by contract-specific evaluators.
 - PACT runs are not yet first-class gateway resources.
 - Result artifacts are task-oriented markdown files, not a general artifact
   model.
@@ -958,7 +1017,8 @@ Known gaps:
 
 - blocked outcomes may publish without reliably finalizing current task state
 - evidence is not yet a durable typed ledger
-- contracts are narrow and current-info oriented
+- contracts are registered by name, but validation remains narrow and
+  current-info oriented
 - activation sources are not represented uniformly
 - planning is mostly prompt-level
 - trajectory evals are limited
@@ -1003,10 +1063,10 @@ more ad hoc UI surfaces.
 
 Priority targets:
 
-1. **Named contract registry.**
-   Define contract kinds as gateway/body runtime data, starting with
-   `current_info`, `code_change`, `file_artifact`, `external_side_effect`, and
-   `operator_blocked`.
+1. **Central PACT evaluator.**
+   Move contract registry lookup, evidence validation, answer validation, and
+   verdict construction out of ad hoc body helper code into a backend-owned
+   PACT evaluator module with explicit body/runtime adapters.
 
 2. **Typed evidence ledger.**
    Move from scattered observation fields toward durable evidence entries with
@@ -1021,8 +1081,9 @@ Priority targets:
    audit exports without requiring UI reconstruction.
 
 5. **Outcome contract validation beyond current information.**
-   Add deterministic checks for code changes, file artifacts, and external side
-   effects before generalizing to more complex workflows.
+   Wire `code_change`, `file_artifact`, `external_side_effect`, and
+   `operator_blocked` into real classification paths and add deterministic
+   evaluators before generalizing to more complex workflows.
 
 6. **Policy/admin observability.**
    Add administrative surfaces for contract health, blocked verdict trends,
