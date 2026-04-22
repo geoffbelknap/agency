@@ -107,6 +107,51 @@ def test_build_direct_idle_prompt_prioritizes_identity():
     assert "Only fall back to normal concise conversational help when your identity is silent" in prompt
 
 
+def test_assemble_system_prompt_includes_operating_loop(tmp_path):
+    from body import Body
+
+    body = Body.__new__(Body)
+    body.config_dir = Path(tmp_path)
+    body.is_meeseeks = False
+    body._active_mission = None
+    body._task_features = {"prompt_tier": "minimal"}
+    body._config_overrides = {"identity.md": "IDENTITY"}
+    body._skills_manager = MagicMock()
+    body._skills_manager.get_system_prompt_section.return_value = ""
+
+    prompt = body.assemble_system_prompt()
+
+    assert "# Operating Loop" in prompt
+    assert "Do not claim you used a tool" in prompt
+    assert "Do not write simulated tool markup" in prompt
+    assert "latest, current, recent, or time-sensitive information" in prompt
+    assert "If blocked by missing tools" in prompt
+
+
+def test_assemble_system_prompt_includes_provider_tools(tmp_path):
+    from body import Body
+
+    (tmp_path / "provider-tools.yaml").write_text(
+        "agent: scout\n"
+        "grants:\n"
+        "  - capability: provider-web-search\n"
+    )
+    body = Body.__new__(Body)
+    body.config_dir = Path(tmp_path)
+    body.is_meeseeks = False
+    body._active_mission = None
+    body._task_features = {"prompt_tier": "minimal"}
+    body._config_overrides = {"identity.md": "IDENTITY"}
+    body._skills_manager = MagicMock()
+    body._skills_manager.get_system_prompt_section.return_value = ""
+
+    prompt = body.assemble_system_prompt()
+
+    assert "# Provider Tools" in prompt
+    assert "web_search" in prompt
+    assert "do not simulate them" in prompt
+
+
 def test_build_direct_idle_prompt_includes_recent_context():
     from body import Body
 

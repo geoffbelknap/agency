@@ -27,6 +27,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/registry"
 	"github.com/geoffbelknap/agency/internal/routing"
 	"github.com/geoffbelknap/agency/internal/services"
+	"gopkg.in/yaml.v3"
 )
 
 type dockerNetworkAPI interface {
@@ -530,8 +531,68 @@ func (inf *Infra) ensureConfigs() error {
 	routingFile := filepath.Join(infraDir, "routing.yaml")
 	if _, err := os.Stat(routingFile); os.IsNotExist(err) {
 		os.WriteFile(routingFile, []byte(defaultRoutingConfig), 0644)
+	} else if err := repairDefaultRoutingCapabilities(routingFile); err != nil {
+		inf.log.Warn("routing capability repair failed", "err", err)
 	}
 	return nil
+}
+
+func repairDefaultRoutingCapabilities(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read routing.yaml: %w", err)
+	}
+	var cfg map[string]interface{}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return fmt.Errorf("parse routing.yaml: %w", err)
+	}
+	models, ok := cfg["models"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	changed := false
+	for alias, defaults := range defaultRoutingModelMetadata {
+		raw, ok := models[alias].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if provider, _ := raw["provider"].(string); provider != defaults.Provider {
+			continue
+		}
+		if providerModel, _ := raw["provider_model"].(string); providerModel != defaults.ProviderModel {
+			continue
+		}
+		if ensureStringList(raw, "capabilities", defaults.Capabilities) {
+			changed = true
+		}
+		if ensureStringList(raw, "provider_tool_capabilities", defaults.ProviderToolCapabilities) {
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal routing.yaml: %w", err)
+	}
+	return os.WriteFile(path, out, 0644)
+}
+
+func ensureStringList(model map[string]interface{}, key string, values []string) bool {
+	if len(values) == 0 {
+		return false
+	}
+	if existing, ok := model[key].([]interface{}); ok && len(existing) > 0 {
+		return false
+	}
+	items := make([]interface{}, 0, len(values))
+	for _, value := range values {
+		items = append(items, value)
+	}
+	model[key] = items
+	return true
 }
 
 // seedBuiltinServices copies built-in service definition YAMLs from the source
@@ -2122,16 +2183,64 @@ models:
   claude-sonnet:
     provider: anthropic
     provider_model: claude-sonnet-4-20250514
+    capabilities: [tools, vision, streaming]
+    provider_tool_capabilities: [provider-web-search, provider-web-fetch, provider-code-execution, provider-memory, provider-mcp, provider-tool-search]
   claude-opus:
     provider: anthropic
     provider_model: claude-opus-4-20250514
+    capabilities: [tools, vision, streaming]
+    provider_tool_capabilities: [provider-web-search, provider-web-fetch, provider-code-execution, provider-memory, provider-mcp, provider-tool-search]
   claude-haiku:
     provider: anthropic
     provider_model: claude-haiku-4-5-20251001
+    capabilities: [tools, vision, streaming]
+    provider_tool_capabilities: [provider-web-search, provider-web-fetch, provider-code-execution, provider-memory, provider-mcp, provider-tool-search]
   gpt-4o:
     provider: openai
     provider_model: gpt-4o
+    capabilities: [tools, vision, streaming]
+    provider_tool_capabilities: [provider-web-search, provider-file-search, provider-code-execution, provider-tool-search, provider-image-generation, provider-mcp]
   gpt-4o-mini:
     provider: openai
     provider_model: gpt-4o-mini
+    capabilities: [tools, vision, streaming]
 `
+
+type defaultRoutingModelInfo struct {
+	Provider                 string
+	ProviderModel            string
+	Capabilities             []string
+	ProviderToolCapabilities []string
+}
+
+var defaultRoutingModelMetadata = map[string]defaultRoutingModelInfo{
+	"claude-sonnet": {
+		Provider:                 "anthropic",
+		ProviderModel:            "claude-sonnet-4-20250514",
+		Capabilities:             []string{"tools", "vision", "streaming"},
+		ProviderToolCapabilities: []string{"provider-web-search", "provider-web-fetch", "provider-code-execution", "provider-memory", "provider-mcp", "provider-tool-search"},
+	},
+	"claude-opus": {
+		Provider:                 "anthropic",
+		ProviderModel:            "claude-opus-4-20250514",
+		Capabilities:             []string{"tools", "vision", "streaming"},
+		ProviderToolCapabilities: []string{"provider-web-search", "provider-web-fetch", "provider-code-execution", "provider-memory", "provider-mcp", "provider-tool-search"},
+	},
+	"claude-haiku": {
+		Provider:                 "anthropic",
+		ProviderModel:            "claude-haiku-4-5-20251001",
+		Capabilities:             []string{"tools", "vision", "streaming"},
+		ProviderToolCapabilities: []string{"provider-web-search", "provider-web-fetch", "provider-code-execution", "provider-memory", "provider-mcp", "provider-tool-search"},
+	},
+	"gpt-4o": {
+		Provider:                 "openai",
+		ProviderModel:            "gpt-4o",
+		Capabilities:             []string{"tools", "vision", "streaming"},
+		ProviderToolCapabilities: []string{"provider-web-search", "provider-file-search", "provider-code-execution", "provider-tool-search", "provider-image-generation", "provider-mcp"},
+	},
+	"gpt-4o-mini": {
+		Provider:      "openai",
+		ProviderModel: "gpt-4o-mini",
+		Capabilities:  []string{"tools", "vision", "streaming"},
+	},
+}

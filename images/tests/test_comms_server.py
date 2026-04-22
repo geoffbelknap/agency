@@ -47,6 +47,41 @@ class TestChannelEndpoints:
         })
         assert resp.status == 409
 
+    async def test_retire_channel_frees_reusable_name(self, aiohttp_client, comms_app):
+        client = await aiohttp_client(comms_app)
+        created = await client.post("/channels", json={
+            "name": "dm-henry",
+            "type": "direct",
+            "created_by": "_platform",
+            "members": ["henry", "_operator"],
+            "visibility": "private",
+        })
+        assert created.status == 201
+        first = await created.json()
+
+        retired = await client.post(
+            "/channels/dm-henry/retire",
+            json={"retired_by": "_platform"},
+            headers={"X-Agency-Platform": "true"},
+        )
+        assert retired.status == 200
+        retired_data = await retired.json()
+        assert retired_data["id"] == first["id"]
+        assert retired_data["name"].startswith("dm-henry-deleted-")
+        assert retired_data["state"] == "archived"
+
+        recreated = await client.post("/channels", json={
+            "name": "dm-henry",
+            "type": "direct",
+            "created_by": "_platform",
+            "members": ["henry", "_operator"],
+            "visibility": "private",
+        })
+        assert recreated.status == 201
+        second = await recreated.json()
+        assert second["name"] == "dm-henry"
+        assert second["id"] != first["id"]
+
     async def test_list_channels(self, aiohttp_client, comms_app):
         client = await aiohttp_client(comms_app)
         await client.post("/channels", json={

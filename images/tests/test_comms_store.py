@@ -24,6 +24,36 @@ class TestChannelManagement:
         with pytest.raises(ValueError, match="already exists"):
             store.create_channel("test", ChannelType.TEAM, "operator")
 
+    def test_retire_channel_name_frees_alias_and_preserves_id(self, store):
+        first = store.create_channel(
+            "dm-henry",
+            ChannelType.DIRECT,
+            "_platform",
+            members=["henry", "_operator"],
+            visibility="private",
+        )
+        store.post_message("dm-henry", "henry", "old history")
+
+        retired = store.retire_channel_name("dm-henry", "_platform")
+
+        assert retired.id == first.id
+        assert retired.name.startswith("dm-henry-deleted-")
+        assert retired.base_name == "dm-henry"
+        assert (store.data_dir / "channels" / f"{retired.name}.meta.json").exists()
+        assert (store.data_dir / "channels" / f"{retired.name}.jsonl").exists()
+        with pytest.raises(ValueError, match="not found"):
+            store.get_channel("dm-henry")
+
+        second = store.create_channel(
+            "dm-henry",
+            ChannelType.DIRECT,
+            "_platform",
+            members=["henry", "_operator"],
+            visibility="private",
+        )
+        assert second.id != first.id
+        assert second.name == "dm-henry"
+
     def test_list_channels(self, store):
         store.create_channel("alpha", ChannelType.TEAM, "operator")
         store.create_channel("beta", ChannelType.TEAM, "operator")

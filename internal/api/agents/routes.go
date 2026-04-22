@@ -92,6 +92,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	r.Get("/api/v1/agents/{name}/channels", h.agentChannels)
 	r.Post("/api/v1/agents/{name}/dm", h.ensureAgentDM)
 	r.Get("/api/v1/agents/{name}/results", h.listResults)
+	r.Get("/api/v1/agents/{name}/results/{taskId}/metadata", h.getResultMetadata)
 	r.Get("/api/v1/agents/{name}/results/{taskId}", h.getResult)
 	r.Get("/api/v1/agents/{name}/config", h.agentConfig)
 	r.Put("/api/v1/agents/{name}/config", h.updateAgentConfig)

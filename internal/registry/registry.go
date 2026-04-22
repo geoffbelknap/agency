@@ -308,6 +308,29 @@ func (r *Registry) Delete(uuid string) error {
 	return nil
 }
 
+// RetireByName marks a principal deleted and frees its operator-facing name.
+// The UUID row is kept so historical audit and graph references remain
+// resolvable, while a future principal can reuse the display name.
+func (r *Registry) RetireByName(principalType, name string) (string, error) {
+	p, err := r.ResolveByName(principalType, name)
+	if err != nil {
+		return "", err
+	}
+	suffix := p.UUID
+	if len(suffix) > 8 {
+		suffix = suffix[:8]
+	}
+	retiredName := fmt.Sprintf("%s#deleted-%s", name, suffix)
+	if _, err := r.db.Exec(
+		"UPDATE principals SET name = ?, status = 'deleted' WHERE uuid = ?",
+		retiredName,
+		p.UUID,
+	); err != nil {
+		return "", fmt.Errorf("retire principal: %w", err)
+	}
+	return p.UUID, nil
+}
+
 // Snapshot returns a JSON-encoded RegistrySnapshot containing all principals.
 func (r *Registry) Snapshot() ([]byte, error) {
 	principals, err := r.List("")

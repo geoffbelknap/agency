@@ -234,6 +234,47 @@ func TestDeleteNonexistentReturnsError(t *testing.T) {
 	}
 }
 
+func TestRetireByNameFreesNameAndPreservesUUID(t *testing.T) {
+	r := tempDB(t)
+	firstUUID, err := r.Register("agent", "scanner")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	retiredUUID, err := r.RetireByName("agent", "scanner")
+	if err != nil {
+		t.Fatalf("RetireByName: %v", err)
+	}
+	if retiredUUID != firstUUID {
+		t.Fatalf("retired uuid = %q, want %q", retiredUUID, firstUUID)
+	}
+	retired, err := r.Resolve(firstUUID)
+	if err != nil {
+		t.Fatalf("Resolve retired principal: %v", err)
+	}
+	if retired.Status != "deleted" {
+		t.Fatalf("status = %q, want deleted", retired.Status)
+	}
+	if retired.Name == "scanner" || !strings.HasPrefix(retired.Name, "scanner#deleted-") {
+		t.Fatalf("retired name = %q", retired.Name)
+	}
+
+	secondUUID, err := r.Register("agent", "scanner")
+	if err != nil {
+		t.Fatalf("Register reused name: %v", err)
+	}
+	if secondUUID == firstUUID {
+		t.Fatal("expected name reuse to create a new UUID")
+	}
+	current, err := r.ResolveByName("agent", "scanner")
+	if err != nil {
+		t.Fatalf("ResolveByName reused principal: %v", err)
+	}
+	if current.UUID != secondUUID {
+		t.Fatalf("current uuid = %q, want %q", current.UUID, secondUUID)
+	}
+}
+
 func TestSnapshotContainsAllPrincipals(t *testing.T) {
 	r := tempDB(t)
 	r.Register("agent", "a1")

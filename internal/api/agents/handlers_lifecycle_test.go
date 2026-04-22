@@ -15,8 +15,9 @@ import (
 )
 
 type recordingCommsClient struct {
-	calls []string
-	errs  map[string]error
+	calls     []string
+	errs      map[string]error
+	responses map[string][]byte
 }
 
 func (r *recordingCommsClient) CommsRequest(_ context.Context, method, path string, _ interface{}) ([]byte, error) {
@@ -24,6 +25,9 @@ func (r *recordingCommsClient) CommsRequest(_ context.Context, method, path stri
 	r.calls = append(r.calls, key)
 	if err := r.errs[key]; err != nil {
 		return nil, err
+	}
+	if data := r.responses[key]; data != nil {
+		return data, nil
 	}
 	return []byte(`{"ok":true}`), nil
 }
@@ -85,8 +89,50 @@ func TestEnsureAgentDMIgnoresAlreadyExistsOnCreate(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if len(comms.calls) != 3 {
-		t.Fatalf("expected create plus two grant calls, got %v", comms.calls)
+	wantCalls := []string{
+		"POST /channels",
+		"GET /channels?member=_operator&state=all",
+		"POST /channels/dm-henry/retire",
+		"POST /channels",
+		"POST /channels/dm-henry/grant-access",
+		"POST /channels/dm-henry/grant-access",
+	}
+	if len(comms.calls) != len(wantCalls) {
+		t.Fatalf("expected %d calls, got %d: %v", len(wantCalls), len(comms.calls), comms.calls)
+	}
+	for i, want := range wantCalls {
+		if comms.calls[i] != want {
+			t.Fatalf("call %d = %q, want %q", i, comms.calls[i], want)
+		}
+	}
+}
+
+func TestEnsureAgentDMDoesNotRetireActiveExistingChannel(t *testing.T) {
+	comms := &recordingCommsClient{
+		errs: map[string]error{
+			"POST /channels": errors.New("409 conflict"),
+		},
+		responses: map[string][]byte{
+			"GET /channels?member=_operator&state=all": []byte(`[{"name":"dm-henry","state":"active"}]`),
+		},
+	}
+	h := &handler{deps: Deps{Comms: comms}}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/henry/dm", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("name", "henry")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	h.ensureAgentDM(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	for _, call := range comms.calls {
+		if call == "POST /channels/dm-henry/retire" {
+			t.Fatalf("active DM channel should not be retired: %v", comms.calls)
+		}
 	}
 }
 

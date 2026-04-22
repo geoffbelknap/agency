@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 	"log/slog"
 
+	"github.com/geoffbelknap/agency/internal/registry"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
@@ -227,6 +228,73 @@ func TestCreate_GeneratesLifecycleID(t *testing.T) {
 	// A UUID is 36 characters: 8-4-4-4-12 with hyphens
 	if len(lid) != 36 {
 		t.Errorf("expected lifecycle_id to be 36 chars (UUID), got %d chars: %q", len(lid), lid)
+	}
+}
+
+func TestCreateReusesRetiredRegistryNameWithNewUUID(t *testing.T) {
+	dir := t.TempDir()
+	reg, err := registry.Open(filepath.Join(dir, "registry.db"))
+	if err != nil {
+		t.Fatalf("open registry: %v", err)
+	}
+	t.Cleanup(func() { _ = reg.Close() })
+
+	am := &AgentManager{
+		Home:  dir,
+		log:   newTestLogger(),
+		infra: &Infra{Home: dir, Registry: reg},
+	}
+	if err := am.Create(context.Background(), "reuse-agent", "default"); err != nil {
+		t.Fatalf("Create first agent: %v", err)
+	}
+	firstData, err := os.ReadFile(filepath.Join(dir, "agents", "reuse-agent", "agent.yaml"))
+	if err != nil {
+		t.Fatalf("read first agent.yaml: %v", err)
+	}
+	var first map[string]interface{}
+	if err := yaml.Unmarshal(firstData, &first); err != nil {
+		t.Fatalf("parse first agent.yaml: %v", err)
+	}
+	firstUUID, _ := first["uuid"].(string)
+	if firstUUID == "" {
+		t.Fatal("first agent uuid is empty")
+	}
+
+	if err := am.Delete(context.Background(), "reuse-agent"); err != nil {
+		t.Fatalf("Delete first agent: %v", err)
+	}
+	retired, err := reg.Resolve(firstUUID)
+	if err != nil {
+		t.Fatalf("resolve retired principal: %v", err)
+	}
+	if retired.Status != "deleted" {
+		t.Fatalf("retired status = %q, want deleted", retired.Status)
+	}
+
+	if err := am.Create(context.Background(), "reuse-agent", "default"); err != nil {
+		t.Fatalf("Create reused agent: %v", err)
+	}
+	secondData, err := os.ReadFile(filepath.Join(dir, "agents", "reuse-agent", "agent.yaml"))
+	if err != nil {
+		t.Fatalf("read second agent.yaml: %v", err)
+	}
+	var second map[string]interface{}
+	if err := yaml.Unmarshal(secondData, &second); err != nil {
+		t.Fatalf("parse second agent.yaml: %v", err)
+	}
+	secondUUID, _ := second["uuid"].(string)
+	if secondUUID == "" {
+		t.Fatal("second agent uuid is empty")
+	}
+	if secondUUID == firstUUID {
+		t.Fatal("expected reused name to receive a new UUID")
+	}
+	current, err := reg.ResolveByName("agent", "reuse-agent")
+	if err != nil {
+		t.Fatalf("resolve current principal: %v", err)
+	}
+	if current.UUID != secondUUID {
+		t.Fatalf("current principal uuid = %q, want %q", current.UUID, secondUUID)
 	}
 }
 

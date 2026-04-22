@@ -892,6 +892,12 @@ func TestLLMAnthropicStreamingProviderToolAuditExtra(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
+	if !strings.Contains(rr.Body.String(), `"object":"agency.provider_tool_evidence"`) {
+		t.Fatalf("stream did not include provider tool evidence chunk: %s", rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"provider_response_tool_types":"server_tool_use,web_search_result,web_search_tool_result"`) {
+		t.Fatalf("provider tool evidence chunk did not include response tool types: %s", rr.Body.String())
+	}
 	tools := received["tools"].([]interface{})
 	tool := tools[0].(map[string]interface{})
 	if tool["type"] != defaultAnthropicWebSearchToolType {

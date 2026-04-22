@@ -6,9 +6,10 @@ import { useAgentDetailData } from './useAgentDetailData';
 import { AgentOverviewTab } from './AgentOverviewTab';
 import { AgentActivityTab } from './AgentActivityTab';
 import { AgentOperationsTab } from './AgentOperationsTab';
+import { AgentResultsTab } from './AgentResultsTab';
 import { AgentSystemTab } from './AgentSystemTab';
 
-type PrimaryTab = 'overview' | 'activity' | 'memory' | 'operations' | 'system';
+type PrimaryTab = 'overview' | 'activity' | 'results' | 'memory' | 'operations' | 'system';
 type OperationsSubTab = 'channels' | 'knowledge' | 'meeseeks' | 'economics';
 type SystemSubTab = 'config' | 'logs';
 
@@ -213,6 +214,7 @@ export function AgentDetail({ agent, capabilities: initialCapabilities, onAction
         {([
           { id: 'overview' as PrimaryTab, label: 'Overview' },
           { id: 'activity' as PrimaryTab, label: 'Activity' },
+          { id: 'results' as PrimaryTab, label: 'Results' },
           { id: 'memory' as PrimaryTab, label: 'Memory' },
           { id: 'operations' as PrimaryTab, label: 'Operations' },
           { id: 'system' as PrimaryTab, label: 'System' },
@@ -249,7 +251,16 @@ export function AgentDetail({ agent, capabilities: initialCapabilities, onAction
             logs={data.logs}
             refreshingLogs={data.refreshingLogs}
             refreshLogs={data.refreshLogs}
+            results={data.results}
             handleSendDM={data.handleSendDM}
+          />
+        )}
+        {primaryTab === 'results' && (
+          <AgentResultsTab
+            agentName={agent.name}
+            results={data.results}
+            refreshingResults={data.refreshingResults}
+            refreshResults={data.refreshResults}
           />
         )}
         {primaryTab === 'memory' && <AgentMemoryTab knowledge={data.knowledge} />}

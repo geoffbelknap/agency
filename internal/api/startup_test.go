@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log/slog"
 	"testing"
 
 	authzcore "github.com/geoffbelknap/agency/internal/authz"
@@ -27,7 +28,7 @@ func TestStartup_NilDocker_AllowedForNonDockerBackend(t *testing.T) {
 			DeploymentBackend: "probe",
 		},
 	}
-	result, err := Startup(cfg, nil, nil)
+	result, err := Startup(cfg, nil, slog.Default())
 	if err != nil {
 		t.Fatalf("Startup() returned error: %v", err)
 	}

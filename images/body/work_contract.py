@@ -1,0 +1,405 @@
+"""Lightweight body-runtime work contracts.
+
+The body uses this as external working discipline around the model: classify
+inbound work, attach required evidence, and gate completion when the response
+does not satisfy the contract.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+
+
+DEFAULT_ALLOWED_VERDICTS = ("completed", "blocked", "needs_clarification")
+CURRENT_INFO_ANSWER_REQUIREMENTS = (
+    "direct_answer",
+    "primary_or_official_source",
+    "source_url",
+    "checked_date",
+    "ambiguous_category_clarified",
+)
+CURRENT_INFO_ANSWER_CONTRACT = (
+    "\n[ANSWER_CONTRACT]\n"
+    "current_info_rules:\n"
+    "- Give the direct answer first.\n"
+    "- Include an official or primary source URL when available.\n"
+    "- Make sure each source URL directly supports the claimed version, date, status, or fact.\n"
+    "- Include a checked/as-of date for the answer.\n"
+    "- If the user asks for a date, include an absolute date in the answer, not only a relative date.\n"
+    "- If the user's wording is ambiguous, separate the relevant categories instead of collapsing them.\n"
+    "- If only secondary sources are available, mark the answer unverified.\n"
+    "- Avoid saying \"search results\" unless you name and link the source.\n"
+    "[/ANSWER_CONTRACT]"
+)
+
+CURRENT_INFO_RE = re.compile(
+    r"\b(latest|current|recent|most recent|today|yesterday|tomorrow|now|live|"
+    r"price|weather|schedule|score|news|filing|sec filing|look up|lookup|find me|search)\b",
+    re.IGNORECASE,
+)
+ACTION_RE = re.compile(
+    r"\b(find|look up|lookup|search|check|verify|debug|fix|create|write|read|"
+    r"restart|start|stop|run|test|build|deploy|summarize|analyze)\b",
+    re.IGNORECASE,
+)
+BLOCKER_RE = re.compile(
+    r"\b(can't|cannot|unable|not able|blocked|failed|unavailable|no access|"
+    r"do not have|don't have|missing|need .+ access|need .+ tool)\b",
+    re.IGNORECASE,
+)
+URL_RE = re.compile(r"https?://[^\s<>)\],]+", re.IGNORECASE)
+CHECKED_DATE_RE = re.compile(
+    r"\b(checked|retrieved|accessed|as of|as-of|verified on)\b",
+    re.IGNORECASE,
+)
+VAGUE_SEARCH_RE = re.compile(
+    r"\b(based on (?:the |my |these )?search results|the search (?:shows|indicates)|search results indicate)\b",
+    re.IGNORECASE,
+)
+DATE_REQUEST_RE = re.compile(r"\b(date|dated|filed|released|release date|as of|as-of)\b", re.IGNORECASE)
+ABSOLUTE_DATE_RE = re.compile(
+    r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|"
+    r"Dec(?:ember)?)\s+\d{1,2},\s+\d{4}\b|\b\d{4}-\d{2}-\d{2}\b",
+    re.IGNORECASE,
+)
+CHECKED_CLAUSE_RE = re.compile(
+    r"\b(?:checked|retrieved|accessed|as of|as-of|verified on)\b[^.\n]*(?:\.|$)",
+    re.IGNORECASE,
+)
+TRAILING_URL_PUNCTUATION = ".,;:!?"
+
+
+@dataclass(frozen=True)
+class ContractDefinition:
+    kind: str
+    summary: str
+    required_evidence: tuple[str, ...] = ()
+    answer_requirements: tuple[str, ...] = ()
+    allowed_verdicts: tuple[str, ...] = DEFAULT_ALLOWED_VERDICTS
+    answer_contract: str = ""
+
+
+CONTRACT_REGISTRY: dict[str, ContractDefinition] = {
+    "current_info": ContractDefinition(
+        kind="current_info",
+        summary="Current or externally verifiable facts require fresh evidence or a specific blocker.",
+        required_evidence=("current_source_or_blocker",),
+        answer_requirements=CURRENT_INFO_ANSWER_REQUIREMENTS,
+        answer_contract=CURRENT_INFO_ANSWER_CONTRACT,
+    ),
+    "code_change": ContractDefinition(
+        kind="code_change",
+        summary="Code changes require changed-file evidence and validation evidence or a blocker.",
+        required_evidence=("code_change_result_or_blocker", "tests_or_blocker"),
+        answer_requirements=("files_changed", "tests_run_or_blocker"),
+    ),
+    "file_artifact": ContractDefinition(
+        kind="file_artifact",
+        summary="File artifacts require a concrete path, link, or a specific blocker.",
+        required_evidence=("artifact_path_or_blocker",),
+        answer_requirements=("artifact_reference",),
+    ),
+    "external_side_effect": ContractDefinition(
+        kind="external_side_effect",
+        summary="External side effects require authority, mediated execution, and outcome evidence.",
+        required_evidence=("authority_check", "operation_result_or_blocker"),
+        answer_requirements=("side_effect_status",),
+    ),
+    "operator_blocked": ContractDefinition(
+        kind="operator_blocked",
+        summary="Blocked work requires the blocker, checked evidence, and a clear unblock condition.",
+        required_evidence=("blocker_reason",),
+        answer_requirements=("next_actor_or_unblocker",),
+        allowed_verdicts=("blocked", "needs_clarification"),
+    ),
+    "mission_task": ContractDefinition(
+        kind="mission_task",
+        summary="Active mission work requires a mission result or a specific blocker.",
+        required_evidence=("mission_result_or_blocker",),
+    ),
+    "task": ContractDefinition(
+        kind="task",
+        summary="Action-oriented work requires an observed action result or a specific blocker.",
+        required_evidence=("action_result_or_blocker",),
+    ),
+    "coordination": ContractDefinition(
+        kind="coordination",
+        summary="Non-direct coordination signals do not require action by default.",
+    ),
+    "chat": ContractDefinition(
+        kind="chat",
+        summary="Casual direct chat does not require action by default.",
+    ),
+}
+
+
+@dataclass
+class WorkContract:
+    kind: str
+    requires_action: bool = False
+    required_evidence: list[str] = field(default_factory=list)
+    answer_requirements: list[str] = field(default_factory=list)
+    allowed_terminal_states: list[str] = field(
+        default_factory=lambda: ["completed", "blocked", "needs_clarification"]
+    )
+    reason: str = ""
+    summary: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "kind": self.kind,
+            "requires_action": self.requires_action,
+            "required_evidence": list(self.required_evidence),
+            "answer_requirements": list(self.answer_requirements),
+            "allowed_terminal_states": list(self.allowed_terminal_states),
+            "reason": self.reason,
+            "summary": self.summary,
+        }
+
+
+def list_contract_kinds() -> list[str]:
+    return sorted(CONTRACT_REGISTRY.keys())
+
+
+def contract_definition(kind: str) -> ContractDefinition:
+    try:
+        return CONTRACT_REGISTRY[kind]
+    except KeyError as exc:
+        raise ValueError(f"unknown work contract kind: {kind}") from exc
+
+
+def build_contract(
+    kind: str,
+    *,
+    requires_action: bool,
+    reason: str,
+    extra_answer_requirements: list[str] | None = None,
+) -> WorkContract:
+    definition = contract_definition(kind)
+    answer_requirements = list(definition.answer_requirements)
+    for requirement in extra_answer_requirements or []:
+        if requirement not in answer_requirements:
+            answer_requirements.append(requirement)
+    return WorkContract(
+        kind=definition.kind,
+        requires_action=requires_action,
+        required_evidence=list(definition.required_evidence),
+        answer_requirements=answer_requirements,
+        allowed_terminal_states=list(definition.allowed_verdicts),
+        reason=reason,
+        summary=definition.summary,
+    )
+
+
+def classify_work(content: str, match_type: str = "direct", mission_active: bool = False) -> WorkContract:
+    text = str(content or "").strip()
+    if mission_active:
+        return build_contract(
+            "mission_task",
+            requires_action=True,
+            reason="active mission direct message",
+        )
+    if CURRENT_INFO_RE.search(text):
+        extra_answer_requirements = []
+        if DATE_REQUEST_RE.search(text):
+            extra_answer_requirements.append("requested_absolute_date")
+        return build_contract(
+            "current_info",
+            requires_action=True,
+            reason="time-sensitive or externally verifiable request",
+            extra_answer_requirements=extra_answer_requirements,
+        )
+    if ACTION_RE.search(text):
+        return build_contract(
+            "task",
+            requires_action=True,
+            reason="action verb detected",
+        )
+    if match_type != "direct":
+        return build_contract("coordination", requires_action=False, reason="non-direct channel signal")
+    return build_contract("chat", requires_action=False, reason="no action requirement detected")
+
+
+def contract_prompt(contract: WorkContract) -> str:
+    if not contract.requires_action:
+        return ""
+    evidence = ", ".join(contract.required_evidence) or "task evidence"
+    answer_requirements = ", ".join(contract.answer_requirements)
+    answer_requirement_line = (
+        f"answer_requirements: {answer_requirements}\n" if answer_requirements else ""
+    )
+    definition = contract_definition(contract.kind)
+    return (
+        "\n\n[WORK_CONTRACT]\n"
+        f"kind: {contract.kind}\n"
+        f"summary: {contract.summary or definition.summary}\n"
+        f"required_evidence: {evidence}\n"
+        f"{answer_requirement_line}"
+        f"allowed_terminal_states: {', '.join(contract.allowed_terminal_states)}\n"
+        "rules:\n"
+        "- Treat this as work, not casual chat.\n"
+        "- Use mediated tools or observed context when the task requires action or current facts.\n"
+        "- Do not claim evidence you do not have.\n"
+        "- If required evidence cannot be obtained, report a specific blocker instead of guessing.\n"
+        "[/WORK_CONTRACT]"
+        f"{definition.answer_contract}"
+    )
+
+
+def extract_urls(text: str) -> list[str]:
+    urls: list[str] = []
+    for match in URL_RE.finditer(str(text or "")):
+        url = match.group(0).rstrip(TRAILING_URL_PUNCTUATION)
+        if url and url not in urls:
+            urls.append(url)
+    return urls
+
+
+def _evidence_source_urls(evidence: dict) -> list[str]:
+    urls: list[str] = []
+    for value in evidence.get("source_urls") or []:
+        if isinstance(value, str):
+            for url in extract_urls(value):
+                if url not in urls:
+                    urls.append(url)
+    return urls
+
+
+def _checked_date(checked_at: str | None = None) -> str:
+    if checked_at:
+        return checked_at
+    now = datetime.now(timezone.utc)
+    return f"{now:%B} {now.day}, {now:%Y}"
+
+
+def _tool_summary(evidence: dict) -> str:
+    tools = []
+    for item in evidence.get("tool_results") or []:
+        if not isinstance(item, dict):
+            continue
+        tool = str(item.get("tool") or "").strip()
+        if tool and tool not in tools:
+            tools.append(tool)
+    return ", ".join(tools) if tools else "none recorded"
+
+
+def _source_url_lines(source_urls: list[str], limit: int = 5) -> list[str]:
+    shown = source_urls[:limit]
+    lines = [f"  - {url}" for url in shown]
+    remaining = len(source_urls) - len(shown)
+    if remaining > 0:
+        lines.append(f"  - ...and {remaining} more observed URLs.")
+    return lines
+
+
+def format_blocked_completion(
+    contract: dict | None,
+    evidence: dict | None,
+    content: str = "",
+    checked_at: str | None = None,
+) -> str:
+    """Return a concise harness-owned blocker response."""
+    evidence = evidence or {}
+    kind = (contract or {}).get("kind")
+    if kind != "current_info":
+        return str(content or "I cannot complete this task with the available evidence.")
+
+    source_urls = _evidence_source_urls(evidence)
+    if source_urls:
+        reason = "Available source URLs did not satisfy the official/current-source evidence contract."
+    elif evidence.get("tool_results") or "current_source" in set(evidence.get("observed") or []):
+        reason = "Current-information tool evidence was insufficient to verify the requested fact."
+    else:
+        reason = "No current-information source or tool result was available."
+
+    lines = [
+        "I cannot verify this from an official/current source without guessing.",
+        "",
+        f"- Blocked: {reason}",
+        f"- Evidence checked: tools={_tool_summary(evidence)}",
+    ]
+    if source_urls:
+        lines.append("- Source URLs observed:")
+        lines.extend(_source_url_lines(source_urls))
+    lines.extend([
+        "- What would unblock this: an official or primary source URL that directly supports the requested current fact.",
+        f"- Checked: {_checked_date(checked_at)}.",
+    ])
+    return "\n".join(lines)
+
+
+def _validate_current_info_answer(contract: dict, evidence: dict, content: str) -> dict:
+    requirements = set(contract.get("answer_requirements") or [])
+    missing: list[str] = []
+    answer_without_checked_clause = CHECKED_CLAUSE_RE.sub("", content)
+    answer_urls = extract_urls(content)
+    evidence_urls = _evidence_source_urls(evidence)
+
+    if "source_url" in requirements and not answer_urls:
+        missing.append("source_url")
+    elif evidence_urls and not any(url in evidence_urls for url in answer_urls):
+        missing.append("source_url_from_evidence")
+    if "checked_date" in requirements and not CHECKED_DATE_RE.search(content):
+        missing.append("checked_date")
+    if "requested_absolute_date" in requirements and not ABSOLUTE_DATE_RE.search(answer_without_checked_clause):
+        missing.append("requested_absolute_date")
+    if VAGUE_SEARCH_RE.search(content):
+        missing.append("named_source")
+
+    if not missing:
+        return {"verdict": "completed"}
+
+    return {
+        "verdict": "needs_action",
+        "missing_evidence": missing,
+        "message": (
+            "The answer has current-source evidence but does not satisfy the "
+            "answer contract. Provide direct source links, a checked/as-of date, "
+            "and name sources instead of referring vaguely to search results."
+        ),
+    }
+
+
+def validate_completion(contract: dict | None, evidence: dict | None, content: str) -> dict:
+    if not contract or not contract.get("requires_action"):
+        return {"verdict": "completed"}
+
+    evidence = evidence or {}
+    content = str(content or "")
+    kind = str(contract.get("kind") or "")
+    if kind not in CONTRACT_REGISTRY:
+        return {
+            "verdict": "blocked",
+            "missing_evidence": ["known_contract_kind"],
+            "message": f"Unknown work contract kind: {kind or '(missing)'}.",
+        }
+    if BLOCKER_RE.search(content):
+        return {"verdict": "blocked", "message": format_blocked_completion(contract, evidence, content)}
+
+    required = set(contract.get("required_evidence") or [])
+    tool_results = evidence.get("tool_results") or []
+    observed = set(evidence.get("observed") or [])
+
+    if "current_source_or_blocker" in required:
+        if tool_results or "current_source" in observed:
+            return _validate_current_info_answer(contract, evidence, content)
+        return {
+            "verdict": "needs_action",
+            "missing_evidence": ["current_source_or_blocker"],
+            "message": (
+                "This work requires current external evidence. Use an available "
+                "current-info/search/fetch tool, or report the specific blocker."
+            ),
+        }
+
+    if "action_result_or_blocker" in required and not (tool_results or observed):
+        return {
+            "verdict": "needs_action",
+            "missing_evidence": ["action_result_or_blocker"],
+            "message": "This work requires an observed action result or a specific blocker.",
+        }
+
+    return {"verdict": "completed"}

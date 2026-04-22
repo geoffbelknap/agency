@@ -5,10 +5,16 @@ check unreads, and search message history through the comms HTTP server.
 """
 
 import json
+import re
 
 import httpx
 
 _http = httpx.Client(timeout=10)
+_SIMULATED_TOOL_TAG_RE = re.compile(
+    r"(</?(search|web[_\.-]?search|browse|fetch|tool|tools?|read_file|write_file)\b|"
+    r"^\s*(search|web[_\.-]?search|browse|fetch|read_file|write_file)\s*\()",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 def register_comms_tools(registry, comms_url: str, agent_name: str,
@@ -42,6 +48,31 @@ def register_comms_tools(registry, comms_url: str, agent_name: str,
                         "blocker": {"type": "boolean"},
                     },
                     "description": "Optional flags (decision, question, blocker)",
+                },
+                "links": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "label": {"type": "string"},
+                            "url": {"type": "string"},
+                        },
+                        "required": ["url"],
+                    },
+                    "description": "Optional links to display as attachments. Only include real URLs returned by tools or platform APIs.",
+                },
+                "attachments": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "label": {"type": "string"},
+                            "url": {"type": "string"},
+                            "filename": {"type": "string"},
+                        },
+                        "required": ["url"],
+                    },
+                    "description": "Optional file or report links to display as attachments. Only include mediated platform URLs, not local filesystem paths.",
                 },
             },
             "required": ["channel", "content"],
@@ -177,17 +208,36 @@ def _send_message(base_url: str, agent_name: str, args: dict,
     content = args["content"]
     metadata = None
 
+    if _SIMULATED_TOOL_TAG_RE.search(content):
+        return json.dumps({
+            "error": (
+                "Message rejected: simulated tool markup is not allowed. "
+                "Call the real tool if it is available; if it is unavailable or failed, "
+                "tell the operator that directly."
+            )
+        })
+
+    links = _valid_link_items(args.get("links"))
+    attachments = _valid_link_items(args.get("attachments"))
+    if links or attachments:
+        metadata = {}
+        if links:
+            metadata["links"] = links
+        if attachments:
+            metadata["attachments"] = attachments
+
     # Apply artifact threshold — long messages get saved as files with a preview
     lines = content.strip().split("\n")
     if artifact_callback and len(lines) > artifact_threshold:
         artifact_id = artifact_callback(content)
         if artifact_id:
             content = "\n".join(lines[:5]) + "\n\n_(Full response attached)_"
-            metadata = {
+            metadata = metadata or {}
+            metadata.update({
                 "agent": agent_name,
                 "has_artifact": True,
                 "attachment_id": artifact_id,
-            }
+            })
 
     try:
         payload = {
@@ -206,6 +256,21 @@ def _send_message(base_url: str, agent_name: str, args: dict,
         return resp.text
     except Exception as e:
         return json.dumps({"error": f"Failed to send message: {e}"})
+
+
+def _valid_link_items(value) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    items = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        url = item.get("url") or item.get("href") or item.get("file_url")
+        if not isinstance(url, str) or not url.strip():
+            continue
+        label = item.get("label") or item.get("name") or item.get("filename") or url
+        items.append({"label": str(label), "url": url.strip()})
+    return items
 
 
 def _read_messages(base_url: str, agent_name: str, args: dict) -> str:

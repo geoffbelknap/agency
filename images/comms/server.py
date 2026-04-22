@@ -103,6 +103,7 @@ def create_app(data_dir: Optional[Path] = None, agents_dir: Optional[Path] = Non
     app.router.add_post("/channels", handle_create_channel)
     app.router.add_get("/channels", handle_list_channels)
     app.router.add_post("/channels/{name}/archive", handle_archive_channel)
+    app.router.add_post("/channels/{name}/retire", handle_retire_channel)
     app.router.add_post("/channels/{name}/grant-access", handle_grant_access)
     app.router.add_post("/channels/{name}/join", handle_join_channel)
     app.router.add_post("/channels/{name}/leave", handle_leave_channel)
@@ -696,6 +697,29 @@ async def handle_archive_channel(request: web.Request) -> web.Response:
     archived_by = body.get("archived_by", "operator")
     try:
         ch = store.archive_channel(name, archived_by)
+        return web.json_response(ch.model_dump(mode="json"))
+    except ValueError as e:
+        error_msg = str(e)
+        if "not found" in error_msg.lower():
+            return web.json_response({"error": error_msg}, status=404)
+        return web.json_response({"error": error_msg}, status=409)
+
+
+async def handle_retire_channel(request: web.Request) -> web.Response:
+    store: MessageStore = request.app["store"]
+    name = request.match_info["name"]
+    if request.headers.get("X-Agency-Platform") != "true":
+        return web.json_response(
+            {"error": "Retire requires X-Agency-Platform header"},
+            status=403,
+        )
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    retired_by = body.get("retired_by", "operator")
+    try:
+        ch = store.retire_channel_name(name, retired_by)
         return web.json_response(ch.model_dump(mode="json"))
     except ValueError as e:
         error_msg = str(e)

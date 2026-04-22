@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import queue as queue_module
+import re
 import signal
 import subprocess
 import sys
@@ -27,6 +28,13 @@ import yaml
 from interruption import InterruptionController
 from mcp_client import MCPClient
 from tools import BuiltinToolRegistry, ServiceToolDispatcher, SkillsManager
+from work_contract import (
+    classify_work,
+    contract_prompt,
+    extract_urls,
+    format_blocked_completion,
+    validate_completion,
+)
 from ws_listener import WSListener
 
 logging.basicConfig(
@@ -64,6 +72,20 @@ LLM_MAX_RETRIES = 6
 # (enforcer returns 429), or escalate called.
 # Minimum seconds between notification-generated tasks (push-driven via comms events)
 NOTIFICATION_COOLDOWN = int(os.environ.get("AGENCY_NOTIFICATION_COOLDOWN_SECS", "60"))
+
+PROVIDER_TOOL_DEFINITIONS = {
+    "provider-web-search": {"type": "web_search"},
+}
+SIMULATED_TOOL_TAG_RE = re.compile(
+    r"(</?(search|web[_\.-]?search|browse|fetch|tool|tools?|read_file|write_file)\b|"
+    r"^\s*(search|web[_\.-]?search|browse|fetch|read_file|write_file)\s*\()",
+    re.IGNORECASE | re.MULTILINE,
+)
+CURRENT_INFO_PREAMBLE_RE = re.compile(
+    r"^\s*(?:let me|i(?:'ll| will)|i need to|first,?\s*i(?:'ll| will)|now let me)\s+"
+    r"(?:search|check|look up|find|verify|use|see)\b.*?(?:\.|:)?\s*$",
+    re.IGNORECASE,
+)
 
 # Meeseeks system prompt template — minimal, task-focused
 MEESEEKS_SYSTEM_PROMPT = """You are a Meeseeks — a single-purpose agent created to complete one task.
@@ -121,6 +143,190 @@ def classify_llm_error(
         "correlation_id": correlation_id,
         "retries_attempted": retries,
     }
+
+
+def _provider_tool_grants(config_dir: Path) -> set[str]:
+    """Return externally granted provider-tool capabilities for this agent."""
+    grants: set[str] = set()
+
+    constraints_path = config_dir / "constraints.yaml"
+    try:
+        constraints = yaml.safe_load(constraints_path.read_text()) or {}
+        for capability in constraints.get("granted_capabilities", []):
+            if isinstance(capability, str):
+                grants.add(capability.strip())
+    except Exception:
+        pass
+
+    effective_path = config_dir / "provider-tools.yaml"
+    try:
+        effective = yaml.safe_load(effective_path.read_text()) or {}
+        for entry in effective.get("grants", []):
+            if isinstance(entry, dict):
+                capability = entry.get("capability")
+                if isinstance(capability, str):
+                    grants.add(capability.strip())
+    except Exception:
+        pass
+
+    return {cap for cap in grants if cap in PROVIDER_TOOL_DEFINITIONS}
+
+
+def _provider_tool_definitions(config_dir: Path) -> list[dict]:
+    """Build provider-hosted server tool declarations from external grants."""
+    definitions = []
+    for capability in sorted(_provider_tool_grants(config_dir)):
+        definitions.append(dict(PROVIDER_TOOL_DEFINITIONS[capability]))
+    return definitions
+
+
+def _provider_tool_prompt_section(config_dir: Path) -> str:
+    """Describe granted provider-hosted tools for the model policy prompt."""
+    grants = _provider_tool_grants(config_dir)
+    lines = []
+    if "provider-web-search" in grants:
+        lines.append("- **web_search** — provider-executed live web search for current external information.")
+    if not lines:
+        return ""
+    return (
+        "# Provider Tools\n\n"
+        "These provider-hosted tools are externally granted for this agent and may appear "
+        "as server-side tool calls in the model request. Use them when the task requires "
+        "current external information, and do not simulate them in text.\n\n"
+        + "\n".join(lines)
+    )
+
+
+def _read_current_task(context_file: Path | None) -> dict | None:
+    if context_file is None:
+        return None
+    try:
+        data = json.loads(context_file.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    task = data.get("current_task") if isinstance(data, dict) else None
+    return task if isinstance(task, dict) else None
+
+
+def _matches_current_task_event(task: dict, event: dict) -> bool:
+    metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+    msg = event.get("message") if isinstance(event.get("message"), dict) else {}
+    channel = event.get("channel")
+    msg_id = str(msg.get("id", "") or "")
+    task_event_id = str(
+        task.get("event_id") or task.get("work_item_id") or metadata.get("event_id") or ""
+    )
+
+    if msg_id and task_event_id in {msg_id, f"evt-{msg_id}"}:
+        return True
+
+    if channel and metadata.get("channel") != channel:
+        return False
+
+    summary = str(event.get("summary") or msg.get("summary") or msg.get("content") or "")
+    task_content = str(task.get("content") or "")
+    return bool(summary and summary in task_content)
+
+
+def _activation_task_id(event: dict, context_file: Path | None, fallback_prefix: str) -> str:
+    """Preserve externally assigned task ids for event-backed work."""
+    candidates = [
+        event.get("task_id"),
+        event.get("work_item_id"),
+    ]
+    metadata = event.get("metadata")
+    if isinstance(metadata, dict):
+        candidates.extend([metadata.get("task_id"), metadata.get("work_item_id")])
+    msg = event.get("message")
+    if isinstance(msg, dict):
+        candidates.extend([msg.get("task_id"), msg.get("work_item_id")])
+        msg_metadata = msg.get("metadata")
+        if isinstance(msg_metadata, dict):
+            candidates.extend([msg_metadata.get("task_id"), msg_metadata.get("work_item_id")])
+
+    for value in candidates:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    current_task = _read_current_task(context_file)
+    if current_task and _matches_current_task_event(current_task, event):
+        task_id = current_task.get("task_id")
+        if isinstance(task_id, str) and task_id.strip():
+            return task_id.strip()
+
+    return f"{fallback_prefix}-{int(time.time())}"
+
+
+def _pact_verdict_payload(
+    task_id: str,
+    contract: dict | None,
+    evidence: dict | None,
+    verdict: dict | None,
+) -> dict:
+    contract = contract if isinstance(contract, dict) else {}
+    evidence = evidence if isinstance(evidence, dict) else {}
+    verdict = verdict if isinstance(verdict, dict) else {}
+    tools = []
+    for item in evidence.get("tool_results") or []:
+        if not isinstance(item, dict):
+            continue
+        tool = str(item.get("tool") or "").strip()
+        if tool and tool not in tools:
+            tools.append(tool)
+    return {
+        "task_id": task_id,
+        "kind": contract.get("kind"),
+        "verdict": verdict.get("verdict", "completed"),
+        "required_evidence": list(contract.get("required_evidence") or []),
+        "answer_requirements": list(contract.get("answer_requirements") or []),
+        "missing_evidence": list(verdict.get("missing_evidence") or []),
+        "observed": list(evidence.get("observed") or []),
+        "source_urls": list(evidence.get("source_urls") or []),
+        "tools": tools,
+    }
+
+
+def _pact_metadata_for_storage(payload: dict | None) -> dict | None:
+    if not isinstance(payload, dict):
+        return None
+    return {
+        "kind": payload.get("kind"),
+        "verdict": payload.get("verdict"),
+        "required_evidence": list(payload.get("required_evidence") or []),
+        "answer_requirements": list(payload.get("answer_requirements") or []),
+        "missing_evidence": list(payload.get("missing_evidence") or []),
+        "observed": list(payload.get("observed") or []),
+        "source_urls": list(payload.get("source_urls") or []),
+        "tools": list(payload.get("tools") or []),
+    }
+
+
+def _sanitize_outbound_content(content: str) -> str:
+    """Fail closed when model text tries to impersonate a tool call."""
+    if not SIMULATED_TOOL_TAG_RE.search(content or ""):
+        return content
+    return (
+        "I cannot provide that result because I attempted to describe a tool call "
+        "instead of using a real, successful tool invocation. I need an available "
+        "current-information tool or source access to answer this without guessing."
+    )
+
+
+def _sanitize_current_info_answer(contract: dict | None, content: str) -> str:
+    if not isinstance(contract, dict) or contract.get("kind") != "current_info":
+        return content
+    kept = []
+    for raw_line in str(content or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            if kept and kept[-1] != "":
+                kept.append("")
+            continue
+        if CURRENT_INFO_PREAMBLE_RE.match(line):
+            continue
+        kept.append(raw_line)
+    sanitized = "\n".join(kept).strip()
+    return sanitized or str(content or "").strip()
 
 
 class Body:
@@ -844,6 +1050,8 @@ class Body:
             f"- Only fall back to normal concise conversational help when your identity is silent on how to respond.\n"
             f"- Use the recent conversation transcript to resolve follow-up references like 'that', 'it', or 'whatever one'.\n"
             f"- If the transcript is insufficient, ask one concise clarifying question instead of guessing.\n"
+            f"- For latest, current, recent, or time-sensitive facts, use an available search/fetch tool. If no such tool is available or it fails, say that directly.\n"
+            f"- Never write simulated tool markup or pretend to have searched.\n"
             f"- Reply with the exact message text only. Do not call tools unless you truly need context.\n"
             f"- The platform will deliver your reply to #{channel}.\n"
             f"- If the person follows up, continue the conversation."
@@ -901,6 +1109,9 @@ class Body:
         log.info("idle response | channel=%s author=%s match=%s keywords=%s",
                  channel, author, match_type, matched_kws)
 
+        mission_active = bool(self._active_mission and self._active_mission.get("status") == "active" and match_type == "direct")
+        work_contract = classify_work(summary, match_type=match_type, mission_active=mission_active)
+
         # Construct prompt based on match type
         if match_type == "direct":
             prompt = self._build_direct_idle_prompt(
@@ -909,6 +1120,7 @@ class Body:
                 summary,
                 self._fetch_recent_channel_context(channel),
             )
+            prompt += contract_prompt(work_contract)
         else:
             # Interest match — agent's expertise is relevant
             kw_str = ", ".join(matched_kws) if matched_kws else "your area of expertise"
@@ -925,12 +1137,25 @@ class Body:
                 f"- Respond via send_message('{channel}', your_response).\n"
                 f"- Call complete_task when the conversation is done."
             )
+            prompt += contract_prompt(work_contract)
 
         task = {
             "type": "task",
-            "task_id": f"idle-reply-{int(time.time())}",
+            "task_id": _activation_task_id(
+                event,
+                self.context_file,
+                "work-" + work_contract.kind if work_contract.requires_action else "idle-reply",
+            ),
             "content": prompt,
             "source": f"idle_{match_type}:{channel}:{author}",
+            "metadata": {
+                "channel": channel,
+                "author": author,
+                "latest_message": summary,
+                "message_id": msg_id,
+                "match_type": match_type,
+                "work_contract": work_contract.to_dict(),
+            },
         }
 
         self._interruption_controller.start_task(task["task_id"])
@@ -1174,6 +1399,10 @@ class Body:
         if skills_section:
             parts.append(skills_section)
 
+        provider_tools = _provider_tool_prompt_section(self.config_dir)
+        if provider_tools:
+            parts.append(provider_tools)
+
         if not parts:
             return "You are an AI agent. Follow your operator's instructions."
 
@@ -1183,9 +1412,29 @@ class Body:
             "**Quality over speed.** A thoughtful answer is better than a fast generic one.\n\n"
             "- If a request is ambiguous, ask a clarifying question before guessing.\n"
             "- If research (web search, knowledge query) would improve your answer, do it.\n"
+            "- When someone asks for latest, current, recent, or time-sensitive information, "
+            "use an available search or fetch tool before answering. If no current-information "
+            "tool is available, say that directly instead of answering from stale memory.\n"
+            "- Do not claim you used a tool, searched the web, read a file, or checked a system "
+            "unless you actually made the corresponding tool call.\n"
+            "- Do not write simulated tool markup like <search>...</search>, pseudo tool calls, "
+            "or placeholders. If a needed tool is unavailable or fails, say that plainly and "
+            "explain what would unblock the request.\n"
             "- If you learn facts about a person (name, location, preferences, role, team), "
             "save them with contribute_knowledge so all agents benefit.\n"
             "- Do not pad responses with filler or disclaimers. Be direct and substantive.\n\n"
+            "# Operating Loop\n\n"
+            "For every non-trivial task:\n"
+            "1. Clarify the objective and constraints.\n"
+            "2. Inspect available context before answering: memory, recent messages, files, "
+            "or web/tool results when relevant.\n"
+            "3. Choose the smallest sufficient plan.\n"
+            "4. Use tools when freshness, external facts, files, or system state matter.\n"
+            "5. Validate the result before finalizing. For current facts, cite or name the "
+            "source. For code, run the smallest relevant test.\n"
+            "6. If blocked by missing tools, missing access, ambiguity, or risk, say exactly "
+            "what is blocked and what would unblock it.\n"
+            "7. Complete with a concise result.\n\n"
             "# Task Completion\n\n"
             "When you receive a task, execute every action it requires — do not stop "
             "at analysis or planning.\n\n"
@@ -1385,8 +1634,14 @@ class Body:
         self._total_tasks += 1
         self._current_task_id = task_id
         self._current_task_tier = task.get("tier")
+        self._task_metadata = task.get("metadata", {}) if isinstance(task.get("metadata"), dict) else {}
         self._task_complete_called = False
         self._current_task_turns = 0
+        self._simulated_tool_retry_sent = False
+        self._work_contract = self._task_metadata.get("work_contract") if isinstance(self._task_metadata, dict) else None
+        self._work_evidence = {"tool_results": [], "observed": []}
+        self._last_pact_verdict = None
+        self._work_contract_retry_sent = False
 
         # Pre-task budget check
         if not self._check_budget(task):
@@ -1534,10 +1789,13 @@ class Body:
             tool_calls = message.get("tool_calls")
             if tool_calls:
                 if len(tool_calls) == 1:
-                    result = self._handle_tool_call(tool_calls[0])
+                    _tc = tool_calls[0]
+                    _tool_name = _tc.get("function", {}).get("name", "")
+                    result = self._handle_tool_call(_tc)
+                    self._record_work_tool_result(_tool_name, result)
                     messages.append({
                         "role": "tool",
-                        "tool_call_id": tool_calls[0]["id"],
+                        "tool_call_id": _tc["id"],
                         "content": result,
                     })
                     if self._task_complete_called:
@@ -1574,6 +1832,10 @@ class Body:
                                 results[tc["id"]] = json.dumps({"error": str(e)})
                     # Append results in the original tool_calls order
                     for tc in tool_calls:
+                        self._record_work_tool_result(
+                            tc.get("function", {}).get("name", ""),
+                            results.get(tc["id"], ""),
+                        )
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tc["id"],
@@ -1602,6 +1864,50 @@ class Body:
             content = message.get("content", "")
             if content:
                 log.info("LLM response (%d chars)", len(content))
+            if content and SIMULATED_TOOL_TAG_RE.search(content):
+                if not self._simulated_tool_retry_sent:
+                    self._simulated_tool_retry_sent = True
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "[Platform] Your previous response attempted to describe a tool call "
+                            "in text. That is not allowed and was not a real tool invocation. "
+                            "If a current-information tool such as web_search is available, call "
+                            "the real tool now. If it is unavailable or fails, say exactly that "
+                            "without guessing. Do not include simulated tool markup."
+                        ),
+                    })
+                    log.info("Simulated tool markup rejected; retry prompt injected for task %s", task_id)
+                    continue
+                content = _sanitize_outbound_content(content)
+            if content:
+                completion_verdict = validate_completion(
+                    getattr(self, "_work_contract", None),
+                    getattr(self, "_work_evidence", None),
+                    content,
+                )
+                self._emit_pact_verdict(task_id, completion_verdict)
+                if completion_verdict.get("verdict") == "needs_action":
+                    if not getattr(self, "_work_contract_retry_sent", False):
+                        self._work_contract_retry_sent = True
+                        messages.append({
+                            "role": "user",
+                            "content": "[Platform work contract] " + completion_verdict.get("message", "Required evidence is missing."),
+                        })
+                        log.info("Work contract completion gate injected for task %s: %s", task_id, completion_verdict.get("missing_evidence"))
+                        continue
+                    content = format_blocked_completion(
+                        getattr(self, "_work_contract", None),
+                        getattr(self, "_work_evidence", None),
+                        completion_verdict.get("message", "Required evidence is missing."),
+                    )
+                elif completion_verdict.get("verdict") == "blocked":
+                    content = completion_verdict.get("message") or format_blocked_completion(
+                        getattr(self, "_work_contract", None),
+                        getattr(self, "_work_evidence", None),
+                        content,
+                    )
+                content = _sanitize_current_info_answer(getattr(self, "_work_contract", None), content)
 
             if finish_reason == "stop" and self._task_complete_called:
                 # Agent explicitly called complete_task — honor it.
@@ -1787,6 +2093,12 @@ class Body:
                 except json.JSONDecodeError:
                     continue
 
+                if chunk.get("object") == "agency.provider_tool_evidence":
+                    self._record_provider_tool_evidence(
+                        chunk.get("agency_provider_tool_evidence") or {}
+                    )
+                    continue
+
                 choices = chunk.get("choices", [])
                 if not choices:
                     continue
@@ -1807,6 +2119,9 @@ class Body:
                 tc_deltas = delta.get("tool_calls", [])
                 for tc in tc_deltas:
                     idx = tc.get("index", 0)
+                    func = tc.get("function", {}) or {}
+                    if not (tc.get("id") or func.get("name") or func.get("arguments")):
+                        continue
                     if idx not in tool_calls_acc:
                         tool_calls_acc[idx] = {
                             "id": tc.get("id", ""),
@@ -1815,7 +2130,6 @@ class Body:
                         }
                     if tc.get("id"):
                         tool_calls_acc[idx]["id"] = tc["id"]
-                    func = tc.get("function", {})
                     if func.get("name"):
                         tool_calls_acc[idx]["function"]["name"] = func["name"]
                     if func.get("arguments"):
@@ -1831,9 +2145,12 @@ class Body:
         if content:
             message["content"] = content
         if tool_calls_acc:
-            message["tool_calls"] = [
+            complete_tool_calls = [
                 tool_calls_acc[i] for i in sorted(tool_calls_acc.keys())
+                if tool_calls_acc[i].get("function", {}).get("name")
             ]
+            if complete_tool_calls:
+                message["tool_calls"] = complete_tool_calls
 
         return {
             "choices": [{
@@ -1855,6 +2172,11 @@ class Body:
         if self._service_dispatcher:
             self._service_dispatcher.check_reload()
             tools.extend(self._service_dispatcher.get_tool_definitions())
+
+        # Provider-hosted server tools are declared in the LLM request so the
+        # provider can execute them. The enforcer still validates grants,
+        # model support, audit, and cost before forwarding upstream.
+        tools.extend(_provider_tool_definitions(self.config_dir))
 
         # MCP tools
         for tool_name, client in self._mcp_tools.items():
@@ -2089,8 +2411,96 @@ class Body:
 
     def _handle_complete_task(self, summary: str) -> str:
         """Handle the complete_task tool call from the agent."""
+        completion_verdict = validate_completion(
+            getattr(self, "_work_contract", None),
+            getattr(self, "_work_evidence", None),
+            summary,
+        )
+        self._emit_pact_verdict(getattr(self, "_current_task_id", "") or "unknown", completion_verdict)
+        if completion_verdict.get("verdict") == "needs_action":
+            return json.dumps({
+                "error": "completion blocked by work contract",
+                "missing_evidence": completion_verdict.get("missing_evidence", []),
+                "message": completion_verdict.get("message", "Required evidence is missing."),
+            })
+        if completion_verdict.get("verdict") == "blocked":
+            summary = completion_verdict.get("message") or format_blocked_completion(
+                getattr(self, "_work_contract", None),
+                getattr(self, "_work_evidence", None),
+                summary,
+            )
+        summary = _sanitize_current_info_answer(getattr(self, "_work_contract", None), summary)
         self._task_complete_called = True
         return json.dumps({"status": "complete", "summary": summary})
+
+    def _emit_pact_verdict(self, task_id: str, verdict: dict) -> None:
+        contract = getattr(self, "_work_contract", None)
+        if not isinstance(contract, dict) or not contract.get("requires_action"):
+            return
+        payload = _pact_verdict_payload(
+            task_id,
+            contract,
+            getattr(self, "_work_evidence", None),
+            verdict,
+        )
+        self._last_pact_verdict = payload
+        self._emit_signal(
+            "pact_verdict",
+            payload,
+        )
+
+    def _record_work_tool_result(self, tool_name: str, result: str) -> None:
+        evidence = getattr(self, "_work_evidence", None)
+        if not isinstance(evidence, dict) or not tool_name:
+            return
+        ignored = {"send_message", "complete_task", "set_task_interests", "register_expertise"}
+        if tool_name in ignored:
+            return
+        try:
+            parsed = json.loads(result) if isinstance(result, str) and result.startswith("{") else {}
+        except Exception:
+            parsed = {}
+        ok = not (isinstance(parsed, dict) and parsed.get("error"))
+        evidence.setdefault("tool_results", []).append({"tool": tool_name, "ok": ok})
+        if ok and any(part in tool_name.lower() for part in ("web", "search", "fetch", "browse", "sec")):
+            observed = evidence.setdefault("observed", [])
+            if "current_source" not in observed:
+                observed.append("current_source")
+            for url in extract_urls(result):
+                source_urls = evidence.setdefault("source_urls", [])
+                if url not in source_urls:
+                    source_urls.append(url)
+
+    def _record_provider_tool_evidence(self, extra: dict) -> None:
+        evidence = getattr(self, "_work_evidence", None)
+        if not isinstance(evidence, dict) or not isinstance(extra, dict):
+            return
+        response_types = str(extra.get("provider_response_tool_types") or "")
+        if not response_types:
+            return
+        capabilities = [
+            item.strip()
+            for item in str(extra.get("provider_tool_capabilities") or "").split(",")
+            if item.strip()
+        ]
+        if not capabilities:
+            capabilities = ["provider-hosted-tool"]
+        existing = {
+            item.get("tool")
+            for item in evidence.setdefault("tool_results", [])
+            if isinstance(item, dict)
+        }
+        for capability in capabilities:
+            if capability not in existing:
+                evidence["tool_results"].append({"tool": capability, "ok": True})
+        observed = evidence.setdefault("observed", [])
+        if any(part in response_types.lower() for part in ("web_search", "web_fetch", "citation", "source")):
+            if "current_source" not in observed:
+                observed.append("current_source")
+        for url in extract_urls(str(extra.get("provider_source_urls") or "")):
+            source_urls = evidence.setdefault("source_urls", [])
+            if url not in source_urls:
+                source_urls.append(url)
 
     # -- Signal Emission --
 
@@ -2163,6 +2573,7 @@ class Body:
 
     def _post_channel_message(self, channel: str, content: str) -> bool:
         """Post an agent-authored message to a comms channel."""
+        content = _sanitize_outbound_content(content)
         if not channel or not content:
             return False
         try:
@@ -2482,12 +2893,18 @@ class Body:
         via GET /agents/{name}/results/{task_id}.
         """
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        frontmatter = {
+            "task_id": task_id,
+            "agent": self.agent_name,
+            "timestamp": timestamp,
+            "turns": turns,
+        }
+        pact = _pact_metadata_for_storage(getattr(self, "_last_pact_verdict", None))
+        if pact:
+            frontmatter["pact"] = pact
         artifact = (
             f"---\n"
-            f"task_id: {task_id}\n"
-            f"agent: {self.agent_name}\n"
-            f"timestamp: {timestamp}\n"
-            f"turns: {turns}\n"
+            f"{yaml.safe_dump(frontmatter, sort_keys=False)}"
             f"---\n\n"
             f"# Task Result: {task_id}\n\n"
             f"**Request:** {task_content}\n\n"

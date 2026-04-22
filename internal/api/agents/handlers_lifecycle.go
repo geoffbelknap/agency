@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"gopkg.in/yaml.v3"
 
 	apimissions "github.com/geoffbelknap/agency/internal/api/missions"
 	"github.com/geoffbelknap/agency/internal/events"
@@ -73,8 +74,9 @@ func (h *handler) deleteAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	// Remove agent from all channel memberships
 	h.deps.Comms.CommsRequest(r.Context(), "POST", "/participants/"+name+"/leave-all", nil)
-	// Archive the dedicated DM channel so deleted agents do not linger in the UI.
-	h.deps.Comms.CommsRequest(r.Context(), "POST", "/channels/dm-"+name+"/archive", nil)
+	// Retire the dedicated DM alias so future agents can reuse the name without
+	// inheriting old direct-message history.
+	h.deps.Comms.CommsRequest(r.Context(), "POST", "/channels/dm-"+name+"/retire", map[string]interface{}{"retired_by": "_platform"})
 	h.deps.Audit.WriteSystem("agent_deleted", map[string]interface{}{"agent": name})
 	writeJSON(w, 200, map[string]string{"status": "deleted", "name": name})
 }
@@ -130,18 +132,22 @@ func (h *handler) listResults(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 200, []interface{}{})
 			return
 		}
-		var results []map[string]string
+		var results []resultListItem
 		for _, entry := range entries {
 			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
 				continue
 			}
 			taskID := strings.TrimSuffix(entry.Name(), ".md")
 			if taskID != "" {
-				results = append(results, map[string]string{"task_id": taskID})
+				item := resultListItem{TaskID: taskID}
+				if data, err := os.ReadFile(filepath.Join(dir, entry.Name())); err == nil {
+					item = resultListItemFromData(taskID, data)
+				}
+				results = append(results, item)
 			}
 		}
 		if results == nil {
-			results = []map[string]string{}
+			results = []resultListItem{}
 		}
 		writeJSON(w, 200, results)
 		return
@@ -154,44 +160,56 @@ func (h *handler) listResults(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, []interface{}{})
 		return
 	}
-	var results []map[string]string
+	var results []resultListItem
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" {
-			results = append(results, map[string]string{"task_id": line})
+			item := resultListItem{TaskID: line}
+			if data, err := h.readResultArtifact(r.Context(), name, line); err == nil {
+				item = resultListItemFromData(line, data)
+			}
+			results = append(results, item)
 		}
 	}
 	if results == nil {
-		results = []map[string]string{}
+		results = []resultListItem{}
 	}
 	writeJSON(w, 200, results)
+}
+
+type resultListItem struct {
+	TaskID        string                 `json:"task_id"`
+	HasMetadata   bool                   `json:"has_metadata,omitempty"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	Pact          interface{}            `json:"pact,omitempty"`
+	MetadataError string                 `json:"metadata_error,omitempty"`
+}
+
+func resultListItemFromData(taskID string, data []byte) resultListItem {
+	item := resultListItem{TaskID: taskID}
+	metadata, found, err := parseResultFrontmatter(data)
+	if err != nil {
+		item.HasMetadata = true
+		item.MetadataError = "invalid result metadata"
+		return item
+	}
+	if !found {
+		return item
+	}
+	item.HasMetadata = true
+	item.Metadata = metadata
+	item.Pact = metadata["pact"]
+	return item
 }
 
 func (h *handler) getResult(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	taskID := chi.URLParam(r, "taskId")
-	if strings.Contains(taskID, "/") || strings.Contains(taskID, "..") {
+	if invalidResultTaskID(taskID) {
 		writeJSON(w, 400, map[string]string{"error": "invalid task ID"})
 		return
 	}
-	if dir, ok := h.hostResultsDir(name); ok {
-		data, err := os.ReadFile(filepath.Join(dir, taskID+".md"))
-		if err != nil {
-			writeJSON(w, 404, map[string]string{"error": "result not found"})
-			return
-		}
-		if r.URL.Query().Get("download") == "true" {
-			w.Header().Set("Content-Disposition", "attachment; filename=\""+taskID+".md\"")
-		}
-		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-		w.WriteHeader(200)
-		w.Write(data)
-		return
-	}
-	containerName := "agency-" + name + "-workspace"
-	data, err := h.deps.DC.ExecInContainer(r.Context(), containerName, []string{
-		"cat", "/workspace/.results/" + taskID + ".md",
-	})
+	data, err := h.readResultArtifact(r.Context(), name, taskID)
 	if err != nil {
 		writeJSON(w, 404, map[string]string{"error": "result not found"})
 		return
@@ -201,7 +219,76 @@ func (h *handler) getResult(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.WriteHeader(200)
-	w.Write([]byte(data))
+	w.Write(data)
+}
+
+func (h *handler) getResultMetadata(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	taskID := chi.URLParam(r, "taskId")
+	if invalidResultTaskID(taskID) {
+		writeJSON(w, 400, map[string]string{"error": "invalid task ID"})
+		return
+	}
+	data, err := h.readResultArtifact(r.Context(), name, taskID)
+	if err != nil {
+		writeJSON(w, 404, map[string]string{"error": "result not found"})
+		return
+	}
+	metadata, found, err := parseResultFrontmatter(data)
+	if err != nil {
+		writeJSON(w, 422, map[string]string{"error": "invalid result metadata"})
+		return
+	}
+	if !found {
+		metadata = map[string]interface{}{}
+	}
+	writeJSON(w, 200, map[string]interface{}{
+		"task_id":      taskID,
+		"metadata":     metadata,
+		"pact":         metadata["pact"],
+		"has_metadata": found,
+	})
+}
+
+func (h *handler) readResultArtifact(ctx context.Context, name, taskID string) ([]byte, error) {
+	if dir, ok := h.hostResultsDir(name); ok {
+		return os.ReadFile(filepath.Join(dir, taskID+".md"))
+	}
+	containerName := "agency-" + name + "-workspace"
+	data, err := h.deps.DC.ExecInContainer(ctx, containerName, []string{
+		"cat", "/workspace/.results/" + taskID + ".md",
+	})
+	if err != nil {
+		return nil, err
+	}
+	return []byte(data), nil
+}
+
+func invalidResultTaskID(taskID string) bool {
+	return strings.TrimSpace(taskID) == "" || strings.Contains(taskID, "/") || strings.Contains(taskID, "..")
+}
+
+func parseResultFrontmatter(data []byte) (map[string]interface{}, bool, error) {
+	const marker = "---\n"
+	if !strings.HasPrefix(string(data), marker) {
+		return nil, false, nil
+	}
+	rest := string(data[len(marker):])
+	end := strings.Index(rest, "\n---\n")
+	if end < 0 && strings.HasSuffix(rest, "\n---") {
+		end = len(rest) - len("\n---")
+	}
+	if end < 0 {
+		return nil, true, fmt.Errorf("frontmatter terminator not found")
+	}
+	var metadata map[string]interface{}
+	if err := yaml.Unmarshal([]byte(rest[:end]), &metadata); err != nil {
+		return nil, true, err
+	}
+	if metadata == nil {
+		metadata = map[string]interface{}{}
+	}
+	return metadata, true, nil
 }
 
 func (h *handler) hostResultsDir(agentName string) (string, bool) {
@@ -263,6 +350,14 @@ func (h *handler) ensureDirectChannel(ctx context.Context, agentName string) (st
 		if !strings.Contains(err.Error(), "409") {
 			return "", fmt.Errorf("create DM channel %s: %w", dmChannel, err)
 		}
+		if !h.directChannelActive(ctx, dmChannel) {
+			_, _ = h.deps.Comms.CommsRequest(ctx, "POST", "/channels/"+dmChannel+"/retire", map[string]interface{}{"retired_by": "_platform"})
+			if _, retryErr := h.deps.Comms.CommsRequest(ctx, "POST", "/channels", dmBody); retryErr != nil {
+				if !strings.Contains(retryErr.Error(), "409") {
+					return "", fmt.Errorf("create DM channel %s: %w", dmChannel, retryErr)
+				}
+			}
+		}
 	}
 
 	dmGrant := map[string]interface{}{"agent": agentName}
@@ -274,6 +369,23 @@ func (h *handler) ensureDirectChannel(ctx context.Context, agentName string) (st
 		return "", fmt.Errorf("grant operator access to %s: %w", dmChannel, err)
 	}
 	return dmChannel, nil
+}
+
+func (h *handler) directChannelActive(ctx context.Context, channelName string) bool {
+	data, err := h.deps.Comms.CommsRequest(ctx, "GET", "/channels?member=_operator&state=all", nil)
+	if err != nil {
+		return false
+	}
+	var channels []map[string]interface{}
+	if err := json.Unmarshal(data, &channels); err != nil {
+		return false
+	}
+	for _, ch := range channels {
+		if ch["name"] == channelName && ch["state"] == models.ChannelStateActive {
+			return true
+		}
+	}
+	return false
 }
 
 // containerInstanceID returns a backend-specific runtime identifier for audit

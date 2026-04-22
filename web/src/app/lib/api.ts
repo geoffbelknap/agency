@@ -444,6 +444,8 @@ export interface RawAuditEntry {
   // Task fields
   task_content?: string;
   task_id?: string;
+  has_result?: boolean;
+  result?: { task_id?: string; url?: string };
   delivered_by?: string;
   initiator?: string;
   // Agent/execution fields
@@ -501,6 +503,14 @@ export interface RawPruneImagesResult {
   status: string;
   pruned: number;
   skipped: number;
+}
+
+export interface RawAgentResult {
+  task_id: string;
+  has_metadata?: boolean;
+  metadata?: Record<string, unknown>;
+  pact?: Record<string, unknown>;
+  metadata_error?: string;
 }
 
 export interface RawKnowledgeStats {
@@ -786,9 +796,11 @@ export const api = {
     channels: (name: string) => req<RawChannel[]>(`/agents/${name}/channels`),
     ensureDM: (name: string) => req<{ status: string; channel: string }>(`/agents/${name}/dm`, { method: 'POST', body: '{}' }),
     knowledge: (name: string) => req<{ nodes?: unknown[] } | unknown[]>(`/agents/${name}/knowledge`),
-    results: (name: string) => req<Array<Record<string, unknown>>>(`/agents/${name}/results`),
+    results: (name: string) => req<RawAgentResult[]>(`/agents/${name}/results`),
     resultUrl: (name: string, taskId: string) =>
       `${BASE}/agents/${name}/results/${taskId}`,
+    resultMetadata: (name: string, taskId: string) =>
+      req<Record<string, unknown>>(`/agents/${name}/results/${taskId}/metadata`),
     resultDownloadUrl: (name: string, taskId: string) =>
       `${BASE}/agents/${name}/results/${taskId}?download=true`,
     budget: (name: string) => req<RawBudgetResponse>(`/agents/${name}/budget`),

@@ -1,13 +1,16 @@
 import { useState, useMemo, type ReactNode } from 'react';
 import { Link } from 'react-router';
-import { Send, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
-import { type RawAuditEntry } from '../../lib/api';
+import { FileText, Send, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
+import { type RawAgentResult, type RawAuditEntry } from '../../lib/api';
+import { pactSummary } from '../../components/PactStatusBadge';
+import { ResultReportDialog, useResultReport } from './ResultReportDialog';
 
 interface Props {
   agentName: string;
   logs: RawAuditEntry[];
   refreshingLogs: boolean;
   refreshLogs: (name: string) => Promise<void>;
+  results: RawAgentResult[];
   handleSendDM: (agentName: string, dmText: string) => Promise<boolean>;
 }
 
@@ -104,8 +107,9 @@ const CORE_FIELDS = ['timestamp', 'ts', 'event', 'type', 'agent', 'agent_name', 
 const ACTION_FIELDS = ['method', 'path', 'url', 'host', 'domain', 'capability', 'provider_tool_capability', 'provider_tool_capabilities', 'tool', 'name', 'phase', 'phase_name', 'scan_type', 'scan_surface', 'scan_action', 'scan_mode'];
 const RESULT_FIELDS = ['status', 'error', 'duration_ms', 'elapsed_ms', 'phase_elapsed_ms', 'input_tokens', 'output_tokens', 'cost', 'model', 'provider_model', 'finding_count', 'findings'];
 const PROVENANCE_FIELDS = ['initiator', 'delivered_by', 'mode', 'provider_tool_type', 'provider_tool_types', 'provider_source_count', 'provider_citation_count', 'provider_search_query_count', 'provider_source_urls'];
+const PACT_FIELDS = ['kind', 'verdict', 'required_evidence', 'answer_requirements', 'missing_evidence', 'observed', 'source_urls', 'tools'];
 const PAYLOAD_FIELDS = ['task_content', 'content', 'detail', 'reason', 'data', 'args', 'content_sha256', 'content_bytes', 'content_count'];
-const KNOWN_AUDIT_FIELDS = new Set([...CORE_FIELDS, ...ACTION_FIELDS, ...RESULT_FIELDS, ...PROVENANCE_FIELDS, ...PAYLOAD_FIELDS]);
+const KNOWN_AUDIT_FIELDS = new Set([...CORE_FIELDS, ...ACTION_FIELDS, ...RESULT_FIELDS, ...PROVENANCE_FIELDS, ...PACT_FIELDS, ...PAYLOAD_FIELDS]);
 
 function eventName(e: AuditRaw): string {
   return text(e.event) || text(e.type) || 'event';
@@ -130,6 +134,12 @@ function numberValue(value: unknown): number | undefined {
     return Number.isFinite(parsed) ? parsed : undefined;
   }
   return undefined;
+}
+
+function arrayCount(value: unknown): number {
+  if (Array.isArray(value)) return value.length;
+  if (typeof value === 'string' && value.trim()) return value.split(',').filter((item) => item.trim()).length;
+  return 0;
 }
 
 function valueSummary(value: unknown): string {
@@ -157,6 +167,7 @@ function classifyAuditEntry(e: AuditRaw): Exclude<AuditFilter, 'all'> {
   const name = eventName(e);
   const status = numberValue(e.status);
   if (e.error || status && status >= 400 || /error|failed|denied|violation/i.test(name)) return 'errors';
+  if (name === 'agent_signal_pact_verdict') return 'lifecycle';
   if (/SECURITY_SCAN|XPIA|MCP_TOOL_MUTATION/i.test(name) || e.scan_type || e.findings || e.finding_count !== undefined) return 'security';
   if (/^LLM_|infra_llm/i.test(name)) return 'llm';
   if (/MEDIATION|HTTP_PROXY|PROXY|capability|credential/i.test(name) || e.method || e.url || e.path || e.host || e.domain) return 'mediation';
@@ -166,6 +177,11 @@ function classifyAuditEntry(e: AuditRaw): Exclude<AuditFilter, 'all'> {
 function toneForEntry(e: AuditRaw): AuditTone {
   const status = numberValue(e.status);
   if (e.error || status && status >= 400 || /error|failed|denied/i.test(eventName(e))) return 'danger';
+  if (eventName(e) === 'agent_signal_pact_verdict') {
+    if (text(e.verdict) === 'completed') return 'success';
+    if (text(e.verdict) === 'blocked') return 'danger';
+    if (text(e.verdict) === 'needs_action') return 'warn';
+  }
   if (/FLAGGED|MUTATION|XPIA/i.test(eventName(e))) return 'warn';
   if (/SECURITY_SCAN_PASSED/i.test(eventName(e))) return 'success';
   if (/SECURITY_SCAN_NOT_APPLICABLE|SECURITY_SCAN_SKIPPED/i.test(eventName(e))) return 'neutral';
@@ -235,6 +251,31 @@ function summarizeAuditEntry(e: AuditRaw) {
     };
   }
 
+  if (name === 'agent_signal_pact_verdict') {
+    const verdict = text(e.verdict) || 'unknown';
+    const kind = text(e.kind) || 'contract';
+    const sources = arrayCount(e.source_urls);
+    const missing = arrayCount(e.missing_evidence);
+    const tools = arrayCount(e.tools);
+    return {
+      title: `PACT ${verdict}`,
+      summary: [
+        kind,
+        pactSummary({ kind, verdict, source_urls: Array.isArray(e.source_urls) ? e.source_urls : [], missing_evidence: Array.isArray(e.missing_evidence) ? e.missing_evidence : [] }),
+        tools > 0 ? `${tools} tools` : '',
+        text(e.task_id) ? `task ${text(e.task_id)}` : '',
+      ].filter(Boolean).join(' · '),
+      chips: [
+        chip('contract', kind),
+        chip('task', e.task_id),
+        chip('sources', sources || ''),
+        chip('missing', missing || ''),
+        chip('tools', tools || ''),
+      ].filter(Boolean),
+      tone: toneForEntry(e),
+    };
+  }
+
   if (/MEDIATION|HTTP_PROXY|PROXY/.test(name) || e.method || e.path || e.url || e.host || e.domain) {
     const target = text(e.path) || text(e.url) || text(e.host) || text(e.domain);
     return {
@@ -298,6 +339,7 @@ function groupedFields(e: AuditRaw) {
     section('Action', ACTION_FIELDS),
     section('Result', RESULT_FIELDS),
     section('Mediation and provenance', PROVENANCE_FIELDS),
+    section('PACT', PACT_FIELDS),
     section('Payload', PAYLOAD_FIELDS),
     { title: 'Additional fields', rows: remaining },
   ].filter((group) => group.rows.length > 0);
@@ -337,14 +379,17 @@ function AuditFieldGroups({ entry }: { entry: AuditRaw }) {
   );
 }
 
-function LogsSection({ agentName, logs, refreshingLogs, refreshLogs }: {
+function LogsSection({ agentName, logs, refreshingLogs, refreshLogs, results = [] }: {
   agentName: string;
   logs: RawAuditEntry[];
   refreshingLogs: boolean;
   refreshLogs: (name: string) => Promise<void>;
+  results?: RawAgentResult[];
 }) {
   const [expandedLog, setExpandedLog] = useState<number | null>(null);
   const [filter, setFilter] = useState<AuditFilter>('all');
+  const report = useResultReport(agentName);
+  const resultTaskIDs = useMemo(() => new Set(results.map((result) => result.task_id)), [results]);
   const reversedLogs = useMemo(() => logs.slice().reverse() as AuditRaw[], [logs]);
   const visibleLogs = useMemo(() => reversedLogs.filter((entry) => {
     if (filter === 'all') return true;
@@ -385,6 +430,9 @@ function LogsSection({ agentName, logs, refreshingLogs, refreshLogs }: {
           visibleLogs.map((e, i) => {
             const isExpanded = expandedLog === i;
             const summary = summarizeAuditEntry(e);
+            const result = e.result && typeof e.result === 'object' ? e.result as { task_id?: unknown } : null;
+            const taskID = text(result?.task_id) || text(e.task_id);
+            const hasResult = Boolean(taskID && (e.has_result === true || resultTaskIDs.has(taskID)));
             return (
               <div key={i} style={{ borderTop: i === 0 ? 0 : '0.5px solid var(--ink-hairline)' }}>
                 <button
@@ -418,6 +466,19 @@ function LogsSection({ agentName, logs, refreshingLogs, refreshLogs }: {
                     )}
                   </span>
                 </button>
+                {hasResult && (
+                  <div style={{ padding: '0 12px 10px 118px' }}>
+                    <button
+                      type="button"
+                      onClick={() => void report.openReport(taskID)}
+                      className="font-mono"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 4, border: '0.5px solid var(--ink-hairline)', background: 'var(--warm-3)', color: 'var(--teal-dark)', fontSize: 10, cursor: 'pointer' }}
+                    >
+                      <FileText size={10} />
+                      View result
+                    </button>
+                  </div>
+                )}
                 {isExpanded && (
                   <div style={{ padding: '0 12px 14px 118px', fontSize: 12, color: e.error ? 'var(--red)' : 'var(--ink-mid)', lineHeight: 1.5 }}>
                     <AuditFieldGroups entry={e} />
@@ -428,15 +489,21 @@ function LogsSection({ agentName, logs, refreshingLogs, refreshLogs }: {
           })
         )}
       </div>
+      <ResultReportDialog
+        openTask={report.openTask}
+        reportContent={report.reportContent}
+        reportLoading={report.reportLoading}
+        onClose={report.closeReport}
+      />
     </Card>
   );
 }
 
-export function AgentActivityTab({ agentName, logs, refreshingLogs, refreshLogs, handleSendDM }: Props) {
+export function AgentActivityTab({ agentName, logs, refreshingLogs, refreshLogs, results, handleSendDM }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <DmSection agentName={agentName} handleSendDM={handleSendDM} />
-      <LogsSection agentName={agentName} logs={logs} refreshingLogs={refreshingLogs} refreshLogs={refreshLogs} />
+      <LogsSection agentName={agentName} logs={logs} refreshingLogs={refreshingLogs} refreshLogs={refreshLogs} results={results} />
     </div>
   );
 }

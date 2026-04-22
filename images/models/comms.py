@@ -67,6 +67,7 @@ _CHANNEL_NAME_RE = re.compile(r"^_?[a-z0-9][a-z0-9-]*[a-z0-9]$|^_?[a-z0-9]$")
 
 
 class Channel(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     type: ChannelType
     created_by: str

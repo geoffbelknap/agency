@@ -134,6 +134,7 @@ func Startup(cfg *config.Config, dc *runtimehost.Client, logger *slog.Logger) (*
 	agents.BuildID = cfg.BuildID
 	agents.BackendName = backendName
 	agents.Runtime = runtimeSupervisor
+	agents.SetInfra(infra)
 	halt.Runtime = runtimeSupervisor
 
 	// Initialize profile store (non-fatal).

@@ -915,7 +915,7 @@ paths:
         - $ref: "#/components/parameters/agentName"
       responses:
         "200":
-          description: Array of result identifiers
+          description: Array of result identifiers with parsed metadata summaries when available
           content:
             application/json:
               schema:
@@ -924,6 +924,17 @@ paths:
                   type: object
                   properties:
                     task_id:
+                      type: string
+                    has_metadata:
+                      type: boolean
+                    metadata:
+                      type: object
+                      additionalProperties: true
+                    pact:
+                      type: object
+                      nullable: true
+                      additionalProperties: true
+                    metadata_error:
                       type: string
 
   /agents/{name}/results/{taskId}:
@@ -952,6 +963,43 @@ paths:
                 type: string
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /agents/{name}/results/{taskId}/metadata:
+    get:
+      operationId: getResultMetadata
+      summary: Get structured task result metadata
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/agentName"
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: YAML frontmatter metadata parsed from a task result document
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [task_id, metadata, has_metadata]
+                properties:
+                  task_id:
+                    type: string
+                  has_metadata:
+                    type: boolean
+                  metadata:
+                    type: object
+                    additionalProperties: true
+                  pact:
+                    type: object
+                    nullable: true
+                    additionalProperties: true
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Invalid result metadata
 
   /agents/{name}/config:
     get:
@@ -1104,6 +1152,20 @@ paths:
                 items:
                   type: object
                   additionalProperties: true
+                  properties:
+                    task_id:
+                      type: string
+                    has_result:
+                      type: boolean
+                      description: True when this audit event's task_id has a saved result artifact.
+                    result:
+                      type: object
+                      nullable: true
+                      properties:
+                        task_id:
+                          type: string
+                        url:
+                          type: string
 
   # ── Budget ──────────────────────────────────────────────────────────────────
   /agents/{name}/budget:

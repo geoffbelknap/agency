@@ -1,10 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Bot, FileText, Download, Terminal } from 'lucide-react';
+import { Bot, FileText, Download, Terminal, ExternalLink } from 'lucide-react';
 import type { Message } from '../../types';
 import { api, authenticatedFetch } from '../../lib/api';
+import { PactStatusBadge, extractPactMetadata, type PactMetadata } from '../PactStatusBadge';
 import { cn } from '../ui/utils';
 import { MessageFlagBadge } from './MessageFlagBadge';
 import { StructuredOutput, ALLOWED_ELEMENTS, markdownComponents } from './StructuredOutput';
@@ -82,6 +83,47 @@ function statusColor(status?: string): string {
   }
 }
 
+function splitInlineToolNoise(content: string): { cleanContent: string; toolCalls: any[] } {
+  const toolCalls: any[] = [];
+  const cleanContent = content
+    .split('\n')
+    .filter((line) => {
+      const trimmed = line.trim();
+      const search = trimmed.match(/^<search>\s*query:\s*(.*?)\s*<\/search>$/i);
+      if (search) {
+        toolCalls.push({ tool: 'web.search', input: { query: search[1] } });
+        return false;
+      }
+      const tool = trimmed.match(/^<([a-z][a-z0-9_.-]*)>\s*(.*?)\s*<\/\1>$/i);
+      if (tool) {
+        toolCalls.push({ tool: tool[1], input: tool[2] });
+        return false;
+      }
+      return true;
+    })
+    .join('\n')
+    .trim();
+  return { cleanContent, toolCalls };
+}
+
+function metadataLinks(metadata?: Record<string, any>): Array<{ label: string; url: string }> {
+  if (!metadata) return [];
+  const links: Array<{ label: string; url: string }> = [];
+  const raw = Array.isArray(metadata.links) ? metadata.links : [];
+  for (const item of raw) {
+    if (typeof item === 'string') links.push({ label: item, url: item });
+    else if (item?.url) links.push({ label: item.label || item.name || item.url, url: item.url });
+  }
+  const attachments = Array.isArray(metadata.attachments) ? metadata.attachments : [];
+  for (const item of attachments) {
+    const url = item?.url || item?.href || item?.file_url;
+    if (url) links.push({ label: item.label || item.name || item.filename || url, url });
+  }
+  const singleUrl = metadata.url || metadata.href || metadata.file_url;
+  if (singleUrl) links.push({ label: metadata.label || metadata.filename || metadata.name || 'Open link', url: singleUrl });
+  return links;
+}
+
 export function AgencyMessageAvatar({ message, agentStatus, onAgentClick }: AgencyMessageAvatarProps) {
   return (
     <div className="relative shrink-0">
@@ -122,18 +164,38 @@ export function AgencyMessage({
   const [reportOpen, setReportOpen] = useState(false);
   const [reportContent, setReportContent] = useState<string | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
+  const [resultPact, setResultPact] = useState<PactMetadata | null>(null);
 
   const groupedReactions = groupReactions(message.metadata?.reactions);
+  const parsedContent = splitInlineToolNoise(message.content);
+  const artifactId = message.metadata?.task_id || message.metadata?.attachment_id;
+  const artifactAgent = message.metadata?.agent;
+  const hasArtifact = Boolean(message.metadata?.has_artifact && artifactAgent && artifactId);
+
+  useEffect(() => {
+    setResultPact(null);
+    if (!hasArtifact) return;
+
+    let cancelled = false;
+    api.agents.resultMetadata(artifactAgent, artifactId)
+      .then((payload) => {
+        if (!cancelled) setResultPact(extractPactMetadata(payload));
+      })
+      .catch(() => {
+        if (!cancelled) setResultPact(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [artifactAgent, artifactId, hasArtifact]);
 
   const handleViewReport = useCallback(async () => {
-    const artifactId = message.metadata?.task_id || message.metadata?.attachment_id;
-    const agent = message.metadata?.agent;
-    if (!artifactId || !agent) return;
+    if (!artifactId || !artifactAgent) return;
     setReportOpen(true);
     if (reportContent !== null) return;
     setReportLoading(true);
     try {
-      const resp = await authenticatedFetch(api.agents.resultUrl(agent, artifactId));
+      const resp = await authenticatedFetch(api.agents.resultUrl(artifactAgent, artifactId));
       const text = await resp.text();
       const stripped = text.replace(/^---[\s\S]*?---\s*/, '');
       setReportContent(stripped);
@@ -142,7 +204,7 @@ export function AgencyMessage({
     } finally {
       setReportLoading(false);
     }
-  }, [message.metadata, reportContent]);
+  }, [artifactAgent, artifactId, reportContent]);
 
   const handleSaveEdit = (newContent: string) => {
     onEdit?.(message, newContent);
@@ -152,7 +214,11 @@ export function AgencyMessage({
   const handleReactFromPicker = (emoji: string) => {
     onReact?.(message, emoji);
   };
-  const toolCalls = Array.isArray(message.metadata?.tool_calls) ? message.metadata.tool_calls : [];
+  const toolCalls = [
+    ...(Array.isArray(message.metadata?.tool_calls) ? message.metadata.tool_calls : []),
+    ...parsedContent.toolCalls,
+  ];
+  const links = metadataLinks(message.metadata);
   const isToolOnly = message.metadata?.kind === 'tool' || message.content.startsWith('→ ');
 
   if (message.isError) {
@@ -219,10 +285,10 @@ export function AgencyMessage({
             onCancel={() => setEditing(false)}
           />
         ) : message.isAgent ? (
-          <StructuredOutput content={message.content} metadata={message.metadata} />
+          <StructuredOutput content={parsedContent.cleanContent || message.content} metadata={message.metadata} />
         ) : (
-          <div className="text-sm leading-[1.55] text-foreground/90 prose prose-gray dark:prose-invert prose-sm max-w-none prose-p:my-0 prose-table:text-xs prose-th:px-2 prose-th:py-1 prose-td:px-2 prose-td:py-1 prose-pre:bg-card prose-pre:text-xs">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents} allowedElements={ALLOWED_ELEMENTS} unwrapDisallowed>{message.content}</ReactMarkdown>
+          <div className="text-sm leading-[1.55] text-foreground/90 prose prose-gray dark:prose-invert prose-sm max-w-none break-words prose-a:break-all prose-p:my-0 prose-table:text-xs prose-th:px-2 prose-th:py-1 prose-td:px-2 prose-td:py-1 prose-pre:bg-card prose-pre:text-xs">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents} allowedElements={ALLOWED_ELEMENTS} unwrapDisallowed>{parsedContent.cleanContent || message.content}</ReactMarkdown>
           </div>
         )}
 
@@ -234,8 +300,26 @@ export function AgencyMessage({
           </div>
         )}
 
-        {message.metadata?.has_artifact && message.metadata?.agent && (message.metadata?.task_id || message.metadata?.attachment_id) && (
-          <div className="mt-3 flex items-center gap-2">
+        {links.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {links.map((link, i) => (
+              <a
+                key={`${link.url}-${i}`}
+                href={link.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex max-w-full items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition-colors"
+                style={{ border: '0.5px solid var(--ink-hairline)', background: 'var(--warm-2)', color: 'var(--ink)' }}
+              >
+                <ExternalLink className="h-3 w-3 shrink-0" />
+                <span className="truncate">{link.label}</span>
+              </a>
+            ))}
+          </div>
+        )}
+
+        {hasArtifact && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
               onClick={handleViewReport}
               className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition-colors"
@@ -263,6 +347,7 @@ export function AgencyMessage({
               <Download className="h-3 w-3" />
               Download .md
             </button>
+            <PactStatusBadge pact={resultPact} />
             <Dialog open={reportOpen} onOpenChange={setReportOpen}>
               <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto bg-card">
                 <DialogHeader>
