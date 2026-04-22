@@ -106,6 +106,8 @@ def test_evidence_ledger_preserves_legacy_evidence_shape():
     ledger.observe("current_source")
     ledger.record_source_url("https://nodejs.org/en,https://github.com/nodejs/node/releases.")
     ledger.record_source_url("https://nodejs.org/en")
+    ledger.record_artifact_path(".results/report.md", metadata={"artifact_id": "report"})
+    ledger.record_artifact_path(".results/report.md")
 
     assert ledger.to_dict() == {
         "tool_results": [
@@ -117,6 +119,7 @@ def test_evidence_ledger_preserves_legacy_evidence_shape():
             "https://nodejs.org/en",
             "https://github.com/nodejs/node/releases",
         ],
+        "artifact_paths": [".results/report.md"],
         "entries": [
             {"kind": "tool_result", "producer": "provider-web-search", "ok": True},
             {"kind": "tool_result", "producer": "web_fetch", "metadata": {"status": 200}},
@@ -131,12 +134,19 @@ def test_evidence_ledger_preserves_legacy_evidence_shape():
                 "producer": "runtime",
                 "source_url": "https://github.com/nodejs/node/releases",
             },
+            {
+                "kind": "artifact_path",
+                "producer": "runtime",
+                "value": ".results/report.md",
+                "metadata": {"artifact_id": "report"},
+            },
         ],
     }
     assert ledger.to_view().source_urls == (
         "https://nodejs.org/en",
         "https://github.com/nodejs/node/releases",
     )
+    assert ledger.to_view().artifact_paths == (".results/report.md",)
 
 
 def test_evidence_ledger_can_load_existing_runtime_evidence():
@@ -144,6 +154,7 @@ def test_evidence_ledger_can_load_existing_runtime_evidence():
         "tool_results": [{"tool": "provider-web-search", "ok": True, "latency_ms": 12}],
         "observed": ["current_source"],
         "source_urls": ["https://nodejs.org/en"],
+        "artifact_paths": [".results/task-123.md"],
     })
 
     assert ledger.tool_results() == [
@@ -151,6 +162,7 @@ def test_evidence_ledger_can_load_existing_runtime_evidence():
     ]
     assert ledger.observed() == ["current_source"]
     assert ledger.source_urls() == ["https://nodejs.org/en"]
+    assert ledger.artifact_paths() == [".results/task-123.md"]
 
 
 def test_pact_evaluator_uses_explicit_registry():
@@ -242,6 +254,15 @@ def test_current_info_registry_entry_matches_classification_defaults():
     assert contract.required_evidence == list(definition.required_evidence)
     assert contract.answer_requirements == list(definition.answer_requirements)
     assert contract.summary == definition.summary
+
+
+def test_classifies_report_request_as_file_artifact():
+    contract = classify_work("Create a markdown report summarizing the release notes")
+
+    assert contract.kind == "file_artifact"
+    assert contract.requires_action is True
+    assert contract.required_evidence == ["artifact_path_or_blocker"]
+    assert contract.answer_requirements == ["artifact_reference"]
 
 
 def test_unknown_contract_kind_fails_closed():
@@ -383,6 +404,44 @@ def test_current_info_completion_accepts_tool_evidence_and_answer_contract():
         {"tool_results": [{"tool": "web_search", "ok": True}]},
         "Microsoft's latest SEC filing is an 8-K. Source: SEC EDGAR https://www.sec.gov/Archives/example. Checked: April 22, 2026.",
     )
+    assert verdict["verdict"] == "completed"
+
+
+def test_file_artifact_completion_requires_runtime_artifact_evidence():
+    contract = classify_work("Create a markdown report").to_dict()
+
+    verdict = validate_completion(
+        contract,
+        {"tool_results": [], "observed": []},
+        "I created the report at .results/task-123.md",
+    )
+
+    assert verdict["verdict"] == "needs_action"
+    assert verdict["missing_evidence"] == ["artifact_path_or_blocker"]
+
+
+def test_file_artifact_completion_requires_reference_to_observed_artifact():
+    contract = classify_work("Create a markdown report").to_dict()
+
+    verdict = validate_completion(
+        contract,
+        {"artifact_paths": [".results/task-123.md"]},
+        "I created the report.",
+    )
+
+    assert verdict["verdict"] == "needs_action"
+    assert verdict["missing_evidence"] == ["artifact_reference"]
+
+
+def test_file_artifact_completion_accepts_observed_artifact_reference():
+    contract = classify_work("Create a markdown report").to_dict()
+
+    verdict = validate_completion(
+        contract,
+        {"artifact_paths": [".results/task-123.md"]},
+        "I created the report: .results/task-123.md",
+    )
+
     assert verdict["verdict"] == "completed"
 
 

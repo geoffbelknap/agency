@@ -314,6 +314,7 @@ def _pact_verdict_payload(
         "missing_evidence": list(verdict.get("missing_evidence") or []),
         "observed": list(evidence.get("observed") or []),
         "source_urls": list(evidence.get("source_urls") or []),
+        "artifact_paths": list(evidence.get("artifact_paths") or []),
         "tools": tools,
     }
 
@@ -329,6 +330,7 @@ def _pact_metadata_for_storage(payload: dict | None) -> dict | None:
         "missing_evidence": list(payload.get("missing_evidence") or []),
         "observed": list(payload.get("observed") or []),
         "source_urls": list(payload.get("source_urls") or []),
+        "artifact_paths": list(payload.get("artifact_paths") or []),
         "tools": list(payload.get("tools") or []),
     }
 
@@ -2282,6 +2284,7 @@ class Body:
                     continue
                 content = _sanitize_outbound_content(content)
             if content:
+                content = self._materialize_file_artifact_summary(content)
                 completion_verdict = validate_completion(
                     getattr(self, "_work_contract", None),
                     getattr(self, "_work_evidence", None),
@@ -3216,6 +3219,7 @@ class Body:
             return json.dumps({"status": "reflection_pending",
                                "message": "Evaluating output against mission criteria before completing."})
 
+        summary = self._materialize_file_artifact_summary(summary)
         completion_verdict = validate_completion(
             getattr(self, "_work_contract", None),
             getattr(self, "_work_evidence", None),
@@ -3242,6 +3246,18 @@ class Body:
         # No reflection — complete immediately.
         self._task_result_summary = summary
         return json.dumps({"status": "complete", "summary": summary})
+
+    def _materialize_file_artifact_summary(self, summary: str) -> str:
+        contract = getattr(self, "_work_contract", None)
+        if not isinstance(contract, dict) or contract.get("kind") != "file_artifact":
+            return summary
+        task_id = getattr(self, "_current_task_id", "") or "unknown"
+        task_content = getattr(self, "_task_content", "")
+        turns = int(getattr(self, "_current_task_turns", 0) or 0)
+        artifact_path = self._save_result_artifact(task_id, task_content, summary, max(turns, 1))
+        if not artifact_path or artifact_path in str(summary or ""):
+            return summary
+        return f"{summary}\n\nArtifact: {artifact_path}"
 
     def _commit_pact_terminal_outcome(self, outcome: str, summary: str) -> None:
         """Mark a contract-validated terminal outcome as ready for runtime commit."""
@@ -3314,6 +3330,18 @@ class Body:
             ledger.observe("current_source")
         for url in extract_urls(str(extra.get("provider_source_urls") or "")):
             ledger.record_source_url(url, producer="provider")
+        self._work_evidence = ledger.to_dict()
+
+    def _record_work_artifact(self, path: str, artifact_id: str = "") -> None:
+        evidence = getattr(self, "_work_evidence", None)
+        if not isinstance(evidence, dict) or not path:
+            return
+        ledger = getattr(self, "_work_evidence_ledger", None)
+        if not isinstance(ledger, EvidenceLedger):
+            ledger = EvidenceLedger.from_dict(evidence)
+            self._work_evidence_ledger = ledger
+        metadata = {"artifact_id": artifact_id} if artifact_id else {}
+        ledger.record_artifact_path(path, metadata=metadata)
         self._work_evidence = ledger.to_dict()
 
     # -- Signal Emission --
@@ -3901,7 +3929,7 @@ class Body:
             log.warning("Failed to save message artifact: %s", e)
             return None
 
-    def _save_result_artifact(self, task_id: str, task_content: str, result: str, turns: int) -> None:
+    def _save_result_artifact(self, task_id: str, task_content: str, result: str, turns: int) -> str | None:
         """Save full task result as a downloadable markdown file with YAML frontmatter.
 
         Written to /workspace/.results/ (agent-writable), served by the gateway
@@ -3932,10 +3960,15 @@ class Body:
         try:
             results_dir = self.workspace_dir / ".results"
             results_dir.mkdir(parents=True, exist_ok=True)
-            (results_dir / f"{task_id}.md").write_text(artifact)
+            path = results_dir / f"{task_id}.md"
+            path.write_text(artifact)
+            artifact_ref = f".results/{task_id}.md"
+            self._record_work_artifact(artifact_ref, artifact_id=task_id)
             log.info("Saved result artifact: %s", task_id)
+            return artifact_ref
         except OSError as e:
             log.warning("Failed to save result artifact: %s", e)
+            return None
 
     def _auto_summarize_task(self, task_id: str, task_content: str, result: str) -> None:
         """Append a task summary to the task-log memory file."""
