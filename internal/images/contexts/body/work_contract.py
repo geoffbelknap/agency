@@ -231,6 +231,134 @@ class EvidenceView:
 
 
 @dataclass(frozen=True)
+class EvidenceEntry:
+    kind: str
+    producer: str
+    value: str = ""
+    ok: bool | None = None
+    source_url: str = ""
+    metadata: dict = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        entry: dict[str, object] = {
+            "kind": self.kind,
+            "producer": self.producer,
+        }
+        if self.value:
+            entry["value"] = self.value
+        if self.ok is not None:
+            entry["ok"] = self.ok
+        if self.source_url:
+            entry["source_url"] = self.source_url
+        if self.metadata:
+            entry["metadata"] = dict(self.metadata)
+        return entry
+
+
+class EvidenceLedger:
+    def __init__(self, entries: list[EvidenceEntry] | None = None):
+        self._entries = list(entries or [])
+
+    @classmethod
+    def from_dict(cls, evidence: dict | None) -> "EvidenceLedger":
+        ledger = cls()
+        evidence = evidence or {}
+        for item in evidence.get("tool_results") or []:
+            if not isinstance(item, dict):
+                continue
+            ledger.record_tool_result(
+                str(item.get("tool") or ""),
+                bool(item.get("ok")) if "ok" in item else None,
+                metadata={k: v for k, v in item.items() if k not in {"tool", "ok"}},
+            )
+        for item in evidence.get("observed") or []:
+            ledger.observe(str(item))
+        for item in evidence.get("source_urls") or []:
+            if isinstance(item, str):
+                for url in extract_urls(item):
+                    ledger.record_source_url(url)
+        return ledger
+
+    def entries(self) -> list[EvidenceEntry]:
+        return list(self._entries)
+
+    def record_tool_result(
+        self,
+        tool: str,
+        ok: bool | None = True,
+        metadata: dict | None = None,
+    ) -> None:
+        tool = str(tool or "").strip()
+        if not tool:
+            return
+        self._entries.append(EvidenceEntry(
+            kind="tool_result",
+            producer=tool,
+            ok=ok,
+            metadata=dict(metadata or {}),
+        ))
+
+    def observe(self, value: str, producer: str = "runtime") -> None:
+        value = str(value or "").strip()
+        if not value:
+            return
+        if value in self.observed():
+            return
+        self._entries.append(EvidenceEntry(
+            kind="observation",
+            producer=str(producer or "runtime"),
+            value=value,
+        ))
+
+    def record_source_url(self, url: str, producer: str = "runtime") -> None:
+        for extracted in extract_urls(str(url or "")):
+            if extracted in self.source_urls():
+                continue
+            self._entries.append(EvidenceEntry(
+                kind="source_url",
+                producer=str(producer or "runtime"),
+                source_url=extracted,
+            ))
+
+    def tool_results(self) -> list[dict]:
+        results: list[dict] = []
+        for entry in self._entries:
+            if entry.kind != "tool_result":
+                continue
+            result = {"tool": entry.producer}
+            if entry.ok is not None:
+                result["ok"] = entry.ok
+            result.update(entry.metadata)
+            results.append(result)
+        return results
+
+    def observed(self) -> list[str]:
+        values: list[str] = []
+        for entry in self._entries:
+            if entry.kind == "observation" and entry.value and entry.value not in values:
+                values.append(entry.value)
+        return values
+
+    def source_urls(self) -> list[str]:
+        urls: list[str] = []
+        for entry in self._entries:
+            if entry.kind == "source_url" and entry.source_url and entry.source_url not in urls:
+                urls.append(entry.source_url)
+        return urls
+
+    def to_dict(self) -> dict:
+        return {
+            "tool_results": self.tool_results(),
+            "observed": self.observed(),
+            "source_urls": self.source_urls(),
+            "entries": [entry.to_dict() for entry in self._entries],
+        }
+
+    def to_view(self) -> EvidenceView:
+        return EvidenceView.from_dict(self.to_dict())
+
+
+@dataclass(frozen=True)
 class EvaluationResult:
     verdict: str
     missing_evidence: tuple[str, ...] = ()
