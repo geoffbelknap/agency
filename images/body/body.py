@@ -60,9 +60,10 @@ from work_contract import (
     WorkContract,
     classify_activation,
     contract_prompt,
+    evaluate_pre_commit,
     extract_urls,
     format_blocked_completion,
-    validate_completion,
+    map_pre_commit_verdict,
 )
 from ws_listener import WSListener
 from typing import Optional
@@ -329,6 +330,7 @@ def _pact_verdict_payload(
             if isinstance(item, dict)
         ],
         "tools": tools,
+        "reasons": list(verdict.get("reasons") or []),
     }
 
 
@@ -341,6 +343,7 @@ def _pact_metadata_for_storage(payload: dict | None) -> dict | None:
         "required_evidence": list(payload.get("required_evidence") or []),
         "answer_requirements": list(payload.get("answer_requirements") or []),
         "missing_evidence": list(payload.get("missing_evidence") or []),
+        "reasons": list(payload.get("reasons") or []),
         "observed": list(payload.get("observed") or []),
         "source_urls": list(payload.get("source_urls") or []),
         "artifact_paths": list(payload.get("artifact_paths") or []),
@@ -2397,29 +2400,61 @@ class Body:
                 content = _sanitize_outbound_content(content)
             if content:
                 content = self._materialize_file_artifact_summary(content)
-                # TODO(Wave 2 #4b): gate runtime commit through evaluate_pre_commit.
-                completion_verdict = validate_completion(
-                    getattr(self, "_work_contract", None),
-                    getattr(self, "_work_evidence", None),
-                    content,
+                pre_commit_verdict = evaluate_pre_commit(
+                    self._ensure_execution_state(),
+                    content=content,
                 )
-                self._emit_pact_verdict(task_id, completion_verdict)
-                if completion_verdict.get("verdict") == "needs_action":
+                completion_verdict = map_pre_commit_verdict(
+                    pre_commit_verdict,
+                    task_id,
+                    (getattr(self, "_work_contract", None) or {}).get("kind", ""),
+                    contract=getattr(self, "_work_contract", None),
+                    evidence=getattr(self, "_work_evidence", None),
+                )
+                contract_needs_action = (
+                    not pre_commit_verdict.committable
+                    and "contract:needs_action" in pre_commit_verdict.reasons
+                )
+                if contract_needs_action:
                     if not getattr(self, "_work_contract_retry_sent", False):
                         self._work_contract_retry_sent = True
+                        self._emit_pact_verdict(task_id, completion_verdict)
                         messages.append({
                             "role": "user",
-                            "content": "[Platform work contract] " + completion_verdict.get("message", "Required evidence is missing."),
+                            "content": "[Platform work contract] " + pre_commit_verdict.contract_verdict.get("message", "Required evidence is missing."),
                         })
                         log.info("Work contract completion gate injected for task %s: %s", task_id, completion_verdict.get("missing_evidence"))
                         continue
+                    completion_verdict = dict(completion_verdict)
+                    completion_verdict["verdict"] = "blocked"
                     content = format_blocked_completion(
                         getattr(self, "_work_contract", None),
                         getattr(self, "_work_evidence", None),
-                        completion_verdict.get("message", "Required evidence is missing."),
+                        pre_commit_verdict.contract_verdict.get("message", "Required evidence is missing."),
                     )
-                elif completion_verdict.get("verdict") == "blocked":
-                    content = completion_verdict.get("message") or format_blocked_completion(
+                    self._emit_pact_verdict(task_id, completion_verdict)
+                    self._commit_pact_terminal_outcome("blocked", content)
+                else:
+                    self._emit_pact_verdict(task_id, completion_verdict)
+                if not pre_commit_verdict.committable and not contract_needs_action:
+                    reasons = ", ".join(completion_verdict.get("reasons") or []) or "pre_commit_blocked"
+                    missing = completion_verdict.get("missing_evidence") or []
+                    lines = [
+                        "Blocked by PACT pre-commit evaluator.",
+                        f"Reasons: {reasons}.",
+                    ]
+                    if missing:
+                        lines.append("Missing evidence: " + ", ".join(str(item) for item in missing) + ".")
+                    content = "\n".join(lines)
+                    self._commit_pact_terminal_outcome("blocked", content)
+                elif completion_verdict.get("verdict") == "needs_action":
+                    content = format_blocked_completion(
+                        getattr(self, "_work_contract", None),
+                        getattr(self, "_work_evidence", None),
+                        pre_commit_verdict.contract_verdict.get("message", "Required evidence is missing."),
+                    )
+                elif completion_verdict.get("verdict") == "blocked" and not contract_needs_action:
+                    content = pre_commit_verdict.contract_verdict.get("message") or format_blocked_completion(
                         getattr(self, "_work_contract", None),
                         getattr(self, "_work_evidence", None),
                         content,
@@ -3342,20 +3377,54 @@ class Body:
                                "message": "Evaluating output against mission criteria before completing."})
 
         summary = self._materialize_file_artifact_summary(summary)
-        completion_verdict = validate_completion(
-            getattr(self, "_work_contract", None),
-            getattr(self, "_work_evidence", None),
-            summary,
+        task_id = getattr(self, "_current_task_id", "") or "unknown"
+        pre_commit_verdict = evaluate_pre_commit(
+            self._ensure_execution_state(),
+            content=summary,
         )
-        self._emit_pact_verdict(getattr(self, "_current_task_id", "") or "unknown", completion_verdict)
-        if completion_verdict.get("verdict") == "needs_action":
+        completion_verdict = map_pre_commit_verdict(
+            pre_commit_verdict,
+            task_id,
+            (getattr(self, "_work_contract", None) or {}).get("kind", ""),
+            contract=getattr(self, "_work_contract", None),
+            evidence=getattr(self, "_work_evidence", None),
+        )
+        contract_needs_action = (
+            not pre_commit_verdict.committable
+            and "contract:needs_action" in pre_commit_verdict.reasons
+        )
+        if contract_needs_action and not getattr(self, "_work_contract_retry_sent", False):
+            self._work_contract_retry_sent = True
+            self._emit_pact_verdict(task_id, completion_verdict)
             return json.dumps({
                 "error": "completion blocked by work contract",
                 "missing_evidence": completion_verdict.get("missing_evidence", []),
-                "message": completion_verdict.get("message", "Required evidence is missing."),
+                "message": pre_commit_verdict.contract_verdict.get("message", "Required evidence is missing."),
             })
-        if completion_verdict.get("verdict") == "blocked":
-            summary = completion_verdict.get("message") or format_blocked_completion(
+        if contract_needs_action:
+            completion_verdict = dict(completion_verdict)
+            completion_verdict["verdict"] = "blocked"
+        self._emit_pact_verdict(task_id, completion_verdict)
+        if not pre_commit_verdict.committable and not contract_needs_action:
+            reasons = ", ".join(completion_verdict.get("reasons") or []) or "pre_commit_blocked"
+            missing = completion_verdict.get("missing_evidence") or []
+            lines = [
+                "Blocked by PACT pre-commit evaluator.",
+                f"Reasons: {reasons}.",
+            ]
+            if missing:
+                lines.append("Missing evidence: " + ", ".join(str(item) for item in missing) + ".")
+            summary = "\n".join(lines)
+            self._commit_pact_terminal_outcome("blocked", summary)
+        elif contract_needs_action:
+            summary = format_blocked_completion(
+                getattr(self, "_work_contract", None),
+                getattr(self, "_work_evidence", None),
+                pre_commit_verdict.contract_verdict.get("message", "Required evidence is missing."),
+            )
+            self._commit_pact_terminal_outcome("blocked", summary)
+        elif completion_verdict.get("verdict") == "blocked":
+            summary = pre_commit_verdict.contract_verdict.get("message") or format_blocked_completion(
                 getattr(self, "_work_contract", None),
                 getattr(self, "_work_evidence", None),
                 summary,

@@ -950,9 +950,12 @@ action, clarify/escalate strategy route, load-bearing ambiguity, approval
 decision evidence, plan expected evidence, and the existing contract-specific
 `validate_completion` verdict. The plan-evidence layer is advisory until Wave 2
 #3b because `body.py` does not execute plan steps directly yet. In this
-checkpoint the evaluator is a standalone primitive only; `body.py` still uses
-`validate_completion` directly for commit flow until Wave 2 #4b wires the
-pre-commit verdict into runtime commit gating.
+checkpoint `body.py` uses the evaluator as the runtime commit gate. A
+committable pre-commit verdict maps to the contract verdict (`completed` or
+`blocked`). A non-committable `contract:needs_action` verdict maps to
+`needs_action` and receives the existing one-time retry path; after that retry
+is exhausted, it terminates blocked with the original reason preserved. Every
+other non-committable reason terminates blocked without a retry.
 
 The objective builder is deterministic and model-free. Activation content is
 used only as capped statement data and for ambiguity detection; it is not a
@@ -1012,6 +1015,18 @@ missing_evidence
 observed
 source_urls
 tools
+reasons
+```
+
+`reasons` is the structured list returned by the pre-commit evaluator. It is
+additive to the legacy signal payload; existing fields are preserved.
+
+Runtime mapping semantics:
+
+```text
+committable=true -> verdict comes from the contract verdict
+committable=false + contract:needs_action -> needs_action, one retry only
+committable=false + any other reason -> blocked, terminal
 ```
 
 Current verdict values:
@@ -1305,7 +1320,10 @@ integrity:
 The initial integrity block uses SHA-256 over deterministic report content. The
 hash scope intentionally excludes `generated_at` and the integrity block itself
 so the same underlying PACT run produces a stable report hash across repeated
-reads. This is an integrity report, not yet a cryptographic signature.
+reads. The deterministic run projection included in that hash now includes the
+verdict `reasons` list, so new reports hash the structured pre-commit reason
+labels along with the legacy verdict fields. This is an integrity report, not
+yet a cryptographic signature.
 
 The gateway also exposes report hash verification:
 

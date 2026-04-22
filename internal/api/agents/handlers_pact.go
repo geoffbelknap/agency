@@ -57,6 +57,7 @@ type pactEvidenceProjection struct {
 type pactVerdictProjection struct {
 	Verdict         interface{} `json:"verdict,omitempty"`
 	MissingEvidence interface{} `json:"missing_evidence,omitempty"`
+	Reasons         []string    `json:"reasons"`
 }
 
 type pactArtifactProjection struct {
@@ -258,6 +259,9 @@ func (h *handler) buildPactRunProjection(ctx context.Context, agentName, taskID 
 	if projection.Artifact == nil && len(projection.AuditEvents) == 0 {
 		return projection, false
 	}
+	if projection.Verdict != nil && projection.Verdict.Reasons == nil {
+		projection.Verdict.Reasons = []string{}
+	}
 
 	return projection, true
 }
@@ -345,6 +349,7 @@ func applyPactMetadataToProjection(projection *pactRunProjection, pact map[strin
 	projection.Verdict = &pactVerdictProjection{
 		Verdict:         pact["verdict"],
 		MissingEvidence: pact["missing_evidence"],
+		Reasons:         stringListValue(pact["reasons"]),
 	}
 	if verdict, _ := pact["verdict"].(string); verdict != "" {
 		projection.Outcome = verdict
@@ -397,6 +402,9 @@ func applyPactVerdictEventToProjection(projection *pactRunProjection, event logs
 	if projection.Verdict.MissingEvidence == nil {
 		projection.Verdict.MissingEvidence = event["missing_evidence"]
 	}
+	if len(projection.Verdict.Reasons) == 0 {
+		projection.Verdict.Reasons = stringListValue(event["reasons"])
+	}
 	if projection.Outcome == "" {
 		if verdict, _ := event["verdict"].(string); verdict != "" {
 			projection.Outcome = verdict
@@ -423,6 +431,23 @@ func stringValue(value interface{}) string {
 		return s
 	}
 	return ""
+}
+
+func stringListValue(value interface{}) []string {
+	switch items := value.(type) {
+	case []string:
+		return append([]string{}, items...)
+	case []interface{}:
+		result := make([]string, 0, len(items))
+		for _, item := range items {
+			if value, ok := item.(string); ok {
+				result = append(result, value)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
 }
 
 func appendSource(sources []string, source string) []string {

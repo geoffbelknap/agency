@@ -632,6 +632,11 @@ paths:
                                                 type: array
                                                 items:
                                                     type: string
+                                            reasons:
+                                                type: array
+                                                items:
+                                                    type: string
+                                                description: Structured reason labels from the pre-commit evaluator
                                     outcome:
                                         type: string
                                     artifact:
