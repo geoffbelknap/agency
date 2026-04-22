@@ -160,15 +160,186 @@ class WorkContract:
         }
 
 
+class PactEvaluator:
+    """Registry-backed evaluator for body-runtime PACT contracts."""
+
+    def __init__(self, registry: dict[str, ContractDefinition] | None = None):
+        self._registry = dict(registry or CONTRACT_REGISTRY)
+
+    def list_contract_kinds(self) -> list[str]:
+        return sorted(self._registry.keys())
+
+    def contract_definition(self, kind: str) -> ContractDefinition:
+        try:
+            return self._registry[kind]
+        except KeyError as exc:
+            raise ValueError(f"unknown work contract kind: {kind}") from exc
+
+    def build_contract(
+        self,
+        kind: str,
+        *,
+        requires_action: bool,
+        reason: str,
+        extra_answer_requirements: list[str] | None = None,
+    ) -> WorkContract:
+        definition = self.contract_definition(kind)
+        answer_requirements = list(definition.answer_requirements)
+        for requirement in extra_answer_requirements or []:
+            if requirement not in answer_requirements:
+                answer_requirements.append(requirement)
+        return WorkContract(
+            kind=definition.kind,
+            requires_action=requires_action,
+            required_evidence=list(definition.required_evidence),
+            answer_requirements=answer_requirements,
+            allowed_terminal_states=list(definition.allowed_verdicts),
+            reason=reason,
+            summary=definition.summary,
+        )
+
+    def classify_work(self, content: str, match_type: str = "direct", mission_active: bool = False) -> WorkContract:
+        text = str(content or "").strip()
+        if mission_active:
+            return self.build_contract(
+                "mission_task",
+                requires_action=True,
+                reason="active mission direct message",
+            )
+        if CURRENT_INFO_RE.search(text):
+            extra_answer_requirements = []
+            if DATE_REQUEST_RE.search(text):
+                extra_answer_requirements.append("requested_absolute_date")
+            return self.build_contract(
+                "current_info",
+                requires_action=True,
+                reason="time-sensitive or externally verifiable request",
+                extra_answer_requirements=extra_answer_requirements,
+            )
+        if ACTION_RE.search(text):
+            return self.build_contract(
+                "task",
+                requires_action=True,
+                reason="action verb detected",
+            )
+        if match_type != "direct":
+            return self.build_contract("coordination", requires_action=False, reason="non-direct channel signal")
+        return self.build_contract("chat", requires_action=False, reason="no action requirement detected")
+
+    def contract_prompt(self, contract: WorkContract) -> str:
+        if not contract.requires_action:
+            return ""
+        evidence = ", ".join(contract.required_evidence) or "task evidence"
+        answer_requirements = ", ".join(contract.answer_requirements)
+        answer_requirement_line = (
+            f"answer_requirements: {answer_requirements}\n" if answer_requirements else ""
+        )
+        definition = self.contract_definition(contract.kind)
+        return (
+            "\n\n[WORK_CONTRACT]\n"
+            f"kind: {contract.kind}\n"
+            f"summary: {contract.summary or definition.summary}\n"
+            f"required_evidence: {evidence}\n"
+            f"{answer_requirement_line}"
+            f"allowed_terminal_states: {', '.join(contract.allowed_terminal_states)}\n"
+            "rules:\n"
+            "- Treat this as work, not casual chat.\n"
+            "- Use mediated tools or observed context when the task requires action or current facts.\n"
+            "- Do not claim evidence you do not have.\n"
+            "- If required evidence cannot be obtained, report a specific blocker instead of guessing.\n"
+            "[/WORK_CONTRACT]"
+            f"{definition.answer_contract}"
+        )
+
+    def format_blocked_completion(
+        self,
+        contract: dict | None,
+        evidence: dict | None,
+        content: str = "",
+        checked_at: str | None = None,
+    ) -> str:
+        evidence = evidence or {}
+        kind = (contract or {}).get("kind")
+        if kind != "current_info":
+            return str(content or "I cannot complete this task with the available evidence.")
+
+        source_urls = _evidence_source_urls(evidence)
+        if source_urls:
+            reason = "Available source URLs did not satisfy the official/current-source evidence contract."
+        elif evidence.get("tool_results") or "current_source" in set(evidence.get("observed") or []):
+            reason = "Current-information tool evidence was insufficient to verify the requested fact."
+        else:
+            reason = "No current-information source or tool result was available."
+
+        lines = [
+            "I cannot verify this from an official/current source without guessing.",
+            "",
+            f"- Blocked: {reason}",
+            f"- Evidence checked: tools={_tool_summary(evidence)}",
+        ]
+        if source_urls:
+            lines.append("- Source URLs observed:")
+            lines.extend(_source_url_lines(source_urls))
+        lines.extend([
+            "- What would unblock this: an official or primary source URL that directly supports the requested current fact.",
+            f"- Checked: {_checked_date(checked_at)}.",
+        ])
+        return "\n".join(lines)
+
+    def validate_completion(self, contract: dict | None, evidence: dict | None, content: str) -> dict:
+        if not contract or not contract.get("requires_action"):
+            return {"verdict": "completed"}
+
+        evidence = evidence or {}
+        content = str(content or "")
+        kind = str(contract.get("kind") or "")
+        if kind not in self._registry:
+            return {
+                "verdict": "blocked",
+                "missing_evidence": ["known_contract_kind"],
+                "message": f"Unknown work contract kind: {kind or '(missing)'}.",
+            }
+        if BLOCKER_RE.search(content):
+            return {
+                "verdict": "blocked",
+                "message": self.format_blocked_completion(contract, evidence, content),
+            }
+
+        required = set(contract.get("required_evidence") or [])
+        tool_results = evidence.get("tool_results") or []
+        observed = set(evidence.get("observed") or [])
+
+        if "current_source_or_blocker" in required:
+            if tool_results or "current_source" in observed:
+                return _validate_current_info_answer(contract, evidence, content)
+            return {
+                "verdict": "needs_action",
+                "missing_evidence": ["current_source_or_blocker"],
+                "message": (
+                    "This work requires current external evidence. Use an available "
+                    "current-info/search/fetch tool, or report the specific blocker."
+                ),
+            }
+
+        if "action_result_or_blocker" in required and not (tool_results or observed):
+            return {
+                "verdict": "needs_action",
+                "missing_evidence": ["action_result_or_blocker"],
+                "message": "This work requires an observed action result or a specific blocker.",
+            }
+
+        return {"verdict": "completed"}
+
+
+DEFAULT_EVALUATOR = PactEvaluator()
+
+
 def list_contract_kinds() -> list[str]:
-    return sorted(CONTRACT_REGISTRY.keys())
+    return DEFAULT_EVALUATOR.list_contract_kinds()
 
 
 def contract_definition(kind: str) -> ContractDefinition:
-    try:
-        return CONTRACT_REGISTRY[kind]
-    except KeyError as exc:
-        raise ValueError(f"unknown work contract kind: {kind}") from exc
+    return DEFAULT_EVALUATOR.contract_definition(kind)
 
 
 def build_contract(
@@ -178,75 +349,20 @@ def build_contract(
     reason: str,
     extra_answer_requirements: list[str] | None = None,
 ) -> WorkContract:
-    definition = contract_definition(kind)
-    answer_requirements = list(definition.answer_requirements)
-    for requirement in extra_answer_requirements or []:
-        if requirement not in answer_requirements:
-            answer_requirements.append(requirement)
-    return WorkContract(
-        kind=definition.kind,
+    return DEFAULT_EVALUATOR.build_contract(
+        kind,
         requires_action=requires_action,
-        required_evidence=list(definition.required_evidence),
-        answer_requirements=answer_requirements,
-        allowed_terminal_states=list(definition.allowed_verdicts),
         reason=reason,
-        summary=definition.summary,
+        extra_answer_requirements=extra_answer_requirements,
     )
 
 
 def classify_work(content: str, match_type: str = "direct", mission_active: bool = False) -> WorkContract:
-    text = str(content or "").strip()
-    if mission_active:
-        return build_contract(
-            "mission_task",
-            requires_action=True,
-            reason="active mission direct message",
-        )
-    if CURRENT_INFO_RE.search(text):
-        extra_answer_requirements = []
-        if DATE_REQUEST_RE.search(text):
-            extra_answer_requirements.append("requested_absolute_date")
-        return build_contract(
-            "current_info",
-            requires_action=True,
-            reason="time-sensitive or externally verifiable request",
-            extra_answer_requirements=extra_answer_requirements,
-        )
-    if ACTION_RE.search(text):
-        return build_contract(
-            "task",
-            requires_action=True,
-            reason="action verb detected",
-        )
-    if match_type != "direct":
-        return build_contract("coordination", requires_action=False, reason="non-direct channel signal")
-    return build_contract("chat", requires_action=False, reason="no action requirement detected")
+    return DEFAULT_EVALUATOR.classify_work(content, match_type=match_type, mission_active=mission_active)
 
 
 def contract_prompt(contract: WorkContract) -> str:
-    if not contract.requires_action:
-        return ""
-    evidence = ", ".join(contract.required_evidence) or "task evidence"
-    answer_requirements = ", ".join(contract.answer_requirements)
-    answer_requirement_line = (
-        f"answer_requirements: {answer_requirements}\n" if answer_requirements else ""
-    )
-    definition = contract_definition(contract.kind)
-    return (
-        "\n\n[WORK_CONTRACT]\n"
-        f"kind: {contract.kind}\n"
-        f"summary: {contract.summary or definition.summary}\n"
-        f"required_evidence: {evidence}\n"
-        f"{answer_requirement_line}"
-        f"allowed_terminal_states: {', '.join(contract.allowed_terminal_states)}\n"
-        "rules:\n"
-        "- Treat this as work, not casual chat.\n"
-        "- Use mediated tools or observed context when the task requires action or current facts.\n"
-        "- Do not claim evidence you do not have.\n"
-        "- If required evidence cannot be obtained, report a specific blocker instead of guessing.\n"
-        "[/WORK_CONTRACT]"
-        f"{definition.answer_contract}"
-    )
+    return DEFAULT_EVALUATOR.contract_prompt(contract)
 
 
 def extract_urls(text: str) -> list[str]:
@@ -302,33 +418,7 @@ def format_blocked_completion(
     checked_at: str | None = None,
 ) -> str:
     """Return a concise harness-owned blocker response."""
-    evidence = evidence or {}
-    kind = (contract or {}).get("kind")
-    if kind != "current_info":
-        return str(content or "I cannot complete this task with the available evidence.")
-
-    source_urls = _evidence_source_urls(evidence)
-    if source_urls:
-        reason = "Available source URLs did not satisfy the official/current-source evidence contract."
-    elif evidence.get("tool_results") or "current_source" in set(evidence.get("observed") or []):
-        reason = "Current-information tool evidence was insufficient to verify the requested fact."
-    else:
-        reason = "No current-information source or tool result was available."
-
-    lines = [
-        "I cannot verify this from an official/current source without guessing.",
-        "",
-        f"- Blocked: {reason}",
-        f"- Evidence checked: tools={_tool_summary(evidence)}",
-    ]
-    if source_urls:
-        lines.append("- Source URLs observed:")
-        lines.extend(_source_url_lines(source_urls))
-    lines.extend([
-        "- What would unblock this: an official or primary source URL that directly supports the requested current fact.",
-        f"- Checked: {_checked_date(checked_at)}.",
-    ])
-    return "\n".join(lines)
+    return DEFAULT_EVALUATOR.format_blocked_completion(contract, evidence, content, checked_at)
 
 
 def _validate_current_info_answer(contract: dict, evidence: dict, content: str) -> dict:
@@ -364,42 +454,4 @@ def _validate_current_info_answer(contract: dict, evidence: dict, content: str) 
 
 
 def validate_completion(contract: dict | None, evidence: dict | None, content: str) -> dict:
-    if not contract or not contract.get("requires_action"):
-        return {"verdict": "completed"}
-
-    evidence = evidence or {}
-    content = str(content or "")
-    kind = str(contract.get("kind") or "")
-    if kind not in CONTRACT_REGISTRY:
-        return {
-            "verdict": "blocked",
-            "missing_evidence": ["known_contract_kind"],
-            "message": f"Unknown work contract kind: {kind or '(missing)'}.",
-        }
-    if BLOCKER_RE.search(content):
-        return {"verdict": "blocked", "message": format_blocked_completion(contract, evidence, content)}
-
-    required = set(contract.get("required_evidence") or [])
-    tool_results = evidence.get("tool_results") or []
-    observed = set(evidence.get("observed") or [])
-
-    if "current_source_or_blocker" in required:
-        if tool_results or "current_source" in observed:
-            return _validate_current_info_answer(contract, evidence, content)
-        return {
-            "verdict": "needs_action",
-            "missing_evidence": ["current_source_or_blocker"],
-            "message": (
-                "This work requires current external evidence. Use an available "
-                "current-info/search/fetch tool, or report the specific blocker."
-            ),
-        }
-
-    if "action_result_or_blocker" in required and not (tool_results or observed):
-        return {
-            "verdict": "needs_action",
-            "missing_evidence": ["action_result_or_blocker"],
-            "message": "This work requires an observed action result or a specific blocker.",
-        }
-
-    return {"verdict": "completed"}
+    return DEFAULT_EVALUATOR.validate_completion(contract, evidence, content)

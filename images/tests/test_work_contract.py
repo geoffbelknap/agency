@@ -6,6 +6,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "body"))
 
 from images.body.work_contract import (
+    ContractDefinition,
+    PactEvaluator,
     WorkContract,
     build_contract,
     classify_work,
@@ -16,6 +18,26 @@ from images.body.work_contract import (
     list_contract_kinds,
     validate_completion,
 )
+
+
+def test_pact_evaluator_uses_explicit_registry():
+    evaluator = PactEvaluator({
+        "custom": ContractDefinition(
+            kind="custom",
+            summary="Custom test contract.",
+            required_evidence=("custom_evidence",),
+            answer_requirements=("custom_answer",),
+        )
+    })
+
+    contract = evaluator.build_contract("custom", requires_action=True, reason="test")
+
+    assert evaluator.list_contract_kinds() == ["custom"]
+    assert contract.kind == "custom"
+    assert contract.required_evidence == ["custom_evidence"]
+    assert contract.answer_requirements == ["custom_answer"]
+    with pytest.raises(ValueError, match="unknown work contract kind"):
+        evaluator.contract_definition("current_info")
 
 
 def test_contract_registry_contains_foundational_contracts():
