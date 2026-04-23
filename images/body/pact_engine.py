@@ -38,7 +38,23 @@ CURRENT_INFO_ANSWER_CONTRACT = (
 
 CURRENT_INFO_RE = re.compile(
     r"\b(latest|current|recent|most recent|today|yesterday|tomorrow|now|live|"
-    r"price|weather|schedule|score|news|filing|sec filing|look up|lookup|find me|search)\b",
+    r"price|weather|schedule|score|news|filing|sec filing|look up|lookup|find me|search)\b|"
+    r"\bi(?:n)?vestigat(?:e|ing|ion|ions)\b|"
+    r"\banalyz(?:e|ing|es|ed)\b|"
+    r"\banalys(?:is|es)\b|"
+    r"\bresearch(?:ing|ed)?\b|"
+    r"\bexamin(?:e|ing|es|ed)\b|"
+    r"\binspect(?:ing|ed|s)?\b|"
+    r"\bassess(?:ing|ed|ment|ments)?\b|"
+    r"\baudit(?:ing|ed|s)?\b|"
+    r"\bcheck(?:ing|ed)?\b|"
+    r"\bverify(?:ing)?|verif(?:ied|ies)\b|"
+    r"\btell me about\b|"
+    r"\blook at (?:this|the|his|her|their|that)\b|"
+    r"\btake a look at\b|"
+    r"\bhelp me understand (?:this|the|what|how|why|when|where|who)\b|"
+    r"\bwhat('?s| is| are) (?:the|this|that|his|her|their)\b|"
+    r"\bwho is\b",
     re.IGNORECASE,
 )
 CODE_CHANGE_RE = re.compile(

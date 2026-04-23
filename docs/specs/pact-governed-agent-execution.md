@@ -1222,6 +1222,9 @@ The body intake path now constructs an `ActivationContext` for inbound work and
 classifies via `classify_activation`. The old `classify_work(content,
 match_type, mission_active)` helper remains available as a wrapper for existing
 tests and call sites.
+The deterministic `current_info` activation pattern now also captures
+analytical and investigative language so externally verifiable analysis routes
+to evidence-requiring contract framing.
 
 `EvidenceLedger` is the runtime write-side evidence model. It records typed
 entries for mediated tool results, provider-tool observations, local runtime
