@@ -47,6 +47,7 @@ from post_task import (
 from session_scratchpad import build_session_scratchpad, format_recent_transcript
 from reflection import ReflectionState, build_reflection_prompt, parse_reflection_verdict
 from task_tier import classify_task_tier, expand_cost_mode, get_active_features, select_model
+from pact_engine import _enum_value
 from tools import BuiltinToolRegistry, ServiceToolDispatcher, SkillsManager
 from work_contract import (
     ActivationContext,
@@ -78,6 +79,54 @@ log = logging.getLogger("body")
 
 # Rough characters-per-token estimate for context window management
 CHARS_PER_TOKEN = 4
+
+_MODE_PROMPT_SECTIONS = {
+    "tool_loop": (
+        "# Execution Mode: tool_loop\n\n"
+        "The runtime has routed this turn to tool_loop mode because the\n"
+        "operator's request requires external information that only tools can\n"
+        "produce. Before responding with any factual claim:\n\n"
+        "1. You MUST call one of the available tools (e.g., web_search) to gather evidence.\n"
+        "2. Use the tool's real output to inform your response.\n\n"
+        "Do not emit tool-shaped text such as <search>...</search> or\n"
+        "search(query=...). Do not announce tool use (\"Let me search\",\n"
+        "\"I searched\", \"Based on my research\") without actually calling the\n"
+        "tool. If a required tool is unavailable or fails, say so directly and\n"
+        "do not guess."
+    ),
+    "clarify": (
+        "# Execution Mode: clarify\n\n"
+        "The runtime has routed this turn to clarification mode because the\n"
+        "request contains a load-bearing ambiguity (missing target, unknown\n"
+        "authority scope, or similar) that must be resolved before the work can\n"
+        "proceed safely.\n\n"
+        "Respond with a specific, scoped clarification question addressed to\n"
+        "the operator. Do not attempt to answer the original request. Do not\n"
+        "guess or speculate to fill the ambiguity."
+    ),
+    "escalate": (
+        "# Execution Mode: escalate\n\n"
+        "The runtime has routed this turn to escalation mode because the request\n"
+        "exceeds current authority: an untrusted principal, escalated risk, or\n"
+        "out-of-scope ask.\n\n"
+        "Explain specifically what cannot be done and what operator action is\n"
+        "needed to unblock (additional capabilities, authority verification,\n"
+        "or principal review). Do not attempt to perform the requested work."
+    ),
+    "external_side_effect": (
+        "# Execution Mode: external_side_effect\n\n"
+        "The runtime has routed this turn to external_side_effect mode because\n"
+        "the request will mutate external state (write to a service, call an\n"
+        "API, change records).\n\n"
+        "Before performing any side-effecting operation:\n\n"
+        "1. Verify principal authority is in scope for this action.\n"
+        "2. Request explicit operator approval. Do not act on assumed\n"
+        "   permission.\n\n"
+        "Once approval is recorded, perform the operation and report the\n"
+        "outcome. Do not claim a side effect occurred without observed\n"
+        "confirmation from the runtime."
+    ),
+}
 # Default context window size (tokens) — conservative estimate
 DEFAULT_CONTEXT_WINDOW = 200_000
 # Trigger summarization at this fraction of context window
@@ -235,6 +284,15 @@ def _provider_tool_prompt_section(config_dir: Path) -> str:
         "current external information, and do not simulate them in text.\n\n"
         + "\n".join(lines)
     )
+
+
+def _execution_mode_prompt_section(state: ExecutionState | None) -> str:
+    if state is None or state.strategy is None:
+        return ""
+    mode = _enum_value(state.strategy.execution_mode)
+    if mode not in _MODE_PROMPT_SECTIONS:
+        return ""
+    return _MODE_PROMPT_SECTIONS[mode]
 
 
 def _read_current_task(context_file: Path | None) -> dict | None:
@@ -1758,6 +1816,10 @@ class Body:
         provider_tools = _provider_tool_prompt_section(self.config_dir)
         if provider_tools:
             parts.append(provider_tools)
+
+        mode_section = _execution_mode_prompt_section(getattr(self, "_execution_state", None))
+        if mode_section:
+            parts.append(mode_section)
 
         if not parts:
             return "You are an AI agent. Follow your operator's instructions."

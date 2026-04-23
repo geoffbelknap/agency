@@ -188,6 +188,8 @@ gated.
 - `PLATFORM.md` — environmental awareness of the platform
 - Provider tools section — declarations of provider-hosted tools
   (`web_search`, etc.)
+- Execution mode instruction — runtime-owned mode-specific guidance when
+  `strategy.execution_mode` is non-default and prompt-supported
 - Comms context — the agent's primary interface; stripping it blinds
   the agent to its own communication surface
 - How-to-respond instructions — response format expectations
