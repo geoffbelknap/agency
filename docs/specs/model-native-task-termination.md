@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft.
+Phase 2 implemented; Phases 3/4 pending.
 
 ## Purpose
 

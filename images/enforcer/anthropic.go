@@ -230,6 +230,9 @@ func translateFromAnthropic(anthropicBody []byte) ([]byte, error) {
 
 	// Map stop_reason to finish_reason
 	stopReason, _ := resp["stop_reason"].(string)
+	if stopReason != "" {
+		message["stop_reason"] = stopReason
+	}
 	var finishReason string
 	switch stopReason {
 	case "tool_use":
@@ -268,6 +271,7 @@ func translateFromAnthropic(anthropicBody []byte) ([]byte, error) {
 				"index":         0,
 				"message":       message,
 				"finish_reason": finishReason,
+				"stop_reason":   stopReason,
 			},
 		},
 		"usage": usage,
@@ -422,6 +426,7 @@ func (st *streamTranslator) translateEvent(data string) []string {
 					"index":         0,
 					"delta":         map[string]interface{}{},
 					"finish_reason": finishReason,
+					"stop_reason":   stopReason,
 				},
 			},
 			"usage": map[string]interface{}{

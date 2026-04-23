@@ -58,6 +58,7 @@ type pactVerdictProjection struct {
 	Verdict         interface{} `json:"verdict,omitempty"`
 	MissingEvidence interface{} `json:"missing_evidence,omitempty"`
 	Reasons         []string    `json:"reasons"`
+	StopReason      string      `json:"stop_reason,omitempty"`
 }
 
 type pactArtifactProjection struct {
@@ -350,6 +351,7 @@ func applyPactMetadataToProjection(projection *pactRunProjection, pact map[strin
 		Verdict:         pact["verdict"],
 		MissingEvidence: pact["missing_evidence"],
 		Reasons:         stringListValue(pact["reasons"]),
+		StopReason:      stringValue(pact["stop_reason"]),
 	}
 	if verdict, _ := pact["verdict"].(string); verdict != "" {
 		projection.Outcome = verdict
@@ -404,6 +406,9 @@ func applyPactVerdictEventToProjection(projection *pactRunProjection, event logs
 	}
 	if len(projection.Verdict.Reasons) == 0 {
 		projection.Verdict.Reasons = stringListValue(event["reasons"])
+	}
+	if projection.Verdict.StopReason == "" {
+		projection.Verdict.StopReason = stringValue(event["stop_reason"])
 	}
 	if projection.Outcome == "" {
 		if verdict, _ := event["verdict"].(string); verdict != "" {

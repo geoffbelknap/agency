@@ -230,6 +230,9 @@ func translateFromAnthropic(anthropicBody []byte) ([]byte, error) {
 
 	// Map stop_reason to finish_reason
 	stopReason, _ := resp["stop_reason"].(string)
+	if stopReason != "" {
+		message["stop_reason"] = stopReason
+	}
 	var finishReason string
 	switch stopReason {
 	case "tool_use":
@@ -268,6 +271,7 @@ func translateFromAnthropic(anthropicBody []byte) ([]byte, error) {
 				"index":         0,
 				"message":       message,
 				"finish_reason": finishReason,
+				"stop_reason":   stopReason,
 			},
 		},
 		"usage": usage,
@@ -279,13 +283,13 @@ func translateFromAnthropic(anthropicBody []byte) ([]byte, error) {
 // streamTranslator holds state for converting Anthropic SSE events to OpenAI
 // chat.completion.chunk format across a single streaming response.
 type streamTranslator struct {
-	msgID        string
-	model        string
-	inputTokens  int
-	outputTokens int
+	msgID         string
+	model         string
+	inputTokens   int
+	outputTokens  int
 	cacheCreation int
-	cacheRead    int
-	blocks       map[int]*contentBlock
+	cacheRead     int
+	blocks        map[int]*contentBlock
 }
 
 type contentBlock struct {
@@ -422,13 +426,14 @@ func (st *streamTranslator) translateEvent(data string) []string {
 					"index":         0,
 					"delta":         map[string]interface{}{},
 					"finish_reason": finishReason,
+					"stop_reason":   stopReason,
 				},
 			},
 			"usage": map[string]interface{}{
-				"prompt_tokens":                st.inputTokens,
-				"completion_tokens":            st.outputTokens,
-				"cache_creation_input_tokens":  st.cacheCreation,
-				"cache_read_input_tokens":      st.cacheRead,
+				"prompt_tokens":               st.inputTokens,
+				"completion_tokens":           st.outputTokens,
+				"cache_creation_input_tokens": st.cacheCreation,
+				"cache_read_input_tokens":     st.cacheRead,
 			},
 		}
 		out, _ := json.Marshal(chunk)

@@ -26,6 +26,7 @@ import httpx
 import yaml
 
 from fallback import FallbackTracker
+from completion_detector import detect_anthropic
 from interruption import InterruptionController
 from mcp_client import MCPClient
 from memory_retrieval import (
@@ -79,6 +80,19 @@ log = logging.getLogger("body")
 
 # Rough characters-per-token estimate for context window management
 CHARS_PER_TOKEN = 4
+TURN_CAP_DEFAULT = 8
+
+
+def _turn_cap_for_task(mission: dict | None) -> int:
+    """Resolve the hard turn cap, respecting cost_mode upper bounds."""
+    if mission is None:
+        return TURN_CAP_DEFAULT
+    cost_mode = mission.get("cost_mode", "balanced")
+    if cost_mode == "frugal":
+        return 4
+    if cost_mode == "thorough":
+        return 12
+    return TURN_CAP_DEFAULT
 
 _MODE_PROMPT_SECTIONS = {
     "tool_loop": (
@@ -389,6 +403,7 @@ def _pact_verdict_payload(
         ],
         "tools": tools,
         "reasons": list(verdict.get("reasons") or []),
+        "stop_reason": str(verdict.get("stop_reason") or ""),
     }
 
 
@@ -412,6 +427,7 @@ def _pact_metadata_for_storage(payload: dict | None) -> dict | None:
             if isinstance(item, dict)
         ],
         "tools": list(payload.get("tools") or []),
+        "stop_reason": str(payload.get("stop_reason") or ""),
     }
 
 
@@ -2312,6 +2328,8 @@ class Body:
             choice = response.get("choices", [{}])[0]
             message = choice.get("message", {})
             finish_reason = choice.get("finish_reason", "")
+            outcome = detect_anthropic(response)
+            self._ensure_execution_state().stop_reason = outcome.stop_reason
             # Add assistant message to history
             messages.append(message)
 
@@ -2438,10 +2456,15 @@ class Body:
                     log.info("Task %s: auto-finalized after send_message (turn %d)", task_id, turn + 1)
                     self._finalize_task(task_id, turn)
                     break
+                if self._current_task_turns >= _turn_cap_for_task(getattr(self, "_active_mission", None)):
+                    cap = _turn_cap_for_task(getattr(self, "_active_mission", None))
+                    log.warning("Task %s exceeded runtime turn limit (%d)", task_id, cap)
+                    self._force_turn_limit_block(task_id, task_content, turn, cap)
+                    break
                 continue  # Loop back to LLM with tool results
 
             # Text response with no tool calls
-            content = message.get("content", "")
+            content = outcome.final_text or message.get("content", "")
             if content:
                 log.info("LLM response (%d chars)", len(content))
             if content and SIMULATED_TOOL_TAG_RE.search(content):
@@ -2460,7 +2483,7 @@ class Body:
                     log.info("Simulated tool markup rejected; retry prompt injected for task %s", task_id)
                     continue
                 content = _sanitize_outbound_content(content)
-            if content:
+            if content and not (outcome.is_terminal and not outcome.has_pending_tool_use):
                 content = self._materialize_file_artifact_summary(content)
                 pre_commit_verdict = evaluate_pre_commit(
                     self._ensure_execution_state(),
@@ -2472,6 +2495,7 @@ class Body:
                     (getattr(self, "_work_contract", None) or {}).get("kind", ""),
                     contract=getattr(self, "_work_contract", None),
                     evidence=getattr(self, "_work_evidence", None),
+                    state=self._ensure_execution_state(),
                 )
                 contract_needs_action = (
                     not pre_commit_verdict.committable
@@ -2523,6 +2547,17 @@ class Body:
                     )
                     self._commit_pact_terminal_outcome("blocked", content)
                 content = _sanitize_current_info_answer(getattr(self, "_work_contract", None), content)
+
+            if outcome.is_terminal and not outcome.has_pending_tool_use:
+                if self._commit_model_terminal_outcome(task_id, content, messages):
+                    self._finalize_task(task_id, turn)
+                    break
+                if self._current_task_turns >= _turn_cap_for_task(getattr(self, "_active_mission", None)):
+                    cap = _turn_cap_for_task(getattr(self, "_active_mission", None))
+                    log.warning("Task %s exceeded runtime turn limit (%d)", task_id, cap)
+                    self._force_turn_limit_block(task_id, task_content, turn, cap)
+                    break
+                continue
 
             if finish_reason == "stop" and self._task_complete_called:
                 # Agent explicitly called complete_task — honor it.
@@ -2581,26 +2616,7 @@ class Body:
                 break
             elif finish_reason == "stop":
                 # Agent generated text without calling complete_task.
-                if content and self._is_direct_channel_task(task):
-                    log.info("Task %s: direct channel reply auto-posted (turn %d)", task_id, turn + 1)
-                    self._post_task_response(task, content, has_artifact=False)
-                    self._finalize_task(task_id, turn)
-                    break
                 if task_id.startswith(("idle-reply-", "notification-")):
-                    if content:
-                        if self._post_channel_message(task, content):
-                            log.info("Task %s: idle reply auto-posted (turn %d)", task_id, turn + 1)
-                            self._finalize_task(task_id, turn)
-                            break
-                        messages.append({
-                            "role": "user",
-                            "content": (
-                                "[Platform] Your DM reply could not be delivered. "
-                                "Try send_message again or provide the exact reply text "
-                                "so the platform can post it, then call complete_task."
-                            ),
-                        })
-                        continue
                     messages.append({
                         "role": "user",
                         "content": (
@@ -2621,7 +2637,18 @@ class Body:
                     ),
                 })
                 log.info("Task %s: nudging agent to continue or complete (turn %d)", task_id, turn + 1)
+                if self._current_task_turns >= _turn_cap_for_task(getattr(self, "_active_mission", None)):
+                    cap = _turn_cap_for_task(getattr(self, "_active_mission", None))
+                    log.warning("Task %s exceeded runtime turn limit (%d)", task_id, cap)
+                    self._force_turn_limit_block(task_id, task_content, turn, cap)
+                    break
                 continue
+
+            if self._current_task_turns >= _turn_cap_for_task(getattr(self, "_active_mission", None)):
+                cap = _turn_cap_for_task(getattr(self, "_active_mission", None))
+                log.warning("Task %s exceeded runtime turn limit (%d)", task_id, cap)
+                self._force_turn_limit_block(task_id, task_content, turn, cap)
+                break
 
         # Post-loop: evict stale cache entry if task failed after a cache assist.
         # A "full" cache hit skips the loop entirely (returns early), so only
@@ -2710,6 +2737,7 @@ class Body:
         content_parts: list[str] = []
         tool_calls_acc: dict[int, dict] = {}  # index -> {id, function: {name, arguments}}
         finish_reason = ""
+        stop_reason = ""
 
         with self._http_client.stream("POST", url, json=payload, headers=headers) as resp:
             if resp.status_code >= 400:
@@ -2744,6 +2772,9 @@ class Body:
 
                 if chunk_finish:
                     finish_reason = chunk_finish
+                chunk_stop_reason = choices[0].get("stop_reason")
+                if isinstance(chunk_stop_reason, str) and chunk_stop_reason:
+                    stop_reason = chunk_stop_reason
 
                 # Accumulate text content and stream to stderr
                 text = delta.get("content")
@@ -2780,6 +2811,8 @@ class Body:
         content = "".join(content_parts)
         if content:
             message["content"] = content
+        if stop_reason:
+            message["stop_reason"] = stop_reason
         if tool_calls_acc:
             complete_tool_calls = [
                 tool_calls_acc[i] for i in sorted(tool_calls_acc.keys())
@@ -2792,6 +2825,7 @@ class Body:
             "choices": [{
                 "message": message,
                 "finish_reason": finish_reason or "stop",
+                "stop_reason": stop_reason,
             }],
         }
 
@@ -3452,6 +3486,7 @@ class Body:
             (getattr(self, "_work_contract", None) or {}).get("kind", ""),
             contract=getattr(self, "_work_contract", None),
             evidence=getattr(self, "_work_evidence", None),
+            state=self._ensure_execution_state(),
         )
         contract_needs_action = (
             not pre_commit_verdict.committable
@@ -3519,6 +3554,115 @@ class Body:
         self._task_complete_called = True
         self._task_terminal_outcome = outcome
         self._task_result_summary = summary
+
+    def _commit_model_terminal_outcome(self, task_id: str, content: str, messages: list[dict]) -> bool:
+        """Run the internal model-native commit hook for terminal text."""
+        content = self._materialize_file_artifact_summary(content)
+        pre_commit_verdict = evaluate_pre_commit(
+            self._ensure_execution_state(),
+            content=content,
+        )
+        completion_verdict = map_pre_commit_verdict(
+            pre_commit_verdict,
+            task_id,
+            (getattr(self, "_work_contract", None) or {}).get("kind", ""),
+            contract=getattr(self, "_work_contract", None),
+            evidence=getattr(self, "_work_evidence", None),
+            state=self._ensure_execution_state(),
+        )
+        contract_needs_action = (
+            not pre_commit_verdict.committable
+            and "contract:needs_action" in pre_commit_verdict.reasons
+        )
+        if contract_needs_action:
+            if not getattr(self, "_work_contract_retry_sent", False):
+                self._work_contract_retry_sent = True
+                self._emit_pact_verdict(task_id, completion_verdict)
+                messages.append({
+                    "role": "user",
+                    "content": "[Platform work contract] " + pre_commit_verdict.contract_verdict.get("message", "Required evidence is missing."),
+                })
+                log.info("Work contract completion gate injected for task %s: %s", task_id, completion_verdict.get("missing_evidence"))
+                return False
+            completion_verdict = dict(completion_verdict)
+            completion_verdict["verdict"] = "blocked"
+            content = format_blocked_completion(
+                getattr(self, "_work_contract", None),
+                getattr(self, "_work_evidence", None),
+                pre_commit_verdict.contract_verdict.get("message", "Required evidence is missing."),
+            )
+            self._emit_pact_verdict(task_id, completion_verdict)
+            self._commit_pact_terminal_outcome("blocked", content)
+        else:
+            self._emit_pact_verdict(task_id, completion_verdict)
+
+        if not pre_commit_verdict.committable and not contract_needs_action:
+            reasons = ", ".join(completion_verdict.get("reasons") or []) or "pre_commit_blocked"
+            missing = completion_verdict.get("missing_evidence") or []
+            lines = [
+                "Blocked by PACT pre-commit evaluator.",
+                f"Reasons: {reasons}.",
+            ]
+            if missing:
+                lines.append("Missing evidence: " + ", ".join(str(item) for item in missing) + ".")
+            content = "\n".join(lines)
+            self._commit_pact_terminal_outcome("blocked", content)
+        elif completion_verdict.get("verdict") == "needs_action":
+            content = format_blocked_completion(
+                getattr(self, "_work_contract", None),
+                getattr(self, "_work_evidence", None),
+                pre_commit_verdict.contract_verdict.get("message", "Required evidence is missing."),
+            )
+        elif completion_verdict.get("verdict") == "blocked" and not contract_needs_action:
+            content = pre_commit_verdict.contract_verdict.get("message") or format_blocked_completion(
+                getattr(self, "_work_contract", None),
+                getattr(self, "_work_evidence", None),
+                content,
+            )
+            self._commit_pact_terminal_outcome("blocked", content)
+        else:
+            self._commit_pact_terminal_outcome("completed", content)
+
+        content = _sanitize_current_info_answer(getattr(self, "_work_contract", None), content)
+        self._task_result_summary = content
+        return True
+
+    def _force_turn_limit_block(self, task_id: str, task_content: str, turn: int, cap: int) -> None:
+        """Terminate a task after the runtime hard turn cap is reached."""
+        message = (
+            f"Task exceeded the runtime turn limit ({cap} turns) without natural "
+            "termination. Commit blocked for safety review."
+        )
+        verdict = {
+            "task_id": task_id,
+            "kind": (getattr(self, "_work_contract", None) or {}).get("kind", ""),
+            "verdict": "blocked",
+            "required_evidence": list((getattr(self, "_work_contract", None) or {}).get("required_evidence") or []),
+            "answer_requirements": list((getattr(self, "_work_contract", None) or {}).get("answer_requirements") or []),
+            "missing_evidence": [],
+            "observed": list((getattr(self, "_work_evidence", None) or {}).get("observed") or []),
+            "source_urls": list((getattr(self, "_work_evidence", None) or {}).get("source_urls") or []),
+            "artifact_paths": list((getattr(self, "_work_evidence", None) or {}).get("artifact_paths") or []),
+            "changed_files": list((getattr(self, "_work_evidence", None) or {}).get("changed_files") or []),
+            "validation_results": list((getattr(self, "_work_evidence", None) or {}).get("validation_results") or []),
+            "evidence_entries": [
+                dict(item) for item in (getattr(self, "_work_evidence", None) or {}).get("entries") or []
+                if isinstance(item, dict)
+            ],
+            "tools": [],
+            "reasons": ["runtime:turn_limit_exceeded"],
+            "stop_reason": str(getattr(self._ensure_execution_state(), "stop_reason", "") or ""),
+        }
+        self._last_pact_verdict = _pact_verdict_payload(
+            task_id,
+            getattr(self, "_work_contract", None),
+            getattr(self, "_work_evidence", None),
+            verdict,
+        )
+        self._emit_signal("pact_verdict", self._last_pact_verdict)
+        self._commit_pact_terminal_outcome("blocked", message)
+        self._save_result_artifact(task_id, task_content, message, max(turn, 1))
+        self._finalize_task(task_id, turn - 1)
 
     def _emit_pact_verdict(self, task_id: str, verdict: dict) -> None:
         contract = getattr(self, "_work_contract", None)

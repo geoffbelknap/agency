@@ -1001,6 +1001,7 @@ contract
 reasoning_depth
 context_depth
 model
+stop_reason
 plan
 evidence
 tool_observations
@@ -1042,6 +1043,8 @@ runtime's prompt and model routing decisions. The legacy `task_tier` /
 prompt composition or model selection; static identity-bandwidth prompt sections
 are not tier-gated, and PACT pre-commit evaluation remains enforcement rather
 than optional tier behavior.
+`stop_reason` is populated from the provider-native model termination signal on
+each response and serialized with `ExecutionState` for operator inspection.
 `contract` wraps the existing body work contract as a typed `WorkContract`.
 `plan` is populated by the Wave 2 #3 planner builder when the selected strategy
 requires planning. The builder is deterministic and model-free, and emits typed
@@ -1143,10 +1146,13 @@ observed
 source_urls
 tools
 reasons
+stop_reason
 ```
 
 `reasons` is the structured list returned by the pre-commit evaluator. It is
 additive to the legacy signal payload; existing fields are preserved.
+`stop_reason` is the provider-native termination signal, such as `end_turn`,
+`tool_use`, or `stop_sequence`, captured for audit.
 
 Runtime mapping semantics:
 
@@ -1155,6 +1161,14 @@ committable=true -> verdict comes from the contract verdict
 committable=false + contract:needs_action -> needs_action, one retry only
 committable=false + any other reason -> blocked, terminal
 ```
+
+The body runtime also terminates tasks on model-native terminal signals without
+requiring a `complete_task` tool call. A hard runtime turn cap remains as a
+permanent safety net: frugal missions cap at 4 turns, thorough missions cap at
+12, and balanced/default missions cap at 8. Hitting the cap bypasses the PACT
+evaluator as a runtime failure, emits `verdict=blocked` with
+`runtime:turn_limit_exceeded`, writes the result artifact, and clears task
+state.
 
 Current verdict values:
 
