@@ -637,6 +637,9 @@ paths:
                                                 items:
                                                     type: string
                                                 description: Structured reason labels from the pre-commit evaluator
+                                            stop_reason:
+                                                type: string
+                                                description: Provider-native termination signal (e.g., end_turn, tool_use, stop_sequence)
                                     outcome:
                                         type: string
                                     artifact:

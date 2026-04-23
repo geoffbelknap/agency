@@ -68,6 +68,7 @@ def _payload(state: ExecutionState, verdict):
         state.contract.kind if state.contract else "",
         contract=state.contract,
         evidence=state.evidence,
+        state=state,
     )
 
 
@@ -239,7 +240,7 @@ def test_pact_run_projection_verdict_payload_has_reasons_field_available_to_gate
     payload = _payload(state, verdict)
 
     assert payload["reasons"] == ["committable"]
-    assert set(payload) >= {"verdict", "missing_evidence", "reasons"}
+    assert set(payload) >= {"verdict", "missing_evidence", "reasons", "stop_reason"}
 
 
 def test_audit_hash_inputs_are_stable_for_repeated_reads_of_same_projected_payload():

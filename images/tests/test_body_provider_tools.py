@@ -230,6 +230,7 @@ def test_pact_verdict_payload_summarizes_contract_and_evidence():
         ],
         "tools": ["provider-web-search", "web_fetch"],
         "reasons": ["contract:needs_action"],
+        "stop_reason": "",
     }
 
 
@@ -249,6 +250,7 @@ def test_pact_metadata_for_storage_drops_task_id_but_keeps_audit_fields():
         "validation_results": [{"command": "pytest tests/test_app.py", "ok": True}],
         "evidence_entries": [{"kind": "source_url", "producer": "provider-web-search"}],
         "tools": ["provider-web-search"],
+        "stop_reason": "end_turn",
     })
 
     assert metadata == {
@@ -265,6 +267,7 @@ def test_pact_metadata_for_storage_drops_task_id_but_keeps_audit_fields():
         "validation_results": [{"command": "pytest tests/test_app.py", "ok": True}],
         "evidence_entries": [{"kind": "source_url", "producer": "provider-web-search"}],
         "tools": ["provider-web-search"],
+        "stop_reason": "end_turn",
     }
 
 
@@ -337,6 +340,7 @@ def test_emit_pact_verdict_emits_structured_signal():
             "validation_results": [],
             "evidence_entries": [],
             "tools": ["provider-web-search"],
+            "stop_reason": "",
         },
     )]
 

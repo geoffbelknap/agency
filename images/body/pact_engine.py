@@ -939,6 +939,7 @@ class ExecutionState:
     reasoning_depth: str = ""
     context_depth: str = ""
     model: str = ""
+    stop_reason: str = ""
     plan: Plan | None = None
     step_history: list[StepRecord] = field(default_factory=list)
     tool_observations: list[ToolObservation] = field(default_factory=list)
@@ -973,6 +974,7 @@ class ExecutionState:
             agent=str(agent or ""),
             activation=activation_context,
             contract=contract,
+            stop_reason=str(task.get("stop_reason") or metadata.get("stop_reason") or ""),
             started_at=now,
             updated_at=now,
             _objective_task=objective_task,
@@ -1072,6 +1074,7 @@ class ExecutionState:
             "reasoning_depth": self.reasoning_depth,
             "context_depth": self.context_depth,
             "model": self.model,
+            "stop_reason": self.stop_reason,
             "plan": self.plan.to_dict() if self.plan else None,
             "step_history": [step.to_dict() for step in self.step_history],
             "tool_observations": [obs.to_dict() for obs in self.tool_observations],
@@ -1593,6 +1596,7 @@ def map_pre_commit_verdict(
     *,
     contract: dict | WorkContract | None = None,
     evidence: dict | EvidenceLedger | None = None,
+    state: ExecutionState | None = None,
 ) -> dict:
     """Map a typed pre-commit verdict to the legacy PACT verdict signal shape."""
 
@@ -1638,6 +1642,7 @@ def map_pre_commit_verdict(
         ],
         "tools": tools,
         "reasons": reasons,
+        "stop_reason": str(getattr(state, "stop_reason", "") or ""),
     }
 
 
