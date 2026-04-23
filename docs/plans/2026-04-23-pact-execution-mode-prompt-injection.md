@@ -68,7 +68,7 @@ The runtime has routed this turn to tool_loop mode because the
 operator's request requires external information that only tools can
 produce. Before responding with any factual claim:
 
-1. Call one of the available tools (e.g., web_search) to gather evidence.
+1. You MUST call one of the available tools (e.g., web_search) to gather evidence.
 2. Use the tool's real output to inform your response.
 
 Do not emit tool-shaped text such as <search>...</search> or
