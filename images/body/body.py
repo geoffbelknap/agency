@@ -46,7 +46,7 @@ from post_task import (
 )
 from session_scratchpad import build_session_scratchpad, format_recent_transcript
 from reflection import ReflectionState, build_reflection_prompt, parse_reflection_verdict
-from task_tier import classify_task_tier, expand_cost_mode, get_active_features
+from task_tier import classify_task_tier, expand_cost_mode, get_active_features, select_model
 from tools import BuiltinToolRegistry, ServiceToolDispatcher, SkillsManager
 from work_contract import (
     ActivationContext,
@@ -480,6 +480,7 @@ class Body:
         )
         self.model = os.environ.get("AGENCY_MODEL", "claude-sonnet")
         self.admin_model = os.environ.get("AGENCY_ADMIN_MODEL", self.model)
+        self.large_model = os.environ.get("AGENCY_LARGE_MODEL", self.model)
         self.agent_name = os.environ.get("AGENCY_AGENT_NAME", "agent")
         self.context_window = int(os.environ.get(
             "AGENCY_CONTEXT_WINDOW", str(DEFAULT_CONTEXT_WINDOW)
@@ -1603,7 +1604,10 @@ class Body:
                 channel=self.meeseeks_channel or "operator",
             )
 
-        prompt_tier = getattr(self, "_task_features", {}).get("prompt_tier", "full")
+        state = getattr(self, "_execution_state", None)
+        context_depth = getattr(state, "context_depth", "") if isinstance(state, ExecutionState) else ""
+        if context_depth not in {"minimal", "task-relevant", "full"}:
+            context_depth = "task-relevant"
 
         parts = []
 
@@ -1667,15 +1671,14 @@ class Body:
                 "Respond to @mentions and operator DMs normally. Do not perform mission work until resumed."
             )
 
-        # Procedural + episodic memory injection (full tier only)
-        if prompt_tier == "full":
+        # Procedural + episodic memory injection, gated by context depth.
+        if context_depth in ("task-relevant", "full"):
             mission = getattr(self, '_active_mission', None) or {}
             mission_id = mission.get('id', '')
             knowledge_url = getattr(self, '_knowledge_url', '')
-            _task_features = getattr(self, '_task_features', {})
             _cost_defaults = getattr(self, '_cost_defaults', {})
 
-            if _task_features.get('procedural_inject', False) and mission_id:
+            if mission_id:
                 proc_cfg = mission.get('procedural_memory', {})
                 max_ret = proc_cfg.get('max_retrieved', _cost_defaults.get('procedural_memory', {}).get('max_retrieved', 5))
                 include_fail = proc_cfg.get('include_failures', False)
@@ -1683,15 +1686,15 @@ class Body:
                 if proc_section:
                     parts.append(sanitize_knowledge_section(proc_section, "procedural_memory"))
 
-            if _task_features.get('episodic_inject', False) and mission_id:
+            if context_depth == "full" and mission_id:
                 ep_cfg = mission.get('episodic_memory', {})
                 max_ret = ep_cfg.get('max_retrieved', _cost_defaults.get('episodic_memory', {}).get('max_retrieved', 5))
                 ep_section = fetch_episodic_memory(knowledge_url, self.agent_name, mission_id, max_ret)
                 if ep_section:
                     parts.append(sanitize_knowledge_section(ep_section, "episodic_memory"))
 
-        # Persistent memory — full tier only
-        if prompt_tier == "full":
+        # Persistent memory, gated by context depth.
+        if context_depth in ("task-relevant", "full"):
             memory_index = self._build_memory_index()
             if memory_index:
                 parts.append(
@@ -1713,49 +1716,44 @@ class Body:
                     + memory_index
                 )
 
-        # Organizational context — full tier only
-        if prompt_tier == "full":
+        # Organizational context, gated by context depth.
+        if context_depth == "full":
             org_context = self._fetch_org_context()
             if org_context:
                 parts.append(sanitize_knowledge_section(org_context, "org_context"))
 
-        # Team communication context — standard and full tiers
-        if prompt_tier in ("standard", "full"):
-            from comms_tools import build_comms_context
-            comms_context = build_comms_context(
-                os.environ.get("AGENCY_COMMS_URL", "http://enforcer:8081/mediation/comms"),
-                os.environ.get("AGENCY_AGENT_NAME", "unknown"),
-            )
-            if comms_context:
-                parts.append(comms_context)
+        # Team communication context — always included
+        from comms_tools import build_comms_context
+        comms_context = build_comms_context(
+            os.environ.get("AGENCY_COMMS_URL", "http://enforcer:8081/mediation/comms"),
+            os.environ.get("AGENCY_AGENT_NAME", "unknown"),
+        )
+        if comms_context:
+            parts.append(comms_context)
 
-        # Platform awareness (PLATFORM.md — scaled by agent type) — full tier only
-        if prompt_tier == "full":
-            platform_content = self._fetch_config("PLATFORM.md")
-            if platform_content is None:
-                platform_path = self.config_dir / "PLATFORM.md"
-                if platform_path.exists():
-                    platform_content = platform_path.read_text()
-            if platform_content and platform_content.strip():
-                parts.append(platform_content.strip())
+        # Platform awareness (PLATFORM.md) — always included
+        platform_content = self._fetch_config("PLATFORM.md")
+        if platform_content is None:
+            platform_path = self.config_dir / "PLATFORM.md"
+            if platform_path.exists():
+                platform_content = platform_path.read_text()
+        if platform_content and platform_content.strip():
+            parts.append(platform_content.strip())
 
-        # Framework governance — standard and full tiers
-        if prompt_tier in ("standard", "full"):
-            framework_content = self._config_text("FRAMEWORK.md")
-            if framework_content and framework_content.strip():
-                parts.append(framework_content.strip())
+        # Framework governance — always included
+        framework_content = self._config_text("FRAMEWORK.md")
+        if framework_content and framework_content.strip():
+            parts.append(framework_content.strip())
 
-        # Constraints and services — standard and full tiers
-        if prompt_tier in ("standard", "full"):
-            agents_content = self._config_text("AGENTS.md")
-            if agents_content and agents_content.strip():
-                parts.append(agents_content.strip())
+        # Constraints and services — always included
+        agents_content = self._config_text("AGENTS.md")
+        if agents_content and agents_content.strip():
+            parts.append(agents_content.strip())
 
-        # Skills section (loaded on demand via activate_skill tool) — standard and full tiers
-        if prompt_tier in ("standard", "full"):
-            skills_section = self._skills_manager.get_system_prompt_section()
-            if skills_section:
-                parts.append(skills_section)
+        # Skills section (loaded on demand via activate_skill tool) — always included
+        skills_section = self._skills_manager.get_system_prompt_section()
+        if skills_section:
+            parts.append(skills_section)
 
         provider_tools = _provider_tool_prompt_section(self.config_dir)
         if provider_tools:
@@ -2040,6 +2038,8 @@ class Body:
 
         # Re-read mission file at task start (picks up hot-reload changes)
         self._reload_mission()
+        if isinstance(self._execution_state, ExecutionState):
+            self._execution_state.attach_mission(self._active_mission)
 
         # Task tier classification — determines which features activate
         mission = self._active_mission
@@ -3359,9 +3359,11 @@ class Body:
 
     def _handle_complete_task(self, summary: str) -> str:
         """Handle the complete_task tool call from the agent."""
-        # Check if reflection is enabled for this task tier + mission config
+        # Check if reflection is enabled for this reasoning depth + mission config
         mission = getattr(self, '_active_mission', None)
-        reflection_enabled = getattr(self, '_task_features', {}).get('reflection', False)
+        state = getattr(self, "_execution_state", None)
+        reasoning_depth = getattr(state, "reasoning_depth", "") if isinstance(state, ExecutionState) else ""
+        reflection_enabled = reasoning_depth in {"reflective", "deliberative"}
         mission_reflection = (mission or {}).get('reflection', {})
 
         if reflection_enabled and mission_reflection.get('enabled', False):
@@ -3881,14 +3883,19 @@ class Body:
     _start_time: float = 0.0
 
     def _current_model(self) -> str:
-        """Choose the best-fit model for the active task."""
-        tier = (self._current_task_tier or "").strip().lower()
-        task_id = self._current_task_id or ""
-        if tier in {"minimal", "mini", "fast"}:
-            return self.admin_model
-        if task_id.startswith(("idle-reply-", "notification-")):
-            return self.admin_model
-        return self.model
+        """Choose the model for the active turn per the three-axis spec."""
+        execution_state = getattr(self, "_execution_state", None)
+        objective = getattr(execution_state, "objective", None) if execution_state else None
+        strategy = getattr(execution_state, "strategy", None) if execution_state else None
+        return select_model(
+            task=getattr(self, "_task_metadata", {}) or {},
+            mission=getattr(self, "_active_mission", None),
+            objective=objective,
+            strategy=strategy,
+            default_standard=self.model,
+            default_small=self.admin_model,
+            default_large=getattr(self, "large_model", self.model),
+        )
 
     # -- Conversation Persistence --
 
@@ -3962,9 +3969,10 @@ class Body:
 
     def _build_memory_index(self) -> str:
         """Build a concise index of all memory topic files for the system prompt."""
-        if not self.memory_dir.exists():
+        memory_dir = getattr(self, "memory_dir", None)
+        if memory_dir is None or not memory_dir.exists():
             return ""
-        files = sorted(self.memory_dir.glob("*.md"))
+        files = sorted(memory_dir.glob("*.md"))
         if not files:
             return ""
 

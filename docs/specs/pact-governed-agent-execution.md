@@ -998,6 +998,9 @@ activation
 objective
 strategy
 contract
+reasoning_depth
+context_depth
+model
 plan
 evidence
 tool_observations
@@ -1025,9 +1028,16 @@ analytical asks phrased conversationally cannot slip past tool pressure; remaini
 non-grounded `chat` routes to trivial direct handling; operator-blocked contracts
 route to trivial direct handling; remaining high-risk work routes to planned
 execution; code changes route to planned execution by default; all other work
-routes to the tool loop. Advisory hints for tool scope, model tier, memory, and
-budget are surfaced as strategy notes but are not yet enforced by any runtime
-gate.
+routes to the tool loop. `reasoning_depth`, `context_depth`, and `model` are
+populated after strategy construction by the runtime classifiers defined in the
+sibling `task-tier-and-prompt-composition.md` spec. They are advisory routing
+fields for deliberation depth, dynamic context retrieval depth, and model
+selection, and are serialized with `ExecutionState` so operators can inspect the
+runtime's prompt and model routing decisions. The legacy `task_tier` /
+`_task_features` / `prompt_tier` coupling is no longer the source of truth for
+prompt composition or model selection; static identity-bandwidth prompt sections
+are not tier-gated, and PACT pre-commit evaluation remains enforcement rather
+than optional tier behavior.
 `contract` wraps the existing body work contract as a typed `WorkContract`.
 `plan` is populated by the Wave 2 #3 planner builder when the selected strategy
 requires planning. The builder is deterministic and model-free, and emits typed
