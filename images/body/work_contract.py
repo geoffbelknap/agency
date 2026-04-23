@@ -8,6 +8,7 @@ the runtime-facing API can move independently from body compatibility shims.
 from __future__ import annotations
 
 try:
+    from .task_tier import classify_context_depth, classify_reasoning_depth, select_model
     from .objective_builder import build_objective, detect_generation_mode
     from .pact_engine import (
         ActivationContext,
@@ -52,6 +53,7 @@ try:
         validate_completion,
     )
 except ImportError:  # pragma: no cover - runtime imports this as a top-level module.
+    from task_tier import classify_context_depth, classify_reasoning_depth, select_model
     from objective_builder import build_objective, detect_generation_mode
     from pact_engine import (
         ActivationContext,
@@ -128,6 +130,8 @@ __all__ = [
     "build_plan",
     "build_strategy",
     "build_objective",
+    "classify_context_depth",
+    "classify_reasoning_depth",
     "classify_activation",
     "classify_work",
     "contract_definition",
@@ -138,5 +142,6 @@ __all__ = [
     "format_blocked_completion",
     "list_contract_kinds",
     "map_pre_commit_verdict",
+    "select_model",
     "validate_completion",
 ]

@@ -920,6 +920,9 @@ class ExecutionState:
     objective: Objective | None = None
     strategy: Strategy | None = None
     contract: WorkContract | None = None
+    reasoning_depth: str = ""
+    context_depth: str = ""
+    model: str = ""
     plan: Plan | None = None
     step_history: list[StepRecord] = field(default_factory=list)
     tool_observations: list[ToolObservation] = field(default_factory=list)
@@ -967,6 +970,7 @@ class ExecutionState:
             state.objective = build_objective(state.activation, state.contract, objective_task)
             state.strategy = build_strategy(state.objective, state.contract, objective_task)
             state.plan = build_plan(state.objective, state.contract, state.strategy, objective_task)
+            state._populate_routing_axes(objective_task, None)
         return state
 
     def attach_mission(self, mission: dict | None) -> None:
@@ -974,6 +978,9 @@ class ExecutionState:
             self.objective = None
             self.strategy = None
             self.plan = None
+            self.reasoning_depth = ""
+            self.context_depth = ""
+            self.model = ""
             self.updated_at = _utc_now()
             return
         try:
@@ -1001,10 +1008,42 @@ class ExecutionState:
                 dict(self._objective_task or {}),
                 mission=mission if isinstance(mission, dict) else None,
             )
+            self._populate_routing_axes(
+                dict(self._objective_task or {}),
+                mission if isinstance(mission, dict) else None,
+            )
         else:
             self.strategy = None
             self.plan = None
+            self.reasoning_depth = ""
+            self.context_depth = ""
+            self.model = ""
         self.updated_at = _utc_now()
+
+    def _populate_routing_axes(self, task: dict, mission: dict | None) -> None:
+        try:
+            from .task_tier import classify_context_depth, classify_reasoning_depth, select_model
+        except ImportError:  # pragma: no cover - runtime imports this as a top-level module.
+            from task_tier import classify_context_depth, classify_reasoning_depth, select_model
+
+        self.reasoning_depth = classify_reasoning_depth(
+            task,
+            mission,
+            objective=self.objective,
+            strategy=self.strategy,
+        )
+        self.context_depth = classify_context_depth(
+            task,
+            mission,
+            objective=self.objective,
+            strategy=self.strategy,
+        )
+        self.model = select_model(
+            task,
+            mission,
+            objective=self.objective,
+            strategy=self.strategy,
+        )
 
     def to_dict(self) -> dict:
         return {
@@ -1014,6 +1053,9 @@ class ExecutionState:
             "objective": self.objective.to_dict() if self.objective else None,
             "strategy": self.strategy.to_dict() if self.strategy else None,
             "contract": self.contract.to_dict() if self.contract else None,
+            "reasoning_depth": self.reasoning_depth,
+            "context_depth": self.context_depth,
+            "model": self.model,
             "plan": self.plan.to_dict() if self.plan else None,
             "step_history": [step.to_dict() for step in self.step_history],
             "tool_observations": [obs.to_dict() for obs in self.tool_observations],
