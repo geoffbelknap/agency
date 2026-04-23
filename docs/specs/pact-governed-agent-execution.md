@@ -1028,7 +1028,11 @@ analytical asks phrased conversationally cannot slip past tool pressure; remaini
 non-grounded `chat` routes to trivial direct handling; operator-blocked contracts
 route to trivial direct handling; remaining high-risk work routes to planned
 execution; code changes route to planned execution by default; all other work
-routes to the tool loop. `reasoning_depth`, `context_depth`, and `model` are
+routes to the tool loop.
+`strategy.execution_mode` also surfaces in the body runtime system prompt as an
+explicit runtime instruction for `tool_loop`, `clarify`, `escalate`, and
+`external_side_effect` modes.
+`reasoning_depth`, `context_depth`, and `model` are
 populated after strategy construction by the runtime classifiers defined in the
 sibling `task-tier-and-prompt-composition.md` spec. They are advisory routing
 fields for deliberation depth, dynamic context retrieval depth, and model
