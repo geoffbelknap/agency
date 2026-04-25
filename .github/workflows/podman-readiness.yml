@@ -87,6 +87,8 @@ jobs:
         run: make podman-readiness
         env:
           AGENCY_PODMAN_SOCKET: unix:///tmp/podman.sock
+          AGENCY_PODMAN_SETUP_PROVIDER: openai
+          OPENAI_API_KEY: ci-placeholder-openai-key
 
       - name: Install web dependencies
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_e2e }}
@@ -111,3 +113,5 @@ jobs:
         run: make podman-readiness-full
         env:
           AGENCY_PODMAN_SOCKET: unix:///tmp/podman.sock
+          AGENCY_PODMAN_SETUP_PROVIDER: openai
+          OPENAI_API_KEY: ci-placeholder-openai-key

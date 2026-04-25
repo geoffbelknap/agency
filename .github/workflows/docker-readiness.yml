@@ -53,3 +53,5 @@ jobs:
         run: make docker-readiness
         env:
           AGENCY_DOCKER_SOCKET: unix:///var/run/docker.sock
+          AGENCY_DOCKER_SETUP_PROVIDER: openai
+          OPENAI_API_KEY: ci-placeholder-openai-key
