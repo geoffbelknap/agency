@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -411,6 +412,10 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Build and send the upstream request with retries
 	var resp *http.Response
 	for attempt := 0; attempt < llmMaxRetries; attempt++ {
+		if err := validateUpstreamLLMURL(prepared.TargetURL); err != nil {
+			http.Error(w, `{"error":"unsafe upstream request target"}`, http.StatusBadGateway)
+			return
+		}
 		outReq, err := http.NewRequestWithContext(r.Context(), r.Method, prepared.TargetURL, bytes.NewReader(prepared.Body))
 		if err != nil {
 			http.Error(w, `{"error":"failed to create upstream request"}`, http.StatusInternalServerError)
@@ -471,6 +476,20 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Stream:           isStream,
 		ResponsesPath:    isResponsesPath,
 	})
+}
+
+func validateUpstreamLLMURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return err
+	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return fmt.Errorf("unsupported upstream scheme")
+	}
+	if u.Host == "" {
+		return fmt.Errorf("missing upstream host")
+	}
+	return nil
 }
 
 func ensureStreamUsageRequested(reqBody map[string]interface{}) {
