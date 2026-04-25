@@ -1128,7 +1128,7 @@ func (h *handler) adminKnowledge(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		nodes := make([]map[string]interface{}, 0, count)
+		var nodes []map[string]interface{}
 		for i := 0; i < count; i++ {
 			nodes = append(nodes, map[string]interface{}{
 				"label":           fmt.Sprintf("%s-%02d", kind, i+1),
