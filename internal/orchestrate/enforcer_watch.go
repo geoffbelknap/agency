@@ -6,48 +6,53 @@ import (
 	"strings"
 
 	"log/slog"
+
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 )
 
-// EnforcerAlertFunc is called when an enforcer container exits unexpectedly.
+// EnforcerAlertFunc is called when an enforcer runtime exits unexpectedly.
 type EnforcerAlertFunc func(agentName, reason string)
 
-// EnforcerWatcher monitors Docker events for enforcer container exits.
+// EnforcerWatcher monitors host-backend events for enforcer runtime exits.
 // When an enforcer dies while its workspace is still running, the agent
 // has lost all API mediation (ASK Tenet 3). This watcher detects that
-// condition in real-time via Docker's event stream — no polling.
+// condition in real time via the host backend's event stream, without polling.
 type EnforcerWatcher struct {
-	docker     *runtimehost.DockerHandle
-	alert      EnforcerAlertFunc
-	logger     *slog.Logger
-	cancel     context.CancelFunc
-	suppress   *StopSuppression
+	source   HostStateSource
+	alert    EnforcerAlertFunc
+	logger   *slog.Logger
+	cancel   context.CancelFunc
+	suppress *StopSuppression
 }
 
 // NewEnforcerWatcher creates a watcher that calls alertFn when an enforcer
-// container exits. The alertFn receives the agent name (extracted from the
-// container name) and a human-readable reason string.
+// runtime exits. The alertFn receives the agent name and a human-readable
+// reason string.
 func NewEnforcerWatcher(alertFn EnforcerAlertFunc, logger *slog.Logger, suppress *StopSuppression) (*EnforcerWatcher, error) {
 	return NewEnforcerWatcherWithClient(alertFn, logger, suppress, nil)
 }
 
-// NewEnforcerWatcherWithClient creates a watcher using the provided Docker client.
+// NewEnforcerWatcherWithClient creates a watcher using the provided backend client.
 func NewEnforcerWatcherWithClient(alertFn EnforcerAlertFunc, logger *slog.Logger, suppress *StopSuppression, dc *runtimehost.DockerHandle) (*EnforcerWatcher, error) {
+	return NewEnforcerWatcherWithSource(alertFn, logger, suppress, NewBackendHostStateSource(dc))
+}
+
+func NewEnforcerWatcherWithSource(alertFn EnforcerAlertFunc, logger *slog.Logger, suppress *StopSuppression, source HostStateSource) (*EnforcerWatcher, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &EnforcerWatcher{
-		docker:   dc,
+		source:   source,
 		alert:    alertFn,
 		logger:   logger,
 		suppress: suppress,
 	}, nil
 }
 
-// Start launches the background Docker event listener.
+// Start launches the background host-backend event listener.
 func (w *EnforcerWatcher) Start(ctx context.Context) {
-	if w.docker == nil {
-		w.logger.Info("enforcer watcher disabled: docker client unavailable")
+	if w.source == nil {
+		w.logger.Info("enforcer watcher disabled: runtime backend client unavailable")
 		return
 	}
 	ctx, cancel := context.WithCancel(ctx)
@@ -64,7 +69,7 @@ func (w *EnforcerWatcher) Stop() {
 }
 
 func (w *EnforcerWatcher) watch(ctx context.Context) {
-	eventCh, errCh, err := runtimehost.WatchAgencyContainerEvents(ctx, w.docker, "die")
+	eventCh, errCh, err := w.source.Watch(ctx, HostStateActionStopped)
 	if err != nil {
 		w.logger.Warn("enforcer watcher disabled", "error", err)
 		return
@@ -75,41 +80,38 @@ func (w *EnforcerWatcher) watch(ctx context.Context) {
 		case <-ctx.Done():
 			return
 
-		case ev := <-eventCh:
-			name := ev.Name
-			if name == "" {
-				continue
+		case ev, ok := <-eventCh:
+			if !ok {
+				return
 			}
-			// Only care about enforcer containers.
-			if !strings.HasSuffix(name, "-enforcer") {
-				continue
-			}
-			agentName := extractAgentName(name, "-enforcer")
-			if agentName == "" {
+			if ev.Component != HostStateComponentEnforcer || ev.AgentName == "" {
 				continue
 			}
 
 			exitCode := ev.ExitCode
-			if w.suppress != nil && w.suppress.IsSuppressed(agentName) {
+			if w.suppress != nil && w.suppress.IsSuppressed(ev.AgentName) {
 				w.logger.Info("enforcer exit suppressed (intentional stop/restart)",
-					"agent", agentName,
+					"agent", ev.AgentName,
 					"exit_code", exitCode,
 				)
 				continue
 			}
 			reason := fmt.Sprintf("enforcer exited (code %s) — agent has no API mediation", exitCode)
 			w.logger.Warn("enforcer died while agent may be running",
-				"agent", agentName,
+				"agent", ev.AgentName,
 				"exit_code", exitCode,
 			)
-			w.alert(agentName, reason)
+			w.alert(ev.AgentName, reason)
 
-		case err := <-errCh:
+		case err, ok := <-errCh:
+			if !ok {
+				return
+			}
 			if ctx.Err() != nil {
 				return
 			}
 			w.logger.Warn("enforcer watcher: event stream error, restarting", "error", err)
-			eventCh, errCh, err = runtimehost.WatchAgencyContainerEvents(ctx, w.docker, "die")
+			eventCh, errCh, err = w.source.Watch(ctx, HostStateActionStopped)
 			if err != nil {
 				w.logger.Warn("enforcer watcher reconnect failed", "error", err)
 				return

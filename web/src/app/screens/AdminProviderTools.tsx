@@ -3,10 +3,6 @@ import { RefreshCw, Shield, Search } from 'lucide-react';
 import { api, type RawProviderToolCapability, type RawProviderToolProvider } from '../lib/api';
 import { Button } from '../components/ui/button';
 
-const PROVIDERS = ['openai', 'anthropic', 'google'] as const;
-
-type ProviderName = typeof PROVIDERS[number];
-
 interface ProviderToolRow {
   name: string;
   tool: RawProviderToolCapability;
@@ -111,6 +107,16 @@ export function AdminProviderTools() {
     });
   }, [query, tools]);
 
+  const providers = useMemo(() => {
+    const names = new Set<string>();
+    for (const tool of Object.values(tools)) {
+      for (const providerName of Object.keys(tool.providers || {})) {
+        names.add(providerName);
+      }
+    }
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [tools]);
+
   const total = Object.keys(tools).length;
   const defaultCount = Object.values(tools).filter((tool) => tool.default_grant).length;
   const harnessedCount = Object.values(tools).filter((tool) => tool.execution === 'agency_harnessed').length;
@@ -185,7 +191,7 @@ export function AdminProviderTools() {
               <tr>
                 <th className="p-3 text-left font-medium">Capability</th>
                 <th className="p-3 text-left font-medium">Boundary</th>
-                {PROVIDERS.map((provider) => (
+                {providers.map((provider) => (
                   <th key={provider} className="p-3 text-left font-medium">{provider}</th>
                 ))}
               </tr>
@@ -212,7 +218,7 @@ export function AdminProviderTools() {
                       </div>
                     )}
                   </td>
-                  {PROVIDERS.map((providerName: ProviderName) => {
+                  {providers.map((providerName) => {
                     const provider = tool.providers?.[providerName];
                     const status = provider?.status || 'unknown';
                     return (

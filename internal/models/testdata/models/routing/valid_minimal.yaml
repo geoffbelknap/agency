@@ -1,11 +1,11 @@
 providers:
   default:
-    api_base: https://api.anthropic.com
-    auth_env: ANTHROPIC_API_KEY
+    api_base: https://provider.example
+    auth_env: PROVIDER_API_KEY
 models:
-  claude-sonnet:
+  standard-model:
     provider: default
-    provider_model: claude-sonnet-4-20250514
+    provider_model: provider-standard
 settings:
   default_tier: standard
   default_timeout: 300

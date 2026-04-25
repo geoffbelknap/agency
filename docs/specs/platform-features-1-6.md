@@ -383,15 +383,9 @@ func (s *AuditSummarizer) Summarize() ([]MissionMetric, error)
    - **Current:** Query in-process mission manager (`missionMgr.GetAgentMission(agentName)`)
    - **Historical:** Read `{homeDir}/missions/*.yaml`, parse agent assignments. Cache parsed missions for the duration of the summarize call.
 6. Aggregate per mission per day: sum tokens, count activations, compute cost, find modal model.
-7. **Cost estimation:** Static rate table in `internal/audit/pricing.go`:
-   ```go
-   var ModelPricing = map[string]struct{ InputPer1M, OutputPer1M float64 }{
-       "claude-sonnet":  {3.00, 15.00},
-       "claude-haiku":   {0.25, 1.25},
-       "claude-opus":    {15.00, 75.00},
-   }
-   ```
-   Unknown model names: log warning, skip entry's cost contribution (don't crash). Tokens still counted.
+7. **Cost estimation:** Resolve pricing from routing/catalog model metadata.
+   Unknown model aliases: log warning, skip entry's cost contribution (don't
+   crash). Tokens still counted.
 8. **HMAC verification:** When `ENFORCER_AUDIT_HMAC_KEY` is available, verify each line's signature before including it in metric computation. Skip lines with invalid signatures (log warning). When the key is not set, skip verification.
 9. POST each `MissionMetrics` node to `{knowledgeURL}/ingest/nodes` with `source_type: "rule"`.
 

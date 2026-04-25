@@ -38,14 +38,14 @@ class TestApiKeyHandler:
         assert flow.request.headers["X-Api-Key"] == "abc123"
 
     def test_injects_formatted_key(self):
-        resolver = _FakeResolver({"OPENAI_API_KEY": "sk-xyz"})
-        flow = _make_flow("api.openai.com")
+        resolver = _FakeResolver({"PROVIDER_B_API_KEY": "sk-xyz"})
+        flow = _make_flow("provider-b.example.com")
         config = {
             "type": "api-key",
-            "domains": ["api.openai.com"],
+            "domains": ["provider-b.example.com"],
             "header": "Authorization",
             "format": "Bearer {key}",
-            "key_ref": "OPENAI_API_KEY",
+            "key_ref": "PROVIDER_B_API_KEY",
         }
         handle_api_key(flow, config, resolver)
         assert flow.request.headers["Authorization"] == "Bearer sk-xyz"

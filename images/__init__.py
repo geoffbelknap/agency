@@ -108,7 +108,7 @@ def build_image(
     """Build a single component image from its Dockerfile.
 
     Args:
-        client: Docker client instance.
+        client: Container image client instance.
         component: Component name (e.g. "egress").
         quiet: Suppress build output.
         profile: If True, measure baseline RSS and label the image after build.
@@ -147,7 +147,7 @@ def build_image_streaming(
     Dockerfile step progress (Step X/Y).
 
     Args:
-        client: Docker client instance.
+        client: Container image client instance.
         component: Component name (e.g. "egress").
         on_progress: Called with (component, step, total, description) for
             each Dockerfile step parsed from the build stream.
@@ -197,7 +197,7 @@ def build_images_parallel(
     """Build multiple component images in parallel.
 
     Args:
-        client: Docker client instance.
+        client: Container image client instance.
         components: List of components to build. Defaults to all BUILDABLE.
         force: Rebuild even if images already exist.
         on_start: Called when a component build begins.

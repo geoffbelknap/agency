@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -18,15 +19,79 @@ import (
 	"github.com/geoffbelknap/agency/internal/apiclient"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/daemon"
+	"github.com/geoffbelknap/agency/internal/hub"
 	"github.com/geoffbelknap/agency/internal/providercatalog"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
 
-var providerDisplayNames = map[string]string{
-	"anthropic": "Anthropic",
-	"openai":    "OpenAI",
-	"google":    "Google Gemini",
+type quickstartProviderDescriptor struct {
+	Name        string
+	DisplayName string
+	Order       int
+	Recommended bool
+	PromptBlurb string
+	Probe       *providercatalog.QuickstartProbeConfig
+}
+
+func quickstartProviderDescriptors() []quickstartProviderDescriptor {
+	docs, err := providercatalog.List()
+	if err != nil {
+		return nil
+	}
+
+	descriptors := make([]quickstartProviderDescriptor, 0, len(docs))
+	for _, doc := range docs {
+		if doc.Quickstart == nil || !doc.Quickstart.Selectable {
+			continue
+		}
+		descriptors = append(descriptors, quickstartProviderDescriptor{
+			Name:        doc.Name,
+			DisplayName: doc.DisplayName,
+			Order:       doc.Quickstart.Order,
+			Recommended: doc.Quickstart.Recommended,
+			PromptBlurb: doc.Quickstart.PromptBlurb,
+			Probe:       doc.Quickstart.Probe,
+		})
+	}
+	sort.SliceStable(descriptors, func(i, j int) bool {
+		if descriptors[i].Order != descriptors[j].Order {
+			return descriptors[i].Order < descriptors[j].Order
+		}
+		return descriptors[i].Name < descriptors[j].Name
+	})
+	return descriptors
+}
+
+func quickstartProviderDisplayName(provider string) string {
+	for _, descriptor := range quickstartProviderDescriptors() {
+		if descriptor.Name == provider {
+			return descriptor.DisplayName
+		}
+	}
+	return provider
+}
+
+func quickstartProviderProbe(provider string) *providercatalog.QuickstartProbeConfig {
+	for _, descriptor := range quickstartProviderDescriptors() {
+		if descriptor.Name == provider {
+			return descriptor.Probe
+		}
+	}
+	return nil
+}
+
+func supportedQuickstartProviders() []string {
+	descriptors := quickstartProviderDescriptors()
+	providers := make([]string, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		providers = append(providers, descriptor.Name)
+	}
+	return providers
+}
+
+func supportedQuickstartProviderList() string {
+	return strings.Join(supportedQuickstartProviders(), ", ")
 }
 
 var (
@@ -145,7 +210,7 @@ Run with --no-browser to print the Web UI URL without opening it.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.provider, "provider", "", "LLM provider (anthropic, openai, google)")
+	cmd.Flags().StringVar(&opts.provider, "provider", "", fmt.Sprintf("LLM provider (%s)", supportedQuickstartProviderList()))
 	cmd.Flags().StringVar(&opts.key, "key", "", "API key for the provider")
 	cmd.Flags().StringVar(&opts.preset, "preset", "", "Agent preset to use")
 	cmd.Flags().StringVar(&opts.name, "name", "", "Name for the first agent")
@@ -168,8 +233,12 @@ func normalizeProvider(provider string) string {
 }
 
 func isSupportedQuickstartProvider(provider string) bool {
-	_, ok := providerDisplayNames[provider]
-	return ok
+	for _, supported := range supportedQuickstartProviders() {
+		if provider == supported {
+			return true
+		}
+	}
+	return false
 }
 
 // detectProvider reads ~/.agency/config.yaml and returns the configured llm_provider.
@@ -209,9 +278,14 @@ func promptProvider() string {
 	fmt.Println()
 	fmt.Println(qsBold.Render("  Choose an LLM provider:"))
 	fmt.Println()
-	fmt.Printf("    1. Google Gemini %s\n", qsDim.Render("(recommended for alpha; free tier available)"))
-	fmt.Println("    2. Anthropic")
-	fmt.Println("    3. OpenAI")
+	descriptors := quickstartProviderDescriptors()
+	for idx, descriptor := range descriptors {
+		line := fmt.Sprintf("    %d. %s", idx+1, descriptor.DisplayName)
+		if descriptor.PromptBlurb != "" {
+			line += " " + qsDim.Render("("+descriptor.PromptBlurb+")")
+		}
+		fmt.Println(line)
+	}
 	fmt.Println()
 	fmt.Print("  Enter choice [1]: ")
 
@@ -221,22 +295,26 @@ func promptProvider() string {
 }
 
 func quickstartProviderForChoice(choice string) string {
+	descriptors := quickstartProviderDescriptors()
+	if len(descriptors) == 0 {
+		return ""
+	}
 	switch strings.TrimSpace(choice) {
-	case "2":
-		return "anthropic"
-	case "3":
-		return "openai"
+	case "":
+		return descriptors[0].Name
 	default:
-		return "google"
+		for idx, descriptor := range descriptors {
+			if strings.TrimSpace(choice) == fmt.Sprintf("%d", idx+1) {
+				return descriptor.Name
+			}
+		}
+		return descriptors[0].Name
 	}
 }
 
 // promptAPIKey reads an API key with masked input.
 func promptAPIKey(provider string) (string, error) {
-	name := providerDisplayNames[provider]
-	if name == "" {
-		name = provider
-	}
+	name := quickstartProviderDisplayName(provider)
 	fmt.Printf("  %s API key: ", name)
 	raw, err := readPassword()
 	fmt.Println() // newline after masked input
@@ -261,29 +339,32 @@ func validateAPIKey(provider, key string) error {
 	var req *http.Request
 	var err error
 
-	switch provider {
-	case "anthropic":
-		req, err = http.NewRequest("POST", "https://api.anthropic.com/v1/messages", strings.NewReader(`{"model":"claude-sonnet-4-20250514","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`))
-		if err != nil {
-			return err
-		}
-		req.Header.Set("x-api-key", key)
-		req.Header.Set("anthropic-version", "2023-06-01")
-		req.Header.Set("content-type", "application/json")
-	case "openai":
-		req, err = http.NewRequest("GET", "https://api.openai.com/v1/models", nil)
-		if err != nil {
-			return err
-		}
-		req.Header.Set("Authorization", "Bearer "+key)
-	case "google":
-		req, err = http.NewRequest("GET", "https://generativelanguage.googleapis.com/v1beta/openai/models", nil)
-		if err != nil {
-			return err
-		}
-		req.Header.Set("Authorization", "Bearer "+key)
-	default:
+	probe := quickstartProviderProbe(provider)
+	if probe == nil {
 		return fmt.Errorf("unsupported provider: %s", provider)
+	}
+	var body io.Reader
+	if probe.Body != "" {
+		body = strings.NewReader(probe.Body)
+	}
+	req, err = http.NewRequest(probe.Method, probe.URL, body)
+	if err != nil {
+		return err
+	}
+
+	authHeader := "Authorization"
+	authPrefix := "Bearer "
+	if doc, _, derr := providercatalog.Get(provider); derr == nil && doc.Routing != nil {
+		if header, ok := doc.Routing["auth_header"].(string); ok && strings.TrimSpace(header) != "" {
+			authHeader = header
+		}
+		if prefix, ok := doc.Routing["auth_prefix"].(string); ok {
+			authPrefix = prefix
+		}
+	}
+	req.Header.Set(authHeader, authPrefix+key)
+	for header, value := range probe.Headers {
+		req.Header.Set(header, value)
 	}
 
 	resp, err := client.Do(req)
@@ -294,9 +375,12 @@ func validateAPIKey(provider, key string) error {
 	_, _ = io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 
+	for _, status := range probe.SuccessStatuses {
+		if resp.StatusCode == status {
+			return nil
+		}
+	}
 	switch {
-	case resp.StatusCode == 200, resp.StatusCode == 429:
-		return nil
 	case resp.StatusCode == 401:
 		return fmt.Errorf("invalid API key (HTTP 401)")
 	default:
@@ -368,15 +452,12 @@ func runQuickstart(opts quickstartOptions) error {
 		providerName = normalizeProvider(detectProvider())
 	}
 	if providerName != "" && !isSupportedQuickstartProvider(providerName) {
-		return fmt.Errorf("unsupported provider %q; use anthropic, openai, or google", providerName)
+		return fmt.Errorf("unsupported provider %q; use one of: %s", providerName, supportedQuickstartProviderList())
 	}
 
 	if providerName != "" && apiKey == "" && !providerExplicit {
 		// Provider already configured, no new key needed
-		displayName := providerDisplayNames[providerName]
-		if displayName == "" {
-			displayName = providerName
-		}
+		displayName := quickstartProviderDisplayName(providerName)
 		fmt.Printf("  %s provider        %s already configured\n", qsGreen.Render("✓"), displayName)
 	} else {
 		needsPrompt = shouldPromptForQuickstartKey(providerName, apiKey, providerExplicit)
@@ -387,7 +468,7 @@ func runQuickstart(opts quickstartOptions) error {
 			providerName = promptProvider()
 		}
 		if providerName != "" && !isSupportedQuickstartProvider(providerName) {
-			return fmt.Errorf("unsupported provider %q; use anthropic, openai, or google", providerName)
+			return fmt.Errorf("unsupported provider %q; use one of: %s", providerName, supportedQuickstartProviderList())
 		}
 
 		if apiKey != "" {
@@ -476,10 +557,7 @@ func runQuickstart(opts quickstartOptions) error {
 	}
 
 	if needsPrompt {
-		displayName := providerDisplayNames[providerName]
-		if displayName == "" {
-			displayName = providerName
-		}
+		displayName := quickstartProviderDisplayName(providerName)
 		fmt.Printf("  %s provider        %s\n", qsGreen.Render("✓"), displayName)
 	}
 
@@ -576,7 +654,7 @@ func runQuickstart(opts quickstartOptions) error {
 
 	// Phase 3b: Install bundled provider routing into the local core config.
 	if providerName != "" {
-		if err := providercatalog.Install(cfg.Home, providerName); err != nil {
+		if err := installBundledProviderRouting(cfg.Home, providerName, ""); err != nil {
 			fmt.Printf("  %s provider        install failed: %s\n", qsRed.Render("✗"), err)
 			return fmt.Errorf("install provider routing: %w", err)
 		}
@@ -758,6 +836,29 @@ func runQuickstart(opts quickstartOptions) error {
 	}
 
 	return nil
+}
+
+func installBundledProviderRouting(home, name, apiBase string) error {
+	_, data, err := providercatalog.Get(name)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(apiBase) != "" {
+		var doc map[string]interface{}
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return fmt.Errorf("parse provider %q: %w", name, err)
+		}
+		routing, _ := doc["routing"].(map[string]interface{})
+		if routing == nil {
+			return fmt.Errorf("provider %q has no routing block", name)
+		}
+		routing["api_base"] = strings.TrimSpace(apiBase)
+		data, err = yaml.Marshal(doc)
+		if err != nil {
+			return fmt.Errorf("marshal provider %q: %w", name, err)
+		}
+	}
+	return hub.MergeProviderRouting(home, name, data)
 }
 
 func streamDemoResponse(client *apiclient.Client, agentName, task string) (err error) {

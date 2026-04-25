@@ -175,9 +175,6 @@ func (r *RoutingConfig) Validate() error {
 	}
 
 	for name, p := range r.Providers {
-		if name == "gemini" {
-			return fmt.Errorf("providers.gemini is not supported; use provider principal google with api_format gemini")
-		}
 		pc := p // copy so we can take address
 		if err := pc.Validate(); err != nil {
 			return fmt.Errorf("providers.%s: %w", name, err)

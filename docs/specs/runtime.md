@@ -1,10 +1,24 @@
 ## What This Document Covers
 
-The specification for a general-purpose, ASK-compliant agent runtime. This is the contract between Agency's enforcement infrastructure and the process that runs inside the workspace container. Any conforming runtime — regardless of implementation language — can be started by Agency and operate under its security guarantees.
+The specification for a general-purpose, ASK-compliant agent runtime. This is
+the contract between Agency's enforcement infrastructure and the process that
+runs inside the workspace container. Any conforming runtime — regardless of
+implementation language — can be started by Agency and operate under its
+security guarantees.
 
 The runtime is to agents what a container runtime (runc, crun) is to containers: a minimal, correct execution engine that handles lifecycle, resource management, and interface contracts while staying out of the way of the workload.
 
-> **Status:** Design specification. The body runtime (Python, `agency/images/body/body.py`) is the sole runtime implementation and has been aligned to this spec. Streaming, parallel tool execution, LLM-based context summarization, persistent memory, and crash recovery are all implemented.
+> **Status:** Design specification. The body runtime (Python,
+> `agency/images/body/body.py`) is the sole runtime implementation and has been
+> aligned to this spec. Streaming, parallel tool execution, LLM-based context
+> summarization, persistent memory, and crash recovery are all implemented.
+>
+> Current implementation note: the target is a world-class agent runtime in its
+> own right. The body runtime is not there yet. One major reason is that
+> governance-first PACT concerns have shaped too much of the implementation too
+> early. The intended direction is to strengthen the runtime as an agent runtime
+> independently, with PACT acting as an execution-governance protocol layered
+> onto that capable runtime rather than compensating for weak core execution.
 
 ---
 
@@ -15,6 +29,12 @@ The runtime is to agents what a container runtime (runc, crun) is to containers:
 The runtime is the autonomic nervous system. It handles what every agent needs regardless of purpose: talking to the LLM, dispatching tools, managing context, emitting signals, staying alive. It does not contain business logic, personality, domain knowledge, or opinions about how to solve problems.
 
 Everything that makes an agent distinct — identity, constraints, skills, tools, memory — arrives as mounted configuration. The runtime reads and executes; it never generates governance.
+
+The runtime should be excellent even before governance-specific execution
+protocols are layered in. Tool use, planning, recovery, context handling,
+delegation, long-running execution, and artifact handling are runtime quality
+concerns in their own right; they are not “solved” merely because a governance
+protocol can block bad outcomes later.
 
 ### Language and Performance
 
@@ -330,7 +350,7 @@ All runtime configuration arrives via environment variables and mounted files. T
 |---|---|---|
 | `AGENCY_CONFIG_DIR` | `/agency` | Root for mounted config files |
 | `AGENCY_WORKSPACE` | `/workspace` | Workspace root path |
-| `AGENCY_MODEL` | `claude-sonnet` | Model identifier for LLM calls |
+| `AGENCY_MODEL` | `standard` | Model alias or identifier for LLM calls |
 | `AGENCY_ENFORCER_URL` | `http://enforcer:18080/v1` | Enforcer proxy base URL |
 | `AGENCY_AGENT_NAME` | (required) | Agent name for signals and logging |
 | `AGENCY_MAX_TURNS` | `50` | Maximum turns per task |
@@ -338,7 +358,7 @@ All runtime configuration arrives via environment variables and mounted files. T
 | `AGENCY_CONTEXT_THRESHOLD` | `0.7` | Fraction of window that triggers summarization |
 | `AGENCY_HEARTBEAT_INTERVAL` | `30` | Seconds between heartbeats |
 | `AGENCY_LLM_TIMEOUT` | `120` | Seconds before LLM request times out |
-| `OPENAI_API_KEY` | (required) | Scoped key for enforcer authentication |
+| `AGENCY_LLM_API_KEY` | (required) | Scoped key for enforcer-mediated LLM authentication |
 
 ### Mounted File Discovery
 

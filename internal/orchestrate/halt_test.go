@@ -17,7 +17,7 @@ func TestHaltControllerResumeUsesRuntimeSupervisor(t *testing.T) {
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("uuid: ag_123\nmodel: gpt-5-mini\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("uuid: ag_123\nmodel: standard\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(agentDir, "constraints.yaml"), []byte("agent: alice\n"), 0o644); err != nil {

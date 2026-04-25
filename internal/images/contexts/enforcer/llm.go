@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -194,7 +193,8 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isAnthropic := providerName == "anthropic"
+	provider := lh.routing.Providers[lh.routing.Models[modelAlias].Provider]
+	adapter := providerAdapterFor(provider)
 
 	// Acquire rate limit slot if analysis client is configured
 	if lh.analysis != nil {
@@ -220,34 +220,17 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Determine target URL from request path
-	// The path after /v1/ determines the endpoint
-	// For Anthropic, always use the resolved URL (/messages)
-	if !isAnthropic {
-		path := r.URL.Path
-		if strings.HasPrefix(path, "/v1/") {
-			endpoint := path[3:] // strip /v1, keep /chat/completions etc
-			base := strings.TrimRight(lh.routing.Providers[lh.routing.Models[modelAlias].Provider].APIBase, "/")
-			targetURL = base + endpoint
-		}
-	}
-
-	// Rewrite model in request body
-	reqBody["model"] = providerModel
-	modifiedBody, err := json.Marshal(reqBody)
+	prepared, err := adapter.PrepareRequest(providerRequestContext{
+		RequestPath:   r.URL.Path,
+		TargetURL:     targetURL,
+		ProviderName:  providerName,
+		ProviderModel: providerModel,
+		Provider:      provider,
+		Body:          reqBody,
+	})
 	if err != nil {
-		http.Error(w, `{"error":"failed to rewrite request body"}`, http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusBadRequest)
 		return
-	}
-
-	// For Anthropic: translate request body to Anthropic format
-	if isAnthropic {
-		provider := lh.routing.Providers[lh.routing.Models[modelAlias].Provider]
-		modifiedBody, err = translateToAnthropic(modifiedBody, provider.CachingEnabled())
-		if err != nil {
-			http.Error(w, `{"error":"failed to translate request for Anthropic"}`, http.StatusInternalServerError)
-			return
-		}
 	}
 
 	// Determine if streaming
@@ -256,7 +239,7 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Build and send the upstream request with retries
 	var resp *http.Response
 	for attempt := 0; attempt < llmMaxRetries; attempt++ {
-		outReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, bytes.NewReader(modifiedBody))
+		outReq, err := http.NewRequestWithContext(r.Context(), r.Method, prepared.TargetURL, bytes.NewReader(prepared.Body))
 		if err != nil {
 			http.Error(w, `{"error":"failed to create upstream request"}`, http.StatusInternalServerError)
 			return
@@ -265,10 +248,7 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Set content type
 		outReq.Header.Set("Content-Type", "application/json")
 
-		// Add Anthropic-specific headers
-		if isAnthropic {
-			outReq.Header.Set("anthropic-version", "2023-06-01")
-		}
+		adapter.AddHeaders(outReq)
 
 		// Propagate correlation ID
 		if correlationID != "" {
@@ -286,6 +266,7 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			lh.audit.Log(AuditEntry{
 				Type:          "LLM_DIRECT_ERROR",
 				Model:         modelAlias,
+				Provider:      providerName,
 				ProviderModel: providerModel,
 				CorrelationID: correlationID,
 				Error:         err.Error(),
@@ -304,24 +285,19 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		lh.reportRateLimitHeaders(resp, providerName)
 	}
 
-	// Relay response
-	if isStream {
-		if isAnthropic {
-			lh.relayAnthropicStream(w, resp, modelAlias, providerModel, correlationID, start)
-		} else {
-			lh.relayStream(w, resp, modelAlias, providerModel, correlationID, start)
-		}
-	} else {
-		if isAnthropic {
-			lh.relayAnthropicBuffered(w, resp, modelAlias, providerModel, correlationID, start)
-		} else {
-			lh.relayBuffered(w, resp, modelAlias, providerModel, correlationID, start)
-		}
-	}
+	adapter.RelayResponse(lh, w, providerRelayContext{
+		Response:      resp,
+		ModelAlias:    modelAlias,
+		ProviderName:  providerName,
+		ProviderModel: providerModel,
+		CorrelationID: correlationID,
+		Start:         start,
+		Stream:        isStream,
+	})
 }
 
 // relayBuffered relays a non-streaming LLM response.
-func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID string, start time.Time) {
+func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerName, providerModel, correlationID string, start time.Time) {
 	// Copy safe headers
 	for k, vv := range resp.Header {
 		if safeResponseHeaders[strings.ToLower(k)] {
@@ -360,6 +336,7 @@ func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, 
 	lh.audit.Log(AuditEntry{
 		Type:                 auditType,
 		Model:                modelAlias,
+		Provider:             providerName,
 		ProviderModel:        providerModel,
 		CorrelationID:        correlationID,
 		Status:               resp.StatusCode,
@@ -379,7 +356,7 @@ func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, 
 }
 
 // relayStream relays an SSE streaming LLM response.
-func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID string, start time.Time) {
+func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerName, providerModel, correlationID string, start time.Time) {
 	// Copy safe stream headers
 	for k, vv := range resp.Header {
 		if safeStreamHeaders[strings.ToLower(k)] {
@@ -425,6 +402,7 @@ func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, mo
 	lh.audit.Log(AuditEntry{
 		Type:          auditType,
 		Model:         modelAlias,
+		Provider:      providerName,
 		ProviderModel: providerModel,
 		CorrelationID: correlationID,
 		Status:        resp.StatusCode,
@@ -436,130 +414,6 @@ func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, mo
 
 	// Report usage for budget tracking
 	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, 0, resp.StatusCode, time.Since(start).Milliseconds())
-}
-
-// relayAnthropicBuffered relays a non-streaming Anthropic response, translating
-// it back to OpenAI format before sending to the client.
-func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID string, start time.Time) {
-	body, _ := io.ReadAll(resp.Body)
-
-	// Translate Anthropic response to OpenAI format
-	translated, err := translateFromAnthropic(body)
-	if err != nil {
-		// Fallback: relay raw response
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(resp.StatusCode)
-		w.Write(body)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	for k, vv := range resp.Header {
-		if safeResponseHeaders[strings.ToLower(k)] && strings.ToLower(k) != "content-type" && strings.ToLower(k) != "content-length" {
-			for _, v := range vv {
-				w.Header().Add(k, v)
-			}
-		}
-	}
-	w.WriteHeader(resp.StatusCode)
-	w.Write(translated)
-
-	// Extract usage from translated response for audit
-	var respBody map[string]interface{}
-	inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens := 0, 0, 0, 0
-	if json.Unmarshal(translated, &respBody) == nil {
-		if usage, ok := respBody["usage"].(map[string]interface{}); ok {
-			if v, ok := usage["prompt_tokens"].(float64); ok {
-				inputTokens = int(v)
-			}
-			if v, ok := usage["completion_tokens"].(float64); ok {
-				outputTokens = int(v)
-			}
-			cacheCreationTokens = intFromJSON(usage["cache_creation_input_tokens"])
-			cacheReadTokens = intFromJSON(usage["cache_read_input_tokens"])
-		}
-	}
-
-	lh.audit.Log(AuditEntry{
-		Type:                     "LLM_DIRECT",
-		Model:                    modelAlias,
-		ProviderModel:            providerModel,
-		CorrelationID:            correlationID,
-		Status:                   resp.StatusCode,
-		InputTokens:              inputTokens,
-		OutputTokens:             outputTokens,
-		CachedTokens:             cacheReadTokens,
-		CacheCreationInputTokens: cacheCreationTokens,
-		CacheReadInputTokens:     cacheReadTokens,
-		DurationMs:               time.Since(start).Milliseconds(),
-	})
-	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
-
-	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, cacheReadTokens, resp.StatusCode, time.Since(start).Milliseconds())
-
-	// XPIA scan on response content
-	lh.scanContent(string(translated), "response")
-}
-
-// relayAnthropicStream relays an Anthropic SSE streaming response, translating
-// each event to OpenAI chat.completion.chunk format before sending to the client.
-func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID string, start time.Time) {
-	for k, vv := range resp.Header {
-		if safeStreamHeaders[strings.ToLower(k)] {
-			for _, v := range vv {
-				w.Header().Add(k, v)
-			}
-		}
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.WriteHeader(resp.StatusCode)
-
-	flusher, canFlush := w.(http.Flusher)
-	translator := newStreamTranslator()
-
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "event:") || line == "" {
-			continue
-		}
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		data := line[6:]
-
-		chunks := translator.translateEvent(data)
-		for _, chunk := range chunks {
-			fmt.Fprintf(w, "data: %s\n\n", chunk)
-			if canFlush {
-				flusher.Flush()
-			}
-		}
-	}
-
-	fmt.Fprint(w, "data: [DONE]\n\n")
-	if canFlush {
-		flusher.Flush()
-	}
-
-	lh.audit.Log(AuditEntry{
-		Type:                     "LLM_DIRECT_STREAM",
-		Model:                    modelAlias,
-		ProviderModel:            providerModel,
-		CorrelationID:            correlationID,
-		Status:                   resp.StatusCode,
-		InputTokens:              translator.inputTokens,
-		OutputTokens:             translator.outputTokens,
-		CachedTokens:             translator.cacheRead,
-		CacheCreationInputTokens: translator.cacheCreation,
-		CacheReadInputTokens:     translator.cacheRead,
-		DurationMs:               time.Since(start).Milliseconds(),
-	})
-	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
-
-	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, translator.inputTokens, translator.outputTokens, translator.cacheRead, resp.StatusCode, time.Since(start).Milliseconds())
 }
 
 // acquireRateSlot blocks until a rate limit slot is available from the analysis

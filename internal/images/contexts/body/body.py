@@ -386,12 +386,9 @@ class Body:
 
         self.proxy_url = os.environ.get("AGENCY_ENFORCER_PROXY_URL", "http://enforcer:3128")
         self.control_url = os.environ.get("AGENCY_ENFORCER_CONTROL_URL", "http://enforcer:8081")
-        self.enforcer_url = os.environ.get(
-            "AGENCY_ENFORCER_URL",
-            os.environ.get("OPENAI_API_BASE", f"{self.proxy_url}/v1"),
-        )
-        self.model = os.environ.get("AGENCY_MODEL", "claude-sonnet")
-        self.admin_model = os.environ.get("AGENCY_ADMIN_MODEL", self.model)
+        self.enforcer_url = os.environ.get("AGENCY_ENFORCER_URL", f"{self.proxy_url}/v1")
+        self.model = os.environ.get("AGENCY_MODEL", "standard")
+        self.admin_model = os.environ.get("AGENCY_ADMIN_MODEL", "fast")
         self.agent_name = os.environ.get("AGENCY_AGENT_NAME", "agent")
         self.context_window = int(os.environ.get(
             "AGENCY_CONTEXT_WINDOW", str(DEFAULT_CONTEXT_WINDOW)
@@ -2079,7 +2076,7 @@ class Body:
         headers = {"X-Correlation-Id": correlation_id}
         if self._current_task_id:
             headers["X-Agency-Task-Id"] = self._current_task_id
-        api_key = os.environ.get("OPENAI_API_KEY")
+        api_key = os.environ.get("AGENCY_LLM_API_KEY")
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
@@ -2410,7 +2407,7 @@ class Body:
         try:
             url = f"{self.enforcer_url}/chat/completions"
             headers = {}
-            api_key = os.environ.get("OPENAI_API_KEY")
+            api_key = os.environ.get("AGENCY_LLM_API_KEY")
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
 
@@ -3081,7 +3078,7 @@ class Body:
                 "properties": {
                     "task": {"type": "string", "description": "The specific task for the Meeseeks to complete"},
                     "tools": {"type": "array", "items": {"type": "string"}, "description": "Subset of your tools to grant (defaults to all)"},
-                    "model": {"type": "string", "description": "Model to use (defaults to haiku)"},
+                    "model": {"type": "string", "description": "Model alias to use (defaults to fast)"},
                     "budget": {"type": "number", "description": "USD budget limit (defaults to mission config)"},
                     "channel": {"type": "string", "description": "Channel for results"},
                 },

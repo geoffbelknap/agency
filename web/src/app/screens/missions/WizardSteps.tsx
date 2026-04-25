@@ -323,7 +323,7 @@ export function StepRequirements({ state, onChange }: StepProps) {
             <div className="space-y-1.5">
               <label className={labelClass}>Model</label>
               <div className="flex gap-1">
-                {(['haiku', 'sonnet'] as const).map((m) => (
+                {(['fast', 'standard', 'frontier'] as const).map((m) => (
                   <Button
                     key={m}
                     variant={state.meeseeksModel === m ? 'default' : 'outline'}

@@ -13,9 +13,9 @@ PROXY_INTAKE_PORT="${AGENCY_SETUP_GATEWAY_PROXY_INTAKE_PORT:-18305}"
 KNOWLEDGE_PORT="${AGENCY_SETUP_KNOWLEDGE_PORT:-18314}"
 INTAKE_PORT="${AGENCY_SETUP_INTAKE_PORT:-18315}"
 WEB_FETCH_PORT="${AGENCY_SETUP_WEB_FETCH_PORT:-18316}"
-PROVIDER=""
-PROVIDER_LABEL="${AGENCY_SETUP_PROVIDER_LABEL:-Google Gemini}"
-PROVIDER_CREDENTIAL="${AGENCY_SETUP_PROVIDER_CREDENTIAL:-GEMINI_API_KEY}"
+PROVIDER="${AGENCY_SETUP_PROVIDER:-}"
+PROVIDER_LABEL="${AGENCY_SETUP_PROVIDER_LABEL:-$PROVIDER}"
+PROVIDER_CREDENTIAL="${AGENCY_SETUP_PROVIDER_CREDENTIAL:-}"
 PROVIDER_API_KEY="${AGENCY_SETUP_PROVIDER_API_KEY:-}"
 KEEP_HOME="${AGENCY_SETUP_KEEP_HOME:-0}"
 KEEP_HOME_ON_FAILURE="${AGENCY_SETUP_KEEP_HOME_ON_FAILURE:-1}"
@@ -38,10 +38,10 @@ Options:
   -h, --help      Show this help
 
 Environment:
-  AGENCY_SETUP_PROVIDER              Provider name (default: google)
-  AGENCY_SETUP_PROVIDER_LABEL        Provider button label (default: Google Gemini)
+  AGENCY_SETUP_PROVIDER              Provider name to select in setup
+  AGENCY_SETUP_PROVIDER_LABEL        Provider button label (defaults to provider name)
   AGENCY_SETUP_PROVIDER_API_KEY      API key to enter in the wizard
-  AGENCY_SETUP_PROVIDER_CREDENTIAL   Source credential to copy when API key is unset (default: GEMINI_API_KEY)
+  AGENCY_SETUP_PROVIDER_CREDENTIAL   Source credential to copy when API key is unset
   AGENCY_SOURCE_HOME                 Source home for credential copy (default: ~/.agency)
   AGENCY_SETUP_KEEP_HOME=1           Preserve disposable home
   AGENCY_SETUP_KEEP_HOME_ON_FAILURE=1
@@ -304,16 +304,25 @@ fi
 
 load_workspace_env
 
-if [ -z "$PROVIDER_API_KEY" ]; then
-  PROVIDER_API_KEY="${!PROVIDER_CREDENTIAL:-}"
+if [ -z "$PROVIDER" ]; then
+  echo "Set AGENCY_SETUP_PROVIDER to the provider adapter name to exercise." >&2
+  exit 1
+fi
+if [ -z "$PROVIDER_LABEL" ]; then
+  PROVIDER_LABEL="$PROVIDER"
 fi
 if [ -z "$PROVIDER_API_KEY" ]; then
-  if [ -d "$SOURCE_HOME" ]; then
+  if [ -n "$PROVIDER_CREDENTIAL" ]; then
+    PROVIDER_API_KEY="${!PROVIDER_CREDENTIAL:-}"
+  fi
+fi
+if [ -z "$PROVIDER_API_KEY" ]; then
+  if [ -n "$PROVIDER_CREDENTIAL" ] && [ -d "$SOURCE_HOME" ]; then
     PROVIDER_API_KEY="$(extract_credential_value)"
   fi
 fi
 if [ -z "$PROVIDER_API_KEY" ] || [ "$PROVIDER_API_KEY" = "[redacted]" ]; then
-  echo "No provider API key available. Set AGENCY_SETUP_PROVIDER_API_KEY or store $PROVIDER_CREDENTIAL in $SOURCE_HOME." >&2
+  echo "No provider API key available. Set AGENCY_SETUP_PROVIDER_API_KEY or set AGENCY_SETUP_PROVIDER_CREDENTIAL to a stored credential in $SOURCE_HOME." >&2
   exit 1
 fi
 

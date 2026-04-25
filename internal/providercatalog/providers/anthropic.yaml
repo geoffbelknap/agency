@@ -2,6 +2,17 @@ name: anthropic
 display_name: Anthropic
 description: Claude models — Opus, Sonnet, Haiku
 category: cloud
+quickstart:
+  selectable: true
+  order: 2
+  probe:
+    method: POST
+    url: https://api.anthropic.com/v1/messages
+    headers:
+      anthropic-version: "2023-06-01"
+      content-type: application/json
+    body: '{"model":"claude-sonnet-4-20250514","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}'
+    success_statuses: [200, 429]
 credential:
   name: anthropic-api-key
   label: API Key
@@ -9,6 +20,7 @@ credential:
   api_key_url: https://console.anthropic.com/settings/keys
 routing:
   api_base: https://api.anthropic.com/v1
+  api_format: anthropic
   auth_header: x-api-key
   auth_prefix: ""
   models:

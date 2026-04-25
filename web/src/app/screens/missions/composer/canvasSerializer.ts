@@ -77,7 +77,7 @@ export function canvasToWizardState(doc: CanvasDocument): WizardState {
     health: { indicators: [], business_hours: '' },
     meeseeks: !!(agentConfig.meeseeks),
     meeseeksLimit: (agentConfig.meeseeks_limit as number) || 3,
-    meeseeksModel: (agentConfig.meeseeks_model as 'haiku' | 'sonnet') || 'haiku',
+    meeseeksModel: (agentConfig.meeseeks_model as 'fast' | 'standard' | 'frontier') || 'fast',
     meeseeksBudget: (agentConfig.meeseeks_budget as number) || 0.5,
     assignTarget: '',
     assignType: 'agent',

@@ -562,27 +562,25 @@ func TestUpgradePreservesInstalledProviders(t *testing.T) {
 	home := t.TempDir()
 	mgr := NewManager(home)
 
-	// Hub cache with Anthropic + OpenAI defaults
+	// Hub cache with provider defaults.
 	hubRoutingYAML := `version: "0.1"
 providers:
-  anthropic:
-    api_base: https://api.anthropic.com
-    auth_env: ANTHROPIC_API_KEY
-  openai:
-    api_base: https://api.openai.com
-    auth_env: OPENAI_API_KEY
+  provider-a:
+    api_base: https://provider-a.example.com
+  provider-b:
+    api_base: https://provider-b.example.com
 models:
-  claude-sonnet:
-    provider: anthropic
+  standard:
+    provider: provider-a
     capabilities: [tools, vision, streaming]
-  gpt-4o:
-    provider: openai
+  fast:
+    provider: provider-b
     capabilities: [tools, vision, streaming]
 tiers:
   standard:
-    - model: claude-sonnet
+    - model: standard
       preference: 0
-    - model: gpt-4o
+    - model: fast
       preference: 1
 settings:
   default_tier: standard
@@ -620,7 +618,6 @@ settings:
 version: "1.0.0"
 routing:
   api_base: https://api.together.xyz
-  auth_env: OPENAI_API_KEY
   models:
     together-llama:
       capabilities: [tools, streaming]
@@ -675,19 +672,19 @@ routing:
 	}
 
 	// Assert: default providers still present and match hub cache
-	if _, ok := providers["anthropic"]; !ok {
-		t.Errorf("anthropic provider missing after upgrade")
+	if _, ok := providers["provider-a"]; !ok {
+		t.Errorf("provider-a missing after upgrade")
 	}
-	if _, ok := providers["openai"]; !ok {
-		t.Errorf("openai provider missing after upgrade")
+	if _, ok := providers["provider-b"]; !ok {
+		t.Errorf("provider-b missing after upgrade")
 	}
 
 	// Assert: default models still present
-	if _, ok := models["claude-sonnet"]; !ok {
-		t.Errorf("claude-sonnet model missing after upgrade")
+	if _, ok := models["standard"]; !ok {
+		t.Errorf("standard model missing after upgrade")
 	}
-	if _, ok := models["gpt-4o"]; !ok {
-		t.Errorf("gpt-4o model missing after upgrade")
+	if _, ok := models["fast"]; !ok {
+		t.Errorf("fast model missing after upgrade")
 	}
 }
 
@@ -695,19 +692,18 @@ func TestUpgradeDoesNotPreserveRemovedProviders(t *testing.T) {
 	home := t.TempDir()
 	mgr := NewManager(home)
 
-	// Hub cache with just anthropic
+	// Hub cache with just provider-a.
 	hubRoutingYAML := `version: "0.1"
 providers:
-  anthropic:
-    api_base: https://api.anthropic.com
-    auth_env: ANTHROPIC_API_KEY
+  provider-a:
+    api_base: https://provider-a.example.com
 models:
-  claude-sonnet:
-    provider: anthropic
+  standard:
+    provider: provider-a
     capabilities: [tools, vision, streaming]
 tiers:
   standard:
-    - model: claude-sonnet
+    - model: standard
       preference: 0
 settings:
   default_tier: standard
@@ -724,22 +720,20 @@ settings:
 	// Write routing.yaml that has a stale provider "stale-provider" (NOT in registry)
 	staleRoutingYAML := `version: "0.1"
 providers:
-  anthropic:
-    api_base: https://api.anthropic.com
-    auth_env: ANTHROPIC_API_KEY
+  provider-a:
+    api_base: https://provider-a.example.com
   stale-provider:
     api_base: https://api.stale.com
-    auth_env: OPENAI_API_KEY
 models:
-  claude-sonnet:
-    provider: anthropic
+  standard:
+    provider: provider-a
     capabilities: [tools, vision, streaming]
   stale-model:
     provider: stale-provider
     capabilities: [tools]
 tiers:
   standard:
-    - model: claude-sonnet
+    - model: standard
       preference: 0
     - model: stale-model
       preference: 1
@@ -770,12 +764,12 @@ settings:
 		t.Errorf("stale-model should have been removed after upgrade, but found in routing.yaml")
 	}
 
-	// Verify anthropic is still there
+	// Verify provider-a is still there
 	var cfg map[string]interface{}
 	yaml.Unmarshal(postData, &cfg)
 	providers, _ := cfg["providers"].(map[string]interface{})
-	if _, ok := providers["anthropic"]; !ok {
-		t.Errorf("anthropic provider should still be present after upgrade")
+	if _, ok := providers["provider-a"]; !ok {
+		t.Errorf("provider-a should still be present after upgrade")
 	}
 }
 
@@ -787,22 +781,22 @@ func TestDiscoverFindsProviderComponent(t *testing.T) {
 	os.WriteFile(filepath.Join(home, "config.yaml"), []byte("hub:\n  sources:\n    - name: default\n      url: https://example.com\n"), 0644)
 
 	// Create provider cache dir and YAML using provider: as the identifier key
-	providerDir := filepath.Join(home, "hub-cache", "default", "providers", "anthropic")
+	providerDir := filepath.Join(home, "hub-cache", "default", "providers", "provider-a")
 	os.MkdirAll(providerDir, 0755)
 	os.WriteFile(filepath.Join(providerDir, "provider.yaml"),
-		[]byte("provider: anthropic\nversion: \"1.0.0\"\ndescription: Anthropic Claude provider\n"), 0644)
+		[]byte("provider: provider-a\nversion: \"1.0.0\"\ndescription: Provider A\n"), 0644)
 
 	components := mgr.discover()
 
 	var found *Component
 	for i := range components {
-		if components[i].Kind == "provider" && components[i].Name == "anthropic" {
+		if components[i].Kind == "provider" && components[i].Name == "provider-a" {
 			found = &components[i]
 			break
 		}
 	}
 	if found == nil {
-		t.Fatalf("expected to find provider component 'anthropic', got: %+v", components)
+		t.Fatalf("expected to find provider component 'provider-a', got: %+v", components)
 	}
 	if found.Version != "1.0.0" {
 		t.Errorf("expected version 1.0.0, got %s", found.Version)

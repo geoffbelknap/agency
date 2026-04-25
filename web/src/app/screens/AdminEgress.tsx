@@ -249,7 +249,7 @@ export function AdminEgress() {
     try {
       setMutating('approve');
       const next = await api.admin.approveEgressDomain(selectedAgent, newDomain, newReason);
-      setEgressData(next);
+      setEgressData(next.egress);
       setNewDomain('');
       setNewReason('');
       toast.success(`Allowed ${newDomain.trim()} for ${selectedAgent}`);
@@ -265,7 +265,7 @@ export function AdminEgress() {
     try {
       setMutating(`revoke:${domain}`);
       const next = await api.admin.revokeEgressDomain(selectedAgent, domain);
-      setEgressData(next);
+      setEgressData(next.egress);
       toast.success(`Revoked ${domain} from ${selectedAgent}`);
     } catch (e: any) {
       toast.error(e.message || 'Failed to revoke host');
@@ -279,7 +279,7 @@ export function AdminEgress() {
     try {
       setMutating('mode');
       const next = await api.admin.updateEgressMode(selectedAgent, mode);
-      setEgressData(next);
+      setEgressData(next.egress);
       toast.success(`Set ${selectedAgent} egress mode to ${mode}`);
     } catch (e: any) {
       toast.error(e.message || 'Failed to update egress mode');

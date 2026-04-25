@@ -412,10 +412,8 @@ class BuiltinToolRegistry:
     # Environment variables stripped from subprocess execution to prevent
     # credential leakage via agent-directed commands like `env` or `echo $KEY`.
     _SENSITIVE_ENV_VARS = frozenset({
-        "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY",
         "LLM_PROXY_KEY",
         "API_KEY", "SECRET_KEY", "AWS_SECRET_ACCESS_KEY",
-        "AGENCY_LLM_API_KEY",
     })
 
     def _safe_env(self) -> dict[str, str]:
@@ -423,7 +421,9 @@ class BuiltinToolRegistry:
         return {
             k: v for k, v in os.environ.items()
             if k not in self._SENSITIVE_ENV_VARS
-            and not k.endswith("_SECRET") and not k.endswith("_TOKEN")
+            and not k.endswith("_API_KEY")
+            and not k.endswith("_SECRET")
+            and not k.endswith("_TOKEN")
         }
 
     def _execute_command(self, args: dict) -> str:

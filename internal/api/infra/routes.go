@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"log/slog"
 
+	"github.com/geoffbelknap/agency/internal/backendhealth"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/events"
@@ -20,14 +21,14 @@ import (
 
 // Deps holds the dependencies required by the infra module.
 type Deps struct {
-	Infra        *orchestrate.Infra
-	DC           *runtimehost.Client
-	DockerStatus *runtimehost.Status // may be nil
-	CredStore    *credstore.Store
-	EventBus     *events.Bus // may be nil
-	Config       *config.Config
-	Logger       *slog.Logger
-	Audit        *logs.Writer
+	Infra         *orchestrate.Infra
+	DC            *runtimehost.Client
+	BackendHealth backendhealth.Recorder // may be nil
+	CredStore     *credstore.Store
+	EventBus      *events.Bus // may be nil
+	Config        *config.Config
+	Logger        *slog.Logger
+	Audit         *logs.Writer
 }
 
 type handler struct {
@@ -64,6 +65,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 
 	r.Get("/api/v1/infra/providers", h.listProviders)
 	r.Get("/api/v1/infra/provider-tools", h.providerTools)
+	r.Post("/api/v1/infra/providers/{name}/verify", h.verifyProvider)
 	r.Post("/api/v1/infra/providers/{name}/install", h.installProvider)
 	r.Get("/api/v1/infra/setup/config", h.setupConfig)
 }
@@ -91,9 +93,9 @@ func (h *handler) containerBackendRequired(w http.ResponseWriter) bool {
 		})
 		return false
 	}
-	if h.deps.DockerStatus != nil && !h.deps.DockerStatus.Available() {
+	if h.deps.BackendHealth != nil && !h.deps.BackendHealth.Available() {
 		writeJSON(w, 503, map[string]string{
-			"error": "Docker is not available. Container operations are unavailable.",
+			"error": "Container backend is not available. Container operations are unavailable.",
 		})
 		return false
 	}

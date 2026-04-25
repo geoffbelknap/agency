@@ -1,5 +1,7 @@
 package authz
 
+import agencysecurity "github.com/geoffbelknap/agency/internal/security"
+
 type ConsentRequirement struct {
 	RequiredFor []string `json:"required_for,omitempty" yaml:"required_for,omitempty"`
 }
@@ -20,8 +22,4 @@ type Request struct {
 	Grants          []Grant `json:"grants,omitempty" yaml:"grants,omitempty"`
 }
 
-type Decision struct {
-	Allow         bool     `json:"allow"`
-	Reasons       []string `json:"reasons,omitempty"`
-	ConsentNeeded bool     `json:"consent_needed,omitempty"`
-}
+type Decision = agencysecurity.Decision

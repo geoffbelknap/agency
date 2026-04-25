@@ -471,7 +471,7 @@ When in doubt, start with `evaluation.enabled: false` — the criteria still app
 Evaluation results are stored in `~/.agency/missions/.evaluations/{mission_id}.jsonl`. Each line is a complete evaluation result:
 
 ```json
-{"task_id": "tsk-7f8e9d0c", "passed": true, "mode": "llm", "model_used": "claude-sonnet-4-20250514", "tokens_used": 847, "criteria_results": [...], "evaluated_at": "2026-03-27T14:30:00Z"}
+{"task_id": "tsk-7f8e9d0c", "passed": true, "mode": "llm", "model_used": "standard", "tokens_used": 847, "criteria_results": [...], "evaluated_at": "2026-03-27T14:30:00Z"}
 ```
 
 The gateway reads this file to serve the `/evaluations` API endpoint and compute aggregate pass rates. The file is append-only. Rotation is handled by the same log management that handles other `.jsonl` audit files.

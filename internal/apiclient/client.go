@@ -516,7 +516,7 @@ type InfraStatusResponse struct {
 	BuildID               string              `json:"build_id"`
 	GatewayURL            string              `json:"gateway_url"`
 	WebURL                string              `json:"web_url"`
-	Docker                string              `json:"docker,omitempty"`
+	ContainerBackend      string              `json:"container_backend,omitempty"`
 	Backend               string              `json:"backend,omitempty"`
 	BackendEndpoint       string              `json:"backend_endpoint,omitempty"`
 	BackendMode           string              `json:"backend_mode,omitempty"`

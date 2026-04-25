@@ -1,9 +1,9 @@
 """Pluggable embedding provider abstraction for the knowledge graph.
 
 Providers:
-  - NoOpProvider: no-op, returns empty vectors (default/fallback)
+  - NoOpProvider: no-op, returns empty vectors (disabled/fallback)
   - OllamaProvider: local model via agency-infra-embeddings
-  - OpenAIProvider: text-embedding-3-small/large via egress proxy
+  - OpenAIProvider: configurable OpenAI embeddings adapter via egress proxy
   - VoyageProvider: voyage-3-lite/voyage-3 via egress proxy
 
 Remote providers route through HTTPS_PROXY (egress) for credential swap
@@ -128,11 +128,14 @@ class OllamaProvider(EmbeddingProvider):
 
 
 class OpenAIProvider(EmbeddingProvider):
-    """Embedding via OpenAI API, routed through the egress proxy.
+    """Embedding via the configured OpenAI embedding adapter.
 
     Supported models and their dimensions:
       text-embedding-3-small  →  1536
       text-embedding-3-large  →  3072
+
+    Endpoint and credential env var are configurable so the knowledge service
+    depends on an embedding adapter contract, not a hardcoded platform provider.
     """
 
     _DIMENSIONS = {
@@ -140,20 +143,28 @@ class OpenAIProvider(EmbeddingProvider):
         "text-embedding-3-large": 3072,
     }
 
-    def __init__(self, model: str = "text-embedding-3-small") -> None:
+    def __init__(
+        self,
+        model: str = "text-embedding-3-small",
+        endpoint: str = "https://api.openai.com/v1/embeddings",
+        api_key_env: str = "OPENAI_API_KEY",
+        dimensions: Optional[int] = None,
+    ) -> None:
         self._model = model
+        self._endpoint = endpoint
+        self._dimensions = dimensions or self._DIMENSIONS.get(model, 1536)
         proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
         self._client = (
             httpx.Client(timeout=30, proxy=proxy)
             if proxy
             else httpx.Client(timeout=30)
         )
-        api_key = os.environ.get("OPENAI_API_KEY", "")
+        api_key = os.environ.get(api_key_env, "")
         self._headers = {"Authorization": f"Bearer {api_key}"}
 
     def embed(self, text: str) -> list[float]:
         resp = self._client.post(
-            "https://api.openai.com/v1/embeddings",
+            self._endpoint,
             headers=self._headers,
             json={"model": self._model, "input": text},
         )
@@ -164,7 +175,7 @@ class OpenAIProvider(EmbeddingProvider):
         if not texts:
             return []
         resp = self._client.post(
-            "https://api.openai.com/v1/embeddings",
+            self._endpoint,
             headers=self._headers,
             json={"model": self._model, "input": texts},
         )
@@ -175,7 +186,7 @@ class OpenAIProvider(EmbeddingProvider):
 
     @property
     def dimensions(self) -> int:
-        return self._DIMENSIONS.get(self._model, 1536)
+        return self._dimensions
 
     @property
     def name(self) -> str:
@@ -243,11 +254,14 @@ def create_provider(provider_name: Optional[str] = None) -> EmbeddingProvider:
     construction so the knowledge service always starts cleanly.
 
     Environment variables:
-      KNOWLEDGE_EMBED_PROVIDER  — provider name (none/ollama/openai/voyage)
+      KNOWLEDGE_EMBED_PROVIDER  — provider name (openai/none/ollama/voyage)
       KNOWLEDGE_EMBED_OLLAMA_MODEL — model name for Ollama
+      KNOWLEDGE_EMBED_OPENAI_MODEL — model name for OpenAI adapter
+      KNOWLEDGE_EMBED_OPENAI_ENDPOINT — endpoint for OpenAI adapter
+      KNOWLEDGE_EMBED_OPENAI_API_KEY_ENV — credential env var for OpenAI adapter
     """
     name = (
-        provider_name or os.environ.get("KNOWLEDGE_EMBED_PROVIDER", "none")
+        provider_name or os.environ.get("KNOWLEDGE_EMBED_PROVIDER", "openai")
     ).lower()
 
     try:
@@ -266,7 +280,21 @@ def create_provider(provider_name: Optional[str] = None) -> EmbeddingProvider:
             model = os.environ.get(
                 "KNOWLEDGE_EMBED_OPENAI_MODEL", "text-embedding-3-small"
             )
-            return OpenAIProvider(model=model)
+            endpoint = os.environ.get(
+                "KNOWLEDGE_EMBED_OPENAI_ENDPOINT",
+                "https://api.openai.com/v1/embeddings",
+            )
+            api_key_env = os.environ.get(
+                "KNOWLEDGE_EMBED_OPENAI_API_KEY_ENV", "OPENAI_API_KEY"
+            )
+            dimensions_raw = os.environ.get("KNOWLEDGE_EMBED_OPENAI_DIMENSIONS", "")
+            dimensions = int(dimensions_raw) if dimensions_raw else None
+            return OpenAIProvider(
+                model=model,
+                endpoint=endpoint,
+                api_key_env=api_key_env,
+                dimensions=dimensions,
+            )
 
         if name == "voyage":
             model = os.environ.get(

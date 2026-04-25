@@ -312,7 +312,7 @@ func TestAgentConfig_WithRequires(t *testing.T) {
 	cfg.Requires = AgentRequires{
 		Tools:        []string{"read_file"},
 		Capabilities: []string{"brave-search"},
-		Models:       []string{"claude-3-5-sonnet"},
+		Models:       []string{"standard"},
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("expected valid config with requires, got error: %v", err)

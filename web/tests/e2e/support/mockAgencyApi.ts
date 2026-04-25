@@ -85,7 +85,7 @@ const agentLogs: Record<string, unknown[]> = {
       timestamp: '2026-04-08T19:40:00Z',
       event: 'LLM_DIRECT',
       detail: 'Produced release summary',
-      model: 'claude-sonnet',
+      model: 'provider-a-standard',
       duration_ms: 1800,
       input_tokens: 800,
       output_tokens: 220,
@@ -97,7 +97,7 @@ const agentLogs: Record<string, unknown[]> = {
       timestamp: '2026-04-08T19:40:00Z',
       event: 'LLM_DIRECT',
       detail: 'Produced release summary',
-      model: 'claude-sonnet',
+      model: 'provider-a-standard',
       duration_ms: 1800,
       input_tokens: 800,
       output_tokens: 220,
@@ -361,17 +361,17 @@ const usageMetrics = {
     bob: { requests: 6, input_tokens: 10000, output_tokens: 3000, total_tokens: 13000, est_cost_usd: 0.11, errors: 1, avg_latency_ms: 1200 },
   },
   by_model: {
-    'claude-sonnet': { requests: 24, input_tokens: 42000, output_tokens: 11000, total_tokens: 53000, est_cost_usd: 0.42, errors: 1, avg_latency_ms: 980 },
+    'provider-a-standard': { requests: 24, input_tokens: 42000, output_tokens: 11000, total_tokens: 53000, est_cost_usd: 0.42, errors: 1, avg_latency_ms: 980 },
   },
   by_provider: {
-    anthropic: { requests: 24, input_tokens: 42000, output_tokens: 11000, total_tokens: 53000, est_cost_usd: 0.42, errors: 1, avg_latency_ms: 980 },
+    'provider-a': { requests: 24, input_tokens: 42000, output_tokens: 11000, total_tokens: 53000, est_cost_usd: 0.42, errors: 1, avg_latency_ms: 980 },
   },
   by_source: {
     missions: { requests: 10, input_tokens: 21000, output_tokens: 6000, total_tokens: 27000, est_cost_usd: 0.23, errors: 0, avg_latency_ms: 900 },
     channels: { requests: 14, input_tokens: 21000, output_tokens: 5000, total_tokens: 26000, est_cost_usd: 0.19, errors: 1, avg_latency_ms: 1030 },
   },
   recent_errors: [
-    { ts: '2026-04-08T18:15:00Z', agent: 'bob', model: 'claude-sonnet', status: 429, error: 'Rate limited' },
+    { ts: '2026-04-08T18:15:00Z', agent: 'bob', model: 'provider-a-standard', status: 429, error: 'Rate limited' },
   ],
 };
 
@@ -385,16 +385,16 @@ const doctorChecks = {
 const egressDomains = {
   domains: [
     {
-      domain: 'api.anthropic.com',
-      sources: [{ type: 'provider', name: 'anthropic', added_at: '2026-04-08T09:00:00Z' }],
+      domain: 'provider-a.example.com',
+      sources: [{ type: 'provider', name: 'provider-a', added_at: '2026-04-08T09:00:00Z' }],
       auto_managed: true,
     },
   ],
 };
 
 const egressDomainDetail = {
-  domain: 'api.anthropic.com',
-  sources: [{ type: 'provider', name: 'anthropic', added_at: '2026-04-08T09:00:00Z' }],
+  domain: 'provider-a.example.com',
+  sources: [{ type: 'provider', name: 'provider-a', added_at: '2026-04-08T09:00:00Z' }],
   auto_managed: true,
   active_dependents: ['alice'],
 };
@@ -416,7 +416,7 @@ const policyData = {
   valid: true,
   violations: [],
   effective: {
-    egress: ['api.anthropic.com'],
+    egress: ['provider-a.example.com'],
     filesystem: ['workspace-read'],
   },
 };
@@ -425,9 +425,9 @@ const routingSuggestions = [
   {
     id: 'route-suggestion-1',
     task_type: 'summarization',
-    current_model: 'claude-sonnet',
-    suggested_model: 'claude-haiku',
-    reason: 'claude-haiku costs 42.0% less than claude-sonnet for summarization tasks with 96% success rate',
+    current_model: 'provider-a-standard',
+    suggested_model: 'provider-b-fast',
+    reason: 'provider-b-fast costs 42.0% less than provider-a-standard for summarization tasks with 96% success rate',
     savings_percent: 0.42,
     savings_usd_per_1k: 0.018,
     status: 'pending',
@@ -437,7 +437,7 @@ const routingSuggestions = [
 
 const routingStats = [
   {
-    model: 'claude-sonnet',
+    model: 'provider-a-standard',
     task_type: 'summarization',
     total_calls: 32,
     retries: 1,
@@ -449,7 +449,7 @@ const routingStats = [
     cost_per_1k: 0.021,
   },
   {
-    model: 'claude-haiku',
+    model: 'provider-b-fast',
     task_type: 'summarization',
     total_calls: 28,
     retries: 0,
@@ -1050,7 +1050,7 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
       return;
     }
     if (method === 'GET' && pathname === '/api/v1/admin/egress') {
-      await route.fulfill(json({ allowed_domains: ['api.anthropic.com', 'slack.com'] }));
+      await route.fulfill(json({ allowed_domains: ['provider-a.example.com', 'slack.com'] }));
       return;
     }
     if (method === 'GET' && pathname === '/api/v1/admin/audit') {
@@ -1065,16 +1065,16 @@ export async function installAgencyMocks(page: Page): Promise<RouteController> {
 
     if (method === 'GET' && pathname === '/api/v1/infra/providers') {
       await route.fulfill(json([
-        { id: 'anthropic', name: 'Anthropic', configured: true, validated: true },
-        { id: 'openai', name: 'OpenAI', configured: false, validated: false },
+        { id: 'provider-a', name: 'Provider A', configured: true, validated: true },
+        { id: 'provider-b', name: 'Provider B', configured: false, validated: false },
       ]));
       return;
     }
     if (method === 'GET' && pathname === '/api/v1/infra/setup/config') {
       await route.fulfill(json({
         providers: {
-          anthropic: { configured: true, validated: true },
-          openai: { configured: false, validated: false },
+          'provider-a': { configured: true, validated: true },
+          'provider-b': { configured: false, validated: false },
         },
       }));
       return;

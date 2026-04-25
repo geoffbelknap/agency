@@ -74,7 +74,7 @@ func TestWriteAgentListRejectsUnknownFormat(t *testing.T) {
 
 func TestBuildCredentialSetBodyUsesPositionalName(t *testing.T) {
 	body, err := buildCredentialSetBody(credentialSetInput{
-		NameArg:  "GEMINI_API_KEY",
+		NameArg:  "PROVIDER_A_API_KEY",
 		Value:    "secret",
 		Kind:     "provider",
 		Scope:    "platform",
@@ -84,8 +84,8 @@ func TestBuildCredentialSetBodyUsesPositionalName(t *testing.T) {
 		t.Fatalf("buildCredentialSetBody returned error: %v", err)
 	}
 
-	if got := body["name"]; got != "GEMINI_API_KEY" {
-		t.Fatalf("name = %v, want GEMINI_API_KEY", got)
+	if got := body["name"]; got != "PROVIDER_A_API_KEY" {
+		t.Fatalf("name = %v, want PROVIDER_A_API_KEY", got)
 	}
 	if got := body["kind"]; got != "provider" {
 		t.Fatalf("kind = %v, want provider", got)
@@ -142,7 +142,7 @@ func TestBuildCredentialSetBodyRequiresNameAndValue(t *testing.T) {
 	if _, err := buildCredentialSetBody(credentialSetInput{Value: "secret"}); err == nil {
 		t.Fatal("expected missing name to fail")
 	}
-	if _, err := buildCredentialSetBody(credentialSetInput{NameArg: "GEMINI_API_KEY"}); err == nil {
+	if _, err := buildCredentialSetBody(credentialSetInput{NameArg: "PROVIDER_A_API_KEY"}); err == nil {
 		t.Fatal("expected missing value to fail")
 	}
 }

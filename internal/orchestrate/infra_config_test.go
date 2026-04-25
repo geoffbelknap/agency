@@ -52,6 +52,38 @@ models:
 	}
 }
 
+func TestBundledDefaultEgressPolicyUsesProviderCatalog(t *testing.T) {
+	data, err := bundledDefaultEgressPolicy()
+	if err != nil {
+		t.Fatalf("bundledDefaultEgressPolicy: %v", err)
+	}
+
+	var cfg map[string]interface{}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("parse egress policy: %v", err)
+	}
+	if cfg["default_action"] != "block" {
+		t.Fatalf("default_action = %v, want block", cfg["default_action"])
+	}
+	rules, ok := cfg["rules"].([]interface{})
+	if !ok || len(rules) == 0 {
+		t.Fatalf("rules = %#v, want non-empty list", cfg["rules"])
+	}
+	for _, raw := range rules {
+		rule, ok := raw.(map[string]interface{})
+		if !ok {
+			t.Fatalf("rule has unexpected shape: %#v", raw)
+		}
+		domain, _ := rule["domain"].(string)
+		if domain == "" {
+			t.Fatalf("rule missing domain: %#v", rule)
+		}
+		if rule["action"] != "allow" {
+			t.Fatalf("rule action = %v, want allow", rule["action"])
+		}
+	}
+}
+
 func containsYAMLString(raw interface{}, want string) bool {
 	items, ok := raw.([]interface{})
 	if !ok {

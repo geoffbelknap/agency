@@ -9,7 +9,7 @@ import (
 
 func TestMeeseeksManagerSpawn(t *testing.T) {
 	mm := NewMeeseeksManager()
-	cfg := MeeseeksConfig{Enabled: true, Limit: 5, Model: "haiku", Budget: 0.05}
+	cfg := MeeseeksConfig{Enabled: true, Limit: 5, Model: "fast", Budget: 0.05}
 	parentTools := []string{"read_file", "write_file", "execute_command"}
 
 	req := &models.MeeseeksSpawnRequest{Task: "do thing"}
@@ -26,8 +26,8 @@ func TestMeeseeksManagerSpawn(t *testing.T) {
 	if mks.Status != models.MeeseeksStatusSpawned {
 		t.Errorf("status = %s, want spawned", mks.Status)
 	}
-	if mks.Model != "haiku" {
-		t.Errorf("model = %s, want haiku", mks.Model)
+	if mks.Model != "fast" {
+		t.Errorf("model = %s, want fast", mks.Model)
 	}
 	if mks.Budget != 0.05 {
 		t.Errorf("budget = %f, want 0.05", mks.Budget)
@@ -36,7 +36,7 @@ func TestMeeseeksManagerSpawn(t *testing.T) {
 
 func TestMeeseeksManagerConcurrentLimit(t *testing.T) {
 	mm := NewMeeseeksManager()
-	cfg := MeeseeksConfig{Enabled: true, Limit: 2, Model: "haiku", Budget: 0.05}
+	cfg := MeeseeksConfig{Enabled: true, Limit: 2, Model: "fast", Budget: 0.05}
 
 	for i := 0; i < 2; i++ {
 		req := &models.MeeseeksSpawnRequest{Task: "task"}
@@ -177,7 +177,7 @@ func TestMeeseeksManagerUpdateBudgetUsed(t *testing.T) {
 
 // TestSpawn_DelegationBounds validates ASK Tenet 11: delegation cannot exceed delegator scope.
 func TestSpawn_DelegationBounds(t *testing.T) {
-	cfg := MeeseeksConfig{Enabled: true, Limit: 10, Model: "haiku", Budget: 0.10}
+	cfg := MeeseeksConfig{Enabled: true, Limit: 10, Model: "fast", Budget: 0.10}
 
 	t.Run("parent restricted child requests subset — OK", func(t *testing.T) {
 		mm := NewMeeseeksManager()
@@ -236,4 +236,3 @@ func TestSpawn_DelegationBounds(t *testing.T) {
 		}
 	})
 }
-

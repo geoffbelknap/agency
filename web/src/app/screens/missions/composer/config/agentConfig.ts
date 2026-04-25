@@ -20,9 +20,9 @@ const agentNode: NodeDefinition = {
     { key: 'description', label: 'Description', type: 'text', required: true, placeholder: 'What this mission does' },
     { key: 'preset', label: 'Agent Preset', type: 'text', placeholder: 'generalist' },
     { key: 'model', label: 'Model', type: 'select', options: [
-      { value: 'sonnet', label: 'Sonnet' },
-      { value: 'haiku', label: 'Haiku' },
-      { value: 'opus', label: 'Opus' },
+      { value: 'standard', label: 'Standard' },
+      { value: 'fast', label: 'Fast' },
+      { value: 'frontier', label: 'Frontier' },
     ]},
     { key: 'instructions', label: 'Instructions', type: 'textarea', required: true, placeholder: 'What the agent should do...' },
     { key: 'cost_mode', label: 'Cost Mode', type: 'select', options: [
@@ -33,8 +33,9 @@ const agentNode: NodeDefinition = {
     { key: 'meeseeks', label: 'Enable Meeseeks', type: 'checkbox' },
     { key: 'meeseeks_limit', label: 'Max Meeseeks', type: 'number', defaultValue: 3 },
     { key: 'meeseeks_model', label: 'Meeseeks Model', type: 'select', options: [
-      { value: 'haiku', label: 'Haiku' },
-      { value: 'sonnet', label: 'Sonnet' },
+      { value: 'fast', label: 'Fast' },
+      { value: 'standard', label: 'Standard' },
+      { value: 'frontier', label: 'Frontier' },
     ]},
     { key: 'meeseeks_budget', label: 'Meeseeks Budget ($)', type: 'number', defaultValue: 0.5 },
   ],
@@ -48,7 +49,7 @@ const agentNode: NodeDefinition = {
     ...(data.meeseeks ? {
       meeseeks: true,
       meeseeks_limit: (data.meeseeks_limit as number) || 3,
-      meeseeks_model: (data.meeseeks_model as string) || 'haiku',
+      meeseeks_model: (data.meeseeks_model as string) || 'fast',
       meeseeks_budget: (data.meeseeks_budget as number) || 0.5,
     } : {}),
   }),

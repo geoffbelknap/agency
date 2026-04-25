@@ -13,12 +13,13 @@ func TestLoadRoutingConfig(t *testing.T) {
 	os.WriteFile(routingFile, []byte(`
 version: "0.1"
 providers:
-  anthropic:
-    api_base: https://api.anthropic.com/v1/
+  provider-a:
+    api_base: https://provider-a.example.com/v1/
+    api_format: openai
 models:
-  claude-sonnet:
-    provider: anthropic
-    provider_model: claude-sonnet-4-20250514
+  standard:
+    provider: provider-a
+    provider_model: provider-a-standard
     cost_per_mtok_in: 3.0
     cost_per_mtok_out: 15.0
     provider_tool_pricing:
@@ -36,19 +37,19 @@ settings:
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if rc.Providers["anthropic"].APIBase != "https://api.anthropic.com/v1/" {
-		t.Errorf("wrong api_base: %s", rc.Providers["anthropic"].APIBase)
+	if rc.Providers["provider-a"].APIBase != "https://provider-a.example.com/v1/" {
+		t.Errorf("wrong api_base: %s", rc.Providers["provider-a"].APIBase)
 	}
-	if rc.Models["claude-sonnet"].Provider != "anthropic" {
-		t.Errorf("wrong provider: %s", rc.Models["claude-sonnet"].Provider)
+	if rc.Models["standard"].Provider != "provider-a" {
+		t.Errorf("wrong provider: %s", rc.Models["standard"].Provider)
 	}
-	if rc.Models["claude-sonnet"].CostIn != 3.0 {
-		t.Errorf("wrong cost_in: %f", rc.Models["claude-sonnet"].CostIn)
+	if rc.Models["standard"].CostIn != 3.0 {
+		t.Errorf("wrong cost_in: %f", rc.Models["standard"].CostIn)
 	}
-	if rc.Models["claude-sonnet"].CostOut != 15.0 {
-		t.Errorf("wrong cost_out: %f", rc.Models["claude-sonnet"].CostOut)
+	if rc.Models["standard"].CostOut != 15.0 {
+		t.Errorf("wrong cost_out: %f", rc.Models["standard"].CostOut)
 	}
-	price, ok := rc.Models["claude-sonnet"].ProviderToolPriceFor(capProviderWebSearch)
+	price, ok := rc.Models["standard"].ProviderToolPriceFor(capProviderWebSearch)
 	if !ok {
 		t.Fatal("expected provider tool price")
 	}
@@ -80,12 +81,12 @@ func TestLoadRoutingConfigRejectsUnknownProviderToolCapability(t *testing.T) {
 	os.WriteFile(routingFile, []byte(`
 version: "0.1"
 providers:
-  openai:
-    api_base: https://api.openai.com/v1/
+  provider-b:
+    api_base: https://provider-b.example.com/v1/
 models:
-  gpt-test:
-    provider: openai
-    provider_model: gpt-test
+  provider-b-test:
+    provider: provider-b
+    provider_model: provider-b-test
     provider_tool_capabilities: [provider-web-search, provider-unknown-tool]
 settings:
   xpia_scan: true
@@ -98,43 +99,6 @@ settings:
 	}
 	if !strings.Contains(err.Error(), "provider-unknown-tool") {
 		t.Fatalf("expected capability name in error, got %v", err)
-	}
-}
-
-func TestLoadRoutingConfigNormalizesLegacyGeminiProviderPrincipal(t *testing.T) {
-	dir := t.TempDir()
-	routingFile := filepath.Join(dir, "routing.yaml")
-	os.WriteFile(routingFile, []byte(`
-version: "0.1"
-providers:
-  gemini:
-    api_base: https://generativelanguage.googleapis.com/v1beta/
-    api_format: gemini
-models:
-  gemini-flash:
-    provider: gemini
-    provider_model: gemini-2.5-flash
-settings:
-  xpia_scan: true
-  default_timeout: 300
-`), 0644)
-
-	rc, err := LoadRoutingConfig(routingFile)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if _, ok := rc.Providers["gemini"]; ok {
-		t.Fatal("expected legacy gemini provider to be removed")
-	}
-	googleProvider, ok := rc.Providers["google"]
-	if !ok {
-		t.Fatal("expected google provider to be synthesized")
-	}
-	if googleProvider.APIFormat != "gemini" {
-		t.Fatalf("expected google api_format gemini, got %q", googleProvider.APIFormat)
-	}
-	if rc.Models["gemini-flash"].Provider != "google" {
-		t.Fatalf("expected model provider to be rewritten to google, got %q", rc.Models["gemini-flash"].Provider)
 	}
 }
 
@@ -167,31 +131,32 @@ func TestLoadAPIKeys(t *testing.T) {
 func TestResolveModel(t *testing.T) {
 	rc := &RoutingConfig{
 		Providers: map[string]Provider{
-			"anthropic": {
-				APIBase: "https://api.anthropic.com/v1/",
+			"provider-a": {
+				APIBase:   "https://provider-a.example.com/v1/",
+				APIFormat: "openai",
 			},
 		},
 		Models: map[string]Model{
-			"claude-sonnet": {
-				Provider:      "anthropic",
-				ProviderModel: "claude-sonnet-4-20250514",
+			"standard": {
+				Provider:      "provider-a",
+				ProviderModel: "provider-a-standard",
 				CostIn:        3.0,
 				CostOut:       15.0,
 			},
 		},
 	}
 
-	target, providerModel, providerName, err := rc.ResolveModel("claude-sonnet")
+	target, providerModel, providerName, err := rc.ResolveModel("standard")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if target != "https://api.anthropic.com/v1/messages" {
+	if target != "https://provider-a.example.com/v1/chat/completions" {
 		t.Errorf("wrong target: %s", target)
 	}
-	if providerModel != "claude-sonnet-4-20250514" {
+	if providerModel != "provider-a-standard" {
 		t.Errorf("wrong provider model: %s", providerModel)
 	}
-	if providerName != "anthropic" {
+	if providerName != "provider-a" {
 		t.Errorf("wrong provider name: %s", providerName)
 	}
 }
@@ -199,29 +164,29 @@ func TestResolveModel(t *testing.T) {
 func TestResolveModelWithDifferentProvider(t *testing.T) {
 	rc := &RoutingConfig{
 		Providers: map[string]Provider{
-			"openai": {
-				APIBase: "https://api.openai.com/v1/",
+			"provider-b": {
+				APIBase: "https://provider-b.example.com/v1/",
 			},
 		},
 		Models: map[string]Model{
-			"gpt-4o": {
-				Provider:      "openai",
-				ProviderModel: "gpt-4o",
+			"provider-b-standard": {
+				Provider:      "provider-b",
+				ProviderModel: "provider-b-standard",
 			},
 		},
 	}
 
-	target, providerModel, providerName, err := rc.ResolveModel("gpt-4o")
+	target, providerModel, providerName, err := rc.ResolveModel("provider-b-standard")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if target != "https://api.openai.com/v1/chat/completions" {
+	if target != "https://provider-b.example.com/v1/chat/completions" {
 		t.Errorf("wrong target: %s", target)
 	}
-	if providerModel != "gpt-4o" {
+	if providerModel != "provider-b-standard" {
 		t.Errorf("wrong provider model: %s", providerModel)
 	}
-	if providerName != "openai" {
+	if providerName != "provider-b" {
 		t.Errorf("wrong provider name: %s", providerName)
 	}
 }

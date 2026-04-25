@@ -148,8 +148,8 @@ func TestAuditLLMEntry(t *testing.T) {
 
 	al.Log(AuditEntry{
 		Type:          "LLM_DIRECT",
-		Model:         "claude-sonnet",
-		ProviderModel: "claude-sonnet-4-20250514",
+		Model:         "standard",
+		ProviderModel: "provider-a-standard",
 		Status:        200,
 		CorrelationID: "test-corr-123",
 		InputTokens:   100,
@@ -173,7 +173,7 @@ func TestAuditLLMEntry(t *testing.T) {
 	if entry.Type != "LLM_DIRECT" {
 		t.Errorf("wrong type: %s", entry.Type)
 	}
-	if entry.Model != "claude-sonnet" {
+	if entry.Model != "standard" {
 		t.Errorf("wrong model: %s", entry.Model)
 	}
 	if entry.CorrelationID != "test-corr-123" {

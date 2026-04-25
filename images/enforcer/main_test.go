@@ -22,12 +22,12 @@ func setupTestEnforcer(t *testing.T) *Enforcer {
 	os.WriteFile(routingFile, []byte(`
 version: "0.1"
 providers:
-  openai-compat:
+  provider-a:
     api_base: http://localhost:1/v1/
 models:
-  claude-sonnet:
-    provider: openai-compat
-    provider_model: claude-sonnet-4-20250514
+  standard:
+    provider: provider-a
+    provider_model: provider-a-standard
 settings:
   default_timeout: 300
 `), 0644)
@@ -144,12 +144,12 @@ func TestIntegrationLLMRouting(t *testing.T) {
 	os.WriteFile(routingFile, []byte(fmt.Sprintf(`
 version: "0.1"
 providers:
-  openai-compat:
+  provider-a:
     api_base: %s/v1/
 models:
-  claude-sonnet:
-    provider: openai-compat
-    provider_model: claude-sonnet-4-20250514
+  standard:
+    provider: provider-a
+    provider_model: provider-a-standard
 `, provider.URL)), 0644)
 
 	apiKeysFile := filepath.Join(dir, "api_keys.yaml")
@@ -176,7 +176,7 @@ models:
 	defer e.audit.Close()
 	handler := e.ConnectHandler()
 
-	body := `{"model":"claude-sonnet","messages":[{"role":"user","content":"hi"}]}`
+	body := `{"model":"standard","messages":[{"role":"user","content":"hi"}]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer agency-scoped-test")
 	req.Header.Set("Content-Type", "application/json")
@@ -189,7 +189,7 @@ models:
 
 	var resp map[string]interface{}
 	json.Unmarshal(rr.Body.Bytes(), &resp)
-	if resp["model"] != "claude-sonnet-4-20250514" {
+	if resp["model"] != "provider-a-standard" {
 		t.Errorf("expected rewritten model in response, got: %v", resp["model"])
 	}
 }

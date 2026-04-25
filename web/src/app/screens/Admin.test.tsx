@@ -90,35 +90,44 @@ describe('Admin — Egress tab', () => {
         const body = await request.json() as { domain: string; reason?: string };
         approvedDomain = body.domain;
         return HttpResponse.json({
-          agent: params.agent,
-          mode: 'allowlist',
-          domains: ['github.com', body.domain],
+          change: { action: 'approve_domain', agent: params.agent, scope: 'egress', target: body.domain, status: 'applied' },
+          egress: {
+            agent: params.agent,
+            mode: 'allowlist',
+            domains: ['github.com', body.domain],
+          },
         });
       }),
       http.delete(`${BASE}/admin/egress/:agent/domains/:domain`, ({ params }) => {
         revokedDomain = String(params.domain);
         return HttpResponse.json({
-          agent: params.agent,
-          mode: 'allowlist',
-          domains: ['github.com'],
+          change: { action: 'revoke_domain', agent: params.agent, scope: 'egress', target: params.domain, status: 'applied' },
+          egress: {
+            agent: params.agent,
+            mode: 'allowlist',
+            domains: ['github.com'],
+          },
         });
       }),
       http.put(`${BASE}/admin/egress/:agent/mode`, async ({ request, params }) => {
         const body = await request.json() as { mode: string };
         updatedMode = body.mode;
         return HttpResponse.json({
-          agent: params.agent,
-          mode: body.mode,
-          domains: ['github.com', 'api.example.com'],
+          change: { action: 'set_mode', agent: params.agent, scope: 'egress', target: body.mode, status: 'applied' },
+          egress: {
+            agent: params.agent,
+            mode: body.mode,
+            domains: ['github.com', 'api.example.com'],
+          },
         });
       }),
       http.get(`${BASE}/hub/egress/domains`, () =>
         HttpResponse.json({
           domains: [
             {
-              domain: 'api.anthropic.com',
+              domain: 'provider-a.example.com',
               auto_managed: true,
-              sources: [{ type: 'connector', name: 'anthropic' }],
+              sources: [{ type: 'connector', name: 'provider-a' }],
             },
           ],
         }),
@@ -131,7 +140,7 @@ describe('Admin — Egress tab', () => {
     selectRadixValue('alice');
     await waitFor(() => {
       expect(screen.getByLabelText('Mode')).toHaveValue('allowlist');
-      expect(screen.getByText('api.anthropic.com')).toBeInTheDocument();
+      expect(screen.getByText('provider-a.example.com')).toBeInTheDocument();
       expect(screen.getAllByText(/github\.com/).length).toBeGreaterThanOrEqual(1);
     });
 
@@ -211,14 +220,16 @@ describe('Admin — Providers tab', () => {
       http.get(`${BASE}/infra/providers`, () =>
         HttpResponse.json([
           {
-            name: 'anthropic',
-            display_name: 'Anthropic',
-            description: 'Claude models',
+            name: 'provider-a',
+            display_name: 'Provider A',
+            description: 'Provider A models',
             category: 'cloud',
+            quickstart_selectable: true,
+            quickstart_order: 2,
             installed: false,
-            credential_name: 'ANTHROPIC_API_KEY',
-            credential_label: 'Anthropic API key',
-            api_key_url: 'https://console.anthropic.com/settings/keys',
+            credential_name: 'PROVIDER_A_API_KEY',
+            credential_label: 'Provider A API key',
+            api_key_url: 'https://console.provider-a.com/settings/keys',
             credential_configured: false,
           },
         ]),
@@ -237,26 +248,143 @@ describe('Admin — Providers tab', () => {
         storedCredential = body.name;
         return HttpResponse.json({ ok: true });
       }),
-      http.post(`${BASE}/creds/ANTHROPIC_API_KEY/test`, () =>
-        HttpResponse.json({ ok: true, message: 'ok' }),
-      ),
-      http.post(`${BASE}/infra/providers/anthropic/install`, () => {
-        installedProvider = 'anthropic';
-        return HttpResponse.json({ status: 'installed', provider: 'anthropic' });
+      http.post(`${BASE}/infra/providers/provider-a/verify`, async ({ request }) => {
+        const body = await request.json() as { api_key?: string };
+        expect(body.api_key).toBe('sk-test');
+        return HttpResponse.json({ ok: true, status: 200, message: 'ok' });
+      }),
+      http.post(`${BASE}/infra/providers/provider-a/install`, async ({ request }) => {
+        const body = await request.json() as { api_base?: string };
+        expect(body.api_base).toBeUndefined();
+        installedProvider = 'provider-a';
+        return HttpResponse.json({ status: 'installed', provider: 'provider-a' });
       }),
     );
 
     renderAdmin('providers');
 
     expect(await screen.findByText('Model provider operations')).toBeInTheDocument();
-    const providerLabel = await screen.findByText('Anthropic');
+    const providerLabel = await screen.findByText('Provider A');
     await userEvent.click(providerLabel.closest('button')!);
-    await userEvent.type(screen.getByLabelText(/anthropic api key/i), 'sk-test');
+    await userEvent.type(screen.getByLabelText(/provider a api key/i), 'sk-test');
     await userEvent.click(screen.getByRole('button', { name: /install provider/i }));
 
     await waitFor(() => {
-      expect(storedCredential).toBe('ANTHROPIC_API_KEY');
-      expect(installedProvider).toBe('anthropic');
+      expect(storedCredential).toBe('PROVIDER_A_API_KEY');
+      expect(installedProvider).toBe('provider-a');
+    });
+  });
+
+  it('orders providers from descriptor metadata and marks recommended adapters', async () => {
+    server.use(
+      ...agentHandlers,
+      http.get(`${BASE}/infra/providers`, () =>
+        HttpResponse.json([
+          {
+            name: 'provider-b',
+            display_name: 'Provider B',
+            description: 'Provider B models',
+            category: 'cloud',
+            quickstart_selectable: true,
+            quickstart_order: 3,
+            installed: false,
+            credential_configured: false,
+          },
+          {
+            name: 'provider-a',
+            display_name: 'Provider A',
+            description: 'Provider A models',
+            category: 'cloud',
+            quickstart_selectable: true,
+            quickstart_order: 1,
+            quickstart_recommended: true,
+            quickstart_prompt_blurb: 'recommended for alpha',
+            installed: false,
+            credential_configured: false,
+          },
+          {
+            name: 'custom-local',
+            display_name: 'Custom Local',
+            description: 'Local adapter',
+            category: 'local',
+            quickstart_selectable: false,
+            installed: false,
+            credential_configured: false,
+          },
+        ]),
+      ),
+      http.get(`${BASE}/infra/routing/config`, () =>
+        HttpResponse.json({
+          configured: false,
+          providers: {},
+          models: {},
+          tiers: {},
+          settings: { default_tier: 'standard' },
+        }),
+      ),
+    );
+
+    renderAdmin('providers');
+
+    expect(await screen.findByText('Provider A')).toBeInTheDocument();
+    expect(screen.getByText('recommended for alpha')).toBeInTheDocument();
+    expect(screen.getByText('recommended')).toBeInTheDocument();
+
+    const providerRows = screen.getAllByRole('button').filter((button) =>
+      button.textContent?.includes('Provider A') || button.textContent?.includes('Provider B') || button.textContent?.includes('Custom Local'));
+    expect(providerRows[0]).toHaveTextContent('Provider A');
+    expect(providerRows[1]).toHaveTextContent('Provider B');
+    expect(providerRows[2]).toHaveTextContent('Custom Local');
+  });
+
+  it('passes api_base overrides through admin provider install', async () => {
+    let installedBase = '';
+    server.use(
+      ...agentHandlers,
+      http.get(`${BASE}/infra/providers`, () =>
+        HttpResponse.json([
+          {
+            name: 'ollama',
+            display_name: 'Ollama',
+            description: 'Run open models locally',
+            category: 'local',
+            quickstart_selectable: false,
+            installed: false,
+            api_base_configurable: true,
+            credential_configured: true,
+          },
+        ]),
+      ),
+      http.get(`${BASE}/infra/routing/config`, () =>
+        HttpResponse.json({
+          configured: false,
+          providers: {},
+          models: {},
+          tiers: {},
+          settings: { default_tier: 'standard' },
+        }),
+      ),
+      http.post(`${BASE}/infra/providers/ollama/verify`, async ({ request }) => {
+        const body = await request.json() as { api_base?: string };
+        expect(body.api_base).toBe('http://127.0.0.1:11434/v1');
+        return HttpResponse.json({ ok: true, status: 200, message: 'ok' });
+      }),
+      http.post(`${BASE}/infra/providers/ollama/install`, async ({ request }) => {
+        const body = await request.json() as { api_base?: string };
+        installedBase = body.api_base || '';
+        return HttpResponse.json({ status: 'installed', provider: 'ollama' });
+      }),
+    );
+
+    renderAdmin('providers');
+
+    const providerLabel = await screen.findByText('Ollama');
+    await userEvent.click(providerLabel.closest('button')!);
+    await userEvent.type(screen.getByLabelText('API Base URL'), 'http://127.0.0.1:11434/v1');
+    await userEvent.click(screen.getByRole('button', { name: /install provider/i }));
+
+    await waitFor(() => {
+      expect(installedBase).toBe('http://127.0.0.1:11434/v1');
     });
   });
 });

@@ -49,6 +49,9 @@ func TestContextPush(t *testing.T) {
 	if resp["status"] != "pending" {
 		t.Errorf("status = %v, want pending", resp["status"])
 	}
+	if resp["risk_level"] != "low" {
+		t.Errorf("risk_level = %v, want low", resp["risk_level"])
+	}
 }
 
 func TestContextPushRejectsDowngrade(t *testing.T) {

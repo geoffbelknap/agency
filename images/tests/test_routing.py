@@ -20,24 +20,24 @@ class TestProviderConfig:
 
     def test_full_config(self):
         p = ProviderConfig(
-            api_base="https://api.anthropic.com/v1/",
-            auth_env="ANTHROPIC_API_KEY",
+            api_base="https://provider-a.example.com/v1/",
+            auth_env="PROVIDER_A_API_KEY",
             auth_header="x-api-key",
         )
-        assert p.api_base == "https://api.anthropic.com/v1/"
-        assert p.auth_env == "ANTHROPIC_API_KEY"
+        assert p.api_base == "https://provider-a.example.com/v1/"
+        assert p.auth_env == "PROVIDER_A_API_KEY"
 
 
 class TestModelConfig:
     def test_cost_defaults(self):
-        m = ModelConfig(provider="anthropic", provider_model="claude-sonnet-4-20250514")
+        m = ModelConfig(provider="provider-a", provider_model="provider-a-model-v1")
         assert m.cost_per_mtok_in == 0.0
         assert m.cost_per_mtok_out == 0.0
 
     def test_with_costs(self):
         m = ModelConfig(
-            provider="anthropic",
-            provider_model="claude-sonnet-4-20250514",
+            provider="provider-a",
+            provider_model="provider-a-model-v1",
             cost_per_mtok_in=3.0,
             cost_per_mtok_out=15.0,
         )
@@ -50,28 +50,28 @@ class TestRoutingConfig:
     def sample_config(self):
         return RoutingConfig(
             providers={
-                "anthropic": ProviderConfig(
-                    api_base="https://api.anthropic.com/v1/",
-                    auth_env="ANTHROPIC_API_KEY",
+                "provider-a": ProviderConfig(
+                    api_base="https://provider-a.example.com/v1/",
+                    auth_env="PROVIDER_A_API_KEY",
                     auth_header="x-api-key",
                 ),
-                "openai": ProviderConfig(
-                    api_base="https://api.openai.com/v1/",
-                    auth_env="OPENAI_API_KEY",
+                "provider-b": ProviderConfig(
+                    api_base="https://provider-b.example.com/v1/",
+                    auth_env="PROVIDER_B_API_KEY",
                     auth_header="Authorization",
                     auth_prefix="Bearer ",
                 ),
             },
             models={
-                "claude-sonnet": ModelConfig(
-                    provider="anthropic",
-                    provider_model="claude-sonnet-4-20250514",
+                "provider-a-standard": ModelConfig(
+                    provider="provider-a",
+                    provider_model="provider-a-model-v1",
                     cost_per_mtok_in=3.0,
                     cost_per_mtok_out=15.0,
                 ),
-                "gpt-4o-mini": ModelConfig(
-                    provider="openai",
-                    provider_model="gpt-4o-mini",
+                "provider-b-mini": ModelConfig(
+                    provider="provider-b",
+                    provider_model="provider-b-mini",
                     cost_per_mtok_in=0.15,
                     cost_per_mtok_out=0.60,
                 ),
@@ -79,11 +79,11 @@ class TestRoutingConfig:
         )
 
     def test_resolve_model_found(self, sample_config):
-        result = sample_config.resolve_model("claude-sonnet")
+        result = sample_config.resolve_model("provider-a-standard")
         assert result is not None
         provider, model = result
-        assert provider.api_base == "https://api.anthropic.com/v1/"
-        assert model.provider_model == "claude-sonnet-4-20250514"
+        assert provider.api_base == "https://provider-a.example.com/v1/"
+        assert model.provider_model == "provider-a-model-v1"
 
     def test_resolve_model_not_found(self, sample_config):
         assert sample_config.resolve_model("nonexistent") is None
@@ -100,16 +100,16 @@ class TestRoutingConfig:
         yaml_content = {
             "version": "0.1",
             "providers": {
-                "anthropic": {
-                    "api_base": "https://api.anthropic.com/v1/",
-                    "auth_env": "ANTHROPIC_API_KEY",
+                "provider-a": {
+                    "api_base": "https://provider-a.example.com/v1/",
+                    "auth_env": "PROVIDER_A_API_KEY",
                     "auth_header": "x-api-key",
                 },
             },
             "models": {
-                "claude-sonnet": {
-                    "provider": "anthropic",
-                    "provider_model": "claude-sonnet-4-20250514",
+                "provider-a-standard": {
+                    "provider": "provider-a",
+                    "provider_model": "provider-a-model-v1",
                     "cost_per_mtok_in": 3.0,
                     "cost_per_mtok_out": 15.0,
                 },
@@ -126,9 +126,9 @@ class TestRoutingConfig:
         config = RoutingConfig(**data)
         assert len(config.providers) == 1
         assert len(config.models) == 1
-        result = config.resolve_model("claude-sonnet")
+        result = config.resolve_model("provider-a-standard")
         assert result is not None
-        assert result[1].provider_model == "claude-sonnet-4-20250514"
+        assert result[1].provider_model == "provider-a-model-v1"
 
     def test_settings_defaults(self):
         config = RoutingConfig()
@@ -173,8 +173,8 @@ class TestProviderValidation:
             ProviderConfig(api_base="https://example.com/v1/", auth_env="PATH")
 
     def test_allows_valid_auth_env(self):
-        p = ProviderConfig(api_base="https://example.com/v1/", auth_env="ANTHROPIC_API_KEY")
-        assert p.auth_env == "ANTHROPIC_API_KEY"
+        p = ProviderConfig(api_base="https://example.com/v1/", auth_env="PROVIDER_A_API_KEY")
+        assert p.auth_env == "PROVIDER_A_API_KEY"
 
     def test_allows_empty_auth_env(self):
         p = ProviderConfig(api_base="http://localhost:11434/v1/", auth_env="")

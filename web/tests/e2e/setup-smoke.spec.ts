@@ -29,7 +29,7 @@ test('setup wizard can advance past platform readiness into providers', async ({
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ providers: { anthropic: { configured: true, validated: true } } }),
+      body: JSON.stringify({ providers: { 'provider-a': { configured: true, validated: true } } }),
     });
   });
 
@@ -39,14 +39,14 @@ test('setup wizard can advance past platform readiness into providers', async ({
       contentType: 'application/json',
       body: JSON.stringify([
         {
-          name: 'anthropic',
-          display_name: 'Anthropic',
-          description: 'Claude models',
+          name: 'provider-a',
+          display_name: 'Provider A',
+          description: 'Provider A models',
           category: 'cloud',
           installed: true,
-          credential_name: 'anthropic-api-key',
+          credential_name: 'provider-a-api-key',
           credential_label: 'API key',
-          api_key_url: 'https://console.anthropic.com/settings/keys',
+          api_key_url: 'https://console.provider-a.example.com/settings/keys',
           credential_configured: true,
         },
       ]),

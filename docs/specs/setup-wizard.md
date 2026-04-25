@@ -135,37 +135,38 @@ An entry in Admin: "Setup Wizard" that links to `/setup`. The wizard detects re-
 Lives in `providers/` directory in agency-hub. Each provider is a YAML file defining display metadata, credential configuration, and routing config including model tiers.
 
 ```yaml
-# providers/anthropic/provider.yaml
-name: anthropic
-display_name: Anthropic
-description: Claude models — Opus, Sonnet, Haiku
+# providers/provider-a/provider.yaml
+name: provider-a
+display_name: Provider A
+description: Provider A models
 category: cloud
 credential:
-  name: anthropic-api-key
+  name: provider-a-api-key
   label: API Key
-  env_var: ANTHROPIC_API_KEY
-  api_key_url: https://console.anthropic.com/settings/keys
+  env_var: PROVIDER_A_API_KEY
+  api_key_url: https://provider-a.example.com/keys
 routing:
-  api_base: https://api.anthropic.com/v1
-  auth_header: x-api-key
-  auth_prefix: ""
+  api_base: https://provider-a.example.com/v1
+  api_format: openai
+  auth_header: Authorization
+  auth_prefix: "Bearer "
   models:
-    claude-opus:
-      provider_model: claude-opus-4-20250514
+    provider-a-frontier:
+      provider_model: provider-a-frontier
       cost_per_mtok_in: 5.0
       cost_per_mtok_out: 25.0
-    claude-sonnet:
-      provider_model: claude-sonnet-4-20250514
+    provider-a-standard:
+      provider_model: provider-a-standard
       cost_per_mtok_in: 3.0
       cost_per_mtok_out: 15.0
-    claude-haiku:
-      provider_model: claude-haiku-4-5-20251001
+    provider-a-fast:
+      provider_model: provider-a-fast
       cost_per_mtok_in: 1.0
       cost_per_mtok_out: 5.0
   tiers:
-    frontier: claude-opus
-    standard: claude-sonnet
-    fast: claude-haiku
+    frontier: provider-a-frontier
+    standard: provider-a-standard
+    fast: provider-a-fast
     mini: null
     nano: null
     batch: null
@@ -186,23 +187,10 @@ routing:
   tiers: {}
 ```
 
-```yaml
-# providers/openai-compatible/provider.yaml
-name: openai-compatible
-display_name: OpenAI-Compatible
-description: LiteLLM, OpenRouter, Azure Foundry, AWS Bedrock, etc.
-category: compatible
-credential:
-  name: custom-llm-api-key
-  label: API Key
-  env_var: CUSTOM_LLM_API_KEY
-routing:
-  api_base_configurable: true
-  auth_header: Authorization
-  auth_prefix: "Bearer "
-  models: {}
-  tiers: {}
-```
+Custom or third-party LLM services are represented as real provider adapter
+descriptors, not as a shared `openai-compatible` pseudo-provider. If a service
+uses the OpenAI wire format, that belongs in its adapter metadata via
+`api_format`; provider identity stays specific to the service being configured.
 
 **Install behavior:** `hub install anthropic --kind provider` merges the provider's routing block (api_base, auth config, models, tiers) into the local `~/.agency/routing.yaml`. Remove reverses this.
 

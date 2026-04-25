@@ -16,14 +16,14 @@ import (
 func testRoutingConfig() *RoutingConfig {
 	return &RoutingConfig{
 		Providers: map[string]Provider{
-			"openai-compat": {
+			"provider-a": {
 				APIBase: "PLACEHOLDER", // replaced per test
 			},
 		},
 		Models: map[string]Model{
-			"claude-sonnet": {
-				Provider:                 "openai-compat",
-				ProviderModel:            "claude-sonnet-4-20250514",
+			"standard": {
+				Provider:                 "provider-a",
+				ProviderModel:            "provider-a-standard",
 				Capabilities:             []string{"tools", "vision", "streaming"},
 				ProviderToolCapabilities: []string{capProviderWebSearch},
 				CostIn:                   3.0,
@@ -42,18 +42,18 @@ func TestLLMModelResolved(t *testing.T) {
 
 		// Verify model was rewritten
 		model, _ := req["model"].(string)
-		if model != "claude-sonnet-4-20250514" {
+		if model != "provider-a-standard" {
 			t.Errorf("expected rewritten model, got: %s", model)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"id":"msg_test","model":"claude-sonnet-4-20250514","usage":{"input_tokens":10,"output_tokens":50}}`)
+		fmt.Fprint(w, `{"id":"msg_test","model":"provider-a-standard","usage":{"input_tokens":10,"output_tokens":50}}`)
 	}))
 	defer provider.Close()
 
 	rc := testRoutingConfig()
-	rc.Providers["openai-compat"] = Provider{
+	rc.Providers["provider-a"] = Provider{
 		APIBase: provider.URL + "/v1/",
 	}
 
@@ -64,7 +64,7 @@ func TestLLMModelResolved(t *testing.T) {
 	// Use provider directly (no egress proxy in test)
 	lh := NewLLMHandler(rc, provider.URL, audit)
 
-	body := `{"model":"claude-sonnet","messages":[{"role":"user","content":"hello"}]}`
+	body := `{"model":"standard","messages":[{"role":"user","content":"hello"}]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer agency-scoped-test")
@@ -77,7 +77,7 @@ func TestLLMModelResolved(t *testing.T) {
 
 	var resp map[string]interface{}
 	json.Unmarshal(rr.Body.Bytes(), &resp)
-	if resp["model"] != "claude-sonnet-4-20250514" {
+	if resp["model"] != "provider-a-standard" {
 		t.Errorf("unexpected response model: %v", resp["model"])
 	}
 }
@@ -96,7 +96,7 @@ func TestLLMModelRewrittenInBody(t *testing.T) {
 	defer provider.Close()
 
 	rc := testRoutingConfig()
-	rc.Providers["openai-compat"] = Provider{
+	rc.Providers["provider-a"] = Provider{
 		APIBase: provider.URL + "/v1/",
 	}
 
@@ -106,13 +106,13 @@ func TestLLMModelRewrittenInBody(t *testing.T) {
 
 	lh := NewLLMHandler(rc, provider.URL, audit)
 
-	body := `{"model":"claude-sonnet","messages":[{"role":"user","content":"test"}]}`
+	body := `{"model":"standard","messages":[{"role":"user","content":"test"}]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	lh.ServeHTTP(rr, req)
 
-	if receivedModel != "claude-sonnet-4-20250514" {
+	if receivedModel != "provider-a-standard" {
 		t.Errorf("expected provider model in body, got: %s", receivedModel)
 	}
 }
@@ -128,7 +128,7 @@ func TestLLMResponsesEndpointForwarded(t *testing.T) {
 	defer provider.Close()
 
 	rc := testRoutingConfig()
-	rc.Providers["openai-compat"] = Provider{
+	rc.Providers["provider-a"] = Provider{
 		APIBase: provider.URL + "/v1/",
 	}
 
@@ -139,7 +139,7 @@ func TestLLMResponsesEndpointForwarded(t *testing.T) {
 	lh := NewLLMHandler(rc, provider.URL, audit)
 	lh.SetProviderToolPolicy(&ProviderToolPolicy{Granted: map[string]bool{capProviderWebSearch: true}})
 
-	body := `{"model":"claude-sonnet","input":"what changed today?","tools":[{"type":"web_search"}]}`
+	body := `{"model":"standard","input":"what changed today?","tools":[{"type":"web_search"}]}`
 	req := httptest.NewRequest("POST", "/v1/responses", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -418,7 +418,7 @@ func TestLLMProviderToolDeniedWithoutGrant(t *testing.T) {
 	defer provider.Close()
 
 	rc := testRoutingConfig()
-	rc.Providers["openai-compat"] = Provider{
+	rc.Providers["provider-a"] = Provider{
 		APIBase: provider.URL + "/v1/",
 	}
 
@@ -428,7 +428,7 @@ func TestLLMProviderToolDeniedWithoutGrant(t *testing.T) {
 
 	lh := NewLLMHandler(rc, provider.URL, audit)
 
-	body := `{"model":"claude-sonnet","messages":[],"tools":[{"type":"web_search_preview"}]}`
+	body := `{"model":"standard","messages":[],"tools":[{"type":"web_search_preview"}]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -455,7 +455,7 @@ func TestLLMProviderToolAllowedWithGrant(t *testing.T) {
 	defer provider.Close()
 
 	rc := testRoutingConfig()
-	rc.Providers["openai-compat"] = Provider{
+	rc.Providers["provider-a"] = Provider{
 		APIBase: provider.URL + "/v1/",
 	}
 
@@ -465,7 +465,7 @@ func TestLLMProviderToolAllowedWithGrant(t *testing.T) {
 	lh := NewLLMHandler(rc, provider.URL, audit)
 	lh.SetProviderToolPolicy(&ProviderToolPolicy{Granted: map[string]bool{capProviderWebSearch: true}})
 
-	body := `{"model":"claude-sonnet","messages":[],"tools":[{"type":"web_search_preview"}]}`
+	body := `{"model":"standard","messages":[],"tools":[{"type":"web_search_preview"}]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -493,7 +493,7 @@ func TestLLMProviderToolAllowedWithGrant(t *testing.T) {
 	if allowedEntry == nil {
 		t.Fatal("missing PROVIDER_TOOL_ALLOWED audit entry")
 	}
-	if allowedEntry.ProviderModel != "claude-sonnet-4-20250514" {
+	if allowedEntry.ProviderModel != "provider-a-standard" {
 		t.Fatalf("provider model missing on allowed event: %#v", allowedEntry)
 	}
 	if boundaryEntry == nil {
@@ -518,12 +518,12 @@ func TestLLMHarnessedProviderToolRejectedBeforeProvider(t *testing.T) {
 	defer provider.Close()
 
 	rc := testRoutingConfig()
-	rc.Providers["openai-compat"] = Provider{
+	rc.Providers["provider-a"] = Provider{
 		APIBase: provider.URL + "/v1/",
 	}
-	model := rc.Models["claude-sonnet"]
+	model := rc.Models["standard"]
 	model.ProviderToolCapabilities = append(model.ProviderToolCapabilities, capProviderComputerUse)
-	rc.Models["claude-sonnet"] = model
+	rc.Models["standard"] = model
 
 	auditDir := t.TempDir()
 	audit := NewAuditLogger(auditDir, "test-agent")
@@ -531,7 +531,7 @@ func TestLLMHarnessedProviderToolRejectedBeforeProvider(t *testing.T) {
 	lh := NewLLMHandler(rc, provider.URL, audit)
 	lh.SetProviderToolPolicy(&ProviderToolPolicy{Granted: map[string]bool{capProviderComputerUse: true}})
 
-	body := `{"model":"claude-sonnet","input":"use the computer","tools":[{"type":"computer_use_preview"}]}`
+	body := `{"model":"standard","input":"use the computer","tools":[{"type":"computer_use_preview"}]}`
 	req := httptest.NewRequest("POST", "/v1/responses", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Correlation-Id", "corr-harness")
@@ -588,7 +588,7 @@ func TestLLMHarnessedProviderToolTranslated(t *testing.T) {
 	defer provider.Close()
 
 	rc := testRoutingConfig()
-	rc.Providers["openai-compat"] = Provider{
+	rc.Providers["provider-a"] = Provider{
 		APIBase: provider.URL + "/v1/",
 	}
 
@@ -598,7 +598,7 @@ func TestLLMHarnessedProviderToolTranslated(t *testing.T) {
 	lh := NewLLMHandler(rc, provider.URL, audit)
 	lh.SetProviderToolPolicy(&ProviderToolPolicy{Granted: map[string]bool{capProviderShell: true}})
 
-	body := `{"model":"claude-sonnet","messages":[],"tools":[{"type":"shell"}]}`
+	body := `{"model":"standard","messages":[],"tools":[{"type":"shell"}]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Correlation-Id", "corr-shell-harness")
@@ -656,12 +656,12 @@ func TestLLMProviderToolUnsupportedByModel(t *testing.T) {
 	defer provider.Close()
 
 	rc := testRoutingConfig()
-	rc.Providers["openai-compat"] = Provider{
+	rc.Providers["provider-a"] = Provider{
 		APIBase: provider.URL + "/v1/",
 	}
-	model := rc.Models["claude-sonnet"]
+	model := rc.Models["standard"]
 	model.ProviderToolCapabilities = nil
-	rc.Models["claude-sonnet"] = model
+	rc.Models["standard"] = model
 
 	auditDir := t.TempDir()
 	audit := NewAuditLogger(auditDir, "test-agent")
@@ -670,7 +670,7 @@ func TestLLMProviderToolUnsupportedByModel(t *testing.T) {
 	lh := NewLLMHandler(rc, provider.URL, audit)
 	lh.SetProviderToolPolicy(&ProviderToolPolicy{Granted: map[string]bool{capProviderWebSearch: true}})
 
-	body := `{"model":"claude-sonnet","messages":[],"tools":[{"type":"web_search_preview"}]}`
+	body := `{"model":"standard","messages":[],"tools":[{"type":"web_search_preview"}]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -698,7 +698,7 @@ func TestLLMBufferedResponse(t *testing.T) {
 	defer provider.Close()
 
 	rc := testRoutingConfig()
-	rc.Providers["openai-compat"] = Provider{
+	rc.Providers["provider-a"] = Provider{
 		APIBase: provider.URL + "/v1/",
 	}
 
@@ -708,7 +708,7 @@ func TestLLMBufferedResponse(t *testing.T) {
 
 	lh := NewLLMHandler(rc, provider.URL, audit)
 
-	body := `{"model":"claude-sonnet","messages":[]}`
+	body := `{"model":"standard","messages":[]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -747,7 +747,7 @@ func TestLLMStreamingResponse(t *testing.T) {
 	defer provider.Close()
 
 	rc := testRoutingConfig()
-	rc.Providers["openai-compat"] = Provider{
+	rc.Providers["provider-a"] = Provider{
 		APIBase: provider.URL + "/v1/",
 	}
 
@@ -757,7 +757,7 @@ func TestLLMStreamingResponse(t *testing.T) {
 
 	lh := NewLLMHandler(rc, provider.URL, audit)
 
-	body := `{"model":"claude-sonnet","messages":[],"stream":true}`
+	body := `{"model":"standard","messages":[],"stream":true}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -795,7 +795,7 @@ func TestLLMStreamingProviderToolAuditExtra(t *testing.T) {
 	defer provider.Close()
 
 	rc := testRoutingConfig()
-	rc.Providers["openai-compat"] = Provider{APIBase: provider.URL + "/v1/"}
+	rc.Providers["provider-a"] = Provider{APIBase: provider.URL + "/v1/"}
 
 	auditDir := t.TempDir()
 	audit := NewAuditLogger(auditDir, "test-agent")
@@ -803,7 +803,7 @@ func TestLLMStreamingProviderToolAuditExtra(t *testing.T) {
 	lh := NewLLMHandler(rc, provider.URL, audit)
 	lh.SetProviderToolPolicy(&ProviderToolPolicy{Granted: map[string]bool{capProviderWebSearch: true}})
 
-	body := `{"model":"claude-sonnet","input":"what changed today?","tools":[{"type":"web_search"}],"stream":true}`
+	body := `{"model":"standard","input":"what changed today?","tools":[{"type":"web_search"}],"stream":true}`
 	req := httptest.NewRequest("POST", "/v1/responses", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -854,7 +854,7 @@ func TestLLMAnthropicStreamingProviderToolAuditExtra(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		flusher, _ := w.(http.Flusher)
-		fmt.Fprint(w, "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_test\",\"model\":\"claude-sonnet-4-20250514\",\"usage\":{\"input_tokens\":3}}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_test\",\"model\":\"provider-a-standard\",\"usage\":{\"input_tokens\":3}}}\n\n")
 		flusher.Flush()
 		fmt.Fprint(w, "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"server_tool_use\",\"id\":\"srvtoolu_1\",\"name\":\"web_search\"}}\n\n")
 		flusher.Flush()
@@ -868,10 +868,10 @@ func TestLLMAnthropicStreamingProviderToolAuditExtra(t *testing.T) {
 	defer provider.Close()
 
 	rc := testRoutingConfig()
-	rc.Providers["anthropic"] = Provider{APIBase: provider.URL + "/v1/"}
-	rc.Models["claude-sonnet"] = Model{
+	rc.Providers["anthropic"] = Provider{APIBase: provider.URL + "/v1/", APIFormat: "anthropic"}
+	rc.Models["standard"] = Model{
 		Provider:                 "anthropic",
-		ProviderModel:            "claude-sonnet-4-20250514",
+		ProviderModel:            "provider-a-standard",
 		Capabilities:             []string{"tools", "streaming"},
 		ProviderToolCapabilities: []string{capProviderWebSearch},
 	}
@@ -882,7 +882,7 @@ func TestLLMAnthropicStreamingProviderToolAuditExtra(t *testing.T) {
 	lh := NewLLMHandler(rc, provider.URL, audit)
 	lh.SetProviderToolPolicy(&ProviderToolPolicy{Granted: map[string]bool{capProviderWebSearch: true}})
 
-	body := `{"model":"claude-sonnet","messages":[{"role":"user","content":"what changed today?"}],"tools":[{"type":"web_search"}],"stream":true}`
+	body := `{"model":"standard","messages":[{"role":"user","content":"what changed today?"}],"tools":[{"type":"web_search"}],"stream":true}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -939,7 +939,7 @@ func TestLLMCorrelationIDPropagated(t *testing.T) {
 	defer provider.Close()
 
 	rc := testRoutingConfig()
-	rc.Providers["openai-compat"] = Provider{
+	rc.Providers["provider-a"] = Provider{
 		APIBase: provider.URL + "/v1/",
 	}
 
@@ -949,7 +949,7 @@ func TestLLMCorrelationIDPropagated(t *testing.T) {
 
 	lh := NewLLMHandler(rc, provider.URL, audit)
 
-	body := `{"model":"claude-sonnet","messages":[]}`
+	body := `{"model":"standard","messages":[]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Correlation-Id", "test-corr-456")
@@ -981,7 +981,7 @@ func TestLLMRetryOnFailure(t *testing.T) {
 	defer provider.Close()
 
 	rc := testRoutingConfig()
-	rc.Providers["openai-compat"] = Provider{
+	rc.Providers["provider-a"] = Provider{
 		APIBase: provider.URL + "/v1/",
 	}
 
@@ -991,7 +991,7 @@ func TestLLMRetryOnFailure(t *testing.T) {
 
 	lh := NewLLMHandler(rc, provider.URL, audit)
 
-	body := `{"model":"claude-sonnet","messages":[]}`
+	body := `{"model":"standard","messages":[]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -1014,7 +1014,7 @@ func TestLLMAuditLogWritten(t *testing.T) {
 	defer provider.Close()
 
 	rc := testRoutingConfig()
-	rc.Providers["openai-compat"] = Provider{
+	rc.Providers["provider-a"] = Provider{
 		APIBase: provider.URL + "/v1/",
 	}
 
@@ -1023,7 +1023,7 @@ func TestLLMAuditLogWritten(t *testing.T) {
 
 	lh := NewLLMHandler(rc, provider.URL, audit)
 
-	body := `{"model":"claude-sonnet","messages":[]}`
+	body := `{"model":"standard","messages":[]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Correlation-Id", "corr-test")
@@ -1048,10 +1048,10 @@ func TestLLMAuditLogWritten(t *testing.T) {
 	if entry.Type != "LLM_DIRECT" {
 		t.Errorf("wrong type: %s", entry.Type)
 	}
-	if entry.Model != "claude-sonnet" {
+	if entry.Model != "standard" {
 		t.Errorf("wrong model: %s", entry.Model)
 	}
-	if entry.ProviderModel != "claude-sonnet-4-20250514" {
+	if entry.ProviderModel != "provider-a-standard" {
 		t.Errorf("wrong provider model: %s", entry.ProviderModel)
 	}
 	if entry.CorrelationID != "corr-test" {
@@ -1153,16 +1153,16 @@ func TestLLMAnthropicTranslation(t *testing.T) {
 		json.Unmarshal(body, &receivedBody)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"id":"msg_test","type":"message","role":"assistant","content":[{"type":"text","text":"Hi!"}],"stop_reason":"end_turn","model":"claude-sonnet-4-20250514","usage":{"input_tokens":10,"output_tokens":5}}`)
+		fmt.Fprint(w, `{"id":"msg_test","type":"message","role":"assistant","content":[{"type":"text","text":"Hi!"}],"stop_reason":"end_turn","model":"provider-a-standard","usage":{"input_tokens":10,"output_tokens":5}}`)
 	}))
 	defer provider.Close()
 
 	rc := &RoutingConfig{
 		Providers: map[string]Provider{
-			"anthropic": {APIBase: provider.URL + "/v1/"},
+			"anthropic": {APIBase: provider.URL + "/v1/", APIFormat: "anthropic"},
 		},
 		Models: map[string]Model{
-			"claude-sonnet": {Provider: "anthropic", ProviderModel: "claude-sonnet-4-20250514", Capabilities: []string{"tools", "vision", "streaming"}},
+			"standard": {Provider: "anthropic", ProviderModel: "provider-a-standard", Capabilities: []string{"tools", "vision", "streaming"}},
 		},
 	}
 
@@ -1171,7 +1171,7 @@ func TestLLMAnthropicTranslation(t *testing.T) {
 	defer audit.Close()
 	lh := NewLLMHandler(rc, provider.URL, audit)
 
-	body := `{"model":"claude-sonnet","messages":[{"role":"system","content":"Be helpful"},{"role":"user","content":"hi"}]}`
+	body := `{"model":"standard","messages":[{"role":"system","content":"Be helpful"},{"role":"user","content":"hi"}]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -1214,16 +1214,16 @@ func TestLLMRateLimitAcquireBeforeRequest(t *testing.T) {
 		w.Header().Set("X-Ratelimit-Remaining-Requests", "95")
 		w.Header().Set("X-Ratelimit-Reset-Requests", "30")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"id":"msg_test","type":"message","role":"assistant","content":[{"type":"text","text":"Hi"}],"stop_reason":"end_turn","model":"claude-sonnet-4-20250514","usage":{"input_tokens":10,"output_tokens":5}}`)
+		fmt.Fprint(w, `{"id":"msg_test","type":"message","role":"assistant","content":[{"type":"text","text":"Hi"}],"stop_reason":"end_turn","model":"provider-a-standard","usage":{"input_tokens":10,"output_tokens":5}}`)
 	}))
 	defer provider.Close()
 
 	rc := &RoutingConfig{
 		Providers: map[string]Provider{
-			"anthropic": {APIBase: provider.URL + "/v1/"},
+			"anthropic": {APIBase: provider.URL + "/v1/", APIFormat: "anthropic"},
 		},
 		Models: map[string]Model{
-			"claude-sonnet": {Provider: "anthropic", ProviderModel: "claude-sonnet-4-20250514", Capabilities: []string{"tools", "vision", "streaming"}},
+			"standard": {Provider: "anthropic", ProviderModel: "provider-a-standard", Capabilities: []string{"tools", "vision", "streaming"}},
 		},
 	}
 
@@ -1235,7 +1235,7 @@ func TestLLMRateLimitAcquireBeforeRequest(t *testing.T) {
 	lh := NewLLMHandler(rc, provider.URL, audit)
 	lh.SetRateLimiter(rl, "test-agent")
 
-	body := `{"model":"claude-sonnet","messages":[{"role":"user","content":"hi"}]}`
+	body := `{"model":"standard","messages":[{"role":"user","content":"hi"}]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -1263,16 +1263,16 @@ func TestLLMRateLimitDeniedSendsKeepalive(t *testing.T) {
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"id":"msg_test","type":"message","role":"assistant","content":[{"type":"text","text":"Hi"}],"stop_reason":"end_turn","model":"claude-sonnet-4-20250514","usage":{"input_tokens":10,"output_tokens":5}}`)
+		fmt.Fprint(w, `{"id":"msg_test","type":"message","role":"assistant","content":[{"type":"text","text":"Hi"}],"stop_reason":"end_turn","model":"provider-a-standard","usage":{"input_tokens":10,"output_tokens":5}}`)
 	}))
 	defer provider.Close()
 
 	rc := &RoutingConfig{
 		Providers: map[string]Provider{
-			"anthropic": {APIBase: provider.URL + "/v1/"},
+			"anthropic": {APIBase: provider.URL + "/v1/", APIFormat: "anthropic"},
 		},
 		Models: map[string]Model{
-			"claude-sonnet": {Provider: "anthropic", ProviderModel: "claude-sonnet-4-20250514", Capabilities: []string{"tools", "vision", "streaming"}},
+			"standard": {Provider: "anthropic", ProviderModel: "provider-a-standard", Capabilities: []string{"tools", "vision", "streaming"}},
 		},
 	}
 
@@ -1287,7 +1287,7 @@ func TestLLMRateLimitDeniedSendsKeepalive(t *testing.T) {
 	lh := NewLLMHandler(rc, provider.URL, audit)
 	lh.SetRateLimiter(rl, "test-agent")
 
-	body := `{"model":"claude-sonnet","messages":[{"role":"user","content":"hi"}]}`
+	body := `{"model":"standard","messages":[{"role":"user","content":"hi"}]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -1340,7 +1340,7 @@ func TestLLMAnthropicStreaming(t *testing.T) {
 		flusher, _ := w.(http.Flusher)
 
 		events := []string{
-			"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"claude-sonnet-4-20250514\",\"usage\":{\"input_tokens\":50,\"cache_read_input_tokens\":40}}}",
+			"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"provider-a-standard\",\"usage\":{\"input_tokens\":50,\"cache_read_input_tokens\":40}}}",
 			"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}",
 			"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}",
 			"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}",
@@ -1357,10 +1357,10 @@ func TestLLMAnthropicStreaming(t *testing.T) {
 
 	rc := &RoutingConfig{
 		Providers: map[string]Provider{
-			"anthropic": {APIBase: provider.URL + "/v1/"},
+			"anthropic": {APIBase: provider.URL + "/v1/", APIFormat: "anthropic"},
 		},
 		Models: map[string]Model{
-			"claude-sonnet": {Provider: "anthropic", ProviderModel: "claude-sonnet-4-20250514", Capabilities: []string{"tools", "vision", "streaming"}},
+			"standard": {Provider: "anthropic", ProviderModel: "provider-a-standard", Capabilities: []string{"tools", "vision", "streaming"}},
 		},
 	}
 
@@ -1370,7 +1370,7 @@ func TestLLMAnthropicStreaming(t *testing.T) {
 
 	lh := NewLLMHandler(rc, provider.URL, audit)
 
-	body := `{"model":"claude-sonnet","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	body := `{"model":"standard","messages":[{"role":"user","content":"hi"}],"stream":true}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()

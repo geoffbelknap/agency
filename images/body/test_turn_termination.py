@@ -43,6 +43,19 @@ def _response(*, content: str = "", stop_reason: str = "end_turn", tool_name: st
     return {"choices": [{"message": message, "finish_reason": finish_reason, "stop_reason": stop_reason}]}
 
 
+def _finish_only_response(*, content: str = "", finish_reason: str = "stop", tool_name: str | None = None) -> dict:
+    message = {"role": "assistant"}
+    if content:
+        message["content"] = content
+    if tool_name:
+        message["tool_calls"] = [{
+            "id": f"call-{tool_name}",
+            "type": "function",
+            "function": {"name": tool_name, "arguments": json.dumps({"content": content})},
+        }]
+    return {"choices": [{"message": message, "finish_reason": finish_reason}]}
+
+
 def _body(tmp_path, responses: list[dict], mission: dict | None = None) -> tuple[Body, list[tuple[str, dict]], list[str]]:
     body = Body.__new__(Body)
     body.agent_name = "agent"
@@ -124,6 +137,32 @@ def test_model_terminal_path_commits_without_complete_task(tmp_path):
     assert body._execution_state is None
     assert [data["verdict"] for kind, data in signals if kind == "pact_verdict"] == ["completed"]
     assert any(kind == "task_complete" for kind, _data in signals)
+
+
+def test_finish_reason_only_terminal_path_commits_without_complete_task(tmp_path):
+    body, signals, send_messages = _body(tmp_path, [_finish_only_response(content="Done.", finish_reason="stop")])
+
+    body._conversation_loop(_task())
+
+    assert send_messages == []
+    assert body._execution_state is None
+    assert [data["verdict"] for kind, data in signals if kind == "pact_verdict"] == ["completed"]
+
+
+def test_finish_reason_only_tool_call_path_remains_non_terminal(tmp_path):
+    body, signals, send_messages = _body(
+        tmp_path,
+        [
+            _finish_only_response(content="Sent.", finish_reason="tool_calls", tool_name="send_message"),
+            _finish_only_response(content="Done.", finish_reason="stop"),
+        ],
+    )
+
+    body._conversation_loop(_task())
+
+    assert send_messages == ["Sent."]
+    assert body._execution_state is None
+    assert [data["verdict"] for kind, data in signals if kind == "pact_verdict"] == ["completed"]
 
 
 def test_dual_paths_coexist(tmp_path):

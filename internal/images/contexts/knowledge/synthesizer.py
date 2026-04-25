@@ -147,14 +147,15 @@ class LLMSynthesizer:
         # Config
         synth_timeout = int(os.environ.get("KNOWLEDGE_SYNTH_TIMEOUT", "120"))
         # Model alias — resolved by the gateway via routing.yaml
-        self._model = os.environ.get("KNOWLEDGE_SYNTH_MODEL", "claude-haiku")
-        # Gateway endpoint for LLM calls
+        self._model = os.environ.get("KNOWLEDGE_SYNTH_MODEL", "fast")
+        # Gateway endpoint for LLM calls. Infra normally injects this; fall
+        # back to the local mediation proxy when runtime-specific wiring is absent.
         raw_gateway_url = os.environ.get(
-            "AGENCY_GATEWAY_URL", "http://host.docker.internal:8200"
+            "AGENCY_GATEWAY_URL", "http://localhost:8200"
         )
         self._gateway_token = os.environ.get("AGENCY_GATEWAY_TOKEN", "")
 
-        # Gateway HTTP client: Unix socket (Linux containers) or TCP (Docker Desktop)
+        # Gateway HTTP client: Unix socket when explicitly configured, otherwise TCP.
         if raw_gateway_url.startswith("http+unix://"):
             sock_path = raw_gateway_url.replace("http+unix://", "")
             self._gateway_url = "http://localhost:8200"

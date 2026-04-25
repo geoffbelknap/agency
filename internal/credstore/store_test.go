@@ -561,15 +561,15 @@ func TestGenerateSwapConfig(t *testing.T) {
 
 	// API key entry.
 	store.Put(Entry{
-		Name:  "ANTHROPIC_KEY",
-		Value: "sk-ant-xxx",
+		Name:  "PROVIDER_A_KEY",
+		Value: "provider-a-secret",
 		Metadata: Metadata{
 			Kind:     KindProvider,
 			Scope:    "platform",
 			Protocol: ProtocolAPIKey,
 			ProtocolConfig: map[string]any{
-				"header":  "x-api-key",
-				"domains": []any{"api.anthropic.com"},
+				"header":  "x-provider-key",
+				"domains": []any{"provider-a.example.com"},
 			},
 			Source: "operator",
 		},
@@ -623,8 +623,8 @@ func TestGenerateSwapConfig(t *testing.T) {
 		t.Fatalf("unmarshal swap config: %v", err)
 	}
 
-	if _, ok := cfg.Swaps["ANTHROPIC_KEY"]; !ok {
-		t.Error("expected ANTHROPIC_KEY in swap config")
+	if _, ok := cfg.Swaps["PROVIDER_A_KEY"]; !ok {
+		t.Error("expected PROVIDER_A_KEY in swap config")
 	}
 	if lc, ok := cfg.Swaps["limacharlie"]; !ok {
 		t.Error("expected limacharlie in swap config")
@@ -645,6 +645,41 @@ func TestGenerateSwapConfig(t *testing.T) {
 		if len(gemini.Domains) != 1 || gemini.Domains[0] != "generativelanguage.googleapis.com" {
 			t.Errorf("gemini domains: got %#v", gemini.Domains)
 		}
+	}
+}
+
+func TestGenerateSwapConfigDoesNotInferUnknownProviderDefaults(t *testing.T) {
+	backend := newMemBackend()
+	store := NewStore(backend, t.TempDir())
+	if err := store.Put(Entry{
+		Name:  "custom-provider-key",
+		Value: "secret",
+		Metadata: Metadata{
+			Kind:     KindProvider,
+			Scope:    "platform",
+			Protocol: ProtocolAPIKey,
+			Source:   "operator",
+		},
+	}); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	data, err := store.GenerateSwapConfig()
+	if err != nil {
+		t.Fatalf("GenerateSwapConfig: %v", err)
+	}
+	var cfg struct {
+		Swaps map[string]struct {
+			Header  string   `yaml:"header"`
+			Domains []string `yaml:"domains"`
+		} `yaml:"swaps"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("unmarshal swap config: %v", err)
+	}
+	custom := cfg.Swaps["custom-provider-key"]
+	if custom.Header != "" || len(custom.Domains) != 0 {
+		t.Fatalf("custom provider inferred defaults: %#v", custom)
 	}
 }
 

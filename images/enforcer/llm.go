@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -380,10 +379,9 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	isAnthropic := providerName == "anthropic"
 	provider := lh.routing.Providers[lh.routing.Models[modelAlias].Provider]
-	isGeminiNative := provider.APIFormat == "gemini"
 	isResponsesPath := r.URL.Path == "/v1/responses"
+	adapter := providerAdapterFor(providerName, provider)
 
 	// Acquire rate limit slot if rate limiter is configured
 	if lh.rateLimiter != nil {
@@ -393,62 +391,27 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Determine target URL from request path
-	// The path after /v1/ determines the endpoint
-	// For Anthropic, always use the resolved URL (/messages)
-	if !isAnthropic && !isGeminiNative {
-		path := r.URL.Path
-		if strings.HasPrefix(path, "/v1/") {
-			endpoint := path[3:] // strip /v1, keep /chat/completions etc
-			base := strings.TrimRight(provider.APIBase, "/")
-			targetURL = base + endpoint
-		}
-	} else if isResponsesPath && isAnthropic {
-		http.Error(w, fmt.Sprintf(`{"error":"responses endpoint is not supported for %s models"}`, providerName), http.StatusBadRequest)
-		return
-	}
-
 	// Determine if streaming
 	isStream, _ := reqBody["stream"].(bool)
-	if isStream && isGeminiNative {
-		targetURL = strings.Replace(targetURL, ":generateContent", ":streamGenerateContent", 1)
-		if !strings.Contains(targetURL, "?") {
-			targetURL += "?alt=sse"
-		} else {
-			targetURL += "&alt=sse"
-		}
-	}
 
-	// Rewrite model in request body
-	reqBody["model"] = providerModel
-	if isStream && !isAnthropic && !isResponsesPath {
-		ensureStreamUsageRequested(reqBody)
-	}
-	modifiedBody, err := json.Marshal(reqBody)
+	prepared, err := adapter.PrepareRequest(providerRequestContext{
+		RequestPath:   r.URL.Path,
+		TargetURL:     targetURL,
+		ProviderName:  providerName,
+		ProviderModel: providerModel,
+		Provider:      provider,
+		Body:          reqBody,
+		Stream:        isStream,
+	})
 	if err != nil {
-		http.Error(w, `{"error":"failed to rewrite request body"}`, http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusBadRequest)
 		return
-	}
-
-	// For Anthropic: translate request body to Anthropic format
-	if isAnthropic {
-		modifiedBody, err = translateToAnthropic(modifiedBody, provider.CachingEnabled())
-		if err != nil {
-			http.Error(w, `{"error":"failed to translate request for Anthropic"}`, http.StatusInternalServerError)
-			return
-		}
-	} else if isGeminiNative {
-		modifiedBody, err = translateToGemini(modifiedBody)
-		if err != nil {
-			http.Error(w, `{"error":"failed to translate request for Gemini"}`, http.StatusInternalServerError)
-			return
-		}
 	}
 
 	// Build and send the upstream request with retries
 	var resp *http.Response
 	for attempt := 0; attempt < llmMaxRetries; attempt++ {
-		outReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, bytes.NewReader(modifiedBody))
+		outReq, err := http.NewRequestWithContext(r.Context(), r.Method, prepared.TargetURL, bytes.NewReader(prepared.Body))
 		if err != nil {
 			http.Error(w, `{"error":"failed to create upstream request"}`, http.StatusInternalServerError)
 			return
@@ -457,10 +420,7 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Set content type
 		outReq.Header.Set("Content-Type", "application/json")
 
-		// Add Anthropic-specific headers
-		if isAnthropic {
-			outReq.Header.Set("anthropic-version", "2023-06-01")
-		}
+		adapter.AddHeaders(outReq)
 
 		// Propagate correlation ID
 		if correlationID != "" {
@@ -478,6 +438,7 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			lh.audit.Log(AuditEntry{
 				Type:          "LLM_DIRECT_ERROR",
 				Model:         modelAlias,
+				Provider:      providerName,
 				ProviderModel: providerModel,
 				CorrelationID: correlationID,
 				Error:         err.Error(),
@@ -496,32 +457,20 @@ func (lh *LLMHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		lh.reportRateLimitHeaders(resp, providerName)
 	}
 
-	// Relay response
-	if isStream {
-		if isAnthropic {
-			lh.relayAnthropicStream(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf, providerToolUses)
-		} else if isGeminiNative {
-			if isResponsesPath {
-				lh.relayGeminiStream(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf, providerToolUses, geminiStreamResponses)
-			} else {
-				lh.relayGeminiStream(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf, providerToolUses, geminiStreamChat)
-			}
-		} else {
-			lh.relayStream(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf, providerToolUses)
-		}
-	} else {
-		if isAnthropic {
-			lh.relayAnthropicBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf, providerToolUses)
-		} else if isGeminiNative {
-			if isResponsesPath {
-				lh.relayGeminiResponsesBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf, providerToolUses)
-			} else {
-				lh.relayGeminiBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf, providerToolUses)
-			}
-		} else {
-			lh.relayBuffered(w, resp, modelAlias, providerModel, correlationID, eventID, start, stepIndex, retryOf, providerToolUses)
-		}
-	}
+	adapter.RelayResponse(lh, w, providerRelayContext{
+		Response:         resp,
+		ModelAlias:       modelAlias,
+		ProviderName:     providerName,
+		ProviderModel:    providerModel,
+		CorrelationID:    correlationID,
+		EventID:          eventID,
+		Start:            start,
+		StepIndex:        stepIndex,
+		RetryOf:          retryOf,
+		ProviderToolUses: providerToolUses,
+		Stream:           isStream,
+		ResponsesPath:    isResponsesPath,
+	})
 }
 
 func ensureStreamUsageRequested(reqBody map[string]interface{}) {
@@ -534,7 +483,7 @@ func ensureStreamUsageRequested(reqBody map[string]interface{}) {
 }
 
 // relayBuffered relays a non-streaming LLM response.
-func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string, providerToolUses []ProviderToolUse) {
+func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerName, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string, providerToolUses []ProviderToolUse) {
 	// Copy safe headers
 	for k, vv := range resp.Header {
 		if safeResponseHeaders[strings.ToLower(k)] {
@@ -631,6 +580,7 @@ func (lh *LLMHandler) relayBuffered(w http.ResponseWriter, resp *http.Response, 
 	lh.audit.Log(AuditEntry{
 		Type:          auditType,
 		Model:         modelAlias,
+		Provider:      providerName,
 		ProviderModel: providerModel,
 		CorrelationID: correlationID,
 		EventID:       eventID,
@@ -679,7 +629,7 @@ func (lh *LLMHandler) emitTrajectoryAnomaly(anomaly Anomaly) {
 }
 
 // relayStream relays an SSE streaming LLM response.
-func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string, providerToolUses []ProviderToolUse) {
+func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerName, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string, providerToolUses []ProviderToolUse) {
 	// Copy safe stream headers
 	for k, vv := range resp.Header {
 		if safeStreamHeaders[strings.ToLower(k)] {
@@ -743,6 +693,7 @@ func (lh *LLMHandler) relayStream(w http.ResponseWriter, resp *http.Response, mo
 	lh.audit.Log(AuditEntry{
 		Type:          auditType,
 		Model:         modelAlias,
+		Provider:      providerName,
 		ProviderModel: providerModel,
 		CorrelationID: correlationID,
 		EventID:       eventID,
@@ -784,446 +735,6 @@ func extractStreamJSONObjects(chunk string) []interface{} {
 		}
 	}
 	return objects
-}
-
-type geminiStreamMode int
-
-const (
-	geminiStreamChat geminiStreamMode = iota
-	geminiStreamResponses
-)
-
-// relayGeminiStream relays native Gemini SSE as either OpenAI-compatible chat
-// chunks or Responses events.
-func (lh *LLMHandler) relayGeminiStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string, providerToolUses []ProviderToolUse, mode geminiStreamMode) {
-	for k, vv := range resp.Header {
-		if safeStreamHeaders[strings.ToLower(k)] {
-			for _, v := range vv {
-				w.Header().Add(k, v)
-			}
-		}
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.WriteHeader(resp.StatusCode)
-
-	flusher, canFlush := w.(http.Flusher)
-	inputTokens, outputTokens := 0, 0
-	var ttftTime time.Time
-	var rawChunks []interface{}
-	var fullText strings.Builder
-
-	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "event:") {
-			continue
-		}
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if data == "" || data == "[DONE]" {
-			continue
-		}
-
-		var chunk map[string]interface{}
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			continue
-		}
-		rawChunks = append(rawChunks, chunk)
-		if in, out := geminiUsageCounts(chunk); in > 0 || out > 0 {
-			if in > 0 {
-				inputTokens = in
-			}
-			if out > 0 {
-				outputTokens = out
-			}
-		}
-
-		content := geminiResponseText(chunk)
-		if content == "" {
-			continue
-		}
-		fullText.WriteString(content)
-		if ttftTime.IsZero() {
-			ttftTime = time.Now()
-		}
-		if mode == geminiStreamResponses {
-			fmt.Fprintf(w, "event: response.output_text.delta\ndata: %s\n\n", geminiOpenAIResponseTextDelta(content))
-		} else {
-			fmt.Fprintf(w, "data: %s\n\n", geminiOpenAIStreamChunk(content, "", nil))
-		}
-		if canFlush {
-			flusher.Flush()
-		}
-	}
-
-	finalUsage := map[string]interface{}{}
-	if inputTokens > 0 {
-		finalUsage["prompt_tokens"] = inputTokens
-	}
-	if outputTokens > 0 {
-		finalUsage["completion_tokens"] = outputTokens
-	}
-	if inputTokens > 0 || outputTokens > 0 {
-		finalUsage["total_tokens"] = inputTokens + outputTokens
-	}
-	if len(finalUsage) == 0 {
-		finalUsage = nil
-	}
-	if mode == geminiStreamResponses {
-		fmt.Fprintf(w, "event: response.completed\ndata: %s\n\n", geminiOpenAIResponseCompleted(fullText.String(), finalUsage))
-	} else {
-		fmt.Fprintf(w, "data: %s\n\n", geminiOpenAIStreamChunk("", "stop", finalUsage))
-		fmt.Fprint(w, "data: [DONE]\n\n")
-	}
-	if canFlush {
-		flusher.Flush()
-	}
-
-	ttftMs := int64(0)
-	if !ttftTime.IsZero() {
-		ttftMs = ttftTime.Sub(start).Milliseconds()
-	}
-	tpotMs := float64(0)
-	durationMs := time.Since(start).Milliseconds()
-	if outputTokens > 0 && ttftMs > 0 {
-		tpotMs = float64(durationMs-ttftMs) / float64(outputTokens)
-	}
-
-	lh.audit.Log(AuditEntry{
-		Type:          "LLM_DIRECT_STREAM",
-		Model:         modelAlias,
-		ProviderModel: providerModel,
-		CorrelationID: correlationID,
-		EventID:       eventID,
-		Status:        resp.StatusCode,
-		InputTokens:   inputTokens,
-		OutputTokens:  outputTokens,
-		DurationMs:    durationMs,
-		TTFTMs:        ttftMs,
-		TPOTMs:        tpotMs,
-		StepIndex:     stepIndex,
-		RetryOf:       retryOf,
-		Extra: lh.providerToolAuditExtra(modelAlias, providerToolUses, map[string]interface{}{
-			"chunks": rawChunks,
-		}),
-	})
-	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, map[string]interface{}{
-		"chunks": rawChunks,
-	})
-	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, 0, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
-}
-
-// relayAnthropicBuffered relays a non-streaming Anthropic response, translating
-// it back to OpenAI format before sending to the client.
-func (lh *LLMHandler) relayAnthropicBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string, providerToolUses []ProviderToolUse) {
-	body, _ := io.ReadAll(resp.Body)
-
-	// Translate Anthropic response to OpenAI format
-	translated, err := translateFromAnthropic(body)
-	if err != nil {
-		// Fallback: relay raw response
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(resp.StatusCode)
-		w.Write(body)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	for k, vv := range resp.Header {
-		if safeResponseHeaders[strings.ToLower(k)] && strings.ToLower(k) != "content-type" && strings.ToLower(k) != "content-length" {
-			for _, v := range vv {
-				w.Header().Add(k, v)
-			}
-		}
-	}
-	w.WriteHeader(resp.StatusCode)
-	w.Write(translated)
-
-	// Extract usage from translated response for audit
-	var respBody map[string]interface{}
-	var rawRespBody map[string]interface{}
-	inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens := 0, 0, 0, 0
-	_ = json.Unmarshal(body, &rawRespBody)
-	if json.Unmarshal(translated, &respBody) == nil {
-		if usage, ok := respBody["usage"].(map[string]interface{}); ok {
-			if v, ok := usage["prompt_tokens"].(float64); ok {
-				inputTokens = int(v)
-			}
-			if v, ok := usage["completion_tokens"].(float64); ok {
-				outputTokens = int(v)
-			}
-			cacheCreationTokens = intFromJSON(usage["cache_creation_input_tokens"])
-			cacheReadTokens = intFromJSON(usage["cache_read_input_tokens"])
-		}
-	}
-
-	// Validate tool call arguments for hallucination detection (translated response is in OpenAI format)
-	var toolCallValid *bool
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		if choices, ok := respBody["choices"].([]interface{}); ok && len(choices) > 0 {
-			if choice, ok := choices[0].(map[string]interface{}); ok {
-				if message, ok := choice["message"].(map[string]interface{}); ok {
-					if toolCalls, ok := message["tool_calls"].([]interface{}); ok && len(toolCalls) > 0 {
-						allValid := true
-						for _, tc := range toolCalls {
-							tcMap, ok := tc.(map[string]interface{})
-							if !ok {
-								allValid = false
-								break
-							}
-							fn, ok := tcMap["function"].(map[string]interface{})
-							if !ok {
-								allValid = false
-								break
-							}
-							argsStr, _ := fn["arguments"].(string)
-							if argsStr != "" {
-								var args json.RawMessage
-								if json.Unmarshal([]byte(argsStr), &args) != nil {
-									allValid = false
-								}
-							}
-						}
-						toolCallValid = &allValid
-					}
-				}
-			}
-		}
-	}
-
-	durationMs := time.Since(start).Milliseconds()
-
-	lh.audit.Log(AuditEntry{
-		Type:                     "LLM_DIRECT",
-		Model:                    modelAlias,
-		ProviderModel:            providerModel,
-		CorrelationID:            correlationID,
-		EventID:                  eventID,
-		Status:                   resp.StatusCode,
-		InputTokens:              inputTokens,
-		OutputTokens:             outputTokens,
-		CachedTokens:             cacheReadTokens,
-		CacheCreationInputTokens: cacheCreationTokens,
-		CacheReadInputTokens:     cacheReadTokens,
-		DurationMs:               durationMs,
-		TTFTMs:                   durationMs,
-		ToolCallValid:            toolCallValid,
-		StepIndex:                stepIndex,
-		RetryOf:                  retryOf,
-		Extra:                    lh.providerToolAuditExtra(modelAlias, providerToolUses, rawRespBody),
-	})
-	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, rawRespBody)
-	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
-
-	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, cacheReadTokens, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
-}
-
-// relayGeminiBuffered relays a non-streaming Gemini native response,
-// translating it back to OpenAI chat/completions format for the body runtime.
-func (lh *LLMHandler) relayGeminiBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string, providerToolUses []ProviderToolUse) {
-	body, _ := io.ReadAll(resp.Body)
-
-	translated, err := translateFromGemini(body)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(resp.StatusCode)
-		w.Write(body)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	for k, vv := range resp.Header {
-		if safeResponseHeaders[strings.ToLower(k)] && strings.ToLower(k) != "content-type" && strings.ToLower(k) != "content-length" {
-			for _, v := range vv {
-				w.Header().Add(k, v)
-			}
-		}
-	}
-	w.WriteHeader(resp.StatusCode)
-	w.Write(translated)
-
-	var respBody map[string]interface{}
-	var rawRespBody map[string]interface{}
-	_ = json.Unmarshal(body, &rawRespBody)
-	inputTokens, outputTokens := 0, 0
-	if json.Unmarshal(translated, &respBody) == nil {
-		inputTokens, outputTokens = extractUsageCounts(respBody)
-	}
-
-	durationMs := time.Since(start).Milliseconds()
-	lh.audit.Log(AuditEntry{
-		Type:          "LLM_DIRECT",
-		Model:         modelAlias,
-		ProviderModel: providerModel,
-		CorrelationID: correlationID,
-		EventID:       eventID,
-		Status:        resp.StatusCode,
-		InputTokens:   inputTokens,
-		OutputTokens:  outputTokens,
-		DurationMs:    durationMs,
-		TTFTMs:        durationMs,
-		StepIndex:     stepIndex,
-		RetryOf:       retryOf,
-		Extra:         lh.providerToolAuditExtra(modelAlias, providerToolUses, rawRespBody),
-	})
-	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, rawRespBody)
-	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, 0, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
-}
-
-// relayGeminiResponsesBuffered relays a non-streaming Gemini native response
-// as an OpenAI Responses-style body.
-func (lh *LLMHandler) relayGeminiResponsesBuffered(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string, providerToolUses []ProviderToolUse) {
-	body, _ := io.ReadAll(resp.Body)
-
-	translated, err := translateFromGeminiResponse(body)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(resp.StatusCode)
-		w.Write(body)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	for k, vv := range resp.Header {
-		if safeResponseHeaders[strings.ToLower(k)] && strings.ToLower(k) != "content-type" && strings.ToLower(k) != "content-length" {
-			for _, v := range vv {
-				w.Header().Add(k, v)
-			}
-		}
-	}
-	w.WriteHeader(resp.StatusCode)
-	w.Write(translated)
-
-	var respBody map[string]interface{}
-	var rawRespBody map[string]interface{}
-	_ = json.Unmarshal(body, &rawRespBody)
-	inputTokens, outputTokens := 0, 0
-	if json.Unmarshal(translated, &respBody) == nil {
-		inputTokens, outputTokens = extractUsageCounts(respBody)
-	}
-
-	durationMs := time.Since(start).Milliseconds()
-	lh.audit.Log(AuditEntry{
-		Type:          "LLM_DIRECT",
-		Model:         modelAlias,
-		ProviderModel: providerModel,
-		CorrelationID: correlationID,
-		EventID:       eventID,
-		Status:        resp.StatusCode,
-		InputTokens:   inputTokens,
-		OutputTokens:  outputTokens,
-		DurationMs:    durationMs,
-		TTFTMs:        durationMs,
-		StepIndex:     stepIndex,
-		RetryOf:       retryOf,
-		Extra:         lh.providerToolAuditExtra(modelAlias, providerToolUses, rawRespBody),
-	})
-	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, rawRespBody)
-	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
-	lh.reportUsage(modelAlias, providerModel, inputTokens, outputTokens, 0, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, durationMs)
-}
-
-// relayAnthropicStream relays an Anthropic SSE streaming response, translating
-// each event to OpenAI chat.completion.chunk format before sending to the client.
-func (lh *LLMHandler) relayAnthropicStream(w http.ResponseWriter, resp *http.Response, modelAlias, providerModel, correlationID, eventID string, start time.Time, stepIndex int, retryOf string, providerToolUses []ProviderToolUse) {
-	for k, vv := range resp.Header {
-		if safeStreamHeaders[strings.ToLower(k)] {
-			for _, v := range vv {
-				w.Header().Add(k, v)
-			}
-		}
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.WriteHeader(resp.StatusCode)
-
-	flusher, canFlush := w.(http.Flusher)
-	translator := newStreamTranslator()
-
-	var ttftTime time.Time
-	var rawChunks []interface{}
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "event:") || line == "" {
-			continue
-		}
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		if ttftTime.IsZero() {
-			ttftTime = time.Now()
-		}
-		data := line[6:]
-		var raw map[string]interface{}
-		if json.Unmarshal([]byte(data), &raw) == nil {
-			rawChunks = append(rawChunks, raw)
-		}
-
-		chunks := translator.translateEvent(data)
-		for _, chunk := range chunks {
-			fmt.Fprintf(w, "data: %s\n\n", chunk)
-			if canFlush {
-				flusher.Flush()
-			}
-		}
-	}
-
-	if evidenceChunk := providerToolEvidenceStreamChunk(providerToolUses, rawChunks); evidenceChunk != "" {
-		fmt.Fprintf(w, "data: %s\n\n", evidenceChunk)
-		if canFlush {
-			flusher.Flush()
-		}
-	}
-
-	fmt.Fprint(w, "data: [DONE]\n\n")
-	if canFlush {
-		flusher.Flush()
-	}
-
-	ttftMs := int64(0)
-	if !ttftTime.IsZero() {
-		ttftMs = ttftTime.Sub(start).Milliseconds()
-	}
-	tpotMs := float64(0)
-	durationMs := time.Since(start).Milliseconds()
-	if translator.outputTokens > 0 && ttftMs > 0 {
-		tpotMs = float64(durationMs-ttftMs) / float64(translator.outputTokens)
-	}
-
-	lh.audit.Log(AuditEntry{
-		Type:                     "LLM_DIRECT_STREAM",
-		Model:                    modelAlias,
-		ProviderModel:            providerModel,
-		CorrelationID:            correlationID,
-		EventID:                  eventID,
-		Status:                   resp.StatusCode,
-		InputTokens:              translator.inputTokens,
-		OutputTokens:             translator.outputTokens,
-		CachedTokens:             translator.cacheRead,
-		CacheCreationInputTokens: translator.cacheCreation,
-		CacheReadInputTokens:     translator.cacheRead,
-		DurationMs:               durationMs,
-		TTFTMs:                   ttftMs,
-		TPOTMs:                   tpotMs,
-		StepIndex:                stepIndex,
-		RetryOf:                  retryOf,
-		Extra: lh.providerToolAuditExtra(modelAlias, providerToolUses, map[string]interface{}{
-			"chunks": rawChunks,
-		}),
-	})
-	lh.auditProviderToolHarnessProposals(modelAlias, providerModel, correlationID, resp.StatusCode, map[string]interface{}{
-		"chunks": rawChunks,
-	})
-	lh.emitErrorSignal(resp.StatusCode, modelAlias, correlationID, 0)
-
-	// Report usage for budget tracking
-	lh.reportUsage(modelAlias, providerModel, translator.inputTokens, translator.outputTokens, translator.cacheRead, lh.providerToolCostEstimate(modelAlias, providerToolUses), resp.StatusCode, time.Since(start).Milliseconds())
 }
 
 func providerToolEvidenceStreamChunk(uses []ProviderToolUse, rawChunks []interface{}) string {

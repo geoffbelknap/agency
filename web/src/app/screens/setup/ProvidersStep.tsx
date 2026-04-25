@@ -1,21 +1,9 @@
 import { useState, useEffect } from 'react';
 import { ExternalLink, Loader2, X, ChevronDown } from 'lucide-react';
 import { api } from '../../lib/api';
+import type { Provider } from '../../types';
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
-
-interface ProviderData {
-  name: string;
-  display_name: string;
-  description: string;
-  category: string;
-  installed: boolean;
-  credential_name?: string;
-  credential_label?: string;
-  api_key_url?: string;
-  api_base_configurable?: boolean;
-  credential_configured: boolean;
-}
 
 interface ProvidersStepProps {
   providers: Record<string, { configured: boolean; validated: boolean }>;
@@ -30,7 +18,7 @@ export function ProvidersStep({
   onNext,
   onBack,
 }: ProvidersStepProps) {
-  const [available, setAvailable] = useState<ProviderData[]>([]);
+  const [available, setAvailable] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
@@ -47,23 +35,10 @@ export function ProvidersStep({
     }).catch(() => setLoading(false));
   }, []);
 
-  const handleVerify = async (provider: ProviderData) => {
+  const handleVerify = async (provider: Provider) => {
     const credName = provider.credential_name;
     const key = (keyInputs[provider.name] || '').trim();
     const baseURL = (baseInputs[provider.name] || '').trim();
-
-    if (provider.name === 'openai-compatible') {
-      setTestError((prev) => ({
-        ...prev,
-        [provider.name]: 'OpenAI-compatible endpoints need a custom base URL and model mapping. This setup step cannot save that mapping yet.',
-      }));
-      return;
-    }
-
-    if (provider.api_base_configurable && provider.category !== 'local' && !baseURL) {
-      setTestError((prev) => ({ ...prev, [provider.name]: 'Enter the provider base URL before saving.' }));
-      return;
-    }
 
     if (credName && !key && !provider.credential_configured) {
       setTestError((prev) => ({ ...prev, [provider.name]: `Enter ${provider.credential_label || 'an API key'} before verifying.` }));
@@ -74,27 +49,23 @@ export function ProvidersStep({
     setTestError((prev) => ({ ...prev, [provider.name]: '' }));
 
     try {
+      const result = await api.providers.verify(provider.name, {
+        api_key: key || undefined,
+        api_base: baseURL || undefined,
+      });
+      if (!result.ok) {
+        setTestError((prev) => ({ ...prev, [provider.name]: result.message || 'Verification failed' }));
+        onProviderUpdate(provider.name, Boolean(key || provider.credential_configured || baseURL), false);
+        return;
+      }
+
       if (credName && key) {
         await api.credentials.store(credName, key, { kind: 'provider', scope: 'global', protocol: 'api-key' });
       }
 
-      if (credName && key) {
-        const result = await api.credentials.test(credName);
-        if (!result.ok) {
-          setTestError((prev) => ({ ...prev, [provider.name]: result.message || 'Verification failed' }));
-          onProviderUpdate(provider.name, true, false);
-          return;
-        }
-      } else if (credName && provider.credential_configured) {
-        // The backend may report a provider as configured through an alias such
-        // as ANTHROPIC_API_KEY. Do not re-test the catalog credential name here,
-        // because that can produce a false "credential not found" error.
-        onProviderUpdate(provider.name, true, true);
-      }
-
-      if (!provider.installed) {
+      if (!provider.installed || (provider.api_base_configurable && baseURL)) {
         try {
-          await api.providers.install(provider.name);
+          await api.providers.install(provider.name, { api_base: baseURL || undefined });
         } catch (installErr: any) {
           if (!(installErr.message || '').includes('already exists')) {
             throw installErr;
@@ -112,16 +83,24 @@ export function ProvidersStep({
     }
   };
 
+  const setupProviders = [...available]
+    .filter((provider) => provider.quickstart_selectable)
+    .sort((a, b) => {
+      const orderDiff = (a.quickstart_order ?? Number.MAX_SAFE_INTEGER) - (b.quickstart_order ?? Number.MAX_SAFE_INTEGER);
+      if (orderDiff !== 0) return orderDiff;
+      return a.display_name.localeCompare(b.display_name);
+    });
+
   const grouped = {
-    cloud: available.filter((p) => p.category === 'cloud'),
-    local: available.filter((p) => p.category === 'local'),
-    compatible: available.filter((p) => p.category === 'compatible'),
+    cloud: setupProviders.filter((p) => p.category === 'cloud'),
+    local: setupProviders.filter((p) => p.category === 'local'),
+    compatible: setupProviders.filter((p) => p.category === 'compatible'),
   };
 
   const categoryLabels: Record<string, string> = {
     cloud: 'Cloud providers',
     local: 'Local',
-    compatible: 'OpenAI-compatible',
+    compatible: 'Compatible adapters',
   };
 
   if (loading) {
@@ -159,11 +138,13 @@ export function ProvidersStep({
                   const isExpanded = expanded === provider.name;
                   const isValidated = status?.validated || provider.credential_configured;
                   const isConfigured = status?.configured || provider.installed || provider.credential_configured;
-                  const verifyLabel = provider.name === 'openai-compatible'
-                    ? 'Setup info'
-                    : isValidated && !keyInputs[provider.name]
-                      ? 'Use Existing Credential'
-                      : 'Verify & Save';
+                  const statusLabel = isValidated ? 'verified' : isConfigured ? 'configured' : 'missing';
+                  const badgeLabel = provider.quickstart_recommended && !isValidated
+                    ? `recommended · ${statusLabel}`
+                    : statusLabel;
+                  const verifyLabel = isValidated && !keyInputs[provider.name]
+                    ? 'Use Existing Credential'
+                    : 'Verify & Save';
 
                   return (
                     <div key={provider.name} style={{ borderBottom: '0.5px solid var(--ink-hairline)', background: isExpanded ? 'var(--warm)' : 'transparent' }}>
@@ -176,16 +157,18 @@ export function ProvidersStep({
                           <span style={{ width: 8, height: 8, borderRadius: 999, background: isValidated ? 'var(--teal)' : isConfigured ? 'var(--amber)' : 'var(--ink-hairline-strong)', flexShrink: 0 }} />
                           <span className="mono" style={{ color: 'var(--ink)', fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{provider.display_name}</span>
                         </div>
-                        <span style={{ color: 'var(--ink-mid)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{provider.description}</span>
-                        <span className="mono" style={{ border: '0.5px solid var(--ink-hairline-strong)', borderRadius: 999, padding: '4px 8px', color: isValidated ? 'var(--teal-dark)' : 'var(--ink-faint)', background: isValidated ? 'var(--teal-tint)' : 'var(--warm)', fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                          {isValidated ? 'verified' : isConfigured ? 'configured' : 'missing'}
+                        <span style={{ color: 'var(--ink-mid)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {provider.quickstart_prompt_blurb || provider.description}
+                        </span>
+                        <span className="mono" style={{ border: '0.5px solid var(--ink-hairline-strong)', borderRadius: 999, padding: '4px 8px', color: isValidated ? 'var(--teal-dark)' : provider.quickstart_recommended ? '#8B5A00' : 'var(--ink-faint)', background: isValidated ? 'var(--teal-tint)' : provider.quickstart_recommended ? 'var(--amber-tint)' : 'var(--warm)', fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                          {badgeLabel}
                         </span>
                         <ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} style={{ color: 'var(--ink-faint)' }} />
                       </button>
 
                       {isExpanded && (
                         <div style={{ display: 'grid', gap: 14, borderTop: '0.5px solid var(--ink-hairline)', padding: '16px', background: 'var(--warm)' }}>
-                          <p style={{ margin: 0, color: 'var(--ink-mid)', fontSize: 13, lineHeight: 1.55 }}>{provider.description}</p>
+                          <p style={{ margin: 0, color: 'var(--ink-mid)', fontSize: 13, lineHeight: 1.55 }}>{provider.quickstart_prompt_blurb || provider.description}</p>
 
                           {provider.credential_name && (
                             <div style={{ display: 'grid', gap: 8 }}>
@@ -210,7 +193,7 @@ export function ProvidersStep({
 
                           {provider.api_base_configurable && (
                             <div style={{ display: 'grid', gap: 8 }}>
-                              <label className="eyebrow" style={{ fontSize: 9 }}>API Base URL</label>
+                              <label htmlFor={`provider-base-${provider.name}`} className="eyebrow" style={{ fontSize: 9 }}>API Base URL</label>
                               <Input
                                 id={`provider-base-${provider.name}`}
                                 name={`provider-base-${provider.name}`}

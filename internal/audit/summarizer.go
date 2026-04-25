@@ -13,13 +13,18 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
 	"log/slog"
+
+	"github.com/geoffbelknap/agency/internal/models"
+	agencysecurity "github.com/geoffbelknap/agency/internal/security"
 )
 
 // AuditEntry mirrors the enforcer's audit entry (subset needed for summarization).
 type AuditEntry struct {
 	Timestamp     string `json:"ts"`
 	Type          string `json:"type"`
+	Event         string `json:"event"`
 	Agent         string `json:"agent,omitempty"`
 	Model         string `json:"model,omitempty"`
 	EventID       string `json:"event_id,omitempty"`
@@ -28,6 +33,7 @@ type AuditEntry struct {
 	TTFTMs        int64  `json:"ttft_ms,omitempty"`
 	ToolCallValid *bool  `json:"tool_call_valid,omitempty"`
 	RetryOf       string `json:"retry_of,omitempty"`
+	FindingCount  *int   `json:"finding_count,omitempty"`
 }
 
 // MissionMetric holds aggregated metrics for one mission on one date.
@@ -43,8 +49,8 @@ type MissionMetric struct {
 	TTFTP50Ms         int64   `json:"ttft_p50_ms"`
 	ToolHallRate      float64 `json:"tool_hallucination_rate"`
 	RetryWasteUSD     float64 `json:"retry_waste_usd"`
-	EscalationCount   *int    `json:"escalation_count"`  // v2 — null for now
-	FindingsCount     *int    `json:"findings_count"`    // v2 — null for now
+	EscalationCount   *int    `json:"escalation_count"` // v2 — null for now
+	FindingsCount     *int    `json:"findings_count"`   // v2 — null for now
 }
 
 // AuditSummarizer aggregates enforcer audit logs into per-mission metrics.
@@ -53,18 +59,45 @@ type AuditSummarizer struct {
 	homeDir      string
 	knowledgeURL string
 	missionMap   map[string]string // agent -> mission
+	pricing      map[string]ModelPrice
 	logger       *slog.Logger
 }
 
 // NewAuditSummarizer creates a summarizer that reads audit logs from homeDir.
 func NewAuditSummarizer(homeDir, knowledgeURL string, logger *slog.Logger) *AuditSummarizer {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &AuditSummarizer{
 		ticker:       time.NewTicker(15 * time.Minute),
 		homeDir:      homeDir,
 		knowledgeURL: knowledgeURL,
 		missionMap:   make(map[string]string),
+		pricing:      loadRoutingPricing(homeDir),
 		logger:       logger,
 	}
+}
+
+func loadRoutingPricing(homeDir string) map[string]ModelPrice {
+	data, err := os.ReadFile(filepath.Join(homeDir, "infrastructure", "routing.yaml"))
+	if err != nil {
+		return nil
+	}
+	var rc models.RoutingConfig
+	if err := yaml.Unmarshal(data, &rc); err != nil {
+		return nil
+	}
+	pricing := make(map[string]ModelPrice, len(rc.Models))
+	for alias, cfg := range rc.Models {
+		if cfg.CostPerMTokIn == 0 && cfg.CostPerMTokOut == 0 {
+			continue
+		}
+		pricing[alias] = ModelPrice{
+			InputPer1M:  cfg.CostPerMTokIn,
+			OutputPer1M: cfg.CostPerMTokOut,
+		}
+	}
+	return pricing
 }
 
 // Start begins periodic summarization in a background goroutine.
@@ -120,17 +153,18 @@ func (s *AuditSummarizer) upsertMetricsToKnowledge(metrics []MissionMetric) {
 			"summary":     "",
 			"source_type": "rule",
 			"properties": map[string]interface{}{
-				"mission":                    m.Mission,
-				"date":                       m.Date,
-				"activations":                m.Activations,
-				"total_input_tokens":         m.TotalInputTokens,
-				"total_output_tokens":        m.TotalOutputTokens,
-				"estimated_cost_usd":         m.EstimatedCostUSD,
-				"avg_tokens_per_act":         m.AvgTokensPerAct,
-				"model":                      m.Model,
-				"ttft_p50_ms":                m.TTFTP50Ms,
-				"tool_hallucination_rate":    m.ToolHallRate,
-				"retry_waste_usd":           m.RetryWasteUSD,
+				"mission":                 m.Mission,
+				"date":                    m.Date,
+				"activations":             m.Activations,
+				"total_input_tokens":      m.TotalInputTokens,
+				"total_output_tokens":     m.TotalOutputTokens,
+				"estimated_cost_usd":      m.EstimatedCostUSD,
+				"avg_tokens_per_act":      m.AvgTokensPerAct,
+				"model":                   m.Model,
+				"ttft_p50_ms":             m.TTFTP50Ms,
+				"tool_hallucination_rate": m.ToolHallRate,
+				"retry_waste_usd":         m.RetryWasteUSD,
+				"findings_count":          m.metricFindingsCount(),
 			},
 		})
 	}
@@ -172,6 +206,7 @@ func (s *AuditSummarizer) summarizeDate(date string) ([]MissionMetric, error) {
 		toolCallTotal  int
 		toolCallFailed int
 		retryCost      float64
+		findingsCount  int
 	}
 	missionActs := map[string]map[string]*activation{} // mission -> event_id -> activation
 
@@ -185,6 +220,25 @@ func (s *AuditSummarizer) summarizeDate(date string) ([]MissionMetric, error) {
 			entry, err := parseAuditLine(scanner.Bytes())
 			if err != nil {
 				continue
+			}
+			if entry.isSecurityFinding() {
+				mission := s.missionMap[entry.Agent]
+				if mission == "" {
+					mission = "unattributed"
+				}
+				eventID := entry.EventID
+				if eventID == "" {
+					eventID = securityFindingEventID(entry)
+				}
+				if missionActs[mission] == nil {
+					missionActs[mission] = map[string]*activation{}
+				}
+				act := missionActs[mission][eventID]
+				if act == nil {
+					act = &activation{}
+					missionActs[mission][eventID] = act
+				}
+				act.findingsCount += entry.securityFindingCount()
 			}
 			if entry.Type != "LLM_DIRECT" && entry.Type != "LLM_DIRECT_STREAM" {
 				continue
@@ -208,9 +262,9 @@ func (s *AuditSummarizer) summarizeDate(date string) ([]MissionMetric, error) {
 			act.inputTokens += entry.InputTokens
 			act.outputTokens += entry.OutputTokens
 			act.models = append(act.models, entry.Model)
-			cost := EstimateCost(entry.Model, entry.InputTokens, entry.OutputTokens)
+			cost := EstimateCostWithPricing(s.pricing, entry.Model, entry.InputTokens, entry.OutputTokens)
 			if cost == 0 && entry.Model != "" {
-				s.logger.Warn("unknown model for cost estimation", "model", entry.Model)
+				s.log().Warn("unknown model for cost estimation", "model", entry.Model)
 			}
 			act.cost += cost
 
@@ -240,6 +294,7 @@ func (s *AuditSummarizer) summarizeDate(date string) ([]MissionMetric, error) {
 		var allTTFTs []int64
 		var totalToolCalls, totalToolFailed int
 		var totalRetryCost float64
+		var findingsCount int
 		modelCounts := map[string]int{}
 		for _, act := range activations {
 			totalIn += act.inputTokens
@@ -249,6 +304,7 @@ func (s *AuditSummarizer) summarizeDate(date string) ([]MissionMetric, error) {
 			totalToolCalls += act.toolCallTotal
 			totalToolFailed += act.toolCallFailed
 			totalRetryCost += act.retryCost
+			findingsCount += act.findingsCount
 			for _, m := range act.models {
 				modelCounts[m]++
 			}
@@ -285,10 +341,59 @@ func (s *AuditSummarizer) summarizeDate(date string) ([]MissionMetric, error) {
 			TotalInputTokens: totalIn, TotalOutputTokens: totalOut,
 			EstimatedCostUSD: totalCost, AvgTokensPerAct: avg, Model: modalModel,
 			TTFTP50Ms: ttftP50, ToolHallRate: hallRate, RetryWasteUSD: totalRetryCost,
+			FindingsCount: intPtr(findingsCount),
 		})
 	}
 	sort.Slice(metrics, func(i, j int) bool { return metrics[i].Mission < metrics[j].Mission })
 	return metrics, nil
+}
+
+func (s *AuditSummarizer) log() *slog.Logger {
+	if s.logger != nil {
+		return s.logger
+	}
+	return slog.Default()
+}
+
+func (e AuditEntry) eventName() string {
+	if strings.TrimSpace(e.Event) != "" {
+		return e.Event
+	}
+	return e.Type
+}
+
+func (e AuditEntry) isSecurityFinding() bool {
+	return e.FindingCount != nil || agencysecurity.IsSecurityAuditEvent(e.eventName())
+}
+
+func (e AuditEntry) securityFindingCount() int {
+	if e.FindingCount != nil {
+		if *e.FindingCount < 0 {
+			return 0
+		}
+		return *e.FindingCount
+	}
+	return 1
+}
+
+func securityFindingEventID(e AuditEntry) string {
+	parts := []string{e.Timestamp, e.Agent, e.eventName()}
+	id := strings.Join(parts, "|")
+	if id == "||" {
+		return "security-finding"
+	}
+	return id
+}
+
+func (m MissionMetric) metricFindingsCount() int {
+	if m.FindingsCount == nil {
+		return 0
+	}
+	return *m.FindingsCount
+}
+
+func intPtr(v int) *int {
+	return &v
 }
 
 func (s *AuditSummarizer) loadMissionMap() {

@@ -18,21 +18,21 @@ const inventory = {
       execution: 'provider_hosted',
       description: 'Provider-side web search or search grounding.',
       providers: {
-        openai: {
+        'provider-a': {
           status: 'supported',
-          request_tools: ['web_search'],
+          request_tools: ['search'],
           pricing: { unit: 'tool_call', confidence: 'unknown' },
           tests: ['detect', 'grant_deny'],
         },
-        anthropic: {
+        'provider-b': {
           status: 'supported',
-          request_tools: ['web_search_20250305'],
+          request_tools: ['search_20250305'],
           pricing: { unit: 'search', usd_per_unit: 0.01, confidence: 'exact' },
           tests: ['detect', 'normalize_generic', 'grant_deny'],
         },
-        google: {
+        'provider-c': {
           status: 'supported',
-          request_tools: ['google_search'],
+          request_tools: ['grounded_search'],
           pricing: { unit: 'grounded_request', confidence: 'unknown' },
           tests: ['detect'],
         },
@@ -45,19 +45,19 @@ const inventory = {
       execution: 'agency_harnessed',
       description: 'Provider-defined computer-use loop.',
       providers: {
-        openai: {
+        'provider-a': {
           status: 'unsupported_by_agency',
           request_tools: ['computer_use_preview'],
           pricing: { unit: 'harness_action', confidence: 'unknown' },
           tests: ['detect', 'unsupported_by_agency'],
         },
-        anthropic: {
+        'provider-b': {
           status: 'unsupported_by_agency',
           request_tools: ['computer_20250124'],
           pricing: { unit: 'harness_action', confidence: 'unknown' },
           tests: ['detect', 'unsupported_by_agency'],
         },
-        google: {
+        'provider-c': {
           status: 'unconfirmed',
           pricing: { unit: 'harness_action', confidence: 'unknown' },
           tests: ['inventory_only'],
@@ -71,19 +71,19 @@ const inventory = {
       execution: 'agency_harnessed',
       description: 'Provider-defined shell action proposal.',
       providers: {
-        openai: {
+        'provider-a': {
           status: 'harnessed',
           request_tools: ['shell'],
           pricing: { unit: 'harness_action', confidence: 'unknown' },
           tests: ['detect', 'harness_translate'],
         },
-        anthropic: {
+        'provider-b': {
           status: 'harnessed',
           request_tools: ['bash_20250124'],
           pricing: { unit: 'harness_action', confidence: 'unknown' },
           tests: ['detect', 'harness_translate'],
         },
-        google: {
+        'provider-c': {
           status: 'no_equivalent',
         },
       },

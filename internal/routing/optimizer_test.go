@@ -24,7 +24,7 @@ func newTestOptimizer(t *testing.T) *RoutingOptimizer {
 func TestRecordCallAddsToList(t *testing.T) {
 	opt := newTestOptimizer(t)
 	opt.RecordCall(CallRecord{
-		Model:    "gpt-4",
+		Model:    "provider-a-standard",
 		TaskType: "analysis",
 		CostUSD:  0.01,
 		Timestamp: time.Now(),
@@ -41,26 +41,26 @@ func TestComputeStatsGroupsByTaskTypeAndModel(t *testing.T) {
 	now := time.Now()
 
 	for i := 0; i < 3; i++ {
-		opt.RecordCall(CallRecord{Model: "gpt-4", TaskType: "analysis", InputTokens: 100, OutputTokens: 50, CostUSD: 0.01, LatencyMs: 200, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "analysis", InputTokens: 100, OutputTokens: 50, CostUSD: 0.01, LatencyMs: 200, Timestamp: now})
 	}
 	for i := 0; i < 2; i++ {
-		opt.RecordCall(CallRecord{Model: "claude-3", TaskType: "analysis", InputTokens: 80, OutputTokens: 40, CostUSD: 0.005, LatencyMs: 150, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-b-fast", TaskType: "analysis", InputTokens: 80, OutputTokens: 40, CostUSD: 0.005, LatencyMs: 150, Timestamp: now})
 	}
-	opt.RecordCall(CallRecord{Model: "gpt-4", TaskType: "coding", InputTokens: 200, OutputTokens: 100, CostUSD: 0.02, LatencyMs: 300, Timestamp: now})
+	opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "coding", InputTokens: 200, OutputTokens: 100, CostUSD: 0.02, LatencyMs: 300, Timestamp: now})
 
 	stats := opt.ComputeStats()
 	if len(stats) != 3 {
 		t.Fatalf("expected 3 stat groups, got %d", len(stats))
 	}
 
-	// Sorted by task_type then model: analysis/claude-3, analysis/gpt-4, coding/gpt-4
-	if stats[0].TaskType != "analysis" || stats[0].Model != "claude-3" {
+	// Sorted by task_type then model: analysis/provider-a-standard, analysis/provider-b-fast, coding/provider-a-standard
+	if stats[0].TaskType != "analysis" || stats[0].Model != "provider-a-standard" {
 		t.Errorf("unexpected first entry: %s/%s", stats[0].TaskType, stats[0].Model)
 	}
-	if stats[1].TaskType != "analysis" || stats[1].Model != "gpt-4" {
+	if stats[1].TaskType != "analysis" || stats[1].Model != "provider-b-fast" {
 		t.Errorf("unexpected second entry: %s/%s", stats[1].TaskType, stats[1].Model)
 	}
-	if stats[2].TaskType != "coding" || stats[2].Model != "gpt-4" {
+	if stats[2].TaskType != "coding" || stats[2].Model != "provider-a-standard" {
 		t.Errorf("unexpected third entry: %s/%s", stats[2].TaskType, stats[2].Model)
 	}
 }
@@ -71,9 +71,9 @@ func TestSuccessRateComputed(t *testing.T) {
 
 	// 5 calls, 1 retry → success rate = (5-1)/5 = 0.80
 	for i := 0; i < 4; i++ {
-		opt.RecordCall(CallRecord{Model: "gpt-4", TaskType: "analysis", CostUSD: 0.01, InputTokens: 100, OutputTokens: 50, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "analysis", CostUSD: 0.01, InputTokens: 100, OutputTokens: 50, Timestamp: now})
 	}
-	opt.RecordCall(CallRecord{Model: "gpt-4", TaskType: "analysis", IsRetry: true, CostUSD: 0.01, InputTokens: 100, OutputTokens: 50, Timestamp: now})
+	opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "analysis", IsRetry: true, CostUSD: 0.01, InputTokens: 100, OutputTokens: 50, Timestamp: now})
 
 	stats := opt.ComputeStats()
 	if len(stats) != 1 {
@@ -93,7 +93,7 @@ func TestCostPer1KComputed(t *testing.T) {
 
 	// 4 calls at $0.01 each → total $0.04, cost_per_1k = 0.04/4*1000 = $10.00
 	for i := 0; i < 4; i++ {
-		opt.RecordCall(CallRecord{Model: "gpt-4", TaskType: "analysis", CostUSD: 0.01, InputTokens: 100, OutputTokens: 50, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "analysis", CostUSD: 0.01, InputTokens: 100, OutputTokens: 50, Timestamp: now})
 	}
 
 	stats := opt.ComputeStats()
@@ -110,17 +110,17 @@ func TestGenerateSuggestionsCreatesWhenThresholdsMet(t *testing.T) {
 	opt := newTestOptimizer(t)
 	now := time.Now()
 
-	// Current model: gpt-4 for "analysis" — expensive
-	opt.SetCurrentModels(map[string]string{"analysis": "gpt-4"})
+	// Current model: provider-a-standard for "analysis" — expensive
+	opt.SetCurrentModels(map[string]string{"analysis": "provider-a-standard"})
 
-	// gpt-4: 10 calls at $0.10 each
+	// provider-a-standard: 10 calls at $0.10 each
 	for i := 0; i < 10; i++ {
-		opt.RecordCall(CallRecord{Model: "gpt-4", TaskType: "analysis", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "analysis", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
 	}
 
-	// claude-3: 10 calls at $0.02 each (80% cheaper, above 30% threshold)
+	// provider-b-fast: 10 calls at $0.02 each (80% cheaper, above 30% threshold)
 	for i := 0; i < 10; i++ {
-		opt.RecordCall(CallRecord{Model: "claude-3", TaskType: "analysis", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-b-fast", TaskType: "analysis", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, Timestamp: now})
 	}
 
 	suggestions := opt.GenerateSuggestions()
@@ -131,11 +131,11 @@ func TestGenerateSuggestionsCreatesWhenThresholdsMet(t *testing.T) {
 	if s.TaskType != "analysis" {
 		t.Errorf("expected task_type analysis, got %s", s.TaskType)
 	}
-	if s.CurrentModel != "gpt-4" {
-		t.Errorf("expected current model gpt-4, got %s", s.CurrentModel)
+	if s.CurrentModel != "provider-a-standard" {
+		t.Errorf("expected current model provider-a-standard, got %s", s.CurrentModel)
 	}
-	if s.SuggestedModel != "claude-3" {
-		t.Errorf("expected suggested model claude-3, got %s", s.SuggestedModel)
+	if s.SuggestedModel != "provider-b-fast" {
+		t.Errorf("expected suggested model provider-b-fast, got %s", s.SuggestedModel)
 	}
 	if s.Status != "pending" {
 		t.Errorf("expected status pending, got %s", s.Status)
@@ -149,14 +149,14 @@ func TestGenerateSuggestionsSkipsInsufficientCalls(t *testing.T) {
 	opt := newTestOptimizer(t)
 	now := time.Now()
 
-	opt.SetCurrentModels(map[string]string{"analysis": "gpt-4"})
+	opt.SetCurrentModels(map[string]string{"analysis": "provider-a-standard"})
 
 	for i := 0; i < 10; i++ {
-		opt.RecordCall(CallRecord{Model: "gpt-4", TaskType: "analysis", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "analysis", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
 	}
-	// Only 3 calls for claude-3 (below minCalls=5)
+	// Only 3 calls for provider-b-fast (below minCalls=5)
 	for i := 0; i < 3; i++ {
-		opt.RecordCall(CallRecord{Model: "claude-3", TaskType: "analysis", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-b-fast", TaskType: "analysis", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, Timestamp: now})
 	}
 
 	suggestions := opt.GenerateSuggestions()
@@ -169,17 +169,17 @@ func TestGenerateSuggestionsSkipsLowSuccessRate(t *testing.T) {
 	opt := newTestOptimizer(t)
 	now := time.Now()
 
-	opt.SetCurrentModels(map[string]string{"analysis": "gpt-4"})
+	opt.SetCurrentModels(map[string]string{"analysis": "provider-a-standard"})
 
 	for i := 0; i < 10; i++ {
-		opt.RecordCall(CallRecord{Model: "gpt-4", TaskType: "analysis", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "analysis", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
 	}
 	// 10 calls but 2 retries → 80% success (below minSuccess=90%)
 	for i := 0; i < 8; i++ {
-		opt.RecordCall(CallRecord{Model: "claude-3", TaskType: "analysis", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-b-fast", TaskType: "analysis", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, Timestamp: now})
 	}
 	for i := 0; i < 2; i++ {
-		opt.RecordCall(CallRecord{Model: "claude-3", TaskType: "analysis", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, IsRetry: true, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-b-fast", TaskType: "analysis", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, IsRetry: true, Timestamp: now})
 	}
 
 	suggestions := opt.GenerateSuggestions()
@@ -192,14 +192,14 @@ func TestGenerateSuggestionsSkipsSmallSavings(t *testing.T) {
 	opt := newTestOptimizer(t)
 	now := time.Now()
 
-	opt.SetCurrentModels(map[string]string{"analysis": "gpt-4"})
+	opt.SetCurrentModels(map[string]string{"analysis": "provider-a-standard"})
 
 	for i := 0; i < 10; i++ {
-		opt.RecordCall(CallRecord{Model: "gpt-4", TaskType: "analysis", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "analysis", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
 	}
-	// claude-3 at $0.08 → only 20% savings (below minSavings=30%)
+	// provider-b-fast at $0.08 -> only 20% savings (below minSavings=30%)
 	for i := 0; i < 10; i++ {
-		opt.RecordCall(CallRecord{Model: "claude-3", TaskType: "analysis", CostUSD: 0.08, InputTokens: 800, OutputTokens: 400, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-b-fast", TaskType: "analysis", CostUSD: 0.08, InputTokens: 800, OutputTokens: 400, Timestamp: now})
 	}
 
 	suggestions := opt.GenerateSuggestions()
@@ -212,12 +212,12 @@ func TestApproveChangeStatus(t *testing.T) {
 	opt := newTestOptimizer(t)
 	now := time.Now()
 
-	opt.SetCurrentModels(map[string]string{"analysis": "gpt-4"})
+	opt.SetCurrentModels(map[string]string{"analysis": "provider-a-standard"})
 	for i := 0; i < 10; i++ {
-		opt.RecordCall(CallRecord{Model: "gpt-4", TaskType: "analysis", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "analysis", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
 	}
 	for i := 0; i < 10; i++ {
-		opt.RecordCall(CallRecord{Model: "claude-3", TaskType: "analysis", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-b-fast", TaskType: "analysis", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, Timestamp: now})
 	}
 
 	suggestions := opt.GenerateSuggestions()
@@ -250,12 +250,12 @@ func TestRejectChangeStatus(t *testing.T) {
 	opt := newTestOptimizer(t)
 	now := time.Now()
 
-	opt.SetCurrentModels(map[string]string{"analysis": "gpt-4"})
+	opt.SetCurrentModels(map[string]string{"analysis": "provider-a-standard"})
 	for i := 0; i < 10; i++ {
-		opt.RecordCall(CallRecord{Model: "gpt-4", TaskType: "analysis", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "analysis", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
 	}
 	for i := 0; i < 10; i++ {
-		opt.RecordCall(CallRecord{Model: "claude-3", TaskType: "analysis", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-b-fast", TaskType: "analysis", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, Timestamp: now})
 	}
 
 	suggestions := opt.GenerateSuggestions()
@@ -304,19 +304,19 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second) // truncate for JSON roundtrip
 
 	opt.RecordCall(CallRecord{
-		Model: "gpt-4", TaskType: "analysis", CostUSD: 0.10,
+		Model: "provider-a-standard", TaskType: "analysis", CostUSD: 0.10,
 		InputTokens: 1000, OutputTokens: 500, LatencyMs: 200, Timestamp: now,
 	})
 	opt.RecordCall(CallRecord{
-		Model: "claude-3", TaskType: "coding", CostUSD: 0.05,
+		Model: "provider-b-fast", TaskType: "coding", CostUSD: 0.05,
 		InputTokens: 800, OutputTokens: 400, LatencyMs: 150, Timestamp: now,
 	})
 
 	// Add a suggestion manually for roundtrip test.
 	opt.mu.Lock()
 	opt.suggestions = append(opt.suggestions, RoutingSuggestion{
-		ID: "test-id", TaskType: "analysis", CurrentModel: "gpt-4",
-		SuggestedModel: "claude-3", Status: "pending",
+		ID: "test-id", TaskType: "analysis", CurrentModel: "provider-a-standard",
+		SuggestedModel: "provider-b-fast", Status: "pending",
 	})
 	opt.mu.Unlock()
 
@@ -340,8 +340,8 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 	if len(opt2.calls) != 2 {
 		t.Fatalf("expected 2 calls after load, got %d", len(opt2.calls))
 	}
-	if opt2.calls[0].Model != "gpt-4" {
-		t.Errorf("expected first call model gpt-4, got %s", opt2.calls[0].Model)
+	if opt2.calls[0].Model != "provider-a-standard" {
+		t.Errorf("expected first call model provider-a-standard, got %s", opt2.calls[0].Model)
 	}
 	if len(opt2.suggestions) != 1 {
 		t.Fatalf("expected 1 suggestion after load, got %d", len(opt2.suggestions))
@@ -366,11 +366,11 @@ func TestSlidingWindowExcludesOldCalls(t *testing.T) {
 
 	// Old calls should be excluded from stats.
 	for i := 0; i < 5; i++ {
-		opt.RecordCall(CallRecord{Model: "gpt-4", TaskType: "analysis", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: old})
+		opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "analysis", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: old})
 	}
 	// Recent calls should be included.
 	for i := 0; i < 3; i++ {
-		opt.RecordCall(CallRecord{Model: "gpt-4", TaskType: "analysis", CostUSD: 0.05, InputTokens: 500, OutputTokens: 250, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "analysis", CostUSD: 0.05, InputTokens: 500, OutputTokens: 250, Timestamp: now})
 	}
 
 	stats := opt.ComputeStats()
@@ -386,12 +386,12 @@ func TestDeduplicatePendingSuggestions(t *testing.T) {
 	opt := newTestOptimizer(t)
 	now := time.Now()
 
-	opt.SetCurrentModels(map[string]string{"analysis": "gpt-4"})
+	opt.SetCurrentModels(map[string]string{"analysis": "provider-a-standard"})
 	for i := 0; i < 10; i++ {
-		opt.RecordCall(CallRecord{Model: "gpt-4", TaskType: "analysis", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "analysis", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
 	}
 	for i := 0; i < 10; i++ {
-		opt.RecordCall(CallRecord{Model: "claude-3", TaskType: "analysis", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-b-fast", TaskType: "analysis", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, Timestamp: now})
 	}
 
 	s1 := opt.GenerateSuggestions()
@@ -427,7 +427,7 @@ func TestLazyPruning(t *testing.T) {
 
 	// Add 99 old calls (no pruning yet).
 	for i := 0; i < 99; i++ {
-		opt.RecordCall(CallRecord{Model: "gpt-4", TaskType: "test", CostUSD: 0.01, InputTokens: 100, OutputTokens: 50, Timestamp: old})
+		opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "test", CostUSD: 0.01, InputTokens: 100, OutputTokens: 50, Timestamp: old})
 	}
 	opt.mu.RLock()
 	beforePrune := len(opt.calls)
@@ -437,7 +437,7 @@ func TestLazyPruning(t *testing.T) {
 	}
 
 	// 100th call triggers pruning.
-	opt.RecordCall(CallRecord{Model: "gpt-4", TaskType: "test", CostUSD: 0.01, InputTokens: 100, OutputTokens: 50, Timestamp: recent})
+	opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "test", CostUSD: 0.01, InputTokens: 100, OutputTokens: 50, Timestamp: recent})
 
 	opt.mu.RLock()
 	afterPrune := len(opt.calls)
@@ -453,8 +453,8 @@ func TestAvgLatencyComputed(t *testing.T) {
 	opt := newTestOptimizer(t)
 	now := time.Now()
 
-	opt.RecordCall(CallRecord{Model: "gpt-4", TaskType: "analysis", CostUSD: 0.01, InputTokens: 100, OutputTokens: 50, LatencyMs: 100, Timestamp: now})
-	opt.RecordCall(CallRecord{Model: "gpt-4", TaskType: "analysis", CostUSD: 0.01, InputTokens: 100, OutputTokens: 50, LatencyMs: 300, Timestamp: now})
+	opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "analysis", CostUSD: 0.01, InputTokens: 100, OutputTokens: 50, LatencyMs: 100, Timestamp: now})
+	opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "analysis", CostUSD: 0.01, InputTokens: 100, OutputTokens: 50, LatencyMs: 300, Timestamp: now})
 
 	stats := opt.ComputeStats()
 	if len(stats) != 1 {
@@ -476,13 +476,13 @@ func TestApproveWritesLocalYAML(t *testing.T) {
 	)
 
 	now := time.Now()
-	opt.SetCurrentModels(map[string]string{"memory_capture": "claude-sonnet-4-20250514"})
+	opt.SetCurrentModels(map[string]string{"memory_capture": "provider-a-standard"})
 
 	for i := 0; i < 10; i++ {
-		opt.RecordCall(CallRecord{Model: "claude-sonnet-4-20250514", TaskType: "memory_capture", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "memory_capture", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
 	}
 	for i := 0; i < 10; i++ {
-		opt.RecordCall(CallRecord{Model: "claude-haiku-4-5", TaskType: "memory_capture", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-b-fast", TaskType: "memory_capture", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, Timestamp: now})
 	}
 
 	suggestions := opt.GenerateSuggestions()
@@ -513,8 +513,8 @@ func TestApproveWritesLocalYAML(t *testing.T) {
 	if !ok {
 		t.Fatal("expected memory_capture override in routing.local.yaml")
 	}
-	if override.PreferredModel != "claude-haiku-4-5" {
-		t.Errorf("expected preferred_model claude-haiku-4-5, got %s", override.PreferredModel)
+	if override.PreferredModel != "provider-b-fast" {
+		t.Errorf("expected preferred_model provider-b-fast, got %s", override.PreferredModel)
 	}
 	if override.ApprovedFrom != suggestions[0].ID {
 		t.Errorf("expected approved_from %s, got %s", suggestions[0].ID, override.ApprovedFrom)
@@ -551,13 +551,13 @@ func TestApproveOverwritesExisting(t *testing.T) {
 	)
 
 	now := time.Now()
-	opt.SetCurrentModels(map[string]string{"memory_capture": "claude-sonnet-4-20250514"})
+	opt.SetCurrentModels(map[string]string{"memory_capture": "provider-a-standard"})
 
 	for i := 0; i < 10; i++ {
-		opt.RecordCall(CallRecord{Model: "claude-sonnet-4-20250514", TaskType: "memory_capture", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-a-standard", TaskType: "memory_capture", CostUSD: 0.10, InputTokens: 1000, OutputTokens: 500, Timestamp: now})
 	}
 	for i := 0; i < 10; i++ {
-		opt.RecordCall(CallRecord{Model: "claude-haiku-4-5", TaskType: "memory_capture", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, Timestamp: now})
+		opt.RecordCall(CallRecord{Model: "provider-b-fast", TaskType: "memory_capture", CostUSD: 0.02, InputTokens: 800, OutputTokens: 400, Timestamp: now})
 	}
 
 	suggestions := opt.GenerateSuggestions()
@@ -582,8 +582,8 @@ func TestApproveOverwritesExisting(t *testing.T) {
 	}
 
 	override := config.Overrides["memory_capture"]
-	if override.PreferredModel != "claude-haiku-4-5" {
-		t.Errorf("expected preferred_model claude-haiku-4-5, got %s", override.PreferredModel)
+	if override.PreferredModel != "provider-b-fast" {
+		t.Errorf("expected preferred_model provider-b-fast, got %s", override.PreferredModel)
 	}
 	if override.ApprovedFrom == "sug-old" {
 		t.Error("expected approved_from to be updated, still has old value")

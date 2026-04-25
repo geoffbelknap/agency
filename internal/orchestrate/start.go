@@ -646,29 +646,111 @@ func (ss *StartSequence) resolveModelTier(tier string) string {
 }
 
 func inferredTierEntries(modelConfigs map[string]models.ModelConfig, tier string) []models.TierEntry {
-	preferred := map[string][]string{
-		"frontier": {"claude-opus", "gpt-4.1", "gpt-4o"},
-		"standard": {"claude-sonnet", "gpt-4o", "gpt-4.1"},
-		"fast":     {"claude-haiku", "gpt-4o-mini", "gpt-4.1-mini"},
-		"mini":     {"gpt-4.1-nano", "gpt-4o-mini", "claude-haiku"},
-		"nano":     {"gpt-4.1-nano"},
-		"batch":    {"claude-haiku", "gpt-4o-mini", "gpt-4.1-mini"},
+	if len(modelConfigs) == 0 {
+		return nil
 	}
 
-	var entries []models.TierEntry
-	for preference, model := range preferred[tier] {
-		if _, ok := modelConfigs[model]; ok {
-			entries = append(entries, models.TierEntry{Model: model, Preference: preference})
+	type candidate struct {
+		alias            string
+		totalCost        float64
+		inputCost        float64
+		cachedCost       float64
+		capabilityCount  int
+		providerToolCaps int
+	}
+
+	candidates := make([]candidate, 0, len(modelConfigs))
+	for alias, cfg := range modelConfigs {
+		candidates = append(candidates, candidate{
+			alias:            alias,
+			totalCost:        cfg.CostPerMTokIn + cfg.CostPerMTokOut,
+			inputCost:        cfg.CostPerMTokIn,
+			cachedCost:       cfg.CostPerMTokCached,
+			capabilityCount:  len(cfg.Capabilities),
+			providerToolCaps: len(cfg.ProviderToolCapabilities),
+		})
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		left := candidates[i]
+		right := candidates[j]
+
+		switch tier {
+		case "frontier":
+			if left.capabilityCount != right.capabilityCount {
+				return left.capabilityCount > right.capabilityCount
+			}
+			if left.providerToolCaps != right.providerToolCaps {
+				return left.providerToolCaps > right.providerToolCaps
+			}
+			if left.totalCost != right.totalCost {
+				return left.totalCost > right.totalCost
+			}
+		case "standard":
+			if left.capabilityCount != right.capabilityCount {
+				return left.capabilityCount > right.capabilityCount
+			}
+			if left.providerToolCaps != right.providerToolCaps {
+				return left.providerToolCaps > right.providerToolCaps
+			}
+			if left.totalCost != right.totalCost {
+				return left.totalCost < right.totalCost
+			}
+		case "fast":
+			if left.totalCost != right.totalCost {
+				return left.totalCost < right.totalCost
+			}
+			if left.capabilityCount != right.capabilityCount {
+				return left.capabilityCount > right.capabilityCount
+			}
+			if left.providerToolCaps != right.providerToolCaps {
+				return left.providerToolCaps > right.providerToolCaps
+			}
+		case "mini", "nano":
+			if left.totalCost != right.totalCost {
+				return left.totalCost < right.totalCost
+			}
+			if left.capabilityCount != right.capabilityCount {
+				return left.capabilityCount < right.capabilityCount
+			}
+			if left.providerToolCaps != right.providerToolCaps {
+				return left.providerToolCaps < right.providerToolCaps
+			}
+		case "batch":
+			leftBatchCost := left.inputCost
+			if left.cachedCost > 0 && (left.cachedCost < leftBatchCost || leftBatchCost == 0) {
+				leftBatchCost = left.cachedCost
+			}
+			rightBatchCost := right.inputCost
+			if right.cachedCost > 0 && (right.cachedCost < rightBatchCost || rightBatchCost == 0) {
+				rightBatchCost = right.cachedCost
+			}
+			if leftBatchCost != rightBatchCost {
+				return leftBatchCost < rightBatchCost
+			}
+			if left.totalCost != right.totalCost {
+				return left.totalCost < right.totalCost
+			}
+			if left.capabilityCount != right.capabilityCount {
+				return left.capabilityCount > right.capabilityCount
+			}
+		default:
+			if left.alias != right.alias {
+				return left.alias < right.alias
+			}
 		}
-	}
-	if len(entries) > 0 || len(modelConfigs) != 1 {
-		return entries
-	}
 
-	for model := range modelConfigs {
-		return []models.TierEntry{{Model: model, Preference: 0}}
+		return left.alias < right.alias
+	})
+
+	entries := make([]models.TierEntry, 0, len(candidates))
+	for preference, candidate := range candidates {
+		entries = append(entries, models.TierEntry{
+			Model:      candidate.alias,
+			Preference: preference,
+		})
 	}
-	return nil
+	return entries
 }
 
 func tierEntries(tiers models.TierConfig, tier string) []models.TierEntry {

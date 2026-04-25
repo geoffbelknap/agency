@@ -9,8 +9,9 @@ func TestMeeseeksSpawnRequestValidation(t *testing.T) {
 		wantErr bool
 	}{
 		{"valid minimal", MeeseeksSpawnRequest{Task: "do thing"}, false},
-		{"valid with model", MeeseeksSpawnRequest{Task: "do thing", Model: "haiku"}, false},
-		{"valid with sonnet", MeeseeksSpawnRequest{Task: "do thing", Model: "sonnet"}, false},
+		{"valid with fast", MeeseeksSpawnRequest{Task: "do thing", Model: "fast"}, false},
+		{"valid with standard", MeeseeksSpawnRequest{Task: "do thing", Model: "standard"}, false},
+		{"valid with frontier", MeeseeksSpawnRequest{Task: "do thing", Model: "frontier"}, false},
 		{"valid with budget", MeeseeksSpawnRequest{Task: "do thing", Budget: 0.05}, false},
 		{"valid with tools", MeeseeksSpawnRequest{Task: "do thing", Tools: []string{"read_file"}}, false},
 		{"empty task", MeeseeksSpawnRequest{}, true},

@@ -2,6 +2,13 @@ name: openai
 display_name: OpenAI
 description: GPT models — GPT-4.1, GPT-4o, GPT-4.1-mini, GPT-4.1-nano
 category: cloud
+quickstart:
+  selectable: true
+  order: 3
+  probe:
+    method: GET
+    url: https://api.openai.com/v1/models
+    success_statuses: [200, 429]
 credential:
   name: openai-api-key
   label: API Key

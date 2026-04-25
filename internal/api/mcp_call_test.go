@@ -64,14 +64,14 @@ func TestMCPCallEnvForwarding(t *testing.T) {
 	body, _ := json.Marshal(map[string]interface{}{"name": "env_test", "arguments": map[string]interface{}{}})
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/api/v1/mcp/call", bytes.NewReader(body))
-	r.Header.Set("X-Agency-Env", "ANTHROPIC_API_KEY=sk-test")
+	r.Header.Set("X-Agency-Env", "PROVIDER_A_API_KEY=sk-test")
 	mcpCallHandler(reg, nil)(w, r)
 
 	var resp struct {
 		Content []struct{ Text string } `json:"content"`
 	}
 	json.NewDecoder(w.Body).Decode(&resp)
-	if resp.Content[0].Text != "env: ANTHROPIC_API_KEY=sk-test" {
+	if resp.Content[0].Text != "env: PROVIDER_A_API_KEY=sk-test" {
 		t.Errorf("text = %q", resp.Content[0].Text)
 	}
 }

@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 CapabilityKind = Literal["mcp-server", "skill", "service"]
 CapabilityState = Literal["available", "restricted", "disabled"]
 ToolApproval = Literal["available", "ask-once", "ask-always", "denied"]
+ApprovalStatus = Literal["pending", "routed", "approved", "rejected", "denied", "canceled"]
 
 
 class CapabilityRequirements(BaseModel):
@@ -174,6 +175,7 @@ class ToolApprovalRecord(BaseModel):
     tool: str
     agent: str
     approved: bool
+    status: ApprovalStatus | None = None
     approved_by: str = "operator"
     approved_at: str = ""
 

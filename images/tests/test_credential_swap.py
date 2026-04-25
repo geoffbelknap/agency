@@ -45,7 +45,7 @@ class TestUnifiedSwapAddon:
         if keys is None:
             keys = {
                 "nextdns-api": "abc123",
-                "ANTHROPIC_API_KEY": "sk-ant-xyz",
+                "PROVIDER_A_API_KEY": "sk-ant-xyz",
                 "BRAVE_API_KEY": "brave-key",
             }
         addon._resolver = _FakeResolver(keys)
@@ -79,14 +79,14 @@ class TestUnifiedSwapAddon:
 
     def test_formatted_key(self, tmp_path):
         addon = self._setup_addon(tmp_path, {
-            "anthropic": {
+            "provider-a": {
                 "type": "api-key",
-                "domains": ["api.anthropic.com"],
+                "domains": ["provider-a.example.com"],
                 "header": "x-api-key",
-                "key_ref": "ANTHROPIC_API_KEY",
+                "key_ref": "PROVIDER_A_API_KEY",
             }
         })
-        flow = _make_flow("api.anthropic.com")
+        flow = _make_flow("provider-a.example.com")
         addon.request(flow)
         assert flow.request.headers["x-api-key"] == "sk-ant-xyz"
 

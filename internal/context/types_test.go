@@ -3,6 +3,8 @@ package context
 import (
 	"testing"
 	"time"
+
+	agencysecurity "github.com/geoffbelknap/agency/internal/security"
 )
 
 func TestSeverityString(t *testing.T) {
@@ -18,6 +20,26 @@ func TestSeverityString(t *testing.T) {
 	for _, tt := range tests {
 		if got := tt.s.String(); got != tt.want {
 			t.Errorf("Severity(%d).String() = %q, want %q", tt.s, got, tt.want)
+		}
+	}
+}
+
+func TestSeverityRiskLevel(t *testing.T) {
+	tests := []struct {
+		s    Severity
+		want agencysecurity.RiskLevel
+	}{
+		{SeverityLow, agencysecurity.RiskLow},
+		{SeverityMedium, agencysecurity.RiskMedium},
+		{SeverityHigh, agencysecurity.RiskHigh},
+		{SeverityCritical, agencysecurity.RiskCritical},
+	}
+	for _, tt := range tests {
+		if got := tt.s.RiskLevel(); got != tt.want {
+			t.Errorf("%s.RiskLevel() = %q, want %q", tt.s, got, tt.want)
+		}
+		if got := SeverityFromRiskLevel(tt.want); got != tt.s {
+			t.Errorf("SeverityFromRiskLevel(%q) = %s, want %s", tt.want, got, tt.s)
 		}
 	}
 }

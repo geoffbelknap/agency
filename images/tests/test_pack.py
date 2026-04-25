@@ -63,7 +63,7 @@ class TestPackChannel:
 
 class TestPackCredential:
     def test_defaults(self):
-        cred = PackCredential(name="anthropic")
+        cred = PackCredential(name="provider-a")
         assert cred.required is True
         assert cred.description == ""
 
@@ -151,7 +151,7 @@ class TestPackConfig:
                 ],
             },
             "credentials": [
-                {"name": "anthropic", "required": True},
+                {"name": "provider-a", "required": True},
             ],
             "policy": {"parameters": {"max_turns": 50}},
         }
@@ -160,7 +160,7 @@ class TestPackConfig:
         assert len(config.team.agents) == 2
         assert config.team.agents[0].role == "coordinator"
         assert config.requires.presets == ["soc-lead", "soc-analyst"]
-        assert config.credentials[0].name == "anthropic"
+        assert config.credentials[0].name == "provider-a"
 
     def test_wrong_kind_rejected(self):
         with pytest.raises(Exception):

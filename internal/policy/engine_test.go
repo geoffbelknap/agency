@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	agencysecurity "github.com/geoffbelknap/agency/internal/security"
 )
 
 // testdataDir returns the absolute path to the testdata/chains directory.
@@ -49,7 +51,7 @@ func TestEngine_Compute_SimpleRestriction(t *testing.T) {
 	}
 
 	// Chain should include platform, org, department(missing), team(missing), agent.
-	levelStatuses := map[string]string{}
+	levelStatuses := map[string]agencysecurity.PolicyStepStatus{}
 	for _, step := range ep.Chain {
 		levelStatuses[step.Level] = step.Status
 	}
@@ -209,7 +211,7 @@ func TestEngine_Compute_FiveLevelChain(t *testing.T) {
 	}
 
 	// Department and team must be resolved (status=ok, not missing).
-	levelStatuses := map[string]string{}
+	levelStatuses := map[string]agencysecurity.PolicyStepStatus{}
 	for _, step := range ep.Chain {
 		levelStatuses[step.Level] = step.Status
 	}

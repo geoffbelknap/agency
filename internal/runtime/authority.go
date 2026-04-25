@@ -12,6 +12,7 @@ import (
 	authzcore "github.com/geoffbelknap/agency/internal/authz"
 	agencyconsent "github.com/geoffbelknap/agency/internal/consent"
 	"github.com/geoffbelknap/agency/internal/models"
+	agencysecurity "github.com/geoffbelknap/agency/internal/security"
 )
 
 type AuthorityHandler struct {
@@ -31,12 +32,12 @@ type AuthorityInvokeRequest struct {
 }
 
 type AuthorityInvokeResponse struct {
-	Allowed    bool               `json:"allowed"`
-	Decision   authzcore.Decision `json:"decision"`
-	Execution  string             `json:"execution"`
-	StatusCode int                `json:"status_code,omitempty"`
-	Result     any                `json:"result,omitempty"`
-	Descriptor map[string]any     `json:"descriptor,omitempty"`
+	Allowed    bool                                    `json:"allowed"`
+	Decision   authzcore.Decision                      `json:"decision"`
+	Execution  agencysecurity.AuthorityExecutionStatus `json:"execution"`
+	StatusCode int                                     `json:"status_code,omitempty"`
+	Result     any                                     `json:"result,omitempty"`
+	Descriptor map[string]any                          `json:"descriptor,omitempty"`
 }
 
 func (h AuthorityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +102,7 @@ func (h AuthorityHandler) invoke(w http.ResponseWriter, r *http.Request) {
 		h.writeJSON(w, http.StatusForbidden, AuthorityInvokeResponse{
 			Allowed:   false,
 			Decision:  decision,
-			Execution: "denied",
+			Execution: agencysecurity.AuthorityExecutionDenied,
 		})
 		return
 	}
@@ -114,7 +115,7 @@ func (h AuthorityHandler) invoke(w http.ResponseWriter, r *http.Request) {
 		h.writeJSON(w, http.StatusOK, AuthorityInvokeResponse{
 			Allowed:    true,
 			Decision:   decision,
-			Execution:  "executed",
+			Execution:  agencysecurity.AuthorityExecutionExecuted,
 			StatusCode: executed.StatusCode,
 			Result:     firstNonNil(executed.Body, executed.RawBody),
 			Descriptor: map[string]any{
@@ -127,7 +128,7 @@ func (h AuthorityHandler) invoke(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusNotImplemented, AuthorityInvokeResponse{
 		Allowed:   true,
 		Decision:  decision,
-		Execution: "not_implemented",
+		Execution: agencysecurity.AuthorityExecutionNotImplemented,
 		Descriptor: map[string]any{
 			"node_id": req.NodeID,
 			"action":  req.Action,

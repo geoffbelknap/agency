@@ -165,4 +165,7 @@ func TestCanonicalProviderPrincipalForGoogle(t *testing.T) {
 	if _, _, err := Get("gemini"); err == nil {
 		t.Fatal("gemini provider principal should not exist; use google with api_format gemini")
 	}
+	if _, _, err := Get("openai-compatible"); err == nil {
+		t.Fatal("openai-compatible pseudo-provider should not exist; use an explicit provider adapter")
+	}
 }

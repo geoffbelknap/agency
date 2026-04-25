@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/geoffbelknap/agency/internal/models"
+	agencysecurity "github.com/geoffbelknap/agency/internal/security"
 )
 
 // ParameterDomains maps policy parameter names to their default exception domain.
@@ -27,20 +28,20 @@ var ParameterDomains = map[string]string{
 
 // ExceptionRequest is a pending exception request awaiting routing and approval.
 type ExceptionRequest struct {
-	RequestID           string                   `yaml:"request_id"`
-	AgentName           string                   `yaml:"agent_name"`
-	Parameter           string                   `yaml:"parameter"`
-	RequestedValue      string                   `yaml:"requested_value"`
-	Reason              string                   `yaml:"reason"`
-	Domain              string                   `yaml:"domain"`
-	Status              string                   `yaml:"status"` // pending, routed, approved, denied
-	RoutedTo            []string                 `yaml:"routed_to"`
-	Approvals           []map[string]interface{} `yaml:"approvals"`
-	Denials             []map[string]interface{} `yaml:"denials"`
-	Recommendations     []map[string]interface{} `yaml:"recommendations"`
-	RequiresDualApproval bool                    `yaml:"requires_dual_approval"`
-	CreatedAt           string                   `yaml:"created_at"`
-	ResolvedAt          string                   `yaml:"resolved_at,omitempty"`
+	RequestID            string                        `yaml:"request_id"`
+	AgentName            string                        `yaml:"agent_name"`
+	Parameter            string                        `yaml:"parameter"`
+	RequestedValue       string                        `yaml:"requested_value"`
+	Reason               string                        `yaml:"reason"`
+	Domain               string                        `yaml:"domain"`
+	Status               agencysecurity.ApprovalStatus `yaml:"status"` // pending, routed, approved, denied
+	RoutedTo             []string                      `yaml:"routed_to"`
+	Approvals            []map[string]interface{}      `yaml:"approvals"`
+	Denials              []map[string]interface{}      `yaml:"denials"`
+	Recommendations      []map[string]interface{}      `yaml:"recommendations"`
+	RequiresDualApproval bool                          `yaml:"requires_dual_approval"`
+	CreatedAt            string                        `yaml:"created_at"`
+	ResolvedAt           string                        `yaml:"resolved_at,omitempty"`
 }
 
 // NewExceptionRequest creates a new ExceptionRequest with defaults applied.
@@ -59,7 +60,7 @@ func NewExceptionRequest(requestID, agentName, parameter, requestedValue, reason
 		RequestedValue:       requestedValue,
 		Reason:               reason,
 		Domain:               domain,
-		Status:               "pending",
+		Status:               agencysecurity.ApprovalPending,
 		RoutedTo:             []string{},
 		Approvals:            []map[string]interface{}{},
 		Denials:              []map[string]interface{}{},
@@ -104,7 +105,7 @@ func FromMap(data map[string]interface{}) (*ExceptionRequest, error) {
 	req := NewExceptionRequest(requestID, agentName, parameter, requestedValue, reason, domain)
 
 	if status, ok := data["status"].(string); ok {
-		req.Status = status
+		req.Status = agencysecurity.ApprovalStatus(status)
 	}
 	// routed_to may be []string (from in-memory ToMap) or []interface{} (from YAML unmarshal).
 	switch v := data["routed_to"].(type) {
@@ -216,7 +217,7 @@ func (er *ExceptionRouter) Route(request *ExceptionRequest) (*ExceptionRequest, 
 				request.RoutedTo = make([]string, len(route.Approvers))
 				copy(request.RoutedTo, route.Approvers)
 				request.RequiresDualApproval = route.RequiresDualApproval
-				request.Status = "routed"
+				request.Status = agencysecurity.ApprovalRouted
 				if err := er.save(request); err != nil {
 					return nil, err
 				}
@@ -238,7 +239,7 @@ func (er *ExceptionRouter) Route(request *ExceptionRequest) (*ExceptionRequest, 
 		}
 		if len(domainPrincipals) > 0 {
 			request.RoutedTo = domainPrincipals
-			request.Status = "routed"
+			request.Status = agencysecurity.ApprovalRouted
 			if err := er.save(request); err != nil {
 				return nil, err
 			}
@@ -248,7 +249,7 @@ func (er *ExceptionRouter) Route(request *ExceptionRequest) (*ExceptionRequest, 
 
 	// Fallback: route to operator.
 	request.RoutedTo = []string{"operator"}
-	request.Status = "routed"
+	request.Status = agencysecurity.ApprovalRouted
 	if err := er.save(request); err != nil {
 		return nil, err
 	}
@@ -277,11 +278,11 @@ func (er *ExceptionRouter) Approve(requestID, principalID string) (*ExceptionReq
 
 	if request.RequiresDualApproval {
 		if len(request.Approvals) >= 2 {
-			request.Status = "approved"
+			request.Status = agencysecurity.ApprovalApproved
 			request.ResolvedAt = time.Now().UTC().Format("2006-01-02T15:04:05Z")
 		}
 	} else {
-		request.Status = "approved"
+		request.Status = agencysecurity.ApprovalApproved
 		request.ResolvedAt = time.Now().UTC().Format("2006-01-02T15:04:05Z")
 	}
 
@@ -306,7 +307,7 @@ func (er *ExceptionRouter) Deny(requestID, principalID, reason string) (*Excepti
 		"reason":       reason,
 		"timestamp":    time.Now().UTC().Format("2006-01-02T15:04:05Z"),
 	})
-	request.Status = "denied"
+	request.Status = agencysecurity.ApprovalDenied
 	request.ResolvedAt = time.Now().UTC().Format("2006-01-02T15:04:05Z")
 
 	if err := er.save(request); err != nil {
@@ -377,14 +378,14 @@ func (er *ExceptionRouter) Get(requestID string) (*ExceptionRequest, error) {
 // ListPending lists all pending/routed exception requests.
 func (er *ExceptionRouter) ListPending() ([]*ExceptionRequest, error) {
 	return er.listFiltered(func(req *ExceptionRequest) bool {
-		return req.Status == "pending" || req.Status == "routed"
+		return req.Status == agencysecurity.ApprovalPending || req.Status == agencysecurity.ApprovalRouted
 	})
 }
 
 // ListForPrincipal lists exception requests routed to a specific principal.
 func (er *ExceptionRouter) ListForPrincipal(principalID string) ([]*ExceptionRequest, error) {
 	return er.listFiltered(func(req *ExceptionRequest) bool {
-		return req.Status == "routed" && contains(req.RoutedTo, principalID)
+		return req.Status == agencysecurity.ApprovalRouted && contains(req.RoutedTo, principalID)
 	})
 }
 

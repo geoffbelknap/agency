@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	agencysecurity "github.com/geoffbelknap/agency/internal/security"
 	"gopkg.in/yaml.v3"
 )
 
@@ -39,11 +40,16 @@ type Service struct {
 	Now   func() time.Time
 }
 
+type MutationResult struct {
+	Change agencysecurity.Mutation `json:"change"`
+	Egress map[string]interface{}  `json:"egress"`
+}
+
 func (s Service) List(agent string) (map[string]interface{}, error) {
 	return s.load(agent)
 }
 
-func (s Service) ApproveDomain(agent, domain, reason string) (map[string]interface{}, error) {
+func (s Service) ApproveDomain(agent, domain, reason string) (*MutationResult, error) {
 	domain, err := NormalizeDomain(domain)
 	if err != nil {
 		return nil, err
@@ -63,10 +69,13 @@ func (s Service) ApproveDomain(agent, domain, reason string) (map[string]interfa
 	if err := s.saveAndAudit(agent, egress, EventDomainApproved, map[string]interface{}{"domain": domain, "reason": reason}); err != nil {
 		return nil, err
 	}
-	return egress, nil
+	return &MutationResult{
+		Change: mutation("approve_domain", agent, domain, "approved egress domain"),
+		Egress: egress,
+	}, nil
 }
 
-func (s Service) RevokeDomain(agent, domain string) (map[string]interface{}, error) {
+func (s Service) RevokeDomain(agent, domain string) (*MutationResult, error) {
 	domain, err := NormalizeDomain(domain)
 	if err != nil {
 		return nil, err
@@ -95,10 +104,13 @@ func (s Service) RevokeDomain(agent, domain string) (map[string]interface{}, err
 	if err := s.saveAndAudit(agent, egress, EventDomainRevoked, map[string]interface{}{"domain": domain}); err != nil {
 		return nil, err
 	}
-	return egress, nil
+	return &MutationResult{
+		Change: mutation("revoke_domain", agent, domain, "revoked egress domain"),
+		Egress: egress,
+	}, nil
 }
 
-func (s Service) SetMode(agent, mode string) (map[string]interface{}, error) {
+func (s Service) SetMode(agent, mode string) (*MutationResult, error) {
 	mode = strings.TrimSpace(strings.ToLower(mode))
 	if !ValidMode(mode) {
 		return nil, ErrInvalidMode
@@ -111,7 +123,10 @@ func (s Service) SetMode(agent, mode string) (map[string]interface{}, error) {
 	if err := s.saveAndAudit(agent, egress, EventModeChanged, map[string]interface{}{"mode": mode}); err != nil {
 		return nil, err
 	}
-	return egress, nil
+	return &MutationResult{
+		Change: mutation("set_mode", agent, mode, "updated egress mode"),
+		Egress: egress,
+	}, nil
 }
 
 func ValidMode(mode string) bool {
@@ -237,4 +252,15 @@ func mapStr(m map[string]interface{}, key string) string {
 		return fmt.Sprintf("%v", v)
 	}
 	return s
+}
+
+func mutation(action, agent, target, detail string) agencysecurity.Mutation {
+	return agencysecurity.Mutation{
+		Action: action,
+		Agent:  agent,
+		Scope:  "egress",
+		Target: target,
+		Status: agencysecurity.MutationApplied,
+		Detail: detail,
+	}
 }
