@@ -2105,7 +2105,7 @@ func untarBuildContext(dst string, src io.Reader) error {
 			return err
 		}
 		cleanName := filepath.Clean(filepath.FromSlash(hdr.Name))
-		if filepath.IsAbs(cleanName) || cleanName == "." || cleanName == ".." || strings.HasPrefix(cleanName, ".."+string(os.PathSeparator)) {
+		if strings.Contains(hdr.Name, "..") || filepath.IsAbs(cleanName) || cleanName == "." || cleanName == ".." || strings.HasPrefix(cleanName, ".."+string(os.PathSeparator)) {
 			return fmt.Errorf("invalid tar path %q", hdr.Name)
 		}
 		target := filepath.Join(dst, cleanName)

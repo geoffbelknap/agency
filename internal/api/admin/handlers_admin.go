@@ -642,6 +642,10 @@ func (h *handler) adminTrust(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "agent required"})
 		return
 	}
+	if !requireNameStr(agent) {
+		writeJSON(w, 400, map[string]string{"error": "invalid agent"})
+		return
+	}
 
 	// Read current trust state from agent config
 	trustPath := filepath.Join(h.deps.Config.Home, "agents", agent, "trust.yaml")
@@ -1119,8 +1123,8 @@ func (h *handler) adminKnowledge(w http.ResponseWriter, r *http.Request) {
 		count := 10
 		if rawCount := args["count"]; rawCount != "" {
 			count, err = strconv.Atoi(rawCount)
-			if err != nil || count < 3 {
-				writeJSON(w, 400, map[string]string{"error": "count must be an integer >= 3"})
+			if err != nil || count < 3 || count > 100 {
+				writeJSON(w, 400, map[string]string{"error": "count must be an integer between 3 and 100"})
 				return
 			}
 		}

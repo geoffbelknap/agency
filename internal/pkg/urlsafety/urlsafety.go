@@ -72,7 +72,7 @@ func SafeClient() *http.Client {
 			if err != nil {
 				return err
 			}
-			if IsPrivateIP(host) {
+			if ip := net.ParseIP(host); ip != nil && !ip.IsLoopback() && (ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()) {
 				return fmt.Errorf("connection to private IP %s blocked", host)
 			}
 			return nil
