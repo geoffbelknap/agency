@@ -63,6 +63,28 @@ func TestValidateContainerdAddressAcceptsNativeSocket(t *testing.T) {
 	}
 }
 
+func TestUntarBuildContextRejectsTraversal(t *testing.T) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := tw.WriteHeader(&tar.Header{Name: "../escape", Typeflag: tar.TypeReg, Mode: 0o644, Size: 1}); err != nil {
+		t.Fatalf("write tar header: %v", err)
+	}
+	if _, err := tw.Write([]byte("x")); err != nil {
+		t.Fatalf("write tar body: %v", err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("close tar: %v", err)
+	}
+
+	dir := t.TempDir()
+	if err := untarBuildContext(dir, &buf); err == nil {
+		t.Fatal("expected traversal path to be rejected")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "..", "escape")); err == nil {
+		t.Fatal("unexpected file written outside build context")
+	}
+}
+
 func TestValidateAppleContainerPlatform(t *testing.T) {
 	if err := validateAppleContainerPlatform("darwin", "arm64"); err != nil {
 		t.Fatalf("expected darwin/arm64 to pass validation, got %v", err)

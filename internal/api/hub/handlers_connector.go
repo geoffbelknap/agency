@@ -529,14 +529,11 @@ func isLoopbackHostPort(value string) bool {
 	if value == "" {
 		return false
 	}
-	host := value
 	hostPart, _, err := net.SplitHostPort(value)
 	if err != nil {
-		host = value
-	} else {
-		host = hostPart
+		hostPart = value
 	}
-	host = strings.Trim(host, "[]")
+	host := strings.Trim(hostPart, "[]")
 	if strings.EqualFold(host, "localhost") {
 		return true
 	}

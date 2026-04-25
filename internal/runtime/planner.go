@@ -512,7 +512,7 @@ func consentRequirementFromGrant(cfg map[string]any) (agencyconsent.Requirement,
 	if len(cfg) == 0 {
 		return agencyconsent.Requirement{}, false
 	}
-	raw := map[string]any(nil)
+	var raw map[string]any
 	if nested, ok := cfg["requires_consent_token"].(map[string]any); ok {
 		raw = nested
 	} else {

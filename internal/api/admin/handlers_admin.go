@@ -1168,6 +1168,7 @@ func (h *handler) adminKnowledge(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) adminDepartment(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var body struct {
 		Action string            `json:"action"`
 		Args   map[string]string `json:"args"`

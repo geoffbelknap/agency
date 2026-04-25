@@ -13,6 +13,20 @@ import (
 	eventbus "github.com/geoffbelknap/agency/internal/events"
 )
 
+func TestRelayWebhookURLBuildsLocalIntakeURL(t *testing.T) {
+	previousBaseURL := intakeBaseURL
+	defer func() { intakeBaseURL = previousBaseURL }()
+	intakeBaseURL = "http://localhost:8205"
+
+	got, err := relayWebhookURL("/webhooks/example", "?delivery=abc")
+	if err != nil {
+		t.Fatalf("relayWebhookURL returned error: %v", err)
+	}
+	if got != "http://localhost:8205/webhooks/example?delivery=abc" {
+		t.Fatalf("relayWebhookURL = %q", got)
+	}
+}
+
 func TestIntakeWebhookRoutesToNamedConnectorAndPublishesEvent(t *testing.T) {
 	previousBaseURL := intakeBaseURL
 	defer func() { intakeBaseURL = previousBaseURL }()

@@ -114,13 +114,10 @@ func (h *handler) relayWebhookDeliver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	webhookURL := intakeBaseURL + localPath
-	if rawQuery := strings.TrimSpace(r.Header.Get("X-Relay-Webhook-Query")); rawQuery != "" {
-		if strings.HasPrefix(rawQuery, "?") {
-			webhookURL += rawQuery
-		} else {
-			webhookURL += "?" + rawQuery
-		}
+	webhookURL, err := relayWebhookURL(localPath, r.Header.Get("X-Relay-Webhook-Query"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid relay webhook target"})
+		return
 	}
 
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, webhookURL, bytes.NewReader(body))
@@ -141,6 +138,24 @@ func (h *handler) relayWebhookDeliver(w http.ResponseWriter, r *http.Request) {
 	copyResponseHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
+}
+
+func relayWebhookURL(localPath, rawQuery string) (string, error) {
+	u, err := url.Parse(intakeBaseURL)
+	if err != nil {
+		return "", err
+	}
+	u.Path = localPath
+	if rawQuery := strings.TrimSpace(rawQuery); rawQuery != "" {
+		if strings.HasPrefix(rawQuery, "?") {
+			rawQuery = strings.TrimPrefix(rawQuery, "?")
+		}
+		if _, err := url.ParseQuery(rawQuery); err != nil {
+			return "", err
+		}
+		u.RawQuery = rawQuery
+	}
+	return u.String(), nil
 }
 
 func copyRelayWebhookHeaders(dst, src http.Header) {

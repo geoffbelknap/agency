@@ -18,7 +18,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 )
 
-var deployNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$`)
+var deployNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
 type dockerDeployer struct {
 	BackendName string
@@ -81,6 +81,9 @@ func (d *dockerDeployer) dryRun(ctx context.Context, pack *orchestrate.PackDef, 
 	if onStatus == nil {
 		onStatus = func(string) {}
 	}
+	if err := validateDeployPackNames(pack); err != nil {
+		return nil, err
+	}
 	onStatus("Validating pack (dry run)...")
 	for _, agent := range pack.Team.Agents {
 		agentDir := filepath.Join(d.Home, "agents", agent.Name)
@@ -112,6 +115,9 @@ func (d *dockerDeployer) deploy(ctx context.Context, pack *orchestrate.PackDef, 
 	if onStatus == nil {
 		onStatus = func(string) {}
 	}
+	if err := validateDeployPackNames(pack); err != nil {
+		return nil, err
+	}
 	if len(pack.Team.Agents) == 0 {
 		return nil, fmt.Errorf("pack %q has no agents defined", pack.Name)
 	}
@@ -133,7 +139,7 @@ func (d *dockerDeployer) deploy(ctx context.Context, pack *orchestrate.PackDef, 
 
 	rollback := func() {
 		if d.Logger != nil {
-			d.Logger.Warn("rolling back deploy", "pack", pack.Name)
+			d.Logger.Warn("rolling back deploy", "pack", sanitizeLogValue(pack.Name))
 		}
 		for _, name := range result.AgentsCreated {
 			am.Delete(ctx, name)
@@ -144,7 +150,7 @@ func (d *dockerDeployer) deploy(ctx context.Context, pack *orchestrate.PackDef, 
 		agentYAML := filepath.Join(d.Home, "agents", agent.Name, "agent.yaml")
 		if _, err := os.Stat(agentYAML); err == nil {
 			if d.Logger != nil {
-				d.Logger.Info("agent already exists, skipping", "agent", agent.Name)
+				d.Logger.Info("agent already exists, skipping", "agent", sanitizeLogValue(agent.Name))
 			}
 			result.AgentsCreated = append(result.AgentsCreated, agent.Name)
 			continue
@@ -272,6 +278,9 @@ func (d *dockerDeployer) backendName() string {
 }
 
 func (d *dockerDeployer) teardown(ctx context.Context, packName string, deleteResources bool) error {
+	if !validDeploySegment(packName) {
+		return fmt.Errorf("invalid pack name %q", packName)
+	}
 	manifestPath := filepath.Join(d.Home, "packs", packName, "manifest.json")
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
@@ -353,7 +362,7 @@ func (d *dockerDeployer) teardown(ctx context.Context, packName string, deleteRe
 }
 
 func (d *dockerDeployer) saveManifest(pack *orchestrate.PackDef, result *orchestrate.DeployResult) {
-	if !deployNamePattern.MatchString(pack.Name) {
+	if !validDeploySegment(pack.Name) {
 		return
 	}
 	packDir := filepath.Join(d.Home, "packs", pack.Name)
@@ -369,4 +378,41 @@ func (d *dockerDeployer) saveManifest(pack *orchestrate.PackDef, result *orchest
 	}
 	data, _ := json.MarshalIndent(manifest, "", "  ")
 	_ = os.WriteFile(filepath.Join(packDir, "manifest.json"), data, 0o644)
+}
+
+func validateDeployPackNames(pack *orchestrate.PackDef) error {
+	if pack == nil {
+		return fmt.Errorf("pack is required")
+	}
+	if !validDeploySegment(pack.Name) {
+		return fmt.Errorf("invalid pack name %q", pack.Name)
+	}
+	if !validDeploySegment(pack.Team.Name) {
+		return fmt.Errorf("invalid team name %q", pack.Team.Name)
+	}
+	for _, agent := range pack.Team.Agents {
+		if !validDeploySegment(agent.Name) {
+			return fmt.Errorf("invalid agent name %q", agent.Name)
+		}
+	}
+	for _, ch := range pack.Team.Channels {
+		if !validDeploySegment(ch.Name) {
+			return fmt.Errorf("invalid channel name %q", ch.Name)
+		}
+	}
+	for _, cn := range pack.Connectors {
+		if !validDeploySegment(cn.Name) {
+			return fmt.Errorf("invalid connector name %q", cn.Name)
+		}
+	}
+	return nil
+}
+
+func validDeploySegment(name string) bool {
+	return deployNamePattern.MatchString(name)
+}
+
+func sanitizeLogValue(value string) string {
+	value = strings.ReplaceAll(value, "\n", "\\n")
+	return strings.ReplaceAll(value, "\r", "\\r")
 }

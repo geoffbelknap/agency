@@ -2104,7 +2104,11 @@ func untarBuildContext(dst string, src io.Reader) error {
 		if err != nil {
 			return err
 		}
-		target := filepath.Join(dst, hdr.Name)
+		cleanName := filepath.Clean(filepath.FromSlash(hdr.Name))
+		if filepath.IsAbs(cleanName) || cleanName == "." || cleanName == ".." || strings.HasPrefix(cleanName, ".."+string(os.PathSeparator)) {
+			return fmt.Errorf("invalid tar path %q", hdr.Name)
+		}
+		target := filepath.Join(dst, cleanName)
 		if !strings.HasPrefix(target, filepath.Clean(dst)+string(os.PathSeparator)) && filepath.Clean(target) != filepath.Clean(dst) {
 			return fmt.Errorf("invalid tar path %q", hdr.Name)
 		}

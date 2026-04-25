@@ -162,11 +162,11 @@ func (ch *ConstraintHandler) serveConn(conn *websocket.Conn) {
 
 func (ch *ConstraintHandler) applyPush(push wsPushMessage) ackReport {
 	log.Printf("constraint: received push change_id=%s version=%d severity=%s",
-		push.ChangeID, push.Version, push.Severity)
+		sanitizeLogValue(push.ChangeID), push.Version, sanitizeLogValue(push.Severity))
 
 	computed := hashConstraints(push.Constraints)
 	if computed != push.Hash {
-		log.Printf("constraint: hash mismatch on push: computed=%s received=%s", computed, push.Hash)
+		log.Printf("constraint: hash mismatch on push: computed=%s received=%s", computed, sanitizeLogValue(push.Hash))
 		ch.audit.Log(AuditEntry{
 			Type:  "CONSTRAINT_HASH_MISMATCH",
 			Agent: ch.agent,
@@ -208,6 +208,11 @@ func (ch *ConstraintHandler) applyPush(push wsPushMessage) ackReport {
 		Status:   "acked",
 		BodyHash: push.Hash,
 	}
+}
+
+func sanitizeLogValue(value string) string {
+	value = strings.ReplaceAll(value, "\n", "\\n")
+	return strings.ReplaceAll(value, "\r", "\\r")
 }
 
 // handleGetConstraints returns the current constraint state to the Body runtime.
@@ -317,7 +322,8 @@ type ackReport struct {
 
 // hashConstraints computes SHA-256 of canonical JSON. Must match the gateway's
 // HashConstraints in agency-gateway/internal/context/types.go:
-//   json.Marshal produces sorted keys and compact encoding.
+//
+//	json.Marshal produces sorted keys and compact encoding.
 func hashConstraints(constraints map[string]interface{}) string {
 	data, _ := json.Marshal(constraints)
 	sum := sha256.Sum256(data)

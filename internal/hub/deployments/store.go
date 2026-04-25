@@ -171,13 +171,19 @@ func (s *FilesystemStore) AppendAudit(_ context.Context, id string, entry AuditE
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	data, err := json.Marshal(entry)
 	if err != nil {
+		_ = f.Close()
 		return err
 	}
-	_, err = f.Write(append(data, '\n'))
-	return err
+	if _, err := f.Write(append(data, '\n')); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *FilesystemStore) Export(_ context.Context, id string) (io.ReadCloser, error) {
@@ -268,7 +274,11 @@ func (s *FilesystemStore) Import(_ context.Context, bundle io.Reader) (*Deployme
 		if !strings.HasPrefix(name, auditDirName+"/") {
 			continue
 		}
-		path := filepath.Join(s.dir(dep.ID), name)
+		cleanName := filepath.Clean(filepath.FromSlash(name))
+		if filepath.IsAbs(cleanName) || cleanName == "." || cleanName == ".." || strings.HasPrefix(cleanName, ".."+string(os.PathSeparator)) {
+			return nil, nil, fmt.Errorf("invalid audit path %q", name)
+		}
+		path := filepath.Join(s.dir(dep.ID), cleanName)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return nil, nil, err
 		}
