@@ -15,6 +15,7 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/hub"
 	"github.com/geoffbelknap/agency/internal/models"
+	"github.com/geoffbelknap/agency/internal/pkg/urlsafety"
 	"github.com/geoffbelknap/agency/internal/providercatalog"
 	"github.com/geoffbelknap/agency/internal/routing"
 	"gopkg.in/yaml.v3"
@@ -419,6 +420,9 @@ func performProviderProbe(doc providercatalog.ProviderDoc, probe *providercatalo
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 
+	if err := urlsafety.Validate(probeURL); err != nil {
+		return 0, "", err
+	}
 	req, err := http.NewRequestWithContext(ctx, method, probeURL, body)
 	if err != nil {
 		return 0, "", err
@@ -434,7 +438,8 @@ func performProviderProbe(doc providercatalog.ProviderDoc, probe *providercatalo
 		req.Header.Set(authHeader, strField(doc.Routing, "auth_prefix")+apiKey)
 	}
 
-	client := &http.Client{Timeout: 8 * time.Second}
+	client := urlsafety.SafeClient()
+	client.Timeout = 8 * time.Second
 	resp, err := client.Do(req)
 	if err != nil {
 		return 0, "", err

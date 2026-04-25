@@ -20,9 +20,48 @@ extensions:
       # a whitelist regex that categorically prevents path traversal characters.
       - ["github.com/geoffbelknap/agency/internal/api", "", "requireName", "", "PathInjection", "manual"]
       - ["github.com/geoffbelknap/agency/internal/api", "", "requireNameStr", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/api/admin", "", "requireName", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/api/admin", "", "requireNameStr", "", "PathInjection", "manual"]
       # validateOutboundURL is a sanitizer for SSRF — validates URL scheme and host.
       - ["github.com/geoffbelknap/agency/internal/api", "", "validateOutboundURL", "", "RequestForgery", "manual"]
       - ["github.com/geoffbelknap/agency/internal/pkg/urlsafety", "", "Validate", "", "RequestForgery", "manual"]
+      # The following helpers own explicit name/path boundaries. They either
+      # validate path segments against separator/".." traversal before joining,
+      # or operate only on gateway-owned instance/runtime roots. Keep these
+      # entries scoped to the exact functions instead of suppressing files.
+      - ["github.com/geoffbelknap/agency/internal/hostadapter", "", "validateDeployPackNames", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/hostadapter", "", "validDeploySegment", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/hostadapter/runtimehost", "", "untarBuildContext", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/hub", "", "validPackageSegment", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/hub", "Registry", "packagePath", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/hub", "Registry", "PutPackage", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/hub", "Registry", "GetPackage", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/hub", "Registry", "ListPackages", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/hub", "Registry", "listPackagesInKind", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/instances", "", "validInstanceID", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/instances", "Store", "instanceFile", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/instances", "Store", "InstanceDir", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/instances", "Store", "Create", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/instances", "Store", "Get", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/instances", "Store", "write", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/runtime", "", "startAuthorityProcess", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/runtime", "Store", "SaveManifest", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/runtime", "Store", "LoadManifest", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/runtime", "Store", "SaveAuthorityConfig", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/runtime", "Store", "SaveIngressConfig", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/runtime", "Store", "SaveNodeStatus", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/runtime", "Store", "LoadNodeStatus", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/runtime", "Store", "ListNodeStatuses", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/runtime", "Store", "manifestPath", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/runtime", "Store", "nodeStatusPath", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/runtime", "Store", "runtimeRoot", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/hub/deployments", "FilesystemStore", "Create", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/hub/deployments", "FilesystemStore", "AppendAudit", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/hub/deployments", "FilesystemStore", "Import", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/hub/deployments", "FilesystemStore", "readAll", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/hub/deployments", "FilesystemStore", "writeAll", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/hub/deployments", "FilesystemStore", "dir", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/hub/deployments", "FilesystemStore", "lock", "", "PathInjection", "manual"]
       # StartSequence fields (Home, AgentName) are operator-controlled config,
       # not untrusted input. AgentName is validated against constraints.yaml at
       # startup (start.go:188). All agent directory paths use the same pattern:

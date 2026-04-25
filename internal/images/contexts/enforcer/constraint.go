@@ -161,12 +161,12 @@ func (ch *ConstraintHandler) serveConn(conn *websocket.Conn) {
 }
 
 func (ch *ConstraintHandler) applyPush(push wsPushMessage) ackReport {
-	log.Printf("constraint: received push change_id=%s version=%d severity=%s",
-		sanitizeLogValue(push.ChangeID), push.Version, sanitizeLogValue(push.Severity))
+	log.Printf("constraint: received push change_id_present=%t version=%d severity_present=%t",
+		push.ChangeID != "", push.Version, push.Severity != "")
 
 	computed := hashConstraints(push.Constraints)
 	if computed != push.Hash {
-		log.Printf("constraint: hash mismatch on push: computed=%s received=%s", computed, sanitizeLogValue(push.Hash))
+		log.Printf("constraint: hash mismatch on push")
 		ch.audit.Log(AuditEntry{
 			Type:  "CONSTRAINT_HASH_MISMATCH",
 			Agent: ch.agent,
@@ -208,11 +208,6 @@ func (ch *ConstraintHandler) applyPush(push wsPushMessage) ackReport {
 		Status:   "acked",
 		BodyHash: push.Hash,
 	}
-}
-
-func sanitizeLogValue(value string) string {
-	value = strings.ReplaceAll(value, "\n", "\\n")
-	return strings.ReplaceAll(value, "\r", "\\r")
 }
 
 // handleGetConstraints returns the current constraint state to the Body runtime.
