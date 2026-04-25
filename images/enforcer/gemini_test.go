@@ -60,9 +60,16 @@ func TestTranslateFromGeminiNative(t *testing.T) {
 		t.Fatal(err)
 	}
 	choices := got["choices"].([]interface{})
-	msg := choices[0].(map[string]interface{})["message"].(map[string]interface{})
+	choice := choices[0].(map[string]interface{})
+	msg := choice["message"].(map[string]interface{})
 	if msg["content"] != "Spain won Euro 2024." {
 		t.Fatalf("content = %v", msg["content"])
+	}
+	if msg["stop_reason"] != "end_turn" {
+		t.Fatalf("message stop_reason = %v", msg["stop_reason"])
+	}
+	if choice["stop_reason"] != "end_turn" {
+		t.Fatalf("choice stop_reason = %v", choice["stop_reason"])
 	}
 	usage := got["usage"].(map[string]interface{})
 	if usage["prompt_tokens"].(float64) != 10 {

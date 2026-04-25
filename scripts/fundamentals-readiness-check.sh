@@ -122,21 +122,49 @@ read_gateway_token() {
   ' "$config_path"
 }
 
-credential_names_for_provider() {
-  case "$1" in
-    anthropic)
-      printf '%s\n' anthropic-api-key ANTHROPIC_API_KEY
-      ;;
-    openai)
-      printf '%s\n' openai-api-key OPENAI_API_KEY
-      ;;
-    google)
-      printf '%s\n' gemini-api-key GEMINI_API_KEY
-      ;;
-    *)
-      printf '%s\n' "${1}-api-key" "$(printf '%s_API_KEY' "$1" | tr '[:lower:]-' '[:upper:]_')"
-      ;;
-  esac
+read_gateway_addr() {
+  local config_path="$AGENCY_HOME_DIR/config.yaml"
+  if [ ! -f "$config_path" ]; then
+    return 0
+  fi
+  awk -F: '
+    $1 == "gateway_addr" {
+      gsub(/[ "]/, "", $2)
+      print $2
+      exit
+    }
+  ' "$config_path"
+}
+
+provider_credential_configured() {
+  local provider="$1"
+  local gateway_addr
+  local token
+  gateway_addr="$(read_gateway_addr)"
+  token="$(read_gateway_token)"
+  [ -n "$gateway_addr" ] || gateway_addr="127.0.0.1:8200"
+  python3 - "$gateway_addr" "$token" "$provider" <<'PY'
+import json
+import sys
+import urllib.request
+
+gateway_addr, token, provider = sys.argv[1:4]
+req = urllib.request.Request(f"http://{gateway_addr}/api/v1/infra/providers")
+if token:
+    req.add_header("Authorization", f"Bearer {token}")
+try:
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        providers = json.load(resp)
+except Exception as exc:
+    raise SystemExit(f"provider metadata unavailable: {exc}")
+for item in providers:
+    if item.get("name") == provider:
+        if item.get("credential_configured"):
+            raise SystemExit(0)
+        name = item.get("credential_name") or "provider credential"
+        raise SystemExit(f"credential {name!r} is not configured")
+raise SystemExit(f"provider {provider!r} is not available")
+PY
 }
 
 agent_message_count() {
@@ -224,17 +252,8 @@ log "Checking provider: $provider"
 run_agency hub show "$provider" >/dev/null ||
   fail "Hub provider '$provider' is not installed. Run agency hub install $provider."
 
-creds="$(run_agency creds list)"
-cred_ok=0
-while IFS= read -r name; do
-  if printf '%s\n' "$creds" | awk '{print $1}' | grep -qx "$name"; then
-    cred_ok=1
-    break
-  fi
-done < <(credential_names_for_provider "$provider")
-if [ "$cred_ok" != "1" ]; then
+provider_credential_configured "$provider" ||
   fail "No credential found for provider '$provider'. Run agency setup --provider $provider."
-fi
 
 log "Checking graph stats"
 graph_stats="$(run_agency graph stats)"

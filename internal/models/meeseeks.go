@@ -58,7 +58,7 @@ func NewMeeseeksID() string {
 }
 
 var validMeeseeksModels = map[string]bool{
-	"haiku": true, "sonnet": true,
+	"fast": true, "standard": true, "frontier": true,
 }
 
 // Validate checks the spawn request fields.
@@ -70,7 +70,7 @@ func (r *MeeseeksSpawnRequest) Validate() error {
 		return fmt.Errorf("task exceeds max length (%d chars)", meeseeksTaskMaxLen)
 	}
 	if r.Model != "" && !validMeeseeksModels[r.Model] {
-		return fmt.Errorf("invalid model: %s (allowed: haiku, sonnet)", r.Model)
+		return fmt.Errorf("invalid model: %s (allowed: fast, standard, frontier)", r.Model)
 	}
 	if r.Budget < 0 {
 		return fmt.Errorf("budget must be non-negative")

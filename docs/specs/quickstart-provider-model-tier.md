@@ -4,13 +4,17 @@ Status: Implemented.
 
 ## Problem
 
-`agency quickstart --provider google` installed Gemini and its routing config, but the agent could start with `claude-sonnet` and get a 401 because only Gemini credentials were available.
+`agency quickstart --provider <provider>` installed one provider and its routing
+config, but the agent could start with a different provider's default model and
+get a 401 because only the selected provider's credentials were available.
 
 Three bugs combine:
 
 1. **Agent creation skips `model_tier`** — `agent.go:172-191` copies `expertise` and `responsiveness` from preset but not `model_tier`. The preset declares `model_tier: frontier` but the agent.yaml never gets it.
 2. **`resolveModelTier()` is broken** — `start.go:529-584` walks `providers` as an array and looks for `tier` fields inside model objects. But routing.yaml has `providers` as a map and tiers are a separate top-level section (`tiers:`). The function never matches anything.
-3. **Hardcoded `claude-sonnet` default** — `start.go:249` falls back to `claude-sonnet` when tier resolution fails. With only Gemini credentials, this guarantees a 401.
+3. **Hardcoded provider-model default** — `start.go:249` falls back to a
+   provider-specific model when tier resolution fails. With only another
+   provider's credentials, this guarantees a 401.
 
 ## Fix
 
@@ -31,7 +35,8 @@ The `RoutingConfig` struct and `ResolveTier()` method already exist in `internal
 
 ### C. Fix the default fallback
 
-`internal/orchestrate/start.go` no longer falls back to `claude-sonnet` when tier resolution fails:
+`internal/orchestrate/start.go` no longer falls back to a provider-specific
+model when tier resolution fails:
 
 1. Resolve `model_tier` from agent.yaml (already handled by existing code at lines 253-258, once bug A is fixed)
 2. If no `model_tier` in agent.yaml, resolve the default tier from routing settings (`settings.default_tier`, defaults to "standard")

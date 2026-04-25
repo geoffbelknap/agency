@@ -358,12 +358,23 @@ func TestAdminEgressRESTApproveRevokeAndMode(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &approved); err != nil {
 		t.Fatal(err)
 	}
-	if approved["mode"] != "allowlist" {
-		t.Fatalf("mode = %v, want allowlist", approved["mode"])
+	change, ok := approved["change"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("change = %#v, want map", approved["change"])
 	}
-	domains, ok := approved["domains"].([]interface{})
+	if change["action"] != "approve_domain" || change["scope"] != "egress" || change["status"] != "applied" {
+		t.Fatalf("unexpected change: %#v", change)
+	}
+	egress, ok := approved["egress"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("egress = %#v, want map", approved["egress"])
+	}
+	if egress["mode"] != "allowlist" {
+		t.Fatalf("mode = %v, want allowlist", egress["mode"])
+	}
+	domains, ok := egress["domains"].([]interface{})
 	if !ok || len(domains) != 1 {
-		t.Fatalf("domains = %#v, want one entry", approved["domains"])
+		t.Fatalf("domains = %#v, want one entry", egress["domains"])
 	}
 	entry, ok := domains[0].(map[string]interface{})
 	if !ok {

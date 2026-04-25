@@ -318,7 +318,7 @@ export const handlers = [
           task_id: 'task-2',
           passed: false,
           evaluation_mode: 'llm',
-          model_used: 'claude-sonnet',
+          model_used: 'provider-a-standard',
           criteria_results: [
             { id: 'c1', passed: true, required: true, reasoning: 'OK' },
             { id: 'c2', passed: false, required: true, reasoning: 'Missing validation' },
@@ -377,7 +377,7 @@ export const handlers = [
         auto_managed: true,
       },
       {
-        domain: 'api.openai.com',
+        domain: 'provider-b.example.com',
         sources: [{ type: 'manual', name: 'operator', added_at: '2026-03-25T08:00:00Z' }],
         auto_managed: false,
       },

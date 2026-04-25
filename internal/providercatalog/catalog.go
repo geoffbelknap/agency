@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/geoffbelknap/agency/internal/hub"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,6 +26,23 @@ type ProviderDoc struct {
 	Category    string                 `yaml:"category" json:"category"`
 	Credential  map[string]interface{} `yaml:"credential" json:"credential"`
 	Routing     map[string]interface{} `yaml:"routing" json:"routing"`
+	Quickstart  *QuickstartConfig      `yaml:"quickstart,omitempty" json:"quickstart,omitempty"`
+}
+
+type QuickstartConfig struct {
+	Selectable  bool                   `yaml:"selectable" json:"selectable"`
+	Order       int                    `yaml:"order,omitempty" json:"order,omitempty"`
+	Recommended bool                   `yaml:"recommended,omitempty" json:"recommended,omitempty"`
+	PromptBlurb string                 `yaml:"prompt_blurb,omitempty" json:"prompt_blurb,omitempty"`
+	Probe       *QuickstartProbeConfig `yaml:"probe,omitempty" json:"probe,omitempty"`
+}
+
+type QuickstartProbeConfig struct {
+	Method          string            `yaml:"method" json:"method"`
+	URL             string            `yaml:"url" json:"url"`
+	Headers         map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+	Body            string            `yaml:"body,omitempty" json:"body,omitempty"`
+	SuccessStatuses []int             `yaml:"success_statuses,omitempty" json:"success_statuses,omitempty"`
 }
 
 type ProviderToolInventory struct {
@@ -84,14 +100,6 @@ func Get(name string) (ProviderDoc, []byte, error) {
 		return ProviderDoc{}, nil, fmt.Errorf("parse provider %q: %w", name, err)
 	}
 	return doc, data, nil
-}
-
-func Install(home, name string) error {
-	_, data, err := Get(name)
-	if err != nil {
-		return err
-	}
-	return hub.MergeProviderRouting(home, name, data)
 }
 
 func SetupConfig() (map[string]interface{}, error) {

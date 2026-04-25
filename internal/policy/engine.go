@@ -8,25 +8,26 @@ import (
 	"strings"
 	"time"
 
+	agencysecurity "github.com/geoffbelknap/agency/internal/security"
 	"gopkg.in/yaml.v3"
 )
 
 // PolicyStep describes one level in the resolution chain.
 type PolicyStep struct {
-	Level  string `json:"level"`
-	File   string `json:"file,omitempty"`
-	Status string `json:"status"` // ok, missing, violation
-	Detail string `json:"detail,omitempty"`
+	Level  string                          `json:"level"`
+	File   string                          `json:"file,omitempty"`
+	Status agencysecurity.PolicyStepStatus `json:"status"` // ok, missing, violation
+	Detail string                          `json:"detail,omitempty"`
 }
 
 // ExceptionInfo describes a validated policy exception.
 type ExceptionInfo struct {
-	ExceptionID  string `json:"exception_id"`
-	GrantRef     string `json:"grant_ref"`
-	Parameter    string `json:"parameter"`
-	GrantedValue string `json:"granted_value"`
-	Status       string `json:"status"` // active, expired, invalid
-	Detail       string `json:"detail,omitempty"`
+	ExceptionID  string                               `json:"exception_id"`
+	GrantRef     string                               `json:"grant_ref"`
+	Parameter    string                               `json:"parameter"`
+	GrantedValue string                               `json:"granted_value"`
+	Status       agencysecurity.PolicyExceptionStatus `json:"status"` // active, expired, invalid
+	Detail       string                               `json:"detail,omitempty"`
 }
 
 // EffectivePolicy is the computed policy for an agent — sealed and immutable.
@@ -61,7 +62,7 @@ func (e *Engine) Compute(agentName string) *EffectivePolicy {
 	}
 
 	// Step 1: Platform defaults
-	ep.Chain = append(ep.Chain, PolicyStep{Level: "platform", Status: "ok", Detail: "platform defaults"})
+	ep.Chain = append(ep.Chain, PolicyStep{Level: "platform", Status: agencysecurity.PolicyStepOK, Detail: "platform defaults"})
 
 	// Step 2: Org policy
 	orgFile := filepath.Join(e.Home, "policy.yaml")
@@ -77,7 +78,7 @@ func (e *Engine) Compute(agentName string) *EffectivePolicy {
 			effectiveParent = deptParams
 		}
 	} else {
-		ep.Chain = append(ep.Chain, PolicyStep{Level: "department", Status: "missing", Detail: "no department policy"})
+		ep.Chain = append(ep.Chain, PolicyStep{Level: "department", Status: agencysecurity.PolicyStepMissing, Detail: "no department policy"})
 	}
 
 	// Step 4: Team
@@ -89,7 +90,7 @@ func (e *Engine) Compute(agentName string) *EffectivePolicy {
 			effectiveParent = teamParams
 		}
 	} else {
-		ep.Chain = append(ep.Chain, PolicyStep{Level: "team", Status: "missing", Detail: "no team policy"})
+		ep.Chain = append(ep.Chain, PolicyStep{Level: "team", Status: agencysecurity.PolicyStepMissing, Detail: "no team policy"})
 	}
 
 	// Step 5: Agent policy
@@ -119,7 +120,7 @@ func (e *Engine) ComputeForScope(agentName, scope string) *EffectivePolicy {
 	if strings.TrimSpace(scope) != "" {
 		ep.Chain = append(ep.Chain, PolicyStep{
 			Level:  "instance_scope",
-			Status: "ok",
+			Status: agencysecurity.PolicyStepOK,
 			Detail: scope,
 		})
 	}
@@ -189,13 +190,13 @@ func (e *Engine) extractHierarchyName(agentName, segment string) string {
 // Returns the raw policy map on success, nil on missing/error/violation.
 func (e *Engine) loadAndMerge(file, level string, parentParams map[string]interface{}, ep *EffectivePolicy) map[string]interface{} {
 	if _, err := os.Stat(file); err != nil {
-		ep.Chain = append(ep.Chain, PolicyStep{Level: level, File: file, Status: "missing", Detail: "no " + level + " policy"})
+		ep.Chain = append(ep.Chain, PolicyStep{Level: level, File: file, Status: agencysecurity.PolicyStepMissing, Detail: "no " + level + " policy"})
 		return nil
 	}
 
 	data, err := os.ReadFile(file)
 	if err != nil {
-		ep.Chain = append(ep.Chain, PolicyStep{Level: level, File: file, Status: "violation", Detail: "read error: " + err.Error()})
+		ep.Chain = append(ep.Chain, PolicyStep{Level: level, File: file, Status: agencysecurity.PolicyStepViolation, Detail: "read error: " + err.Error()})
 		ep.Valid = false
 		ep.Violations = append(ep.Violations, fmt.Sprintf("%s: %v", file, err))
 		return nil
@@ -203,7 +204,7 @@ func (e *Engine) loadAndMerge(file, level string, parentParams map[string]interf
 
 	var policy map[string]interface{}
 	if err := yaml.Unmarshal(data, &policy); err != nil {
-		ep.Chain = append(ep.Chain, PolicyStep{Level: level, File: file, Status: "violation", Detail: "invalid YAML: " + err.Error()})
+		ep.Chain = append(ep.Chain, PolicyStep{Level: level, File: file, Status: agencysecurity.PolicyStepViolation, Detail: "invalid YAML: " + err.Error()})
 		ep.Valid = false
 		ep.Violations = append(ep.Violations, fmt.Sprintf("%s: invalid YAML: %v", file, err))
 		return nil
@@ -218,7 +219,7 @@ func (e *Engine) loadAndMerge(file, level string, parentParams map[string]interf
 				ep.Valid = false
 				violation := fmt.Sprintf("hard floor '%s' modified at %s level (expected %v, got %v)", key, level, floorVal, paramVal)
 				ep.Violations = append(ep.Violations, violation)
-				ep.Chain = append(ep.Chain, PolicyStep{Level: level, File: file, Status: "violation", Detail: "hard floor modified: " + key})
+				ep.Chain = append(ep.Chain, PolicyStep{Level: level, File: file, Status: agencysecurity.PolicyStepViolation, Detail: "hard floor modified: " + key})
 				return policy
 			}
 		}
@@ -236,7 +237,7 @@ func (e *Engine) loadAndMerge(file, level string, parentParams map[string]interf
 					ep.Valid = false
 					violation := fmt.Sprintf("%s: parameter '%s' loosened (parent=%v, %s=%v)", file, key, parentVal, level, val)
 					ep.Violations = append(ep.Violations, violation)
-					ep.Chain = append(ep.Chain, PolicyStep{Level: level, File: file, Status: "violation", Detail: "parameter loosened: " + key})
+					ep.Chain = append(ep.Chain, PolicyStep{Level: level, File: file, Status: agencysecurity.PolicyStepViolation, Detail: "parameter loosened: " + key})
 					return policy
 				}
 			}
@@ -259,7 +260,7 @@ func (e *Engine) loadAndMerge(file, level string, parentParams map[string]interf
 		}
 	}
 
-	ep.Chain = append(ep.Chain, PolicyStep{Level: level, File: file, Status: "ok"})
+	ep.Chain = append(ep.Chain, PolicyStep{Level: level, File: file, Status: agencysecurity.PolicyStepOK})
 	return policy
 }
 
@@ -284,7 +285,7 @@ func (e *Engine) validateExceptions(agentName string, ep *EffectivePolicy) {
 		}
 		info := e.validateSingleException(exc)
 		ep.Exceptions = append(ep.Exceptions, info)
-		if info.Status == "invalid" {
+		if info.Status == agencysecurity.PolicyExceptionInvalid {
 			ep.Valid = false
 			ep.Violations = append(ep.Violations, fmt.Sprintf("invalid exception %s: %s", info.ExceptionID, info.Detail))
 		}
@@ -309,7 +310,7 @@ func (e *Engine) validateSingleException(exc map[string]interface{}) ExceptionIn
 			GrantRef:     grantRef,
 			Parameter:    parameter,
 			GrantedValue: grantedValue,
-			Status:       "invalid",
+			Status:       agencysecurity.PolicyExceptionInvalid,
 			Detail:       fmt.Sprintf("parameter '%s' is a hard floor and cannot be overridden by exception", parameter),
 		}
 	}
@@ -321,7 +322,7 @@ func (e *Engine) validateSingleException(exc map[string]interface{}) ExceptionIn
 			GrantRef:     "",
 			Parameter:    parameter,
 			GrantedValue: grantedValue,
-			Status:       "invalid",
+			Status:       agencysecurity.PolicyExceptionInvalid,
 			Detail:       "missing grant_ref (Key 1) — exception requires delegation grant",
 		}
 	}
@@ -334,7 +335,7 @@ func (e *Engine) validateSingleException(exc map[string]interface{}) ExceptionIn
 			GrantRef:     grantRef,
 			Parameter:    parameter,
 			GrantedValue: grantedValue,
-			Status:       "invalid",
+			Status:       agencysecurity.PolicyExceptionInvalid,
 			Detail:       fmt.Sprintf("delegation grant '%s' not found in org policy", grantRef),
 		}
 	}
@@ -347,7 +348,7 @@ func (e *Engine) validateSingleException(exc map[string]interface{}) ExceptionIn
 			GrantRef:     grantRef,
 			Parameter:    parameter,
 			GrantedValue: grantedValue,
-			Status:       "invalid",
+			Status:       agencysecurity.PolicyExceptionInvalid,
 			Detail:       "missing approved_by (Key 2) — exception requires approval",
 		}
 	}
@@ -361,7 +362,7 @@ func (e *Engine) validateSingleException(exc map[string]interface{}) ExceptionIn
 				GrantRef:     grantRef,
 				Parameter:    parameter,
 				GrantedValue: grantedValue,
-				Status:       "invalid",
+				Status:       agencysecurity.PolicyExceptionInvalid,
 				Detail:       fmt.Sprintf("unparseable expiry date: %s", expires),
 			}
 		}
@@ -371,7 +372,7 @@ func (e *Engine) validateSingleException(exc map[string]interface{}) ExceptionIn
 				GrantRef:     grantRef,
 				Parameter:    parameter,
 				GrantedValue: grantedValue,
-				Status:       "expired",
+				Status:       agencysecurity.PolicyExceptionExpired,
 				Detail:       fmt.Sprintf("expired on %s", expires),
 			}
 		}
@@ -389,7 +390,7 @@ func (e *Engine) validateSingleException(exc map[string]interface{}) ExceptionIn
 					GrantRef:     grantRef,
 					Parameter:    parameter,
 					GrantedValue: grantedValue,
-					Status:       "expired",
+					Status:       agencysecurity.PolicyExceptionExpired,
 					Detail:       fmt.Sprintf("delegation grant expired on %s", maxExpiry),
 				}
 			}
@@ -401,7 +402,7 @@ func (e *Engine) validateSingleException(exc map[string]interface{}) ExceptionIn
 		GrantRef:     grantRef,
 		Parameter:    parameter,
 		GrantedValue: grantedValue,
-		Status:       "active",
+		Status:       agencysecurity.PolicyExceptionActive,
 	}
 }
 

@@ -4,13 +4,16 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/geoffbelknap/agency/internal/hub"
 	"github.com/geoffbelknap/agency/internal/knowledge"
+	"github.com/geoffbelknap/agency/internal/providercatalog"
 	"gopkg.in/yaml.v3"
 )
 
@@ -37,14 +40,13 @@ func ValidateOperatorName(name string) error {
 
 // InitOptions holds the parameters for initializing the Agency platform.
 type InitOptions struct {
-	Provider        string // e.g. "anthropic", "openai", "google"
-	APIKey          string // primary provider API key
-	AnthropicAPIKey string // explicit Anthropic key (overrides APIKey when Provider=="anthropic")
-	OpenAIAPIKey    string // explicit OpenAI key
-	Operator        string // operator name (informational)
-	Force           bool   // reinitialize even if already set up
-	NotifyURL       string // optional ntfy or webhook URL for operator alerts
-	GatewayAddr     string // optional gateway listen address to persist
+	Provider     string            // primary provider adapter name
+	APIKey       string            // primary provider API key
+	ProviderKeys map[string]string // explicit provider keys keyed by provider adapter name
+	Operator     string            // operator name (informational)
+	Force        bool              // reinitialize even if already set up
+	NotifyURL    string            // optional ntfy or webhook URL for operator alerts
+	GatewayAddr  string            // optional gateway listen address to persist
 
 	// DeploymentBackend is the container backend Agency should drive —
 	// "docker", "podman", "apple-container", or "containerd". When empty, any
@@ -72,12 +74,18 @@ type KeyEntry struct {
 
 // providerEnvVar returns the environment variable name for a given provider.
 func providerEnvVar(provider string) string {
-	switch strings.ToLower(provider) {
-	case "google":
-		return "GEMINI_API_KEY"
-	default:
-		return strings.ToUpper(provider) + "_API_KEY"
+	return ProviderEnvVar(provider)
+}
+
+// ProviderEnvVar returns the configured environment variable for a provider
+// adapter, falling back to the conventional <PROVIDER>_API_KEY form.
+func ProviderEnvVar(provider string) string {
+	if doc, _, err := providercatalog.Get(strings.ToLower(provider)); err == nil {
+		if envVar, _ := doc.Credential["env_var"].(string); strings.TrimSpace(envVar) != "" {
+			return envVar
+		}
 	}
+	return strings.ToUpper(provider) + "_API_KEY"
 }
 
 // ProviderCredentialName returns the canonical credential-store name used by
@@ -85,32 +93,49 @@ func providerEnvVar(provider string) string {
 // through normalization, but storing canonical names keeps Web setup status
 // aligned with Hub metadata.
 func ProviderCredentialName(provider string) string {
-	switch strings.ToLower(provider) {
-	case "anthropic":
-		return "anthropic-api-key"
-	case "openai":
-		return "openai-api-key"
-	case "google":
-		return "gemini-api-key"
-	default:
-		return providerEnvVar(provider)
+	if doc, _, err := providercatalog.Get(strings.ToLower(provider)); err == nil {
+		if name, _ := doc.Credential["name"].(string); strings.TrimSpace(name) != "" {
+			return name
+		}
 	}
+	return providerEnvVar(provider)
 }
 
 // ProviderDomains returns the API domains for well-known LLM providers.
 // Used by credential storage to populate protocol_config.domains so the
 // egress proxy knows which requests to inject credentials into.
 func ProviderDomains(provider string) []string {
-	switch strings.ToLower(provider) {
-	case "anthropic":
-		return []string{"api.anthropic.com"}
-	case "openai":
-		return []string{"api.openai.com"}
-	case "google":
-		return []string{"generativelanguage.googleapis.com"}
-	default:
+	doc, _, err := providercatalog.Get(strings.ToLower(provider))
+	if err != nil || doc.Routing == nil {
 		return nil
 	}
+	apiBase, _ := doc.Routing["api_base"].(string)
+	parsed, err := url.Parse(strings.TrimSpace(apiBase))
+	if err != nil || parsed.Hostname() == "" {
+		return nil
+	}
+	return []string{parsed.Hostname()}
+}
+
+// ProviderKeysFromEnv returns provider credentials available in the process
+// environment, discovered through the provider catalog.
+func ProviderKeysFromEnv() map[string]string {
+	keys := map[string]string{}
+	docs, err := providercatalog.List()
+	if err != nil {
+		return keys
+	}
+	for _, doc := range docs {
+		envVar, _ := doc.Credential["env_var"].(string)
+		envVar = strings.TrimSpace(envVar)
+		if envVar == "" {
+			continue
+		}
+		if value := strings.TrimSpace(os.Getenv(envVar)); value != "" {
+			keys[doc.Name] = value
+		}
+	}
+	return keys
 }
 
 // detectNotificationType infers "ntfy" or "webhook" from a URL.
@@ -263,28 +288,26 @@ func RunInit(opts InitOptions) ([]KeyEntry, error) {
 		cfg["egress_token"] = hex.EncodeToString(tokenBytes)
 	}
 
-	// Apply provider / key settings from options
-	// Explicit per-provider keys take precedence over the generic APIKey field.
-	var pendingKeys []KeyEntry
-	if opts.AnthropicAPIKey != "" {
-		pendingKeys = append(pendingKeys, KeyEntry{"anthropic", providerEnvVar("anthropic"), opts.AnthropicAPIKey})
+	// Apply provider / key settings from options.
+	providerKeys := make(map[string]string, len(opts.ProviderKeys)+1)
+	for provider, key := range opts.ProviderKeys {
+		provider = strings.ToLower(strings.TrimSpace(provider))
+		key = strings.TrimSpace(key)
+		if provider != "" && key != "" {
+			providerKeys[provider] = key
+		}
 	}
-	if opts.OpenAIAPIKey != "" {
-		pendingKeys = append(pendingKeys, KeyEntry{"openai", providerEnvVar("openai"), opts.OpenAIAPIKey})
-	}
-	// Generic provider+key (CLI path)
 	if opts.Provider != "" && opts.APIKey != "" {
-		// Only add if not already covered by an explicit key above
-		alreadyCovered := false
-		for _, e := range pendingKeys {
-			if e.Provider == opts.Provider {
-				alreadyCovered = true
-				break
-			}
-		}
-		if !alreadyCovered {
-			pendingKeys = append(pendingKeys, KeyEntry{opts.Provider, providerEnvVar(opts.Provider), opts.APIKey})
-		}
+		providerKeys[strings.ToLower(strings.TrimSpace(opts.Provider))] = strings.TrimSpace(opts.APIKey)
+	}
+	var pendingKeys []KeyEntry
+	providers := make([]string, 0, len(providerKeys))
+	for provider := range providerKeys {
+		providers = append(providers, provider)
+	}
+	sort.Strings(providers)
+	for _, provider := range providers {
+		pendingKeys = append(pendingKeys, KeyEntry{provider, providerEnvVar(provider), providerKeys[provider]})
 	}
 
 	// If no new keys provided, check existing .env for configured providers
@@ -305,16 +328,8 @@ func RunInit(opts InitOptions) ([]KeyEntry, error) {
 	// Set the primary provider if we have new keys
 	if opts.Provider != "" {
 		cfg["llm_provider"] = opts.Provider
-	} else if opts.AnthropicAPIKey != "" {
-		cfg["llm_provider"] = "anthropic"
-	} else if opts.OpenAIAPIKey != "" && opts.AnthropicAPIKey == "" {
-		cfg["llm_provider"] = "openai"
-	}
-
-	// API keys are stored in the encrypted credential store (not config.yaml).
-	// Strip any legacy keys from config.yaml (may exist from older init).
-	for _, suffix := range []string{"anthropic_api_key", "openai_api_key", "google_api_key"} {
-		delete(cfg, suffix)
+	} else if len(providers) == 1 {
+		cfg["llm_provider"] = providers[0]
 	}
 
 	// Store operator name (already validated above)
@@ -410,10 +425,16 @@ func ReadExistingKeys(agencyHome string) []string {
 	if err != nil {
 		return nil
 	}
-	providerMap := map[string]string{
-		"ANTHROPIC_API_KEY": "anthropic",
-		"OPENAI_API_KEY":    "openai",
-		"GEMINI_API_KEY":    "google",
+	providerMap := map[string]string{}
+	docs, err := providercatalog.List()
+	if err == nil {
+		for _, doc := range docs {
+			envVar, _ := doc.Credential["env_var"].(string)
+			envVar = strings.TrimSpace(envVar)
+			if envVar != "" {
+				providerMap[envVar] = doc.Name
+			}
+		}
 	}
 	var providers []string
 	for _, line := range strings.Split(string(data), "\n") {

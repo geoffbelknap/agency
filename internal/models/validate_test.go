@@ -9,7 +9,7 @@ func TestValidateAPIBase(t *testing.T) {
 		input   string
 		wantErr bool
 	}{
-		{"valid https", "https://api.anthropic.com", false},
+		{"valid https", "https://provider-a.example.com", false},
 		{"valid http local", "http://localhost:11434", false},
 		{"empty", "", true},
 		{"blocked metadata", "http://169.254.169.254/latest", true},
@@ -33,8 +33,8 @@ func TestValidateCredentialEnv(t *testing.T) {
 		wantErr bool
 	}{
 		{"", false},
-		{"ANTHROPIC_API_KEY", false},
-		{"OPENAI_TOKEN", false},
+		{"PROVIDER_A_API_KEY", false},
+		{"PROVIDER_B_TOKEN", false},
 		{"MY_SECRET", false},
 		{"lowercase_key", true},
 		{"NOPE", true},

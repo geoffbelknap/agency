@@ -119,6 +119,9 @@ func TestToolApprovalRecord_RequiredFields(t *testing.T) {
 	if !rec.Approved {
 		t.Error("Approved should be true")
 	}
+	if rec.ApprovalStatus() != "approved" {
+		t.Errorf("ApprovalStatus = %q, want approved", rec.ApprovalStatus())
+	}
 }
 
 func TestToolApprovalRecord_DeniedApproval(t *testing.T) {
@@ -131,6 +134,22 @@ func TestToolApprovalRecord_DeniedApproval(t *testing.T) {
 	}
 	if rec.Approved {
 		t.Error("Approved should be false")
+	}
+	if rec.ApprovalStatus() != "denied" {
+		t.Errorf("ApprovalStatus = %q, want denied", rec.ApprovalStatus())
+	}
+}
+
+func TestToolApprovalRecord_StatusOverridesLegacyBoolean(t *testing.T) {
+	rec := ToolApprovalRecord{
+		Capability: "file-system",
+		Tool:       "write_file",
+		Agent:      "analyst",
+		Approved:   false,
+		Status:     "rejected",
+	}
+	if rec.ApprovalStatus() != "rejected" {
+		t.Errorf("ApprovalStatus = %q, want rejected", rec.ApprovalStatus())
 	}
 }
 

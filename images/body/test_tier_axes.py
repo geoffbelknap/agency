@@ -119,31 +119,31 @@ def test_context_empty_inputs_are_task_relevant():
 
 
 def test_model_social_low_risk_is_small():
-    assert select_model({}, None, objective=_objective(generation_mode="social", risk_level="low")) == "claude-haiku"
+    assert select_model({}, None, objective=_objective(generation_mode="social", risk_level="low")) == "fast"
 
 
 def test_model_creative_low_risk_is_small():
-    assert select_model({}, None, objective=_objective(generation_mode="creative", risk_level="low")) == "claude-haiku"
+    assert select_model({}, None, objective=_objective(generation_mode="creative", risk_level="low")) == "fast"
 
 
 def test_model_escalated_risk_is_large():
-    assert select_model({}, None, objective=_objective(risk_level="escalated")) == "claude-opus"
+    assert select_model({}, None, objective=_objective(risk_level="escalated")) == "frontier"
 
 
 def test_model_external_side_effect_is_large():
-    assert select_model({}, None, objective=_objective(kind="external_side_effect")) == "claude-opus"
+    assert select_model({}, None, objective=_objective(kind="external_side_effect")) == "frontier"
 
 
 def test_model_grounded_is_standard():
-    assert select_model({}, None, objective=_objective(generation_mode="grounded")) == "claude-sonnet"
+    assert select_model({}, None, objective=_objective(generation_mode="grounded")) == "standard"
 
 
 def test_model_code_change_is_standard():
-    assert select_model({}, None, objective=_objective(kind="code_change")) == "claude-sonnet"
+    assert select_model({}, None, objective=_objective(kind="code_change")) == "standard"
 
 
 def test_model_empty_inputs_are_standard():
-    assert select_model({}, None) == "claude-sonnet"
+    assert select_model({}, None) == "standard"
 
 
 def test_frugal_external_side_effect_keeps_safety_floor():
@@ -152,7 +152,7 @@ def test_frugal_external_side_effect_keeps_safety_floor():
     strategy = _strategy(ExecutionMode.external_side_effect, needs_planner=True, needs_approval=True)
 
     assert classify_reasoning_depth({}, mission, objective=objective, strategy=strategy) == "reflective"
-    assert select_model({}, mission, objective=objective, strategy=strategy) == "claude-sonnet"
+    assert select_model({}, mission, objective=objective, strategy=strategy) == "standard"
 
 
 def test_hank_replay_execution_state_routes_to_three_axes():
@@ -164,17 +164,17 @@ def test_hank_replay_execution_state_routes_to_three_axes():
     assert state.strategy.execution_mode == ExecutionMode.tool_loop
     assert state.reasoning_depth == "reflective"
     assert state.context_depth == "task-relevant"
-    assert state.model == "claude-sonnet"
+    assert state.model == "standard"
 
 
-def test_current_model_keeps_hank_replay_on_sonnet_with_idle_reply_prefix():
+def test_current_model_keeps_hank_replay_on_standard_with_idle_reply_prefix():
     task = _task_with_contract(HANK_REPLAY, _contract("chat"), task_id="idle-reply-hank3-123")
     body = Body.__new__(Body)
-    body.model = "claude-sonnet"
-    body.admin_model = "claude-haiku"
-    body.large_model = "claude-opus"
+    body.model = "standard"
+    body.admin_model = "fast"
+    body.large_model = "frontier"
     body._active_mission = None
     body._task_metadata = task["metadata"]
     body._execution_state = ExecutionState.from_task(task, agent="hank3")
 
-    assert body._current_model() == "claude-sonnet"
+    assert body._current_model() == "standard"

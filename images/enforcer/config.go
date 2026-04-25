@@ -116,30 +116,6 @@ type RoutingConfig struct {
 	Settings  Settings            `yaml:"settings"`
 }
 
-func (rc *RoutingConfig) normalizeLegacyProviders() {
-	if rc == nil || rc.Providers == nil {
-		return
-	}
-	geminiProvider, ok := rc.Providers["gemini"]
-	if !ok {
-		return
-	}
-	if strings.TrimSpace(geminiProvider.APIFormat) == "" {
-		geminiProvider.APIFormat = "gemini"
-	}
-	if _, exists := rc.Providers["google"]; !exists {
-		rc.Providers["google"] = geminiProvider
-	}
-	for alias, model := range rc.Models {
-		if model.Provider != "gemini" {
-			continue
-		}
-		model.Provider = "google"
-		rc.Models[alias] = model
-	}
-	delete(rc.Providers, "gemini")
-}
-
 var allowedProviderToolCapabilities = map[string]bool{
 	capProviderWebSearch:       true,
 	capProviderWebFetch:        true,
@@ -235,7 +211,6 @@ func LoadRoutingConfig(path string) (*RoutingConfig, error) {
 	if err := yaml.Unmarshal(data, &rc); err != nil {
 		return nil, fmt.Errorf("parse routing config: %w", err)
 	}
-	rc.normalizeLegacyProviders()
 	if err := rc.Validate(); err != nil {
 		return nil, fmt.Errorf("validate routing config: %w", err)
 	}
@@ -288,11 +263,7 @@ func (rc *RoutingConfig) ResolveModel(alias string) (targetURL string, providerM
 	case "anthropic":
 		targetURL = base + "/messages"
 	default:
-		if model.Provider == "anthropic" {
-			targetURL = base + "/messages"
-		} else {
-			targetURL = base + "/chat/completions"
-		}
+		targetURL = base + "/chat/completions"
 	}
 
 	return targetURL, providerModel, model.Provider, nil

@@ -23,17 +23,10 @@ import (
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
+	agencysecurity "github.com/geoffbelknap/agency/internal/security"
 )
 
-type doctorCheckResult struct {
-	Name    string `json:"name"`
-	Agent   string `json:"agent,omitempty"`
-	Scope   string `json:"scope,omitempty"`
-	Backend string `json:"backend,omitempty"`
-	Status  string `json:"status"`
-	Detail  string `json:"detail,omitempty"`
-	Fix     string `json:"fix,omitempty"`
-}
+type doctorCheckResult = agencysecurity.Finding
 
 type doctorScopeInfo struct {
 	Agent    string   `json:"agent"`
@@ -108,7 +101,7 @@ func splitDoctorChecks(checks []doctorCheckResult, backend string) ([]doctorChec
 
 func appendBackendDiagnosticChecks(report *doctorReport, checks []hostadapter.DiagnosticCheck) {
 	for _, check := range checks {
-		if check.Status != "pass" {
+		if check.Status != string(agencysecurity.FindingPass) {
 			report.AllPassed = false
 		}
 		report.Checks = append(report.Checks, doctorCheckResult{
@@ -116,7 +109,7 @@ func appendBackendDiagnosticChecks(report *doctorReport, checks []hostadapter.Di
 			Agent:   check.Agent,
 			Scope:   check.Scope,
 			Backend: check.Backend,
-			Status:  check.Status,
+			Status:  agencysecurity.FindingStatus(check.Status),
 			Detail:  check.Detail,
 			Fix:     check.Fix,
 		})
@@ -169,7 +162,7 @@ func (h *handler) adminDoctorAppleContainer(ctx context.Context, report doctorRe
 			Name:    "apple_container_service",
 			Scope:   "backend",
 			Backend: runtimehost.BackendAppleContainer,
-			Status:  "fail",
+			Status:  agencysecurity.FindingFail,
 			Detail:  err.Error(),
 			Fix:     "Install and start Apple container, or select a different deployment backend.",
 		})
@@ -178,7 +171,7 @@ func (h *handler) adminDoctorAppleContainer(ctx context.Context, report doctorRe
 			Name:    "apple_container_service",
 			Scope:   "backend",
 			Backend: runtimehost.BackendAppleContainer,
-			Status:  "pass",
+			Status:  agencysecurity.FindingPass,
 			Detail:  "`container system status` succeeded",
 		})
 	}
@@ -186,7 +179,7 @@ func (h *handler) adminDoctorAppleContainer(ctx context.Context, report doctorRe
 		Name:    "apple_container_runtime_gated",
 		Scope:   "backend",
 		Backend: runtimehost.BackendAppleContainer,
-		Status:  "pass",
+		Status:  agencysecurity.FindingPass,
 		Detail:  "Lifecycle, runtime inspection, and mediation-network validation remain gated until Apple container adapter semantics are implemented.",
 	})
 	report.RuntimeChecks, report.BackendChecks = splitDoctorChecks(report.Checks, report.Backend)
@@ -550,7 +543,7 @@ func (h *handler) pruneDanglingImages(ctx context.Context) (pruned, skipped int)
 	}
 	if h.deps.DC == nil {
 		if h.deps.Logger != nil {
-			h.deps.Logger.Warn("prune images: docker client unavailable")
+			h.deps.Logger.Warn("prune images: container backend client unavailable")
 		}
 		return 0, 0
 	}
@@ -939,7 +932,7 @@ func (h *handler) egressPolicy() egresspolicy.Service {
 	}
 }
 
-func (h *handler) writeEgressMutationResponse(w http.ResponseWriter, err error, egress map[string]interface{}) {
+func (h *handler) writeEgressMutationResponse(w http.ResponseWriter, err error, result *egresspolicy.MutationResult) {
 	if err != nil {
 		switch {
 		case errors.Is(err, egresspolicy.ErrInvalidDomain):
@@ -951,7 +944,7 @@ func (h *handler) writeEgressMutationResponse(w http.ResponseWriter, err error, 
 		}
 		return
 	}
-	writeJSON(w, 200, egress)
+	writeJSON(w, 200, result)
 }
 
 func (h *handler) adminKnowledge(w http.ResponseWriter, r *http.Request) {

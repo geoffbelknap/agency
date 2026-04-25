@@ -7,7 +7,7 @@ This spec centralizes all infrastructure LLM calls through a gateway internal en
 Today's infrastructure LLM flow:
 
 ```
-knowledge container → https://api.anthropic.com/v1/messages (via egress proxy)
+knowledge container → provider API endpoint (via egress proxy)
                       ^ hardcoded URL, model, format per component
                       ^ no cost tracking, no audit, no routing
 ```
@@ -19,7 +19,7 @@ Each component independently configures:
 - Egress proxy settings and CA certificates
 - Authentication headers
 
-Switching from Anthropic to OpenAI requires changing code or env vars in every infrastructure component. Cost tracking for infrastructure LLM usage doesn't exist. There's no audit trail for infrastructure LLM calls.
+Switching providers requires changing code or env vars in every infrastructure component. Cost tracking for infrastructure LLM usage doesn't exist. There's no audit trail for infrastructure LLM calls.
 
 ## Solution: Gateway Internal LLM Endpoint
 
@@ -34,7 +34,7 @@ Flow:
 infra container → http://gateway:8200/api/v1/infra/internal/llm
                   → gateway socket proxy → gateway.sock
                   → gateway resolves model alias from routing.yaml
-                  → gateway translates format (OpenAI ↔ Anthropic)
+                  → gateway translates provider format through adapters
                   → gateway proxies to provider via egress
                   → cost tracked under infrastructure budget
                   → audit logged
@@ -53,7 +53,7 @@ X-Agency-Token: {gateway_token}
 X-Agency-Caller: knowledge-synthesizer
 
 {
-  "model": "claude-haiku",
+  "model": "fast",
   "messages": [{"role": "user", "content": "..."}],
   "max_tokens": 4096
 }
@@ -82,8 +82,8 @@ Always OpenAI-compatible, regardless of upstream provider:
 ### Gateway Processing
 
 1. Authenticate via `X-Agency-Token`
-2. Resolve model alias (`claude-haiku`) to provider + provider model via `routing.yaml`
-3. Translate request format if provider requires it (e.g. OpenAI format → Anthropic Messages API)
+2. Resolve model alias (`fast`) to provider + provider model via `routing.yaml`
+3. Translate request format if provider requires it
 4. Proxy to provider API via egress (egress handles credential injection)
 5. Translate response back to OpenAI format
 6. Calculate cost from token usage + model pricing in `routing.yaml`
@@ -151,9 +151,9 @@ Replace direct provider API calls with the gateway endpoint:
 ```python
 # Before
 resp = self._http_fallback.post(
-    "https://api.anthropic.com/v1/messages",
+    self._provider_url,
     json={"model": self._fallback_model, "messages": [...], "max_tokens": 4096},
-    headers={"anthropic-version": "2023-06-01"},
+    headers=self._provider_headers,
 )
 data = resp.json()
 return data["content"][0]["text"]
@@ -178,7 +178,7 @@ Removed env vars (no longer needed):
 - `SSL_CERT_FILE` (for egress CA — no longer calling external APIs directly)
 
 Kept env vars:
-- `KNOWLEDGE_SYNTH_MODEL` — the model alias (e.g. `claude-haiku`)
+- `KNOWLEDGE_SYNTH_MODEL` — the model alias (for example `fast`)
 - `AGENCY_GATEWAY_URL` — gateway address (new)
 - `AGENCY_GATEWAY_TOKEN` — gateway auth token (new)
 

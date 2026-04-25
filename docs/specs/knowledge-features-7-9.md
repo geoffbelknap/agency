@@ -138,7 +138,11 @@ Both promote and reject write to the append-only curation_log so the full ontolo
 
 ### Summary
 
-Add semantic vector search alongside FTS5 using sqlite-vec for storage and a pluggable embedding provider abstraction. Default to NoOpProvider (no embeddings). Build an evaluation harness to compare providers before committing.
+Add semantic vector search alongside FTS5 using sqlite-vec for storage and a
+pluggable embedding provider abstraction. Default to the configured OpenAI
+embedding adapter (`text-embedding-3-small`) because it performed best in prior
+price/performance evaluation. `NoOpProvider` remains the explicit disabled mode
+and fail-closed fallback.
 
 ### Provider Abstraction
 
@@ -168,9 +172,10 @@ class OllamaProvider(EmbeddingProvider):
     # Dimension fetched from model info endpoint at init, not hardcoded
 
 class OpenAIProvider(EmbeddingProvider):
-    """OpenAI embeddings via egress proxy."""
-    # Endpoint: POST https://api.openai.com/v1/embeddings via egress
-    # Model: text-embedding-3-small (1536 dims)
+    """Configured OpenAI embedding adapter via egress proxy."""
+    # Default endpoint: POST https://api.openai.com/v1/embeddings via egress
+    # Default model: text-embedding-3-small (1536 dims)
+    # Endpoint, credential env var, model, and dimensions are configurable
     # Auth: egress credential swap for openai service grant
     # Normalize explicitly if not pre-normalized
     # MUST route through egress proxy (HTTPS_PROXY env var) for credential
@@ -191,9 +196,12 @@ class VoyageProvider(EmbeddingProvider):
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `KNOWLEDGE_EMBED_PROVIDER` | `none` | Provider: `none`, `ollama`, `openai`, `voyage` |
+| `KNOWLEDGE_EMBED_PROVIDER` | `openai` | Provider: `openai`, `none`, `ollama`, `voyage` |
 | `KNOWLEDGE_EMBED_OLLAMA_MODEL` | _(none)_ | Ollama model name (required when provider=ollama) |
 | `KNOWLEDGE_EMBED_OPENAI_MODEL` | `text-embedding-3-small` | OpenAI model |
+| `KNOWLEDGE_EMBED_OPENAI_ENDPOINT` | `https://api.openai.com/v1/embeddings` | OpenAI adapter endpoint |
+| `KNOWLEDGE_EMBED_OPENAI_API_KEY_ENV` | `OPENAI_API_KEY` | Env var name for the OpenAI adapter credential |
+| `KNOWLEDGE_EMBED_OPENAI_DIMENSIONS` | _(model default)_ | Optional dimension override for compatible endpoints |
 | `KNOWLEDGE_EMBED_VOYAGE_MODEL` | `voyage-3-lite` | Voyage model |
 | `KNOWLEDGE_EMBED_KINDS` | `Software,ConfigItem,BehaviorPattern,Vulnerability,Finding,ThreatIndicator,HuntHypothesis` | Comma-separated kinds to embed |
 
@@ -325,7 +333,7 @@ python tools/eval_embeddings.py --all   # all combinations sequentially
 
 **Pre-flight checks:**
 - Ollama: query `GET http://localhost:11434/api/tags`, verify model is listed. If not: print error with `ollama pull <model>` instruction, exit non-zero. Do NOT auto-pull.
-- OpenAI: check `OPENAI_API_KEY` env var
+- OpenAI adapter: check the env var named by `KNOWLEDGE_EMBED_OPENAI_API_KEY_ENV`
 - Voyage: check `VOYAGE_API_KEY` env var
 
 Ollama endpoint: `localhost:11434` (local dev, not container address).
@@ -519,5 +527,7 @@ communicates_with:
 - **Best-effort embeddings.** Failures never block node writes.
 - **Graceful sqlite-vec degradation.** Missing sqlite-vec degrades to FTS5-only, never crashes.
 - **OntologyCandidate exclusion.** Never in agent-facing `find_nodes()` results.
-- **Embeddings container.** Embeddings go through the `agency-infra-embeddings` Ollama container on the mediation network, or remote providers via the egress proxy.
+- **Embedding adapters.** Local embeddings go through the
+  `agency-infra-embeddings` Ollama container on the mediation network. Remote
+  embedding adapters go through the egress proxy.
 - **Eval harness is manual.** Not part of the automated test suite or build.

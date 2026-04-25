@@ -6,6 +6,7 @@ SOURCE_HOME="${AGENCY_SOURCE_HOME:-${HOME}/.agency}"
 DISPOSABLE_HOME="${AGENCY_OPERATOR_OCI_HOME:-}"
 GATEWAY_PORT="${AGENCY_OPERATOR_OCI_GATEWAY_PORT:-}"
 KEEP_HOME="${AGENCY_OPERATOR_OCI_KEEP_HOME:-0}"
+PROVIDER_NAME="${AGENCY_OPERATOR_OCI_PROVIDER_NAME:-}"
 
 usage() {
   cat <<'EOF'
@@ -27,6 +28,7 @@ Environment:
   AGENCY_OPERATOR_OCI_HOME            Disposable home path (default: mktemp)
   AGENCY_OPERATOR_OCI_GATEWAY_PORT    Gateway host port (default: auto-selected free port)
   AGENCY_OPERATOR_OCI_KEEP_HOME=1     Preserve disposable home after the run
+  AGENCY_OPERATOR_OCI_PROVIDER_NAME   Provider name for install/remove subtest (required)
   AGENCY_BIN                          Agency binary to test (default: repo ./agency, then PATH)
 
 Notes:
@@ -79,6 +81,11 @@ fi
 
 if [ -z "${AGENCY_BIN:-}" ] || [ ! -x "$AGENCY_BIN" ]; then
   echo "agency binary not found. Set AGENCY_BIN or run make build." >&2
+  exit 1
+fi
+
+if [ -z "$PROVIDER_NAME" ]; then
+  echo "Set AGENCY_OPERATOR_OCI_PROVIDER_NAME to the provider adapter name to exercise." >&2
   exit 1
 fi
 
@@ -135,7 +142,7 @@ echo "==> Hub cache source:       $CACHE_ROOT"
 required_paths=(
   "connectors/limacharlie/connector.yaml"
   "pricing/routing.yaml"
-  "providers/openai/provider.yaml"
+  "providers/${PROVIDER_NAME}/provider.yaml"
   "setup/default-wizard/setup.yaml"
   "services/github/service.yaml"
   "skills/code-review/SKILL.md"
@@ -186,13 +193,13 @@ fi
 echo "  ✓ managed routing remains non-installable search surface"
 
 if command -v cosign >/dev/null 2>&1; then
-  "$AGENCY_BIN" -q hub remove openai --kind provider >/dev/null 2>&1 || true
-  "$AGENCY_BIN" -q hub install openai --kind provider --yes
+  "$AGENCY_BIN" -q hub remove "$PROVIDER_NAME" --kind provider >/dev/null 2>&1 || true
+  "$AGENCY_BIN" -q hub install "$PROVIDER_NAME" --kind provider --yes
   find "$DISPOSABLE_HOME/hub-registry/providers" -name provider.yaml -print0 |
-    xargs -0 grep -Eq 'name:[[:space:]]+openai'
-  grep -Eq 'openai:|gpt-4o' "$DISPOSABLE_HOME/infrastructure/routing.yaml"
-  "$AGENCY_BIN" -q hub remove openai --kind provider
-  if grep -Eq 'openai:|gpt-4o' "$DISPOSABLE_HOME/infrastructure/routing.yaml"; then
+    xargs -0 grep -Eq "name:[[:space:]]+${PROVIDER_NAME}"
+  grep -Eq "^  ${PROVIDER_NAME}:" "$DISPOSABLE_HOME/infrastructure/routing.yaml"
+  "$AGENCY_BIN" -q hub remove "$PROVIDER_NAME" --kind provider
+  if grep -Eq "^  ${PROVIDER_NAME}:" "$DISPOSABLE_HOME/infrastructure/routing.yaml"; then
     echo "provider routing remained after remove" >&2
     exit 1
   fi

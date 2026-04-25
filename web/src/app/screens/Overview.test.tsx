@@ -19,8 +19,8 @@ describe('Overview', () => {
     server.use(
       http.get(`${BASE}/infra/providers`, () =>
         HttpResponse.json([
-          { name: 'anthropic', display_name: 'Anthropic', description: '', category: 'cloud', installed: true, credential_configured: true },
-          { name: 'openai', display_name: 'OpenAI', description: '', category: 'cloud', installed: true, credential_configured: true },
+          { name: 'provider-a', display_name: 'Provider A', description: '', category: 'cloud', installed: true, credential_configured: true },
+          { name: 'provider-b', display_name: 'Provider B', description: '', category: 'cloud', installed: true, credential_configured: true },
         ]),
       ),
       http.get(`${BASE}/infra/routing/config`, () =>
@@ -169,8 +169,8 @@ describe('Overview', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Provider Coverage')).toBeInTheDocument();
-      expect(screen.getByText('Anthropic')).toBeInTheDocument();
-      expect(screen.getByText('OpenAI')).toBeInTheDocument();
+      expect(screen.getByText('Provider A')).toBeInTheDocument();
+      expect(screen.getByText('Provider B')).toBeInTheDocument();
       expect(screen.getByText('Routing ready')).toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'Open provider setup' })).toHaveAttribute('href', '/setup');
     });

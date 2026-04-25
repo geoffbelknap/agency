@@ -309,8 +309,8 @@ func (am *AgentManager) Create(ctx context.Context, name, preset string) error {
 	os.WriteFile(filepath.Join(agentDir, "skills-manifest.json"), []byte("{}"), 0644)
 
 	// State directory — world-writable so comms container can deliver tasks.
-	// Docker bind mounts on WSL2/Docker Desktop don't reliably map UIDs,
-	// so we need open permissions for cross-container writes.
+	// Some VM-backed host backends do not reliably map bind-mount UIDs, so we
+	// need open permissions for cross-runtime writes.
 	// Use explicit Chmod since os.MkdirAll/WriteFile respect umask.
 	stateDir := filepath.Join(agentDir, "state")
 	os.MkdirAll(stateDir, 0777)

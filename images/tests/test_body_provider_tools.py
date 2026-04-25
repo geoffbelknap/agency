@@ -492,7 +492,7 @@ def test_stream_records_provider_tool_evidence_and_ignores_empty_tool_delta():
 
     response = body._stream_llm_response(
         "http://enforcer/v1/chat/completions",
-        {"model": "claude-sonnet", "messages": [], "stream": True},
+        {"model": "standard", "messages": [], "stream": True},
         {},
     )
 

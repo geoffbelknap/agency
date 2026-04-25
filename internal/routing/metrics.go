@@ -83,6 +83,7 @@ type ErrorEntry struct {
 	Timestamp     string `json:"ts"`
 	Agent         string `json:"agent"`
 	Model         string `json:"model"`
+	Provider      string `json:"provider,omitempty"`
 	ProviderModel string `json:"provider_model,omitempty"`
 	Status        int    `json:"status"`
 	Error         string `json:"error"`
@@ -99,6 +100,7 @@ type CallEntry struct {
 	Agent                    string  `json:"agent"`
 	Source                   string  `json:"source,omitempty"`
 	Model                    string  `json:"model"`
+	Provider                 string  `json:"provider,omitempty"`
 	ProviderModel            string  `json:"provider_model,omitempty"`
 	Status                   int     `json:"status"`
 	Error                    string  `json:"error,omitempty"`
@@ -145,6 +147,7 @@ type auditRecord struct {
 	Agent                        string
 	Source                       string
 	Model                        string
+	Provider                     string
 	ProviderModel                string
 	Status                       int
 	Error                        string
@@ -175,6 +178,7 @@ func (r auditRecord) MarshalJSON() ([]byte, error) {
 		Agent                        string  `json:"agent"`
 		Source                       string  `json:"source"`
 		Model                        string  `json:"model"`
+		Provider                     string  `json:"provider,omitempty"`
 		ProviderModel                string  `json:"provider_model"`
 		Status                       int     `json:"status"`
 		Error                        string  `json:"error,omitempty"`
@@ -196,7 +200,7 @@ func (r auditRecord) MarshalJSON() ([]byte, error) {
 		ProviderToolUnpricedCount    int     `json:"provider_tool_unpriced_count,omitempty"`
 		ProviderToolCostConfidence   string  `json:"provider_tool_cost_confidence,omitempty"`
 		ProviderToolCostSource       string  `json:"provider_tool_cost_source,omitempty"`
-	}{r.Timestamp, r.Type, r.Agent, r.Source, r.Model, r.ProviderModel, r.Status, r.Error, r.DurationMs, r.InputTokens, r.OutputTokens, r.CachedTokens, r.CacheCreationInputTokens, r.CacheReadInputTokens, r.TTFTMs, r.TPOTMs, r.StepIndex, r.ToolCallValid, r.RetryOf, r.ContextTokens, r.ProviderToolCallCount, r.ProviderToolEstimatedCostUSD, r.ProviderToolCapabilities, r.ProviderToolUnpricedCount, r.ProviderToolCostConfidence, r.ProviderToolCostSource})
+	}{r.Timestamp, r.Type, r.Agent, r.Source, r.Model, r.Provider, r.ProviderModel, r.Status, r.Error, r.DurationMs, r.InputTokens, r.OutputTokens, r.CachedTokens, r.CacheCreationInputTokens, r.CacheReadInputTokens, r.TTFTMs, r.TPOTMs, r.StepIndex, r.ToolCallValid, r.RetryOf, r.ContextTokens, r.ProviderToolCallCount, r.ProviderToolEstimatedCostUSD, r.ProviderToolCapabilities, r.ProviderToolUnpricedCount, r.ProviderToolCostConfidence, r.ProviderToolCostSource})
 }
 
 func (r *auditRecord) UnmarshalJSON(data []byte) error {
@@ -212,6 +216,7 @@ func (r *auditRecord) UnmarshalJSON(data []byte) error {
 		Source                       string            `json:"source"`
 		Caller                       string            `json:"caller"` // legacy gateway field, maps to source
 		Model                        string            `json:"model"`
+		Provider                     string            `json:"provider"`
 		ProviderModel                string            `json:"provider_model"`
 		Status                       int               `json:"status"`
 		Error                        string            `json:"error"`
@@ -255,6 +260,7 @@ func (r *auditRecord) UnmarshalJSON(data []byte) error {
 		r.Source = raw.Caller
 	}
 	r.Model = raw.Model
+	r.Provider = raw.Provider
 	r.ProviderModel = raw.ProviderModel
 	r.Status = raw.Status
 	r.Error = raw.Error
@@ -374,7 +380,7 @@ func CollectWithCosts(homeDir string, q MetricsQuery, costs map[string]ModelCost
 		accumMapWithCost(s.ByAgent, rec.Agent, rec, cost, providerToolCost, cachedCost)
 		accumMapWithCost(s.ByModel, rec.Model, rec, cost, providerToolCost, cachedCost)
 
-		provider := inferProvider(rec.ProviderModel)
+		provider := recordProvider(rec)
 		accumMapWithCost(s.ByProvider, provider, rec, cost, providerToolCost, cachedCost)
 		accumMapWithCost(s.BySource, rec.Source, rec, cost, providerToolCost, cachedCost)
 		for cap, capCost := range calcProviderToolCostsByCapability(rec, costs) {
@@ -402,6 +408,7 @@ func CollectWithCosts(homeDir string, q MetricsQuery, costs map[string]ModelCost
 			Agent:                    rec.Agent,
 			Source:                   rec.Source,
 			Model:                    rec.Model,
+			Provider:                 rec.Provider,
 			ProviderModel:            rec.ProviderModel,
 			Status:                   rec.Status,
 			Error:                    rec.Error,
@@ -427,6 +434,7 @@ func CollectWithCosts(homeDir string, q MetricsQuery, costs map[string]ModelCost
 				Timestamp:     rec.Timestamp,
 				Agent:         rec.Agent,
 				Model:         rec.Model,
+				Provider:      rec.Provider,
 				ProviderModel: rec.ProviderModel,
 				Status:        rec.Status,
 				Error:         rec.Error,
@@ -716,26 +724,11 @@ func parseTS(s string) time.Time {
 	return time.Time{}
 }
 
-// inferProvider guesses the provider name from the provider_model string.
-func inferProvider(providerModel string) string {
-	pm := strings.ToLower(providerModel)
-	switch {
-	case strings.HasPrefix(pm, "claude"):
-		return "anthropic"
-	case strings.HasPrefix(pm, "gpt") || strings.HasPrefix(pm, "o1") || strings.HasPrefix(pm, "o3") || strings.HasPrefix(pm, "o4"):
-		return "openai"
-	case strings.HasPrefix(pm, "gemini"):
-		return "google"
-	case strings.HasPrefix(pm, "mistral") || strings.HasPrefix(pm, "codestral"):
-		return "mistral"
-	case strings.HasPrefix(pm, "deepseek"):
-		return "deepseek"
-	default:
-		if providerModel == "" {
-			return "unknown"
-		}
-		return "other"
+func recordProvider(rec auditRecord) string {
+	if strings.TrimSpace(rec.Provider) == "" {
+		return "unknown"
 	}
+	return rec.Provider
 }
 
 // accumWithCost adds a record's values and cost into a Totals bucket.

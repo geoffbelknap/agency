@@ -13,7 +13,7 @@
 ```
 agency_init()
 ```
-CLI: `agency init --provider anthropic`
+CLI: `agency init --provider provider-a`
 
 **Expected:**
 - `~/.agency/` directory created with subdirectories: agents, audit, connectors, departments, hub, infrastructure, knowledge, services, teams

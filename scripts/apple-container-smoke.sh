@@ -6,7 +6,8 @@ AGENCY_BIN="${AGENCY_BIN:-$ROOT/agency}"
 AGENCY_HOME_DIR="${AGENCY_HOME:-}"
 BUILD=1
 KEEP_RUNNING=0
-API_KEY="${OPENAI_API_KEY:-placeholder}"
+SETUP_PROVIDER="${AGENCY_APPLE_SETUP_PROVIDER:-}"
+API_KEY="${AGENCY_APPLE_SETUP_API_KEY:-placeholder}"
 
 usage() {
   cat <<'EOF'
@@ -20,6 +21,10 @@ Options:
   --home PATH     Use this AGENCY_HOME. Defaults to a fresh /tmp directory.
   --skip-build    Reuse the existing ./agency binary.
   --keep-running  Leave the daemon running after diagnostics.
+
+Environment:
+  AGENCY_APPLE_SETUP_PROVIDER  Provider adapter to configure during setup.
+  AGENCY_APPLE_SETUP_API_KEY   API key value to pass to setup (default: placeholder).
 EOF
 }
 
@@ -112,10 +117,14 @@ if lsof -nP -iTCP:8200 -sTCP:LISTEN; then
 fi
 
 log "setup"
+if [[ -z "$SETUP_PROVIDER" ]]; then
+  echo "Set AGENCY_APPLE_SETUP_PROVIDER to the provider adapter name to configure." >&2
+  exit 1
+fi
 set +e
 AGENCY_HOME="$AGENCY_HOME_DIR" "$AGENCY_BIN" setup \
   --backend apple-container \
-  --provider openai \
+  --provider "$SETUP_PROVIDER" \
   --api-key "$API_KEY" \
   --no-browser 2>&1 | tee "$SETUP_LOG"
 setup_status=${PIPESTATUS[0]}

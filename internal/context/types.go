@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	agencysecurity "github.com/geoffbelknap/agency/internal/security"
 )
 
 type Severity int
@@ -29,6 +31,36 @@ func (s Severity) String() string {
 		return "CRITICAL"
 	default:
 		return fmt.Sprintf("UNKNOWN(%d)", s)
+	}
+}
+
+func (s Severity) RiskLevel() agencysecurity.RiskLevel {
+	switch s {
+	case SeverityLow:
+		return agencysecurity.RiskLow
+	case SeverityMedium:
+		return agencysecurity.RiskMedium
+	case SeverityHigh:
+		return agencysecurity.RiskHigh
+	case SeverityCritical:
+		return agencysecurity.RiskCritical
+	default:
+		return agencysecurity.RiskMedium
+	}
+}
+
+func SeverityFromRiskLevel(risk agencysecurity.RiskLevel) Severity {
+	switch risk {
+	case agencysecurity.RiskLow:
+		return SeverityLow
+	case agencysecurity.RiskMedium:
+		return SeverityMedium
+	case agencysecurity.RiskHigh:
+		return SeverityHigh
+	case agencysecurity.RiskCritical:
+		return SeverityCritical
+	default:
+		return SeverityMedium
 	}
 }
 
@@ -124,7 +156,9 @@ type WSPushMessage struct {
 // HashConstraints computes SHA-256 of the canonical JSON-serialized constraint set.
 // Canonical form: sorted keys, no trailing whitespace, no HTML escaping, compact encoding.
 // IMPORTANT: Python Body runtime must use the same canonical form:
-//   json.dumps(constraints, sort_keys=True, separators=(",", ":"))
+//
+//	json.dumps(constraints, sort_keys=True, separators=(",", ":"))
+//
 // Go's json.Marshal already sorts map keys and uses compact encoding.
 func HashConstraints(constraints map[string]interface{}) string {
 	data, _ := json.Marshal(constraints)

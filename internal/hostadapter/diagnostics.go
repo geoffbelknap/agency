@@ -8,6 +8,7 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
+	"github.com/geoffbelknap/agency/internal/providerenv"
 )
 
 // DiagnosticCheck holds one backend diagnostic result and optional remediation guidance.
@@ -49,24 +50,7 @@ func (a *ContainerAdapter) RuntimeDiagnostics(ctx context.Context, runningAgents
 				results = append(results, diagnosticFail("credentials_isolated", agentName, "Cannot inspect workspace: "+err.Error()))
 				return
 			}
-			realKeyPrefixes := []string{"ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY", "AWS_SECRET_ACCESS_KEY"}
-			var leaked []string
-			for _, env := range ws.Env {
-				for _, key := range realKeyPrefixes {
-					if strings.HasPrefix(env, key+"=") {
-						parts := strings.SplitN(env, "=", 2)
-						if len(parts) == 2 && parts[1] != "" {
-							leaked = append(leaked, key)
-						}
-					}
-				}
-				if strings.HasPrefix(env, "OPENAI_API_KEY=") {
-					parts := strings.SplitN(env, "=", 2)
-					if len(parts) == 2 && parts[1] != "" && !strings.HasPrefix(parts[1], "agency-scoped--") {
-						leaked = append(leaked, "OPENAI_API_KEY (not an agency-scoped token)")
-					}
-				}
-			}
+			leaked := providerenv.LeakedWorkspaceCredentialNames(ws.Env)
 			if len(leaked) > 0 {
 				results = append(results, diagnosticFail("credentials_isolated", agentName, "LLM credentials visible in workspace env: "+strings.Join(leaked, ", ")))
 				return

@@ -90,11 +90,11 @@ ttft_p95_ms: 1200
 tpot_p50_ms: 28
 tpot_p95_ms: 65
 by_model:
-  - model: claude-sonnet-4-20250514
+  - model: standard
     calls: 48
     cost_usd: 3.92
     avg_ttft_ms: 420
-  - model: claude-haiku-4-5-20251001
+  - model: fast
     calls: 24
     cost_usd: 0.95
     avg_ttft_ms: 180

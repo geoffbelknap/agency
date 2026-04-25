@@ -99,6 +99,7 @@ func (h *contextHandler) push(w http.ResponseWriter, r *http.Request) {
 		"change_id":           change.ChangeID,
 		"version":             change.Version,
 		"severity":            change.Severity.String(),
+		"risk_level":          string(change.Severity.RiskLevel()),
 		"status":              string(change.Status),
 		"ack_timeout_seconds": int(change.Severity.AckTimeout().Seconds()),
 	})

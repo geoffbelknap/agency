@@ -3,6 +3,15 @@ display_name: Google Gemini
 description: Gemini models — 2.5 Pro, 2.5 Flash
 version: "0.1.0"
 category: cloud
+quickstart:
+  selectable: true
+  order: 1
+  recommended: true
+  prompt_blurb: recommended for alpha; free tier available
+  probe:
+    method: GET
+    url: https://generativelanguage.googleapis.com/v1beta/openai/models
+    success_statuses: [200, 429]
 credential:
   name: gemini-api-key
   label: API Key

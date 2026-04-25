@@ -62,6 +62,21 @@ class TestCreateProvider:
         with patch.dict("os.environ", {"KNOWLEDGE_EMBED_PROVIDER": "none"}):
             assert create_provider().name == "none"
 
+    @patch("images.knowledge.embedding.OpenAIProvider")
+    def test_default_provider_is_openai_adapter(self, mock_openai):
+        from images.knowledge.embedding import create_provider
+
+        mock_openai.return_value.name = "openai"
+
+        with patch.dict("os.environ", {}, clear=True):
+            assert create_provider().name == "openai"
+        mock_openai.assert_called_once_with(
+            model="text-embedding-3-small",
+            endpoint="https://api.openai.com/v1/embeddings",
+            api_key_env="OPENAI_API_KEY",
+            dimensions=None,
+        )
+
     def test_exception_during_construction_falls_back_to_noop(self):
         from images.knowledge.embedding import create_provider
 
@@ -167,6 +182,33 @@ class TestOpenAIProvider:
 
         mock_httpx.Client.return_value = MagicMock()
         assert OpenAIProvider().name == "openai"
+
+    @patch("images.knowledge.embedding.httpx")
+    def test_configurable_endpoint_key_env_and_dimensions(self, mock_httpx):
+        from images.knowledge.embedding import OpenAIProvider
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "data": [{"index": 0, "embedding": [0.1, 0.2]}]
+        }
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_httpx.Client.return_value = mock_client
+
+        with patch.dict("os.environ", {"PROVIDER_EMBED_API_KEY": "test-key"}):
+            p = OpenAIProvider(
+                model="custom-embedding-model",
+                endpoint="https://embeddings.example.com/v1/embeddings",
+                api_key_env="PROVIDER_EMBED_API_KEY",
+                dimensions=2048,
+            )
+            assert p.embed("hello") == [0.1, 0.2]
+
+        url = mock_client.post.call_args[0][0]
+        _, kwargs = mock_client.post.call_args
+        assert url == "https://embeddings.example.com/v1/embeddings"
+        assert kwargs["headers"] == {"Authorization": "Bearer test-key"}
+        assert p.dimensions == 2048
 
     @patch.dict("os.environ", {"HTTPS_PROXY": "http://egress:8080"})
     @patch("images.knowledge.embedding.httpx")

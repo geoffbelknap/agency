@@ -156,7 +156,7 @@ func (hc *HaltController) Resume(ctx context.Context, agentName, initiator strin
 		}
 	} else {
 		if hc.Docker == nil {
-			return fmt.Errorf("cleanup existing runtime: docker is not available")
+			return fmt.Errorf("cleanup existing runtime: runtime backend stop is unavailable")
 		}
 		if err := runtimehost.StopRuntime(ctx, hc.Docker, agentName); err != nil {
 			return fmt.Errorf("cleanup existing runtime: %w", err)

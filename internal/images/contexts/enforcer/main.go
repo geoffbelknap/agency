@@ -334,7 +334,8 @@ func main() {
 
 	// Connect outbound to the gateway for constraint delivery. This avoids
 	// depending on host-published ports for the enforcer's local constraint
-	// server, which is brittle on Docker Desktop after network churn.
+	// server, which is brittle across desktop container backends after network
+	// churn.
 	go enforcer.constraint.ConnectGateway(os.Getenv("GATEWAY_URL"), os.Getenv("GATEWAY_TOKEN"))
 
 	log.Printf("enforcer listening on :%s", port)

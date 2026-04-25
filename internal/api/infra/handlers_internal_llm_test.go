@@ -11,6 +11,7 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/logs"
+	"github.com/geoffbelknap/agency/internal/models"
 )
 
 func TestValidInfraCallers(t *testing.T) {
@@ -31,7 +32,7 @@ func TestValidInfraCallers(t *testing.T) {
 
 func TestInfraTranslateToAnthropic(t *testing.T) {
 	input := `{
-		"model": "claude-3-haiku-20240307",
+		"model": "provider-a-fast",
 		"messages": [
 			{"role": "system", "content": "You are a knowledge extractor."},
 			{"role": "user", "content": "Extract entities from this text."}
@@ -72,7 +73,7 @@ func TestInfraTranslateFromAnthropic(t *testing.T) {
 		"id": "msg_123",
 		"type": "message",
 		"role": "assistant",
-		"model": "claude-3-haiku-20240307",
+		"model": "provider-a-fast",
 		"content": [
 			{"type": "text", "text": "Here are the entities."}
 		],
@@ -107,8 +108,14 @@ func TestInfraTranslateFromAnthropic(t *testing.T) {
 	if msg["content"] != "Here are the entities." {
 		t.Errorf("unexpected content: %v", msg["content"])
 	}
+	if msg["stop_reason"] != "end_turn" {
+		t.Errorf("expected message stop_reason=end_turn, got %v", msg["stop_reason"])
+	}
 	if choice["finish_reason"] != "stop" {
 		t.Errorf("expected finish_reason=stop, got %v", choice["finish_reason"])
+	}
+	if choice["stop_reason"] != "end_turn" {
+		t.Errorf("expected choice stop_reason=end_turn, got %v", choice["stop_reason"])
 	}
 
 	usage := parsed["usage"].(map[string]interface{})
@@ -135,6 +142,59 @@ func TestExtractUsageFromResponse_Empty(t *testing.T) {
 	in, out := extractUsageFromResponse([]byte(`{}`))
 	if in != 0 || out != 0 {
 		t.Errorf("expected 0,0 for empty response, got %d,%d", in, out)
+	}
+}
+
+func TestInternalLLMAdapterOpenAICompatible(t *testing.T) {
+	provider := &models.ProviderConfig{
+		APIBase:    "https://provider.example/v1",
+		AuthHeader: "Authorization",
+		AuthPrefix: "Token ",
+	}
+	model := &models.ModelConfig{Provider: "custom", ProviderModel: "provider-model"}
+	adapter := internalLLMAdapterFor(provider, model)
+	target, body, err := adapter.PrepareRequest(provider, model, map[string]interface{}{"model": "standard"})
+	if err != nil {
+		t.Fatalf("PrepareRequest: %v", err)
+	}
+	if target != "https://provider.example/v1/chat/completions" {
+		t.Fatalf("target = %q", target)
+	}
+	if !bytes.Contains(body, []byte(`"model":"provider-model"`)) {
+		t.Fatalf("body did not rewrite model: %s", string(body))
+	}
+	req := httptest.NewRequest(http.MethodPost, target, nil)
+	adapter.AddAuthHeaders(req, provider, "secret")
+	if got := req.Header.Get("Authorization"); got != "Token secret" {
+		t.Fatalf("Authorization = %q", got)
+	}
+}
+
+func TestInternalLLMAdapterGeminiUsesRawKey(t *testing.T) {
+	provider := &models.ProviderConfig{
+		APIBase:    "https://generativelanguage.googleapis.com/v1beta",
+		APIFormat:  "gemini",
+		AuthHeader: "x-goog-api-key",
+	}
+	model := &models.ModelConfig{Provider: "google", ProviderModel: "gemini-2.5-flash"}
+	adapter := internalLLMAdapterFor(provider, model)
+	target, body, err := adapter.PrepareRequest(provider, model, map[string]interface{}{
+		"model":    "fast",
+		"messages": []interface{}{map[string]interface{}{"role": "user", "content": "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("PrepareRequest: %v", err)
+	}
+	if target != "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent" {
+		t.Fatalf("target = %q", target)
+	}
+	if bytes.Contains(body, []byte(`"messages"`)) || !bytes.Contains(body, []byte(`"contents"`)) {
+		t.Fatalf("body was not translated to Gemini shape: %s", string(body))
+	}
+	req := httptest.NewRequest(http.MethodPost, target, nil)
+	adapter.AddAuthHeaders(req, provider, "secret")
+	if got := req.Header.Get("x-goog-api-key"); got != "secret" {
+		t.Fatalf("x-goog-api-key = %q", got)
 	}
 }
 

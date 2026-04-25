@@ -205,7 +205,7 @@ func registerInfraTools(reg *MCPToolRegistry) {
 
 	reg.Register(
 		"agency_setup",
-		"Bootstrap Agency on a fresh host. Creates ~/.agency, writes base config, and verifies Docker. Run this before agency_infra_up and agent creation.",
+		"Bootstrap Agency on a fresh host. Creates ~/.agency, writes base config, and verifies the configured container backend. Run this before agency_infra_up and agent creation.",
 		map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -217,10 +217,9 @@ func registerInfraTools(reg *MCPToolRegistry) {
 			operator, _ := args["operator"].(string)
 			force, _ := args["force"].(bool)
 			opts := config.InitOptions{
-				Operator:        operator,
-				Force:           force,
-				AnthropicAPIKey: os.Getenv("ANTHROPIC_API_KEY"),
-				OpenAIAPIKey:    os.Getenv("OPENAI_API_KEY"),
+				Operator:     operator,
+				Force:        force,
+				ProviderKeys: config.ProviderKeysFromEnv(),
 			}
 
 			// Check for existing keys before init
@@ -253,7 +252,7 @@ func registerInfraTools(reg *MCPToolRegistry) {
 			}
 
 			msg := "Agency initialized successfully."
-			if len(existingProviders) > 0 && opts.AnthropicAPIKey == "" && opts.OpenAIAPIKey == "" {
+			if len(existingProviders) > 0 && len(opts.ProviderKeys) == 0 {
 				msg += fmt.Sprintf("\nUsing existing API keys from .env: %s", strings.Join(existingProviders, ", "))
 			}
 			return msg, false

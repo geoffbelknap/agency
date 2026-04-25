@@ -9,8 +9,7 @@ KEEP_HOME="${AGENCY_CONTAINERD_KEEP_HOME:-0}"
 SEED_HOME=""
 SOCKET_OVERRIDE="${AGENCY_CONTAINERD_SOCKET:-}"
 BOOTSTRAPPED_HOME=0
-BOOTSTRAP_PROVIDER="${AGENCY_CONTAINERD_SETUP_PROVIDER:-openai}"
-BOOTSTRAP_API_KEY="${AGENCY_CONTAINERD_SETUP_API_KEY:-containerd-readiness-placeholder-key}"
+BOOTSTRAP_PROVIDER="${AGENCY_CONTAINERD_SETUP_PROVIDER:-}"
 GATEWAY_PORT="${AGENCY_CONTAINERD_GATEWAY_PORT:-18500}"
 WEB_PORT="${AGENCY_CONTAINERD_WEB_PORT:-18580}"
 PROXY_PORT="${AGENCY_CONTAINERD_GATEWAY_PROXY_PORT:-18502}"
@@ -131,20 +130,6 @@ resolve_agency_bin() {
   return 1
 }
 
-provider_env_var() {
-  case "$1" in
-    anthropic)
-      printf '%s\n' "ANTHROPIC_API_KEY"
-      ;;
-    google)
-      printf '%s\n' "GEMINI_API_KEY"
-      ;;
-    *)
-      printf '%s\n' "OPENAI_API_KEY"
-      ;;
-  esac
-}
-
 detect_containerd_socket() {
   if [ -n "$SOCKET_OVERRIDE" ]; then
     printf '%s\n' "$SOCKET_OVERRIDE"
@@ -214,7 +199,6 @@ bootstrap_seed_home() {
     "$SEED_HOME/run" \
     "$SEED_HOME/knowledge/ontology.d"
   mkdir -m 700 -p "$SEED_HOME/audit"
-  write_routing_config
   cat >"$SEED_HOME/capacity.yaml" <<'EOF'
 host_memory_mb: 8192
 host_cpu_cores: 4
@@ -228,53 +212,10 @@ network_pool_configured: false
 EOF
 }
 
-write_routing_config() {
-  cat >"$SEED_HOME/infrastructure/routing.yaml" <<'EOF'
-version: "0.1"
-providers:
-  anthropic:
-    api_base: https://api.anthropic.com/v1
-    auth_env: ANTHROPIC_API_KEY
-    auth_header: x-api-key
-    auth_prefix: ""
-  openai:
-    api_base: https://api.openai.com/v1
-    auth_env: OPENAI_API_KEY
-    auth_header: Authorization
-    auth_prefix: "Bearer "
-models:
-  claude-sonnet:
-    provider: anthropic
-    provider_model: claude-sonnet-4-20250514
-  claude-haiku:
-    provider: anthropic
-    provider_model: claude-haiku-4-5-20251001
-  gpt-4o:
-    provider: openai
-    provider_model: gpt-4o
-  gpt-4o-mini:
-    provider: openai
-    provider_model: gpt-4o-mini
-tiers:
-  standard:
-    - model: claude-sonnet
-      preference: 0
-    - model: gpt-4o
-      preference: 1
-  mini:
-    - model: claude-haiku
-      preference: 0
-    - model: gpt-4o-mini
-      preference: 1
-settings:
-  default_tier: standard
-EOF
-}
-
 patch_seed_config() {
   local socket="$1"
   local gateway_addr="127.0.0.1:${GATEWAY_PORT}"
-  python3 - "$SEED_HOME/config.yaml" "$socket" "$gateway_addr" <<'PY'
+  python3 - "$SEED_HOME/config.yaml" "$socket" "$gateway_addr" "$BOOTSTRAP_PROVIDER" <<'PY'
 import pathlib
 import sys
 import yaml
@@ -282,6 +223,7 @@ import yaml
 path = pathlib.Path(sys.argv[1])
 socket = sys.argv[2]
 gateway_addr = sys.argv[3]
+provider = sys.argv[4]
 data = {}
 if path.exists():
     loaded = yaml.safe_load(path.read_text()) or {}
@@ -292,7 +234,10 @@ if not isinstance(hub, dict):
     hub = {}
 data["hub"] = hub
 data["gateway_addr"] = gateway_addr
-data["llm_provider"] = "openai"
+if not data.get("llm_provider"):
+    if not provider:
+        raise SystemExit("missing llm_provider; set AGENCY_CONTAINERD_SETUP_PROVIDER for disposable bootstrap")
+    data["llm_provider"] = provider
 hub["deployment_backend"] = "containerd"
 hub["deployment_backend_config"] = {"native_socket": socket}
 path.write_text(yaml.safe_dump(data, sort_keys=False))
@@ -377,7 +322,6 @@ log "Expecting runtime status to report containerd mode: $EXPECTED_MODE"
 
 choose_ports
 create_seed_home
-write_routing_config
 patch_seed_config "$CONTAINERD_SOCKET"
 
 export AGENCY_HOME="$SEED_HOME"
@@ -390,16 +334,6 @@ export AGENCY_KNOWLEDGE_PORT="$KNOWLEDGE_PORT"
 export AGENCY_INTAKE_PORT="$INTAKE_PORT"
 export AGENCY_WEB_FETCH_PORT="$WEB_FETCH_PORT"
 export AGENCY_WEB_PORT="$WEB_PORT"
-if [ "$BOOTSTRAPPED_HOME" = "1" ]; then
-  provider_env="$(provider_env_var "$BOOTSTRAP_PROVIDER")"
-  if [ -z "${!provider_env:-}" ]; then
-    export "$provider_env=$BOOTSTRAP_API_KEY"
-  fi
-fi
-if [ -z "${OPENAI_API_KEY:-}" ] && [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${GEMINI_API_KEY:-}" ]; then
-  export OPENAI_API_KEY="$BOOTSTRAP_API_KEY"
-fi
-
 log "Restarting gateway on containerd-backed seed home"
 start_gateway
 

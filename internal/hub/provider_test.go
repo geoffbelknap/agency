@@ -286,25 +286,25 @@ routing:
 }
 
 func TestMergeProviderInto(t *testing.T) {
-	// Base config: anthropic provider, claude-sonnet model, standard tier with one entry.
+	// Base config: provider-a, standard model, standard tier with one entry.
 	cfg := map[string]interface{}{
 		"version": "0.1",
 		"providers": map[string]interface{}{
-			"anthropic": map[string]interface{}{
-				"api_base": "https://api.anthropic.com",
-				"auth_env": "ANTHROPIC_API_KEY",
+			"provider-a": map[string]interface{}{
+				"api_base": "https://provider-a.example.com",
+				"auth_env": "PROVIDER_A_API_KEY",
 			},
 		},
 		"models": map[string]interface{}{
-			"claude-sonnet": map[string]interface{}{
-				"provider":     "anthropic",
+			"standard": map[string]interface{}{
+				"provider":     "provider-a",
 				"capabilities": []interface{}{"tools", "vision"},
 			},
 		},
 		"tiers": map[string]interface{}{
 			"standard": []interface{}{
 				map[string]interface{}{
-					"model":      "claude-sonnet",
+					"model":      "standard",
 					"preference": 0,
 				},
 			},
@@ -330,12 +330,12 @@ routing:
 
 	// Existing provider untouched.
 	providers := cfg["providers"].(map[string]interface{})
-	anthro, ok := providers["anthropic"].(map[string]interface{})
+	providerA, ok := providers["provider-a"].(map[string]interface{})
 	if !ok {
-		t.Fatal("anthropic provider missing after merge")
+		t.Fatal("provider-a missing after merge")
 	}
-	if anthro["api_base"] != "https://api.anthropic.com" {
-		t.Errorf("anthropic api_base changed: %v", anthro["api_base"])
+	if providerA["api_base"] != "https://provider-a.example.com" {
+		t.Errorf("provider-a api_base changed: %v", providerA["api_base"])
 	}
 
 	// New provider added with correct api_base.
@@ -358,12 +358,12 @@ routing:
 	}
 
 	// Existing model untouched.
-	sonnet, ok := models["claude-sonnet"].(map[string]interface{})
+	standard, ok := models["standard"].(map[string]interface{})
 	if !ok {
-		t.Fatal("claude-sonnet model missing after merge")
+		t.Fatal("standard model missing after merge")
 	}
-	if sonnet["provider"] != "anthropic" {
-		t.Errorf("claude-sonnet provider changed: %v", sonnet["provider"])
+	if standard["provider"] != "provider-a" {
+		t.Errorf("standard provider changed: %v", standard["provider"])
 	}
 
 	// Tier entries appended (should have 2 entries in standard tier).
@@ -378,8 +378,8 @@ routing:
 
 	// First entry should be the original.
 	entry0 := standardTier[0].(map[string]interface{})
-	if entry0["model"] != "claude-sonnet" {
-		t.Errorf("tier entry 0 model = %v, want claude-sonnet", entry0["model"])
+	if entry0["model"] != "standard" {
+		t.Errorf("tier entry 0 model = %v, want standard", entry0["model"])
 	}
 
 	// Second entry should be the new one.
@@ -431,20 +431,20 @@ func TestMergeProviderRoutingUnchangedBehavior(t *testing.T) {
 
 	providerYAML := `
 routing:
-  api_base: https://api.openai.com/v1
-  auth_env: OPENAI_API_KEY
+  api_base: https://provider-a.example.com/v1
+  auth_env: PROVIDER_A_API_KEY
   models:
-    gpt-4o:
+    provider-a-standard:
       capabilities:
         - tools
         - vision
   tiers:
-    standard: gpt-4o
+    standard: provider-a-standard
 credential:
-  env_var: OPENAI_API_KEY
+  env_var: PROVIDER_A_API_KEY
 `
 
-	err := MergeProviderRouting(home, "openai", []byte(providerYAML))
+	err := MergeProviderRouting(home, "provider-a", []byte(providerYAML))
 	if err != nil {
 		t.Fatalf("MergeProviderRouting returned error: %v", err)
 	}
@@ -466,12 +466,12 @@ credential:
 	if !ok {
 		t.Fatal("providers section missing")
 	}
-	openai, ok := providers["openai"].(map[string]interface{})
+	providerA, ok := providers["provider-a"].(map[string]interface{})
 	if !ok {
-		t.Fatal("openai provider not found")
+		t.Fatal("provider-a not found")
 	}
-	if openai["api_base"] != "https://api.openai.com/v1" {
-		t.Errorf("openai api_base = %v, want https://api.openai.com/v1", openai["api_base"])
+	if providerA["api_base"] != "https://provider-a.example.com/v1" {
+		t.Errorf("provider-a api_base = %v, want https://provider-a.example.com/v1", providerA["api_base"])
 	}
 
 	// Model present with provider stamp.
@@ -479,12 +479,12 @@ credential:
 	if !ok {
 		t.Fatal("models section missing")
 	}
-	gpt4o, ok := models["gpt-4o"].(map[string]interface{})
+	model, ok := models["provider-a-standard"].(map[string]interface{})
 	if !ok {
-		t.Fatal("gpt-4o model not found")
+		t.Fatal("provider-a-standard model not found")
 	}
-	if gpt4o["provider"] != "openai" {
-		t.Errorf("gpt-4o provider = %v, want openai", gpt4o["provider"])
+	if model["provider"] != "provider-a" {
+		t.Errorf("provider-a-standard provider = %v, want provider-a", model["provider"])
 	}
 
 	// Tier entry present.
@@ -500,7 +500,7 @@ credential:
 		t.Fatalf("standard tier has %d entries, want 1", len(standardTier))
 	}
 	entry := standardTier[0].(map[string]interface{})
-	if entry["model"] != "gpt-4o" {
-		t.Errorf("tier entry model = %v, want gpt-4o", entry["model"])
+	if entry["model"] != "provider-a-standard" {
+		t.Errorf("tier entry model = %v, want provider-a-standard", entry["model"])
 	}
 }

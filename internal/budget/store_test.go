@@ -130,7 +130,7 @@ func TestStoreRecordTaskUsage(t *testing.T) {
 		InputTokens:  1000,
 		OutputTokens: 500,
 		LLMCalls:     1,
-		Model:        "claude-sonnet",
+		Model:        "standard",
 	}
 	if err := store.RecordTaskUsage("test-agent", usage); err != nil {
 		t.Fatal(err)

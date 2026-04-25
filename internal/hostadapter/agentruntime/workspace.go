@@ -16,14 +16,8 @@ import (
 	"github.com/geoffbelknap/agency/internal/hostadapter/imageops"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/orchestrate/containers"
+	"github.com/geoffbelknap/agency/internal/providerenv"
 )
-
-var forbiddenProviderKeys = []string{
-	"ANTHROPIC_API_KEY",
-	"GOOGLE_API_KEY",
-	"GEMINI_API_KEY",
-	"AWS_SECRET_ACCESS_KEY",
-}
 
 const (
 	bodyImage = "agency-body:latest"
@@ -136,7 +130,6 @@ func (w *Workspace) Start(ctx context.Context, opts StartOptions) error {
 		"AGENCY_CONFIG_DIR":           configDir,
 		"AGENCY_ENFORCER_PROXY_URL":   transportProxyURL,
 		"AGENCY_ENFORCER_URL":         enforcerURL,
-		"OPENAI_API_BASE":             enforcerURL,
 		"AGENCY_ENFORCER_CONTROL_URL": controlURL,
 		"AGENCY_ENFORCER_HEALTH_URL":  strings.TrimRight(transportProxyURL, "/") + "/health",
 		"HTTP_PROXY":                  proxyURL,
@@ -145,7 +138,7 @@ func (w *Workspace) Start(ctx context.Context, opts StartOptions) error {
 		"AGENCY_COMMS_URL":            strings.TrimRight(controlURL, "/") + "/mediation/comms",
 		"AGENCY_KNOWLEDGE_URL":        strings.TrimRight(controlURL, "/") + "/mediation/knowledge",
 		"AGENCY_AGENT_NAME":           w.AgentName,
-		"AGENCY_MODEL":                "claude-sonnet",
+		"AGENCY_MODEL":                "standard",
 		"PATH":                        "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 	}
 	if opts.Model != "" {
@@ -155,7 +148,7 @@ func (w *Workspace) Start(ctx context.Context, opts StartOptions) error {
 		env["AGENCY_ADMIN_MODEL"] = opts.AdminModel
 	}
 	if opts.ScopedKey != "" {
-		env["OPENAI_API_KEY"] = opts.ScopedKey
+		env["AGENCY_LLM_API_KEY"] = opts.ScopedKey
 	}
 	for k, v := range opts.Env {
 		if strings.TrimSpace(k) == "" || v == "" {
@@ -320,23 +313,7 @@ func (w *Workspace) verifyNoProviderKeys(ctx context.Context) error {
 		return fmt.Errorf("cannot inspect workspace container: %w", err)
 	}
 
-	var leaked []string
-	for _, envVar := range info.Config.Env {
-		for _, key := range forbiddenProviderKeys {
-			if strings.HasPrefix(envVar, key+"=") {
-				parts := strings.SplitN(envVar, "=", 2)
-				if len(parts) == 2 && parts[1] != "" {
-					leaked = append(leaked, key)
-				}
-			}
-		}
-		if strings.HasPrefix(envVar, "OPENAI_API_KEY=") {
-			parts := strings.SplitN(envVar, "=", 2)
-			if len(parts) == 2 && parts[1] != "" && !strings.HasPrefix(parts[1], "agency-scoped--") {
-				leaked = append(leaked, "OPENAI_API_KEY (not agency-scoped)")
-			}
-		}
-	}
+	leaked := providerenv.LeakedWorkspaceCredentialNames(info.Config.Env)
 
 	if len(leaked) > 0 {
 		w.log.Error("FRAMEWORK VIOLATION: provider keys in workspace", "agent", w.AgentName, "keys", strings.Join(leaked, ", "))

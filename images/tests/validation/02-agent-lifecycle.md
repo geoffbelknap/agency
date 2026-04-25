@@ -121,7 +121,7 @@ docker inspect agency-val-start-workspace --format '{{.HostConfig.SecurityOpt}}'
 ### Step 4 — Verify credential isolation
 
 ```bash
-docker exec agency-val-start-workspace printenv OPENAI_API_KEY
+docker exec agency-val-start-workspace printenv AGENCY_LLM_API_KEY
 ```
 
 **Expected:** Shows `agency-scoped-<random>` — NOT the real API key.

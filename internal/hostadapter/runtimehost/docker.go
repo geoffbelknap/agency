@@ -35,7 +35,7 @@ const (
 
 func CountRunning(ctx context.Context, dc *Client) (agents, meeseeks int, err error) {
 	if dc == nil {
-		return 0, 0, fmt.Errorf("docker is not available")
+		return 0, 0, fmt.Errorf("runtime backend is not available")
 	}
 	cli := dc.RawClient()
 
@@ -62,7 +62,7 @@ func CountRunning(ctx context.Context, dc *Client) (agents, meeseeks int, err er
 
 func StopRuntime(ctx context.Context, dc *Client, runtimeID string) error {
 	if dc == nil {
-		return fmt.Errorf("docker is not available")
+		return fmt.Errorf("runtime backend is not available")
 	}
 	names := []string{
 		fmt.Sprintf("%s-%s-workspace", prefix, runtimeID),
@@ -86,7 +86,7 @@ func StopRuntime(ctx context.Context, dc *Client, runtimeID string) error {
 
 func RemoveRuntimeArtifacts(ctx context.Context, dc *Client, runtimeID string) error {
 	if dc == nil {
-		return fmt.Errorf("docker is not available")
+		return fmt.Errorf("runtime backend is not available")
 	}
 	cli := dc.RawClient()
 	_ = cli.VolumeRemove(ctx, fmt.Sprintf("%s-%s-workspace-data", prefix, runtimeID), true)
@@ -96,7 +96,7 @@ func RemoveRuntimeArtifacts(ctx context.Context, dc *Client, runtimeID string) e
 
 func InspectWorkspaceState(ctx context.Context, dc *Client, runtimeID string) (RuntimeState, error) {
 	if dc == nil {
-		return RuntimeStateMissing, fmt.Errorf("docker is not available")
+		return RuntimeStateMissing, fmt.Errorf("runtime backend is not available")
 	}
 	info, err := dc.RawClient().ContainerInspect(ctx, fmt.Sprintf("%s-%s-workspace", prefix, runtimeID))
 	if err != nil {
@@ -116,7 +116,7 @@ func InspectWorkspaceState(ctx context.Context, dc *Client, runtimeID string) (R
 
 func ListAgencyContainerStates(ctx context.Context, dc *Client) (map[string]string, error) {
 	if dc == nil {
-		return nil, fmt.Errorf("docker is not available")
+		return nil, fmt.Errorf("runtime backend is not available")
 	}
 	result := make(map[string]string)
 	containers, err := dc.RawClient().ContainerList(ctx, container.ListOptions{
@@ -142,7 +142,7 @@ func ListAgencyContainerStates(ctx context.Context, dc *Client) (map[string]stri
 
 func WatchAgencyContainerEvents(ctx context.Context, dc *Client, actions ...string) (<-chan ContainerEvent, <-chan error, error) {
 	if dc == nil {
-		return nil, nil, fmt.Errorf("docker is not available")
+		return nil, nil, fmt.Errorf("runtime backend is not available")
 	}
 	if dc.RawClient() == nil || !dc.RawClient().SupportsEventStream() {
 		return nil, nil, fmt.Errorf("%s backend does not provide a container event stream", dc.Backend())

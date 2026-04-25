@@ -275,6 +275,9 @@ func translateFromGemini(geminiBody []byte) ([]byte, error) {
 	if usage == nil {
 		usage = map[string]interface{}{}
 	}
+	// The body runtime consumes a normalized response contract. Preserve Gemini's
+	// native completion as additive stop_reason metadata at the adapter boundary.
+	stopReason := "end_turn"
 
 	result := map[string]interface{}{
 		"id":     "gemini-response",
@@ -283,10 +286,12 @@ func translateFromGemini(geminiBody []byte) ([]byte, error) {
 			map[string]interface{}{
 				"index": 0,
 				"message": map[string]interface{}{
-					"role":    "assistant",
-					"content": content,
+					"role":        "assistant",
+					"content":     content,
+					"stop_reason": stopReason,
 				},
 				"finish_reason": "stop",
+				"stop_reason":   stopReason,
 			},
 		},
 		"usage": usage,

@@ -1,4 +1,4 @@
-"""Provider-native task termination detection."""
+"""Provider-neutral task termination detection."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class TurnOutcome:
-    """Runtime's interpretation of a provider response."""
+    """Runtime's interpretation of a normalized provider response."""
 
     is_terminal: bool
     has_pending_tool_use: bool
@@ -63,6 +63,16 @@ def _stop_reason(response: dict) -> str:
     return ""
 
 
+def _finish_reason(response: dict) -> str:
+    choices = response.get("choices")
+    if isinstance(choices, list) and choices:
+        choice = choices[0] if isinstance(choices[0], dict) else {}
+        value = choice.get("finish_reason")
+        if isinstance(value, str):
+            return value
+    return ""
+
+
 def _final_text(blocks: list[dict]) -> str:
     text_parts: list[str] = []
     for block in blocks:
@@ -74,16 +84,23 @@ def _final_text(blocks: list[dict]) -> str:
     return "\n".join(text_parts)
 
 
-def detect_anthropic(response: dict) -> TurnOutcome:
-    """Parse an Anthropic API response into a TurnOutcome."""
+def detect_turn_outcome(response: dict) -> TurnOutcome:
+    """Parse the runtime's normalized adapter contract into a TurnOutcome.
+
+    Adapters must present responses in the chat-completions-like shape the body
+    runtime already consumes: `choices[0].message`, optional `tool_calls`,
+    `finish_reason`, and additive `stop_reason` metadata when a provider has a
+    native termination class worth preserving for audit.
+    """
 
     response = response if isinstance(response, dict) else {}
     blocks = _content_blocks(response)
     stop_reason = _stop_reason(response)
+    finish_reason = _finish_reason(response)
     has_tool_use_block = any(block.get("type") == "tool_use" for block in blocks)
     final_text = _final_text(blocks)
 
-    if stop_reason == "tool_use":
+    if stop_reason == "tool_use" or finish_reason in {"tool_calls", "function_call"}:
         return TurnOutcome(False, True, final_text, stop_reason)
     if stop_reason == "pause_turn":
         return TurnOutcome(False, True, final_text, stop_reason)
@@ -91,4 +108,12 @@ def detect_anthropic(response: dict) -> TurnOutcome:
         return TurnOutcome(False, True, final_text, stop_reason)
     if stop_reason in {"end_turn", "stop_sequence", "max_tokens", "refusal"}:
         return TurnOutcome(True, False, final_text, stop_reason)
+    if finish_reason in {"stop", "length"}:
+        return TurnOutcome(True, False, final_text, stop_reason)
     return TurnOutcome(False, False, final_text, stop_reason)
+
+
+def detect_anthropic(response: dict) -> TurnOutcome:
+    """Backward-compatible alias for the provider-neutral detector."""
+
+    return detect_turn_outcome(response)

@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -91,40 +90,11 @@ func (h *handler) internalLLM(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Determine provider and target URL
-	isAnthropic := modelCfg.Provider == "anthropic"
-	isGeminiNative := providerCfg.APIFormat == "gemini"
-	base := strings.TrimRight(providerCfg.APIBase, "/")
-	var targetURL string
-	if isGeminiNative {
-		targetURL = fmt.Sprintf("%s/models/%s:generateContent", base, modelCfg.ProviderModel)
-	} else if isAnthropic {
-		targetURL = base + "/messages"
-	} else {
-		targetURL = base + "/chat/completions"
-	}
-
-	// Rewrite model in request body to provider model
-	reqBody["model"] = modelCfg.ProviderModel
-	modifiedBody, err := json.Marshal(reqBody)
+	adapter := internalLLMAdapterFor(providerCfg, modelCfg)
+	targetURL, modifiedBody, err := adapter.PrepareRequest(providerCfg, modelCfg, reqBody)
 	if err != nil {
-		writeJSON(w, 500, map[string]string{"error": "failed to rewrite request body"})
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
-	}
-
-	// Translate to Anthropic format if needed
-	if isAnthropic {
-		modifiedBody, err = infraTranslateToAnthropic(modifiedBody)
-		if err != nil {
-			writeJSON(w, 500, map[string]string{"error": "failed to translate request for Anthropic"})
-			return
-		}
-	} else if isGeminiNative {
-		modifiedBody, err = infraTranslateToGemini(modifiedBody)
-		if err != nil {
-			writeJSON(w, 500, map[string]string{"error": "failed to translate request for Gemini"})
-			return
-		}
 	}
 
 	// Gateway runs on host — call provider APIs directly (no egress proxy needed).
@@ -139,24 +109,7 @@ func (h *handler) internalLLM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	outReq.Header.Set("Content-Type", "application/json")
-	if isAnthropic {
-		outReq.Header.Set("anthropic-version", "2023-06-01")
-		if apiKey != "" {
-			outReq.Header.Set(providerCfg.AuthHeader, apiKey)
-		}
-	} else if isGeminiNative {
-		if apiKey != "" {
-			outReq.Header.Set(providerCfg.AuthHeader, apiKey)
-		}
-	} else {
-		if apiKey != "" {
-			prefix := providerCfg.AuthPrefix
-			if prefix == "" {
-				prefix = "Bearer "
-			}
-			outReq.Header.Set(providerCfg.AuthHeader, prefix+apiKey)
-		}
-	}
+	adapter.AddAuthHeaders(outReq, providerCfg, apiKey)
 
 	// Send request
 	resp, err := client.Do(outReq)
@@ -171,25 +124,7 @@ func (h *handler) internalLLM(w http.ResponseWriter, r *http.Request) {
 
 	respBody, _ := io.ReadAll(resp.Body)
 
-	// Translate Anthropic response back to OpenAI format
-	var finalBody []byte
-	if isAnthropic && resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		translated, err := infraTranslateFromAnthropic(respBody)
-		if err != nil {
-			finalBody = respBody // fallback: raw response
-		} else {
-			finalBody = translated
-		}
-	} else if isGeminiNative && resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		translated, err := infraTranslateFromGemini(respBody)
-		if err != nil {
-			finalBody = respBody
-		} else {
-			finalBody = translated
-		}
-	} else {
-		finalBody = respBody
-	}
+	finalBody := adapter.TranslateResponse(respBody, resp.StatusCode)
 
 	// Extract usage for cost tracking
 	inputTokens, outputTokens := extractUsageFromResponse(finalBody)
@@ -263,250 +198,6 @@ func extractUsageFromResponse(body []byte) (inputTokens, outputTokens int) {
 		outputTokens = int(v)
 	}
 	return
-}
-
-// infraTranslateToAnthropic converts an OpenAI chat/completions request body to
-// Anthropic Messages API format. Simplified version for infrastructure calls
-// (no tool use, no streaming, no caching).
-func infraTranslateToAnthropic(openaiBody []byte) ([]byte, error) {
-	var req map[string]interface{}
-	if err := json.Unmarshal(openaiBody, &req); err != nil {
-		return nil, fmt.Errorf("invalid JSON: %w", err)
-	}
-
-	result := make(map[string]interface{})
-
-	// Preserve model, temperature, top_p
-	for _, key := range []string{"model", "temperature", "top_p"} {
-		if v, ok := req[key]; ok {
-			result[key] = v
-		}
-	}
-
-	// Set max_tokens (Anthropic requires it)
-	if v, ok := req["max_tokens"]; ok {
-		result["max_tokens"] = v
-	} else {
-		result["max_tokens"] = float64(4096)
-	}
-
-	// Process messages: extract system messages
-	messages, ok := req["messages"].([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("messages field missing or not an array")
-	}
-
-	var systemBlocks []interface{}
-	var anthropicMessages []interface{}
-
-	for _, rawMsg := range messages {
-		msg, ok := rawMsg.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		role, _ := msg["role"].(string)
-		if role == "system" {
-			content, _ := msg["content"].(string)
-			block := map[string]interface{}{
-				"type": "text",
-				"text": content,
-			}
-			systemBlocks = append(systemBlocks, block)
-		} else {
-			out := make(map[string]interface{})
-			for k, v := range msg {
-				out[k] = v
-			}
-			anthropicMessages = append(anthropicMessages, out)
-		}
-	}
-
-	if len(systemBlocks) > 0 {
-		result["system"] = systemBlocks
-	}
-	result["messages"] = anthropicMessages
-
-	return json.Marshal(result)
-}
-
-// infraTranslateFromAnthropic converts an Anthropic Messages API response to
-// OpenAI chat/completions format.
-func infraTranslateFromAnthropic(anthropicBody []byte) ([]byte, error) {
-	var resp map[string]interface{}
-	if err := json.Unmarshal(anthropicBody, &resp); err != nil {
-		return nil, fmt.Errorf("invalid JSON: %w", err)
-	}
-
-	// Pass through error responses
-	if errVal, ok := resp["error"]; ok {
-		return json.Marshal(map[string]interface{}{"error": errVal})
-	}
-
-	// Extract text from content blocks
-	contentBlocks, _ := resp["content"].([]interface{})
-	var textParts []string
-	for _, rawBlock := range contentBlocks {
-		block, ok := rawBlock.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if blockType, _ := block["type"].(string); blockType == "text" {
-			text, _ := block["text"].(string)
-			textParts = append(textParts, text)
-		}
-	}
-
-	// Map stop_reason to finish_reason
-	stopReason, _ := resp["stop_reason"].(string)
-	var finishReason string
-	switch stopReason {
-	case "end_turn", "stop_sequence":
-		finishReason = "stop"
-	case "max_tokens":
-		finishReason = "length"
-	default:
-		finishReason = "stop"
-	}
-
-	// Build usage
-	usage := make(map[string]interface{})
-	if u, ok := resp["usage"].(map[string]interface{}); ok {
-		if v, ok := u["input_tokens"]; ok {
-			usage["prompt_tokens"] = v
-		}
-		if v, ok := u["output_tokens"]; ok {
-			usage["completion_tokens"] = v
-		}
-	}
-
-	result := map[string]interface{}{
-		"id":     resp["id"],
-		"object": "chat.completion",
-		"model":  resp["model"],
-		"choices": []interface{}{
-			map[string]interface{}{
-				"index": 0,
-				"message": map[string]interface{}{
-					"role":    "assistant",
-					"content": strings.Join(textParts, " "),
-				},
-				"finish_reason": finishReason,
-			},
-		},
-		"usage": usage,
-	}
-
-	return json.Marshal(result)
-}
-
-func infraTranslateToGemini(openaiBody []byte) ([]byte, error) {
-	var req map[string]interface{}
-	if err := json.Unmarshal(openaiBody, &req); err != nil {
-		return nil, fmt.Errorf("invalid JSON: %w", err)
-	}
-	messages, ok := req["messages"].([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("messages field missing or not an array")
-	}
-
-	var contents []interface{}
-	var systemParts []interface{}
-	for _, raw := range messages {
-		msg, ok := raw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		role, _ := msg["role"].(string)
-		content, _ := msg["content"].(string)
-		if content == "" {
-			continue
-		}
-		if role == "system" {
-			systemParts = append(systemParts, map[string]interface{}{"text": content})
-			continue
-		}
-		if role == "assistant" {
-			role = "model"
-		} else {
-			role = "user"
-		}
-		contents = append(contents, map[string]interface{}{
-			"role":  role,
-			"parts": []interface{}{map[string]interface{}{"text": content}},
-		})
-	}
-	out := map[string]interface{}{"contents": contents}
-	if len(systemParts) > 0 {
-		out["system_instruction"] = map[string]interface{}{"parts": systemParts}
-	}
-	genCfg := map[string]interface{}{}
-	if v, ok := req["temperature"]; ok {
-		genCfg["temperature"] = v
-	}
-	if v, ok := req["top_p"]; ok {
-		genCfg["topP"] = v
-	}
-	if v, ok := req["max_tokens"]; ok {
-		genCfg["maxOutputTokens"] = v
-	}
-	if len(genCfg) > 0 {
-		out["generationConfig"] = genCfg
-	}
-	return json.Marshal(out)
-}
-
-func infraTranslateFromGemini(geminiBody []byte) ([]byte, error) {
-	var resp map[string]interface{}
-	if err := json.Unmarshal(geminiBody, &resp); err != nil {
-		return nil, fmt.Errorf("invalid JSON: %w", err)
-	}
-	if errVal, ok := resp["error"]; ok {
-		return json.Marshal(map[string]interface{}{"error": errVal})
-	}
-
-	var textParts []string
-	if candidates, ok := resp["candidates"].([]interface{}); ok && len(candidates) > 0 {
-		cand, _ := candidates[0].(map[string]interface{})
-		content, _ := cand["content"].(map[string]interface{})
-		if parts, ok := content["parts"].([]interface{}); ok {
-			for _, raw := range parts {
-				part, _ := raw.(map[string]interface{})
-				if text, _ := part["text"].(string); text != "" {
-					textParts = append(textParts, text)
-				}
-			}
-		}
-	}
-
-	usage := make(map[string]interface{})
-	if u, ok := resp["usageMetadata"].(map[string]interface{}); ok {
-		if v, ok := u["promptTokenCount"]; ok {
-			usage["prompt_tokens"] = v
-		}
-		if v, ok := u["candidatesTokenCount"]; ok {
-			usage["completion_tokens"] = v
-		}
-		if v, ok := u["totalTokenCount"]; ok {
-			usage["total_tokens"] = v
-		}
-	}
-
-	result := map[string]interface{}{
-		"id":     "gemini-response",
-		"object": "chat.completion",
-		"choices": []interface{}{
-			map[string]interface{}{
-				"index": 0,
-				"message": map[string]interface{}{
-					"role":    "assistant",
-					"content": strings.Join(textParts, ""),
-				},
-				"finish_reason": "stop",
-			},
-		},
-		"usage": usage,
-	}
-	return json.Marshal(result)
 }
 
 // loadRoutingConfig reads routing.yaml (hub-managed) and routing.local.yaml

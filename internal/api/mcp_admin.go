@@ -20,6 +20,8 @@ import (
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 	"github.com/geoffbelknap/agency/internal/policy"
+	"github.com/geoffbelknap/agency/internal/providerenv"
+	agencysecurity "github.com/geoffbelknap/agency/internal/security"
 	"gopkg.in/yaml.v3"
 )
 
@@ -72,24 +74,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 						checks = append(checks, checkResult{"credentials_isolated", agentName, "FAIL", "Cannot inspect workspace: " + err.Error()})
 						return
 					}
-					realKeyPrefixes := []string{"ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY", "AWS_SECRET_ACCESS_KEY"}
-					var leaked []string
-					for _, env := range ws.Env {
-						for _, key := range realKeyPrefixes {
-							if strings.HasPrefix(env, key+"=") {
-								parts := strings.SplitN(env, "=", 2)
-								if len(parts) == 2 && parts[1] != "" {
-									leaked = append(leaked, key)
-								}
-							}
-						}
-						if strings.HasPrefix(env, "OPENAI_API_KEY=") {
-							parts := strings.SplitN(env, "=", 2)
-							if len(parts) == 2 && parts[1] != "" && !strings.HasPrefix(parts[1], "agency-scoped--") {
-								leaked = append(leaked, "OPENAI_API_KEY (not an agency-scoped token)")
-							}
-						}
-					}
+					leaked := providerenv.LeakedWorkspaceCredentialNames(ws.Env)
 					if len(leaked) > 0 {
 						allPassed = false
 						checks = append(checks, checkResult{"credentials_isolated", agentName, "FAIL", "LLM credentials visible in workspace env: " + strings.Join(leaked, ", ")})
@@ -1608,7 +1593,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 					"requested_value": value,
 					"reason":          reason,
 					"domain":          domain,
-					"status":          "pending",
+					"status":          string(agencysecurity.ApprovalPending),
 					"requested_at":    time.Now().UTC().Format(time.RFC3339),
 				}
 				data, _ := yaml.Marshal(exception)
@@ -1635,7 +1620,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				if exc == nil {
 					return "Error: exception request not found", true
 				}
-				exc["status"] = "approved"
+				exc["status"] = string(agencysecurity.ApprovalApproved)
 				exc["approved_by"] = principal
 				exc["approved_at"] = time.Now().UTC().Format(time.RFC3339)
 				data, _ := yaml.Marshal(exc)
@@ -1664,7 +1649,7 @@ func registerPolicyTools(reg *MCPToolRegistry) {
 				if exc == nil {
 					return "Error: exception request not found", true
 				}
-				exc["status"] = "denied"
+				exc["status"] = string(agencysecurity.ApprovalDenied)
 				exc["denied_by"] = principal
 				exc["denied_at"] = time.Now().UTC().Format(time.RFC3339)
 				exc["denial_reason"] = reason

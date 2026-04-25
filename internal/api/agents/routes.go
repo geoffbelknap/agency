@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"log/slog"
 
+	"github.com/geoffbelknap/agency/internal/backendhealth"
 	"github.com/geoffbelknap/agency/internal/config"
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/credstore"
@@ -20,7 +21,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/ws"
 )
 
-// Ensure the host-scoped Docker client satisfies DockerClient at compile time.
+// Ensure the host-scoped backend client satisfies DockerClient at compile time.
 var _ DockerClient = (*runtimehost.Client)(nil)
 
 // CommsClient is the interface for making requests to the comms service.
@@ -58,8 +59,8 @@ type Deps struct {
 	Config          *config.Config
 	Logger          *slog.Logger
 	CredStore       *credstore.Store
-	DockerStatus    *runtimehost.Status // may be nil
-	WSHub           *ws.Hub             // may be nil
+	BackendHealth   backendhealth.Availability // may be nil
+	WSHub           *ws.Hub                    // may be nil
 	Comms           CommsClient
 	Signal          SignalSender
 	DC              DockerClient

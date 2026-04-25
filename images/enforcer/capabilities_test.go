@@ -4,7 +4,7 @@ import "testing"
 
 func TestDetectRequiredCaps_Tools(t *testing.T) {
 	body := map[string]interface{}{
-		"model": "claude-sonnet",
+		"model": "standard",
 		"tools": []interface{}{map[string]interface{}{"type": "function"}},
 	}
 	caps := detectRequiredCaps(body)

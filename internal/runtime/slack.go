@@ -18,28 +18,29 @@ import (
 	agencyconsent "github.com/geoffbelknap/agency/internal/consent"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/models"
+	agencysecurity "github.com/geoffbelknap/agency/internal/security"
 )
 
 type slackApprovalRecord struct {
-	ID                   string    `json:"id"`
-	Status               string    `json:"status"`
-	Channel              string    `json:"channel"`
-	MessageTS            string    `json:"message_ts,omitempty"`
-	OperationKind        string    `json:"operation_kind"`
-	OperationTarget      string    `json:"operation_target"`
-	OperationDescription string    `json:"operation_description,omitempty"`
-	CreatedBy            string    `json:"created_by,omitempty"`
-	ApprovedBy           string    `json:"approved_by,omitempty"`
-	ApprovedAt           time.Time `json:"approved_at,omitempty"`
-	CanceledAt           time.Time `json:"canceled_at,omitempty"`
-	ConsentToken         string    `json:"consent_token,omitempty"`
-	ExpiresAt            time.Time `json:"expires_at,omitempty"`
+	ID                   string                        `json:"id"`
+	Status               agencysecurity.ApprovalStatus `json:"status"`
+	Channel              string                        `json:"channel"`
+	MessageTS            string                        `json:"message_ts,omitempty"`
+	OperationKind        string                        `json:"operation_kind"`
+	OperationTarget      string                        `json:"operation_target"`
+	OperationDescription string                        `json:"operation_description,omitempty"`
+	CreatedBy            string                        `json:"created_by,omitempty"`
+	ApprovedBy           string                        `json:"approved_by,omitempty"`
+	ApprovedAt           time.Time                     `json:"approved_at,omitempty"`
+	CanceledAt           time.Time                     `json:"canceled_at,omitempty"`
+	ConsentToken         string                        `json:"consent_token,omitempty"`
+	ExpiresAt            time.Time                     `json:"expires_at,omitempty"`
 }
 
 type slackIssuerConfig struct {
-	SigningKeyCredref     string
-	SigningKeyID          string
-	MaxTokenTTLSeconds    int
+	SigningKeyCredref      string
+	SigningKeyID           string
+	MaxTokenTTLSeconds     int
 	EligibleWitnessesGroup string
 }
 
@@ -83,7 +84,7 @@ func slackOpenApproval(ctx context.Context, manifest *Manifest, instanceDir stri
 
 	record := slackApprovalRecord{
 		ID:                   newSlackApprovalID(),
-		Status:               "pending",
+		Status:               agencysecurity.ApprovalPending,
 		Channel:              channel,
 		OperationKind:        operationKind,
 		OperationTarget:      operationTarget,
@@ -125,7 +126,7 @@ func slackPollApproval(instanceDir string, node *RuntimeNode, req AuthorityInvok
 		return nil, err
 	}
 	body := map[string]any{
-		"status":              record.Status,
+		"status":              string(record.Status),
 		"consent_token":       record.ConsentToken,
 		"witnesses_collected": []string{},
 	}
@@ -147,20 +148,20 @@ func slackCancelApproval(ctx context.Context, manifest *Manifest, instanceDir st
 	if err != nil {
 		return nil, err
 	}
-	record.Status = "canceled"
+	record.Status = agencysecurity.ApprovalCanceled
 	record.CanceledAt = time.Now().UTC()
 	if action, ok := node.Executor.Actions[req.Action]; ok && record.Channel != "" && record.MessageTS != "" {
 		_, _ = slackPostJSON(ctx, manifest, node, action, map[string]any{
-			"channel":  record.Channel,
-			"ts":       record.MessageTS,
-			"text":     "Approval request canceled.",
-			"blocks":   []map[string]any{},
+			"channel": record.Channel,
+			"ts":      record.MessageTS,
+			"text":    "Approval request canceled.",
+			"blocks":  []map[string]any{},
 		})
 	}
 	if err := saveSlackApproval(instanceDir, node.NodeID, record); err != nil {
 		return nil, err
 	}
-	return &AuthorityExecutionResult{StatusCode: http.StatusOK, Body: map[string]any{"status": record.Status}}, nil
+	return &AuthorityExecutionResult{StatusCode: http.StatusOK, Body: map[string]any{"status": string(record.Status)}}, nil
 }
 
 func handleSlackInteractivityEvent(ctx context.Context, manifest *Manifest, instanceDir string, node *RuntimeNode, eventType string, event *models.Event) (any, error) {
@@ -190,7 +191,7 @@ func handleSlackInteractivityEvent(ctx context.Context, manifest *Manifest, inst
 		if err != nil {
 			return nil, err
 		}
-		record.Status = "approved"
+		record.Status = agencysecurity.ApprovalApproved
 		record.ApprovedBy = approvedBy
 		record.ApprovedAt = time.Now().UTC()
 		record.ConsentToken = tokenValue
@@ -204,7 +205,7 @@ func handleSlackInteractivityEvent(ctx context.Context, manifest *Manifest, inst
 			})
 		}
 	case "consent_reject":
-		record.Status = "rejected"
+		record.Status = agencysecurity.ApprovalRejected
 		record.CanceledAt = time.Now().UTC()
 	default:
 		return nil, fmt.Errorf("unsupported slack approval action %q", actionID)
@@ -212,7 +213,7 @@ func handleSlackInteractivityEvent(ctx context.Context, manifest *Manifest, inst
 	if err := saveSlackApproval(instanceDir, node.NodeID, record); err != nil {
 		return nil, err
 	}
-	return map[string]any{"pending_approval_id": record.ID, "status": record.Status}, nil
+	return map[string]any{"pending_approval_id": record.ID, "status": string(record.Status)}, nil
 }
 
 func mintSlackConsentToken(manifest *Manifest, node *RuntimeNode, event *models.Event, record slackApprovalRecord) (string, time.Time, string, error) {
@@ -394,18 +395,18 @@ func slackApprovalBlocks(record slackApprovalRecord) []map[string]any {
 			"type": "actions",
 			"elements": []map[string]any{
 				{
-					"type":     "button",
+					"type":      "button",
 					"action_id": "consent_approve",
-					"text":     map[string]any{"type": "plain_text", "text": "Approve"},
-					"style":    "primary",
-					"value":    record.ID,
+					"text":      map[string]any{"type": "plain_text", "text": "Approve"},
+					"style":     "primary",
+					"value":     record.ID,
 				},
 				{
-					"type":     "button",
+					"type":      "button",
 					"action_id": "consent_reject",
-					"text":     map[string]any{"type": "plain_text", "text": "Reject"},
-					"style":    "danger",
-					"value":    record.ID,
+					"text":      map[string]any{"type": "plain_text", "text": "Reject"},
+					"style":     "danger",
+					"value":     record.ID,
 				},
 			},
 		},

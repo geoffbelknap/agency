@@ -65,7 +65,7 @@ Note: Gateway events use `"event"` as the type key; enforcer events use `"type"`
   "agent": "henrybot9000",
   "lifecycle_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "status": 401,
-  "model": "claude-sonnet"
+  "model": "standard"
 }
 ```
 
@@ -123,7 +123,7 @@ New components register their own categories under their prefix. No central regi
     "stage": "provider_auth",
     "status": 401,
     "correlation_id": "henrybot9000-idle-reply-1774156384-1",
-    "model": "claude-sonnet",
+    "model": "standard",
     "retries_attempted": 3
   }
 }

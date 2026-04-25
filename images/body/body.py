@@ -26,7 +26,7 @@ import httpx
 import yaml
 
 from fallback import FallbackTracker
-from completion_detector import detect_anthropic
+from completion_detector import detect_turn_outcome
 from interruption import InterruptionController
 from mcp_client import MCPClient
 from memory_retrieval import (
@@ -548,13 +548,10 @@ class Body:
         self.conversation_meta = self.state_dir / "conversation-meta.json"
         self.memory_dir = self.workspace_dir / ".memory"
 
-        self.enforcer_url = os.environ.get(
-            "AGENCY_ENFORCER_URL",
-            os.environ.get("OPENAI_API_BASE", "http://enforcer:3128/v1"),
-        )
-        self.model = os.environ.get("AGENCY_MODEL", "claude-sonnet")
-        self.admin_model = os.environ.get("AGENCY_ADMIN_MODEL", self.model)
-        self.large_model = os.environ.get("AGENCY_LARGE_MODEL", self.model)
+        self.enforcer_url = os.environ.get("AGENCY_ENFORCER_URL", "http://enforcer:3128/v1")
+        self.model = os.environ.get("AGENCY_MODEL", "standard")
+        self.admin_model = os.environ.get("AGENCY_ADMIN_MODEL", "fast")
+        self.large_model = os.environ.get("AGENCY_LARGE_MODEL", "frontier")
         self.agent_name = os.environ.get("AGENCY_AGENT_NAME", "agent")
         self.context_window = int(os.environ.get(
             "AGENCY_CONTEXT_WINDOW", str(DEFAULT_CONTEXT_WINDOW)
@@ -2328,7 +2325,7 @@ class Body:
             choice = response.get("choices", [{}])[0]
             message = choice.get("message", {})
             finish_reason = choice.get("finish_reason", "")
-            outcome = detect_anthropic(response)
+            outcome = detect_turn_outcome(response)
             self._ensure_execution_state().stop_reason = outcome.stop_reason
             # Add assistant message to history
             messages.append(message)
@@ -2694,7 +2691,7 @@ class Body:
             headers["X-Agency-Task-Id"] = self._current_task_id
         if getattr(self, "_event_id", None):
             headers["X-Agency-Event-Id"] = self._event_id
-        api_key = os.environ.get("OPENAI_API_KEY")
+        api_key = os.environ.get("AGENCY_LLM_API_KEY")
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
@@ -3029,7 +3026,7 @@ class Body:
             headers = {}
             if getattr(self, "_event_id", None):
                 headers["X-Agency-Event-Id"] = self._event_id
-            api_key = os.environ.get("OPENAI_API_KEY")
+            api_key = os.environ.get("AGENCY_LLM_API_KEY")
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
 
@@ -3077,7 +3074,7 @@ class Body:
             headers = {"X-Agency-Cost-Source": "memory_capture"}
             if getattr(self, "_event_id", None):
                 headers["X-Agency-Event-Id"] = self._event_id
-            api_key = os.environ.get("OPENAI_API_KEY")
+            api_key = os.environ.get("AGENCY_LLM_API_KEY")
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
             resp = self._http_client.post(
@@ -4517,7 +4514,7 @@ class Body:
                 "properties": {
                     "task": {"type": "string", "description": "The specific task for the Meeseeks to complete"},
                     "tools": {"type": "array", "items": {"type": "string"}, "description": "Subset of your tools to grant (defaults to all)"},
-                    "model": {"type": "string", "description": "Model to use (defaults to haiku)"},
+                    "model": {"type": "string", "description": "Model alias to use (defaults to fast)"},
                     "budget": {"type": "number", "description": "USD budget limit (defaults to mission config)"},
                     "channel": {"type": "string", "description": "Channel for results"},
                 },

@@ -17,11 +17,11 @@ def test_classify_401_provider_auth():
     response = MagicMock()
     response.status_code = 401
     error = httpx.HTTPStatusError("401", request=MagicMock(), response=response)
-    result = classify_llm_error(error, model="claude-sonnet", correlation_id="bot-1", retries=3)
+    result = classify_llm_error(error, model="standard", correlation_id="bot-1", retries=3)
     assert result["category"] == "llm.call_failed"
     assert result["stage"] == "provider_auth"
     assert result["status"] == 401
-    assert result["model"] == "claude-sonnet"
+    assert result["model"] == "standard"
     assert result["retries_attempted"] == 3
 
 
@@ -30,25 +30,25 @@ def test_classify_429_rate_limit():
     response = MagicMock()
     response.status_code = 429
     error = httpx.HTTPStatusError("429", request=MagicMock(), response=response)
-    result = classify_llm_error(error, model="claude-sonnet")
+    result = classify_llm_error(error, model="standard")
     assert result["stage"] == "provider_rate_limit"
     assert result["status"] == 429
 
 
 def test_classify_timeout():
     import httpx
-    result = classify_llm_error(httpx.ReadTimeout("timeout"), model="claude-sonnet")
+    result = classify_llm_error(httpx.ReadTimeout("timeout"), model="standard")
     assert result["stage"] == "timeout"
     assert result["status"] is None
 
 
 def test_classify_connection_error():
-    result = classify_llm_error(ConnectionError("refused"), model="claude-sonnet")
+    result = classify_llm_error(ConnectionError("refused"), model="standard")
     assert result["stage"] == "proxy_unreachable"
 
 
 def test_classify_json_error():
-    result = classify_llm_error(json.JSONDecodeError("bad", "", 0), model="claude-sonnet")
+    result = classify_llm_error(json.JSONDecodeError("bad", "", 0), model="standard")
     assert result["stage"] == "response_malformed"
 
 

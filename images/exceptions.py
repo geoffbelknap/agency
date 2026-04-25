@@ -2,6 +2,8 @@
 
 
 from typing import Optional
+
+
 class AgencyError(Exception):
     """Base exception. Always includes: what failed, why, how to fix."""
 
@@ -13,10 +15,10 @@ class AgencyError(Exception):
             self.fix = fix
 
 
-class DockerNotAvailable(AgencyError):
-    """Docker daemon not running or not accessible."""
+class RuntimeBackendNotAvailable(AgencyError):
+    """Runtime backend is not running or not accessible."""
 
-    fix = "Start Docker Desktop, or on Linux: sudo systemctl start docker"
+    fix = "Start the configured runtime backend, then rerun the operation."
 
 
 class ValidationError(AgencyError):
@@ -47,7 +49,10 @@ class InfrastructureStartFailed(AgencyError):
         )
         if logs:
             message += f"\n  Logs: {logs[:500]}"
-        fix = f"Check Docker logs: docker logs agency-{component}"
+        fix = (
+            f"Check the {component} service logs through Agency infra status/log "
+            "surfaces, then retry startup."
+        )
         super().__init__(message, fix=fix)
 
 

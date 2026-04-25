@@ -37,7 +37,7 @@ agent (hank3) was given a grounded analytical ask over DM. The runtime
 classified the task as `minimal` tier (short direct-source DM, no mission,
 hits the default fallback in `classify_task_tier`). Under `minimal`:
 
-- Model dropped to `claude-haiku` (weaker reasoning)
+- Model dropped to a low-capability `fast` route (weaker reasoning)
 - System prompt lost `FRAMEWORK.md`, `AGENTS.md`, skills section,
   `PLATFORM.md`, comms context
 - Only `identity.md` + a one-line "web_search is available" note remained

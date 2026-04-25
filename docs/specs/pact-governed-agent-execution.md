@@ -6,25 +6,30 @@ Draft.
 
 ## Purpose
 
-PACT is a world-class agentic execution harness, governable by construction.
-Its primary goal is to make agents excellent at work: objective understanding,
-planning, tool use, evidence, recovery, evaluation, long-running execution,
-artifact production, memory, and collaboration. Governance bounds that work
-without replacing it.
+PACT is the execution-governance protocol used by the current body runtime.
+Its primary goal is to govern agent work as explicit, contract-bound execution:
+objective understanding, planning, tool use, evidence, recovery, evaluation,
+long-running execution, artifact production, memory, and collaboration.
+Governance bounds that work without replacing it.
 
 PACT binds every activation to an objective, execution contract, evidence
 ledger, trajectory, and terminal outcome. It is not a chat model, prompt style,
-agent persona, or tool wrapper. It is the runtime shape of agentic execution.
+agent persona, or tool wrapper. It is the execution protocol used by the
+current body runtime.
 
-The harness must stand on its own as a serious execution engine, even before
-enterprise controls are applied. ASK governs agents as principals. PACT governs
-agent work as contract-bound execution layered on that harness. Agency is the
-reference implementation of both.
+Agency is the harness. The body runtime is the execution engine. PACT governs
+agent work as contract-bound execution layered into that runtime. ASK governs
+agents as principals across the outer harness.
+
+Current implementation note: today the body runtime is not yet where it needs
+to be as an independent world-class agent runtime, and a major reason is that
+governance-first PACT concerns have dominated the design too early. This spec
+therefore describes both the execution protocol itself and the intended
+rebalancing away from governance-first runtime design.
 
 ## Non-Goals
 
-- PACT is not a governance-only framework. It is first an execution harness;
-  governance attaches at its boundaries.
+- PACT is not a governance-only framework.
 - PACT is not an agent framework competing with orchestration libraries.
 - PACT is not limited to inbound messages, chat, DMs, or human prompts.
 - PACT does not define model provider APIs.
@@ -79,14 +84,13 @@ reference implementation of both.
    failed outcomes are legitimate terminal states when they are explicit,
    auditable, and contract-consistent.
 
-7. **Quality and governance are separate layers.**
-   PACT defines how agentic work is executed well. ASK defines how that work is
-   governed. The harness layer (objective, planning, tool loop, evidence,
-   reflection, outcome) must be excellent on its own terms, not justified by
-   the governance layer it enables. Agency binds them through external
-   enforcement, mediation, audit, least privilege, runtime verification, and
-   governed knowledge, but a non-governed PACT runtime should still be a
-   serious execution engine.
+7. **Runtime quality and governance are separate layers.**
+   PACT defines execution discipline. ASK defines outer governance. The body
+   runtime itself must become excellent on its own terms — objective handling,
+   planning, tool loop quality, recovery, and operator responsiveness — rather
+   than relying on governance logic to compensate for weak runtime behavior.
+   Agency binds them through external enforcement, mediation, audit, least
+   privilege, runtime verification, and governed knowledge.
 
 8. **The runtime commits outcomes.**
    The model may draft plans, call tools, and propose outputs. The runtime decides
@@ -108,15 +112,15 @@ reference implementation of both.
    explicit signals in the request. Conversational phrasing alone never
    authorizes invention.
 
-## Agentic Execution Harness
+## Execution Discipline
 
-PACT's primary product goal is a world-class agentic execution harness that is
-governable by construction. Governance is not a substitute for agent quality.
-The harness must make agents excellent at work even before ASK-specific
-enterprise controls are applied. A non-governed PACT runtime should still be a
-serious execution engine — governance is an overlay, not the reason PACT exists.
+PACT must not be treated as a substitute for runtime quality. Governance is not
+an excuse for weak execution. The body runtime must make agents excellent at
+work even before ASK-specific enterprise controls are applied, and PACT should
+layer explicit discipline onto that runtime rather than dominate the design of
+the runtime itself.
 
-The harness layer owns agentic execution quality:
+The execution-discipline layer owns:
 
 - objective understanding: normalize activations into goals, constraints,
   deliverables, success criteria, assumptions, and ambiguity
@@ -138,7 +142,7 @@ The harness layer owns agentic execution quality:
   outcomes, and failed strategies through scoped, reviewable memory paths
 - trajectory evaluation: test complete paths, not just final text
 
-The governance layer owns organizational control:
+The outer governance layer owns organizational control:
 
 - authority resolution
 - least privilege
@@ -151,10 +155,11 @@ The governance layer owns organizational control:
 - quarantine and halt
 - compliance reporting
 
-The boundary is intentional. The harness may decide that an execution needs a
-tool, artifact, memory write, delegation, or external side effect. Agency/ASK
-decides whether that action is authorized, how it is mediated, what is audited,
-and where outputs may be retained or published.
+The boundary is intentional. The runtime may decide that an execution needs a
+tool, artifact, memory write, delegation, or external side effect. PACT may
+shape how that decision is recorded and evaluated. Agency/ASK decides whether
+that action is authorized, how it is mediated, what is audited, and where
+outputs may be retained or published.
 
 The target architecture is:
 
@@ -179,7 +184,7 @@ Authority + Policy + Mediation + Audit + Constraints
 
 Implementation work must preserve this ordering. Reporting, audit projections,
 and compliance exports are projections of high-quality execution state; they are
-not the execution harness itself.
+not substitutes for runtime quality.
 
 ## Relationship To ASK
 
@@ -975,14 +980,15 @@ contract-bound execution.
 
 The current slice is deliberately governance- and audit-forward: it proves the
 boundary (verdicts as evidence signals, enforcement outside the agent, audit
-append-only, deterministic gates on a handful of contracts) before the harness
-itself is rebuilt. This ordering is a sequencing choice, not the shape of the
-finished system. The harness-quality work — typed `ExecutionState`, objective
-builder, strategy router, planner as runtime object, structured tool
-observation protocol, general pre-commit evaluator, unified recovery state
-machine, artifact disposition, memory learning hooks, trajectory-first evals —
-is the primary next phase and the reason PACT exists. Audit and reporting
-projections should follow from better execution state, not substitute for it.
+append-only, deterministic gates on a handful of contracts) before runtime
+execution quality is rebuilt. This ordering is a sequencing choice, not the
+shape of the finished system. The runtime-quality work — typed
+`ExecutionState`, objective builder, strategy router, planner as runtime
+object, structured tool observation protocol, general pre-commit evaluator,
+unified recovery state machine, artifact disposition, memory learning hooks,
+trajectory-first evals — is the primary next phase and the reason PACT exists.
+Audit and reporting projections should follow from better execution state, not
+substitute for it.
 
 ### Execution State Type
 
@@ -1043,8 +1049,12 @@ runtime's prompt and model routing decisions. The legacy `task_tier` /
 prompt composition or model selection; static identity-bandwidth prompt sections
 are not tier-gated, and PACT pre-commit evaluation remains enforcement rather
 than optional tier behavior.
-`stop_reason` is populated from the provider-native model termination signal on
-each response and serialized with `ExecutionState` for operator inspection.
+`stop_reason` is populated from normalized adapter metadata carrying the
+provider-native model termination signal on each response and serialized with
+`ExecutionState` for operator inspection. The body runtime does not parse raw
+provider payloads directly; adapters map provider-native termination into the
+runtime contract (`finish_reason` for control flow plus additive `stop_reason`
+for audit visibility).
 `contract` wraps the existing body work contract as a typed `WorkContract`.
 `plan` is populated by the Wave 2 #3 planner builder when the selected strategy
 requires planning. The builder is deterministic and model-free, and emits typed
@@ -1151,8 +1161,10 @@ stop_reason
 
 `reasons` is the structured list returned by the pre-commit evaluator. It is
 additive to the legacy signal payload; existing fields are preserved.
-`stop_reason` is the provider-native termination signal, such as `end_turn`,
-`tool_use`, or `stop_sequence`, captured for audit.
+`stop_reason` is additive adapter metadata carrying the provider-native
+termination signal, such as `end_turn`, `tool_use`, or `stop_sequence`,
+captured for audit. Runtime control flow remains driven by the normalized
+response contract rather than provider-specific payload parsing.
 
 Runtime mapping semantics:
 
@@ -1655,7 +1667,7 @@ Non-scope for the first slice:
 
 ## Next Implementation Targets
 
-The next Agency PACT work must rebuild the agentic execution harness before
+The next Agency PACT work must rebuild runtime execution quality before
 expanding governance or compliance surfaces. The current slice produced audit
 and reporting scaffolding on top of a runtime that does not yet have typed
 execution state, a real planner, or structured tool observations. Shipping more
@@ -1665,9 +1677,9 @@ attestation over scaffolding, not over actual execution.
 
 Work is organized into waves. Each wave depends on the one before it. Items
 flagged **(Blocked on …)** must not start until their blockers land. PR reviews
-should reject harness or compliance work that tries to skip ahead.
+should reject runtime-foundation or compliance work that tries to skip ahead.
 
-### Wave 1 — Harness Foundations
+### Wave 1 — Runtime Foundations
 
 Load-bearing primitives. Everything else in PACT eventually projects from
 these.
@@ -1691,7 +1703,7 @@ these.
    for the recovery state machine, the general pre-commit evaluator, and
    `external_side_effect` validation.
 
-### Wave 2 — Harness Capabilities
+### Wave 2 — Runtime Capabilities
 
 Capabilities that populate and act on `ExecutionState`. Cannot be reliably
 built before Wave 1 lands.
@@ -1728,9 +1740,9 @@ built before Wave 1 lands.
    auditable reasons. Classification of retryability and side-effect presence
    comes from the structured tool observation protocol.
 
-### Wave 3 — Harness Completions
+### Wave 3 — Runtime Completions
 
-Wraps up the end-to-end harness once capabilities are in place.
+Wraps up the end-to-end runtime execution path once capabilities are in place.
 
 1. **Artifact disposition protocol.**
    Represent generated files, links, reports, patches, logs, screenshots, PRs,
@@ -1773,7 +1785,7 @@ do not introduce foundation dependencies.
    `current_info`, `file_artifact`, `code_change`, and `operator_blocked` have
    deterministic paths. Remaining registered kinds (`external_side_effect`,
    plus future delegation, approval request, monitoring event, and memory
-   proposal contracts) should land deterministic evaluators as each harness
+   proposal contracts) should land deterministic evaluators as each runtime
    capability they depend on comes online.
 
    `external_side_effect` validation is **(Blocked on Wave 1 #2.)** Do not

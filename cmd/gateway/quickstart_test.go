@@ -81,6 +81,22 @@ func TestSupportedQuickstartProvider(t *testing.T) {
 	}
 }
 
+func TestQuickstartProviderDescriptorsComeFromCatalogMetadata(t *testing.T) {
+	descriptors := quickstartProviderDescriptors()
+	if len(descriptors) != 3 {
+		t.Fatalf("len(descriptors) = %d, want 3", len(descriptors))
+	}
+	if descriptors[0].Name != "google" || !descriptors[0].Recommended {
+		t.Fatalf("descriptors[0] = %#v, want google recommended first", descriptors[0])
+	}
+	if descriptors[1].Name != "anthropic" || descriptors[2].Name != "openai" {
+		t.Fatalf("descriptor order = %#v, want google/anthropic/openai", descriptors)
+	}
+	if probe := quickstartProviderProbe("google"); probe == nil || probe.URL == "" || probe.Method == "" {
+		t.Fatalf("quickstartProviderProbe(google) = %#v, want configured probe", probe)
+	}
+}
+
 func TestQuickstartPromptDecision(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -122,7 +138,7 @@ func TestPromptProviderChoiceMapping(t *testing.T) {
 }
 
 func TestQuickstartRestartDecision(t *testing.T) {
-	key := config.KeyEntry{Provider: "anthropic", EnvVar: "ANTHROPIC_API_KEY", Key: "sk-test"}
+	key := config.KeyEntry{Provider: "provider-a", EnvVar: "PROVIDER_A_API_KEY", Key: "sk-test"}
 	tests := []struct {
 		name                string
 		gatewayRunning      bool

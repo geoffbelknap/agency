@@ -70,9 +70,9 @@ describe('Usage', () => {
       {
         id: 'suggestion-1',
         task_type: 'summarization',
-        current_model: 'claude-sonnet',
-        suggested_model: 'claude-haiku',
-        reason: 'claude-haiku costs less for summarization tasks',
+        current_model: 'provider-a-standard',
+        suggested_model: 'provider-b-fast',
+        reason: 'provider-b-fast costs less for summarization tasks',
         savings_percent: 0.42,
         savings_usd_per_1k: 0.018,
         status: 'pending',
@@ -85,8 +85,8 @@ describe('Usage', () => {
     await userEvent.click(screen.getByRole('button', { name: /optimizer/i }));
     expect(await screen.findByText('Routing Suggestions')).toBeInTheDocument();
     expect(screen.getByText('summarization')).toBeInTheDocument();
-    expect(screen.getByText('claude-sonnet')).toBeInTheDocument();
-    expect(screen.getByText('claude-haiku')).toBeInTheDocument();
+    expect(screen.getByText('provider-a-standard')).toBeInTheDocument();
+    expect(screen.getByText('provider-b-fast')).toBeInTheDocument();
     expect(screen.getByText('42% savings')).toBeInTheDocument();
   });
 
@@ -96,9 +96,9 @@ describe('Usage', () => {
       {
         id: 'suggestion-1',
         task_type: 'summarization',
-        current_model: 'claude-sonnet',
-        suggested_model: 'claude-haiku',
-        reason: 'claude-haiku costs less for summarization tasks',
+        current_model: 'provider-a-standard',
+        suggested_model: 'provider-b-fast',
+        reason: 'provider-b-fast costs less for summarization tasks',
         savings_percent: 0.42,
         savings_usd_per_1k: 0.018,
         status: 'pending',
@@ -129,7 +129,7 @@ describe('Usage', () => {
     featureState.routingOptimizer = true;
     mockUsageData([], [
       {
-        model: 'claude-haiku',
+        model: 'provider-b-fast',
         task_type: 'summarization',
         total_calls: 28,
         retries: 0,
@@ -148,7 +148,7 @@ describe('Usage', () => {
     await userEvent.click(screen.getByRole('button', { name: /optimizer/i }));
     expect(await screen.findByText('Routing Model Stats')).toBeInTheDocument();
     expect(screen.getByText('summarization')).toBeInTheDocument();
-    expect(screen.getByText('claude-haiku')).toBeInTheDocument();
+    expect(screen.getByText('provider-b-fast')).toBeInTheDocument();
     expect(screen.getByText('96%')).toBeInTheDocument();
     expect(screen.getByText('$0.0120')).toBeInTheDocument();
   });
@@ -183,7 +183,7 @@ describe('Usage', () => {
         HttpResponse.json({
           ...metrics,
           by_model: {
-            'claude-sonnet': {
+            'provider-a-standard': {
               requests: 1,
               input_tokens: 0,
               output_tokens: 0,
@@ -201,7 +201,7 @@ describe('Usage', () => {
 
     renderWithRouter(<Usage />);
 
-    const shareBar = await screen.findByLabelText('claude-sonnet share 0%');
+    const shareBar = await screen.findByLabelText('provider-a-standard share 0%');
     expect((shareBar.firstElementChild as HTMLElement).style.width).toBe('0%');
   });
 
@@ -212,7 +212,7 @@ describe('Usage', () => {
         HttpResponse.json({
           ...metrics,
           by_model: {
-            'claude-sonnet': {
+            'provider-a-standard': {
               requests: 2,
               input_tokens: 12000,
               output_tokens: 4000,
@@ -235,7 +235,7 @@ describe('Usage', () => {
                 avg_latency_ms: 900,
               },
               by_model: {
-                'claude-sonnet': {
+                'provider-a-standard': {
                   requests: 1,
                   input_tokens: 6000,
                   output_tokens: 2000,
@@ -303,7 +303,7 @@ describe('Usage', () => {
             {
               ts: new Date().toISOString(),
               agent: 'alice',
-              model: 'claude-sonnet',
+              model: 'provider-a-standard',
               status: 429,
               error: 'Rate limit exceeded',
             },
@@ -318,7 +318,7 @@ describe('Usage', () => {
 
     expect(await screen.findByText('Recent calls')).toBeInTheDocument();
     expect(screen.getByText('alice')).toBeInTheDocument();
-    expect(screen.getByText('claude-sonnet')).toBeInTheDocument();
+    expect(screen.getByText('provider-a-standard')).toBeInTheDocument();
     expect(screen.getByText('429')).toBeInTheDocument();
   });
 

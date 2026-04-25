@@ -454,35 +454,44 @@ func setupCmd() *cobra.Command {
 					fmt.Println("Agency Setup")
 					fmt.Println()
 					fmt.Println("LLM Provider:")
-					fmt.Println("  1. Anthropic (recommended)")
-					fmt.Println("  2. OpenAI")
-					fmt.Println("  3. Google Gemini")
-					fmt.Println("  4. Skip (configure later)")
+					providerChoices := quickstartProviderDescriptors()
+					defaultChoice := 1
+					for i, descriptor := range providerChoices {
+						label := descriptor.DisplayName
+						if descriptor.PromptBlurb != "" {
+							label = fmt.Sprintf("%s (%s)", label, descriptor.PromptBlurb)
+						} else if descriptor.Recommended {
+							label = fmt.Sprintf("%s (recommended)", label)
+						}
+						fmt.Printf("  %d. %s\n", i+1, label)
+						if descriptor.Recommended {
+							defaultChoice = i + 1
+						}
+					}
+					skipChoice := len(providerChoices) + 1
+					fmt.Printf("  %d. Skip (configure later)\n", skipChoice)
 					fmt.Println()
-					fmt.Print("Select [1-4, default 1]: ")
+					fmt.Printf("Select [1-%d, default %d]: ", skipChoice, defaultChoice)
 
-					choice := "1"
+					choice := strconv.Itoa(defaultChoice)
 					if scanner.Scan() {
 						if t := scanner.Text(); t != "" {
 							choice = t
 						}
 					}
 
-					switch choice {
-					case "1":
-						provider = "anthropic"
-					case "2":
-						provider = "openai"
-					case "3":
-						provider = "google"
-					case "4":
+					choiceIndex, err := strconv.Atoi(strings.TrimSpace(choice))
+					if err != nil || choiceIndex < 1 || choiceIndex > skipChoice {
+						choiceIndex = defaultChoice
+					}
+					if choiceIndex == skipChoice {
 						provider = ""
-					default:
-						provider = "anthropic"
+					} else {
+						provider = providerChoices[choiceIndex-1].Name
 					}
 
 					if provider != "" && apiKey == "" {
-						fmt.Printf("\n%s API key: ", provider)
+						fmt.Printf("\n%s API key: ", quickstartProviderDisplayName(provider))
 						if keyBytes, err := readPassword(); err == nil {
 							apiKey = strings.TrimSpace(string(keyBytes))
 							fmt.Println() // newline after masked input
@@ -501,7 +510,7 @@ func setupCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&name, "name", "", "Agent name (quick setup)")
 	cmd.Flags().StringVar(&preset, "preset", "", "Agent preset (quick setup)")
-	cmd.Flags().StringVar(&provider, "provider", "", "LLM provider (anthropic, openai, google)")
+	cmd.Flags().StringVar(&provider, "provider", "", "LLM provider adapter name")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "LLM provider API key")
 	cmd.Flags().StringVar(&notifyURL, "notify-url", "", "Notification URL (ntfy or webhook) for operator alerts")
 	cmd.Flags().StringVar(&backend, "backend", "", "Container backend to use (docker, podman, apple-container, containerd); autodetects when unset. Also respected via AGENCY_CONTAINER_BACKEND.")
@@ -921,15 +930,10 @@ func runSetup(provider, apiKey, notifyURL, backend string, backendCfg map[string
 		existingProviders := config.ReadExistingKeys(agencyHome)
 		if len(existingProviders) > 0 {
 			envVars := envfile.Load(filepath.Join(agencyHome, ".env"))
-			providerEnvMap := map[string]string{
-				"anthropic": "ANTHROPIC_API_KEY",
-				"openai":    "OPENAI_API_KEY",
-				"google":    "GEMINI_API_KEY",
-			}
 			cfg := config.Load()
 			c := apiclient.NewClient("http://" + cfg.GatewayAddr)
 			for _, provider := range existingProviders {
-				envVar := providerEnvMap[provider]
+				envVar := config.ProviderEnvVar(provider)
 				if val, ok := envVars[envVar]; ok && val != "" {
 					// Check if already in credential store
 					existing, _ := c.CredentialShow(envVar, false)
@@ -1149,7 +1153,7 @@ func runServe(httpAddr string) error {
 	} else {
 		logger.Info("gateway starting without a container backend client", "backend", backendName)
 	}
-	dockerStatus := runtimehost.NewStatus(dc)
+	backendHealthStatus := runtimehost.NewStatus(dc)
 
 	// Startup reconciliation — clean up orphaned containers/networks from
 	// previous gateway runs. Runs before the HTTP server starts; errors are
@@ -1256,33 +1260,12 @@ func runServe(httpAddr string) error {
 	healthCtx, healthCancel := context.WithCancel(context.Background())
 	defer healthCancel()
 	var healthMgr *orchestrate.MissionHealthMonitor
-	if dc != nil {
-		var healthErr error
-		healthMgr, healthErr = orchestrate.NewMissionHealthMonitorWithClient(
-			missionMgr,
-			func(missionName, reason string) {
-				events.EmitMissionEvent(eventBus, "mission_health_alert", missionName, map[string]interface{}{
-					"reason": reason,
-				})
-			},
-			func(name, reason string) error {
-				return missionMgr.Pause(name, reason)
-			},
-			logger,
-			dc,
-		)
-		if healthErr != nil {
-			logger.Warn("mission health monitor unavailable", "error", healthErr)
-		} else {
-			healthMgr.Start(healthCtx)
-		}
-	}
 
 	// Shared suppression tracker — marks agents undergoing intentional
-	// stop/restart so container watchers don't fire spurious alerts.
+	// stop/restart so runtime watchers don't fire spurious alerts.
 	stopSuppress := orchestrate.NewStopSuppression(30 * time.Second)
 
-	// Enforcer watcher — listens to Docker event stream for enforcer container
+	// Enforcer watcher — listens to host-backend events for enforcer runtime
 	// exits. Fires a platform event so the operator knows an agent has lost
 	// API mediation (ASK Tenet 3: mediation is complete).
 	if dc != nil {
@@ -1303,8 +1286,8 @@ func runServe(httpAddr string) error {
 		}
 	}
 
-	// Workspace watcher — listens for workspace container crashes and
-	// auto-restarts. Emits platform events for operator alerting.
+	// Workspace watcher — listens for workspace runtime crashes and
+	// auto-restarts through host-backend events. Emits platform events for operator alerting.
 	// Comms and knowledge now route through the enforcer mediation proxy,
 	// so no infra reconnect is needed on restart.
 	if dc != nil {
@@ -1340,6 +1323,28 @@ func runServe(httpAddr string) error {
 	if startup.InstanceStore != nil {
 		runtimeDelivery := events.NewRuntimeDelivery(startup.InstanceStore)
 		eventBus.RegisterDelivery(events.DestRuntime, runtimeDelivery.Deliver)
+	}
+	if dc != nil {
+		var healthErr error
+		healthMgr, healthErr = orchestrate.NewMissionHealthMonitorWithRuntime(
+			missionMgr,
+			startup.Runtime,
+			func(missionName, reason string) {
+				events.EmitMissionEvent(eventBus, "mission_health_alert", missionName, map[string]interface{}{
+					"reason": reason,
+				})
+			},
+			func(name, reason string) error {
+				return missionMgr.Pause(name, reason)
+			},
+			logger,
+			dc,
+		)
+		if healthErr != nil {
+			logger.Warn("mission health monitor unavailable", "error", healthErr)
+		} else {
+			healthMgr.Start(healthCtx)
+		}
 	}
 
 	// Principal registry — shared instance for auth + permission middleware.
@@ -1414,12 +1419,12 @@ func runServe(httpAddr string) error {
 	if healthMgr != nil {
 		routeOpts.HealthMonitor = healthMgr
 	}
-	routeOpts.DockerStatus = dockerStatus
+	routeOpts.BackendHealth = backendHealthStatus
 	api.RegisterAll(r, cfg, dc, logger, startup, routeOpts)
 
 	// Wire auto-restore: when the container backend reconnects, automatically bring up infra.
 	if cfg.AutoRestoreInfra {
-		dockerStatus.OnReconnect = func() {
+		backendHealthStatus.OnReconnect = func() {
 			logger.Info("container backend reconnected — auto-restoring infrastructure", "backend", backendName)
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)

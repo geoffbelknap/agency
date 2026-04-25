@@ -18,7 +18,7 @@ from images import (
 
 
 def _make_client(existing_tags=None):
-    """Create a mock Docker client with optional pre-existing images."""
+    """Create a mock image client with optional pre-existing images."""
     existing = set(existing_tags or [])
     client = MagicMock()
 
