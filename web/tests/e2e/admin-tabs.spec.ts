@@ -17,7 +17,7 @@ test.describe('Admin tabs', () => {
     const tabs = [
       { path: '/admin/infrastructure', locator: page.locator('main').getByText('gateway', { exact: true }).first() },
       { path: '/admin/knowledge', locator: page.getByText('Structural Review') },
-      { path: '/admin/egress', locator: page.getByText('api.anthropic.com').first() },
+      { path: '/admin/egress', locator: page.getByText('provider-a.example.com').first() },
       { path: '/admin/policy', locator: page.getByRole('button', { name: 'Validate policy' }) },
       { path: '/admin/doctor', locator: page.getByRole('button', { name: 'Run Doctor' }) },
       { path: '/admin/usage', locator: page.getByText('Usage & cost') },

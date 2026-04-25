@@ -83,3 +83,6 @@ jobs:
       - name: Run containerd readiness smoke
         if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.run == 'true' }}
         run: make containerd-readiness
+        env:
+          AGENCY_CONTAINERD_SETUP_PROVIDER: openai
+          OPENAI_API_KEY: ci-placeholder-openai-key

@@ -21,7 +21,7 @@ export interface WizardState {
   health: { indicators: string[]; business_hours: string };
   meeseeks: boolean;
   meeseeksLimit: number | null;
-  meeseeksModel: 'haiku' | 'sonnet' | null;
+  meeseeksModel: 'fast' | 'standard' | 'frontier' | null;
   meeseeksBudget: number | null;
   assignTarget: string;
   assignType: 'agent' | 'team';

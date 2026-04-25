@@ -324,7 +324,7 @@ success_criteria:
   evaluation:
     enabled: true
     mode: llm
-    model: claude-3-5-haiku-20241022
+    model: fast
     on_failure: retry
     max_retries: 2
     checklist_threshold: 0.8

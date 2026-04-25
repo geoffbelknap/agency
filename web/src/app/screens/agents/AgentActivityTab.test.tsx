@@ -10,8 +10,8 @@ const logs: RawAuditEntry[] = [
     event: 'LLM_DIRECT',
     source: 'enforcer',
     agent: 'test-1',
-    model: 'claude-sonnet',
-    provider_model: 'claude-sonnet-4-5-20251001',
+    model: 'provider-a-standard',
+    provider_model: 'provider-a-model-v1',
     status: 200,
     duration_ms: 753,
     input_tokens: 627,
@@ -25,7 +25,7 @@ const logs: RawAuditEntry[] = [
     agent: 'test-1',
     method: 'POST',
     path: '/v1/messages',
-    host: 'api.anthropic.com',
+    host: 'provider-a.example.com',
     status: 200,
     duration_ms: 1323,
     lifecycle_id: 'life-123',
@@ -90,7 +90,7 @@ describe('LogsSection', () => {
     render(<LogsSection agentName="test-1" logs={logs} refreshingLogs={false} refreshLogs={vi.fn()} />);
 
     expect(screen.getByText('LLM request')).toBeInTheDocument();
-    expect(screen.getByText(/claude-sonnet · 753ms · 627 in \/ 17 out · status 200 · enforcer/)).toBeInTheDocument();
+    expect(screen.getByText(/provider-a-standard · 753ms · 627 in \/ 17 out · status 200 · enforcer/)).toBeInTheDocument();
     expect(screen.getByText('Mediation event')).toBeInTheDocument();
     expect(screen.getByText(/POST · \/v1\/messages · enforcer · status 200 · 1.3s/)).toBeInTheDocument();
     expect(screen.getByText('Security scan flagged')).toBeInTheDocument();

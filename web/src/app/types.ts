@@ -394,6 +394,10 @@ export interface Provider {
   display_name: string;
   description: string;
   category: ProviderCategory;
+  quickstart_selectable?: boolean;
+  quickstart_order?: number;
+  quickstart_recommended?: boolean;
+  quickstart_prompt_blurb?: string;
   installed: boolean;
   credential_name?: string;
   credential_label?: string;

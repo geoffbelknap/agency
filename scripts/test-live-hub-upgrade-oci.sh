@@ -7,7 +7,7 @@ DISPOSABLE_HOME="${AGENCY_UPGRADE_OCI_HOME:-}"
 GATEWAY_PORT="${AGENCY_UPGRADE_OCI_GATEWAY_PORT:-}"
 KEEP_HOME="${AGENCY_UPGRADE_OCI_KEEP_HOME:-0}"
 PACK_NAME="${AGENCY_UPGRADE_OCI_PACK_NAME:-security-ops}"
-PROVIDER_NAME="${AGENCY_UPGRADE_OCI_PROVIDER_NAME:-openai}"
+PROVIDER_NAME="${AGENCY_UPGRADE_OCI_PROVIDER_NAME:-}"
 
 usage() {
   cat <<'EOF'
@@ -27,7 +27,7 @@ Environment:
   AGENCY_UPGRADE_OCI_GATEWAY_PORT    Gateway host port (default: auto-selected free port)
   AGENCY_UPGRADE_OCI_KEEP_HOME=1     Preserve disposable home after the run
   AGENCY_UPGRADE_OCI_PACK_NAME       Pack name to exercise (default: security-ops)
-  AGENCY_UPGRADE_OCI_PROVIDER_NAME   Provider name to exercise (default: openai)
+  AGENCY_UPGRADE_OCI_PROVIDER_NAME   Provider name to exercise (required)
   AGENCY_BIN                         Agency binary to test (default: repo ./agency, then PATH)
 EOF
 }
@@ -114,6 +114,11 @@ else
 fi
 mv "$CONFIG_PATH.tmp" "$CONFIG_PATH"
 
+if [ -z "$PROVIDER_NAME" ]; then
+  echo "Set AGENCY_UPGRADE_OCI_PROVIDER_NAME to the provider adapter name to exercise." >&2
+  exit 1
+fi
+
 echo "==> Disposable Agency home: $DISPOSABLE_HOME"
 echo "==> Gateway port:           $GATEWAY_PORT"
 echo "==> Agency binary:          $AGENCY_BIN"
@@ -131,7 +136,7 @@ echo "  ✓ hub outdated reports OCI-managed upgrades"
 "$AGENCY_BIN" -q hub install "$PACK_NAME" --kind pack --yes
 echo "  ✓ provider and pack installed"
 
-grep -Eq "${PROVIDER_NAME}:|gpt-4o" "$DISPOSABLE_HOME/infrastructure/routing.yaml" ||
+grep -Eq "^  ${PROVIDER_NAME}:" "$DISPOSABLE_HOME/infrastructure/routing.yaml" ||
   { echo "expected ${PROVIDER_NAME} routing before upgrade" >&2; cat "$DISPOSABLE_HOME/infrastructure/routing.yaml" >&2; exit 1; }
 echo "  ✓ provider routing present before upgrade"
 
@@ -142,7 +147,7 @@ echo "  ✓ hub upgrade completed"
 "$AGENCY_BIN" -q hub show "$PACK_NAME" >/dev/null
 echo "  ✓ installed instances remain after upgrade"
 
-grep -Eq "${PROVIDER_NAME}:|gpt-4o" "$DISPOSABLE_HOME/infrastructure/routing.yaml" ||
+grep -Eq "^  ${PROVIDER_NAME}:" "$DISPOSABLE_HOME/infrastructure/routing.yaml" ||
   { echo "expected ${PROVIDER_NAME} routing after upgrade" >&2; cat "$DISPOSABLE_HOME/infrastructure/routing.yaml" >&2; exit 1; }
 echo "  ✓ provider routing survives upgrade"
 

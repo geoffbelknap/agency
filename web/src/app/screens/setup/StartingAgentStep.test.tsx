@@ -18,7 +18,7 @@ describe('StartingAgentStep', () => {
       http.post(`${BASE}/agents/henry/start`, () =>
         new HttpResponse(ndjson([
           { type: 'phase', phase: 1, name: 'verify', description: 'Verifying agent configuration' },
-          { type: 'complete', agent: 'henry', model: 'gemini-2.5-pro', phases: 7 },
+          { type: 'complete', agent: 'henry', model: 'provider-a-frontier', phases: 7 },
         ]), { headers: { 'Content-Type': 'application/x-ndjson' } }),
       ),
     );

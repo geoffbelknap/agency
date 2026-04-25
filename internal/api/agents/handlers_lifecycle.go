@@ -700,7 +700,7 @@ func (h *handler) runtimeLifecycleAvailable(w http.ResponseWriter) bool {
 		}
 		return true
 	}
-	if h.deps.DockerStatus != nil && !h.deps.DockerStatus.Available() {
+	if h.deps.BackendHealth != nil && !h.deps.BackendHealth.Available() {
 		writeJSON(w, 503, map[string]string{
 			"error": "Runtime backend is not available. Lifecycle operations are unavailable.",
 		})

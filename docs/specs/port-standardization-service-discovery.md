@@ -186,7 +186,6 @@ Set by the orchestrator from the service map — no hardcoded ports:
 
 ```
 AGENCY_ENFORCER_URL=http://enforcer:3128/v1
-OPENAI_API_BASE=http://enforcer:3128/v1
 HTTP_PROXY=http://{scoped_key}:x@enforcer:3128
 HTTPS_PROXY=http://{scoped_key}:x@enforcer:3128
 ```

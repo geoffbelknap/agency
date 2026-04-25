@@ -15,36 +15,25 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/hubclient"
 	"github.com/geoffbelknap/agency/internal/models"
+	"github.com/geoffbelknap/agency/internal/providerenv"
 	"gopkg.in/yaml.v3"
 )
 
-// allowedAPIDomains is the set of known-good API provider domains.
-// Hub-synced routing and service definitions are validated against this list.
-// Defense-in-depth: the egress proxy allowlist is the primary control.
-var allowedAPIDomains = map[string]bool{
-	"api.anthropic.com":                 true,
-	"api.openai.com":                    true,
-	"generativelanguage.googleapis.com": true,
-	"api.x.ai":                          true,
-	"api.deepseek.com":                  true,
-	"api.github.com":                    true,
-	"api.search.brave.com":              true,
-	"slack.com":                         true,
-	"localhost":                         true, // local models (ollama, etc.)
+// allowedServiceAPIDomains is the set of known-good non-provider service API
+// domains. Provider domains come from bundled provider adapter metadata.
+var allowedServiceAPIDomains = map[string]bool{
+	"api.github.com":       true,
+	"api.search.brave.com": true,
+	"slack.com":            true,
+	"localhost":            true, // local services and models
 }
 
-// allowedAuthEnvVars is the set of known-good credential env var names.
-// Hub-synced routing definitions must only reference these variables to
-// prevent secret exfiltration via attacker-controlled auth_env fields.
-var allowedAuthEnvVars = map[string]bool{
-	"ANTHROPIC_API_KEY": true,
-	"OPENAI_API_KEY":    true,
-	"GOOGLE_API_KEY":    true,
-	"GEMINI_API_KEY":    true,
-	"XAI_API_KEY":       true,
-	"DEEPSEEK_API_KEY":  true,
-	"GITHUB_TOKEN":      true,
-	"BRAVE_API_KEY":     true,
+// allowedServiceAuthEnvVars is the set of known-good non-provider service
+// credential env var names. Provider credential env vars come from bundled
+// provider adapter metadata.
+var allowedServiceAuthEnvVars = map[string]bool{
+	"GITHUB_TOKEN":  true,
+	"BRAVE_API_KEY": true,
 }
 
 // Component kinds supported by the hub.
@@ -1086,7 +1075,7 @@ func validateRoutingConfig(data []byte) ([]byte, error) {
 
 		// Validate auth_env — strip entries with unknown env var names
 		authEnv, _ := pm["auth_env"].(string)
-		if authEnv != "" && !allowedAuthEnvVars[authEnv] {
+		if authEnv != "" && !isAllowedAuthEnvVar(authEnv) {
 			log.Printf("[hub] SECURITY: stripping routing provider %q — unknown auth_env %q could leak secrets", name, authEnv)
 			delete(providers, name)
 			modified = true
@@ -1138,12 +1127,28 @@ func validateRoutingConfig(data []byte) ([]byte, error) {
 // isAllowedAPIDomain checks if a hostname matches one of the known-good
 // API provider domains (exact match or subdomain match).
 func isAllowedAPIDomain(host string) bool {
-	if allowedAPIDomains[host] {
+	if allowedServiceAPIDomains[host] {
 		return true
 	}
-	// Check subdomain match (e.g., "us.api.anthropic.com" matches "api.anthropic.com")
-	for domain := range allowedAPIDomains {
+	for _, domain := range providerenv.APIBaseDomains() {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return true
+		}
+	}
+	for domain := range allowedServiceAPIDomains {
 		if strings.HasSuffix(host, "."+domain) {
+			return true
+		}
+	}
+	return false
+}
+
+func isAllowedAuthEnvVar(name string) bool {
+	if allowedServiceAuthEnvVars[name] {
+		return true
+	}
+	for _, envVar := range providerenv.CredentialEnvVars() {
+		if name == envVar {
 			return true
 		}
 	}

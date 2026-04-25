@@ -100,10 +100,24 @@ This spec composes with existing principles:
 - **Task Tier / Prompt Composition Principle (tier gates cost, not
   identity)** — unchanged.
 
-## Provider Signal Mapping
+## Adapter Contract
 
-Termination is keyed on the provider's structured response metadata.
-The runtime's completion detector is a thin adapter per provider.
+Termination is keyed on provider metadata, but the body runtime must not
+parse provider-native payloads directly. Provider adapters own translation into
+the runtime contract.
+
+The runtime contract is:
+
+- chat-completions-like response envelope with `choices[0].message`
+- `tool_calls` normalized into the message when the model is requesting tools
+- `finish_reason` normalized for generic control flow
+- additive `stop_reason` metadata when the provider exposes a more specific
+  native termination class that should remain visible for audit and artifacts
+
+In other words: provider quirks stop at the adapter boundary. The body runtime
+consumes one normalized shape and derives `TurnOutcome` from that shape.
+
+## Provider Signal Mapping
 
 ### Anthropic (Claude)
 
@@ -158,10 +172,10 @@ class TurnOutcome:
     stop_reason: str           # Provider-specific, preserved for audit
 ```
 
-The detector is a module-level pure function per provider adapter. It
-reads the provider response, returns the structured outcome. The
-runtime's turn loop consumes only this abstract outcome, not
-provider-specific fields.
+The detector is a module-level pure function over the normalized adapter
+contract, not over raw provider payloads. Adapters translate raw provider
+responses into the normalized envelope first; the runtime then derives
+`TurnOutcome` without branching on provider identity.
 
 ## Task Lifecycle
 

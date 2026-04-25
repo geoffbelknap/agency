@@ -106,16 +106,16 @@ Cost calculation uses the pricing table in routing config:
 ```yaml
 # In routing.yaml
 models:
-  claude-sonnet:
-    provider: anthropic
-    provider_model: claude-sonnet-4-20250514
+  standard:
+    provider: provider-a
+    provider_model: provider-a-standard
     pricing:
       cost_per_mtok_in: 3.00       # USD per million input tokens
       cost_per_mtok_out: 15.00     # USD per million output tokens
       cost_per_mtok_cached: 0.30   # USD per million cached input tokens
-  claude-haiku:
-    provider: anthropic
-    provider_model: claude-haiku-4-5-20251001
+  fast:
+    provider: provider-a
+    provider_model: provider-a-fast
     pricing:
       cost_per_mtok_in: 0.80
       cost_per_mtok_out: 4.00

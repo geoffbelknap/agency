@@ -210,25 +210,7 @@ func (ct *ConnectorMCPTool) Validate() error {
 			return fmt.Errorf("tool %q query_params references unknown parameter %q", ct.Name, field)
 		}
 	}
-	if ct.RequiresConsentToken == nil {
-		return nil
-	}
-	if ct.RequiresConsentToken.OperationKind == "" {
-		return fmt.Errorf("tool %q requires_consent_token.operation_kind is required", ct.Name)
-	}
-	if ct.RequiresConsentToken.TokenInputField == "" {
-		return fmt.Errorf("tool %q requires_consent_token.token_input_field is required", ct.Name)
-	}
-	if ct.RequiresConsentToken.TargetInputField == "" {
-		return fmt.Errorf("tool %q requires_consent_token.target_input_field is required", ct.Name)
-	}
-	if !params[ct.RequiresConsentToken.TokenInputField] {
-		return fmt.Errorf("tool %q requires_consent_token references unknown token_input_field %q", ct.Name, ct.RequiresConsentToken.TokenInputField)
-	}
-	if !params[ct.RequiresConsentToken.TargetInputField] {
-		return fmt.Errorf("tool %q requires_consent_token references unknown target_input_field %q", ct.Name, ct.RequiresConsentToken.TargetInputField)
-	}
-	return nil
+	return validateConsentRequirement(ct.Name, ct.RequiresConsentToken, params)
 }
 
 // ConnectorMCP defines the MCP server configuration for a connector.

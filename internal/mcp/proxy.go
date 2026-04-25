@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/geoffbelknap/agency/internal/providerenv"
 )
 
 // Proxy is an HTTP client that talks to the gateway's MCP endpoints.
@@ -27,7 +29,7 @@ func NewProxy(baseURL, token string) *Proxy {
 		baseURL:         baseURL,
 		token:           token,
 		client:          &http.Client{Timeout: 300 * time.Second},
-		envVars:         []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY"},
+		envVars:         providerenv.CredentialEnvVars(),
 		retryInitial:    200 * time.Millisecond,
 		retryMaxElapsed: 30 * time.Second,
 	}

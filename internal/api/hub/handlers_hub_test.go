@@ -33,42 +33,42 @@ func (r *recordingSignalSender) SignalContainer(_ context.Context, containerName
 	return nil
 }
 
-const testOpenAIProviderYAML = `
-name: openai
+const testProviderYAML = `
+name: provider-a
 routing:
-  api_base: https://api.openai.com/v1
+  api_base: https://provider-a.example.com/v1
   auth_header: Authorization
   auth_prefix: "Bearer "
   models:
-    gpt-4o:
-      provider_model: gpt-4o
+    provider-a-standard:
+      provider_model: provider-a-model-v1
       capabilities: [tools]
   tiers:
-    standard: gpt-4o
+    standard: provider-a-standard
 `
 
 func TestHubRemoveProviderCleansRouting(t *testing.T) {
 	home := t.TempDir()
 	mgr := hubpkg.NewManager(home)
 
-	if _, err := mgr.Registry.Create("openai", "provider", "default/openai"); err != nil {
+	if _, err := mgr.Registry.Create("provider-a", "provider", "default/provider-a"); err != nil {
 		t.Fatalf("create provider instance: %v", err)
 	}
-	if err := hubpkg.MergeProviderRouting(home, "openai", []byte(testOpenAIProviderYAML)); err != nil {
+	if err := hubpkg.MergeProviderRouting(home, "provider-a", []byte(testProviderYAML)); err != nil {
 		t.Fatalf("merge provider routing: %v", err)
 	}
 
 	r := chi.NewRouter()
 	RegisterRoutes(r, Deps{Config: &config.Config{Home: home}})
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/hub/openai", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/hub/provider-a", nil)
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
 	}
-	if mgr.Registry.Resolve("openai") != nil {
+	if mgr.Registry.Resolve("provider-a") != nil {
 		t.Fatal("provider registry instance should have been removed")
 	}
 
@@ -76,7 +76,7 @@ func TestHubRemoveProviderCleansRouting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read routing.yaml: %v", err)
 	}
-	if strings.Contains(string(data), "openai") || strings.Contains(string(data), "gpt-4o") {
+	if strings.Contains(string(data), "provider-a") || strings.Contains(string(data), "provider-a-standard") {
 		t.Fatalf("provider routing remained after remove:\n%s", string(data))
 	}
 

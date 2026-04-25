@@ -57,10 +57,11 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) initPlatform(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Operator        string `json:"operator"`
-		Force           bool   `json:"force"`
-		AnthropicAPIKey string `json:"anthropic_api_key"`
-		OpenAIAPIKey    string `json:"openai_api_key"`
+		Operator     string            `json:"operator"`
+		Force        bool              `json:"force"`
+		Provider     string            `json:"provider"`
+		APIKey       string            `json:"api_key"`
+		ProviderKeys map[string]string `json:"provider_keys"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err.Error() != "EOF" {
 		writeJSON(w, 400, map[string]string{"error": "invalid JSON"})
@@ -68,10 +69,11 @@ func (h *handler) initPlatform(w http.ResponseWriter, r *http.Request) {
 	}
 
 	opts := config.InitOptions{
-		Operator:        body.Operator,
-		Force:           body.Force,
-		AnthropicAPIKey: body.AnthropicAPIKey,
-		OpenAIAPIKey:    body.OpenAIAPIKey,
+		Operator:     body.Operator,
+		Force:        body.Force,
+		Provider:     body.Provider,
+		APIKey:       body.APIKey,
+		ProviderKeys: body.ProviderKeys,
 	}
 	pendingKeys, err := config.RunInit(opts)
 	if err != nil {

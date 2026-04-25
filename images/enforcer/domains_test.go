@@ -45,7 +45,7 @@ func TestDomainGateAllowlistListed(t *testing.T) {
 	os.WriteFile(f, []byte(`
 mode: allowlist
 domains:
-  - api.anthropic.com
+  - provider-a.example.com
   - github.com
 `), 0644)
 
@@ -54,7 +54,7 @@ domains:
 		t.Fatalf("load error: %v", err)
 	}
 
-	if !dg.Allowed("api.anthropic.com") {
+	if !dg.Allowed("provider-a.example.com") {
 		t.Error("listed domain should be allowed")
 	}
 	if !dg.Allowed("github.com") {
@@ -68,7 +68,7 @@ func TestDomainGateAllowlistUnlisted(t *testing.T) {
 	os.WriteFile(f, []byte(`
 mode: allowlist
 domains:
-  - api.anthropic.com
+  - provider-a.example.com
 `), 0644)
 
 	dg := NewDomainGate()
@@ -88,7 +88,7 @@ func TestDomainGateWildcard(t *testing.T) {
 mode: allowlist
 domains:
   - "*.github.com"
-  - api.anthropic.com
+  - provider-a.example.com
 `), 0644)
 
 	dg := NewDomainGate()

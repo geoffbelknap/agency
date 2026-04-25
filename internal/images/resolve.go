@@ -38,7 +38,7 @@ var sourceImageDependencies = map[string][]string{
 	"workspace": {"workspace-base"},
 }
 
-// Resolve ensures the Docker image for the named service is available locally.
+// Resolve ensures the container image for the named service is available locally.
 //
 // Resolution order:
 //  1. Source tree build (if sourceDir is set — dev mode). Failure is fatal.
@@ -861,7 +861,7 @@ func expandFingerprintPaths(contextDir string, paths []string) ([]string, error)
 
 func ImageExists(ctx context.Context, cli *runtimehost.RawClient, ref string) (bool, error) {
 	if cli == nil {
-		return false, fmt.Errorf("no Docker client")
+		return false, fmt.Errorf("no image backend client")
 	}
 	_, _, err := cli.ImageInspectWithRaw(ctx, ref)
 	if err != nil {

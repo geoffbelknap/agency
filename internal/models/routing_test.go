@@ -4,7 +4,7 @@ import "testing"
 
 func TestModelConfig_HasCapability(t *testing.T) {
 	m := ModelConfig{
-		Provider: "anthropic", ProviderModel: "claude-sonnet-4",
+		Provider: "provider-a", ProviderModel: "provider-a-model-v1",
 		Capabilities: []string{"tools", "vision", "streaming"},
 	}
 	if !m.HasCapability("tools") {
@@ -28,11 +28,11 @@ func TestModelConfig_HasCapabilityEmpty(t *testing.T) {
 func TestRoutingConfig_TierCapabilities(t *testing.T) {
 	rc := RoutingConfig{
 		Models: map[string]ModelConfig{
-			"claude-sonnet": {Provider: "anthropic", ProviderModel: "claude-sonnet-4", Capabilities: []string{"tools", "vision", "streaming"}},
-			"gemini-flash":  {Provider: "google", ProviderModel: "gemini-2.5-flash", Capabilities: []string{"tools", "vision", "streaming"}},
+			"standard": {Provider: "provider-a", ProviderModel: "provider-a-model-v1", Capabilities: []string{"tools", "vision", "streaming"}},
+			"fast":     {Provider: "provider-b", ProviderModel: "provider-b-model-v1", Capabilities: []string{"tools", "vision", "streaming"}},
 		},
 		Tiers: TierConfig{
-			Standard: []TierEntry{{Model: "claude-sonnet"}, {Model: "gemini-flash"}},
+			Standard: []TierEntry{{Model: "standard"}, {Model: "fast"}},
 		},
 	}
 	caps := rc.TierCapabilities("standard")
@@ -44,10 +44,10 @@ func TestRoutingConfig_TierCapabilities(t *testing.T) {
 func TestRoutingConfig_TierCapabilitiesIntersection(t *testing.T) {
 	rc := RoutingConfig{
 		Models: map[string]ModelConfig{
-			"claude-sonnet": {Provider: "anthropic", ProviderModel: "cs4", Capabilities: []string{"tools", "vision", "streaming"}},
-			"llama-8b":      {Provider: "ollama", ProviderModel: "llama", Capabilities: []string{"streaming"}},
+			"standard": {Provider: "provider-a", ProviderModel: "provider-a-model-v1", Capabilities: []string{"tools", "vision", "streaming"}},
+			"local":    {Provider: "local", ProviderModel: "local-model", Capabilities: []string{"streaming"}},
 		},
-		Tiers: TierConfig{Mini: []TierEntry{{Model: "claude-sonnet"}, {Model: "llama-8b"}}},
+		Tiers: TierConfig{Mini: []TierEntry{{Model: "standard"}, {Model: "local"}}},
 	}
 	caps := rc.TierCapabilities("mini")
 	if len(caps) != 1 || caps[0] != "streaming" {
@@ -65,16 +65,16 @@ func TestRoutingConfig_TierCapabilitiesEmpty(t *testing.T) {
 func TestResolveTierWithCapabilities(t *testing.T) {
 	rc := RoutingConfig{
 		Providers: map[string]ProviderConfig{
-			"anthropic": {APIBase: "https://api.anthropic.com/v1"},
-			"ollama":    {APIBase: "http://localhost:11434/v1"},
+			"provider-a": {APIBase: "https://provider-a.example.com/v1"},
+			"local":      {APIBase: "http://localhost:11434/v1"},
 		},
 		Models: map[string]ModelConfig{
-			"claude-sonnet": {Provider: "anthropic", ProviderModel: "claude-sonnet-4", Capabilities: []string{"tools", "vision", "streaming"}},
-			"llama-8b":      {Provider: "ollama", ProviderModel: "llama3.1:8b", Capabilities: []string{"streaming"}},
+			"standard": {Provider: "provider-a", ProviderModel: "provider-a-model-v1", Capabilities: []string{"tools", "vision", "streaming"}},
+			"local":    {Provider: "local", ProviderModel: "local-model-v1", Capabilities: []string{"streaming"}},
 		},
 		Tiers: TierConfig{
-			Standard: []TierEntry{{Model: "claude-sonnet"}},
-			Mini:     []TierEntry{{Model: "llama-8b"}},
+			Standard: []TierEntry{{Model: "standard"}},
+			Mini:     []TierEntry{{Model: "local"}},
 		},
 		Settings: RoutingSettings{TierStrategy: "best_effort"},
 	}
@@ -84,8 +84,8 @@ func TestResolveTierWithCapabilities(t *testing.T) {
 	if pc == nil || mc == nil {
 		t.Fatal("expected resolution")
 	}
-	if mc.ProviderModel != "claude-sonnet-4" {
-		t.Errorf("expected claude-sonnet-4, got %s", mc.ProviderModel)
+	if mc.ProviderModel != "provider-a-model-v1" {
+		t.Errorf("expected provider-a-model-v1, got %s", mc.ProviderModel)
 	}
 	if tier != "standard" {
 		t.Errorf("expected standard fallback, got %s", tier)
@@ -93,8 +93,8 @@ func TestResolveTierWithCapabilities(t *testing.T) {
 
 	// Mini + streaming → stays on mini
 	_, mc2, tier2 := rc.ResolveTierWithCapabilities("mini", []string{"streaming"}, nil)
-	if mc2.ProviderModel != "llama3.1:8b" {
-		t.Errorf("expected llama, got %s", mc2.ProviderModel)
+	if mc2.ProviderModel != "local-model-v1" {
+		t.Errorf("expected local model, got %s", mc2.ProviderModel)
 	}
 	if tier2 != "mini" {
 		t.Errorf("expected mini, got %s", tier2)
@@ -103,9 +103,9 @@ func TestResolveTierWithCapabilities(t *testing.T) {
 
 func TestResolveTierWithCapabilitiesNoMatch(t *testing.T) {
 	rc := RoutingConfig{
-		Providers: map[string]ProviderConfig{"ollama": {APIBase: "http://localhost:11434/v1"}},
-		Models:    map[string]ModelConfig{"llama": {Provider: "ollama", ProviderModel: "llama", Capabilities: []string{"streaming"}}},
-		Tiers:     TierConfig{Mini: []TierEntry{{Model: "llama"}}},
+		Providers: map[string]ProviderConfig{"local": {APIBase: "http://localhost:11434/v1"}},
+		Models:    map[string]ModelConfig{"local": {Provider: "local", ProviderModel: "local-model-v1", Capabilities: []string{"streaming"}}},
+		Tiers:     TierConfig{Mini: []TierEntry{{Model: "local"}}},
 		Settings:  RoutingSettings{TierStrategy: "best_effort"},
 	}
 	pc, mc, _ := rc.ResolveTierWithCapabilities("mini", []string{"vision"}, nil)
@@ -117,12 +117,12 @@ func TestResolveTierWithCapabilitiesNoMatch(t *testing.T) {
 func TestRoutingConfigValidateRejectsUnknownProviderToolCapability(t *testing.T) {
 	rc := RoutingConfig{
 		Providers: map[string]ProviderConfig{
-			"openai": {APIBase: "https://api.openai.com/v1"},
+			"provider-a": {APIBase: "https://provider-a.example.com/v1"},
 		},
 		Models: map[string]ModelConfig{
-			"gpt-test": {
-				Provider:                 "openai",
-				ProviderModel:            "gpt-test",
+			"provider-a-standard": {
+				Provider:                 "provider-a",
+				ProviderModel:            "provider-a-standard",
 				ProviderToolCapabilities: []string{"provider-web-search", "provider-unknown-tool"},
 			},
 		},
@@ -135,12 +135,12 @@ func TestRoutingConfigValidateRejectsUnknownProviderToolCapability(t *testing.T)
 func TestRoutingConfigValidateRejectsUnknownProviderToolPricingCapability(t *testing.T) {
 	rc := RoutingConfig{
 		Providers: map[string]ProviderConfig{
-			"openai": {APIBase: "https://api.openai.com/v1"},
+			"provider-a": {APIBase: "https://provider-a.example.com/v1"},
 		},
 		Models: map[string]ModelConfig{
-			"gpt-test": {
-				Provider:      "openai",
-				ProviderModel: "gpt-test",
+			"provider-a-test": {
+				Provider:      "provider-a",
+				ProviderModel: "provider-a-model-v1",
 				ProviderToolPricing: map[string]ProviderToolPrice{
 					"provider-unknown-tool": {Unit: "tool_call", Confidence: "unknown"},
 				},
@@ -152,16 +152,16 @@ func TestRoutingConfigValidateRejectsUnknownProviderToolPricingCapability(t *tes
 	}
 }
 
-func TestRoutingConfigValidateRejectsGeminiProviderPrincipal(t *testing.T) {
+func TestRoutingConfigValidateAllowsProviderNameIndependentOfAPIFormat(t *testing.T) {
 	rc := RoutingConfig{
 		Providers: map[string]ProviderConfig{
-			"gemini": {APIBase: "https://generativelanguage.googleapis.com/v1beta", APIFormat: "gemini"},
+			"provider-a": {APIBase: "https://provider-a.example.com/v1beta", APIFormat: "gemini"},
 		},
 		Models: map[string]ModelConfig{
-			"gemini-flash": {Provider: "gemini", ProviderModel: "gemini-2.5-flash"},
+			"provider-a-fast": {Provider: "provider-a", ProviderModel: "provider-a-model-v1"},
 		},
 	}
-	if err := rc.Validate(); err == nil {
-		t.Fatal("expected gemini provider principal error")
+	if err := rc.Validate(); err != nil {
+		t.Fatalf("provider name should be independent of api_format: %v", err)
 	}
 }

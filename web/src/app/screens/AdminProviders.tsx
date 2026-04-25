@@ -32,6 +32,19 @@ function providerModels(config: RawRoutingConfig | null, providerName: string) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function sortProviders(providers: Provider[]) {
+  return [...providers].sort((a, b) => {
+    const aSelectable = a.quickstart_selectable ? 0 : 1;
+    const bSelectable = b.quickstart_selectable ? 0 : 1;
+    if (aSelectable !== bSelectable) return aSelectable - bSelectable;
+
+    const orderDiff = (a.quickstart_order ?? Number.MAX_SAFE_INTEGER) - (b.quickstart_order ?? Number.MAX_SAFE_INTEGER);
+    if (orderDiff !== 0) return orderDiff;
+
+    return a.display_name.localeCompare(b.display_name);
+  });
+}
+
 export function AdminProviders() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [routingConfig, setRoutingConfig] = useState<RawRoutingConfig | null>(null);
@@ -40,6 +53,7 @@ export function AdminProviders() {
   const [busyProvider, setBusyProvider] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
+  const [baseInputs, setBaseInputs] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
@@ -66,6 +80,8 @@ export function AdminProviders() {
     load();
   }, [load]);
 
+  const orderedProviders = useMemo(() => sortProviders(providers), [providers]);
+
   const configuredCount = providers.filter((provider) => provider.credential_configured).length;
   const installedCount = providers.filter((provider) => provider.installed).length;
   const modelCount = Object.keys(routingConfig?.models || {}).length;
@@ -75,6 +91,7 @@ export function AdminProviders() {
   async function handleSaveProvider(provider: Provider) {
     const credentialName = provider.credential_name;
     const key = (keyInputs[provider.name] || '').trim();
+    const baseURL = (baseInputs[provider.name] || '').trim();
 
     if (credentialName && !key && !provider.credential_configured) {
       toast.error(`Enter ${provider.credential_label || 'an API key'} before saving ${provider.display_name}`);
@@ -83,16 +100,20 @@ export function AdminProviders() {
 
     setBusyProvider(provider.name);
     try {
-      if (credentialName && key) {
-        await api.credentials.store(credentialName, key, { kind: 'provider', scope: 'global', protocol: 'api-key' });
-        const result = await api.credentials.test(credentialName);
-        if (!result.ok) {
-          throw new Error(result.message || 'Credential test failed');
-        }
+      const result = await api.providers.verify(provider.name, {
+        api_key: key || undefined,
+        api_base: baseURL || undefined,
+      });
+      if (!result.ok) {
+        throw new Error(result.message || 'Provider verification failed');
       }
 
-      if (!provider.installed) {
-        await api.providers.install(provider.name);
+      if (credentialName && key) {
+        await api.credentials.store(credentialName, key, { kind: 'provider', scope: 'global', protocol: 'api-key' });
+      }
+
+      if (!provider.installed || (provider.api_base_configurable && baseURL)) {
+        await api.providers.install(provider.name, { api_base: baseURL || undefined });
       }
 
       toast.success(`${provider.display_name} provider ready`);
@@ -112,7 +133,7 @@ export function AdminProviders() {
           <div className="eyebrow" style={{ marginBottom: 8 }}>Providers</div>
           <h3 className="display" style={{ margin: 0, fontSize: 32, fontWeight: 300, lineHeight: 1.1, color: 'var(--ink)' }}>Model provider operations</h3>
           <p style={{ margin: '8px 0 0', maxWidth: 680, color: 'var(--ink-mid)', fontSize: 13, lineHeight: 1.55 }}>
-            Install bundled routing definitions, update provider credentials, and inspect the active model and tier map.
+            Install bundled provider adapters, update provider credentials, and inspect the active model and tier map.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={load} disabled={refreshing}>
@@ -141,13 +162,14 @@ export function AdminProviders() {
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-mid)' }}>Loading providers...</div>
       ) : (
         <section style={{ border: '0.5px solid var(--ink-hairline)', borderRadius: 10, background: 'var(--warm-2)', overflow: 'hidden' }}>
-          {providers.length === 0 ? (
+          {orderedProviders.length === 0 ? (
             <div style={{ padding: 22, color: 'var(--ink-mid)' }}>No bundled providers available.</div>
-          ) : providers.map((provider, index) => {
+          ) : orderedProviders.map((provider, index) => {
             const status = providerStatus(provider);
             const isExpanded = expanded === provider.name;
             const models = providerModels(routingConfig, provider.name);
             const busy = busyProvider === provider.name;
+            const providerSummary = provider.quickstart_prompt_blurb || provider.description;
             return (
               <div key={provider.name} style={{ borderTop: index === 0 ? 0 : '0.5px solid var(--ink-hairline)' }}>
                 <button
@@ -159,33 +181,52 @@ export function AdminProviders() {
                     <div className="mono" style={{ color: 'var(--ink)', fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{provider.display_name}</div>
                     <div style={{ marginTop: 3, color: 'var(--ink-faint)', fontSize: 11 }}>{provider.category}</div>
                   </div>
-                  <div style={{ color: 'var(--ink-mid)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{provider.description}</div>
+                  <div style={{ color: 'var(--ink-mid)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{providerSummary}</div>
                   <ProviderBadge tone={status.tone}>{status.label}</ProviderBadge>
-                  <ProviderBadge tone={models.length > 0 ? 'ok' : 'neutral'}>{models.length} models</ProviderBadge>
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    {provider.quickstart_recommended ? <ProviderBadge tone="warn">recommended</ProviderBadge> : null}
+                    <ProviderBadge tone={models.length > 0 ? 'ok' : 'neutral'}>{models.length} models</ProviderBadge>
+                  </div>
                 </button>
 
                 {isExpanded && (
                   <div style={{ display: 'grid', gap: 14, borderTop: '0.5px solid var(--ink-hairline)', background: 'var(--warm)', padding: 16 }}>
+                    <p style={{ margin: 0, color: 'var(--ink-mid)', fontSize: 13, lineHeight: 1.55 }}>{providerSummary}</p>
                     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) auto', gap: 14, alignItems: 'end' }}>
-                      {provider.credential_name ? (
-                        <label style={{ display: 'grid', gap: 7 }}>
-                          <span className="eyebrow" style={{ fontSize: 9 }}>{provider.credential_label || provider.credential_name}</span>
-                          <Input
-                            type="password"
-                            value={keyInputs[provider.name] || ''}
-                            onChange={(event) => setKeyInputs((current) => ({ ...current, [provider.name]: event.target.value }))}
-                            placeholder={provider.credential_configured ? 'Stored credential present' : 'Paste API key'}
-                            className="border-border bg-card text-sm"
-                          />
-                          {provider.api_key_url && (
-                            <a href={provider.api_key_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--teal-dark)', fontSize: 12, textDecoration: 'none' }}>
-                              Get an API key <ExternalLink size={12} />
-                            </a>
-                          )}
-                        </label>
-                      ) : (
-                        <div style={{ color: 'var(--ink-mid)', fontSize: 13 }}>No credential required for this provider.</div>
-                      )}
+                      <div style={{ display: 'grid', gap: 12 }}>
+                        {provider.credential_name ? (
+                          <label style={{ display: 'grid', gap: 7 }}>
+                            <span className="eyebrow" style={{ fontSize: 9 }}>{provider.credential_label || provider.credential_name}</span>
+                            <Input
+                              id={`provider-key-${provider.name}`}
+                              type="password"
+                              value={keyInputs[provider.name] || ''}
+                              onChange={(event) => setKeyInputs((current) => ({ ...current, [provider.name]: event.target.value }))}
+                              placeholder={provider.credential_configured ? 'Stored credential present' : 'Paste API key'}
+                              className="border-border bg-card text-sm"
+                            />
+                            {provider.api_key_url && (
+                              <a href={provider.api_key_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--teal-dark)', fontSize: 12, textDecoration: 'none' }}>
+                                Get an API key <ExternalLink size={12} />
+                              </a>
+                            )}
+                          </label>
+                        ) : (
+                          <div style={{ color: 'var(--ink-mid)', fontSize: 13 }}>No credential required for this provider.</div>
+                        )}
+                        {provider.api_base_configurable ? (
+                          <label style={{ display: 'grid', gap: 7 }}>
+                            <span className="eyebrow" style={{ fontSize: 9 }}>API Base URL</span>
+                            <Input
+                              id={`provider-base-${provider.name}`}
+                              value={baseInputs[provider.name] || ''}
+                              onChange={(event) => setBaseInputs((current) => ({ ...current, [provider.name]: event.target.value }))}
+                              placeholder="http://localhost:11434/v1"
+                              className="border-border bg-card text-sm"
+                            />
+                          </label>
+                        ) : null}
+                      </div>
                       <Button size="sm" onClick={() => handleSaveProvider(provider)} disabled={busy}>
                         {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <KeyRound className="mr-1 h-3.5 w-3.5" />}
                         {provider.installed ? 'Save & Test' : 'Install Provider'}

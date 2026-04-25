@@ -155,7 +155,7 @@ func (hc *HubHealthChecker) checkPollHealth(connectorName string) []HealthCheck 
 			Name:   "poll_health",
 			Status: "fail",
 			Detail: fmt.Sprintf("%d consecutive poll failures", conn.ConsecutiveFailures),
-			Fix:    "Check credentials and egress proxy — docker logs agency-infra-intake",
+			Fix:    "Check credentials, egress proxy, and intake service logs.",
 		}}
 	}
 	return []HealthCheck{{

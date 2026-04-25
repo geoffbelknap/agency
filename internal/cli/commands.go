@@ -932,8 +932,8 @@ func statusCmd() *cobra.Command {
 				if infraResp.WebURL != "" {
 					fmt.Fprintf(out, "  Web UI:  %s\n", infraResp.WebURL)
 				}
-				if infraResp.Docker == "unavailable" {
-					fmt.Fprintf(out, "  Docker:  %s\n", red.Render("unavailable"))
+				if infraResp.ContainerBackend == "unavailable" {
+					fmt.Fprintf(out, "  Container backend: %s\n", red.Render("unavailable"))
 				}
 				if backendLine := formatBackendStatusLine(infraResp.Backend, infraResp.BackendMode, infraResp.BackendEndpoint); backendLine != "" {
 					fmt.Fprintf(out, "  Backend: %s\n", backendLine)
@@ -948,7 +948,7 @@ func statusCmd() *cobra.Command {
 				gatewayBuild := infraResp.BuildID
 				for _, ic := range infraResp.Components {
 					icon := green.Render("●")
-					if infraResp.Docker == "unavailable" {
+					if infraResp.ContainerBackend == "unavailable" {
 						icon = dim.Render("?")
 					} else if ic["health"] != "healthy" && ic["state"] != "running" {
 						icon = red.Render("○")

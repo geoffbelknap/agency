@@ -49,7 +49,7 @@ func (h *handler) listAgentEpisodes(w http.ResponseWriter, r *http.Request) {
 // credential loading, and budget tracking as other infrastructure LLM calls.
 func (h *handler) callEvaluationLLM(taskSummary string, criteria []evaluation.CriterionItem, model string) (evaluation.EvaluationResult, error) {
 	if model == "" || model == "default" {
-		model = "claude-haiku" // cheap model for evaluation
+		model = "fast"
 	}
 
 	prompt := evaluation.BuildEvaluationPrompt(taskSummary, criteria)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -24,6 +25,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/orchestrate/containers"
 	"github.com/geoffbelknap/agency/internal/pkg/envfile"
+	"github.com/geoffbelknap/agency/internal/providercatalog"
 	"github.com/geoffbelknap/agency/internal/registry"
 	"github.com/geoffbelknap/agency/internal/routing"
 	"github.com/geoffbelknap/agency/internal/services"
@@ -525,16 +527,128 @@ func (inf *Infra) ensureConfigs() error {
 
 	policyFile := filepath.Join(egressDir, "policy.yaml")
 	if _, err := os.Stat(policyFile); os.IsNotExist(err) {
-		os.WriteFile(policyFile, []byte(defaultEgressPolicy), 0644)
+		policy, err := bundledDefaultEgressPolicy()
+		if err != nil {
+			return err
+		}
+		os.WriteFile(policyFile, policy, 0644)
 	}
 
 	routingFile := filepath.Join(infraDir, "routing.yaml")
 	if _, err := os.Stat(routingFile); os.IsNotExist(err) {
-		os.WriteFile(routingFile, []byte(defaultRoutingConfig), 0644)
+		routingConfig, err := bundledDefaultRoutingConfig()
+		if err != nil {
+			return err
+		}
+		os.WriteFile(routingFile, routingConfig, 0644)
 	} else if err := repairDefaultRoutingCapabilities(routingFile); err != nil {
 		inf.log.Warn("routing capability repair failed", "err", err)
 	}
 	return nil
+}
+
+func bundledDefaultRoutingConfig() ([]byte, error) {
+	providers, err := providercatalog.List()
+	if err != nil {
+		return nil, fmt.Errorf("load provider catalog: %w", err)
+	}
+	doc := map[string]interface{}{
+		"version":   "0.1",
+		"providers": map[string]interface{}{},
+		"models":    map[string]interface{}{},
+		"tiers":     map[string]interface{}{},
+	}
+	providerMap := doc["providers"].(map[string]interface{})
+	modelMap := doc["models"].(map[string]interface{})
+	tierMap := doc["tiers"].(map[string]interface{})
+	preference := 0
+	for _, provider := range providers {
+		if provider.Routing == nil {
+			continue
+		}
+		providerConfig := map[string]interface{}{}
+		for key, value := range provider.Routing {
+			if key == "models" || key == "tiers" {
+				continue
+			}
+			providerConfig[key] = value
+		}
+		if env, _ := provider.Credential["env_var"].(string); env != "" {
+			providerConfig["auth_env"] = env
+		}
+		providerMap[provider.Name] = providerConfig
+
+		models, _ := provider.Routing["models"].(map[string]interface{})
+		for alias, raw := range models {
+			cfg, _ := raw.(map[string]interface{})
+			if cfg == nil {
+				continue
+			}
+			copyCfg := map[string]interface{}{"provider": provider.Name}
+			for key, value := range cfg {
+				copyCfg[key] = value
+			}
+			modelMap[alias] = copyCfg
+		}
+
+		tiers, _ := provider.Routing["tiers"].(map[string]interface{})
+		for tier, rawAlias := range tiers {
+			alias, _ := rawAlias.(string)
+			if alias == "" {
+				continue
+			}
+			existing, _ := tierMap[tier].([]map[string]interface{})
+			tierMap[tier] = append(existing, map[string]interface{}{
+				"model":      alias,
+				"preference": preference,
+			})
+		}
+		preference++
+	}
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return nil, fmt.Errorf("marshal default routing config: %w", err)
+	}
+	return out, nil
+}
+
+func bundledDefaultEgressPolicy() ([]byte, error) {
+	providers, err := providercatalog.List()
+	if err != nil {
+		return nil, fmt.Errorf("load provider catalog: %w", err)
+	}
+	seen := map[string]bool{}
+	rules := []map[string]string{}
+	for _, provider := range providers {
+		if provider.Routing == nil {
+			continue
+		}
+		apiBase, _ := provider.Routing["api_base"].(string)
+		parsed, err := url.Parse(strings.TrimSpace(apiBase))
+		if err != nil || parsed.Hostname() == "" {
+			continue
+		}
+		host := parsed.Hostname()
+		if seen[host] {
+			continue
+		}
+		seen[host] = true
+		rules = append(rules, map[string]string{
+			"domain": host,
+			"action": "allow",
+		})
+	}
+	doc := map[string]interface{}{
+		"version":        "0.1",
+		"mode":           "allowlist",
+		"default_action": "block",
+		"rules":          rules,
+	}
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return nil, fmt.Errorf("marshal default egress policy: %w", err)
+	}
+	return out, nil
 }
 
 func repairDefaultRoutingCapabilities(path string) error {
@@ -551,8 +665,12 @@ func repairDefaultRoutingCapabilities(path string) error {
 		return nil
 	}
 
+	defaultMetadata, err := bundledDefaultRoutingModelMetadata()
+	if err != nil {
+		return err
+	}
 	changed := false
-	for alias, defaults := range defaultRoutingModelMetadata {
+	for alias, defaults := range defaultMetadata {
 		raw, ok := models[alias].(map[string]interface{})
 		if !ok {
 			continue
@@ -578,6 +696,48 @@ func repairDefaultRoutingCapabilities(path string) error {
 		return fmt.Errorf("marshal routing.yaml: %w", err)
 	}
 	return os.WriteFile(path, out, 0644)
+}
+
+func bundledDefaultRoutingModelMetadata() (map[string]defaultRoutingModelInfo, error) {
+	providers, err := providercatalog.List()
+	if err != nil {
+		return nil, fmt.Errorf("load provider catalog: %w", err)
+	}
+	metadata := make(map[string]defaultRoutingModelInfo)
+	for _, provider := range providers {
+		models, _ := provider.Routing["models"].(map[string]interface{})
+		for alias, raw := range models {
+			cfg, _ := raw.(map[string]interface{})
+			if cfg == nil {
+				continue
+			}
+			providerModel, _ := cfg["provider_model"].(string)
+			if providerModel == "" {
+				continue
+			}
+			metadata[alias] = defaultRoutingModelInfo{
+				Provider:                 provider.Name,
+				ProviderModel:            providerModel,
+				Capabilities:             interfaceStringList(cfg["capabilities"]),
+				ProviderToolCapabilities: interfaceStringList(cfg["provider_tool_capabilities"]),
+			}
+		}
+	}
+	return metadata, nil
+}
+
+func interfaceStringList(raw interface{}) []string {
+	values, ok := raw.([]interface{})
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if s, ok := value.(string); ok && s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func ensureStringList(model map[string]interface{}, key string, values []string) bool {
@@ -704,7 +864,7 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	// normal load. The memory limit (64MB) is the effective constraint.
 	hc.Resources.PidsLimit = nil
 	// Reverse bridges: host gateway reaches services through published ports.
-	// Ports must publish to the host for macOS Docker Desktop compatibility.
+	// Ports must publish to the host for VM-backed host backend compatibility.
 	hc.PortBindings = containerops.PortMap{
 		"8202/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8202")}},
 		"8204/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8204")}},
@@ -2153,94 +2313,9 @@ func (inf *Infra) mergeOntology() {
 
 // -- Default configs --
 
-const defaultEgressPolicy = `# Agency egress policy
-version: "0.1"
-mode: allowlist
-default_action: block
-rules:
-  - domain: "api.anthropic.com"
-    action: allow
-  - domain: "api.openai.com"
-    action: allow
-  - domain: "generativelanguage.googleapis.com"
-    action: allow
-`
-
-const defaultRoutingConfig = `# Agency LLM routing config
-version: "0.1"
-providers:
-  anthropic:
-    api_base: https://api.anthropic.com/v1
-    auth_env: ANTHROPIC_API_KEY
-    auth_header: x-api-key
-    auth_prefix: ""
-  openai:
-    api_base: https://api.openai.com/v1
-    auth_env: OPENAI_API_KEY
-    auth_header: Authorization
-    auth_prefix: "Bearer "
-models:
-  claude-sonnet:
-    provider: anthropic
-    provider_model: claude-sonnet-4-20250514
-    capabilities: [tools, vision, streaming]
-    provider_tool_capabilities: [provider-web-search, provider-web-fetch, provider-code-execution, provider-memory, provider-mcp, provider-tool-search]
-  claude-opus:
-    provider: anthropic
-    provider_model: claude-opus-4-20250514
-    capabilities: [tools, vision, streaming]
-    provider_tool_capabilities: [provider-web-search, provider-web-fetch, provider-code-execution, provider-memory, provider-mcp, provider-tool-search]
-  claude-haiku:
-    provider: anthropic
-    provider_model: claude-haiku-4-5-20251001
-    capabilities: [tools, vision, streaming]
-    provider_tool_capabilities: [provider-web-search, provider-web-fetch, provider-code-execution, provider-memory, provider-mcp, provider-tool-search]
-  gpt-4o:
-    provider: openai
-    provider_model: gpt-4o
-    capabilities: [tools, vision, streaming]
-    provider_tool_capabilities: [provider-web-search, provider-file-search, provider-code-execution, provider-tool-search, provider-image-generation, provider-mcp]
-  gpt-4o-mini:
-    provider: openai
-    provider_model: gpt-4o-mini
-    capabilities: [tools, vision, streaming]
-`
-
 type defaultRoutingModelInfo struct {
 	Provider                 string
 	ProviderModel            string
 	Capabilities             []string
 	ProviderToolCapabilities []string
-}
-
-var defaultRoutingModelMetadata = map[string]defaultRoutingModelInfo{
-	"claude-sonnet": {
-		Provider:                 "anthropic",
-		ProviderModel:            "claude-sonnet-4-20250514",
-		Capabilities:             []string{"tools", "vision", "streaming"},
-		ProviderToolCapabilities: []string{"provider-web-search", "provider-web-fetch", "provider-code-execution", "provider-memory", "provider-mcp", "provider-tool-search"},
-	},
-	"claude-opus": {
-		Provider:                 "anthropic",
-		ProviderModel:            "claude-opus-4-20250514",
-		Capabilities:             []string{"tools", "vision", "streaming"},
-		ProviderToolCapabilities: []string{"provider-web-search", "provider-web-fetch", "provider-code-execution", "provider-memory", "provider-mcp", "provider-tool-search"},
-	},
-	"claude-haiku": {
-		Provider:                 "anthropic",
-		ProviderModel:            "claude-haiku-4-5-20251001",
-		Capabilities:             []string{"tools", "vision", "streaming"},
-		ProviderToolCapabilities: []string{"provider-web-search", "provider-web-fetch", "provider-code-execution", "provider-memory", "provider-mcp", "provider-tool-search"},
-	},
-	"gpt-4o": {
-		Provider:                 "openai",
-		ProviderModel:            "gpt-4o",
-		Capabilities:             []string{"tools", "vision", "streaming"},
-		ProviderToolCapabilities: []string{"provider-web-search", "provider-file-search", "provider-code-execution", "provider-tool-search", "provider-image-generation", "provider-mcp"},
-	},
-	"gpt-4o-mini": {
-		Provider:      "openai",
-		ProviderModel: "gpt-4o-mini",
-		Capabilities:  []string{"tools", "vision", "streaming"},
-	},
 }

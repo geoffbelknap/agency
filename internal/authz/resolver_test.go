@@ -1,6 +1,10 @@
 package authz
 
-import "testing"
+import (
+	"testing"
+
+	agencysecurity "github.com/geoffbelknap/agency/internal/security"
+)
 
 func TestResolver_AllowsGrantedActionWithinInstanceScope(t *testing.T) {
 	r := Resolver{}
@@ -18,6 +22,9 @@ func TestResolver_AllowsGrantedActionWithinInstanceScope(t *testing.T) {
 	}
 	if !decision.Allow {
 		t.Fatalf("expected allow, got %#v", decision)
+	}
+	if decision.Outcome != agencysecurity.DecisionAllow {
+		t.Fatalf("expected allow outcome, got %#v", decision)
 	}
 }
 
@@ -46,6 +53,9 @@ func TestResolver_DeniesWhenConsentRequiredButMissing(t *testing.T) {
 	if !decision.ConsentNeeded {
 		t.Fatalf("expected consent_needed, got %#v", decision)
 	}
+	if decision.Outcome != agencysecurity.DecisionConsentRequired {
+		t.Fatalf("expected consent_required outcome, got %#v", decision)
+	}
 }
 
 func TestResolver_AllowsWhenConsentProvided(t *testing.T) {
@@ -70,5 +80,8 @@ func TestResolver_AllowsWhenConsentProvided(t *testing.T) {
 	}
 	if !decision.Allow {
 		t.Fatalf("expected allow, got %#v", decision)
+	}
+	if decision.Outcome != agencysecurity.DecisionAllow {
+		t.Fatalf("expected allow outcome, got %#v", decision)
 	}
 }

@@ -52,7 +52,7 @@ describe('serializeToYaml', () => {
     state.health = { indicators: ['response_time'], business_hours: '09:00-17:00' };
     state.meeseeks = true;
     state.meeseeksLimit = 3;
-    state.meeseeksModel = 'haiku';
+    state.meeseeksModel = 'fast';
     state.meeseeksBudget = 1.5;
 
     const yaml = serializeToYaml(state);
@@ -78,7 +78,7 @@ describe('serializeToYaml', () => {
     expect(yaml).toContain('  business_hours: \"09:00-17:00\"');
     expect(yaml).toContain('meeseeks: true');
     expect(yaml).toContain('meeseeks_limit: 3');
-    expect(yaml).toContain('meeseeks_model: haiku');
+    expect(yaml).toContain('meeseeks_model: fast');
     expect(yaml).toContain('meeseeks_budget: 1.5');
     // Should not include assignment fields
     expect(yaml).not.toContain('assignTarget');
@@ -150,7 +150,7 @@ describe('parseFromRaw', () => {
       health: { indicators: ['uptime', 'latency'], business_hours: '08:00-18:00' },
       meeseeks: true,
       meeseeks_limit: 5,
-      meeseeks_model: 'sonnet',
+      meeseeks_model: 'standard',
       meeseeks_budget: 3.0,
     };
 
@@ -168,7 +168,7 @@ describe('parseFromRaw', () => {
     expect(state.health.business_hours).toBe('08:00-18:00');
     expect(state.meeseeks).toBe(true);
     expect(state.meeseeksLimit).toBe(5);
-    expect(state.meeseeksModel).toBe('sonnet');
+    expect(state.meeseeksModel).toBe('standard');
     expect(state.meeseeksBudget).toBe(3.0);
     expect(state.assignTarget).toBe('');
     expect(state.assignType).toBe('agent');
@@ -256,7 +256,7 @@ describe('round-trip', () => {
       health: { indicators: ['cpu'], business_hours: '09:00-17:00' },
       meeseeks: true,
       meeseeks_limit: 2,
-      meeseeks_model: 'haiku',
+      meeseeks_model: 'fast',
       meeseeks_budget: 1.0,
     };
 
@@ -275,7 +275,7 @@ describe('round-trip', () => {
     expect(yaml).toContain('    - cpu');
     expect(yaml).toContain('meeseeks: true');
     expect(yaml).toContain('meeseeks_limit: 2');
-    expect(yaml).toContain('meeseeks_model: haiku');
+    expect(yaml).toContain('meeseeks_model: fast');
     expect(yaml).toContain('meeseeks_budget: 1');
   });
 });

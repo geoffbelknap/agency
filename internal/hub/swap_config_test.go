@@ -59,9 +59,9 @@ func TestGenerateSwapConfig_FromRouting(t *testing.T) {
 	os.WriteFile(filepath.Join(infraDir, "routing.yaml"), []byte(`
 version: '0.1'
 providers:
-  anthropic:
-    api_base: https://api.anthropic.com/v1/
-    auth_env: ANTHROPIC_API_KEY
+  provider-a:
+    api_base: https://provider-a.example.com/v1/
+    auth_env: PROVIDER_A_API_KEY
     auth_header: x-api-key
     auth_prefix: ""
 `), 0644)
@@ -76,9 +76,9 @@ providers:
 		t.Fatalf("parse result: %v", err)
 	}
 
-	swap, ok := cfg.Swaps["anthropic"]
+	swap, ok := cfg.Swaps["provider-a"]
 	if !ok {
-		t.Fatal("expected anthropic swap entry")
+		t.Fatal("expected provider-a swap entry")
 	}
 	if swap.Type != "api-key" {
 		t.Errorf("expected type api-key, got %s", swap.Type)
@@ -86,8 +86,8 @@ providers:
 	if swap.Header != "x-api-key" {
 		t.Errorf("expected header x-api-key, got %s", swap.Header)
 	}
-	if swap.KeyRef != "ANTHROPIC_API_KEY" {
-		t.Errorf("expected key_ref ANTHROPIC_API_KEY, got %s", swap.KeyRef)
+	if swap.KeyRef != "PROVIDER_A_API_KEY" {
+		t.Errorf("expected key_ref PROVIDER_A_API_KEY, got %s", swap.KeyRef)
 	}
 }
 

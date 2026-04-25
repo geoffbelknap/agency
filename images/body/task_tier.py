@@ -224,9 +224,9 @@ def select_model(
     *,
     objective=None,
     strategy=None,
-    default_standard: str = "claude-sonnet",
-    default_small: str = "claude-haiku",
-    default_large: str = "claude-opus",
+    default_standard: str = "standard",
+    default_small: str = "fast",
+    default_large: str = "frontier",
 ) -> str:
     """Return the model name to use for this turn."""
     del strategy
@@ -261,32 +261,23 @@ def select_model(
 def classify_task_tier(task: dict, mission: Optional[dict]) -> str:
     """Deprecated. Use classify_reasoning_depth / classify_context_depth /
     select_model directly. Retained for callers that still expect a single
-    tier string; composed from the three axes for approximate compatibility.
+    tier string; preserves the original minimal/standard/full routing behavior.
     """
-    reasoning_depth = classify_reasoning_depth(task, mission)
-    context_depth = classify_context_depth(task, mission)
-    model_capability = select_model(
-        task,
-        mission,
-        default_small="small",
-        default_standard="standard",
-        default_large="large",
-    )
+    task = task if isinstance(task, dict) else {}
+    content = str(task.get("content") or "").strip()
+    source = str(task.get("source") or "").strip().lower()
+    cost_mode = _cost_mode(mission)
 
-    if (
-        reasoning_depth in {"deliberative"}
-        or context_depth in {"full"}
-        or model_capability in {"large"}
-    ):
+    if cost_mode == "thorough":
         tier = "full"
-    elif (
-        reasoning_depth in {"reflective"}
-        or context_depth in {"task-relevant"}
-        or model_capability in {"standard"}
-    ):
-        tier = "standard"
-    else:
+    elif cost_mode == "frugal":
         tier = "minimal"
+    elif source in {"connector", "schedule", "webhook"}:
+        tier = "standard"
+    elif source in {"dm", "mention", ""} and len(content.split()) <= 4:
+        tier = "minimal"
+    else:
+        tier = "standard"
 
     min_tier = mission.get("min_task_tier") if isinstance(mission, dict) else None
     if min_tier in TIER_ORDER:

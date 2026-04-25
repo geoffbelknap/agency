@@ -4,6 +4,8 @@ package models
 import (
 	"fmt"
 	"unicode"
+
+	agencysecurity "github.com/geoffbelknap/agency/internal/security"
 )
 
 // CapabilityKind is the type of a capability entry.
@@ -50,20 +52,20 @@ type MCPServerSpec struct {
 
 // CapabilityEntry is the definition of a capability in the capability registry.
 type CapabilityEntry struct {
-	Kind        CapabilityKind       `yaml:"kind" validate:"required,oneof=mcp-server skill service"`
-	Name        string               `yaml:"name" validate:"required"`
-	Version     string               `yaml:"version" default:"0.1.0"`
-	DisplayName string               `yaml:"display_name"`
-	Description string               `yaml:"description"`
-	Source      string               `yaml:"source" default:"local"`
-	Publisher   string               `yaml:"publisher"`
-	Integrity   CapabilityIntegrity  `yaml:"integrity"`
+	Kind        CapabilityKind         `yaml:"kind" validate:"required,oneof=mcp-server skill service"`
+	Name        string                 `yaml:"name" validate:"required"`
+	Version     string                 `yaml:"version" default:"0.1.0"`
+	DisplayName string                 `yaml:"display_name"`
+	Description string                 `yaml:"description"`
+	Source      string                 `yaml:"source" default:"local"`
+	Publisher   string                 `yaml:"publisher"`
+	Integrity   CapabilityIntegrity    `yaml:"integrity"`
 	Requires    CapabilityRequirements `yaml:"requires"`
 	Permissions CapabilityPermissions  `yaml:"permissions"`
-	Spec        *MCPServerSpec       `yaml:"spec"`
-	ServiceRef  *string              `yaml:"service_ref"`
-	SkillPath   *string              `yaml:"skill_path"`
-	Tags        []string             `yaml:"tags"`
+	Spec        *MCPServerSpec         `yaml:"spec"`
+	ServiceRef  *string                `yaml:"service_ref"`
+	SkillPath   *string                `yaml:"skill_path"`
+	Tags        []string               `yaml:"tags"`
 }
 
 // Validate checks that the capability name is alphanumeric with hyphens or underscores.
@@ -91,9 +93,9 @@ type CapabilityAuth struct {
 // CapabilityConfig is the runtime configuration for a capability in capabilities.yaml.
 type CapabilityConfig struct {
 	// State is one of "available", "restricted", "disabled". Defaults to "available".
-	State  CapabilityState   `yaml:"state" validate:"oneof=available restricted disabled" default:"available"`
-	Agents []string          `yaml:"agents"`
-	Auth   *CapabilityAuth   `yaml:"auth"`
+	State  CapabilityState         `yaml:"state" validate:"oneof=available restricted disabled" default:"available"`
+	Agents []string                `yaml:"agents"`
+	Auth   *CapabilityAuth         `yaml:"auth"`
 	Tools  map[string]ToolApproval `yaml:"tools"`
 }
 
@@ -104,12 +106,23 @@ type CapabilitiesFile struct {
 
 // ToolApprovalRecord records an operator approval decision for a specific tool call.
 type ToolApprovalRecord struct {
-	Capability  string `yaml:"capability" validate:"required"`
-	Tool        string `yaml:"tool" validate:"required"`
-	Agent       string `yaml:"agent" validate:"required"`
-	Approved    bool   `yaml:"approved"`
-	ApprovedBy  string `yaml:"approved_by" default:"operator"`
-	ApprovedAt  string `yaml:"approved_at"`
+	Capability string                        `yaml:"capability" validate:"required"`
+	Tool       string                        `yaml:"tool" validate:"required"`
+	Agent      string                        `yaml:"agent" validate:"required"`
+	Approved   bool                          `yaml:"approved"`
+	Status     agencysecurity.ApprovalStatus `yaml:"status,omitempty"`
+	ApprovedBy string                        `yaml:"approved_by" default:"operator"`
+	ApprovedAt string                        `yaml:"approved_at"`
+}
+
+func (r ToolApprovalRecord) ApprovalStatus() agencysecurity.ApprovalStatus {
+	if r.Status != "" {
+		return r.Status
+	}
+	if r.Approved {
+		return agencysecurity.ApprovalApproved
+	}
+	return agencysecurity.ApprovalDenied
 }
 
 // CapabilityPolicy declares which capabilities an agent is permitted to use.

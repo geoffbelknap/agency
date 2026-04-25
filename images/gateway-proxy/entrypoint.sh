@@ -16,7 +16,8 @@ HOST_GATEWAY_PORT="${AGENCY_HOST_GATEWAY_PORT:-8200}"
 HOST_GATEWAY_HOSTS="${AGENCY_HOST_GATEWAY_HOSTS:-host.docker.internal,host.containers.internal}"
 GATEWAY_TARGET=""
 if [ -S /run/gateway.sock ]; then
-    # Test if the socket is actually connectable (fails on macOS Docker Desktop)
+    # Test if the socket is actually connectable; VM-backed host backends may
+    # expose the mount while still blocking Unix socket forwarding.
     if socat -T1 OPEN:/dev/null UNIX-CONNECT:/run/gateway.sock 2>/dev/null; then
         GATEWAY_TARGET="UNIX-CONNECT:/run/gateway.sock"
     fi

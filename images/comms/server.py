@@ -38,7 +38,7 @@ from typing import Optional
 
 
 class _HealthFilterAccessLogger(AbstractAccessLogger):
-    """Access logger that suppresses /health requests (Docker healthcheck noise)."""
+    """Access logger that suppresses noisy /health probes."""
 
     def log(self, request, response, time):
         if request.path == "/health":

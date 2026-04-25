@@ -141,16 +141,17 @@ metadata:
 ```
 
 ```yaml
-name: ANTHROPIC_API_KEY
-value: "sk-ant-..."  # encrypted at rest
+name: PROVIDER_A_API_KEY
+value: "sk-provider-a-..."  # encrypted at rest
 metadata:
   kind: provider
   scope: platform
   protocol: api-key
   protocol_config:
-    header: x-api-key
+    header: Authorization
+    format: "Bearer {key}"
     domains:
-      - api.anthropic.com
+      - provider-a.example.com
   source: operator
   expires_at: "2027-03-15T10:00:00Z"  # optional — API keys with expiry
   created_at: "2026-03-15T10:00:00Z"
@@ -406,10 +407,10 @@ to egress:
 4. If `protocol: jwt-exchange`, egress does the token exchange
 5. Egress injects the final credential (JWT) into the request
 
-For platform-scope credentials (e.g., `ANTHROPIC_API_KEY`):
-1. Egress matches by domain (`api.anthropic.com`)
+For platform-scope credentials, for example `PROVIDER_A_API_KEY`:
+1. Egress matches by domain (`provider-a.example.com`)
 2. Resolves credential from cache
-3. Injects as `x-api-key` header
+3. Injects using the provider descriptor's credential protocol
 
 For agent-scoped credentials with the same service name:
 1. The credential store has multiple entries for the same service,

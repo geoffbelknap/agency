@@ -324,9 +324,8 @@ func (h *handler) resolveCredential(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Try credential store — exact match first, then normalized name.
-	// Connector swap configs use env-var style names (ANTHROPIC_API_KEY) but
-	// the credential store uses kebab-case (anthropic-api-key). The fallback
-	// normalizes: lowercase, underscores to hyphens, strip common suffixes.
+	// Connector swap configs may use env-var style names while the credential
+	// store uses kebab-case. The fallback normalizes underscores to hyphens.
 	names := []string{name}
 	normalized := normalizeCredentialName(name)
 	if normalized != name {
@@ -370,8 +369,8 @@ func (h *handler) resolveCredential(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 404, map[string]string{"error": "credential not found"})
 }
 
-// normalizeCredentialName converts env-var style names (ANTHROPIC_API_KEY) to
-// credential store style (anthropic-api-key): lowercase, underscores to hyphens.
+// normalizeCredentialName converts env-var style names to credential store
+// style: lowercase with underscores converted to hyphens.
 func normalizeCredentialName(name string) string {
 	n := strings.ToLower(name)
 	n = strings.ReplaceAll(n, "_", "-")

@@ -55,52 +55,9 @@ func discoverModels(ctx context.Context, baseURL string, credential string) ([]d
 	var models []discoveredModel
 	for _, m := range result.Data {
 		caps := probeCapabilities(ctx, client, baseURL, m.ID, credential)
-		providerToolCaps := inferProviderToolCapabilities(baseURL, m.ID)
-		models = append(models, discoveredModel{ID: m.ID, Capabilities: caps, ProviderToolCapabilities: providerToolCaps})
+		models = append(models, discoveredModel{ID: m.ID, Capabilities: caps})
 	}
 	return models, nil
-}
-
-func inferProviderToolCapabilities(baseURL, modelID string) []string {
-	lowerBase := strings.ToLower(baseURL)
-	lowerModel := strings.ToLower(modelID)
-	switch {
-	case strings.Contains(lowerBase, "api.openai.com"):
-		return []string{
-			"provider-web-search",
-			"provider-file-search",
-			"provider-code-execution",
-			"provider-computer-use",
-			"provider-shell",
-			"provider-apply-patch",
-			"provider-tool-search",
-			"provider-image-generation",
-			"provider-mcp",
-		}
-	case strings.Contains(lowerBase, "api.anthropic.com"):
-		return []string{
-			"provider-web-search",
-			"provider-web-fetch",
-			"provider-code-execution",
-			"provider-computer-use",
-			"provider-shell",
-			"provider-text-editor",
-			"provider-memory",
-			"provider-mcp",
-			"provider-tool-search",
-		}
-	case strings.Contains(lowerBase, "generativelanguage.googleapis.com") || strings.Contains(lowerModel, "gemini"):
-		return []string{
-			"provider-web-search",
-			"provider-url-context",
-			"provider-code-execution",
-			"provider-file-search",
-			"provider-google-maps",
-			"provider-computer-use",
-		}
-	default:
-		return nil
-	}
 }
 
 // probeCapabilities sends a minimal tool call request to detect tool support.

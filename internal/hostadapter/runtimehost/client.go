@@ -619,7 +619,7 @@ func (c *Client) ExecInContainer(ctx context.Context, containerName string, cmd 
 
 func (c *Client) SignalContainer(ctx context.Context, containerName, signal string) error {
 	if c == nil || c.cli == nil {
-		return fmt.Errorf("docker client unavailable")
+		return fmt.Errorf("runtime backend client unavailable")
 	}
 	return c.cli.ContainerKill(ctx, containerName, signal)
 }

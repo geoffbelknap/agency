@@ -12,7 +12,7 @@ const (
 	DefaultMeeseeksLimit  = 5    // max concurrent per parent
 	DefaultMeeseeksRate   = 10   // max spawns per minute per parent
 	DefaultMeeseeksBudget = 0.05 // USD
-	DefaultMeeseeksModel  = "haiku"
+	DefaultMeeseeksModel  = "fast"
 )
 
 // MeeseeksConfig holds mission-level Meeseeks settings.

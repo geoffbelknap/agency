@@ -26,6 +26,7 @@ type AuditEntry struct {
 	Host                     string `json:"host,omitempty"`
 	Status                   int    `json:"status,omitempty"`
 	Model                    string `json:"model,omitempty"`
+	Provider                 string `json:"provider,omitempty"`
 	ProviderModel            string `json:"provider_model,omitempty"`
 	CorrelationID            string `json:"correlation_id,omitempty"`
 	Service                  string `json:"service,omitempty"`

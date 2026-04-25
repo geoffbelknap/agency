@@ -103,10 +103,14 @@ paths:
                                     type: string
                                 force:
                                     type: boolean
-                                anthropic_api_key:
+                                provider:
                                     type: string
-                                openai_api_key:
+                                api_key:
                                     type: string
+                                provider_keys:
+                                    type: object
+                                    additionalProperties:
+                                        type: string
             responses:
                 "200":
                     description: Platform initialized
@@ -1174,6 +1178,9 @@ paths:
                                         type: integer
                                     severity:
                                         type: string
+                                    risk_level:
+                                        type: string
+                                        enum: [low, medium, high, critical]
                                     status:
                                         type: string
                                     ack_timeout_seconds:
@@ -1499,7 +1506,7 @@ paths:
                                         type: string
                                     web_url:
                                         type: string
-                                    docker:
+                                    container_backend:
                                         type: string
                                     backend:
                                         type: string
@@ -1728,6 +1735,40 @@ paths:
                                 items:
                                     type: object
                                     additionalProperties: true
+    /infra/providers/{name}/verify:
+        post:
+            operationId: verifyProvider
+            summary: Verify a provider using its declared adapter probe
+            tags: [Infra]
+            x-agency-tier: core
+            x-agency-stability: supported
+            parameters:
+                - name: name
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                  description: Provider name
+            requestBody:
+                required: false
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            additionalProperties: false
+                            properties:
+                                api_key:
+                                    type: string
+                                api_base:
+                                    type: string
+            responses:
+                "200":
+                    description: Provider verification result
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                additionalProperties: true
     /infra/provider-tools:
         get:
             operationId: listProviderTools
@@ -1757,6 +1798,16 @@ paths:
                   schema:
                     type: string
                   description: Provider name
+            requestBody:
+                required: false
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            additionalProperties: false
+                            properties:
+                                api_base:
+                                    type: string
             responses:
                 "200":
                     description: Provider routing installed
@@ -2326,12 +2377,32 @@ paths:
                                     type: string
             responses:
                 "200":
-                    description: Updated egress configuration
+                    description: Applied egress mutation
                     content:
                         application/json:
                             schema:
                                 type: object
-                                additionalProperties: true
+                                properties:
+                                    change:
+                                        type: object
+                                        required: [action, status]
+                                        properties:
+                                            action:
+                                                type: string
+                                            agent:
+                                                type: string
+                                            scope:
+                                                type: string
+                                            target:
+                                                type: string
+                                            status:
+                                                type: string
+                                                enum: [applied, rejected]
+                                            detail:
+                                                type: string
+                                    egress:
+                                        type: object
+                                        additionalProperties: true
                 "400":
                     description: Invalid agent name or domain
                     content:
@@ -2359,12 +2430,32 @@ paths:
                     type: string
             responses:
                 "200":
-                    description: Updated egress configuration
+                    description: Applied egress mutation
                     content:
                         application/json:
                             schema:
                                 type: object
-                                additionalProperties: true
+                                properties:
+                                    change:
+                                        type: object
+                                        required: [action, status]
+                                        properties:
+                                            action:
+                                                type: string
+                                            agent:
+                                                type: string
+                                            scope:
+                                                type: string
+                                            target:
+                                                type: string
+                                            status:
+                                                type: string
+                                                enum: [applied, rejected]
+                                            detail:
+                                                type: string
+                                    egress:
+                                        type: object
+                                        additionalProperties: true
                 "400":
                     description: Invalid agent name or domain
                     content:
@@ -2398,12 +2489,32 @@ paths:
                                     enum: [denylist, allowlist, supervised-strict, supervised-permissive]
             responses:
                 "200":
-                    description: Updated egress configuration
+                    description: Applied egress mutation
                     content:
                         application/json:
                             schema:
                                 type: object
-                                additionalProperties: true
+                                properties:
+                                    change:
+                                        type: object
+                                        required: [action, status]
+                                        properties:
+                                            action:
+                                                type: string
+                                            agent:
+                                                type: string
+                                            scope:
+                                                type: string
+                                            target:
+                                                type: string
+                                            status:
+                                                type: string
+                                                enum: [applied, rejected]
+                                            detail:
+                                                type: string
+                                    egress:
+                                        type: object
+                                        additionalProperties: true
                 "400":
                     description: Invalid agent name or mode
                     content:

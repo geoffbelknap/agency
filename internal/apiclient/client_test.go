@@ -94,7 +94,7 @@ func TestInfraStatusDecodesOperatorFields(t *testing.T) {
 			"build_id":                "build-123",
 			"gateway_url":             "http://127.0.0.1:8200",
 			"web_url":                 "http://127.0.0.1:8280",
-			"docker":                  "available",
+			"container_backend":       "available",
 			"backend":                 "podman",
 			"backend_endpoint":        "unix:///run/user/1000/podman/podman.sock",
 			"backend_mode":            "rootless",
@@ -117,6 +117,9 @@ func TestInfraStatusDecodesOperatorFields(t *testing.T) {
 	}
 	if !resp.InfraControlAvailable {
 		t.Fatal("InfraControlAvailable = false, want true")
+	}
+	if resp.ContainerBackend != "available" {
+		t.Fatalf("ContainerBackend = %q, want available", resp.ContainerBackend)
 	}
 	if resp.HostRuntime != "available" {
 		t.Fatalf("HostRuntime = %q, want available", resp.HostRuntime)

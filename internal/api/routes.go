@@ -24,6 +24,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/api/platform"
 	"github.com/geoffbelknap/agency/internal/audit"
 	authzcore "github.com/geoffbelknap/agency/internal/authz"
+	"github.com/geoffbelknap/agency/internal/backendhealth"
 	"github.com/geoffbelknap/agency/internal/config"
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/credstore"
@@ -51,7 +52,7 @@ type RouteOptions struct {
 	NotifStore      *events.NotificationStore
 	StopSuppress    *orchestrate.StopSuppression
 	AuditSummarizer *audit.AuditSummarizer
-	DockerStatus    *runtimehost.Status
+	BackendHealth   backendhealth.Recorder
 	Registry        *registry.Registry
 	Optimizer       *routing.RoutingOptimizer
 }
@@ -117,7 +118,7 @@ func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *runtimehost.Clie
 		Config:          cfg,
 		Logger:          logger,
 		CredStore:       startup.CredStore,
-		DockerStatus:    opts.DockerStatus,
+		BackendHealth:   opts.BackendHealth,
 		WSHub:           opts.Hub,
 		Comms:           commsClientFor(dc),
 		Signal:          signalSenderFor(dc),
@@ -127,13 +128,13 @@ func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *runtimehost.Clie
 
 	// Infra routes on the socket (subset: status + internal LLM only)
 	apiinfra.RegisterRoutes(r, apiinfra.Deps{
-		Infra:        startup.Infra,
-		DC:           dc,
-		DockerStatus: opts.DockerStatus,
-		CredStore:    startup.CredStore,
-		Config:       cfg,
-		Logger:       logger,
-		Audit:        startup.Audit,
+		Infra:         startup.Infra,
+		DC:            dc,
+		BackendHealth: opts.BackendHealth,
+		CredStore:     startup.CredStore,
+		Config:        cfg,
+		Logger:        logger,
+		Audit:         startup.Audit,
 	})
 
 	apicomms.RegisterRoutes(r, apicomms.Deps{
@@ -257,7 +258,7 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *runtimehost.Client, logge
 		Config:          cfg,
 		Logger:          logger,
 		CredStore:       startup.CredStore,
-		DockerStatus:    opts.DockerStatus,
+		BackendHealth:   opts.BackendHealth,
 		WSHub:           opts.Hub,
 		Comms:           commsClientFor(dc),
 		Signal:          signalSenderFor(dc),
@@ -361,14 +362,14 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *runtimehost.Client, logge
 
 	// Infra, internal LLM, routing, providers, and setup routes (extracted module)
 	apiinfra.RegisterRoutes(r, apiinfra.Deps{
-		Infra:        startup.Infra,
-		DC:           dc,
-		DockerStatus: opts.DockerStatus,
-		CredStore:    startup.CredStore,
-		EventBus:     opts.EventBus,
-		Config:       cfg,
-		Logger:       logger,
-		Audit:        startup.Audit,
+		Infra:         startup.Infra,
+		DC:            dc,
+		BackendHealth: opts.BackendHealth,
+		CredStore:     startup.CredStore,
+		EventBus:      opts.EventBus,
+		Config:        cfg,
+		Logger:        logger,
+		Audit:         startup.Audit,
 	})
 
 	// Admin, teams, capabilities, profiles, and policy routes (extracted module)

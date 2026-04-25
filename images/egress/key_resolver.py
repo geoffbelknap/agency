@@ -24,8 +24,8 @@ class SocketKeyResolver:
 
     Tries TCP first (via GATEWAY_URL + GATEWAY_TOKEN env vars), then
     falls back to Unix socket if configured. TCP works cross-platform;
-    Unix socket only works on Linux (Docker Desktop on macOS/Windows
-    cannot mount Unix sockets into containers).
+    Unix socket mounting depends on the selected host backend and is
+    generally only reliable for Linux container backends.
     """
 
     def __init__(self, socket_path: str) -> None:

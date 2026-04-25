@@ -35,8 +35,9 @@ func TestCollectBasic(t *testing.T) {
 			Type:          "LLM_DIRECT",
 			Agent:         "test-agent",
 			Source:        "enforcer",
-			Model:         "claude-sonnet",
-			ProviderModel: "claude-sonnet-4-20250514",
+			Model:         "standard",
+			Provider:      "provider-a",
+			ProviderModel: "provider-a-model-v1",
 			Status:        200,
 			DurationMs:    1200,
 			InputTokens:   500,
@@ -47,8 +48,9 @@ func TestCollectBasic(t *testing.T) {
 			Type:          "LLM_DIRECT_STREAM",
 			Agent:         "test-agent",
 			Source:        "enforcer",
-			Model:         "claude-sonnet",
-			ProviderModel: "claude-sonnet-4-20250514",
+			Model:         "standard",
+			Provider:      "provider-a",
+			ProviderModel: "provider-a-model-v1",
 			Status:        200,
 			DurationMs:    3400,
 			InputTokens:   2000,
@@ -59,8 +61,9 @@ func TestCollectBasic(t *testing.T) {
 			Type:          "LLM_DIRECT_ERROR",
 			Agent:         "test-agent",
 			Source:        "evaluator",
-			Model:         "gpt-4o",
-			ProviderModel: "gpt-4o",
+			Model:         "fast",
+			Provider:      "provider-b",
+			ProviderModel: "provider-b-model-v1",
 			Status:        500,
 			Error:         "upstream timeout",
 			DurationMs:    30000,
@@ -103,22 +106,22 @@ func TestCollectBasic(t *testing.T) {
 	}
 
 	// By model
-	if cs, ok := s.ByModel["claude-sonnet"]; !ok {
-		t.Error("missing claude-sonnet in by_model")
+	if cs, ok := s.ByModel["standard"]; !ok {
+		t.Error("missing standard in by_model")
 	} else if cs.Requests != 2 {
-		t.Errorf("expected 2 claude-sonnet requests, got %d", cs.Requests)
+		t.Errorf("expected 2 standard requests, got %d", cs.Requests)
 	}
 
 	// By provider
-	if anth, ok := s.ByProvider["anthropic"]; !ok {
-		t.Error("missing anthropic in by_provider")
+	if anth, ok := s.ByProvider["provider-a"]; !ok {
+		t.Error("missing provider-a in by_provider")
 	} else if anth.Requests != 2 {
-		t.Errorf("expected 2 anthropic requests, got %d", anth.Requests)
+		t.Errorf("expected 2 provider-a requests, got %d", anth.Requests)
 	}
-	if oai, ok := s.ByProvider["openai"]; !ok {
-		t.Error("missing openai in by_provider")
+	if oai, ok := s.ByProvider["provider-b"]; !ok {
+		t.Error("missing provider-b in by_provider")
 	} else if oai.Errors != 1 {
-		t.Errorf("expected 1 openai error, got %d", oai.Errors)
+		t.Errorf("expected 1 provider-b error, got %d", oai.Errors)
 	}
 
 	// Recent errors
@@ -157,8 +160,9 @@ func TestCollectAgentFilter(t *testing.T) {
 			Timestamp:     now.Add(-1 * time.Hour).Format(time.RFC3339Nano),
 			Type:          "LLM_DIRECT",
 			Agent:         agent,
-			Model:         "claude-sonnet",
-			ProviderModel: "claude-sonnet-4-20250514",
+			Model:         "standard",
+			Provider:      "provider-a",
+			ProviderModel: "provider-a-model-v1",
 			Status:        200,
 			DurationMs:    1000,
 			InputTokens:   100,
@@ -191,8 +195,9 @@ func TestCollectWithCostConfig(t *testing.T) {
 		Timestamp:     now.Add(-1 * time.Hour).Format(time.RFC3339Nano),
 		Type:          "LLM_DIRECT",
 		Agent:         "agent-x",
-		Model:         "claude-sonnet",
-		ProviderModel: "claude-sonnet-4-20250514",
+		Model:         "standard",
+		Provider:      "provider-a",
+		ProviderModel: "provider-a-model-v1",
 		Status:        200,
 		DurationMs:    2000,
 		InputTokens:   1000000, // 1M tokens
@@ -203,7 +208,7 @@ func TestCollectWithCostConfig(t *testing.T) {
 	os.WriteFile(filepath.Join(enfDir, "enforcer-"+today+".jsonl"), b, 0644)
 
 	costs := map[string]ModelCost{
-		"claude-sonnet": {CostPerMTokIn: 3.0, CostPerMTokOut: 15.0},
+		"standard": {CostPerMTokIn: 3.0, CostPerMTokOut: 15.0},
 	}
 
 	s, err := CollectWithCosts(dir, MetricsQuery{}, costs)
@@ -229,8 +234,9 @@ func TestCollectWithCachedTokenCost(t *testing.T) {
 		Timestamp:                now.Add(-1 * time.Hour).Format(time.RFC3339Nano),
 		Type:                     "LLM_DIRECT",
 		Agent:                    "agent-x",
-		Model:                    "claude-sonnet",
-		ProviderModel:            "claude-sonnet-4-20250514",
+		Model:                    "standard",
+		Provider:                 "provider-a",
+		ProviderModel:            "provider-a-model-v1",
 		Status:                   200,
 		DurationMs:               1000,
 		InputTokens:              1000000,
@@ -243,7 +249,7 @@ func TestCollectWithCachedTokenCost(t *testing.T) {
 	os.WriteFile(filepath.Join(enfDir, "enforcer-"+today+".jsonl"), b, 0644)
 
 	costs := map[string]ModelCost{
-		"claude-sonnet": {CostPerMTokIn: 3.0, CostPerMTokOut: 15.0, CostPerMTokCached: 0.30},
+		"standard": {CostPerMTokIn: 3.0, CostPerMTokOut: 15.0, CostPerMTokCached: 0.30},
 	}
 
 	s, err := CollectWithCosts(dir, MetricsQuery{}, costs)
@@ -291,8 +297,9 @@ func TestCollectWithProviderToolCost(t *testing.T) {
 		Timestamp:                now.Add(-1 * time.Hour).Format(time.RFC3339Nano),
 		Type:                     "LLM_DIRECT",
 		Agent:                    "agent-x",
-		Model:                    "gemini-flash",
-		ProviderModel:            "gemini-2.5-flash",
+		Model:                    "fast",
+		Provider:                 "provider-b",
+		ProviderModel:            "provider-b-model-v1",
 		Status:                   200,
 		DurationMs:               1000,
 		InputTokens:              1000,
@@ -305,7 +312,7 @@ func TestCollectWithProviderToolCost(t *testing.T) {
 	os.WriteFile(filepath.Join(enfDir, "enforcer-"+today+".jsonl"), b, 0644)
 
 	costs := map[string]ModelCost{
-		"gemini-flash": {
+		"fast": {
 			CostPerMTokIn:  1.0,
 			CostPerMTokOut: 1.0,
 			ProviderToolPricing: map[string]ProviderToolPrice{
@@ -333,8 +340,8 @@ func TestCollectWithProviderToolCost(t *testing.T) {
 	if len(s.ByHour) != 1 {
 		t.Fatalf("expected 1 hourly bucket, got %d", len(s.ByHour))
 	}
-	if s.ByHour[0].ByModel["gemini-flash"].ProviderToolCostUSD != 0.01 {
-		t.Fatalf("hourly model provider tool cost = %f", s.ByHour[0].ByModel["gemini-flash"].ProviderToolCostUSD)
+	if s.ByHour[0].ByModel["fast"].ProviderToolCostUSD != 0.01 {
+		t.Fatalf("hourly model provider tool cost = %f", s.ByHour[0].ByModel["fast"].ProviderToolCostUSD)
 	}
 	if len(s.RecentCalls) != 1 {
 		t.Fatalf("expected 1 recent call, got %d", len(s.RecentCalls))
@@ -359,8 +366,9 @@ func TestCollectProviderToolCostFromAuditExtra(t *testing.T) {
 		"ts":             now.Add(-1 * time.Hour).Format(time.RFC3339Nano),
 		"type":           "LLM_DIRECT",
 		"agent":          "agent-x",
-		"model":          "claude-sonnet",
-		"provider_model": "claude-sonnet-4-20250514",
+		"model":          "standard",
+		"provider":       "provider-a",
+		"provider_model": "provider-a-model-v1",
 		"status":         200,
 		"duration_ms":    1000,
 		"input_tokens":   1000,
@@ -379,7 +387,7 @@ func TestCollectProviderToolCostFromAuditExtra(t *testing.T) {
 	os.WriteFile(filepath.Join(enfDir, "enforcer-"+today+".jsonl"), b, 0644)
 
 	s, err := CollectWithCosts(dir, MetricsQuery{}, map[string]ModelCost{
-		"claude-sonnet": {CostPerMTokIn: 1.0, CostPerMTokOut: 1.0},
+		"standard": {CostPerMTokIn: 1.0, CostPerMTokOut: 1.0},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -407,26 +415,12 @@ func TestCollectProviderToolCostFromAuditExtra(t *testing.T) {
 	}
 }
 
-func TestInferProvider(t *testing.T) {
-	cases := []struct {
-		model    string
-		expected string
-	}{
-		{"claude-sonnet-4-20250514", "anthropic"},
-		{"claude-3-opus-20240229", "anthropic"},
-		{"gpt-4o", "openai"},
-		{"o1-preview", "openai"},
-		{"gemini-pro", "google"},
-		{"mistral-large", "mistral"},
-		{"deepseek-v3", "deepseek"},
-		{"", "unknown"},
-		{"some-custom-model", "other"},
+func TestRecordProviderUsesExplicitAuditProvider(t *testing.T) {
+	if got := recordProvider(auditRecord{Provider: "custom", ProviderModel: "provider-looking-model"}); got != "custom" {
+		t.Fatalf("recordProvider returned %q", got)
 	}
-	for _, tc := range cases {
-		got := inferProvider(tc.model)
-		if got != tc.expected {
-			t.Errorf("inferProvider(%q) = %q, want %q", tc.model, got, tc.expected)
-		}
+	if got := recordProvider(auditRecord{ProviderModel: "provider-looking-model"}); got != "unknown" {
+		t.Fatalf("recordProvider should not infer from provider_model, got %q", got)
 	}
 }
 
@@ -456,32 +450,32 @@ func TestCollectBySource(t *testing.T) {
 		{
 			Timestamp: now.Add(-3 * time.Hour).Format(time.RFC3339Nano),
 			Type:      "LLM_DIRECT_STREAM", Agent: "agent-x", Source: "enforcer",
-			Model: "claude-sonnet", ProviderModel: "claude-sonnet-4-20250514",
+			Model: "standard", ProviderModel: "provider-a-model-v1",
 			Status: 200, DurationMs: 1000, InputTokens: 500, OutputTokens: 200,
 		},
 		{
 			Timestamp: now.Add(-2 * time.Hour).Format(time.RFC3339Nano),
 			Type:      "LLM_DIRECT_STREAM", Agent: "agent-x", Source: "synthesizer",
-			Model: "claude-haiku", ProviderModel: "claude-haiku-4-5-20251001",
+			Model: "fast", ProviderModel: "provider-b-model-v1",
 			Status: 200, DurationMs: 400, InputTokens: 300, OutputTokens: 100,
 		},
 		{
 			Timestamp: now.Add(-1 * time.Hour).Format(time.RFC3339Nano),
 			Type:      "LLM_DIRECT_STREAM", Agent: "agent-x", Source: "reflector",
-			Model: "claude-sonnet", ProviderModel: "claude-sonnet-4-20250514",
+			Model: "standard", ProviderModel: "provider-a-model-v1",
 			Status: 200, DurationMs: 800, InputTokens: 600, OutputTokens: 300,
 		},
 		{
 			Timestamp: now.Add(-30 * time.Minute).Format(time.RFC3339Nano),
 			Type:      "LLM_DIRECT_STREAM", Agent: "agent-x", Source: "enforcer",
-			Model: "claude-sonnet", ProviderModel: "claude-sonnet-4-20250514",
+			Model: "standard", ProviderModel: "provider-a-model-v1",
 			Status: 200, DurationMs: 1500, InputTokens: 700, OutputTokens: 250,
 		},
 		// Record with no source — should bucket as "unknown"
 		{
 			Timestamp: now.Add(-10 * time.Minute).Format(time.RFC3339Nano),
 			Type:      "LLM_DIRECT", Agent: "agent-x",
-			Model: "claude-sonnet", ProviderModel: "claude-sonnet-4-20250514",
+			Model: "standard", ProviderModel: "provider-a-model-v1",
 			Status: 200, DurationMs: 500, InputTokens: 100, OutputTokens: 50,
 		},
 	}
@@ -556,11 +550,11 @@ func TestCollectGatewayInfraEvents(t *testing.T) {
 
 	// Write gateway-format events (timestamp/event instead of ts/type)
 	events := []string{
-		fmt.Sprintf(`{"timestamp":"%s","event":"LLM_DIRECT","source":"knowledge-synthesizer","agent":"_infrastructure","model":"claude-haiku","provider_model":"claude-haiku-4-5-20251001","status":200,"duration_ms":800,"input_tokens":400,"output_tokens":100}`,
+		fmt.Sprintf(`{"timestamp":"%s","event":"LLM_DIRECT","source":"knowledge-synthesizer","agent":"_infrastructure","model":"fast","provider_model":"provider-b-model-v1","status":200,"duration_ms":800,"input_tokens":400,"output_tokens":100}`,
 			now.Add(-2*time.Hour).Format(time.RFC3339)),
-		fmt.Sprintf(`{"timestamp":"%s","event":"LLM_DIRECT","source":"platform-evaluation","agent":"_infrastructure","model":"claude-haiku","provider_model":"claude-haiku-4-5-20251001","status":200,"duration_ms":600,"input_tokens":300,"output_tokens":80}`,
+		fmt.Sprintf(`{"timestamp":"%s","event":"LLM_DIRECT","source":"platform-evaluation","agent":"_infrastructure","model":"fast","provider_model":"provider-b-model-v1","status":200,"duration_ms":600,"input_tokens":300,"output_tokens":80}`,
 			now.Add(-1*time.Hour).Format(time.RFC3339)),
-		fmt.Sprintf(`{"timestamp":"%s","event":"LLM_DIRECT_ERROR","source":"knowledge-curator","agent":"_infrastructure","model":"claude-haiku","provider_model":"claude-haiku-4-5-20251001","status":500,"error":"timeout","duration_ms":30000,"input_tokens":0,"output_tokens":0}`,
+		fmt.Sprintf(`{"timestamp":"%s","event":"LLM_DIRECT_ERROR","source":"knowledge-curator","agent":"_infrastructure","model":"fast","provider_model":"provider-b-model-v1","status":500,"error":"timeout","duration_ms":30000,"input_tokens":0,"output_tokens":0}`,
 			now.Add(-30*time.Minute).Format(time.RFC3339)),
 	}
 	var content string
@@ -619,9 +613,9 @@ func TestCollectLegacyInfraEvents(t *testing.T) {
 	os.MkdirAll(infraDir, 0755)
 
 	events := []string{
-		fmt.Sprintf(`{"timestamp":"%s","event":"infra_llm_call","source":"gateway","caller":"knowledge-synthesizer","agent":"_infrastructure","model":"claude-haiku","provider_model":"claude-haiku-4-5-20251001","status":200,"duration_ms":800,"input_tokens":400,"output_tokens":100}`,
+		fmt.Sprintf(`{"timestamp":"%s","event":"infra_llm_call","source":"gateway","caller":"knowledge-synthesizer","agent":"_infrastructure","model":"fast","provider_model":"provider-b-model-v1","status":200,"duration_ms":800,"input_tokens":400,"output_tokens":100}`,
 			now.Add(-1*time.Hour).Format(time.RFC3339)),
-		fmt.Sprintf(`{"timestamp":"%s","event":"infra_llm_error","source":"gateway","caller":"platform-evaluation","agent":"_infrastructure","model":"claude-haiku","provider_model":"claude-haiku-4-5-20251001","status":500,"error":"timeout","duration_ms":30000,"input_tokens":0,"output_tokens":0}`,
+		fmt.Sprintf(`{"timestamp":"%s","event":"infra_llm_error","source":"gateway","caller":"platform-evaluation","agent":"_infrastructure","model":"fast","provider_model":"provider-b-model-v1","status":500,"error":"timeout","duration_ms":30000,"input_tokens":0,"output_tokens":0}`,
 			now.Add(-30*time.Minute).Format(time.RFC3339)),
 	}
 	var content string

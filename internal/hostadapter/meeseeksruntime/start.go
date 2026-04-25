@@ -51,7 +51,7 @@ func (ms *MeeseeksStartSequence) Run(ctx context.Context) error {
 		var err error
 		ms.cli, err = runtimehost.NewRawClient()
 		if err != nil {
-			return fmt.Errorf("docker client: %w", err)
+			return fmt.Errorf("runtime backend client: %w", err)
 		}
 	}
 
@@ -228,14 +228,13 @@ func (ms *MeeseeksStartSequence) phase4Workspace(ctx context.Context) error {
 		"AGENCY_ENFORCER_CONTROL_URL=http://" + enforcerHostName + ":8081",
 		"AGENCY_ENFORCER_HEALTH_URL=http://" + enforcerHostName + ":3128/health",
 		"AGENCY_ENFORCER_URL=http://" + enforcerHostName + ":3128/v1",
-		"OPENAI_API_BASE=http://" + enforcerHostName + ":3128/v1",
 		"HTTP_PROXY=http://" + enforcerHostName + ":3128",
 		"HTTPS_PROXY=http://" + enforcerHostName + ":3128",
 		"AGENCY_COMMS_URL=http://" + enforcerHostName + ":8081/mediation/comms",
 		"AGENCY_KNOWLEDGE_URL=http://" + enforcerHostName + ":8081/mediation/knowledge",
 		"NO_PROXY=" + enforcerHostName + ",localhost,127.0.0.1",
 		"AGENCY_AGENT_NAME=" + ms.Meeseeks.ID,
-		"AGENCY_MODEL=claude-" + ms.Meeseeks.Model,
+		"AGENCY_MODEL=" + ms.Meeseeks.Model,
 		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"AGENCY_MEESEEKS=true",
 		"AGENCY_MEESEEKS_ID=" + ms.Meeseeks.ID,

@@ -19,7 +19,7 @@ func TeardownMeeseeks(ctx context.Context, mks *models.Meeseeks, logger *slog.Lo
 		var err error
 		cli, err = runtimehost.NewRawClient()
 		if err != nil {
-			return fmt.Errorf("docker client: %w", err)
+			return fmt.Errorf("runtime backend client: %w", err)
 		}
 	}
 

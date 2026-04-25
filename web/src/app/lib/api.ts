@@ -222,6 +222,12 @@ export interface RawInfraService {
 export interface RawInfraStatus {
   version?: string;
   build_id?: string;
+  container_backend?: string;
+  backend?: string;
+  backend_endpoint?: string;
+  backend_mode?: string;
+  infra_control_available?: boolean;
+  host_runtime?: string;
   components: RawInfraService[];
 }
 
@@ -532,6 +538,20 @@ export interface RawEgress {
   mode?: string;
   agent?: string;
   [key: string]: unknown;
+}
+
+export interface RawSecurityMutation {
+  action: string;
+  agent?: string;
+  scope?: string;
+  target?: string;
+  status: 'applied' | 'rejected';
+  detail?: string;
+}
+
+export interface RawEgressMutation {
+  change: RawSecurityMutation;
+  egress: RawEgress;
 }
 
 export interface RawMissionTrigger {
@@ -1184,15 +1204,20 @@ export const api = {
     list: () => req<import('../types').Provider[]>('/infra/providers'),
     routingConfig: () => req<RawRoutingConfig>('/infra/routing/config'),
     tools: () => req<RawProviderToolInventory>('/infra/provider-tools'),
-    install: (name: string) =>
-      req<OkResponse>(`/infra/providers/${encodeURIComponent(name)}/install`, { method: 'POST', body: '{}' }),
+    verify: (name: string, opts?: { api_key?: string; api_base?: string }) =>
+      req<{ ok: boolean; status?: number; message?: string; latency_ms?: number }>(
+        `/infra/providers/${encodeURIComponent(name)}/verify`,
+        { method: 'POST', body: JSON.stringify(opts || {}) },
+      ),
+    install: (name: string, opts?: { api_base?: string }) =>
+      req<OkResponse>(`/infra/providers/${encodeURIComponent(name)}/install`, { method: 'POST', body: JSON.stringify(opts || {}) }),
   },
 
   setup: {
     config: () => req<import('../types').SetupConfig>('/infra/setup/config'),
   },
 
-  init: (opts: { operator: string; force?: boolean; anthropic_api_key?: string; openai_api_key?: string }) =>
+  init: (opts: { operator: string; force?: boolean; provider?: string; api_key?: string; provider_keys?: Record<string, string> }) =>
     req<{ status: string; home: string }>('/init', { method: 'POST', body: JSON.stringify(opts) }),
 
   routing: {
@@ -1243,11 +1268,11 @@ export const api = {
     },
     egress: (agent?: string) => req<RawEgress>(`/admin/egress${agent ? `?agent=${encodeURIComponent(agent)}` : ''}`),
     approveEgressDomain: (agent: string, domain: string, reason?: string) =>
-      req<RawEgress>(`/admin/egress/${encodeURIComponent(agent)}/domains`, { method: 'POST', body: JSON.stringify({ domain, reason }) }),
+      req<RawEgressMutation>(`/admin/egress/${encodeURIComponent(agent)}/domains`, { method: 'POST', body: JSON.stringify({ domain, reason }) }),
     revokeEgressDomain: (agent: string, domain: string) =>
-      req<RawEgress>(`/admin/egress/${encodeURIComponent(agent)}/domains/${encodeURIComponent(domain)}`, { method: 'DELETE' }),
+      req<RawEgressMutation>(`/admin/egress/${encodeURIComponent(agent)}/domains/${encodeURIComponent(domain)}`, { method: 'DELETE' }),
     updateEgressMode: (agent: string, mode: 'denylist' | 'allowlist' | 'supervised-strict' | 'supervised-permissive') =>
-      req<RawEgress>(`/admin/egress/${encodeURIComponent(agent)}/mode`, { method: 'PUT', body: JSON.stringify({ mode }) }),
+      req<RawEgressMutation>(`/admin/egress/${encodeURIComponent(agent)}/mode`, { method: 'PUT', body: JSON.stringify({ mode }) }),
     destroy: () => req<OkResponse>('/admin/destroy', { method: 'POST', body: '{}' }),
     department: (action: string, name?: string) =>
       req<OkResponse>('/admin/department', { method: 'POST', body: JSON.stringify({ action, name }) }),

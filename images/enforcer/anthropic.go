@@ -173,8 +173,9 @@ func joinStrings(parts []string) string {
 	return strings.Join(parts, " ")
 }
 
-// translateFromAnthropic converts an Anthropic Messages API response to OpenAI
-// chat/completions format.
+// translateFromAnthropic converts an Anthropic Messages API response into the
+// normalized runtime contract: chat/completions-like control-flow fields plus
+// additive stop_reason metadata for audit and artifacts.
 func translateFromAnthropic(anthropicBody []byte) ([]byte, error) {
 	var resp map[string]interface{}
 	if err := json.Unmarshal(anthropicBody, &resp); err != nil {
@@ -228,7 +229,9 @@ func translateFromAnthropic(anthropicBody []byte) ([]byte, error) {
 		message["tool_calls"] = toolCalls
 	}
 
-	// Map stop_reason to finish_reason
+	// Normalize Anthropic termination metadata at the adapter boundary. The
+	// runtime consumes finish_reason generically and retains stop_reason as
+	// additive provider detail for audit.
 	stopReason, _ := resp["stop_reason"].(string)
 	if stopReason != "" {
 		message["stop_reason"] = stopReason

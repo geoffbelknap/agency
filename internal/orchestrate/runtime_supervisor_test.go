@@ -231,6 +231,71 @@ func TestRuntimeSupervisorEnsureEnforcerPassesKeyRotation(t *testing.T) {
 	}
 }
 
+func TestRuntimeSupervisorResolveModelPrefersConfiguredStandardTier(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, "agents", "alice")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("uuid: ag_123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+writeRuntimeRoutingFile(t, home, `models:
+  provider-b-standard:
+    provider: provider-b
+    provider_model: provider-b-model-v1
+  standard:
+    provider: provider-a
+    provider_model: provider-a-model-v1
+tiers:
+  standard:
+    - model: provider-b-standard
+      preference: 0
+    - model: standard
+      preference: 1
+`)
+
+	rs := NewRuntimeSupervisor(home, "0.1.0", "", "build-1", "", nil, nil, nil, nil)
+	if got := rs.resolveModel("alice"); got != "provider-b-standard" {
+		t.Fatalf("resolveModel() = %q, want provider-b-standard", got)
+	}
+}
+
+func TestRuntimeSupervisorResolveModelFallsBackToFirstConfiguredAlias(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, "agents", "alice")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("uuid: ag_123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeRuntimeRoutingFile(t, home, `models:
+  zeta-model:
+    provider: example
+    provider_model: zeta-model
+  alpha-model:
+    provider: example
+    provider_model: alpha-model
+`)
+
+	rs := NewRuntimeSupervisor(home, "0.1.0", "", "build-1", "", nil, nil, nil, nil)
+	if got := rs.resolveModel("alice"); got != "alpha-model" {
+		t.Fatalf("resolveModel() = %q, want alpha-model", got)
+	}
+}
+
+func writeRuntimeRoutingFile(t *testing.T, home, content string) {
+	t.Helper()
+	path := filepath.Join(home, "infrastructure", "routing.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRuntimeSupervisorGetFallsBackToPersistedStatusWhenInspectFails(t *testing.T) {
 	home := t.TempDir()
 	agentDir := filepath.Join(home, "agents", "alice")

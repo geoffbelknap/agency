@@ -10,8 +10,9 @@ import (
 
 // Provider represents an LLM provider configuration.
 type Provider struct {
-	APIBase string `yaml:"api_base"`
-	Caching *bool  `yaml:"caching,omitempty"`
+	APIBase   string `yaml:"api_base"`
+	APIFormat string `yaml:"api_format,omitempty"`
+	Caching   *bool  `yaml:"caching,omitempty"`
 }
 
 // CachingEnabled returns whether prompt caching is enabled for this provider.
@@ -44,27 +45,6 @@ type RoutingConfig struct {
 	Providers map[string]Provider `yaml:"providers"`
 	Models    map[string]Model    `yaml:"models"`
 	Settings  Settings            `yaml:"settings"`
-}
-
-func (rc *RoutingConfig) normalizeLegacyProviders() {
-	if rc == nil || rc.Providers == nil {
-		return
-	}
-	geminiProvider, ok := rc.Providers["gemini"]
-	if !ok {
-		return
-	}
-	if _, exists := rc.Providers["google"]; !exists {
-		rc.Providers["google"] = geminiProvider
-	}
-	for alias, model := range rc.Models {
-		if model.Provider != "gemini" {
-			continue
-		}
-		model.Provider = "google"
-		rc.Models[alias] = model
-	}
-	delete(rc.Providers, "gemini")
 }
 
 // APIKey represents an API key entry in api_keys.yaml.
@@ -104,7 +84,6 @@ func LoadRoutingConfig(path string) (*RoutingConfig, error) {
 	if err := yaml.Unmarshal(data, &rc); err != nil {
 		return nil, fmt.Errorf("parse routing config: %w", err)
 	}
-	rc.normalizeLegacyProviders()
 	return &rc, nil
 }
 
@@ -147,9 +126,12 @@ func (rc *RoutingConfig) ResolveModel(alias string) (targetURL string, providerM
 		return "", "", "", fmt.Errorf("unknown provider: %s", model.Provider)
 	}
 	base := strings.TrimRight(provider.APIBase, "/")
-	if model.Provider == "anthropic" {
+	switch provider.APIFormat {
+	case "anthropic":
 		targetURL = base + "/messages"
-	} else {
+	case "gemini":
+		targetURL = fmt.Sprintf("%s/models/%s:generateContent", base, model.ProviderModel)
+	default:
 		targetURL = base + "/chat/completions"
 	}
 

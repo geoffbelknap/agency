@@ -152,11 +152,11 @@ When a suggestion is approved:
 ```yaml
 overrides:
   memory_capture:
-    preferred_model: "claude-haiku-4-5"
+    preferred_model: "fast"
     approved_from: "sug-a1b2c3"
     approved_at: "2026-04-06T..."
   context_summary:
-    preferred_model: "claude-haiku-4-5"
+    preferred_model: "fast"
     approved_from: "sug-d4e5f6"
     approved_at: "2026-04-06T..."
 ```

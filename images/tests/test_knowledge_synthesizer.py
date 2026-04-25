@@ -74,7 +74,7 @@ class TestGatewayLLMFormat:
             result = synth._call_llm("test prompt")
             call_args = mock_post.call_args
             body = call_args[1]["json"]
-            assert body["model"] == "claude-haiku"
+            assert body["model"] == "fast"
             assert body["messages"] == [{"role": "user", "content": "test prompt"}]
             assert body["max_tokens"] == 4096
 

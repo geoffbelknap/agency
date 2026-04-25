@@ -6,17 +6,17 @@ type ModelPrice struct {
 	OutputPer1M float64
 }
 
-// ModelPricing maps model aliases to their pricing.
-var ModelPricing = map[string]ModelPrice{
-	"claude-sonnet": {InputPer1M: 3.00, OutputPer1M: 15.00},
-	"claude-haiku":  {InputPer1M: 0.25, OutputPer1M: 1.25},
-	"claude-opus":   {InputPer1M: 15.00, OutputPer1M: 75.00},
+// EstimateCost returns USD cost for a given model and token counts.
+// Returns 0 because pricing is provider/catalog-owned; callers with routing
+// metadata should use EstimateCostWithPricing.
+func EstimateCost(model string, inputTokens, outputTokens int) float64 {
+	return EstimateCostWithPricing(nil, model, inputTokens, outputTokens)
 }
 
-// EstimateCost returns USD cost for a given model and token counts.
-// Returns 0 for unknown models (caller should log warning).
-func EstimateCost(model string, inputTokens, outputTokens int) float64 {
-	price, ok := ModelPricing[model]
+// EstimateCostWithPricing returns USD cost using caller-supplied model pricing.
+// Returns 0 for unknown or unpriced models.
+func EstimateCostWithPricing(pricing map[string]ModelPrice, model string, inputTokens, outputTokens int) float64 {
+	price, ok := pricing[model]
 	if !ok {
 		return 0
 	}

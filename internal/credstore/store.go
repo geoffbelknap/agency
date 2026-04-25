@@ -12,6 +12,7 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/hub"
 	"github.com/geoffbelknap/agency/internal/pkg/urlsafety"
+	"github.com/geoffbelknap/agency/internal/providercatalog"
 	"gopkg.in/yaml.v3"
 )
 
@@ -310,8 +311,8 @@ func (s *Store) GenerateSwapConfig() ([]byte, error) {
 				swap.Format = f
 			}
 			swap.Domains = extractDomains(resolved.Metadata.ProtocolConfig)
-			// Fallback: infer defaults for well-known providers when not explicitly set.
-			if defaults := inferProviderDefaults(resolved.Name); defaults != nil {
+			// Fallback: load defaults for bundled provider credentials when not explicitly set.
+			if defaults := catalogProviderDefaults(resolved.Name); defaults != nil {
 				if len(swap.Domains) == 0 {
 					swap.Domains = defaults.Domains
 				}
@@ -471,38 +472,48 @@ func extractDomains(pc map[string]any) []string {
 	return domains
 }
 
-// providerDefaults holds default swap config for a well-known LLM provider.
+// providerDefaults holds default swap config for a bundled LLM provider.
 type providerDefaults struct {
 	Domains []string
 	Header  string
 	Format  string
 }
 
-// inferProviderDefaults returns swap defaults for well-known LLM provider
-// credentials based on their name. Handles credentials stored before
-// domain/header info was included in protocol_config.
-func inferProviderDefaults(name string) *providerDefaults {
-	n := strings.ToLower(name)
-	switch {
-	case strings.Contains(n, "anthropic"):
-		return &providerDefaults{
-			Domains: []string{"api.anthropic.com"},
-			Header:  "x-api-key",
-		}
-	case strings.Contains(n, "openai"):
-		return &providerDefaults{
-			Domains: []string{"api.openai.com"},
-			Header:  "Authorization",
-			Format:  "Bearer {key}",
-		}
-	case strings.Contains(n, "google"), strings.Contains(n, "gemini"):
-		return &providerDefaults{
-			Domains: []string{"generativelanguage.googleapis.com"},
-			Header:  "x-goog-api-key",
-		}
-	default:
+// catalogProviderDefaults returns swap defaults for bundled provider credentials
+// declared by the provider catalog. Unknown names intentionally return nil so
+// credential injection remains explicit and fail-closed for custom providers.
+func catalogProviderDefaults(name string) *providerDefaults {
+	n := strings.ToLower(strings.TrimSpace(name))
+	if n == "" {
 		return nil
 	}
+	providers, err := providercatalog.List()
+	if err != nil {
+		return nil
+	}
+	for _, provider := range providers {
+		credentialName, _ := provider.Credential["name"].(string)
+		envVar, _ := provider.Credential["env_var"].(string)
+		if n != strings.ToLower(strings.TrimSpace(credentialName)) && n != strings.ToLower(strings.TrimSpace(envVar)) {
+			continue
+		}
+		apiBase, _ := provider.Routing["api_base"].(string)
+		parsed, err := url.Parse(strings.TrimSpace(apiBase))
+		if err != nil || parsed.Hostname() == "" {
+			return nil
+		}
+		header, _ := provider.Routing["auth_header"].(string)
+		prefix, _ := provider.Routing["auth_prefix"].(string)
+		defaults := &providerDefaults{
+			Domains: []string{parsed.Hostname()},
+			Header:  header,
+		}
+		if prefix != "" {
+			defaults.Format = prefix + "{key}"
+		}
+		return defaults
+	}
+	return nil
 }
 
 // matchesFilter checks if flat backend metadata matches the given filter.

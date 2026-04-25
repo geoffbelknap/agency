@@ -1,14 +1,23 @@
 package infra
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/geoffbelknap/agency/internal/hub"
 	"github.com/geoffbelknap/agency/internal/models"
 	"github.com/geoffbelknap/agency/internal/providercatalog"
 	"github.com/geoffbelknap/agency/internal/routing"
+	"gopkg.in/yaml.v3"
 )
 
 // routingMetrics returns aggregated LLM usage metrics from enforcer audit logs.
@@ -152,16 +161,20 @@ func routingProviderToolPricing(in map[string]models.ProviderToolPrice) map[stri
 //	GET /api/v1/infra/providers
 func (h *handler) listProviders(w http.ResponseWriter, r *http.Request) {
 	type providerResponse struct {
-		Name                 string `json:"name"`
-		DisplayName          string `json:"display_name"`
-		Description          string `json:"description"`
-		Category             string `json:"category"`
-		Installed            bool   `json:"installed"`
-		CredentialName       string `json:"credential_name,omitempty"`
-		CredentialLabel      string `json:"credential_label,omitempty"`
-		APIKeyURL            string `json:"api_key_url,omitempty"`
-		APIBaseConfigurable  bool   `json:"api_base_configurable,omitempty"`
-		CredentialConfigured bool   `json:"credential_configured"`
+		Name                  string `json:"name"`
+		DisplayName           string `json:"display_name"`
+		Description           string `json:"description"`
+		Category              string `json:"category"`
+		QuickstartSelectable  bool   `json:"quickstart_selectable,omitempty"`
+		QuickstartOrder       int    `json:"quickstart_order,omitempty"`
+		QuickstartRecommended bool   `json:"quickstart_recommended,omitempty"`
+		QuickstartPromptBlurb string `json:"quickstart_prompt_blurb,omitempty"`
+		Installed             bool   `json:"installed"`
+		CredentialName        string `json:"credential_name,omitempty"`
+		CredentialLabel       string `json:"credential_label,omitempty"`
+		APIKeyURL             string `json:"api_key_url,omitempty"`
+		APIBaseConfigurable   bool   `json:"api_base_configurable,omitempty"`
+		CredentialConfigured  bool   `json:"credential_configured"`
 	}
 
 	installedProviders := map[string]bool{}
@@ -185,6 +198,12 @@ func (h *handler) listProviders(w http.ResponseWriter, r *http.Request) {
 			Description: doc.Description,
 			Category:    doc.Category,
 			Installed:   installedProviders[doc.Name],
+		}
+		if qs := doc.Quickstart; qs != nil {
+			pr.QuickstartSelectable = qs.Selectable
+			pr.QuickstartOrder = qs.Order
+			pr.QuickstartRecommended = qs.Recommended
+			pr.QuickstartPromptBlurb = qs.PromptBlurb
 		}
 
 		if cred := doc.Credential; cred != nil {
@@ -249,6 +268,78 @@ func (h *handler) credentialConfigured(name string) bool {
 	return false
 }
 
+type providerVerifyRequest struct {
+	APIKey  string `json:"api_key"`
+	APIBase string `json:"api_base"`
+}
+
+type providerInstallRequest struct {
+	APIBase string `json:"api_base"`
+}
+
+// verifyProvider validates a provider using its declared verification probe.
+//
+//	POST /api/v1/infra/providers/{name}/verify
+func (h *handler) verifyProvider(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(chi.URLParam(r, "name"))
+	if name == "" {
+		writeJSON(w, 400, map[string]string{"error": "provider name required"})
+		return
+	}
+
+	var req providerVerifyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		writeJSON(w, 400, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	doc, _, err := providercatalog.Get(name)
+	if err != nil {
+		writeJSON(w, 404, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if doc.Quickstart == nil || doc.Quickstart.Probe == nil {
+		writeJSON(w, 200, map[string]interface{}{
+			"ok":      true,
+			"message": "No verification probe configured for this provider.",
+		})
+		return
+	}
+
+	apiKey := strings.TrimSpace(req.APIKey)
+	if apiKey == "" {
+		apiKey = h.providerCredentialValue(doc)
+	}
+	if doc.Credential != nil && apiKey == "" {
+		writeJSON(w, 400, map[string]interface{}{
+			"ok":      false,
+			"message": "Provider credential is required before verification.",
+		})
+		return
+	}
+
+	started := time.Now()
+	statusCode, message, err := performProviderProbe(doc, doc.Quickstart.Probe, apiKey, strings.TrimSpace(req.APIBase))
+	latency := time.Since(started).Milliseconds()
+	if err != nil {
+		writeJSON(w, 200, map[string]interface{}{
+			"ok":         false,
+			"status":     statusCode,
+			"message":    err.Error(),
+			"latency_ms": latency,
+		})
+		return
+	}
+
+	writeJSON(w, 200, map[string]interface{}{
+		"ok":         true,
+		"status":     statusCode,
+		"message":    message,
+		"latency_ms": latency,
+	})
+}
+
 // installProvider merges a bundled provider definition into routing.yaml.
 //
 //	POST /api/v1/infra/providers/{name}/install
@@ -258,12 +349,160 @@ func (h *handler) installProvider(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "provider name required"})
 		return
 	}
-	if err := providercatalog.Install(h.deps.Config.Home, name); err != nil {
+	var req providerInstallRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		writeJSON(w, 400, map[string]string{"error": "invalid request body"})
+		return
+	}
+	if err := installBundledProviderRouting(h.deps.Config.Home, name, strings.TrimSpace(req.APIBase)); err != nil {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
 		return
 	}
 	h.regenerateSwapConfig()
-	writeJSON(w, 200, map[string]string{"status": "installed", "provider": name})
+	writeJSON(w, 200, map[string]string{"status": "installed", "provider": name, "api_base": strings.TrimSpace(req.APIBase)})
+}
+
+func installBundledProviderRouting(home, name, apiBase string) error {
+	_, data, err := providercatalog.Get(name)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(apiBase) != "" {
+		var doc map[string]interface{}
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return fmt.Errorf("parse provider %q: %w", name, err)
+		}
+		routing, _ := doc["routing"].(map[string]interface{})
+		if routing == nil {
+			return fmt.Errorf("provider %q has no routing block", name)
+		}
+		routing["api_base"] = strings.TrimSpace(apiBase)
+		data, err = yaml.Marshal(doc)
+		if err != nil {
+			return fmt.Errorf("marshal provider %q: %w", name, err)
+		}
+	}
+	return hub.MergeProviderRouting(home, name, data)
+}
+
+func (h *handler) providerCredentialValue(doc providercatalog.ProviderDoc) string {
+	if doc.Credential == nil || h.deps.CredStore == nil {
+		return ""
+	}
+	names := []string{strField(doc.Credential, "name"), strField(doc.Credential, "env_var")}
+	for _, name := range names {
+		for _, candidate := range credentialNameCandidates(name) {
+			if entry, err := h.deps.CredStore.Get(candidate); err == nil {
+				return entry.Value
+			}
+		}
+	}
+	return ""
+}
+
+func performProviderProbe(doc providercatalog.ProviderDoc, probe *providercatalog.QuickstartProbeConfig, apiKey, apiBase string) (int, string, error) {
+	probeURL, err := providerProbeURL(doc, probe, apiBase)
+	if err != nil {
+		return 0, "", err
+	}
+
+	method := strings.ToUpper(strings.TrimSpace(probe.Method))
+	if method == "" {
+		method = http.MethodGet
+	}
+
+	var body io.Reader
+	if probe.Body != "" {
+		body = bytes.NewBufferString(probe.Body)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, method, probeURL, body)
+	if err != nil {
+		return 0, "", err
+	}
+	for key, value := range probe.Headers {
+		req.Header.Set(key, value)
+	}
+	if apiKey != "" {
+		authHeader := strField(doc.Routing, "auth_header")
+		if authHeader == "" {
+			authHeader = "Authorization"
+		}
+		req.Header.Set(authHeader, strField(doc.Routing, "auth_prefix")+apiKey)
+	}
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+
+	if len(probe.SuccessStatuses) == 0 {
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			return resp.StatusCode, resp.Status, nil
+		}
+		return resp.StatusCode, "", providerProbeStatusError(resp.StatusCode)
+	}
+	for _, status := range probe.SuccessStatuses {
+		if resp.StatusCode == status {
+			return resp.StatusCode, resp.Status, nil
+		}
+	}
+	return resp.StatusCode, "", providerProbeStatusError(resp.StatusCode)
+}
+
+func providerProbeURL(doc providercatalog.ProviderDoc, probe *providercatalog.QuickstartProbeConfig, apiBase string) (string, error) {
+	probeURL := strings.TrimSpace(probe.URL)
+	if apiBase == "" || !boolField(doc.Routing, "api_base_configurable") {
+		return probeURL, nil
+	}
+
+	routingBase := strings.TrimSpace(strField(doc.Routing, "api_base"))
+	if routingBase == "" {
+		return apiBase, nil
+	}
+
+	baseParsed, err := url.Parse(apiBase)
+	if err != nil {
+		return "", err
+	}
+	probeParsed, err := url.Parse(probeURL)
+	if err != nil {
+		return "", err
+	}
+	routingParsed, err := url.Parse(routingBase)
+	if err != nil {
+		return "", err
+	}
+
+	suffix := strings.TrimPrefix(probeParsed.Path, routingParsed.Path)
+	baseParsed.Path = strings.TrimRight(baseParsed.Path, "/") + "/" + strings.TrimLeft(suffix, "/")
+	baseParsed.RawQuery = probeParsed.RawQuery
+	return baseParsed.String(), nil
+}
+
+func boolField(m map[string]interface{}, key string) bool {
+	v, _ := m[key].(bool)
+	return v
+}
+
+func providerProbeStatusError(status int) error {
+	return &providerVerifyError{Status: status}
+}
+
+type providerVerifyError struct {
+	Status int
+}
+
+func (e *providerVerifyError) Error() string {
+	if e.Status <= 0 {
+		return "provider verification failed"
+	}
+	return fmt.Sprintf("provider verification returned unexpected status %d", e.Status)
 }
 
 func credentialNameCandidates(name string) []string {

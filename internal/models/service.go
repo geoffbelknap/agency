@@ -32,13 +32,6 @@ type ServiceToolParameter struct {
 	Default     *string `yaml:"default"`
 }
 
-type ConsentRequirement struct {
-	OperationKind    string `yaml:"operation_kind"`
-	TokenInputField  string `yaml:"token_input_field"`
-	TargetInputField string `yaml:"target_input_field"`
-	MinWitnesses     int    `yaml:"min_witnesses"`
-}
-
 // ServiceTool defines an MCP-exposed tool for a service.
 type ServiceTool struct {
 	Name                 string                 `yaml:"name" validate:"required"`
@@ -78,27 +71,12 @@ func (s *ServiceDefinition) Validate() error {
 		return err
 	}
 	for _, tool := range s.Tools {
-		if tool.RequiresConsentToken == nil {
-			continue
-		}
-		if tool.RequiresConsentToken.OperationKind == "" {
-			return fmt.Errorf("tool %q requires_consent_token.operation_kind is required", tool.Name)
-		}
-		if tool.RequiresConsentToken.TokenInputField == "" {
-			return fmt.Errorf("tool %q requires_consent_token.token_input_field is required", tool.Name)
-		}
-		if tool.RequiresConsentToken.TargetInputField == "" {
-			return fmt.Errorf("tool %q requires_consent_token.target_input_field is required", tool.Name)
-		}
 		params := make(map[string]bool, len(tool.Parameters))
 		for _, param := range tool.Parameters {
 			params[param.Name] = true
 		}
-		if !params[tool.RequiresConsentToken.TokenInputField] {
-			return fmt.Errorf("tool %q requires_consent_token references unknown token_input_field %q", tool.Name, tool.RequiresConsentToken.TokenInputField)
-		}
-		if !params[tool.RequiresConsentToken.TargetInputField] {
-			return fmt.Errorf("tool %q requires_consent_token references unknown target_input_field %q", tool.Name, tool.RequiresConsentToken.TargetInputField)
+		if err := validateConsentRequirement(tool.Name, tool.RequiresConsentToken, params); err != nil {
+			return err
 		}
 	}
 	return nil

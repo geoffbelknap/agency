@@ -7,16 +7,6 @@ import { toast } from 'sonner';
 import { api, type RawRoutingStat, type RawRoutingSuggestion } from '../lib/api';
 import { featureEnabled } from '../lib/features';
 
-// Approximate pricing per million tokens (USD)
-const PRICING: Record<string, { input: number; output: number }> = {
-  'claude-sonnet': { input: 3, output: 15 },
-  'claude-haiku': { input: 0.25, output: 1.25 },
-  'claude-opus': { input: 15, output: 75 },
-  'gpt-4o': { input: 2.5, output: 10 },
-  'text-embedding-3': { input: 0.13, output: 0 },
-};
-const DEFAULT_PRICING = { input: 3, output: 15 };
-
 interface MetricsBucket {
   requests: number;
   input_tokens: number;
@@ -86,11 +76,6 @@ interface RoutingMetrics {
   by_hour?: HourlyUsageBucket[];
   recent_calls?: UsageCall[];
   recent_errors?: RecentError[];
-}
-
-function estimateCost(model: string, input: number, output: number): number {
-  const p = pricingForModel(model);
-  return (input * p.input + output * p.output) / 1_000_000;
 }
 
 function formatTokens(n: number): string {
@@ -213,25 +198,15 @@ function colorForModel(model: string): string {
   return MODEL_COLORS[stableHash(key) % MODEL_COLORS.length];
 }
 
-function pricingForModel(model: string): { input: number; output: number } {
-  const lower = model.toLowerCase();
-  if (PRICING[model]) return PRICING[model];
-  if (lower.includes('sonnet')) return PRICING['claude-sonnet'];
-  if (lower.includes('haiku')) return PRICING['claude-haiku'];
-  if (lower.includes('opus')) return PRICING['claude-opus'];
-  if (lower.includes('gpt-4o')) return PRICING['gpt-4o'];
-  if (lower.includes('embedding')) return PRICING['text-embedding-3'];
-  return DEFAULT_PRICING;
+function pricingForBucket(bucket: MetricsBucket): { input: number; output: number } | null {
+  if (bucket.est_cost_usd <= 0 || bucket.input_tokens + bucket.output_tokens <= 0) return null;
+  const totalTokens = bucket.input_tokens + bucket.output_tokens;
+  const blended = (bucket.est_cost_usd * 1_000_000) / totalTokens;
+  return { input: blended, output: blended };
 }
 
-function providerForModel(model: string, providerModel?: string): string {
-  const value = `${model} ${providerModel ?? ''}`.toLowerCase();
-  if (value.includes('claude')) return 'ANTHROPIC';
-  if (value.includes('gpt') || value.includes('openai') || value.includes('embedding')) return 'OPENAI';
-  if (value.includes('gemini')) return 'GOOGLE';
-  if (value.includes('mistral') || value.includes('codestral')) return 'MISTRAL';
-  if (value.includes('deepseek')) return 'DEEPSEEK';
-  return 'PROVIDER';
+function modelSourceLabel(): string {
+  return 'MODEL';
 }
 
 function Panel({ children, padded = false }: { children: React.ReactNode; padded?: boolean }) {
@@ -552,13 +527,10 @@ export function Usage() {
   ].filter((component) => component.value > 0 || component.label === 'Token spend' || component.label === 'Cached input' || component.label === 'Unpriced tools' && unpricedProviderToolCalls > 0) : [];
   const pricedComponentTotal = costComponents.reduce((sum, component) => sum + (component.included ? component.value : 0), 0);
 
-  // Use gateway cost if available, otherwise estimate client-side
+  // Use gateway/catalog cost when available; do not guess provider pricing client-side.
   function displayCost(bucket: MetricsBucket, model?: string): string {
     if (bucket.est_cost_usd > 0) return `$${bucket.est_cost_usd.toFixed(4)}`;
-    if (model) return `$${estimateCost(model, bucket.input_tokens, bucket.output_tokens).toFixed(4)}`;
-    // Sum across models for total
-    const totalEst = byModel.reduce((sum, [m, b]) => sum + estimateCost(m, b.input_tokens, b.output_tokens), 0);
-    return `~$${totalEst.toFixed(4)}`;
+    return model ? 'unpriced' : '$0.0000';
   }
 
   const rangeLabel = metrics?.period
@@ -571,11 +543,11 @@ export function Usage() {
   const topModel = byModel.slice().sort((a, b) => b[1].requests - a[1].requests)[0];
   const topProvider = byProvider.slice().sort((a, b) => b[1].requests - a[1].requests)[0];
   const totalKnownSpend = t ? displayCost(t) : '$0.0000';
-  const costValue = (bucket: MetricsBucket, model?: string) => bucket.est_cost_usd > 0 ? bucket.est_cost_usd : model ? estimateCost(model, bucket.input_tokens, bucket.output_tokens) : 0;
-  const chartValue = (bucket: MetricsBucket, model?: string) => chartMetric === 'tokens' ? Math.max(0, bucket.total_tokens || bucket.input_tokens + bucket.output_tokens) : costValue(bucket, model);
-  const chartLegendValue = (bucket: MetricsBucket, model?: string) => chartMetric === 'tokens' ? formatTokens(bucket.total_tokens || bucket.input_tokens + bucket.output_tokens) : formatMoneyShort(costValue(bucket, model));
+  const costValue = (bucket: MetricsBucket) => bucket.est_cost_usd > 0 ? bucket.est_cost_usd : 0;
+  const chartValue = (bucket: MetricsBucket, model?: string) => chartMetric === 'tokens' ? Math.max(0, bucket.total_tokens || bucket.input_tokens + bucket.output_tokens) : costValue(bucket);
+  const chartLegendValue = (bucket: MetricsBucket, model?: string) => chartMetric === 'tokens' ? formatTokens(bucket.total_tokens || bucket.input_tokens + bucket.output_tokens) : formatMoneyShort(costValue(bucket));
   const modelRows = byModel
-    .map(([model, bucket]) => ({ model, bucket, color: colorForModel(model), cost: costValue(bucket, model), chartValue: chartValue(bucket, model) }))
+    .map(([model, bucket]) => ({ model, bucket, color: colorForModel(model), cost: costValue(bucket), chartValue: chartValue(bucket, model) }))
     .sort((a, b) => b.chartValue - a.chartValue || b.bucket.requests - a.bucket.requests);
   const fallbackModelRows = modelRows;
   const visibleChartModelRows = fallbackModelRows.slice(0, MAX_CHART_MODEL_SERIES);
@@ -607,7 +579,7 @@ export function Usage() {
   }, {});
   modelColorByName['other models'] = OTHER_MODEL_COLOR;
   const totalModelCost = fallbackModelRows.reduce((sum, row) => sum + row.cost, 0);
-  const totalAgentCost = byAgent.reduce((sum, [, bucket]) => sum + costValue(bucket, byModel.length === 1 ? byModel[0][0] : undefined), 0);
+  const totalAgentCost = byAgent.reduce((sum, [, bucket]) => sum + costValue(bucket), 0);
   const chartStacks = byHour.length > 0 && chartModelRows.length > 0
     ? byHour.slice(-24).map((bucket, hourIndex) => {
       const modelEntries = Object.entries(bucket.by_model ?? {});
@@ -688,8 +660,8 @@ export function Usage() {
   function exportCsv() {
     const rows = [
       ['type', 'name', 'requests', 'input_tokens', 'output_tokens', 'total_tokens', 'errors', 'avg_latency_ms', 'estimated_cost_usd'],
-      ...byAgent.map(([name, bucket]) => ['agent', name, bucket.requests, bucket.input_tokens, bucket.output_tokens, bucket.total_tokens, bucket.errors, bucket.avg_latency_ms, costValue(bucket, byModel.length === 1 ? byModel[0][0] : undefined).toFixed(6)]),
-      ...byModel.map(([name, bucket]) => ['model', name, bucket.requests, bucket.input_tokens, bucket.output_tokens, bucket.total_tokens, bucket.errors, bucket.avg_latency_ms, costValue(bucket, name).toFixed(6)]),
+      ...byAgent.map(([name, bucket]) => ['agent', name, bucket.requests, bucket.input_tokens, bucket.output_tokens, bucket.total_tokens, bucket.errors, bucket.avg_latency_ms, costValue(bucket).toFixed(6)]),
+      ...byModel.map(([name, bucket]) => ['model', name, bucket.requests, bucket.input_tokens, bucket.output_tokens, bucket.total_tokens, bucket.errors, bucket.avg_latency_ms, costValue(bucket).toFixed(6)]),
       ...byProvider.map(([name, bucket]) => ['provider', name, bucket.requests, bucket.input_tokens, bucket.output_tokens, bucket.total_tokens, bucket.errors, bucket.avg_latency_ms, costValue(bucket).toFixed(6)]),
       ...bySource.map(([name, bucket]) => ['source', name, bucket.requests, bucket.input_tokens, bucket.output_tokens, bucket.total_tokens, bucket.errors, bucket.avg_latency_ms, costValue(bucket).toFixed(6)]),
     ];
@@ -884,19 +856,19 @@ export function Usage() {
                       <div style={{ padding: 20, color: 'var(--ink-mid)' }}>No per-model usage recorded in the selected period.</div>
                     ) : fallbackModelRows.map((row) => {
                       const share = totalModelCost > 0 ? (row.cost / totalModelCost) * 100 : 0;
-                      const pricing = pricingForModel(row.model);
+                      const pricing = pricingForBucket(row.bucket);
                       return (
                         <div key={row.model} style={{ display: 'grid', gridTemplateColumns: 'minmax(270px, 1.6fr) 90px 120px 120px 130px 130px 170px 100px', gap: 16, padding: '20px', borderBottom: '0.5px solid var(--ink-hairline)', alignItems: 'center' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 13, minWidth: 0 }}>
                             <span style={{ width: 11, height: 11, borderRadius: 3, background: row.color, flexShrink: 0 }} />
                             <span style={{ ...ledgerStrongStyle, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.model}</span>
-                            <span style={{ ...ledgerHeaderStyle, color: 'var(--ink-faint)', letterSpacing: '0.16em', whiteSpace: 'nowrap' }}>{providerForModel(row.model)}</span>
+                            <span style={{ ...ledgerHeaderStyle, color: 'var(--ink-faint)', letterSpacing: '0.16em', whiteSpace: 'nowrap' }}>{modelSourceLabel()}</span>
                           </div>
                           <div style={ledgerCellStyle}>{row.bucket.requests.toLocaleString()}</div>
                           <div style={ledgerCellStyle}>{formatTokens(row.bucket.input_tokens)}</div>
                           <div style={ledgerCellStyle}>{row.bucket.output_tokens > 0 ? formatTokens(row.bucket.output_tokens) : '-'}</div>
-                          <div style={{ ...ledgerCellStyle, color: 'var(--ink-faint)' }}>{formatRate(pricing.input)}</div>
-                          <div style={{ ...ledgerCellStyle, color: 'var(--ink-faint)' }}>{formatRate(pricing.output)}</div>
+                          <div style={{ ...ledgerCellStyle, color: 'var(--ink-faint)' }}>{pricing ? formatRate(pricing.input) : '-'}</div>
+                          <div style={{ ...ledgerCellStyle, color: 'var(--ink-faint)' }}>{pricing ? formatRate(pricing.output) : '-'}</div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
                             <div aria-label={`${row.model} share ${share.toFixed(0)}%`} style={{ width: 96, height: 6, background: 'var(--warm-3)', borderRadius: 3, overflow: 'hidden' }}>
                               <div style={{ width: `${share}%`, height: '100%', background: row.color }} />
@@ -918,7 +890,7 @@ export function Usage() {
                     {byAgent.length === 0 ? (
                       <div style={{ padding: 20, color: 'var(--ink-mid)' }}>No per-agent usage recorded in the selected period.</div>
                     ) : byAgent.slice().sort((a, b) => b[1].requests - a[1].requests).map(([agent, bucket], index) => {
-                      const cost = costValue(bucket, byModel.length === 1 ? byModel[0][0] : undefined);
+                      const cost = costValue(bucket);
                       const share = totalAgentCost > 0 ? (cost / totalAgentCost) * 100 : 0;
                       const color = colorForModel(agent);
                       return (

@@ -9,8 +9,7 @@ KEEP_HOME="${AGENCY_DOCKER_KEEP_HOME:-0}"
 SEED_HOME=""
 BOOTSTRAPPED_HOME=0
 SOCKET_OVERRIDE="${AGENCY_DOCKER_SOCKET:-}"
-BOOTSTRAP_PROVIDER="${AGENCY_DOCKER_SETUP_PROVIDER:-openai}"
-BOOTSTRAP_API_KEY="${AGENCY_DOCKER_SETUP_API_KEY:-docker-readiness-placeholder-key}"
+BOOTSTRAP_PROVIDER="${AGENCY_DOCKER_SETUP_PROVIDER:-}"
 GATEWAY_PORT="${AGENCY_DOCKER_GATEWAY_PORT:-18300}"
 WEB_PORT="${AGENCY_DOCKER_WEB_PORT:-18380}"
 PROXY_PORT="${AGENCY_DOCKER_GATEWAY_PROXY_PORT:-18302}"
@@ -115,20 +114,6 @@ sanitize_instance() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//'
 }
 
-provider_env_var() {
-  case "$1" in
-    anthropic)
-      printf '%s\n' "ANTHROPIC_API_KEY"
-      ;;
-    google)
-      printf '%s\n' "GEMINI_API_KEY"
-      ;;
-    *)
-      printf '%s\n' "OPENAI_API_KEY"
-      ;;
-  esac
-}
-
 resolve_agency_bin() {
   if [ -n "$AGENCY_BIN" ] && [ -x "$AGENCY_BIN" ]; then
     printf '%s\n' "$AGENCY_BIN"
@@ -217,7 +202,6 @@ bootstrap_seed_home() {
     "$SEED_HOME/run" \
     "$SEED_HOME/knowledge/ontology.d"
   mkdir -m 700 -p "$SEED_HOME/audit"
-  write_routing_config
   cat >"$SEED_HOME/capacity.yaml" <<'EOF'
 host_memory_mb: 8192
 host_cpu_cores: 4
@@ -228,49 +212,6 @@ max_concurrent_meesks: 4
 agent_slot_mb: 640
 meeseeks_slot_mb: 640
 network_pool_configured: false
-EOF
-}
-
-write_routing_config() {
-  cat >"$SEED_HOME/infrastructure/routing.yaml" <<'EOF'
-version: "0.1"
-providers:
-  anthropic:
-    api_base: https://api.anthropic.com/v1
-    auth_env: ANTHROPIC_API_KEY
-    auth_header: x-api-key
-    auth_prefix: ""
-  openai:
-    api_base: https://api.openai.com/v1
-    auth_env: OPENAI_API_KEY
-    auth_header: Authorization
-    auth_prefix: "Bearer "
-models:
-  claude-sonnet:
-    provider: anthropic
-    provider_model: claude-sonnet-4-20250514
-  claude-haiku:
-    provider: anthropic
-    provider_model: claude-haiku-4-5-20251001
-  gpt-4o:
-    provider: openai
-    provider_model: gpt-4o
-  gpt-4o-mini:
-    provider: openai
-    provider_model: gpt-4o-mini
-tiers:
-  standard:
-    - model: claude-sonnet
-      preference: 0
-    - model: gpt-4o
-      preference: 1
-  mini:
-    - model: claude-haiku
-      preference: 0
-    - model: gpt-4o-mini
-      preference: 1
-settings:
-  default_tier: standard
 EOF
 }
 
@@ -299,7 +240,10 @@ data["hub"] = hub
 data["token"] = data.get("token") or secrets.token_hex(32)
 data["egress_token"] = data.get("egress_token") or secrets.token_hex(32)
 data["gateway_addr"] = gateway_addr
-data["llm_provider"] = data.get("llm_provider") or provider
+if not data.get("llm_provider"):
+    if not provider:
+        raise SystemExit("missing llm_provider; set AGENCY_DOCKER_SETUP_PROVIDER for disposable bootstrap")
+    data["llm_provider"] = provider
 hub["deployment_backend"] = "docker"
 hub["deployment_backend_config"] = {"host": socket}
 path.write_text(yaml.safe_dump(data, sort_keys=False))
@@ -369,7 +313,6 @@ log "Using Docker socket: $DOCKER_SOCKET"
 
 choose_ports
 create_seed_home
-write_routing_config
 patch_seed_config "$DOCKER_SOCKET"
 
 log "Seed home: $SEED_HOME"
@@ -384,16 +327,6 @@ export AGENCY_KNOWLEDGE_PORT="$KNOWLEDGE_PORT"
 export AGENCY_INTAKE_PORT="$INTAKE_PORT"
 export AGENCY_WEB_FETCH_PORT="$WEB_FETCH_PORT"
 export AGENCY_WEB_PORT="$WEB_PORT"
-if [ "$BOOTSTRAPPED_HOME" = "1" ]; then
-  provider_env="$(provider_env_var "$BOOTSTRAP_PROVIDER")"
-  if [ -z "${!provider_env:-}" ]; then
-    export "$provider_env=$BOOTSTRAP_API_KEY"
-  fi
-fi
-if [ -z "${OPENAI_API_KEY:-}" ] && [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${GEMINI_API_KEY:-}" ]; then
-  export OPENAI_API_KEY="$BOOTSTRAP_API_KEY"
-fi
-
 log "Restarting gateway on Docker-backed seed home"
 start_gateway
 

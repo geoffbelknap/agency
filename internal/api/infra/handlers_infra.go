@@ -38,7 +38,7 @@ func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 			"backend_endpoint":        runtimehost.ResolvedBackendEndpoint(backend, h.deps.Config.Hub.DeploymentBackendConfig),
 			"backend_mode":            runtimehost.ResolvedBackendMode(backend, h.deps.Config.Hub.DeploymentBackendConfig),
 			"infra_control_available": false,
-			"docker":                  "not_applicable",
+			"container_backend":       "not_applicable",
 			"host_runtime":            "not_applicable",
 		})
 		return
@@ -46,18 +46,24 @@ func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 
 	status, err := h.deps.DC.InfraStatus(r.Context())
 	if err != nil {
-		if h.deps.DockerStatus != nil {
-			h.deps.DockerStatus.RecordError(err)
+		if h.deps.BackendHealth != nil {
+			h.deps.BackendHealth.RecordError(err)
 		}
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
 	}
-	if h.deps.DockerStatus != nil {
-		h.deps.DockerStatus.RecordSuccess()
+	if h.deps.BackendHealth != nil {
+		h.deps.BackendHealth.RecordSuccess()
 	}
 	limits := models.DefaultPlatformBudgetConfig()
 	store := budget.NewStore(filepath.Join(h.deps.Config.Home, "budget"))
 	infraState, _ := store.Load("_infrastructure")
+	containerBackendState := func() string {
+		if h.deps.BackendHealth != nil && !h.deps.BackendHealth.Available() {
+			return "unavailable"
+		}
+		return "available"
+	}()
 	writeJSON(w, 200, map[string]interface{}{
 		"version":                 h.deps.Config.Version,
 		"build_id":                h.deps.Config.BuildID,
@@ -70,20 +76,9 @@ func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 		"backend_endpoint":        runtimehost.ResolvedBackendEndpoint(backend, h.deps.Config.Hub.DeploymentBackendConfig),
 		"backend_mode":            runtimehost.ResolvedBackendMode(backend, h.deps.Config.Hub.DeploymentBackendConfig),
 		"infra_control_available": true,
-		"docker": func() string {
-			if backend != runtimehost.BackendDocker {
-				return "not_applicable"
-			}
-			if h.deps.DockerStatus != nil && !h.deps.DockerStatus.Available() {
-				return "unavailable"
-			}
-			return "available"
-		}(),
+		"container_backend":       containerBackendState,
 		"host_runtime": func() string {
-			if h.deps.DockerStatus != nil && !h.deps.DockerStatus.Available() {
-				return "unavailable"
-			}
-			return "available"
+			return containerBackendState
 		}(),
 	})
 }
@@ -109,14 +104,14 @@ func (h *handler) infraUp(w http.ResponseWriter, r *http.Request) {
 
 	if !stream {
 		if err := h.deps.Infra.EnsureRunning(ctx); err != nil {
-			if h.deps.DockerStatus != nil {
-				h.deps.DockerStatus.RecordError(err)
+			if h.deps.BackendHealth != nil {
+				h.deps.BackendHealth.RecordError(err)
 			}
 			writeJSON(w, 500, map[string]string{"error": err.Error()})
 			return
 		}
-		if h.deps.DockerStatus != nil {
-			h.deps.DockerStatus.RecordSuccess()
+		if h.deps.BackendHealth != nil {
+			h.deps.BackendHealth.RecordSuccess()
 		}
 		events.EmitInfraEvent(h.deps.EventBus, "infra_up", nil)
 		writeJSON(w, 200, map[string]string{"status": "running"})
@@ -147,8 +142,8 @@ func (h *handler) infraUp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.deps.Infra.EnsureRunningWithProgress(ctx, onProgress); err != nil {
-		if h.deps.DockerStatus != nil {
-			h.deps.DockerStatus.RecordError(err)
+		if h.deps.BackendHealth != nil {
+			h.deps.BackendHealth.RecordError(err)
 		}
 		writeMu.Lock()
 		enc.Encode(map[string]string{"type": "error", "error": err.Error()})
@@ -156,8 +151,8 @@ func (h *handler) infraUp(w http.ResponseWriter, r *http.Request) {
 		writeMu.Unlock()
 		return
 	}
-	if h.deps.DockerStatus != nil {
-		h.deps.DockerStatus.RecordSuccess()
+	if h.deps.BackendHealth != nil {
+		h.deps.BackendHealth.RecordSuccess()
 	}
 
 	events.EmitInfraEvent(h.deps.EventBus, "infra_up", nil)

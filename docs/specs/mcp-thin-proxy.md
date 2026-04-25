@@ -99,13 +99,17 @@ The response shape matches the MCP `tools/call` result directly. The proxy inser
 
 #### Environment Variable Forwarding
 
-Some tools need environment variables from the MCP server's process (e.g., `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` for `agency_init`). The proxy forwards a defined set of environment variables as a header:
+Some tools need provider credential environment variables from the MCP server's
+process for setup flows such as `agency_init`. The proxy forwards only the
+catalog-declared provider credential variables as a header:
 
 ```
-X-Agency-Env: ANTHROPIC_API_KEY=sk-ant-...,OPENAI_API_KEY=sk-...
+X-Agency-Env: PROVIDER_A_API_KEY=sk-...,PROVIDER_B_API_KEY=sk-...
 ```
 
-The gateway extracts these and makes them available to the tool handler. The allowed set is hardcoded in the proxy (not open-ended) to avoid leaking arbitrary environment state.
+The gateway extracts these and makes them available to the tool handler. The
+allowed set is derived from provider descriptors, not open-ended, to avoid
+leaking arbitrary environment state.
 
 ### Thin Proxy Architecture
 

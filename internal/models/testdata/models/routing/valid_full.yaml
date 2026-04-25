@@ -1,31 +1,31 @@
 providers:
-  anthropic:
-    api_base: https://api.anthropic.com
-    auth_env: ANTHROPIC_API_KEY
+  primary:
+    api_base: https://primary.example
+    auth_env: PRIMARY_PROVIDER_API_KEY
     caching: true
-  openai:
-    api_base: https://api.openai.com
-    auth_env: OPENAI_API_KEY
+  fallback:
+    api_base: https://fallback.example
+    auth_env: FALLBACK_PROVIDER_API_KEY
 models:
-  claude-sonnet:
-    provider: anthropic
-    provider_model: claude-sonnet-4-20250514
+  standard-model:
+    provider: primary
+    provider_model: provider-standard
     cost_per_mtok_in: 3.0
     cost_per_mtok_out: 15.0
     cost_per_mtok_cached: 0.3
-  claude-haiku:
-    provider: anthropic
-    provider_model: claude-haiku-4-5-20251001
+  fast-model:
+    provider: primary
+    provider_model: provider-fast
     cost_per_mtok_in: 0.8
     cost_per_mtok_out: 4.0
 tiers:
   standard:
-    - model: claude-sonnet
+    - model: standard-model
       preference: 0
   fast:
-    - model: claude-haiku
+    - model: fast-model
       preference: 0
-    - model: claude-sonnet
+    - model: standard-model
       preference: 10
 settings:
   default_tier: standard

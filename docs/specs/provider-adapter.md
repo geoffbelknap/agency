@@ -6,11 +6,11 @@ Add model capability declarations to routing config, enforce capability-aware ti
 
 ## Motivation
 
-Agency needs to route tasks to different models based on what those models can do. The hybrid routing pillar (E2) depends on the enforcer knowing which tiers support tools, vision, and streaming so it can route cheap tasks to cheap models without silent failures. Operators adding local models (Ollama, LiteLLM) need a way to configure them without hand-editing YAML.
+Agency needs to route tasks to different models based on what those models can do. The hybrid routing pillar (E2) depends on the enforcer knowing which tiers support tools, vision, and streaming so it can route cheap tasks to cheap models without silent failures. Operators adding local or third-party models need a way to configure them without hand-editing YAML.
 
 ## Design Decisions
 
-- **Body stays OpenAI format only.** The enforcer handles Anthropic translation. All other providers (OpenAI, Gemini, Ollama) speak OpenAI-compatible natively. No provider format awareness in the body runtime.
+- **Body stays provider neutral.** The runtime sends Agency's normalized chat contract to the enforcer. Provider adapters own upstream request/response translation. No provider format awareness belongs in the body runtime.
 - **Capabilities are data, not code.** Declared in routing config per model, shipped in hub provider YAMLs, discoverable via `agency provider add`, overridable in `routing.local.yaml`.
 - **Tier capabilities are derived.** A tier's capabilities are the intersection of its models' capabilities.
 - **Mismatch handling:** Automatic tier fallback to the nearest capable tier. Reject if no tier supports the required capabilities.
@@ -33,23 +33,23 @@ Three capabilities, extensible later:
 
 ```yaml
 models:
-  claude-sonnet:
-    provider: anthropic
-    provider_model: claude-sonnet-4-20250514
+  standard:
+    provider: provider-a
+    provider_model: provider-a-standard
     capabilities: [tools, vision, streaming]
     cost_per_mtok_in: 3.0
     cost_per_mtok_out: 15.0
     cost_per_mtok_cached: 0.30
-  gemini-2.5-flash:
-    provider: gemini
-    provider_model: gemini-2.5-flash
+  fast:
+    provider: provider-b
+    provider_model: provider-b-fast
     capabilities: [tools, vision, streaming]
     cost_per_mtok_in: 0.15
     cost_per_mtok_out: 0.60
     cost_per_mtok_cached: 0.0375
-  llama-8b:
-    provider: my-ollama
-    provider_model: llama3.1:8b
+  local-small:
+    provider: local-provider
+    provider_model: local-small
     capabilities: [streaming]
     cost_per_mtok_in: 0
     cost_per_mtok_out: 0
@@ -81,7 +81,7 @@ func (m ModelConfig) HasCapability(cap string) bool {
 
 ### Tier Capability Derivation
 
-A tier's effective capabilities are the intersection of all its models' capabilities. If standard tier has Claude Sonnet `[tools, vision, streaming]` and Gemini Pro `[tools, vision, streaming]`, the tier supports all three. If a mini tier has only Llama 8B `[streaming]`, the tier supports only streaming.
+A tier's effective capabilities are the intersection of all its models' capabilities. If the standard tier has two remote models with `[tools, vision, streaming]`, the tier supports all three. If a mini tier has only a local small model with `[streaming]`, the tier supports only streaming.
 
 Add to `RoutingConfig`:
 
@@ -113,7 +113,7 @@ Before routing, the enforcer inspects the request body:
 
 The tier walk order follows the existing `best_effort` strategy — prefer the nearest tier in the hierarchy (standard → fast → frontier → mini → nano).
 
-Tier fallback events are logged to the enforcer audit trail (e.g., "tier mini→fast: request requires tools, mini lacks capability").
+Tier fallback events are logged to the enforcer audit trail, for example: `tier mini -> fast: request requires tools, mini lacks capability`.
 
 ## Tier Capability Manifest for Body
 
@@ -134,61 +134,63 @@ The enforcer serves `/config/tiers.json` on port 8081 (config port), hot-reloade
 
 The body reads this at session start and uses it to choose tiers for subtasks. The body never sees model names or provider names — just tier capabilities. Full body-side tier selection logic is part of E2 (hybrid model routing) — this spec just exposes the data.
 
-## Gemini Provider
+## Bundled Provider Entries
 
-New hub component at `agency-hub/providers/gemini/provider.yaml`:
+Bundled provider entries are normal provider adapter descriptors. The concrete
+provider name, credential name, API endpoint, model IDs, and tier assignments
+live in provider YAML, not in runtime/orchestration code. Example shape:
 
 ```yaml
-name: gemini
-display_name: Google Gemini
-description: Gemini models — 2.5 Pro, 2.5 Flash
+name: provider-a
+display_name: Provider A
+description: Provider A models
 version: "0.1.0"
 category: cloud
 credential:
-  name: gemini-api-key
+  name: provider-a-api-key
   label: API Key
-  env_var: GEMINI_API_KEY
-  api_key_url: https://aistudio.google.com/apikey
+  env_var: PROVIDER_A_API_KEY
+  api_key_url: https://provider-a.example.com/keys
 routing:
-  api_base: https://generativelanguage.googleapis.com/v1beta/openai
+  api_base: https://provider-a.example.com/v1
+  api_format: openai
   auth_header: Authorization
   auth_prefix: "Bearer "
   models:
-    gemini-2.5-pro:
-      provider_model: gemini-2.5-pro
+    provider-a-frontier:
+      provider_model: provider-a-frontier
       capabilities: [tools, vision, streaming]
       cost_per_mtok_in: 1.25
       cost_per_mtok_out: 10.0
       cost_per_mtok_cached: 0.315
-    gemini-2.5-flash:
-      provider_model: gemini-2.5-flash
+    provider-a-fast:
+      provider_model: provider-a-fast
       capabilities: [tools, vision, streaming]
       cost_per_mtok_in: 0.15
       cost_per_mtok_out: 0.60
       cost_per_mtok_cached: 0.0375
   tiers:
-    frontier: gemini-2.5-pro
-    standard: gemini-2.5-pro
-    fast: gemini-2.5-flash
-    mini: gemini-2.5-flash
-    nano: gemini-2.5-flash
+    frontier: provider-a-frontier
+    standard: provider-a-frontier
+    fast: provider-a-fast
+    mini: provider-a-fast
+    nano: provider-a-fast
     batch: null
 ```
 
-Uses Google's OpenAI-compatible endpoint. No enforcer changes needed — pass-through like OpenAI.
-
-Flash at $0.15/MTok input is a strong cheap-tier candidate for E2 hybrid routing.
+If a provider uses an OpenAI-style API, that is represented as `api_format:
+openai` inside the provider descriptor. It is not represented as a generic
+`openai-compatible` provider identity.
 
 ## Existing Provider Updates
 
 Add `capabilities` to all model entries in existing hub providers:
 
-| Provider | Models | Capabilities |
+| Provider type | Models | Capabilities |
 |---|---|---|
-| Anthropic | claude-opus, claude-sonnet, claude-haiku | `[tools, vision, streaming]` |
-| OpenAI | gpt-4.1, gpt-4o, gpt-4.1-mini, gpt-4.1-nano | `[tools, vision, streaming]` |
-| Ollama | (empty, user-configured) | Discovered via `agency provider add` |
-| OpenAI-Compatible | (empty, user-configured) | Discovered or manually declared |
+| Bundled cloud providers | Declared in provider YAML | Declared in provider YAML |
+| Local providers | User-configured | Discovered via `agency provider add` |
+| Third-party API providers | User or contributor supplied | Discovered or manually declared |
 
 ## `agency provider add`
 
@@ -253,7 +255,10 @@ Probe responses are untrusted data. The CLI parses only HTTP status codes and kn
 | `agency-hub/providers/anthropic/` | Add `capabilities` to model entries. |
 | `agency-hub/providers/openai/` | Add `capabilities` to model entries. |
 | `agency-hub/providers/ollama/` | Add `capabilities` field documentation. |
-| `agency-hub/providers/openai-compatible/` | Add `capabilities` field documentation. |
+
+Services that speak an OpenAI-style API should be modeled as their own provider
+adapter descriptors with `api_format` set appropriately. `openai-compatible` is
+not a platform-level provider identity.
 
 ## What Doesn't Change
 
