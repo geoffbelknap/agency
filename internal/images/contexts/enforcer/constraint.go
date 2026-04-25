@@ -161,8 +161,7 @@ func (ch *ConstraintHandler) serveConn(conn *websocket.Conn) {
 }
 
 func (ch *ConstraintHandler) applyPush(push wsPushMessage) ackReport {
-	log.Printf("constraint: received push change_id_present=%t version=%d severity_present=%t",
-		push.ChangeID != "", push.Version, push.Severity != "")
+	log.Printf("constraint: received push")
 
 	computed := hashConstraints(push.Constraints)
 	if computed != push.Hash {
