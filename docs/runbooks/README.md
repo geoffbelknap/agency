@@ -26,6 +26,10 @@ Use these as the default validation sequence after a change:
   [Initial Setup](initial-setup.md) or [Upgrade](upgrade.md), then [Validation Checklist](validation-checklist.md), then [Infrastructure Recovery](infrastructure-recovery.md) if anything degrades
 - Mainline maintenance or repo-policy verification:
   [Validation Checklist](validation-checklist.md), including `make verify-required-status-checks`
+- Cutting a `0.2.x` core release:
+  [Release Gates 0.2.x](release-gates-0.2.x.md) ->
+  [Release Checklist 0.2.x](release-checklist-0.2.x.md) ->
+  [Validation Checklist](validation-checklist.md)
 
 ## Index
 
@@ -39,6 +43,8 @@ Use these as the default validation sequence after a change:
 | [Backend Adapter Release Checklist](backend-adapter-release-checklist.md) | Release-style validation gate for Docker, Podman, and future adapters |
 | [Runtime Smoke](runtime-smoke.md) | Runtime-contract validation for start, restart, status, transport, and manifest persistence |
 | [Validation Checklist](validation-checklist.md) | Post-deployment, post-upgrade, or periodic health verification |
+| [Release Gates 0.2.x](release-gates-0.2.x.md) | Gate-level decisions for a `0.2.x` core release tag |
+| [Release Checklist 0.2.x](release-checklist-0.2.x.md) | Procedural validation walk for cutting a `0.2.x` core release |
 
 ### Operations
 

@@ -5,9 +5,9 @@ Last updated: 2026-04-13
 
 Related:
 
-- [2026-04-13-core-feature-maturity-matrix.md](/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/docs/plans/2026-04-13-core-feature-maturity-matrix.md)
-- [2026-04-14-0.2.x-core-release-gates.md](/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/docs/plans/2026-04-14-0.2.x-core-release-gates.md)
-- [README.md](/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/README.md)
+- [Core Feature Maturity Matrix](2026-04-13-core-feature-maturity-matrix.md)
+- [Release Gates 0.2.x](../runbooks/release-gates-0.2.x.md)
+- [README.md](../../README.md)
 
 ## Goal
 
