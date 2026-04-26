@@ -1,5 +1,6 @@
 .PHONY: all build install deploy test clean images python-base workspace-base \
        body enforcer comms knowledge intake egress workspace web-fetch web relay \
+       python-image-tests \
        provider-tools-readiness docker-readiness podman-readiness podman-readiness-full containerd-readiness containerd-readiness-rootful \
        verify-required-status-checks \
        web-test-unit web-test-e2e web-test-all \
@@ -80,6 +81,9 @@ deploy: all
 
 test:
 	go test ./...
+
+python-image-tests:
+	@./scripts/python-image-tests.sh
 
 provider-tools-readiness:
 	@./scripts/provider-tools-readiness-check.sh
