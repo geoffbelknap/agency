@@ -44,13 +44,13 @@ Use these as the default validation sequence after a change:
 
 | Runbook | When to Use |
 |---------|------------|
-| [Mission Management](mission-management.md) | Creating, configuring, assigning, or troubleshooting missions |
-| [Knowledge Management](knowledge-management.md) | Graph ingestion, classification, ontology, communities, quarantine |
-| [Hub & Capabilities](hub-and-capabilities.md) | Installing components, managing capabilities, presets, web-fetch |
-| [Routing & Providers](routing-and-providers.md) | Adding providers, configuring tiers, routing optimizer |
+| [Mission Management](mission-management.md) _(experimental)_ | Creating, configuring, assigning, or troubleshooting missions |
+| [Knowledge Management](knowledge-management.md) | Graph ingestion, classification, ontology, communities, quarantine — ontology/communities/quarantine portions are experimental |
+| [Hub & Capabilities](hub-and-capabilities.md) _(experimental)_ | Installing components, managing capabilities, presets, web-fetch |
+| [Routing & Providers](routing-and-providers.md) | Adding providers, configuring tiers, routing optimizer — optimizer is experimental |
 | [Budget & Cost](budget-and-cost.md) | Budget configuration, cost attribution, economics reporting |
-| [Notifications & Webhooks](notifications-and-webhooks.md) | Alerting destinations, inbound webhooks, event subscriptions |
-| [Monitoring & Observability](monitoring-and-observability.md) | Trajectory monitoring, signals, meeseeks, semantic cache, audit |
+| [Notifications & Webhooks](notifications-and-webhooks.md) _(experimental)_ | Alerting destinations, inbound webhooks, event subscriptions |
+| [Monitoring & Observability](monitoring-and-observability.md) | Trajectory monitoring, signals, meeseeks, semantic cache, audit — meeseeks is experimental |
 | [Principal Management](principal-management.md) | Registry CRUD, suspension/revocation, authority hierarchy |
 
 ### Incident Response & Recovery

@@ -2,6 +2,8 @@
 
 ## Network Topology
 
+> **Note:** `INTAKE` (webhook receiver) is an experimental, opt-in service and is not part of the default `0.2.x` core surface. The same applies to the inbound `Webhooks` ingress shown at the top — both are only present when the `intake` feature is explicitly enabled.
+
 ```
                               INTERNET
                                  |
