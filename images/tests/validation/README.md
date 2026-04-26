@@ -1,185 +1,77 @@
 # Validation Runbooks
 
-Step-by-step operator runbooks for validating every feature of the Agency
-platform. Walk through each exercise via MCP tools (primary) or CLI,
-observe the output, and mark PASS/FAIL.
+These runbooks are operator validation guides, not a shadow test suite. Use
+them to decide which existing automated lane or manual probe is appropriate for
+a change.
 
-## How to Use
+The Go gateway is the source of truth. Validate through the REST/CLI/web
+surfaces that the gateway exposes. MCP validation is useful only when the MCP
+tool itself is the surface under test.
 
-**Pick a mode** and stick with it for the whole session:
+## Taxonomy
 
-| Mode | Tool | When |
-|------|------|------|
-| **MCP** | `agency_*` tools from Claude Code | Primary — this is how Agency is operated |
-| **CLI** | `agency` shell commands | Alternate — validates CLI parity |
+| Lane | Primary runner | When to use |
+|------|----------------|-------------|
+| Release gates | [release-gates.md](release-gates.md) | Before merging release-blocking or broad platform changes |
+| Smoke | [smoke.md](smoke.md) | Quick local sanity check after setup, upgrade, or small patches |
+| Runtime contract | [runtime-contract.md](runtime-contract.md) | Agent lifecycle, runtime supervisor, transport, backend-neutral health |
+| ASK security | [ask-security.md](ask-security.md) | Enforcement, mediation, audit, credential, policy, and memory boundary changes |
+| Backend adapters | [backend-adapters.md](backend-adapters.md) | Docker, Podman, containerd, or Apple Container adapter work |
+| Comms and DM | [comms-and-dm.md](comms-and-dm.md) | Channels, direct messages, event delivery, agent response loops |
+| Knowledge and memory | [knowledge-memory.md](knowledge-memory.md) | Graph-backed memory, proposals, review, revocation, knowledge graph |
+| Policy and governance | [policy-governance.md](policy-governance.md) | Policy resolution, trust, principals, teams, authority |
+| Hub and integration | [hub-and-integration.md](hub-and-integration.md) | Hub catalog, connectors, packs, intake, provider tools |
+| Web live | [web-live.md](web-live.md) | Web UI routes, live browser flows, setup wizard, destructive UI guardrails |
+| Model and schema | [model-schema.md](model-schema.md) | Go model validation, OpenAPI drift, strict schema behavior |
 
-**Process:**
-1. Run exercises in order within each group. Later groups may depend on earlier ones.
-2. Mark each step PASS or FAIL. If a step fails, log it and continue.
-3. Each exercise has a **Cleanup** section — always run it.
-4. Record results in the tracker below.
+## Defaults
 
-**Prerequisites:**
-- A supported container backend running for the lane you are validating
-  (Docker, Podman, or containerd)
-- At least one LLM API key (Anthropic or OpenAI) for model-backed exercises
-- Agency installed (`agency --help` works)
-- For MCP mode: Agency MCP server connected in Claude Code
+For most PRs, run the smallest lane that covers the changed behavior.
 
-**Automated validation before manual runbooks:**
-
-Run the smallest sufficient automated lane first. Useful defaults:
+Recommended baseline before a normal PR:
 
 ```bash
 go test ./...
 ./scripts/python-image-tests.sh
 make web-test-all
+```
+
+Recommended baseline before a runtime or lifecycle PR:
+
+```bash
+go test ./...
+./scripts/python-image-tests.sh body
 ./scripts/runtime-contract-smoke.sh --agent <agent>
 ```
 
-For backend-specific readiness, use the scoped adapter lane:
+Recommended baseline before a web or operator-flow PR:
 
 ```bash
-./scripts/docker-readiness-check.sh
-./scripts/podman-readiness-check.sh
-./scripts/containerd-rootless-readiness-check.sh
-./scripts/containerd-rootful-readiness-check.sh
+make web-test-all
+./scripts/e2e-live-disposable.sh --skip-build
 ```
 
-Expected: the selected lane passes. Treat Docker, Podman, and containerd
-warnings as backend-adapter hygiene unless `agency admin doctor` or runtime
-manifest/status/validate reports a generic runtime failure.
+## Hard Rules
 
-**Time estimate:** ~45 minutes for a full run (groups 1–8, excluding swarm).
+- Do not treat Docker-specific probes as generic runtime failures. Runtime
+  health is judged through manifest, status, validate, and `agency admin doctor`.
+- Do not make dev-only harnesses branch-protection or release gates without
+  explicitly documenting their environment assumptions.
+- Do not validate durable memory by direct file edits. Durable memory is
+  graph-backed and operator-owned.
+- Do not validate preference-affecting memory without an operator review step.
+- Do not weaken ASK boundaries to make tests easier.
 
-## Runbook Index
+## Cleanup
 
-| File | Group | Exercises | Depends On |
-|------|-------|-----------|------------|
-| [01-platform-bootstrap.md](01-platform-bootstrap.md) | Platform Bootstrap | 2 | — |
-| [02-agent-lifecycle.md](02-agent-lifecycle.md) | Agent Lifecycle | 4 | Group 1 |
-| [03-capabilities.md](03-capabilities.md) | Capabilities | 5 | Group 2 |
-| [04-communication.md](04-communication.md) | Communication & Knowledge | 6 | Group 1 |
-| [05-security.md](05-security.md) | Security & Enforcement | 8 | Group 2 |
-| [06-governance.md](06-governance.md) | Governance | 5 | Group 2 |
-| [07-deploy-and-integration.md](07-deploy-and-integration.md) | Deploy & Integration | 4 | Group 1 |
-| [08-admin-and-maintenance.md](08-admin-and-maintenance.md) | Admin & Maintenance | 4 | Group 4 |
-| [10-model-validation.md](10-model-validation.md) | Model & Schema Validation | 3 | Group 1 |
-
-## Focus Sets
-
-Run subsets when working on specific areas:
-
-| Set | Groups | When |
-|-----|--------|------|
-| **Smoke** | 1 | Quick sanity check |
-| **Core** | 1, 2, 5 | Agent lifecycle + security — minimum before merge |
-| **Comms** | 1, 4, 8 | Messaging, knowledge, and admin |
-| **Governance** | 1, 2, 6 | Trust, policy, teams |
-| **Full** | 1–8 | Before release |
-| **Model Validation** | Go tests + 10 | Validates Go validation layer end-to-end |
-
-## Final Cleanup
-
-After all exercises:
-
-```
-agency_infra_down()
-```
-
-Verify no orphaned Agency runtimes through the dev cleanup helper first:
+For live local runs, prefer disposable homes and explicit cleanup:
 
 ```bash
 ./scripts/cleanup-live-test-runtimes.sh
 ```
 
-For backend-specific inspection, use the active backend's CLI. Examples:
+Use `--apply` only when you intend to stop matched leaked test runtimes:
 
 ```bash
-docker ps -a --filter name=agency
-podman ps -a --filter name=agency
+AGENCY_BIN=./agency ./scripts/cleanup-live-test-runtimes.sh --apply
 ```
-
-Expected: no unexpected Agency containers or runtime processes remain.
-
----
-
-## Results Tracker
-
-Record results for each run. Copy this table and fill in.
-
-| Exercise | Result | Notes |
-|----------|--------|-------|
-| **Group 1 — Platform Bootstrap** | | |
-| Init & Infrastructure | | |
-| Doctor & Status | | |
-| **Group 2 — Agent Lifecycle** | | |
-| Create & Configure | | |
-| Seven-Phase Start | | |
-| Brief & Task Delivery | | |
-| Stop, Restart, Delete | | |
-| **Group 3 — Capabilities** | | |
-| Capability Registry | | |
-| Service Credentials | | |
-| Persistent Memory | | |
-| Skills & Presets | | |
-| Extra Mounts | | |
-| **Group 4 — Communication** | | |
-| Channels & Messaging | | |
-| Full-Text Search | | |
-| Real-Time Push | | |
-| Interest Matching | | |
-| Knowledge Graph | | |
-| Knowledge Push | | |
-| **Group 5 — Security** | | |
-| Network Isolation | | |
-| XPIA Scanning | | |
-| Egress Domain Control | | |
-| Credential Scoping | | |
-| Budget Enforcement | | |
-| Policy Hard Floors | | |
-| Audit Integrity | | |
-| Container Hardening | | |
-| **Group 6 — Governance** | | |
-| Trust Calibration | | |
-| Policy Exceptions | | |
-| Teams | | |
-| Function Agent Authority | | |
-| Capability Scoping | | |
-| **Group 7 — Deploy & Integration** | | |
-| Pack Deploy | | |
-| Connectors | | |
-| Intake | | |
-| Hub Operations | | |
-| **Group 8 — Admin & Maintenance** | | |
-| Knowledge Curation | | |
-| Departments | | |
-| Audit Export & Retention | | |
-| **Group 10 — Model Validation** | | |
-| YAML Strict Validation | | |
-| Connector Schema Validation | | |
-| Pack Schema Validation | | |
-
----
-
-## Issue Tracker
-
-Log issues discovered during the run. Fix blockers immediately, defer the rest.
-
-### Blockers
-
-| ID | Exercise | Description | Fix |
-|----|----------|-------------|-----|
-| | | | |
-
-### Bugs
-
-| ID | Exercise | Description | Resolution |
-|----|----------|-------------|------------|
-| | | | |
-
-### ASK Violations
-
-| ID | Exercise | Tenet | Description | Resolution |
-|----|----------|-------|-------------|------------|
-| | | | | |
