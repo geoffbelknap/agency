@@ -202,6 +202,19 @@ describe('useChannelSocket', () => {
     expect(result.current.processingAgents).not.toContain('alice');
   });
 
+  it('notifies callers when an agent task completes', () => {
+    const onTaskComplete = vi.fn();
+    renderHook(() =>
+      useChannelSocket(makeOptions({ onTaskComplete }), mockMapRawMessages)
+    );
+
+    act(() => {
+      handlers['agent_signal_task_complete']?.({ agent: 'alice' });
+    });
+
+    expect(onTaskComplete).toHaveBeenCalledWith('alice');
+  });
+
   it('adds agent to processingAgents on agent_signal_processing for selected channel', () => {
     const { result } = renderHook(() =>
       useChannelSocket(makeOptions({ selectedChannelName: 'general' }), mockMapRawMessages)

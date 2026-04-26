@@ -172,15 +172,29 @@ export function Channels() {
     );
   }, []);
 
+  const refreshSelectedChannelMessages = useCallback(() => {
+    if (!selectedChannel) return;
+    loadMessages(selectedChannel.name);
+  }, [loadMessages, selectedChannel]);
+
   const { typingAgents, processingAgents, agentActivity, setProcessingAgents } =
     useChannelSocket(
       {
         selectedChannelName: selectedChannel?.name,
         onAppendMessage: handleAppendMessage,
         onUnreadIncrement: handleUnreadIncrement,
+        onTaskComplete: refreshSelectedChannelMessages,
       },
       mapRawMessages,
     );
+
+  useEffect(() => {
+    if (!selectedChannel || processingAgents.length === 0) return;
+    const interval = window.setInterval(() => {
+      loadMessages(selectedChannel.name);
+    }, 5_000);
+    return () => window.clearInterval(interval);
+  }, [loadMessages, processingAgents.length, selectedChannel]);
 
   const handleChannelSelect = useCallback((channel: Channel) => {
     setSelectedChannel(channel);
