@@ -16,7 +16,7 @@
     "required_evidence": ["source_url", "checked_date"],
     "required_audit_events": ["agent_signal_pact_verdict"],
     "forbidden_reasons": ["runtime:turn_limit_exceeded"],
-    "forbidden_text": ["I searched", "I found online"]
+    "forbidden_text": ["I searched", "I found online", "<cite", "</cite>"]
   },
   "replay_trace": {
     "messages": [

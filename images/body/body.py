@@ -190,6 +190,7 @@ CURRENT_INFO_PREAMBLE_RE = re.compile(
     r"(?:search|check|look up|find|verify|use|see)\b.*?(?:\.|:)?\s*$",
     re.IGNORECASE,
 )
+PROVIDER_CITE_RE = re.compile(r"</?cite\b[^>]*>", re.IGNORECASE)
 
 # Meeseeks system prompt template — minimal, task-focused
 MEESEEKS_SYSTEM_PROMPT = """You are a Meeseeks — a single-purpose agent on Agency, an AI agent operating platform.
@@ -461,8 +462,9 @@ def _sanitize_outbound_content(content: str) -> str:
 def _sanitize_current_info_answer(contract: dict | None, content: str) -> str:
     if not isinstance(contract, dict) or contract.get("kind") != "current_info":
         return content
+    content = PROVIDER_CITE_RE.sub("", str(content or ""))
     kept = []
-    for raw_line in str(content or "").splitlines():
+    for raw_line in content.splitlines():
         line = raw_line.strip()
         if not line:
             if kept and kept[-1] != "":
@@ -3743,10 +3745,24 @@ class Body:
 
     def _handle_tool_call_for_loop(self, tool_call: dict, task_id: str, tool_name: str, tool_args: dict) -> str:
         if tool_name == "send_message":
-            blocked = self._preflight_contract_send_message(task_id, str(tool_args.get("content") or ""))
+            content = self._sanitize_contract_message_content(str(tool_args.get("content") or ""))
+            tool_args = dict(tool_args)
+            tool_args["content"] = content
+            tool_call = self._replace_tool_call_arguments(tool_call, tool_args)
+            blocked = self._preflight_contract_send_message(task_id, content)
             if blocked is not None:
                 return blocked
         return self._handle_tool_call(tool_call)
+
+    def _sanitize_contract_message_content(self, content: str) -> str:
+        return _sanitize_current_info_answer(getattr(self, "_work_contract", None), content)
+
+    def _replace_tool_call_arguments(self, tool_call: dict, tool_args: dict) -> dict:
+        updated = dict(tool_call)
+        function = dict(updated.get("function") or {})
+        function["arguments"] = json.dumps(tool_args)
+        updated["function"] = function
+        return updated
 
     def _preflight_contract_send_message(self, task_id: str, content: str) -> str | None:
         contract = getattr(self, "_work_contract", None)
