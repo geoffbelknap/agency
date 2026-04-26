@@ -18,7 +18,7 @@ class TestGatewayClient:
 
     def test_init_defaults(self):
         client = GatewayClient()
-        assert client.base_url == "http://gateway:8200"
+        assert client.base_url == "http://localhost:8200"
         assert client.token == ""
 
     def test_init_custom_url(self):

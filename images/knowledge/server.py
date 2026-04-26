@@ -161,7 +161,7 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
         app.on_cleanup.append(_stop_curation_loop)
 
     if should_ingest and mode != "cache":
-        gateway_url = os.environ.get("AGENCY_GATEWAY_URL", "http://gateway:8200")
+        gateway_url = os.environ.get("AGENCY_GATEWAY_URL", "http://localhost:8200")
         gateway_token = os.environ.get("AGENCY_GATEWAY_TOKEN", "")
         gateway = GatewayClient(base_url=gateway_url, token=gateway_token)
         ingester = RuleIngester(store, curator=app.get("curator"))
@@ -638,7 +638,7 @@ async def handle_ingest_nodes(request: web.Request) -> web.Response:
     nodes = body.get("nodes", [])
     gateway = request.app.get("gateway")
     if gateway is None:
-        gateway_url = os.environ.get("AGENCY_GATEWAY_URL", "http://gateway:8200")
+        gateway_url = os.environ.get("AGENCY_GATEWAY_URL", "http://localhost:8200")
         gateway_token = os.environ.get("AGENCY_GATEWAY_TOKEN", "")
         gateway = GatewayClient(base_url=gateway_url, token=gateway_token)
     count = 0

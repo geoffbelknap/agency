@@ -3,10 +3,10 @@ package models
 import (
 	"fmt"
 
-	agencyconsent "github.com/geoffbelknap/agency/internal/consent"
+	agencysecurity "github.com/geoffbelknap/agency/internal/security"
 )
 
-type ConsentRequirement = agencyconsent.Requirement
+type ConsentRequirement = agencysecurity.ConsentRequirement
 
 func validateConsentRequirement(toolName string, requirement *ConsentRequirement, params map[string]bool) error {
 	if requirement == nil {
