@@ -201,8 +201,8 @@ The release workflow (`release-images.yml`) builds and pushes all images on git 
 4. `retag-upstream-embeddings` runs independently.
 
 When adding a new image:
-1. Add it to the `CORE_IMAGES` list in the Makefile.
-2. Add a matrix entry in `release-images.yml`.
+1. Add it to either `CORE_IMAGES` (default tier, published by `release-images.yml`) or `EXPERIMENTAL_IMAGES` (operator-opt-in, built locally only) in the Makefile.
+2. If core, add a matrix entry in `release-images.yml`. If experimental, no workflow change is needed — the image is buildable via `make <name>` or `make images-experimental`.
 3. If it uses `agency-python-base`, ensure it's in the `build-and-push` job (which has `needs: build-python-base`).
 4. If it's a new category (e.g., Rust), create a new job.
 5. Ensure the release workflow publishes `org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}` so GHCR packages stay linked to the repo and anonymously pullable.
@@ -210,9 +210,9 @@ When adding a new image:
 ## Adding a New Container Image
 
 1. Create `images/<name>/Dockerfile` following the appropriate template above.
-2. Add to `CORE_IMAGES` in the Makefile.
+2. Add to `CORE_IMAGES` (default tier) or `EXPERIMENTAL_IMAGES` (operator-opt-in) in the Makefile.
 3. If repo-context, add to `REPO_CONTEXT_IMAGES`.
 4. If Python service using shared base, add `<name>: python-base` dependency in the Makefile.
-5. Add matrix entry in `release-images.yml`.
+5. If core, add matrix entry in `release-images.yml`.
 6. Verify build: `make <name>`.
 7. Check image size against budget table.
