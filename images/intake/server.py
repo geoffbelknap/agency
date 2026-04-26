@@ -1348,7 +1348,7 @@ async def handle_webhook(request: web.Request) -> web.Response:
 def create_app(
     connectors_dir: Optional[Path] = None,
     data_dir: Optional[Path] = None,
-    gateway_url: str = "http://gateway:8200",
+    gateway_url: str = "http://localhost:8200",
     gateway_token: str = "",
 ) -> web.Application:
     try:
@@ -1420,7 +1420,7 @@ def main():
     parser.add_argument("--data-dir", type=str, default="/app/data")
     parser.add_argument(
         "--gateway-url", type=str,
-        default=os.environ.get("GATEWAY_URL", "http://gateway:8200"),
+        default=os.environ.get("GATEWAY_URL", "http://localhost:8200"),
     )
     parser.add_argument(
         "--gateway-token", type=str,
