@@ -1230,6 +1230,13 @@ export const api = {
       req<OkResponse>(`/infra/routing/suggestions/${encodeURIComponent(id)}/reject`, { method: 'POST', body: '{}' }),
     stats: (taskType?: string) =>
       req<RawRoutingStat[]>(`/infra/routing/stats${taskType ? `?task_type=${encodeURIComponent(taskType)}` : ''}`),
+    metrics: <T = unknown>(since?: string, until?: string) => {
+      const params = new URLSearchParams();
+      if (since) params.set('since', since);
+      if (until) params.set('until', until);
+      const qs = params.toString();
+      return req<T>(`/infra/routing/metrics${qs ? `?${qs}` : ''}`);
+    },
   },
 
   policy: {
