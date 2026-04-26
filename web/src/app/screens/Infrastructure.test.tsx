@@ -189,13 +189,13 @@ describe('Infrastructure', () => {
 
   it('refreshes service list', async () => {
     let fetchCount = 0;
-    let releaseRefresh: (() => void) | null = null;
+    const releaseRefreshes: Array<() => void> = [];
     server.use(
       http.get(`${BASE}/infra/status`, async () => {
         fetchCount++;
         if (fetchCount > 1) {
           await new Promise<void>((resolve) => {
-            releaseRefresh = resolve;
+            releaseRefreshes.push(resolve);
           });
         }
         return HttpResponse.json(wrapInfra(infraServices));
@@ -205,13 +205,16 @@ describe('Infrastructure', () => {
     await waitFor(() => {
       expect(screen.getByText('gateway')).toBeInTheDocument();
     });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /reload config/i })).not.toBeDisabled();
+    });
     const countBefore = fetchCount;
     await userEvent.click(screen.getByRole('button', { name: /reload config/i }));
     await waitFor(() => {
       expect(fetchCount).toBeGreaterThan(countBefore);
       expect(screen.getByRole('button', { name: /reload config/i })).toBeDisabled();
     });
-    releaseRefresh!();
+    releaseRefreshes.forEach((release) => release());
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /reload config/i })).not.toBeDisabled();
     });

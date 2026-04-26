@@ -31,6 +31,11 @@ Agency home and infra:
 
 Use `--keep-agent` to preserve the disposable agent for debugging.
 
+The terminal report is intentionally evidence-first: it prints the task,
+diagnosis, observed response or explicit no-response status, and check
+breakdown before the numeric score. JSON result files include the same summary
+fields plus the raw trace under `test-results/agent-loop/`.
+
 ## Fixture Intent
 
 Fixtures are named by behavior, not by historical agent names. If a fixture
