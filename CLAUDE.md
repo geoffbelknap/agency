@@ -89,6 +89,11 @@ Network rules that must remain true:
 - `agency quickstart` is the guided first-run path
 - `agency setup` is the idempotent setup/infrastructure command
 - `agency admin doctor` is the authoritative deployment-safety check
+- model capability routing is a first-class backend contract:
+  - models in `routing.yaml` declare `capabilities: [tools, vision, streaming]`
+  - the enforcer validates request requirements against the target model and returns HTTP 422 on capability mismatch
+  - tier capabilities are the intersection of the tier's models, served to the body as `/config/tiers.json`
+  - `agency provider add <name> <base-url>` discovers models from OpenAI-compatible endpoints and writes `routing.local.yaml`
 
 Agents may propose semantic, episodic, or procedural memories, but durable
 promotion and lifecycle changes belong to the knowledge manager and operator
