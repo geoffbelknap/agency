@@ -81,7 +81,7 @@ agency send henry "What can you help me with? Give me three practical things to 
 Before handing a `0.2.x` core build to a tester, run the local readiness check:
 
 ```bash
-./scripts/alpha-readiness-check.sh
+./scripts/readiness/alpha-readiness-check.sh
 ```
 
 The script name is also legacy for compatibility. It is the readiness check
@@ -116,13 +116,13 @@ agency start henry
 If test runs leave temporary agents, containers, or networks behind, inspect the matched cleanup set first:
 
 ```bash
-./scripts/cleanup-live-test-runtimes.sh
+./scripts/dev/cleanup-live-test-runtimes.sh
 ```
 
 If the dry run only lists disposable `alpha-*`, `playwright-*`, `e2e-*`, or temporary-home resources, remove them:
 
 ```bash
-./scripts/cleanup-live-test-runtimes.sh --apply
+./scripts/dev/cleanup-live-test-runtimes.sh --apply
 ```
 
 If you want to start the core test over:

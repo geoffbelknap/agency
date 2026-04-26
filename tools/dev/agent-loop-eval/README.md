@@ -13,20 +13,20 @@ trace data without starting Agency.
 Replay all fixtures:
 
 ```bash
-./scripts/dev-agent-loop-eval.sh --mode replay
+./scripts/dev/dev-agent-loop-eval.sh --mode replay
 ```
 
 Run one fixture:
 
 ```bash
-./scripts/dev-agent-loop-eval.sh --mode replay --fixture current_info_terminates_after_retry
+./scripts/dev/dev-agent-loop-eval.sh --mode replay --fixture current_info_terminates_after_retry
 ```
 
 Live mode creates and deletes disposable agents against the configured local
 Agency home and infra:
 
 ```bash
-./scripts/dev-agent-loop-eval.sh --mode live --fixture current_info_terminates_after_retry
+./scripts/dev/dev-agent-loop-eval.sh --mode live --fixture current_info_terminates_after_retry
 ```
 
 Use `--keep-agent` to preserve the disposable agent for debugging.

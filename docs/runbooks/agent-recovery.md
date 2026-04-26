@@ -169,7 +169,7 @@ curl -fsS -X POST \
 
 ## See Also
 
-- [Mission Management](mission-management.md) — reflection loop stuck, fallback policies
+- [Mission Management](experimental/mission-management.md) — reflection loop stuck, fallback policies
 - [Budget & Cost](budget-and-cost.md) — budget exhaustion, cost investigation
 - [Monitoring & Observability](monitoring-and-observability.md) — trajectory anomalies, meeseeks
 - [Principal Management](principal-management.md) — auth failures from principal changes

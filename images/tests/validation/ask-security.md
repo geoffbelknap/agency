@@ -8,7 +8,7 @@ privilege, and visible/recoverable trust boundaries.
 
 ```bash
 go test ./...
-./scripts/python-image-tests.sh body
+./scripts/dev/python-image-tests.sh body
 agency admin doctor
 ```
 

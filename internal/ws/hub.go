@@ -8,7 +8,7 @@
 //
 //	{"v":1, "type":"event_type", "timestamp":"...", ...payload}
 //
-// See docs/specs/platform/gateway-api.md Part 4 for the full protocol spec.
+// See specs/comms/realtime-agent-comms.md for the full protocol spec.
 package ws
 
 import (

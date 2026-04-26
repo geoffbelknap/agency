@@ -27,19 +27,19 @@ func repoRoot(t *testing.T) string {
 }
 
 // TestNetworkConstantsInDocs verifies that the actual Docker network names
-// defined in Go constants appear in CLAUDE.md. Catches stale doc references
+// defined in Go constants appear in AGENTS.md (the canonical agent-instructions
+// file; CLAUDE.md is a one-line @AGENTS.md import). Catches stale doc references
 // when network names are renamed in code.
 func TestNetworkConstantsInDocs(t *testing.T) {
 	root := repoRoot(t)
-	claudeMD := filepath.Join(root, "CLAUDE.md")
+	agentsMD := filepath.Join(root, "AGENTS.md")
 
-	data, err := os.ReadFile(claudeMD)
+	data, err := os.ReadFile(agentsMD)
 	if err != nil {
-		t.Fatal("read CLAUDE.md:", err)
+		t.Fatal("read AGENTS.md:", err)
 	}
 	content := string(data)
 
-	// These are the network constants from infra.go that should appear in docs.
 	networks := map[string]string{
 		"baseGatewayNet":   baseGatewayNet,
 		"baseEgressIntNet": baseEgressIntNet,
@@ -48,7 +48,7 @@ func TestNetworkConstantsInDocs(t *testing.T) {
 
 	for constName, netName := range networks {
 		if !strings.Contains(content, netName) {
-			t.Errorf("CLAUDE.md does not mention network %q (Go const %s = %q) — update the Container topology section",
+			t.Errorf("AGENTS.md does not mention network %q (Go const %s = %q) — update the Container topology section",
 				netName, constName, netName)
 		}
 	}

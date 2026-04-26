@@ -167,7 +167,7 @@ confidence. Do not infer support from provider names or model names alone.
 Release pipelines should run the deterministic provider-tool gate:
 
 ```bash
-./scripts/provider-tools-readiness-check.sh
+./scripts/readiness/provider-tools-readiness-check.sh
 ```
 
 This check covers the bundled inventory and routing declarations, the infra API

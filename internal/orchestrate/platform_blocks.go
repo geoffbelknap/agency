@@ -6,7 +6,7 @@ import (
 )
 
 // Platform awareness building blocks — composable by agent type.
-// See docs/specs/platform/agent-platform-awareness.md
+// See specs/runtime/agent-platform-awareness.md
 
 const platformCore = `# Platform Awareness
 

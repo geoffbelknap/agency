@@ -205,22 +205,22 @@ pytest images/tests/
 For runtime/lifecycle changes, the highest-signal validation path is:
 
 ```bash
-bash ./scripts/runtime-contract-smoke.sh --agent <agent>
-./scripts/e2e-live-disposable.sh --skip-build
+bash ./scripts/readiness/runtime-contract-smoke.sh --agent <agent>
+./scripts/e2e/e2e-live-disposable.sh --skip-build
 ```
 
 Apple Container backend work is currently experimental and opt-in. On macOS
 Apple silicon, adapter developers can run a manual smoke with:
 
 ```bash
-./scripts/apple-container-smoke.sh
+./scripts/readiness/apple-container-smoke.sh
 ```
 
 That path is not part of required CI or branch protection yet; Docker, Podman,
 and containerd remain the automated backend validation lanes.
 
-See [docs/runbooks/runtime-smoke.md](docs/runbooks/runtime-smoke.md) and
-[docs/runbooks/validation-checklist.md](docs/runbooks/validation-checklist.md)
+See [tests/checklists/runtime-smoke.md](tests/checklists/runtime-smoke.md) and
+[tests/checklists/validation-checklist.md](tests/checklists/validation-checklist.md)
 for the current operator validation flow.
 
 ## Repository Structure
@@ -232,7 +232,10 @@ agency/
 ├── images/             # Container image sources
 ├── presets/            # Agent preset YAML files
 ├── web/                # Web UI (REST client)
-├── docs/               # Docs, specs, plans
+├── docs/               # User-facing docs (Mintlify) + operator runbooks
+├── specs/              # Architecture specs (contributor reference)
+├── tests/              # Engineering test artifacts (release/validation checklists)
+├── scripts/            # Categorized: readiness/, e2e/, hub-oci/, dev/, ci/, release/
 ├── go.mod
 └── Makefile
 ```

@@ -18,7 +18,7 @@ Web coverage lives in the Knowledge screen memory review flows.
 
 ```bash
 go test ./internal/api/graph ./internal/knowledge ./internal/models
-./scripts/python-image-tests.sh knowledge
+./scripts/dev/python-image-tests.sh knowledge
 make web-test-unit
 ```
 

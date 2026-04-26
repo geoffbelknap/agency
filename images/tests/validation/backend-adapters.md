@@ -8,7 +8,7 @@ backend-neutral runtime contract.
 
 ```bash
 go test ./...
-./scripts/runtime-contract-smoke.sh --agent <agent>
+./scripts/readiness/runtime-contract-smoke.sh --agent <agent>
 agency admin doctor
 ```
 
@@ -21,7 +21,7 @@ Expected:
 ## Docker
 
 ```bash
-./scripts/docker-readiness-check.sh
+./scripts/readiness/docker-readiness-check.sh
 ```
 
 Use Docker-native inspection only inside this lane, for example socket,
@@ -30,8 +30,8 @@ network, capability, readonly filesystem, and cleanup checks.
 ## Podman
 
 ```bash
-./scripts/podman-readiness-check.sh
-./scripts/podman-readiness-check.sh --full
+./scripts/readiness/podman-readiness-check.sh
+./scripts/readiness/podman-readiness-check.sh --full
 ```
 
 Expected:
@@ -43,8 +43,8 @@ Expected:
 ## Containerd
 
 ```bash
-./scripts/containerd-rootless-readiness-check.sh
-./scripts/containerd-rootful-readiness-check.sh
+./scripts/readiness/containerd-rootless-readiness-check.sh
+./scripts/readiness/containerd-rootful-readiness-check.sh
 ```
 
 Expected:
@@ -58,7 +58,7 @@ Expected:
 Apple Container is experimental and opt-in.
 
 ```bash
-./scripts/apple-container-smoke.sh
+./scripts/readiness/apple-container-smoke.sh
 ```
 
 Do not make this a default backend, required CI lane, branch-protection check,

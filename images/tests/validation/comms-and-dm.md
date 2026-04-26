@@ -7,14 +7,14 @@ event subscriptions, body event handling, and agent response loops.
 
 ```bash
 go test ./internal/events ./internal/api ./internal/orchestrate
-./scripts/python-image-tests.sh body
-./scripts/dev-agent-loop-eval.sh --mode replay
+./scripts/dev/python-image-tests.sh body
+./scripts/dev/dev-agent-loop-eval.sh --mode replay
 ```
 
 For live answer behavior:
 
 ```bash
-./scripts/dev-agent-loop-eval.sh --mode live --fixture current_info_terminates_after_retry
+./scripts/dev/dev-agent-loop-eval.sh --mode live --fixture current_info_terminates_after_retry
 ```
 
 The agent-loop eval harness is dev-only. It should expose response text,

@@ -111,9 +111,9 @@ All of the following must be true:
 After initial setup is verified:
 
 - [Routing & Providers](routing-and-providers.md) — add additional LLM providers
-- [Notifications & Webhooks](notifications-and-webhooks.md) — set up operator alerting
-- [Hub & Capabilities](hub-and-capabilities.md) — install connectors and capabilities
-- [Mission Management](mission-management.md) — create standing instructions for agents
+- [Notifications & Webhooks](experimental/notifications-and-webhooks.md) — set up operator alerting
+- [Hub & Capabilities](experimental/hub-and-capabilities.md) — install connectors and capabilities
+- [Mission Management](experimental/mission-management.md) — create standing instructions for agents
 
 ## Rollback
 

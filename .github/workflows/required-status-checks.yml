@@ -18,4 +18,4 @@ jobs:
       - name: Verify required branch-protection checks
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./scripts/verify-required-status-checks.sh
+        run: ./scripts/ci/verify-required-status-checks.sh

@@ -7,15 +7,15 @@ tools, and integration setup flows.
 
 ```bash
 go test ./internal/hub ./internal/api ./internal/models
-./scripts/test-live-hub-operator-oci.sh
+./scripts/hub-oci/test-live-hub-operator-oci.sh
 ```
 
 For broader hub scenarios:
 
 ```bash
-./scripts/test-live-hub-oci.sh
-./scripts/test-live-hub-pack-operator-oci.sh
-./scripts/test-live-hub-upgrade-oci.sh
+./scripts/hub-oci/test-live-hub-oci.sh
+./scripts/hub-oci/test-live-hub-pack-operator-oci.sh
+./scripts/hub-oci/test-live-hub-upgrade-oci.sh
 ```
 
 ## Hub Expectations

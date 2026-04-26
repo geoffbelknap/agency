@@ -6,10 +6,10 @@ Python MCP-handler system suite has been retired.
 Current validation entry points:
 
 - Unit and package tests: `go test ./...`
-- Python image lanes: `./scripts/python-image-tests.sh`
+- Python image lanes: `./scripts/dev/python-image-tests.sh`
 - Web mocked browser tests: `make web-test-all`
-- Live disposable web tests: `./scripts/e2e-live-disposable.sh --skip-build`
-- Runtime contract smoke: `./scripts/runtime-contract-smoke.sh --agent <agent>`
+- Live disposable web tests: `./scripts/e2e/e2e-live-disposable.sh --skip-build`
+- Runtime contract smoke: `./scripts/readiness/runtime-contract-smoke.sh --agent <agent>`
 - Manual/operator validation map: `images/tests/validation/`
 
 Do not add new system-test documentation here unless a real runner is restored.

@@ -65,7 +65,7 @@ Use the smallest sufficient validation, but prefer live browser coverage when ch
 
 ```bash
 npm test
-./scripts/e2e-live-disposable.sh --skip-build
+./scripts/e2e/e2e-live-disposable.sh --skip-build
 ```
 
 The disposable live suite is the highest-signal path for:

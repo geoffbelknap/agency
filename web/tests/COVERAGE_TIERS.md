@@ -23,7 +23,7 @@ Current suites:
 - `tests/e2e-live/mutable-flows.spec.ts`
 
 Recommended disposable runner:
-- `./scripts/e2e-live-disposable.sh --skip-build`
+- `./scripts/e2e/e2e-live-disposable.sh --skip-build`
 
 ### `live-risky`
 
@@ -33,11 +33,11 @@ Suite location:
 - `tests/e2e-live-risky/`
 
 Recommended disposable runner:
-- `./scripts/e2e-live-disposable.sh --skip-build --risky`
+- `./scripts/e2e/e2e-live-disposable.sh --skip-build --risky`
 
 Related operator-path live scripts:
-- `./scripts/test-live-hub-oci.sh`
-- `./scripts/test-live-hub-operator-oci.sh`
+- `./scripts/hub-oci/test-live-hub-oci.sh`
+- `./scripts/hub-oci/test-live-hub-operator-oci.sh`
 
 `test-live-hub-operator-oci.sh` uses a disposable Agency home and isolated gateway port to validate the normal operator CLI/API path against the published GHCR hub catalog. It verifies that connector, service, provider, routing, setup, and skill artifacts sync from OCI; Markdown skills and the default setup wizard are searchable; setup config is served from the OCI cache; hub-managed routing remains update/upgrade surface rather than an installable search result; and, when `cosign` is installed, provider install/remove verifies signatures and cleans routing.
 
@@ -49,7 +49,7 @@ Suite location:
 - `tests/e2e-live-danger/`
 
 Recommended runner:
-- `./scripts/e2e-live-danger-disposable.sh`
+- `./scripts/e2e/e2e-live-danger-disposable.sh`
 
 The disposable runner clones the current Agency home, assigns an isolated infra namespace, binds alternate host ports, and then runs the guarded danger suite. `Destroy All` tears down the web proxy serving the browser, so live-danger browser assertions verify the explicit confirmation and resulting web shutdown rather than expecting a same-origin response body to survive teardown.
 
@@ -122,6 +122,6 @@ The disposable runner clones the current Agency home, assigns an isolated infra 
 ## Danger Guardrails
 
 - `live-danger` only runs with explicit opt-in.
-- Harness guard: `./scripts/e2e-live-web.sh --allow-danger --danger-confirm destroy-all --config playwright.live.danger.config.ts`
+- Harness guard: `./scripts/e2e/e2e-live-web.sh --allow-danger --danger-confirm destroy-all --config playwright.live.danger.config.ts`
 - Direct Playwright guard: `AGENCY_E2E_ALLOW_DANGER=1 AGENCY_E2E_DANGER_CONFIRM=destroy-all`
 - The first destructive flow is `Destroy All`, and it is intended for disposable local stacks only.

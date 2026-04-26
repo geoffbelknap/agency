@@ -139,20 +139,20 @@ make web-test-e2e
 Live local stack safe suite:
 
 ```bash
-./scripts/e2e-live-disposable.sh --skip-build
+./scripts/e2e/e2e-live-disposable.sh --skip-build
 ```
 
 Useful flag-driven variants:
 
 ```bash
-./scripts/e2e-live-disposable.sh --skip-build
-./scripts/e2e-live-disposable.sh --skip-build --risky
-./scripts/e2e-live-web.sh --skip-build tests/e2e-live
-./scripts/e2e-live-web.sh --skip-build --config playwright.live.risky.config.ts tests/e2e-live-risky
-./scripts/e2e-live-web.sh --allow-danger --danger-confirm destroy-all --config playwright.live.danger.config.ts tests/e2e-live-danger
-./scripts/e2e-live-danger-disposable.sh
-./scripts/e2e-live-danger-disposable.sh --skip-build tests/e2e-live-danger/destroy-all.spec.ts
-./scripts/e2e-live-web.sh --help
+./scripts/e2e/e2e-live-disposable.sh --skip-build
+./scripts/e2e/e2e-live-disposable.sh --skip-build --risky
+./scripts/e2e/e2e-live-web.sh --skip-build tests/e2e-live
+./scripts/e2e/e2e-live-web.sh --skip-build --config playwright.live.risky.config.ts tests/e2e-live-risky
+./scripts/e2e/e2e-live-web.sh --allow-danger --danger-confirm destroy-all --config playwright.live.danger.config.ts tests/e2e-live-danger
+./scripts/e2e/e2e-live-danger-disposable.sh
+./scripts/e2e/e2e-live-danger-disposable.sh --skip-build tests/e2e-live-danger/destroy-all.spec.ts
+./scripts/e2e/e2e-live-web.sh --help
 ```
 
 The mocked suite covers the full UI route surface with deterministic fixtures. The default live suite covers the real stack without destructive or outbound side effects. It verifies setup-vs-initialized routing, top-level app navigation, representative drill-downs, interactive browser flows, and safe CRUD coverage against a local Agency stack.
@@ -160,13 +160,13 @@ The mocked suite covers the full UI route surface with deterministic fixtures. T
 ## Live Suite Tiers
 
 - `live-safe`
-  Default. Real-stack coverage that may create temporary data but must clean up after itself and avoid external or destructive side effects. Prefer `./scripts/e2e-live-disposable.sh --skip-build` for local usability testing because it clones the current Agency home, assigns an isolated infra namespace, and binds alternate host ports.
+  Default. Real-stack coverage that may create temporary data but must clean up after itself and avoid external or destructive side effects. Prefer `./scripts/e2e/e2e-live-disposable.sh --skip-build` for local usability testing because it clones the current Agency home, assigns an isolated infra namespace, and binds alternate host ports.
 - `live-risky`
-  Opt-in coverage for flows like installs, connector activation, outbound notification sends, or other shared-environment mutations. Prefer `./scripts/e2e-live-disposable.sh --skip-build --risky` unless the test intentionally needs to mutate the operator's active home.
+  Opt-in coverage for flows like installs, connector activation, outbound notification sends, or other shared-environment mutations. Prefer `./scripts/e2e/e2e-live-disposable.sh --skip-build --risky` unless the test intentionally needs to mutate the operator's active home.
 - `live-danger`
   Explicit opt-in only for high-blast-radius flows such as full resets or destructive admin operations.
   It requires `AGENCY_E2E_ALLOW_DANGER=1` and `AGENCY_E2E_DANGER_CONFIRM=destroy-all`, or the equivalent `--allow-danger --danger-confirm destroy-all` harness flags.
-  For safer local execution, prefer `./scripts/e2e-live-danger-disposable.sh`, which clones the current Agency home to a temporary directory and runs the danger suite with an isolated infra namespace and alternate host ports.
+  For safer local execution, prefer `./scripts/e2e/e2e-live-danger-disposable.sh`, which clones the current Agency home to a temporary directory and runs the danger suite with an isolated infra namespace and alternate host ports.
   Use `--skip-build` after rebuilding the local binary and images when iterating on the destructive flow itself.
 
 See [tests/COVERAGE_TIERS.md](tests/COVERAGE_TIERS.md) for the current inventory and classification.
