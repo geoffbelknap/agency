@@ -10,6 +10,7 @@ export interface UseChannelSocketOptions {
   selectedChannelName: string | undefined;
   onAppendMessage: (msg: Message) => void;
   onUnreadIncrement: (channelName: string) => void;
+  onTaskComplete?: (agent: string) => void;
 }
 
 export interface UseChannelSocketResult {
@@ -24,7 +25,7 @@ export function useChannelSocket(
   options: UseChannelSocketOptions,
   mapRawMessages: (data: RawMessage[], channelName: string) => Message[],
 ): UseChannelSocketResult {
-  const { selectedChannelName, onAppendMessage, onUnreadIncrement } = options;
+  const { selectedChannelName, onAppendMessage, onUnreadIncrement, onTaskComplete } = options;
 
   const [typingAgents, setTypingAgents] = useState<string[]>([]);
   const [processingAgents, setProcessingAgents] = useState<string[]>([]);
@@ -154,9 +155,10 @@ export function useChannelSocket(
       setTypingAgents((prev) => prev.filter((a) => a !== agent));
       setProcessingAgents((prev) => prev.filter((a) => a !== agent));
       setAgentActivity((prev) => { const next = { ...prev }; delete next[agent]; return next; });
+      onTaskComplete?.(agent);
     });
     return () => { unsub(); };
-  }, []);
+  }, [onTaskComplete]);
 
   // Agent task_accepted signals — agent acknowledged the task
   useEffect(() => {
