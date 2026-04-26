@@ -438,6 +438,13 @@ An adapter is not ready to ship unless all of these are true:
 - [ ] recovery gates passed
 - [ ] evidence captured
 
+## Apple Container Open Items
+
+`apple-container` is paused in the experimental tier until adapter lifecycle, event-stream/reconciliation, network attach, cleanup, and doctor semantics are complete. This section enumerates known specific gaps so they can be picked up when work resumes; it is not exhaustive.
+
+- **Host-gateway alias resolution.** The gateway-proxy container reaches the host gateway daemon via either a bind-mounted Unix socket or one of the host aliases listed in `AGENCY_HOST_GATEWAY_HOSTS`. `HostGatewayAliases()` in `internal/hostadapter/runtimehost/client.go` currently returns `host.docker.internal,host.containers.internal` for every backend except Podman; `apple-container` falls into that default branch and has not been verified to resolve either alias under Apple's `container` runtime, nor verified that bind-mounted Unix sockets work through its VM boundary. Before promotion, confirm which transport actually works and add a backend-specific case (or new alias) if neither does.
+- **Lifecycle, event stream, network attach, cleanup, doctor.** Open per the feature-gate language above and the `images/gateway-proxy/entrypoint.sh` socket-then-alias detection logic. Each needs explicit smoke coverage in `scripts/apple-container-smoke.sh` before the lane can move out of manual-only.
+
 ## Notes
 
 - Use [Runtime Smoke](runtime-smoke.md) for the focused runtime-contract path.
