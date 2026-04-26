@@ -12,9 +12,7 @@ build/
 venv/
 
 # Go build artifacts
-agency-gateway/agency
-agency-gateway/gateway
-agency-gateway/enforcer
+agency-gateway/
 images/web-fetch/web-fetch
 
 # macOS

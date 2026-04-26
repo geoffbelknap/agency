@@ -46,7 +46,7 @@ pytest tests/
 
 - **Go gateway** (`agency-gateway/`) is the primary codebase. CLI, REST API, MCP server, orchestration.
 - **Python** (`agency_core/`) contains container image sources, Pydantic models, and the body runtime.
-- **Specs** (`docs/specs/`) are architectural reference. Read the relevant spec before modifying a subsystem.
+- **Specs** (`specs/`) are architectural reference. Read the relevant spec before modifying a subsystem.
 
 ## What makes a good contribution
 

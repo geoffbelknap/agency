@@ -66,7 +66,7 @@
             ]
           },
           {
-            "group": "Operations",
+            "group": "Operator Reference",
             "pages": [
               "model-routing",
               "infrastructure",
@@ -76,15 +76,45 @@
             ]
           },
           {
+            "group": "Setup & Maintenance",
+            "pages": [
+              "runbooks/initial-setup",
+              "runbooks/upgrade",
+              "runbooks/backup-restore"
+            ]
+          },
+          {
+            "group": "Operating Agency",
+            "pages": [
+              "runbooks/knowledge-management",
+              "runbooks/routing-and-providers",
+              "runbooks/budget-and-cost",
+              "runbooks/monitoring-and-observability",
+              "runbooks/principal-management"
+            ]
+          },
+          {
+            "group": "Incident Response",
+            "pages": [
+              "runbooks/infrastructure-recovery",
+              "runbooks/agent-recovery",
+              "runbooks/credential-rotation",
+              "runbooks/security-incident-response"
+            ]
+          },
+          {
             "group": "Experimental Surfaces",
             "pages": [
-              "missions",
-              "teams",
-              "meeseeks",
-              "packs",
-              "connectors-and-intake",
-              "events",
-              "hub"
+              "experimental/missions",
+              "experimental/teams",
+              "experimental/meeseeks",
+              "experimental/packs",
+              "experimental/connectors-and-intake",
+              "experimental/events",
+              "experimental/hub",
+              "runbooks/experimental/mission-management",
+              "runbooks/experimental/hub-and-capabilities",
+              "runbooks/experimental/notifications-and-webhooks"
             ]
           },
           {

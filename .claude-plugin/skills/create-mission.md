@@ -42,4 +42,4 @@ agency mission create <mission-name>.yaml
 agency mission assign <mission-name> --agent <agent-name>
 ```
 
-Refer to `docs/specs/missions.md` for the full schema reference if the user asks for advanced options (reflection, procedural memory, episodic memory, evaluation mode).
+Refer to `specs/missions/missions.md` for the full schema reference if the user asks for advanced options (reflection, procedural memory, episodic memory, evaluation mode).

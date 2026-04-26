@@ -15,7 +15,7 @@ contracts.
 ## Live Safe Lane
 
 ```bash
-./scripts/e2e-live-disposable.sh --skip-build
+./scripts/e2e/e2e-live-disposable.sh --skip-build
 ```
 
 Expected:
@@ -28,7 +28,7 @@ Expected:
 ## Live Risky Lane
 
 ```bash
-./scripts/e2e-live-disposable.sh --skip-build --risky
+./scripts/e2e/e2e-live-disposable.sh --skip-build --risky
 ```
 
 Use for connector activation, hub install/remove, notification test-send,
@@ -37,7 +37,7 @@ agent lifecycle mutation, mission mutation, and similar operator flows.
 ## Live Danger Lane
 
 ```bash
-./scripts/e2e-live-danger-disposable.sh
+./scripts/e2e/e2e-live-danger-disposable.sh
 ```
 
 Danger flows require explicit confirmation guards and should run only against

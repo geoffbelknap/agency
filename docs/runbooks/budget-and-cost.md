@@ -16,6 +16,18 @@ Agency uses USD-denominated cost control at three granularities:
 
 Budget exhaustion is a **hard stop** — the agent cannot continue. There is no override. This replaces the old turn-limit model.
 
+### Per-task overage behavior
+
+When a single task exceeds its `task` budget, the enforcer fails the task in-process and returns the cost-overage error to the gateway. The agent is halted at that boundary; partial work up to the overage point is preserved in audit logs and recoverable via `agency log <agent>`. Daily and monthly budgets are checked at the gateway before each task is dispatched — an exhausted daily/monthly bucket prevents new tasks from starting.
+
+There is no "soft" overage mode. Task-level budgets are always fail-closed.
+
+### Mission-based fallback _(experimental)_
+
+If an agent is running under a mission with a configured `fallback_policy` (a `TierExperimental` feature; see [Mission Management](experimental/mission-management.md)), the mission's policy determines what happens *after* a budget halt — for example, routing to a cheaper model tier on retry, escalating to an operator notification, or pausing the mission. The fail-closed behavior at the budget boundary is unchanged; mission fallbacks operate on the *next* task, not the in-flight one.
+
+Outside of missions (the default 0.2.x core path), there is no automated fallback — operators handle overages manually via budget adjustment or agent reconfiguration.
+
 ## Configuring Budgets
 
 Budgets are set in the agent config or mission YAML:
@@ -202,6 +214,6 @@ To increase the budget, edit the agent config or mission YAML and reassign.
 
 ## See Also
 
-- [Mission Management](mission-management.md) — cost modes, reflection configuration
+- [Mission Management](experimental/mission-management.md) — cost modes, reflection configuration
 - [Routing & Providers](routing-and-providers.md) — routing optimizer for cost reduction
 - [Monitoring & Observability](monitoring-and-observability.md) — trajectory and signal monitoring

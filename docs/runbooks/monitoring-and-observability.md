@@ -275,7 +275,7 @@ agency infra routing stats
 
 ## See Also
 
-- [Mission Management](mission-management.md) — trajectory policy in mission config
+- [Mission Management](experimental/mission-management.md) — trajectory policy in mission config
 - [Budget & Cost](budget-and-cost.md) — economics observability
-- [Notifications & Webhooks](notifications-and-webhooks.md) — alert delivery
+- [Notifications & Webhooks](experimental/notifications-and-webhooks.md) — alert delivery
 - [Agent Recovery](agent-recovery.md) — responding to anomalies

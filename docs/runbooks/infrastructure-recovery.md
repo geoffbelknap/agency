@@ -136,9 +136,9 @@ Check `available_slots`. Either stop unused agents or adjust `~/.agency/capacity
 
 ## See Also
 
-- [Hub & Capabilities](hub-and-capabilities.md) — connector and web-fetch issues
+- [Hub & Capabilities](experimental/hub-and-capabilities.md) — connector and web-fetch issues
 - [Routing & Providers](routing-and-providers.md) — provider connectivity, egress
-- [Notifications & Webhooks](notifications-and-webhooks.md) — event bus, intake
+- [Notifications & Webhooks](experimental/notifications-and-webhooks.md) — event bus, intake
 
 ## Escalation
 

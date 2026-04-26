@@ -111,7 +111,7 @@ func HostGatewayAliases(backend string) []string {
 		// apple-container falls into this default branch and has not been
 		// verified to resolve either alias under Apple's container runtime.
 		// See "Apple Container Open Items" in
-		// docs/runbooks/backend-adapter-release-checklist.md.
+		// tests/checklists/backend-adapter-release-checklist.md.
 		return []string{"host.docker.internal", "host.containers.internal"}
 	}
 }

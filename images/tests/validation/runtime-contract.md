@@ -7,14 +7,14 @@ agent transport, body/enforcer startup, or `agency admin doctor`.
 
 ```bash
 go test ./...
-./scripts/python-image-tests.sh body
-./scripts/runtime-contract-smoke.sh --agent <agent>
+./scripts/dev/python-image-tests.sh body
+./scripts/readiness/runtime-contract-smoke.sh --agent <agent>
 ```
 
 For local live behavior that includes UI and DM response paths:
 
 ```bash
-./scripts/e2e-live-disposable.sh --skip-build
+./scripts/e2e/e2e-live-disposable.sh --skip-build
 ```
 
 ## Contract Surfaces

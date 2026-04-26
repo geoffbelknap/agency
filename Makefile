@@ -92,28 +92,28 @@ test:
 	go test ./...
 
 python-image-tests:
-	@./scripts/python-image-tests.sh
+	@./scripts/dev/python-image-tests.sh
 
 provider-tools-readiness:
-	@./scripts/provider-tools-readiness-check.sh
+	@./scripts/readiness/provider-tools-readiness-check.sh
 
 docker-readiness:
-	@./scripts/docker-readiness-check.sh
+	@./scripts/readiness/docker-readiness-check.sh
 
 podman-readiness:
-	@./scripts/podman-readiness-check.sh
+	@./scripts/readiness/podman-readiness-check.sh
 
 podman-readiness-full:
-	@./scripts/podman-readiness-check.sh --full
+	@./scripts/readiness/podman-readiness-check.sh --full
 
 containerd-readiness:
-	@./scripts/containerd-rootless-readiness-check.sh
+	@./scripts/readiness/containerd-rootless-readiness-check.sh
 
 containerd-readiness-rootful:
-	@./scripts/containerd-rootful-readiness-check.sh
+	@./scripts/readiness/containerd-rootful-readiness-check.sh
 
 verify-required-status-checks:
-	@./scripts/verify-required-status-checks.sh
+	@./scripts/ci/verify-required-status-checks.sh
 
 clean:
 	rm -f agency gateway
@@ -195,7 +195,7 @@ relay: require-container-cmd
 		-f $(AGENCY_RELAY_DIR)/Dockerfile -t agency-relay:latest $(AGENCY_RELAY_DIR)
 
 e2e-live-web:
-	@./scripts/e2e-live-web.sh
+	@./scripts/e2e/e2e-live-web.sh
 
 web-test-unit:
 	@cd "$(AGENCY_WEB_DIR)" && npm test
@@ -206,21 +206,21 @@ web-test-e2e:
 web-test-all: web-test-unit web-test-e2e
 
 e2e-live-web-safe:
-	@./scripts/e2e-live-web.sh tests/e2e-live
+	@./scripts/e2e/e2e-live-web.sh tests/e2e-live
 
 e2e-live-web-risky:
-	@./scripts/e2e-live-web.sh --config playwright.live.risky.config.ts
+	@./scripts/e2e/e2e-live-web.sh --config playwright.live.risky.config.ts
 
 e2e-live-web-disposable: e2e-live-web-safe-disposable
 
 e2e-live-web-safe-disposable:
-	@./scripts/e2e-live-disposable.sh --skip-build
+	@./scripts/e2e/e2e-live-disposable.sh --skip-build
 
 e2e-live-web-risky-disposable:
-	@./scripts/e2e-live-disposable.sh --skip-build --risky
+	@./scripts/e2e/e2e-live-disposable.sh --skip-build --risky
 
 e2e-live-web-danger:
-	@./scripts/e2e-live-web.sh --allow-danger --danger-confirm destroy-all --config playwright.live.danger.config.ts
+	@./scripts/e2e/e2e-live-web.sh --allow-danger --danger-confirm destroy-all --config playwright.live.danger.config.ts
 
 e2e-live-web-danger-disposable:
-	@./scripts/e2e-live-danger-disposable.sh
+	@./scripts/e2e/e2e-live-danger-disposable.sh

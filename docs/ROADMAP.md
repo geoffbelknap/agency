@@ -7,7 +7,7 @@ Last updated: 2026-04-01
 Features with design specs that haven't been built.
 
 ### Batch LLM Routing
-**Spec:** `docs/specs/batch-llm-routing.md`
+**Spec:** `specs/routing/batch-llm-routing.md`
 **Priority:** High (cost savings)
 
 50% cost reduction for non-latency-sensitive LLM calls by routing through
@@ -18,7 +18,7 @@ consolidation, evaluation) and routes accordingly.
 **Dependencies:** None — additive feature on the gateway's internal LLM endpoint.
 
 ### MCP OAuth + Remote Transports
-**Spec:** `docs/specs/mcp-oauth.md`
+**Spec:** `specs/mcp/mcp-oauth.md`
 **Priority:** Medium
 
 OAuth 2.1 authentication for MCP servers, enabling remote MCP transports
@@ -28,7 +28,7 @@ MCP servers.
 **Dependencies:** MCP spec evolution (upstream).
 
 ### Multi-Agent Coordination
-**Spec:** `docs/specs/coordination.md`
+**Spec:** `specs/coordination.md`
 **Priority:** Future (v2)
 
 Structured coordination between agents: task delegation, work splitting,
@@ -75,7 +75,7 @@ These are designed but intentionally deferred to v2 or later. The current
 implementation covers v1 needs.
 
 ### Agent Quarantine & Decommission
-**Spec:** `docs/specs/agent-lifecycle.md`
+**Spec:** `specs/runtime/agent-lifecycle.md`
 **Priority:** v2
 
 Two agent states not implemented: QUARANTINED (silent isolation on suspected
@@ -83,7 +83,7 @@ compromise) and DECOMMISSIONED (permanent removal with forensic preservation).
 The halt model (supervised/immediate/emergency) covers all current use cases.
 
 ### Multi-Principal Authorization
-**Spec:** `docs/specs/principal-model.md`
+**Spec:** `specs/policy/principal-model.md`
 **Priority:** v2
 
 Only the operator principal exists. Agent and team principals, trust
@@ -91,7 +91,7 @@ evolution, coverage chains, and halt authority monitoring are designed
 but correctly deferred — single-operator model is sufficient for v1.
 
 ### Credential Hot Rotation (WebSocket Push)
-**Spec:** `docs/specs/credential-architecture.md` (Phase 2)
+**Spec:** `specs/security/credential-architecture.md` (Phase 2)
 **Priority:** Low
 
 Zero-downtime key rotation via WebSocket push from gateway to egress.
@@ -99,7 +99,7 @@ Currently rotation requires `agency infra reload` (SIGHUP). The socket
 resolver is implemented — only the push notification is missing.
 
 ### Credential Export/Import + Cloud Backends
-**Spec:** `docs/specs/credential-architecture.md` (Phase 3)
+**Spec:** `specs/security/credential-architecture.md` (Phase 3)
 **Priority:** Low
 
 `agency creds export/import` for disaster recovery. Vault, AWS, Azure,
@@ -107,7 +107,7 @@ GCP backends via the SecretBackend interface. The file backend works
 for single-host deployments.
 
 ### Body-Side Constraint Processing
-**Spec:** `docs/specs/mid-session-constraint-push.md`
+**Spec:** `specs/missions/mid-session-constraint-push.md`
 **Priority:** Medium
 
 The gateway and enforcer constraint push infrastructure is 100% complete
@@ -116,7 +116,7 @@ body runtime has the hook endpoint but doesn't process constraint changes
 mid-session. Operators bounce agents to apply changes.
 
 ### Auto-Generated Service Tools
-**Spec:** `docs/specs/third-party-tool-integration.md`
+**Spec:** `specs/connector/third-party-tool-integration.md`
 **Priority:** Low
 
 Tier 2 (auto-generate service tools from OpenAPI specs) and Tier 3 (vendor

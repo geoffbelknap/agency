@@ -83,7 +83,7 @@ Use the smallest sufficient frontend validation, but use live browser coverage w
 
 ```bash
 npm test
-./scripts/e2e-live-disposable.sh --skip-build
+./scripts/e2e/e2e-live-disposable.sh --skip-build
 ```
 
 The disposable live suite is the highest-signal validation path when changes affect:

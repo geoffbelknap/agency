@@ -32,7 +32,7 @@ Recommended baseline before a normal PR:
 
 ```bash
 go test ./...
-./scripts/python-image-tests.sh
+./scripts/dev/python-image-tests.sh
 make web-test-all
 ```
 
@@ -40,15 +40,15 @@ Recommended baseline before a runtime or lifecycle PR:
 
 ```bash
 go test ./...
-./scripts/python-image-tests.sh body
-./scripts/runtime-contract-smoke.sh --agent <agent>
+./scripts/dev/python-image-tests.sh body
+./scripts/readiness/runtime-contract-smoke.sh --agent <agent>
 ```
 
 Recommended baseline before a web or operator-flow PR:
 
 ```bash
 make web-test-all
-./scripts/e2e-live-disposable.sh --skip-build
+./scripts/e2e/e2e-live-disposable.sh --skip-build
 ```
 
 ## Hard Rules
@@ -67,11 +67,11 @@ make web-test-all
 For live local runs, prefer disposable homes and explicit cleanup:
 
 ```bash
-./scripts/cleanup-live-test-runtimes.sh
+./scripts/dev/cleanup-live-test-runtimes.sh
 ```
 
 Use `--apply` only when you intend to stop matched leaked test runtimes:
 
 ```bash
-AGENCY_BIN=./agency ./scripts/cleanup-live-test-runtimes.sh --apply
+AGENCY_BIN=./agency ./scripts/dev/cleanup-live-test-runtimes.sh --apply
 ```

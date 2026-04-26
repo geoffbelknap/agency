@@ -9,9 +9,9 @@ coverage lives under `web/tests/` and is run through the repo-root scripts.
 | Tier | Location | Runner | Purpose |
 |------|----------|--------|---------|
 | Mocked browser | `web/tests/e2e/` | `make web-test-e2e` | Deterministic route and browser smoke coverage with mocked API state |
-| Live safe | `web/tests/e2e-live/` | `./scripts/e2e-live-disposable.sh --skip-build` | Real local stack coverage with temporary data and cleanup |
-| Live risky | `web/tests/e2e-live-risky/` | `./scripts/e2e-live-disposable.sh --skip-build --risky` | Opt-in flows that mutate shared state more heavily |
-| Live danger | `web/tests/e2e-live-danger/` | `./scripts/e2e-live-danger-disposable.sh` | Explicit destructive-flow validation against disposable state |
+| Live safe | `web/tests/e2e-live/` | `./scripts/e2e/e2e-live-disposable.sh --skip-build` | Real local stack coverage with temporary data and cleanup |
+| Live risky | `web/tests/e2e-live-risky/` | `./scripts/e2e/e2e-live-disposable.sh --skip-build --risky` | Opt-in flows that mutate shared state more heavily |
+| Live danger | `web/tests/e2e-live-danger/` | `./scripts/e2e/e2e-live-danger-disposable.sh` | Explicit destructive-flow validation against disposable state |
 
 See `web/tests/COVERAGE_TIERS.md` for the live-safe, live-risky, and
 live-danger classification rules and current coverage inventory.
@@ -25,14 +25,14 @@ raw Docker assumptions:
 - `agency runtime manifest <agent>`
 - `agency runtime status <agent>`
 - `agency runtime validate <agent>`
-- `./scripts/runtime-contract-smoke.sh --agent <agent>`
+- `./scripts/readiness/runtime-contract-smoke.sh --agent <agent>`
 
 Backend-specific lanes are still useful, but they validate adapter hygiene:
 
-- `./scripts/docker-readiness-check.sh`
-- `./scripts/podman-readiness-check.sh`
-- `./scripts/containerd-rootless-readiness-check.sh`
-- `./scripts/containerd-rootful-readiness-check.sh`
+- `./scripts/readiness/docker-readiness-check.sh`
+- `./scripts/readiness/podman-readiness-check.sh`
+- `./scripts/readiness/containerd-rootless-readiness-check.sh`
+- `./scripts/readiness/containerd-rootful-readiness-check.sh`
 
 Do not add new default E2E checks that require one specific backend unless the
 test is explicitly scoped to that backend.
@@ -45,7 +45,7 @@ protection gates unless the environment dependencies are made explicit.
 
 Useful dev harnesses:
 
-- `./scripts/dev-agent-loop-eval.sh --mode replay`
-- `./scripts/dev-agent-loop-eval.sh --mode live --fixture <fixture>`
-- `./scripts/e2e-live-disposable.sh --skip-build`
-- `./scripts/cleanup-live-test-runtimes.sh`
+- `./scripts/dev/dev-agent-loop-eval.sh --mode replay`
+- `./scripts/dev/dev-agent-loop-eval.sh --mode live --fixture <fixture>`
+- `./scripts/e2e/e2e-live-disposable.sh --skip-build`
+- `./scripts/dev/cleanup-live-test-runtimes.sh`
