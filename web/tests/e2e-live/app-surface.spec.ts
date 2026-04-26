@@ -164,10 +164,10 @@ test('live stack supports read-only direct routes for available entities', async
     await expect(page.getByText(/Ready|Not configured|No requirements data/)).toBeVisible();
   }
 
-  const workItems = await fetchJson<Array<{ connector?: string; source?: string; summary?: string; brief_content?: string; id?: string }>>(request, '/api/v1/intake/items');
+  const workItems = await fetchJson<Array<{ connector?: string; source?: string; summary?: string; id?: string }>>(request, '/api/v1/intake/items');
   const firstWorkItem = Array.isArray(workItems) ? workItems.find((item) => item?.id) : null;
   if (firstWorkItem) {
-    const rowLabel = firstWorkItem.summary ?? firstWorkItem.brief_content ?? firstWorkItem.connector ?? firstWorkItem.source ?? firstWorkItem.id ?? '';
+    const rowLabel = firstWorkItem.summary ?? firstWorkItem.connector ?? firstWorkItem.source ?? firstWorkItem.id ?? '';
     await page.goto('/admin/intake');
     await settle(page);
     if (!(await isAdminTabSelected(page, 'Intake'))) {

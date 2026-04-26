@@ -147,7 +147,6 @@ export interface WorkItem {
   created_at: string;
   route_index?: number;
   priority?: number;
-  brief_content?: string;
   // legacy fields kept for backward compat
   state?: WorkItemState;
   source?: string;
