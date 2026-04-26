@@ -1,14 +1,15 @@
 # `0.2.x` Core Release Gates
 
-Status: draft  
-Last updated: 2026-04-14
+Use this runbook as the gate-level decision reference for any `0.2.x` core
+release. It pairs with [Release Checklist 0.2.x](release-checklist-0.2.x.md)
+which carries the procedural validation steps.
 
 Related:
 
-- [2026-04-13-core-pruning-plan.md](/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/docs/plans/2026-04-13-core-pruning-plan.md)
-- [2026-04-13-core-feature-tiering.md](/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/docs/plans/2026-04-13-core-feature-tiering.md)
-- [2026-04-13-core-feature-maturity-matrix.md](/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/docs/plans/2026-04-13-core-feature-maturity-matrix.md)
-- [2026-04-14-0.2.x-release-checklist.md](/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/docs/plans/2026-04-14-0.2.x-release-checklist.md)
+- [Release Checklist 0.2.x](release-checklist-0.2.x.md)
+- [Core Pruning Plan](../plans/2026-04-13-core-pruning-plan.md)
+- [Core Feature Tiering](../plans/2026-04-13-core-feature-tiering.md)
+- [Core Feature Maturity Matrix](../plans/2026-04-13-core-feature-maturity-matrix.md)
 
 ## Purpose
 
@@ -73,8 +74,8 @@ Each feature area is classified as:
 
 **Primary validation:**
 
-- `/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/scripts/setup-wizard-readiness-check.sh`
-- `/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/scripts/release-readiness-check.sh preflight --version 0.2.x`
+- `scripts/setup-wizard-readiness-check.sh`
+- `scripts/release-readiness-check.sh preflight --version 0.2.x`
 - one clean install smoke through the tagged release path
 
 ### 2. Agent Runtime Core
@@ -90,7 +91,7 @@ Each feature area is classified as:
 
 **Primary validation:**
 
-- `/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/scripts/alpha-readiness-check.sh`
+- `scripts/alpha-readiness-check.sh`
 - focused Go tests in `internal/orchestrate/`
 
 ### 3. Dynamic Agent Reconfiguration
@@ -105,8 +106,8 @@ Each feature area is classified as:
 
 **Primary validation:**
 
-- `/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/scripts/fundamentals-readiness-check.sh`
-- `/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/images/body/test_constraint_reload.py`
+- `scripts/fundamentals-readiness-check.sh`
+- `images/body/test_constraint_reload.py`
 
 ### 4. DM / Comms Core
 
@@ -121,9 +122,9 @@ Each feature area is classified as:
 
 **Primary validation:**
 
-- `/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/scripts/alpha-readiness-check.sh`
-- `/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/images/tests/test_comms_e2e.py`
-- `/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/images/tests/test_realtime_comms_e2e.py`
+- `scripts/alpha-readiness-check.sh`
+- `images/tests/test_comms_e2e.py`
+- `images/tests/test_realtime_comms_e2e.py`
 
 ### 5. Event-Driven Runtime Delivery
 
@@ -167,7 +168,7 @@ Each feature area is classified as:
 
 **Primary validation:**
 
-- `/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/scripts/fundamentals-readiness-check.sh`
+- `scripts/fundamentals-readiness-check.sh`
 - focused Go tests in `internal/budget/`, `internal/logs/`, and `internal/audit/`
 
 ### 8. Graph Core
@@ -237,7 +238,7 @@ Each feature area is classified as:
 
 **Primary validation:**
 
-- `/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/scripts/release-readiness-check.sh published --tag v0.2.x`
+- `scripts/release-readiness-check.sh published --tag v0.2.x`
 - one clean-machine Homebrew smoke
 
 ## Suggested Blocking Set For `0.2.x`

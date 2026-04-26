@@ -1,11 +1,12 @@
 # `0.2.x` Core Release Checklist
 
-Status: draft  
-Last updated: 2026-04-14
+Use this runbook as the procedural validation walk for cutting any `0.2.x`
+core release. It pairs with [Release Gates 0.2.x](release-gates-0.2.x.md)
+which carries the gate-level definitions.
 
 Related:
 
-- [2026-04-14-0.2.x-core-release-gates.md](/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/docs/plans/2026-04-14-0.2.x-core-release-gates.md)
+- [Release Gates 0.2.x](release-gates-0.2.x.md)
 
 ## Goal
 
