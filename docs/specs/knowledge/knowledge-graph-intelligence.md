@@ -9,7 +9,7 @@ status: "Draft"
 
 **Date:** 2026-04-05
 **Status:** Draft
-**Parent:** [Compounding Agent Organizations](compounding-agent-organizations.md)
+**Parent:** [Compounding Agent Organizations](../policy/compounding-agent-organizations.md)
 
 ---
 

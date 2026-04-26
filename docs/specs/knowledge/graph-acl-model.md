@@ -9,7 +9,7 @@ status: "Draft"
 
 **Date:** 2026-04-06
 **Status:** Draft
-**Depends on:** [Knowledge Graph Intelligence](knowledge-graph-intelligence.md) (Phase 1/1b scope enforcement), [Platform Identity](platform-identity-uuid-adoption.md) (registry)
+**Depends on:** [Knowledge Graph Intelligence](knowledge-graph-intelligence.md) (Phase 1/1b scope enforcement), [Platform Identity](../platform-identity-uuid-adoption.md) (registry)
 
 ---
 
