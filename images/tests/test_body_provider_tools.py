@@ -96,6 +96,20 @@ def test_sanitize_current_info_answer_strips_search_preamble_lines():
     )
 
 
+def test_sanitize_current_info_answer_strips_provider_cite_tags():
+    content = (
+        "Version: <cite index=\"12-1\">Node.js 24.15.0 LTS</cite>\n"
+        "Source: https://nodejs.org/en/blog/release/v24.15.0"
+    )
+
+    sanitized = _sanitize_current_info_answer({"kind": "current_info"}, content)
+
+    assert sanitized == (
+        "Version: Node.js 24.15.0 LTS\n"
+        "Source: https://nodejs.org/en/blog/release/v24.15.0"
+    )
+
+
 def test_sanitize_current_info_answer_preserves_non_current_info_content():
     content = "Let me search the file.\n\nThe test failed because pytest is missing."
 

@@ -165,6 +165,85 @@ def test_finish_reason_only_tool_call_path_remains_non_terminal(tmp_path):
     assert [data["verdict"] for kind, data in signals if kind == "pact_verdict"] == ["completed"]
 
 
+def test_contract_send_message_auto_finalizes_when_committable(tmp_path):
+    body, signals, _send_messages = _body(tmp_path, [])
+    task = _task()
+    task["task_id"] = "task-current"
+    task["metadata"]["work_contract"] = {
+        "kind": "current_info",
+        "requires_action": True,
+        "required_evidence": ["current_source_or_blocker"],
+        "answer_requirements": ["source_url", "checked_date"],
+        "allowed_terminal_states": ["completed", "blocked", "needs_clarification"],
+    }
+    body._execution_state = ExecutionState.from_task(task, agent="agent")
+    body._work_evidence = {
+        "tool_results": [{"tool": "provider-web-search", "ok": True}],
+        "observed": ["current_source"],
+        "source_urls": ["https://nodejs.org/en/blog/release/v24.15.0"],
+    }
+
+    completed = body._maybe_finalize_after_send_message(
+        "task-current",
+        "Node.js 24.15.0 LTS. Source: https://nodejs.org/en/blog/release/v24.15.0. Checked date: 2026-04-26.",
+    )
+
+    assert completed is True
+    assert body._task_complete_called is True
+    assert [data["verdict"] for kind, data in signals if kind == "pact_verdict"] == ["completed"]
+    assert any(kind == "agent_loop_terminal_outcome" for kind, _data in signals)
+
+
+def test_contract_send_message_sanitizes_provider_cites_before_tool_call(tmp_path):
+    body, _signals, send_messages = _body(tmp_path, [])
+    task = _task()
+    task["task_id"] = "task-current"
+    task["metadata"]["work_contract"] = {
+        "kind": "current_info",
+        "requires_action": True,
+        "required_evidence": ["current_source_or_blocker"],
+        "answer_requirements": ["source_url", "checked_date"],
+        "allowed_terminal_states": ["completed", "blocked", "needs_clarification"],
+    }
+    body._execution_state = ExecutionState.from_task(task, agent="agent")
+    body._work_evidence = {
+        "tool_results": [{"tool": "provider-web-search", "ok": True}],
+        "observed": ["current_source"],
+        "source_urls": ["https://nodejs.org/en/blog/release/v24.15.0"],
+    }
+    tool_call = {
+        "id": "call-send",
+        "type": "function",
+        "function": {
+            "name": "send_message",
+            "arguments": json.dumps({
+                "channel": "dm-agent",
+                "content": (
+                    "Version: <cite index=\"12-1\">Node.js 24.15.0 LTS</cite>\n"
+                    "Source: https://nodejs.org/en/blog/release/v24.15.0\n"
+                    "Checked date: 2026-04-26"
+                ),
+            }),
+        },
+    }
+
+    result = body._handle_tool_call_for_loop(
+        tool_call,
+        "task-current",
+        "send_message",
+        Body._tool_call_arguments(tool_call),
+    )
+
+    assert json.loads(result)["status"] == "sent"
+    assert send_messages == [
+        (
+            "Version: Node.js 24.15.0 LTS\n"
+            "Source: https://nodejs.org/en/blog/release/v24.15.0\n"
+            "Checked date: 2026-04-26"
+        )
+    ]
+
+
 def test_dual_paths_coexist(tmp_path):
     legacy, legacy_signals, _ = _body(tmp_path / "legacy", [_response(content="Done.", stop_reason="tool_use", tool_name="complete_task")])
     native, native_signals, _ = _body(tmp_path / "native", [_response(content="Done.", stop_reason="end_turn")])

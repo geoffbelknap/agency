@@ -190,6 +190,7 @@ CURRENT_INFO_PREAMBLE_RE = re.compile(
     r"(?:search|check|look up|find|verify|use|see)\b.*?(?:\.|:)?\s*$",
     re.IGNORECASE,
 )
+PROVIDER_CITE_RE = re.compile(r"</?cite\b[^>]*>", re.IGNORECASE)
 
 # Meeseeks system prompt template — minimal, task-focused
 MEESEEKS_SYSTEM_PROMPT = """You are a Meeseeks — a single-purpose agent on Agency, an AI agent operating platform.
@@ -461,8 +462,9 @@ def _sanitize_outbound_content(content: str) -> str:
 def _sanitize_current_info_answer(contract: dict | None, content: str) -> str:
     if not isinstance(contract, dict) or contract.get("kind") != "current_info":
         return content
+    content = PROVIDER_CITE_RE.sub("", str(content or ""))
     kept = []
-    for raw_line in str(content or "").splitlines():
+    for raw_line in content.splitlines():
         line = raw_line.strip()
         if not line:
             if kept and kept[-1] != "":
@@ -1222,10 +1224,17 @@ class Body:
                         self._handle_system_event(event)
                     elif event_type == "task":
                         task = event.get("task", {})
+                        self._emit_loop_event("agent_loop_task_seen", task, delivery="event_queue")
                         source = str(task.get("source", ""))
                         task_content = str(task.get("task_content", task.get("content", "")))
                         if source.startswith("channel:dm-") or task_content.startswith("[Mission trigger: channel dm-"):
                             log.info("Skipping duplicate DM task delivery: %s", source)
+                            self._emit_loop_event(
+                                "agent_loop_task_skipped",
+                                task,
+                                delivery="event_queue",
+                                reason="duplicate_dm_delivery",
+                            )
                             continue
                         task_id = task.get("task_id", "unknown")
                         log.info("New task received: %s", task_id)
@@ -1984,23 +1993,29 @@ class Body:
         if not task:
             return None
 
-        source = str(task.get("source", ""))
-        task_content = str(task.get("task_content", task.get("content", "")))
-        if source.startswith("channel:dm-") or task_content.startswith("[Mission trigger: channel dm-"):
-            task_hash = json.dumps(task, sort_keys=True)
-            self._last_task_hash = task_hash
-            log.info("Skipping duplicate DM fallback task delivery: %s", source)
-            return None
-
-        # Check if this is a new task
         task_hash = json.dumps(task, sort_keys=True)
         if task_hash == self._last_task_hash:
             return None
 
+        source = str(task.get("source", ""))
+        task_content = str(task.get("task_content", task.get("content", "")))
+        if source.startswith("channel:dm-") or task_content.startswith("[Mission trigger: channel dm-"):
+            self._last_task_hash = task_hash
+            log.info("Skipping duplicate DM fallback task delivery: %s", source)
+            self._emit_loop_event(
+                "agent_loop_task_skipped",
+                task,
+                delivery="context_file_fallback",
+                reason="duplicate_dm_delivery",
+            )
+            return None
+
+        # Check if this is a new task
         self._last_task_hash = task_hash
         task_id = task.get("task_id", "unknown")
         log.info("New task received: %s", task_id)
         self._emit_signal("task_accepted", {"task_id": task_id})
+        self._emit_loop_event("agent_loop_task_seen", task, delivery="context_file_fallback")
         return task
 
     # -- LLM Conversation Loop --
@@ -2074,6 +2089,13 @@ class Body:
         task_id = task.get("task_id", "unknown")
         self._total_tasks += 1
         self._execution_state = ExecutionState.from_task(task, agent=self.agent_name)
+        self._emit_loop_event(
+            "agent_loop_execution_state_created",
+            task,
+            objective_present=bool(getattr(self._execution_state, "objective", None)),
+            strategy_present=bool(getattr(self._execution_state, "strategy", None)),
+            contract_kind=getattr(getattr(self._execution_state, "contract", None), "kind", ""),
+        )
         self._current_task_tier = task.get("tier")  # TODO(Wave 2 #2): migrate strategy-routing tier state.
         self._task_content = task_content  # saved for cache write
         self._task_metadata = task.get("metadata", {}) if isinstance(task.get("metadata"), dict) else {}  # TODO(Wave 2 #1): migrate activation/objective metadata.
@@ -2115,6 +2137,21 @@ class Body:
         self._reload_mission()
         if isinstance(self._execution_state, ExecutionState):
             self._execution_state.attach_mission(self._active_mission)
+            if self._execution_state.objective is not None:
+                self._emit_loop_event(
+                    "agent_loop_objective_built",
+                    task,
+                    objective=self._execution_state.objective.to_dict(),
+                )
+            if self._execution_state.strategy is not None:
+                self._emit_loop_event(
+                    "agent_loop_strategy_selected",
+                    task,
+                    strategy=self._execution_state.strategy.to_dict(),
+                    reasoning_depth=self._execution_state.reasoning_depth,
+                    context_depth=self._execution_state.context_depth,
+                    model=self._execution_state.model,
+                )
 
         # Task tier classification — determines which features activate
         mission = self._active_mission
@@ -2265,6 +2302,13 @@ class Body:
 
             # Call LLM
             try:
+                self._emit_loop_event(
+                    "agent_loop_llm_request_started",
+                    task,
+                    turn=turn,
+                    model=self._current_model(),
+                    tools=len(tools or []),
+                )
                 response = self._call_llm(messages, tools=tools if tools else None)
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429:
@@ -2298,6 +2342,7 @@ class Body:
                 )
                 error_data["task_id"] = task_id
                 self._emit_signal("error", error_data)
+                self._emit_loop_event("agent_loop_error", task, turn=turn, stage="llm_call", error=error_data)
                 break
             except Exception as e:
                 log.error("LLM call failed: %s", e)
@@ -2315,10 +2360,12 @@ class Body:
                         f"all LLM calls are failing. Task {task_id} aborted."
                     )
                 self._emit_signal("error", error_data)
+                self._emit_loop_event("agent_loop_error", task, turn=turn, stage="llm_call", error=error_data)
                 break
 
             if not response:
                 log.warning("Empty LLM response")
+                self._emit_loop_event("agent_loop_error", task, turn=turn, stage="llm_response", error="empty_response")
                 break
 
             # Extract the assistant message
@@ -2327,6 +2374,16 @@ class Body:
             finish_reason = choice.get("finish_reason", "")
             outcome = detect_turn_outcome(response)
             self._ensure_execution_state().stop_reason = outcome.stop_reason
+            self._emit_loop_event(
+                "agent_loop_llm_response_received",
+                task,
+                turn=turn,
+                finish_reason=finish_reason,
+                stop_reason=outcome.stop_reason,
+                has_pending_tool_use=outcome.has_pending_tool_use,
+                is_terminal=outcome.is_terminal,
+                tool_calls=len(message.get("tool_calls") or []),
+            )
             # Add assistant message to history
             messages.append(message)
 
@@ -2357,14 +2414,22 @@ class Body:
             tool_calls = message.get("tool_calls")
             if tool_calls:
                 tool_names = [tc.get("function", {}).get("name", "") for tc in tool_calls]
+                sent_message_contents = []
                 if len(tool_calls) == 1:
                     _tc = tool_calls[0]
                     _tool_name = _tc.get("function", {}).get("name", "")
-                    result = self._handle_tool_call(_tc)
+                    _tool_args = self._tool_call_arguments(_tc)
+                    result = self._handle_tool_call_for_loop(_tc, task_id, _tool_name, _tool_args)
+                    if (
+                        _tool_name == "send_message"
+                        and self._tool_result_succeeded(result)
+                        and self._send_message_targets_task_channel(_tool_args, task)
+                    ):
+                        sent_message_contents.append(str(_tool_args.get("content") or ""))
                     # Track tools used for post-task capture
                     if _tool_name:
                         getattr(self, '_tools_used_this_task', set()).add(_tool_name)
-                    self._record_work_tool_result(_tool_name, result, self._tool_call_arguments(_tc))
+                    self._record_work_tool_result(_tool_name, result, _tool_args)
                     if self._task_complete_called:
                         self._finalize_task(task_id, turn)
                         break
@@ -2396,7 +2461,13 @@ class Body:
                     log.info("Executing %d tool calls in parallel", len(tool_calls))
                     with ThreadPoolExecutor(max_workers=min(len(tool_calls), 4)) as pool:
                         futures = {
-                            pool.submit(self._handle_tool_call, tc): tc
+                            pool.submit(
+                                self._handle_tool_call_for_loop,
+                                tc,
+                                task_id,
+                                tc.get("function", {}).get("name", ""),
+                                self._tool_call_arguments(tc),
+                            ): tc
                             for tc in tool_calls
                         }
                         results = {}
@@ -2421,9 +2492,16 @@ class Body:
                     _tools_used = getattr(self, '_tools_used_this_task', set())
                     for tc in tool_calls:
                         _tn = tc.get("function", {}).get("name", "")
+                        _tool_args = self._tool_call_arguments(tc)
+                        if (
+                            _tn == "send_message"
+                            and self._tool_result_succeeded(results.get(tc["id"], ""))
+                            and self._send_message_targets_task_channel(_tool_args, task)
+                        ):
+                            sent_message_contents.append(str(_tool_args.get("content") or ""))
                         if _tn:
                             _tools_used.add(_tn)
-                        self._record_work_tool_result(_tn, results.get(tc["id"], ""), self._tool_call_arguments(tc))
+                        self._record_work_tool_result(_tn, results.get(tc["id"], ""), _tool_args)
                         if self._fallback is not None:
                             _res = results.get(tc["id"], "")
                             try:
@@ -2451,6 +2529,14 @@ class Body:
                     and not self._task_complete_called
                 ):
                     log.info("Task %s: auto-finalized after send_message (turn %d)", task_id, turn + 1)
+                    self._finalize_task(task_id, turn)
+                    break
+                if (
+                    sent_message_contents
+                    and not self._task_complete_called
+                    and self._maybe_finalize_after_send_message(task_id, sent_message_contents[-1])
+                ):
+                    log.info("Task %s: auto-finalized after committable send_message (turn %d)", task_id, turn + 1)
                     self._finalize_task(task_id, turn)
                     break
                 if self._current_task_turns >= _turn_cap_for_task(getattr(self, "_active_mission", None)):
@@ -3551,6 +3637,12 @@ class Body:
         self._task_complete_called = True
         self._task_terminal_outcome = outcome
         self._task_result_summary = summary
+        self._emit_loop_event(
+            "agent_loop_terminal_outcome",
+            {"task_id": getattr(self, "_current_task_id", "") or "unknown"},
+            outcome=outcome,
+            summary_chars=len(str(summary or "")),
+        )
 
     def _commit_model_terminal_outcome(self, task_id: str, content: str, messages: list[dict]) -> bool:
         """Run the internal model-native commit hook for terminal text."""
@@ -3623,6 +3715,104 @@ class Body:
         content = _sanitize_current_info_answer(getattr(self, "_work_contract", None), content)
         self._task_result_summary = content
         return True
+
+    def _maybe_finalize_after_send_message(self, task_id: str, content: str) -> bool:
+        """Complete contract-backed work when the posted message already passes PACT."""
+        contract = getattr(self, "_work_contract", None)
+        if not isinstance(contract, dict) or contract.get("kind") in {"", "chat"}:
+            return False
+
+        content = self._materialize_file_artifact_summary(content)
+        pre_commit_verdict = evaluate_pre_commit(
+            self._ensure_execution_state(),
+            content=content,
+        )
+        completion_verdict = map_pre_commit_verdict(
+            pre_commit_verdict,
+            task_id,
+            contract.get("kind", ""),
+            contract=contract,
+            evidence=getattr(self, "_work_evidence", None),
+            state=self._ensure_execution_state(),
+        )
+        self._emit_pact_verdict(task_id, completion_verdict)
+        if not pre_commit_verdict.committable or completion_verdict.get("verdict") != "completed":
+            return False
+
+        content = _sanitize_current_info_answer(contract, content)
+        self._commit_pact_terminal_outcome("completed", content)
+        return True
+
+    def _handle_tool_call_for_loop(self, tool_call: dict, task_id: str, tool_name: str, tool_args: dict) -> str:
+        if tool_name == "send_message":
+            content = self._sanitize_contract_message_content(str(tool_args.get("content") or ""))
+            tool_args = dict(tool_args)
+            tool_args["content"] = content
+            tool_call = self._replace_tool_call_arguments(tool_call, tool_args)
+            blocked = self._preflight_contract_send_message(task_id, content)
+            if blocked is not None:
+                return blocked
+        return self._handle_tool_call(tool_call)
+
+    def _sanitize_contract_message_content(self, content: str) -> str:
+        return _sanitize_current_info_answer(getattr(self, "_work_contract", None), content)
+
+    def _replace_tool_call_arguments(self, tool_call: dict, tool_args: dict) -> dict:
+        updated = dict(tool_call)
+        function = dict(updated.get("function") or {})
+        function["arguments"] = json.dumps(tool_args)
+        updated["function"] = function
+        return updated
+
+    def _preflight_contract_send_message(self, task_id: str, content: str) -> str | None:
+        contract = getattr(self, "_work_contract", None)
+        if not isinstance(contract, dict) or contract.get("kind") in {"", "chat"}:
+            return None
+        pre_commit_verdict = evaluate_pre_commit(
+            self._ensure_execution_state(),
+            content=content,
+        )
+        completion_verdict = map_pre_commit_verdict(
+            pre_commit_verdict,
+            task_id,
+            contract.get("kind", ""),
+            contract=contract,
+            evidence=getattr(self, "_work_evidence", None),
+            state=self._ensure_execution_state(),
+        )
+        self._emit_pact_verdict(task_id, completion_verdict)
+        if pre_commit_verdict.committable and completion_verdict.get("verdict") == "completed":
+            return None
+        return json.dumps({
+            "error": "send_message blocked by work contract",
+            "missing_evidence": completion_verdict.get("missing_evidence", []),
+            "message": pre_commit_verdict.contract_verdict.get("message", "Required evidence is missing."),
+        })
+
+    def _tool_result_succeeded(self, result: str) -> bool:
+        if not isinstance(result, str) or not result.strip():
+            return False
+        try:
+            parsed = json.loads(result)
+        except Exception:
+            return True
+        if not isinstance(parsed, dict):
+            return True
+        return "error" not in parsed
+
+    def _send_message_targets_task_channel(self, args: dict, task: dict) -> bool:
+        channel = str(args.get("channel") or "").strip()
+        if not channel:
+            return False
+        metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+        expected = str(metadata.get("channel") or "").strip()
+        if not expected:
+            source = str(task.get("source") or "")
+            if ":" in source:
+                parts = source.split(":")
+                if len(parts) >= 2:
+                    expected = parts[1].strip()
+        return not expected or channel == expected
 
     def _force_turn_limit_block(self, task_id: str, task_content: str, turn: int, cap: int) -> None:
         """Terminate a task after the runtime hard turn cap is reached."""
@@ -3850,6 +4040,26 @@ class Body:
         self.__dict__.pop("_work_evidence_projection_override", None)
 
     # -- Signal Emission --
+
+    def _emit_loop_event(self, signal_type: str, task: dict | None = None, **data) -> None:
+        """Record body-loop progress breadcrumbs for dev evals and debugging."""
+        task = task if isinstance(task, dict) else {}
+        payload = {
+            "task_id": task.get("task_id") or getattr(self, "_current_task_id", None) or "unknown",
+            "agent": getattr(self, "agent_name", ""),
+        }
+        if "event_id" in task:
+            payload["event_id"] = task.get("event_id")
+        metadata = task.get("metadata")
+        if isinstance(metadata, dict):
+            for key in ("channel", "channel_type", "match_type", "event_id", "work_item_id"):
+                if key in metadata:
+                    payload[key] = metadata.get(key)
+        payload.update(data)
+        try:
+            self._emit_signal(signal_type, payload)
+        except AttributeError:
+            log.debug("Skipping loop event %s because signal state is not initialized", signal_type)
 
     def _emit_signal(self, signal_type: str, data: dict) -> None:
         """Emit an agent signal via two paths:
@@ -4090,14 +4300,15 @@ class Body:
         execution_state = getattr(self, "_execution_state", None)
         objective = getattr(execution_state, "objective", None) if execution_state else None
         strategy = getattr(execution_state, "strategy", None) if execution_state else None
+        default_standard = getattr(self, "model", "standard")
         return select_model(
             task=getattr(self, "_task_metadata", {}) or {},
             mission=getattr(self, "_active_mission", None),
             objective=objective,
             strategy=strategy,
-            default_standard=self.model,
-            default_small=self.admin_model,
-            default_large=getattr(self, "large_model", self.model),
+            default_standard=default_standard,
+            default_small=getattr(self, "admin_model", default_standard),
+            default_large=getattr(self, "large_model", default_standard),
         )
 
     # -- Conversation Persistence --
