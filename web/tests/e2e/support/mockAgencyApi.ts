@@ -293,7 +293,6 @@ const workItems = [
     connector: 'slack-intake',
     status: 'routed',
     summary: 'Customer escalation from #ops',
-    brief_content: 'Investigate rollout delay',
     created_at: '2026-04-08T19:20:00Z',
     payload: { channel: '#ops', severity: 'high' },
   },
