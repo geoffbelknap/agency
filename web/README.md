@@ -23,14 +23,22 @@ The app will be available at `http://localhost:8280`.
 
 ## Features
 
+The web UI ships both the supported `0.2.x` core surface and broader experimental surfaces. Experimental surfaces are gated and only appear when explicitly enabled — see `internal/features/registry.go` for tier classifications.
+
+### Core (always available)
+
 - **Agents** — list, detail view with grouped tabs (Overview, Activity, Operations, System), memory panel, signal renderer
 - **Channels** — real-time messaging with WebSocket push, typing indicators, instant message display
-- **Missions** — list, detail, creation wizard with cost/quality step
 - **Knowledge** — browser (all nodes by kind), interactive graph visualization, full-text search
 - **Usage** — LLM usage metrics by agent/model/provider/source, recent errors with full detail
-- **Teams** — team membership and activity view
-- **Admin** — infrastructure status, hub management, capabilities, intake stats, events, webhooks, notifications, presets, policy, egress, trust, audit, doctor
+- **Admin (core)** — infrastructure status, capabilities, policy, egress, trust, audit, doctor
 - **Real-time** — WebSocket auto-reconnect with exponential backoff (500ms-10s), agent activity signals, processing indicators
+
+### Experimental (gated)
+
+- **Missions** — list, detail, creation wizard with cost/quality step
+- **Teams** — team membership and activity view
+- **Admin (experimental)** — hub management, intake stats, events, webhooks, notifications, presets
 
 ## CLI Usage
 
