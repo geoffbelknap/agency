@@ -304,7 +304,7 @@ make containerd-readiness
 Manual rootful `containerd` release gate:
 
 ```bash
-./scripts/dev/with-containerd-rootful-env.sh make containerd-readiness-rootful
+./scripts/readiness/with-containerd-rootful-env.sh make containerd-readiness-rootful
 gh workflow run "Containerd Rootful Readiness" --ref main
 ```
 
@@ -406,7 +406,7 @@ Validated commands:
 
 ```bash
 go build -o ./agency ./cmd/gateway
-./scripts/dev/with-containerd-rootful-env.sh make containerd-readiness-rootful
+./scripts/readiness/with-containerd-rootful-env.sh make containerd-readiness-rootful
 ```
 
 Recorded results:

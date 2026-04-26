@@ -41,13 +41,13 @@ changed_files() {
 backend_script_pattern() {
   case "$backend" in
     docker)
-      printf '%s\n' '^scripts/(docker-readiness-check|runtime-contract-smoke|cleanup-live-test-runtimes)\.sh$|^\.github/workflows/docker-readiness\.yml$'
+      printf '%s\n' '^scripts/readiness/(docker-readiness-check|runtime-contract-smoke)\.sh$|^scripts/dev/cleanup-live-test-runtimes\.sh$|^\.github/workflows/docker-readiness\.yml$'
       ;;
     podman)
-      printf '%s\n' '^scripts/(podman-readiness-check|runtime-contract-smoke|cleanup-live-test-runtimes)\.sh$|^\.github/workflows/podman-readiness\.yml$'
+      printf '%s\n' '^scripts/readiness/(podman-readiness-check|runtime-contract-smoke)\.sh$|^scripts/dev/cleanup-live-test-runtimes\.sh$|^\.github/workflows/podman-readiness\.yml$'
       ;;
     containerd)
-      printf '%s\n' '^scripts/(containerd-readiness-check|containerd-rootless-readiness-check|containerd-rootful-readiness-check|with-containerd-env|with-containerd-rootful-env|runtime-contract-smoke|cleanup-live-test-runtimes)\.sh$|^\.github/workflows/containerd-readiness\.yml$'
+      printf '%s\n' '^scripts/readiness/(containerd-readiness-check|containerd-rootless-readiness-check|containerd-rootful-readiness-check|with-containerd-env|with-containerd-rootful-env|runtime-contract-smoke)\.sh$|^scripts/dev/cleanup-live-test-runtimes\.sh$|^\.github/workflows/containerd-readiness\.yml$'
       ;;
   esac
 }
