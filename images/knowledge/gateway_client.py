@@ -11,7 +11,7 @@ logger = logging.getLogger("agency.knowledge.gateway")
 
 
 class GatewayClient:
-    def __init__(self, base_url: str = "http://gateway:8200", token: str = ""):
+    def __init__(self, base_url: str = "http://localhost:8200", token: str = ""):
         self.base_url = base_url.rstrip("/")
         self.token = token
 
