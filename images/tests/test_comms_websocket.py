@@ -5,8 +5,6 @@ import pytest
 from images.comms.server import create_app
 from images.comms.websocket import ConnectionRegistry, setup_websocket
 
-pytestmark = pytest.mark.asyncio
-
 
 # ---------------------------------------------------------------------------
 # Unit tests: ConnectionRegistry
@@ -66,6 +64,7 @@ def ws_app(tmp_path):
     return app
 
 
+@pytest.mark.asyncio
 class TestWebSocketConnect:
     async def test_ws_connect_receives_ack(self, aiohttp_client, ws_app):
         client = await aiohttp_client(ws_app)
@@ -102,6 +101,7 @@ class TestWebSocketConnect:
             assert msg["data"]["unreads"]["dev"]["unread"] >= 1
 
 
+@pytest.mark.asyncio
 class TestWebSocketPush:
     @pytest.mark.skip(reason="Hangs in CI — async websocket push times out")
     async def test_post_message_pushes_to_ws(self, aiohttp_client, ws_app):

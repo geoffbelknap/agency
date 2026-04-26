@@ -201,6 +201,35 @@ def agent_messages(trace: dict[str, Any], agent_prefix: str) -> list[dict[str, A
     return result
 
 
+def latest_agent_response(trace: dict[str, Any], agent_prefix: str) -> dict[str, str] | None:
+    messages = agent_messages(trace, agent_prefix)
+    if not messages:
+        return None
+    message = messages[-1]
+    return {
+        "author": str(message.get("author", "")),
+        "content": str(message.get("content", "")),
+    }
+
+
+def response_summary(trace: dict[str, Any], agent_prefix: str) -> dict[str, Any]:
+    response = latest_agent_response(trace, agent_prefix)
+    live = trace.get("live") if isinstance(trace.get("live"), dict) else {}
+    if response:
+        return {
+            "status": "observed",
+            "author": response["author"],
+            "content": response["content"],
+            "agent_messages_seen": len(agent_messages(trace, agent_prefix)),
+        }
+    return {
+        "status": "none",
+        "content": "",
+        "timed_out": live.get("timed_out") is True,
+        "agent_messages_seen": int(live.get("agent_messages_seen") or 0),
+    }
+
+
 def listify(value: Any) -> list[Any]:
     if value is None:
         return []
@@ -504,6 +533,42 @@ def write_result(results_dir: Path, fixture_id: str, payload: dict[str, Any]) ->
     return path
 
 
+def truncate_one_line(value: str, limit: int = 500) -> str:
+    value = " ".join(value.split())
+    if len(value) <= limit:
+        return value
+    return value[: limit - 3].rstrip() + "..."
+
+
+def print_human_report(
+    *,
+    fixture_id: str,
+    fixture: dict[str, Any],
+    score: int,
+    passed: bool,
+    diagnosis: RunDiagnosis,
+    checks: list[Check],
+    response: dict[str, Any],
+    out: Path,
+) -> None:
+    status = "PASS" if passed else "FAIL"
+    print(f"{status} {fixture_id}")
+    print(f"  Task: {truncate_one_line(str(fixture.get('task', '')))}")
+    print(f"  Diagnosis: {diagnosis.phase} - {diagnosis.detail}")
+    if response.get("status") == "observed":
+        print(f"  Response ({response.get('author', 'agent')}): {truncate_one_line(str(response.get('content', '')))}")
+    else:
+        timed_out = response.get("timed_out")
+        seen = response.get("agent_messages_seen", 0)
+        print(f"  Response: none observed (timed_out={timed_out}, agent_messages_seen={seen})")
+    print("  Checks:")
+    for check in checks:
+        check_status = "PASS" if check.passed else "FAIL"
+        print(f"    {check_status} {check.name}: +{check.points} - {check.detail}")
+    print(f"  Score: {score}")
+    print(f"  Result: {out}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Developer-only Agency agent loop evaluator")
     parser.add_argument("--mode", choices=["replay", "live"], default="replay")
@@ -537,23 +602,39 @@ def main() -> int:
         passed = all(c.passed for c in checks)
         if not passed:
             failures += 1
+        agent_prefix = fixture.get("agent", {}).get("name_prefix", "")
+        diagnosis = diagnose_trace(fixture, trace)
+        response = response_summary(trace, agent_prefix)
         result = {
             "fixture": fixture_id,
+            "description": fixture.get("description", ""),
+            "task": fixture.get("task", ""),
             "mode": args.mode,
             "agent": agent_name,
             "score": score,
             "passed": passed,
-            "diagnosis": diagnose_trace(fixture, trace).__dict__,
+            "diagnosis": diagnosis.__dict__,
+            "response": response,
             "checks": [c.__dict__ for c in checks],
             "trace": trace,
             "evaluated_at": datetime.now(timezone.utc).isoformat(),
         }
         out = write_result(results_dir, fixture_id, result)
-        summaries.append((fixture_id, score, passed, out))
+        summaries.append((fixture_id, fixture, score, passed, diagnosis, checks, response, out))
 
-    for fixture_id, score, passed, out in summaries:
-        status = "PASS" if passed else "FAIL"
-        print(f"{status} {fixture_id}: score={score} result={out}")
+    for idx, (fixture_id, fixture, score, passed, diagnosis, checks, response, out) in enumerate(summaries):
+        if idx:
+            print()
+        print_human_report(
+            fixture_id=fixture_id,
+            fixture=fixture,
+            score=score,
+            passed=passed,
+            diagnosis=diagnosis,
+            checks=checks,
+            response=response,
+            out=out,
+        )
 
     return 1 if failures else 0
 
