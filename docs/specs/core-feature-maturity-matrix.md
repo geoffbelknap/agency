@@ -1,7 +1,9 @@
 # Core Feature Maturity Matrix
 
-Status: draft  
-Last updated: 2026-04-13
+Working inventory of Agency's core features and the support surfaces required
+for each to be release-ready. Cross-referenced from
+[Release Gates 0.2.x](../runbooks/release-gates-0.2.x.md); paired with
+[Core Pruning Rationale](core-pruning-rationale.md).
 
 ## Purpose
 

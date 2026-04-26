@@ -1,11 +1,12 @@
-# Core Pruning Plan For Early Agency Adoption
+# Core Pruning Rationale For Early Agency Adoption
 
-Status: draft  
-Last updated: 2026-04-13
+Strategic rationale for the narrower 0.2.x core surface. Captures the
+*why* behind the tiering decisions; tier classifications themselves are
+encoded in `internal/features/registry.go` and the OpenAPI spec.
 
 Related:
 
-- [Core Feature Maturity Matrix](2026-04-13-core-feature-maturity-matrix.md)
+- [Core Feature Maturity Matrix](core-feature-maturity-matrix.md)
 - [Release Gates 0.2.x](../runbooks/release-gates-0.2.x.md)
 - [README.md](../../README.md)
 
@@ -43,7 +44,7 @@ Current repo and product surface are significantly broader than the believable
 alpha core:
 
 - CLI exposes roughly `196` subcommands in
-  [internal/cli/commands.go](/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/internal/cli/commands.go).
+  [internal/cli/commands.go](../../internal/cli/commands.go).
 - The README currently sells all of these at once:
   - teams and coordinators
   - packs and deployments
@@ -232,7 +233,7 @@ Keep in core:
 
 - stable REST API behavior
 - canonical OpenAPI contract at
-  [internal/api/openapi.yaml](/Users/geoffbelknap/Documents/GitHub/agency-workspace/agency/internal/api/openapi.yaml)
+  [internal/api/openapi.yaml](../../internal/api/openapi.yaml)
 - MCP server as a supported operator and automation interface
 - a deliberate client/SDK story for Agency-built and third-party consumers
 
