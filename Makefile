@@ -29,8 +29,17 @@ else
 CONTAINER_CMD ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null || command -v nerdctl 2>/dev/null)
 endif
 
-# Core images built by `make images`.
-CORE_IMAGES = body enforcer comms knowledge intake egress workspace web-fetch gateway-proxy
+# Core images built by `make images` and published by release-images.yml.
+CORE_IMAGES = body enforcer comms knowledge egress workspace gateway-proxy
+
+# Experimental images. Built on demand via `make images-experimental` and not
+# published in release builds; operators who opt into intake/web-fetch build
+# locally.
+EXPERIMENTAL_IMAGES = intake web-fetch
+
+# Every buildable container image. Used to generate per-image targets so
+# `make intake` / `make web-fetch` keep working.
+ALL_IMAGES = $(CORE_IMAGES) $(EXPERIMENTAL_IMAGES)
 
 # Services whose Dockerfile still needs the repo root as build context.
 REPO_CONTEXT_IMAGES = intake
@@ -133,8 +142,12 @@ workspace-base: require-container-cmd
 body comms knowledge intake: python-base
 workspace: workspace-base
 
-# Build all container images (core only; use `make images-all` to include web)
+# Build core container images. Experimental images (intake, web-fetch) build on
+# demand via `make images-experimental`.
 images: $(CORE_IMAGES)
+
+# Build experimental images (not published in releases).
+images-experimental: $(EXPERIMENTAL_IMAGES)
 
 # Build all container images including web UI and relay
 images-all: images web relay
@@ -156,7 +169,7 @@ $(1): require-container-cmd
 			-f $(IMAGE_DIR)/$(1)/Dockerfile -t agency-$(1):latest $(IMAGE_DIR)/$(1)))
 endef
 
-$(foreach img,$(CORE_IMAGES),$(eval $(call IMAGE_RULE,$(img))))
+$(foreach img,$(ALL_IMAGES),$(eval $(call IMAGE_RULE,$(img))))
 
 # agency-web source (monorepo)
 AGENCY_WEB_DIR ?= $(SOURCE_DIR)/web

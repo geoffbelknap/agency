@@ -129,6 +129,9 @@ jobs:
           - name: workspace
             context: images/workspace
             dockerfile: images/workspace/Dockerfile
+          - name: gateway-proxy
+            context: images/gateway-proxy
+            dockerfile: images/gateway-proxy/Dockerfile
 
     steps:
       - name: Checkout
