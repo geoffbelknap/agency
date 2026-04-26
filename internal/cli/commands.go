@@ -2484,8 +2484,40 @@ func hubCmd() *cobra.Command {
 			if args[0] == "default" {
 				return fmt.Errorf("cannot remove the default source")
 			}
-			// TODO: implement config editing to remove source
-			fmt.Printf("Remove the '%s' source entry from ~/.agency/config.yaml\n", args[0])
+			home, _ := os.UserHomeDir()
+			cfgPath := home + "/.agency/config.yaml"
+			data, err := os.ReadFile(cfgPath)
+			if err != nil {
+				return fmt.Errorf("read config: %w", err)
+			}
+
+			lines := strings.Split(string(data), "\n")
+			target := fmt.Sprintf("    - name: %s", args[0])
+			out := make([]string, 0, len(lines))
+			removed := false
+			skipping := false
+			for _, line := range lines {
+				if !skipping && line == target {
+					skipping = true
+					removed = true
+					continue
+				}
+				if skipping {
+					if strings.HasPrefix(line, "      ") {
+						continue
+					}
+					skipping = false
+				}
+				out = append(out, line)
+			}
+
+			if !removed {
+				return fmt.Errorf("source %q not found in %s", args[0], cfgPath)
+			}
+			if err := os.WriteFile(cfgPath, []byte(strings.Join(out, "\n")), 0644); err != nil {
+				return err
+			}
+			fmt.Printf("%s Removed source %s\n", green.Render("✓"), bold.Render(args[0]))
 			return nil
 		},
 	})

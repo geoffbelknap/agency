@@ -283,23 +283,7 @@ function isNotFoundError(err: unknown): boolean {
 }
 
 async function fetchMetrics(since?: string, until?: string): Promise<RoutingMetrics> {
-  const configRes = await fetch('/__agency/config');
-  let base = '/api/v1';
-  let token = '';
-  if (configRes.ok) {
-    const cfg = await configRes.json();
-    if (cfg.token) token = cfg.token;
-    if (cfg.gateway) base = `${cfg.gateway}/api/v1`;
-  }
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  const params = new URLSearchParams();
-  if (since) params.set('since', since);
-  if (until) params.set('until', until);
-  const qs = params.toString();
-  const res = await fetch(`${base}/infra/routing/metrics${qs ? `?${qs}` : ''}`, { headers });
-  if (!res.ok) throw new Error(`metrics: ${res.status}`);
-  return res.json();
+  return api.routing.metrics<RoutingMetrics>(since, until);
 }
 
 export function Usage() {
