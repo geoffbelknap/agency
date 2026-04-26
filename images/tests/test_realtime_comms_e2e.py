@@ -45,6 +45,10 @@ def e2e_app(tmp_path):
         members=["agent-alice", "agent-bob"],
     )
 
+    # These tests exercise the active fan-out path for non-mention messages.
+    # The product default is mention-only, so opt Bob into active delivery here.
+    app["sub_manager"].register_responsiveness("agent-bob", {"default": "active"})
+
     return app
 
 
