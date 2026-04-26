@@ -1,3 +1,9 @@
+# Team Model
+
+> **Tier:** Experimental. The `Teams` feature is `TierExperimental` in
+> `internal/features/registry.go`. Not part of the default 0.2.x core
+> surface; see [Core Pruning Rationale](core-pruning-rationale.md).
+
 ## What This Document Covers
 
 How Agency supports teams of humans and agents working together to operate an organization. The team model replaces the "collective" concept with a unified model where humans and agents are both members, roles flex based on need and scale, and the same primitives work from a standalone operator to a full department.
