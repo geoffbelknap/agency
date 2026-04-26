@@ -134,13 +134,6 @@ Four methods added to `apiclient/client.go` for CLI consumption:
 - `RemoveNotification(name string) error`
 - `TestNotification(name string) (string, error)` — returns event ID
 
-### Cleanup
-
-1. Update `operator-notifications.md` spec status from "Design — not yet implemented" to "Implemented"
-2. Delete `docs/plans/2026-03-25-operator-notifications.md` (work complete)
-3. Add Notifications group to gateway-api.md endpoint reference
-4. Update CLAUDE.md with `agency notifications` commands and notification management pattern
-
 ## ASK Compliance
 
 - **Tenet 1 (Constraints external):** Notification routing is operator-configured infrastructure. Agents cannot influence where notifications are delivered.

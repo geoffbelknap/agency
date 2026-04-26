@@ -1,3 +1,9 @@
+# Missions
+
+> **Tier:** Experimental. The `Missions` feature is `TierExperimental` in
+> `internal/features/registry.go`. Not part of the default 0.2.x core
+> surface; see [Core Pruning Rationale](core-pruning-rationale.md).
+
 Missions are first-class managed objects that define an agent's ongoing purpose. A mission declares what an agent should do, what events trigger work, what capabilities are required, and what healthy operation looks like. Missions layer on top of agent identity — they direct behavior without changing personality.
 
 An agent can hold exactly one mission at a time.

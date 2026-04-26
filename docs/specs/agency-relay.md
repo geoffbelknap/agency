@@ -1,5 +1,9 @@
 # Agency Relay — Design Spec
 
+> **Tier:** Experimental. The `Relay` feature is `TierExperimental` in
+> `internal/features/registry.go`. Not part of the default 0.2.x core
+> surface; see [Core Pruning Rationale](core-pruning-rationale.md).
+
 **Date:** 2026-04-04
 **Status:** Draft
 **Service domain:** tinyfleck.io

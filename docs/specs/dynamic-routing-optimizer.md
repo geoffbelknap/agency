@@ -7,6 +7,11 @@ status: "Draft"
 
 *Learn which models work for which tasks, suggest cheaper routing when quality holds.*
 
+> **Tier:** Experimental. The `RoutingOptimizer` feature is
+> `TierExperimental` in `internal/features/registry.go`. Basic provider
+> routing is core; the optimizer is not part of the default 0.2.x surface.
+> See [Core Pruning Rationale](core-pruning-rationale.md).
+
 **Date:** 2026-04-06
 **Status:** Draft
 **Parent:** [Compounding Agent Organizations](compounding-agent-organizations.md) — cost architecture
