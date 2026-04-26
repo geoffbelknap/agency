@@ -77,7 +77,7 @@ agency_delete(agent="val-eng")
 
 ## Seven-Phase Start
 
-**Purpose:** Full start sequence, container creation, and hardening verification.
+**Purpose:** Full start sequence, runtime creation, and runtime contract verification.
 
 ### Step 1 — Start an agent
 
@@ -95,44 +95,55 @@ agency_start(agent="val-start")
 6. Body + enforcer containers created
 7. Session started — returns unique `session_id`
 
-### Step 2 — Verify containers
+### Step 2 — Verify runtime contract
+
+```bash
+agency runtime manifest val-start
+agency runtime status val-start
+agency runtime validate val-start
+```
+
+**Expected:** Manifest exists, status reports a running backend, and validation
+returns `ok: true` or equivalent success output.
+
+### Step 3 — Verify backend hardening when using Docker or Podman
+
+These commands are backend-adapter hygiene checks. Use the matching runtime CLI
+for the selected backend (`docker` or `podman`). For containerd lanes, prefer
+`./scripts/containerd-rootless-readiness-check.sh` or
+`./scripts/containerd-rootful-readiness-check.sh`.
 
 ```bash
 docker ps --filter name=val-start
-```
-
-**Expected:** Two containers running:
-- `agency-val-start-workspace`
-- `agency-val-start-enforcer`
-
-### Step 3 — Verify container hardening
-
-```bash
 docker inspect agency-val-start-workspace --format '{{.HostConfig.ReadonlyRootfs}}'
 docker inspect agency-val-start-workspace --format '{{.HostConfig.CapDrop}}'
 docker inspect agency-val-start-workspace --format '{{.HostConfig.SecurityOpt}}'
 ```
 
 **Expected:**
+- Workspace and enforcer runtime units are running
 - ReadonlyRootfs: `true`
 - CapDrop: `[ALL]`
 - SecurityOpt: contains `no-new-privileges:true`
 
-### Step 4 — Verify credential isolation
+### Step 4 — Verify credential isolation in runtime
 
 ```bash
 docker exec agency-val-start-workspace printenv AGENCY_LLM_API_KEY
 ```
 
-**Expected:** Shows `agency-scoped-<random>` — NOT the real API key.
+**Expected:** Shows `agency-scoped-<random>` or another scoped runtime token —
+NOT the real provider API key. For non-Docker backends, use the backend's exec
+equivalent or the matching readiness script.
 
-### Step 5 — Verify constraints are read-only
+### Step 5 — Verify constraints are read-only in runtime
 
 ```bash
 docker exec agency-val-start-workspace sh -c 'echo test >> /agency/constraints.yaml' 2>&1
 ```
 
-**Expected:** Read-only file system error.
+**Expected:** Read-only file system error. For non-Docker backends, use the
+backend's exec equivalent or the matching readiness script.
 
 ### Step 6 — Start nonexistent agent fails
 

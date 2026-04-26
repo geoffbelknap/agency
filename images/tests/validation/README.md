@@ -20,20 +20,35 @@ observe the output, and mark PASS/FAIL.
 4. Record results in the tracker below.
 
 **Prerequisites:**
-- Docker running
-- At least one LLM API key (Anthropic or OpenAI)
+- A supported container backend running for the lane you are validating
+  (Docker, Podman, or containerd)
+- At least one LLM API key (Anthropic or OpenAI) for model-backed exercises
 - Agency installed (`agency --help` works)
 - For MCP mode: Agency MCP server connected in Claude Code
 
-**Go Test Validation (after model/policy port):**
+**Automated validation before manual runbooks:**
 
-Run before any manual validation to ensure the model port is sound:
+Run the smallest sufficient automated lane first. Useful defaults:
 
 ```bash
-cd agency-gateway && go test ./internal/models/ ./internal/policy/ -v
+go test ./...
+./scripts/python-image-tests.sh
+make web-test-all
+./scripts/runtime-contract-smoke.sh --agent <agent>
 ```
 
-Expected: 500+ tests pass. If any fail, fix before proceeding with manual validation.
+For backend-specific readiness, use the scoped adapter lane:
+
+```bash
+./scripts/docker-readiness-check.sh
+./scripts/podman-readiness-check.sh
+./scripts/containerd-rootless-readiness-check.sh
+./scripts/containerd-rootful-readiness-check.sh
+```
+
+Expected: the selected lane passes. Treat Docker, Podman, and containerd
+warnings as backend-adapter hygiene unless `agency admin doctor` or runtime
+manifest/status/validate reports a generic runtime failure.
 
 **Time estimate:** ~45 minutes for a full run (groups 1–8, excluding swarm).
 
@@ -49,7 +64,6 @@ Expected: 500+ tests pass. If any fail, fix before proceeding with manual valida
 | [06-governance.md](06-governance.md) | Governance | 5 | Group 2 |
 | [07-deploy-and-integration.md](07-deploy-and-integration.md) | Deploy & Integration | 4 | Group 1 |
 | [08-admin-and-maintenance.md](08-admin-and-maintenance.md) | Admin & Maintenance | 4 | Group 4 |
-| [09-swarm.md](09-swarm.md) | Swarm (Multi-Host) | 11 | Two-host setup |
 | [10-model-validation.md](10-model-validation.md) | Model & Schema Validation | 3 | Group 1 |
 
 ## Focus Sets
@@ -63,8 +77,7 @@ Run subsets when working on specific areas:
 | **Comms** | 1, 4, 8 | Messaging, knowledge, and admin |
 | **Governance** | 1, 2, 6 | Trust, policy, teams |
 | **Full** | 1–8 | Before release |
-| **Model Validation** | Go tests | After model/policy port — validates Go structs match Python schemas |
-| **Post-Port** | Go tests + 10 | After model/policy port — validates Go validation layer end-to-end |
+| **Model Validation** | Go tests + 10 | Validates Go validation layer end-to-end |
 
 ## Final Cleanup
 
@@ -74,13 +87,20 @@ After all exercises:
 agency_infra_down()
 ```
 
-Verify no orphaned containers:
+Verify no orphaned Agency runtimes through the dev cleanup helper first:
+
+```bash
+./scripts/cleanup-live-test-runtimes.sh
+```
+
+For backend-specific inspection, use the active backend's CLI. Examples:
 
 ```bash
 docker ps -a --filter name=agency
+podman ps -a --filter name=agency
 ```
 
-Expected: No agency containers running.
+Expected: no unexpected Agency containers or runtime processes remain.
 
 ---
 

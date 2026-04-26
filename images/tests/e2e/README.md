@@ -1,85 +1,51 @@
 # E2E Integration Tests
 
-Automated end-to-end tests that validate Agency platform features using real
-Docker containers and infrastructure. These complement the ~1,700 unit tests
-(which mock Docker) and the manual validation runbooks in `tests/validation/`.
+This directory is kept as the cross-repo pointer for end-to-end validation.
+The old Python `test_e2e_*.py` suite has been retired; current browser E2E
+coverage lives under `web/tests/` and is run through the repo-root scripts.
 
-## Prerequisites
+## Current Tiers
 
-- A container backend running and accessible (podman, docker, or containerd)
-- Agency installed (`brew install geoffbelknap/tap/agency` or `make install` from a source checkout)
-- At least 4 GB RAM available (shared infra + test agents)
+| Tier | Location | Runner | Purpose |
+|------|----------|--------|---------|
+| Mocked browser | `web/tests/e2e/` | `make web-test-e2e` | Deterministic route and browser smoke coverage with mocked API state |
+| Live safe | `web/tests/e2e-live/` | `./scripts/e2e-live-disposable.sh --skip-build` | Real local stack coverage with temporary data and cleanup |
+| Live risky | `web/tests/e2e-live-risky/` | `./scripts/e2e-live-disposable.sh --skip-build --risky` | Opt-in flows that mutate shared state more heavily |
+| Live danger | `web/tests/e2e-live-danger/` | `./scripts/e2e-live-danger-disposable.sh` | Explicit destructive-flow validation against disposable state |
 
-## Running Tests
+See `web/tests/COVERAGE_TIERS.md` for the live-safe, live-risky, and
+live-danger classification rules and current coverage inventory.
 
-```bash
-# All E2E tests
-pytest tests/e2e/ -m e2e -v
+## Runtime Assumptions
 
-# Single group
-pytest tests/e2e/test_e2e_bootstrap.py -m e2e -v
-pytest tests/e2e/test_e2e_security.py -m e2e -v
+E2E validation should reason through Agency's runtime contract rather than
+raw Docker assumptions:
 
-# With output
-pytest tests/e2e/ -m e2e -v -s
-```
+- `agency admin doctor`
+- `agency runtime manifest <agent>`
+- `agency runtime status <agent>`
+- `agency runtime validate <agent>`
+- `./scripts/runtime-contract-smoke.sh --agent <agent>`
 
-E2E tests are excluded from `pytest tests/` by default (via `addopts`).
-You must explicitly pass `-m e2e` to run them.
+Backend-specific lanes are still useful, but they validate adapter hygiene:
 
-## Test Groups
+- `./scripts/docker-readiness-check.sh`
+- `./scripts/podman-readiness-check.sh`
+- `./scripts/containerd-rootless-readiness-check.sh`
+- `./scripts/containerd-rootful-readiness-check.sh`
 
-| File | Focus | When to Run |
-|------|-------|-------------|
-| `test_e2e_bootstrap.py` | Init, infra up/down/rebuild, doctor, status | Infra or core changes |
-| `test_e2e_lifecycle.py` | Create, start, brief, stop, restart, delete | Agent lifecycle changes |
-| `test_e2e_capabilities.py` | Registry, memory, skills, extra mounts | Capability or preset changes |
-| `test_e2e_comms.py` | Channels, messaging, search, knowledge graph | Comms or knowledge changes |
-| `test_e2e_security.py` | Network isolation, XPIA, egress, creds, budget, audit, hardening | **Never skip** |
-| `test_e2e_governance.py` | Trust, policy exceptions, teams, function agents, halt authority | Governance changes |
-| `test_e2e_deploy.py` | Packs, connectors, intake, hub | Deploy or integration changes |
+Do not add new default E2E checks that require one specific backend unless the
+test is explicitly scoped to that backend.
 
-## Architecture
+## Dev-Only Harnesses
 
-- **Session-scoped fixtures**: Platform init and infrastructure startup happen once
-  per session — not per test. This keeps the suite fast (~5-10 min total).
-- **Automatic cleanup**: The `create_test_agent` / `started_agent` fixtures
-  stop and delete agents after each test.
-- **Docker exec pattern**: HTTP calls to comms/knowledge/analysis services go
-  through `docker exec curl` to avoid WSL2 port-forwarding issues.
-- **No real LLM calls**: Tests use dummy API keys. Budget and enforcer tests
-  validate the pipeline without making actual model requests.
+Local live harnesses are development tools. They are not shipped in runtime
+images, not required by release artifacts, and should not become branch
+protection gates unless the environment dependencies are made explicit.
 
-## Mapping to Manual Validation
+Useful dev harnesses:
 
-These automated tests cover the same ground as `tests/validation/` exercises:
-
-| Manual Exercise | Automated Test Class |
-|----------------|---------------------|
-| Platform Setup | `TestPlatformInit`, `TestInfrastructureLifecycle` |
-| Doctor & Status | `TestDoctorSecurityGuarantees`, `TestSystemStatus` |
-| Create & Configure | `TestAgentCreation` |
-| Seven-Phase Start | `TestSevenPhaseStart` |
-| Stop, Restart, Delete | `TestStopRestartResume`, `TestAgentDeletion` |
-| Capability Registry | `TestCapabilityRegistry` |
-| Persistent Memory | `TestPersistentMemory` |
-| Skills & Presets | `TestSkillsAndPresets` |
-| Extra Mounts | `TestExtraMounts` |
-| Channels & Messaging | `TestChannelOperations`, `TestMessaging` |
-| Knowledge Graph | `TestKnowledgeGraph` |
-| Network Isolation | `TestNetworkIsolation` |
-| XPIA Scanning | `TestXPIAScanning` |
-| Egress Domain Control | `TestEgressDomainControl` |
-| Credential Scoping | `TestCredentialScoping` |
-| Budget Controls | `TestBudgetControls` |
-| Policy Hard Floors | `TestPolicyHardFloors` |
-| Audit & Limits | `TestAuditIntegrity` |
-| Container Hardening | `TestContainerHardening` |
-| Trust Calibration | `TestTrustCalibration` |
-| Policy Exceptions | `TestPolicyExceptions` |
-| Teams | `TestTeams` |
-| Function Agent Authority | `TestFunctionAgentAuthority` |
-| Pack Deploy | `TestPackDeploy` |
-| Connectors | `TestConnectors` |
-| Intake | `TestIntake` |
-| Hub | `TestHub` |
+- `./scripts/dev-agent-loop-eval.sh --mode replay`
+- `./scripts/dev-agent-loop-eval.sh --mode live --fixture <fixture>`
+- `./scripts/e2e-live-disposable.sh --skip-build`
+- `./scripts/cleanup-live-test-runtimes.sh`

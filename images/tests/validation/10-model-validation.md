@@ -2,7 +2,10 @@
 
 **Depends on:** Group 1 (infrastructure running).
 
-> **Note:** This group validates the Go model validation layer (`agency-gateway/internal/models/`). Run the Go unit tests first: `cd agency-gateway && go test ./internal/models/ ./internal/policy/ -v` (500+ tests). These operator exercises verify the validation is wired into the live platform.
+> **Note:** This group validates the Go model validation layer
+> (`internal/models/`). Run the focused Go unit tests first:
+> `go test ./internal/models ./internal/policy`. These operator exercises
+> verify the validation is wired into the live platform.
 
 ---
 

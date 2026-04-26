@@ -4,6 +4,13 @@
 
 This is the most critical group. Never skip it.
 
+The canonical product contract for runtime health is backend-neutral:
+`agency runtime manifest`, `agency runtime status`, and
+`agency runtime validate`. Steps that use `docker exec`, `docker inspect`, or
+`docker logs` are backend-adapter probes. Run them in Docker lanes as written,
+substitute `podman` in Podman lanes when names and semantics match, and use the
+containerd readiness scripts for containerd-specific hygiene.
+
 ---
 
 ## Network Isolation
@@ -24,6 +31,10 @@ docker exec agency-val-net-workspace curl -s --connect-timeout 5 https://example
 ```
 
 **Expected:** Connection refused, timeout, or 502 proxy rejection. NOT a successful HTML response.
+
+For non-Docker backends, use the backend's exec equivalent or validate the same
+behavior through `./scripts/runtime-contract-smoke.sh --agent val-net` plus the
+matching backend readiness lane.
 
 ### Step 3 — Enforcer is reachable
 
@@ -192,6 +203,9 @@ docker exec agency-val-creds-workspace printenv | grep -i key
 
 **Expected:** Only `AGENCY_LLM_API_KEY=agency-scoped-<random>`. No real provider key values visible.
 
+For non-Docker backends, use the backend's exec equivalent or the matching
+backend readiness lane.
+
 ### Step 4 — URL mismatch blocked
 
 ```bash
@@ -267,7 +281,7 @@ agency_delete(agent="val-budget")
 
 **Purpose:** Hard floors (logging, constraints read-only, credential isolation, network mediation) cannot be overridden.
 
-> **Note:** The policy engine now runs in Go (`agency-gateway/internal/policy/`). Hard floor validation is performed at every level of the 5-level chain (platform → org → department → team → agent), not just at the agent level.
+> **Note:** The policy engine now runs in Go (`internal/policy/`). Hard floor validation is performed at every level of the 5-level chain (platform → org → department → team → agent), not just at the agent level.
 
 ### Step 1 — Create agent and check policy
 
@@ -386,6 +400,11 @@ agency_delete(agent="val-audit")
 ## Container Hardening
 
 **Purpose:** Verify all container security settings across agent containers.
+
+This exercise is Docker-lane-specific as written. For Podman, substitute the
+matching `podman inspect` commands. For containerd, use the containerd
+readiness lanes until equivalent hardening projection is exposed through the
+backend-neutral runtime contract.
 
 ### Step 1 — Create and start
 
