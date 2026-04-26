@@ -91,7 +91,7 @@ Some legitimate workflows involve repetitive tool calls (e.g., polling a queue).
 1. Increase the `repetition_threshold` for that agent
 2. Or add the tool to a trajectory exclusion list in the agent config
 
-## Meeseeks
+## Meeseeks _(experimental)_
 
 Ephemeral single-purpose agents spawned by parent agents via `spawn_meeseeks` tool.
 

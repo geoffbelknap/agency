@@ -62,7 +62,7 @@ Edit `~/.agency/knowledge/classification.yaml` to change tier→principal mappin
 agency infra reload
 ```
 
-## Ontology
+## Ontology _(experimental)_
 
 The ontology defines valid entity types and relationship types in the knowledge graph.
 
@@ -106,7 +106,7 @@ Operator-defined ontology extensions go in `~/.agency/knowledge/ontology.d/`. Th
 
 Hub-managed ontology files are overwritten by `agency hub update`. Custom extensions in `ontology.d/` are preserved.
 
-## Communities and Hubs
+## Communities and Hubs _(experimental)_
 
 Community detection (Louvain algorithm) runs in the curator cycle (every 6th cycle). Results are queryable:
 
@@ -148,7 +148,7 @@ agency graph insight "The API gateway rate-limits at 600 req/min per agent"
 
 Creates a finding node with `DERIVED_FROM` edges (INFERRED provenance). Scope is the intersection of source node scopes (ASK Tenet 12).
 
-## Quarantine
+## Quarantine _(experimental)_
 
 When an agent's knowledge contributions are suspected compromised:
 

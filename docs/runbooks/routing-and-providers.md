@@ -197,7 +197,7 @@ overrides:
 
 The routing optimizer writes approved suggestions here.
 
-## Routing Optimizer
+## Routing Optimizer _(experimental)_
 
 A background goroutine in the gateway aggregates LLM call data per (task_type, model). It computes success rates and real USD costs.
 
