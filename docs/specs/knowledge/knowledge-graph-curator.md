@@ -6,7 +6,7 @@ description: "Spec for an infrastructure service that maintains graph quality th
 
 *Spec for an infrastructure service that maintains graph quality through heuristic curation.*
 
-**Parent:** [Compounding Agent Organizations](compounding-agent-organizations.md) — spec #1 of 5.
+**Parent:** [Compounding Agent Organizations](../policy/compounding-agent-organizations.md) — spec #1 of 5.
 
 ---
 

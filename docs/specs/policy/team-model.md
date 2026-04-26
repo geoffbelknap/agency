@@ -2,7 +2,7 @@
 
 > **Tier:** Experimental. The `Teams` feature is `TierExperimental` in
 > `internal/features/registry.go`. Not part of the default 0.2.x core
-> surface; see [Core Pruning Rationale](core-pruning-rationale.md).
+> surface; see [Core Pruning Rationale](../core-pruning-rationale.md).
 
 ## What This Document Covers
 

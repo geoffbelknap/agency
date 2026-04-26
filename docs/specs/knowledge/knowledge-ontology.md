@@ -4,7 +4,7 @@
 > governance / advanced review workflow surface that `CLAUDE.md` classifies
 > as non-default for 0.2.x. Core graph retrieval is `TierCore` (`GraphAdmin`
 > in `internal/features/registry.go`); ontology authoring and lifecycle is
-> not part of the default surface. See [Core Pruning Rationale](core-pruning-rationale.md).
+> not part of the default surface. See [Core Pruning Rationale](../core-pruning-rationale.md).
 
 A typed ontology for the knowledge graph that defines entity types, relationship types, and attributes. The ontology guides LLM-based extraction, validates agent contributions, enables hub-distributable domain extensions, and compounds organizational intelligence by ensuring consistent, queryable knowledge across all agents.
 

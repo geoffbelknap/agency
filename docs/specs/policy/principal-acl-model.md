@@ -9,7 +9,7 @@ status: "Draft"
 
 **Date:** 2026-04-06
 **Status:** Draft
-**Depends on:** [Platform Identity & UUID Adoption](platform-identity-uuid-adoption.md) (implemented)
+**Depends on:** [Platform Identity & UUID Adoption](../platform-identity-uuid-adoption.md) (implemented)
 
 ---
 
