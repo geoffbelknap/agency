@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
+
+	"github.com/geoffbelknap/agency/internal/security"
 )
 
 const DefaultClockSkew = 30 * time.Second
@@ -32,32 +34,9 @@ var (
 	canonicalCBOR, _       = cbor.CanonicalEncOptions().EncMode()
 )
 
-type Requirement struct {
-	OperationKind    string `yaml:"operation_kind" json:"operation_kind"`
-	TokenInputField  string `yaml:"token_input_field" json:"token_input_field"`
-	TargetInputField string `yaml:"target_input_field" json:"target_input_field"`
-	MinWitnesses     int    `yaml:"min_witnesses,omitempty" json:"min_witnesses,omitempty"`
-}
-
-func (r Requirement) Normalize() Requirement {
-	if r.MinWitnesses <= 0 {
-		r.MinWitnesses = 1
-	}
-	return r
-}
-
-func (r Requirement) Validate() error {
-	if strings.TrimSpace(r.OperationKind) == "" {
-		return fmt.Errorf("operation_kind is required")
-	}
-	if strings.TrimSpace(r.TokenInputField) == "" {
-		return fmt.Errorf("token_input_field is required")
-	}
-	if strings.TrimSpace(r.TargetInputField) == "" {
-		return fmt.Errorf("target_input_field is required")
-	}
-	return nil
-}
+// Requirement is the canonical consent-requirement contract from internal/security.
+// Aliased here for backward compatibility with existing consent-package callers.
+type Requirement = security.ConsentRequirement
 
 type Token struct {
 	Version         uint8    `cbor:"1,keyasint"`

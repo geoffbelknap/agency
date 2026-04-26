@@ -1,6 +1,9 @@
 package security
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 type DecisionOutcome string
 
@@ -23,6 +26,33 @@ type Decision struct {
 	Outcome       DecisionOutcome `json:"outcome,omitempty"`
 	Reasons       []string        `json:"reasons,omitempty"`
 	ConsentNeeded bool            `json:"consent_needed,omitempty"`
+}
+
+type ConsentRequirement struct {
+	OperationKind    string `yaml:"operation_kind" json:"operation_kind"`
+	TokenInputField  string `yaml:"token_input_field" json:"token_input_field"`
+	TargetInputField string `yaml:"target_input_field" json:"target_input_field"`
+	MinWitnesses     int    `yaml:"min_witnesses,omitempty" json:"min_witnesses,omitempty"`
+}
+
+func (r ConsentRequirement) Normalize() ConsentRequirement {
+	if r.MinWitnesses <= 0 {
+		r.MinWitnesses = 1
+	}
+	return r
+}
+
+func (r ConsentRequirement) Validate() error {
+	if strings.TrimSpace(r.OperationKind) == "" {
+		return fmt.Errorf("operation_kind is required")
+	}
+	if strings.TrimSpace(r.TokenInputField) == "" {
+		return fmt.Errorf("token_input_field is required")
+	}
+	if strings.TrimSpace(r.TargetInputField) == "" {
+		return fmt.Errorf("target_input_field is required")
+	}
+	return nil
 }
 
 type Finding struct {
