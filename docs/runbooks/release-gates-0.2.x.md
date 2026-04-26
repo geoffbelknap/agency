@@ -7,9 +7,9 @@ which carries the procedural validation steps.
 Related:
 
 - [Release Checklist 0.2.x](release-checklist-0.2.x.md)
-- [Core Pruning Plan](../plans/2026-04-13-core-pruning-plan.md)
-- [Core Feature Tiering](../plans/2026-04-13-core-feature-tiering.md)
-- [Core Feature Maturity Matrix](../plans/2026-04-13-core-feature-maturity-matrix.md)
+- [Core Pruning Rationale](../specs/core-pruning-rationale.md)
+- [Core Feature Maturity Matrix](../specs/core-feature-maturity-matrix.md)
+- Tier classifications: `internal/features/registry.go`
 
 ## Purpose
 
