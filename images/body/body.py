@@ -1224,26 +1224,7 @@ class Body:
                         self._handle_system_event(event)
                     elif event_type == "task":
                         task = event.get("task", {})
-                        self._emit_loop_event("agent_loop_task_seen", task, delivery="event_queue")
-                        source = str(task.get("source", ""))
-                        task_content = str(task.get("task_content", task.get("content", "")))
-                        if source.startswith("channel:dm-") or task_content.startswith("[Mission trigger: channel dm-"):
-                            log.info("Skipping duplicate DM task delivery: %s", source)
-                            self._emit_loop_event(
-                                "agent_loop_task_skipped",
-                                task,
-                                delivery="event_queue",
-                                reason="duplicate_dm_delivery",
-                            )
-                            continue
-                        task_id = task.get("task_id", "unknown")
-                        log.info("New task received: %s", task_id)
-                        self._emit_signal("task_accepted", {"task_id": task_id})
-                        self._interruption_controller.start_task(task_id)
-                        self._register_auto_interests(task)
-                        self._conversation_loop(task)
-                        self._clear_interests()
-                        self._interruption_controller.end_task()
+                        self._handle_task_event(task, delivery="event_queue")
                     elif event_type == "mission_trigger":
                         self._handle_mission_trigger(event)
                     elif event_type in ("message", "knowledge"):
@@ -1266,6 +1247,17 @@ class Body:
             self._shutdown()
 
     # -- Real-time comms event handlers --
+
+    def _handle_task_event(self, task: dict, *, delivery: str) -> None:
+        self._emit_loop_event("agent_loop_task_seen", task, delivery=delivery)
+        task_id = task.get("task_id", "unknown")
+        log.info("New task received: %s", task_id)
+        self._emit_signal("task_accepted", {"task_id": task_id})
+        self._interruption_controller.start_task(task_id)
+        self._register_auto_interests(task)
+        self._conversation_loop(task)
+        self._clear_interests()
+        self._interruption_controller.end_task()
 
     def _handle_mission_trigger(self, event: dict) -> None:
         """Handle a mission trigger event delivered by the gateway event bus."""

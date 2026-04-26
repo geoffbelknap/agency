@@ -301,6 +301,14 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
         missing = [v for v in required_evidence if v not in corpus]
         add("evidence", not missing, 15, f"missing {missing}" if missing else "required evidence present")
 
+    response = latest_agent_response(trace, agent_prefix)
+    response_text = (response or {}).get("content", "").lower()
+
+    required_response_text = [str(v).lower() for v in listify(expect.get("required_response_text"))]
+    if required_response_text:
+        missing = [v for v in required_response_text if v not in response_text]
+        add("response_text", not missing, 15, f"missing {missing}" if missing else "required response text present")
+
     forbidden_reasons = [str(v).lower() for v in listify(expect.get("forbidden_reasons"))]
     if forbidden_reasons:
         found = [v for v in forbidden_reasons if v in corpus]
@@ -310,6 +318,11 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
     if forbidden_text:
         found = [v for v in forbidden_text if v in corpus]
         add("forbidden_text", not found, 10, f"found {found}" if found else "no forbidden text found")
+
+    forbidden_response_text = [str(v).lower() for v in listify(expect.get("forbidden_response_text"))]
+    if forbidden_response_text:
+        found = [v for v in forbidden_response_text if v in response_text]
+        add("forbidden_response_text", not found, 10, f"found {found}" if found else "no forbidden response text found")
 
     max_turns = expect.get("max_turns")
     if isinstance(max_turns, int):
@@ -347,6 +360,19 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
     return score, checks
 
 
+def expected_failure_match(fixture: dict[str, Any], diagnosis: RunDiagnosis, checks: list[Check], *, mode: str) -> tuple[bool, str]:
+    expect = fixture.get("expect", {})
+    if expect.get("expected_failure") is not True or mode != "replay":
+        return False, ""
+    expected_phase = expect.get("diagnosis")
+    if expected_phase and diagnosis.phase != expected_phase:
+        return False, f"diagnosis {diagnosis.phase!r} did not match expected failure {expected_phase!r}"
+    failed_checks = [check.name for check in checks if not check.passed]
+    if not failed_checks:
+        return False, "fixture was marked expected_failure but all checks passed"
+    return True, f"expected failure observed via {diagnosis.phase}; failed checks: {failed_checks}"
+
+
 def _points_for_name(name: str, expect: dict[str, Any]) -> int:
     weights = {
         "contract": 15,
@@ -357,6 +383,8 @@ def _points_for_name(name: str, expect: dict[str, Any]) -> int:
         "evidence": 15,
         "forbidden_reasons": 10,
         "forbidden_text": 10,
+        "forbidden_response_text": 10,
+        "response_text": 15,
         "turn_bound": 10,
         "message_bound": 10,
         "response_received": 10,
@@ -550,8 +578,12 @@ def print_human_report(
     checks: list[Check],
     response: dict[str, Any],
     out: Path,
+    expected_failure: dict[str, Any] | None = None,
 ) -> None:
-    status = "PASS" if passed else "FAIL"
+    if expected_failure and expected_failure.get("matched"):
+        status = "XFAIL"
+    else:
+        status = "PASS" if passed else "FAIL"
     print(f"{status} {fixture_id}")
     print(f"  Task: {truncate_one_line(str(fixture.get('task', '')))}")
     print(f"  Diagnosis: {diagnosis.phase} - {diagnosis.detail}")
@@ -565,6 +597,8 @@ def print_human_report(
     for check in checks:
         check_status = "PASS" if check.passed else "FAIL"
         print(f"    {check_status} {check.name}: +{check.points} - {check.detail}")
+    if expected_failure and expected_failure.get("expected"):
+        print(f"  Expected failure: {expected_failure.get('detail', '')}")
     print(f"  Score: {score}")
     print(f"  Result: {out}")
 
@@ -600,11 +634,17 @@ def main() -> int:
 
         score, checks = score_trace(fixture, trace)
         passed = all(c.passed for c in checks)
-        if not passed:
-            failures += 1
         agent_prefix = fixture.get("agent", {}).get("name_prefix", "")
         diagnosis = diagnose_trace(fixture, trace)
         response = response_summary(trace, agent_prefix)
+        xfail_matched, xfail_detail = expected_failure_match(fixture, diagnosis, checks, mode=args.mode)
+        expected_failure = {
+            "expected": fixture.get("expect", {}).get("expected_failure") is True and args.mode == "replay",
+            "matched": xfail_matched,
+            "detail": xfail_detail,
+        }
+        if not passed and not xfail_matched:
+            failures += 1
         result = {
             "fixture": fixture_id,
             "description": fixture.get("description", ""),
@@ -615,14 +655,15 @@ def main() -> int:
             "passed": passed,
             "diagnosis": diagnosis.__dict__,
             "response": response,
+            "expected_failure": expected_failure,
             "checks": [c.__dict__ for c in checks],
             "trace": trace,
             "evaluated_at": datetime.now(timezone.utc).isoformat(),
         }
         out = write_result(results_dir, fixture_id, result)
-        summaries.append((fixture_id, fixture, score, passed, diagnosis, checks, response, out))
+        summaries.append((fixture_id, fixture, score, passed, diagnosis, checks, response, expected_failure, out))
 
-    for idx, (fixture_id, fixture, score, passed, diagnosis, checks, response, out) in enumerate(summaries):
+    for idx, (fixture_id, fixture, score, passed, diagnosis, checks, response, expected_failure, out) in enumerate(summaries):
         if idx:
             print()
         print_human_report(
@@ -634,6 +675,7 @@ def main() -> int:
             checks=checks,
             response=response,
             out=out,
+            expected_failure=expected_failure,
         )
 
     return 1 if failures else 0

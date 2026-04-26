@@ -1,0 +1,52 @@
+{
+  "id": "completed_but_weak_response_is_diagnosed",
+  "description": "A terminal current-info outcome can still be weak if the visible agent response omits the source and checked-date evidence the operator asked for.",
+  "provenance": "Separates completed-but-low-quality responses from no-response and blocked-response failures.",
+  "agent": {
+    "name_prefix": "loop-eval-weak",
+    "preset": "researcher"
+  },
+  "task": "Find the current stable Node.js release. Reply with the version, source URL, and checked date.",
+  "expect": {
+    "expected_failure": true,
+    "diagnosis": "terminal_outcome_observed",
+    "contract": "current_info",
+    "route": "tool_loop",
+    "verdict": "completed",
+    "max_turns": 4,
+    "max_agent_messages": 1,
+    "required_evidence": ["source_url", "checked_date"],
+    "required_response_text": ["source:", "checked date:"],
+    "required_audit_events": ["agent_signal_pact_verdict"],
+    "forbidden_reasons": ["runtime:turn_limit_exceeded"]
+  },
+  "replay_trace": {
+    "messages": [
+      {
+        "author": "operator",
+        "content": "Find the current stable Node.js release. Reply with the version, source URL, and checked date."
+      },
+      {
+        "author": "loop-eval-weak",
+        "content": "Node.js 24.15.0 is the current stable release."
+      }
+    ],
+    "audit": [
+      {
+        "event": "agent_signal_pact_verdict",
+        "kind": "current_info",
+        "verdict": "completed",
+        "reasons": ["committable"],
+        "route": "tool_loop",
+        "source_url": "https://nodejs.org/en/blog/release/v24.15.0",
+        "checked_date": "2026-04-25",
+        "turn": 2
+      }
+    ],
+    "pact_run": {
+      "kind": "current_info",
+      "route": "tool_loop",
+      "verdict": "completed"
+    }
+  }
+}
