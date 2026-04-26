@@ -190,7 +190,7 @@ The `/ws` endpoint requires the token as the first message (type: `auth`), match
 
 ## 6. Enforcer Token Validation Fix
 
-**File:** `internal/images/contexts/enforcer/middleware.go`
+**File:** `images/enforcer/middleware.go`
 
 Remove the `strings.HasPrefix(token, "agency-scoped-")` bypass. All tokens validated against the `am.keys` map only:
 
@@ -334,7 +334,7 @@ Log the delegation check result (pass/fail, parent caps, requested caps) to the 
 
 ## 13. Memory Mutation Audit (ASK Tenet 25)
 
-**File:** `internal/orchestrate/workspace.go` and `internal/images/contexts/enforcer/`
+**File:** `internal/orchestrate/workspace.go` and `images/enforcer/`
 
 ASK Tenet 25: "Identity writes are logged with provenance." The `/agency/memory` directory is mounted `:rw` into the workspace. The agent can write freely — learned procedures, episodic memory, personality notes — with no audit trail. If an XPIA attack corrupts memory, there is no provenance log and no rollback capability.
 
