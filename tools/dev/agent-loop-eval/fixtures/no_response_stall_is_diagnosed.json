@@ -1,0 +1,49 @@
+{
+  "id": "no_response_stall_is_diagnosed",
+  "description": "A delivered task with runtime readiness and LLM start but no terminal outcome or agent message must be diagnosed as a stall.",
+  "provenance": "Covers the live failure mode where the operator sees no response and needs to know whether delivery, runtime readiness, or loop termination failed.",
+  "agent": {
+    "name_prefix": "loop-eval-stall",
+    "preset": "researcher"
+  },
+  "task": "Summarize the current Agency runtime health in one sentence.",
+  "expect": {
+    "expected_failure": true,
+    "diagnosis": "loop_started_no_terminal",
+    "required_audit_events": ["agent_loop_llm_request_started"]
+  },
+  "replay_trace": {
+    "messages": [
+      {
+        "author": "_operator",
+        "content": "Summarize the current Agency runtime health in one sentence."
+      }
+    ],
+    "live": {
+      "agent": "loop-eval-stall",
+      "home": "/tmp/agency-loop-eval",
+      "channel": "dm-loop-eval-stall",
+      "timed_out": true,
+      "agent_messages_seen": 0
+    },
+    "session_context": {
+      "current_task": {
+        "id": "task-stall",
+        "content": "Summarize the current Agency runtime health in one sentence."
+      }
+    },
+    "signals": [
+      {
+        "signal_type": "ready",
+        "data": {}
+      },
+      {
+        "signal_type": "agent_loop_llm_request_started",
+        "data": {
+          "turn": 1
+        }
+      }
+    ],
+    "audit": []
+  }
+}

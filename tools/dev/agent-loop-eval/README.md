@@ -48,9 +48,15 @@ The runner currently scores:
 - expected PACT contract and verdict
 - required audit events
 - required evidence strings
+- required strings in the visible agent response
 - forbidden text and forbidden verdict reasons
 - max agent message count
 - max turn count when the trace exposes turn data
+
+Replay fixtures may set `expect.expected_failure: true` with an expected
+`diagnosis` to validate that the harness classifies a known-bad trace. Those
+fixtures print as `XFAIL` in replay mode. Live runs do not treat expected
+failures as acceptable outcomes.
 
 Useful live diagnoses include:
 
