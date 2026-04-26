@@ -1,7 +1,6 @@
 """Tests for the gateway HTTP client."""
 import os
 import sys
-import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -12,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "intake"))
 from gateway_client import GatewayClient  # noqa: E402
 
 
-class TestGatewayClient(unittest.TestCase):
+class TestGatewayClient:
     """Unit tests for GatewayClient."""
 
     # ---- init ----
