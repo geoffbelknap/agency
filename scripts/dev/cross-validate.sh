@@ -23,7 +23,7 @@ for fixture in "$FIXTURES_DIR"/*.yaml; do
     fi
 
     # Go validation
-    go_result=$(cd "$(dirname "$0")/.." && go run ./cmd/validate/ "$fixture" 2>&1 && echo "PASS" || echo "FAIL")
+    go_result=$(cd "$(dirname "$0")/../.." && go run ./cmd/validate/ "$fixture" 2>&1 && echo "PASS" || echo "FAIL")
     go_pass=$([[ "$go_result" == *PASS* ]] && echo true || echo false)
 
     # Python validation

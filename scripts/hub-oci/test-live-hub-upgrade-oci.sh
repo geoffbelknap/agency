@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 SOURCE_HOME="${AGENCY_SOURCE_HOME:-${HOME}/.agency}"
 DISPOSABLE_HOME="${AGENCY_UPGRADE_OCI_HOME:-}"
 GATEWAY_PORT="${AGENCY_UPGRADE_OCI_GATEWAY_PORT:-}"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 WORKSPACE_ENV_FILE="${AGENCY_WORKSPACE_ENV_FILE:-$(cd "$ROOT_DIR/.." && pwd)/.env-agency}"
 SOURCE_HOME="${AGENCY_SOURCE_HOME:-${HOME}/.agency}"
 DISPOSABLE_HOME="${AGENCY_SETUP_HOME:-}"

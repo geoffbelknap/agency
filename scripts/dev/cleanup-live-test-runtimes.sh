@@ -4,7 +4,7 @@ set -euo pipefail
 APPLY=0
 QUIET=0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 if [ -n "${AGENCY_BIN:-}" ]; then
   AGENCY_CLI="$AGENCY_BIN"

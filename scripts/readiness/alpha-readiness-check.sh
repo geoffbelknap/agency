@@ -5,7 +5,7 @@ set -euo pipefail
 # the current core Agency path.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 AGENCY_BIN="${AGENCY_BIN:-}"
 AGENCY_HOME_DIR="${AGENCY_HOME:-$HOME/.agency}"
 AGENT_NAME="alpha-readiness-$(date +%s)"

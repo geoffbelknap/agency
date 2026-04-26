@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 AGENCY_BIN="${AGENCY_BIN:-$ROOT/agency}"
 AGENCY_HOME_DIR="${AGENCY_HOME:-}"
 BUILD=1

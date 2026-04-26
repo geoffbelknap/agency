@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 AGENCY_BIN="${AGENCY_BIN:-}"
 AGENCY_HOME_DIR="${AGENCY_HOME:-$HOME/.agency}"
 RUN_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

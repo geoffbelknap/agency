@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 SOURCE_HOME="${AGENCY_SOURCE_HOME:-${HOME}/.agency}"
 DISPOSABLE_HOME="${AGENCY_DISPOSABLE_HOME:-}"
 GATEWAY_PORT="${AGENCY_DISPOSABLE_GATEWAY_PORT:-18200}"

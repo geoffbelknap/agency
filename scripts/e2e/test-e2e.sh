@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 AGENCY_BIN="${AGENCY_BIN:-$ROOT_DIR/agency}"
 TEST_AGENT="e2e-test-agent"
 PASS=0

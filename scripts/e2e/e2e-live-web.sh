@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 WEB_DIR="$ROOT_DIR/web"
 AGENCY_BIN="${AGENCY_BIN:-}"
 PLAYWRIGHT_CONFIG="${AGENCY_PLAYWRIGHT_CONFIG:-playwright.live.config.ts}"

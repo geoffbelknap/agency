@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 AGENCY_BIN="${AGENCY_BIN:-}"
 SOURCE_HOME="${AGENCY_SOURCE_HOME:-$HOME/.agency}"
 KEEP_HOME="${AGENCY_CONTAINERD_KEEP_HOME:-0}"
