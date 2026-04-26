@@ -52,7 +52,6 @@ function mapWorkItem(raw: any): WorkItem {
     created_at: raw.created_at ?? raw.created ?? '',
     route_index: raw.route_index,
     priority: raw.priority,
-    brief_content: raw.brief_content,
     // legacy
     state: raw.state,
     source: raw.source,
@@ -825,7 +824,7 @@ export function Intake() {
                       ? item.payload.slice(0, 80) + '…'
                       : item.payload
                     : null;
-                  const summaryText = item.summary || item.brief_content || 'No summary';
+                  const summaryText = item.summary || 'No summary';
 
                   return (
                     <div key={item.id}>
