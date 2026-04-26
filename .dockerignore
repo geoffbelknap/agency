@@ -8,6 +8,10 @@ docs/
 .claude-plugin/
 .venv/
 .worktrees/
+tools/
+test-results/
+results/
+.results/
 *.md
 *.txt
 .pytest_cache/

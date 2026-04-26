@@ -61,9 +61,12 @@ capabilities.yaml
 credential-swaps.yaml
 credential-swaps.local.yaml
 
-# Benchmark artifacts
+# Local result artifacts
 benchmark_results_*.json
-test-results/
+/test-results/
+/web/test-results/
+/results/
+/.results/
 /gateway
 /agency
 .worktrees/
