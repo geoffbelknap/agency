@@ -46,6 +46,21 @@ func TestProviderAdapterAnthropicPreparesHeadersAndRejectsResponses(t *testing.T
 	}
 }
 
+func TestProviderAdapterInfersBuiltInProviderFormat(t *testing.T) {
+	if _, ok := providerAdapterFor("anthropic", Provider{}).(anthropicProviderAdapter); !ok {
+		t.Fatal("expected legacy anthropic provider name to use Anthropic adapter")
+	}
+	if _, ok := providerAdapterFor("google", Provider{}).(geminiProviderAdapter); !ok {
+		t.Fatal("expected legacy google provider name to use Gemini adapter")
+	}
+}
+
+func TestProviderAdapterExplicitFormatOverridesProviderName(t *testing.T) {
+	if _, ok := providerAdapterFor("anthropic", Provider{APIFormat: "openai"}).(openAICompatibleProviderAdapter); !ok {
+		t.Fatal("expected explicit openai api_format to use OpenAI-compatible adapter")
+	}
+}
+
 func TestProviderAdapterGeminiStreamURL(t *testing.T) {
 	adapter := providerAdapterFor("google", Provider{APIFormat: "gemini"})
 	prepared, err := adapter.PrepareRequest(providerRequestContext{

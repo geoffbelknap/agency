@@ -44,8 +44,24 @@ type providerAdapter interface {
 	RelayResponse(*LLMHandler, http.ResponseWriter, providerRelayContext)
 }
 
-func providerAdapterFor(_ string, provider Provider) providerAdapter {
-	switch provider.APIFormat {
+func providerAPIFormat(providerName string, provider Provider) string {
+	apiFormat := strings.ToLower(strings.TrimSpace(provider.APIFormat))
+	if apiFormat != "" {
+		return apiFormat
+	}
+
+	switch strings.ToLower(strings.TrimSpace(providerName)) {
+	case "anthropic":
+		return "anthropic"
+	case "google":
+		return "gemini"
+	default:
+		return ""
+	}
+}
+
+func providerAdapterFor(providerName string, provider Provider) providerAdapter {
+	switch providerAPIFormat(providerName, provider) {
 	case "gemini":
 		return geminiProviderAdapter{}
 	case "anthropic":

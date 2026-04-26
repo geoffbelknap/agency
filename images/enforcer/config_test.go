@@ -222,6 +222,55 @@ func TestResolveModelGeminiNative(t *testing.T) {
 	}
 }
 
+func TestResolveModelInfersLegacyBuiltInProviderFormats(t *testing.T) {
+	tests := []struct {
+		name          string
+		providerName  string
+		apiBase       string
+		providerModel string
+		wantTarget    string
+	}{
+		{
+			name:          "anthropic",
+			providerName:  "anthropic",
+			apiBase:       "https://api.anthropic.com/v1",
+			providerModel: "claude-sonnet-4-20250514",
+			wantTarget:    "https://api.anthropic.com/v1/messages",
+		},
+		{
+			name:          "google",
+			providerName:  "google",
+			apiBase:       "https://generativelanguage.googleapis.com/v1beta",
+			providerModel: "gemini-2.5-flash",
+			wantTarget:    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rc := &RoutingConfig{
+				Providers: map[string]Provider{
+					tt.providerName: {APIBase: tt.apiBase},
+				},
+				Models: map[string]Model{
+					"standard": {
+						Provider:      tt.providerName,
+						ProviderModel: tt.providerModel,
+					},
+				},
+			}
+
+			target, _, _, err := rc.ResolveModel("standard")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if target != tt.wantTarget {
+				t.Fatalf("target = %q, want %q", target, tt.wantTarget)
+			}
+		})
+	}
+}
+
 func TestResolveModelUnknown(t *testing.T) {
 	rc := &RoutingConfig{
 		Providers: map[string]Provider{},

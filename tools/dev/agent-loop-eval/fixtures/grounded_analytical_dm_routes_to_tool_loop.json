@@ -1,0 +1,49 @@
+{
+  "id": "grounded_analytical_dm_routes_to_tool_loop",
+  "description": "A short grounded analytical DM should route through the tool loop with enough context instead of being treated as a thin social reply.",
+  "provenance": "Covers the historical grounded analytical DM misrouting class.",
+  "agent": {
+    "name_prefix": "loop-eval-analytical",
+    "preset": "researcher"
+  },
+  "task": "Analyze whether the latest Agency release notes indicate the runtime is safer now. Ground your answer in available evidence.",
+  "expect": {
+    "contract": "current_info",
+    "route": "tool_loop",
+    "verdict": "completed",
+    "max_turns": 4,
+    "max_agent_messages": 1,
+    "required_evidence": ["source_url"],
+    "required_audit_events": ["agent_signal_pact_verdict"],
+    "forbidden_reasons": ["simulated_tool_use", "missing_source_url", "runtime:turn_limit_exceeded"],
+    "forbidden_text": ["probably", "I assume"]
+  },
+  "replay_trace": {
+    "messages": [
+      {
+        "author": "operator",
+        "content": "Analyze whether the latest Agency release notes indicate the runtime is safer now. Ground your answer in available evidence."
+      },
+      {
+        "author": "loop-eval-analytical",
+        "content": "The release notes indicate safer runtime behavior because they mention model-native termination and bounded turn caps. Source: https://github.com/geoffbelknap/agency/releases/tag/v0.2.2."
+      }
+    ],
+    "audit": [
+      {
+        "event": "agent_signal_pact_verdict",
+        "kind": "current_info",
+        "verdict": "completed",
+        "reasons": ["committable"],
+        "route": "tool_loop",
+        "source_url": "https://github.com/geoffbelknap/agency/releases/tag/v0.2.2",
+        "turn": 2
+      }
+    ],
+    "pact_run": {
+      "kind": "current_info",
+      "route": "tool_loop",
+      "verdict": "completed"
+    }
+  }
+}

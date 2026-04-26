@@ -257,7 +257,7 @@ func (rc *RoutingConfig) ResolveModel(alias string) (targetURL string, providerM
 	}
 	providerModel = model.ProviderModel
 	base := strings.TrimRight(provider.APIBase, "/")
-	switch provider.APIFormat {
+	switch providerAPIFormat(model.Provider, provider) {
 	case "gemini":
 		targetURL = fmt.Sprintf("%s/models/%s:generateContent", base, providerModel)
 	case "anthropic":
