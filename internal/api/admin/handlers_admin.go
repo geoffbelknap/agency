@@ -52,6 +52,8 @@ type checkResult = doctorCheckResult
 type scopeInfo = doctorScopeInfo
 
 var appleContainerStatus = runtimehost.AppleContainerStatus
+var appleContainerHelperStatus = runtimehost.AppleContainerHelperStatus
+var appleContainerWaitHelperStatus = runtimehost.AppleContainerWaitHelperStatus
 
 func backendConnectionDetails(cfg *config.Config) (string, string) {
 	if cfg == nil {
@@ -175,12 +177,42 @@ func (h *handler) adminDoctorAppleContainer(ctx context.Context, report doctorRe
 			Detail:  "`container system status` succeeded",
 		})
 	}
+	health, helperErr := appleContainerHelperStatus(ctx, backendConfig)
+	if helperErr != nil {
+		report.Checks = append(report.Checks, doctorCheckResult{
+			Name:    "apple_container_helper",
+			Scope:   "backend",
+			Backend: runtimehost.BackendAppleContainer,
+			Status:  agencysecurity.FindingWarn,
+			Detail:  helperErr.Error(),
+			Fix:     "Build agency-apple-container-helper and set hub.deployment_backend_config.helper_binary or AGENCY_APPLE_CONTAINER_HELPER_BIN.",
+		})
+	} else {
+		report.Checks = append(report.Checks, doctorCheckResult{
+			Name:    "apple_container_helper",
+			Scope:   "backend",
+			Backend: runtimehost.BackendAppleContainer,
+			Status:  agencysecurity.FindingPass,
+			Detail:  "Apple container helper health check succeeded",
+		})
+	}
+	status := agencysecurity.FindingWarn
+	detail := "Apple container helper is available but does not yet emit lifecycle exit events."
+	if strings.TrimSpace(health.EventSupport) != "" && health.EventSupport != "none" {
+		status = agencysecurity.FindingPass
+		detail = "Apple container helper reports lifecycle event support: " + health.EventSupport
+	} else if waitHealth, err := appleContainerWaitHelperStatus(ctx, backendConfig); err == nil && strings.TrimSpace(waitHealth.EventSupport) != "" && waitHealth.EventSupport != "none" {
+		status = agencysecurity.FindingPass
+		detail = "Apple container wait helper reports lifecycle event support: " + waitHealth.EventSupport
+	} else if err != nil {
+		detail = "Apple container lifecycle exit events require the wait helper: " + err.Error()
+	}
 	report.Checks = append(report.Checks, doctorCheckResult{
-		Name:    "apple_container_runtime_gated",
+		Name:    "apple_container_helper_events",
 		Scope:   "backend",
 		Backend: runtimehost.BackendAppleContainer,
-		Status:  agencysecurity.FindingPass,
-		Detail:  "Lifecycle, runtime inspection, and mediation-network validation remain gated until Apple container adapter semantics are implemented.",
+		Status:  status,
+		Detail:  detail,
 	})
 	report.RuntimeChecks, report.BackendChecks = splitDoctorChecks(report.Checks, report.Backend)
 	return report

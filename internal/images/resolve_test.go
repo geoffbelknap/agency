@@ -166,6 +166,28 @@ func TestRewriteDockerfileForAppleDirectoryCopiesExpandsLocalDirs(t *testing.T) 
 	}
 }
 
+func TestRewriteDockerfileForAppleDirectoryCopiesSkipsPycache(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "pkg", "__pycache__"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pkg", "module.py"), []byte("module"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pkg", "__pycache__", "module.cpython-313.pyc"), []byte("cache"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := rewriteDockerfileForAppleDirectoryCopies("COPY pkg /app/pkg\n", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "COPY pkg/module.py /app/pkg/module.py\n"
+	if got != want {
+		t.Fatalf("rewriteDockerfileForAppleDirectoryCopies() = %q, want %q", got, want)
+	}
+}
+
 func TestCopyDirContentsHonorsDockerignore(t *testing.T) {
 	src := t.TempDir()
 	dst := t.TempDir()

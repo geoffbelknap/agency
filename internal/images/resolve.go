@@ -788,6 +788,13 @@ func appleDirectoryCopyFiles(contextDir, source string, ignorePatterns []string)
 			return nil
 		}
 		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "__pycache__":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".pyc") {
 			return nil
 		}
 		relToSource, err := filepath.Rel(root, path)

@@ -252,7 +252,8 @@ Release gate policy:
 - the `containerd` smoke lane is automated on Linux against a native containerd socket via `nerdctl`
 - `apple-container` remains experimental and manual-only; do not add it to
   branch protection or required PR smoke until the adapter has complete
-  lifecycle, event, network, cleanup, and doctor semantics
+  lifecycle, helper-event, declared-network-topology, cleanup, and doctor
+  semantics
 - `main` branch protection should require the per-PR smoke checks:
   `go-test`, `python-unit-test`, `python-knowledge-test`, `web-test`, `docker-smoke`, `podman-smoke`, and `containerd-smoke`
 - Docker, Podman, and `containerd` PR smoke workflows use
@@ -440,10 +441,14 @@ An adapter is not ready to ship unless all of these are true:
 
 ## Apple Container Open Items
 
-`apple-container` is paused in the experimental tier until adapter lifecycle, event-stream/reconciliation, network attach, cleanup, and doctor semantics are complete. This section enumerates known specific gaps so they can be picked up when work resumes; it is not exhaustive.
+`apple-container` remains in the experimental tier until adapter lifecycle,
+wait-backed helper events, declared network topology, cleanup drift, and doctor
+semantics are complete. Use [Apple Container Host Adapter Lifecycle](../../specs/infra/apple-container-host-adapter.md)
+as the lifecycle/helper contract. This section enumerates known specific gaps
+so they can be picked up when work resumes; it is not exhaustive.
 
 - **Host-gateway alias resolution.** The gateway-proxy container reaches the host gateway daemon via either a bind-mounted Unix socket or one of the host aliases listed in `AGENCY_HOST_GATEWAY_HOSTS`. `HostGatewayAliases()` in `internal/hostadapter/runtimehost/client.go` currently returns `host.docker.internal,host.containers.internal` for every backend except Podman; `apple-container` falls into that default branch and has not been verified to resolve either alias under Apple's `container` runtime, nor verified that bind-mounted Unix sockets work through its VM boundary. Before promotion, confirm which transport actually works and add a backend-specific case (or new alias) if neither does.
-- **Lifecycle, event stream, network attach, cleanup, doctor.** Open per the feature-gate language above and the `images/gateway-proxy/entrypoint.sh` socket-then-alias detection logic. Each needs explicit smoke coverage in `scripts/readiness/apple-container-smoke.sh` before the lane can move out of manual-only.
+- **Durable wait-backed events and topology evidence.** The current helper supports verified command lifecycle and home-scoped cleanup in the manual smoke path, and `scripts/readiness/apple-container-wait-helper-smoke.sh` proves Apple `ClientProcess.wait()` can emit an exit event. The normal Apple lifecycle path now starts containers through the wait helper and realizes multi-network intent at create time. Before promotion, harden restart/missed-event recovery and retain smoke evidence that no Docker-shaped post-create network attach warnings occur.
 
 ## Notes
 

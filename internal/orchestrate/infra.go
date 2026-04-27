@@ -172,6 +172,10 @@ func (inf *Infra) egressContainerHost() string {
 	return "egress"
 }
 
+func (inf *Infra) requiresCreateTimeNetworkTopology() bool {
+	return inf.cli != nil && runtimehost.RequiresCreateTimeNetworkTopology(inf.cli.Backend())
+}
+
 func (inf *Infra) gatewayNetName() string {
 	return inf.scopedName(baseGatewayNet)
 }
@@ -1005,12 +1009,12 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 
 	mergeEnv(env, inf.loggingEnv("egress"))
 	netCfg := (*containerops.NetworkingConfig)(nil)
-	if inf.cli.Backend() == runtimehost.BackendContainerd {
+	if inf.requiresCreateTimeNetworkTopology() {
 		netCfg = &containerops.NetworkingConfig{
 			EndpointsConfig: map[string]*containerops.EndpointSettings{
 				inf.egressIntNetName(): {},
-				inf.egressExtNetName(): {},
-				inf.gatewayNetName():   {},
+				inf.egressExtNetName(): {Aliases: []string{"egress"}},
+				inf.gatewayNetName():   {Aliases: []string{"egress"}},
 			},
 		}
 	}
@@ -1034,11 +1038,8 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 		return err
 	}
 
-	// Connect to egress-ext network (internet access)
-	if inf.cli.Backend() != runtimehost.BackendContainerd {
+	if !inf.requiresCreateTimeNetworkTopology() {
 		inf.connectIfNeeded(ctx, id, inf.egressExtNetName(), []string{"egress"})
-
-		// Connect to gateway network (hub — service access)
 		inf.connectIfNeeded(ctx, id, inf.gatewayNetName(), []string{"egress"})
 	}
 
@@ -1154,11 +1155,11 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 
 	mergeEnv(env, inf.loggingEnv("knowledge"))
 	netCfg := (*containerops.NetworkingConfig)(nil)
-	if inf.cli.Backend() == runtimehost.BackendContainerd {
+	if inf.requiresCreateTimeNetworkTopology() {
 		netCfg = &containerops.NetworkingConfig{
 			EndpointsConfig: map[string]*containerops.EndpointSettings{
 				inf.gatewayNetName():   {},
-				inf.egressIntNetName(): {},
+				inf.egressIntNetName(): {Aliases: []string{"knowledge"}},
 			},
 		}
 	}
@@ -1185,8 +1186,7 @@ func (inf *Infra) ensureKnowledge(ctx context.Context) error {
 		return err
 	}
 
-	// Connect knowledge to egress-int network for outbound proxy access
-	if inf.cli.Backend() != runtimehost.BackendContainerd {
+	if !inf.requiresCreateTimeNetworkTopology() {
 		inf.connectIfNeeded(ctx, id, inf.egressIntNetName(), []string{"knowledge"})
 	}
 	return nil
@@ -1256,11 +1256,11 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 
 	mergeEnv(env, inf.loggingEnv("intake"))
 	netCfg := (*containerops.NetworkingConfig)(nil)
-	if inf.cli.Backend() == runtimehost.BackendContainerd {
+	if inf.requiresCreateTimeNetworkTopology() {
 		netCfg = &containerops.NetworkingConfig{
 			EndpointsConfig: map[string]*containerops.EndpointSettings{
 				inf.gatewayNetName():   {},
-				inf.egressIntNetName(): {},
+				inf.egressIntNetName(): {Aliases: []string{"intake"}},
 			},
 		}
 	}
@@ -1285,7 +1285,7 @@ func (inf *Infra) ensureIntake(ctx context.Context) error {
 	}
 
 	// Connect intake to egress-int network for outbound proxy access
-	if inf.cli.Backend() != runtimehost.BackendContainerd {
+	if !inf.requiresCreateTimeNetworkTopology() {
 		inf.connectIfNeeded(ctx, id, inf.egressIntNetName(), []string{"intake"})
 	}
 
@@ -1342,11 +1342,11 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 
 	mergeEnv(env, inf.loggingEnv("web-fetch"))
 	netCfg := (*containerops.NetworkingConfig)(nil)
-	if inf.cli.Backend() == runtimehost.BackendContainerd {
+	if inf.requiresCreateTimeNetworkTopology() {
 		netCfg = &containerops.NetworkingConfig{
 			EndpointsConfig: map[string]*containerops.EndpointSettings{
 				inf.gatewayNetName():   {},
-				inf.egressIntNetName(): {},
+				inf.egressIntNetName(): {Aliases: []string{"web-fetch"}},
 			},
 		}
 	}
@@ -1370,8 +1370,7 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 		return err
 	}
 
-	// Connect web-fetch to egress-int network for outbound proxy access
-	if inf.cli.Backend() != runtimehost.BackendContainerd {
+	if !inf.requiresCreateTimeNetworkTopology() {
 		inf.connectIfNeeded(ctx, id, inf.egressIntNetName(), []string{"web-fetch"})
 	}
 
