@@ -67,7 +67,7 @@ func (c *RawClient) publishAppleContainerHelperEvent(ev *AppleContainerHelperEve
 	}
 }
 
-func appleContainerEvents(ctx context.Context, hub *appleContainerEventHub, options dockerevents.ListOptions) (<-chan dockerevents.Message, <-chan error) {
+func appleContainerEvents(ctx context.Context, hub *appleContainerEventHub, options dockerevents.ListOptions, seed func(context.Context) ([]AppleContainerHelperEvent, error)) (<-chan dockerevents.Message, <-chan error) {
 	out := make(chan dockerevents.Message)
 	errOut := make(chan error)
 	events := hub.subscribe(ctx)
@@ -76,6 +76,21 @@ func appleContainerEvents(ctx context.Context, hub *appleContainerEventHub, opti
 	go func() {
 		defer close(out)
 		defer close(errOut)
+		if seed != nil {
+			seedEvents, err := seed(ctx)
+			if err != nil {
+				select {
+				case errOut <- err:
+				case <-ctx.Done():
+					return
+				}
+			}
+			for _, ev := range seedEvents {
+				if !sendAppleContainerEvent(ctx, out, ev, wantActions) {
+					return
+				}
+			}
+		}
 		for {
 			select {
 			case <-ctx.Done():
@@ -84,15 +99,26 @@ func appleContainerEvents(ctx context.Context, hub *appleContainerEventHub, opti
 				if !ok {
 					return
 				}
-				msg, ok := appleHelperEventToDockerMessage(ev)
-				if !ok || !eventActionAllowed(string(msg.Action), wantActions) {
-					continue
+				if !sendAppleContainerEvent(ctx, out, ev, wantActions) {
+					return
 				}
-				out <- msg
 			}
 		}
 	}()
 	return out, errOut
+}
+
+func sendAppleContainerEvent(ctx context.Context, out chan<- dockerevents.Message, ev AppleContainerHelperEvent, wantActions []string) bool {
+	msg, ok := appleHelperEventToDockerMessage(ev)
+	if !ok || !eventActionAllowed(string(msg.Action), wantActions) {
+		return true
+	}
+	select {
+	case out <- msg:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func appleHelperEventToDockerMessage(ev AppleContainerHelperEvent) (dockerevents.Message, bool) {

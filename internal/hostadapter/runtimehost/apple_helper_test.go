@@ -315,3 +315,31 @@ func TestAppleContainerRawClientStreamsHelperLifecycleEvents(t *testing.T) {
 		t.Fatal("timed out waiting for helper lifecycle event")
 	}
 }
+
+func TestAppleContainerRawClientEventsSeedFromHelperReconcile(t *testing.T) {
+	client := &RawClient{
+		backend: BackendAppleContainer,
+		appleContainer: &appleContainerConfig{helper: &appleContainerHelperClient{run: func(ctx context.Context, args ...string) ([]byte, []byte, error) {
+			want := []string{"events", "--once"}
+			if !reflect.DeepEqual(args, want) {
+				t.Fatalf("args = %#v, want %#v", args, want)
+			}
+			return []byte(`{"id":"evt-runtime-1","source_type":"platform","source_name":"host-adapter/apple-container","event_type":"runtime.container.stopped","timestamp":"2026-04-26T00:00:00Z","data":{"container_id":"agency-henry-workspace","exit_code":"137"},"metadata":{"owned":true}}`), nil, nil
+		}}},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events, errs := client.Events(ctx, dockerevents.ListOptions{Filters: dockerfilters.NewArgs(dockerfilters.Arg("event", "die"))})
+
+	select {
+	case err := <-errs:
+		t.Fatalf("unexpected event stream error: %v", err)
+	case ev := <-events:
+		if ev.Action != "die" || ev.Actor.Attributes["name"] != "agency-henry-workspace" || ev.Actor.Attributes["exitCode"] != "137" {
+			t.Fatalf("event = %#v", ev)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for reconcile event")
+	}
+}

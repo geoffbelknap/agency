@@ -196,16 +196,35 @@ func (h *handler) adminDoctorAppleContainer(ctx context.Context, report doctorRe
 			Detail:  "Apple container helper health check succeeded",
 		})
 	}
+	waitHealth, waitHelperErr := appleContainerWaitHelperStatus(ctx, backendConfig)
+	if waitHelperErr != nil {
+		report.Checks = append(report.Checks, doctorCheckResult{
+			Name:    "apple_container_wait_helper",
+			Scope:   "backend",
+			Backend: runtimehost.BackendAppleContainer,
+			Status:  agencysecurity.FindingWarn,
+			Detail:  waitHelperErr.Error(),
+			Fix:     "Build agency-apple-container-wait-helper and set hub.deployment_backend_config.wait_helper_binary or AGENCY_APPLE_CONTAINER_WAIT_HELPER_BIN.",
+		})
+	} else {
+		report.Checks = append(report.Checks, doctorCheckResult{
+			Name:    "apple_container_wait_helper",
+			Scope:   "backend",
+			Backend: runtimehost.BackendAppleContainer,
+			Status:  agencysecurity.FindingPass,
+			Detail:  "Apple container wait helper health check succeeded",
+		})
+	}
 	status := agencysecurity.FindingWarn
 	detail := "Apple container helper is available but does not yet emit lifecycle exit events."
 	if strings.TrimSpace(health.EventSupport) != "" && health.EventSupport != "none" {
 		status = agencysecurity.FindingPass
 		detail = "Apple container helper reports lifecycle event support: " + health.EventSupport
-	} else if waitHealth, err := appleContainerWaitHelperStatus(ctx, backendConfig); err == nil && strings.TrimSpace(waitHealth.EventSupport) != "" && waitHealth.EventSupport != "none" {
+	} else if waitHelperErr == nil && strings.TrimSpace(waitHealth.EventSupport) != "" && waitHealth.EventSupport != "none" {
 		status = agencysecurity.FindingPass
 		detail = "Apple container wait helper reports lifecycle event support: " + waitHealth.EventSupport
-	} else if err != nil {
-		detail = "Apple container lifecycle exit events require the wait helper: " + err.Error()
+	} else if waitHelperErr != nil {
+		detail = "Apple container lifecycle exit events require the wait helper: " + waitHelperErr.Error()
 	}
 	report.Checks = append(report.Checks, doctorCheckResult{
 		Name:    "apple_container_helper_events",

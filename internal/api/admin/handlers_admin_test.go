@@ -288,7 +288,7 @@ func TestAdminDoctorAppleContainerReportsServiceAndHelperWarning(t *testing.T) {
 			seenWarn[check.Name] = true
 		}
 	}
-	if !seenPass["apple_container_service"] || !seenWarn["apple_container_helper"] {
+	if !seenPass["apple_container_service"] || !seenWarn["apple_container_helper"] || !seenWarn["apple_container_wait_helper"] {
 		t.Fatalf("backend checks = %#v", report.BackendChecks)
 	}
 }
@@ -330,15 +330,28 @@ func TestAdminDoctorAppleContainerWaitHelperSatisfiesLifecycleEvents(t *testing.
 	if err := json.Unmarshal(rec.Body.Bytes(), &report); err != nil {
 		t.Fatal(err)
 	}
+	seenWaitHelper := false
+	seenEvents := false
 	for _, check := range report.BackendChecks {
+		if check.Name == "apple_container_wait_helper" {
+			if check.Status != "pass" {
+				t.Fatalf("wait helper check = %#v", check)
+			}
+			seenWaitHelper = true
+		}
 		if check.Name == "apple_container_helper_events" {
 			if check.Status != "pass" || !strings.Contains(check.Detail, "process_wait") {
 				t.Fatalf("event check = %#v", check)
 			}
-			return
+			seenEvents = true
 		}
 	}
-	t.Fatalf("missing apple_container_helper_events check: %#v", report.BackendChecks)
+	if !seenWaitHelper {
+		t.Fatalf("missing apple_container_wait_helper check: %#v", report.BackendChecks)
+	}
+	if !seenEvents {
+		t.Fatalf("missing apple_container_helper_events check: %#v", report.BackendChecks)
+	}
 }
 
 func TestSyntheticReadinessAgentIsIgnoredForUnscopedAudit(t *testing.T) {

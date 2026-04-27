@@ -1050,7 +1050,7 @@ func (c *RawClient) ImageBuild(ctx context.Context, buildContext io.Reader, opti
 func (c *RawClient) Events(ctx context.Context, options dockerevents.ListOptions) (<-chan dockerevents.Message, <-chan error) {
 	if c.usesAppleContainer() {
 		if c.appleContainer != nil && (c.appleContainer.helper != nil || c.appleContainer.waitHelper != nil) {
-			return appleContainerEvents(ctx, c.ensureAppleContainerEventHub(), options)
+			return appleContainerEvents(ctx, c.ensureAppleContainerEventHub(), options, c.appleContainerReconcileEvents)
 		}
 		out := make(chan dockerevents.Message)
 		errOut := make(chan error, 1)
@@ -1068,6 +1068,13 @@ func (c *RawClient) Events(ctx context.Context, options dockerevents.ListOptions
 	errOut <- fmt.Errorf("containerd backend does not yet provide an event stream")
 	close(errOut)
 	return out, errOut
+}
+
+func (c *RawClient) appleContainerReconcileEvents(ctx context.Context) ([]AppleContainerHelperEvent, error) {
+	if c == nil || c.appleContainer == nil || c.appleContainer.helper == nil {
+		return nil, nil
+	}
+	return c.appleContainer.helper.EventsOnce(ctx, appleContainerHomeHash())
 }
 
 func (c *RawClient) SupportsEventStream() bool {
