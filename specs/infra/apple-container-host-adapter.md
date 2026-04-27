@@ -7,8 +7,11 @@ implementation has a Go helper for health, inspect/list, verified
 start/stop/kill/delete/exec, bounded reconciliation, and command-driven
 lifecycle events inside the Gateway process. A separate SwiftPM wait-helper is
 wired into normal container start for Apple `ClientProcess.wait()` and emits
-start/exit JSONL for containers it starts. Promotion still requires hardening
-that wait-backed path for daemon restart and missed-event recovery.
+start/exit JSONL for containers it starts. Gateway seeds each Apple event
+stream from one bounded helper reconciliation snapshot, which covers restart
+visibility for already-recorded stopped/exited state. Promotion still requires
+a durable wait supervisor or platform support that can reattach exit
+observation to already-running containers after Gateway restart.
 
 ## Purpose
 
@@ -264,9 +267,9 @@ Initial implementation may be at-most-once while the helper process is alive.
 Gateway must reconcile on startup and before lifecycle mutations so missed
 events do not create unsafe healthy states.
 
-The target implementation should persist a small helper-side event cursor or
-state snapshot for Agency-owned resources so Gateway restart can recover the
-latest known exit observations.
+The target implementation should persist a small helper-side event cursor,
+state snapshot, or supervisor registry for Agency-owned resources so Gateway
+restart can recover the latest known exit observations.
 
 The current Go helper returns normalized events with lifecycle command
 responses. Gateway maps exit/stop/kill/unknown helper events into its existing
@@ -274,12 +277,13 @@ host-state stream so intentional teardown and command failures can be observed
 without polling. It intentionally does not map ordinary start responses as
 auto-restarts.
 
-The Swift wait-helper proof at `tools/apple-container-wait-helper` uses
-Apple's `ContainerClient.bootstrap`, `ClientProcess.start`, and
-`ClientProcess.wait` sequence. The manual validation script is
-`scripts/readiness/apple-container-wait-helper-smoke.sh`. That proof still
-needs a durable supervisor/IPC shape before it can replace the Go helper's
-current `container start` invocation in the main adapter path.
+The Swift wait-helper at `tools/apple-container-wait-helper` uses Apple's
+`ContainerClient.bootstrap`, `ClientProcess.start`, and `ClientProcess.wait`
+sequence. The normal Apple lifecycle path starts containers through this
+helper when configured. The manual validation script is
+`scripts/readiness/apple-container-wait-helper-smoke.sh`. That path still
+needs a durable supervisor/IPC shape before it can recover wait tasks for
+containers that were already running when Gateway restarted.
 
 ## Reconciliation Without Polling
 
@@ -349,15 +353,15 @@ Gateway must audit:
 - backend identity and opt-in status
 - Apple Container service availability
 - helper availability and version
+- wait-helper availability and Apple Container service reachability
 - lifecycle helper event support
 - network capability status
 - owned-resource cleanup drift
 - runtime contract health separately from backend hygiene
 
-Until the wait-backed helper event path exists, doctor should warn that
-lifecycle exit event support is incomplete. The warning should become a pass
-only when the helper can start a wait monitor and emit a synthetic or real exit
-event during validation.
+Doctor should warn when the wait helper is missing or unhealthy. Lifecycle
+event support should pass only when the helper path can emit synthetic or
+reconciled events during validation.
 
 ## Readiness Gates
 
@@ -413,6 +417,14 @@ Apple silicon with Apple Container available:
 - add bounded reconciliation at startup and lifecycle boundaries
 - validate cleanup and restart behavior
 - update readiness checklist and remove lifecycle-specific gate warnings
+
+### Slice 4b: Restart Recovery Hardening
+
+- seed Apple event streams from a bounded helper reconciliation snapshot
+- smoke Gateway restart against a running Apple-backed agent
+- verify lifecycle controls after restart
+- retain the known limitation that already-running wait tasks cannot be
+  reattached without a durable helper supervisor or Apple platform support
 
 ### Slice 5: Release Decision
 

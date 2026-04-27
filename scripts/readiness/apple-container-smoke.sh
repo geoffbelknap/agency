@@ -362,6 +362,30 @@ require_cmd "$ROOT/scripts/readiness/runtime-contract-smoke.sh" \
   --bin "$AGENCY_HOME_DIR/runtime-smoke-agency" \
   --skip-tests
 
+log "gateway restart recovery"
+require_cmd "$AGENCY_BIN" -H "$AGENCY_HOME_DIR" serve restart
+require_cmd "$AGENCY_BIN" -H "$AGENCY_HOME_DIR" serve status
+require_cmd curl -fsS "http://$GATEWAY_HEALTH_ADDR/api/v1/health"
+require_cmd "$ROOT/scripts/readiness/runtime-contract-smoke.sh" \
+  --agent "$AGENT_NAME" \
+  --home "$AGENCY_HOME_DIR" \
+  --bin "$AGENCY_HOME_DIR/runtime-smoke-agency" \
+  --skip-tests
+
+log "agent lifecycle controls"
+require_cmd "$AGENCY_BIN" -H "$AGENCY_HOME_DIR" -q restart "$AGENT_NAME"
+require_cmd "$AGENCY_BIN" -H "$AGENCY_HOME_DIR" -q halt "$AGENT_NAME" --tier supervised --reason "apple container readiness"
+require_cmd "$AGENCY_BIN" -H "$AGENCY_HOME_DIR" -q resume "$AGENT_NAME"
+require_cmd "$AGENCY_BIN" -H "$AGENCY_HOME_DIR" -q stop "$AGENT_NAME"
+require_cmd "$AGENCY_BIN" -H "$AGENCY_HOME_DIR" -q start "$AGENT_NAME"
+require_cmd "$AGENCY_BIN" -H "$AGENCY_HOME_DIR" -q delete "$AGENT_NAME"
+
+if [[ -f "$AGENCY_HOME_DIR/gateway.log" ]]; then
+  require_log_absent "$AGENCY_HOME_DIR/gateway.log" "network connect" "gateway log contains a Docker-shaped post-create network connect warning"
+  require_log_absent "$AGENCY_HOME_DIR/gateway.log" "apple-container backend cannot connect networks yet" "gateway log contains legacy apple-container network attach warning"
+  require_log_absent "$AGENCY_HOME_DIR/gateway.log" "apple_container_helper_events" "gateway log contains helper event warning after wait helper was configured"
+fi
+
 log "gateway log tail"
 if [[ -f "$AGENCY_HOME_DIR/gateway.log" ]]; then
   tail -n 160 "$AGENCY_HOME_DIR/gateway.log" || true
