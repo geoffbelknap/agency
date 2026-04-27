@@ -179,6 +179,19 @@ func TestNormalizeContainerBackend(t *testing.T) {
 	}
 }
 
+func TestRequiresCreateTimeNetworkTopology(t *testing.T) {
+	for _, backend := range []string{BackendContainerd, BackendAppleContainer, "apple", "container"} {
+		if !RequiresCreateTimeNetworkTopology(backend) {
+			t.Fatalf("RequiresCreateTimeNetworkTopology(%q) = false, want true", backend)
+		}
+	}
+	for _, backend := range []string{BackendDocker, BackendPodman, ""} {
+		if RequiresCreateTimeNetworkTopology(backend) {
+			t.Fatalf("RequiresCreateTimeNetworkTopology(%q) = true, want false", backend)
+		}
+	}
+}
+
 func TestHostGatewayAliasesEnv(t *testing.T) {
 	if got := HostGatewayAliasesEnv(BackendDocker); got != "host.docker.internal,host.containers.internal" {
 		t.Fatalf("HostGatewayAliasesEnv(docker) = %q", got)

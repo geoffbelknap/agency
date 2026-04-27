@@ -103,6 +103,19 @@ func IsContainerBackend(name string) bool {
 	}
 }
 
+// RequiresCreateTimeNetworkTopology reports whether a backend needs complete
+// network membership declared before container creation. Docker-compatible
+// backends can attach networks after create; containerd/nerdctl and Apple
+// Container need the desired topology realized up front.
+func RequiresCreateTimeNetworkTopology(backend string) bool {
+	switch NormalizeContainerBackend(backend) {
+	case BackendContainerd, BackendAppleContainer:
+		return true
+	default:
+		return false
+	}
+}
+
 func HostGatewayAliases(backend string) []string {
 	switch NormalizeContainerBackend(backend) {
 	case BackendPodman:

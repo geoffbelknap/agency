@@ -15,6 +15,9 @@ venv/
 agency-gateway/
 images/web-fetch/web-fetch
 
+# SwiftPM build artifacts
+.build/
+
 # macOS
 .DS_Store
 

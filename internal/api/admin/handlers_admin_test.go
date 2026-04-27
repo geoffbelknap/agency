@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/geoffbelknap/agency/internal/config"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
@@ -230,12 +232,24 @@ func TestBackendConnectionDetailsIncludesAppleContainerEndpointAndMode(t *testin
 	}
 }
 
-func TestAdminDoctorAppleContainerReportsServiceAndGatedRuntime(t *testing.T) {
+func TestAdminDoctorAppleContainerReportsServiceAndHelperWarning(t *testing.T) {
 	orig := appleContainerStatus
+	origHelper := appleContainerHelperStatus
+	origWaitHelper := appleContainerWaitHelperStatus
 	appleContainerStatus = func(ctx context.Context, backendConfig map[string]string) error {
 		return nil
 	}
-	t.Cleanup(func() { appleContainerStatus = orig })
+	appleContainerHelperStatus = func(ctx context.Context, backendConfig map[string]string) (runtimehost.AppleContainerHelperHealth, error) {
+		return runtimehost.AppleContainerHelperHealth{}, fmt.Errorf("apple-container helper is not configured")
+	}
+	appleContainerWaitHelperStatus = func(ctx context.Context, backendConfig map[string]string) (runtimehost.AppleContainerHelperHealth, error) {
+		return runtimehost.AppleContainerHelperHealth{}, fmt.Errorf("apple-container wait helper is not configured")
+	}
+	t.Cleanup(func() {
+		appleContainerStatus = orig
+		appleContainerHelperStatus = origHelper
+		appleContainerWaitHelperStatus = origWaitHelper
+	})
 
 	h := &handler{deps: Deps{
 		Config: &config.Config{
@@ -262,17 +276,69 @@ func TestAdminDoctorAppleContainerReportsServiceAndGatedRuntime(t *testing.T) {
 		t.Fatalf("unexpected backend fields: %#v", report)
 	}
 	if len(report.RuntimeChecks) != 0 {
-		t.Fatalf("expected no runtime checks before lifecycle support, got %#v", report.RuntimeChecks)
+		t.Fatalf("expected no runtime checks for apple-container backend-only doctor checks, got %#v", report.RuntimeChecks)
 	}
-	seen := map[string]bool{}
+	seenPass := map[string]bool{}
+	seenWarn := map[string]bool{}
 	for _, check := range report.BackendChecks {
 		if check.Backend == "apple-container" && check.Status == "pass" {
-			seen[check.Name] = true
+			seenPass[check.Name] = true
+		}
+		if check.Backend == "apple-container" && check.Status == "warn" {
+			seenWarn[check.Name] = true
 		}
 	}
-	if !seen["apple_container_service"] || !seen["apple_container_runtime_gated"] {
+	if !seenPass["apple_container_service"] || !seenWarn["apple_container_helper"] {
 		t.Fatalf("backend checks = %#v", report.BackendChecks)
 	}
+}
+
+func TestAdminDoctorAppleContainerWaitHelperSatisfiesLifecycleEvents(t *testing.T) {
+	orig := appleContainerStatus
+	origHelper := appleContainerHelperStatus
+	origWaitHelper := appleContainerWaitHelperStatus
+	appleContainerStatus = func(ctx context.Context, backendConfig map[string]string) error {
+		return nil
+	}
+	appleContainerHelperStatus = func(ctx context.Context, backendConfig map[string]string) (runtimehost.AppleContainerHelperHealth, error) {
+		return runtimehost.AppleContainerHelperHealth{OK: true, Backend: "apple-container", EventSupport: "none"}, nil
+	}
+	appleContainerWaitHelperStatus = func(ctx context.Context, backendConfig map[string]string) (runtimehost.AppleContainerHelperHealth, error) {
+		return runtimehost.AppleContainerHelperHealth{OK: true, Backend: "apple-container", EventSupport: "process_wait"}, nil
+	}
+	t.Cleanup(func() {
+		appleContainerStatus = orig
+		appleContainerHelperStatus = origHelper
+		appleContainerWaitHelperStatus = origWaitHelper
+	})
+
+	h := &handler{deps: Deps{
+		Config: &config.Config{
+			Home: t.TempDir(),
+			Hub:  config.HubConfig{DeploymentBackend: "apple-container"},
+		},
+	}}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/doctor", nil)
+	rec := httptest.NewRecorder()
+	h.adminDoctor(rec, req.WithContext(context.Background()))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var report doctorReport
+	if err := json.Unmarshal(rec.Body.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	for _, check := range report.BackendChecks {
+		if check.Name == "apple_container_helper_events" {
+			if check.Status != "pass" || !strings.Contains(check.Detail, "process_wait") {
+				t.Fatalf("event check = %#v", check)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing apple_container_helper_events check: %#v", report.BackendChecks)
 }
 
 func TestSyntheticReadinessAgentIsIgnoredForUnscopedAudit(t *testing.T) {

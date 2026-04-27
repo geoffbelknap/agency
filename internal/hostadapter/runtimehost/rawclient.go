@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -35,8 +37,11 @@ type nerdctlConfig struct {
 }
 
 type appleContainerConfig struct {
-	binary string
-	run    func(context.Context, ...string) ([]byte, []byte, error)
+	binary     string
+	helper     *appleContainerHelperClient
+	waitHelper *appleContainerWaitHelperClient
+	run        func(context.Context, ...string) ([]byte, []byte, error)
+	events     *appleContainerEventHub
 }
 
 type appleContainerInspect struct {
@@ -254,9 +259,17 @@ func newAppleContainerRawClient(backendConfig map[string]string) (*RawClient, er
 	if binary == "" {
 		binary = "container"
 	}
+	var helper *appleContainerHelperClient
+	if configuredHelper, ok := appleContainerHelperFromConfig(backendConfig); ok {
+		helper = configuredHelper
+	}
+	var waitHelper *appleContainerWaitHelperClient
+	if configuredWaitHelper, ok := appleContainerWaitHelperFromConfig(backendConfig); ok {
+		waitHelper = configuredWaitHelper
+	}
 	return &RawClient{
 		backend:        BackendAppleContainer,
-		appleContainer: &appleContainerConfig{binary: binary},
+		appleContainer: &appleContainerConfig{binary: binary, helper: helper, waitHelper: waitHelper},
 	}, nil
 }
 
@@ -284,6 +297,12 @@ func (c *RawClient) usesAppleContainer() bool {
 
 func (c *RawClient) Ping(ctx context.Context) (dockertypes.Ping, error) {
 	if c.usesAppleContainer() {
+		if c.appleContainer.helper != nil {
+			if _, err := c.appleContainer.helper.Health(ctx); err != nil {
+				return dockertypes.Ping{}, err
+			}
+			return dockertypes.Ping{APIVersion: "apple-container/helper"}, nil
+		}
 		if _, _, err := c.runAppleContainer(ctx, "system", "status"); err != nil {
 			return dockertypes.Ping{}, err
 		}
@@ -419,6 +438,20 @@ func (c *RawClient) ContainerCreate(ctx context.Context, config *dockercontainer
 
 func (c *RawClient) ContainerStart(ctx context.Context, containerID string, options dockercontainer.StartOptions) error {
 	if c.usesAppleContainer() {
+		if c.appleContainer.waitHelper != nil {
+			event, err := c.appleContainer.waitHelper.StartAndMonitor(ctx, containerID, c.publishAppleContainerHelperEvent)
+			if err == nil {
+				c.publishAppleContainerHelperEvent(event)
+			}
+			return err
+		}
+		if c.appleContainer.helper != nil {
+			event, err := c.appleContainer.helper.Start(ctx, containerID)
+			if err == nil {
+				c.publishAppleContainerHelperEvent(event)
+			}
+			return err
+		}
 		_, _, err := c.runAppleContainer(ctx, "start", containerID)
 		return err
 	}
@@ -431,6 +464,17 @@ func (c *RawClient) ContainerStart(ctx context.Context, containerID string, opti
 
 func (c *RawClient) ContainerStop(ctx context.Context, containerID string, options dockercontainer.StopOptions) error {
 	if c.usesAppleContainer() {
+		if c.appleContainer.helper != nil {
+			timeout := 0
+			if options.Timeout != nil {
+				timeout = *options.Timeout
+			}
+			event, err := c.appleContainer.helper.Stop(ctx, containerID, timeout)
+			if err == nil {
+				c.publishAppleContainerHelperEvent(event)
+			}
+			return err
+		}
 		args := []string{"stop"}
 		if options.Timeout != nil {
 			args = append(args, "--time", strconv.Itoa(*options.Timeout))
@@ -453,6 +497,13 @@ func (c *RawClient) ContainerStop(ctx context.Context, containerID string, optio
 
 func (c *RawClient) ContainerRemove(ctx context.Context, containerID string, options dockercontainer.RemoveOptions) error {
 	if c.usesAppleContainer() {
+		if c.appleContainer.helper != nil {
+			event, err := c.appleContainer.helper.Delete(ctx, containerID, options.Force)
+			if err == nil {
+				c.publishAppleContainerHelperEvent(event)
+			}
+			return err
+		}
 		args := []string{"delete"}
 		if options.Force {
 			args = append(args, "--force")
@@ -478,7 +529,20 @@ func (c *RawClient) ContainerRemove(ctx context.Context, containerID string, opt
 
 func (c *RawClient) ContainerKill(ctx context.Context, containerID, signal string) error {
 	if c.usesAppleContainer() {
-		return c.appleContainerUnsupported("signal containers")
+		if c.appleContainer.helper != nil {
+			event, err := c.appleContainer.helper.Kill(ctx, containerID, signal)
+			if err == nil {
+				c.publishAppleContainerHelperEvent(event)
+			}
+			return err
+		}
+		args := []string{"kill"}
+		if strings.TrimSpace(signal) != "" {
+			args = append(args, "--signal", signal)
+		}
+		args = append(args, containerID)
+		_, _, err := c.runAppleContainer(ctx, args...)
+		return err
 	}
 	if !c.usesNerdctl() {
 		return c.docker.ContainerKill(ctx, containerID, signal)
@@ -985,6 +1049,9 @@ func (c *RawClient) ImageBuild(ctx context.Context, buildContext io.Reader, opti
 
 func (c *RawClient) Events(ctx context.Context, options dockerevents.ListOptions) (<-chan dockerevents.Message, <-chan error) {
 	if c.usesAppleContainer() {
+		if c.appleContainer != nil && (c.appleContainer.helper != nil || c.appleContainer.waitHelper != nil) {
+			return appleContainerEvents(ctx, c.ensureAppleContainerEventHub(), options)
+		}
 		out := make(chan dockerevents.Message)
 		errOut := make(chan error, 1)
 		close(out)
@@ -1004,12 +1071,29 @@ func (c *RawClient) Events(ctx context.Context, options dockerevents.ListOptions
 }
 
 func (c *RawClient) SupportsEventStream() bool {
-	return !c.usesNerdctl() && !c.usesAppleContainer()
+	if c.usesAppleContainer() {
+		return c.appleContainer != nil && (c.appleContainer.helper != nil || c.appleContainer.waitHelper != nil)
+	}
+	return !c.usesNerdctl()
 }
 
 func (c *RawClient) Exec(ctx context.Context, containerName, user string, cmd []string) (string, error) {
 	if c.usesAppleContainer() {
-		return "", c.appleContainerUnsupported("exec commands")
+		if c.appleContainer.helper != nil {
+			return c.appleContainer.helper.Exec(ctx, containerName, user, "", cmd)
+		}
+		args := []string{"exec"}
+		if strings.TrimSpace(user) != "" {
+			args = append(args, "--user", user)
+		}
+		args = append(args, containerName)
+		args = append(args, cmd...)
+		stdout, stderr, err := c.runAppleContainer(ctx, args...)
+		out := string(append(stdout, stderr...))
+		if err != nil {
+			return out, err
+		}
+		return out, nil
 	}
 	if !c.usesNerdctl() {
 		execID, err := c.ContainerExecCreate(ctx, containerName, dockercontainer.ExecOptions{
@@ -1573,9 +1657,10 @@ func nonEmptyStrings(values ...string) []string {
 
 func appleContainerNetworkCreateArgs(name string, options dockernetwork.CreateOptions) []string {
 	args := []string{"network", "create"}
-	for key, value := range options.Labels {
+	for key, value := range appleContainerOwnershipLabels(options.Labels) {
 		key = strings.TrimSpace(key)
-		if key == "" {
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" {
 			continue
 		}
 		args = append(args, "--label", key+"="+value)
@@ -1615,9 +1700,10 @@ func appleContainerCreateArgs(config *dockercontainer.Config, hostConfig *docker
 			args = append(args, "--env", env)
 		}
 	}
-	for key, value := range config.Labels {
+	for key, value := range appleContainerOwnershipLabels(config.Labels) {
 		key = strings.TrimSpace(key)
-		if key == "" {
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" {
 			continue
 		}
 		args = append(args, "--label", key+"="+value)
@@ -1683,6 +1769,36 @@ func appleContainerCreateArgs(config *dockercontainer.Config, hostConfig *docker
 	args = append(args, image)
 	args = append(args, config.Cmd...)
 	return args, nil
+}
+
+func appleContainerOwnershipLabels(labels map[string]string) map[string]string {
+	if len(labels) == 0 {
+		return labels
+	}
+	out := make(map[string]string, len(labels)+2)
+	for key, value := range labels {
+		out[key] = value
+	}
+	if out["agency.managed"] == "true" {
+		if strings.TrimSpace(out["agency.backend"]) == "" {
+			out["agency.backend"] = BackendAppleContainer
+		}
+		if strings.TrimSpace(out["agency.home"]) == "" {
+			if homeHash := appleContainerHomeHash(); homeHash != "" {
+				out["agency.home"] = homeHash
+			}
+		}
+	}
+	return out
+}
+
+func appleContainerHomeHash() string {
+	home := strings.TrimSpace(os.Getenv("AGENCY_HOME"))
+	if home == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(home))
+	return hex.EncodeToString(sum[:])[:12]
 }
 
 func appleContainerMountFromBind(bind string) (string, string, error) {

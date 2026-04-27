@@ -46,7 +46,10 @@ func TestSupportsEventStream(t *testing.T) {
 		t.Fatal("containerd nerdctl client should not report event stream support")
 	}
 	if (&RawClient{backend: BackendAppleContainer, appleContainer: &appleContainerConfig{}}).SupportsEventStream() != false {
-		t.Fatal("apple-container client should not report event stream support before event mapping exists")
+		t.Fatal("apple-container client should not report event stream support without helper")
+	}
+	if (&RawClient{backend: BackendAppleContainer, appleContainer: &appleContainerConfig{helper: &appleContainerHelperClient{}}}).SupportsEventStream() != true {
+		t.Fatal("apple-container client should report command event stream support with helper")
 	}
 }
 
@@ -110,6 +113,12 @@ func TestValidateAppleContainerConfigRejectsSocketShapedKeys(t *testing.T) {
 func TestValidateAppleContainerConfigAcceptsBinaryOverride(t *testing.T) {
 	if err := validateAppleContainerConfig(map[string]string{"binary": "/usr/local/bin/container"}); err != nil {
 		t.Fatalf("expected binary override to pass validation, got %v", err)
+	}
+	if err := validateAppleContainerConfig(map[string]string{"helper_binary": "/usr/local/bin/agency-apple-container-helper"}); err != nil {
+		t.Fatalf("expected helper binary override to pass validation, got %v", err)
+	}
+	if err := validateAppleContainerConfig(map[string]string{"wait_helper_binary": "/usr/local/bin/agency-apple-container-wait-helper"}); err != nil {
+		t.Fatalf("expected wait helper binary override to pass validation, got %v", err)
 	}
 }
 
@@ -219,7 +228,34 @@ func TestAppleContainerInspectAndLogs(t *testing.T) {
 	}
 }
 
+func TestAppleContainerExec(t *testing.T) {
+	var calls [][]string
+	client := &RawClient{
+		backend: BackendAppleContainer,
+		appleContainer: &appleContainerConfig{run: func(ctx context.Context, args ...string) ([]byte, []byte, error) {
+			calls = append(calls, append([]string(nil), args...))
+			if got := strings.Join(args, " "); got != "exec --user root agency-henry-workspace sh -c id" {
+				t.Fatalf("args = %q", got)
+			}
+			return []byte("uid=0(root)\n"), nil, nil
+		}},
+	}
+
+	out, err := client.Exec(context.Background(), "agency-henry-workspace", "root", []string{"sh", "-c", "id"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "uid=0(root)\n" {
+		t.Fatalf("out = %q", out)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
 func TestAppleContainerLifecycleCommands(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("AGENCY_HOME", home)
 	var calls [][]string
 	client := &RawClient{
 		backend: BackendAppleContainer,
@@ -240,7 +276,7 @@ func TestAppleContainerLifecycleCommands(t *testing.T) {
 		&dockercontainer.Config{
 			Image:      "alpine:latest",
 			Env:        []string{"AGENCY_HOME=/home/agency"},
-			Labels:     map[string]string{"agency.type": "workspace", "agency.agent": "smoke"},
+			Labels:     map[string]string{"agency.managed": "true", "agency.type": "workspace", "agency.agent": "smoke"},
 			Cmd:        []string{"/bin/sh", "-c", "sleep 120"},
 			WorkingDir: "/workspace",
 			User:       "1000:1000",
@@ -287,6 +323,8 @@ func TestAppleContainerLifecycleCommands(t *testing.T) {
 		"--env AGENCY_HOME=/home/agency",
 		"--label agency.type=workspace",
 		"--label agency.agent=smoke",
+		"--label agency.backend=apple-container",
+		"--label agency.home=" + appleContainerHomeHash(),
 		"--user 1000:1000",
 		"--workdir /workspace",
 		"--read-only",
@@ -374,6 +412,47 @@ func TestAppleContainerCreateArgsDedupeNetworks(t *testing.T) {
 		if counts[networkName] != 1 {
 			t.Fatalf("network %q count = %d, want 1 in %#v", networkName, counts[networkName], args)
 		}
+	}
+}
+
+func TestAppleContainerCreateArgsSkipsEmptyLabels(t *testing.T) {
+	args, err := appleContainerCreateArgs(
+		&dockercontainer.Config{
+			Image:  "alpine:latest",
+			Labels: map[string]string{"agency.instance": "", "agency.managed": "true"},
+		},
+		nil,
+		nil,
+		nil,
+		"agency-smoke",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "agency.instance=") {
+		t.Fatalf("args include empty label: %q", joined)
+	}
+	if !strings.Contains(joined, "--label agency.managed=true") {
+		t.Fatalf("args missing non-empty label: %q", joined)
+	}
+}
+
+func TestAppleContainerNetworkCreateArgsSkipsEmptyLabels(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("AGENCY_HOME", home)
+	args := appleContainerNetworkCreateArgs("agency-gateway", dockernetwork.CreateOptions{
+		Labels: map[string]string{"agency.instance": "", "agency.managed": "true"},
+	})
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "agency.instance=") {
+		t.Fatalf("args include empty label: %q", joined)
+	}
+	if !strings.Contains(joined, "--label agency.managed=true") {
+		t.Fatalf("args missing non-empty label: %q", joined)
+	}
+	if !strings.Contains(joined, "--label agency.backend=apple-container") || !strings.Contains(joined, "--label agency.home="+appleContainerHomeHash()) {
+		t.Fatalf("args missing ownership labels: %q", joined)
 	}
 }
 

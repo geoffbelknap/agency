@@ -727,7 +727,7 @@ func selectContainerBackend(override string) (string, map[string]string, error) 
 			return "", nil, fmt.Errorf("container backend %q not available", override)
 		}
 		fmt.Fprintf(os.Stderr, "Using %s backend (%s).\n", d.Name(), backendModeDescription(d))
-		return d.Name(), mergeBackendSocketConfig(configuredCfg, d.Config), nil
+		return d.Name(), withAppleContainerHelperConfig(d.Name(), mergeBackendSocketConfig(configuredCfg, d.Config)), nil
 	}
 
 	detections := runtimehost.ProbeAllBackends()
@@ -742,7 +742,7 @@ func selectContainerBackend(override string) (string, map[string]string, error) 
 		if interactiveInstallEnabled() {
 			if d := offerBackendInstall(); d != nil {
 				fmt.Fprintf(os.Stderr, "Using %s backend (%s).\n", d.Name(), backendModeDescription(*d))
-				return d.Name(), d.Config, nil
+				return d.Name(), withAppleContainerHelperConfig(d.Name(), d.Config), nil
 			}
 		} else {
 			fmt.Fprintln(os.Stderr, "No container backend detected on this host.")
@@ -755,7 +755,7 @@ func selectContainerBackend(override string) (string, map[string]string, error) 
 	case 1:
 		d := reachable[0]
 		fmt.Fprintf(os.Stderr, "Using %s backend (%s).\n", d.Name(), backendModeDescription(d))
-		return d.Name(), d.Config, nil
+		return d.Name(), withAppleContainerHelperConfig(d.Name(), d.Config), nil
 	default:
 		// With a TTY available, ask the user to pick. Default is podman
 		// (first in reachable — preference order comes from KnownBackends).
@@ -780,8 +780,30 @@ func selectContainerBackend(override string) (string, map[string]string, error) 
 			"Using %s (%s). To pick a different one, re-run with --backend %s or set AGENCY_CONTAINER_BACKEND.\n",
 			chosen.Name(), backendModeDescription(chosen), others[0],
 		)
-		return chosen.Name(), chosen.Config, nil
+		return chosen.Name(), withAppleContainerHelperConfig(chosen.Name(), chosen.Config), nil
 	}
+}
+
+func withAppleContainerHelperConfig(backend string, cfg map[string]string) map[string]string {
+	if runtimehost.NormalizeContainerBackend(backend) != runtimehost.BackendAppleContainer {
+		return cfg
+	}
+	helper := strings.TrimSpace(os.Getenv("AGENCY_APPLE_CONTAINER_HELPER_BIN"))
+	waitHelper := strings.TrimSpace(os.Getenv("AGENCY_APPLE_CONTAINER_WAIT_HELPER_BIN"))
+	if helper == "" && waitHelper == "" {
+		return cfg
+	}
+	out := make(map[string]string, len(cfg)+2)
+	for k, v := range cfg {
+		out[k] = v
+	}
+	if helper != "" {
+		out["helper_binary"] = helper
+	}
+	if waitHelper != "" {
+		out["wait_helper_binary"] = waitHelper
+	}
+	return out
 }
 
 // backendModeDescription returns a short human-readable descriptor for the
@@ -1083,7 +1105,10 @@ func appleContainerGatewayListenAddr(ctx context.Context, backendCfg map[string]
 	}
 	for _, cfg := range inspect.IPAM.Config {
 		if gateway := strings.TrimSpace(cfg.Gateway); gateway != "" {
-			return net.JoinHostPort(gateway, "8200"), nil
+			// Apple containers reach the host through the inspected gateway IP,
+			// but the host daemon must bind an address present on the host.
+			// Infra advertises the gateway IP separately via host aliases.
+			return "0.0.0.0:8200", nil
 		}
 	}
 	return "", fmt.Errorf("network %s has no gateway address", netName)

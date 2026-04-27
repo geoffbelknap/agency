@@ -340,10 +340,5 @@ func meeseeksEnforcerHost(id, backend string) string {
 }
 
 func usesCreateTimeMediationNetworks(backend string) bool {
-	switch runtimehost.NormalizeContainerBackend(backend) {
-	case runtimehost.BackendContainerd, runtimehost.BackendAppleContainer:
-		return true
-	default:
-		return false
-	}
+	return runtimehost.RequiresCreateTimeNetworkTopology(backend)
 }

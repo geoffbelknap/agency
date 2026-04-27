@@ -14,7 +14,7 @@ the root of this directory.
 | [`comms/`](comms/) | Event framework, realtime agent comms, notifications |
 | [`connector/`](connector/) | Connector implementation, credentials, source types, third-party integration |
 | [`hub/`](hub/) | Hub package manager, deployments, versioning, OCI distribution |
-| [`infra/`](infra/) | Gateway, API modularization, ports, service contract, container build, enforcer topology |
+| [`infra/`](infra/) | Gateway, API modularization, ports, service contract, container build, enforcer topology, host-adapter lifecycle |
 | [`knowledge/`](knowledge/) | Knowledge graph: ingestion, curation, ontology, ACLs, intelligence |
 | [`mcp/`](mcp/) | MCP OAuth, thin proxy, web-fetch service |
 | [`missions/`](missions/) _(experimental)_ | Mission system: composer, success criteria, health, fallback, brief deprecation |

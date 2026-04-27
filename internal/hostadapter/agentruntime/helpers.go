@@ -63,12 +63,7 @@ func isContainerdBackend(backend string) bool {
 }
 
 func usesCreateTimeMediationNetworks(backend string) bool {
-	switch runtimehost.NormalizeContainerBackend(backend) {
-	case runtimehost.BackendContainerd, runtimehost.BackendAppleContainer:
-		return true
-	default:
-		return false
-	}
+	return runtimehost.RequiresCreateTimeNetworkTopology(backend)
 }
 
 func gatewayHost(backend string) string {

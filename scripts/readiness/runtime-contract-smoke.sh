@@ -8,10 +8,11 @@ RUN_TESTS=1
 RUN_DOCTOR=1
 CONFIG_PATH="${CONFIG_PATH:-$HOME/.agency/config.yaml}"
 TOKEN="${TOKEN:-}"
+AGENCY_HOME_DIR=""
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/readiness/runtime-contract-smoke.sh [--agent NAME] [--skip-tests] [--skip-doctor]
+Usage: ./scripts/readiness/runtime-contract-smoke.sh [--agent NAME] [--config PATH] [--bin PATH] [--token TOKEN] [--skip-tests] [--skip-doctor]
 
 Smoke checks:
   1. go test ./...
@@ -50,6 +51,27 @@ while [[ $# -gt 0 ]]; do
     --agent)
       [[ $# -ge 2 ]] || fail "--agent requires a value"
       AGENT_NAME="$2"
+      shift 2
+      ;;
+    --config)
+      [[ $# -ge 2 ]] || fail "--config requires a path"
+      CONFIG_PATH="$2"
+      shift 2
+      ;;
+    --home)
+      [[ $# -ge 2 ]] || fail "--home requires a path"
+      AGENCY_HOME_DIR="$2"
+      CONFIG_PATH="$AGENCY_HOME_DIR/config.yaml"
+      shift 2
+      ;;
+    --bin)
+      [[ $# -ge 2 ]] || fail "--bin requires a path"
+      BIN="$2"
+      shift 2
+      ;;
+    --token)
+      [[ $# -ge 2 ]] || fail "--token requires a value"
+      TOKEN="$2"
       shift 2
       ;;
     --skip-tests)
@@ -115,7 +137,14 @@ fi
 
 if [[ "$RUN_DOCTOR" -eq 1 ]]; then
   log "Running admin doctor"
-  "$BIN" -q admin doctor
+  if [[ -z "$AGENCY_HOME_DIR" && "$CONFIG_PATH" == */config.yaml ]]; then
+    AGENCY_HOME_DIR="$(dirname "$CONFIG_PATH")"
+  fi
+  if [[ -n "$AGENCY_HOME_DIR" ]]; then
+    "$BIN" -H "$AGENCY_HOME_DIR" -q admin doctor
+  else
+    "$BIN" -q admin doctor
+  fi
 fi
 
 log "Runtime contract smoke checks completed"
