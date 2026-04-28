@@ -49,6 +49,16 @@ function runtimeTone(status: RawAgentRuntimeStatus | null): string {
   return 'var(--red)';
 }
 
+function runtimeDetailItems(status: RawAgentRuntimeStatus | null): Array<[string, string]> {
+  const details = status?.details ?? {};
+  return [
+    ['VM', details.vm_state],
+    ['Enforcer', details.enforcer_state],
+    ['Bridge', details.vsock_bridge_state],
+    ['Body', details.body_ws_connected === 'true' ? 'connected' : details.body_ws_connected === 'false' ? 'disconnected' : ''],
+  ].filter((item): item is [string, string] => Boolean(item[1]));
+}
+
 export function AgentOverviewTab({ agent, logs, runtimeStatus, onRestart, restarting }: Props) {
   const recentEvents = logs
     .slice(-6)
@@ -74,6 +84,16 @@ export function AgentOverviewTab({ agent, logs, runtimeStatus, onRestart, restar
             {runtimeStatus?.transport?.lastError && (
               <div style={{ marginTop: 10, fontSize: 12, color: 'var(--ink-mid)', lineHeight: 1.45, overflowWrap: 'anywhere' }}>
                 {runtimeStatus.transport.lastError}
+              </div>
+            )}
+            {runtimeDetailItems(runtimeStatus).length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
+                {runtimeDetailItems(runtimeStatus).map(([label, value]) => (
+                  <span key={label} className="font-mono" style={{ display: 'inline-flex', gap: 5, alignItems: 'baseline', padding: '3px 6px', borderRadius: 4, background: 'var(--warm-3)', fontSize: 10, color: 'var(--ink-mid)' }}>
+                    <span style={{ color: 'var(--ink-faint)' }}>{label}</span>
+                    <span>{value}</span>
+                  </span>
+                ))}
               </div>
             )}
           </div>

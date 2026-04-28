@@ -152,6 +152,7 @@ export interface RawAgentRuntimeStatus {
     enforcerConnected?: boolean;
     lastError?: string;
   };
+  details?: Record<string, string>;
 }
 
 export interface RawChannel {

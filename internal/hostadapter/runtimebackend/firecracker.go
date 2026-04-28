@@ -141,6 +141,11 @@ func (b *FirecrackerRuntimeBackend) Inspect(ctx context.Context, runtimeID strin
 			"log_path":         status.LogPath,
 		},
 	}
+	if b.vsockFactory().Bridge(runtimeID) != nil {
+		out.Details["vsock_bridge_state"] = "running"
+	} else {
+		out.Details["vsock_bridge_state"] = "stopped"
+	}
 	if status.LastError != "" {
 		out.Details["last_error"] = status.LastError
 	}
@@ -159,6 +164,11 @@ func (b *FirecrackerRuntimeBackend) Inspect(ctx context.Context, runtimeID strin
 		}
 	default:
 		out.Phase = runtimecontract.RuntimePhaseStopped
+	}
+	if out.Healthy && out.Details["vsock_bridge_state"] != "running" {
+		out.Healthy = false
+		out.Phase = runtimecontract.RuntimePhaseDegraded
+		out.Details["last_error"] = "vsock bridge is not running"
 	}
 	return out, nil
 }

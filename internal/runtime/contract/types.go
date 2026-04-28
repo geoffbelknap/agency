@@ -87,6 +87,7 @@ type RuntimeStatus struct {
 	BackendEndpoint string                 `yaml:"backendEndpoint,omitempty" json:"backendEndpoint,omitempty"`
 	BackendMode     string                 `yaml:"backendMode,omitempty" json:"backendMode,omitempty"`
 	Transport       RuntimeTransportStatus `yaml:"transport" json:"transport"`
+	Details         map[string]string      `yaml:"details,omitempty" json:"details,omitempty"`
 }
 
 type RuntimeTransportStatus struct {

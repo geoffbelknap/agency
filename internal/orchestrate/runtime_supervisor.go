@@ -427,10 +427,14 @@ func (rs *RuntimeSupervisor) Get(ctx context.Context, runtimeID string) (runtime
 	if err != nil {
 		if manifest.Status.RuntimeID != "" {
 			status := manifest.Status
-			if status.Healthy || status.Phase == runtimecontract.RuntimePhaseRunning || status.Phase == runtimecontract.RuntimePhaseStarting {
+			if status.Healthy || status.Phase == runtimecontract.RuntimePhaseRunning || status.Phase == runtimecontract.RuntimePhaseStarting || status.Phase == runtimecontract.RuntimePhaseDegraded {
 				status.Healthy = false
 				status.Phase = runtimecontract.RuntimePhaseDegraded
 				status.Transport.LastError = "runtime inspect failed: " + err.Error()
+				if status.Details == nil {
+					status.Details = map[string]string{}
+				}
+				status.Details["last_error"] = status.Transport.LastError
 				manifest.Status = status
 				manifest.UpdatedAt = time.Now().UTC()
 				_ = rs.saveManifest(manifest)
@@ -453,6 +457,7 @@ func (rs *RuntimeSupervisor) Get(ctx context.Context, runtimeID string) (runtime
 			EnforcerConnected: backendStatus.Details["enforcer_state"] == "running",
 			LastError:         backendStatus.Details["last_error"],
 		},
+		Details: copyRuntimeStatusDetails(backendStatus.Details),
 	}
 	manifest.Spec = spec
 	manifest.Status = status
@@ -495,6 +500,17 @@ func (rs *RuntimeSupervisor) Validate(ctx context.Context, runtimeID string) err
 		return err
 	}
 	return backend.Validate(ctx, runtimeID)
+}
+
+func copyRuntimeStatusDetails(details map[string]string) map[string]string {
+	if len(details) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(details))
+	for key, value := range details {
+		out[key] = value
+	}
+	return out
 }
 
 func transportTypeSupported(supported []string, transportType string) bool {

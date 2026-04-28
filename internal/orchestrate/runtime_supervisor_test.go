@@ -191,6 +191,9 @@ func TestRuntimeSupervisorGetProjectsBackendStatus(t *testing.T) {
 	if status.Transport.LastError != "lost mediation" {
 		t.Fatalf("last error = %q", status.Transport.LastError)
 	}
+	if status.Details["enforcer_state"] != "stopped" {
+		t.Fatalf("details enforcer_state = %q", status.Details["enforcer_state"])
+	}
 }
 
 func TestRuntimeSupervisorEnsureEnforcerPassesKeyRotation(t *testing.T) {
@@ -361,6 +364,9 @@ func TestRuntimeSupervisorGetMarksPersistedStatusDegradedWhenInspectFails(t *tes
 	}
 	if status.Transport.LastError != "runtime inspect failed: backend unavailable" {
 		t.Fatalf("last error = %q", status.Transport.LastError)
+	}
+	if status.Details["last_error"] != "runtime inspect failed: backend unavailable" {
+		t.Fatalf("details last error = %q", status.Details["last_error"])
 	}
 }
 
