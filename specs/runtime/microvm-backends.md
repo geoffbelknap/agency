@@ -65,9 +65,11 @@ layer reuse, and vulnerability scanning continue to apply.
   investment.
 - A custom or non-OCI image format. Adopting any backend that requires its
   own image format (e.g., shuru's checkpoint snapshots) is rejected.
-- Running the mediation layer itself in microVMs. Mediation services run as
-  host processes in Go; they do not need agent-grade isolation because they
-  are governance, not agent code.
+- Running shared core infrastructure in per-agent microVMs. Shared
+  mediation services can become host services. The per-agent enforcer is
+  different: it remains an external enforcement boundary and may run as a
+  per-agent host process or a per-agent microVM. See
+  `specs/runtime/per-agent-microvm-enforcement.md`.
 
 ## Tradeoffs
 
@@ -136,6 +138,8 @@ for backend changes.
 
 - `specs/adapter-architecture.md` — defines what Agency owns vs. what
   adapters may vary
+- `specs/runtime/per-agent-microvm-enforcement.md` — defines the
+  ASK-compliant per-agent workload VM plus external enforcer target
 - `specs/graceful-docker-degradation.md` — current Docker degradation
   semantics, relevant during the transition
 - `specs/runtime/agent-lifecycle.md` — agent lifecycle that backends must

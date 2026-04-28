@@ -6,6 +6,11 @@ Draft. Pre-implementation design note. Companion to
 `specs/runtime/microvm-backends.md` and informed by the validation in
 `agency-workspace/firecracker-spike/`.
 
+Update 2026-04-28: the Firecracker parity target is now per-agent workload
+microVM plus per-agent external enforcer. The enforcer may run as a
+host process or a separate microVM; it must never run inside the agent
+workload VM. See `specs/runtime/per-agent-microvm-enforcement.md`.
+
 ## Purpose
 
 Sketch how a `FirecrackerRuntimeBackend` would slot into Agency's existing
