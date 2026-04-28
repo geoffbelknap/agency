@@ -27,6 +27,7 @@ type Enforcer struct {
 	Version            string
 	SourceDir          string
 	BuildID            string
+	ProxyHostPort      string
 	ConstraintHostPort string
 	LifecycleID        string
 	PrincipalUUID      string

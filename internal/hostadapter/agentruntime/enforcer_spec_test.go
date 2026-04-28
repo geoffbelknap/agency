@@ -32,6 +32,7 @@ func TestBuildEnforcerLaunchSpecCapturesPerAgentBoundary(t *testing.T) {
 		ContainerName:      "agency-alice-enforcer",
 		Home:               home,
 		BuildID:            "build-1",
+		ProxyHostPort:      "19128",
 		ConstraintHostPort: "19081",
 		LifecycleID:        "life-1",
 		PrincipalUUID:      "principal-1",
@@ -43,7 +44,7 @@ func TestBuildEnforcerLaunchSpecCapturesPerAgentBoundary(t *testing.T) {
 	if spec.AgentName != "alice" || spec.ComponentName != "agency-alice-enforcer" || spec.Image != enforcerImage {
 		t.Fatalf("unexpected identity fields: %#v", spec)
 	}
-	if spec.ConstraintHostPort != "19081" || spec.ConstraintPort != EnforcerConstraintPort || spec.ProxyPort != EnforcerProxyPort {
+	if spec.ProxyHostPort != "19128" || spec.ConstraintHostPort != "19081" || spec.ConstraintPort != EnforcerConstraintPort || spec.ProxyPort != EnforcerProxyPort {
 		t.Fatalf("unexpected ports: %#v", spec)
 	}
 	if spec.InternalNetwork != "agency-alice-internal" {
@@ -101,6 +102,63 @@ func TestEnforcerLaunchSpecContainerBinds(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("bind[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestEnforcerLaunchSpecHostProcessEnv(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, "agents", "alice")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "egress-domains.yaml"), []byte("domains: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spec := EnforcerLaunchSpec{
+		AgentName:          "alice",
+		ProxyHostPort:      "19128",
+		ConstraintHostPort: "19081",
+		Env: map[string]string{
+			"HOME":               "/agency/enforcer/data",
+			"COMMS_URL":          "http://agency-infra-comms:8080",
+			"CONSTRAINT_WS_PORT": EnforcerConstraintPort,
+			"SSL_CERT_FILE":      "/etc/ssl/certs/agency-egress-ca.pem",
+		},
+		Mounts: []EnforcerMount{
+			{HostPath: filepath.Join(home, "auth"), GuestPath: "/agency/enforcer/auth", Mode: "ro"},
+			{HostPath: filepath.Join(home, "audit"), GuestPath: "/agency/enforcer/audit", Mode: "rw"},
+			{HostPath: filepath.Join(home, "data"), GuestPath: "/agency/enforcer/data", Mode: "rw"},
+			{HostPath: filepath.Join(home, "routing.yaml"), GuestPath: "/agency/enforcer/routing.yaml", Mode: "ro"},
+			{HostPath: filepath.Join(home, "services"), GuestPath: "/agency/enforcer/services", Mode: "ro"},
+			{HostPath: agentDir, GuestPath: "/agency/agent", Mode: "ro"},
+			{HostPath: filepath.Join(home, "ca.pem"), GuestPath: "/etc/ssl/certs/agency-egress-ca.pem", Mode: "ro"},
+		},
+	}
+	env := spec.HostProcessEnv(map[string]string{
+		"gateway":   "http://127.0.0.1:8200",
+		"comms":     "http://127.0.0.1:8202",
+		"knowledge": "http://127.0.0.1:8204",
+		"web-fetch": "http://127.0.0.1:8206",
+	})
+	for key, want := range map[string]string{
+		"ENFORCER_PORT":       "19128",
+		"CONSTRAINT_WS_PORT":  "19081",
+		"HOME":                filepath.Join(home, "data"),
+		"API_KEYS_FILE":       filepath.Join(home, "auth", "api_keys.yaml"),
+		"ENFORCER_LOG_DIR":    filepath.Join(home, "audit"),
+		"ROUTING_CONFIG":      filepath.Join(home, "routing.yaml"),
+		"SERVICES_DIR":        filepath.Join(home, "services"),
+		"AGENT_DIR":           agentDir,
+		"EGRESS_DOMAINS_FILE": filepath.Join(agentDir, "egress-domains.yaml"),
+		"SSL_CERT_FILE":       filepath.Join(home, "ca.pem"),
+		"GATEWAY_URL":         "http://127.0.0.1:8200",
+		"COMMS_URL":           "http://127.0.0.1:8202",
+		"KNOWLEDGE_URL":       "http://127.0.0.1:8204",
+		"WEB_FETCH_URL":       "http://127.0.0.1:8206",
+	} {
+		if got := env[key]; got != want {
+			t.Fatalf("env[%s] = %q, want %q", key, got, want)
 		}
 	}
 }

@@ -22,6 +22,7 @@ type EnforcerLaunchSpec struct {
 	Image              string
 	Hostname           string
 	InternalNetwork    string
+	ProxyHostPort      string
 	ConstraintHostPort string
 	ConstraintPort     string
 	ProxyPort          string
@@ -94,10 +95,19 @@ func (e *Enforcer) BuildLaunchSpec(ctx context.Context, rotateKey bool) (Enforce
 		env["BUILD_ID"] = e.BuildID
 	}
 
-	hostPort := e.ConstraintHostPort
-	if hostPort == "" {
+	proxyHostPort := e.ProxyHostPort
+	if proxyHostPort == "" {
 		var err error
-		hostPort, err = pickLoopbackPort()
+		proxyHostPort, err = pickLoopbackPort()
+		if err != nil {
+			return EnforcerLaunchSpec{}, fmt.Errorf("allocate enforcer proxy port: %w", err)
+		}
+	}
+
+	constraintHostPort := e.ConstraintHostPort
+	if constraintHostPort == "" {
+		var err error
+		constraintHostPort, err = pickLoopbackPort()
 		if err != nil {
 			return EnforcerLaunchSpec{}, fmt.Errorf("allocate enforcer constraint port: %w", err)
 		}
@@ -132,7 +142,8 @@ func (e *Enforcer) BuildLaunchSpec(ctx context.Context, rotateKey bool) (Enforce
 		Image:              enforcerImage,
 		Hostname:           "enforcer",
 		InternalNetwork:    internalNet,
-		ConstraintHostPort: hostPort,
+		ProxyHostPort:      proxyHostPort,
+		ConstraintHostPort: constraintHostPort,
 		ConstraintPort:     EnforcerConstraintPort,
 		ProxyPort:          EnforcerProxyPort,
 		Env:                env,
@@ -148,6 +159,50 @@ func (s EnforcerLaunchSpec) ContainerBinds() []string {
 		binds = append(binds, mount.HostPath+":"+mount.GuestPath+":"+mount.Mode)
 	}
 	return binds
+}
+
+func (s EnforcerLaunchSpec) HostProcessEnv(serviceURLs map[string]string) map[string]string {
+	env := make(map[string]string, len(s.Env)+12)
+	for key, value := range s.Env {
+		env[key] = value
+	}
+	env["ENFORCER_PORT"] = s.ProxyHostPort
+	env["CONSTRAINT_WS_PORT"] = s.ConstraintHostPort
+	for service, url := range serviceURLs {
+		switch service {
+		case "gateway":
+			env["GATEWAY_URL"] = url
+		case "comms":
+			env["COMMS_URL"] = url
+		case "knowledge":
+			env["KNOWLEDGE_URL"] = url
+		case "web-fetch":
+			env["WEB_FETCH_URL"] = url
+		}
+	}
+	for _, mount := range s.Mounts {
+		switch mount.GuestPath {
+		case "/agency/enforcer/auth":
+			env["API_KEYS_FILE"] = filepath.Join(mount.HostPath, "api_keys.yaml")
+		case "/agency/enforcer/audit":
+			env["ENFORCER_LOG_DIR"] = mount.HostPath
+		case "/agency/enforcer/data":
+			env["HOME"] = mount.HostPath
+		case "/agency/enforcer/routing.yaml":
+			env["ROUTING_CONFIG"] = mount.HostPath
+		case "/agency/enforcer/services":
+			env["SERVICES_DIR"] = mount.HostPath
+		case "/agency/agent":
+			env["AGENT_DIR"] = mount.HostPath
+			domainsFile := filepath.Join(mount.HostPath, "egress-domains.yaml")
+			if fileExists(domainsFile) {
+				env["EGRESS_DOMAINS_FILE"] = domainsFile
+			}
+		case "/etc/ssl/certs/agency-egress-ca.pem":
+			env["SSL_CERT_FILE"] = mount.HostPath
+		}
+	}
+	return env
 }
 
 func (e *Enforcer) backendName() string {
