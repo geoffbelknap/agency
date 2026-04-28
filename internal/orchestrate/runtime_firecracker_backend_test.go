@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -93,14 +95,22 @@ func TestFirecrackerComponentStatusAddsEnforcerComponentDetails(t *testing.T) {
 	}
 }
 
-func TestFirecrackerMicroVMEnforcementModeFailsClosedUntilImplemented(t *testing.T) {
+func TestFirecrackerMicroVMEnforcementModeUsesBackendRuntime(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "agents", "alice"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte("token: gateway-token\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	backend := &firecrackerComponentRuntimeBackend{
 		backend: &hostruntimebackend.FirecrackerRuntimeBackend{
 			EnforcementMode: hostruntimebackend.FirecrackerEnforcementModeMicroVM,
 		},
+		home: home,
 	}
 	err := backend.EnsureEnforcer(context.Background(), runtimecontract.RuntimeSpec{RuntimeID: "alice"}, false)
-	if err == nil || !strings.Contains(err.Error(), "microVM mode is not implemented") {
-		t.Fatalf("EnsureEnforcer error = %v, want microVM mode not implemented", err)
+	if err == nil || !strings.Contains(err.Error(), "kernel path is not configured") {
+		t.Fatalf("EnsureEnforcer error = %v, want backend validation error", err)
 	}
 }

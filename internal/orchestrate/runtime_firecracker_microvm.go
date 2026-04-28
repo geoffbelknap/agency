@@ -30,6 +30,30 @@ type firecrackerEnforcerMicroVMSpec struct {
 	HostServicePorts map[int]string
 }
 
+func (s firecrackerEnforcerMicroVMSpec) RuntimeSpec(parent runtimecontract.RuntimeSpec) runtimecontract.RuntimeSpec {
+	return runtimecontract.RuntimeSpec{
+		RuntimeID: s.RuntimeID,
+		AgentID:   parent.AgentID,
+		Backend:   hostruntimebackend.BackendFirecracker,
+		Package: runtimecontract.RuntimePackageSpec{
+			Image: s.Image,
+			Env:   s.Env,
+		},
+		Transport: runtimecontract.RuntimeTransportSpec{
+			Enforcer: runtimecontract.EnforcerTransportSpec{
+				Type:     runtimecontract.TransportTypeVsockHTTP,
+				Endpoint: "vsock://2:8081",
+				AuthMode: parent.Transport.Enforcer.AuthMode,
+				TokenRef: parent.Transport.Enforcer.TokenRef,
+			},
+		},
+		Storage:   parent.Storage,
+		Lifecycle: parent.Lifecycle,
+		Health:    parent.Health,
+		Revision:  parent.Revision,
+	}
+}
+
 func (b *firecrackerComponentRuntimeBackend) compileEnforcerMicroVMSpec(ctx context.Context, spec runtimecontract.RuntimeSpec, rotateKey bool) (firecrackerEnforcerMicroVMSpec, error) {
 	enforcer := &Enforcer{
 		AgentName:          spec.RuntimeID,

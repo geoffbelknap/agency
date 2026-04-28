@@ -87,6 +87,47 @@ func TestFirecrackerCompileEnforcerMicroVMSpec(t *testing.T) {
 	}
 }
 
+func TestFirecrackerEnforcerMicroVMRuntimeSpec(t *testing.T) {
+	component := firecrackerEnforcerMicroVMSpec{
+		RuntimeID: "alice-enforcer",
+		Image:     enforcerImage,
+		Env: map[string]string{
+			"AGENT_NAME": "alice",
+		},
+	}
+	parent := runtimecontract.RuntimeSpec{
+		RuntimeID: "alice",
+		AgentID:   "principal-1",
+		Revision:  runtimecontract.RuntimeRevisionSpec{InstanceRevision: "rev-1"},
+		Transport: runtimecontract.RuntimeTransportSpec{
+			Enforcer: runtimecontract.EnforcerTransportSpec{
+				AuthMode: "bearer",
+				TokenRef: "/tmp/token",
+			},
+		},
+		Lifecycle: runtimecontract.RuntimeLifecycleSpec{RestartPolicy: "on-failure"},
+	}
+	spec := component.RuntimeSpec(parent)
+	if spec.RuntimeID != "alice-enforcer" || spec.AgentID != "principal-1" {
+		t.Fatalf("runtime identity = %#v", spec)
+	}
+	if spec.Backend != hostruntimebackend.BackendFirecracker {
+		t.Fatalf("backend = %q, want %q", spec.Backend, hostruntimebackend.BackendFirecracker)
+	}
+	if spec.Package.Image != enforcerImage || spec.Package.Env["AGENT_NAME"] != "alice" {
+		t.Fatalf("package = %#v", spec.Package)
+	}
+	if spec.Transport.Enforcer.Type != runtimecontract.TransportTypeVsockHTTP || spec.Transport.Enforcer.Endpoint != "vsock://2:8081" {
+		t.Fatalf("transport = %#v", spec.Transport.Enforcer)
+	}
+	if spec.Transport.Enforcer.AuthMode != "bearer" || spec.Transport.Enforcer.TokenRef != "/tmp/token" {
+		t.Fatalf("auth transport = %#v", spec.Transport.Enforcer)
+	}
+	if spec.Lifecycle.RestartPolicy != "on-failure" || spec.Revision.InstanceRevision != "rev-1" {
+		t.Fatalf("lifecycle/revision = %#v %#v", spec.Lifecycle, spec.Revision)
+	}
+}
+
 func TestFirecrackerComponentRuntimeID(t *testing.T) {
 	if got := firecrackerComponentRuntimeID("alice", firecrackerComponentWorkload); got != "alice" {
 		t.Fatalf("workload runtime id = %q, want alice", got)

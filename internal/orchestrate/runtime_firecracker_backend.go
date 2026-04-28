@@ -39,7 +39,11 @@ func (b *firecrackerComponentRuntimeBackend) Ensure(ctx context.Context, spec ru
 
 func (b *firecrackerComponentRuntimeBackend) EnsureEnforcer(ctx context.Context, spec runtimecontract.RuntimeSpec, rotateKey bool) error {
 	if b.enforcementMode() == hostruntimebackend.FirecrackerEnforcementModeMicroVM {
-		return fmt.Errorf("firecracker enforcer microVM mode is not implemented")
+		enforcerSpec, err := b.compileEnforcerMicroVMSpec(ctx, spec, rotateKey)
+		if err != nil {
+			return err
+		}
+		return b.backend.Ensure(ctx, enforcerSpec.RuntimeSpec(spec))
 	}
 	proxyHostPort := hostPortFromEndpoint(spec.Package.Env[hostruntimebackend.FirecrackerEnforcerProxyTargetEnv])
 	constraintHostPort := hostPortFromEndpoint(spec.Package.Env[hostruntimebackend.FirecrackerEnforcerControlTargetEnv])
@@ -90,6 +94,13 @@ func (b *firecrackerComponentRuntimeBackend) ReloadEnforcer(ctx context.Context,
 
 func (b *firecrackerComponentRuntimeBackend) Stop(ctx context.Context, runtimeID string) error {
 	err := b.backend.Stop(ctx, runtimeID)
+	if b.enforcementMode() == hostruntimebackend.FirecrackerEnforcementModeMicroVM {
+		enforcerErr := b.backend.Stop(ctx, firecrackerComponentRuntimeID(runtimeID, firecrackerComponentEnforcer))
+		if err != nil {
+			return err
+		}
+		return enforcerErr
+	}
 	enforcerErr := b.enforcerSupervisor().Stop(ctx, runtimeID)
 	if err != nil {
 		return err
@@ -117,6 +128,26 @@ func (b *firecrackerComponentRuntimeBackend) applyEnforcerComponentStatus(runtim
 		status.Details = map[string]string{}
 	}
 	status.Details["enforcer_substrate"] = b.enforcementMode()
+	if b.enforcementMode() == hostruntimebackend.FirecrackerEnforcementModeMicroVM {
+		enforcerStatus, enforcerErr := b.backend.Inspect(context.Background(), firecrackerComponentRuntimeID(runtimeID, firecrackerComponentEnforcer))
+		if enforcerErr != nil {
+			status.Details["enforcer_state"] = "stopped"
+			status.Details["enforcer_component_state"] = "stopped"
+		} else {
+			status.Details["enforcer_state"] = enforcerStatus.Details["workload_vm_state"]
+			status.Details["enforcer_component_state"] = enforcerStatus.Details["workload_vm_state"]
+			status.Details["enforcer_pid"] = enforcerStatus.Details["workload_pid"]
+			if enforcerStatus.Details["last_error"] != "" {
+				status.Details["last_error"] = enforcerStatus.Details["last_error"]
+			}
+		}
+		if status.Healthy && status.Details["enforcer_component_state"] != hostruntimebackend.FirecrackerVMRunning {
+			status.Healthy = false
+			status.Phase = runtimecontract.RuntimePhaseDegraded
+			status.Details["last_error"] = "workload VM is running without an enforcer microVM"
+		}
+		return status
+	}
 	enforcerStatus, enforcerErr := b.enforcerSupervisor().Inspect(runtimeID)
 	if enforcerErr != nil {
 		status.Details["enforcer_state"] = "stopped"
@@ -141,8 +172,14 @@ func (b *firecrackerComponentRuntimeBackend) Validate(ctx context.Context, runti
 	if err := b.backend.Validate(ctx, runtimeID); err != nil {
 		return err
 	}
-	if err := b.enforcerSupervisor().HealthCheck(ctx, runtimeID, 10*time.Second); err != nil {
-		return err
+	if b.enforcementMode() == hostruntimebackend.FirecrackerEnforcementModeMicroVM {
+		if err := b.backend.Validate(ctx, firecrackerComponentRuntimeID(runtimeID, firecrackerComponentEnforcer)); err != nil {
+			return err
+		}
+	} else {
+		if err := b.enforcerSupervisor().HealthCheck(ctx, runtimeID, 10*time.Second); err != nil {
+			return err
+		}
 	}
 	connected, err := firecrackerAgentBodyConnected(ctx, b.hostServiceURLs()["comms"], runtimeID)
 	if err != nil {
