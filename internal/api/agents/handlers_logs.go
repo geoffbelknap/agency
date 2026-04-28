@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/geoffbelknap/agency/internal/logs"
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
 func (h *handler) agentLogs(w http.ResponseWriter, r *http.Request) {
@@ -72,11 +73,11 @@ func (h *handler) resultTaskIDs(agentName string) map[string]struct{} {
 		}
 		return ids
 	}
-	if h.deps.DC == nil {
+	if h.deps.Runtime == nil {
 		return ids
 	}
-	containerName := "agency-" + agentName + "-workspace"
-	out, err := h.deps.DC.ExecInContainer(context.Background(), containerName, []string{
+	ref := runtimecontract.InstanceRef{RuntimeID: agentName, Role: runtimecontract.RoleWorkspace}
+	out, err := h.deps.Runtime.Exec(context.Background(), ref, []string{
 		"sh", "-c", "ls -1 /workspace/.results/*.md 2>/dev/null | while read f; do basename \"$f\" .md; done",
 	})
 	if err != nil {

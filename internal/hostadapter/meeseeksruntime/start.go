@@ -33,7 +33,7 @@ type MeeseeksStartSequence struct {
 	Version   string
 	SourceDir string
 	BuildID   string
-	Docker    *runtimehost.Client
+	Container *runtimehost.Client
 	Log       *slog.Logger
 
 	ParentConstraintsPath string
@@ -45,8 +45,8 @@ type MeeseeksStartSequence struct {
 }
 
 func (ms *MeeseeksStartSequence) Run(ctx context.Context) error {
-	if ms.Docker != nil {
-		ms.cli = ms.Docker.RawClient()
+	if ms.Container != nil {
+		ms.cli = ms.Container.RawClient()
 	} else {
 		var err error
 		ms.cli, err = runtimehost.NewRawClient()

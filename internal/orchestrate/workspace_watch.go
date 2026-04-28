@@ -30,7 +30,7 @@ func NewWorkspaceWatcher(alertFn WorkspaceAlertFunc, logger *slog.Logger, suppre
 }
 
 // NewWorkspaceWatcherWithClient creates a watcher using the provided backend client.
-func NewWorkspaceWatcherWithClient(alertFn WorkspaceAlertFunc, logger *slog.Logger, suppress *StopSuppression, dc *runtimehost.DockerHandle) (*WorkspaceWatcher, error) {
+func NewWorkspaceWatcherWithClient(alertFn WorkspaceAlertFunc, logger *slog.Logger, suppress *StopSuppression, dc *runtimehost.BackendHandle) (*WorkspaceWatcher, error) {
 	return NewWorkspaceWatcherWithSource(alertFn, logger, suppress, NewBackendHostStateSource(dc))
 }
 

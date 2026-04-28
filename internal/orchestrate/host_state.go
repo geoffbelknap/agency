@@ -29,10 +29,10 @@ type HostStateSource interface {
 }
 
 type backendHostStateSource struct {
-	backend *runtimehost.DockerHandle
+	backend *runtimehost.BackendHandle
 }
 
-func NewBackendHostStateSource(backend *runtimehost.DockerHandle) HostStateSource {
+func NewBackendHostStateSource(backend *runtimehost.BackendHandle) HostStateSource {
 	if backend == nil {
 		return nil
 	}

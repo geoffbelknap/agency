@@ -30,7 +30,7 @@ type StartSequence struct {
 	SourceDir   string // agency_core/ path for dev-mode image builds
 	BuildID     string // content-aware build ID for staleness detection
 	BackendName string
-	Docker      *runtimehost.DockerHandle
+	Backend     *runtimehost.BackendHandle
 	Comms       comms.Client
 	Log         *slog.Logger
 	KeyRotation bool // Force scoped key rotation (used on restart)
@@ -498,8 +498,8 @@ func (ss *StartSequence) checkCapacity(ctx context.Context) error {
 
 	// Count running workspace containers (agents).
 	var agentCount, meeseeksCount int
-	if ss.Docker != nil {
-		agentCount, meeseeksCount, err = runtimehost.CountRunning(ctx, ss.Docker)
+	if ss.Backend != nil {
+		agentCount, meeseeksCount, err = runtimehost.CountRunning(ctx, ss.Backend)
 		if err != nil {
 			return fmt.Errorf("count running runtimes: %w", err)
 		}
@@ -536,7 +536,7 @@ func (ss *StartSequence) runtimeSupervisor() *RuntimeSupervisor {
 		ss.SourceDir,
 		ss.BuildID,
 		ss.BackendName,
-		ss.Docker,
+		ss.Backend,
 		ss.Comms,
 		ss.Log,
 		ss.CredStore,

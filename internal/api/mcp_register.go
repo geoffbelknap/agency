@@ -427,7 +427,7 @@ func registerAgentTools(reg *MCPToolRegistry) {
 				Home:      d.cfg.Home,
 				Version:   d.cfg.Version,
 				SourceDir: d.cfg.SourceDir,
-				Docker:    d.dc,
+				Backend:   d.dc,
 				Comms:     d.dc,
 				Log:       d.log,
 				CredStore: d.credStore,
@@ -530,7 +530,7 @@ func registerAgentTools(reg *MCPToolRegistry) {
 				Version:     d.cfg.Version,
 				SourceDir:   d.cfg.SourceDir,
 				BuildID:     d.cfg.BuildID,
-				Docker:      d.dc,
+				Backend:     d.dc,
 				Comms:       d.dc,
 				Log:         d.log,
 				KeyRotation: true,
@@ -543,7 +543,7 @@ func registerAgentTools(reg *MCPToolRegistry) {
 					"phase":       phase,
 					"phase_name":  phaseName,
 					"trigger":     "restart",
-					"instance_id": d.containerInstanceID(context.Background(), name, "enforcer"),
+					"instance_id": d.runtimeInstanceID(context.Background(), name, "enforcer"),
 					"build_id":    d.cfg.BuildID,
 				})
 			})
@@ -555,7 +555,7 @@ func registerAgentTools(reg *MCPToolRegistry) {
 			// Re-wire WebSocket client to enforcer after restart.
 			d.registerEnforcerWSClient(name)
 			d.audit.Write(name, "agent_restarted", map[string]interface{}{
-				"instance_id": d.containerInstanceID(context.Background(), name, "workspace"),
+				"instance_id": d.runtimeInstanceID(context.Background(), name, "workspace"),
 				"build_id":    d.cfg.BuildID,
 			})
 

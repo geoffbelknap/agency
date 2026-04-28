@@ -30,7 +30,7 @@ type RuntimeSupervisor struct {
 	BuildID       string
 	BackendName   string
 	BackendConfig map[string]string
-	Docker        *runtimehost.DockerHandle
+	Backend       *runtimehost.BackendHandle
 	Comms         comms.Client
 	Log           *slog.Logger
 	CredStore     *credstore.Store
@@ -57,14 +57,14 @@ type enforcerReloadBackend interface {
 	ReloadEnforcer(ctx context.Context, spec runtimecontract.RuntimeSpec) error
 }
 
-func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string, dc *runtimehost.DockerHandle, comms comms.Client, logger *slog.Logger, credStore *credstore.Store) *RuntimeSupervisor {
+func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string, dc *runtimehost.BackendHandle, comms comms.Client, logger *slog.Logger, credStore *credstore.Store) *RuntimeSupervisor {
 	rs := &RuntimeSupervisor{
 		Home:        home,
 		Version:     version,
 		SourceDir:   sourceDir,
 		BuildID:     buildID,
 		BackendName: normalizeRuntimeBackendName(backendName),
-		Docker:      dc,
+		Backend:     dc,
 		Comms:       comms,
 		Log:         logger,
 		CredStore:   credStore,
@@ -72,14 +72,14 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 	}
 	registerContainerBackend := func(backendName string) {
 		rs.registry.Register(backendName, func() (runtimecontract.Backend, error) {
-			return &hostruntimebackend.DockerRuntimeBackend{
+			return &hostruntimebackend.ContainerRuntimeBackend{
 				BackendName: backendName,
-				Docker:      rs.Docker,
+				Backend:     rs.Backend,
 				EnsureAgentNetwork: func(ctx context.Context, runtimeID string) error {
-					if rs.Docker == nil {
+					if rs.Backend == nil {
 						return fmt.Errorf("%s is not available", backendName)
 					}
-					infra, err := NewInfra(rs.Home, rs.Version, rs.Docker, rs.Log, nil)
+					infra, err := NewInfra(rs.Home, rs.Version, rs.Backend, rs.Log, nil)
 					if err != nil {
 						return err
 					}
@@ -88,10 +88,10 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 					return infra.EnsureAgentNetwork(ctx, fmt.Sprintf("%s-%s-internal", prefix, runtimeID))
 				},
 				EnsureEnforcerFn: func(ctx context.Context, spec runtimecontract.RuntimeSpec, rotateKey bool) error {
-					if rs.Docker == nil {
+					if rs.Backend == nil {
 						return fmt.Errorf("%s is not available", backendName)
 					}
-					sharedCli := rs.Docker.RawClient()
+					sharedCli := rs.Backend.RawClient()
 					enf, err := NewEnforcerWithClient(spec.RuntimeID, rs.Home, rs.Version, rs.Log, nil, sharedCli)
 					if err != nil {
 						return err
@@ -110,10 +110,10 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 					return enf.HealthCheck(ctx, 30*time.Second)
 				},
 				EnsureWorkspaceFn: func(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
-					if rs.Docker == nil {
+					if rs.Backend == nil {
 						return fmt.Errorf("%s is not available", backendName)
 					}
-					sharedCli := rs.Docker.RawClient()
+					sharedCli := rs.Backend.RawClient()
 					ws, err := NewWorkspaceWithClient(spec.RuntimeID, rs.Home, rs.Version, rs.Log, sharedCli)
 					if err != nil {
 						return err

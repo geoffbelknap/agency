@@ -15,6 +15,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
 // CommsClient is the interface for making requests to the comms service.
@@ -26,7 +27,7 @@ type CommsClient interface {
 // SignalSender sends OS signals to named containers.
 // Defined locally per Go convention: interfaces belong where they are consumed.
 type SignalSender interface {
-	SignalContainer(ctx context.Context, containerName, signal string) error
+	Signal(ctx context.Context, ref runtimecontract.InstanceRef, signal string) error
 }
 
 // Deps holds the dependencies required by the missions module.

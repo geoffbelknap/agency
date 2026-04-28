@@ -38,7 +38,7 @@ type runtimeManager interface {
 }
 
 type signalSender interface {
-	SignalContainer(ctx context.Context, containerName, sig string) error
+	SignalRuntimeName(ctx context.Context, name, sig string) error
 }
 
 // RegisterRoutes mounts V2 instance routes onto r.

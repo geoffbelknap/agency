@@ -157,10 +157,10 @@ func TestEnsureAgentDMReturnsErrorWhenGrantFails(t *testing.T) {
 	}
 }
 
-func TestContainerInstanceIDFallsBackWithoutDockerClient(t *testing.T) {
+func TestRuntimeInstanceIDFallsBackWithoutRuntimeInstanceClient(t *testing.T) {
 	h := &handler{}
-	if got := h.containerInstanceID(context.Background(), "henry", "workspace"); got != "henry:workspace" {
-		t.Fatalf("containerInstanceID() = %q, want henry:workspace", got)
+	if got := h.runtimeInstanceID(context.Background(), "henry", "workspace"); got != "henry:workspace" {
+		t.Fatalf("runtimeInstanceID() = %q, want henry:workspace", got)
 	}
 }
 

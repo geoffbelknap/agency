@@ -22,7 +22,7 @@ import (
 
 func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 	backend := h.configuredBackend()
-	if !runtimehost.IsContainerBackend(backend) || h.deps.DC == nil {
+	if !runtimehost.IsContainerBackend(backend) || h.deps.Runtime == nil {
 		limits := models.DefaultPlatformBudgetConfig()
 		store := budget.NewStore(filepath.Join(h.deps.Config.Home, "budget"))
 		infraState, _ := store.Load("_infrastructure")
@@ -44,7 +44,7 @@ func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status, err := h.deps.DC.InfraStatus(r.Context())
+	status, err := h.deps.Runtime.InfraStatus(r.Context())
 	if err != nil {
 		if h.deps.BackendHealth != nil {
 			h.deps.BackendHealth.RecordError(err)
@@ -315,7 +315,7 @@ func (h *handler) infraLogs(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	out, err := h.deps.DC.InfraLogs(ctx, component, tail)
+	out, err := h.deps.Runtime.InfraLogs(ctx, component, tail)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return

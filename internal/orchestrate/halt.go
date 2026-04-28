@@ -37,7 +37,7 @@ var validHaltTypes = map[string]bool{
 type HaltController struct {
 	Home         string
 	Version      string
-	Docker       *runtimehost.DockerHandle
+	Backend      *runtimehost.BackendHandle
 	SourceDir    string
 	BuildID      string
 	BackendName  string
@@ -48,8 +48,8 @@ type HaltController struct {
 	log          *slog.Logger
 }
 
-func NewHaltController(home, version string, dc *runtimehost.DockerHandle, logger *slog.Logger) (*HaltController, error) {
-	return &HaltController{Home: home, Version: version, Docker: dc, log: logger}, nil
+func NewHaltController(home, version string, dc *runtimehost.BackendHandle, logger *slog.Logger) (*HaltController, error) {
+	return &HaltController{Home: home, Version: version, Backend: dc, log: logger}, nil
 }
 
 // Halt stops an agent's containers, records the halt event, and preserves
@@ -82,10 +82,10 @@ func (hc *HaltController) Halt(ctx context.Context, agentName, haltType, reason,
 			return nil, err
 		}
 	} else {
-		if hc.Docker == nil {
+		if hc.Backend == nil {
 			return nil, fmt.Errorf("runtime backend stop is unavailable")
 		}
-		if err := runtimehost.StopRuntime(ctx, hc.Docker, agentName); err != nil {
+		if err := runtimehost.StopRuntime(ctx, hc.Backend, agentName); err != nil {
 			return nil, err
 		}
 	}
@@ -124,10 +124,10 @@ func (hc *HaltController) Resume(ctx context.Context, agentName, initiator strin
 			return fmt.Errorf("agent %s is stopped — use start instead", agentName)
 		}
 	} else {
-		if hc.Docker == nil {
+		if hc.Backend == nil {
 			return fmt.Errorf("agent %s is stopped — use start instead", agentName)
 		}
-		state, err := runtimehost.InspectWorkspaceState(ctx, hc.Docker, agentName)
+		state, err := runtimehost.InspectWorkspaceState(ctx, hc.Backend, agentName)
 		if err == nil && state == runtimehost.RuntimeStateRunning {
 			return fmt.Errorf("agent %s is already running", agentName)
 		}
@@ -155,10 +155,10 @@ func (hc *HaltController) Resume(ctx context.Context, agentName, initiator strin
 			return fmt.Errorf("cleanup existing runtime: %w", err)
 		}
 	} else {
-		if hc.Docker == nil {
+		if hc.Backend == nil {
 			return fmt.Errorf("cleanup existing runtime: runtime backend stop is unavailable")
 		}
-		if err := runtimehost.StopRuntime(ctx, hc.Docker, agentName); err != nil {
+		if err := runtimehost.StopRuntime(ctx, hc.Backend, agentName); err != nil {
 			return fmt.Errorf("cleanup existing runtime: %w", err)
 		}
 	}
@@ -170,7 +170,7 @@ func (hc *HaltController) Resume(ctx context.Context, agentName, initiator strin
 		SourceDir:   hc.SourceDir,
 		BuildID:     hc.BuildID,
 		BackendName: hc.BackendName,
-		Docker:      hc.Docker,
+		Backend:     hc.Backend,
 		Comms:       hc.Comms,
 		Log:         hc.log,
 		CredStore:   hc.CredStore,
@@ -199,13 +199,13 @@ func (hc *HaltController) Status(ctx context.Context, agentName string) string {
 		}
 		return "stopped"
 	}
-	if hc.Docker == nil {
+	if hc.Backend == nil {
 		if activeHaltExists(hc.Home, agentName) {
 			return "halted"
 		}
 		return "stopped"
 	}
-	state, err := runtimehost.InspectWorkspaceState(ctx, hc.Docker, agentName)
+	state, err := runtimehost.InspectWorkspaceState(ctx, hc.Backend, agentName)
 	if err == nil && state == runtimehost.RuntimeStatePaused {
 		return "halted"
 	}

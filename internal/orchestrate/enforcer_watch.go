@@ -33,7 +33,7 @@ func NewEnforcerWatcher(alertFn EnforcerAlertFunc, logger *slog.Logger, suppress
 }
 
 // NewEnforcerWatcherWithClient creates a watcher using the provided backend client.
-func NewEnforcerWatcherWithClient(alertFn EnforcerAlertFunc, logger *slog.Logger, suppress *StopSuppression, dc *runtimehost.DockerHandle) (*EnforcerWatcher, error) {
+func NewEnforcerWatcherWithClient(alertFn EnforcerAlertFunc, logger *slog.Logger, suppress *StopSuppression, dc *runtimehost.BackendHandle) (*EnforcerWatcher, error) {
 	return NewEnforcerWatcherWithSource(alertFn, logger, suppress, NewBackendHostStateSource(dc))
 }
 

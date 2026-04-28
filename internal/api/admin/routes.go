@@ -19,12 +19,13 @@ import (
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 	"github.com/geoffbelknap/agency/internal/profiles"
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
 // SignalSender sends OS signals to named containers.
 // Defined locally per Go convention: interfaces belong where they are consumed.
 type SignalSender interface {
-	SignalContainer(ctx context.Context, containerName, signal string) error
+	Signal(ctx context.Context, ref runtimecontract.InstanceRef, signal string) error
 }
 
 // Deps holds the dependencies required by the admin module.
@@ -37,7 +38,7 @@ type Deps struct {
 	CredStore    *credstore.Store
 	Config       *config.Config
 	Logger       *slog.Logger
-	DC           *runtimehost.Client
+	Runtime      *runtimehost.Client
 	Host         hostadapter.Adapter
 	Signal       SignalSender
 	EventBus     *events.Bus // may be nil

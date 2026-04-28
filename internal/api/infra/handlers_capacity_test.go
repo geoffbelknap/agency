@@ -70,7 +70,7 @@ network_pool_configured: true
 
 	h := &handler{deps: Deps{
 		Config: &config.Config{Home: tmp},
-		// DC is nil — container counts will be 0
+		// Runtime is nil — container counts will be 0
 	}}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/infra/capacity", nil)

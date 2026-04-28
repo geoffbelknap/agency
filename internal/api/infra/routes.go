@@ -22,7 +22,7 @@ import (
 // Deps holds the dependencies required by the infra module.
 type Deps struct {
 	Infra         *orchestrate.Infra
-	DC            *runtimehost.Client
+	Runtime       *runtimehost.Client
 	BackendHealth backendhealth.Recorder // may be nil
 	CredStore     *credstore.Store
 	EventBus      *events.Bus // may be nil
@@ -87,7 +87,7 @@ func (h *handler) containerBackendRequired(w http.ResponseWriter) bool {
 		})
 		return false
 	}
-	if h.deps.DC == nil {
+	if h.deps.Runtime == nil {
 		writeJSON(w, 503, map[string]string{
 			"error": fmt.Sprintf("%s infrastructure client is not initialized.", runtimehost.NormalizeContainerBackend(backend)),
 		})

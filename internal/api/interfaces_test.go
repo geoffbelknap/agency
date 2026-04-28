@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"testing"
+
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
 type mockSignalSender struct {
@@ -11,21 +13,21 @@ type mockSignalSender struct {
 	lastSig  string
 }
 
-func (m *mockSignalSender) SignalContainer(_ context.Context, name, signal string) error {
+func (m *mockSignalSender) Signal(_ context.Context, ref runtimecontract.InstanceRef, signal string) error {
 	m.called = true
-	m.lastName = name
+	m.lastName = ref.RuntimeID + ":" + string(ref.Role)
 	m.lastSig = signal
 	return nil
 }
 
 func TestSignalSender_MockImplementation(t *testing.T) {
 	var s SignalSender = &mockSignalSender{}
-	err := s.SignalContainer(context.Background(), "agent-enforcer", "SIGHUP")
+	err := s.Signal(context.Background(), runtimecontract.InstanceRef{RuntimeID: "agent", Role: runtimecontract.RoleEnforcer}, "SIGHUP")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	mock := s.(*mockSignalSender)
-	if !mock.called || mock.lastName != "agent-enforcer" || mock.lastSig != "SIGHUP" {
+	if !mock.called || mock.lastName != "agent:enforcer" || mock.lastSig != "SIGHUP" {
 		t.Errorf("mock not called correctly: %+v", mock)
 	}
 }

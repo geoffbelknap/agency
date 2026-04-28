@@ -299,10 +299,10 @@ func (h *handler) handleMeeseeksDistress(meeseeksID string, level string, budget
 // countRunningSlots returns the number of running workspace (agent) and
 // meeseeks containers by querying Docker labels.
 func (h *handler) countRunningSlots(ctx context.Context) (agents int, meeseeks int) {
-	if h.deps.RawDocker == nil {
+	if h.deps.RuntimeHost == nil {
 		return 0, 0
 	}
-	cli := h.deps.RawDocker.RawClient()
+	cli := h.deps.RuntimeHost.RawClient()
 
 	agentCtrs, err := cli.ContainerList(ctx, runtimehost.ListOptions{
 		Filters: runtimehost.NewFilterArgs(

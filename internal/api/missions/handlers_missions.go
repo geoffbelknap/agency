@@ -16,6 +16,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/events"
 	"github.com/geoffbelknap/agency/internal/models"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
 // signalMissionReload sends SIGHUP to the agent's enforcer so the body runtime
@@ -31,8 +32,8 @@ func (h *handler) signalMissionReload(agentName string) {
 			}
 			return
 		}
-		enforcerName := fmt.Sprintf("agency-%s-enforcer", agentName)
-		if err := h.deps.Signal.SignalContainer(ctx, enforcerName, "SIGHUP"); err != nil {
+		ref := runtimecontract.InstanceRef{RuntimeID: agentName, Role: runtimecontract.RoleEnforcer}
+		if err := h.deps.Signal.Signal(ctx, ref, "SIGHUP"); err != nil {
 			h.deps.Logger.Warn("failed to signal enforcer for mission reload", "agent", agentName, "err", err)
 		}
 	}()
@@ -658,8 +659,8 @@ func CheckCoordinatorFailover(ctx context.Context, agentName string, d Deps) {
 				}
 				return
 			}
-			enforcerName := fmt.Sprintf("agency-%s-enforcer", coverageName)
-			if err := d.Signal.SignalContainer(sigCtx, enforcerName, "SIGHUP"); err != nil {
+			ref := runtimecontract.InstanceRef{RuntimeID: coverageName, Role: runtimecontract.RoleEnforcer}
+			if err := d.Signal.Signal(sigCtx, ref, "SIGHUP"); err != nil {
 				d.Logger.Warn("failed to signal coverage enforcer", "agent", coverageName, "err", err)
 			}
 		}(coverage)

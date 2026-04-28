@@ -18,20 +18,11 @@ import (
 
 const prefix = "agency"
 
-type RuntimeState string
-
 type ContainerEvent struct {
 	Name     string
 	Action   string
 	ExitCode string
 }
-
-const (
-	RuntimeStateMissing RuntimeState = "missing"
-	RuntimeStateRunning RuntimeState = "running"
-	RuntimeStatePaused  RuntimeState = "paused"
-	RuntimeStateStopped RuntimeState = "stopped"
-)
 
 func CountRunning(ctx context.Context, dc *Client) (agents, meeseeks int, err error) {
 	if dc == nil {

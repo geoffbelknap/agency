@@ -24,7 +24,7 @@ type PodmanAdapter = ContainerAdapter
 type ContainerdAdapter = ContainerAdapter
 type AppleContainerAdapter = ContainerAdapter
 
-func NewDockerAdapter(dc *runtimehost.Client, logger *slog.Logger) *ContainerAdapter {
+func NewContainerAdapter(dc *runtimehost.Client, logger *slog.Logger) *ContainerAdapter {
 	return &ContainerAdapter{dc: dc, logger: logger, backend: runtimehost.BackendDocker}
 }
 
@@ -49,7 +49,7 @@ func NewAdapter(backend string, dc *runtimehost.Client, logger *slog.Logger) Ada
 	case runtimehost.BackendPodman:
 		return NewPodmanAdapter(dc, logger)
 	case "", runtimehost.BackendDocker:
-		return NewDockerAdapter(dc, logger)
+		return NewContainerAdapter(dc, logger)
 	default:
 		return nil
 	}
@@ -127,13 +127,13 @@ func (a *ContainerAdapter) DryRunDeployPack(ctx context.Context, opts DeployOpti
 	if err := a.requireContainerBackend(); err != nil {
 		return nil, err
 	}
-	deployer := &dockerDeployer{
+	deployer := &containerDeployer{
 		BackendName: optsBackendName(a.backend),
 		Home:        opts.Home,
 		Version:     opts.Version,
 		SourceDir:   opts.SourceDir,
 		BuildID:     opts.BuildID,
-		Docker:      a.dc,
+		Container:   a.dc,
 		Logger:      a.logger,
 		Credentials: opts.Credentials,
 		CredStore:   opts.CredStore,
@@ -145,13 +145,13 @@ func (a *ContainerAdapter) DeployPack(ctx context.Context, opts DeployOptions, p
 	if err := a.requireContainerBackend(); err != nil {
 		return nil, err
 	}
-	deployer := &dockerDeployer{
+	deployer := &containerDeployer{
 		BackendName: optsBackendName(a.backend),
 		Home:        opts.Home,
 		Version:     opts.Version,
 		SourceDir:   opts.SourceDir,
 		BuildID:     opts.BuildID,
-		Docker:      a.dc,
+		Container:   a.dc,
 		Logger:      a.logger,
 		Credentials: opts.Credentials,
 		CredStore:   opts.CredStore,
@@ -163,11 +163,11 @@ func (a *ContainerAdapter) TeardownPack(ctx context.Context, opts DeployOptions,
 	if err := a.requireContainerBackend(); err != nil {
 		return err
 	}
-	deployer := &dockerDeployer{
+	deployer := &containerDeployer{
 		BackendName: optsBackendName(a.backend),
 		Home:        opts.Home,
 		Version:     opts.Version,
-		Docker:      a.dc,
+		Container:   a.dc,
 		Logger:      a.logger,
 		CredStore:   opts.CredStore,
 	}

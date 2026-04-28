@@ -21,6 +21,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/models"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
 type recordingCommsClient struct {
@@ -61,9 +62,9 @@ type recordingSignalSender struct {
 	once    sync.Once
 }
 
-func (r *recordingSignalSender) SignalContainer(_ context.Context, containerName, signal string) error {
+func (r *recordingSignalSender) Signal(_ context.Context, ref runtimecontract.InstanceRef, signal string) error {
 	r.mu.Lock()
-	r.signals = append(r.signals, containerName+":"+signal)
+	r.signals = append(r.signals, ref.RuntimeID+":"+string(ref.Role)+":"+signal)
 	r.mu.Unlock()
 	r.once.Do(func() {
 		if r.done != nil {
@@ -237,7 +238,7 @@ func TestCheckCoordinatorFailoverAssignsCoverageAndAlertsOperator(t *testing.T) 
 		t.Fatal("timed out waiting for coverage enforcer signal")
 	}
 	recordedSignals := signals.Signals()
-	if len(recordedSignals) != 1 || recordedSignals[0] != "agency-coverage-agent-enforcer:SIGHUP" {
+	if len(recordedSignals) != 1 || recordedSignals[0] != "coverage-agent:enforcer:SIGHUP" {
 		t.Fatalf("expected coverage enforcer SIGHUP, got %v", recordedSignals)
 	}
 	requests := comms.Requests()

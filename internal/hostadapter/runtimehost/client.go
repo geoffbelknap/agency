@@ -25,6 +25,7 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/comms"
 	"github.com/geoffbelknap/agency/internal/infratier"
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
 type Client struct {
@@ -33,7 +34,7 @@ type Client struct {
 }
 
 type (
-	DockerHandle        = Client
+	BackendHandle       = Client
 	ContainerState      = dockercontainer.Summary
 	ListOptions         = dockercontainer.ListOptions
 	FilterArgs          = dockerfilters.Args
@@ -433,14 +434,27 @@ func (s *Status) RecordError(err error) {
 	if err == nil {
 		return
 	}
-	if isDockerUnavailable(err) {
+	if isContainerBackendUnavailable(err) {
 		s.available.Store(false)
 	}
 }
 
-func isDockerUnavailable(err error) bool {
-	msg := err.Error()
-	patterns := []string{"Cannot connect to the Docker daemon", "connection refused", "no such host", "i/o timeout", "context deadline exceeded", "Docker not responding", "dial unix"}
+func isContainerBackendUnavailable(err error) bool {
+	msg := strings.ToLower(err.Error())
+	patterns := []string{
+		"cannot connect to the docker daemon",
+		"connection refused",
+		"no such host",
+		"i/o timeout",
+		"context deadline exceeded",
+		"docker not responding",
+		"containerd not responding",
+		"nerdctl",
+		"container system status",
+		"dial unix",
+		"executable file not found",
+		"no such file or directory",
+	}
 	for _, p := range patterns {
 		if strings.Contains(msg, p) {
 			return true
@@ -630,15 +644,20 @@ func formatContainerUptime(created int64, state, status string) string {
 	return duration.String()
 }
 
-func (c *Client) ExecInContainer(ctx context.Context, containerName string, cmd []string) (string, error) {
-	return c.cli.Exec(ctx, containerName, "", cmd)
+func (c *Client) Exec(ctx context.Context, ref runtimecontract.InstanceRef, cmd []string) (string, error) {
+	if c == nil || c.cli == nil {
+		return "", fmt.Errorf("runtime backend client unavailable")
+	}
+	instanceName := runtimeContainerNameFor(ref)
+	return c.cli.Exec(ctx, instanceName, "", cmd)
 }
 
-func (c *Client) SignalContainer(ctx context.Context, containerName, signal string) error {
+func (c *Client) Signal(ctx context.Context, ref runtimecontract.InstanceRef, signal string) error {
 	if c == nil || c.cli == nil {
 		return fmt.Errorf("runtime backend client unavailable")
 	}
-	return c.cli.ContainerKill(ctx, containerName, signal)
+	instanceName := runtimeContainerNameFor(ref)
+	return c.cli.ContainerKill(ctx, instanceName, signal)
 }
 
 func (c *Client) CommsRequest(ctx context.Context, method, path string, body interface{}) ([]byte, error) {
@@ -830,7 +849,8 @@ func (c *Client) containerState(ctx context.Context, name string) (string, error
 	return info.State.Status, nil
 }
 
-func (c *Client) ContainerShortID(ctx context.Context, name string) string {
+func (c *Client) ShortID(ctx context.Context, ref runtimecontract.InstanceRef) string {
+	name := runtimeContainerNameFor(ref)
 	info, err := c.cli.ContainerInspect(ctx, name)
 	if err != nil {
 		return ""
@@ -839,6 +859,10 @@ func (c *Client) ContainerShortID(ctx context.Context, name string) string {
 		return info.ID[:12]
 	}
 	return info.ID
+}
+
+func runtimeContainerNameFor(ref runtimecontract.InstanceRef) string {
+	return fmt.Sprintf("%s-%s-%s", prefix, ref.RuntimeID, ref.Role)
 }
 
 func (c *Client) RawClient() *RawClient {

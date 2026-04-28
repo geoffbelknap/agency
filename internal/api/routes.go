@@ -39,6 +39,7 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/registry"
 	"github.com/geoffbelknap/agency/internal/routing"
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 	"github.com/geoffbelknap/agency/internal/ws"
 )
 
@@ -61,7 +62,22 @@ func signalSenderFor(dc *runtimehost.Client) SignalSender {
 	if dc == nil {
 		return noopSignalSender{}
 	}
-	return &DockerSignalSender{RawClient: dc.RawClient()}
+	return dc
+}
+
+type namedRuntimeSignalSender struct {
+	dc *runtimehost.Client
+}
+
+func (s namedRuntimeSignalSender) SignalRuntimeName(ctx context.Context, name, signal string) error {
+	if s.dc == nil || s.dc.RawClient() == nil {
+		return fmt.Errorf("signal sender unavailable")
+	}
+	return s.dc.RawClient().ContainerKill(ctx, name, signal)
+}
+
+func namedSignalSenderFor(dc *runtimehost.Client) namedRuntimeSignalSender {
+	return namedRuntimeSignalSender{dc: dc}
 }
 
 func commsClientFor(dc *runtimehost.Client) interface {
@@ -73,12 +89,12 @@ func commsClientFor(dc *runtimehost.Client) interface {
 	return dc
 }
 
-func dockerExecClientFor(dc *runtimehost.Client) interface {
-	ExecInContainer(ctx context.Context, containerName string, cmd []string) (string, error)
-	ContainerShortID(ctx context.Context, name string) string
+func runtimeExecClientFor(dc *runtimehost.Client) interface {
+	Exec(ctx context.Context, ref runtimecontract.InstanceRef, cmd []string) (string, error)
+	ShortID(ctx context.Context, ref runtimecontract.InstanceRef) string
 } {
 	if dc == nil {
-		return noopDockerExecClient{}
+		return noopRuntimeExecClient{}
 	}
 	return dc
 }
@@ -122,14 +138,14 @@ func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *runtimehost.Clie
 		WSHub:           opts.Hub,
 		Comms:           commsClientFor(dc),
 		Signal:          signalSenderFor(dc),
-		DC:              dockerExecClientFor(dc),
-		RawDocker:       dc,
+		Runtime:         runtimeExecClientFor(dc),
+		RuntimeHost:     dc,
 	})
 
 	// Infra routes on the socket (subset: status + internal LLM only)
 	apiinfra.RegisterRoutes(r, apiinfra.Deps{
 		Infra:         startup.Infra,
-		DC:            dc,
+		Runtime:       dc,
 		BackendHealth: opts.BackendHealth,
 		CredStore:     startup.CredStore,
 		Config:        cfg,
@@ -262,8 +278,8 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *runtimehost.Client, logge
 		WSHub:           opts.Hub,
 		Comms:           commsClientFor(dc),
 		Signal:          signalSenderFor(dc),
-		DC:              dockerExecClientFor(dc),
-		RawDocker:       dc,
+		Runtime:         runtimeExecClientFor(dc),
+		RuntimeHost:     dc,
 	})
 
 	// MCP tools
@@ -315,9 +331,9 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *runtimehost.Client, logge
 		Audit:     startup.Audit,
 		Config:    cfg,
 		Logger:    logger,
-		Signal:    signalSenderFor(dc),
+		Signal:    namedSignalSenderFor(dc),
 		Host:      host,
-		DC:        dc,
+		Runtime:   dc,
 	})
 
 	if experimental {
@@ -333,7 +349,7 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *runtimehost.Client, logge
 			Store:    startup.InstanceStore,
 			Registry: startup.HubRegistry,
 			Logger:   logger,
-			Signal:   signalSenderFor(dc),
+			Signal:   namedSignalSenderFor(dc),
 			EventBus: opts.EventBus,
 		})
 		apiauthz.RegisterRoutes(r, apiauthz.Deps{
@@ -363,7 +379,7 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *runtimehost.Client, logge
 	// Infra, internal LLM, routing, providers, and setup routes (extracted module)
 	apiinfra.RegisterRoutes(r, apiinfra.Deps{
 		Infra:         startup.Infra,
-		DC:            dc,
+		Runtime:       dc,
 		BackendHealth: opts.BackendHealth,
 		CredStore:     startup.CredStore,
 		EventBus:      opts.EventBus,
@@ -382,7 +398,7 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *runtimehost.Client, logge
 		CredStore:    startup.CredStore,
 		Config:       cfg,
 		Logger:       logger,
-		DC:           dc,
+		Runtime:      dc,
 		Host:         host,
 		Signal:       signalSenderFor(dc),
 		EventBus:     opts.EventBus,
@@ -429,13 +445,13 @@ func (d *mcpDeps) unregisterEnforcerWSClient(agentName string) {
 	d.ctxMgr.UnregisterWSClient(agentName)
 }
 
-// containerInstanceID returns the short Docker container ID for a component.
-func (d *mcpDeps) containerInstanceID(ctx context.Context, agentName, component string) string {
+// runtimeInstanceID returns the backend instance identifier for a component.
+func (d *mcpDeps) runtimeInstanceID(ctx context.Context, agentName, component string) string {
 	if d == nil || d.dc == nil {
 		return agentName + ":" + component
 	}
-	containerName := fmt.Sprintf("agency-%s-%s", agentName, component)
-	return d.dc.ContainerShortID(ctx, containerName)
+	ref := runtimecontract.InstanceRef{RuntimeID: agentName, Role: runtimecontract.ComponentRole(component)}
+	return d.dc.ShortID(ctx, ref)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

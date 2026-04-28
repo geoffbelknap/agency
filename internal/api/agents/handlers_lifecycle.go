@@ -17,6 +17,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/events"
 	"github.com/geoffbelknap/agency/internal/models"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
 func (h *handler) listAgents(w http.ResponseWriter, r *http.Request) {
@@ -152,8 +153,8 @@ func (h *handler) listResults(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, results)
 		return
 	}
-	containerName := "agency-" + name + "-workspace"
-	out, err := h.deps.DC.ExecInContainer(r.Context(), containerName, []string{
+	ref := runtimecontract.InstanceRef{RuntimeID: name, Role: runtimecontract.RoleWorkspace}
+	out, err := h.deps.Runtime.Exec(r.Context(), ref, []string{
 		"sh", "-c", "ls -1 /workspace/.results/*.md 2>/dev/null | while read f; do basename \"$f\" .md; done",
 	})
 	if err != nil {
@@ -254,11 +255,11 @@ func (h *handler) readResultArtifact(ctx context.Context, name, taskID string) (
 	if dir, ok := h.hostResultsDir(name); ok {
 		return os.ReadFile(filepath.Join(dir, taskID+".md"))
 	}
-	if h.deps.DC == nil {
-		return nil, fmt.Errorf("container client not initialized")
+	if h.deps.Runtime == nil {
+		return nil, fmt.Errorf("runtime client not initialized")
 	}
-	containerName := "agency-" + name + "-workspace"
-	data, err := h.deps.DC.ExecInContainer(ctx, containerName, []string{
+	ref := runtimecontract.InstanceRef{RuntimeID: name, Role: runtimecontract.RoleWorkspace}
+	data, err := h.deps.Runtime.Exec(ctx, ref, []string{
 		"cat", "/workspace/.results/" + taskID + ".md",
 	})
 	if err != nil {
@@ -391,16 +392,16 @@ func (h *handler) directChannelActive(ctx context.Context, channelName string) b
 	return false
 }
 
-// containerInstanceID returns a backend-specific runtime identifier for audit
+// runtimeInstanceID returns a backend-specific runtime identifier for audit
 // events. For Docker this is the short container ID; for non-Docker backends
 // it falls back to the agent/component identifier so lifecycle events remain
 // attributable without assuming container semantics.
-func (h *handler) containerInstanceID(ctx context.Context, agentName, component string) string {
-	if h.deps.DC == nil {
+func (h *handler) runtimeInstanceID(ctx context.Context, agentName, component string) string {
+	if h.deps.Runtime == nil {
 		return agentName + ":" + component
 	}
-	containerName := fmt.Sprintf("agency-%s-%s", agentName, component)
-	if shortID := h.deps.DC.ContainerShortID(ctx, containerName); shortID != "" {
+	ref := runtimecontract.InstanceRef{RuntimeID: agentName, Role: runtimecontract.ComponentRole(component)}
+	if shortID := h.deps.Runtime.ShortID(ctx, ref); shortID != "" {
 		return shortID
 	}
 	return agentName + ":" + component
@@ -429,7 +430,7 @@ func (h *handler) startAgent(w http.ResponseWriter, r *http.Request) {
 		SourceDir:   h.deps.Config.SourceDir,
 		BuildID:     h.deps.Config.BuildID,
 		BackendName: h.deps.Config.Hub.DeploymentBackend,
-		Docker:      h.deps.RawDocker,
+		Backend:     h.deps.RuntimeHost,
 		Comms:       h.deps.Comms,
 		Log:         h.deps.Logger,
 		CredStore:   h.deps.CredStore,
@@ -458,7 +459,7 @@ func (h *handler) startAgent(w http.ResponseWriter, r *http.Request) {
 			"phase_name":       phaseName,
 			"elapsed_ms":       elapsedMs,
 			"phase_elapsed_ms": phaseElapsedMs,
-			"instance_id":      h.containerInstanceID(r.Context(), name, "enforcer"),
+			"instance_id":      h.runtimeInstanceID(r.Context(), name, "enforcer"),
 			"build_id":         h.deps.Config.BuildID,
 		})
 		if streaming && flusher != nil {
@@ -495,7 +496,7 @@ func (h *handler) startAgent(w http.ResponseWriter, r *http.Request) {
 	h.registerEnforcerWSClient(name)
 
 	h.deps.Audit.Write(name, "agent_started", map[string]interface{}{
-		"instance_id": h.containerInstanceID(r.Context(), name, "workspace"),
+		"instance_id": h.runtimeInstanceID(r.Context(), name, "workspace"),
 		"elapsed_ms":  time.Since(startedAt).Milliseconds(),
 		"build_id":    h.deps.Config.BuildID,
 	})
@@ -554,7 +555,7 @@ func (h *handler) restartAgent(w http.ResponseWriter, r *http.Request) {
 		SourceDir:   h.deps.Config.SourceDir,
 		BuildID:     h.deps.Config.BuildID,
 		BackendName: h.deps.Config.Hub.DeploymentBackend,
-		Docker:      h.deps.RawDocker,
+		Backend:     h.deps.RuntimeHost,
 		Comms:       h.deps.Comms,
 		Log:         h.deps.Logger,
 		KeyRotation: true,
@@ -568,7 +569,7 @@ func (h *handler) restartAgent(w http.ResponseWriter, r *http.Request) {
 			"phase":       phase,
 			"phase_name":  phaseName,
 			"trigger":     "restart",
-			"instance_id": h.containerInstanceID(r.Context(), name, "enforcer"),
+			"instance_id": h.runtimeInstanceID(r.Context(), name, "enforcer"),
 			"build_id":    h.deps.Config.BuildID,
 		})
 	})
@@ -582,7 +583,7 @@ func (h *handler) restartAgent(w http.ResponseWriter, r *http.Request) {
 	h.registerEnforcerWSClient(name)
 
 	h.deps.Audit.Write(name, "agent_restarted", map[string]interface{}{
-		"instance_id": h.containerInstanceID(r.Context(), name, "workspace"),
+		"instance_id": h.runtimeInstanceID(r.Context(), name, "workspace"),
 		"build_id":    h.deps.Config.BuildID,
 	})
 	writeJSON(w, 200, result)
@@ -616,7 +617,7 @@ func (h *handler) haltAgent(w http.ResponseWriter, r *http.Request) {
 		"type":        body.Type,
 		"reason":      body.Reason,
 		"initiator":   body.Initiator,
-		"instance_id": h.containerInstanceID(r.Context(), name, "workspace"),
+		"instance_id": h.runtimeInstanceID(r.Context(), name, "workspace"),
 		"build_id":    h.deps.Config.BuildID,
 	})
 	events.EmitAgentEvent(h.deps.EventBus, "agent_halted", name, map[string]interface{}{

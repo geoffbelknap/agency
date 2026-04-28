@@ -65,6 +65,18 @@ type RuntimeRevisionSpec struct {
 	InstanceRevision string `yaml:"instanceRevision,omitempty" json:"instanceRevision,omitempty"`
 }
 
+type ComponentRole string
+
+const (
+	RoleWorkspace ComponentRole = "workspace"
+	RoleEnforcer  ComponentRole = "enforcer"
+)
+
+type InstanceRef struct {
+	RuntimeID string
+	Role      ComponentRole
+}
+
 type RuntimeStatus struct {
 	RuntimeID       string                 `yaml:"runtimeId" json:"runtimeId"`
 	AgentID         string                 `yaml:"agentId" json:"agentId"`

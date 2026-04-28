@@ -18,11 +18,12 @@ import (
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 	"github.com/geoffbelknap/agency/internal/ws"
 )
 
-// Ensure the host-scoped backend client satisfies DockerClient at compile time.
-var _ DockerClient = (*runtimehost.Client)(nil)
+// Ensure the host-scoped backend client satisfies RuntimeInstanceClient at compile time.
+var _ RuntimeInstanceClient = (*runtimehost.Client)(nil)
 
 // CommsClient is the interface for making requests to the comms service.
 // Defined locally per Go convention: interfaces belong where they are consumed.
@@ -30,17 +31,17 @@ type CommsClient interface {
 	CommsRequest(ctx context.Context, method, path string, body interface{}) ([]byte, error)
 }
 
-// SignalSender sends OS signals to named containers.
+// SignalSender sends OS signals to named runtime instances.
 // Defined locally per Go convention: interfaces belong where they are consumed.
 type SignalSender interface {
-	SignalContainer(ctx context.Context, containerName, signal string) error
+	Signal(ctx context.Context, ref runtimecontract.InstanceRef, signal string) error
 }
 
-// DockerClient provides container exec and ID lookup used by agent handlers.
+// RuntimeInstanceClient provides runtime exec and instance ID lookup used by agent handlers.
 // Defined locally per Go convention: interfaces belong where they are consumed.
-type DockerClient interface {
-	ExecInContainer(ctx context.Context, containerName string, cmd []string) (string, error)
-	ContainerShortID(ctx context.Context, name string) string
+type RuntimeInstanceClient interface {
+	Exec(ctx context.Context, ref runtimecontract.InstanceRef, cmd []string) (string, error)
+	ShortID(ctx context.Context, ref runtimecontract.InstanceRef) string
 }
 
 // Deps holds the dependencies required by the agents module.
@@ -63,10 +64,10 @@ type Deps struct {
 	WSHub           *ws.Hub                    // may be nil
 	Comms           CommsClient
 	Signal          SignalSender
-	DC              DockerClient
-	// RawDocker is required for StartSequence (container orchestration).
+	Runtime         RuntimeInstanceClient
+	// RuntimeHost is required for StartSequence backend orchestration.
 	// It is used only by start/restart handlers.
-	RawDocker *runtimehost.Client
+	RuntimeHost *runtimehost.Client
 }
 
 type handler struct {

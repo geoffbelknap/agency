@@ -34,8 +34,8 @@ func (h *handler) infraCapacity(w http.ResponseWriter, r *http.Request) {
 
 	var runningAgents, runningMeeseeks int
 
-	if h.deps.DC != nil {
-		if raw := h.deps.DC.RawClient(); raw != nil {
+	if h.deps.Runtime != nil {
+		if raw := h.deps.Runtime.RawClient(); raw != nil {
 			ctx := r.Context()
 
 			agentContainers, err := raw.ContainerList(ctx, runtimehost.ListOptions{

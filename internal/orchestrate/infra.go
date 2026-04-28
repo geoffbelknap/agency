@@ -85,7 +85,7 @@ type Infra struct {
 	EgressToken  string // scoped token for egress credential resolution
 	Registry     *registry.Registry
 	Optimizer    *routing.RoutingOptimizer
-	Docker       *runtimehost.DockerHandle
+	Backend      *runtimehost.BackendHandle
 	Comms        comms.Client
 	cli          *runtimehost.RawClient
 	log          *slog.Logger
@@ -93,7 +93,7 @@ type Infra struct {
 }
 
 // NewInfra creates a new infrastructure manager.
-func NewInfra(home, version string, dc *runtimehost.DockerHandle, logger *slog.Logger, hmacKey []byte) (*Infra, error) {
+func NewInfra(home, version string, dc *runtimehost.BackendHandle, logger *slog.Logger, hmacKey []byte) (*Infra, error) {
 	var cli *runtimehost.RawClient
 	if dc != nil {
 		cli = dc.RawClient()
@@ -114,7 +114,7 @@ func NewInfra(home, version string, dc *runtimehost.DockerHandle, logger *slog.L
 		Home:     home,
 		Instance: infraInstanceName(),
 		Version:  version,
-		Docker:   dc,
+		Backend:  dc,
 		Registry: reg,
 		Comms:    dc,
 		cli:      cli,
@@ -921,8 +921,8 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 }
 
 func (inf *Infra) backendName() string {
-	if inf.Docker != nil {
-		return inf.Docker.Backend()
+	if inf.Backend != nil {
+		return inf.Backend.Backend()
 	}
 	if inf.cli != nil {
 		return inf.cli.Backend()
