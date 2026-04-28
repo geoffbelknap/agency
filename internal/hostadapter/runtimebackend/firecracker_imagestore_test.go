@@ -118,9 +118,47 @@ func TestFirecrackerImageStorePrepareTaskRootFSCopiesBase(t *testing.T) {
 	}
 }
 
+func TestFirecrackerImageStorePrepareTaskRootFSInjectsEnv(t *testing.T) {
+	stateDir := t.TempDir()
+	commands := &fakeFirecrackerImageCommands{
+		outputs: map[string][]byte{
+			"podman image inspect --format {{.Digest}} agency-body:latest":                                      []byte("sha256:abc123\n"),
+			"podman image inspect --format {{json .Config.Entrypoint}}|{{json .Config.Cmd}} agency-body:latest": []byte("null|[\"/app/entrypoint.sh\"]\n"),
+			"podman create agency-body:latest":                                                                  []byte("source-id\n"),
+		},
+	}
+	store := &FirecrackerImageStore{StateDir: stateDir, commands: commands}
+	rootfs, err := store.PrepareTaskRootFS(context.Background(), runtimecontract.RuntimeSpec{
+		RuntimeID: "alice",
+		Package: runtimecontract.RuntimePackageSpec{
+			Image: "agency-body:latest",
+			Env: map[string]string{
+				"AGENCY_AGENT_NAME": "alice",
+				"invalid-key":       "ignored",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PrepareTaskRootFS returned error: %v", err)
+	}
+	if rootfs.BasePath != "" {
+		t.Fatalf("base path = %q, want empty for env-injected task rootfs", rootfs.BasePath)
+	}
+	if rootfs.Path != filepath.Join(stateDir, "tasks", "alice", "rootfs.ext4") {
+		t.Fatalf("task path = %q", rootfs.Path)
+	}
+	if !commands.exported["source-id"] {
+		t.Fatal("expected image filesystem export for env-injected task rootfs")
+	}
+}
+
 func TestWriteFirecrackerInitExecsOCICommand(t *testing.T) {
 	stageDir := t.TempDir()
-	if err := writeFirecrackerInit(stageDir, []string{"/bin/sh", "-c", "echo 'hello'"}); err != nil {
+	if err := writeFirecrackerInit(stageDir, []string{"/bin/sh", "-c", "echo 'hello'"}, map[string]string{
+		"AGENCY_AGENT_NAME": "alice",
+		"PATH":              "/usr/local/bin:/usr/bin",
+		"invalid-key":       "ignored",
+	}); err != nil {
 		t.Fatalf("writeFirecrackerInit returned error: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(stageDir, strings.TrimPrefix(firecrackerInitPath, "/")))
@@ -129,6 +167,8 @@ func TestWriteFirecrackerInitExecsOCICommand(t *testing.T) {
 	}
 	text := string(data)
 	for _, want := range []string{
+		`export AGENCY_AGENT_NAME='alice'`,
+		`export PATH='/usr/local/bin:/usr/bin'`,
 		"/usr/local/bin/agency-vsock-http-bridge &",
 		`set -- '/bin/sh' '-c' 'echo '"'"'hello'"'"''`,
 		`exec "$@"`,
@@ -136,6 +176,9 @@ func TestWriteFirecrackerInitExecsOCICommand(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("init missing %q:\n%s", want, text)
 		}
+	}
+	if strings.Contains(text, "invalid-key") {
+		t.Fatalf("init exported invalid env key:\n%s", text)
 	}
 }
 

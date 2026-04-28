@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
@@ -48,15 +49,25 @@ func (s *FirecrackerImageStore) PrepareTaskRootFS(ctx context.Context, spec runt
 	if strings.TrimSpace(spec.RuntimeID) == "" {
 		return FirecrackerRootFS{}, fmt.Errorf("firecracker image store: runtime id is required")
 	}
-	rootfs, err := s.Realize(ctx, spec.Package.Image)
-	if err != nil {
-		return FirecrackerRootFS{}, err
-	}
 	taskDir := filepath.Join(s.stateDir(), "tasks", spec.RuntimeID)
 	if err := os.MkdirAll(taskDir, 0o755); err != nil {
 		return FirecrackerRootFS{}, fmt.Errorf("create firecracker task rootfs dir: %w", err)
 	}
 	taskPath := filepath.Join(taskDir, "rootfs.ext4")
+	if len(spec.Package.Env) > 0 {
+		digest, err := s.resolveImageDigest(ctx, spec.Package.Image)
+		if err != nil {
+			return FirecrackerRootFS{}, err
+		}
+		if err := s.buildRootFS(ctx, spec.Package.Image, taskPath, spec.Package.Env); err != nil {
+			return FirecrackerRootFS{}, err
+		}
+		return FirecrackerRootFS{ImageRef: spec.Package.Image, Digest: digest, Path: taskPath, InitPath: firecrackerInitPath}, nil
+	}
+	rootfs, err := s.Realize(ctx, spec.Package.Image)
+	if err != nil {
+		return FirecrackerRootFS{}, err
+	}
 	if err := copyFile(rootfs.BasePath, taskPath); err != nil {
 		return FirecrackerRootFS{}, fmt.Errorf("copy firecracker task rootfs: %w", err)
 	}
@@ -81,7 +92,7 @@ func (s *FirecrackerImageStore) Realize(ctx context.Context, imageRef string) (F
 	if info, err := os.Stat(basePath); err == nil && info.Size() > 0 {
 		return FirecrackerRootFS{ImageRef: imageRef, Digest: digest, BasePath: basePath, Path: basePath, InitPath: firecrackerInitPath}, nil
 	}
-	if err := s.buildRootFS(ctx, imageRef, basePath); err != nil {
+	if err := s.buildRootFS(ctx, imageRef, basePath, nil); err != nil {
 		return FirecrackerRootFS{}, err
 	}
 	return FirecrackerRootFS{ImageRef: imageRef, Digest: digest, BasePath: basePath, Path: basePath, InitPath: firecrackerInitPath}, nil
@@ -115,7 +126,7 @@ func (s *FirecrackerImageStore) inspectDigest(ctx context.Context, imageRef, for
 	return strings.TrimSpace(string(out)), nil
 }
 
-func (s *FirecrackerImageStore) buildRootFS(ctx context.Context, imageRef, outPath string) error {
+func (s *FirecrackerImageStore) buildRootFS(ctx context.Context, imageRef, outPath string, env map[string]string) error {
 	tmpDir, err := os.MkdirTemp(filepath.Join(s.stateDir(), "tmp"), "rootfs-*")
 	if err != nil {
 		if mkErr := os.MkdirAll(filepath.Join(s.stateDir(), "tmp"), 0o755); mkErr != nil {
@@ -149,7 +160,7 @@ func (s *FirecrackerImageStore) buildRootFS(ctx context.Context, imageRef, outPa
 	if err != nil {
 		return err
 	}
-	if err := writeFirecrackerInit(stageDir, command); err != nil {
+	if err := writeFirecrackerInit(stageDir, command, env); err != nil {
 		return err
 	}
 	if err := installFirecrackerVsockBridge(stageDir, s.VsockBridgeBinary); err != nil {
@@ -207,7 +218,7 @@ func parseOCICommandPart(raw string) ([]string, error) {
 	return []string{"/bin/sh", "-c", shell}, nil
 }
 
-func writeFirecrackerInit(stageDir string, command []string) error {
+func writeFirecrackerInit(stageDir string, command []string, env map[string]string) error {
 	path := filepath.Join(stageDir, strings.TrimPrefix(firecrackerInitPath, "/"))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create firecracker init dir: %w", err)
@@ -220,11 +231,54 @@ func writeFirecrackerInit(stageDir string, command []string) error {
 		}
 		commandLine = "set -- " + strings.Join(quoted, " ") + "\n"
 	}
-	script := "#!/bin/sh\nset -eu\nmount -t proc proc /proc || true\nmount -t sysfs sysfs /sys || true\nif [ -x /usr/local/bin/agency-vsock-http-bridge ]; then\n  /usr/local/bin/agency-vsock-http-bridge &\nfi\n" + commandLine + "if [ \"$#\" -gt 0 ]; then\n  exec \"$@\"\nfi\nexec /bin/sh\n"
+	envLines := firecrackerInitEnvLines(env)
+	script := "#!/bin/sh\nset -eu\nmount -t proc proc /proc || true\nmount -t sysfs sysfs /sys || true\n" + envLines + "if [ -x /usr/local/bin/agency-vsock-http-bridge ]; then\n  /usr/local/bin/agency-vsock-http-bridge &\nfi\n" + commandLine + "if [ \"$#\" -gt 0 ]; then\n  exec \"$@\"\nfi\nexec /bin/sh\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		return fmt.Errorf("write firecracker init: %w", err)
 	}
 	return nil
+}
+
+func firecrackerInitEnvLines(env map[string]string) string {
+	if len(env) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		if validShellEnvName(key) {
+			keys = append(keys, key)
+		}
+	}
+	if len(keys) == 0 {
+		return ""
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, key := range keys {
+		b.WriteString("export ")
+		b.WriteString(key)
+		b.WriteString("=")
+		b.WriteString(shellQuote(env[key]))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func validShellEnvName(key string) bool {
+	if key == "" {
+		return false
+	}
+	for i, r := range key {
+		switch {
+		case r == '_':
+		case r >= 'A' && r <= 'Z':
+		case r >= 'a' && r <= 'z' && i > 0:
+		case r >= '0' && r <= '9' && i > 0:
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func shellQuote(value string) string {
