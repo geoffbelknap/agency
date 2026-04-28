@@ -18,10 +18,11 @@ const (
 )
 
 type FirecrackerImageStore struct {
-	StateDir   string
-	PodmanPath string
-	Mke2fsPath string
-	SizeMiB    int64
+	StateDir          string
+	PodmanPath        string
+	Mke2fsPath        string
+	SizeMiB           int64
+	VsockBridgeBinary string
 
 	commands firecrackerImageCommands
 }
@@ -146,6 +147,9 @@ func (s *FirecrackerImageStore) buildRootFS(ctx context.Context, imageRef, outPa
 	if err := writeFirecrackerInit(stageDir); err != nil {
 		return err
 	}
+	if err := installFirecrackerVsockBridge(stageDir, s.VsockBridgeBinary); err != nil {
+		return err
+	}
 	tmpImage := filepath.Join(tmpDir, "rootfs.ext4")
 	if err := s.commandRunner().Run(ctx, "truncate", "-s", fmt.Sprintf("%dM", s.sizeMiB()), tmpImage); err != nil {
 		return fmt.Errorf("allocate firecracker rootfs image: %w", err)
@@ -164,9 +168,27 @@ func writeFirecrackerInit(stageDir string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create firecracker init dir: %w", err)
 	}
-	script := "#!/bin/sh\nset -eu\nmount -t proc proc /proc || true\nmount -t sysfs sysfs /sys || true\nexec \"$@\"\n"
+	script := "#!/bin/sh\nset -eu\nmount -t proc proc /proc || true\nmount -t sysfs sysfs /sys || true\nif [ -x /usr/local/bin/agency-vsock-http-bridge ]; then\n  /usr/local/bin/agency-vsock-http-bridge &\nfi\nif [ \"$#\" -gt 0 ]; then\n  exec \"$@\"\nfi\nexec /bin/sh\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		return fmt.Errorf("write firecracker init: %w", err)
+	}
+	return nil
+}
+
+func installFirecrackerVsockBridge(stageDir, binaryPath string) error {
+	binaryPath = strings.TrimSpace(binaryPath)
+	if binaryPath == "" {
+		return nil
+	}
+	target := filepath.Join(stageDir, "usr", "local", "bin", "agency-vsock-http-bridge")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return fmt.Errorf("create firecracker vsock bridge dir: %w", err)
+	}
+	if err := copyFile(binaryPath, target); err != nil {
+		return fmt.Errorf("install firecracker vsock bridge: %w", err)
+	}
+	if err := os.Chmod(target, 0o755); err != nil {
+		return fmt.Errorf("chmod firecracker vsock bridge: %w", err)
 	}
 	return nil
 }

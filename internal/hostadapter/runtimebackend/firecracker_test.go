@@ -32,12 +32,13 @@ func TestFirecrackerRuntimeBackendSkeleton(t *testing.T) {
 func TestNewFirecrackerRuntimeBackendUsesConfig(t *testing.T) {
 	home := t.TempDir()
 	backend := NewFirecrackerRuntimeBackend(home, map[string]string{
-		"binary_path":      "/usr/local/bin/firecracker",
-		"kernel_path":      "/var/lib/agency/vmlinux",
-		"state_dir":        filepath.Join(home, "fc-state"),
-		"rootfs_size_mib":  "2048",
-		"stop_timeout":     "250ms",
-		"enforcement_mode": FirecrackerEnforcementModeMicroVM,
+		"binary_path":              "/usr/local/bin/firecracker",
+		"kernel_path":              "/var/lib/agency/vmlinux",
+		"state_dir":                filepath.Join(home, "fc-state"),
+		"rootfs_size_mib":          "2048",
+		"stop_timeout":             "250ms",
+		"enforcement_mode":         FirecrackerEnforcementModeMicroVM,
+		"vsock_bridge_binary_path": "/usr/local/bin/agency-vsock-http-bridge",
 	})
 	if backend.BinaryPath != "/usr/local/bin/firecracker" {
 		t.Fatalf("binary path = %q", backend.BinaryPath)
@@ -50,6 +51,9 @@ func TestNewFirecrackerRuntimeBackendUsesConfig(t *testing.T) {
 	}
 	if backend.Images.SizeMiB != 2048 {
 		t.Fatalf("rootfs size = %d", backend.Images.SizeMiB)
+	}
+	if backend.Images.VsockBridgeBinary != "/usr/local/bin/agency-vsock-http-bridge" {
+		t.Fatalf("vsock bridge binary = %q", backend.Images.VsockBridgeBinary)
 	}
 	if backend.Tasks.StopTimeout.String() != "250ms" {
 		t.Fatalf("stop timeout = %s", backend.Tasks.StopTimeout)

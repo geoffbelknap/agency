@@ -54,10 +54,11 @@ func NewFirecrackerRuntimeBackend(home string, cfg map[string]string) *Firecrack
 		configErr:       modeErr,
 	}
 	backend.Images = &FirecrackerImageStore{
-		StateDir:   stateDir,
-		PodmanPath: strings.TrimSpace(cfg["podman_path"]),
-		Mke2fsPath: strings.TrimSpace(cfg["mke2fs_path"]),
-		SizeMiB:    parseInt64Config(cfg["rootfs_size_mib"], defaultFirecrackerRootFSMiB),
+		StateDir:          stateDir,
+		PodmanPath:        strings.TrimSpace(cfg["podman_path"]),
+		Mke2fsPath:        strings.TrimSpace(cfg["mke2fs_path"]),
+		SizeMiB:           parseInt64Config(cfg["rootfs_size_mib"], defaultFirecrackerRootFSMiB),
+		VsockBridgeBinary: strings.TrimSpace(cfg["vsock_bridge_binary_path"]),
 	}
 	backend.Tasks = &FirecrackerVMSupervisor{
 		BinaryPath:  binaryPath,

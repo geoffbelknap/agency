@@ -115,6 +115,33 @@ func TestFirecrackerImageStorePrepareTaskRootFSCopiesBase(t *testing.T) {
 	}
 }
 
+func TestInstallFirecrackerVsockBridge(t *testing.T) {
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "bridge")
+	if err := os.WriteFile(binary, []byte("bridge"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stageDir := filepath.Join(dir, "stage")
+	if err := installFirecrackerVsockBridge(stageDir, binary); err != nil {
+		t.Fatalf("installFirecrackerVsockBridge returned error: %v", err)
+	}
+	target := filepath.Join(stageDir, "usr", "local", "bin", "agency-vsock-http-bridge")
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read installed bridge: %v", err)
+	}
+	if string(data) != "bridge" {
+		t.Fatalf("installed bridge = %q", string(data))
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o755 {
+		t.Fatalf("bridge mode = %v, want 0755", info.Mode().Perm())
+	}
+}
+
 func TestSanitizeFirecrackerDigest(t *testing.T) {
 	if got := sanitizeFirecrackerDigest("registry.example/agent@sha256:abc"); got != "registry.example-agent-sha256-abc" {
 		t.Fatalf("sanitizeFirecrackerDigest() = %q", got)
