@@ -134,13 +134,15 @@ func (b *FirecrackerRuntimeBackend) Inspect(ctx context.Context, runtimeID strin
 	out := runtimecontract.BackendStatus{
 		RuntimeID: runtimeID,
 		Details: map[string]string{
-			"vm_state":         status.State,
-			"pid":              strconv.Itoa(status.PID),
-			"exit_code":        strconv.Itoa(status.ExitCode),
-			"crashes":          strconv.Itoa(status.Crashes),
-			"restarts":         strconv.Itoa(status.Restarts),
-			"enforcement_mode": b.enforcementMode(),
-			"log_path":         status.LogPath,
+			"vm_state":          status.State,
+			"workload_vm_state": status.State,
+			"pid":               strconv.Itoa(status.PID),
+			"workload_pid":      strconv.Itoa(status.PID),
+			"exit_code":         strconv.Itoa(status.ExitCode),
+			"crashes":           strconv.Itoa(status.Crashes),
+			"restarts":          strconv.Itoa(status.Restarts),
+			"enforcement_mode":  b.enforcementMode(),
+			"log_path":          status.LogPath,
 		},
 	}
 	out.Details["vsock_bridge_state"] = firecrackerVsockBridgeState(b.vsockFactory().Bridge(runtimeID))

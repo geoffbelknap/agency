@@ -71,6 +71,28 @@ func TestFirecrackerComponentBodyReadinessDegradesStatus(t *testing.T) {
 	}
 }
 
+func TestFirecrackerComponentStatusAddsEnforcerComponentDetails(t *testing.T) {
+	backend := &firecrackerComponentRuntimeBackend{
+		backend: &hostruntimebackend.FirecrackerRuntimeBackend{},
+	}
+	status := runtimecontract.BackendStatus{
+		RuntimeID: "alice",
+		Healthy:   true,
+		Phase:     runtimecontract.RuntimePhaseRunning,
+		Details:   map[string]string{},
+	}
+	status = backend.applyEnforcerComponentStatus("alice", status)
+	if status.Details["enforcer_substrate"] != hostruntimebackend.FirecrackerEnforcementModeHostProcess {
+		t.Fatalf("enforcer_substrate = %q", status.Details["enforcer_substrate"])
+	}
+	if status.Details["enforcer_state"] != "stopped" || status.Details["enforcer_component_state"] != "stopped" {
+		t.Fatalf("enforcer status details = %#v", status.Details)
+	}
+	if status.Phase != runtimecontract.RuntimePhaseDegraded {
+		t.Fatalf("phase = %q, want degraded", status.Phase)
+	}
+}
+
 func TestFirecrackerMicroVMEnforcementModeFailsClosedUntilImplemented(t *testing.T) {
 	backend := &firecrackerComponentRuntimeBackend{
 		backend: &hostruntimebackend.FirecrackerRuntimeBackend{

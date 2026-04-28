@@ -105,11 +105,25 @@ func (b *firecrackerComponentRuntimeBackend) Inspect(ctx context.Context, runtim
 	if status.Details == nil {
 		status.Details = map[string]string{}
 	}
+	status = b.applyEnforcerComponentStatus(runtimeID, status)
+	if status.Healthy {
+		status = b.applyBodyReadiness(ctx, runtimeID, status)
+	}
+	return status, nil
+}
+
+func (b *firecrackerComponentRuntimeBackend) applyEnforcerComponentStatus(runtimeID string, status runtimecontract.BackendStatus) runtimecontract.BackendStatus {
+	if status.Details == nil {
+		status.Details = map[string]string{}
+	}
+	status.Details["enforcer_substrate"] = b.enforcementMode()
 	enforcerStatus, enforcerErr := b.enforcerSupervisor().Inspect(runtimeID)
 	if enforcerErr != nil {
 		status.Details["enforcer_state"] = "stopped"
+		status.Details["enforcer_component_state"] = "stopped"
 	} else {
 		status.Details["enforcer_state"] = enforcerStatus.State
+		status.Details["enforcer_component_state"] = enforcerStatus.State
 		status.Details["enforcer_pid"] = fmt.Sprintf("%d", enforcerStatus.PID)
 		if enforcerStatus.LastError != "" {
 			status.Details["last_error"] = enforcerStatus.LastError
@@ -120,10 +134,7 @@ func (b *firecrackerComponentRuntimeBackend) Inspect(ctx context.Context, runtim
 		status.Phase = runtimecontract.RuntimePhaseDegraded
 		status.Details["last_error"] = "workload VM is running without an enforcer"
 	}
-	if status.Healthy {
-		status = b.applyBodyReadiness(ctx, runtimeID, status)
-	}
-	return status, nil
+	return status
 }
 
 func (b *firecrackerComponentRuntimeBackend) Validate(ctx context.Context, runtimeID string) error {

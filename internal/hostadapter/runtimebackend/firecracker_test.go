@@ -217,6 +217,12 @@ func TestFirecrackerRuntimeBackendInspectDegradesWhenBridgeMissing(t *testing.T)
 	if status.Details["vsock_bridge_state"] != "stopped" {
 		t.Fatalf("vsock bridge state = %q", status.Details["vsock_bridge_state"])
 	}
+	if status.Details["workload_vm_state"] != FirecrackerVMRunning {
+		t.Fatalf("workload_vm_state = %q, want %q", status.Details["workload_vm_state"], FirecrackerVMRunning)
+	}
+	if status.Details["workload_pid"] == "" || status.Details["workload_pid"] == "0" {
+		t.Fatalf("workload_pid = %q, want running process id", status.Details["workload_pid"])
+	}
 	if status.Details["last_error"] != "vsock bridge is not running" {
 		t.Fatalf("last error = %q", status.Details["last_error"])
 	}
