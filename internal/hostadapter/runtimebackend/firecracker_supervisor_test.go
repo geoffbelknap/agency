@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -40,6 +42,34 @@ func TestFirecrackerVMSupervisorStopEscalatesToKillProcessGroup(t *testing.T) {
 	}
 	if status.Duration <= 0 {
 		t.Fatalf("duration = %s, want > 0", status.Duration)
+	}
+}
+
+func TestFirecrackerVMSupervisorStopCleansPersistedProcess(t *testing.T) {
+	dir := t.TempDir()
+	cmd := exec.Command("/bin/sh", "-c", "trap '' TERM; sleep 30")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_ = cmd.Wait()
+	})
+
+	s := &FirecrackerVMSupervisor{
+		BinaryPath:  "/bin/sh",
+		PIDDir:      dir,
+		StopTimeout: 50 * time.Millisecond,
+	}
+	if err := s.writePID("alice", cmd.Process.Pid); err != nil {
+		t.Fatalf("writePID returned error: %v", err)
+	}
+	if err := s.Stop(context.Background(), "alice"); err != nil {
+		t.Fatalf("Stop returned error: %v", err)
+	}
+	if _, err := os.Stat(s.pidPath("alice")); !os.IsNotExist(err) {
+		t.Fatalf("expected persisted pid to be removed, err=%v", err)
 	}
 }
 
