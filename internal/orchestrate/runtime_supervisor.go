@@ -15,6 +15,7 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/comms"
 	"github.com/geoffbelknap/agency/internal/credstore"
+	"github.com/geoffbelknap/agency/internal/features"
 	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	runtimebackend "github.com/geoffbelknap/agency/internal/runtime/backend"
@@ -135,6 +136,11 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 	registerContainerBackend(runtimehost.BackendPodman)
 	registerContainerBackend(runtimehost.BackendContainerd)
 	registerContainerBackend(runtimehost.BackendAppleContainer)
+	if features.Enabled(features.Firecracker) {
+		rs.registry.Register(hostruntimebackend.BackendFirecracker, func() (runtimecontract.Backend, error) {
+			return &hostruntimebackend.FirecrackerRuntimeBackend{}, nil
+		})
+	}
 	rs.registry.Register(probeRuntimeBackendName, func() (runtimecontract.Backend, error) {
 		return &probeRuntimeBackend{home: rs.Home}, nil
 	})

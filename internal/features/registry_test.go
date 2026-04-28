@@ -19,6 +19,9 @@ func TestExperimentalFeatureEnabledWithFlag(t *testing.T) {
 	if !Enabled(Missions) {
 		t.Fatal("missions should be enabled with experimental flag")
 	}
+	if !Enabled(Firecracker) {
+		t.Fatal("firecracker should be enabled with experimental flag")
+	}
 }
 
 func TestInternalFeatureDisabledEvenWithExperimentalFlag(t *testing.T) {

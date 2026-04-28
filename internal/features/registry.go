@@ -35,6 +35,7 @@ const (
 	GraphAdmin       = "graph_admin"
 	Relay            = "relay"
 	WebFetch         = "web_fetch"
+	Firecracker      = "firecracker"
 	Embeddings       = "embeddings"
 	Cache            = "cache"
 )
@@ -64,6 +65,7 @@ var registry = map[string]Feature{
 	GraphAdmin:       {ID: GraphAdmin, Tier: TierCore},
 	Relay:            {ID: Relay, Tier: TierExperimental},
 	WebFetch:         {ID: WebFetch, Tier: TierExperimental},
+	Firecracker:      {ID: Firecracker, Tier: TierExperimental},
 	Embeddings:       {ID: Embeddings, Tier: TierInternal},
 	Cache:            {ID: Cache, Tier: TierInternal},
 }

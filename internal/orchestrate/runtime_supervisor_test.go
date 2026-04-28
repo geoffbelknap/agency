@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/geoffbelknap/agency/internal/features"
+	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
@@ -240,7 +242,7 @@ func TestRuntimeSupervisorResolveModelPrefersConfiguredStandardTier(t *testing.T
 	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("uuid: ag_123\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-writeRuntimeRoutingFile(t, home, `models:
+	writeRuntimeRoutingFile(t, home, `models:
   provider-b-standard:
     provider: provider-b
     provider_model: provider-b-model-v1
@@ -504,5 +506,23 @@ func TestRuntimeSupervisorCompilePodmanBackend(t *testing.T) {
 	}
 	if spec.Backend != runtimehost.BackendPodman {
 		t.Fatalf("backend = %q, want %q", spec.Backend, runtimehost.BackendPodman)
+	}
+}
+
+func TestRuntimeSupervisorFirecrackerBackendIsExperimental(t *testing.T) {
+	t.Setenv("AGENCY_EXPERIMENTAL_SURFACES", "")
+	rs := NewRuntimeSupervisor(t.TempDir(), "0.1.0", "", "build-1", hostruntimebackend.BackendFirecracker, nil, nil, nil, nil)
+	if _, err := rs.backend(hostruntimebackend.BackendFirecracker); err == nil {
+		t.Fatal("firecracker backend should not be registered by default")
+	}
+
+	t.Setenv("AGENCY_EXPERIMENTAL_SURFACES", "1")
+	rs = NewRuntimeSupervisor(t.TempDir(), "0.1.0", "", "build-1", hostruntimebackend.BackendFirecracker, nil, nil, nil, nil)
+	backend, err := rs.backend(hostruntimebackend.BackendFirecracker)
+	if err != nil {
+		t.Fatalf("firecracker backend should be registered when %s is enabled: %v", features.Firecracker, err)
+	}
+	if backend.Name() != hostruntimebackend.BackendFirecracker {
+		t.Fatalf("backend name = %q, want %q", backend.Name(), hostruntimebackend.BackendFirecracker)
 	}
 }
