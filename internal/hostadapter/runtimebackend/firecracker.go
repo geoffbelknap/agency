@@ -9,7 +9,12 @@ import (
 
 const BackendFirecracker = "firecracker"
 
-type FirecrackerRuntimeBackend struct{}
+type FirecrackerRuntimeBackend struct {
+	BinaryPath string
+	KernelPath string
+	StateDir   string
+	Images     *FirecrackerImageStore
+}
 
 func (b *FirecrackerRuntimeBackend) Name() string {
 	return BackendFirecracker
