@@ -1,0 +1,158 @@
+package agentruntime
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
+)
+
+const (
+	EnforcerProxyPort      = "3128"
+	EnforcerConstraintPort = "8081"
+)
+
+type EnforcerLaunchSpec struct {
+	AgentName          string
+	ComponentName      string
+	Image              string
+	Hostname           string
+	InternalNetwork    string
+	ConstraintHostPort string
+	ConstraintPort     string
+	ProxyPort          string
+	Env                map[string]string
+	Mounts             []EnforcerMount
+	PrincipalUUID      string
+	BuildID            string
+}
+
+type EnforcerMount struct {
+	HostPath  string
+	GuestPath string
+	Mode      string
+}
+
+func (e *Enforcer) BuildLaunchSpec(ctx context.Context, rotateKey bool) (EnforcerLaunchSpec, error) {
+	_ = ctx
+	policyDir := e.ensurePolicy()
+	configDir := e.ensureConfig(rotateKey)
+	dataDir := filepath.Join(e.Home, "infrastructure", "enforcer", "data", e.AgentName)
+	auditDir := filepath.Join(e.Home, "audit", e.AgentName, "enforcer")
+	agentDir := filepath.Join(e.Home, "agents", e.AgentName)
+	deploymentsDir := filepath.Join(e.Home, "deployments")
+	servicesDir := filepath.Join(e.Home, "services")
+	for _, dir := range []string{dataDir, auditDir, agentDir, deploymentsDir, servicesDir} {
+		_ = os.MkdirAll(dir, 0o777)
+	}
+
+	backend := e.backendName()
+	internalNet := fmt.Sprintf("%s-%s-internal", prefix, e.AgentName)
+	env := map[string]string{
+		"HOME":               "/agency/enforcer/data",
+		"AGENT_NAME":         e.AgentName,
+		"CONSTRAINT_WS_PORT": EnforcerConstraintPort,
+		"GATEWAY_URL":        "http://" + gatewayHost(backend) + ":8200",
+		"COMMS_URL":          "http://" + scopedInfraName(fmt.Sprintf("%s-infra-comms", prefix)) + ":8080",
+		"KNOWLEDGE_URL":      "http://" + scopedInfraName(fmt.Sprintf("%s-infra-knowledge", prefix)) + ":8080",
+		"WEB_FETCH_URL":      "http://" + scopedInfraName(fmt.Sprintf("%s-infra-web-fetch", prefix)) + ":8080",
+		"AGENCY_CALLER":      "enforcer",
+	}
+	if e.LifecycleID != "" {
+		env["AGENCY_LIFECYCLE_ID"] = e.LifecycleID
+	}
+	if tokenData, err := os.ReadFile(filepath.Join(e.Home, "config.yaml")); err == nil {
+		var cf struct {
+			Token       string `yaml:"token"`
+			GatewayAddr string `yaml:"gateway_addr"`
+		}
+		if yaml.Unmarshal(tokenData, &cf) == nil {
+			if cf.Token != "" {
+				env["GATEWAY_TOKEN"] = cf.Token
+			}
+			if cf.GatewayAddr != "" {
+				env["GATEWAY_URL"] = "http://" + gatewayHost(backend) + ":8200"
+			}
+		}
+	}
+
+	egressCA := filepath.Join(e.Home, "infrastructure", "egress", "certs", "mitmproxy-ca-cert.pem")
+	if fileExists(egressCA) {
+		env["SSL_CERT_FILE"] = "/etc/ssl/certs/agency-egress-ca.pem"
+	}
+	logFormat := os.Getenv("AGENCY_LOG_FORMAT")
+	if logFormat == "" {
+		logFormat = "json"
+	}
+	env["AGENCY_LOG_FORMAT"] = logFormat
+	env["AGENCY_COMPONENT"] = "enforcer"
+	if env["BUILD_ID"] == "" {
+		env["BUILD_ID"] = e.BuildID
+	}
+
+	hostPort := e.ConstraintHostPort
+	if hostPort == "" {
+		var err error
+		hostPort, err = pickLoopbackPort()
+		if err != nil {
+			return EnforcerLaunchSpec{}, fmt.Errorf("allocate enforcer constraint port: %w", err)
+		}
+	}
+
+	perAgentAuthDir := filepath.Join(e.Home, "agents", e.AgentName, "state", "enforcer-auth")
+	mounts := []EnforcerMount{
+		{HostPath: policyDir, GuestPath: "/agency/enforcer/policy", Mode: "ro"},
+		{HostPath: filepath.Join(configDir, "server-config.yaml"), GuestPath: "/agency/enforcer/server-config.yaml", Mode: "ro"},
+		{HostPath: perAgentAuthDir, GuestPath: "/agency/enforcer/auth", Mode: "ro"},
+		{HostPath: dataDir, GuestPath: "/agency/enforcer/data", Mode: "rw"},
+		{HostPath: auditDir, GuestPath: "/agency/enforcer/audit", Mode: "rw"},
+		{HostPath: agentDir, GuestPath: "/agency/agent", Mode: "ro"},
+		{HostPath: deploymentsDir, GuestPath: "/agency/deployments", Mode: "ro"},
+		{HostPath: servicesDir, GuestPath: "/agency/enforcer/services", Mode: "ro"},
+	}
+	routingYAML := filepath.Join(e.Home, "infrastructure", "routing.yaml")
+	if fileExists(routingYAML) {
+		mounts = append(mounts, EnforcerMount{HostPath: routingYAML, GuestPath: "/agency/enforcer/routing.yaml", Mode: "ro"})
+	}
+	if fileExists(egressCA) {
+		mounts = append(mounts, EnforcerMount{HostPath: egressCA, GuestPath: "/etc/ssl/certs/agency-egress-ca.pem", Mode: "ro"})
+	}
+	memoryDir := filepath.Join(agentDir, "memory")
+	if _, err := os.Stat(memoryDir); err == nil {
+		mounts = append(mounts, EnforcerMount{HostPath: memoryDir, GuestPath: "/agency/memory", Mode: "ro"})
+	}
+
+	return EnforcerLaunchSpec{
+		AgentName:          e.AgentName,
+		ComponentName:      e.ContainerName,
+		Image:              enforcerImage,
+		Hostname:           "enforcer",
+		InternalNetwork:    internalNet,
+		ConstraintHostPort: hostPort,
+		ConstraintPort:     EnforcerConstraintPort,
+		ProxyPort:          EnforcerProxyPort,
+		Env:                env,
+		Mounts:             mounts,
+		PrincipalUUID:      e.PrincipalUUID,
+		BuildID:            e.BuildID,
+	}, nil
+}
+
+func (s EnforcerLaunchSpec) ContainerBinds() []string {
+	binds := make([]string, 0, len(s.Mounts))
+	for _, mount := range s.Mounts {
+		binds = append(binds, mount.HostPath+":"+mount.GuestPath+":"+mount.Mode)
+	}
+	return binds
+}
+
+func (e *Enforcer) backendName() string {
+	if e.cli == nil {
+		return runtimehost.BackendDocker
+	}
+	return e.cli.Backend()
+}
