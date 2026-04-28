@@ -18,6 +18,7 @@ const (
 	BackendFirecracker                    = "firecracker"
 	FirecrackerEnforcementModeHostProcess = "host-process"
 	FirecrackerEnforcementModeMicroVM     = "microvm"
+	defaultFirecrackerMemoryMiB           = 512
 
 	FirecrackerEnforcerProxyTargetEnv   = "AGENCY_FIRECRACKER_ENFORCER_PROXY_TARGET"
 	FirecrackerEnforcerControlTargetEnv = "AGENCY_FIRECRACKER_ENFORCER_CONTROL_TARGET"
@@ -27,6 +28,7 @@ type FirecrackerRuntimeBackend struct {
 	BinaryPath      string
 	KernelPath      string
 	StateDir        string
+	MemoryMiB       int64
 	EnforcementMode string
 	Images          *FirecrackerImageStore
 	Tasks           *FirecrackerVMSupervisor
@@ -53,6 +55,7 @@ func NewFirecrackerRuntimeBackend(home string, cfg map[string]string) *Firecrack
 		BinaryPath:      binaryPath,
 		KernelPath:      strings.TrimSpace(cfg["kernel_path"]),
 		StateDir:        stateDir,
+		MemoryMiB:       parseInt64Config(cfg["memory_mib"], defaultFirecrackerMemoryMiB),
 		EnforcementMode: enforcementMode,
 		configErr:       modeErr,
 	}
@@ -246,7 +249,7 @@ func (b *FirecrackerRuntimeBackend) writeConfig(spec runtimecontract.RuntimeSpec
 		},
 		MachineConfig: firecrackerMachineConfig{
 			VCPUCount:  1,
-			MemSizeMiB: 256,
+			MemSizeMiB: b.memoryMiB(),
 		},
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
@@ -268,6 +271,13 @@ func (b *FirecrackerRuntimeBackend) validateConfig() error {
 		return err
 	}
 	return nil
+}
+
+func (b *FirecrackerRuntimeBackend) memoryMiB() int64 {
+	if b.MemoryMiB > 0 {
+		return b.MemoryMiB
+	}
+	return defaultFirecrackerMemoryMiB
 }
 
 func (b *FirecrackerRuntimeBackend) enforcementMode() string {

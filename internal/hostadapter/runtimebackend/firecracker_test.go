@@ -35,6 +35,7 @@ func TestNewFirecrackerRuntimeBackendUsesConfig(t *testing.T) {
 		"binary_path":              "/usr/local/bin/firecracker",
 		"kernel_path":              "/var/lib/agency/vmlinux",
 		"state_dir":                filepath.Join(home, "fc-state"),
+		"memory_mib":               "768",
 		"rootfs_size_mib":          "2048",
 		"stop_timeout":             "250ms",
 		"enforcement_mode":         FirecrackerEnforcementModeMicroVM,
@@ -48,6 +49,9 @@ func TestNewFirecrackerRuntimeBackendUsesConfig(t *testing.T) {
 	}
 	if backend.StateDir != filepath.Join(home, "fc-state") {
 		t.Fatalf("state dir = %q", backend.StateDir)
+	}
+	if backend.MemoryMiB != 768 {
+		t.Fatalf("memory = %d", backend.MemoryMiB)
 	}
 	if backend.Images.SizeMiB != 2048 {
 		t.Fatalf("rootfs size = %d", backend.Images.SizeMiB)
@@ -95,10 +99,30 @@ func TestFirecrackerRuntimeBackendWritesConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, want := range []string{`"kernel_image_path": "/var/lib/agency/vmlinux"`, `"path_on_host": "/tmp/rootfs.ext4"`, `"guest_cid": 3`} {
+	for _, want := range []string{`"kernel_image_path": "/var/lib/agency/vmlinux"`, `"path_on_host": "/tmp/rootfs.ext4"`, `"guest_cid": 3`, `"mem_size_mib": 512`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("config missing %q:\n%s", want, text)
 		}
+	}
+}
+
+func TestFirecrackerRuntimeBackendWritesConfiguredMemory(t *testing.T) {
+	dir := t.TempDir()
+	backend := &FirecrackerRuntimeBackend{
+		KernelPath: "/var/lib/agency/vmlinux",
+		StateDir:   dir,
+		MemoryMiB:  768,
+	}
+	path, err := backend.writeConfig(runtimecontract.RuntimeSpec{RuntimeID: "alice"}, "/tmp/rootfs.ext4", filepath.Join(dir, "alice", "vsock.sock"))
+	if err != nil {
+		t.Fatalf("writeConfig returned error: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"mem_size_mib": 768`) {
+		t.Fatalf("config missing configured memory:\n%s", string(data))
 	}
 }
 
