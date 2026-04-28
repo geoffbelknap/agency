@@ -2,8 +2,11 @@ package orchestrate
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/url"
 	"strings"
 	"syscall"
 	"time"
@@ -117,6 +120,9 @@ func (b *firecrackerComponentRuntimeBackend) Inspect(ctx context.Context, runtim
 		status.Phase = runtimecontract.RuntimePhaseDegraded
 		status.Details["last_error"] = "workload VM is running without an enforcer"
 	}
+	if status.Healthy {
+		status = b.applyBodyReadiness(ctx, runtimeID, status)
+	}
 	return status, nil
 }
 
@@ -124,7 +130,17 @@ func (b *firecrackerComponentRuntimeBackend) Validate(ctx context.Context, runti
 	if err := b.backend.Validate(ctx, runtimeID); err != nil {
 		return err
 	}
-	return b.enforcerSupervisor().HealthCheck(ctx, runtimeID, 10*time.Second)
+	if err := b.enforcerSupervisor().HealthCheck(ctx, runtimeID, 10*time.Second); err != nil {
+		return err
+	}
+	connected, err := firecrackerAgentBodyConnected(ctx, b.hostServiceURLs()["comms"], runtimeID)
+	if err != nil {
+		return fmt.Errorf("firecracker runtime %q body readiness: %w", runtimeID, err)
+	}
+	if !connected {
+		return fmt.Errorf("firecracker runtime %q body websocket is not connected", runtimeID)
+	}
+	return nil
 }
 
 func (b *firecrackerComponentRuntimeBackend) Capabilities(ctx context.Context) (runtimecontract.BackendCapabilities, error) {
@@ -154,4 +170,50 @@ func (b *firecrackerComponentRuntimeBackend) hostServiceURLs() map[string]string
 		"web-fetch": "http://127.0.0.1:" + envPort("AGENCY_WEB_FETCH_PORT", "8206"),
 		"egress":    "http://127.0.0.1:" + envPort("AGENCY_EGRESS_PROXY_PORT", "8312"),
 	}
+}
+
+func (b *firecrackerComponentRuntimeBackend) applyBodyReadiness(ctx context.Context, runtimeID string, status runtimecontract.BackendStatus) runtimecontract.BackendStatus {
+	connected, err := firecrackerAgentBodyConnected(ctx, b.hostServiceURLs()["comms"], runtimeID)
+	if err == nil && connected {
+		status.Details["body_ws_connected"] = "true"
+		return status
+	}
+	status.Healthy = false
+	status.Phase = runtimecontract.RuntimePhaseDegraded
+	status.Details["body_ws_connected"] = "false"
+	if err != nil {
+		status.Details["last_error"] = "agent body websocket readiness check failed: " + err.Error()
+	} else {
+		status.Details["last_error"] = "agent body websocket is not connected"
+	}
+	return status
+}
+
+func firecrackerAgentBodyConnected(ctx context.Context, commsURL, runtimeID string) (bool, error) {
+	commsURL = strings.TrimRight(strings.TrimSpace(commsURL), "/")
+	if commsURL == "" {
+		return false, fmt.Errorf("comms URL is not configured")
+	}
+	endpoint := commsURL + "/ws/connected/" + url.PathEscape(runtimeID)
+	reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return false, fmt.Errorf("comms readiness returned HTTP %d", resp.StatusCode)
+	}
+	var body struct {
+		Connected bool `json:"connected"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return false, err
+	}
+	return body.Connected, nil
 }

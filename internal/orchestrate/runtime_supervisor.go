@@ -426,7 +426,16 @@ func (rs *RuntimeSupervisor) Get(ctx context.Context, runtimeID string) (runtime
 	backendStatus, err := backend.Inspect(ctx, runtimeID)
 	if err != nil {
 		if manifest.Status.RuntimeID != "" {
-			return manifest.Status, nil
+			status := manifest.Status
+			if status.Healthy || status.Phase == runtimecontract.RuntimePhaseRunning || status.Phase == runtimecontract.RuntimePhaseStarting {
+				status.Healthy = false
+				status.Phase = runtimecontract.RuntimePhaseDegraded
+				status.Transport.LastError = "runtime inspect failed: " + err.Error()
+				manifest.Status = status
+				manifest.UpdatedAt = time.Now().UTC()
+				_ = rs.saveManifest(manifest)
+			}
+			return status, nil
 		}
 		return runtimecontract.RuntimeStatus{}, err
 	}

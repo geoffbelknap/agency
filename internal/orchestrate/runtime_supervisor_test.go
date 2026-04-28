@@ -299,7 +299,7 @@ func writeRuntimeRoutingFile(t *testing.T, home, content string) {
 	}
 }
 
-func TestRuntimeSupervisorGetFallsBackToPersistedStatusWhenInspectFails(t *testing.T) {
+func TestRuntimeSupervisorGetMarksPersistedStatusDegradedWhenInspectFails(t *testing.T) {
 	home := t.TempDir()
 	agentDir := filepath.Join(home, "agents", "alice")
 	stateDir := filepath.Join(agentDir, "state")
@@ -337,8 +337,8 @@ func TestRuntimeSupervisorGetFallsBackToPersistedStatusWhenInspectFails(t *testi
 		Status: runtimecontract.RuntimeStatus{
 			RuntimeID: "alice",
 			AgentID:   "ag_123",
-			Phase:     runtimecontract.RuntimePhaseDegraded,
-			Healthy:   false,
+			Phase:     runtimecontract.RuntimePhaseRunning,
+			Healthy:   true,
 			Backend:   "fake",
 			Transport: runtimecontract.RuntimeTransportStatus{
 				Type:              runtimecontract.TransportTypeLoopbackHTTP,
@@ -359,7 +359,7 @@ func TestRuntimeSupervisorGetFallsBackToPersistedStatusWhenInspectFails(t *testi
 	if status.Phase != runtimecontract.RuntimePhaseDegraded {
 		t.Fatalf("phase = %q, want degraded", status.Phase)
 	}
-	if status.Transport.LastError != "persisted backend state" {
+	if status.Transport.LastError != "runtime inspect failed: backend unavailable" {
 		t.Fatalf("last error = %q", status.Transport.LastError)
 	}
 }
