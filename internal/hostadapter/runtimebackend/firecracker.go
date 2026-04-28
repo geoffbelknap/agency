@@ -90,7 +90,9 @@ func (b *FirecrackerRuntimeBackend) Ensure(ctx context.Context, spec runtimecont
 	if strings.TrimSpace(spec.RuntimeID) == "" {
 		return fmt.Errorf("firecracker backend: runtime id is required")
 	}
-	rootfs, err := b.imageStore().PrepareTaskRootFS(ctx, spec)
+	rootfsSpec := spec
+	rootfsSpec.Package.Env = firecrackerGuestEnv(spec.Package.Env)
+	rootfs, err := b.imageStore().PrepareTaskRootFS(ctx, rootfsSpec)
 	if err != nil {
 		return err
 	}
@@ -259,6 +261,22 @@ func (b *FirecrackerRuntimeBackend) cleanupRuntimeState(runtimeID string) error 
 		}
 	}
 	return nil
+}
+
+func firecrackerGuestEnv(env map[string]string) map[string]string {
+	if len(env) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(env))
+	for key, value := range env {
+		switch key {
+		case FirecrackerEnforcerProxyTargetEnv, FirecrackerEnforcerControlTargetEnv:
+			continue
+		default:
+			out[key] = value
+		}
+	}
+	return out
 }
 
 func (b *FirecrackerRuntimeBackend) writeConfig(spec runtimecontract.RuntimeSpec, rootfsPath, udsBase string) (string, error) {

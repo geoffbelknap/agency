@@ -7,6 +7,7 @@ This checklist validates the Firecracker runtime path for the scoped 0.2.x core 
 - [ ] Enforcement remains external to the agent workload VM.
 - [ ] The workload VM reaches host services only through the per-agent vsock bridge to its enforcer.
 - [ ] The vsock bridge exposes only the per-agent enforcer proxy/control targets.
+- [ ] Host-only enforcer target endpoints are not projected into the workload VM environment.
 - [ ] The enforcer runs with scoped per-agent config, auth, data, and audit paths.
 - [ ] Runtime status exposes VM, enforcer, bridge, and body websocket health.
 - [ ] Startup and restart fail closed when mediation or body readiness is unavailable.
@@ -30,6 +31,7 @@ This checklist validates the Firecracker runtime path for the scoped 0.2.x core 
 
 - External enforcement: host enforcer supervisor starts one process per agent; Firecracker workload VM does not embed the enforcer.
 - Complete mediation: workload transport is `vsock_http`; VM connects to CID 2 and the host UDS bridge forwards only to configured enforcer targets.
+- Boundary hygiene: Firecracker host target env keys are filtered before guest rootfs init injection; guest env keeps only the vsock-facing runtime contract.
 - Complete audit: live smoke verifies DM traffic through mediation; `agency log <agent>` should show `MEDIATION_PROXY`, `MEDIATION_WS`, security scan, and LLM events.
 - Least privilege: enforcer launch spec uses per-agent auth/data/audit paths and loopback-only host ports.
 - Visible/recoverable boundaries: `/runtime/status` reports `vm_state`, `enforcer_state`, `vsock_bridge_state`, `body_ws_connected`, process IDs, restart/crash counters, and last error.

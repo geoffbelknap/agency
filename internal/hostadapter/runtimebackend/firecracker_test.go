@@ -165,6 +165,26 @@ func TestFirecrackerRuntimeBackendCleanupRuntimeState(t *testing.T) {
 	}
 }
 
+func TestFirecrackerGuestEnvRemovesHostOnlyTargets(t *testing.T) {
+	env := firecrackerGuestEnv(map[string]string{
+		"AGENCY_AGENT_NAME":                  "alice",
+		"AGENCY_TRANSPORT_ENFORCER_ENDPOINT": "vsock://2:8081",
+		FirecrackerEnforcerProxyTargetEnv:    "http://127.0.0.1:19000",
+		FirecrackerEnforcerControlTargetEnv:  "http://127.0.0.1:19001",
+	})
+	if env["AGENCY_AGENT_NAME"] != "alice" {
+		t.Fatalf("guest env missing agent name: %#v", env)
+	}
+	if env["AGENCY_TRANSPORT_ENFORCER_ENDPOINT"] != "vsock://2:8081" {
+		t.Fatalf("guest env missing transport endpoint: %#v", env)
+	}
+	for _, key := range []string{FirecrackerEnforcerProxyTargetEnv, FirecrackerEnforcerControlTargetEnv} {
+		if _, ok := env[key]; ok {
+			t.Fatalf("guest env leaked host-only key %s: %#v", key, env)
+		}
+	}
+}
+
 func TestFirecrackerRuntimeBackendInspectDegradesWhenBridgeMissing(t *testing.T) {
 	dir := t.TempDir()
 	supervisor := &FirecrackerVMSupervisor{
