@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -22,6 +25,7 @@ const (
 
 type FirecrackerVMSupervisor struct {
 	BinaryPath     string
+	LogDir         string
 	StopTimeout    time.Duration
 	RestartBackoff time.Duration
 
@@ -40,6 +44,7 @@ type FirecrackerVMStatus struct {
 	StoppedAt time.Time
 	Duration  time.Duration
 	LastError string
+	LogPath   string
 }
 
 type firecrackerVMTask struct {
@@ -49,6 +54,8 @@ type firecrackerVMTask struct {
 	supervisor    *FirecrackerVMSupervisor
 
 	cmd           *exec.Cmd
+	logFile       *os.File
+	logPath       string
 	done          chan struct{}
 	state         string
 	pid           int
@@ -171,7 +178,17 @@ func (s *FirecrackerVMSupervisor) restartBackoff() time.Duration {
 func (t *firecrackerVMTask) startLocked() error {
 	cmd := exec.Command(t.supervisor.binaryPath(), t.args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	logFile, logPath, err := t.supervisor.openLog(t.runtimeID)
+	if err != nil {
+		t.state = FirecrackerVMCrashed
+		t.lastError = err.Error()
+		return err
+	}
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
 	t.cmd = cmd
+	t.logFile = logFile
+	t.logPath = logPath
 	t.done = make(chan struct{})
 	t.state = FirecrackerVMStarting
 	t.stopRequested = false
@@ -179,6 +196,7 @@ func (t *firecrackerVMTask) startLocked() error {
 	t.stoppedAt = time.Time{}
 	t.lastError = ""
 	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
 		t.state = FirecrackerVMCrashed
 		t.lastError = err.Error()
 		close(t.done)
@@ -192,6 +210,9 @@ func (t *firecrackerVMTask) startLocked() error {
 
 func (t *firecrackerVMTask) watch(cmd *exec.Cmd, done chan struct{}) {
 	err := cmd.Wait()
+	if t.logFile != nil {
+		_ = t.logFile.Close()
+	}
 	exitCode := 0
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -264,7 +285,24 @@ func (t *firecrackerVMTask) statusLocked() FirecrackerVMStatus {
 		StoppedAt: t.stoppedAt,
 		Duration:  durationEnd.Sub(t.startedAt),
 		LastError: t.lastError,
+		LogPath:   t.logPath,
 	}
+}
+
+func (s *FirecrackerVMSupervisor) openLog(runtimeID string) (*os.File, string, error) {
+	dir := strings.TrimSpace(s.LogDir)
+	if dir == "" {
+		dir = filepath.Join(os.TempDir(), "agency-firecracker", "logs")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, "", fmt.Errorf("create firecracker log dir: %w", err)
+	}
+	path := filepath.Join(dir, runtimeID+".log")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, "", fmt.Errorf("open firecracker log: %w", err)
+	}
+	return file, path, nil
 }
 
 func shouldRestartFirecrackerVM(policy string) bool {

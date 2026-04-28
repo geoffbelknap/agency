@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,6 +102,38 @@ func TestFirecrackerVMSupervisorNeverRestartPolicyLeavesCrashState(t *testing.T)
 	}
 	if status.ExitCode != 1 {
 		t.Fatalf("exit code = %d, want 1", status.ExitCode)
+	}
+}
+
+func TestFirecrackerVMSupervisorCapturesLogs(t *testing.T) {
+	dir := t.TempDir()
+	s := &FirecrackerVMSupervisor{
+		BinaryPath: "/bin/sh",
+		LogDir:     dir,
+	}
+	spec := runtimecontract.RuntimeSpec{RuntimeID: "alice"}
+	if err := s.Start(context.Background(), spec, []string{"-c", "echo stdout; echo stderr >&2"}); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	if err := waitForFirecrackerVM(t, s, "alice", func(status FirecrackerVMStatus) bool {
+		return status.State == FirecrackerVMCrashed
+	}); err != nil {
+		t.Fatal(err)
+	}
+	status, err := s.Inspect("alice")
+	if err != nil {
+		t.Fatalf("Inspect returned error: %v", err)
+	}
+	if status.LogPath != filepath.Join(dir, "alice.log") {
+		t.Fatalf("log path = %q", status.LogPath)
+	}
+	data, err := os.ReadFile(status.LogPath)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "stdout") || !strings.Contains(text, "stderr") {
+		t.Fatalf("log missing output: %q", text)
 	}
 }
 

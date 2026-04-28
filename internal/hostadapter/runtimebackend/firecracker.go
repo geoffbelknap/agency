@@ -65,6 +65,7 @@ func NewFirecrackerRuntimeBackend(home string, cfg map[string]string) *Firecrack
 	}
 	backend.Tasks = &FirecrackerVMSupervisor{
 		BinaryPath:  binaryPath,
+		LogDir:      filepath.Join(stateDir, "logs"),
 		StopTimeout: parseDurationConfig(cfg["stop_timeout"], 10*time.Second),
 	}
 	backend.Vsock = &FirecrackerVsockListenerFactory{StateDir: stateDir}
@@ -132,6 +133,7 @@ func (b *FirecrackerRuntimeBackend) Inspect(ctx context.Context, runtimeID strin
 			"crashes":          strconv.Itoa(status.Crashes),
 			"restarts":         strconv.Itoa(status.Restarts),
 			"enforcement_mode": b.enforcementMode(),
+			"log_path":         status.LogPath,
 		},
 	}
 	if status.LastError != "" {
@@ -207,7 +209,7 @@ func (b *FirecrackerRuntimeBackend) supervisor() *FirecrackerVMSupervisor {
 	if b.Tasks != nil {
 		return b.Tasks
 	}
-	b.Tasks = &FirecrackerVMSupervisor{BinaryPath: b.BinaryPath}
+	b.Tasks = &FirecrackerVMSupervisor{BinaryPath: b.BinaryPath, LogDir: filepath.Join(b.StateDir, "logs")}
 	return b.Tasks
 }
 
