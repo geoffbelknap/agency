@@ -45,7 +45,9 @@ func TestHostEnforcerSupervisorStartStop(t *testing.T) {
 		"AGENCY_TEST_ENV_FILE=" + envFile,
 		"API_KEYS_FILE=" + filepath.Join(dir, "auth", "api_keys.yaml"),
 		"COMMS_URL=http://127.0.0.1:8202",
+		"CONSTRAINT_WS_BIND_ADDR=127.0.0.1",
 		"CONSTRAINT_WS_PORT=19081",
+		"ENFORCER_BIND_ADDR=127.0.0.1",
 		"ENFORCER_PORT=19128",
 		"HOME=" + filepath.Join(dir, "data"),
 	} {

@@ -83,6 +83,22 @@ func TestIntegrationHealth(t *testing.T) {
 	}
 }
 
+func TestListenAddr(t *testing.T) {
+	for _, tt := range []struct {
+		host string
+		port string
+		want string
+	}{
+		{"", "3128", ":3128"},
+		{"127.0.0.1", "3128", "127.0.0.1:3128"},
+		{" 127.0.0.1 ", "8081", "127.0.0.1:8081"},
+	} {
+		if got := listenAddr(tt.host, tt.port); got != tt.want {
+			t.Fatalf("listenAddr(%q, %q) = %q, want %q", tt.host, tt.port, got, tt.want)
+		}
+	}
+}
+
 func TestIntegrationHealthNoAuth(t *testing.T) {
 	e := setupTestEnforcer(t)
 	handler := e.ConnectHandler()

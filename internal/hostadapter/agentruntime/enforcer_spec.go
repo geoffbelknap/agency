@@ -168,6 +168,8 @@ func (s EnforcerLaunchSpec) HostProcessEnv(serviceURLs map[string]string) map[st
 	}
 	env["ENFORCER_PORT"] = s.ProxyHostPort
 	env["CONSTRAINT_WS_PORT"] = s.ConstraintHostPort
+	env["ENFORCER_BIND_ADDR"] = "127.0.0.1"
+	env["CONSTRAINT_WS_BIND_ADDR"] = "127.0.0.1"
 	for service, url := range serviceURLs {
 		switch service {
 		case "gateway":
