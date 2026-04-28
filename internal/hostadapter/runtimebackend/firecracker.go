@@ -22,6 +22,7 @@ const (
 
 	FirecrackerEnforcerProxyTargetEnv   = "AGENCY_FIRECRACKER_ENFORCER_PROXY_TARGET"
 	FirecrackerEnforcerControlTargetEnv = "AGENCY_FIRECRACKER_ENFORCER_CONTROL_TARGET"
+	FirecrackerHostServiceTargetEnvBase = "AGENCY_FIRECRACKER_HOST_SERVICE_TARGET_"
 )
 
 type FirecrackerRuntimeBackend struct {
@@ -271,14 +272,25 @@ func firecrackerGuestEnv(env map[string]string) map[string]string {
 	}
 	out := make(map[string]string, len(env))
 	for key, value := range env {
-		switch key {
-		case FirecrackerEnforcerProxyTargetEnv, FirecrackerEnforcerControlTargetEnv:
+		if firecrackerHostOnlyEnv(key) {
 			continue
-		default:
-			out[key] = value
 		}
+		out[key] = value
 	}
 	return out
+}
+
+func FirecrackerHostServiceTargetEnv(port int) string {
+	return FirecrackerHostServiceTargetEnvBase + strconv.Itoa(port)
+}
+
+func firecrackerHostOnlyEnv(key string) bool {
+	switch key {
+	case FirecrackerEnforcerProxyTargetEnv, FirecrackerEnforcerControlTargetEnv:
+		return true
+	default:
+		return strings.HasPrefix(key, FirecrackerHostServiceTargetEnvBase)
+	}
 }
 
 func (b *FirecrackerRuntimeBackend) writeConfig(spec runtimecontract.RuntimeSpec, rootfsPath, udsBase string) (string, error) {
@@ -393,6 +405,11 @@ func firecrackerEnforcerTarget(endpoint string) (string, error) {
 }
 
 func firecrackerEnforcerTargets(spec runtimecontract.RuntimeSpec) (map[int]string, error) {
+	if targets, err := firecrackerHostServiceTargetsFromEnv(spec.Package.Env); err != nil {
+		return nil, err
+	} else if len(targets) > 0 {
+		return targets, nil
+	}
 	proxyEndpoint := strings.TrimSpace(spec.Package.Env[FirecrackerEnforcerProxyTargetEnv])
 	controlEndpoint := strings.TrimSpace(spec.Package.Env[FirecrackerEnforcerControlTargetEnv])
 	if proxyEndpoint == "" && controlEndpoint == "" {
@@ -419,6 +436,26 @@ func firecrackerEnforcerTargets(spec runtimecontract.RuntimeSpec) (map[int]strin
 	}
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("firecracker backend: no enforcer targets configured")
+	}
+	return targets, nil
+}
+
+func firecrackerHostServiceTargetsFromEnv(env map[string]string) (map[int]string, error) {
+	targets := map[int]string{}
+	for key, endpoint := range env {
+		if !strings.HasPrefix(key, FirecrackerHostServiceTargetEnvBase) {
+			continue
+		}
+		rawPort := strings.TrimPrefix(key, FirecrackerHostServiceTargetEnvBase)
+		port, err := strconv.Atoi(rawPort)
+		if err != nil || port <= 0 || port > 65535 {
+			return nil, fmt.Errorf("firecracker backend: invalid host service target port %q", rawPort)
+		}
+		target, err := firecrackerEnforcerTarget(endpoint)
+		if err != nil {
+			return nil, err
+		}
+		targets[port] = target
 	}
 	return targets, nil
 }

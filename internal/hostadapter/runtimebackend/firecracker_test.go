@@ -167,10 +167,11 @@ func TestFirecrackerRuntimeBackendCleanupRuntimeState(t *testing.T) {
 
 func TestFirecrackerGuestEnvRemovesHostOnlyTargets(t *testing.T) {
 	env := firecrackerGuestEnv(map[string]string{
-		"AGENCY_AGENT_NAME":                  "alice",
-		"AGENCY_TRANSPORT_ENFORCER_ENDPOINT": "vsock://2:8081",
-		FirecrackerEnforcerProxyTargetEnv:    "http://127.0.0.1:19000",
-		FirecrackerEnforcerControlTargetEnv:  "http://127.0.0.1:19001",
+		"AGENCY_AGENT_NAME":                   "alice",
+		"AGENCY_TRANSPORT_ENFORCER_ENDPOINT":  "vsock://2:8081",
+		FirecrackerEnforcerProxyTargetEnv:     "http://127.0.0.1:19000",
+		FirecrackerEnforcerControlTargetEnv:   "http://127.0.0.1:19001",
+		FirecrackerHostServiceTargetEnv(8200): "http://127.0.0.1:8200",
 	})
 	if env["AGENCY_AGENT_NAME"] != "alice" {
 		t.Fatalf("guest env missing agent name: %#v", env)
@@ -178,7 +179,7 @@ func TestFirecrackerGuestEnvRemovesHostOnlyTargets(t *testing.T) {
 	if env["AGENCY_TRANSPORT_ENFORCER_ENDPOINT"] != "vsock://2:8081" {
 		t.Fatalf("guest env missing transport endpoint: %#v", env)
 	}
-	for _, key := range []string{FirecrackerEnforcerProxyTargetEnv, FirecrackerEnforcerControlTargetEnv} {
+	for _, key := range []string{FirecrackerEnforcerProxyTargetEnv, FirecrackerEnforcerControlTargetEnv, FirecrackerHostServiceTargetEnv(8200)} {
 		if _, ok := env[key]; ok {
 			t.Fatalf("guest env leaked host-only key %s: %#v", key, env)
 		}
@@ -324,6 +325,33 @@ func TestFirecrackerEnforcerTargetsProxyAndControl(t *testing.T) {
 	}
 	if len(targets) != 2 || targets[3128] != "127.0.0.1:19128" || targets[8081] != "127.0.0.1:19081" {
 		t.Fatalf("targets = %#v", targets)
+	}
+}
+
+func TestFirecrackerEnforcerTargetsHostServices(t *testing.T) {
+	targets, err := firecrackerEnforcerTargets(runtimecontract.RuntimeSpec{
+		Package: runtimecontract.RuntimePackageSpec{Env: map[string]string{
+			FirecrackerHostServiceTargetEnv(8200): "http://127.0.0.1:8200",
+			FirecrackerHostServiceTargetEnv(8202): "http://127.0.0.1:8202",
+			FirecrackerEnforcerProxyTargetEnv:     "http://127.0.0.1:19128",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("firecrackerEnforcerTargets returned error: %v", err)
+	}
+	if len(targets) != 2 || targets[8200] != "127.0.0.1:8200" || targets[8202] != "127.0.0.1:8202" {
+		t.Fatalf("targets = %#v", targets)
+	}
+}
+
+func TestFirecrackerEnforcerTargetsRejectsInvalidHostServicePort(t *testing.T) {
+	_, err := firecrackerEnforcerTargets(runtimecontract.RuntimeSpec{
+		Package: runtimecontract.RuntimePackageSpec{Env: map[string]string{
+			FirecrackerHostServiceTargetEnvBase + "not-a-port": "http://127.0.0.1:8200",
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid host service target port") {
+		t.Fatalf("firecrackerEnforcerTargets error = %v", err)
 	}
 }
 

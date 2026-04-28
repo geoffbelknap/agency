@@ -75,6 +75,9 @@ func TestFirecrackerCompileEnforcerMicroVMSpec(t *testing.T) {
 	if _, ok := spec.HostServicePorts[8200]; !ok {
 		t.Fatalf("host service ports missing gateway: %#v", spec.HostServicePorts)
 	}
+	if got := spec.Env[hostruntimebackend.FirecrackerHostServiceTargetEnv(8200)]; got != "http://127.0.0.1:8200" {
+		t.Fatalf("gateway target env = %q, want http://127.0.0.1:8200", got)
+	}
 	if !hasFirecrackerEnforcerMount(spec.Mounts, agentruntime.EnforcerMount{
 		HostPath:  filepath.Join(home, "agents", "alice", "state", "enforcer-auth"),
 		GuestPath: "/agency/enforcer/auth",

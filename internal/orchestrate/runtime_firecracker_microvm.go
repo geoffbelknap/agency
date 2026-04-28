@@ -82,6 +82,9 @@ func firecrackerEnforcerMicroVMEnv(spec agentruntime.EnforcerLaunchSpec, hostSer
 	for key, value := range firecrackerGuestServiceURLs(hostServices) {
 		env[key] = value
 	}
+	for port, target := range hostServicePorts {
+		env[hostruntimebackend.FirecrackerHostServiceTargetEnv(port)] = "http://" + target
+	}
 	delete(env, hostruntimebackend.FirecrackerEnforcerProxyTargetEnv)
 	delete(env, hostruntimebackend.FirecrackerEnforcerControlTargetEnv)
 	return env
