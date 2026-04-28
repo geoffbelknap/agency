@@ -3,5 +3,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+GO_BUILD_CACHE="${AGENCY_GO_BUILD_CACHE:-/tmp/agency-go-build-cache}"
 
-exec "$ROOT_DIR/scripts/dev/go-with-cache.sh" build -o agency ./cmd/gateway
+mkdir -p "$GO_BUILD_CACHE"
+cd "$ROOT_DIR"
+export GOCACHE="$GO_BUILD_CACHE"
+exec make build
