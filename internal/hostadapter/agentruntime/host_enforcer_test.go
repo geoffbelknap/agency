@@ -108,6 +108,30 @@ func TestHostEnforcerSupervisorSignal(t *testing.T) {
 	waitForFile(t, reloadFile)
 }
 
+func TestHostEnforcerSupervisorMarksUnexpectedExitCrashed(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "enforcer-test")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 42\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	supervisor := &HostEnforcerSupervisor{BinaryPath: script}
+	spec := EnforcerLaunchSpec{
+		AgentName:          "alice",
+		ProxyHostPort:      "19128",
+		ConstraintHostPort: "19081",
+	}
+	if err := supervisor.Start(context.Background(), spec, nil); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	status := waitForEnforcerStatus(t, supervisor, "alice", HostEnforcerStateCrashed)
+	if status.ExitCode != 42 {
+		t.Fatalf("exit code = %d, want 42", status.ExitCode)
+	}
+	if status.LastError == "" {
+		t.Fatal("expected last error for crashed enforcer")
+	}
+}
+
 func waitForFile(t *testing.T, path string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -118,4 +142,22 @@ func waitForFile(t *testing.T, path string) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %s", path)
+}
+
+func waitForEnforcerStatus(t *testing.T, supervisor *HostEnforcerSupervisor, agentName, state string) HostEnforcerStatus {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	var last HostEnforcerStatus
+	for time.Now().Before(deadline) {
+		status, err := supervisor.Inspect(agentName)
+		if err == nil {
+			last = status
+			if status.State == state {
+				return status
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for enforcer %s state %s; last=%#v", agentName, state, last)
+	return HostEnforcerStatus{}
 }

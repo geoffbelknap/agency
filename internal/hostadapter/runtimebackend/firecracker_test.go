@@ -202,6 +202,51 @@ func TestFirecrackerRuntimeBackendInspectDegradesWhenBridgeMissing(t *testing.T)
 	}
 }
 
+func TestFirecrackerRuntimeBackendInspectDegradesWhenBridgeSocketMissing(t *testing.T) {
+	dir := t.TempDir()
+	supervisor := &FirecrackerVMSupervisor{
+		BinaryPath: "/bin/sh",
+		LogDir:     filepath.Join(dir, "logs"),
+		PIDDir:     filepath.Join(dir, "pids"),
+	}
+	factory := &FirecrackerVsockListenerFactory{
+		StateDir: dir,
+		bridges: map[string]*FirecrackerVsockBridge{
+			"alice": {
+				RuntimeID: "alice",
+				Paths: map[int]string{
+					8081: filepath.Join(dir, "alice", "vsock.sock_8081"),
+				},
+			},
+		},
+	}
+	backend := &FirecrackerRuntimeBackend{
+		StateDir: dir,
+		Tasks:    supervisor,
+		Vsock:    factory,
+	}
+	spec := runtimecontract.RuntimeSpec{RuntimeID: "alice"}
+	if err := supervisor.Start(context.Background(), spec, []string{"-c", "sleep 30"}); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	defer backend.Stop(context.Background(), "alice") //nolint:errcheck
+	if err := waitForFirecrackerVM(t, supervisor, "alice", func(status FirecrackerVMStatus) bool {
+		return status.State == FirecrackerVMRunning
+	}); err != nil {
+		t.Fatal(err)
+	}
+	status, err := backend.Inspect(context.Background(), "alice")
+	if err != nil {
+		t.Fatalf("Inspect returned error: %v", err)
+	}
+	if status.Phase != runtimecontract.RuntimePhaseDegraded {
+		t.Fatalf("phase = %q, want degraded", status.Phase)
+	}
+	if status.Details["vsock_bridge_state"] != "degraded" {
+		t.Fatalf("vsock bridge state = %q", status.Details["vsock_bridge_state"])
+	}
+}
+
 func TestFirecrackerRuntimeBackendCapabilities(t *testing.T) {
 	caps, err := (&FirecrackerRuntimeBackend{}).Capabilities(context.Background())
 	if err != nil {
