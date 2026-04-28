@@ -1,0 +1,277 @@
+package runtimebackend
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os/exec"
+	"sync"
+	"syscall"
+	"time"
+
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
+)
+
+const (
+	FirecrackerVMStarting = "starting"
+	FirecrackerVMRunning  = "running"
+	FirecrackerVMStopping = "stopping"
+	FirecrackerVMStopped  = "stopped"
+	FirecrackerVMCrashed  = "crashed"
+)
+
+type FirecrackerVMSupervisor struct {
+	BinaryPath     string
+	StopTimeout    time.Duration
+	RestartBackoff time.Duration
+
+	mu    sync.Mutex
+	tasks map[string]*firecrackerVMTask
+}
+
+type FirecrackerVMStatus struct {
+	RuntimeID string
+	State     string
+	PID       int
+	ExitCode  int
+	Restarts  int
+	Crashes   int
+	StartedAt time.Time
+	StoppedAt time.Time
+	Duration  time.Duration
+	LastError string
+}
+
+type firecrackerVMTask struct {
+	runtimeID     string
+	args          []string
+	restartPolicy string
+	supervisor    *FirecrackerVMSupervisor
+
+	cmd           *exec.Cmd
+	done          chan struct{}
+	state         string
+	pid           int
+	exitCode      int
+	restarts      int
+	crashes       int
+	startedAt     time.Time
+	stoppedAt     time.Time
+	lastError     string
+	stopRequested bool
+}
+
+func (s *FirecrackerVMSupervisor) Start(ctx context.Context, spec runtimecontract.RuntimeSpec, args []string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if spec.RuntimeID == "" {
+		return fmt.Errorf("firecracker supervisor: runtime id is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.tasks == nil {
+		s.tasks = make(map[string]*firecrackerVMTask)
+	}
+	if task := s.tasks[spec.RuntimeID]; task != nil && (task.state == FirecrackerVMStarting || task.state == FirecrackerVMRunning) {
+		return nil
+	}
+	task := &firecrackerVMTask{
+		runtimeID:     spec.RuntimeID,
+		args:          append([]string(nil), args...),
+		restartPolicy: spec.Lifecycle.RestartPolicy,
+		supervisor:    s,
+		exitCode:      -1,
+	}
+	s.tasks[spec.RuntimeID] = task
+	return task.startLocked()
+}
+
+func (s *FirecrackerVMSupervisor) Stop(ctx context.Context, runtimeID string) error {
+	s.mu.Lock()
+	task := s.taskLocked(runtimeID)
+	if task == nil {
+		s.mu.Unlock()
+		return nil
+	}
+	task.stopRequested = true
+	task.state = FirecrackerVMStopping
+	cmd := task.cmd
+	done := task.done
+	s.mu.Unlock()
+
+	if cmd == nil || cmd.Process == nil {
+		s.markStopped(runtimeID)
+		return nil
+	}
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+	select {
+	case <-done:
+		return nil
+	case <-time.After(s.stopTimeout()):
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	case <-ctx.Done():
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		return ctx.Err()
+	}
+	select {
+	case <-done:
+	case <-time.After(s.stopTimeout()):
+	}
+	return nil
+}
+
+func (s *FirecrackerVMSupervisor) Inspect(runtimeID string) (FirecrackerVMStatus, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	task := s.taskLocked(runtimeID)
+	if task == nil {
+		return FirecrackerVMStatus{}, fmt.Errorf("firecracker supervisor: runtime %q is not tracked", runtimeID)
+	}
+	return task.statusLocked(), nil
+}
+
+func (s *FirecrackerVMSupervisor) taskLocked(runtimeID string) *firecrackerVMTask {
+	if s.tasks == nil {
+		return nil
+	}
+	return s.tasks[runtimeID]
+}
+
+func (s *FirecrackerVMSupervisor) markStopped(runtimeID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if task := s.taskLocked(runtimeID); task != nil {
+		task.state = FirecrackerVMStopped
+		task.stoppedAt = time.Now().UTC()
+	}
+}
+
+func (s *FirecrackerVMSupervisor) binaryPath() string {
+	if s.BinaryPath != "" {
+		return s.BinaryPath
+	}
+	return "firecracker"
+}
+
+func (s *FirecrackerVMSupervisor) stopTimeout() time.Duration {
+	if s.StopTimeout > 0 {
+		return s.StopTimeout
+	}
+	return 10 * time.Second
+}
+
+func (s *FirecrackerVMSupervisor) restartBackoff() time.Duration {
+	if s.RestartBackoff > 0 {
+		return s.RestartBackoff
+	}
+	return time.Second
+}
+
+func (t *firecrackerVMTask) startLocked() error {
+	cmd := exec.Command(t.supervisor.binaryPath(), t.args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	t.cmd = cmd
+	t.done = make(chan struct{})
+	t.state = FirecrackerVMStarting
+	t.stopRequested = false
+	t.startedAt = time.Now().UTC()
+	t.stoppedAt = time.Time{}
+	t.lastError = ""
+	if err := cmd.Start(); err != nil {
+		t.state = FirecrackerVMCrashed
+		t.lastError = err.Error()
+		close(t.done)
+		return err
+	}
+	t.pid = cmd.Process.Pid
+	t.state = FirecrackerVMRunning
+	go t.watch(cmd, t.done)
+	return nil
+}
+
+func (t *firecrackerVMTask) watch(cmd *exec.Cmd, done chan struct{}) {
+	err := cmd.Wait()
+	exitCode := 0
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = -1
+		}
+	}
+
+	t.supervisor.mu.Lock()
+	defer t.supervisor.mu.Unlock()
+	if t.cmd != cmd {
+		close(done)
+		return
+	}
+	now := time.Now().UTC()
+	t.exitCode = exitCode
+	t.stoppedAt = now
+	if err != nil {
+		t.lastError = err.Error()
+	}
+	cleanStop := t.stopRequested
+	unexpected := !cleanStop || exitCode != 0
+	if unexpected && !cleanStop {
+		t.crashes++
+	}
+	if unexpected && !cleanStop && shouldRestartFirecrackerVM(t.restartPolicy) {
+		t.state = FirecrackerVMCrashed
+		close(done)
+		t.scheduleRestartLocked()
+		return
+	}
+	if unexpected && !cleanStop {
+		t.state = FirecrackerVMCrashed
+	} else {
+		t.state = FirecrackerVMStopped
+	}
+	close(done)
+}
+
+func (t *firecrackerVMTask) scheduleRestartLocked() {
+	go func() {
+		time.Sleep(t.supervisor.restartBackoff())
+		t.supervisor.mu.Lock()
+		defer t.supervisor.mu.Unlock()
+		if current := t.supervisor.taskLocked(t.runtimeID); current != t || t.stopRequested {
+			return
+		}
+		t.restarts++
+		if err := t.startLocked(); err != nil {
+			t.lastError = err.Error()
+		}
+	}()
+}
+
+func (t *firecrackerVMTask) statusLocked() FirecrackerVMStatus {
+	durationEnd := t.stoppedAt
+	if durationEnd.IsZero() {
+		durationEnd = time.Now().UTC()
+	}
+	return FirecrackerVMStatus{
+		RuntimeID: t.runtimeID,
+		State:     t.state,
+		PID:       t.pid,
+		ExitCode:  t.exitCode,
+		Restarts:  t.restarts,
+		Crashes:   t.crashes,
+		StartedAt: t.startedAt,
+		StoppedAt: t.stoppedAt,
+		Duration:  durationEnd.Sub(t.startedAt),
+		LastError: t.lastError,
+	}
+}
+
+func shouldRestartFirecrackerVM(policy string) bool {
+	switch policy {
+	case "always", "on-failure", "unless-stopped":
+		return true
+	default:
+		return false
+	}
+}
