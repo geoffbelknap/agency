@@ -127,6 +127,9 @@ func (b *ContainerRuntimeBackend) Capabilities(ctx context.Context) (runtimecont
 		SupportedTransportTypes: []string{runtimecontract.TransportTypeLoopbackHTTP},
 		SupportsComposeLike:     false,
 		SupportsRootless:        b.Name() == runtimehost.BackendPodman,
+		Isolation:               runtimecontract.IsolationContainer,
+		RequiresKVM:             false,
+		SupportsSnapshots:       false,
 	}, nil
 }
 

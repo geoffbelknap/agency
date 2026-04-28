@@ -5,6 +5,7 @@ import "context"
 const (
 	TransportTypeLoopbackHTTP = "loopback_http"
 	TransportTypeUnixHTTP     = "unix_http"
+	TransportTypeVsockHTTP    = "vsock_http"
 
 	RuntimePhaseCompiled    = "compiled"
 	RuntimePhaseReconciled  = "reconciled"
@@ -102,10 +103,21 @@ type BackendStatus struct {
 	Details   map[string]string `yaml:"details,omitempty" json:"details,omitempty"`
 }
 
+type Isolation string
+
+const (
+	IsolationContainer Isolation = "container"
+	IsolationMicroVM   Isolation = "microvm"
+	IsolationLangVM    Isolation = "langvm"
+)
+
 type BackendCapabilities struct {
-	SupportedTransportTypes []string `yaml:"supportedTransportTypes,omitempty" json:"supportedTransportTypes,omitempty"`
-	SupportsRootless        bool     `yaml:"supportsRootless,omitempty" json:"supportsRootless,omitempty"`
-	SupportsComposeLike     bool     `yaml:"supportsComposeLike,omitempty" json:"supportsComposeLike,omitempty"`
+	SupportedTransportTypes []string  `yaml:"supportedTransportTypes,omitempty" json:"supportedTransportTypes,omitempty"`
+	SupportsRootless        bool      `yaml:"supportsRootless,omitempty" json:"supportsRootless,omitempty"`
+	SupportsComposeLike     bool      `yaml:"supportsComposeLike,omitempty" json:"supportsComposeLike,omitempty"`
+	Isolation               Isolation `yaml:"isolation,omitempty" json:"isolation,omitempty"`
+	RequiresKVM             bool      `yaml:"requiresKVM,omitempty" json:"requiresKVM,omitempty"`
+	SupportsSnapshots       bool      `yaml:"supportsSnapshots,omitempty" json:"supportsSnapshots,omitempty"`
 }
 
 type Backend interface {
