@@ -32,11 +32,12 @@ func TestFirecrackerRuntimeBackendSkeleton(t *testing.T) {
 func TestNewFirecrackerRuntimeBackendUsesConfig(t *testing.T) {
 	home := t.TempDir()
 	backend := NewFirecrackerRuntimeBackend(home, map[string]string{
-		"binary_path":     "/usr/local/bin/firecracker",
-		"kernel_path":     "/var/lib/agency/vmlinux",
-		"state_dir":       filepath.Join(home, "fc-state"),
-		"rootfs_size_mib": "2048",
-		"stop_timeout":    "250ms",
+		"binary_path":      "/usr/local/bin/firecracker",
+		"kernel_path":      "/var/lib/agency/vmlinux",
+		"state_dir":        filepath.Join(home, "fc-state"),
+		"rootfs_size_mib":  "2048",
+		"stop_timeout":     "250ms",
+		"enforcement_mode": FirecrackerEnforcementModeMicroVM,
 	})
 	if backend.BinaryPath != "/usr/local/bin/firecracker" {
 		t.Fatalf("binary path = %q", backend.BinaryPath)
@@ -52,6 +53,26 @@ func TestNewFirecrackerRuntimeBackendUsesConfig(t *testing.T) {
 	}
 	if backend.Tasks.StopTimeout.String() != "250ms" {
 		t.Fatalf("stop timeout = %s", backend.Tasks.StopTimeout)
+	}
+	if backend.EnforcementMode != FirecrackerEnforcementModeMicroVM {
+		t.Fatalf("enforcement mode = %q", backend.EnforcementMode)
+	}
+}
+
+func TestFirecrackerRuntimeBackendDefaultsToHostProcessEnforcement(t *testing.T) {
+	backend := NewFirecrackerRuntimeBackend(t.TempDir(), nil)
+	if backend.EnforcementMode != FirecrackerEnforcementModeHostProcess {
+		t.Fatalf("enforcement mode = %q, want %q", backend.EnforcementMode, FirecrackerEnforcementModeHostProcess)
+	}
+	if err := backend.validateConfig(); err != nil {
+		t.Fatalf("validateConfig returned error: %v", err)
+	}
+}
+
+func TestFirecrackerRuntimeBackendRejectsUnsupportedEnforcementMode(t *testing.T) {
+	backend := NewFirecrackerRuntimeBackend(t.TempDir(), map[string]string{"enforcement_mode": "inside-agent"})
+	if _, err := backend.Capabilities(context.Background()); err == nil || !strings.Contains(err.Error(), "unsupported enforcement_mode") {
+		t.Fatalf("Capabilities() error = %v", err)
 	}
 }
 
@@ -99,5 +120,28 @@ func TestFirecrackerRuntimeBackendCapabilities(t *testing.T) {
 	}
 	if !caps.SupportsSnapshots {
 		t.Fatal("SupportsSnapshots = false, want true")
+	}
+}
+
+func TestParseFirecrackerEnforcementMode(t *testing.T) {
+	for _, tt := range []struct {
+		raw  string
+		want string
+	}{
+		{"", FirecrackerEnforcementModeHostProcess},
+		{"host-process", FirecrackerEnforcementModeHostProcess},
+		{"microvm", FirecrackerEnforcementModeMicroVM},
+		{"MICROVM", FirecrackerEnforcementModeMicroVM},
+	} {
+		got, err := parseFirecrackerEnforcementMode(tt.raw)
+		if err != nil {
+			t.Fatalf("parseFirecrackerEnforcementMode(%q) returned error: %v", tt.raw, err)
+		}
+		if got != tt.want {
+			t.Fatalf("parseFirecrackerEnforcementMode(%q) = %q, want %q", tt.raw, got, tt.want)
+		}
+	}
+	if _, err := parseFirecrackerEnforcementMode("shared"); err == nil {
+		t.Fatal("expected unsupported enforcement mode to fail")
 	}
 }

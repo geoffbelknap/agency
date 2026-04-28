@@ -14,15 +14,22 @@ import (
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
-const BackendFirecracker = "firecracker"
+const (
+	BackendFirecracker                    = "firecracker"
+	FirecrackerEnforcementModeHostProcess = "host-process"
+	FirecrackerEnforcementModeMicroVM     = "microvm"
+)
 
 type FirecrackerRuntimeBackend struct {
-	BinaryPath string
-	KernelPath string
-	StateDir   string
-	Images     *FirecrackerImageStore
-	Tasks      *FirecrackerVMSupervisor
-	Vsock      *FirecrackerVsockListenerFactory
+	BinaryPath      string
+	KernelPath      string
+	StateDir        string
+	EnforcementMode string
+	Images          *FirecrackerImageStore
+	Tasks           *FirecrackerVMSupervisor
+	Vsock           *FirecrackerVsockListenerFactory
+
+	configErr error
 }
 
 func NewFirecrackerRuntimeBackend(home string, cfg map[string]string) *FirecrackerRuntimeBackend {
@@ -38,10 +45,13 @@ func NewFirecrackerRuntimeBackend(home string, cfg map[string]string) *Firecrack
 	if binaryPath == "" {
 		binaryPath = "firecracker"
 	}
+	enforcementMode, modeErr := parseFirecrackerEnforcementMode(cfg["enforcement_mode"])
 	backend := &FirecrackerRuntimeBackend{
-		BinaryPath: binaryPath,
-		KernelPath: strings.TrimSpace(cfg["kernel_path"]),
-		StateDir:   stateDir,
+		BinaryPath:      binaryPath,
+		KernelPath:      strings.TrimSpace(cfg["kernel_path"]),
+		StateDir:        stateDir,
+		EnforcementMode: enforcementMode,
+		configErr:       modeErr,
 	}
 	backend.Images = &FirecrackerImageStore{
 		StateDir:   stateDir,
@@ -62,6 +72,9 @@ func (b *FirecrackerRuntimeBackend) Name() string {
 }
 
 func (b *FirecrackerRuntimeBackend) Ensure(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
+	if err := b.validateConfig(); err != nil {
+		return err
+	}
 	if strings.TrimSpace(b.KernelPath) == "" {
 		return fmt.Errorf("firecracker backend: kernel path is not configured")
 	}
@@ -109,11 +122,12 @@ func (b *FirecrackerRuntimeBackend) Inspect(ctx context.Context, runtimeID strin
 	out := runtimecontract.BackendStatus{
 		RuntimeID: runtimeID,
 		Details: map[string]string{
-			"vm_state":  status.State,
-			"pid":       strconv.Itoa(status.PID),
-			"exit_code": strconv.Itoa(status.ExitCode),
-			"crashes":   strconv.Itoa(status.Crashes),
-			"restarts":  strconv.Itoa(status.Restarts),
+			"vm_state":         status.State,
+			"pid":              strconv.Itoa(status.PID),
+			"exit_code":        strconv.Itoa(status.ExitCode),
+			"crashes":          strconv.Itoa(status.Crashes),
+			"restarts":         strconv.Itoa(status.Restarts),
+			"enforcement_mode": b.enforcementMode(),
 		},
 	}
 	if status.LastError != "" {
@@ -140,6 +154,9 @@ func (b *FirecrackerRuntimeBackend) Inspect(ctx context.Context, runtimeID strin
 
 func (b *FirecrackerRuntimeBackend) Validate(ctx context.Context, runtimeID string) error {
 	_ = ctx
+	if err := b.validateConfig(); err != nil {
+		return err
+	}
 	status, err := b.Inspect(ctx, runtimeID)
 	if err != nil {
 		return err
@@ -161,6 +178,9 @@ func (b *FirecrackerRuntimeBackend) Validate(ctx context.Context, runtimeID stri
 
 func (b *FirecrackerRuntimeBackend) Capabilities(ctx context.Context) (runtimecontract.BackendCapabilities, error) {
 	_ = ctx
+	if err := b.validateConfig(); err != nil {
+		return runtimecontract.BackendCapabilities{}, err
+	}
 	return runtimecontract.BackendCapabilities{
 		SupportedTransportTypes: []string{runtimecontract.TransportTypeVsockHTTP},
 		SupportsRootless:        false,
@@ -230,6 +250,24 @@ func (b *FirecrackerRuntimeBackend) writeConfig(spec runtimecontract.RuntimeSpec
 		return "", fmt.Errorf("write firecracker config: %w", err)
 	}
 	return path, nil
+}
+
+func (b *FirecrackerRuntimeBackend) validateConfig() error {
+	if b.configErr != nil {
+		return b.configErr
+	}
+	if _, err := parseFirecrackerEnforcementMode(b.EnforcementMode); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (b *FirecrackerRuntimeBackend) enforcementMode() string {
+	mode, err := parseFirecrackerEnforcementMode(b.EnforcementMode)
+	if err != nil {
+		return b.EnforcementMode
+	}
+	return mode
 }
 
 type firecrackerConfig struct {
@@ -302,4 +340,17 @@ func parseDurationConfig(raw string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return time.Duration(seconds) * time.Second
+}
+
+func parseFirecrackerEnforcementMode(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "":
+		return FirecrackerEnforcementModeHostProcess, nil
+	case FirecrackerEnforcementModeHostProcess:
+		return FirecrackerEnforcementModeHostProcess, nil
+	case FirecrackerEnforcementModeMicroVM:
+		return FirecrackerEnforcementModeMicroVM, nil
+	default:
+		return "", fmt.Errorf("firecracker backend: unsupported enforcement_mode %q", raw)
+	}
 }
