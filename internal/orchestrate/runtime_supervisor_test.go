@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/geoffbelknap/agency/internal/features"
@@ -506,6 +507,52 @@ func TestRuntimeSupervisorCompilePodmanBackend(t *testing.T) {
 	}
 	if spec.Backend != runtimehost.BackendPodman {
 		t.Fatalf("backend = %q, want %q", spec.Backend, runtimehost.BackendPodman)
+	}
+}
+
+func TestRuntimeSupervisorCompileFirecrackerUsesVsockTransport(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, "agents", "alice")
+	if err := os.MkdirAll(filepath.Join(agentDir, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("uuid: ag_123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rs := NewRuntimeSupervisor(home, "0.1.0", "", "build-1", hostruntimebackend.BackendFirecracker, nil, nil, nil, nil)
+	spec, err := rs.Compile(context.Background(), "alice")
+	if err != nil {
+		t.Fatalf("Compile returned error: %v", err)
+	}
+	if spec.Backend != hostruntimebackend.BackendFirecracker {
+		t.Fatalf("backend = %q, want %q", spec.Backend, hostruntimebackend.BackendFirecracker)
+	}
+	if spec.Transport.Enforcer.Type != runtimecontract.TransportTypeVsockHTTP {
+		t.Fatalf("transport type = %q", spec.Transport.Enforcer.Type)
+	}
+	if spec.Transport.Enforcer.Endpoint != "vsock://2:8081" {
+		t.Fatalf("transport endpoint = %q", spec.Transport.Enforcer.Endpoint)
+	}
+	for key, want := range map[string]string{
+		"AGENCY_TRANSPORT_ENFORCER_TYPE":     runtimecontract.TransportTypeVsockHTTP,
+		"AGENCY_TRANSPORT_ENFORCER_ENDPOINT": "vsock://2:8081",
+		"AGENCY_ENFORCER_PROXY_URL":          "http://127.0.0.1:3128",
+		"AGENCY_ENFORCER_CONTROL_URL":        "http://127.0.0.1:8081",
+		"AGENCY_COMMS_URL":                   "http://127.0.0.1:8081/mediation/comms",
+		"AGENCY_KNOWLEDGE_URL":               "http://127.0.0.1:8081/mediation/knowledge",
+	} {
+		if got := spec.Package.Env[key]; got != want {
+			t.Fatalf("env[%s] = %q, want %q", key, got, want)
+		}
+	}
+	for _, key := range []string{
+		hostruntimebackend.FirecrackerEnforcerProxyTargetEnv,
+		hostruntimebackend.FirecrackerEnforcerControlTargetEnv,
+	} {
+		if got := spec.Package.Env[key]; !strings.HasPrefix(got, "http://127.0.0.1:") {
+			t.Fatalf("env[%s] = %q, want loopback URL", key, got)
+		}
 	}
 }
 

@@ -19,8 +19,8 @@ const (
 	FirecrackerEnforcementModeHostProcess = "host-process"
 	FirecrackerEnforcementModeMicroVM     = "microvm"
 
-	firecrackerEnforcerProxyTargetEnv   = "AGENCY_FIRECRACKER_ENFORCER_PROXY_TARGET"
-	firecrackerEnforcerControlTargetEnv = "AGENCY_FIRECRACKER_ENFORCER_CONTROL_TARGET"
+	FirecrackerEnforcerProxyTargetEnv   = "AGENCY_FIRECRACKER_ENFORCER_PROXY_TARGET"
+	FirecrackerEnforcerControlTargetEnv = "AGENCY_FIRECRACKER_ENFORCER_CONTROL_TARGET"
 )
 
 type FirecrackerRuntimeBackend struct {
@@ -324,8 +324,8 @@ func firecrackerEnforcerTarget(endpoint string) (string, error) {
 }
 
 func firecrackerEnforcerTargets(spec runtimecontract.RuntimeSpec) (map[int]string, error) {
-	proxyEndpoint := strings.TrimSpace(spec.Package.Env[firecrackerEnforcerProxyTargetEnv])
-	controlEndpoint := strings.TrimSpace(spec.Package.Env[firecrackerEnforcerControlTargetEnv])
+	proxyEndpoint := strings.TrimSpace(spec.Package.Env[FirecrackerEnforcerProxyTargetEnv])
+	controlEndpoint := strings.TrimSpace(spec.Package.Env[FirecrackerEnforcerControlTargetEnv])
 	if proxyEndpoint == "" && controlEndpoint == "" {
 		target, err := firecrackerEnforcerTarget(spec.Transport.Enforcer.Endpoint)
 		if err != nil {

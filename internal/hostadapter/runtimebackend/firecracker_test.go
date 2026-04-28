@@ -144,8 +144,8 @@ func TestFirecrackerEnforcerTargetsDefaultCompatibility(t *testing.T) {
 func TestFirecrackerEnforcerTargetsProxyAndControl(t *testing.T) {
 	targets, err := firecrackerEnforcerTargets(runtimecontract.RuntimeSpec{
 		Package: runtimecontract.RuntimePackageSpec{Env: map[string]string{
-			firecrackerEnforcerProxyTargetEnv:   "http://127.0.0.1:19128",
-			firecrackerEnforcerControlTargetEnv: "http://127.0.0.1:19081",
+			FirecrackerEnforcerProxyTargetEnv:   "http://127.0.0.1:19128",
+			FirecrackerEnforcerControlTargetEnv: "http://127.0.0.1:19081",
 		}},
 	})
 	if err != nil {

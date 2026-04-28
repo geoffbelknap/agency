@@ -168,32 +168,60 @@ func (rs *RuntimeSupervisor) Compile(ctx context.Context, runtimeID string) (run
 	if err != nil {
 		return runtimecontract.RuntimeSpec{}, fmt.Errorf("allocate loopback endpoint: %w", err)
 	}
+	backendName := normalizeRuntimeBackendName(rs.BackendName)
+	transportType := runtimecontract.TransportTypeLoopbackHTTP
+	enforcerHost := rs.enforcerHost(agentID)
+	enforcerProxyURL := "http://" + enforcerHost + ":3128"
+	enforcerControlURL := "http://" + enforcerHost + ":8081"
+	enforcerEndpoint := endpoint
+	extraEnv := map[string]string{}
+	if backendName == hostruntimebackend.BackendFirecracker {
+		proxyEndpoint, err := allocateLoopbackEndpoint()
+		if err != nil {
+			return runtimecontract.RuntimeSpec{}, fmt.Errorf("allocate firecracker enforcer proxy endpoint: %w", err)
+		}
+		controlEndpoint, err := allocateLoopbackEndpoint()
+		if err != nil {
+			return runtimecontract.RuntimeSpec{}, fmt.Errorf("allocate firecracker enforcer control endpoint: %w", err)
+		}
+		transportType = runtimecontract.TransportTypeVsockHTTP
+		enforcerHost = "127.0.0.1"
+		enforcerProxyURL = "http://" + enforcerHost + ":3128"
+		enforcerControlURL = "http://" + enforcerHost + ":8081"
+		enforcerEndpoint = "vsock://2:8081"
+		extraEnv[hostruntimebackend.FirecrackerEnforcerProxyTargetEnv] = proxyEndpoint
+		extraEnv[hostruntimebackend.FirecrackerEnforcerControlTargetEnv] = controlEndpoint
+	}
+	env := map[string]string{
+		"AGENCY_AGENT_NAME":                  agentID,
+		"AGENCY_MODEL":                       rs.resolveModel(agentID),
+		"AGENCY_ADMIN_MODEL":                 rs.resolveAdminModel(agentID),
+		"PATH":                               "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"NO_PROXY":                           enforcerHost + ",localhost,127.0.0.1",
+		"AGENCY_ENFORCER_PROXY_URL":          enforcerProxyURL,
+		"AGENCY_ENFORCER_URL":                enforcerProxyURL + "/v1",
+		"AGENCY_ENFORCER_CONTROL_URL":        enforcerControlURL,
+		"AGENCY_ENFORCER_HEALTH_URL":         enforcerProxyURL + "/health",
+		"AGENCY_COMMS_URL":                   enforcerControlURL + "/mediation/comms",
+		"AGENCY_KNOWLEDGE_URL":               enforcerControlURL + "/mediation/knowledge",
+		"AGENCY_TRANSPORT_ENFORCER_TYPE":     transportType,
+		"AGENCY_TRANSPORT_ENFORCER_ENDPOINT": enforcerEndpoint,
+	}
+	for key, value := range extraEnv {
+		env[key] = value
+	}
 	spec := runtimecontract.RuntimeSpec{
 		RuntimeID: agentID,
 		AgentID:   agentUUIDOrName(filepath.Join(rs.Home, "agents", agentID, "agent.yaml"), agentID),
-		Backend:   normalizeRuntimeBackendName(rs.BackendName),
+		Backend:   backendName,
 		Package: runtimecontract.RuntimePackageSpec{
 			Image: bodyImage,
-			Env: map[string]string{
-				"AGENCY_AGENT_NAME":                  agentID,
-				"AGENCY_MODEL":                       rs.resolveModel(agentID),
-				"AGENCY_ADMIN_MODEL":                 rs.resolveAdminModel(agentID),
-				"PATH":                               "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-				"NO_PROXY":                           rs.enforcerHost(agentID) + ",localhost,127.0.0.1",
-				"AGENCY_ENFORCER_PROXY_URL":          "http://" + rs.enforcerHost(agentID) + ":3128",
-				"AGENCY_ENFORCER_URL":                "http://" + rs.enforcerHost(agentID) + ":3128/v1",
-				"AGENCY_ENFORCER_CONTROL_URL":        "http://" + rs.enforcerHost(agentID) + ":8081",
-				"AGENCY_ENFORCER_HEALTH_URL":         "http://" + rs.enforcerHost(agentID) + ":3128/health",
-				"AGENCY_COMMS_URL":                   "http://" + rs.enforcerHost(agentID) + ":8081/mediation/comms",
-				"AGENCY_KNOWLEDGE_URL":               "http://" + rs.enforcerHost(agentID) + ":8081/mediation/knowledge",
-				"AGENCY_TRANSPORT_ENFORCER_TYPE":     runtimecontract.TransportTypeLoopbackHTTP,
-				"AGENCY_TRANSPORT_ENFORCER_ENDPOINT": endpoint,
-			},
+			Env:   env,
 		},
 		Transport: runtimecontract.RuntimeTransportSpec{
 			Enforcer: runtimecontract.EnforcerTransportSpec{
-				Type:     runtimecontract.TransportTypeLoopbackHTTP,
-				Endpoint: endpoint,
+				Type:     transportType,
+				Endpoint: enforcerEndpoint,
 				AuthMode: "bearer",
 				TokenRef: filepath.Join(rs.Home, "agents", agentID, "state", "enforcer-auth", "api_keys.yaml"),
 			},
