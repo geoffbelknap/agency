@@ -7,6 +7,11 @@ the earlier assumption that the Firecracker parity path should recreate
 the container-era `workspace` + `enforcer` pair as containers or as one
 combined VM.
 
+Update 2026-04-28: `host-process` mode has reached Web UI parity for the
+Firecracker backend. The next implementation track is `microvm` mode:
+one Firecracker microVM for the agent workload and one separate
+Firecracker microVM for that agent's enforcer boundary.
+
 ## Decision
 
 Agency's Linux production runtime target is:
@@ -244,6 +249,97 @@ Both modes should be compared with the same benchmark and parity harness:
 7. Implement `microvm` enforcer mode using the existing enforcer OCI image
    and the Firecracker image store/supervisor.
 8. Run the same parity and scale harness against both modes.
+
+## MicroVM Mode Implementation Track
+
+The `microvm` mode should be developed as an implementation detail of the
+Firecracker runtime backend, not as a new generic runtime shape. The
+backend-neutral contract still exposes one agent runtime with one
+transport endpoint and one status object. Internally, Firecracker owns two
+component VMs for that runtime:
+
+- `workload`: the agent body VM
+- `enforcer`: the external mediation VM
+
+The first implementation should land in small chunks:
+
+1. **Component state model**
+   - Add Firecracker-internal component roles for workload and enforcer
+     VM state.
+   - Keep public runtime status as one status object, with details such
+     as `workload_vm_state`, `enforcer_vm_state`, `vsock_bridge_state`,
+     and `enforcement_mode=microvm`.
+   - Preserve current `host-process` status keys for compatibility while
+     adding the clearer component keys.
+
+2. **Enforcer VM spec compiler**
+   - Convert the existing per-agent enforcer launch spec into an
+     enforcer microVM boot spec.
+   - Reuse `agency-enforcer:latest` as the OCI source image.
+   - Deliver config/auth/service metadata through a read-only per-agent
+     config artifact, not through host-only environment leakage.
+   - Keep per-agent audit/data paths explicit and visible.
+
+3. **Two-sided vsock bridge**
+   - Workload VM sees only `vsock://2:<port>` endpoints for its assigned
+     enforcer.
+   - Host bridge forwards workload VM UDS ports only to that agent's
+     enforcer VM ports.
+   - Enforcer VM reaches host services through a separate host-side bridge
+     whose targets are gateway, comms, knowledge, egress, and explicitly
+     enabled services.
+   - Workload VM must never receive direct host-service targets.
+
+4. **Lifecycle ordering**
+   - `Ensure` starts or updates the enforcer VM first.
+   - Start the workload-to-enforcer bridge only after the enforcer VM is
+     healthy.
+   - Start the workload VM after the bridge is ready.
+   - Validate workload VM, enforcer VM, and both bridge sides before
+     reporting healthy.
+
+5. **Stop and recovery**
+   - Stop workload VM first, then bridge, then enforcer VM.
+   - Cleanup removes both component configs, both task rootfs copies, PID
+     files, and UDS sockets.
+   - If the daemon restarts, the runtime must degrade visibly until the
+     operator restarts or a recovery mechanism re-attaches.
+
+6. **Parity and scale harness**
+   - Run the existing Web UI smoke suite in `host-process` and `microvm`
+     modes.
+   - Capture cold start, first DM latency, steady RSS, disk usage, and
+     cleanup results for both modes.
+
+### MicroVM Mode Acceptance Criteria
+
+`microvm` mode is acceptable for comparison only when:
+
+- the agent workload VM cannot reach gateway, comms, knowledge, egress,
+  provider APIs, or tool services except through its enforcer VM
+- the enforcer VM has scoped per-agent config/auth/data/audit material
+- runtime status shows workload VM, enforcer VM, and bridge health
+- Web UI create/manage/DM/restart/stop/delete parity passes
+- delete leaves no workload VM, enforcer VM, PID file, UDS socket,
+  component config, or per-task rootfs behind
+- audit records still show mediated DM and provider activity under the
+  agent identity
+
+### MicroVM Mode Open Decisions
+
+- **VM-to-VM addressing**: Firecracker does not provide direct guest to
+  guest vsock routing. The first version should route through explicit
+  host-owned UDS bridges rather than adding a guest network.
+- **Config delivery**: the enforcer VM needs read-only config/auth/service
+  metadata. The safest first version is a generated per-agent config disk
+  or rootfs injection; virtio-fs can be evaluated later.
+- **Audit delivery**: audit can be written through a host-owned bridge or
+  a writable per-agent audit disk. The first version should prefer the
+  simpler path that preserves complete audit and teardown evidence.
+- **CID allocation**: static guest CIDs are fine for one VM, but two VMs
+  per agent require deterministic allocation and collision checks.
+- **Egress path**: outbound network remains mediated by the enforcer; do
+  not add workload VM tap/NAT direct egress as part of `microvm` mode.
 
 ## Non-Goals
 

@@ -4,8 +4,10 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
@@ -66,5 +68,17 @@ func TestFirecrackerComponentBodyReadinessDegradesStatus(t *testing.T) {
 	}
 	if status.Details["last_error"] == "" {
 		t.Fatal("last_error should explain the failed readiness check")
+	}
+}
+
+func TestFirecrackerMicroVMEnforcementModeFailsClosedUntilImplemented(t *testing.T) {
+	backend := &firecrackerComponentRuntimeBackend{
+		backend: &hostruntimebackend.FirecrackerRuntimeBackend{
+			EnforcementMode: hostruntimebackend.FirecrackerEnforcementModeMicroVM,
+		},
+	}
+	err := backend.EnsureEnforcer(context.Background(), runtimecontract.RuntimeSpec{RuntimeID: "alice"}, false)
+	if err == nil || !strings.Contains(err.Error(), "microVM mode is not implemented") {
+		t.Fatalf("EnsureEnforcer error = %v, want microVM mode not implemented", err)
 	}
 }
