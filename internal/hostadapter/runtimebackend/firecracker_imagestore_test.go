@@ -228,6 +228,36 @@ func TestInstallFirecrackerVsockBridge(t *testing.T) {
 	}
 }
 
+func TestOSFirecrackerImageCommandsExport(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	stage := filepath.Join(dir, "stage")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(stage, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "hello.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	podman := filepath.Join(dir, "podman")
+	script := "#!/bin/sh\nif [ \"$1\" != \"export\" ]; then exit 2; fi\nexec tar -C " + shellQuote(src) + " -cf - .\n"
+	if err := os.WriteFile(podman, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := (osFirecrackerImageCommands{}).Export(context.Background(), podman, "source-id", stage); err != nil {
+		t.Fatalf("Export returned error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(stage, "hello.txt"))
+	if err != nil {
+		t.Fatalf("read exported file: %v", err)
+	}
+	if string(data) != "hello" {
+		t.Fatalf("exported file = %q", string(data))
+	}
+}
+
 func TestSanitizeFirecrackerDigest(t *testing.T) {
 	if got := sanitizeFirecrackerDigest("registry.example/agent@sha256:abc"); got != "registry.example-agent-sha256-abc" {
 		t.Fatalf("sanitizeFirecrackerDigest() = %q", got)

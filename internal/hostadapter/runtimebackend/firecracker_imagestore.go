@@ -389,9 +389,6 @@ func (osFirecrackerImageCommands) Export(ctx context.Context, podmanPath, id, st
 		return err
 	}
 	podmanErr := podman.Wait()
-	if closeErr := pipe.Close(); closeErr != nil && podmanErr == nil {
-		podmanErr = closeErr
-	}
 	tarErr := tar.Wait()
 	if podmanErr != nil {
 		return podmanErr
