@@ -126,6 +126,45 @@ func TestFirecrackerRuntimeBackendWritesConfiguredMemory(t *testing.T) {
 	}
 }
 
+func TestFirecrackerRuntimeBackendCleanupRuntimeState(t *testing.T) {
+	dir := t.TempDir()
+	backend := &FirecrackerRuntimeBackend{StateDir: dir}
+	for _, path := range []string{
+		filepath.Join(dir, "alice", "firecracker.json"),
+		filepath.Join(dir, "tasks", "alice", "rootfs.ext4"),
+		filepath.Join(dir, "pids", "alice.pid"),
+		filepath.Join(dir, "images", "base.ext4"),
+		filepath.Join(dir, "logs", "alice.log"),
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := backend.cleanupRuntimeState("alice"); err != nil {
+		t.Fatalf("cleanupRuntimeState returned error: %v", err)
+	}
+	for _, path := range []string{
+		filepath.Join(dir, "alice"),
+		filepath.Join(dir, "tasks", "alice"),
+		filepath.Join(dir, "pids", "alice.pid"),
+	} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("expected %s to be removed, err=%v", path, err)
+		}
+	}
+	for _, path := range []string{
+		filepath.Join(dir, "images", "base.ext4"),
+		filepath.Join(dir, "logs", "alice.log"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected %s to remain: %v", path, err)
+		}
+	}
+}
+
 func TestFirecrackerRuntimeBackendCapabilities(t *testing.T) {
 	caps, err := (&FirecrackerRuntimeBackend{}).Capabilities(context.Background())
 	if err != nil {

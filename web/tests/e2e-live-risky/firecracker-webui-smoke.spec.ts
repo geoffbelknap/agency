@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { promisify } from 'node:util';
 
 const APP_ERROR_PATTERN = /Application Error|Something went wrong/;
@@ -12,6 +14,12 @@ test.describe.configure({ timeout: 240_000 });
 test.skip(!enabled, 'requires AGENCY_E2E_FIRECRACKER_WEBUI=1 and a Firecracker-capable live stack');
 
 let cachedAuthHeaders: Record<string, string> | null = null;
+
+type RuntimeManifest = {
+  backendStatus?: {
+    details?: Record<string, string>;
+  };
+};
 
 async function authHeaders(page: Page): Promise<Record<string, string>> {
   if (cachedAuthHeaders) return cachedAuthHeaders;
@@ -77,6 +85,36 @@ async function readMessages(page: Page, channel: string) {
   );
   if (!response.ok()) return [];
   return response.json() as Promise<Array<{ author?: string; content?: string }>>;
+}
+
+async function runtimeManifest(page: Page, name: string): Promise<RuntimeManifest> {
+  const response = await page.request.get(`/api/v1/agents/${encodeURIComponent(name)}/runtime/manifest`, {
+    headers: await authHeaders(page),
+  });
+  if (!response.ok()) {
+    throw new Error(`runtime manifest failed for ${name}: ${response.status()}`);
+  }
+  return response.json() as Promise<RuntimeManifest>;
+}
+
+function processAlive(pid: number): boolean {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+function pidFromManifest(manifest: RuntimeManifest, key: string): number {
+  return Number.parseInt(manifest.backendStatus?.details?.[key] ?? '', 10);
+}
+
+function stateDirFromManifest(manifest: RuntimeManifest): string {
+  const logPath = manifest.backendStatus?.details?.log_path;
+  if (!logPath) throw new Error('runtime manifest missing firecracker log_path');
+  return path.dirname(path.dirname(logPath));
 }
 
 async function createAgentThroughUI(page: Page, name: string) {
@@ -174,6 +212,53 @@ test('Firecracker degraded runtime can be recovered through the web UI', async (
     await settle(page);
     await expect(page.getByText('running').first()).toBeVisible();
     await sendDMAndWaitForReply(page, agentName, `Firecracker recovery postcheck ${agentName}: reply briefly.`);
+  } finally {
+    await deleteAgent(page, agentName);
+  }
+});
+
+test('Firecracker stop and delete clean up per-agent runtime artifacts', async ({ page }) => {
+  const agentName = `fc-cleanup-${Date.now()}`;
+
+  try {
+    await page.goto('/agents');
+    const initialized = await expectSetupOrInitialized(page);
+    if (!initialized) return;
+
+    await createAgentThroughUI(page, agentName);
+    const manifest = await runtimeManifest(page, agentName);
+    const vmPID = pidFromManifest(manifest, 'pid');
+    const enforcerPID = pidFromManifest(manifest, 'enforcer_pid');
+    const stateDir = stateDirFromManifest(manifest);
+    const runtimeDir = path.join(stateDir, agentName);
+    const taskDir = path.join(stateDir, 'tasks', agentName);
+    const pidFile = path.join(stateDir, 'pids', `${agentName}.pid`);
+
+    expect(processAlive(vmPID)).toBe(true);
+    expect(processAlive(enforcerPID)).toBe(true);
+    expect(existsSync(runtimeDir)).toBe(true);
+    expect(existsSync(taskDir)).toBe(true);
+    expect(existsSync(pidFile)).toBe(true);
+
+    const stopResponse = await page.request.post(`/api/v1/agents/${encodeURIComponent(agentName)}/stop`, {
+      headers: await authHeaders(page),
+      data: {},
+      timeout: 60_000,
+    });
+    expect(stopResponse.ok()).toBe(true);
+
+    await expect.poll(() => processAlive(vmPID), { timeout: 30_000, intervals: [500, 1000, 2000] }).toBe(false);
+    await expect.poll(() => processAlive(enforcerPID), { timeout: 30_000, intervals: [500, 1000, 2000] }).toBe(false);
+    await expect.poll(() => existsSync(runtimeDir), { timeout: 30_000, intervals: [500, 1000, 2000] }).toBe(false);
+    await expect.poll(() => existsSync(taskDir), { timeout: 30_000, intervals: [500, 1000, 2000] }).toBe(false);
+    await expect.poll(() => existsSync(pidFile), { timeout: 30_000, intervals: [500, 1000, 2000] }).toBe(false);
+
+    await deleteAgent(page, agentName);
+    const showResponse = await page.request.get(`/api/v1/agents/${encodeURIComponent(agentName)}`, {
+      headers: await authHeaders(page),
+      timeout: 10_000,
+    });
+    expect(showResponse.status()).toBe(404);
   } finally {
     await deleteAgent(page, agentName);
   }

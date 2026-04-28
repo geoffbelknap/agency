@@ -120,7 +120,7 @@ func (b *FirecrackerRuntimeBackend) Stop(ctx context.Context, runtimeID string) 
 		return err
 	}
 	b.vsockFactory().Stop(runtimeID)
-	return nil
+	return b.cleanupRuntimeState(runtimeID)
 }
 
 func (b *FirecrackerRuntimeBackend) Inspect(ctx context.Context, runtimeID string) (runtimecontract.BackendStatus, error) {
@@ -224,6 +224,23 @@ func (b *FirecrackerRuntimeBackend) vsockFactory() *FirecrackerVsockListenerFact
 	}
 	b.Vsock = &FirecrackerVsockListenerFactory{StateDir: b.StateDir}
 	return b.Vsock
+}
+
+func (b *FirecrackerRuntimeBackend) cleanupRuntimeState(runtimeID string) error {
+	runtimeID = strings.TrimSpace(runtimeID)
+	if runtimeID == "" {
+		return nil
+	}
+	for _, path := range []string{
+		filepath.Join(b.StateDir, runtimeID),
+		filepath.Join(b.StateDir, "tasks", runtimeID),
+		filepath.Join(b.StateDir, "pids", runtimeID+".pid"),
+	} {
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("remove firecracker runtime state %s: %w", path, err)
+		}
+	}
+	return nil
 }
 
 func (b *FirecrackerRuntimeBackend) writeConfig(spec runtimecontract.RuntimeSpec, rootfsPath, udsBase string) (string, error) {
