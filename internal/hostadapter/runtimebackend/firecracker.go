@@ -18,6 +18,9 @@ const (
 	BackendFirecracker                    = "firecracker"
 	FirecrackerEnforcementModeHostProcess = "host-process"
 	FirecrackerEnforcementModeMicroVM     = "microvm"
+
+	firecrackerEnforcerProxyTargetEnv   = "AGENCY_FIRECRACKER_ENFORCER_PROXY_TARGET"
+	firecrackerEnforcerControlTargetEnv = "AGENCY_FIRECRACKER_ENFORCER_CONTROL_TARGET"
 )
 
 type FirecrackerRuntimeBackend struct {
@@ -86,11 +89,11 @@ func (b *FirecrackerRuntimeBackend) Ensure(ctx context.Context, spec runtimecont
 	if err != nil {
 		return err
 	}
-	target, err := firecrackerEnforcerTarget(spec.Transport.Enforcer.Endpoint)
+	targets, err := firecrackerEnforcerTargets(spec)
 	if err != nil {
 		return err
 	}
-	bridge, err := b.vsockFactory().Start(ctx, spec.RuntimeID, map[int]string{9999: target})
+	bridge, err := b.vsockFactory().Start(ctx, spec.RuntimeID, targets)
 	if err != nil {
 		return err
 	}
@@ -318,6 +321,37 @@ func firecrackerEnforcerTarget(endpoint string) (string, error) {
 	default:
 		return "", fmt.Errorf("firecracker backend: unsupported enforcer endpoint %q", endpoint)
 	}
+}
+
+func firecrackerEnforcerTargets(spec runtimecontract.RuntimeSpec) (map[int]string, error) {
+	proxyEndpoint := strings.TrimSpace(spec.Package.Env[firecrackerEnforcerProxyTargetEnv])
+	controlEndpoint := strings.TrimSpace(spec.Package.Env[firecrackerEnforcerControlTargetEnv])
+	if proxyEndpoint == "" && controlEndpoint == "" {
+		target, err := firecrackerEnforcerTarget(spec.Transport.Enforcer.Endpoint)
+		if err != nil {
+			return nil, err
+		}
+		return map[int]string{9999: target}, nil
+	}
+	targets := make(map[int]string, 2)
+	if proxyEndpoint != "" {
+		target, err := firecrackerEnforcerTarget(proxyEndpoint)
+		if err != nil {
+			return nil, err
+		}
+		targets[3128] = target
+	}
+	if controlEndpoint != "" {
+		target, err := firecrackerEnforcerTarget(controlEndpoint)
+		if err != nil {
+			return nil, err
+		}
+		targets[8081] = target
+	}
+	if len(targets) == 0 {
+		return nil, fmt.Errorf("firecracker backend: no enforcer targets configured")
+	}
+	return targets, nil
 }
 
 func parseInt64Config(raw string, fallback int64) int64 {

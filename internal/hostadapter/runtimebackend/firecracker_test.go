@@ -127,6 +127,35 @@ func TestFirecrackerRuntimeBackendCapabilities(t *testing.T) {
 	}
 }
 
+func TestFirecrackerEnforcerTargetsDefaultCompatibility(t *testing.T) {
+	targets, err := firecrackerEnforcerTargets(runtimecontract.RuntimeSpec{
+		Transport: runtimecontract.RuntimeTransportSpec{
+			Enforcer: runtimecontract.EnforcerTransportSpec{Endpoint: "http://127.0.0.1:19128"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("firecrackerEnforcerTargets returned error: %v", err)
+	}
+	if len(targets) != 1 || targets[9999] != "127.0.0.1:19128" {
+		t.Fatalf("targets = %#v", targets)
+	}
+}
+
+func TestFirecrackerEnforcerTargetsProxyAndControl(t *testing.T) {
+	targets, err := firecrackerEnforcerTargets(runtimecontract.RuntimeSpec{
+		Package: runtimecontract.RuntimePackageSpec{Env: map[string]string{
+			firecrackerEnforcerProxyTargetEnv:   "http://127.0.0.1:19128",
+			firecrackerEnforcerControlTargetEnv: "http://127.0.0.1:19081",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("firecrackerEnforcerTargets returned error: %v", err)
+	}
+	if len(targets) != 2 || targets[3128] != "127.0.0.1:19128" || targets[8081] != "127.0.0.1:19081" {
+		t.Fatalf("targets = %#v", targets)
+	}
+}
+
 func TestParseFirecrackerEnforcementMode(t *testing.T) {
 	for _, tt := range []struct {
 		raw  string
