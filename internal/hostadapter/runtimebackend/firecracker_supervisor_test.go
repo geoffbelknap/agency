@@ -59,7 +59,8 @@ func TestFirecrackerVMSupervisorRestartsOnFailure(t *testing.T) {
 		t.Fatalf("Start returned error: %v", err)
 	}
 	if err := waitForFirecrackerVM(t, s, "alice", func(status FirecrackerVMStatus) bool {
-		return status.Restarts >= 1 && status.Crashes >= 1
+		data, _ := os.ReadFile(marker)
+		return status.Restarts >= 1 && status.Crashes >= 1 && len(data) >= 4
 	}); err != nil {
 		t.Fatal(err)
 	}

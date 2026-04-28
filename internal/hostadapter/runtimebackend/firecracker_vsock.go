@@ -98,6 +98,15 @@ func (f *FirecrackerVsockListenerFactory) Stop(runtimeID string) {
 	delete(f.bridges, runtimeID)
 }
 
+func (f *FirecrackerVsockListenerFactory) Bridge(runtimeID string) *FirecrackerVsockBridge {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.bridges == nil {
+		return nil
+	}
+	return f.bridges[runtimeID]
+}
+
 func (f *FirecrackerVsockListenerFactory) stateDir() string {
 	if strings.TrimSpace(f.StateDir) != "" {
 		return f.StateDir

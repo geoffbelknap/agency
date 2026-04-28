@@ -2,6 +2,8 @@ package runtimebackend
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,17 +15,65 @@ func TestFirecrackerRuntimeBackendSkeleton(t *testing.T) {
 	if backend.Name() != BackendFirecracker {
 		t.Fatalf("Name() = %q, want %q", backend.Name(), BackendFirecracker)
 	}
-	if err := backend.Ensure(context.Background(), runtimecontract.RuntimeSpec{}); err == nil || !strings.Contains(err.Error(), "Ensure not implemented") {
+	if err := backend.Ensure(context.Background(), runtimecontract.RuntimeSpec{}); err == nil || !strings.Contains(err.Error(), "kernel path is not configured") {
 		t.Fatalf("Ensure() error = %v", err)
 	}
-	if err := backend.Stop(context.Background(), "alice"); err == nil || !strings.Contains(err.Error(), "Stop not implemented") {
+	if err := backend.Stop(context.Background(), "alice"); err != nil {
 		t.Fatalf("Stop() error = %v", err)
 	}
-	if _, err := backend.Inspect(context.Background(), "alice"); err == nil || !strings.Contains(err.Error(), "Inspect not implemented") {
+	if _, err := backend.Inspect(context.Background(), "alice"); err == nil || !strings.Contains(err.Error(), "not tracked") {
 		t.Fatalf("Inspect() error = %v", err)
 	}
-	if err := backend.Validate(context.Background(), "alice"); err == nil || !strings.Contains(err.Error(), "Validate not implemented") {
+	if err := backend.Validate(context.Background(), "alice"); err == nil || !strings.Contains(err.Error(), "not tracked") {
 		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestNewFirecrackerRuntimeBackendUsesConfig(t *testing.T) {
+	home := t.TempDir()
+	backend := NewFirecrackerRuntimeBackend(home, map[string]string{
+		"binary_path":     "/usr/local/bin/firecracker",
+		"kernel_path":     "/var/lib/agency/vmlinux",
+		"state_dir":       filepath.Join(home, "fc-state"),
+		"rootfs_size_mib": "2048",
+		"stop_timeout":    "250ms",
+	})
+	if backend.BinaryPath != "/usr/local/bin/firecracker" {
+		t.Fatalf("binary path = %q", backend.BinaryPath)
+	}
+	if backend.KernelPath != "/var/lib/agency/vmlinux" {
+		t.Fatalf("kernel path = %q", backend.KernelPath)
+	}
+	if backend.StateDir != filepath.Join(home, "fc-state") {
+		t.Fatalf("state dir = %q", backend.StateDir)
+	}
+	if backend.Images.SizeMiB != 2048 {
+		t.Fatalf("rootfs size = %d", backend.Images.SizeMiB)
+	}
+	if backend.Tasks.StopTimeout.String() != "250ms" {
+		t.Fatalf("stop timeout = %s", backend.Tasks.StopTimeout)
+	}
+}
+
+func TestFirecrackerRuntimeBackendWritesConfig(t *testing.T) {
+	dir := t.TempDir()
+	backend := &FirecrackerRuntimeBackend{
+		KernelPath: "/var/lib/agency/vmlinux",
+		StateDir:   dir,
+	}
+	path, err := backend.writeConfig(runtimecontract.RuntimeSpec{RuntimeID: "alice"}, "/tmp/rootfs.ext4", filepath.Join(dir, "alice", "vsock.sock"))
+	if err != nil {
+		t.Fatalf("writeConfig returned error: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{`"kernel_image_path": "/var/lib/agency/vmlinux"`, `"path_on_host": "/tmp/rootfs.ext4"`, `"guest_cid": 3`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("config missing %q:\n%s", want, text)
+		}
 	}
 }
 

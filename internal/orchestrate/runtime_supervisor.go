@@ -138,7 +138,7 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 	registerContainerBackend(runtimehost.BackendAppleContainer)
 	if features.Enabled(features.Firecracker) {
 		rs.registry.Register(hostruntimebackend.BackendFirecracker, func() (runtimecontract.Backend, error) {
-			return &hostruntimebackend.FirecrackerRuntimeBackend{}, nil
+			return hostruntimebackend.NewFirecrackerRuntimeBackend(rs.Home, rs.BackendConfig), nil
 		})
 	}
 	rs.registry.Register(probeRuntimeBackendName, func() (runtimecontract.Backend, error) {
@@ -418,7 +418,11 @@ func (rs *RuntimeSupervisor) Validate(ctx context.Context, runtimeID string) err
 	if strings.TrimSpace(spec.Transport.Enforcer.Endpoint) == "" {
 		return fmt.Errorf("runtime %q transport endpoint is not configured", runtimeID)
 	}
-	if spec.Transport.Enforcer.Type != runtimecontract.TransportTypeLoopbackHTTP {
+	caps, err := rs.capabilities(ctx, spec.Backend)
+	if err != nil {
+		return err
+	}
+	if !transportTypeSupported(caps.SupportedTransportTypes, spec.Transport.Enforcer.Type) {
 		return fmt.Errorf("runtime %q transport type %q is not supported", runtimeID, spec.Transport.Enforcer.Type)
 	}
 	if strings.TrimSpace(spec.Transport.Enforcer.TokenRef) == "" {
@@ -438,6 +442,15 @@ func (rs *RuntimeSupervisor) Validate(ctx context.Context, runtimeID string) err
 		return err
 	}
 	return backend.Validate(ctx, runtimeID)
+}
+
+func transportTypeSupported(supported []string, transportType string) bool {
+	for _, item := range supported {
+		if item == transportType {
+			return true
+		}
+	}
+	return false
 }
 
 func (rs *RuntimeSupervisor) RuntimeAvailable(ctx context.Context) error {
