@@ -15,6 +15,7 @@ type FirecrackerRuntimeBackend struct {
 	StateDir   string
 	Images     *FirecrackerImageStore
 	Tasks      *FirecrackerVMSupervisor
+	Vsock      *FirecrackerVsockListenerFactory
 }
 
 func (b *FirecrackerRuntimeBackend) Name() string {
