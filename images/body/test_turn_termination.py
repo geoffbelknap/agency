@@ -152,6 +152,25 @@ def test_model_terminal_direct_message_posts_to_channel(tmp_path):
     assert [data["verdict"] for kind, data in signals if kind == "pact_verdict"] == ["completed"]
 
 
+def test_model_terminal_direct_message_detects_metadata_channel(tmp_path):
+    body, signals, _send_messages = _body(tmp_path, [_response(content="Done.", stop_reason="end_turn")])
+    posted: list[tuple[str, str]] = []
+
+    def post_channel(task: dict, content: str) -> bool:
+        posted.append((body._task_channel(task), content))
+        return True
+
+    body._post_channel_message = post_channel
+    task = _task()
+    task.pop("source", None)
+    task["metadata"]["channel"] = "dm-agent"
+
+    body._conversation_loop(task)
+
+    assert posted == [("dm-agent", "Done.")]
+    assert [data["verdict"] for kind, data in signals if kind == "pact_verdict"] == ["completed"]
+
+
 def test_finish_reason_only_terminal_path_commits_without_complete_task(tmp_path):
     body, signals, send_messages = _body(tmp_path, [_finish_only_response(content="Done.", finish_reason="stop")])
 

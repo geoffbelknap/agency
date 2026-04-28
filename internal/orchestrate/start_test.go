@@ -1,6 +1,7 @@
 package orchestrate
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -41,6 +42,44 @@ settings:
 	ss := &StartSequence{Home: home}
 	if got := ss.resolveModelTier("standard"); got != "provider-b-standard" {
 		t.Fatalf("resolveModelTier() = %q, want provider-b-standard", got)
+	}
+}
+
+type staticCommsClient struct {
+	responses map[string][]byte
+}
+
+func (c staticCommsClient) CommsRequest(_ context.Context, method, path string, _ interface{}) ([]byte, error) {
+	key := method + " " + path
+	if data, ok := c.responses[key]; ok {
+		return data, nil
+	}
+	return []byte(`{"ok":true}`), nil
+}
+
+func TestWaitForCommsWebSocketReturnsWhenConnected(t *testing.T) {
+	ss := &StartSequence{
+		AgentName: "alpha",
+		Comms: staticCommsClient{responses: map[string][]byte{
+			"GET /ws/connected/alpha": []byte(`{"agent":"alpha","connected":true}`),
+		}},
+	}
+
+	if err := ss.waitForCommsWebSocket(context.Background()); err != nil {
+		t.Fatalf("waitForCommsWebSocket() returned error: %v", err)
+	}
+}
+
+func TestWaitForCommsWebSocketTreatsLegacyResponseAsReady(t *testing.T) {
+	ss := &StartSequence{
+		AgentName: "alpha",
+		Comms: staticCommsClient{responses: map[string][]byte{
+			"GET /ws/connected/alpha": []byte(`{"ok":true}`),
+		}},
+	}
+
+	if err := ss.waitForCommsWebSocket(context.Background()); err != nil {
+		t.Fatalf("waitForCommsWebSocket() returned error: %v", err)
 	}
 }
 

@@ -114,8 +114,8 @@ func (ss *StartSequence) Run(ctx context.Context, onPhase PhaseCallback) (*Start
 	// Phase 7: Session
 	onPhase(7, "session", "Setting up session")
 	if err = ss.phase7Session(ctx); err != nil {
-		// Non-fatal — workspace is already running
-		ss.Log.Warn("phase 7 (session) partial failure", "err", err)
+		ss.failClosed(ctx)
+		return nil, fmt.Errorf("phase 7 (session): %w", err)
 	}
 
 	return &StartResult{
@@ -464,7 +464,52 @@ func (ss *StartSequence) phase7Session(ctx context.Context) error {
 		}
 	}
 
+	if err := ss.waitForCommsWebSocket(ctx); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func (ss *StartSequence) waitForCommsWebSocket(ctx context.Context) error {
+	if ss.Comms == nil || ss.AgentName == "" {
+		return nil
+	}
+
+	deadline := time.Now().Add(30 * time.Second)
+	path := "/ws/connected/" + ss.AgentName
+	var lastErr error
+	for {
+		data, err := ss.Comms.CommsRequest(ctx, "GET", path, nil)
+		if err == nil {
+			var status struct {
+				Connected *bool `json:"connected"`
+			}
+			if json.Unmarshal(data, &status) == nil {
+				if status.Connected == nil {
+					return nil
+				}
+				if *status.Connected {
+					return nil
+				}
+			}
+		} else {
+			lastErr = err
+		}
+
+		if time.Now().After(deadline) {
+			if lastErr != nil {
+				return fmt.Errorf("wait for comms websocket: %w", lastErr)
+			}
+			return fmt.Errorf("wait for comms websocket: agent %s did not connect", ss.AgentName)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
 }
 
 func (ss *StartSequence) directChannelActive(ctx context.Context, channelName string) bool {
