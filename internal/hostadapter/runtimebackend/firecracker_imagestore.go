@@ -2,6 +2,7 @@ package runtimebackend
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -144,7 +145,11 @@ func (s *FirecrackerImageStore) buildRootFS(ctx context.Context, imageRef, outPa
 	if err := s.commandRunner().Export(ctx, s.podmanPath(), id, stageDir); err != nil {
 		return fmt.Errorf("export OCI image filesystem: %w", err)
 	}
-	if err := writeFirecrackerInit(stageDir); err != nil {
+	command, err := s.imageCommand(ctx, imageRef)
+	if err != nil {
+		return err
+	}
+	if err := writeFirecrackerInit(stageDir, command); err != nil {
 		return err
 	}
 	if err := installFirecrackerVsockBridge(stageDir, s.VsockBridgeBinary); err != nil {
@@ -163,16 +168,70 @@ func (s *FirecrackerImageStore) buildRootFS(ctx context.Context, imageRef, outPa
 	return nil
 }
 
-func writeFirecrackerInit(stageDir string) error {
+func (s *FirecrackerImageStore) imageCommand(ctx context.Context, imageRef string) ([]string, error) {
+	out, err := s.commandRunner().Output(ctx, s.podmanPath(), "image", "inspect", "--format", "{{json .Config.Entrypoint}}|{{json .Config.Cmd}}", imageRef)
+	if err != nil {
+		return nil, fmt.Errorf("inspect OCI image command %q: %w", imageRef, err)
+	}
+	parts := strings.SplitN(strings.TrimSpace(string(out)), "|", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("inspect OCI image command %q: unexpected output %q", imageRef, strings.TrimSpace(string(out)))
+	}
+	entrypoint, err := parseOCICommandPart(parts[0])
+	if err != nil {
+		return nil, fmt.Errorf("parse OCI image entrypoint: %w", err)
+	}
+	cmd, err := parseOCICommandPart(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("parse OCI image cmd: %w", err)
+	}
+	return append(entrypoint, cmd...), nil
+}
+
+func parseOCICommandPart(raw string) ([]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "null" {
+		return nil, nil
+	}
+	var list []string
+	if err := json.Unmarshal([]byte(raw), &list); err == nil {
+		return list, nil
+	}
+	var shell string
+	if err := json.Unmarshal([]byte(raw), &shell); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(shell) == "" {
+		return nil, nil
+	}
+	return []string{"/bin/sh", "-c", shell}, nil
+}
+
+func writeFirecrackerInit(stageDir string, command []string) error {
 	path := filepath.Join(stageDir, strings.TrimPrefix(firecrackerInitPath, "/"))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create firecracker init dir: %w", err)
 	}
-	script := "#!/bin/sh\nset -eu\nmount -t proc proc /proc || true\nmount -t sysfs sysfs /sys || true\nif [ -x /usr/local/bin/agency-vsock-http-bridge ]; then\n  /usr/local/bin/agency-vsock-http-bridge &\nfi\nif [ \"$#\" -gt 0 ]; then\n  exec \"$@\"\nfi\nexec /bin/sh\n"
+	var commandLine string
+	if len(command) > 0 {
+		quoted := make([]string, 0, len(command))
+		for _, arg := range command {
+			quoted = append(quoted, shellQuote(arg))
+		}
+		commandLine = "set -- " + strings.Join(quoted, " ") + "\n"
+	}
+	script := "#!/bin/sh\nset -eu\nmount -t proc proc /proc || true\nmount -t sysfs sysfs /sys || true\nif [ -x /usr/local/bin/agency-vsock-http-bridge ]; then\n  /usr/local/bin/agency-vsock-http-bridge &\nfi\n" + commandLine + "if [ \"$#\" -gt 0 ]; then\n  exec \"$@\"\nfi\nexec /bin/sh\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		return fmt.Errorf("write firecracker init: %w", err)
 	}
 	return nil
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func installFirecrackerVsockBridge(stageDir, binaryPath string) error {

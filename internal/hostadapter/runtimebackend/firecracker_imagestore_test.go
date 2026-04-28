@@ -16,8 +16,9 @@ func TestFirecrackerImageStoreRealizeBuildsAndCachesRootFS(t *testing.T) {
 	stateDir := t.TempDir()
 	commands := &fakeFirecrackerImageCommands{
 		outputs: map[string][]byte{
-			"podman image inspect --format {{.Digest}} agency-body:latest": []byte("sha256:abc123\n"),
-			"podman create agency-body:latest":                             []byte("source-id\n"),
+			"podman image inspect --format {{.Digest}} agency-body:latest":                                      []byte("sha256:abc123\n"),
+			"podman image inspect --format {{json .Config.Entrypoint}}|{{json .Config.Cmd}} agency-body:latest": []byte("null|[\"/app/entrypoint.sh\"]\n"),
+			"podman create agency-body:latest":                                                                  []byte("source-id\n"),
 		},
 	}
 	store := &FirecrackerImageStore{StateDir: stateDir, SizeMiB: 64, commands: commands}
@@ -65,8 +66,9 @@ func TestFirecrackerImageStoreRealizeBuildsAndCachesRootFS(t *testing.T) {
 func TestFirecrackerImageStorePullsWhenInspectMisses(t *testing.T) {
 	commands := &fakeFirecrackerImageCommands{
 		outputs: map[string][]byte{
-			"podman image inspect --format {{.Id}} ghcr.io/example/agent:latest": []byte("sha256:fallback\n"),
-			"podman create ghcr.io/example/agent:latest":                         []byte("source-id\n"),
+			"podman image inspect --format {{.Id}} ghcr.io/example/agent:latest":                                          []byte("sha256:fallback\n"),
+			"podman image inspect --format {{json .Config.Entrypoint}}|{{json .Config.Cmd}} ghcr.io/example/agent:latest": []byte("[\"/bin/agent\"]|[\"--serve\"]\n"),
+			"podman create ghcr.io/example/agent:latest":                                                                  []byte("source-id\n"),
 		},
 		outputErrs: map[string]error{
 			"podman image inspect --format {{.Digest}} ghcr.io/example/agent:latest": fmt.Errorf("not found"),
@@ -90,8 +92,9 @@ func TestFirecrackerImageStorePrepareTaskRootFSCopiesBase(t *testing.T) {
 	stateDir := t.TempDir()
 	commands := &fakeFirecrackerImageCommands{
 		outputs: map[string][]byte{
-			"podman image inspect --format {{.Digest}} agency-body:latest": []byte("sha256:abc123\n"),
-			"podman create agency-body:latest":                             []byte("source-id\n"),
+			"podman image inspect --format {{.Digest}} agency-body:latest":                                      []byte("sha256:abc123\n"),
+			"podman image inspect --format {{json .Config.Entrypoint}}|{{json .Config.Cmd}} agency-body:latest": []byte("null|[\"/app/entrypoint.sh\"]\n"),
+			"podman create agency-body:latest":                                                                  []byte("source-id\n"),
 		},
 	}
 	store := &FirecrackerImageStore{StateDir: stateDir, commands: commands}
@@ -112,6 +115,46 @@ func TestFirecrackerImageStorePrepareTaskRootFSCopiesBase(t *testing.T) {
 	}
 	if string(data) != "ext4" {
 		t.Fatalf("task rootfs contents = %q", string(data))
+	}
+}
+
+func TestWriteFirecrackerInitExecsOCICommand(t *testing.T) {
+	stageDir := t.TempDir()
+	if err := writeFirecrackerInit(stageDir, []string{"/bin/sh", "-c", "echo 'hello'"}); err != nil {
+		t.Fatalf("writeFirecrackerInit returned error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(stageDir, strings.TrimPrefix(firecrackerInitPath, "/")))
+	if err != nil {
+		t.Fatalf("read init: %v", err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		"/usr/local/bin/agency-vsock-http-bridge &",
+		`set -- '/bin/sh' '-c' 'echo '"'"'hello'"'"''`,
+		`exec "$@"`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("init missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestParseOCICommandPart(t *testing.T) {
+	for _, tt := range []struct {
+		raw  string
+		want []string
+	}{
+		{`null`, nil},
+		{`["/bin/app","--serve"]`, []string{"/bin/app", "--serve"}},
+		{`"/bin/app --serve"`, []string{"/bin/sh", "-c", "/bin/app --serve"}},
+	} {
+		got, err := parseOCICommandPart(tt.raw)
+		if err != nil {
+			t.Fatalf("parseOCICommandPart(%s) returned error: %v", tt.raw, err)
+		}
+		if !reflect.DeepEqual(got, tt.want) {
+			t.Fatalf("parseOCICommandPart(%s) = %#v, want %#v", tt.raw, got, tt.want)
+		}
 	}
 }
 
