@@ -369,7 +369,15 @@ func TestAdminDoctorFirecrackerReportsHostChecksWhenExperimental(t *testing.T) {
 	home := t.TempDir()
 	binaryPath := filepath.Join(home, "firecracker")
 	kernelPath := filepath.Join(home, "vmlinux")
+	enforcerPath := filepath.Join(home, "enforcer")
+	bridgePath := filepath.Join(home, "agency-vsock-http-bridge")
 	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(enforcerPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bridgePath, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(kernelPath, []byte{0x7f, 'E', 'L', 'F', 0x02}, 0o644); err != nil {
@@ -381,8 +389,10 @@ func TestAdminDoctorFirecrackerReportsHostChecksWhenExperimental(t *testing.T) {
 			Hub: config.HubConfig{
 				DeploymentBackend: hostruntimebackend.BackendFirecracker,
 				DeploymentBackendConfig: map[string]string{
-					"binary_path": binaryPath,
-					"kernel_path": kernelPath,
+					"binary_path":              binaryPath,
+					"kernel_path":              kernelPath,
+					"enforcer_binary_path":     enforcerPath,
+					"vsock_bridge_binary_path": bridgePath,
 				},
 			},
 		},
@@ -406,7 +416,7 @@ func TestAdminDoctorFirecrackerReportsHostChecksWhenExperimental(t *testing.T) {
 	if !report.AllPassed {
 		t.Fatalf("expected all_passed, got false: %s", rec.Body.String())
 	}
-	for _, name := range []string{"firecracker_kvm_device", "firecracker_vsock_device", "firecracker_kvm_module", "firecracker_binary", "firecracker_kernel"} {
+	for _, name := range []string{"firecracker_kvm_device", "firecracker_vsock_device", "firecracker_kvm_module", "firecracker_binary", "firecracker_kernel", "firecracker_enforcer_binary", "firecracker_vsock_bridge_binary"} {
 		check, ok := findDoctorCheck(report.BackendChecks, name)
 		if !ok {
 			t.Fatalf("missing %s in %#v", name, report.BackendChecks)
@@ -435,7 +445,11 @@ func TestFirecrackerDoctorChecksReportRemediationHints(t *testing.T) {
 	home := t.TempDir()
 	binaryPath := filepath.Join(home, "firecracker")
 	kernelPath := filepath.Join(home, "vmlinux")
+	enforcerPath := filepath.Join(home, "enforcer")
 	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(enforcerPath, []byte("#!/bin/sh\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(kernelPath, []byte("not-elf"), 0o644); err != nil {
@@ -444,8 +458,9 @@ func TestFirecrackerDoctorChecksReportRemediationHints(t *testing.T) {
 	report := doctorReport{AllPassed: true, Backend: hostruntimebackend.BackendFirecracker}
 	appendFirecrackerDoctorChecks(&report, &config.Config{
 		Hub: config.HubConfig{DeploymentBackendConfig: map[string]string{
-			"binary_path": binaryPath,
-			"kernel_path": kernelPath,
+			"binary_path":          binaryPath,
+			"kernel_path":          kernelPath,
+			"enforcer_binary_path": enforcerPath,
 		}},
 	})
 
@@ -460,6 +475,8 @@ func TestFirecrackerDoctorChecksReportRemediationHints(t *testing.T) {
 		{"firecracker_kvm_module", "modprobe kvm"},
 		{"firecracker_binary", "chmod +x"},
 		{"firecracker_kernel", "vmlinux"},
+		{"firecracker_enforcer_binary", "chmod +x"},
+		{"firecracker_vsock_bridge_binary", "make firecracker-helpers"},
 	} {
 		check, ok := findDoctorCheck(report.Checks, tt.name)
 		if !ok {

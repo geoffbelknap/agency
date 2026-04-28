@@ -1,4 +1,4 @@
-.PHONY: all build install deploy test clean images python-base workspace-base \
+.PHONY: all build install deploy test clean firecracker-helpers images python-base workspace-base \
        body enforcer comms knowledge intake egress workspace web-fetch web relay \
        python-image-tests \
        provider-tools-readiness docker-readiness podman-readiness podman-readiness-full containerd-readiness containerd-readiness-rootful \
@@ -54,6 +54,11 @@ all: install images-all
 # Build the gateway binary
 build:
 	go build -ldflags "$(LDFLAGS)" -o agency ./cmd/gateway/
+
+firecracker-helpers:
+	mkdir -p bin
+	cd images/enforcer && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o ../../bin/enforcer .
+	CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o bin/agency-vsock-http-bridge ./cmd/agency-vsock-http-bridge
 
 # Install the gateway binary where `agency` currently lives.
 # Falls back to ~/.agency/bin/ for fresh installs.

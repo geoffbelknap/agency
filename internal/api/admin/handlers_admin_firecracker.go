@@ -45,6 +45,10 @@ func appendFirecrackerDoctorChecks(report *doctorReport, cfg *config.Config) {
 	add(firecrackerKVMModuleCheck())
 	add(firecrackerBinaryCheck(firecrackerConfiguredPath(cfg, "binary_path", "AGENCY_FIRECRACKER_BIN", "firecracker")))
 	add(firecrackerKernelCheck(firecrackerConfiguredPath(cfg, "kernel_path", "AGENCY_FIRECRACKER_KERNEL", "")))
+	if firecrackerEnforcementMode(cfg) != hostruntimebackend.FirecrackerEnforcementModeMicroVM {
+		add(firecrackerExecutableCheck("firecracker_enforcer_binary", firecrackerConfiguredPath(cfg, "enforcer_binary_path", "AGENCY_FIRECRACKER_ENFORCER_BIN", ""), "Firecracker host enforcer binary is present at ", "set hub.deployment_backend_config.enforcer_binary_path or run 'make firecracker-helpers'"))
+	}
+	add(firecrackerExecutableCheck("firecracker_vsock_bridge_binary", firecrackerConfiguredPath(cfg, "vsock_bridge_binary_path", "AGENCY_FIRECRACKER_VSOCK_BRIDGE_BIN", ""), "Firecracker guest vsock bridge binary is present at ", "set hub.deployment_backend_config.vsock_bridge_binary_path or run 'make firecracker-helpers'"))
 }
 
 func firecrackerConfiguredPath(cfg *config.Config, key, envName, fallback string) string {
@@ -74,28 +78,32 @@ func firecrackerKVMModuleCheck() doctorCheckResult {
 }
 
 func firecrackerBinaryCheck(path string) doctorCheckResult {
+	return firecrackerExecutableCheck("firecracker_binary", path, "Firecracker binary is present at ", "set hub.deployment_backend_config.binary_path or install firecracker on PATH")
+}
+
+func firecrackerExecutableCheck(name, path, passPrefix, missingFix string) doctorCheckResult {
 	if strings.TrimSpace(path) == "" {
-		return firecrackerBackendCheck("firecracker_binary", agencysecurity.FindingFail, "Firecracker binary path is not configured", "set hub.deployment_backend_config.binary_path or install firecracker on PATH")
+		return firecrackerBackendCheck(name, agencysecurity.FindingFail, name+" path is not configured", missingFix)
 	}
 	resolved := path
 	if !strings.ContainsRune(path, os.PathSeparator) {
 		found, err := firecrackerLookPath(path)
 		if err != nil {
-			return firecrackerBackendCheck("firecracker_binary", agencysecurity.FindingFail, "Firecracker binary was not found on PATH: "+err.Error(), "set hub.deployment_backend_config.binary_path or install firecracker on PATH")
+			return firecrackerBackendCheck(name, agencysecurity.FindingFail, name+" was not found on PATH: "+err.Error(), missingFix)
 		}
 		resolved = found
 	}
 	info, err := firecrackerStat(resolved)
 	if err != nil {
-		return firecrackerBackendCheck("firecracker_binary", agencysecurity.FindingFail, "Firecracker binary is not present at "+resolved+": "+err.Error(), "set hub.deployment_backend_config.binary_path to the Firecracker binary")
+		return firecrackerBackendCheck(name, agencysecurity.FindingFail, name+" is not present at "+resolved+": "+err.Error(), missingFix)
 	}
 	if info.IsDir() {
-		return firecrackerBackendCheck("firecracker_binary", agencysecurity.FindingFail, "Firecracker binary path is a directory: "+resolved, "set hub.deployment_backend_config.binary_path to the Firecracker binary")
+		return firecrackerBackendCheck(name, agencysecurity.FindingFail, name+" path is a directory: "+resolved, missingFix)
 	}
 	if info.Mode()&0o111 == 0 {
-		return firecrackerBackendCheck("firecracker_binary", agencysecurity.FindingFail, "Firecracker binary is not executable: "+resolved, "run 'chmod +x "+resolved+"' or set hub.deployment_backend_config.binary_path to an executable Firecracker binary")
+		return firecrackerBackendCheck(name, agencysecurity.FindingFail, name+" is not executable: "+resolved, "run 'chmod +x "+resolved+"' or "+missingFix)
 	}
-	return firecrackerBackendCheck("firecracker_binary", agencysecurity.FindingPass, "Firecracker binary is present at "+resolved, "")
+	return firecrackerBackendCheck(name, agencysecurity.FindingPass, passPrefix+resolved, "")
 }
 
 func firecrackerKernelCheck(path string) doctorCheckResult {
@@ -126,4 +134,13 @@ func firecrackerBackendCheck(name string, status agencysecurity.FindingStatus, d
 		Detail:  detail,
 		Fix:     fix,
 	}
+}
+
+func firecrackerEnforcementMode(cfg *config.Config) string {
+	if cfg != nil {
+		if mode := strings.TrimSpace(cfg.Hub.DeploymentBackendConfig["enforcement_mode"]); mode != "" {
+			return mode
+		}
+	}
+	return hostruntimebackend.FirecrackerEnforcementModeHostProcess
 }

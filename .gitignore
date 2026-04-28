@@ -70,4 +70,5 @@ benchmark_results_*.json
 /.results/
 /gateway
 /agency
+/bin/
 .worktrees/
