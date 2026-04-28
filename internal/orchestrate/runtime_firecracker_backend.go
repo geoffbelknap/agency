@@ -31,9 +31,6 @@ func (b *firecrackerComponentRuntimeBackend) Name() string {
 }
 
 func (b *firecrackerComponentRuntimeBackend) Ensure(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
-	if err := b.EnsureEnforcer(ctx, spec, false); err != nil {
-		return err
-	}
 	return b.EnsureWorkspace(ctx, spec)
 }
 
