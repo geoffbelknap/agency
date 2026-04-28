@@ -20,12 +20,10 @@ This checklist validates the Firecracker runtime path for the scoped 0.2.x core 
 - Unit: `go test ./internal/hostadapter/agentruntime ./internal/hostadapter/runtimebackend ./internal/orchestrate`
 - Web unit: `npm test -- Agents.test.tsx`
 - Web build: `npm run build`
-- Live Firecracker DM parity:
-  `AGENCY_E2E_FIRECRACKER_WEBUI=1 npx playwright test -c playwright.live.risky.config.ts tests/e2e-live-risky/firecracker-webui-smoke.spec.ts -g "managed and messaged"`
-- Live degraded restart recovery:
-  `AGENCY_E2E_FIRECRACKER_WEBUI=1 npx playwright test -c playwright.live.risky.config.ts tests/e2e-live-risky/firecracker-webui-smoke.spec.ts -g "degraded runtime"`
-- Live stop/delete cleanup:
-  `AGENCY_E2E_FIRECRACKER_WEBUI=1 npx playwright test -c playwright.live.risky.config.ts tests/e2e-live-risky/firecracker-webui-smoke.spec.ts -g "clean up per-agent"`
+- Live Firecracker DM parity: `./scripts/e2e/firecracker-webui-smoke.sh manage`
+- Live degraded restart recovery: `./scripts/e2e/firecracker-webui-smoke.sh recover`
+- Live stop/delete cleanup: `./scripts/e2e/firecracker-webui-smoke.sh cleanup`
+- Full live Web UI parity: `./scripts/e2e/firecracker-webui-smoke.sh all`
 
 ## Current Evidence Map
 
@@ -35,6 +33,7 @@ This checklist validates the Firecracker runtime path for the scoped 0.2.x core 
 - Complete audit: live smoke verifies DM traffic through mediation; `agency log <agent>` should show `MEDIATION_PROXY`, `MEDIATION_WS`, security scan, and LLM events.
 - Least privilege: enforcer launch spec uses per-agent auth/data/audit paths and loopback-only host ports.
 - Visible/recoverable boundaries: `/runtime/status` reports `vm_state`, `enforcer_state`, `vsock_bridge_state`, `body_ws_connected`, process IDs, restart/crash counters, and last error.
+- Stop/delete cleanup: agent deletion uses the backend-neutral runtime stop path before removing the agent directory, so Firecracker VM, enforcer, bridge, PID, config, and task rootfs cleanup runs for deletes as well as explicit stops.
 
 ## Manual Operator Checks
 

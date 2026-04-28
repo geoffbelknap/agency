@@ -355,8 +355,7 @@ func TestAdminDoctorAppleContainerWaitHelperSatisfiesLifecycleEvents(t *testing.
 	}
 }
 
-func TestAdminDoctorFirecrackerReportsHostChecksWhenExperimental(t *testing.T) {
-	t.Setenv("AGENCY_EXPERIMENTAL_SURFACES", "1")
+func TestAdminDoctorFirecrackerReportsHostChecksWhenConfigured(t *testing.T) {
 	restoreFirecrackerDoctorHooks(t)
 	firecrackerOpenReadWrite = func(path string) error { return nil }
 	firecrackerStat = func(path string) (os.FileInfo, error) {

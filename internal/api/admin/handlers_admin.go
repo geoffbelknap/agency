@@ -18,7 +18,6 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/egresspolicy"
-	"github.com/geoffbelknap/agency/internal/features"
 	"github.com/geoffbelknap/agency/internal/hostadapter"
 	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
@@ -388,7 +387,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	endpoint, mode := backendConnectionDetails(h.deps.Config)
 	report := doctorReport{AllPassed: true, Backend: configuredRuntimeBackend(h.deps.Config), BackendEndpoint: endpoint, BackendMode: mode}
-	if report.Backend == hostruntimebackend.BackendFirecracker && features.Enabled(features.Firecracker) {
+	if report.Backend == hostruntimebackend.BackendFirecracker {
 		writeJSON(w, 200, h.adminDoctorFirecracker(ctx))
 		return
 	}

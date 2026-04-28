@@ -285,6 +285,37 @@ func TestInfraStatusCmdShowsBackendDetails(t *testing.T) {
 	}
 }
 
+func TestInfraStatusCmdMarksOnlyMismatchedBuildsStale(t *testing.T) {
+	srv := newCLIInfraStatusServer(t, map[string]any{
+		"version":  "0.2.2",
+		"build_id": "gateway-build",
+		"backend":  "firecracker",
+		"components": []map[string]any{
+			{"name": "comms", "state": "running", "health": "healthy", "build_id": "gateway-build"},
+			{"name": "web", "state": "running", "health": "healthy", "build_id": "old-build"},
+		},
+	})
+	defer srv.Close()
+
+	t.Setenv("AGENCY_GATEWAY_URL", srv.URL)
+	t.Setenv("HOME", t.TempDir())
+	var out bytes.Buffer
+	cmd := infraCmd()
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"status"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("infra status Execute() error = %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "gateway-build ✓") {
+		t.Fatalf("infra status output = %q, want matching build marked current", got)
+	}
+	if !strings.Contains(got, "old-build ⚠ stale") {
+		t.Fatalf("infra status output = %q, want mismatched build marked stale", got)
+	}
+}
+
 func newCLIInfraStatusServer(t *testing.T, infraStatus map[string]any) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()

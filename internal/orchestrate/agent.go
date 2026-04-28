@@ -396,8 +396,8 @@ func (am *AgentManager) Delete(ctx context.Context, name string) error {
 		return fmt.Errorf("agent %q not found", name)
 	}
 
-	// Stop containers
-	am.stopAgentContainers(ctx, name)
+	// Stop runtime
+	am.StopContainers(ctx, name)
 
 	// Archive audit logs (tenet 2: every action leaves a trace)
 	am.archiveAuditLogs(name)

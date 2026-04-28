@@ -298,6 +298,41 @@ func TestCreateReusesRetiredRegistryNameWithNewUUID(t *testing.T) {
 	}
 }
 
+func TestDeleteStopsNeutralRuntime(t *testing.T) {
+	dir := t.TempDir()
+	agentDir := filepath.Join(dir, "agents", "fc-delete")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("uuid: ag_delete\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rs := NewRuntimeSupervisor(dir, "0.1.0", "", "build-1", "fake", nil, nil, nil, nil)
+	fake := &fakeRuntimeBackend{}
+	rs.registry.Register("fake", func() (runtimecontract.Backend, error) { return fake, nil })
+	if err := rs.saveManifest(runtimeManifest{
+		Spec: runtimecontract.RuntimeSpec{
+			RuntimeID: "fc-delete",
+			AgentID:   "ag_delete",
+			Backend:   "fake",
+		},
+	}); err != nil {
+		t.Fatalf("save manifest: %v", err)
+	}
+
+	am := &AgentManager{Home: dir, Runtime: rs, log: newTestLogger()}
+	if err := am.Delete(context.Background(), "fc-delete"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if fake.stopCalls != 1 || fake.stopRuntimeID != "fc-delete" {
+		t.Fatalf("runtime stop calls = %d id = %q, want 1 fc-delete", fake.stopCalls, fake.stopRuntimeID)
+	}
+	if _, err := os.Stat(agentDir); !os.IsNotExist(err) {
+		t.Fatalf("agent dir still exists or stat failed unexpectedly: %v", err)
+	}
+}
+
 func TestLoadAgentDetail_GeneratesLifecycleID_WhenMissing(t *testing.T) {
 	dir := t.TempDir()
 	agentDir := filepath.Join(dir, "agents", "old-agent")
