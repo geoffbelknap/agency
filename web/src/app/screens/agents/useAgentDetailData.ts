@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
-import { api, type RawAuditEntry, type RawChannel, type RawCapability, type RawPolicyValidation, type RawMeeseeks, type RawBudgetResponse, type RawEconomicsResponse, type RawAgentResult } from '../../lib/api';
+import { api, type RawAuditEntry, type RawChannel, type RawCapability, type RawPolicyValidation, type RawMeeseeks, type RawBudgetResponse, type RawEconomicsResponse, type RawAgentResult, type RawAgentRuntimeStatus } from '../../lib/api';
 
 export interface AgentDetailData {
   // Data
@@ -15,6 +15,7 @@ export interface AgentDetailData {
   budget: RawBudgetResponse | null;
   economics: RawEconomicsResponse | null;
   results: RawAgentResult[];
+  runtimeStatus: RawAgentRuntimeStatus | null;
 
   // Loading states
   capLoading: string | null;
@@ -24,6 +25,7 @@ export interface AgentDetailData {
   // Actions
   refreshLogs: (name: string) => Promise<void>;
   refreshResults: (name: string) => Promise<void>;
+  refreshRuntimeStatus: (name: string) => Promise<void>;
   handleOpenDM: (agentName: string) => Promise<void>;
   handleSendDM: (agentName: string, dmText: string) => Promise<boolean>;
   handleGrant: (agentName: string, capability: string) => Promise<void>;
@@ -54,6 +56,7 @@ export function useAgentDetailData(
   const [budget, setBudget] = useState<RawBudgetResponse | null>(null);
   const [economics, setEconomics] = useState<RawEconomicsResponse | null>(null);
   const [results, setResults] = useState<RawAgentResult[]>([]);
+  const [runtimeStatus, setRuntimeStatus] = useState<RawAgentRuntimeStatus | null>(null);
 
   // Loading states
   const [capLoading, setCapLoading] = useState<string | null>(null);
@@ -87,6 +90,15 @@ export function useAgentDetailData(
     }
   }, []);
 
+  const refreshRuntimeStatus = useCallback(async (name: string) => {
+    try {
+      const status = await api.agents.runtimeStatus(name);
+      setRuntimeStatus(status);
+    } catch {
+      setRuntimeStatus(null);
+    }
+  }, []);
+
   // Fetch logs only when a visible tab needs them. This runs after first paint,
   // so the overview can use recent audit events without blocking the shell.
   useEffect(() => {
@@ -100,6 +112,10 @@ export function useAgentDetailData(
       refreshResults(agentName);
     }
   }, [agentName, effectiveDataTab, refreshResults]);
+
+  useEffect(() => {
+    refreshRuntimeStatus(agentName);
+  }, [agentName, refreshRuntimeStatus]);
 
   // Fetch budget
   useEffect(() => {
@@ -264,11 +280,13 @@ export function useAgentDetailData(
     budget,
     economics,
     results,
+    runtimeStatus,
     capLoading,
     refreshingLogs,
     refreshingResults,
     refreshLogs,
     refreshResults,
+    refreshRuntimeStatus,
     handleOpenDM,
     handleSendDM,
     handleGrant,

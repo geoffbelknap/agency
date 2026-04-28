@@ -170,6 +170,41 @@ describe('Agents', () => {
     });
   });
 
+  it('shows degraded runtime status and restarts from the overview', async () => {
+    let restarted = false;
+    server.use(
+      http.get(`${BASE}/agents`, () =>
+        HttpResponse.json(defaultAgents)
+      ),
+      http.get(`${BASE}/agents/alice/logs`, () => HttpResponse.json([])),
+      http.get(`${BASE}/agents/alice/budget`, () => HttpResponse.json({ daily_limit: 0, monthly_limit: 0, daily_used: 0, monthly_used: 0, today_llm_calls: 0, today_input_tokens: 0, today_output_tokens: 0 })),
+      http.get(`${BASE}/agents/alice/runtime/status`, () => HttpResponse.json(restarted
+        ? { runtimeId: 'alice', backend: 'firecracker', phase: 'running', healthy: true, transport: { type: 'vsock_http', enforcerConnected: true } }
+        : { runtimeId: 'alice', backend: 'firecracker', phase: 'degraded', healthy: false, transport: { type: 'vsock_http', enforcerConnected: true, lastError: 'runtime inspect failed: firecracker supervisor: runtime "alice" is not tracked' } }
+      )),
+      http.post(`${BASE}/agents/alice/restart`, () => {
+        restarted = true;
+        return HttpResponse.json({ status: 'restarted' });
+      }),
+    );
+
+    renderAgents();
+    await waitFor(() => {
+      expect(screen.getByText('alice')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByText('alice'));
+    await waitFor(() => {
+      expect(screen.getByText('degraded')).toBeInTheDocument();
+      expect(screen.getByText(/not tracked/)).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /^restart$/i }));
+    await waitFor(() => {
+      expect(toastSuccess).toHaveBeenCalledWith('Agent "alice" restarted');
+      expect(screen.getAllByText('running').length).toBeGreaterThan(0);
+    });
+  });
+
   it('sends a DM task', async () => {
     server.use(
       http.get(`${BASE}/agents`, () =>
