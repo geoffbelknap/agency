@@ -180,6 +180,8 @@ func (s EnforcerLaunchSpec) HostProcessEnv(serviceURLs map[string]string) map[st
 			env["KNOWLEDGE_URL"] = url
 		case "web-fetch":
 			env["WEB_FETCH_URL"] = url
+		case "egress":
+			env["EGRESS_PROXY"] = url
 		}
 	}
 	for _, mount := range s.Mounts {

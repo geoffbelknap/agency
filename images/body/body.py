@@ -758,7 +758,8 @@ class Body:
 
     def _fetch_config(self, filename: str) -> Optional[str]:
         """Fetch a config file from the enforcer's config endpoint."""
-        url = f"http://enforcer:8081/config/{filename}"
+        control_url = os.environ.get("AGENCY_ENFORCER_CONTROL_URL", "http://enforcer:8081").rstrip("/")
+        url = f"{control_url}/config/{filename}"
         try:
             resp = httpx.Client(timeout=5).get(url)
             if resp.status_code == 404:
@@ -1176,7 +1177,8 @@ class Body:
         # Load service tools (prefer enforcer API, fallback to file)
         manifest_path = self.config_dir / "services-manifest.json"
         self._service_dispatcher = ServiceToolDispatcher(manifest_path)
-        self._service_dispatcher.load_from_url("http://enforcer:8081/config/services-manifest.json")
+        control_url = os.environ.get("AGENCY_ENFORCER_CONTROL_URL", "http://enforcer:8081").rstrip("/")
+        self._service_dispatcher.load_from_url(f"{control_url}/config/services-manifest.json")
         svc_tools = self._service_dispatcher.get_tool_definitions()
         if svc_tools:
             log.info("Loaded %d service tools", len(svc_tools))
@@ -1656,7 +1658,8 @@ class Body:
             self._refresh_local_config_file(filename)
         # Re-fetch services manifest
         if self._service_dispatcher:
-            self._service_dispatcher.load_from_url("http://enforcer:8081/config/services-manifest.json")
+            control_url = os.environ.get("AGENCY_ENFORCER_CONTROL_URL", "http://enforcer:8081").rstrip("/")
+            self._service_dispatcher.load_from_url(f"{control_url}/config/services-manifest.json")
         # Re-assemble system prompt (picks up PLATFORM.md changes)
         self._system_prompt = self.assemble_system_prompt()
 
@@ -2015,7 +2018,8 @@ class Body:
     def _check_budget(self, task: dict) -> bool:
         """Check budget before starting a task. Returns True if budget is available."""
         try:
-            resp = httpx.get("http://enforcer:8081/budget", timeout=5)
+            control_url = os.environ.get("AGENCY_ENFORCER_CONTROL_URL", "http://enforcer:8081").rstrip("/")
+            resp = httpx.get(f"{control_url}/budget", timeout=5)
             if resp.status_code != 200:
                 log.warning("Budget check returned %d, proceeding", resp.status_code)
                 return True
@@ -2625,6 +2629,8 @@ class Body:
 
             if outcome.is_terminal and not outcome.has_pending_tool_use:
                 if self._commit_model_terminal_outcome(task_id, content, messages):
+                    if content and self._is_direct_channel_task(task):
+                        self._post_channel_message(task, self._task_result_summary or content)
                     self._finalize_task(task_id, turn)
                     break
                 if self._current_task_turns >= _turn_cap_for_task(getattr(self, "_active_mission", None)):

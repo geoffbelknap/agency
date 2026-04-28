@@ -59,6 +59,22 @@ func (s *HostEnforcerSupervisor) Start(ctx context.Context, spec EnforcerLaunchS
 	if spec.AgentName == "" {
 		return errors.New("host enforcer: missing agent name")
 	}
+	s.mu.Lock()
+	if s.processes != nil {
+		if existing := s.processes[spec.AgentName]; existing != nil && existing.state == HostEnforcerStateRunning {
+			if existing.spec.ProxyHostPort == spec.ProxyHostPort && existing.spec.ConstraintHostPort == spec.ConstraintHostPort {
+				s.mu.Unlock()
+				return nil
+			}
+			s.mu.Unlock()
+			if err := s.Stop(ctx, spec.AgentName); err != nil {
+				return err
+			}
+			s.mu.Lock()
+		}
+	}
+	s.mu.Unlock()
+
 	binary := s.BinaryPath
 	if binary == "" {
 		binary = "enforcer"

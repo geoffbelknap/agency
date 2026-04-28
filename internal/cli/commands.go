@@ -894,6 +894,11 @@ func sendCmd() *cobra.Command {
 			if report {
 				metadata = map[string]interface{}{"report": true}
 			}
+			if isDM {
+				if _, err := c.EnsureAgentDM(target); err != nil {
+					return err
+				}
+			}
 			if _, err := c.SendMessageWithMetadata(channel, content, metadata); err != nil {
 				return err
 			}

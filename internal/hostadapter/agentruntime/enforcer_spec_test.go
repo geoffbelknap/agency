@@ -140,6 +140,7 @@ func TestEnforcerLaunchSpecHostProcessEnv(t *testing.T) {
 		"comms":     "http://127.0.0.1:8202",
 		"knowledge": "http://127.0.0.1:8204",
 		"web-fetch": "http://127.0.0.1:8206",
+		"egress":    "http://127.0.0.1:8312",
 	})
 	for key, want := range map[string]string{
 		"ENFORCER_PORT":           "19128",
@@ -158,6 +159,7 @@ func TestEnforcerLaunchSpecHostProcessEnv(t *testing.T) {
 		"COMMS_URL":               "http://127.0.0.1:8202",
 		"KNOWLEDGE_URL":           "http://127.0.0.1:8204",
 		"WEB_FETCH_URL":           "http://127.0.0.1:8206",
+		"EGRESS_PROXY":            "http://127.0.0.1:8312",
 	} {
 		if got := env[key]; got != want {
 			t.Fatalf("env[%s] = %q, want %q", key, got, want)

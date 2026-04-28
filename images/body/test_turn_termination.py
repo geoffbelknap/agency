@@ -139,6 +139,19 @@ def test_model_terminal_path_commits_without_complete_task(tmp_path):
     assert any(kind == "task_complete" for kind, _data in signals)
 
 
+def test_model_terminal_direct_message_posts_to_channel(tmp_path):
+    body, signals, _send_messages = _body(tmp_path, [_response(content="Done.", stop_reason="end_turn")])
+    posted: list[str] = []
+    body._post_channel_message = lambda _task, content: posted.append(content) or True
+    task = _task()
+    task["source"] = "channel:dm-agent"
+
+    body._conversation_loop(task)
+
+    assert posted == ["Done."]
+    assert [data["verdict"] for kind, data in signals if kind == "pact_verdict"] == ["completed"]
+
+
 def test_finish_reason_only_terminal_path_commits_without_complete_task(tmp_path):
     body, signals, send_messages = _body(tmp_path, [_finish_only_response(content="Done.", finish_reason="stop")])
 

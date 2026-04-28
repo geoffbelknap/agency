@@ -47,7 +47,7 @@ func (f *FirecrackerVsockListenerFactory) Start(ctx context.Context, runtimeID s
 		existing.stop()
 	}
 
-	bridgeCtx, cancel := context.WithCancel(ctx)
+	bridgeCtx, cancel := context.WithCancel(context.Background())
 	dir := filepath.Join(f.stateDir(), runtimeID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		cancel()

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -42,6 +43,9 @@ func main() {
 }
 
 func run(ctx context.Context, specs []bridgeSpec) error {
+	if err := bringUpLoopback(); err != nil {
+		return err
+	}
 	var listeners []net.Listener
 	for _, spec := range specs {
 		listener, err := net.Listen("tcp", spec.Listen)
@@ -54,6 +58,31 @@ func run(ctx context.Context, specs []bridgeSpec) error {
 	}
 	<-ctx.Done()
 	closeListeners(listeners)
+	return nil
+}
+
+type ifreqFlags struct {
+	Name  [unix.IFNAMSIZ]byte
+	Flags int16
+	_     [22]byte
+}
+
+func bringUpLoopback() error {
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
+	if err != nil {
+		return fmt.Errorf("open loopback control socket: %w", err)
+	}
+	defer unix.Close(fd)
+
+	var ifr ifreqFlags
+	copy(ifr.Name[:], "lo")
+	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), uintptr(unix.SIOCGIFFLAGS), uintptr(unsafe.Pointer(&ifr))); errno != 0 {
+		return fmt.Errorf("read loopback flags: %w", errno)
+	}
+	ifr.Flags |= unix.IFF_UP
+	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), uintptr(unix.SIOCSIFFLAGS), uintptr(unsafe.Pointer(&ifr))); errno != 0 {
+		return fmt.Errorf("bring loopback up: %w", errno)
+	}
 	return nil
 }
 
@@ -94,7 +123,7 @@ func handle(ctx context.Context, local net.Conn, spec bridgeSpec) {
 	}
 }
 
-func dialVsock(cid, port uint32) (net.Conn, error) {
+func dialVsock(cid, port uint32) (io.ReadWriteCloser, error) {
 	fd, err := unix.Socket(unix.AF_VSOCK, unix.SOCK_STREAM, 0)
 	if err != nil {
 		return nil, err
@@ -104,8 +133,7 @@ func dialVsock(cid, port uint32) (net.Conn, error) {
 		return nil, err
 	}
 	file := os.NewFile(uintptr(fd), "vsock")
-	defer file.Close()
-	return net.FileConn(file)
+	return file, nil
 }
 
 func parseBridgeSpecs(raw string) ([]bridgeSpec, error) {

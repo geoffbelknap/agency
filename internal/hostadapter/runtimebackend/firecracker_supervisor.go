@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -26,6 +27,7 @@ const (
 type FirecrackerVMSupervisor struct {
 	BinaryPath     string
 	LogDir         string
+	PIDDir         string
 	StopTimeout    time.Duration
 	RestartBackoff time.Duration
 
@@ -99,7 +101,7 @@ func (s *FirecrackerVMSupervisor) Stop(ctx context.Context, runtimeID string) er
 	task := s.taskLocked(runtimeID)
 	if task == nil {
 		s.mu.Unlock()
-		return nil
+		return s.stopPersisted(ctx, runtimeID)
 	}
 	task.stopRequested = true
 	task.state = FirecrackerVMStopping
@@ -203,6 +205,14 @@ func (t *firecrackerVMTask) startLocked() error {
 		return err
 	}
 	t.pid = cmd.Process.Pid
+	if err := t.supervisor.writePID(t.runtimeID, t.pid); err != nil {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_ = logFile.Close()
+		t.state = FirecrackerVMCrashed
+		t.lastError = err.Error()
+		close(t.done)
+		return err
+	}
 	t.state = FirecrackerVMRunning
 	go t.watch(cmd, t.done)
 	return nil
@@ -232,6 +242,7 @@ func (t *firecrackerVMTask) watch(cmd *exec.Cmd, done chan struct{}) {
 	now := time.Now().UTC()
 	t.exitCode = exitCode
 	t.stoppedAt = now
+	_ = t.supervisor.removePID(t.runtimeID)
 	if err != nil {
 		t.lastError = err.Error()
 	}
@@ -303,6 +314,92 @@ func (s *FirecrackerVMSupervisor) openLog(runtimeID string) (*os.File, string, e
 		return nil, "", fmt.Errorf("open firecracker log: %w", err)
 	}
 	return file, path, nil
+}
+
+func (s *FirecrackerVMSupervisor) pidDir() string {
+	if strings.TrimSpace(s.PIDDir) != "" {
+		return s.PIDDir
+	}
+	if strings.TrimSpace(s.LogDir) != "" {
+		return filepath.Join(filepath.Dir(s.LogDir), "pids")
+	}
+	return filepath.Join(os.TempDir(), "agency-firecracker", "pids")
+}
+
+func (s *FirecrackerVMSupervisor) pidPath(runtimeID string) string {
+	return filepath.Join(s.pidDir(), runtimeID+".pid")
+}
+
+func (s *FirecrackerVMSupervisor) writePID(runtimeID string, pid int) error {
+	if err := os.MkdirAll(s.pidDir(), 0o755); err != nil {
+		return fmt.Errorf("create firecracker pid dir: %w", err)
+	}
+	if err := os.WriteFile(s.pidPath(runtimeID), []byte(fmt.Sprintf("%d\n", pid)), 0o644); err != nil {
+		return fmt.Errorf("write firecracker pid: %w", err)
+	}
+	return nil
+}
+
+func (s *FirecrackerVMSupervisor) removePID(runtimeID string) error {
+	err := os.Remove(s.pidPath(runtimeID))
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func (s *FirecrackerVMSupervisor) stopPersisted(ctx context.Context, runtimeID string) error {
+	data, err := os.ReadFile(s.pidPath(runtimeID))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read firecracker pid: %w", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		_ = s.removePID(runtimeID)
+		return nil
+	}
+	if !s.pidLooksLikeFirecracker(pid) {
+		_ = s.removePID(runtimeID)
+		return nil
+	}
+	_ = syscall.Kill(-pid, syscall.SIGTERM)
+	deadline := time.After(s.stopTimeout())
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			_ = syscall.Kill(-pid, syscall.SIGKILL)
+			return ctx.Err()
+		case <-deadline:
+			_ = syscall.Kill(-pid, syscall.SIGKILL)
+			_ = s.removePID(runtimeID)
+			return nil
+		case <-tick.C:
+			if !processExists(pid) {
+				_ = s.removePID(runtimeID)
+				return nil
+			}
+		}
+	}
+}
+
+func (s *FirecrackerVMSupervisor) pidLooksLikeFirecracker(pid int) bool {
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
+	if err != nil {
+		return processExists(pid)
+	}
+	cmdline := string(data)
+	binary := filepath.Base(s.binaryPath())
+	return strings.Contains(cmdline, binary) || strings.Contains(cmdline, "firecracker")
+}
+
+func processExists(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 func shouldRestartFirecrackerVM(policy string) bool {

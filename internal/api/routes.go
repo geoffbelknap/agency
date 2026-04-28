@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"log/slog"
@@ -25,6 +27,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/audit"
 	authzcore "github.com/geoffbelknap/agency/internal/authz"
 	"github.com/geoffbelknap/agency/internal/backendhealth"
+	commsclient "github.com/geoffbelknap/agency/internal/comms"
 	"github.com/geoffbelknap/agency/internal/config"
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/credstore"
@@ -84,9 +87,17 @@ func commsClientFor(dc *runtimehost.Client) interface {
 	CommsRequest(ctx context.Context, method, path string, body interface{}) ([]byte, error)
 } {
 	if dc == nil {
-		return noopCommsClient{}
+		return commsclient.NewHTTPClient("http://localhost:" + gatewayProxyPort())
 	}
 	return dc
+}
+
+func gatewayProxyPort() string {
+	raw := os.Getenv("AGENCY_GATEWAY_PROXY_PORT")
+	if p, err := strconv.Atoi(raw); err == nil && p > 0 && p < 65536 {
+		return raw
+	}
+	return "8202"
 }
 
 func runtimeExecClientFor(dc *runtimehost.Client) interface {
@@ -145,7 +156,7 @@ func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *runtimehost.Clie
 	// Infra routes on the socket (subset: status + internal LLM only)
 	apiinfra.RegisterRoutes(r, apiinfra.Deps{
 		Infra:         startup.Infra,
-		Runtime:       dc,
+		Runtime:       startup.InfraRuntime,
 		BackendHealth: opts.BackendHealth,
 		CredStore:     startup.CredStore,
 		Config:        cfg,
@@ -379,7 +390,7 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *runtimehost.Client, logge
 	// Infra, internal LLM, routing, providers, and setup routes (extracted module)
 	apiinfra.RegisterRoutes(r, apiinfra.Deps{
 		Infra:         startup.Infra,
-		Runtime:       dc,
+		Runtime:       startup.InfraRuntime,
 		BackendHealth: opts.BackendHealth,
 		CredStore:     startup.CredStore,
 		EventBus:      opts.EventBus,

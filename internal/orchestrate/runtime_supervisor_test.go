@@ -556,17 +556,26 @@ func TestRuntimeSupervisorCompileFirecrackerUsesVsockTransport(t *testing.T) {
 	}
 }
 
-func TestRuntimeSupervisorFirecrackerBackendIsExperimental(t *testing.T) {
+func TestRuntimeSupervisorFirecrackerBackendRegistration(t *testing.T) {
 	t.Setenv("AGENCY_EXPERIMENTAL_SURFACES", "")
-	rs := NewRuntimeSupervisor(t.TempDir(), "0.1.0", "", "build-1", hostruntimebackend.BackendFirecracker, nil, nil, nil, nil)
+	rs := NewRuntimeSupervisor(t.TempDir(), "0.1.0", "", "build-1", "", nil, nil, nil, nil)
 	if _, err := rs.backend(hostruntimebackend.BackendFirecracker); err == nil {
 		t.Fatal("firecracker backend should not be registered by default")
+	}
+
+	rs = NewRuntimeSupervisor(t.TempDir(), "0.1.0", "", "build-1", hostruntimebackend.BackendFirecracker, nil, nil, nil, nil)
+	backend, err := rs.backend(hostruntimebackend.BackendFirecracker)
+	if err != nil {
+		t.Fatalf("configured firecracker backend should be registered: %v", err)
+	}
+	if backend.Name() != hostruntimebackend.BackendFirecracker {
+		t.Fatalf("backend name = %q, want %q", backend.Name(), hostruntimebackend.BackendFirecracker)
 	}
 
 	t.Setenv("AGENCY_EXPERIMENTAL_SURFACES", "1")
 	rs = NewRuntimeSupervisor(t.TempDir(), "0.1.0", "", "build-1", hostruntimebackend.BackendFirecracker, nil, nil, nil, nil)
 	rs.BackendConfig = map[string]string{"enforcer_binary_path": "/usr/local/bin/enforcer"}
-	backend, err := rs.backend(hostruntimebackend.BackendFirecracker)
+	backend, err = rs.backend(hostruntimebackend.BackendFirecracker)
 	if err != nil {
 		t.Fatalf("firecracker backend should be registered when %s is enabled: %v", features.Firecracker, err)
 	}

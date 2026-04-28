@@ -22,7 +22,7 @@ import (
 
 func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 	backend := h.configuredBackend()
-	if !runtimehost.IsContainerBackend(backend) || h.deps.Runtime == nil {
+	if h.deps.Runtime == nil {
 		limits := models.DefaultPlatformBudgetConfig()
 		store := budget.NewStore(filepath.Join(h.deps.Config.Home, "budget"))
 		infraState, _ := store.Load("_infrastructure")

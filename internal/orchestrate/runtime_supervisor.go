@@ -137,7 +137,7 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 	registerContainerBackend(runtimehost.BackendPodman)
 	registerContainerBackend(runtimehost.BackendContainerd)
 	registerContainerBackend(runtimehost.BackendAppleContainer)
-	if features.Enabled(features.Firecracker) {
+	if features.Enabled(features.Firecracker) || rs.BackendName == hostruntimebackend.BackendFirecracker {
 		var firecrackerBackend *firecrackerComponentRuntimeBackend
 		rs.registry.Register(hostruntimebackend.BackendFirecracker, func() (runtimecontract.Backend, error) {
 			if firecrackerBackend == nil {

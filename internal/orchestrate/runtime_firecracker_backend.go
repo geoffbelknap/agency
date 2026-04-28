@@ -38,6 +38,11 @@ func (b *firecrackerComponentRuntimeBackend) EnsureEnforcer(ctx context.Context,
 	if b.enforcementMode() == hostruntimebackend.FirecrackerEnforcementModeMicroVM {
 		return fmt.Errorf("firecracker enforcer microVM mode is not implemented")
 	}
+	proxyHostPort := hostPortFromEndpoint(spec.Package.Env[hostruntimebackend.FirecrackerEnforcerProxyTargetEnv])
+	constraintHostPort := hostPortFromEndpoint(spec.Package.Env[hostruntimebackend.FirecrackerEnforcerControlTargetEnv])
+	if proxyHostPort == "" || constraintHostPort == "" {
+		return fmt.Errorf("firecracker enforcer target ports are not configured")
+	}
 	enforcer := &Enforcer{
 		AgentName:          spec.RuntimeID,
 		ContainerName:      fmt.Sprintf("%s-%s-enforcer", prefix, spec.RuntimeID),
@@ -45,8 +50,8 @@ func (b *firecrackerComponentRuntimeBackend) EnsureEnforcer(ctx context.Context,
 		Version:            b.version,
 		SourceDir:          b.sourceDir,
 		BuildID:            b.buildID,
-		ProxyHostPort:      hostPortFromEndpoint(spec.Package.Env[hostruntimebackend.FirecrackerEnforcerProxyTargetEnv]),
-		ConstraintHostPort: hostPortFromEndpoint(spec.Package.Env[hostruntimebackend.FirecrackerEnforcerControlTargetEnv]),
+		ProxyHostPort:      proxyHostPort,
+		ConstraintHostPort: constraintHostPort,
 		LifecycleID:        spec.Revision.InstanceRevision,
 		PrincipalUUID:      spec.AgentID,
 	}
@@ -54,6 +59,8 @@ func (b *firecrackerComponentRuntimeBackend) EnsureEnforcer(ctx context.Context,
 	if err != nil {
 		return err
 	}
+	launchSpec.ProxyHostPort = proxyHostPort
+	launchSpec.ConstraintHostPort = constraintHostPort
 	if err := b.enforcerSupervisor().Start(ctx, launchSpec, b.hostServiceURLs()); err != nil {
 		return err
 	}
@@ -61,6 +68,15 @@ func (b *firecrackerComponentRuntimeBackend) EnsureEnforcer(ctx context.Context,
 }
 
 func (b *firecrackerComponentRuntimeBackend) EnsureWorkspace(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
+	if spec.Package.Env == nil {
+		spec.Package.Env = map[string]string{}
+	}
+	if scopedKey := readScopedAPIKey(spec.Transport.Enforcer.TokenRef); scopedKey != "" {
+		spec.Package.Env["AGENCY_LLM_API_KEY"] = scopedKey
+	}
+	if err := b.EnsureEnforcer(ctx, spec, false); err != nil {
+		return err
+	}
 	return b.backend.Ensure(ctx, spec)
 }
 
@@ -136,5 +152,6 @@ func (b *firecrackerComponentRuntimeBackend) hostServiceURLs() map[string]string
 		"comms":     "http://127.0.0.1:" + envPort("AGENCY_GATEWAY_PROXY_PORT", "8202"),
 		"knowledge": "http://127.0.0.1:" + envPort("AGENCY_GATEWAY_PROXY_KNOWLEDGE_PORT", "8204"),
 		"web-fetch": "http://127.0.0.1:" + envPort("AGENCY_WEB_FETCH_PORT", "8206"),
+		"egress":    "http://127.0.0.1:" + envPort("AGENCY_EGRESS_PROXY_PORT", "8312"),
 	}
 }

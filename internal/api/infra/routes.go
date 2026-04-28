@@ -80,14 +80,14 @@ func (h *handler) configuredBackend() string {
 // containerBackendRequired returns true when container-backed infra control is available.
 func (h *handler) containerBackendRequired(w http.ResponseWriter) bool {
 	backend := h.configuredBackend()
-	if !runtimehost.IsContainerBackend(backend) {
-		writeJSON(w, 503, map[string]string{
-			"error":   fmt.Sprintf("infrastructure container lifecycle is only available for container backends (current: %s)", backend),
-			"backend": backend,
-		})
-		return false
-	}
 	if h.deps.Runtime == nil {
+		if !runtimehost.IsContainerBackend(backend) {
+			writeJSON(w, 503, map[string]string{
+				"error":   fmt.Sprintf("infrastructure container lifecycle is unavailable for the configured runtime backend (current: %s)", backend),
+				"backend": backend,
+			})
+			return false
+		}
 		writeJSON(w, 503, map[string]string{
 			"error": fmt.Sprintf("%s infrastructure client is not initialized.", runtimehost.NormalizeContainerBackend(backend)),
 		})

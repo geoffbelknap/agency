@@ -1,8 +1,10 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -44,6 +46,57 @@ func TestRegisterAll_NonDockerInfraRoutesDoNotPanic(t *testing.T) {
 		if rec.Code != tc.want {
 			t.Fatalf("%s %s = %d, want %d", tc.method, tc.path, rec.Code, tc.want)
 		}
+	}
+}
+
+func TestRegisterAll_NonDockerAgentDMUsesHostComms(t *testing.T) {
+	var calls []string
+	comms := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"ok": "true"})
+	}))
+	defer comms.Close()
+
+	u, err := url.Parse(comms.URL)
+	if err != nil {
+		t.Fatalf("parse comms URL: %v", err)
+	}
+	_, port, ok := strings.Cut(u.Host, ":")
+	if !ok {
+		t.Fatalf("test comms URL missing port: %s", comms.URL)
+	}
+	t.Setenv("AGENCY_GATEWAY_PROXY_PORT", port)
+
+	cfg := &config.Config{
+		Home:    t.TempDir(),
+		Version: "test",
+		Token:   "test-token",
+		Hub: config.HubConfig{
+			DeploymentBackend: "probe",
+		},
+	}
+	startup, err := Startup(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("Startup() error = %v", err)
+	}
+
+	r := chi.NewRouter()
+	RegisterAll(r, cfg, nil, nil, startup, RouteOptions{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/henry/dm", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/v1/agents/henry/dm = %d, body %s", rec.Code, rec.Body.String())
+	}
+	want := []string{
+		"POST /channels",
+		"POST /channels/dm-henry/grant-access",
+		"POST /channels/dm-henry/grant-access",
+	}
+	if strings.Join(calls, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("comms calls = %#v, want %#v", calls, want)
 	}
 }
 

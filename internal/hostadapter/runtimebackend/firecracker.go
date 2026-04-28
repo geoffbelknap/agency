@@ -66,6 +66,7 @@ func NewFirecrackerRuntimeBackend(home string, cfg map[string]string) *Firecrack
 	backend.Tasks = &FirecrackerVMSupervisor{
 		BinaryPath:  binaryPath,
 		LogDir:      filepath.Join(stateDir, "logs"),
+		PIDDir:      filepath.Join(stateDir, "pids"),
 		StopTimeout: parseDurationConfig(cfg["stop_timeout"], 10*time.Second),
 	}
 	backend.Vsock = &FirecrackerVsockListenerFactory{StateDir: stateDir}
@@ -98,6 +99,7 @@ func (b *FirecrackerRuntimeBackend) Ensure(ctx context.Context, spec runtimecont
 	if err != nil {
 		return err
 	}
+	_ = os.Remove(bridge.UDSBase)
 	configPath, err := b.writeConfig(spec, rootfs.Path, bridge.UDSBase)
 	if err != nil {
 		b.vsockFactory().Stop(spec.RuntimeID)
