@@ -16,6 +16,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/comms"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/features"
+	agentruntime "github.com/geoffbelknap/agency/internal/hostadapter/agentruntime"
 	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	runtimebackend "github.com/geoffbelknap/agency/internal/runtime/backend"
@@ -137,8 +138,23 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 	registerContainerBackend(runtimehost.BackendContainerd)
 	registerContainerBackend(runtimehost.BackendAppleContainer)
 	if features.Enabled(features.Firecracker) {
+		var firecrackerBackend *firecrackerComponentRuntimeBackend
 		rs.registry.Register(hostruntimebackend.BackendFirecracker, func() (runtimecontract.Backend, error) {
-			return hostruntimebackend.NewFirecrackerRuntimeBackend(rs.Home, rs.BackendConfig), nil
+			if firecrackerBackend == nil {
+				backend := hostruntimebackend.NewFirecrackerRuntimeBackend(rs.Home, rs.BackendConfig)
+				firecrackerBackend = &firecrackerComponentRuntimeBackend{
+					backend: backend,
+					enforcers: &agentruntime.HostEnforcerSupervisor{
+						BinaryPath: strings.TrimSpace(rs.BackendConfig["enforcer_binary_path"]),
+					},
+					home:      rs.Home,
+					version:   rs.Version,
+					sourceDir: rs.SourceDir,
+					buildID:   rs.BuildID,
+					log:       rs.Log,
+				}
+			}
+			return firecrackerBackend, nil
 		})
 	}
 	rs.registry.Register(probeRuntimeBackendName, func() (runtimecontract.Backend, error) {

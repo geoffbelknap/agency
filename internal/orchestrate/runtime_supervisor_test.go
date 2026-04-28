@@ -565,11 +565,26 @@ func TestRuntimeSupervisorFirecrackerBackendIsExperimental(t *testing.T) {
 
 	t.Setenv("AGENCY_EXPERIMENTAL_SURFACES", "1")
 	rs = NewRuntimeSupervisor(t.TempDir(), "0.1.0", "", "build-1", hostruntimebackend.BackendFirecracker, nil, nil, nil, nil)
+	rs.BackendConfig = map[string]string{"enforcer_binary_path": "/usr/local/bin/enforcer"}
 	backend, err := rs.backend(hostruntimebackend.BackendFirecracker)
 	if err != nil {
 		t.Fatalf("firecracker backend should be registered when %s is enabled: %v", features.Firecracker, err)
 	}
 	if backend.Name() != hostruntimebackend.BackendFirecracker {
 		t.Fatalf("backend name = %q, want %q", backend.Name(), hostruntimebackend.BackendFirecracker)
+	}
+	component, ok := backend.(*firecrackerComponentRuntimeBackend)
+	if !ok {
+		t.Fatalf("backend type = %T, want firecracker component backend", backend)
+	}
+	if component.enforcers.BinaryPath != "/usr/local/bin/enforcer" {
+		t.Fatalf("enforcer binary path = %q", component.enforcers.BinaryPath)
+	}
+	backendAgain, err := rs.backend(hostruntimebackend.BackendFirecracker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if backendAgain != backend {
+		t.Fatal("firecracker backend instance should be stable inside a runtime supervisor")
 	}
 }
