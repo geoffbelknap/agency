@@ -172,6 +172,7 @@ func TestFirecrackerGuestEnvRemovesHostOnlyTargets(t *testing.T) {
 		FirecrackerEnforcerProxyTargetEnv:     "http://127.0.0.1:19000",
 		FirecrackerEnforcerControlTargetEnv:   "http://127.0.0.1:19001",
 		FirecrackerHostServiceTargetEnv(8200): "http://127.0.0.1:8200",
+		FirecrackerRootFSOverlaysEnv:          `[{"hostPath":"/host","guestPath":"/guest"}]`,
 	})
 	if env["AGENCY_AGENT_NAME"] != "alice" {
 		t.Fatalf("guest env missing agent name: %#v", env)
@@ -179,7 +180,7 @@ func TestFirecrackerGuestEnvRemovesHostOnlyTargets(t *testing.T) {
 	if env["AGENCY_TRANSPORT_ENFORCER_ENDPOINT"] != "vsock://2:8081" {
 		t.Fatalf("guest env missing transport endpoint: %#v", env)
 	}
-	for _, key := range []string{FirecrackerEnforcerProxyTargetEnv, FirecrackerEnforcerControlTargetEnv, FirecrackerHostServiceTargetEnv(8200)} {
+	for _, key := range []string{FirecrackerEnforcerProxyTargetEnv, FirecrackerEnforcerControlTargetEnv, FirecrackerHostServiceTargetEnv(8200), FirecrackerRootFSOverlaysEnv} {
 		if _, ok := env[key]; ok {
 			t.Fatalf("guest env leaked host-only key %s: %#v", key, env)
 		}

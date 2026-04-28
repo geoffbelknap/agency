@@ -23,6 +23,7 @@ const (
 	FirecrackerEnforcerProxyTargetEnv   = "AGENCY_FIRECRACKER_ENFORCER_PROXY_TARGET"
 	FirecrackerEnforcerControlTargetEnv = "AGENCY_FIRECRACKER_ENFORCER_CONTROL_TARGET"
 	FirecrackerHostServiceTargetEnvBase = "AGENCY_FIRECRACKER_HOST_SERVICE_TARGET_"
+	FirecrackerRootFSOverlaysEnv        = "AGENCY_FIRECRACKER_ROOTFS_OVERLAYS"
 )
 
 type FirecrackerRuntimeBackend struct {
@@ -91,9 +92,7 @@ func (b *FirecrackerRuntimeBackend) Ensure(ctx context.Context, spec runtimecont
 	if strings.TrimSpace(spec.RuntimeID) == "" {
 		return fmt.Errorf("firecracker backend: runtime id is required")
 	}
-	rootfsSpec := spec
-	rootfsSpec.Package.Env = firecrackerGuestEnv(spec.Package.Env)
-	rootfs, err := b.imageStore().PrepareTaskRootFS(ctx, rootfsSpec)
+	rootfs, err := b.imageStore().PrepareTaskRootFS(ctx, spec)
 	if err != nil {
 		return err
 	}
@@ -286,7 +285,7 @@ func FirecrackerHostServiceTargetEnv(port int) string {
 
 func firecrackerHostOnlyEnv(key string) bool {
 	switch key {
-	case FirecrackerEnforcerProxyTargetEnv, FirecrackerEnforcerControlTargetEnv:
+	case FirecrackerEnforcerProxyTargetEnv, FirecrackerEnforcerControlTargetEnv, FirecrackerRootFSOverlaysEnv:
 		return true
 	default:
 		return strings.HasPrefix(key, FirecrackerHostServiceTargetEnvBase)

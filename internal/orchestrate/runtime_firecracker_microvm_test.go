@@ -2,6 +2,7 @@ package orchestrate
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -78,6 +79,17 @@ func TestFirecrackerCompileEnforcerMicroVMSpec(t *testing.T) {
 	if got := spec.Env[hostruntimebackend.FirecrackerHostServiceTargetEnv(8200)]; got != "http://127.0.0.1:8200" {
 		t.Fatalf("gateway target env = %q, want http://127.0.0.1:8200", got)
 	}
+	overlays, err := firecrackerRootFSOverlaysForTest(spec.Env[hostruntimebackend.FirecrackerRootFSOverlaysEnv])
+	if err != nil {
+		t.Fatalf("parse rootfs overlays: %v", err)
+	}
+	if !hasFirecrackerRootFSOverlay(overlays, hostruntimebackend.FirecrackerRootFSOverlay{
+		HostPath:  filepath.Join(home, "agents", "alice", "state", "enforcer-auth"),
+		GuestPath: "/agency/enforcer/auth",
+		Mode:      "ro",
+	}) {
+		t.Fatalf("missing auth rootfs overlay in %#v", overlays)
+	}
 	if !hasFirecrackerEnforcerMount(spec.Mounts, agentruntime.EnforcerMount{
 		HostPath:  filepath.Join(home, "agents", "alice", "state", "enforcer-auth"),
 		GuestPath: "/agency/enforcer/auth",
@@ -137,9 +149,26 @@ func TestFirecrackerComponentRuntimeID(t *testing.T) {
 	}
 }
 
+func firecrackerRootFSOverlaysForTest(raw string) ([]hostruntimebackend.FirecrackerRootFSOverlay, error) {
+	var overlays []hostruntimebackend.FirecrackerRootFSOverlay
+	if err := json.Unmarshal([]byte(raw), &overlays); err != nil {
+		return nil, err
+	}
+	return overlays, nil
+}
+
 func hasFirecrackerEnforcerMount(mounts []agentruntime.EnforcerMount, want agentruntime.EnforcerMount) bool {
 	for _, mount := range mounts {
 		if mount == want {
+			return true
+		}
+	}
+	return false
+}
+
+func hasFirecrackerRootFSOverlay(overlays []hostruntimebackend.FirecrackerRootFSOverlay, want hostruntimebackend.FirecrackerRootFSOverlay) bool {
+	for _, overlay := range overlays {
+		if overlay == want {
 			return true
 		}
 	}

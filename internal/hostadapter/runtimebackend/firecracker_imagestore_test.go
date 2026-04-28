@@ -152,6 +152,63 @@ func TestFirecrackerImageStorePrepareTaskRootFSInjectsEnv(t *testing.T) {
 	}
 }
 
+func TestApplyFirecrackerRootFSOverlays(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	if err := os.MkdirAll(filepath.Join(srcDir, "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "nested", "config.yaml"), []byte("config"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	srcFile := filepath.Join(dir, "routing.yaml")
+	if err := os.WriteFile(srcFile, []byte("routing"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	value, err := FirecrackerRootFSOverlaysEnvValue([]FirecrackerRootFSOverlay{
+		{HostPath: srcDir, GuestPath: "/agency/enforcer/config", Mode: "ro"},
+		{HostPath: srcFile, GuestPath: "/agency/enforcer/routing.yaml", Mode: "ro"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageDir := filepath.Join(dir, "stage")
+	if err := applyFirecrackerRootFSOverlays(stageDir, map[string]string{FirecrackerRootFSOverlaysEnv: value}); err != nil {
+		t.Fatalf("applyFirecrackerRootFSOverlays returned error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(stageDir, "agency", "enforcer", "config", "nested", "config.yaml"))
+	if err != nil {
+		t.Fatalf("read overlaid dir file: %v", err)
+	}
+	if string(data) != "config" {
+		t.Fatalf("overlaid dir file = %q", string(data))
+	}
+	data, err = os.ReadFile(filepath.Join(stageDir, "agency", "enforcer", "routing.yaml"))
+	if err != nil {
+		t.Fatalf("read overlaid file: %v", err)
+	}
+	if string(data) != "routing" {
+		t.Fatalf("overlaid file = %q", string(data))
+	}
+}
+
+func TestApplyFirecrackerRootFSOverlaysRejectsRelativeGuestPath(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "src")
+	if err := os.WriteFile(src, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	value, err := FirecrackerRootFSOverlaysEnvValue([]FirecrackerRootFSOverlay{
+		{HostPath: src, GuestPath: "relative"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = applyFirecrackerRootFSOverlays(t.TempDir(), map[string]string{FirecrackerRootFSOverlaysEnv: value})
+	if err == nil || !strings.Contains(err.Error(), "guest path must be absolute") {
+		t.Fatalf("applyFirecrackerRootFSOverlays error = %v", err)
+	}
+}
+
 func TestWriteFirecrackerInitExecsOCICommand(t *testing.T) {
 	stageDir := t.TempDir()
 	if err := writeFirecrackerInit(stageDir, []string{"/bin/sh", "-c", "echo 'hello'"}, map[string]string{

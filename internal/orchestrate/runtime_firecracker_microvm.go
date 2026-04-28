@@ -109,9 +109,24 @@ func firecrackerEnforcerMicroVMEnv(spec agentruntime.EnforcerLaunchSpec, hostSer
 	for port, target := range hostServicePorts {
 		env[hostruntimebackend.FirecrackerHostServiceTargetEnv(port)] = "http://" + target
 	}
+	if overlays, err := firecrackerRootFSOverlayEnv(spec.Mounts); err == nil && overlays != "" {
+		env[hostruntimebackend.FirecrackerRootFSOverlaysEnv] = overlays
+	}
 	delete(env, hostruntimebackend.FirecrackerEnforcerProxyTargetEnv)
 	delete(env, hostruntimebackend.FirecrackerEnforcerControlTargetEnv)
 	return env
+}
+
+func firecrackerRootFSOverlayEnv(mounts []agentruntime.EnforcerMount) (string, error) {
+	overlays := make([]hostruntimebackend.FirecrackerRootFSOverlay, 0, len(mounts))
+	for _, mount := range mounts {
+		overlays = append(overlays, hostruntimebackend.FirecrackerRootFSOverlay{
+			HostPath:  mount.HostPath,
+			GuestPath: mount.GuestPath,
+			Mode:      mount.Mode,
+		})
+	}
+	return hostruntimebackend.FirecrackerRootFSOverlaysEnvValue(overlays)
 }
 
 func firecrackerHostServiceTargets(urls map[string]string) map[int]string {

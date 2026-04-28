@@ -37,6 +37,12 @@ type FirecrackerRootFS struct {
 	InitPath string
 }
 
+type FirecrackerRootFSOverlay struct {
+	HostPath  string `json:"hostPath"`
+	GuestPath string `json:"guestPath"`
+	Mode      string `json:"mode,omitempty"`
+}
+
 type firecrackerImageCommands interface {
 	Output(ctx context.Context, name string, args ...string) ([]byte, error)
 	Run(ctx context.Context, name string, args ...string) error
@@ -156,11 +162,14 @@ func (s *FirecrackerImageStore) buildRootFS(ctx context.Context, imageRef, outPa
 	if err := s.commandRunner().Export(ctx, s.podmanPath(), id, stageDir); err != nil {
 		return fmt.Errorf("export OCI image filesystem: %w", err)
 	}
+	if err := applyFirecrackerRootFSOverlays(stageDir, env); err != nil {
+		return err
+	}
 	command, err := s.imageCommand(ctx, imageRef)
 	if err != nil {
 		return err
 	}
-	if err := writeFirecrackerInit(stageDir, command, env); err != nil {
+	if err := writeFirecrackerInit(stageDir, command, firecrackerGuestEnv(env)); err != nil {
 		return err
 	}
 	if err := installFirecrackerVsockBridge(stageDir, s.VsockBridgeBinary); err != nil {
@@ -177,6 +186,111 @@ func (s *FirecrackerImageStore) buildRootFS(ctx context.Context, imageRef, outPa
 		return fmt.Errorf("commit firecracker rootfs image: %w", err)
 	}
 	return nil
+}
+
+func FirecrackerRootFSOverlaysEnvValue(overlays []FirecrackerRootFSOverlay) (string, error) {
+	data, err := json.Marshal(overlays)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func firecrackerRootFSOverlaysFromEnv(env map[string]string) ([]FirecrackerRootFSOverlay, error) {
+	raw := strings.TrimSpace(env[FirecrackerRootFSOverlaysEnv])
+	if raw == "" {
+		return nil, nil
+	}
+	var overlays []FirecrackerRootFSOverlay
+	if err := json.Unmarshal([]byte(raw), &overlays); err != nil {
+		return nil, fmt.Errorf("parse firecracker rootfs overlays: %w", err)
+	}
+	return overlays, nil
+}
+
+func applyFirecrackerRootFSOverlays(stageDir string, env map[string]string) error {
+	overlays, err := firecrackerRootFSOverlaysFromEnv(env)
+	if err != nil {
+		return err
+	}
+	for _, overlay := range overlays {
+		if err := applyFirecrackerRootFSOverlay(stageDir, overlay); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func applyFirecrackerRootFSOverlay(stageDir string, overlay FirecrackerRootFSOverlay) error {
+	hostPath := strings.TrimSpace(overlay.HostPath)
+	if hostPath == "" {
+		return fmt.Errorf("firecracker rootfs overlay: host path is required")
+	}
+	guestPath := filepath.Clean(overlay.GuestPath)
+	if !filepath.IsAbs(guestPath) || guestPath == string(os.PathSeparator) {
+		return fmt.Errorf("firecracker rootfs overlay: guest path must be absolute")
+	}
+	info, err := os.Stat(hostPath)
+	if err != nil {
+		return fmt.Errorf("stat firecracker rootfs overlay source %s: %w", hostPath, err)
+	}
+	target := filepath.Join(stageDir, strings.TrimPrefix(guestPath, string(os.PathSeparator)))
+	if info.IsDir() {
+		return copyDir(hostPath, target)
+	}
+	return copyFileToPath(hostPath, target, info.Mode().Perm())
+}
+
+func copyDir(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return os.MkdirAll(target, info.Mode().Perm())
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			_ = os.Remove(target)
+			return os.Symlink(link, target)
+		}
+		return copyFileToPath(path, target, info.Mode().Perm())
+	})
+}
+
+func copyFileToPath(src, dst string, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 func (s *FirecrackerImageStore) imageCommand(ctx context.Context, imageRef string) ([]string, error) {
