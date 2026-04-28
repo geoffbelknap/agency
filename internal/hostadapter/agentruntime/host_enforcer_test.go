@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -69,6 +70,40 @@ func TestHostEnforcerSupervisorStartStop(t *testing.T) {
 	if status.State != HostEnforcerStateStopped {
 		t.Fatalf("state = %q, want %q", status.State, HostEnforcerStateStopped)
 	}
+}
+
+func TestHostEnforcerSupervisorSignal(t *testing.T) {
+	dir := t.TempDir()
+	readyFile := filepath.Join(dir, "ready.txt")
+	reloadFile := filepath.Join(dir, "reload.txt")
+	script := filepath.Join(dir, "enforcer-test")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ntrap 'echo reload > \"$AGENCY_TEST_RELOAD_FILE\"' HUP\ntrap 'exit 0' TERM\necho ready > \"$AGENCY_TEST_READY_FILE\"\nwhile true; do sleep 1; done\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	supervisor := &HostEnforcerSupervisor{
+		BinaryPath:  script,
+		StopTimeout: time.Second,
+	}
+	spec := EnforcerLaunchSpec{
+		AgentName:          "alice",
+		ProxyHostPort:      "19128",
+		ConstraintHostPort: "19081",
+		Env: map[string]string{
+			"AGENCY_TEST_READY_FILE":  readyFile,
+			"AGENCY_TEST_RELOAD_FILE": reloadFile,
+		},
+	}
+	if err := supervisor.Start(context.Background(), spec, nil); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = supervisor.Stop(context.Background(), "alice")
+	})
+	waitForFile(t, readyFile)
+	if err := supervisor.Signal("alice", syscall.SIGHUP); err != nil {
+		t.Fatalf("Signal returned error: %v", err)
+	}
+	waitForFile(t, reloadFile)
 }
 
 func waitForFile(t *testing.T, path string) {

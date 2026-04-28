@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"syscall"
 	"time"
 
 	agentruntime "github.com/geoffbelknap/agency/internal/hostadapter/agentruntime"
@@ -61,6 +62,11 @@ func (b *firecrackerComponentRuntimeBackend) EnsureEnforcer(ctx context.Context,
 
 func (b *firecrackerComponentRuntimeBackend) EnsureWorkspace(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
 	return b.backend.Ensure(ctx, spec)
+}
+
+func (b *firecrackerComponentRuntimeBackend) ReloadEnforcer(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
+	_ = ctx
+	return b.enforcerSupervisor().Signal(spec.RuntimeID, syscall.SIGHUP)
 }
 
 func (b *firecrackerComponentRuntimeBackend) Stop(ctx context.Context, runtimeID string) error {

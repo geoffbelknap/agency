@@ -134,6 +134,21 @@ func (s *HostEnforcerSupervisor) Stop(ctx context.Context, agentName string) err
 	}
 }
 
+func (s *HostEnforcerSupervisor) Signal(agentName string, sig syscall.Signal) error {
+	proc, ok := s.process(agentName)
+	if !ok {
+		return fmt.Errorf("host enforcer %s not found", agentName)
+	}
+	s.mu.Lock()
+	running := proc.state == HostEnforcerStateRunning
+	pid := proc.pid
+	s.mu.Unlock()
+	if !running {
+		return fmt.Errorf("host enforcer %s is not running", agentName)
+	}
+	return killProcessGroup(pid, sig)
+}
+
 func (s *HostEnforcerSupervisor) Inspect(agentName string) (HostEnforcerStatus, error) {
 	proc, ok := s.process(agentName)
 	if !ok {
