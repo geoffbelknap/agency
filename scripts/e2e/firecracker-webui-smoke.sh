@@ -17,6 +17,7 @@ Modes:
   all       Run every Firecracker Web UI smoke test
   manage    Create, inspect, DM, and delete a Firecracker agent
   recover   Recover a degraded Firecracker runtime through the Web UI
+  reload    Reload enforcer config and verify DM still works
   cleanup   Stop/delete and verify per-agent runtime artifacts are removed
 
 Any extra arguments are passed through to Playwright.
@@ -25,7 +26,7 @@ EOF
 
 if [ "$#" -gt 0 ]; then
   case "$1" in
-    all|manage|recover|cleanup)
+    all|manage|recover|reload|cleanup)
       MODE="$1"
       shift
       ;;
@@ -45,6 +46,9 @@ case "$MODE" in
     ;;
   recover)
     PLAYWRIGHT_ARGS+=("-g" "Firecracker runtime recovers after daemon restart")
+    ;;
+  reload)
+    PLAYWRIGHT_ARGS+=("-g" "Firecracker enforcer config reload")
     ;;
   cleanup)
     PLAYWRIGHT_ARGS+=("-g" "Firecracker stop and delete clean up")

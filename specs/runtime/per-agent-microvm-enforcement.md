@@ -241,7 +241,7 @@ The live comparison entrypoint is:
 ./scripts/e2e/firecracker-enforcer-mode-compare.sh
 ```
 
-It runs `manage`, `recover`, and `cleanup` Web UI smokes for
+It runs `manage`, `recover`, `reload`, and `cleanup` Web UI smokes for
 `host-process` and `microvm` modes using the same test implementation, then
 writes a report and JSONL metrics under
 `test-results/firecracker-enforcer-mode-compare/<run-id>/`.

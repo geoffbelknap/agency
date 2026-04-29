@@ -9,7 +9,7 @@ OUT_DIR="${AGENCY_FIRECRACKER_COMPARE_OUT_DIR:-$ROOT_DIR/test-results/firecracke
 METRICS_FILE="$OUT_DIR/metrics.jsonl"
 REPORT_FILE="$OUT_DIR/report.md"
 MODES=(host-process microvm)
-SMOKES=(manage recover cleanup)
+SMOKES=(manage recover reload cleanup)
 
 usage() {
   cat <<'EOF'
@@ -71,8 +71,8 @@ append_metric_summary() {
 
 ## Lifecycle Metrics
 
-| Mode | Test | Agent | Create ms | DM ms | Restart recover ms | Cleanup ms | Workload RSS KiB | Enforcer RSS KiB | Workload task bytes | Enforcer task bytes |
-| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Mode | Test | Agent | Create ms | DM ms | Restart recover ms | Reload ms | Cleanup ms | Workload RSS KiB | Enforcer RSS KiB | Workload task bytes | Enforcer task bytes |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 EOF
   if [ -s "$METRICS_FILE" ]; then
     python3 - "$METRICS_FILE" >>"$REPORT_FILE" <<'PY'
@@ -82,15 +82,16 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     for line in handle:
         metric = json.loads(line)
-        dm_ms = metric.get("dm_ms") or metric.get("pre_restart_dm_ms") or ""
+        dm_ms = metric.get("dm_ms") or metric.get("pre_restart_dm_ms") or metric.get("pre_reload_dm_ms") or ""
         print(
-            "| {mode} | {test} | {agent} | {create_ms} | {dm_ms} | {restart_recover_ms} | {cleanup_ms} | {workload_rss_kib} | {enforcer_rss_kib} | {workload_task_bytes} | {enforcer_task_bytes} |".format(
+            "| {mode} | {test} | {agent} | {create_ms} | {dm_ms} | {restart_recover_ms} | {reload_ms} | {cleanup_ms} | {workload_rss_kib} | {enforcer_rss_kib} | {workload_task_bytes} | {enforcer_task_bytes} |".format(
                 mode=metric.get("mode", ""),
                 test=metric.get("test", ""),
                 agent=metric.get("agent", ""),
                 create_ms=metric.get("create_ms", ""),
                 dm_ms=dm_ms,
                 restart_recover_ms=metric.get("restart_recover_ms", ""),
+                reload_ms=metric.get("reload_ms", ""),
                 cleanup_ms=metric.get("cleanup_ms", ""),
                 workload_rss_kib=metric.get("workload_rss_kib", ""),
                 enforcer_rss_kib=metric.get("enforcer_rss_kib", ""),

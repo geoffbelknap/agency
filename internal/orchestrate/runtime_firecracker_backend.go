@@ -99,7 +99,16 @@ func (b *firecrackerComponentRuntimeBackend) EnsureWorkspace(ctx context.Context
 }
 
 func (b *firecrackerComponentRuntimeBackend) ReloadEnforcer(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
-	_ = ctx
+	if b.enforcementMode() == hostruntimebackend.FirecrackerEnforcementModeMicroVM {
+		enforcerID := firecrackerComponentRuntimeID(spec.RuntimeID, firecrackerComponentEnforcer)
+		if err := b.backend.Stop(ctx, enforcerID); err != nil {
+			return err
+		}
+		if err := b.EnsureEnforcer(ctx, spec, true); err != nil {
+			return err
+		}
+		return b.backend.Validate(ctx, enforcerID)
+	}
 	return b.enforcerSupervisor().Signal(spec.RuntimeID, syscall.SIGHUP)
 }
 

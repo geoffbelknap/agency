@@ -143,6 +143,28 @@ func TestFirecrackerMicroVMEnforcementModeUsesBackendRuntime(t *testing.T) {
 	}
 }
 
+func TestFirecrackerReloadEnforcerUsesMicroVMRuntime(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "agents", "alice"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte("token: gateway-token\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	backend := &firecrackerComponentRuntimeBackend{
+		backend: &hostruntimebackend.FirecrackerRuntimeBackend{
+			EnforcementMode: hostruntimebackend.FirecrackerEnforcementModeMicroVM,
+			StateDir:        t.TempDir(),
+		},
+		home: home,
+	}
+
+	err := backend.ReloadEnforcer(context.Background(), runtimecontract.RuntimeSpec{RuntimeID: "alice"})
+	if err == nil || !strings.Contains(err.Error(), "kernel path is not configured") {
+		t.Fatalf("ReloadEnforcer error = %v, want backend validation error", err)
+	}
+}
+
 func TestFirecrackerComponentStopCleansBothEnforcerSubstrates(t *testing.T) {
 	stateDir := t.TempDir()
 	pidDir := filepath.Join(stateDir, "pids")

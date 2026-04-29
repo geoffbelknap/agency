@@ -22,10 +22,11 @@ This checklist validates the Firecracker runtime path for the scoped 0.2.x core 
 - Web build: `npm run build`
 - Live Firecracker DM parity: `./scripts/e2e/firecracker-webui-smoke.sh manage`
 - Live degraded restart recovery: `./scripts/e2e/firecracker-webui-smoke.sh recover`
+- Live enforcer reload parity: `./scripts/e2e/firecracker-webui-smoke.sh reload`
 - Live stop/delete cleanup: `./scripts/e2e/firecracker-webui-smoke.sh cleanup`
 - Full live Web UI parity: `./scripts/e2e/firecracker-webui-smoke.sh all`
 - Enforcer mode comparison: `./scripts/e2e/firecracker-enforcer-mode-compare.sh`
-  - Captures timing/resource evidence and security evidence for both
+  - Captures timing/resource/reload evidence and security evidence for both
     `host-process` and `microvm` modes.
   - Fails if workload transport is not `vsock_http`, the endpoint is not
     `vsock://2:<port>`, enforcer/bridge/body health is missing, host-only
