@@ -12,6 +12,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/geoffbelknap/agency/internal/pkg/pathsafety"
 )
 
 const (
@@ -65,9 +67,11 @@ func (s *HostEnforcerSupervisor) Start(ctx context.Context, spec EnforcerLaunchS
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if spec.AgentName == "" {
-		return errors.New("host enforcer: missing agent name")
+	agentName, err := pathsafety.Segment("agent name", spec.AgentName)
+	if err != nil {
+		return fmt.Errorf("host enforcer: %w", err)
 	}
+	spec.AgentName = agentName
 	s.mu.Lock()
 	if s.processes != nil {
 		if existing := s.processes[spec.AgentName]; existing != nil && existing.state == HostEnforcerStateRunning {
@@ -197,6 +201,8 @@ func (s *HostEnforcerSupervisor) Inspect(agentName string) (HostEnforcerStatus, 
 	if !ok {
 		return HostEnforcerStatus{}, fmt.Errorf("host enforcer %s not found", agentName)
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return proc.status(), nil
 }
 
@@ -409,7 +415,11 @@ func (s *HostEnforcerSupervisor) removeState(agentName string) error {
 }
 
 func (s *HostEnforcerSupervisor) statePath(agentName string) string {
-	return filepath.Join(s.stateDir(), agentName+".json")
+	path, err := pathsafety.Join(s.stateDir(), agentName+".json")
+	if err != nil {
+		return filepath.Join(s.stateDir(), "invalid.json")
+	}
+	return path
 }
 
 func (s *HostEnforcerSupervisor) stateDir() string {

@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/geoffbelknap/agency/internal/pkg/pathsafety"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
@@ -74,9 +75,11 @@ func (s *FirecrackerVMSupervisor) Start(ctx context.Context, spec runtimecontrac
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if spec.RuntimeID == "" {
-		return fmt.Errorf("firecracker supervisor: runtime id is required")
+	runtimeID, err := pathsafety.Segment("firecracker runtime id", spec.RuntimeID)
+	if err != nil {
+		return fmt.Errorf("firecracker supervisor: %w", err)
 	}
+	spec.RuntimeID = runtimeID
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.tasks == nil {
@@ -314,7 +317,10 @@ func (s *FirecrackerVMSupervisor) openLog(runtimeID string) (*os.File, string, e
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, "", fmt.Errorf("create firecracker log dir: %w", err)
 	}
-	path := filepath.Join(dir, runtimeID+".log")
+	path, err := pathsafety.Join(dir, runtimeID+".log")
+	if err != nil {
+		return nil, "", err
+	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
 		return nil, "", fmt.Errorf("open firecracker log: %w", err)
@@ -333,7 +339,11 @@ func (s *FirecrackerVMSupervisor) pidDir() string {
 }
 
 func (s *FirecrackerVMSupervisor) pidPath(runtimeID string) string {
-	return filepath.Join(s.pidDir(), runtimeID+".pid")
+	path, err := pathsafety.Join(s.pidDir(), runtimeID+".pid")
+	if err != nil {
+		return filepath.Join(s.pidDir(), "invalid.pid")
+	}
+	return path
 }
 
 func (s *FirecrackerVMSupervisor) writePID(runtimeID string, pid int) error {
@@ -436,7 +446,11 @@ func (s *FirecrackerVMSupervisor) logPath(runtimeID string) string {
 	if dir == "" {
 		dir = filepath.Join(os.TempDir(), "agency-firecracker", "logs")
 	}
-	return filepath.Join(dir, runtimeID+".log")
+	path, err := pathsafety.Join(dir, runtimeID+".log")
+	if err != nil {
+		return filepath.Join(dir, "invalid.log")
+	}
+	return path
 }
 
 func (s *FirecrackerVMSupervisor) pidLooksLikeFirecracker(pid int) bool {

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/geoffbelknap/agency/internal/pkg/pathsafety"
 )
 
 const firecrackerGuestVsockTargetPrefix = "firecracker-vsock://"
@@ -37,9 +39,9 @@ type FirecrackerVsockBridge struct {
 }
 
 func (f *FirecrackerVsockListenerFactory) Start(ctx context.Context, runtimeID string, targets map[int]string) (*FirecrackerVsockBridge, error) {
-	runtimeID = strings.TrimSpace(runtimeID)
-	if runtimeID == "" {
-		return nil, fmt.Errorf("firecracker vsock bridge: runtime id is required")
+	runtimeID, err := pathsafety.Segment("firecracker runtime id", runtimeID)
+	if err != nil {
+		return nil, fmt.Errorf("firecracker vsock bridge: %w", err)
 	}
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("firecracker vsock bridge: no target ports configured")
@@ -54,7 +56,11 @@ func (f *FirecrackerVsockListenerFactory) Start(ctx context.Context, runtimeID s
 	}
 
 	bridgeCtx, cancel := context.WithCancel(context.Background())
-	dir := filepath.Join(f.stateDir(), runtimeID)
+	dir, err := pathsafety.Join(f.stateDir(), runtimeID)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		cancel()
 		return nil, fmt.Errorf("create firecracker vsock dir: %w", err)
@@ -81,7 +87,11 @@ func (f *FirecrackerVsockListenerFactory) Start(ctx context.Context, runtimeID s
 			bridge.close()
 			return nil, fmt.Errorf("firecracker vsock bridge: target for port %d is empty", port)
 		}
-		path := bridge.UDSBase + "_" + strconv.Itoa(port)
+		path, err := pathsafety.Join(dir, "vsock.sock_"+strconv.Itoa(port))
+		if err != nil {
+			bridge.close()
+			return nil, err
+		}
 		_ = os.Remove(path)
 		listener, err := net.Listen("unix", path)
 		if err != nil {
@@ -98,6 +108,10 @@ func (f *FirecrackerVsockListenerFactory) Start(ctx context.Context, runtimeID s
 }
 
 func (f *FirecrackerVsockListenerFactory) Stop(runtimeID string) {
+	runtimeID, err := pathsafety.Segment("firecracker runtime id", runtimeID)
+	if err != nil {
+		return
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	bridge := f.bridges[runtimeID]
@@ -109,7 +123,15 @@ func (f *FirecrackerVsockListenerFactory) Stop(runtimeID string) {
 }
 
 func (f *FirecrackerVsockListenerFactory) Restore(ctx context.Context, runtimeID string) (*FirecrackerVsockBridge, error) {
-	targets, err := readFirecrackerVsockBridgeTargets(filepath.Join(f.stateDir(), strings.TrimSpace(runtimeID)))
+	runtimeID, err := pathsafety.Segment("firecracker runtime id", runtimeID)
+	if err != nil {
+		return nil, fmt.Errorf("firecracker vsock bridge: %w", err)
+	}
+	dir, err := pathsafety.Join(f.stateDir(), runtimeID)
+	if err != nil {
+		return nil, err
+	}
+	targets, err := readFirecrackerVsockBridgeTargets(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -117,6 +139,10 @@ func (f *FirecrackerVsockListenerFactory) Restore(ctx context.Context, runtimeID
 }
 
 func (f *FirecrackerVsockListenerFactory) Bridge(runtimeID string) *FirecrackerVsockBridge {
+	runtimeID, err := pathsafety.Segment("firecracker runtime id", runtimeID)
+	if err != nil {
+		return nil
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.bridges == nil {
@@ -140,11 +166,11 @@ func (b *FirecrackerVsockBridge) accept(ctx context.Context, listener net.Listen
 			case <-ctx.Done():
 				return
 			default:
-				log.Printf("firecracker vsock bridge accept failed for runtime %s: %v", b.RuntimeID, err)
+				log.Printf("firecracker vsock bridge accept failed: %v", err)
 				continue
 			}
 		}
-		log.Printf("firecracker vsock bridge accepted runtime %s target %s", b.RuntimeID, target)
+		log.Printf("firecracker vsock bridge accepted connection")
 		go proxyFirecrackerVsockConn(ctx, conn, target)
 	}
 }
@@ -177,14 +203,22 @@ func writeFirecrackerVsockBridgeTargets(dir string, targets map[int]string) erro
 	if err != nil {
 		return fmt.Errorf("marshal firecracker vsock bridge targets: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, firecrackerVsockBridgeTargetsFile), append(data, '\n'), 0o644); err != nil {
+	path, err := pathsafety.Join(dir, firecrackerVsockBridgeTargetsFile)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
 		return fmt.Errorf("write firecracker vsock bridge targets: %w", err)
 	}
 	return nil
 }
 
 func readFirecrackerVsockBridgeTargets(dir string) (map[int]string, error) {
-	data, err := os.ReadFile(filepath.Join(dir, firecrackerVsockBridgeTargetsFile))
+	path, err := pathsafety.Join(dir, firecrackerVsockBridgeTargetsFile)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read firecracker vsock bridge targets: %w", err)
 	}
@@ -210,7 +244,7 @@ func proxyFirecrackerVsockConn(ctx context.Context, guest net.Conn, target strin
 	defer guest.Close()
 	host, err := dialFirecrackerVsockTarget(ctx, target)
 	if err != nil {
-		log.Printf("firecracker vsock bridge dial target %s failed: %v", target, err)
+		log.Printf("firecracker vsock bridge dial target failed: %v", err)
 		return
 	}
 	defer host.Close()

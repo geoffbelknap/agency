@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/geoffbelknap/agency/internal/pkg/pathsafety"
 )
 
 // Writer appends JSONL audit events to per-agent log files.
@@ -128,12 +130,19 @@ func (w *Writer) WriteEnforcerEvent(agent string, entry map[string]interface{}) 
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	auditDir := filepath.Join(w.Home, "audit", agent, "enforcer")
+	agentName, err := pathsafety.Segment("agent name", agent)
+	if err != nil {
+		return err
+	}
+	auditDir, err := pathsafety.Join(w.Home, "audit", agentName, "enforcer")
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(auditDir, 0700); err != nil {
 		return fmt.Errorf("create enforcer audit dir: %w", err)
 	}
 	if _, ok := entry["agent"]; !ok {
-		entry["agent"] = agent
+		entry["agent"] = agentName
 	}
 	if _, ok := entry["ts"]; !ok {
 		entry["ts"] = time.Now().UTC().Format(time.RFC3339Nano)
@@ -145,8 +154,12 @@ func (w *Writer) WriteEnforcerEvent(agent string, entry map[string]interface{}) 
 	data = append(data, '\n')
 
 	today := time.Now().UTC().Format("2006-01-02")
+	path, err := pathsafety.Join(auditDir, "enforcer-"+today+".jsonl")
+	if err != nil {
+		return err
+	}
 	f, err := os.OpenFile(
-		filepath.Join(auditDir, "enforcer-"+today+".jsonl"),
+		path,
 		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600,
 	)
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/geoffbelknap/agency/internal/pkg/pathsafety"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
@@ -52,14 +53,21 @@ type firecrackerImageCommands interface {
 type osFirecrackerImageCommands struct{}
 
 func (s *FirecrackerImageStore) PrepareTaskRootFS(ctx context.Context, spec runtimecontract.RuntimeSpec) (FirecrackerRootFS, error) {
-	if strings.TrimSpace(spec.RuntimeID) == "" {
-		return FirecrackerRootFS{}, fmt.Errorf("firecracker image store: runtime id is required")
+	runtimeID, err := pathsafety.Segment("firecracker runtime id", spec.RuntimeID)
+	if err != nil {
+		return FirecrackerRootFS{}, fmt.Errorf("firecracker image store: %w", err)
 	}
-	taskDir := filepath.Join(s.stateDir(), "tasks", spec.RuntimeID)
+	taskDir, err := pathsafety.Join(s.stateDir(), "tasks", runtimeID)
+	if err != nil {
+		return FirecrackerRootFS{}, err
+	}
 	if err := os.MkdirAll(taskDir, 0o755); err != nil {
 		return FirecrackerRootFS{}, fmt.Errorf("create firecracker task rootfs dir: %w", err)
 	}
-	taskPath := filepath.Join(taskDir, "rootfs.ext4")
+	taskPath, err := pathsafety.Join(taskDir, "rootfs.ext4")
+	if err != nil {
+		return FirecrackerRootFS{}, err
+	}
 	if len(spec.Package.Env) > 0 {
 		digest, err := s.resolveImageDigest(ctx, spec.Package.Image)
 		if err != nil {
@@ -90,11 +98,17 @@ func (s *FirecrackerImageStore) Realize(ctx context.Context, imageRef string) (F
 	if err != nil {
 		return FirecrackerRootFS{}, err
 	}
-	imageDir := filepath.Join(s.stateDir(), "images")
+	imageDir, err := pathsafety.Join(s.stateDir(), "images")
+	if err != nil {
+		return FirecrackerRootFS{}, err
+	}
 	if err := os.MkdirAll(imageDir, 0o755); err != nil {
 		return FirecrackerRootFS{}, fmt.Errorf("create firecracker image cache dir: %w", err)
 	}
-	basePath := filepath.Join(imageDir, sanitizeFirecrackerDigest(digest)+".ext4")
+	basePath, err := pathsafety.Join(imageDir, sanitizeFirecrackerDigest(digest)+".ext4")
+	if err != nil {
+		return FirecrackerRootFS{}, err
+	}
 	if info, err := os.Stat(basePath); err == nil && info.Size() > 0 {
 		return FirecrackerRootFS{ImageRef: imageRef, Digest: digest, BasePath: basePath, Path: basePath, InitPath: firecrackerInitPath}, nil
 	}
@@ -133,19 +147,26 @@ func (s *FirecrackerImageStore) inspectDigest(ctx context.Context, imageRef, for
 }
 
 func (s *FirecrackerImageStore) buildRootFS(ctx context.Context, imageRef, outPath string, env map[string]string) error {
-	tmpDir, err := os.MkdirTemp(filepath.Join(s.stateDir(), "tmp"), "rootfs-*")
+	tmpBase, err := pathsafety.Join(s.stateDir(), "tmp")
 	if err != nil {
-		if mkErr := os.MkdirAll(filepath.Join(s.stateDir(), "tmp"), 0o755); mkErr != nil {
+		return err
+	}
+	tmpDir, err := os.MkdirTemp(tmpBase, "rootfs-*")
+	if err != nil {
+		if mkErr := os.MkdirAll(tmpBase, 0o755); mkErr != nil {
 			return fmt.Errorf("create firecracker image temp dir: %w", mkErr)
 		}
-		tmpDir, err = os.MkdirTemp(filepath.Join(s.stateDir(), "tmp"), "rootfs-*")
+		tmpDir, err = os.MkdirTemp(tmpBase, "rootfs-*")
 	}
 	if err != nil {
 		return fmt.Errorf("create firecracker image temp dir: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
-	stageDir := filepath.Join(tmpDir, "stage")
+	stageDir, err := pathsafety.Join(tmpDir, "stage")
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(stageDir, 0o755); err != nil {
 		return fmt.Errorf("create firecracker rootfs stage: %w", err)
 	}
@@ -175,7 +196,10 @@ func (s *FirecrackerImageStore) buildRootFS(ctx context.Context, imageRef, outPa
 	if err := installFirecrackerVsockBridge(stageDir, s.VsockBridgeBinary); err != nil {
 		return err
 	}
-	tmpImage := filepath.Join(tmpDir, "rootfs.ext4")
+	tmpImage, err := pathsafety.Join(tmpDir, "rootfs.ext4")
+	if err != nil {
+		return err
+	}
 	if err := s.commandRunner().Run(ctx, "truncate", "-s", fmt.Sprintf("%dM", s.sizeMiB()), tmpImage); err != nil {
 		return fmt.Errorf("allocate firecracker rootfs image: %w", err)
 	}
@@ -223,6 +247,10 @@ func applyFirecrackerRootFSOverlays(stageDir string, env map[string]string) erro
 
 func applyFirecrackerRootFSOverlay(stageDir string, overlay FirecrackerRootFSOverlay) error {
 	hostPath := strings.TrimSpace(overlay.HostPath)
+	hostPath, err := cleanFirecrackerHostPath("firecracker rootfs overlay host path", hostPath)
+	if err != nil {
+		return err
+	}
 	if hostPath == "" {
 		return fmt.Errorf("firecracker rootfs overlay: host path is required")
 	}
@@ -234,11 +262,22 @@ func applyFirecrackerRootFSOverlay(stageDir string, overlay FirecrackerRootFSOve
 	if err != nil {
 		return fmt.Errorf("stat firecracker rootfs overlay source %s: %w", hostPath, err)
 	}
-	target := filepath.Join(stageDir, strings.TrimPrefix(guestPath, string(os.PathSeparator)))
+	target, err := safeGuestPath(stageDir, guestPath)
+	if err != nil {
+		return err
+	}
 	if info.IsDir() {
 		return copyDir(hostPath, target)
 	}
 	return copyFileToPath(hostPath, target, info.Mode().Perm())
+}
+
+func safeGuestPath(stageDir, guestPath string) (string, error) {
+	rel := strings.TrimPrefix(filepath.Clean(guestPath), string(os.PathSeparator))
+	if rel == "" || rel == "." {
+		return "", fmt.Errorf("firecracker rootfs overlay: guest path must be below root")
+	}
+	return pathsafety.Join(stageDir, strings.Split(rel, string(os.PathSeparator))...)
 }
 
 func copyDir(src, dst string) error {
@@ -333,7 +372,10 @@ func parseOCICommandPart(raw string) ([]string, error) {
 }
 
 func writeFirecrackerInit(stageDir string, command []string, env map[string]string) error {
-	path := filepath.Join(stageDir, strings.TrimPrefix(firecrackerInitPath, "/"))
+	path, err := safeGuestPath(stageDir, firecrackerInitPath)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create firecracker init dir: %w", err)
 	}
@@ -407,7 +449,14 @@ func installFirecrackerVsockBridge(stageDir, binaryPath string) error {
 	if binaryPath == "" {
 		return nil
 	}
-	target := filepath.Join(stageDir, "usr", "local", "bin", "agency-vsock-http-bridge")
+	binaryPath, err := cleanFirecrackerHostPath("firecracker vsock bridge binary path", binaryPath)
+	if err != nil {
+		return err
+	}
+	target, err := pathsafety.Join(stageDir, "usr", "local", "bin", "agency-vsock-http-bridge")
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return fmt.Errorf("create firecracker vsock bridge dir: %w", err)
 	}
@@ -418,6 +467,20 @@ func installFirecrackerVsockBridge(stageDir, binaryPath string) error {
 		return fmt.Errorf("chmod firecracker vsock bridge: %w", err)
 	}
 	return nil
+}
+
+func cleanFirecrackerHostPath(kind, raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", nil
+	}
+	if strings.ContainsRune(value, 0) {
+		return "", fmt.Errorf("%s contains NUL", kind)
+	}
+	if !filepath.IsAbs(value) {
+		return "", fmt.Errorf("%s must be absolute", kind)
+	}
+	return filepath.Clean(value), nil
 }
 
 func (s *FirecrackerImageStore) stateDir() string {

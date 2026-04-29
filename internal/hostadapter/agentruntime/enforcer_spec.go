@@ -9,6 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
+	"github.com/geoffbelknap/agency/internal/pkg/pathsafety"
 )
 
 const (
@@ -40,11 +41,24 @@ type EnforcerMount struct {
 
 func (e *Enforcer) BuildLaunchSpec(ctx context.Context, rotateKey bool) (EnforcerLaunchSpec, error) {
 	_ = ctx
+	agentName, err := pathsafety.Segment("agent name", e.AgentName)
+	if err != nil {
+		return EnforcerLaunchSpec{}, err
+	}
 	policyDir := e.ensurePolicy()
 	configDir := e.ensureConfig(rotateKey)
-	dataDir := filepath.Join(e.Home, "infrastructure", "enforcer", "data", e.AgentName)
-	auditDir := filepath.Join(e.Home, "audit", e.AgentName, "enforcer")
-	agentDir := filepath.Join(e.Home, "agents", e.AgentName)
+	dataDir, err := pathsafety.Join(e.Home, "infrastructure", "enforcer", "data", agentName)
+	if err != nil {
+		return EnforcerLaunchSpec{}, err
+	}
+	auditDir, err := pathsafety.Join(e.Home, "audit", agentName, "enforcer")
+	if err != nil {
+		return EnforcerLaunchSpec{}, err
+	}
+	agentDir, err := pathsafety.Join(e.Home, "agents", agentName)
+	if err != nil {
+		return EnforcerLaunchSpec{}, err
+	}
 	deploymentsDir := filepath.Join(e.Home, "deployments")
 	servicesDir := filepath.Join(e.Home, "services")
 	for _, dir := range []string{dataDir, auditDir, agentDir, deploymentsDir, servicesDir} {
@@ -52,10 +66,10 @@ func (e *Enforcer) BuildLaunchSpec(ctx context.Context, rotateKey bool) (Enforce
 	}
 
 	backend := e.backendName()
-	internalNet := fmt.Sprintf("%s-%s-internal", prefix, e.AgentName)
+	internalNet := fmt.Sprintf("%s-%s-internal", prefix, agentName)
 	env := map[string]string{
 		"HOME":               "/agency/enforcer/data",
-		"AGENT_NAME":         e.AgentName,
+		"AGENT_NAME":         agentName,
 		"CONSTRAINT_WS_PORT": EnforcerConstraintPort,
 		"GATEWAY_URL":        "http://" + gatewayHost(backend) + ":8200",
 		"COMMS_URL":          "http://" + scopedInfraName(fmt.Sprintf("%s-infra-comms", prefix)) + ":8080",
@@ -113,7 +127,10 @@ func (e *Enforcer) BuildLaunchSpec(ctx context.Context, rotateKey bool) (Enforce
 		}
 	}
 
-	perAgentAuthDir := filepath.Join(e.Home, "agents", e.AgentName, "state", "enforcer-auth")
+	perAgentAuthDir, err := pathsafety.Join(e.Home, "agents", agentName, "state", "enforcer-auth")
+	if err != nil {
+		return EnforcerLaunchSpec{}, err
+	}
 	mounts := []EnforcerMount{
 		{HostPath: policyDir, GuestPath: "/agency/enforcer/policy", Mode: "ro"},
 		{HostPath: filepath.Join(configDir, "server-config.yaml"), GuestPath: "/agency/enforcer/server-config.yaml", Mode: "ro"},
@@ -137,7 +154,7 @@ func (e *Enforcer) BuildLaunchSpec(ctx context.Context, rotateKey bool) (Enforce
 	}
 
 	return EnforcerLaunchSpec{
-		AgentName:          e.AgentName,
+		AgentName:          agentName,
 		ComponentName:      e.ContainerName,
 		Image:              enforcerImage,
 		Hostname:           "enforcer",

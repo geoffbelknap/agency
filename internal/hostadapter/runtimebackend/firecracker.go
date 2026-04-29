@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/geoffbelknap/agency/internal/pkg/pathsafety"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
@@ -93,9 +94,11 @@ func (b *FirecrackerRuntimeBackend) Ensure(ctx context.Context, spec runtimecont
 	if strings.TrimSpace(b.KernelPath) == "" {
 		return fmt.Errorf("firecracker backend: kernel path is not configured")
 	}
-	if strings.TrimSpace(spec.RuntimeID) == "" {
-		return fmt.Errorf("firecracker backend: runtime id is required")
+	runtimeID, err := pathsafety.Segment("firecracker runtime id", spec.RuntimeID)
+	if err != nil {
+		return fmt.Errorf("firecracker backend: %w", err)
 	}
+	spec.RuntimeID = runtimeID
 	rootfs, err := b.imageStore().PrepareTaskRootFS(ctx, spec)
 	if err != nil {
 		return err
@@ -114,7 +117,11 @@ func (b *FirecrackerRuntimeBackend) Ensure(ctx context.Context, spec runtimecont
 		b.vsockFactory().Stop(spec.RuntimeID)
 		return err
 	}
-	apiSock := b.apiSocketPath(spec.RuntimeID)
+	apiSock, err := b.apiSocketPath(spec.RuntimeID)
+	if err != nil {
+		b.vsockFactory().Stop(spec.RuntimeID)
+		return err
+	}
 	_ = os.Remove(apiSock)
 	if err := b.supervisor().Start(ctx, spec, []string{"--api-sock", apiSock, "--config-file", configPath}); err != nil {
 		b.vsockFactory().Stop(spec.RuntimeID)
@@ -263,15 +270,22 @@ func (b *FirecrackerRuntimeBackend) vsockFactory() *FirecrackerVsockListenerFact
 }
 
 func (b *FirecrackerRuntimeBackend) cleanupRuntimeState(runtimeID string) error {
-	runtimeID = strings.TrimSpace(runtimeID)
-	if runtimeID == "" {
+	if strings.TrimSpace(runtimeID) == "" {
 		return nil
 	}
-	for _, path := range []string{
-		filepath.Join(b.StateDir, runtimeID),
-		filepath.Join(b.StateDir, "tasks", runtimeID),
-		filepath.Join(b.StateDir, "pids", runtimeID+".pid"),
-	} {
+	runtimeDir, err := pathsafety.Join(b.StateDir, runtimeID)
+	if err != nil {
+		return err
+	}
+	taskDir, err := pathsafety.Join(b.StateDir, "tasks", runtimeID)
+	if err != nil {
+		return err
+	}
+	pidPath, err := pathsafety.Join(b.StateDir, "pids", runtimeID+".pid")
+	if err != nil {
+		return err
+	}
+	for _, path := range []string{runtimeDir, taskDir, pidPath} {
 		if err := os.RemoveAll(path); err != nil {
 			return fmt.Errorf("remove firecracker runtime state %s: %w", path, err)
 		}
@@ -279,8 +293,8 @@ func (b *FirecrackerRuntimeBackend) cleanupRuntimeState(runtimeID string) error 
 	return nil
 }
 
-func (b *FirecrackerRuntimeBackend) apiSocketPath(runtimeID string) string {
-	return filepath.Join(b.StateDir, runtimeID, "firecracker-api.sock")
+func (b *FirecrackerRuntimeBackend) apiSocketPath(runtimeID string) (string, error) {
+	return pathsafety.Join(b.StateDir, runtimeID, "firecracker-api.sock")
 }
 
 func firecrackerStartInstance(ctx context.Context, apiSock string) error {
@@ -362,7 +376,10 @@ func firecrackerHostOnlyEnv(key string) bool {
 }
 
 func (b *FirecrackerRuntimeBackend) writeConfig(spec runtimecontract.RuntimeSpec, rootfsPath, udsBase string) (string, error) {
-	dir := filepath.Join(b.StateDir, spec.RuntimeID)
+	dir, err := pathsafety.Join(b.StateDir, spec.RuntimeID)
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create firecracker config dir: %w", err)
 	}
@@ -391,7 +408,10 @@ func (b *FirecrackerRuntimeBackend) writeConfig(spec runtimecontract.RuntimeSpec
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, "firecracker.json")
+	path, err := pathsafety.Join(dir, "firecracker.json")
+	if err != nil {
+		return "", err
+	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return "", fmt.Errorf("write firecracker config: %w", err)
 	}
