@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -41,7 +40,7 @@ func (inf *Infra) ensureHostKnowledge(ctx context.Context) error {
 	if err := prepareKnowledgeRegistrySnapshot(inf.Home, knowledgeDir); err != nil {
 		return fmt.Errorf("prepare knowledge registry snapshot: %w", err)
 	}
-	if pid, ok := inf.hostKnowledgePID(); ok {
+	if pid, ok := inf.hostInfraPID("knowledge"); ok {
 		if processAlive(pid) && inf.hostKnowledgeHealthy(ctx) {
 			return nil
 		}
@@ -90,7 +89,7 @@ func (inf *Infra) ensureHostKnowledge(ctx context.Context) error {
 		return fmt.Errorf("start host knowledge: %w", err)
 	}
 	pid := cmd.Process.Pid
-	if err := os.WriteFile(inf.hostKnowledgePIDPath(), []byte(strconv.Itoa(pid)), 0o644); err != nil {
+	if err := inf.writeHostInfraPID("knowledge", pid); err != nil {
 		_ = syscall.Kill(-pid, syscall.SIGTERM)
 		return fmt.Errorf("write host knowledge pid: %w", err)
 	}
@@ -124,7 +123,7 @@ func (inf *Infra) hostKnowledgeEnv(sourceDir, knowledgeDir string) []string {
 }
 
 func (inf *Infra) stopHostKnowledge(ctx context.Context) error {
-	pid, err := inf.readHostKnowledgePID()
+	pid, err := inf.readHostInfraPID("knowledge")
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -132,7 +131,7 @@ func (inf *Infra) stopHostKnowledge(ctx context.Context) error {
 		return err
 	}
 	if pid <= 0 {
-		_ = os.Remove(inf.hostKnowledgePIDPath())
+		inf.removeHostInfraPID("knowledge")
 		return nil
 	}
 	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
@@ -143,7 +142,7 @@ func (inf *Infra) stopHostKnowledge(ctx context.Context) error {
 	deadline := time.Now().Add(time.Duration(stopTimeoutFor("knowledge")) * time.Second)
 	for time.Now().Before(deadline) {
 		if !processAlive(pid) {
-			_ = os.Remove(inf.hostKnowledgePIDPath())
+			inf.removeHostInfraPID("knowledge")
 			return nil
 		}
 		select {
@@ -154,13 +153,13 @@ func (inf *Infra) stopHostKnowledge(ctx context.Context) error {
 	}
 	_ = syscall.Kill(-pid, syscall.SIGKILL)
 	_ = syscall.Kill(pid, syscall.SIGKILL)
-	_ = os.Remove(inf.hostKnowledgePIDPath())
+	inf.removeHostInfraPID("knowledge")
 	return nil
 }
 
 func (inf *Infra) hostKnowledgeStatus(ctx context.Context) runtimehost.InfraComponent {
 	status := runtimehost.InfraComponent{Name: "knowledge", State: "missing", Health: "none"}
-	pid, ok := inf.hostKnowledgePID()
+	pid, ok := inf.hostInfraPID("knowledge")
 	if ok && processAlive(pid) {
 		status.State = "running"
 		status.ContainerID = fmt.Sprintf("host:%d", pid)
@@ -174,10 +173,6 @@ func (inf *Infra) hostKnowledgeStatus(ctx context.Context) runtimehost.InfraComp
 	return status
 }
 
-func (inf *Infra) hostKnowledgePIDPath() string {
-	return filepath.Join(inf.Home, "run", "knowledge.pid")
-}
-
 func (inf *Infra) hostKnowledgePython(sourceDir string) string {
 	if python := strings.TrimSpace(os.Getenv("AGENCY_HOST_KNOWLEDGE_PYTHON")); python != "" {
 		return python
@@ -187,26 +182,6 @@ func (inf *Infra) hostKnowledgePython(sourceDir string) string {
 		return venvPython
 	}
 	return "python3"
-}
-
-func (inf *Infra) readHostKnowledgePID() (int, error) {
-	data, err := os.ReadFile(inf.hostKnowledgePIDPath())
-	if err != nil {
-		return 0, err
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return 0, err
-	}
-	return pid, nil
-}
-
-func (inf *Infra) hostKnowledgePID() (int, bool) {
-	pid, err := inf.readHostKnowledgePID()
-	if err != nil || pid <= 0 {
-		return 0, false
-	}
-	return pid, true
 }
 
 func (inf *Infra) waitHostKnowledgeHealthy(ctx context.Context, pid int, timeout time.Duration) error {

@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -40,7 +39,7 @@ func (inf *Infra) ensureHostEgress(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if pid, ok := inf.hostEgressPID(); ok {
+	if pid, ok := inf.hostInfraPID("egress"); ok {
 		if processAlive(pid) && inf.hostEgressHealthy(ctx) {
 			return nil
 		}
@@ -88,7 +87,7 @@ func (inf *Infra) ensureHostEgress(ctx context.Context) error {
 		return fmt.Errorf("start host egress: %w", err)
 	}
 	pid := cmd.Process.Pid
-	if err := os.WriteFile(inf.hostEgressPIDPath(), []byte(strconv.Itoa(pid)), 0o644); err != nil {
+	if err := inf.writeHostInfraPID("egress", pid); err != nil {
 		_ = syscall.Kill(-pid, syscall.SIGTERM)
 		return fmt.Errorf("write host egress pid: %w", err)
 	}
@@ -186,7 +185,7 @@ func (inf *Infra) hostEgressEnv(sourceDir string, paths hostEgressPaths) []strin
 }
 
 func (inf *Infra) stopHostEgress(ctx context.Context) error {
-	pid, err := inf.readHostEgressPID()
+	pid, err := inf.readHostInfraPID("egress")
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -194,7 +193,7 @@ func (inf *Infra) stopHostEgress(ctx context.Context) error {
 		return err
 	}
 	if pid <= 0 {
-		_ = os.Remove(inf.hostEgressPIDPath())
+		inf.removeHostInfraPID("egress")
 		return nil
 	}
 	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
@@ -205,7 +204,7 @@ func (inf *Infra) stopHostEgress(ctx context.Context) error {
 	deadline := time.Now().Add(time.Duration(stopTimeoutFor("egress")) * time.Second)
 	for time.Now().Before(deadline) {
 		if !processAlive(pid) {
-			_ = os.Remove(inf.hostEgressPIDPath())
+			inf.removeHostInfraPID("egress")
 			return nil
 		}
 		select {
@@ -216,13 +215,13 @@ func (inf *Infra) stopHostEgress(ctx context.Context) error {
 	}
 	_ = syscall.Kill(-pid, syscall.SIGKILL)
 	_ = syscall.Kill(pid, syscall.SIGKILL)
-	_ = os.Remove(inf.hostEgressPIDPath())
+	inf.removeHostInfraPID("egress")
 	return nil
 }
 
 func (inf *Infra) hostEgressStatus(ctx context.Context) runtimehost.InfraComponent {
 	status := runtimehost.InfraComponent{Name: "egress", State: "missing", Health: "none"}
-	pid, ok := inf.hostEgressPID()
+	pid, ok := inf.hostInfraPID("egress")
 	if ok && processAlive(pid) {
 		status.State = "running"
 		status.ContainerID = fmt.Sprintf("host:%d", pid)
@@ -234,10 +233,6 @@ func (inf *Infra) hostEgressStatus(ctx context.Context) runtimehost.InfraCompone
 	}
 	status.BuildID = inf.BuildID
 	return status
-}
-
-func (inf *Infra) hostEgressPIDPath() string {
-	return filepath.Join(inf.Home, "run", "egress.pid")
 }
 
 func (inf *Infra) hostEgressPython(sourceDir string) string {
@@ -260,26 +255,6 @@ func (inf *Infra) hostEgressMitmdump(sourceDir string) string {
 		return venvMitmdump
 	}
 	return "mitmdump"
-}
-
-func (inf *Infra) readHostEgressPID() (int, error) {
-	data, err := os.ReadFile(inf.hostEgressPIDPath())
-	if err != nil {
-		return 0, err
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return 0, err
-	}
-	return pid, nil
-}
-
-func (inf *Infra) hostEgressPID() (int, bool) {
-	pid, err := inf.readHostEgressPID()
-	if err != nil || pid <= 0 {
-		return 0, false
-	}
-	return pid, true
 }
 
 func (inf *Infra) waitHostEgressHealthy(ctx context.Context, pid int, timeout time.Duration) error {

@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -58,7 +57,7 @@ func (inf *Infra) ensureHostComms(ctx context.Context) error {
 	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
 		return fmt.Errorf("prepare agents dir: %w", err)
 	}
-	if pid, ok := inf.hostCommsPID(); ok {
+	if pid, ok := inf.hostInfraPID("comms"); ok {
 		if processAlive(pid) && inf.hostCommsHealthy(ctx) {
 			return inf.ensureSystemChannels(ctx)
 		}
@@ -113,7 +112,7 @@ func (inf *Infra) ensureHostComms(ctx context.Context) error {
 		return fmt.Errorf("start host comms: %w", err)
 	}
 	pid := cmd.Process.Pid
-	if err := os.WriteFile(inf.hostCommsPIDPath(), []byte(strconv.Itoa(pid)), 0o644); err != nil {
+	if err := inf.writeHostInfraPID("comms", pid); err != nil {
 		_ = syscall.Kill(-pid, syscall.SIGTERM)
 		return fmt.Errorf("write host comms pid: %w", err)
 	}
@@ -130,7 +129,7 @@ func (inf *Infra) ensureHostComms(ctx context.Context) error {
 }
 
 func (inf *Infra) stopHostComms(ctx context.Context) error {
-	pid, err := inf.readHostCommsPID()
+	pid, err := inf.readHostInfraPID("comms")
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -138,7 +137,7 @@ func (inf *Infra) stopHostComms(ctx context.Context) error {
 		return err
 	}
 	if pid <= 0 {
-		_ = os.Remove(inf.hostCommsPIDPath())
+		inf.removeHostInfraPID("comms")
 		return nil
 	}
 	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
@@ -149,7 +148,7 @@ func (inf *Infra) stopHostComms(ctx context.Context) error {
 	deadline := time.Now().Add(time.Duration(stopTimeoutFor("comms")) * time.Second)
 	for time.Now().Before(deadline) {
 		if !processAlive(pid) {
-			_ = os.Remove(inf.hostCommsPIDPath())
+			inf.removeHostInfraPID("comms")
 			return nil
 		}
 		select {
@@ -160,13 +159,13 @@ func (inf *Infra) stopHostComms(ctx context.Context) error {
 	}
 	_ = syscall.Kill(-pid, syscall.SIGKILL)
 	_ = syscall.Kill(pid, syscall.SIGKILL)
-	_ = os.Remove(inf.hostCommsPIDPath())
+	inf.removeHostInfraPID("comms")
 	return nil
 }
 
 func (inf *Infra) hostCommsStatus(ctx context.Context) runtimehost.InfraComponent {
 	status := runtimehost.InfraComponent{Name: "comms", State: "missing", Health: "none"}
-	pid, ok := inf.hostCommsPID()
+	pid, ok := inf.hostInfraPID("comms")
 	if ok && processAlive(pid) {
 		status.State = "running"
 		status.ContainerID = fmt.Sprintf("host:%d", pid)
@@ -194,10 +193,6 @@ func (inf *Infra) HostInfraStatuses(ctx context.Context) []runtimehost.InfraComp
 	return statuses
 }
 
-func (inf *Infra) hostCommsPIDPath() string {
-	return filepath.Join(inf.Home, "run", "comms.pid")
-}
-
 func (inf *Infra) hostCommsPython(sourceDir string) string {
 	if python := strings.TrimSpace(os.Getenv("AGENCY_HOST_COMMS_PYTHON")); python != "" {
 		return python
@@ -207,26 +202,6 @@ func (inf *Infra) hostCommsPython(sourceDir string) string {
 		return venvPython
 	}
 	return "python3"
-}
-
-func (inf *Infra) readHostCommsPID() (int, error) {
-	data, err := os.ReadFile(inf.hostCommsPIDPath())
-	if err != nil {
-		return 0, err
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return 0, err
-	}
-	return pid, nil
-}
-
-func (inf *Infra) hostCommsPID() (int, bool) {
-	pid, err := inf.readHostCommsPID()
-	if err != nil || pid <= 0 {
-		return 0, false
-	}
-	return pid, true
 }
 
 func (inf *Infra) waitHostCommsHealthy(ctx context.Context, pid int, timeout time.Duration) error {
