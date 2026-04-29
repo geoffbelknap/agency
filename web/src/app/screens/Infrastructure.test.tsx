@@ -15,13 +15,13 @@ function wrapInfra(components: any[]) {
 }
 
 const infraServices = [
-  { name: 'gateway', state: 'running', health: 'healthy', container_id: 'abc', uptime: '2h' },
-  { name: 'redis', state: 'running', health: 'healthy', container_id: 'def', uptime: '2h' },
+  { name: 'gateway', state: 'running', health: 'healthy', component_id: 'abc', uptime: '2h' },
+  { name: 'redis', state: 'running', health: 'healthy', component_id: 'def', uptime: '2h' },
 ];
 
 const stoppedInfraServices = [
-  { name: 'egress', state: 'missing', health: 'none', container_id: '', uptime: '' },
-  { name: 'comms', state: 'missing', health: 'none', container_id: '', uptime: '' },
+  { name: 'egress', state: 'missing', health: 'none', component_id: '', uptime: '' },
+  { name: 'comms', state: 'missing', health: 'none', component_id: '', uptime: '' },
 ];
 
 describe('Infrastructure', () => {
@@ -29,8 +29,8 @@ describe('Infrastructure', () => {
     server.use(
       http.get(`${BASE}/infra/status`, () =>
         HttpResponse.json(wrapInfra([
-          { name: 'gateway', state: 'running', health: 'healthy', container_id: 'abc123', uptime: '2h' },
-          { name: 'redis', state: 'running', health: 'healthy', container_id: 'def456', uptime: '2h' },
+          { name: 'gateway', state: 'running', health: 'healthy', component_id: 'abc123', uptime: '2h' },
+          { name: 'redis', state: 'running', health: 'healthy', component_id: 'def456', uptime: '2h' },
         ])),
       ),
     );
@@ -135,7 +135,7 @@ describe('Infrastructure', () => {
     server.use(
       http.get(`${BASE}/infra/status`, () =>
         HttpResponse.json(wrapInfra([
-          { name: 'gateway', state: 'running', health: 'unhealthy', container_id: 'abc123', uptime: '2h' },
+          { name: 'gateway', state: 'running', health: 'unhealthy', component_id: 'abc123', uptime: '2h' },
         ])),
       ),
     );

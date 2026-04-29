@@ -78,8 +78,8 @@ describe('Overview', () => {
       ),
       http.get(`${BASE}/infra/status`, () =>
         HttpResponse.json(wrapInfra([
-          { name: 'egress', state: 'missing', health: 'none', container_id: '', uptime: '' },
-          { name: 'comms', state: 'missing', health: 'none', container_id: '', uptime: '' },
+          { name: 'egress', state: 'missing', health: 'none', component_id: '', uptime: '' },
+          { name: 'comms', state: 'missing', health: 'none', component_id: '', uptime: '' },
         ])),
       ),
       http.get(`${BASE}/agents/steve/logs`, () => HttpResponse.json([])),
@@ -210,8 +210,8 @@ describe('Overview', () => {
       ),
       http.get(`${BASE}/infra/status`, () =>
         HttpResponse.json(wrapInfra([
-          { name: 'gateway', state: 'running', health: 'healthy', container_id: 'abc', uptime: '2h' },
-          { name: 'redis', state: 'running', health: 'healthy', container_id: 'def', uptime: '2h' },
+          { name: 'gateway', state: 'running', health: 'healthy', component_id: 'abc', uptime: '2h' },
+          { name: 'redis', state: 'running', health: 'healthy', component_id: 'def', uptime: '2h' },
         ])),
       ),
       http.get(`${BASE}/agents/steve/logs`, () => HttpResponse.json([])),

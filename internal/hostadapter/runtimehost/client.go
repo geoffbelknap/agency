@@ -51,6 +51,7 @@ type (
 		State       string `json:"state"`
 		Health      string `json:"health"`
 		BuildID     string `json:"build_id,omitempty"`
+		ComponentID string `json:"component_id,omitempty"`
 		ContainerID string `json:"container_id,omitempty"`
 		Uptime      string `json:"uptime,omitempty"`
 	}
@@ -550,7 +551,8 @@ func (c *Client) InfraStatus(ctx context.Context) ([]InfraComponent, error) {
 			for _, comp := range components {
 				expected := infraContainerName(comp)
 				if n == expected {
-					ic := InfraComponent{Name: comp, State: ctr.State, ContainerID: shortContainerID(ctr.ID), Uptime: formatContainerUptime(ctr.Created, ctr.State, ctr.Status)}
+					id := shortContainerID(ctr.ID)
+					ic := InfraComponent{Name: comp, State: ctr.State, ComponentID: id, ContainerID: id, Uptime: formatContainerUptime(ctr.Created, ctr.State, ctr.Status)}
 					ic.Health = infraHealthFromStatus(ctr.Status)
 					if ic.Health == "none" {
 						if inspect, err := c.cli.ContainerInspect(ctx, expected); err == nil && inspect.State != nil && inspect.State.Health != nil && inspect.State.Health.Status != "" {

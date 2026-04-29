@@ -171,7 +171,8 @@ func (inf *Infra) hostCommsStatus(ctx context.Context) runtimehost.InfraComponen
 	pid, ok := inf.hostInfraPID("comms")
 	if ok && processAlive(pid) {
 		status.State = "running"
-		status.ContainerID = fmt.Sprintf("host:%d", pid)
+		status.ComponentID = fmt.Sprintf("host:%d", pid)
+		status.ContainerID = status.ComponentID
 		if inf.hostCommsHealthy(ctx) {
 			status.Health = "healthy"
 		}
