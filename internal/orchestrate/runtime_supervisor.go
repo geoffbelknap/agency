@@ -146,6 +146,7 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 					backend: backend,
 					enforcers: &agentruntime.HostEnforcerSupervisor{
 						BinaryPath: strings.TrimSpace(rs.BackendConfig["enforcer_binary_path"]),
+						StateDir:   filepath.Join(backend.StateDir, "host-enforcers"),
 					},
 					home:      rs.Home,
 					version:   rs.Version,

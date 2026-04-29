@@ -2,11 +2,13 @@ package agentruntime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -22,6 +24,7 @@ const (
 
 type HostEnforcerSupervisor struct {
 	BinaryPath  string
+	StateDir    string
 	StopTimeout time.Duration
 	HTTPClient  *http.Client
 
@@ -50,6 +53,12 @@ type hostEnforcerProcess struct {
 	lastError string
 	cleanStop bool
 	done      chan struct{}
+}
+
+type persistedHostEnforcerProcess struct {
+	Spec      EnforcerLaunchSpec `json:"spec"`
+	PID       int                `json:"pid"`
+	StartedAt time.Time          `json:"started_at"`
 }
 
 func (s *HostEnforcerSupervisor) Start(ctx context.Context, spec EnforcerLaunchSpec, serviceURLs map[string]string) error {
@@ -110,6 +119,16 @@ func (s *HostEnforcerSupervisor) Start(ctx context.Context, spec EnforcerLaunchS
 	s.processes[spec.AgentName] = proc
 	s.mu.Unlock()
 
+	if err := s.persist(proc); err != nil {
+		_ = killProcessGroup(cmd.Process.Pid, syscall.SIGKILL)
+		_, _ = cmd.Process.Wait()
+		s.mu.Lock()
+		if current := s.processes[spec.AgentName]; current == proc {
+			delete(s.processes, spec.AgentName)
+		}
+		s.mu.Unlock()
+		return err
+	}
 	go s.wait(spec.AgentName, proc)
 	return nil
 }
@@ -123,10 +142,12 @@ func (s *HostEnforcerSupervisor) Stop(ctx context.Context, agentName string) err
 	s.mu.Lock()
 	if proc.state == HostEnforcerStateStopped || proc.state == HostEnforcerStateCrashed {
 		s.mu.Unlock()
+		_ = s.removeState(agentName)
 		return nil
 	}
 	proc.cleanStop = true
 	proc.state = HostEnforcerStateStopping
+	cmd := proc.cmd
 	s.mu.Unlock()
 
 	_ = killProcessGroup(proc.pid, syscall.SIGTERM)
@@ -136,16 +157,22 @@ func (s *HostEnforcerSupervisor) Stop(ctx context.Context, agentName string) err
 	}
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
+	if cmd == nil {
+		return s.waitForRestoredStop(ctx, proc, timer.C)
+	}
 	select {
 	case <-proc.done:
+		_ = s.removeState(agentName)
 		return nil
 	case <-ctx.Done():
 		_ = killProcessGroup(proc.pid, syscall.SIGKILL)
 		<-proc.done
+		_ = s.removeState(agentName)
 		return ctx.Err()
 	case <-timer.C:
 		_ = killProcessGroup(proc.pid, syscall.SIGKILL)
 		<-proc.done
+		_ = s.removeState(agentName)
 		return nil
 	}
 }
@@ -218,6 +245,18 @@ func (s *HostEnforcerSupervisor) HealthCheck(ctx context.Context, agentName stri
 func (s *HostEnforcerSupervisor) process(agentName string) (*hostEnforcerProcess, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.processes == nil {
+		s.processes = make(map[string]*hostEnforcerProcess)
+	}
+	if proc, ok := s.processes[agentName]; ok {
+		s.refreshRestoredProcessLocked(agentName, proc)
+		return proc, true
+	}
+	proc, err := s.restoreLocked(agentName)
+	if err == nil {
+		s.processes[agentName] = proc
+		return proc, true
+	}
 	proc, ok := s.processes[agentName]
 	return proc, ok
 }
@@ -243,6 +282,7 @@ func (s *HostEnforcerSupervisor) wait(agentName string, proc *hostEnforcerProces
 	if current := s.processes[agentName]; current == proc {
 		s.processes[agentName] = proc
 	}
+	_ = s.removeState(agentName)
 	close(proc.done)
 }
 
@@ -274,4 +314,115 @@ func killProcessGroup(pid int, sig syscall.Signal) error {
 		return err
 	}
 	return nil
+}
+
+func (s *HostEnforcerSupervisor) waitForRestoredStop(ctx context.Context, proc *hostEnforcerProcess, timeout <-chan time.Time) error {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if !processAlive(proc.pid) {
+			s.mu.Lock()
+			proc.state = HostEnforcerStateStopped
+			proc.stoppedAt = time.Now()
+			s.mu.Unlock()
+			_ = s.removeState(proc.spec.AgentName)
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			_ = killProcessGroup(proc.pid, syscall.SIGKILL)
+			_ = s.removeState(proc.spec.AgentName)
+			return ctx.Err()
+		case <-timeout:
+			_ = killProcessGroup(proc.pid, syscall.SIGKILL)
+		case <-ticker.C:
+		}
+	}
+}
+
+func (s *HostEnforcerSupervisor) persist(proc *hostEnforcerProcess) error {
+	state := persistedHostEnforcerProcess{
+		Spec:      proc.spec,
+		PID:       proc.pid,
+		StartedAt: proc.startedAt,
+	}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal host enforcer state: %w", err)
+	}
+	if err := os.MkdirAll(s.stateDir(), 0o755); err != nil {
+		return fmt.Errorf("create host enforcer state dir: %w", err)
+	}
+	if err := os.WriteFile(s.statePath(proc.spec.AgentName), append(data, '\n'), 0o644); err != nil {
+		return fmt.Errorf("write host enforcer state: %w", err)
+	}
+	return nil
+}
+
+func (s *HostEnforcerSupervisor) restoreLocked(agentName string) (*hostEnforcerProcess, error) {
+	data, err := os.ReadFile(s.statePath(agentName))
+	if err != nil {
+		return nil, err
+	}
+	var state persistedHostEnforcerProcess
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, err
+	}
+	if state.Spec.AgentName == "" {
+		state.Spec.AgentName = agentName
+	}
+	proc := &hostEnforcerProcess{
+		spec:      state.Spec,
+		state:     HostEnforcerStateRunning,
+		pid:       state.PID,
+		exitCode:  -1,
+		startedAt: state.StartedAt,
+		done:      make(chan struct{}),
+	}
+	if !processAlive(proc.pid) {
+		proc.state = HostEnforcerStateCrashed
+		proc.stoppedAt = time.Now()
+		proc.lastError = "host enforcer process is not running"
+		_ = s.removeState(agentName)
+	}
+	return proc, nil
+}
+
+func (s *HostEnforcerSupervisor) refreshRestoredProcessLocked(agentName string, proc *hostEnforcerProcess) {
+	if proc.cmd != nil || proc.state != HostEnforcerStateRunning {
+		return
+	}
+	if processAlive(proc.pid) {
+		return
+	}
+	proc.state = HostEnforcerStateCrashed
+	proc.stoppedAt = time.Now()
+	proc.lastError = "host enforcer process is not running"
+	_ = s.removeState(agentName)
+}
+
+func (s *HostEnforcerSupervisor) removeState(agentName string) error {
+	if err := os.Remove(s.statePath(agentName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func (s *HostEnforcerSupervisor) statePath(agentName string) string {
+	return filepath.Join(s.stateDir(), agentName+".json")
+}
+
+func (s *HostEnforcerSupervisor) stateDir() string {
+	if s.StateDir != "" {
+		return s.StateDir
+	}
+	return filepath.Join(os.TempDir(), "agency-host-enforcers")
+}
+
+func processAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }

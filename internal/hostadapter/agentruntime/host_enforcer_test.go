@@ -19,6 +19,7 @@ func TestHostEnforcerSupervisorStartStop(t *testing.T) {
 	}
 	supervisor := &HostEnforcerSupervisor{
 		BinaryPath:  script,
+		StateDir:    filepath.Join(dir, "state"),
 		StopTimeout: time.Second,
 	}
 	spec := EnforcerLaunchSpec{
@@ -62,6 +63,9 @@ func TestHostEnforcerSupervisorStartStop(t *testing.T) {
 	if status.State != HostEnforcerStateRunning || status.PID <= 0 {
 		t.Fatalf("unexpected running status: %#v", status)
 	}
+	if _, err := os.Stat(filepath.Join(dir, "state", "alice.json")); err != nil {
+		t.Fatalf("host enforcer state was not persisted: %v", err)
+	}
 	if err := supervisor.Stop(context.Background(), "alice"); err != nil {
 		t.Fatalf("Stop returned error: %v", err)
 	}
@@ -71,6 +75,9 @@ func TestHostEnforcerSupervisorStartStop(t *testing.T) {
 	}
 	if status.State != HostEnforcerStateStopped {
 		t.Fatalf("state = %q, want %q", status.State, HostEnforcerStateStopped)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "state", "alice.json")); !os.IsNotExist(err) {
+		t.Fatalf("host enforcer state still exists after stop: %v", err)
 	}
 }
 
@@ -129,6 +136,57 @@ func TestHostEnforcerSupervisorMarksUnexpectedExitCrashed(t *testing.T) {
 	}
 	if status.LastError == "" {
 		t.Fatal("expected last error for crashed enforcer")
+	}
+}
+
+func TestHostEnforcerSupervisorRestoresPersistedProcess(t *testing.T) {
+	dir := t.TempDir()
+	readyFile := filepath.Join(dir, "ready.txt")
+	script := filepath.Join(dir, "enforcer-test")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ntrap 'exit 0' TERM\necho ready > \"$AGENCY_TEST_READY_FILE\"\nwhile true; do sleep 1; done\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := filepath.Join(dir, "state")
+	first := &HostEnforcerSupervisor{
+		BinaryPath:  script,
+		StateDir:    stateDir,
+		StopTimeout: time.Second,
+	}
+	spec := EnforcerLaunchSpec{
+		AgentName:          "alice",
+		ProxyHostPort:      "19128",
+		ConstraintHostPort: "19081",
+		Env: map[string]string{
+			"AGENCY_TEST_READY_FILE": readyFile,
+		},
+	}
+	if err := first.Start(context.Background(), spec, nil); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	waitForFile(t, readyFile)
+
+	restored := &HostEnforcerSupervisor{
+		StateDir:    stateDir,
+		StopTimeout: time.Second,
+	}
+	status, err := restored.Inspect("alice")
+	if err != nil {
+		t.Fatalf("Inspect restored process returned error: %v", err)
+	}
+	if status.State != HostEnforcerStateRunning || status.PID <= 0 {
+		t.Fatalf("unexpected restored status: %#v", status)
+	}
+	if err := restored.Start(context.Background(), spec, nil); err != nil {
+		t.Fatalf("Start should be idempotent for restored process: %v", err)
+	}
+	if err := restored.Stop(context.Background(), "alice"); err != nil {
+		t.Fatalf("Stop restored process returned error: %v", err)
+	}
+	if processAlive(status.PID) {
+		t.Fatalf("restored process pid %d still alive after stop", status.PID)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "alice.json")); !os.IsNotExist(err) {
+		t.Fatalf("host enforcer state still exists after restored stop: %v", err)
 	}
 }
 
