@@ -5,6 +5,7 @@ import "context"
 const (
 	TransportTypeLoopbackHTTP = "loopback_http"
 	TransportTypeUnixHTTP     = "unix_http"
+	TransportTypeVsockHTTP    = "vsock_http"
 
 	RuntimePhaseCompiled    = "compiled"
 	RuntimePhaseReconciled  = "reconciled"
@@ -65,6 +66,18 @@ type RuntimeRevisionSpec struct {
 	InstanceRevision string `yaml:"instanceRevision,omitempty" json:"instanceRevision,omitempty"`
 }
 
+type ComponentRole string
+
+const (
+	RoleWorkspace ComponentRole = "workspace"
+	RoleEnforcer  ComponentRole = "enforcer"
+)
+
+type InstanceRef struct {
+	RuntimeID string
+	Role      ComponentRole
+}
+
 type RuntimeStatus struct {
 	RuntimeID       string                 `yaml:"runtimeId" json:"runtimeId"`
 	AgentID         string                 `yaml:"agentId" json:"agentId"`
@@ -74,6 +87,7 @@ type RuntimeStatus struct {
 	BackendEndpoint string                 `yaml:"backendEndpoint,omitempty" json:"backendEndpoint,omitempty"`
 	BackendMode     string                 `yaml:"backendMode,omitempty" json:"backendMode,omitempty"`
 	Transport       RuntimeTransportStatus `yaml:"transport" json:"transport"`
+	Details         map[string]string      `yaml:"details,omitempty" json:"details,omitempty"`
 }
 
 type RuntimeTransportStatus struct {
@@ -90,10 +104,21 @@ type BackendStatus struct {
 	Details   map[string]string `yaml:"details,omitempty" json:"details,omitempty"`
 }
 
+type Isolation string
+
+const (
+	IsolationContainer Isolation = "container"
+	IsolationMicroVM   Isolation = "microvm"
+	IsolationLangVM    Isolation = "langvm"
+)
+
 type BackendCapabilities struct {
-	SupportedTransportTypes []string `yaml:"supportedTransportTypes,omitempty" json:"supportedTransportTypes,omitempty"`
-	SupportsRootless        bool     `yaml:"supportsRootless,omitempty" json:"supportsRootless,omitempty"`
-	SupportsComposeLike     bool     `yaml:"supportsComposeLike,omitempty" json:"supportsComposeLike,omitempty"`
+	SupportedTransportTypes []string  `yaml:"supportedTransportTypes,omitempty" json:"supportedTransportTypes,omitempty"`
+	SupportsRootless        bool      `yaml:"supportsRootless,omitempty" json:"supportsRootless,omitempty"`
+	SupportsComposeLike     bool      `yaml:"supportsComposeLike,omitempty" json:"supportsComposeLike,omitempty"`
+	Isolation               Isolation `yaml:"isolation,omitempty" json:"isolation,omitempty"`
+	RequiresKVM             bool      `yaml:"requiresKVM,omitempty" json:"requiresKVM,omitempty"`
+	SupportsSnapshots       bool      `yaml:"supportsSnapshots,omitempty" json:"supportsSnapshots,omitempty"`
 }
 
 type Backend interface {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/geoffbelknap/agency/internal/config"
+	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -354,6 +355,138 @@ func TestAdminDoctorAppleContainerWaitHelperSatisfiesLifecycleEvents(t *testing.
 	}
 }
 
+func TestAdminDoctorFirecrackerReportsHostChecksWhenConfigured(t *testing.T) {
+	restoreFirecrackerDoctorHooks(t)
+	firecrackerOpenReadWrite = func(path string) error { return nil }
+	firecrackerStat = func(path string) (os.FileInfo, error) {
+		if path == "/sys/module/kvm" {
+			return fakeFileInfo{name: "kvm", mode: os.ModeDir | 0o755}, nil
+		}
+		return os.Stat(path)
+	}
+
+	home := t.TempDir()
+	binaryPath := filepath.Join(home, "firecracker")
+	kernelPath := filepath.Join(home, "vmlinux")
+	enforcerPath := filepath.Join(home, "enforcer")
+	bridgePath := filepath.Join(home, "agency-vsock-http-bridge")
+	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(enforcerPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bridgePath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(kernelPath, []byte{0x7f, 'E', 'L', 'F', 0x02}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := &handler{deps: Deps{
+		Config: &config.Config{
+			Home: home,
+			Hub: config.HubConfig{
+				DeploymentBackend: hostruntimebackend.BackendFirecracker,
+				DeploymentBackendConfig: map[string]string{
+					"binary_path":              binaryPath,
+					"kernel_path":              kernelPath,
+					"enforcer_binary_path":     enforcerPath,
+					"vsock_bridge_binary_path": bridgePath,
+				},
+			},
+		},
+		AgentManager: &orchestrate.AgentManager{
+			Home:    home,
+			Runtime: orchestrate.NewRuntimeSupervisor(home, "0.1.0", "", "build-1", hostruntimebackend.BackendFirecracker, nil, nil, nil, nil),
+		},
+	}}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/doctor", nil)
+	rec := httptest.NewRecorder()
+	h.adminDoctor(rec, req.WithContext(context.Background()))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var report doctorReport
+	if err := json.Unmarshal(rec.Body.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if !report.AllPassed {
+		t.Fatalf("expected all_passed, got false: %s", rec.Body.String())
+	}
+	for _, name := range []string{"firecracker_kvm_device", "firecracker_vsock_device", "firecracker_kvm_module", "firecracker_binary", "firecracker_kernel", "firecracker_enforcer_binary", "firecracker_vsock_bridge_binary"} {
+		check, ok := findDoctorCheck(report.BackendChecks, name)
+		if !ok {
+			t.Fatalf("missing %s in %#v", name, report.BackendChecks)
+		}
+		if check.Status != "pass" || check.Backend != hostruntimebackend.BackendFirecracker || check.Scope != "backend" {
+			t.Fatalf("%s check = %#v", name, check)
+		}
+	}
+}
+
+func TestFirecrackerDoctorChecksReportRemediationHints(t *testing.T) {
+	restoreFirecrackerDoctorHooks(t)
+	firecrackerOpenReadWrite = func(path string) error {
+		if path == "/dev/kvm" {
+			return os.ErrPermission
+		}
+		return nil
+	}
+	firecrackerStat = func(path string) (os.FileInfo, error) {
+		if path == "/sys/module/kvm" {
+			return nil, os.ErrNotExist
+		}
+		return os.Stat(path)
+	}
+
+	home := t.TempDir()
+	binaryPath := filepath.Join(home, "firecracker")
+	kernelPath := filepath.Join(home, "vmlinux")
+	enforcerPath := filepath.Join(home, "enforcer")
+	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(enforcerPath, []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(kernelPath, []byte("not-elf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report := doctorReport{AllPassed: true, Backend: hostruntimebackend.BackendFirecracker}
+	appendFirecrackerDoctorChecks(&report, &config.Config{
+		Hub: config.HubConfig{DeploymentBackendConfig: map[string]string{
+			"binary_path":          binaryPath,
+			"kernel_path":          kernelPath,
+			"enforcer_binary_path": enforcerPath,
+		}},
+	})
+
+	if report.AllPassed {
+		t.Fatal("expected all_passed=false")
+	}
+	for _, tt := range []struct {
+		name string
+		want string
+	}{
+		{"firecracker_kvm_device", "setfacl"},
+		{"firecracker_kvm_module", "modprobe kvm"},
+		{"firecracker_binary", "chmod +x"},
+		{"firecracker_kernel", "vmlinux"},
+		{"firecracker_enforcer_binary", "chmod +x"},
+		{"firecracker_vsock_bridge_binary", "make firecracker-helpers"},
+	} {
+		check, ok := findDoctorCheck(report.Checks, tt.name)
+		if !ok {
+			t.Fatalf("missing %s in %#v", tt.name, report.Checks)
+		}
+		if check.Status != "fail" || !strings.Contains(check.Fix, tt.want) {
+			t.Fatalf("%s check = %#v", tt.name, check)
+		}
+	}
+}
+
 func TestSyntheticReadinessAgentIsIgnoredForUnscopedAudit(t *testing.T) {
 	t.Parallel()
 
@@ -370,6 +503,39 @@ func TestSyntheticReadinessAgentIsIgnoredForUnscopedAudit(t *testing.T) {
 		t.Fatal("did not expect normal agent to be treated as synthetic")
 	}
 }
+
+func restoreFirecrackerDoctorHooks(t *testing.T) {
+	t.Helper()
+	origOpen := firecrackerOpenReadWrite
+	origStat := firecrackerStat
+	origLookPath := firecrackerLookPath
+	t.Cleanup(func() {
+		firecrackerOpenReadWrite = origOpen
+		firecrackerStat = origStat
+		firecrackerLookPath = origLookPath
+	})
+}
+
+func findDoctorCheck(checks []doctorCheckResult, name string) (doctorCheckResult, bool) {
+	for _, check := range checks {
+		if check.Name == name {
+			return check, true
+		}
+	}
+	return doctorCheckResult{}, false
+}
+
+type fakeFileInfo struct {
+	name string
+	mode os.FileMode
+}
+
+func (f fakeFileInfo) Name() string       { return f.name }
+func (f fakeFileInfo) Size() int64        { return 0 }
+func (f fakeFileInfo) Mode() os.FileMode  { return f.mode }
+func (f fakeFileInfo) ModTime() time.Time { return time.Time{} }
+func (f fakeFileInfo) IsDir() bool        { return f.mode.IsDir() }
+func (f fakeFileInfo) Sys() any           { return nil }
 
 func TestAdminPruneImagesNonDockerBackendUnavailable(t *testing.T) {
 	t.Parallel()

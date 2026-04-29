@@ -3,31 +3,19 @@ package api
 import (
 	"context"
 	"fmt"
+
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
-// SignalSender sends OS signals to named containers.
+// SignalSender sends OS signals to named runtime instances.
 // Used by modules that need to SIGHUP enforcers for config reload.
 type SignalSender interface {
-	SignalContainer(ctx context.Context, containerName, signal string) error
-}
-
-// DockerSignalSender adapts docker.Client to the SignalSender interface.
-type DockerSignalSender struct {
-	RawClient interface {
-		ContainerKill(ctx context.Context, containerID, signal string) error
-	}
-}
-
-func (d *DockerSignalSender) SignalContainer(ctx context.Context, containerName, signal string) error {
-	if d == nil || d.RawClient == nil {
-		return fmt.Errorf("signal sender unavailable")
-	}
-	return d.RawClient.ContainerKill(ctx, containerName, signal)
+	Signal(ctx context.Context, ref runtimecontract.InstanceRef, signal string) error
 }
 
 type noopSignalSender struct{}
 
-func (noopSignalSender) SignalContainer(context.Context, string, string) error {
+func (noopSignalSender) Signal(context.Context, runtimecontract.InstanceRef, string) error {
 	return fmt.Errorf("signal sender unavailable")
 }
 
@@ -37,12 +25,12 @@ func (noopCommsClient) CommsRequest(context.Context, string, string, interface{}
 	return nil, fmt.Errorf("comms client unavailable")
 }
 
-type noopDockerExecClient struct{}
+type noopRuntimeExecClient struct{}
 
-func (noopDockerExecClient) ExecInContainer(context.Context, string, []string) (string, error) {
-	return "", fmt.Errorf("docker exec unavailable")
+func (noopRuntimeExecClient) Exec(context.Context, runtimecontract.InstanceRef, []string) (string, error) {
+	return "", fmt.Errorf("runtime exec unavailable")
 }
 
-func (noopDockerExecClient) ContainerShortID(context.Context, string) string {
+func (noopRuntimeExecClient) ShortID(context.Context, runtimecontract.InstanceRef) string {
 	return ""
 }

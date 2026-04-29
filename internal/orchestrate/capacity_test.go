@@ -24,6 +24,51 @@ func TestComputeCapacity_16GB_NoEmbeddings(t *testing.T) {
 	}
 }
 
+func TestComputeCapacity_FirecrackerMicroVM(t *testing.T) {
+	cfg := ComputeCapacityForRuntime(16384, 8, false, "firecracker", map[string]string{
+		"enforcement_mode": "microvm",
+	})
+	// reserve = 3276, infra = 1264, available = 11844, agents = 11844/(512*2) = 11
+	if cfg.AgentSlotMB != 1024 {
+		t.Fatalf("expected 1024 MB agent slot, got %d", cfg.AgentSlotMB)
+	}
+	if cfg.MaxAgents != 11 {
+		t.Fatalf("expected 11 agents, got %d", cfg.MaxAgents)
+	}
+	if cfg.EnforcementMode != "microvm" {
+		t.Fatalf("expected microvm enforcement mode, got %q", cfg.EnforcementMode)
+	}
+}
+
+func TestComputeCapacity_FirecrackerConfiguredMemory(t *testing.T) {
+	cfg := ComputeCapacityForRuntime(16384, 8, false, "firecracker", map[string]string{
+		"enforcement_mode": "microvm",
+		"memory_mib":       "768",
+	})
+	if cfg.AgentSlotMB != 1536 {
+		t.Fatalf("expected 1536 MB agent slot, got %d", cfg.AgentSlotMB)
+	}
+	if cfg.MaxAgents != 7 {
+		t.Fatalf("expected 7 agents, got %d", cfg.MaxAgents)
+	}
+}
+
+func TestApplyRuntimeCapacityProfile_RecomputesLegacyFile(t *testing.T) {
+	cfg := CapacityConfig{
+		HostMemoryMB:    16384,
+		HostCPUCores:    8,
+		SystemReserveMB: 3276,
+		InfraOverheadMB: 1264,
+		MaxAgents:       18,
+		AgentSlotMB:     640,
+		MeeseeksSlotMB:  640,
+	}
+	cfg = ApplyRuntimeCapacityProfile(cfg, "firecracker", map[string]string{"enforcement_mode": "microvm"})
+	if cfg.AgentSlotMB != 1024 || cfg.MaxAgents != 11 {
+		t.Fatalf("capacity = %#v, want firecracker microvm slot and max", cfg)
+	}
+}
+
 func TestComputeCapacity_8GB(t *testing.T) {
 	cfg := ComputeCapacity(8192, 4, true)
 	// reserve = max(8192/5=1638, 2048) = 2048, infra = 4336, available = 1808, agents = 1808/640 = 2
@@ -61,14 +106,14 @@ func TestSaveAndLoadCapacity(t *testing.T) {
 	path := filepath.Join(dir, "capacity.yaml")
 
 	orig := CapacityConfig{
-		HostMemoryMB:         16384,
-		HostCPUCores:         8,
-		SystemReserveMB:      3276,
-		InfraOverheadMB:      4336,
-		MaxAgents:            13,
-		MaxConcurrentMeesks:  13,
-		AgentSlotMB:          640,
-		MeeseeksSlotMB:       640,
+		HostMemoryMB:          16384,
+		HostCPUCores:          8,
+		SystemReserveMB:       3276,
+		InfraOverheadMB:       4336,
+		MaxAgents:             13,
+		MaxConcurrentMeesks:   13,
+		AgentSlotMB:           640,
+		MeeseeksSlotMB:        640,
 		NetworkPoolConfigured: true,
 	}
 

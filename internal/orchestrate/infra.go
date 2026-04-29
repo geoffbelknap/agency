@@ -85,7 +85,7 @@ type Infra struct {
 	EgressToken  string // scoped token for egress credential resolution
 	Registry     *registry.Registry
 	Optimizer    *routing.RoutingOptimizer
-	Docker       *runtimehost.DockerHandle
+	Backend      *runtimehost.BackendHandle
 	Comms        comms.Client
 	cli          *runtimehost.RawClient
 	log          *slog.Logger
@@ -93,7 +93,7 @@ type Infra struct {
 }
 
 // NewInfra creates a new infrastructure manager.
-func NewInfra(home, version string, dc *runtimehost.DockerHandle, logger *slog.Logger, hmacKey []byte) (*Infra, error) {
+func NewInfra(home, version string, dc *runtimehost.BackendHandle, logger *slog.Logger, hmacKey []byte) (*Infra, error) {
 	var cli *runtimehost.RawClient
 	if dc != nil {
 		cli = dc.RawClient()
@@ -114,7 +114,7 @@ func NewInfra(home, version string, dc *runtimehost.DockerHandle, logger *slog.L
 		Home:     home,
 		Instance: infraInstanceName(),
 		Version:  version,
-		Docker:   dc,
+		Backend:  dc,
 		Registry: reg,
 		Comms:    dc,
 		cli:      cli,
@@ -921,8 +921,8 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 }
 
 func (inf *Infra) backendName() string {
-	if inf.Docker != nil {
-		return inf.Docker.Backend()
+	if inf.Backend != nil {
+		return inf.Backend.Backend()
 	}
 	if inf.cli != nil {
 		return inf.cli.Backend()
@@ -935,7 +935,8 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 		return fmt.Errorf("resolve egress image: %w", err)
 	}
 	name := inf.containerName("egress")
-	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) && inf.hasContainerEnv(ctx, name, "GATEWAY_TOKEN", inf.EgressToken) {
+	hostProxyURL := "http://127.0.0.1:" + inf.egressProxyPort()
+	if inf.isRunning(ctx, name) && inf.isCurrentBuild(ctx, name) && inf.isHealthyOrNoCheck(ctx, name) && inf.hasContainerEnv(ctx, name, "GATEWAY_TOKEN", inf.EgressToken) && inf.hasContainerEnv(ctx, name, "AGENCY_HOST_EGRESS_PROXY_URL", hostProxyURL) {
 		return nil
 	}
 	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor("egress"))
@@ -1002,10 +1003,14 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 	env["GATEWAY_URL"] = "http://" + inf.gatewayContainerHost() + ":8200"
 	env["GATEWAY_TOKEN"] = inf.EgressToken
 	env["AGENCY_CALLER"] = "egress"
+	env["AGENCY_HOST_EGRESS_PROXY_URL"] = hostProxyURL
 
 	hc := containers.HostConfigDefaults(containers.RoleInfra)
 	hc.Binds = binds
 	hc.NetworkMode = containerops.NetworkMode(inf.egressIntNetName())
+	hc.PortBindings = containerops.PortMap{
+		"3128/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.egressProxyPort()}},
+	}
 
 	mergeEnv(env, inf.loggingEnv("egress"))
 	netCfg := (*containerops.NetworkingConfig)(nil)
@@ -2197,6 +2202,10 @@ func (inf *Infra) intakePort() string {
 
 func (inf *Infra) webFetchPort() string {
 	return envPort("AGENCY_WEB_FETCH_PORT", "8206")
+}
+
+func (inf *Infra) egressProxyPort() string {
+	return envPort("AGENCY_EGRESS_PROXY_PORT", "8312")
 }
 
 var detectWSLHost = func() bool {

@@ -60,6 +60,12 @@ function capacityPercent(capacity: RawInfraCapacity) {
   return Math.min(100, Math.round((used / capacity.max_agents) * 100));
 }
 
+function capacityRuntimeLabel(capacity: RawInfraCapacity) {
+  if (!capacity.runtime_backend) return '';
+  if (capacity.enforcement_mode) return `${capacity.runtime_backend}/${capacity.enforcement_mode}`;
+  return capacity.runtime_backend;
+}
+
 type StatusKey = 'healthy' | 'running' | 'idle' | 'starting' | 'warning' | 'unhealthy' | 'stopped';
 type BadgeTone = 'teal' | 'amber' | 'red' | 'neutral';
 
@@ -337,6 +343,7 @@ export function Infrastructure() {
             <div className="eyebrow">Host capacity</div>
             <span className="mono" style={{ color: 'var(--ink-mid)', fontSize: 11 }}>
               {usedSlots} slots used / {capacity.available_slots} available / {formatGB(capacity.agent_slot_mb)} per agent
+              {capacityRuntimeLabel(capacity) ? ` / ${capacityRuntimeLabel(capacity)}` : ''}
             </span>
           </div>
           <div style={{ height: 8, borderRadius: 2, background: 'var(--warm-3)', overflow: 'hidden' }} aria-label={`Capacity ${capacityPercent(capacity)}% used`}>

@@ -20,13 +20,13 @@ import (
 
 var deployNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
-type dockerDeployer struct {
+type containerDeployer struct {
 	BackendName string
 	Home        string
 	Version     string
 	SourceDir   string
 	BuildID     string
-	Docker      *runtimehost.Client
+	Container   *runtimehost.Client
 	Logger      logger
 	Credentials map[string]string
 	CredStore   *credstore.Store
@@ -37,7 +37,7 @@ type logger interface {
 	Warn(msg string, args ...any)
 }
 
-func (d *dockerDeployer) secretPutter(instanceName string) hub.SecretPutter {
+func (d *containerDeployer) secretPutter(instanceName string) hub.SecretPutter {
 	return func(name, value string) error {
 		if d.CredStore == nil {
 			return fmt.Errorf("credential store not initialized")
@@ -59,7 +59,7 @@ func (d *dockerDeployer) secretPutter(instanceName string) hub.SecretPutter {
 	}
 }
 
-func (d *dockerDeployer) secretDeleter() hub.SecretDeleter {
+func (d *containerDeployer) secretDeleter() hub.SecretDeleter {
 	return func(name string) error {
 		if d.CredStore == nil {
 			return fmt.Errorf("credential store not initialized")
@@ -76,7 +76,7 @@ func dockerInfraContainerName(component string) string {
 	return name
 }
 
-func (d *dockerDeployer) dryRun(ctx context.Context, pack *orchestrate.PackDef, onStatus func(string)) (*orchestrate.DeployResult, error) {
+func (d *containerDeployer) dryRun(ctx context.Context, pack *orchestrate.PackDef, onStatus func(string)) (*orchestrate.DeployResult, error) {
 	_ = ctx
 	if onStatus == nil {
 		onStatus = func(string) {}
@@ -111,7 +111,7 @@ func (d *dockerDeployer) dryRun(ctx context.Context, pack *orchestrate.PackDef, 
 	return result, nil
 }
 
-func (d *dockerDeployer) deploy(ctx context.Context, pack *orchestrate.PackDef, onStatus func(string)) (*orchestrate.DeployResult, error) {
+func (d *containerDeployer) deploy(ctx context.Context, pack *orchestrate.PackDef, onStatus func(string)) (*orchestrate.DeployResult, error) {
 	if onStatus == nil {
 		onStatus = func(string) {}
 	}
@@ -128,7 +128,7 @@ func (d *dockerDeployer) deploy(ctx context.Context, pack *orchestrate.PackDef, 
 		DeploymentID: deployID,
 	}
 
-	am, err := orchestrate.NewAgentManager(d.Home, d.Docker, nil)
+	am, err := orchestrate.NewAgentManager(d.Home, d.Container, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +185,7 @@ func (d *dockerDeployer) deploy(ctx context.Context, pack *orchestrate.PackDef, 
 				"topic":      ch.Topic,
 				"members":    []string{"_platform"},
 			}
-			if _, err := d.Docker.CommsRequest(ctx, "POST", "/channels", body); err != nil {
+			if _, err := d.Container.CommsRequest(ctx, "POST", "/channels", body); err != nil {
 				errStr := err.Error()
 				if !strings.Contains(errStr, "409") && !strings.Contains(errStr, "already exists") {
 					rollback()
@@ -194,7 +194,7 @@ func (d *dockerDeployer) deploy(ctx context.Context, pack *orchestrate.PackDef, 
 			}
 			result.ChannelsCreated = append(result.ChannelsCreated, ch.Name)
 			for _, a := range pack.Team.Agents {
-				_, _ = d.Docker.CommsRequest(ctx, "POST", "/channels/"+ch.Name+"/grant-access", map[string]any{"agent": a.Name})
+				_, _ = d.Container.CommsRequest(ctx, "POST", "/channels/"+ch.Name+"/grant-access", map[string]any{"agent": a.Name})
 			}
 		}
 	}
@@ -255,8 +255,8 @@ func (d *dockerDeployer) deploy(ctx context.Context, pack *orchestrate.PackDef, 
 			SourceDir:   d.SourceDir,
 			BuildID:     d.BuildID,
 			BackendName: d.backendName(),
-			Docker:      d.Docker,
-			Comms:       d.Docker,
+			Backend:     d.Container,
+			Comms:       d.Container,
 		}
 		if _, err := ss.Run(ctx, nil); err == nil {
 			result.AgentsStarted = append(result.AgentsStarted, agent.Name)
@@ -267,17 +267,17 @@ func (d *dockerDeployer) deploy(ctx context.Context, pack *orchestrate.PackDef, 
 	return result, nil
 }
 
-func (d *dockerDeployer) backendName() string {
+func (d *containerDeployer) backendName() string {
 	if normalized := runtimehost.NormalizeContainerBackend(d.BackendName); normalized != "" {
 		return normalized
 	}
-	if d.Docker != nil {
-		return d.Docker.Backend()
+	if d.Container != nil {
+		return d.Container.Backend()
 	}
 	return runtimehost.BackendDocker
 }
 
-func (d *dockerDeployer) teardown(ctx context.Context, packName string, deleteResources bool) error {
+func (d *containerDeployer) teardown(ctx context.Context, packName string, deleteResources bool) error {
 	if !validDeploySegment(packName) {
 		return fmt.Errorf("invalid pack name %q", packName)
 	}
@@ -289,7 +289,7 @@ func (d *dockerDeployer) teardown(ctx context.Context, packName string, deleteRe
 	var manifest map[string]any
 	_ = json.Unmarshal(data, &manifest)
 
-	hc, err := orchestrate.NewHaltController(d.Home, d.Version, d.Docker, nil)
+	hc, err := orchestrate.NewHaltController(d.Home, d.Version, d.Container, nil)
 	if err != nil {
 		return err
 	}
@@ -302,7 +302,7 @@ func (d *dockerDeployer) teardown(ctx context.Context, packName string, deleteRe
 	channels, _ := manifest["channels"].([]any)
 	for _, c := range channels {
 		if name, _ := c.(string); name != "" {
-			_, _ = d.Docker.CommsRequest(ctx, "POST", "/channels/"+name+"/archive", map[string]any{"archived_by": "_platform"})
+			_, _ = d.Container.CommsRequest(ctx, "POST", "/channels/"+name+"/archive", map[string]any{"archived_by": "_platform"})
 		}
 	}
 
@@ -343,12 +343,12 @@ func (d *dockerDeployer) teardown(ctx context.Context, packName string, deleteRe
 			}
 		}
 		if needsIntakeSignal {
-			_ = d.Docker.SignalContainer(ctx, dockerInfraContainerName("intake"), "SIGHUP")
+			_ = d.Container.RawClient().ContainerKill(ctx, dockerInfraContainerName("intake"), "SIGHUP")
 		}
 	}
 
 	if deleteResources {
-		am, _ := orchestrate.NewAgentManager(d.Home, d.Docker, nil)
+		am, _ := orchestrate.NewAgentManager(d.Home, d.Container, nil)
 		for _, a := range agents {
 			if name, _ := a.(string); name != "" {
 				am.Delete(ctx, name)
@@ -361,7 +361,7 @@ func (d *dockerDeployer) teardown(ctx context.Context, packName string, deleteRe
 	return nil
 }
 
-func (d *dockerDeployer) saveManifest(pack *orchestrate.PackDef, result *orchestrate.DeployResult) {
+func (d *containerDeployer) saveManifest(pack *orchestrate.PackDef, result *orchestrate.DeployResult) {
 	if !validDeploySegment(pack.Name) {
 		return
 	}

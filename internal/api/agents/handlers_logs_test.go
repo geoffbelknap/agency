@@ -7,11 +7,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/geoffbelknap/agency/internal/config"
+	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 )
 
@@ -72,5 +74,34 @@ func TestAgentLogsAnnotatesMatchingResultArtifact(t *testing.T) {
 	}
 	if result["url"] != "/api/v1/agents/agent/results/task-123" {
 		t.Fatalf("result.url = %#v", result["url"])
+	}
+}
+
+func TestIngestEnforcerAuditWritesHostVisibleLog(t *testing.T) {
+	home := t.TempDir()
+	h := &handler{deps: Deps{
+		Config: &config.Config{Home: home},
+		Audit:  logs.NewWriter(home),
+	}}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/agent/logs/enforcer", strings.NewReader(`{"type":"MEDIATION_PROXY","agent":"agent"}`))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("name", "agent")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	h.ingestEnforcerAudit(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
+	}
+	events, err := logs.NewReader(home).ReadAgentLog("agent", "", "")
+	if err != nil {
+		t.Fatalf("ReadAgentLog returned error: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events len = %d, want 1: %#v", len(events), events)
+	}
+	if events[0]["type"] != "MEDIATION_PROXY" || events[0]["source"] != "enforcer" {
+		t.Fatalf("unexpected event: %#v", events[0])
 	}
 }

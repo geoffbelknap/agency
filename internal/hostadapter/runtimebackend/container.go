@@ -10,29 +10,29 @@ import (
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
-type DockerRuntimeBackend struct {
+type ContainerRuntimeBackend struct {
 	BackendName        string
-	Docker             *runtimehost.Client
+	Backend            *runtimehost.Client
 	EnsureAgentNetwork func(ctx context.Context, runtimeID string) error
 	EnsureEnforcerFn   func(ctx context.Context, spec runtimecontract.RuntimeSpec, rotateKey bool) error
 	EnsureWorkspaceFn  func(ctx context.Context, spec runtimecontract.RuntimeSpec) error
 }
 
-func (b *DockerRuntimeBackend) Name() string {
+func (b *ContainerRuntimeBackend) Name() string {
 	if name := runtimehost.NormalizeContainerBackend(b.BackendName); name != "" {
 		return name
 	}
 	return runtimehost.BackendDocker
 }
 
-func (b *DockerRuntimeBackend) Ensure(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
+func (b *ContainerRuntimeBackend) Ensure(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
 	if err := b.EnsureEnforcer(ctx, spec, false); err != nil {
 		return err
 	}
 	return b.EnsureWorkspace(ctx, spec)
 }
 
-func (b *DockerRuntimeBackend) ReloadEnforcer(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
+func (b *ContainerRuntimeBackend) ReloadEnforcer(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
 	sharedCli, err := b.rawClient()
 	if err != nil {
 		return err
@@ -40,7 +40,7 @@ func (b *DockerRuntimeBackend) ReloadEnforcer(ctx context.Context, spec runtimec
 	return sharedCli.ContainerKill(ctx, fmt.Sprintf("agency-%s-enforcer", spec.RuntimeID), "SIGHUP")
 }
 
-func (b *DockerRuntimeBackend) EnsureEnforcer(ctx context.Context, spec runtimecontract.RuntimeSpec, rotateKey bool) error {
+func (b *ContainerRuntimeBackend) EnsureEnforcer(ctx context.Context, spec runtimecontract.RuntimeSpec, rotateKey bool) error {
 	if b.EnsureAgentNetwork != nil {
 		if err := b.EnsureAgentNetwork(ctx, spec.RuntimeID); err != nil {
 			return err
@@ -52,14 +52,14 @@ func (b *DockerRuntimeBackend) EnsureEnforcer(ctx context.Context, spec runtimec
 	return b.EnsureEnforcerFn(ctx, spec, rotateKey)
 }
 
-func (b *DockerRuntimeBackend) EnsureWorkspace(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
+func (b *ContainerRuntimeBackend) EnsureWorkspace(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
 	if b.EnsureWorkspaceFn == nil {
 		return fmt.Errorf("%s workspace ensure is not configured", b.Name())
 	}
 	return b.EnsureWorkspaceFn(ctx, spec)
 }
 
-func (b *DockerRuntimeBackend) Stop(ctx context.Context, runtimeID string) error {
+func (b *ContainerRuntimeBackend) Stop(ctx context.Context, runtimeID string) error {
 	sharedCli, err := b.rawClient()
 	if err != nil {
 		return err
@@ -75,7 +75,7 @@ func (b *DockerRuntimeBackend) Stop(ctx context.Context, runtimeID string) error
 	return nil
 }
 
-func (b *DockerRuntimeBackend) Inspect(ctx context.Context, runtimeID string) (runtimecontract.BackendStatus, error) {
+func (b *ContainerRuntimeBackend) Inspect(ctx context.Context, runtimeID string) (runtimecontract.BackendStatus, error) {
 	sharedCli, err := b.rawClient()
 	if err != nil {
 		return runtimecontract.BackendStatus{}, err
@@ -107,7 +107,7 @@ func (b *DockerRuntimeBackend) Inspect(ctx context.Context, runtimeID string) (r
 	return status, nil
 }
 
-func (b *DockerRuntimeBackend) Validate(ctx context.Context, runtimeID string) error {
+func (b *ContainerRuntimeBackend) Validate(ctx context.Context, runtimeID string) error {
 	status, err := b.Inspect(ctx, runtimeID)
 	if err != nil {
 		return err
@@ -118,23 +118,26 @@ func (b *DockerRuntimeBackend) Validate(ctx context.Context, runtimeID string) e
 	return fmt.Errorf("runtime %q enforcer is not running", runtimeID)
 }
 
-func (b *DockerRuntimeBackend) Capabilities(ctx context.Context) (runtimecontract.BackendCapabilities, error) {
+func (b *ContainerRuntimeBackend) Capabilities(ctx context.Context) (runtimecontract.BackendCapabilities, error) {
 	_ = ctx
-	if b.Docker == nil {
+	if b.Backend == nil {
 		return runtimecontract.BackendCapabilities{}, fmt.Errorf("%s is not available", b.Name())
 	}
 	return runtimecontract.BackendCapabilities{
 		SupportedTransportTypes: []string{runtimecontract.TransportTypeLoopbackHTTP},
 		SupportsComposeLike:     false,
 		SupportsRootless:        b.Name() == runtimehost.BackendPodman,
+		Isolation:               runtimecontract.IsolationContainer,
+		RequiresKVM:             false,
+		SupportsSnapshots:       false,
 	}, nil
 }
 
-func (b *DockerRuntimeBackend) rawClient() (*runtimehost.RawClient, error) {
-	if b.Docker == nil {
+func (b *ContainerRuntimeBackend) rawClient() (*runtimehost.RawClient, error) {
+	if b.Backend == nil {
 		return nil, fmt.Errorf("%s is not available", b.Name())
 	}
-	return b.Docker.RawClient(), nil
+	return b.Backend.RawClient(), nil
 }
 
 func inspectContainerState(ctx context.Context, cli *runtimehost.RawClient, name string) string {

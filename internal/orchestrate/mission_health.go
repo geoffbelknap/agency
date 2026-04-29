@@ -35,7 +35,7 @@ type missionRuntimeStatus interface {
 type MissionHealthMonitor struct {
 	mm      *MissionManager
 	runtime missionRuntimeStatus
-	backend *runtimehost.DockerHandle
+	backend *runtimehost.BackendHandle
 	alert   MissionHealthAlertFunc
 	pause   func(name, reason string) error
 	logger  *slog.Logger
@@ -60,7 +60,7 @@ func NewMissionHealthMonitorWithClient(
 	alertFn MissionHealthAlertFunc,
 	pauseFn func(name, reason string) error,
 	logger *slog.Logger,
-	dc *runtimehost.DockerHandle,
+	dc *runtimehost.BackendHandle,
 ) (*MissionHealthMonitor, error) {
 	return NewMissionHealthMonitorWithRuntime(mm, nil, alertFn, pauseFn, logger, dc)
 }
@@ -74,7 +74,7 @@ func NewMissionHealthMonitorWithRuntime(
 	alertFn MissionHealthAlertFunc,
 	pauseFn func(name, reason string) error,
 	logger *slog.Logger,
-	dc *runtimehost.DockerHandle,
+	dc *runtimehost.BackendHandle,
 ) (*MissionHealthMonitor, error) {
 	if logger == nil {
 		logger = slog.Default()

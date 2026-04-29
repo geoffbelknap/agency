@@ -84,6 +84,8 @@ export const handlers = [
       host_cpu_cores: 8,
       system_reserve_mb: 4096,
       infra_overhead_mb: 2048,
+      runtime_backend: 'docker',
+      enforcement_mode: '',
       max_agents: 6,
       max_concurrent_meesks: 2,
       agent_slot_mb: 4096,

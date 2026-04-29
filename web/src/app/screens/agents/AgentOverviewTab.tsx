@@ -1,10 +1,14 @@
 import { type ReactNode } from 'react';
+import { RotateCw } from 'lucide-react';
 import { Agent } from '../../types';
-import { type RawAuditEntry } from '../../lib/api';
+import { type RawAgentRuntimeStatus, type RawAuditEntry } from '../../lib/api';
 
 interface Props {
   agent: Agent;
   logs: RawAuditEntry[];
+  runtimeStatus: RawAgentRuntimeStatus | null;
+  onRestart: () => Promise<void>;
+  restarting: boolean;
 }
 
 function Card({ children }: { children: ReactNode }) {
@@ -34,7 +38,28 @@ function eventDetail(entry: RawAuditEntry): string {
     || '';
 }
 
-export function AgentOverviewTab({ agent, logs }: Props) {
+function runtimePhase(status: RawAgentRuntimeStatus | null): string {
+  return status?.phase || 'unknown';
+}
+
+function runtimeTone(status: RawAgentRuntimeStatus | null): string {
+  if (!status) return 'var(--ink-faint)';
+  if (status.healthy) return 'var(--teal)';
+  if (status.phase === 'degraded') return 'var(--amber)';
+  return 'var(--red)';
+}
+
+function runtimeDetailItems(status: RawAgentRuntimeStatus | null): Array<[string, string]> {
+  const details = status?.details ?? {};
+  return [
+    ['VM', details.vm_state],
+    ['Enforcer', details.enforcer_state],
+    ['Bridge', details.vsock_bridge_state],
+    ['Body', details.body_ws_connected === 'true' ? 'connected' : details.body_ws_connected === 'false' ? 'disconnected' : ''],
+  ].filter((item): item is [string, string] => Boolean(item[1]));
+}
+
+export function AgentOverviewTab({ agent, logs, runtimeStatus, onRestart, restarting }: Props) {
   const recentEvents = logs
     .slice(-6)
     .reverse()
@@ -46,6 +71,59 @@ export function AgentOverviewTab({ agent, logs }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="eyebrow" style={{ marginBottom: 10 }}>Runtime</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: runtimeTone(runtimeStatus), flexShrink: 0 }} />
+              <span className="font-mono" style={{ fontSize: 13, color: 'var(--ink)' }}>{runtimePhase(runtimeStatus)}</span>
+              {runtimeStatus?.backend && <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>{runtimeStatus.backend}</span>}
+              {runtimeStatus?.transport?.type && <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-faint)' }}>{runtimeStatus.transport.type}</span>}
+            </div>
+            {runtimeStatus?.transport?.lastError && (
+              <div style={{ marginTop: 10, fontSize: 12, color: 'var(--ink-mid)', lineHeight: 1.45, overflowWrap: 'anywhere' }}>
+                {runtimeStatus.transport.lastError}
+              </div>
+            )}
+            {runtimeDetailItems(runtimeStatus).length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
+                {runtimeDetailItems(runtimeStatus).map(([label, value]) => (
+                  <span key={label} className="font-mono" style={{ display: 'inline-flex', gap: 5, alignItems: 'baseline', padding: '3px 6px', borderRadius: 4, background: 'var(--warm-3)', fontSize: 10, color: 'var(--ink-mid)' }}>
+                    <span style={{ color: 'var(--ink-faint)' }}>{label}</span>
+                    <span>{value}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          {runtimeStatus?.phase === 'degraded' && (
+            <button
+              type="button"
+              onClick={() => { void onRestart(); }}
+              disabled={restarting}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 10px',
+                border: '0.5px solid var(--ink)',
+                borderRadius: 6,
+                background: 'var(--ink)',
+                color: 'var(--warm)',
+                fontSize: 12,
+                cursor: restarting ? 'default' : 'pointer',
+                opacity: restarting ? 0.6 : 1,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <RotateCw size={13} className={restarting ? 'animate-spin' : ''} aria-hidden="true" />
+              {restarting ? 'Restarting...' : 'Restart'}
+            </button>
+          )}
+        </div>
+      </Card>
+
       <Card>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
           <div className="eyebrow">Current task</div>

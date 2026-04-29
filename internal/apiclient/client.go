@@ -476,6 +476,12 @@ func (c *Client) SendMessage(channel, content string) (map[string]interface{}, e
 	return c.SendMessageWithMetadata(channel, content, nil)
 }
 
+func (c *Client) EnsureAgentDM(name string) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	err := c.PostJSON("/api/v1/agents/"+name+"/dm", nil, &result)
+	return result, err
+}
+
 func (c *Client) SendMessageWithMetadata(channel, content string, metadata map[string]interface{}) (map[string]interface{}, error) {
 	body := map[string]interface{}{"content": content, "author": "_operator"}
 	if len(metadata) > 0 {

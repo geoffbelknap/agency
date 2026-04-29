@@ -152,6 +152,7 @@ export interface RawAgentRuntimeStatus {
     enforcerConnected?: boolean;
     lastError?: string;
   };
+  details?: Record<string, string>;
 }
 
 export interface RawChannel {
@@ -236,6 +237,8 @@ export interface RawInfraCapacity {
   host_cpu_cores: number;
   system_reserve_mb: number;
   infra_overhead_mb: number;
+  runtime_backend?: string;
+  enforcement_mode?: string;
   max_agents: number;
   max_concurrent_meesks: number;
   agent_slot_mb: number;

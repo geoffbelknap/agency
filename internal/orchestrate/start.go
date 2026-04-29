@@ -20,6 +20,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/models"
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
 // StartSequence orchestrates the seven-phase agent start.
@@ -30,7 +31,7 @@ type StartSequence struct {
 	SourceDir   string // agency_core/ path for dev-mode image builds
 	BuildID     string // content-aware build ID for staleness detection
 	BackendName string
-	Docker      *runtimehost.DockerHandle
+	Backend     *runtimehost.BackendHandle
 	Comms       comms.Client
 	Log         *slog.Logger
 	KeyRotation bool // Force scoped key rotation (used on restart)
@@ -114,8 +115,8 @@ func (ss *StartSequence) Run(ctx context.Context, onPhase PhaseCallback) (*Start
 	// Phase 7: Session
 	onPhase(7, "session", "Setting up session")
 	if err = ss.phase7Session(ctx); err != nil {
-		// Non-fatal — workspace is already running
-		ss.Log.Warn("phase 7 (session) partial failure", "err", err)
+		ss.failClosed(ctx)
+		return nil, fmt.Errorf("phase 7 (session): %w", err)
 	}
 
 	return &StartResult{
@@ -464,7 +465,52 @@ func (ss *StartSequence) phase7Session(ctx context.Context) error {
 		}
 	}
 
+	if err := ss.waitForCommsWebSocket(ctx); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func (ss *StartSequence) waitForCommsWebSocket(ctx context.Context) error {
+	if ss.Comms == nil || ss.AgentName == "" {
+		return nil
+	}
+
+	deadline := time.Now().Add(30 * time.Second)
+	path := "/ws/connected/" + ss.AgentName
+	var lastErr error
+	for {
+		data, err := ss.Comms.CommsRequest(ctx, "GET", path, nil)
+		if err == nil {
+			var status struct {
+				Connected *bool `json:"connected"`
+			}
+			if json.Unmarshal(data, &status) == nil {
+				if status.Connected == nil {
+					return nil
+				}
+				if *status.Connected {
+					return nil
+				}
+			}
+		} else {
+			lastErr = err
+		}
+
+		if time.Now().After(deadline) {
+			if lastErr != nil {
+				return fmt.Errorf("wait for comms websocket: %w", lastErr)
+			}
+			return fmt.Errorf("wait for comms websocket: agent %s did not connect", ss.AgentName)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
 }
 
 func (ss *StartSequence) directChannelActive(ctx context.Context, channelName string) bool {
@@ -495,14 +541,17 @@ func (ss *StartSequence) checkCapacity(ctx context.Context) error {
 		}
 		return fmt.Errorf("load capacity config: %w", err)
 	}
+	backendName, backendConfig := ss.capacityRuntimeConfig()
+	cfg = ApplyRuntimeCapacityProfile(cfg, backendName, backendConfig)
 
-	// Count running workspace containers (agents).
 	var agentCount, meeseeksCount int
-	if ss.Docker != nil {
-		agentCount, meeseeksCount, err = runtimehost.CountRunning(ctx, ss.Docker)
+	if runtimehost.IsContainerBackend(backendName) && ss.Backend != nil {
+		agentCount, meeseeksCount, err = runtimehost.CountRunning(ctx, ss.Backend)
 		if err != nil {
 			return fmt.Errorf("count running runtimes: %w", err)
 		}
+	} else if ss.Runtime != nil {
+		agentCount = ss.countRunningRuntimeAgents(ctx)
 	}
 
 	if err := CheckSlotAvailable(cfg, agentCount, meeseeksCount); err != nil {
@@ -517,6 +566,57 @@ func (ss *StartSequence) checkCapacity(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+func (ss *StartSequence) capacityRuntimeConfig() (string, map[string]string) {
+	backend, backendConfig := ss.loadCapacityHubConfig()
+	if strings.TrimSpace(ss.BackendName) != "" {
+		backend = ss.BackendName
+	}
+	if strings.TrimSpace(backend) == "" {
+		return runtimehost.BackendDocker, nil
+	}
+	return backend, backendConfig
+}
+
+func (ss *StartSequence) loadCapacityHubConfig() (string, map[string]string) {
+	data, err := os.ReadFile(filepath.Join(ss.Home, "config.yaml"))
+	if err != nil {
+		return "", nil
+	}
+	var cfg struct {
+		Hub struct {
+			DeploymentBackend       string            `yaml:"deployment_backend"`
+			DeploymentBackendConfig map[string]string `yaml:"deployment_backend_config"`
+		} `yaml:"hub"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return "", nil
+	}
+	return cfg.Hub.DeploymentBackend, cfg.Hub.DeploymentBackendConfig
+}
+
+func (ss *StartSequence) countRunningRuntimeAgents(ctx context.Context) int {
+	names, err := (&AgentManager{Home: ss.Home}).Names(ctx)
+	if err != nil {
+		return 0
+	}
+	running := 0
+	for _, name := range names {
+		status, err := ss.Runtime.Get(ctx, name)
+		if err != nil {
+			if manifest, manifestErr := ss.Runtime.Manifest(name); manifestErr == nil {
+				status = manifest.Status
+			} else {
+				continue
+			}
+		}
+		switch status.Phase {
+		case runtimecontract.RuntimePhaseRunning, runtimecontract.RuntimePhaseDegraded, runtimecontract.RuntimePhaseStarting, runtimecontract.RuntimePhaseReconciled:
+			running++
+		}
+	}
+	return running
 }
 
 func (ss *StartSequence) failClosed(ctx context.Context) {
@@ -536,7 +636,7 @@ func (ss *StartSequence) runtimeSupervisor() *RuntimeSupervisor {
 		ss.SourceDir,
 		ss.BuildID,
 		ss.BackendName,
-		ss.Docker,
+		ss.Backend,
 		ss.Comms,
 		ss.Log,
 		ss.CredStore,

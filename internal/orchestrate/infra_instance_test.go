@@ -120,6 +120,7 @@ func TestInfraHostPortsRespectOverrides(t *testing.T) {
 	t.Setenv("AGENCY_INTAKE_PORT", "19215")
 	t.Setenv("AGENCY_WEB_FETCH_PORT", "19216")
 	t.Setenv("AGENCY_WEB_PORT", "19280")
+	t.Setenv("AGENCY_EGRESS_PROXY_PORT", "19312")
 
 	inf := &Infra{}
 	if got, want := inf.gatewayProxyPort("8202"), "19202"; got != want {
@@ -142,6 +143,9 @@ func TestInfraHostPortsRespectOverrides(t *testing.T) {
 	}
 	if got, want := inf.webPort(), "19280"; got != want {
 		t.Fatalf("webPort() = %q, want %q", got, want)
+	}
+	if got, want := inf.egressProxyPort(), "19312"; got != want {
+		t.Fatalf("egressProxyPort() = %q, want %q", got, want)
 	}
 }
 

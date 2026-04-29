@@ -71,7 +71,7 @@ type TaskSummary struct {
 // AgentManager handles agent CRUD operations.
 type AgentManager struct {
 	Home         string
-	Docker       *runtimehost.DockerHandle
+	Backend      *runtimehost.BackendHandle
 	Comms        comms.Client
 	Version      string
 	SourceDir    string
@@ -83,8 +83,8 @@ type AgentManager struct {
 	infra        *Infra // optional — nil in tests without infra
 }
 
-func NewAgentManager(home string, dc *runtimehost.DockerHandle, logger *slog.Logger) (*AgentManager, error) {
-	return &AgentManager{Home: home, Docker: dc, Comms: dc, log: logger}, nil
+func NewAgentManager(home string, dc *runtimehost.BackendHandle, logger *slog.Logger) (*AgentManager, error) {
+	return &AgentManager{Home: home, Backend: dc, Comms: dc, log: logger}, nil
 }
 
 // SetInfra attaches the infrastructure manager (and its principal registry)
@@ -396,15 +396,15 @@ func (am *AgentManager) Delete(ctx context.Context, name string) error {
 		return fmt.Errorf("agent %q not found", name)
 	}
 
-	// Stop containers
-	am.stopAgentContainers(ctx, name)
+	// Stop runtime
+	am.StopContainers(ctx, name)
 
 	// Archive audit logs (tenet 2: every action leaves a trace)
 	am.archiveAuditLogs(name)
 
 	// Remove workspace volume
-	if am.Docker != nil {
-		_ = runtimehost.RemoveRuntimeArtifacts(ctx, am.Docker, name)
+	if am.Backend != nil {
+		_ = runtimehost.RemoveRuntimeArtifacts(ctx, am.Backend, name)
 	}
 
 	// Remove agent directory
@@ -801,10 +801,10 @@ func buildTeamIndex(home string) map[string]string {
 }
 
 func (am *AgentManager) stopAgentContainers(ctx context.Context, name string) {
-	if am.Docker == nil {
+	if am.Backend == nil {
 		return
 	}
-	_ = runtimehost.StopRuntime(ctx, am.Docker, name)
+	_ = runtimehost.StopRuntime(ctx, am.Backend, name)
 }
 
 func (am *AgentManager) archiveAuditLogs(name string) {

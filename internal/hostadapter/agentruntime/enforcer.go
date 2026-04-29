@@ -10,7 +10,6 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/go-connections/nat"
-	"gopkg.in/yaml.v3"
 	"log/slog"
 
 	"github.com/geoffbelknap/agency/internal/hostadapter/imageops"
@@ -28,6 +27,7 @@ type Enforcer struct {
 	Version            string
 	SourceDir          string
 	BuildID            string
+	ProxyHostPort      string
 	ConstraintHostPort string
 	LifecycleID        string
 	PrincipalUUID      string
@@ -76,109 +76,22 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (string, error) {
 		return "", fmt.Errorf("remove previous enforcer container: %w", err)
 	}
 
-	policyDir := e.ensurePolicy()
-	configDir := e.ensureConfig(rotateKey)
-	dataDir := filepath.Join(e.Home, "infrastructure", "enforcer", "data", e.AgentName)
-	auditDir := filepath.Join(e.Home, "audit", e.AgentName, "enforcer")
-	agentDir := filepath.Join(e.Home, "agents", e.AgentName)
-	deploymentsDir := filepath.Join(e.Home, "deployments")
-	servicesDir := filepath.Join(e.Home, "services")
-	for _, dir := range []string{dataDir, auditDir, agentDir, deploymentsDir, servicesDir} {
-		_ = os.MkdirAll(dir, 0o777)
-	}
-
-	internalNet := fmt.Sprintf("%s-%s-internal", prefix, e.AgentName)
-	commsHost := scopedInfraName(fmt.Sprintf("%s-infra-comms", prefix))
-	knowledgeHost := scopedInfraName(fmt.Sprintf("%s-infra-knowledge", prefix))
-	webFetchHost := scopedInfraName(fmt.Sprintf("%s-infra-web-fetch", prefix))
-	gatewayHostName := gatewayHost(e.cli.Backend())
-
-	env := map[string]string{
-		"HOME":               "/agency/enforcer/data",
-		"AGENT_NAME":         e.AgentName,
-		"CONSTRAINT_WS_PORT": "8081",
-		"GATEWAY_URL":        "http://" + gatewayHostName + ":8200",
-		"COMMS_URL":          "http://" + commsHost + ":8080",
-		"KNOWLEDGE_URL":      "http://" + knowledgeHost + ":8080",
-		"WEB_FETCH_URL":      "http://" + webFetchHost + ":8080",
-		"AGENCY_CALLER":      "enforcer",
-	}
-	if e.LifecycleID != "" {
-		env["AGENCY_LIFECYCLE_ID"] = e.LifecycleID
-	}
-	if tokenData, err := os.ReadFile(filepath.Join(e.Home, "config.yaml")); err == nil {
-		var cf struct {
-			Token       string `yaml:"token"`
-			GatewayAddr string `yaml:"gateway_addr"`
-		}
-		if yaml.Unmarshal(tokenData, &cf) == nil {
-			if cf.Token != "" {
-				env["GATEWAY_TOKEN"] = cf.Token
-			}
-			if cf.GatewayAddr != "" {
-				env["GATEWAY_URL"] = "http://" + gatewayHostName + ":8200"
-			}
-		}
-	}
-
-	egressCA := filepath.Join(e.Home, "infrastructure", "egress", "certs", "mitmproxy-ca-cert.pem")
-	if fileExists(egressCA) {
-		env["SSL_CERT_FILE"] = "/etc/ssl/certs/agency-egress-ca.pem"
-	}
-
-	perAgentAuthDir := filepath.Join(e.Home, "agents", e.AgentName, "state", "enforcer-auth")
-	binds := []string{
-		policyDir + ":/agency/enforcer/policy:ro",
-		filepath.Join(configDir, "server-config.yaml") + ":/agency/enforcer/server-config.yaml:ro",
-		perAgentAuthDir + ":/agency/enforcer/auth:ro",
-		dataDir + ":/agency/enforcer/data:rw",
-		auditDir + ":/agency/enforcer/audit:rw",
-		agentDir + ":/agency/agent:ro",
-		deploymentsDir + ":/agency/deployments:ro",
-		servicesDir + ":/agency/enforcer/services:ro",
-	}
-
-	routingYAML := filepath.Join(e.Home, "infrastructure", "routing.yaml")
-	if fileExists(routingYAML) {
-		binds = append(binds, routingYAML+":/agency/enforcer/routing.yaml:ro")
-	}
-	if fileExists(egressCA) {
-		binds = append(binds, egressCA+":/etc/ssl/certs/agency-egress-ca.pem:ro")
-	}
-	memoryDir := filepath.Join(agentDir, "memory")
-	if _, err := os.Stat(memoryDir); err == nil {
-		binds = append(binds, memoryDir+":/agency/memory:ro")
+	spec, err := e.BuildLaunchSpec(ctx, rotateKey)
+	if err != nil {
+		return "", err
 	}
 
 	hostConfig := containers.HostConfigDefaults(containers.RoleEnforcer)
-	hostConfig.Binds = binds
-	hostConfig.NetworkMode = container.NetworkMode(internalNet)
+	hostConfig.Binds = spec.ContainerBinds()
+	hostConfig.NetworkMode = container.NetworkMode(spec.InternalNetwork)
 	hostConfig.Tmpfs = map[string]string{"/tmp": "size=64M", "/run": "size=32M"}
-	hostPort := e.ConstraintHostPort
-	if hostPort == "" {
-		var err error
-		hostPort, err = pickLoopbackPort()
-		if err != nil {
-			return "", fmt.Errorf("allocate enforcer constraint port: %w", err)
-		}
-	}
 	hostConfig.PortBindings = nat.PortMap{
-		"8081/tcp": []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: hostPort}},
-	}
-
-	logFormat := os.Getenv("AGENCY_LOG_FORMAT")
-	if logFormat == "" {
-		logFormat = "json"
-	}
-	env["AGENCY_LOG_FORMAT"] = logFormat
-	env["AGENCY_COMPONENT"] = "enforcer"
-	if env["BUILD_ID"] == "" {
-		env["BUILD_ID"] = e.BuildID
+		nat.Port(spec.ConstraintPort + "/tcp"): []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: spec.ConstraintHostPort}},
 	}
 
 	netCfg := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
-			internalNet: {
+			spec.InternalNetwork: {
 				Aliases: []string{"enforcer"},
 			},
 		},
@@ -191,29 +104,29 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (string, error) {
 	enforcerContainerID, err := containers.CreateAndStart(ctx, e.cli,
 		e.ContainerName,
 		&container.Config{
-			Image:    enforcerImage,
-			Hostname: "enforcer",
-			Env:      mapToEnv(env),
+			Image:    spec.Image,
+			Hostname: spec.Hostname,
+			Env:      mapToEnv(spec.Env),
 			ExposedPorts: nat.PortSet{
-				"8081/tcp": struct{}{},
+				nat.Port(spec.ConstraintPort + "/tcp"): struct{}{},
 			},
 			Labels: map[string]string{
 				services.LabelServiceEnabled:         "true",
 				services.LabelServiceName:            e.AgentName + "/enforcer",
-				services.LabelServicePort:            "3128",
+				services.LabelServicePort:            spec.ProxyPort,
 				services.LabelServiceHealth:          "/health",
-				services.LabelServiceNetwork:         internalNet,
+				services.LabelServiceNetwork:         spec.InternalNetwork,
 				services.LabelServiceHMAC:            services.GenerateHMAC(e.ContainerName, e.hmacKey),
 				"agency.managed":                     "true",
 				"agency.agent":                       e.AgentName,
 				"agency.type":                        "enforcer",
-				"agency.constraint.port":             "8081",
+				"agency.constraint.port":             spec.ConstraintPort,
 				"agency.constraint.ws.path":          "/ws",
 				"agency.constraint.rest.constraints": "/constraints",
 				"agency.constraint.rest.ack":         "/constraints/ack",
-				"agency.principal.uuid":              e.PrincipalUUID,
-				"agency.build.id":                    imageops.ImageBuildLabel(ctx, e.cli, enforcerImage),
-				"agency.build.gateway":               e.BuildID,
+				"agency.principal.uuid":              spec.PrincipalUUID,
+				"agency.build.id":                    imageops.ImageBuildLabel(ctx, e.cli, spec.Image),
+				"agency.build.gateway":               spec.BuildID,
 			},
 			Healthcheck: &container.HealthConfig{
 				Test:        []string{"CMD-SHELL", "curl -sf http://127.0.0.1:3128/health || exit 1"},
@@ -243,7 +156,7 @@ func (e *Enforcer) start(ctx context.Context, rotateKey bool) (string, error) {
 	}
 	if e.cli.Backend() != runtimehost.BackendContainerd {
 		if err := waitContainerNetworks(ctx, e.cli, e.ContainerName, []string{
-			internalNet,
+			spec.InternalNetwork,
 			gatewayNetName(),
 			egressIntNetName(),
 		}, 5*time.Second); err != nil {
@@ -319,7 +232,9 @@ func (e *Enforcer) ensureConfig(rotateKey bool) string {
 	if needNewKey {
 		key := "agency-scoped--" + generateToken(32)
 		_ = os.WriteFile(keysFile, []byte(fmt.Sprintf("- key: \"%s\"\n  name: \"agency-workspace\"\n", key)), 0o644)
-		e.log.Info("scoped API key generated", "agent", e.AgentName, "rotated", rotateKey)
+		if e.log != nil {
+			e.log.Info("scoped API key generated", "agent", e.AgentName, "rotated", rotateKey)
+		}
 	}
 	return dir
 }

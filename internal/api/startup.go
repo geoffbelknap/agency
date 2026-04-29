@@ -27,6 +27,7 @@ import (
 type StartupResult struct {
 	// Core — guaranteed non-nil after successful Startup.
 	Infra           *orchestrate.Infra
+	InfraRuntime    *runtimehost.Client
 	AgentManager    *orchestrate.AgentManager
 	HaltController  *orchestrate.HaltController
 	Runtime         *orchestrate.RuntimeSupervisor
@@ -51,6 +52,10 @@ type StartupResult struct {
 // return an error — the gateway will not start. Optional component failures
 // log warnings and leave the corresponding field nil.
 func Startup(cfg *config.Config, dc *runtimehost.Client, logger *slog.Logger) (*StartupResult, error) {
+	return StartupWithInfraClient(cfg, dc, dc, logger)
+}
+
+func StartupWithInfraClient(cfg *config.Config, dc, infraDC *runtimehost.Client, logger *slog.Logger) (*StartupResult, error) {
 	backendName := cfg.Hub.DeploymentBackend
 	if strings.TrimSpace(backendName) == "" {
 		backendName = runtimehost.BackendDocker
@@ -61,8 +66,8 @@ func Startup(cfg *config.Config, dc *runtimehost.Client, logger *slog.Logger) (*
 
 	var infra *orchestrate.Infra
 	var err error
-	if dc != nil {
-		infra, err = orchestrate.NewInfra(cfg.Home, cfg.Version, dc, logger, cfg.HMACKey)
+	if infraDC != nil {
+		infra, err = orchestrate.NewInfra(cfg.Home, cfg.Version, infraDC, logger, cfg.HMACKey)
 		if err != nil {
 			return nil, fmt.Errorf("infra init: %w", err)
 		}
@@ -159,6 +164,7 @@ func Startup(cfg *config.Config, dc *runtimehost.Client, logger *slog.Logger) (*
 
 	return &StartupResult{
 		Infra:           infra,
+		InfraRuntime:    infraDC,
 		AgentManager:    agents,
 		HaltController:  halt,
 		Runtime:         runtimeSupervisor,

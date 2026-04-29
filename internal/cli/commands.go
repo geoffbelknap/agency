@@ -26,6 +26,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/daemon"
 	"github.com/geoffbelknap/agency/internal/features"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/update"
 )
 
@@ -894,6 +895,11 @@ func sendCmd() *cobra.Command {
 			if report {
 				metadata = map[string]interface{}{"report": true}
 			}
+			if isDM {
+				if _, err := c.EnsureAgentDM(target); err != nil {
+					return err
+				}
+			}
 			if _, err := c.SendMessageWithMetadata(channel, content, metadata); err != nil {
 				return err
 			}
@@ -1713,6 +1719,10 @@ func infraCmd() *cobra.Command {
 				v, _ := resp[key].(bool)
 				return v
 			}
+			getString := func(key string) string {
+				v, _ := resp[key].(string)
+				return v
+			}
 
 			maxAgents := getInt("max_agents")
 			running := getInt("running_agents")
@@ -1722,12 +1732,21 @@ func infraCmd() *cobra.Command {
 			cpuCores := getInt("host_cpu_cores")
 			reserveMB := getInt("system_reserve_mb")
 			infraMB := getInt("infra_overhead_mb")
+			runtimeBackend := getString("runtime_backend")
+			enforcementMode := getString("enforcement_mode")
 			poolOK := getBool("network_pool_configured")
 
 			fmt.Println("Host Capacity:")
 			fmt.Printf("  Memory: %d GB (%.1f GB reserved, %.1f GB infra)\n",
 				memMB/1024, float64(reserveMB)/1024.0, float64(infraMB)/1024.0)
 			fmt.Printf("  CPU: %d cores (2 reserved)\n", cpuCores)
+			if runtimeBackend != "" {
+				if enforcementMode != "" {
+					fmt.Printf("  Runtime: %s (%s enforcer)\n", runtimeBackend, enforcementMode)
+				} else {
+					fmt.Printf("  Runtime: %s\n", runtimeBackend)
+				}
+			}
 			fmt.Println()
 			fmt.Printf("Agents: %d/%d running (%d slots available", running, maxAgents, available)
 			if meeseeks > 0 {
@@ -1736,10 +1755,12 @@ func infraCmd() *cobra.Command {
 			fmt.Println(")")
 			fmt.Printf("Meeseeks: %d active (shares agent pool)\n", meeseeks)
 
-			if poolOK {
-				fmt.Println("Networks: configured (/24 subnets)")
-			} else {
-				fmt.Println("Networks: default pool (limited — run agency setup to configure)")
+			if runtimehost.IsContainerBackend(runtimeBackend) {
+				if poolOK {
+					fmt.Println("Networks: configured (/24 subnets)")
+				} else {
+					fmt.Println("Networks: default pool (limited — run agency setup to configure)")
+				}
 			}
 
 			fmt.Println()

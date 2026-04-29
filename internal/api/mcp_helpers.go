@@ -20,6 +20,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/hub"
 	"github.com/geoffbelknap/agency/internal/models"
 	"github.com/geoffbelknap/agency/internal/routing"
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
 func (d *mcpDeps) budgetConfig() models.PlatformBudgetConfig {
@@ -199,8 +200,8 @@ func (d *mcpDeps) reloadAgentEnforcer(ctx context.Context, agentName string) err
 	if d == nil || d.dc == nil {
 		return fmt.Errorf("enforcer reload unavailable")
 	}
-	enforcerName := fmt.Sprintf("agency-%s-enforcer", agentName)
-	return d.dc.RawClient().ContainerKill(ctx, enforcerName, "SIGHUP")
+	ref := runtimecontract.InstanceRef{RuntimeID: agentName, Role: runtimecontract.RoleEnforcer}
+	return d.dc.Signal(ctx, ref, "SIGHUP")
 }
 
 func (d *mcpDeps) runtimeDoctorSummary(ctx context.Context) (string, bool) {

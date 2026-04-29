@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/geoffbelknap/agency/internal/logs"
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
 func (h *handler) agentLogs(w http.ResponseWriter, r *http.Request) {
@@ -28,6 +30,28 @@ func (h *handler) agentLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	h.annotateLogResultArtifacts(name, events)
 	writeJSON(w, 200, events)
+}
+
+func (h *handler) ingestEnforcerAudit(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Audit == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "audit writer not available"})
+		return
+	}
+	name := chi.URLParam(r, "name")
+	var entry map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if agent, ok := entry["agent"].(string); ok && strings.TrimSpace(agent) != "" && agent != name {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "audit agent mismatch"})
+		return
+	}
+	if err := h.deps.Audit.WriteEnforcerEvent(name, entry); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
 
 func (h *handler) annotateLogResultArtifacts(agentName string, events []logs.Event) {
@@ -72,11 +96,11 @@ func (h *handler) resultTaskIDs(agentName string) map[string]struct{} {
 		}
 		return ids
 	}
-	if h.deps.DC == nil {
+	if h.deps.Runtime == nil {
 		return ids
 	}
-	containerName := "agency-" + agentName + "-workspace"
-	out, err := h.deps.DC.ExecInContainer(context.Background(), containerName, []string{
+	ref := runtimecontract.InstanceRef{RuntimeID: agentName, Role: runtimecontract.RoleWorkspace}
+	out, err := h.deps.Runtime.Exec(context.Background(), ref, []string{
 		"sh", "-c", "ls -1 /workspace/.results/*.md 2>/dev/null | while read f; do basename \"$f\" .md; done",
 	})
 	if err != nil {

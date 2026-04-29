@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,6 +50,34 @@ func TestAuditLogEntryFields(t *testing.T) {
 	}
 	if entry.Status != 200 {
 		t.Errorf("wrong status: %d", entry.Status)
+	}
+}
+
+func TestAuditMirrorPostsEntries(t *testing.T) {
+	var gotAuth string
+	var got AuditEntry
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode mirror body: %v", err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	t.Setenv("ENFORCER_AUDIT_URL", server.URL)
+	t.Setenv("GATEWAY_TOKEN", "gateway-token")
+	dir := t.TempDir()
+	al := NewAuditLogger(dir, "test-agent")
+
+	al.Log(AuditEntry{Type: "MEDIATION_PROXY"})
+	al.Close()
+
+	if gotAuth != "Bearer gateway-token" {
+		t.Fatalf("Authorization = %q, want bearer token", gotAuth)
+	}
+	if got.Type != "MEDIATION_PROXY" || got.Agent != "test-agent" {
+		t.Fatalf("mirrored entry = %#v", got)
 	}
 }
 
@@ -202,8 +232,16 @@ func TestAuditEntry_EconomicsFields(t *testing.T) {
 	var parsed map[string]interface{}
 	json.Unmarshal(data, &parsed)
 
-	if parsed["ttft_ms"] != float64(380) { t.Errorf("ttft_ms: %v", parsed["ttft_ms"]) }
-	if parsed["step_index"] != float64(3) { t.Errorf("step_index: %v", parsed["step_index"]) }
-	if parsed["tool_call_valid"] != true { t.Errorf("tool_call_valid: %v", parsed["tool_call_valid"]) }
-	if parsed["retry_of"] != "corr-123" { t.Errorf("retry_of: %v", parsed["retry_of"]) }
+	if parsed["ttft_ms"] != float64(380) {
+		t.Errorf("ttft_ms: %v", parsed["ttft_ms"])
+	}
+	if parsed["step_index"] != float64(3) {
+		t.Errorf("step_index: %v", parsed["step_index"])
+	}
+	if parsed["tool_call_valid"] != true {
+		t.Errorf("tool_call_valid: %v", parsed["tool_call_valid"])
+	}
+	if parsed["retry_of"] != "corr-123" {
+		t.Errorf("retry_of: %v", parsed["retry_of"])
+	}
 }

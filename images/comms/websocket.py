@@ -229,8 +229,19 @@ async def handle_websocket(request: web.Request) -> web.WebSocketResponse:
     return ws
 
 
+async def handle_connected(request: web.Request) -> web.Response:
+    agent_name = request.match_info["agent_name"]
+    registry: ConnectionRegistry = request.app["ws_registry"]
+    ws = registry.get(agent_name)
+    return web.json_response({
+        "agent": agent_name,
+        "connected": bool(ws is not None and not ws.closed),
+    })
+
+
 def setup_websocket(app: web.Application) -> None:
     """Register the WebSocket route and initialize the connection registry."""
     registry = ConnectionRegistry()
     app["ws_registry"] = registry
+    app.router.add_get("/ws/connected/{agent_name}", handle_connected)
     app.router.add_get("/ws", handle_websocket)

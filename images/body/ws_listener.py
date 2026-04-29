@@ -181,6 +181,8 @@ class WSListener:
                             elif msg.type in (
                                 aiohttp.WSMsgType.ERROR,
                                 aiohttp.WSMsgType.CLOSE,
+                                aiohttp.WSMsgType.CLOSED,
+                                aiohttp.WSMsgType.CLOSING,
                             ):
                                 logger.info(
                                     "WSListener socket closed/error agent=%s type=%s",

@@ -157,7 +157,7 @@ func (h *handler) signalInfraComponent(component string) {
 	if instance := strings.TrimSpace(os.Getenv("AGENCY_INFRA_INSTANCE")); instance != "" {
 		name += "-" + instance
 	}
-	if err := h.deps.Signal.SignalContainer(context.Background(), name, "SIGHUP"); err != nil && h.deps.Logger != nil {
+	if err := h.deps.Signal.SignalRuntimeName(context.Background(), name, "SIGHUP"); err != nil && h.deps.Logger != nil {
 		h.deps.Logger.Debug("hub: infra component SIGHUP failed", "component", component, "container", name, "err", err)
 	}
 }
@@ -174,7 +174,7 @@ func (h *handler) backendRequiresDocker(w http.ResponseWriter, operation string)
 		})
 		return false
 	}
-	if h.deps.DC == nil {
+	if h.deps.Runtime == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"error": fmt.Sprintf("%s is unavailable: %s client is not initialized", operation, runtimehost.NormalizeContainerBackend(backend)),
 		})

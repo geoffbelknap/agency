@@ -3,7 +3,6 @@ package admin
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,6 +14,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/capabilities"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/events"
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
 // -- Capabilities --
@@ -144,7 +144,7 @@ func (h *handler) reloadCapabilitiesForRunningAgents(capName string) {
 	ctx := context.Background()
 
 	// Get all running agents
-	agents, err := h.deps.DC.ListAgents(ctx)
+	agents, err := h.deps.Runtime.ListAgents(ctx)
 	if err != nil {
 		h.deps.Logger.Warn("capability reload: failed to list agents", "err", err)
 		return
@@ -245,8 +245,8 @@ func (h *handler) reloadCapabilitiesForRunningAgents(capName string) {
 				h.deps.Logger.Debug("capability reload: runtime reload failed (may not be running)", "agent", name, "err", err)
 			}
 		} else if h.deps.Signal != nil {
-			enforcerName := fmt.Sprintf("agency-%s-enforcer", name)
-			if err := h.deps.Signal.SignalContainer(ctx, enforcerName, "SIGHUP"); err != nil {
+			ref := runtimecontract.InstanceRef{RuntimeID: name, Role: runtimecontract.RoleEnforcer}
+			if err := h.deps.Signal.Signal(ctx, ref, "SIGHUP"); err != nil {
 				h.deps.Logger.Debug("capability reload: enforcer SIGHUP failed (may not be running)", "agent", name, "err", err)
 			}
 		}

@@ -989,7 +989,13 @@ func runSetup(provider, apiKey, notifyURL, backend string, backendCfg map[string
 		hasEmbeddings = true
 	}
 
-	capCfg, capErr := orchestrate.ProfileHost(hasEmbeddings)
+	capacityBackend, capacityBackendCfg := backend, backendCfg
+	if capacityBackend == "" {
+		cfg := config.Load()
+		capacityBackend = cfg.Hub.DeploymentBackend
+		capacityBackendCfg = cfg.Hub.DeploymentBackendConfig
+	}
+	capCfg, capErr := orchestrate.ProfileHostForRuntime(hasEmbeddings, capacityBackend, capacityBackendCfg)
 	if capErr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not profile host: %v\n", capErr)
 	}
@@ -1050,6 +1056,13 @@ func runSetup(provider, apiKey, notifyURL, backend string, backendCfg map[string
 				float64(capCfg.SystemReserveMB)/1024.0,
 				float64(capCfg.InfraOverheadMB)/1024.0)
 			fmt.Printf("  CPU: %d cores (2 reserved for system)\n", capCfg.HostCPUCores)
+			if capCfg.RuntimeBackend != "" {
+				if capCfg.EnforcementMode != "" {
+					fmt.Printf("  Runtime: %s (%s enforcer)\n", capCfg.RuntimeBackend, capCfg.EnforcementMode)
+				} else {
+					fmt.Printf("  Runtime: %s\n", capCfg.RuntimeBackend)
+				}
+			}
 			fmt.Printf("  Agent capacity: %d concurrent (%d MB each)\n",
 				capCfg.MaxAgents, capCfg.AgentSlotMB)
 			fmt.Printf("  Meeseeks: share the same pool (%d MB each)\n",
@@ -1154,14 +1167,24 @@ func runServe(httpAddr string) error {
 		}
 	}
 
-	// Container backend client. When a backend is configured, an unreachable
-	// client is fatal downstream in api.Startup — ASK tenet 4 requires that
-	// enforcement failure default to denial, so we fail closed rather than
-	// silently run without the mediation plane. The Warn here is advisory;
-	// the fatal lives in Startup() with the actionable error text.
+	// Runtime container backend client. When a container runtime backend is
+	// configured, an unreachable client is fatal downstream in api.Startup.
 	var dc *runtimehost.Client
 	if runtimehost.IsContainerBackend(backendName) {
 		dc = runtimehost.TryNewClientForBackend(backendName, cfg.Hub.DeploymentBackendConfig, logger)
+	}
+	infraBackendName := ""
+	infraBackendConfig := cfg.Hub.DeploymentBackendConfig
+	var infraDC *runtimehost.Client
+	if runtimehost.IsContainerBackend(backendName) {
+		infraBackendName = backendName
+		infraDC = dc
+	} else if backendName == "firecracker" {
+		if detection, ok := runtimehost.PreferredReachable(runtimehost.ProbeAllBackends()); ok {
+			infraBackendName = detection.Name()
+			infraBackendConfig = detection.Config
+			infraDC = runtimehost.TryNewClientForBackend(infraBackendName, infraBackendConfig, logger)
+		}
 	}
 	if dc != nil {
 		if backendMode != "" {
@@ -1178,7 +1201,16 @@ func runServe(httpAddr string) error {
 	} else {
 		logger.Info("gateway starting without a container backend client", "backend", backendName)
 	}
-	backendHealthStatus := runtimehost.NewStatus(dc)
+	if infraDC != nil && infraDC != dc {
+		infraEndpoint := runtimehost.ResolvedBackendEndpoint(infraBackendName, infraBackendConfig)
+		infraMode := runtimehost.ResolvedBackendMode(infraBackendName, infraBackendConfig)
+		if infraMode != "" {
+			logger.Info("infra container backend connected", "backend", infraBackendName, "endpoint", infraEndpoint, "mode", infraMode)
+		} else {
+			logger.Info("infra container backend connected", "backend", infraBackendName, "endpoint", infraEndpoint)
+		}
+	}
+	backendHealthStatus := runtimehost.NewStatus(infraDC)
 
 	// Startup reconciliation — clean up orphaned containers/networks from
 	// previous gateway runs. Runs before the HTTP server starts; errors are
@@ -1340,7 +1372,7 @@ func runServe(httpAddr string) error {
 	auditSummarizer.Start(healthCtx)
 
 	// Initialize all gateway components via Startup.
-	startup, err := api.Startup(cfg, dc, logger)
+	startup, err := api.StartupWithInfraClient(cfg, dc, infraDC, logger)
 	if err != nil {
 		logger.Error("gateway startup failed", "err", err)
 		os.Exit(1)
@@ -1448,15 +1480,15 @@ func runServe(httpAddr string) error {
 	api.RegisterAll(r, cfg, dc, logger, startup, routeOpts)
 
 	// Wire auto-restore: when the container backend reconnects, automatically bring up infra.
-	if cfg.AutoRestoreInfra {
+	if cfg.AutoRestoreInfra && infraBackendName != "" {
 		backendHealthStatus.OnReconnect = func() {
-			logger.Info("container backend reconnected — auto-restoring infrastructure", "backend", backendName)
+			logger.Info("container backend reconnected — auto-restoring infrastructure", "backend", infraBackendName)
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 				defer cancel()
-				newDC := runtimehost.TryNewClientForBackend(backendName, cfg.Hub.DeploymentBackendConfig, logger)
+				newDC := runtimehost.TryNewClientForBackend(infraBackendName, infraBackendConfig, logger)
 				if newDC == nil {
-					logger.Warn("auto-restore: container backend reconnect detected but client creation failed", "backend", backendName)
+					logger.Warn("auto-restore: container backend reconnect detected but client creation failed", "backend", infraBackendName)
 					return
 				}
 				infra, err := orchestrate.NewInfra(cfg.Home, cfg.Version, newDC, logger, cfg.HMACKey)

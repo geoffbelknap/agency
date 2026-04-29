@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/geoffbelknap/agency/internal/pkg/pathsafety"
 )
 
 // Writer appends JSONL audit events to per-agent log files.
@@ -107,6 +109,57 @@ func (w *Writer) WriteSystem(event string, detail map[string]interface{}) (err e
 
 	f, err := os.OpenFile(
 		filepath.Join(auditDir, "gateway.jsonl"),
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600,
+	)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	_, err = f.Write(data)
+	return err
+}
+
+// WriteEnforcerEvent appends an enforcer-originated audit event to the
+// host-visible per-agent enforcer log.
+func (w *Writer) WriteEnforcerEvent(agent string, entry map[string]interface{}) (err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	agentName, err := pathsafety.Segment("agent name", agent)
+	if err != nil {
+		return err
+	}
+	auditDir, err := pathsafety.Join(w.Home, "audit", agentName, "enforcer")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(auditDir, 0700); err != nil {
+		return fmt.Errorf("create enforcer audit dir: %w", err)
+	}
+	if _, ok := entry["agent"]; !ok {
+		entry["agent"] = agentName
+	}
+	if _, ok := entry["ts"]; !ok {
+		entry["ts"] = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+
+	today := time.Now().UTC().Format("2006-01-02")
+	path, err := pathsafety.Join(auditDir, "enforcer-"+today+".jsonl")
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(
+		path,
 		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600,
 	)
 	if err != nil {

@@ -16,10 +16,8 @@ import (
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 )
 
-// SignalSender sends OS signals to named containers.
-// Defined locally per Go convention: interfaces belong where they are consumed.
 type SignalSender interface {
-	SignalContainer(ctx context.Context, containerName, signal string) error
+	SignalRuntimeName(ctx context.Context, name, signal string) error
 }
 
 // Deps holds the dependencies required by the hub module.
@@ -30,8 +28,7 @@ type Deps struct {
 	Logger    *slog.Logger
 	Signal    SignalSender
 	Host      hostadapter.Adapter
-	// DC is required by deployPack/teardownPack which use orchestrate.NewDeployer.
-	DC *runtimehost.Client
+	Runtime   *runtimehost.Client
 	// Agents is required by deployPack to set CredStore on the deployer.
 	Agents *orchestrate.AgentManager
 }

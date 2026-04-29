@@ -3,13 +3,14 @@ package agents
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 	"gopkg.in/yaml.v3"
+
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
 // agentConfigBundle is the response shape for GET /api/v1/agents/{name}/config.
@@ -170,9 +171,9 @@ func (h *handler) signalConfigReload(agentName string) {
 			}
 			return
 		}
-		enforcerName := fmt.Sprintf("agency-%s-enforcer", agentName)
 		if h.deps.Signal != nil {
-			err := h.deps.Signal.SignalContainer(ctx, enforcerName, "SIGHUP")
+			ref := runtimecontract.InstanceRef{RuntimeID: agentName, Role: runtimecontract.RoleEnforcer}
+			err := h.deps.Signal.Signal(ctx, ref, "SIGHUP")
 			if err == nil {
 				return
 			}

@@ -28,8 +28,8 @@ type recordingSignalSender struct {
 	calls []signalCall
 }
 
-func (r *recordingSignalSender) SignalContainer(_ context.Context, containerName, signal string) error {
-	r.calls = append(r.calls, signalCall{container: containerName, signal: signal})
+func (r *recordingSignalSender) SignalRuntimeName(_ context.Context, instanceName, signal string) error {
+	r.calls = append(r.calls, signalCall{container: instanceName, signal: signal})
 	return nil
 }
 

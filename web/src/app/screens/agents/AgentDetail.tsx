@@ -244,7 +244,18 @@ export function AgentDetail({ agent, capabilities: initialCapabilities, onAction
       </div>
 
       <div role="tabpanel" id={`panel-${primaryTab}`}>
-        {primaryTab === 'overview' && <AgentOverviewTab agent={agent} logs={data.logs} />}
+        {primaryTab === 'overview' && (
+          <AgentOverviewTab
+            agent={agent}
+            logs={data.logs}
+            runtimeStatus={data.runtimeStatus}
+            restarting={actionLoading === `${agent.name}-restart`}
+            onRestart={async () => {
+              await onAction(agent.name, 'restart');
+              await data.refreshRuntimeStatus(agent.name);
+            }}
+          />
+        )}
         {primaryTab === 'activity' && (
           <AgentActivityTab
             agentName={agent.name}

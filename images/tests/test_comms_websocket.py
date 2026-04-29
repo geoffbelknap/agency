@@ -100,6 +100,21 @@ class TestWebSocketConnect:
             assert "dev" in msg["data"]["channels"]
             assert msg["data"]["unreads"]["dev"]["unread"] >= 1
 
+    async def test_ws_connected_endpoint_reports_agent_connection(self, aiohttp_client, ws_app):
+        client = await aiohttp_client(ws_app)
+
+        resp = await client.get("/ws/connected/scout")
+        assert resp.status == 200
+        assert await resp.json() == {"agent": "scout", "connected": False}
+
+        async with client.ws_connect("/ws?agent=scout") as ws:
+            ack = await ws.receive_json()
+            assert ack["type"] == "ack"
+
+            resp = await client.get("/ws/connected/scout")
+            assert resp.status == 200
+            assert await resp.json() == {"agent": "scout", "connected": True}
+
 
 @pytest.mark.asyncio
 class TestWebSocketPush:

@@ -15,6 +15,8 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/comms"
 	"github.com/geoffbelknap/agency/internal/credstore"
+	"github.com/geoffbelknap/agency/internal/features"
+	agentruntime "github.com/geoffbelknap/agency/internal/hostadapter/agentruntime"
 	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	runtimebackend "github.com/geoffbelknap/agency/internal/runtime/backend"
@@ -30,7 +32,7 @@ type RuntimeSupervisor struct {
 	BuildID       string
 	BackendName   string
 	BackendConfig map[string]string
-	Docker        *runtimehost.DockerHandle
+	Backend       *runtimehost.BackendHandle
 	Comms         comms.Client
 	Log           *slog.Logger
 	CredStore     *credstore.Store
@@ -57,14 +59,14 @@ type enforcerReloadBackend interface {
 	ReloadEnforcer(ctx context.Context, spec runtimecontract.RuntimeSpec) error
 }
 
-func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string, dc *runtimehost.DockerHandle, comms comms.Client, logger *slog.Logger, credStore *credstore.Store) *RuntimeSupervisor {
+func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string, dc *runtimehost.BackendHandle, comms comms.Client, logger *slog.Logger, credStore *credstore.Store) *RuntimeSupervisor {
 	rs := &RuntimeSupervisor{
 		Home:        home,
 		Version:     version,
 		SourceDir:   sourceDir,
 		BuildID:     buildID,
 		BackendName: normalizeRuntimeBackendName(backendName),
-		Docker:      dc,
+		Backend:     dc,
 		Comms:       comms,
 		Log:         logger,
 		CredStore:   credStore,
@@ -72,14 +74,14 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 	}
 	registerContainerBackend := func(backendName string) {
 		rs.registry.Register(backendName, func() (runtimecontract.Backend, error) {
-			return &hostruntimebackend.DockerRuntimeBackend{
+			return &hostruntimebackend.ContainerRuntimeBackend{
 				BackendName: backendName,
-				Docker:      rs.Docker,
+				Backend:     rs.Backend,
 				EnsureAgentNetwork: func(ctx context.Context, runtimeID string) error {
-					if rs.Docker == nil {
+					if rs.Backend == nil {
 						return fmt.Errorf("%s is not available", backendName)
 					}
-					infra, err := NewInfra(rs.Home, rs.Version, rs.Docker, rs.Log, nil)
+					infra, err := NewInfra(rs.Home, rs.Version, rs.Backend, rs.Log, nil)
 					if err != nil {
 						return err
 					}
@@ -88,10 +90,10 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 					return infra.EnsureAgentNetwork(ctx, fmt.Sprintf("%s-%s-internal", prefix, runtimeID))
 				},
 				EnsureEnforcerFn: func(ctx context.Context, spec runtimecontract.RuntimeSpec, rotateKey bool) error {
-					if rs.Docker == nil {
+					if rs.Backend == nil {
 						return fmt.Errorf("%s is not available", backendName)
 					}
-					sharedCli := rs.Docker.RawClient()
+					sharedCli := rs.Backend.RawClient()
 					enf, err := NewEnforcerWithClient(spec.RuntimeID, rs.Home, rs.Version, rs.Log, nil, sharedCli)
 					if err != nil {
 						return err
@@ -110,10 +112,10 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 					return enf.HealthCheck(ctx, 30*time.Second)
 				},
 				EnsureWorkspaceFn: func(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
-					if rs.Docker == nil {
+					if rs.Backend == nil {
 						return fmt.Errorf("%s is not available", backendName)
 					}
-					sharedCli := rs.Docker.RawClient()
+					sharedCli := rs.Backend.RawClient()
 					ws, err := NewWorkspaceWithClient(spec.RuntimeID, rs.Home, rs.Version, rs.Log, sharedCli)
 					if err != nil {
 						return err
@@ -135,6 +137,27 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 	registerContainerBackend(runtimehost.BackendPodman)
 	registerContainerBackend(runtimehost.BackendContainerd)
 	registerContainerBackend(runtimehost.BackendAppleContainer)
+	if features.Enabled(features.Firecracker) || rs.BackendName == hostruntimebackend.BackendFirecracker {
+		var firecrackerBackend *firecrackerComponentRuntimeBackend
+		rs.registry.Register(hostruntimebackend.BackendFirecracker, func() (runtimecontract.Backend, error) {
+			if firecrackerBackend == nil {
+				backend := hostruntimebackend.NewFirecrackerRuntimeBackend(rs.Home, rs.BackendConfig)
+				firecrackerBackend = &firecrackerComponentRuntimeBackend{
+					backend: backend,
+					enforcers: &agentruntime.HostEnforcerSupervisor{
+						BinaryPath: strings.TrimSpace(rs.BackendConfig["enforcer_binary_path"]),
+						StateDir:   filepath.Join(backend.StateDir, "host-enforcers"),
+					},
+					home:      rs.Home,
+					version:   rs.Version,
+					sourceDir: rs.SourceDir,
+					buildID:   rs.BuildID,
+					log:       rs.Log,
+				}
+			}
+			return firecrackerBackend, nil
+		})
+	}
 	rs.registry.Register(probeRuntimeBackendName, func() (runtimecontract.Backend, error) {
 		return &probeRuntimeBackend{home: rs.Home}, nil
 	})
@@ -162,32 +185,60 @@ func (rs *RuntimeSupervisor) Compile(ctx context.Context, runtimeID string) (run
 	if err != nil {
 		return runtimecontract.RuntimeSpec{}, fmt.Errorf("allocate loopback endpoint: %w", err)
 	}
+	backendName := normalizeRuntimeBackendName(rs.BackendName)
+	transportType := runtimecontract.TransportTypeLoopbackHTTP
+	enforcerHost := rs.enforcerHost(agentID)
+	enforcerProxyURL := "http://" + enforcerHost + ":3128"
+	enforcerControlURL := "http://" + enforcerHost + ":8081"
+	enforcerEndpoint := endpoint
+	extraEnv := map[string]string{}
+	if backendName == hostruntimebackend.BackendFirecracker {
+		proxyEndpoint, err := allocateLoopbackEndpoint()
+		if err != nil {
+			return runtimecontract.RuntimeSpec{}, fmt.Errorf("allocate firecracker enforcer proxy endpoint: %w", err)
+		}
+		controlEndpoint, err := allocateLoopbackEndpoint()
+		if err != nil {
+			return runtimecontract.RuntimeSpec{}, fmt.Errorf("allocate firecracker enforcer control endpoint: %w", err)
+		}
+		transportType = runtimecontract.TransportTypeVsockHTTP
+		enforcerHost = "127.0.0.1"
+		enforcerProxyURL = "http://" + enforcerHost + ":3128"
+		enforcerControlURL = "http://" + enforcerHost + ":8081"
+		enforcerEndpoint = "vsock://2:8081"
+		extraEnv[hostruntimebackend.FirecrackerEnforcerProxyTargetEnv] = proxyEndpoint
+		extraEnv[hostruntimebackend.FirecrackerEnforcerControlTargetEnv] = controlEndpoint
+	}
+	env := map[string]string{
+		"AGENCY_AGENT_NAME":                  agentID,
+		"AGENCY_MODEL":                       rs.resolveModel(agentID),
+		"AGENCY_ADMIN_MODEL":                 rs.resolveAdminModel(agentID),
+		"PATH":                               "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"NO_PROXY":                           enforcerHost + ",localhost,127.0.0.1",
+		"AGENCY_ENFORCER_PROXY_URL":          enforcerProxyURL,
+		"AGENCY_ENFORCER_URL":                enforcerProxyURL + "/v1",
+		"AGENCY_ENFORCER_CONTROL_URL":        enforcerControlURL,
+		"AGENCY_ENFORCER_HEALTH_URL":         enforcerProxyURL + "/health",
+		"AGENCY_COMMS_URL":                   enforcerControlURL + "/mediation/comms",
+		"AGENCY_KNOWLEDGE_URL":               enforcerControlURL + "/mediation/knowledge",
+		"AGENCY_TRANSPORT_ENFORCER_TYPE":     transportType,
+		"AGENCY_TRANSPORT_ENFORCER_ENDPOINT": enforcerEndpoint,
+	}
+	for key, value := range extraEnv {
+		env[key] = value
+	}
 	spec := runtimecontract.RuntimeSpec{
 		RuntimeID: agentID,
 		AgentID:   agentUUIDOrName(filepath.Join(rs.Home, "agents", agentID, "agent.yaml"), agentID),
-		Backend:   normalizeRuntimeBackendName(rs.BackendName),
+		Backend:   backendName,
 		Package: runtimecontract.RuntimePackageSpec{
 			Image: bodyImage,
-			Env: map[string]string{
-				"AGENCY_AGENT_NAME":                  agentID,
-				"AGENCY_MODEL":                       rs.resolveModel(agentID),
-				"AGENCY_ADMIN_MODEL":                 rs.resolveAdminModel(agentID),
-				"PATH":                               "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-				"NO_PROXY":                           rs.enforcerHost(agentID) + ",localhost,127.0.0.1",
-				"AGENCY_ENFORCER_PROXY_URL":          "http://" + rs.enforcerHost(agentID) + ":3128",
-				"AGENCY_ENFORCER_URL":                "http://" + rs.enforcerHost(agentID) + ":3128/v1",
-				"AGENCY_ENFORCER_CONTROL_URL":        "http://" + rs.enforcerHost(agentID) + ":8081",
-				"AGENCY_ENFORCER_HEALTH_URL":         "http://" + rs.enforcerHost(agentID) + ":3128/health",
-				"AGENCY_COMMS_URL":                   "http://" + rs.enforcerHost(agentID) + ":8081/mediation/comms",
-				"AGENCY_KNOWLEDGE_URL":               "http://" + rs.enforcerHost(agentID) + ":8081/mediation/knowledge",
-				"AGENCY_TRANSPORT_ENFORCER_TYPE":     runtimecontract.TransportTypeLoopbackHTTP,
-				"AGENCY_TRANSPORT_ENFORCER_ENDPOINT": endpoint,
-			},
+			Env:   env,
 		},
 		Transport: runtimecontract.RuntimeTransportSpec{
 			Enforcer: runtimecontract.EnforcerTransportSpec{
-				Type:     runtimecontract.TransportTypeLoopbackHTTP,
-				Endpoint: endpoint,
+				Type:     transportType,
+				Endpoint: enforcerEndpoint,
 				AuthMode: "bearer",
 				TokenRef: filepath.Join(rs.Home, "agents", agentID, "state", "enforcer-auth", "api_keys.yaml"),
 			},
@@ -376,7 +427,20 @@ func (rs *RuntimeSupervisor) Get(ctx context.Context, runtimeID string) (runtime
 	backendStatus, err := backend.Inspect(ctx, runtimeID)
 	if err != nil {
 		if manifest.Status.RuntimeID != "" {
-			return manifest.Status, nil
+			status := manifest.Status
+			if status.Healthy || status.Phase == runtimecontract.RuntimePhaseRunning || status.Phase == runtimecontract.RuntimePhaseStarting || status.Phase == runtimecontract.RuntimePhaseDegraded {
+				status.Healthy = false
+				status.Phase = runtimecontract.RuntimePhaseDegraded
+				status.Transport.LastError = "runtime inspect failed: " + err.Error()
+				if status.Details == nil {
+					status.Details = map[string]string{}
+				}
+				status.Details["last_error"] = status.Transport.LastError
+				manifest.Status = status
+				manifest.UpdatedAt = time.Now().UTC()
+				_ = rs.saveManifest(manifest)
+			}
+			return status, nil
 		}
 		return runtimecontract.RuntimeStatus{}, err
 	}
@@ -394,6 +458,7 @@ func (rs *RuntimeSupervisor) Get(ctx context.Context, runtimeID string) (runtime
 			EnforcerConnected: backendStatus.Details["enforcer_state"] == "running",
 			LastError:         backendStatus.Details["last_error"],
 		},
+		Details: copyRuntimeStatusDetails(backendStatus.Details),
 	}
 	manifest.Spec = spec
 	manifest.Status = status
@@ -412,7 +477,11 @@ func (rs *RuntimeSupervisor) Validate(ctx context.Context, runtimeID string) err
 	if strings.TrimSpace(spec.Transport.Enforcer.Endpoint) == "" {
 		return fmt.Errorf("runtime %q transport endpoint is not configured", runtimeID)
 	}
-	if spec.Transport.Enforcer.Type != runtimecontract.TransportTypeLoopbackHTTP {
+	caps, err := rs.capabilities(ctx, spec.Backend)
+	if err != nil {
+		return err
+	}
+	if !transportTypeSupported(caps.SupportedTransportTypes, spec.Transport.Enforcer.Type) {
 		return fmt.Errorf("runtime %q transport type %q is not supported", runtimeID, spec.Transport.Enforcer.Type)
 	}
 	if strings.TrimSpace(spec.Transport.Enforcer.TokenRef) == "" {
@@ -432,6 +501,26 @@ func (rs *RuntimeSupervisor) Validate(ctx context.Context, runtimeID string) err
 		return err
 	}
 	return backend.Validate(ctx, runtimeID)
+}
+
+func copyRuntimeStatusDetails(details map[string]string) map[string]string {
+	if len(details) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(details))
+	for key, value := range details {
+		out[key] = value
+	}
+	return out
+}
+
+func transportTypeSupported(supported []string, transportType string) bool {
+	for _, item := range supported {
+		if item == transportType {
+			return true
+		}
+	}
+	return false
 }
 
 func (rs *RuntimeSupervisor) RuntimeAvailable(ctx context.Context) error {

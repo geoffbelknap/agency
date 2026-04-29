@@ -758,7 +758,8 @@ class Body:
 
     def _fetch_config(self, filename: str) -> Optional[str]:
         """Fetch a config file from the enforcer's config endpoint."""
-        url = f"http://enforcer:8081/config/{filename}"
+        control_url = os.environ.get("AGENCY_ENFORCER_CONTROL_URL", "http://enforcer:8081").rstrip("/")
+        url = f"{control_url}/config/{filename}"
         try:
             resp = httpx.Client(timeout=5).get(url)
             if resp.status_code == 404:
@@ -1176,7 +1177,8 @@ class Body:
         # Load service tools (prefer enforcer API, fallback to file)
         manifest_path = self.config_dir / "services-manifest.json"
         self._service_dispatcher = ServiceToolDispatcher(manifest_path)
-        self._service_dispatcher.load_from_url("http://enforcer:8081/config/services-manifest.json")
+        control_url = os.environ.get("AGENCY_ENFORCER_CONTROL_URL", "http://enforcer:8081").rstrip("/")
+        self._service_dispatcher.load_from_url(f"{control_url}/config/services-manifest.json")
         svc_tools = self._service_dispatcher.get_tool_definitions()
         if svc_tools:
             log.info("Loaded %d service tools", len(svc_tools))
@@ -1249,6 +1251,17 @@ class Body:
     # -- Real-time comms event handlers --
 
     def _handle_task_event(self, task: dict, *, delivery: str) -> None:
+        direct_event = self._direct_message_event_from_task(task)
+        if direct_event is not None:
+            self._emit_loop_event(
+                "agent_loop_task_seen",
+                task,
+                delivery=delivery,
+                normalized_as="direct_message",
+            )
+            self._handle_idle_mention(direct_event)
+            return
+
         self._emit_loop_event("agent_loop_task_seen", task, delivery=delivery)
         task_id = task.get("task_id", "unknown")
         log.info("New task received: %s", task_id)
@@ -1258,6 +1271,45 @@ class Body:
         self._conversation_loop(task)
         self._clear_interests()
         self._interruption_controller.end_task()
+
+    def _direct_message_event_from_task(self, task: dict) -> dict | None:
+        metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+        channel = metadata.get("channel")
+        if not isinstance(channel, str) or not channel.startswith("dm-"):
+            return None
+        if "work_contract" in metadata or "pact_activation" in metadata:
+            return None
+
+        content = str(task.get("content") or task.get("task_content") or "")
+        latest = str(metadata.get("latest_message") or "").strip()
+        if not latest:
+            marker = "\n  content: "
+            if marker in content:
+                latest = content.split(marker, 1)[1].split("\n", 1)[0].strip()
+            else:
+                latest = content.strip()
+
+        message_id = str(metadata.get("message_id") or "")
+        if not message_id:
+            work_item_id = str(task.get("work_item_id") or "")
+            if work_item_id.startswith("evt-msg-"):
+                message_id = work_item_id[len("evt-msg-"):]
+
+        return {
+            "v": 1,
+            "type": "message",
+            "channel": channel,
+            "match": "direct",
+            "matched_keywords": [],
+            "summary": latest,
+            "message": {
+                "id": message_id,
+                "channel": channel,
+                "author": metadata.get("author", "_operator"),
+                "content": latest,
+            },
+            "source": "task_delivery",
+        }
 
     def _handle_mission_trigger(self, event: dict) -> None:
         """Handle a mission trigger event delivered by the gateway event bus."""
@@ -1656,7 +1708,8 @@ class Body:
             self._refresh_local_config_file(filename)
         # Re-fetch services manifest
         if self._service_dispatcher:
-            self._service_dispatcher.load_from_url("http://enforcer:8081/config/services-manifest.json")
+            control_url = os.environ.get("AGENCY_ENFORCER_CONTROL_URL", "http://enforcer:8081").rstrip("/")
+            self._service_dispatcher.load_from_url(f"{control_url}/config/services-manifest.json")
         # Re-assemble system prompt (picks up PLATFORM.md changes)
         self._system_prompt = self.assemble_system_prompt()
 
@@ -2015,7 +2068,8 @@ class Body:
     def _check_budget(self, task: dict) -> bool:
         """Check budget before starting a task. Returns True if budget is available."""
         try:
-            resp = httpx.get("http://enforcer:8081/budget", timeout=5)
+            control_url = os.environ.get("AGENCY_ENFORCER_CONTROL_URL", "http://enforcer:8081").rstrip("/")
+            resp = httpx.get(f"{control_url}/budget", timeout=5)
             if resp.status_code != 200:
                 log.warning("Budget check returned %d, proceeding", resp.status_code)
                 return True
@@ -2625,6 +2679,8 @@ class Body:
 
             if outcome.is_terminal and not outcome.has_pending_tool_use:
                 if self._commit_model_terminal_outcome(task_id, content, messages):
+                    if content and self._is_direct_channel_task(task):
+                        self._post_channel_message(task, self._task_result_summary or content)
                     self._finalize_task(task_id, turn)
                     break
                 if self._current_task_turns >= _turn_cap_for_task(getattr(self, "_active_mission", None)):
@@ -4100,50 +4156,20 @@ class Body:
         except Exception:
             pass  # best-effort — file write is the source of truth
 
-    def _post_task_response(self, task: dict, content: str, has_artifact: bool = False) -> None:
-        """Post task result to the originating channel (not #operator).
+    def _task_channel(self, task: dict, default: str = "general") -> str:
+        metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+        channel = metadata.get("channel")
+        if isinstance(channel, str) and channel:
+            return channel
 
-        Determines the target channel from the task source. Includes artifact
-        metadata when a report file was generated.
-        """
-        content = _sanitize_outbound_content(content)
-        source = task.get("source", "dm")
-        task_id = task.get("task_id", "unknown")
-
-        # Extract channel from source string: "idle_direct:general:operator" -> "general"
-        channel = "general"
+        source = str(task.get("source", ""))
         if ":" in source:
             parts = source.split(":")
-            if len(parts) >= 2:
-                channel = parts[1]
-        elif source.startswith("dm"):
-            channel = f"_dm-{self.agent_name}"
-
-        metadata: dict = dict(task.get("metadata", {}) or {})
-        metadata["agent"] = self.agent_name
-        metadata["task_id"] = task_id
-        if has_artifact:
-            metadata["has_artifact"] = True
-            metadata["attachment_id"] = task_id
-
-        reply_to = metadata.get("reply_to")
-        if not isinstance(reply_to, str):
-            reply_to = None
-
-        try:
-            comms_url = os.environ.get("AGENCY_COMMS_URL", "http://enforcer:8081/mediation/comms")
-            self._http_client.post(
-                f"{comms_url}/channels/{channel}/messages",
-                json={
-                    "author": self.agent_name,
-                    "content": content,
-                    "reply_to": reply_to,
-                    "metadata": metadata,
-                },
-                timeout=5,
-            )
-        except Exception as e:
-            log.warning("Failed to post task response to %s: %s", channel, e)
+            if len(parts) >= 2 and parts[1]:
+                return parts[1]
+        if source.startswith("dm"):
+            return f"_dm-{self.agent_name}"
+        return default
 
     def _post_task_response(self, task: dict, content: str, has_artifact: bool = False) -> None:
         """Post task result to the originating channel (not #operator).
@@ -4152,17 +4178,8 @@ class Body:
         metadata when a report file was generated.
         """
         content = _sanitize_outbound_content(content)
-        source = task.get("source", "dm")
         task_id = task.get("task_id", "unknown")
-
-        # Extract channel from source string: "idle_direct:general:operator" -> "general"
-        channel = "general"
-        if ":" in source:
-            parts = source.split(":")
-            if len(parts) >= 2:
-                channel = parts[1]
-        elif source.startswith("dm"):
-            channel = f"_dm-{self.agent_name}"
+        channel = self._task_channel(task)
 
         metadata: dict = dict(task.get("metadata", {}) or {})
         metadata["agent"] = self.agent_name
@@ -4191,7 +4208,12 @@ class Body:
             log.warning("Failed to post task response to %s: %s", channel, e)
 
     def _is_direct_channel_task(self, task: dict) -> bool:
-        source = task.get("source", "")
+        metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+        channel = metadata.get("channel")
+        if isinstance(channel, str) and channel.startswith("dm-"):
+            return True
+
+        source = str(task.get("source", ""))
         if source.startswith("channel:dm-"):
             return True
         return source.startswith("idle_direct:")
@@ -4199,14 +4221,7 @@ class Body:
     def _post_channel_message(self, task: dict, content: str) -> bool:
         """Best-effort channel post for DM and notification auto-replies."""
         content = _sanitize_outbound_content(content)
-        source = task.get("source", "dm")
-        channel = "general"
-        if ":" in source:
-            parts = source.split(":")
-            if len(parts) >= 2:
-                channel = parts[1]
-        elif source.startswith("dm"):
-            channel = f"_dm-{self.agent_name}"
+        channel = self._task_channel(task)
 
         metadata: dict = dict(task.get("metadata", {}) or {})
         metadata["agent"] = self.agent_name

@@ -5,8 +5,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/geoffbelknap/agency/internal/features"
+	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
@@ -188,6 +191,9 @@ func TestRuntimeSupervisorGetProjectsBackendStatus(t *testing.T) {
 	if status.Transport.LastError != "lost mediation" {
 		t.Fatalf("last error = %q", status.Transport.LastError)
 	}
+	if status.Details["enforcer_state"] != "stopped" {
+		t.Fatalf("details enforcer_state = %q", status.Details["enforcer_state"])
+	}
 }
 
 func TestRuntimeSupervisorEnsureEnforcerPassesKeyRotation(t *testing.T) {
@@ -240,7 +246,7 @@ func TestRuntimeSupervisorResolveModelPrefersConfiguredStandardTier(t *testing.T
 	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("uuid: ag_123\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-writeRuntimeRoutingFile(t, home, `models:
+	writeRuntimeRoutingFile(t, home, `models:
   provider-b-standard:
     provider: provider-b
     provider_model: provider-b-model-v1
@@ -296,7 +302,7 @@ func writeRuntimeRoutingFile(t *testing.T, home, content string) {
 	}
 }
 
-func TestRuntimeSupervisorGetFallsBackToPersistedStatusWhenInspectFails(t *testing.T) {
+func TestRuntimeSupervisorGetMarksPersistedStatusDegradedWhenInspectFails(t *testing.T) {
 	home := t.TempDir()
 	agentDir := filepath.Join(home, "agents", "alice")
 	stateDir := filepath.Join(agentDir, "state")
@@ -334,8 +340,8 @@ func TestRuntimeSupervisorGetFallsBackToPersistedStatusWhenInspectFails(t *testi
 		Status: runtimecontract.RuntimeStatus{
 			RuntimeID: "alice",
 			AgentID:   "ag_123",
-			Phase:     runtimecontract.RuntimePhaseDegraded,
-			Healthy:   false,
+			Phase:     runtimecontract.RuntimePhaseRunning,
+			Healthy:   true,
 			Backend:   "fake",
 			Transport: runtimecontract.RuntimeTransportStatus{
 				Type:              runtimecontract.TransportTypeLoopbackHTTP,
@@ -356,8 +362,11 @@ func TestRuntimeSupervisorGetFallsBackToPersistedStatusWhenInspectFails(t *testi
 	if status.Phase != runtimecontract.RuntimePhaseDegraded {
 		t.Fatalf("phase = %q, want degraded", status.Phase)
 	}
-	if status.Transport.LastError != "persisted backend state" {
+	if status.Transport.LastError != "runtime inspect failed: backend unavailable" {
 		t.Fatalf("last error = %q", status.Transport.LastError)
+	}
+	if status.Details["last_error"] != "runtime inspect failed: backend unavailable" {
+		t.Fatalf("details last error = %q", status.Details["last_error"])
 	}
 }
 
@@ -504,5 +513,93 @@ func TestRuntimeSupervisorCompilePodmanBackend(t *testing.T) {
 	}
 	if spec.Backend != runtimehost.BackendPodman {
 		t.Fatalf("backend = %q, want %q", spec.Backend, runtimehost.BackendPodman)
+	}
+}
+
+func TestRuntimeSupervisorCompileFirecrackerUsesVsockTransport(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, "agents", "alice")
+	if err := os.MkdirAll(filepath.Join(agentDir, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("uuid: ag_123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rs := NewRuntimeSupervisor(home, "0.1.0", "", "build-1", hostruntimebackend.BackendFirecracker, nil, nil, nil, nil)
+	spec, err := rs.Compile(context.Background(), "alice")
+	if err != nil {
+		t.Fatalf("Compile returned error: %v", err)
+	}
+	if spec.Backend != hostruntimebackend.BackendFirecracker {
+		t.Fatalf("backend = %q, want %q", spec.Backend, hostruntimebackend.BackendFirecracker)
+	}
+	if spec.Transport.Enforcer.Type != runtimecontract.TransportTypeVsockHTTP {
+		t.Fatalf("transport type = %q", spec.Transport.Enforcer.Type)
+	}
+	if spec.Transport.Enforcer.Endpoint != "vsock://2:8081" {
+		t.Fatalf("transport endpoint = %q", spec.Transport.Enforcer.Endpoint)
+	}
+	for key, want := range map[string]string{
+		"AGENCY_TRANSPORT_ENFORCER_TYPE":     runtimecontract.TransportTypeVsockHTTP,
+		"AGENCY_TRANSPORT_ENFORCER_ENDPOINT": "vsock://2:8081",
+		"AGENCY_ENFORCER_PROXY_URL":          "http://127.0.0.1:3128",
+		"AGENCY_ENFORCER_CONTROL_URL":        "http://127.0.0.1:8081",
+		"AGENCY_COMMS_URL":                   "http://127.0.0.1:8081/mediation/comms",
+		"AGENCY_KNOWLEDGE_URL":               "http://127.0.0.1:8081/mediation/knowledge",
+	} {
+		if got := spec.Package.Env[key]; got != want {
+			t.Fatalf("env[%s] = %q, want %q", key, got, want)
+		}
+	}
+	for _, key := range []string{
+		hostruntimebackend.FirecrackerEnforcerProxyTargetEnv,
+		hostruntimebackend.FirecrackerEnforcerControlTargetEnv,
+	} {
+		if got := spec.Package.Env[key]; !strings.HasPrefix(got, "http://127.0.0.1:") {
+			t.Fatalf("env[%s] = %q, want loopback URL", key, got)
+		}
+	}
+}
+
+func TestRuntimeSupervisorFirecrackerBackendRegistration(t *testing.T) {
+	t.Setenv("AGENCY_EXPERIMENTAL_SURFACES", "")
+	rs := NewRuntimeSupervisor(t.TempDir(), "0.1.0", "", "build-1", "", nil, nil, nil, nil)
+	if _, err := rs.backend(hostruntimebackend.BackendFirecracker); err == nil {
+		t.Fatal("firecracker backend should not be registered by default")
+	}
+
+	rs = NewRuntimeSupervisor(t.TempDir(), "0.1.0", "", "build-1", hostruntimebackend.BackendFirecracker, nil, nil, nil, nil)
+	backend, err := rs.backend(hostruntimebackend.BackendFirecracker)
+	if err != nil {
+		t.Fatalf("configured firecracker backend should be registered: %v", err)
+	}
+	if backend.Name() != hostruntimebackend.BackendFirecracker {
+		t.Fatalf("backend name = %q, want %q", backend.Name(), hostruntimebackend.BackendFirecracker)
+	}
+
+	t.Setenv("AGENCY_EXPERIMENTAL_SURFACES", "1")
+	rs = NewRuntimeSupervisor(t.TempDir(), "0.1.0", "", "build-1", hostruntimebackend.BackendFirecracker, nil, nil, nil, nil)
+	rs.BackendConfig = map[string]string{"enforcer_binary_path": "/usr/local/bin/enforcer"}
+	backend, err = rs.backend(hostruntimebackend.BackendFirecracker)
+	if err != nil {
+		t.Fatalf("firecracker backend should be registered when %s is enabled: %v", features.Firecracker, err)
+	}
+	if backend.Name() != hostruntimebackend.BackendFirecracker {
+		t.Fatalf("backend name = %q, want %q", backend.Name(), hostruntimebackend.BackendFirecracker)
+	}
+	component, ok := backend.(*firecrackerComponentRuntimeBackend)
+	if !ok {
+		t.Fatalf("backend type = %T, want firecracker component backend", backend)
+	}
+	if component.enforcers.BinaryPath != "/usr/local/bin/enforcer" {
+		t.Fatalf("enforcer binary path = %q", component.enforcers.BinaryPath)
+	}
+	backendAgain, err := rs.backend(hostruntimebackend.BackendFirecracker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if backendAgain != backend {
+		t.Fatal("firecracker backend instance should be stable inside a runtime supervisor")
 	}
 }

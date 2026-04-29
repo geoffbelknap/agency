@@ -322,11 +322,13 @@ func main() {
 
 	port := envOr("ENFORCER_PORT", defaultPort)
 	constraintPort := envOr("CONSTRAINT_WS_PORT", defaultConstraintPort)
+	bindAddr := envOr("ENFORCER_BIND_ADDR", "")
+	constraintBindAddr := envOr("CONSTRAINT_WS_BIND_ADDR", bindAddr)
 
 	enforcer := NewEnforcer()
 
 	server := &http.Server{
-		Addr:           ":" + port,
+		Addr:           listenAddr(bindAddr, port),
 		Handler:        enforcer.ConnectHandler(),
 		ReadTimeout:    30 * time.Second,
 		WriteTimeout:   0, // No write timeout for streaming
@@ -377,7 +379,7 @@ func main() {
 	})
 
 	constraintServer := &http.Server{
-		Addr:           ":" + constraintPort,
+		Addr:           listenAddr(constraintBindAddr, constraintPort),
 		Handler:        constraintMux,
 		ReadTimeout:    30 * time.Second,
 		WriteTimeout:   0, // No write timeout for WebSocket
@@ -409,17 +411,24 @@ func main() {
 
 	// Start constraint server in background.
 	go func() {
-		slog.Info("constraint server listening on :" + constraintPort + "")
+		slog.Info("constraint server listening on " + constraintServer.Addr)
 		if err := constraintServer.ListenAndServe(); err != http.ErrServerClosed {
 			slog.Error("constraint server error", "error", err)
 			os.Exit(1)
 		}
 	}()
 
-	slog.Info("enforcer listening on :" + port + "")
+	slog.Info("enforcer listening on " + server.Addr)
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
 		slog.Error("server error", "error", err)
 		os.Exit(1)
 	}
 	slog.Info("enforcer stopped")
+}
+
+func listenAddr(host, port string) string {
+	if strings.TrimSpace(host) == "" {
+		return ":" + port
+	}
+	return strings.TrimSpace(host) + ":" + port
 }

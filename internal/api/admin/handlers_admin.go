@@ -19,10 +19,12 @@ import (
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/egresspolicy"
 	"github.com/geoffbelknap/agency/internal/hostadapter"
+	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
+	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 	agencysecurity "github.com/geoffbelknap/agency/internal/security"
 )
 
@@ -74,6 +76,13 @@ func configuredRuntimeBackend(cfg *config.Config) string {
 	return runtimehost.BackendDocker
 }
 
+func configuredRuntimeBackendConfig(cfg *config.Config) map[string]string {
+	if cfg == nil {
+		return nil
+	}
+	return cfg.Hub.DeploymentBackendConfig
+}
+
 func isBackendSpecificDoctorCheck(name, backend string) bool {
 	switch backend {
 	case runtimehost.BackendDocker, runtimehost.BackendPodman, runtimehost.BackendContainerd, runtimehost.BackendAppleContainer:
@@ -123,8 +132,8 @@ func (h *handler) backendAdapter() hostadapter.Adapter {
 		return h.deps.Host
 	}
 	backend := configuredRuntimeBackend(h.deps.Config)
-	if runtimehost.IsContainerBackend(backend) && h.deps.DC != nil {
-		return hostadapter.NewAdapter(backend, h.deps.DC, h.deps.Logger)
+	if runtimehost.IsContainerBackend(backend) && h.deps.Runtime != nil {
+		return hostadapter.NewAdapter(backend, h.deps.Runtime, h.deps.Logger)
 	}
 	return nil
 }
@@ -385,6 +394,10 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	endpoint, mode := backendConnectionDetails(h.deps.Config)
 	report := doctorReport{AllPassed: true, Backend: configuredRuntimeBackend(h.deps.Config), BackendEndpoint: endpoint, BackendMode: mode}
+	if report.Backend == hostruntimebackend.BackendFirecracker {
+		writeJSON(w, 200, h.adminDoctorFirecracker(ctx))
+		return
+	}
 	if !runtimehost.IsContainerBackend(report.Backend) {
 		writeJSON(w, 200, h.adminDoctorRuntimeContract(ctx))
 		return
@@ -501,6 +514,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 			Detail: "Capacity config not found — run agency setup",
 		})
 	} else {
+		capCfg = orchestrate.ApplyRuntimeCapacityProfile(capCfg, configuredRuntimeBackend(h.deps.Config), configuredRuntimeBackendConfig(h.deps.Config))
 		agentCount := len(agents)
 		meeseeksCount := 0
 		if h.deps.Host != nil {
@@ -558,7 +572,7 @@ func (h *handler) adminDestroy(w http.ResponseWriter, r *http.Request) {
 	// Prune dangling agency images
 	if h.deps.Host != nil {
 		_, _, _ = h.deps.Host.PruneDanglingAgencyImages(r.Context())
-	} else if h.deps.DC != nil {
+	} else if h.deps.Runtime != nil {
 		_, _ = h.pruneDanglingImages(r.Context())
 	}
 
@@ -592,19 +606,19 @@ func (h *handler) pruneDanglingImages(ctx context.Context) (pruned, skipped int)
 		}
 		return pruned, skipped
 	}
-	if h.deps.DC == nil {
+	if h.deps.Runtime == nil {
 		if h.deps.Logger != nil {
 			h.deps.Logger.Warn("prune images: container backend client unavailable")
 		}
 		return 0, 0
 	}
-	imgs, err := h.deps.DC.ListDanglingAgencyImages(ctx)
+	imgs, err := h.deps.Runtime.ListDanglingAgencyImages(ctx)
 	if err != nil {
 		h.deps.Logger.Warn("prune images: list failed", "err", err)
 		return 0, 0
 	}
 	for _, img := range imgs {
-		if _, err := h.deps.DC.RemoveImage(ctx, img.ID); err != nil {
+		if _, err := h.deps.Runtime.RemoveImage(ctx, img.ID); err != nil {
 			h.deps.Logger.Debug("prune untagged image skip", "id", img.ID, "err", err)
 			skipped++
 		} else {
@@ -889,11 +903,11 @@ func (h *handler) auditResultTaskIDs(agentName string) map[string]struct{} {
 		}
 		return ids
 	}
-	if h.deps.DC == nil {
+	if h.deps.Runtime == nil {
 		return ids
 	}
-	containerName := "agency-" + agentName + "-workspace"
-	out, err := h.deps.DC.ExecInContainer(context.Background(), containerName, []string{
+	ref := runtimecontract.InstanceRef{RuntimeID: agentName, Role: runtimecontract.RoleWorkspace}
+	out, err := h.deps.Runtime.Exec(context.Background(), ref, []string{
 		"sh", "-c", "ls -1 /workspace/.results/*.md 2>/dev/null | while read f; do basename \"$f\" .md; done",
 	})
 	if err != nil {

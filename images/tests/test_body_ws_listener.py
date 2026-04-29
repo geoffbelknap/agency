@@ -229,6 +229,60 @@ async def test_ws_listener_receives_events(aiohttp_client, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_ws_listener_reconnects_after_server_close(aiohttp_client):
+    """WSListener reconnects when the server closes the socket."""
+    import asyncio
+    from aiohttp import web
+
+    connections = 0
+
+    async def ws_handler(request):
+        nonlocal connections
+        connections += 1
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        if connections == 1:
+            await ws.send_json({"type": "ack", "v": 1})
+            await ws.close()
+            return ws
+        await ws.send_json({"type": "message", "channel": "dev", "message": {"content": "after reconnect"}})
+        async for msg in ws:
+            pass
+        return ws
+
+    app = web.Application()
+    app.router.add_get("/ws", ws_handler)
+
+    async def channels_handler(request):
+        return web.json_response([])
+
+    app.router.add_get("/channels", channels_handler)
+    client = await aiohttp_client(app)
+
+    base_url = f"http://127.0.0.1:{client.port}"
+    q: queue.Queue = queue.Queue()
+    listener = WSListener(comms_url=base_url, agent_name="scout", event_queue=q)
+    listener.start()
+
+    received = []
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        await asyncio.sleep(0.05)
+        while True:
+            try:
+                received.append(q.get_nowait())
+            except queue.Empty:
+                break
+        if connections >= 2 and any(e.get("type") == "message" for e in received):
+            break
+
+    listener.stop()
+
+    assert connections >= 2
+    assert any(e.get("type") == "message" for e in received)
+
+
+@pytest.mark.asyncio
 @pytest.mark.skip(reason="Flaky: async timing issue — missed_task not always received in time")
 async def test_ws_listener_context_fallback_on_connect(aiohttp_client, tmp_path):
     """WSListener enqueues missed_task event from context file on connect."""

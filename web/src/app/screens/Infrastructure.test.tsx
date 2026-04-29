@@ -51,6 +51,8 @@ describe('Infrastructure', () => {
           host_cpu_cores: 10,
           system_reserve_mb: 4096,
           infra_overhead_mb: 2048,
+          runtime_backend: 'firecracker',
+          enforcement_mode: 'microvm',
           max_agents: 8,
           max_concurrent_meesks: 3,
           agent_slot_mb: 4096,
@@ -68,7 +70,7 @@ describe('Infrastructure', () => {
     await waitFor(() => {
       expect(screen.getByText('Host capacity')).toBeInTheDocument();
       expect(screen.getByText('3 / 8')).toBeInTheDocument();
-      expect(screen.getByText('3 slots used / 5 available / 4.0 GB per agent')).toBeInTheDocument();
+      expect(screen.getByText('3 slots used / 5 available / 4.0 GB per agent / firecracker/microvm')).toBeInTheDocument();
       expect(screen.queryByText(/network pool/i)).not.toBeInTheDocument();
       expect(screen.getByText('10 cores')).toBeInTheDocument();
     });

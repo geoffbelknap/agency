@@ -20,6 +20,10 @@
     "tier": "experimental"
   },
   {
+    "id": "firecracker",
+    "tier": "experimental"
+  },
+  {
     "id": "graph_admin",
     "tier": "core"
   },

@@ -614,7 +614,7 @@ func (h *handler) reloadIngressIfNeeded(manifest *runpkg.Manifest) {
 	}
 	for _, node := range manifest.Runtime.Nodes {
 		if node.Kind == "connector.ingress" {
-			_ = h.deps.Signal.SignalContainer(context.Background(), "agency-intake", "SIGHUP")
+			_ = h.deps.Signal.SignalRuntimeName(context.Background(), "agency-intake", "SIGHUP")
 			return
 		}
 	}
