@@ -21,6 +21,7 @@ CA certificate generated at first run in /app/certs/ (persisted).
 """
 
 import json
+import os
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -34,7 +35,7 @@ class EgressPolicy:
     """Loads and enforces the egress policy configuration."""
 
     def __init__(self, policy_path: str = "/app/config/policy.yaml"):
-        self.policy_path = policy_path
+        self.policy_path = os.environ.get("AGENCY_EGRESS_POLICY_PATH", policy_path)
         self.policy = {}
         self.blocked_domains = set()
         self.load()
@@ -58,6 +59,7 @@ class EgressPolicy:
 
     def _load_external_blocklists(self, blocklist_dir: str = "/app/blocklists"):
         """Load external blocklist files from the blocklist directory."""
+        blocklist_dir = os.environ.get("AGENCY_EGRESS_BLOCKLIST_DIR", blocklist_dir)
         blocklist_path = Path(blocklist_dir)
         if not blocklist_path.is_dir():
             return
@@ -142,7 +144,7 @@ class RequestLogger:
     """
 
     def __init__(self, log_dir: str = "/app/logs"):
-        self.log_dir = Path(log_dir)
+        self.log_dir = Path(os.environ.get("AGENCY_EGRESS_LOG_DIR", log_dir))
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self._current_date: str = ""
         self._file = None

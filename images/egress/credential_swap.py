@@ -54,8 +54,8 @@ class CredentialSwapAddon:
         swap_config_path: str = "/app/secrets/credential-swaps.yaml",
         swap_local_path: str = "/app/secrets/credential-swaps.local.yaml",
     ):
-        self._swap_config_path = swap_config_path
-        self._swap_local_path = swap_local_path
+        self._swap_config_path = os.environ.get("AGENCY_EGRESS_SWAP_CONFIG_PATH", swap_config_path)
+        self._swap_local_path = os.environ.get("AGENCY_EGRESS_SWAP_LOCAL_PATH", swap_local_path)
 
         socket_path = os.environ.get("GATEWAY_SOCKET", "/app/gateway-cred.sock")
         self._resolver = SocketKeyResolver(socket_path)

@@ -423,6 +423,15 @@ func (inf *Infra) TeardownWithProgress(ctx context.Context, onProgress ProgressF
 				}
 				return
 			}
+			if role == "egress" && inf.hostEgressEnabled() {
+				if err := inf.stopHostEgress(ctx); err != nil {
+					inf.log.Warn("teardown host egress", "err", err)
+				}
+				if onProgress != nil {
+					onProgress(role, "Stopped "+role)
+				}
+				return
+			}
 			name := inf.containerName(role)
 			if err := inf.stopAndRemove(ctx, name, stopTimeoutFor(role)); err != nil {
 				inf.log.Warn("teardown", "container", name, "err", err)
@@ -485,6 +494,8 @@ func (inf *Infra) RestartComponentWithProgress(ctx context.Context, component st
 		_ = inf.stopHostComms(ctx)
 	} else if component == "knowledge" && inf.hostKnowledgeEnabled() {
 		_ = inf.stopHostKnowledge(ctx)
+	} else if component == "egress" && inf.hostEgressEnabled() {
+		_ = inf.stopHostEgress(ctx)
 	} else {
 		name := inf.containerName(component)
 		_ = inf.stopAndRemove(ctx, name, stopTimeoutFor(component))
@@ -969,6 +980,10 @@ func (inf *Infra) backendName() string {
 }
 
 func (inf *Infra) ensureEgress(ctx context.Context) error {
+	if inf.hostEgressEnabled() {
+		_ = inf.stopAndRemove(ctx, inf.containerName("egress"), stopTimeoutFor("egress"))
+		return inf.ensureHostEgress(ctx)
+	}
 	if err := imageops.Resolve(ctx, inf.cli, "egress", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve egress image: %w", err)
 	}

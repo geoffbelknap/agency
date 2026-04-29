@@ -172,6 +172,9 @@ func (inf *Infra) HostInfraStatuses(ctx context.Context) []runtimehost.InfraComp
 	if inf.hostKnowledgeEnabled() {
 		statuses = append(statuses, inf.hostKnowledgeStatus(ctx))
 	}
+	if inf.hostEgressEnabled() {
+		statuses = append(statuses, inf.hostEgressStatus(ctx))
+	}
 	return statuses
 }
 
