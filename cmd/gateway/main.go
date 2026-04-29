@@ -721,14 +721,14 @@ func selectRuntimeBackend(override string, allowExperimental bool) (string, map[
 	if override == "" {
 		backend := defaultRuntimeBackendForHost()
 		fmt.Fprintf(os.Stderr, "Using %s runtime backend.\n", backend)
-		return backend, nil, nil
+		return backend, withAppleVFArtifactConfig(backend, nil), nil
 	}
 	if override == hostruntimebackend.BackendFirecracker || override == hostruntimebackend.BackendAppleVFMicroVM {
 		if !isStrategicRuntimeBackendForHost(override) && !allowExperimental {
 			return "", nil, fmt.Errorf("runtime backend %q is not the default for this host; re-run with --experimental-backend to use it", override)
 		}
 		fmt.Fprintf(os.Stderr, "Using %s runtime backend.\n", override)
-		return override, mergeBackendSocketConfig(configuredCfg, nil), nil
+		return override, withAppleVFArtifactConfig(override, mergeBackendSocketConfig(configuredCfg, nil)), nil
 	}
 	if !allowExperimental {
 		return "", nil, fmt.Errorf("runtime backend %q is transitional; re-run with --experimental-backend to use it", override)
@@ -836,6 +836,27 @@ func withAppleContainerHelperConfig(backend string, cfg map[string]string) map[s
 	}
 	if waitHelper != "" {
 		out["wait_helper_binary"] = waitHelper
+	}
+	return out
+}
+
+func withAppleVFArtifactConfig(backend string, cfg map[string]string) map[string]string {
+	if backend != hostruntimebackend.BackendAppleVFMicroVM {
+		return cfg
+	}
+	kernel := strings.TrimSpace(os.Getenv("AGENCY_APPLE_VF_KERNEL"))
+	if kernel == "" {
+		kernel = hostruntimebackend.DefaultAppleVFKernelPath(config.Load().Home)
+	}
+	if strings.TrimSpace(kernel) == "" {
+		return cfg
+	}
+	out := make(map[string]string, len(cfg)+1)
+	for k, v := range cfg {
+		out[k] = v
+	}
+	if strings.TrimSpace(out["kernel_path"]) == "" {
+		out["kernel_path"] = kernel
 	}
 	return out
 }

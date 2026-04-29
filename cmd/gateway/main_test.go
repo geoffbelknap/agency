@@ -25,7 +25,11 @@ func TestSelectRuntimeBackendDefaultsToStrategicBackend(t *testing.T) {
 	if backend != want {
 		t.Fatalf("backend = %q, want %q", backend, want)
 	}
-	if cfg != nil {
+	if want == hostruntimebackend.BackendAppleVFMicroVM {
+		if cfg["kernel_path"] == "" {
+			t.Fatalf("cfg = %#v, want default apple-vf kernel path", cfg)
+		}
+	} else if cfg != nil {
 		t.Fatalf("cfg = %#v, want nil", cfg)
 	}
 }
@@ -80,6 +84,31 @@ func TestWithAppleContainerHelperConfig(t *testing.T) {
 	}
 	if got := withAppleContainerHelperConfig("docker", nil); got != nil {
 		t.Fatalf("docker config = %#v, want nil", got)
+	}
+}
+
+func TestWithAppleVFArtifactConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("AGENCY_HOME", home)
+	t.Setenv("AGENCY_APPLE_VF_KERNEL", "")
+	got := withAppleVFArtifactConfig(hostruntimebackend.BackendAppleVFMicroVM, nil)
+	want := hostruntimebackend.DefaultAppleVFKernelPath(home)
+	if got["kernel_path"] != want {
+		t.Fatalf("kernel path = %q, want %q", got["kernel_path"], want)
+	}
+
+	got = withAppleVFArtifactConfig(hostruntimebackend.BackendAppleVFMicroVM, map[string]string{"kernel_path": "/custom/Image"})
+	if got["kernel_path"] != "/custom/Image" {
+		t.Fatalf("kernel path override = %q", got["kernel_path"])
+	}
+
+	t.Setenv("AGENCY_APPLE_VF_KERNEL", "/env/Image")
+	got = withAppleVFArtifactConfig(hostruntimebackend.BackendAppleVFMicroVM, nil)
+	if got["kernel_path"] != "/env/Image" {
+		t.Fatalf("kernel path env = %q", got["kernel_path"])
+	}
+	if got := withAppleVFArtifactConfig(hostruntimebackend.BackendFirecracker, nil); got != nil {
+		t.Fatalf("firecracker cfg = %#v, want nil", got)
 	}
 }
 

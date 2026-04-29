@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	goruntime "runtime"
 	"strings"
 
@@ -51,7 +50,7 @@ func appendAppleVFDoctorChecks(ctx context.Context, report *doctorReport, cfg *c
 	}
 
 	add(appleVFStateDirCheck(appleVFConfiguredStateDir(cfg)))
-	add(appleVFKernelCheck(appleVFConfiguredPath(cfg, "kernel_path", "AGENCY_APPLE_VF_KERNEL", "")))
+	add(appleVFKernelCheck(appleVFConfiguredKernelPath(cfg)))
 }
 
 func appleVFConfiguredPath(cfg *config.Config, key, envName, fallback string) string {
@@ -71,11 +70,24 @@ func appleVFConfiguredStateDir(cfg *config.Config) string {
 		if value := strings.TrimSpace(cfg.Hub.DeploymentBackendConfig["state_dir"]); value != "" {
 			return value
 		}
-		if strings.TrimSpace(cfg.Home) != "" {
-			return filepath.Join(cfg.Home, "runtime", "apple-vf-microvm")
+		return hostruntimebackend.DefaultAppleVFStateDir(cfg.Home)
+	}
+	return hostruntimebackend.DefaultAppleVFStateDir("")
+}
+
+func appleVFConfiguredKernelPath(cfg *config.Config) string {
+	if cfg != nil {
+		if value := strings.TrimSpace(cfg.Hub.DeploymentBackendConfig["kernel_path"]); value != "" {
+			return value
 		}
 	}
-	return filepath.Join(os.TempDir(), "agency-apple-vf-microvm")
+	if value := strings.TrimSpace(os.Getenv("AGENCY_APPLE_VF_KERNEL")); value != "" {
+		return value
+	}
+	if cfg != nil {
+		return hostruntimebackend.DefaultAppleVFKernelPath(cfg.Home)
+	}
+	return hostruntimebackend.DefaultAppleVFKernelPath("")
 }
 
 func appleVFHostOSCheck() doctorCheckResult {
@@ -149,14 +161,14 @@ func appleVFStateDirCheck(path string) doctorCheckResult {
 
 func appleVFKernelCheck(path string) doctorCheckResult {
 	if strings.TrimSpace(path) == "" {
-		return appleVFBackendCheck("apple_vf_kernel", agencysecurity.FindingFail, "Apple VF guest kernel path is not configured", "set hub.deployment_backend_config.kernel_path or AGENCY_APPLE_VF_KERNEL to a readable ARM64 Linux kernel")
+		return appleVFBackendCheck("apple_vf_kernel", agencysecurity.FindingFail, "Apple VF guest kernel path is not configured", "place the Linux-built Image at $AGENCY_HOME/runtime/apple-vf-microvm/artifacts/Image or set hub.deployment_backend_config.kernel_path/AGENCY_APPLE_VF_KERNEL")
 	}
 	info, err := appleVFStat(path)
 	if err != nil {
-		return appleVFBackendCheck("apple_vf_kernel", agencysecurity.FindingFail, "Apple VF guest kernel is not readable at "+path+": "+err.Error(), "set hub.deployment_backend_config.kernel_path to a readable ARM64 Linux kernel")
+		return appleVFBackendCheck("apple_vf_kernel", agencysecurity.FindingFail, "Apple VF guest kernel is not readable at "+path+": "+err.Error(), "run 'scripts/readiness/apple-vf-artifacts.sh --verify-existing' after placing the Linux-built Image there, or set hub.deployment_backend_config.kernel_path/AGENCY_APPLE_VF_KERNEL")
 	}
 	if info.IsDir() {
-		return appleVFBackendCheck("apple_vf_kernel", agencysecurity.FindingFail, "Apple VF guest kernel path is a directory: "+path, "set hub.deployment_backend_config.kernel_path to a readable ARM64 Linux kernel")
+		return appleVFBackendCheck("apple_vf_kernel", agencysecurity.FindingFail, "Apple VF guest kernel path is a directory: "+path, "replace it with the Linux-built Image or set hub.deployment_backend_config.kernel_path/AGENCY_APPLE_VF_KERNEL")
 	}
 	return appleVFBackendCheck("apple_vf_kernel", agencysecurity.FindingPass, "Apple VF guest kernel is readable at "+path, "")
 }
