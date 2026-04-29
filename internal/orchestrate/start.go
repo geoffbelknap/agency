@@ -574,7 +574,7 @@ func (ss *StartSequence) capacityRuntimeConfig() (string, map[string]string) {
 		backend = ss.BackendName
 	}
 	if strings.TrimSpace(backend) == "" {
-		return runtimehost.BackendDocker, nil
+		return defaultRuntimeBackend(), nil
 	}
 	return backend, backendConfig
 }

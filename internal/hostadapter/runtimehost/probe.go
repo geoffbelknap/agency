@@ -54,7 +54,7 @@ const pingTimeout = 3 * time.Second
 //  4. containerd — via nerdctl, for minimal/k8s-style hosts
 //
 // Order is deliberate — a host with both docker and podman will default
-// to podman. Callers can override via config or AGENCY_CONTAINER_BACKEND.
+// to podman. Transitional callers can override via explicit backend config.
 func KnownBackends() []BackendProbe {
 	return knownBackendsFor(currentPlatform())
 }

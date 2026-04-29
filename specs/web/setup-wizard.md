@@ -80,7 +80,7 @@ The platform expert persona is a hub-sourced preset (e.g., `platform-expert` or 
 
 **Validation:** The wizard calls the agent create API and then starts the agent. Both must succeed before proceeding.
 
-**Docker unavailable:** If the agent fails to start because Docker is down, the wizard shows a clear message ("Docker is required to run agents") with two options: "Retry" (check again) and "Skip agent creation" (proceed to capabilities without an agent — the Chat step becomes unavailable and the wizard finishes after capabilities).
+**Runtime unavailable:** If the agent fails to start because the selected runtime backend is not ready, the wizard shows a clear message with two options: "Retry" (check again) and "Skip agent creation" (proceed to capabilities without an agent — the Chat step becomes unavailable and the wizard finishes after capabilities).
 
 ### Step 4: Capabilities
 

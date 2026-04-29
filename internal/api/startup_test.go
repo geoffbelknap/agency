@@ -13,7 +13,13 @@ import (
 // causes Startup to return an error rather than a partially-initialized result.
 // This exercises the hard-fail semantics for core component initialization.
 func TestStartup_NilDocker_ReturnsError(t *testing.T) {
-	cfg := &config.Config{Home: t.TempDir(), Version: "test"}
+	cfg := &config.Config{
+		Home:    t.TempDir(),
+		Version: "test",
+		Hub: config.HubConfig{
+			DeploymentBackend: "docker",
+		},
+	}
 	_, err := Startup(cfg, nil, nil)
 	if err == nil {
 		t.Fatal("expected error when backend client is nil")

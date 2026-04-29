@@ -21,7 +21,7 @@ The egress proxy is the only component that holds real API keys. It sits between
 - **Domain filtering** — Controls which external domains agents can reach
 - **Audit logging** — Records all outbound requests
 
-Built on mitmproxy. Credentials are resolved from the gateway's encrypted credential store via a dedicated Unix socket (`~/.agency/run/gateway-cred.sock`), mounted only into the egress container. The `SocketKeyResolver` handles credential lookups at request time, so real API keys never touch any container except egress and never traverse a Docker network. See [Credentials](credentials.md) for the operator guide.
+Built on mitmproxy. Credentials are resolved from the gateway's encrypted credential store via a dedicated Unix socket (`~/.agency/run/gateway-cred.sock`). The `SocketKeyResolver` handles credential lookups at request time, so real API keys never touch the agent runtime or traverse an agent-accessible network. See [Credentials](credentials.md) for the operator guide.
 
 ### Web-Fetch Service
 
@@ -44,7 +44,7 @@ Channel-based messaging between agents:
 - **SQLite FTS5** — Full-text search across all messages
 - **Unread tracking** — Per-agent unread counts injected into system prompts
 
-Runs as an aiohttp server on container port 8080. The host-side gateway reaches it via localhost bridge `127.0.0.1:8202` through the gateway-proxy reverse bridge.
+Runs as an aiohttp server. The host-side gateway reaches it through the local gateway-proxy reverse bridge.
 
 ### Knowledge Service
 
@@ -55,7 +55,7 @@ Organizational knowledge that compounds over time:
 - **LLM synthesis** — Periodic background synthesis using Claude Haiku
 - **Channel-based ACL** — Query results filtered by channel access
 
-Runs on container port 8080. The host-side gateway reaches it via localhost bridge `127.0.0.1:8204`. Knowledge data survives `agency admin destroy`.
+Runs as a shared service reached by the host-side gateway through the local gateway-proxy reverse bridge. Knowledge data survives `agency admin destroy`.
 
 ### Intake Service
 
@@ -72,7 +72,7 @@ External work source management:
 
 See [Connectors and Intake](/connectors-and-intake) for details.
 
-Runs on container port 8080. The host-side gateway reaches it via localhost bridge `127.0.0.1:8205`.
+Runs as a shared service reached by the host-side gateway through the local gateway-proxy reverse bridge.
 
 ### Per-Agent Enforcer
 
@@ -106,7 +106,7 @@ The web UI is part of the core operator path:
 agency infra up
 ```
 
-Builds container images (if needed) and starts the default shared
+Builds or realizes service images if needed and starts the default shared
 infrastructure. This happens automatically on the first `agency start` if
 infrastructure isn't running.
 
@@ -124,7 +124,7 @@ Stops all shared infrastructure. Running agents will lose access to comms and eg
 agency infra rebuild
 ```
 
-Rebuilds infrastructure container images. Use after updating Agency to pick up
+Rebuilds infrastructure service images. Use after updating Agency to pick up
 changes to the shared services you have enabled.
 
 ### Status
@@ -133,9 +133,9 @@ changes to the shared services you have enabled.
 agency infra status
 ```
 
-Shows the status of all infrastructure containers and images:
+Shows the status of shared infrastructure services and images:
 
-- Container health (running, stopped, missing)
+- Service health (running, stopped, missing)
 - Image versions
 - Port bindings
 - Resource usage
@@ -146,7 +146,7 @@ Shows the status of all infrastructure containers and images:
 agency infra reload
 ```
 
-Reloads configuration without restarting containers. Use after changing egress rules, routing config, or other infrastructure settings.
+Reloads configuration without restarting services. Use after changing egress rules, routing config, or other infrastructure settings.
 
 ## Networks
 
@@ -179,8 +179,8 @@ Domain allowlists are configured per-agent in the enforcer configuration at `~/.
 ### Infrastructure Won't Start
 
 ```bash
-# Check Docker is running
-docker info
+# Check runtime and service readiness
+agency admin doctor
 
 # Check for port conflicts
 agency infra status

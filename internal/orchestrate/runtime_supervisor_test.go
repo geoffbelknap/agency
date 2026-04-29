@@ -78,10 +78,14 @@ func TestRuntimeSupervisorCompileProducesBackendNeutralTransport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile returned error: %v", err)
 	}
-	if spec.Backend != defaultRuntimeBackend {
-		t.Fatalf("backend = %q, want %q", spec.Backend, defaultRuntimeBackend)
+	if spec.Backend != defaultRuntimeBackend() {
+		t.Fatalf("backend = %q, want %q", spec.Backend, defaultRuntimeBackend())
 	}
-	if spec.Transport.Enforcer.Type != runtimecontract.TransportTypeLoopbackHTTP {
+	wantTransport := runtimecontract.TransportTypeLoopbackHTTP
+	if defaultRuntimeBackend() == hostruntimebackend.BackendFirecracker || defaultRuntimeBackend() == hostruntimebackend.BackendAppleVFMicroVM {
+		wantTransport = runtimecontract.TransportTypeVsockHTTP
+	}
+	if spec.Transport.Enforcer.Type != wantTransport {
 		t.Fatalf("transport type = %q", spec.Transport.Enforcer.Type)
 	}
 	if spec.Transport.Enforcer.Endpoint == "" {
@@ -565,8 +569,12 @@ func TestRuntimeSupervisorCompileFirecrackerUsesVsockTransport(t *testing.T) {
 func TestRuntimeSupervisorFirecrackerBackendRegistration(t *testing.T) {
 	t.Setenv("AGENCY_EXPERIMENTAL_SURFACES", "")
 	rs := NewRuntimeSupervisor(t.TempDir(), "0.1.0", "", "build-1", "", nil, nil, nil, nil)
-	if _, err := rs.backend(hostruntimebackend.BackendFirecracker); err == nil {
-		t.Fatal("firecracker backend should not be registered by default")
+	if defaultRuntimeBackend() == hostruntimebackend.BackendFirecracker {
+		if _, err := rs.backend(hostruntimebackend.BackendFirecracker); err != nil {
+			t.Fatalf("default firecracker backend should be registered: %v", err)
+		}
+	} else if _, err := rs.backend(hostruntimebackend.BackendFirecracker); err == nil {
+		t.Fatal("firecracker backend should not be registered by default on this host")
 	}
 
 	rs = NewRuntimeSupervisor(t.TempDir(), "0.1.0", "", "build-1", hostruntimebackend.BackendFirecracker, nil, nil, nil, nil)

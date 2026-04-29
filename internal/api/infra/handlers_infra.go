@@ -23,6 +23,11 @@ import (
 func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 	backend := h.configuredBackend()
 	if h.deps.Runtime == nil {
+		status := []runtimehost.InfraComponent(nil)
+		hostInfraAvailable := h.deps.Infra != nil && h.hostInfraLifecycleAvailable(backend)
+		if hostInfraAvailable {
+			status = h.deps.Infra.HostInfraStatuses(r.Context())
+		}
 		limits := models.DefaultPlatformBudgetConfig()
 		store := budget.NewStore(filepath.Join(h.deps.Config.Home, "budget"))
 		infraState, _ := store.Load("_infrastructure")
@@ -31,15 +36,20 @@ func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 			"build_id":                h.deps.Config.BuildID,
 			"gateway_url":             "http://" + h.deps.Config.GatewayAddr,
 			"web_url":                 "http://127.0.0.1:8280",
-			"components":              []interface{}{},
+			"components":              status,
 			"infra_llm_daily_used":    infraState.DailyUsed,
 			"infra_llm_daily_limit":   limits.InfraDaily,
 			"backend":                 backend,
 			"backend_endpoint":        runtimehost.ResolvedBackendEndpoint(backend, h.deps.Config.Hub.DeploymentBackendConfig),
 			"backend_mode":            runtimehost.ResolvedBackendMode(backend, h.deps.Config.Hub.DeploymentBackendConfig),
-			"infra_control_available": false,
+			"infra_control_available": hostInfraAvailable,
 			"container_backend":       "not_applicable",
-			"host_runtime":            "not_applicable",
+			"host_runtime": func() string {
+				if hostInfraAvailable {
+					return "available"
+				}
+				return "not_applicable"
+			}(),
 		})
 		return
 	}
@@ -51,6 +61,9 @@ func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
+	}
+	if h.deps.Infra != nil {
+		status = mergeHostInfraStatuses(status, h.deps.Infra.HostInfraStatuses(r.Context()))
 	}
 	if h.deps.BackendHealth != nil {
 		h.deps.BackendHealth.RecordSuccess()
@@ -81,6 +94,23 @@ func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 			return containerBackendState
 		}(),
 	})
+}
+
+func mergeHostInfraStatuses(status []runtimehost.InfraComponent, host []runtimehost.InfraComponent) []runtimehost.InfraComponent {
+	for _, hostStatus := range host {
+		replaced := false
+		for i := range status {
+			if status[i].Name == hostStatus.Name {
+				status[i] = hostStatus
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			status = append(status, hostStatus)
+		}
+	}
+	return status
 }
 
 // ── Infrastructure Up ────────────────────────────────────────────────────────

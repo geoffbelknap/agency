@@ -185,13 +185,13 @@ web UI. Other services remain optional or experimental.
 
 | Component | Role |
 |-----------|------|
-| **Egress** | Proxy between agents and the internet. Handles credential swap — real API keys are injected here, not in agent containers. |
+| **Egress** | Proxy between agents and the internet. Handles credential swap — real API keys are injected here, not in agent runtimes. |
 | **Comms** | Channel-based messaging service with full-text search. |
 | **Knowledge** | Organizational knowledge graph — compounds over time from agent communications. |
 | **Web** | Operator UI for setup, direct-message workflow, activity, and audit visibility. |
 | **Intake** | Receives external work from connectors and routes it to agents. Experimental relative to the `0.2.x` core path. |
 
-All of this runs on a mediation network that agents access through their enforcer sidecar — never directly.
+Agents access shared services through their enforcer mediation path, never directly.
 
 See [Infrastructure](/infrastructure) for more.
 
@@ -199,7 +199,7 @@ See [Infrastructure](/infrastructure) for more.
 
 Agency's security is structural, not behavioral. Agents don't need to "choose" to be secure — the platform makes insecure behavior impossible:
 
-1. **Credentials are isolated** — API keys live in the egress proxy, not agent containers
+1. **Credentials are isolated** — API keys live in the egress proxy, not agent runtimes
 2. **Network is mediated** — all traffic goes through the enforcer and egress proxy
 3. **Constraints are read-only** — agents can't modify their own rules
 4. **Everything is logged** — audit logs are written by infrastructure, not agents

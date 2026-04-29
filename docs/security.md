@@ -12,7 +12,10 @@ Agency enforces these guarantees. Run `agency admin doctor` to verify them for a
 
 ### 1. LLM Credentials Isolated
 
-Agent containers never see API keys. The keys live in the egress proxy (`~/.agency/.env`, mode 0600). The agent talks to its local enforcer, which forwards to egress, which injects the real credentials. At no point does the agent container have access to the keys.
+Agent runtimes never see API keys. The keys live in the credential store and
+are resolved by the egress path at the network boundary. The agent talks to its
+local enforcer, which forwards to egress, which injects the real credentials.
+At no point does the agent runtime have access to the keys.
 
 ### 2. Service Credentials Isolated
 
@@ -26,11 +29,13 @@ Agents have **no direct internet access**. All network traffic goes:
 Agent → Enforcer → Egress Proxy → Internet
 ```
 
-The enforcer handles domain allowlisting and audit logging. The egress proxy handles credential injection. There is no path from an agent container to the internet that bypasses this chain.
+The enforcer handles domain allowlisting and audit logging. The egress proxy handles credential injection. There is no path from an agent runtime to the internet that bypasses this chain.
 
 ### 4. Constraints Read-Only
 
-The agent's `constraints.yaml` is mounted into the container with `:ro` (read-only). The agent cannot modify, delete, or replace its own constraints. This is verified during the start sequence and checked by `agency admin doctor`.
+The agent's `constraints.yaml` is delivered read-only. The agent cannot modify,
+delete, or replace its own constraints. This is verified during the start
+sequence and checked by `agency admin doctor`.
 
 ### 5. Everything Logged
 
@@ -70,35 +75,36 @@ Agency implements the [ASK framework](https://github.com/geoffbelknap/ask) — 2
 
 When Agency blocks an operation, it reports the tenet number and explanation. These blocks are intentional and correct — the right response is to adjust your approach, not work around the block.
 
-## Container Isolation
+## Runtime Isolation
 
-Each agent runs in a hardened container topology:
+Each agent runs inside an isolated runtime boundary. The strategic Linux path
+uses one Firecracker microVM per agent workload; the strategic macOS path is
+`apple-vf-microvm` backed by Apple's Virtualization framework. The enforcer
+stays outside the agent boundary so enforcement, mediation, and audit remain
+external to the agent.
 
 ```
-Per-Agent Containers:
-├── enforcer    — Go HTTP proxy (32MB), credential-free, audit logging
-└── workspace   — debian:bookworm-slim, read-only root, zero capabilities, custom seccomp
+Per-Agent Runtime:
+├── enforcer     — host-side or isolated microVM mediation process
+└── workload VM  — isolated agent workspace with mediated network access
 ```
 
 ### Workspace Hardening
 
 - **Read-only root filesystem** — Only `/workspace` and `/tmp` are writable
-- **Zero Linux capabilities** — No `CAP_NET_RAW`, no `CAP_SYS_ADMIN`, nothing
+- **Least privilege** — No broad host or network capabilities
 - **No direct internet** — DNS and TCP blocked; traffic routes through enforcer
 - **No API keys** — Environment is clean; credentials exist only in egress
 - **Skills mounted read-only** — Agent can read skills but not modify them
 
 ### Network Isolation
 
-Three network layers prevent lateral movement:
+Runtime networking is scoped so the agent reaches only its own mediation path.
+In the Firecracker path, the workload VM reaches the host through a per-agent
+vsock bridge that forwards only to that agent's enforcer endpoint.
 
-| Network | Connects | Purpose |
-|---------|----------|---------|
-| `agent-{n}-internal` | workspace, enforcer | Per-agent isolation |
-| `agency-mediation` | enforcer, egress, comms, knowledge | Shared infrastructure |
-| `agency-egress-net` | egress, internet | Outbound access |
-
-An agent can only reach its own enforcer. It cannot reach other agents, other enforcers, or the internet directly.
+An agent can only reach its own enforcer. It cannot reach other agents, other
+enforcers, shared infrastructure, or the internet directly.
 
 ## Credential Flow
 
@@ -125,7 +131,7 @@ agency admin doctor
 
 This checks:
 
-- Container isolation (read-only mounts, no capabilities)
+- Runtime isolation (read-only constraints, least privilege)
 - Network mediation (no direct internet from workspace)
 - Credential isolation (no API keys in agent environment)
 - Audit logging (infrastructure writing, not agent)
@@ -150,7 +156,7 @@ While the platform enforces structural security, operators should:
 Agency defends against:
 
 - **Agent escape** — Network mediation prevents direct internet access
-- **Credential theft** — Keys never enter agent containers
+- **Credential theft** — Keys never enter agent runtimes
 - **Constraint tampering** — Read-only mounts prevent modification
 - **Audit suppression** — Agents can't write to audit directories
 - **Prompt injection (XPIA)** — Analysis service scans all LLM responses
@@ -158,4 +164,4 @@ Agency defends against:
 - **Lateral movement** — Per-agent networks prevent inter-agent communication outside channels
 - **Privilege escalation** — Policy hierarchy only restricts, never expands
 
-See `docs/threat-model.md` for the full threat model, known limitations, and accepted risks (including container escape).
+See `docs/threat-model.md` for the full threat model, known limitations, and accepted risks.

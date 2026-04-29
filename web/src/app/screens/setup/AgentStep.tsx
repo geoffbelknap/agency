@@ -95,14 +95,19 @@ export function AgentStep({
         setPhase('starting');
         onUpdate(name, DEFAULT_PRESET);
         onNext();
-      } else if (e.message?.includes('Docker') || e.message?.includes('docker')) {
-        setError('Docker is required to run agents. Please start Docker and try again.');
+      } else if (runtimeBackendError(e.message || '')) {
+        setError('The selected runtime backend is not ready. Run agency admin doctor, fix the reported host checks, and try again.');
         setCreating(false);
       } else {
         setError(e.message || 'Failed to create agent');
         setCreating(false);
       }
     }
+  };
+
+  const runtimeBackendError = (message: string) => {
+    const normalized = message.toLowerCase();
+    return ['backend', 'docker', 'podman', 'containerd'].some((term) => normalized.includes(term));
   };
 
   const handleShuffle = () => {

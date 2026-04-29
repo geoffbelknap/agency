@@ -141,7 +141,10 @@ func TestHubDeactivateConnectorSignalsIntakeAndRemovesPublishedYAML(t *testing.T
 	signal := &recordingSignalSender{}
 	r := chi.NewRouter()
 	RegisterRoutes(r, Deps{
-		Config: &config.Config{Home: home},
+		Config: &config.Config{
+			Home: home,
+			Hub:  config.HubConfig{DeploymentBackend: "docker"},
+		},
 		Signal: signal,
 		Audit:  logs.NewWriter(home),
 		Logger: slog.Default(),
@@ -183,7 +186,10 @@ func TestHubRemoveConnectorSignalsIntakeAndRemovesPublishedYAML(t *testing.T) {
 	signal := &recordingSignalSender{}
 	r := chi.NewRouter()
 	RegisterRoutes(r, Deps{
-		Config: &config.Config{Home: home},
+		Config: &config.Config{
+			Home: home,
+			Hub:  config.HubConfig{DeploymentBackend: "docker"},
+		},
 		Signal: signal,
 		Audit:  logs.NewWriter(home),
 		Logger: slog.Default(),

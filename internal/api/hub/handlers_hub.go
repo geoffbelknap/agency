@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/hostadapter"
+	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	hubpkg "github.com/geoffbelknap/agency/internal/hub"
 	deploymentspkg "github.com/geoffbelknap/agency/internal/hub/deployments"
@@ -143,7 +145,7 @@ func (h *handler) signalInfraComponent(component string) {
 	if h.deps.Signal == nil {
 		return
 	}
-	backend := runtimehost.BackendDocker
+	backend := defaultRuntimeBackend()
 	if h.deps.Config != nil && strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend) != "" {
 		backend = strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend)
 	}
@@ -162,8 +164,8 @@ func (h *handler) signalInfraComponent(component string) {
 	}
 }
 
-func (h *handler) backendRequiresDocker(w http.ResponseWriter, operation string) bool {
-	backend := runtimehost.BackendDocker
+func (h *handler) backendRequiresContainer(w http.ResponseWriter, operation string) bool {
+	backend := defaultRuntimeBackend()
 	if h.deps.Config != nil && strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend) != "" {
 		backend = strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend)
 	}
@@ -181,6 +183,13 @@ func (h *handler) backendRequiresDocker(w http.ResponseWriter, operation string)
 		return false
 	}
 	return true
+}
+
+func defaultRuntimeBackend() string {
+	if goruntime.GOOS == "darwin" {
+		return hostruntimebackend.BackendAppleVFMicroVM
+	}
+	return hostruntimebackend.BackendFirecracker
 }
 
 func (h *handler) ensureDependencyInstalled(mgr *hubpkg.Manager, parentName string, dep hubpkg.DependencyRef) {
@@ -861,7 +870,7 @@ func (h *handler) regenerateSwapConfig() {
 
 // deployPack handles POST /api/v1/hub/deploy
 func (h *handler) deployPack(w http.ResponseWriter, r *http.Request) {
-	if !h.backendRequiresDocker(w, "hub deploy") {
+	if !h.backendRequiresContainer(w, "hub deploy") {
 		return
 	}
 	var body struct {
@@ -964,7 +973,7 @@ func (h *handler) deployPack(w http.ResponseWriter, r *http.Request) {
 
 // teardownPack handles POST /api/v1/hub/teardown/{pack}
 func (h *handler) teardownPack(w http.ResponseWriter, r *http.Request) {
-	if !h.backendRequiresDocker(w, "hub teardown") {
+	if !h.backendRequiresContainer(w, "hub teardown") {
 		return
 	}
 	packName := chi.URLParam(r, "pack")

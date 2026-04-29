@@ -14,26 +14,19 @@ agency infra status
 
 Identify which components are down: egress, comms, knowledge, intake, web-fetch, web, embeddings, gateway-proxy.
 
-### 2. Check container backend
+### 2. Check runtime and shared-service health
 
 ```bash
 agency infra status
+agency admin doctor
 ```
 
-If the selected container backend is Docker, verify Docker directly:
-```bash
-docker info
-docker ps -a --filter "label=agency.managed=true"
-```
+On Linux, Firecracker host checks should confirm KVM and vsock access. On
+macOS Apple silicon, the strategic runtime path is `apple-vf-microvm` once the
+Apple Virtualization backend is complete.
 
-If the selected container backend is Podman, verify Podman directly:
-
-```bash
-podman info --format json
-podman ps -a --filter "label=agency.managed=true"
-```
-
-If the backend is not running, start it first before retrying recovery.
+If a transitional container backend was selected intentionally, verify that
+backend directly before retrying recovery.
 
 ### 3. Check for port conflicts
 
@@ -42,7 +35,8 @@ lsof -i :8200  # gateway REST API
 lsof -i :8280  # web UI
 ```
 
-Note: knowledge and comms run inside the selected container backend and communicate over internal managed networks — they don't expose ports on the host.
+Note: knowledge and comms are shared Agency services and should normally be
+reached through the gateway path rather than direct host ports.
 
 ## Recovery Procedures
 
@@ -76,11 +70,11 @@ agency infra status
 # Stop everything
 agency infra down
 
-# Clean orphaned Docker resources
+# Legacy Docker cleanup, only when the Docker backend was explicitly selected
 docker ps -a --filter "label=agency.managed=true" -q | xargs -r docker rm -f
 docker network ls --filter "label=agency.managed=true" -q | xargs -r docker network rm
 
-# Or clean orphaned Podman resources
+# Legacy Podman cleanup, only when the Podman backend was explicitly selected
 podman ps -a --filter "label=agency.managed=true" -q | xargs -r podman rm -f
 podman network ls --filter "label=agency.managed=true" -q | xargs -r podman network rm
 
@@ -114,7 +108,13 @@ agency infra up
 agency admin doctor
 ```
 
-The startup sequence recreates the hub-and-spoke network topology: `agency-gateway` (internal bridge) as the hub connecting gateway-proxy, comms, knowledge, and intake; `agency-egress-int` (internal) for services needing egress access; `agency-egress-ext` (external) for egress proxy internet access; `agency-operator` (external) for web UI and relay; per-agent `agency-<name>-internal` networks for workspace↔enforcer. Internal networks enforce `Internal:true` (no external route).
+For legacy container backends, the startup sequence recreates the hub-and-spoke
+network topology: `agency-gateway` (internal bridge) as the hub connecting
+gateway-proxy, comms, knowledge, and intake; `agency-egress-int` (internal) for
+services needing egress access; `agency-egress-ext` (external) for egress proxy
+internet access; `agency-operator` (external) for web UI and relay; per-agent
+`agency-<name>-internal` networks for workspace<->enforcer. Internal networks
+enforce `Internal:true` (no external route).
 
 ### Capacity limit reached
 
@@ -144,7 +144,7 @@ Check `available_slots`. Either stop unused agents or adjust `~/.agency/capacity
 
 If infrastructure repeatedly fails to start:
 
-1. Check Docker resource limits (`docker system df`, `docker system info`)
+1. Check runtime host readiness (`agency admin doctor`)
 2. Check disk space (`df -h ~/.agency/`)
-3. Check Docker logs: `docker logs agency-infra-comms` (or other component name)
+3. If using a legacy container backend, check backend logs for the affected component
 4. Full reset: `agency admin destroy --yes && agency setup`

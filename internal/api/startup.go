@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/config"
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/credstore"
+	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/hub"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
@@ -58,7 +60,11 @@ func Startup(cfg *config.Config, dc *runtimehost.Client, logger *slog.Logger) (*
 func StartupWithInfraClient(cfg *config.Config, dc, infraDC *runtimehost.Client, logger *slog.Logger) (*StartupResult, error) {
 	backendName := cfg.Hub.DeploymentBackend
 	if strings.TrimSpace(backendName) == "" {
-		backendName = runtimehost.BackendDocker
+		if goruntime.GOOS == "darwin" {
+			backendName = hostruntimebackend.BackendAppleVFMicroVM
+		} else {
+			backendName = hostruntimebackend.BackendFirecracker
+		}
 	}
 	if dc == nil && runtimehost.IsContainerBackend(backendName) {
 		return nil, fmt.Errorf("%s client is required", runtimehost.NormalizeContainerBackend(backendName))
@@ -66,20 +72,19 @@ func StartupWithInfraClient(cfg *config.Config, dc, infraDC *runtimehost.Client,
 
 	var infra *orchestrate.Infra
 	var err error
-	if infraDC != nil {
-		infra, err = orchestrate.NewInfra(cfg.Home, cfg.Version, infraDC, logger, cfg.HMACKey)
-		if err != nil {
-			return nil, fmt.Errorf("infra init: %w", err)
-		}
-		if infra == nil {
-			return nil, fmt.Errorf("infra init returned nil")
-		}
-		infra.SourceDir = cfg.SourceDir
-		infra.BuildID = cfg.BuildID
-		infra.GatewayAddr = cfg.GatewayAddr
-		infra.GatewayToken = cfg.Token
-		infra.EgressToken = cfg.EgressToken
+	infra, err = orchestrate.NewInfra(cfg.Home, cfg.Version, infraDC, logger, cfg.HMACKey)
+	if err != nil {
+		return nil, fmt.Errorf("infra init: %w", err)
 	}
+	if infra == nil {
+		return nil, fmt.Errorf("infra init returned nil")
+	}
+	infra.SourceDir = cfg.SourceDir
+	infra.BuildID = cfg.BuildID
+	infra.GatewayAddr = cfg.GatewayAddr
+	infra.GatewayToken = cfg.Token
+	infra.EgressToken = cfg.EgressToken
+	infra.RuntimeBackendName = backendName
 
 	agents, err := orchestrate.NewAgentManager(cfg.Home, dc, logger)
 	if err != nil {

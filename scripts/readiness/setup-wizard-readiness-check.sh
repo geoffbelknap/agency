@@ -173,20 +173,23 @@ cleanup_scoped_infra_runtime() {
     return 0
   fi
 
-  local backend="docker"
-  local runtime_cli="docker"
+  local backend=""
+  local runtime_cli=""
   local config_path="${DISPOSABLE_HOME:-}/config.yaml"
 
   if [ -f "$config_path" ] && command -v ruby >/dev/null 2>&1; then
-    backend="$(ruby -e 'require "yaml"; path = ARGV[0]; data = YAML.load_file(path) || {}; hub = data["hub"].is_a?(Hash) ? data["hub"] : {}; value = hub["deployment_backend"].to_s.strip; puts(value.empty? ? "docker" : value)' "$config_path" 2>/dev/null || printf '%s' 'docker')"
+    backend="$(ruby -e 'require "yaml"; path = ARGV[0]; data = YAML.load_file(path) || {}; hub = data["hub"].is_a?(Hash) ? data["hub"] : {}; puts hub["deployment_backend"].to_s.strip' "$config_path" 2>/dev/null || true)"
   fi
 
   case "$backend" in
+    docker)
+      runtime_cli="docker"
+      ;;
     podman)
       runtime_cli="podman"
       ;;
     *)
-      runtime_cli="docker"
+      return 0
       ;;
   esac
 

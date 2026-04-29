@@ -198,7 +198,7 @@ Full teardown and restart:
 agency restart my-agent
 ```
 
-This stops the agent, tears down its containers, and starts fresh through the full seven-phase sequence.
+This stops the agent, tears down its runtime, and starts fresh through the full seven-phase sequence.
 
 ## Deleting an Agent
 

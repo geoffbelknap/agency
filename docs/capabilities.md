@@ -10,7 +10,7 @@ Capabilities are things agents can use — tools, skills, and external services.
 
 ### MCP Servers
 
-MCP (Model Context Protocol) servers provide tools to agents. They run **operator-side** (outside the agent container) and are wired into the agent at boot time.
+MCP (Model Context Protocol) servers provide tools to agents. They run **operator-side** (outside the agent runtime) and are wired into the agent at boot time.
 
 Examples: browser automation, code search, database access.
 
@@ -33,7 +33,7 @@ Skills are instruction packages that follow the [agentskills.io](https://agentsk
 
 Skills are:
 
-- Mounted **read-only** into the agent container
+- Delivered **read-only** into the agent runtime
 - Described in the system prompt (so the agent knows what skills are available)
 - Loaded on demand (full content pulled in when the agent invokes a skill)
 

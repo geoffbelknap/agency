@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	goruntime "runtime"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -14,6 +15,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/events"
 	"github.com/geoffbelknap/agency/internal/features"
+	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -75,7 +77,10 @@ func (h *handler) configuredBackend() string {
 	if h.deps.Config != nil && strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend) != "" {
 		return strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend)
 	}
-	return runtimehost.BackendDocker
+	if goruntime.GOOS == "darwin" {
+		return hostruntimebackend.BackendAppleVFMicroVM
+	}
+	return hostruntimebackend.BackendFirecracker
 }
 
 // containerBackendRequired returns true when container-backed infra control is available.
@@ -83,8 +88,11 @@ func (h *handler) containerBackendRequired(w http.ResponseWriter) bool {
 	backend := h.configuredBackend()
 	if h.deps.Runtime == nil {
 		if !runtimehost.IsContainerBackend(backend) {
+			if h.deps.Infra != nil && h.hostInfraLifecycleAvailable(backend) {
+				return true
+			}
 			writeJSON(w, 503, map[string]string{
-				"error":   fmt.Sprintf("infrastructure container lifecycle is unavailable for the configured runtime backend (current: %s)", backend),
+				"error":   fmt.Sprintf("host infrastructure lifecycle is unavailable for the configured runtime backend (current: %s)", backend),
 				"backend": backend,
 			})
 			return false
@@ -101,6 +109,15 @@ func (h *handler) containerBackendRequired(w http.ResponseWriter) bool {
 		return false
 	}
 	return true
+}
+
+func (h *handler) hostInfraLifecycleAvailable(backend string) bool {
+	switch strings.TrimSpace(backend) {
+	case hostruntimebackend.BackendFirecracker, hostruntimebackend.BackendAppleVFMicroVM:
+		return true
+	default:
+		return false
+	}
 }
 
 // writeJSON writes a JSON response with the given status code.

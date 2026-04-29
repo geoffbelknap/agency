@@ -10,56 +10,35 @@ Get Agency running and your first agent working in under 10 minutes.
 
 You need:
 
-1. **Docker** running on your machine
+1. **A supported microVM runtime path** for your platform
 2. **An API key** from at least one supported model provider
 
 If you need a provider key first, see [Getting API Keys](/getting-api-keys).
 Google Gemini is the easiest no-credit-card starting point for many users.
 
-### Podman On WSL2
-
-Agency can use rootless Podman as a container backend on WSL2, but use the
-Linux distro packages. Homebrew Podman inside WSL can miss rootless helpers
-such as `newuidmap`, `slirp4netns`, or the systemd user socket.
-
-Install the WSL distro packages:
+On Linux, Agency's strategic runtime path is Firecracker. The host needs KVM
+and vsock available to the operator account:
 
 ```bash
-sudo apt-get install -y podman uidmap slirp4netns fuse-overlayfs crun
-systemctl --user enable --now podman.socket
+test -r /dev/kvm && test -w /dev/kvm
+test -r /dev/vhost-vsock && test -w /dev/vhost-vsock
 ```
 
-Verify the rootless API socket:
+On macOS Apple silicon, the strategic runtime path is `apple-vf-microvm`,
+backed by Apple's Virtualization framework. That backend is still being wired
+up, so current macOS local development may need an explicitly selected
+experimental backend until the Apple VF path is complete.
 
-```text
-curl --unix-socket "$XDG_RUNTIME_DIR/podman/podman.sock" http://d/v1.41/_ping
-```
+Dockerfiles remain part of Agency because they define OCI image filesystems
+that microVM backends can convert into bootable root filesystems. Docker,
+Podman, containerd, and Apple Container runtime backends are transitional
+development paths and require an explicit experimental backend selection.
 
-Expected output:
+### Transitional Container Backends
 
-```text
-OK
-```
-
-Then configure Agency:
-
-```yaml
-hub:
-  deployment_backend: podman
-  deployment_backend_config:
-    host: /run/user/1000/podman/podman.sock
-```
-
-Replace `1000` with your user ID if needed:
-
-```bash
-id -u
-```
-
-Agency keeps its gateway, mediation, egress, and operator-facing network
-boundaries intact. On WSL2 rootless Podman, Agency avoids publishing direct
-host ports for internal services that are already reachable through the gateway
-proxy.
+If you are developing the legacy container adapters, run setup with an explicit
+backend and the experimental backend flag. These paths are kept for migration
+and validation work; they are not the default runtime strategy.
 
 ## Install
 

@@ -4,7 +4,7 @@ description: "Centralized credential management for API keys, service tokens, an
 ---
 
 
-Agency uses a centralized encrypted credential store to manage all API keys and secrets. Real credentials never enter agent containers — the egress proxy resolves them at the network boundary via a socket connection to the gateway. The agent only ever sees a scoped proxy token.
+Agency uses a centralized encrypted credential store to manage all API keys and secrets. Real credentials never enter agent runtimes — the egress proxy resolves them at the network boundary via a socket connection to the gateway. The agent only ever sees a scoped proxy token.
 
 ## Quick Start
 

@@ -76,6 +76,6 @@ describe('AgentStep', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /create agent/i }));
 
-    expect(await screen.findByText('Docker is required to run agents. Please start Docker and try again.')).toBeInTheDocument();
+    expect(await screen.findByText('The selected runtime backend is not ready. Run agency admin doctor, fix the reported host checks, and try again.')).toBeInTheDocument();
   });
 });

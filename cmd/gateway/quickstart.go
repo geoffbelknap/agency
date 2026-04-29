@@ -178,15 +178,16 @@ var agentChoices = []agentChoice{
 }
 
 type quickstartOptions struct {
-	provider      string
-	key           string
-	preset        string
-	name          string
-	backend       string
-	noDemo        bool
-	noBrowser     bool
-	noDockerStart bool //nolint:unused // retained for backward-compat flag --no-docker-start
-	verbose       bool
+	provider            string
+	key                 string
+	preset              string
+	name                string
+	backend             string
+	experimentalBackend bool
+	noDemo              bool
+	noBrowser           bool
+	noDockerStart       bool //nolint:unused // retained for backward-compat flag --no-docker-start
+	verbose             bool
 }
 
 func quickstartCmd() *cobra.Command {
@@ -197,9 +198,9 @@ func quickstartCmd() *cobra.Command {
 		Short: "Set up Agency from scratch in one command",
 		Long: `Quickstart walks you through standing up Agency end-to-end:
 
-  1. Checks your environment (Docker, etc.)
+  1. Checks your runtime environment
   2. Configures an LLM provider and API key
-  3. Starts infrastructure containers
+  3. Starts infrastructure services
   4. Creates your first agent
   5. Sends a demo task to verify everything works
 
@@ -216,7 +217,8 @@ Run with --no-browser to print the Web UI URL without opening it.`,
 	cmd.Flags().StringVar(&opts.name, "name", "", "Name for the first agent")
 	cmd.Flags().BoolVar(&opts.noDemo, "no-demo", false, "Skip the demo task")
 	cmd.Flags().BoolVar(&opts.noBrowser, "no-browser", false, "Don't open the web UI in a browser (also respected via AGENCY_NO_BROWSER=1)")
-	cmd.Flags().StringVar(&opts.backend, "backend", "", "Container backend to use (docker, podman, apple-container, containerd); autodetects when unset. Also respected via AGENCY_CONTAINER_BACKEND.")
+	cmd.Flags().StringVar(&opts.backend, "backend", "", "Runtime backend to use; defaults to firecracker on Linux/WSL and apple-vf-microvm on macOS. Also respected via AGENCY_RUNTIME_BACKEND. Docker, Podman, containerd, and apple-container require --experimental-backend.")
+	cmd.Flags().BoolVar(&opts.experimentalBackend, "experimental-backend", false, "Allow transitional or non-default runtime backends")
 	cmd.Flags().BoolVar(&opts.noDockerStart, "no-docker-start", false, "Don't try to start Docker Desktop automatically (docker backend only; also respected via AGENCY_NO_DOCKER_START=1)")
 	cmd.Flags().BoolVar(&opts.verbose, "verbose", false, "Show detailed output")
 
@@ -431,12 +433,12 @@ func runQuickstart(opts quickstartOptions) error {
 	var pendingKeys []config.KeyEntry
 	configExistedBefore := quickstartConfigExists()
 
-	// Phase 1: Environment — pick a container backend
-	backendName, backendCfg, err := selectContainerBackend(opts.backend)
+	// Phase 1: Environment — pick a runtime backend
+	backendName, backendCfg, err := selectRuntimeBackend(opts.backend, opts.experimentalBackend)
 	if err != nil {
 		fmt.Printf("  %s environment     %s\n", qsRed.Render("✗"), err)
 		fmt.Println()
-		fmt.Println("Run `agency quickstart` again after installing a container backend.")
+		fmt.Println("Run `agency quickstart` again after configuring the runtime backend.")
 		return err
 	}
 	fmt.Printf("  %s environment     %s running\n", qsGreen.Render("✓"), backendName)

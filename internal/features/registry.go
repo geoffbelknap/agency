@@ -36,6 +36,7 @@ const (
 	Relay            = "relay"
 	WebFetch         = "web_fetch"
 	Firecracker      = "firecracker"
+	AppleVFMicroVM   = "apple_vf_microvm"
 	Embeddings       = "embeddings"
 	Cache            = "cache"
 )
@@ -66,6 +67,7 @@ var registry = map[string]Feature{
 	Relay:            {ID: Relay, Tier: TierExperimental},
 	WebFetch:         {ID: WebFetch, Tier: TierExperimental},
 	Firecracker:      {ID: Firecracker, Tier: TierExperimental},
+	AppleVFMicroVM:   {ID: AppleVFMicroVM, Tier: TierExperimental},
 	Embeddings:       {ID: Embeddings, Tier: TierInternal},
 	Cache:            {ID: Cache, Tier: TierInternal},
 }

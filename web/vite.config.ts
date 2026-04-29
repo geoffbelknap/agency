@@ -71,6 +71,34 @@ function agencyAutoConfig(): Plugin {
   }
 }
 
+function healthEndpoint(): Plugin {
+  const handler = (_req: any, res: any) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' })
+    res.end('ok')
+  }
+  return {
+    name: 'agency-health',
+    configureServer(server) {
+      server.middlewares.use('/health', handler)
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use('/health', handler)
+    },
+  }
+}
+
+function readLocalAllowedHosts(): string[] {
+  const filePath = path.resolve(__dirname, 'vite.allowed-hosts.local')
+  try {
+    return fs.readFileSync(filePath, 'utf-8')
+      .split(/[\n,]/)
+      .map((host) => host.trim())
+      .filter((host) => host && !host.startsWith('#'))
+  } catch {
+    return []
+  }
+}
+
 /**
  * Vite plugin that proxies WebSocket upgrade requests on /ws to the gateway.
  * Vite's built-in preview proxy does not handle WebSocket upgrades, so we
@@ -127,6 +155,7 @@ function gatewayWsProxy(target: string): Plugin {
 
 const { addr: gatewayAddr } = readAgencyConfig()
 const gatewayTarget = `http://${gatewayAddr}`
+const previewAllowedHosts = readLocalAllowedHosts()
 const localCertExists = fs.existsSync(path.resolve(__dirname, '.certs/localhost+2.pem'))
 const localHttpsConfig = localCertExists
   ? {
@@ -161,6 +190,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
     agencyAutoConfig(),
+    healthEndpoint(),
     spaFallback(),
     gatewayWsProxy(gatewayTarget),
   ],
@@ -207,6 +237,7 @@ export default defineConfig({
   preview: {
     port: 8280,
     https: devHttps,
+    allowedHosts: previewAllowedHosts,
     proxy: {
       '/api/v1': {
         target: gatewayTarget,

@@ -139,8 +139,8 @@ with characteristics of the isolation primitive itself:
 - `Isolation`: enum of `process` (namespace/cgroup), `hardware-vm`
   (Firecracker, Apple Container, Hyper-V), `language-vm` (Wasm/Hyperlight,
   forward-looking).
-- `RequiresKVM` / `RequiresHVF` / `RequiresHyperV`: host requirement
-  flags so `agency admin doctor` can pre-flight.
+- `RequiresKVM` / `RequiresAppleVirtualization` / `RequiresHyperV`: host
+  requirement flags so `agency admin doctor` can pre-flight.
 - `SupportsSnapshots`: whether the backend can resume from a frozen state.
 - `MaxConcurrentInstances`: optional hint (Firecracker has no daemon
   bottleneck; Docker has a daemon scaling ceiling).

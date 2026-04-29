@@ -130,10 +130,13 @@ func ApplyRuntimeCapacityProfile(cfg CapacityConfig, backend string, backendConf
 func normalizedCapacityBackend(backend string) string {
 	backend = strings.TrimSpace(backend)
 	if backend == "" {
-		return runtimehost.BackendDocker
+		return defaultRuntimeBackend()
 	}
 	if strings.EqualFold(backend, hostruntimebackend.BackendFirecracker) {
 		return hostruntimebackend.BackendFirecracker
+	}
+	if strings.EqualFold(backend, hostruntimebackend.BackendAppleVFMicroVM) {
+		return hostruntimebackend.BackendAppleVFMicroVM
 	}
 	return runtimehost.NormalizeContainerBackend(backend)
 }

@@ -3,7 +3,9 @@ package infra
 import (
 	"net/http"
 	"path/filepath"
+	goruntime "runtime"
 
+	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 )
@@ -90,11 +92,18 @@ func (h *handler) infraCapacity(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) capacityRuntimeConfig() (string, map[string]string) {
 	if h.deps.Config == nil {
-		return runtimehost.BackendDocker, nil
+		return defaultCapacityRuntimeBackend(), nil
 	}
 	backend := h.deps.Config.Hub.DeploymentBackend
 	if backend == "" {
-		backend = runtimehost.BackendDocker
+		backend = defaultCapacityRuntimeBackend()
 	}
 	return backend, h.deps.Config.Hub.DeploymentBackendConfig
+}
+
+func defaultCapacityRuntimeBackend() string {
+	if goruntime.GOOS == "darwin" {
+		return hostruntimebackend.BackendAppleVFMicroVM
+	}
+	return hostruntimebackend.BackendFirecracker
 }

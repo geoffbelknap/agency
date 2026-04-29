@@ -75,21 +75,22 @@ func mergeEnv(dst, src map[string]string) {
 
 // Infra manages shared infrastructure containers.
 type Infra struct {
-	Home         string
-	Instance     string
-	Version      string
-	SourceDir    string
-	BuildID      string
-	GatewayAddr  string // e.g. "127.0.0.1:8200"
-	GatewayToken string // full auth token from config.yaml
-	EgressToken  string // scoped token for egress credential resolution
-	Registry     *registry.Registry
-	Optimizer    *routing.RoutingOptimizer
-	Backend      *runtimehost.BackendHandle
-	Comms        comms.Client
-	cli          *runtimehost.RawClient
-	log          *slog.Logger
-	hmacKey      []byte
+	Home               string
+	Instance           string
+	Version            string
+	SourceDir          string
+	BuildID            string
+	GatewayAddr        string // e.g. "127.0.0.1:8200"
+	GatewayToken       string // full auth token from config.yaml
+	EgressToken        string // scoped token for egress credential resolution
+	RuntimeBackendName string
+	Registry           *registry.Registry
+	Optimizer          *routing.RoutingOptimizer
+	Backend            *runtimehost.BackendHandle
+	Comms              comms.Client
+	cli                *runtimehost.RawClient
+	log                *slog.Logger
+	hmacKey            []byte
 }
 
 // NewInfra creates a new infrastructure manager.
@@ -97,12 +98,6 @@ func NewInfra(home, version string, dc *runtimehost.BackendHandle, logger *slog.
 	var cli *runtimehost.RawClient
 	if dc != nil {
 		cli = dc.RawClient()
-	} else {
-		var err error
-		cli, err = runtimehost.NewRawClient()
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	reg, err := registry.Open(filepath.Join(home, "registry.db"))
@@ -246,10 +241,14 @@ func (inf *Infra) EnsureRunning(ctx context.Context) error {
 // EnsureRunningWithProgress starts all shared infrastructure, calling onProgress
 // for each component as it is started.
 func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress ProgressFunc) error {
-	inf.log.Info("ensuring shared infrastructure")
+	logger := inf.log
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.Info("ensuring shared infrastructure")
 
 	progress := func(component, status string) {
-		inf.log.Info(status, "component", component)
+		logger.Info(status, "component", component)
 		if onProgress != nil {
 			onProgress(component, status)
 		}
@@ -289,14 +288,20 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 		return fmt.Errorf("ensure networks: %w", err)
 	}
 
-	// Gateway proxy must start first — it's the hub. Every other container
-	// depends on it for Docker DNS resolution ("gateway" hostname), credential
-	// resolution, and event publishing through the socket proxy.
-	progress("gateway-proxy", "Starting gateway proxy")
-	if err := inf.ensureGatewayProxy(ctx); err != nil {
-		return fmt.Errorf("start gateway-proxy: %w", err)
+	if inf.hostGatewayProxyEnabled() {
+		// Gateway proxy must start first — it's the hub. Every other container
+		// depends on it for Docker DNS resolution ("gateway" hostname), credential
+		// resolution, and event publishing through the socket proxy.
+		progress("gateway-proxy", "Starting gateway proxy")
+		if err := inf.ensureGatewayProxy(ctx); err != nil {
+			return fmt.Errorf("start gateway-proxy: %w", err)
+		}
+		progress("gateway-proxy", "Started gateway-proxy")
+	} else {
+		progress("gateway-proxy", "Stopping gateway proxy")
+		_ = inf.stopAndRemove(ctx, inf.containerName("gateway-proxy"), stopTimeoutFor("gateway-proxy"))
+		progress("gateway-proxy", "Stopped gateway-proxy")
 	}
-	progress("gateway-proxy", "Started gateway-proxy")
 
 	componentSet := map[string]struct {
 		name   string
@@ -323,8 +328,8 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 		}
 	}
 
-	// Start remaining components in parallel — they all depend on gateway-proxy
-	// which is now ready, but are independent of each other.
+	// Start components in parallel. Container-backed infra depends on
+	// gateway-proxy; microVM host services bind directly to host ports.
 	progress("infra", "Starting all services")
 	type result struct {
 		name string
@@ -353,7 +358,7 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 		return fmt.Errorf("infrastructure failures: %s", strings.Join(errs, "; "))
 	}
 
-	if runtimehost.NormalizeContainerBackend(inf.backendName()) == runtimehost.BackendAppleContainer {
+	if inf.hostGatewayProxyEnabled() && runtimehost.NormalizeContainerBackend(inf.backendName()) == runtimehost.BackendAppleContainer {
 		// Apple container does not currently provide Docker-style service DNS
 		// on these networks. Recreate the proxy after services exist so it can
 		// target inspected service IPs instead of unresolved hostnames.
@@ -404,6 +409,42 @@ func (inf *Infra) TeardownWithProgress(ctx context.Context, onProgress ProgressF
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			if role == "web" && inf.hostWebEnabled() {
+				if err := inf.stopHostWeb(ctx); err != nil {
+					inf.log.Warn("teardown host web", "err", err)
+				}
+				if onProgress != nil {
+					onProgress(role, "Stopped "+role)
+				}
+				return
+			}
+			if role == "comms" && inf.hostCommsEnabled() {
+				if err := inf.stopHostComms(ctx); err != nil {
+					inf.log.Warn("teardown host comms", "err", err)
+				}
+				if onProgress != nil {
+					onProgress(role, "Stopped "+role)
+				}
+				return
+			}
+			if role == "knowledge" && inf.hostKnowledgeEnabled() {
+				if err := inf.stopHostKnowledge(ctx); err != nil {
+					inf.log.Warn("teardown host knowledge", "err", err)
+				}
+				if onProgress != nil {
+					onProgress(role, "Stopped "+role)
+				}
+				return
+			}
+			if role == "egress" && inf.hostEgressEnabled() {
+				if err := inf.stopHostEgress(ctx); err != nil {
+					inf.log.Warn("teardown host egress", "err", err)
+				}
+				if onProgress != nil {
+					onProgress(role, "Stopped "+role)
+				}
+				return
+			}
 			name := inf.containerName(role)
 			if err := inf.stopAndRemove(ctx, name, stopTimeoutFor(role)); err != nil {
 				inf.log.Warn("teardown", "container", name, "err", err)
@@ -432,7 +473,39 @@ func (inf *Infra) TeardownWithProgress(ctx context.Context, onProgress ProgressF
 
 // cleanNetworks removes agency-managed Docker networks that have no connected endpoints.
 func (inf *Infra) cleanNetworks(ctx context.Context) {
+	if inf.cli == nil {
+		return
+	}
 	runtimehost.CleanManagedNetworks(ctx, inf.cli, inf.log)
+}
+
+func (inf *Infra) needsContainerInfra() bool {
+	if inf.hostGatewayProxyEnabled() {
+		return true
+	}
+	for _, component := range infratier.StartupComponents() {
+		switch component {
+		case "egress":
+			if !inf.hostEgressEnabled() {
+				return true
+			}
+		case "comms":
+			if !inf.hostCommsEnabled() {
+				return true
+			}
+		case "knowledge":
+			if !inf.hostKnowledgeEnabled() {
+				return true
+			}
+		case "web":
+			if !inf.hostWebEnabled() {
+				return true
+			}
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 // RestartComponent stops, removes, and recreates a single component.
@@ -444,14 +517,16 @@ func (inf *Infra) RestartComponent(ctx context.Context, component string) error 
 // calling onProgress for each step.
 func (inf *Infra) RestartComponentWithProgress(ctx context.Context, component string, onProgress ProgressFunc) error {
 	valid := map[string]func(ctx context.Context) error{
-		"gateway-proxy": inf.ensureGatewayProxy,
-		"egress":        inf.ensureEgress,
-		"comms":         inf.ensureComms,
-		"knowledge":     inf.ensureKnowledge,
-		"intake":        inf.ensureIntake,
-		"web-fetch":     inf.ensureWebFetch,
-		"web":           inf.ensureWeb,
-		"embeddings":    inf.ensureEmbeddings,
+		"egress":     inf.ensureEgress,
+		"comms":      inf.ensureComms,
+		"knowledge":  inf.ensureKnowledge,
+		"intake":     inf.ensureIntake,
+		"web-fetch":  inf.ensureWebFetch,
+		"web":        inf.ensureWeb,
+		"embeddings": inf.ensureEmbeddings,
+	}
+	if inf.hostGatewayProxyEnabled() {
+		valid["gateway-proxy"] = inf.ensureGatewayProxy
 	}
 
 	ensure, ok := valid[component]
@@ -462,8 +537,18 @@ func (inf *Infra) RestartComponentWithProgress(ctx context.Context, component st
 	if onProgress != nil {
 		onProgress(component, "Stopping "+component)
 	}
-	name := inf.containerName(component)
-	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor(component))
+	if component == "comms" && inf.hostCommsEnabled() {
+		_ = inf.stopHostComms(ctx)
+	} else if component == "knowledge" && inf.hostKnowledgeEnabled() {
+		_ = inf.stopHostKnowledge(ctx)
+	} else if component == "egress" && inf.hostEgressEnabled() {
+		_ = inf.stopHostEgress(ctx)
+	} else if component == "web" && inf.hostWebEnabled() {
+		_ = inf.stopHostWeb(ctx)
+	} else {
+		name := inf.containerName(component)
+		_ = inf.stopAndRemove(ctx, name, stopTimeoutFor(component))
+	}
 
 	if onProgress != nil {
 		onProgress(component, "Starting "+component)
@@ -797,6 +882,12 @@ func (inf *Infra) seedBuiltinServices() {
 // -- Network management --
 
 func (inf *Infra) ensureNetworks(ctx context.Context) error {
+	if !inf.needsContainerInfra() {
+		return nil
+	}
+	if inf.cli == nil {
+		return fmt.Errorf("container-backed infrastructure is required but no container runtime client is available")
+	}
 	// ASK Tenet 3: mediation is complete. Internal networks have no default
 	// route to the host — containers can only reach peers on the same network.
 	// Hub-and-spoke topology:
@@ -844,15 +935,21 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	name := inf.containerName("gateway-proxy")
 	hostGatewayHosts := inf.hostGatewayHosts(ctx)
 	serviceHosts := inf.gatewayProxyServiceHosts(ctx)
+	servicePorts := inf.gatewayProxyServicePorts()
 	runDir := filepath.Join(inf.Home, "run")
 	if inf.isRunning(ctx, name) &&
 		inf.isCurrentBuild(ctx, name) &&
 		inf.isHealthyOrNoCheck(ctx, name) &&
+		inf.containerHostPortBindingMatches(ctx, name, "8202/tcp", inf.gatewayProxyPort("8202"), !inf.hostCommsEnabled()) &&
+		inf.containerHostPortBindingMatches(ctx, name, "8204/tcp", inf.gatewayProxyPort("8204"), !inf.hostKnowledgeEnabled()) &&
 		inf.hasContainerEnv(ctx, name, "AGENCY_HOST_GATEWAY_PORT", inf.gatewayPort()) &&
 		inf.hasContainerEnv(ctx, name, "AGENCY_HOST_GATEWAY_HOSTS", hostGatewayHosts) &&
 		inf.hasContainerEnv(ctx, name, "AGENCY_COMMS_HOST", serviceHosts["comms"]) &&
+		inf.hasContainerEnv(ctx, name, "AGENCY_COMMS_PORT", servicePorts["comms"]) &&
 		inf.hasContainerEnv(ctx, name, "AGENCY_KNOWLEDGE_HOST", serviceHosts["knowledge"]) &&
+		inf.hasContainerEnv(ctx, name, "AGENCY_KNOWLEDGE_PORT", servicePorts["knowledge"]) &&
 		inf.hasContainerEnv(ctx, name, "AGENCY_INTAKE_HOST", serviceHosts["intake"]) &&
+		inf.hasContainerEnv(ctx, name, "AGENCY_INTAKE_PORT", servicePorts["intake"]) &&
 		inf.hasContainerMount(ctx, name, runDir, "/run") {
 		return nil
 	}
@@ -870,9 +967,13 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	// Reverse bridges: host gateway reaches services through published ports.
 	// Ports must publish to the host for VM-backed host backend compatibility.
 	hc.PortBindings = containerops.PortMap{
-		"8202/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8202")}},
-		"8204/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8204")}},
 		"8205/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8205")}},
+	}
+	if !inf.hostCommsEnabled() {
+		hc.PortBindings["8202/tcp"] = []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8202")}}
+	}
+	if !inf.hostKnowledgeEnabled() {
+		hc.PortBindings["8204/tcp"] = []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8204")}}
 	}
 	// Mount the run directory so socat can reach the gateway Unix socket.
 	// Mount the directory (not the socket file) so new sockets from daemon
@@ -897,8 +998,11 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 				"AGENCY_HOST_GATEWAY_PORT":  inf.gatewayPort(),
 				"AGENCY_HOST_GATEWAY_HOSTS": hostGatewayHosts,
 				"AGENCY_COMMS_HOST":         serviceHosts["comms"],
+				"AGENCY_COMMS_PORT":         servicePorts["comms"],
 				"AGENCY_KNOWLEDGE_HOST":     serviceHosts["knowledge"],
+				"AGENCY_KNOWLEDGE_PORT":     servicePorts["knowledge"],
 				"AGENCY_INTAKE_HOST":        serviceHosts["intake"],
+				"AGENCY_INTAKE_PORT":        servicePorts["intake"],
 			}),
 			ExposedPorts: containerops.PortSet{
 				"8202/tcp": struct{}{},
@@ -931,6 +1035,10 @@ func (inf *Infra) backendName() string {
 }
 
 func (inf *Infra) ensureEgress(ctx context.Context) error {
+	if inf.hostEgressEnabled() {
+		_ = inf.stopAndRemove(ctx, inf.containerName("egress"), stopTimeoutFor("egress"))
+		return inf.ensureHostEgress(ctx)
+	}
 	if err := imageops.Resolve(ctx, inf.cli, "egress", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve egress image: %w", err)
 	}
@@ -1052,6 +1160,10 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 }
 
 func (inf *Infra) ensureComms(ctx context.Context) error {
+	if inf.hostCommsEnabled() {
+		_ = inf.stopAndRemove(ctx, inf.containerName("comms"), stopTimeoutFor("comms"))
+		return inf.ensureHostComms(ctx)
+	}
 	if err := imageops.Resolve(ctx, inf.cli, "comms", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve comms image: %w", err)
 	}
@@ -1110,6 +1222,10 @@ func (inf *Infra) ensureComms(ctx context.Context) error {
 }
 
 func (inf *Infra) ensureKnowledge(ctx context.Context) error {
+	if inf.hostKnowledgeEnabled() {
+		_ = inf.stopAndRemove(ctx, inf.containerName("knowledge"), stopTimeoutFor("knowledge"))
+		return inf.ensureHostKnowledge(ctx)
+	}
 	if err := imageops.Resolve(ctx, inf.cli, "knowledge", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve knowledge image: %w", err)
 	}
@@ -1383,6 +1499,10 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 }
 
 func (inf *Infra) ensureWeb(ctx context.Context) error {
+	if inf.hostWebEnabled() {
+		_ = inf.stopAndRemove(ctx, inf.containerName("web"), stopTimeoutFor("web"))
+		return inf.ensureHostWeb(ctx)
+	}
 	// agency-web lives in the repo's top-level web/ directory, so it uses the
 	// main source tree as the resolver entrypoint instead of images/web/.
 	if err := imageops.Resolve(ctx, inf.cli, "web", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
@@ -1727,7 +1847,28 @@ func (inf *Infra) hasContainerMount(ctx context.Context, containerName, source, 
 	return false
 }
 
+func (inf *Infra) containerHostPortBindingMatches(ctx context.Context, containerName, containerPort, hostPort string, want bool) bool {
+	inspect, err := inf.cli.ContainerInspect(ctx, containerName)
+	if err != nil || inspect.HostConfig == nil {
+		return false
+	}
+	for port, bindings := range inspect.HostConfig.PortBindings {
+		if string(port) != containerPort {
+			continue
+		}
+		for _, binding := range bindings {
+			if binding.HostPort == hostPort {
+				return want
+			}
+		}
+	}
+	return !want
+}
+
 func (inf *Infra) stopAndRemove(ctx context.Context, name string, timeoutSecs int) error {
+	if inf.cli == nil {
+		return nil
+	}
 	return containers.StopAndRemove(ctx, inf.cli, name, timeoutSecs)
 }
 
@@ -2058,6 +2199,25 @@ func (inf *Infra) hostGatewayHosts(ctx context.Context) string {
 }
 
 func (inf *Infra) gatewayProxyServiceHosts(ctx context.Context) map[string]string {
+	if inf.hostCommsEnabled() || inf.hostKnowledgeEnabled() {
+		hosts := inf.hostGatewayHosts(ctx)
+		hostServiceHost := "host.containers.internal"
+		if parts := strings.Split(hosts, ","); len(parts) > 0 && strings.TrimSpace(parts[0]) != "" {
+			hostServiceHost = strings.TrimSpace(parts[0])
+		}
+		services := map[string]string{
+			"comms":     "comms",
+			"knowledge": "knowledge",
+			"intake":    "intake",
+		}
+		if inf.hostCommsEnabled() {
+			services["comms"] = hostServiceHost
+		}
+		if inf.hostKnowledgeEnabled() {
+			services["knowledge"] = hostServiceHost
+		}
+		return services
+	}
 	if runtimehost.NormalizeContainerBackend(inf.backendName()) == runtimehost.BackendAppleContainer {
 		return map[string]string{
 			"comms":     inf.serviceNetworkHost(ctx, "comms"),
@@ -2070,6 +2230,21 @@ func (inf *Infra) gatewayProxyServiceHosts(ctx context.Context) map[string]strin
 		"knowledge": "knowledge",
 		"intake":    "intake",
 	}
+}
+
+func (inf *Infra) gatewayProxyServicePorts() map[string]string {
+	ports := map[string]string{
+		"comms":     "8080",
+		"knowledge": "8080",
+		"intake":    "8080",
+	}
+	if inf.hostCommsEnabled() {
+		ports["comms"] = inf.gatewayProxyPort("8202")
+	}
+	if inf.hostKnowledgeEnabled() {
+		ports["knowledge"] = inf.gatewayProxyPort("8204")
+	}
+	return ports
 }
 
 func (inf *Infra) serviceNetworkHost(ctx context.Context, role string) string {

@@ -4,7 +4,7 @@ description: "Complete command reference for the agency CLI, with agent operatio
 ---
 
 
-Complete command reference for the `agency` CLI. All commands follow a Docker-style layout — agent operations are top-level, related operations are grouped into subcommands.
+Complete command reference for the `agency` CLI. Agent operations are top-level, and related operations are grouped into subcommands.
 
 > Status: Mixed reference. The supported `0.2.x` core CLI path centers on
 > `quickstart`, agent lifecycle, DM workflow, comms, credentials, policy,
@@ -18,7 +18,6 @@ Complete command reference for the `agency` CLI. All commands follow a Docker-st
 agency init                              # Initialize ~/.agency/
 agency init --operator <name>            # Named operator identity
 agency quickstart                        # Guided first-run core setup
-agency quickstart --no-docker-start      # Skip Docker auto-start attempt
 ```
 
 ## Agent Lifecycle
