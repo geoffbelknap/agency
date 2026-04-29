@@ -72,21 +72,19 @@ func StartupWithInfraClient(cfg *config.Config, dc, infraDC *runtimehost.Client,
 
 	var infra *orchestrate.Infra
 	var err error
-	if infraDC != nil {
-		infra, err = orchestrate.NewInfra(cfg.Home, cfg.Version, infraDC, logger, cfg.HMACKey)
-		if err != nil {
-			return nil, fmt.Errorf("infra init: %w", err)
-		}
-		if infra == nil {
-			return nil, fmt.Errorf("infra init returned nil")
-		}
-		infra.SourceDir = cfg.SourceDir
-		infra.BuildID = cfg.BuildID
-		infra.GatewayAddr = cfg.GatewayAddr
-		infra.GatewayToken = cfg.Token
-		infra.EgressToken = cfg.EgressToken
-		infra.RuntimeBackendName = backendName
+	infra, err = orchestrate.NewInfra(cfg.Home, cfg.Version, infraDC, logger, cfg.HMACKey)
+	if err != nil {
+		return nil, fmt.Errorf("infra init: %w", err)
 	}
+	if infra == nil {
+		return nil, fmt.Errorf("infra init returned nil")
+	}
+	infra.SourceDir = cfg.SourceDir
+	infra.BuildID = cfg.BuildID
+	infra.GatewayAddr = cfg.GatewayAddr
+	infra.GatewayToken = cfg.Token
+	infra.EgressToken = cfg.EgressToken
+	infra.RuntimeBackendName = backendName
 
 	agents, err := orchestrate.NewAgentManager(cfg.Home, dc, logger)
 	if err != nil {

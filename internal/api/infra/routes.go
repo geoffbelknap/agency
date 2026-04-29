@@ -88,8 +88,11 @@ func (h *handler) containerBackendRequired(w http.ResponseWriter) bool {
 	backend := h.configuredBackend()
 	if h.deps.Runtime == nil {
 		if !runtimehost.IsContainerBackend(backend) {
+			if h.deps.Infra != nil && h.hostInfraLifecycleAvailable(backend) {
+				return true
+			}
 			writeJSON(w, 503, map[string]string{
-				"error":   fmt.Sprintf("infrastructure container lifecycle is unavailable for the configured runtime backend (current: %s)", backend),
+				"error":   fmt.Sprintf("host infrastructure lifecycle is unavailable for the configured runtime backend (current: %s)", backend),
 				"backend": backend,
 			})
 			return false
@@ -106,6 +109,15 @@ func (h *handler) containerBackendRequired(w http.ResponseWriter) bool {
 		return false
 	}
 	return true
+}
+
+func (h *handler) hostInfraLifecycleAvailable(backend string) bool {
+	switch strings.TrimSpace(backend) {
+	case hostruntimebackend.BackendFirecracker, hostruntimebackend.BackendAppleVFMicroVM:
+		return true
+	default:
+		return false
+	}
 }
 
 // writeJSON writes a JSON response with the given status code.

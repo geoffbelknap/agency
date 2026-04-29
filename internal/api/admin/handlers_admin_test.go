@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -488,6 +489,64 @@ func TestFirecrackerDoctorChecksReportRemediationHints(t *testing.T) {
 		}
 		if check.Status != "fail" || !strings.Contains(check.Fix, tt.want) {
 			t.Fatalf("%s check = %#v", tt.name, check)
+		}
+	}
+}
+
+func TestAdminDoctorFirecrackerReportsHostInfraMetadata(t *testing.T) {
+	restoreFirecrackerDoctorHooks(t)
+	home := t.TempDir()
+	runDir := filepath.Join(home, "run")
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(health.Close)
+	for _, component := range []string{"egress", "comms", "knowledge", "web"} {
+		pidPath := filepath.Join(runDir, "agency-infra-"+component+".pid")
+		if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		meta := map[string]any{
+			"component":  component,
+			"service":    "agency-infra-" + component,
+			"pid":        os.Getpid(),
+			"pid_file":   pidPath,
+			"command":    []string{"test"},
+			"log_file":   filepath.Join(home, "logs", "infra", component+".log"),
+			"health_url": health.URL,
+			"started_at": "2026-04-29T00:00:00Z",
+		}
+		data, err := json.Marshal(meta)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(runDir, "agency-infra-"+component+".json"), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	h := &handler{deps: Deps{
+		Config: &config.Config{
+			Home: home,
+			Hub:  config.HubConfig{DeploymentBackend: "firecracker"},
+		},
+		Infra: &orchestrate.Infra{Home: home},
+	}}
+	report := doctorReport{AllPassed: true}
+	h.appendMicroVMHostInfraDoctorChecks(context.Background(), &report)
+	if !report.AllPassed {
+		t.Fatalf("expected all host infra checks to pass: %#v", report.Checks)
+	}
+	for _, name := range []string{"microvm_host_infra_egress", "microvm_host_infra_comms", "microvm_host_infra_knowledge", "microvm_host_infra_web", "microvm_no_legacy_infra_containers"} {
+		check, ok := findDoctorCheck(report.Checks, name)
+		if !ok {
+			t.Fatalf("missing check %s", name)
+		}
+		if check.Status != "pass" {
+			t.Fatalf("%s status = %s, want pass: %s", name, check.Status, check.Detail)
 		}
 	}
 }

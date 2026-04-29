@@ -2,11 +2,18 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/geoffbelknap/agency/internal/config"
 	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
@@ -28,6 +35,7 @@ var (
 func (h *handler) adminDoctorFirecracker(ctx context.Context) doctorReport {
 	report := h.adminDoctorRuntimeContract(ctx)
 	appendFirecrackerDoctorChecks(&report, h.deps.Config)
+	h.appendMicroVMHostInfraDoctorChecks(ctx, &report)
 	report.RuntimeChecks, report.BackendChecks = splitDoctorChecks(report.Checks, report.Backend)
 	return report
 }
@@ -143,4 +151,122 @@ func firecrackerEnforcementMode(cfg *config.Config) string {
 		}
 	}
 	return hostruntimebackend.FirecrackerEnforcementModeHostProcess
+}
+
+type hostInfraDoctorMetadata struct {
+	Component string   `json:"component"`
+	Service   string   `json:"service"`
+	PID       int      `json:"pid"`
+	PIDFile   string   `json:"pid_file"`
+	Command   []string `json:"command"`
+	LogFile   string   `json:"log_file,omitempty"`
+	HealthURL string   `json:"health_url,omitempty"`
+	StartedAt string   `json:"started_at"`
+}
+
+func (h *handler) appendMicroVMHostInfraDoctorChecks(ctx context.Context, report *doctorReport) {
+	if h == nil || h.deps.Config == nil || h.deps.Infra == nil {
+		return
+	}
+	add := func(check doctorCheckResult) {
+		if check.Status != agencysecurity.FindingPass {
+			report.AllPassed = false
+		}
+		report.Checks = append(report.Checks, check)
+	}
+	for _, component := range []string{"egress", "comms", "knowledge", "web"} {
+		add(h.microVMHostInfraComponentCheck(ctx, component))
+	}
+	add(h.microVMNoLegacyInfraContainersCheck(ctx))
+}
+
+func (h *handler) microVMHostInfraComponentCheck(ctx context.Context, component string) doctorCheckResult {
+	metaPath := filepath.Join(h.deps.Config.Home, "run", "agency-infra-"+component+".json")
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		return microVMHostInfraCheck("microvm_host_infra_"+component, agencysecurity.FindingFail, "host infra metadata missing for "+component+": "+err.Error(), "run 'agency infra up' to start host infrastructure")
+	}
+	var meta hostInfraDoctorMetadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return microVMHostInfraCheck("microvm_host_infra_"+component, agencysecurity.FindingFail, "host infra metadata is not parseable for "+component+": "+err.Error(), "run 'agency infra down' then 'agency infra up' to recreate host infrastructure metadata")
+	}
+	if meta.Service != "agency-infra-"+component || meta.Component != component {
+		return microVMHostInfraCheck("microvm_host_infra_"+component, agencysecurity.FindingFail, "host infra metadata does not identify "+component+" correctly", "run 'agency infra down' then 'agency infra up' to recreate host infrastructure metadata")
+	}
+	if meta.PID <= 0 {
+		return microVMHostInfraCheck("microvm_host_infra_"+component, agencysecurity.FindingFail, "host infra metadata has an invalid PID for "+component, "run 'agency infra down' then 'agency infra up' to restart host infrastructure")
+	}
+	if err := syscall.Kill(meta.PID, 0); err != nil && !os.IsPermission(err) {
+		return microVMHostInfraCheck("microvm_host_infra_"+component, agencysecurity.FindingFail, fmt.Sprintf("host infra process for %s is not alive: %v", component, err), "run 'agency infra up' to replace stale host infrastructure processes")
+	}
+	if strings.TrimSpace(meta.HealthURL) == "" {
+		return microVMHostInfraCheck("microvm_host_infra_"+component, agencysecurity.FindingFail, "host infra metadata has no health URL for "+component, "run 'agency infra down' then 'agency infra up' to recreate host infrastructure metadata")
+	}
+	if component == "egress" {
+		if err := microVMHostInfraTCPHealth(ctx, meta.HealthURL); err != nil {
+			return microVMHostInfraCheck("microvm_host_infra_"+component, agencysecurity.FindingFail, "host infra health check failed for "+component+": "+err.Error(), "inspect "+meta.LogFile+" and run 'agency infra up'")
+		}
+		return microVMHostInfraCheck("microvm_host_infra_"+component, agencysecurity.FindingPass, meta.Service+" is healthy with PID "+fmt.Sprint(meta.PID), "")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, meta.HealthURL, nil)
+	if err != nil {
+		return microVMHostInfraCheck("microvm_host_infra_"+component, agencysecurity.FindingFail, "host infra health URL is invalid for "+component+": "+err.Error(), "run 'agency infra down' then 'agency infra up' to recreate host infrastructure metadata")
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return microVMHostInfraCheck("microvm_host_infra_"+component, agencysecurity.FindingFail, "host infra health check failed for "+component+": "+err.Error(), "inspect "+meta.LogFile+" and run 'agency infra up'")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return microVMHostInfraCheck("microvm_host_infra_"+component, agencysecurity.FindingFail, fmt.Sprintf("host infra health check for %s returned HTTP %d", component, resp.StatusCode), "inspect "+meta.LogFile+" and run 'agency infra up'")
+	}
+	return microVMHostInfraCheck("microvm_host_infra_"+component, agencysecurity.FindingPass, meta.Service+" is healthy with PID "+fmt.Sprint(meta.PID), "")
+}
+
+func microVMHostInfraTCPHealth(ctx context.Context, rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return err
+	}
+	host := parsed.Host
+	if host == "" {
+		return fmt.Errorf("missing host in %s", rawURL)
+	}
+	dialer := net.Dialer{Timeout: 2 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", host)
+	if err != nil {
+		return err
+	}
+	return conn.Close()
+}
+
+func (h *handler) microVMNoLegacyInfraContainersCheck(ctx context.Context) doctorCheckResult {
+	if h.deps.Runtime == nil {
+		return microVMHostInfraCheck("microvm_no_legacy_infra_containers", agencysecurity.FindingPass, "no container runtime is attached to microVM infrastructure", "")
+	}
+	status, err := h.deps.Runtime.InfraStatus(ctx)
+	if err != nil {
+		return microVMHostInfraCheck("microvm_no_legacy_infra_containers", agencysecurity.FindingFail, "could not inspect legacy infra containers: "+err.Error(), "stop the legacy container runtime service or run 'agency infra down'")
+	}
+	var running []string
+	for _, component := range status {
+		if component.State == "running" && !strings.HasPrefix(component.ContainerID, "host:") {
+			running = append(running, component.Name)
+		}
+	}
+	if len(running) > 0 {
+		return microVMHostInfraCheck("microvm_no_legacy_infra_containers", agencysecurity.FindingFail, "legacy infra containers are running: "+strings.Join(running, ", "), "run 'agency infra down' and stop any stale agency-infra-* containers")
+	}
+	return microVMHostInfraCheck("microvm_no_legacy_infra_containers", agencysecurity.FindingPass, "no legacy infra containers are running", "")
+}
+
+func microVMHostInfraCheck(name string, status agencysecurity.FindingStatus, detail, fix string) doctorCheckResult {
+	return doctorCheckResult{
+		Name:   name,
+		Scope:  "runtime",
+		Status: status,
+		Detail: detail,
+		Fix:    fix,
+	}
 }

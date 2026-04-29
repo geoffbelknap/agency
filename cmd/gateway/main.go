@@ -1213,12 +1213,6 @@ func runServe(httpAddr string) error {
 	if runtimehost.IsContainerBackend(backendName) {
 		infraBackendName = backendName
 		infraDC = dc
-	} else if backendName == hostruntimebackend.BackendFirecracker {
-		if detection, ok := runtimehost.PreferredReachable(runtimehost.ProbeAllBackends()); ok {
-			infraBackendName = detection.Name()
-			infraBackendConfig = detection.Config
-			infraDC = runtimehost.TryNewClientForBackend(infraBackendName, infraBackendConfig, logger)
-		}
 	}
 	if dc != nil {
 		if backendMode != "" {
@@ -1244,7 +1238,10 @@ func runServe(httpAddr string) error {
 			logger.Info("infra container backend connected", "backend", infraBackendName, "endpoint", infraEndpoint)
 		}
 	}
-	backendHealthStatus := runtimehost.NewStatus(infraDC)
+	var backendHealthStatus *runtimehost.Status
+	if infraDC != nil {
+		backendHealthStatus = runtimehost.NewStatus(infraDC)
+	}
 
 	// Startup reconciliation — clean up orphaned containers/networks from
 	// previous gateway runs. Runs before the HTTP server starts; errors are
@@ -1514,7 +1511,7 @@ func runServe(httpAddr string) error {
 	api.RegisterAll(r, cfg, dc, logger, startup, routeOpts)
 
 	// Wire auto-restore: when the container backend reconnects, automatically bring up infra.
-	if cfg.AutoRestoreInfra && infraBackendName != "" {
+	if cfg.AutoRestoreInfra && infraBackendName != "" && backendHealthStatus != nil {
 		backendHealthStatus.OnReconnect = func() {
 			logger.Info("container backend reconnected — auto-restoring infrastructure", "backend", infraBackendName)
 			go func() {

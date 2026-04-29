@@ -98,12 +98,6 @@ func NewInfra(home, version string, dc *runtimehost.BackendHandle, logger *slog.
 	var cli *runtimehost.RawClient
 	if dc != nil {
 		cli = dc.RawClient()
-	} else {
-		var err error
-		cli, err = runtimehost.NewRawClient()
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	reg, err := registry.Open(filepath.Join(home, "registry.db"))
@@ -247,10 +241,14 @@ func (inf *Infra) EnsureRunning(ctx context.Context) error {
 // EnsureRunningWithProgress starts all shared infrastructure, calling onProgress
 // for each component as it is started.
 func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress ProgressFunc) error {
-	inf.log.Info("ensuring shared infrastructure")
+	logger := inf.log
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.Info("ensuring shared infrastructure")
 
 	progress := func(component, status string) {
-		inf.log.Info(status, "component", component)
+		logger.Info(status, "component", component)
 		if onProgress != nil {
 			onProgress(component, status)
 		}
@@ -475,7 +473,39 @@ func (inf *Infra) TeardownWithProgress(ctx context.Context, onProgress ProgressF
 
 // cleanNetworks removes agency-managed Docker networks that have no connected endpoints.
 func (inf *Infra) cleanNetworks(ctx context.Context) {
+	if inf.cli == nil {
+		return
+	}
 	runtimehost.CleanManagedNetworks(ctx, inf.cli, inf.log)
+}
+
+func (inf *Infra) needsContainerInfra() bool {
+	if inf.hostGatewayProxyEnabled() {
+		return true
+	}
+	for _, component := range infratier.StartupComponents() {
+		switch component {
+		case "egress":
+			if !inf.hostEgressEnabled() {
+				return true
+			}
+		case "comms":
+			if !inf.hostCommsEnabled() {
+				return true
+			}
+		case "knowledge":
+			if !inf.hostKnowledgeEnabled() {
+				return true
+			}
+		case "web":
+			if !inf.hostWebEnabled() {
+				return true
+			}
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 // RestartComponent stops, removes, and recreates a single component.
@@ -852,6 +882,12 @@ func (inf *Infra) seedBuiltinServices() {
 // -- Network management --
 
 func (inf *Infra) ensureNetworks(ctx context.Context) error {
+	if !inf.needsContainerInfra() {
+		return nil
+	}
+	if inf.cli == nil {
+		return fmt.Errorf("container-backed infrastructure is required but no container runtime client is available")
+	}
 	// ASK Tenet 3: mediation is complete. Internal networks have no default
 	// route to the host — containers can only reach peers on the same network.
 	// Hub-and-spoke topology:
@@ -1830,6 +1866,9 @@ func (inf *Infra) containerHostPortBindingMatches(ctx context.Context, container
 }
 
 func (inf *Infra) stopAndRemove(ctx context.Context, name string, timeoutSecs int) error {
+	if inf.cli == nil {
+		return nil
+	}
 	return containers.StopAndRemove(ctx, inf.cli, name, timeoutSecs)
 }
 
