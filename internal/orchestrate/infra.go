@@ -290,14 +290,20 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 		return fmt.Errorf("ensure networks: %w", err)
 	}
 
-	// Gateway proxy must start first — it's the hub. Every other container
-	// depends on it for Docker DNS resolution ("gateway" hostname), credential
-	// resolution, and event publishing through the socket proxy.
-	progress("gateway-proxy", "Starting gateway proxy")
-	if err := inf.ensureGatewayProxy(ctx); err != nil {
-		return fmt.Errorf("start gateway-proxy: %w", err)
+	if inf.hostGatewayProxyEnabled() {
+		// Gateway proxy must start first — it's the hub. Every other container
+		// depends on it for Docker DNS resolution ("gateway" hostname), credential
+		// resolution, and event publishing through the socket proxy.
+		progress("gateway-proxy", "Starting gateway proxy")
+		if err := inf.ensureGatewayProxy(ctx); err != nil {
+			return fmt.Errorf("start gateway-proxy: %w", err)
+		}
+		progress("gateway-proxy", "Started gateway-proxy")
+	} else {
+		progress("gateway-proxy", "Stopping gateway proxy")
+		_ = inf.stopAndRemove(ctx, inf.containerName("gateway-proxy"), stopTimeoutFor("gateway-proxy"))
+		progress("gateway-proxy", "Stopped gateway-proxy")
 	}
-	progress("gateway-proxy", "Started gateway-proxy")
 
 	componentSet := map[string]struct {
 		name   string
@@ -324,8 +330,8 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 		}
 	}
 
-	// Start remaining components in parallel — they all depend on gateway-proxy
-	// which is now ready, but are independent of each other.
+	// Start components in parallel. Container-backed infra depends on
+	// gateway-proxy; microVM host services bind directly to host ports.
 	progress("infra", "Starting all services")
 	type result struct {
 		name string
@@ -354,7 +360,7 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 		return fmt.Errorf("infrastructure failures: %s", strings.Join(errs, "; "))
 	}
 
-	if runtimehost.NormalizeContainerBackend(inf.backendName()) == runtimehost.BackendAppleContainer {
+	if inf.hostGatewayProxyEnabled() && runtimehost.NormalizeContainerBackend(inf.backendName()) == runtimehost.BackendAppleContainer {
 		// Apple container does not currently provide Docker-style service DNS
 		// on these networks. Recreate the proxy after services exist so it can
 		// target inspected service IPs instead of unresolved hostnames.
@@ -472,14 +478,16 @@ func (inf *Infra) RestartComponent(ctx context.Context, component string) error 
 // calling onProgress for each step.
 func (inf *Infra) RestartComponentWithProgress(ctx context.Context, component string, onProgress ProgressFunc) error {
 	valid := map[string]func(ctx context.Context) error{
-		"gateway-proxy": inf.ensureGatewayProxy,
-		"egress":        inf.ensureEgress,
-		"comms":         inf.ensureComms,
-		"knowledge":     inf.ensureKnowledge,
-		"intake":        inf.ensureIntake,
-		"web-fetch":     inf.ensureWebFetch,
-		"web":           inf.ensureWeb,
-		"embeddings":    inf.ensureEmbeddings,
+		"egress":     inf.ensureEgress,
+		"comms":      inf.ensureComms,
+		"knowledge":  inf.ensureKnowledge,
+		"intake":     inf.ensureIntake,
+		"web-fetch":  inf.ensureWebFetch,
+		"web":        inf.ensureWeb,
+		"embeddings": inf.ensureEmbeddings,
+	}
+	if inf.hostGatewayProxyEnabled() {
+		valid["gateway-proxy"] = inf.ensureGatewayProxy
 	}
 
 	ensure, ok := valid[component]

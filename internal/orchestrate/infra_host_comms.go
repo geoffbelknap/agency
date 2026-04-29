@@ -33,6 +33,22 @@ func (inf *Infra) hostCommsEnabled() bool {
 	}
 }
 
+func (inf *Infra) hostGatewayProxyEnabled() bool {
+	raw := strings.TrimSpace(strings.ToLower(os.Getenv("AGENCY_HOST_INFRA_GATEWAY_PROXY")))
+	switch raw {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	}
+	switch strings.TrimSpace(inf.RuntimeBackendName) {
+	case hostruntimebackend.BackendFirecracker, hostruntimebackend.BackendAppleVFMicroVM:
+		return false
+	default:
+		return true
+	}
+}
+
 func (inf *Infra) ensureHostComms(ctx context.Context) error {
 	commsData := filepath.Join(inf.Home, "infrastructure", "comms", "data")
 	agentsDir := filepath.Join(inf.Home, "agents")
