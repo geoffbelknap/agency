@@ -110,6 +110,40 @@ func TestAppleVFMicroVMPrepareRootFSUsesOCIImageStore(t *testing.T) {
 	}
 }
 
+func TestAppleVFMicroVMPrepareHelperRequest(t *testing.T) {
+	home := t.TempDir()
+	backend := NewAppleVFMicroVMRuntimeBackend(home, map[string]string{
+		"kernel_path":      "/artifacts/Image",
+		"memory_mib":       "768",
+		"cpu_count":        "4",
+		"enforcement_mode": FirecrackerEnforcementModeHostProcess,
+	})
+	req := backend.PrepareHelperRequest(runtimecontract.RuntimeSpec{RuntimeID: "alice"}, MicroVMRootFS{
+		Path: filepath.Join(home, "runtime", "apple-vf-microvm", "tasks", "alice", "rootfs.ext4"),
+	})
+	if req.RequestID != "prepare-alice" || req.RuntimeID != "alice" || req.Role != AppleVFRoleWorkload || req.Backend != BackendAppleVFMicroVM {
+		t.Fatalf("unexpected request identity: %#v", req)
+	}
+	if req.AgencyHomeHash == "" {
+		t.Fatalf("agency home hash is empty: %#v", req)
+	}
+	if req.Config == nil {
+		t.Fatal("Config = nil")
+	}
+	if req.Config.KernelPath != "/artifacts/Image" {
+		t.Fatalf("kernel path = %q", req.Config.KernelPath)
+	}
+	if req.Config.RootFSPath == "" || !strings.HasSuffix(req.Config.RootFSPath, "rootfs.ext4") {
+		t.Fatalf("rootfs path = %q", req.Config.RootFSPath)
+	}
+	if req.Config.StateDir != filepath.Join(backend.StateDir, "vms", "alice") {
+		t.Fatalf("state dir = %q", req.Config.StateDir)
+	}
+	if req.Config.MemoryMiB != 768 || req.Config.CPUCount != 4 || req.Config.EnforcementMode != FirecrackerEnforcementModeHostProcess {
+		t.Fatalf("unexpected config: %#v", req.Config)
+	}
+}
+
 func TestParseAppleVFHelperHealth(t *testing.T) {
 	t.Parallel()
 

@@ -55,6 +55,21 @@ func TestParseAppleVFHelperResponseNotImplemented(t *testing.T) {
 	}
 }
 
+func TestParseAppleVFHelperPrepareResponse(t *testing.T) {
+	t.Parallel()
+
+	resp, err := ParseAppleVFHelperResponse([]byte(`{"agencyHomeHash":"home-sha","arch":"arm64","backend":"apple-vf-microvm","command":"prepare","darwin":"25.4.0","details":{"cpuCount":"2","kernelPath":"/artifacts/Image","memoryMiB":"512","rootfsPath":"/state/rootfs.ext4","stateDir":"/state/vms/alice","validated":"true"},"ok":true,"requestID":"prepare-alice","role":"workload","runtimeID":"alice","version":"0.1.0","virtualizationAvailable":true,"vmState":"prepared"}`))
+	if err != nil {
+		t.Fatalf("ParseAppleVFHelperResponse() error = %v", err)
+	}
+	if !resp.OK || resp.Command != AppleVFCommandPrepare || resp.VMState != "prepared" {
+		t.Fatalf("unexpected prepare response: %#v", resp)
+	}
+	if resp.Details["kernelPath"] != "/artifacts/Image" || resp.Details["validated"] != "true" {
+		t.Fatalf("unexpected prepare details: %#v", resp.Details)
+	}
+}
+
 func TestParseAppleVFHelperEvent(t *testing.T) {
 	t.Parallel()
 

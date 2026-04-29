@@ -61,6 +61,49 @@ func AppleVFHelperHealthStatus(ctx context.Context, helperBinary string) (AppleV
 	return health, nil
 }
 
+func AppleVFHelperPrepare(ctx context.Context, helperBinary string, req AppleVFHelperRequest) (AppleVFHelperResponse, error) {
+	return appleVFHelperRunJSON(ctx, helperBinary, AppleVFCommandPrepare, req)
+}
+
+func appleVFHelperRunJSON(ctx context.Context, helperBinary string, command AppleVFHelperCommand, req AppleVFHelperRequest) (AppleVFHelperResponse, error) {
+	helperBinary = strings.TrimSpace(helperBinary)
+	if helperBinary == "" {
+		return AppleVFHelperResponse{}, fmt.Errorf("apple-vf helper binary path is not configured")
+	}
+	arg, err := req.JSONArg()
+	if err != nil {
+		return AppleVFHelperResponse{}, err
+	}
+	cmd := appleVFHelperCommandContext(ctx, helperBinary, string(command), "--request-json", arg)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	resp, parseErr := ParseAppleVFHelperResponse(out)
+	if parseErr != nil {
+		detail := strings.TrimSpace(stderr.String())
+		if detail != "" {
+			return AppleVFHelperResponse{}, fmt.Errorf("apple-vf helper %s output is not parseable: %w: %s", command, parseErr, detail)
+		}
+		return AppleVFHelperResponse{}, fmt.Errorf("apple-vf helper %s output is not parseable: %w", command, parseErr)
+	}
+	if err != nil {
+		if strings.TrimSpace(resp.Error) != "" {
+			return resp, errors.New(resp.Error)
+		}
+		return resp, fmt.Errorf("apple-vf helper %s failed: %w", command, err)
+	}
+	if !resp.OK {
+		if strings.TrimSpace(resp.Error) != "" {
+			return resp, errors.New(resp.Error)
+		}
+		return resp, fmt.Errorf("apple-vf helper %s returned ok=false", command)
+	}
+	if resp.Backend != BackendAppleVFMicroVM {
+		return resp, fmt.Errorf("apple-vf helper reported backend %q, want %q", resp.Backend, BackendAppleVFMicroVM)
+	}
+	return resp, nil
+}
+
 func ParseAppleVFHelperHealth(data []byte) (AppleVFHelperHealth, error) {
 	resp, err := ParseAppleVFHelperResponse(data)
 	if err != nil {

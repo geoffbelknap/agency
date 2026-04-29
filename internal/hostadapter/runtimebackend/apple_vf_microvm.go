@@ -2,6 +2,8 @@ package runtimebackend
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -101,6 +103,32 @@ func (b *AppleVFMicroVMRuntimeBackend) PrepareRootFS(ctx context.Context, spec r
 	return b.imageStore().PrepareTaskRootFS(ctx, spec)
 }
 
+func (b *AppleVFMicroVMRuntimeBackend) PrepareHelperRequest(spec runtimecontract.RuntimeSpec, rootfs MicroVMRootFS) AppleVFHelperRequest {
+	return AppleVFHelperRequest{
+		RequestID:      "prepare-" + strings.TrimSpace(spec.RuntimeID),
+		RuntimeID:      strings.TrimSpace(spec.RuntimeID),
+		Role:           AppleVFRoleWorkload,
+		Backend:        BackendAppleVFMicroVM,
+		AgencyHomeHash: appleVFAgencyHomeHash(b.StateDir),
+		Config: &AppleVFHelperVMConfig{
+			KernelPath:      strings.TrimSpace(b.KernelPath),
+			RootFSPath:      strings.TrimSpace(rootfs.Path),
+			StateDir:        filepath.Join(strings.TrimSpace(b.StateDir), "vms", strings.TrimSpace(spec.RuntimeID)),
+			MemoryMiB:       b.MemoryMiB,
+			CPUCount:        b.CPUCount,
+			EnforcementMode: b.EnforcementMode,
+		},
+	}
+}
+
+func (b *AppleVFMicroVMRuntimeBackend) PrepareWithHelper(ctx context.Context, spec runtimecontract.RuntimeSpec) (AppleVFHelperResponse, error) {
+	rootfs, err := b.PrepareRootFS(ctx, spec)
+	if err != nil {
+		return AppleVFHelperResponse{}, err
+	}
+	return AppleVFHelperPrepare(ctx, b.HelperBinary, b.PrepareHelperRequest(spec, rootfs))
+}
+
 func (b *AppleVFMicroVMRuntimeBackend) imageStore() *MicroVMImageStore {
 	if b.Images != nil {
 		return b.Images
@@ -114,4 +142,13 @@ func (b *AppleVFMicroVMRuntimeBackend) imageStore() *MicroVMImageStore {
 		SizeMiB:  defaultFirecrackerRootFSMiB,
 	}
 	return b.Images
+}
+
+func appleVFAgencyHomeHash(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])[:12]
 }
