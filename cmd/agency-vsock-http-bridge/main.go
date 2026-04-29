@@ -28,21 +28,31 @@ type bridgeSpec struct {
 	Port   uint32
 }
 
+type guestListenerSpec struct {
+	Port   uint32
+	Target string
+}
+
 func main() {
 	raw := flag.String("bridges", envOr("AGENCY_VSOCK_HTTP_BRIDGES", defaultBridgeSpec), "comma-separated listen=cid:port bridges")
+	rawGuestListeners := flag.String("guest-listeners", envOr("AGENCY_VSOCK_HTTP_GUEST_LISTENERS", ""), "comma-separated port=target listeners exposed over guest vsock")
 	flag.Parse()
 	specs, err := parseBridgeSpecs(*raw)
 	if err != nil {
 		log.Fatal(err)
 	}
+	guestListeners, err := parseGuestListenerSpecs(*rawGuestListeners)
+	if err != nil {
+		log.Fatal(err)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := run(ctx, specs); err != nil {
+	if err := run(ctx, specs, guestListeners); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(ctx context.Context, specs []bridgeSpec) error {
+func run(ctx context.Context, specs []bridgeSpec, guestListeners []guestListenerSpec) error {
 	if err := bringUpLoopback(); err != nil {
 		return err
 	}
@@ -55,6 +65,14 @@ func run(ctx context.Context, specs []bridgeSpec) error {
 		}
 		listeners = append(listeners, listener)
 		go accept(ctx, listener, spec)
+	}
+	for _, spec := range guestListeners {
+		fd, err := listenVsock(spec.Port)
+		if err != nil {
+			closeListeners(listeners)
+			return fmt.Errorf("listen vsock %d: %w", spec.Port, err)
+		}
+		go acceptVsock(ctx, fd, spec)
 	}
 	<-ctx.Done()
 	closeListeners(listeners)
@@ -123,6 +141,64 @@ func handle(ctx context.Context, local net.Conn, spec bridgeSpec) {
 	}
 }
 
+func listenVsock(port uint32) (int, error) {
+	fd, err := unix.Socket(unix.AF_VSOCK, unix.SOCK_STREAM, 0)
+	if err != nil {
+		return -1, err
+	}
+	if err := unix.Bind(fd, &unix.SockaddrVM{CID: unix.VMADDR_CID_ANY, Port: port}); err != nil {
+		_ = unix.Close(fd)
+		return -1, err
+	}
+	if err := unix.Listen(fd, 128); err != nil {
+		_ = unix.Close(fd)
+		return -1, err
+	}
+	return fd, nil
+}
+
+func acceptVsock(ctx context.Context, fd int, spec guestListenerSpec) {
+	go func() {
+		<-ctx.Done()
+		_ = unix.Close(fd)
+	}()
+	for {
+		connFD, _, err := unix.Accept(fd)
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				continue
+			}
+		}
+		go handleVsockGuestConnection(ctx, connFD, spec.Target)
+	}
+}
+
+func handleVsockGuestConnection(ctx context.Context, fd int, target string) {
+	local := os.NewFile(uintptr(fd), "vsock")
+	defer local.Close()
+	remote, err := (&net.Dialer{}).DialContext(ctx, "tcp", target)
+	if err != nil {
+		return
+	}
+	defer remote.Close()
+	errc := make(chan error, 2)
+	go func() {
+		_, err := io.Copy(remote, local)
+		errc <- err
+	}()
+	go func() {
+		_, err := io.Copy(local, remote)
+		errc <- err
+	}()
+	select {
+	case <-ctx.Done():
+	case <-errc:
+	}
+}
+
 func dialVsock(cid, port uint32) (io.ReadWriteCloser, error) {
 	fd, err := unix.Socket(unix.AF_VSOCK, unix.SOCK_STREAM, 0)
 	if err != nil {
@@ -134,6 +210,30 @@ func dialVsock(cid, port uint32) (io.ReadWriteCloser, error) {
 	}
 	file := os.NewFile(uintptr(fd), "vsock")
 	return file, nil
+}
+
+func parseGuestListenerSpecs(raw string) ([]guestListenerSpec, error) {
+	var specs []guestListenerSpec
+	for _, item := range strings.Split(raw, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		parts := strings.SplitN(item, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid guest listener %q", item)
+		}
+		port, err := parseUint32(parts[0])
+		if err != nil {
+			return nil, fmt.Errorf("invalid guest listener port %q: %w", parts[0], err)
+		}
+		target := strings.TrimSpace(parts[1])
+		if target == "" {
+			return nil, fmt.Errorf("guest listener %d target is empty", port)
+		}
+		specs = append(specs, guestListenerSpec{Port: port, Target: target})
+	}
+	return specs, nil
 }
 
 func parseBridgeSpecs(raw string) ([]bridgeSpec, error) {

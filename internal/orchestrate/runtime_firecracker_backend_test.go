@@ -95,6 +95,33 @@ func TestFirecrackerComponentStatusAddsEnforcerComponentDetails(t *testing.T) {
 	}
 }
 
+func TestFirecrackerApplyEnforcerMicroVMTargets(t *testing.T) {
+	factory := &hostruntimebackend.FirecrackerVsockListenerFactory{StateDir: t.TempDir()}
+	bridge, err := factory.Start(context.Background(), "alice-enforcer", map[int]string{8200: "127.0.0.1:8200"})
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	defer factory.Stop("alice-enforcer")
+	backend := &firecrackerComponentRuntimeBackend{
+		backend: &hostruntimebackend.FirecrackerRuntimeBackend{
+			Vsock: factory,
+		},
+	}
+	env := map[string]string{}
+	if err := backend.applyEnforcerMicroVMTargets("alice", env); err != nil {
+		t.Fatalf("applyEnforcerMicroVMTargets returned error: %v", err)
+	}
+	for key, port := range map[string]int{
+		hostruntimebackend.FirecrackerEnforcerProxyTargetEnv:   3128,
+		hostruntimebackend.FirecrackerEnforcerControlTargetEnv: 8081,
+	} {
+		want := hostruntimebackend.FirecrackerGuestVsockTarget(bridge.UDSBase, port)
+		if env[key] != want {
+			t.Fatalf("env[%s] = %q, want %q", key, env[key], want)
+		}
+	}
+}
+
 func TestFirecrackerMicroVMEnforcementModeUsesBackendRuntime(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "agents", "alice"), 0o755); err != nil {

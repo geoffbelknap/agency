@@ -31,3 +31,31 @@ func TestParseBridgeSpecsRejectsInvalidShape(t *testing.T) {
 		t.Fatal("expected empty bridge error")
 	}
 }
+
+func TestParseGuestListenerSpecs(t *testing.T) {
+	specs, err := parseGuestListenerSpecs("3128=127.0.0.1:3128, 8081=127.0.0.1:8081")
+	if err != nil {
+		t.Fatalf("parseGuestListenerSpecs returned error: %v", err)
+	}
+	if len(specs) != 2 {
+		t.Fatalf("len = %d, want 2", len(specs))
+	}
+	if specs[0] != (guestListenerSpec{Port: 3128, Target: "127.0.0.1:3128"}) {
+		t.Fatalf("spec[0] = %#v", specs[0])
+	}
+	if specs[1] != (guestListenerSpec{Port: 8081, Target: "127.0.0.1:8081"}) {
+		t.Fatalf("spec[1] = %#v", specs[1])
+	}
+}
+
+func TestParseGuestListenerSpecsRejectsInvalidShape(t *testing.T) {
+	if _, err := parseGuestListenerSpecs("3128"); err == nil {
+		t.Fatal("expected invalid guest listener error")
+	}
+	if _, err := parseGuestListenerSpecs("not-a-port=127.0.0.1:3128"); err == nil {
+		t.Fatal("expected invalid guest listener port error")
+	}
+	if _, err := parseGuestListenerSpecs("3128="); err == nil {
+		t.Fatal("expected empty target error")
+	}
+}

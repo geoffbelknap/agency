@@ -103,6 +103,7 @@ func firecrackerEnforcerMicroVMEnv(spec agentruntime.EnforcerLaunchSpec, hostSer
 	env["ENFORCER_BIND_ADDR"] = "0.0.0.0"
 	env["CONSTRAINT_WS_BIND_ADDR"] = "0.0.0.0"
 	env["AGENCY_VSOCK_HTTP_BRIDGES"] = firecrackerBridgeEnv(hostServicePorts)
+	env["AGENCY_VSOCK_HTTP_GUEST_LISTENERS"] = "3128=127.0.0.1:3128,8081=127.0.0.1:8081"
 	for key, value := range firecrackerGuestServiceURLs(hostServices) {
 		env[key] = value
 	}

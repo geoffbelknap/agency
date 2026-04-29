@@ -10,7 +10,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
+
+const firecrackerGuestVsockTargetPrefix = "firecracker-vsock://"
 
 type FirecrackerVsockListenerFactory struct {
 	StateDir string
@@ -146,8 +149,7 @@ func (b *FirecrackerVsockBridge) stop() {
 
 func proxyFirecrackerVsockConn(ctx context.Context, guest net.Conn, target string) {
 	defer guest.Close()
-	network, address := firecrackerVsockTarget(target)
-	host, err := (&net.Dialer{}).DialContext(ctx, network, address)
+	host, err := dialFirecrackerVsockTarget(ctx, target)
 	if err != nil {
 		return
 	}
@@ -164,6 +166,79 @@ func proxyFirecrackerVsockConn(ctx context.Context, guest net.Conn, target strin
 	select {
 	case <-ctx.Done():
 	case <-errc:
+	}
+}
+
+func FirecrackerGuestVsockTarget(udsPath string, port int) string {
+	return firecrackerGuestVsockTargetPrefix + strings.TrimSpace(udsPath) + ":" + strconv.Itoa(port)
+}
+
+func dialFirecrackerVsockTarget(ctx context.Context, target string) (net.Conn, error) {
+	if strings.HasPrefix(target, firecrackerGuestVsockTargetPrefix) {
+		udsPath, port, err := firecrackerGuestVsockTarget(target)
+		if err != nil {
+			return nil, err
+		}
+		conn, err := (&net.Dialer{}).DialContext(ctx, "unix", udsPath)
+		if err != nil {
+			return nil, err
+		}
+		if err := firecrackerConnectGuestVsock(conn, port); err != nil {
+			_ = conn.Close()
+			return nil, err
+		}
+		return conn, nil
+	}
+	network, address := firecrackerVsockTarget(target)
+	return (&net.Dialer{}).DialContext(ctx, network, address)
+}
+
+func firecrackerGuestVsockTarget(target string) (string, int, error) {
+	raw := strings.TrimPrefix(target, firecrackerGuestVsockTargetPrefix)
+	idx := strings.LastIndex(raw, ":")
+	if idx <= 0 || idx == len(raw)-1 {
+		return "", 0, fmt.Errorf("firecracker vsock target: invalid guest target %q", target)
+	}
+	port, err := strconv.Atoi(raw[idx+1:])
+	if err != nil || port <= 0 || port > 65535 {
+		return "", 0, fmt.Errorf("firecracker vsock target: invalid guest port %q", raw[idx+1:])
+	}
+	return raw[:idx], port, nil
+}
+
+func firecrackerConnectGuestVsock(conn net.Conn, port int) error {
+	deadline := time.Now().Add(5 * time.Second)
+	_ = conn.SetDeadline(deadline)
+	defer func() {
+		_ = conn.SetDeadline(time.Time{})
+	}()
+	if _, err := fmt.Fprintf(conn, "CONNECT %d\n", port); err != nil {
+		return err
+	}
+	line, err := readFirecrackerVsockLine(conn)
+	if err != nil {
+		return err
+	}
+	if !strings.HasPrefix(line, "OK ") {
+		return fmt.Errorf("firecracker vsock target: connect rejected: %s", strings.TrimSpace(line))
+	}
+	return nil
+}
+
+func readFirecrackerVsockLine(conn net.Conn) (string, error) {
+	var b strings.Builder
+	buf := make([]byte, 1)
+	for {
+		n, err := conn.Read(buf)
+		if n > 0 {
+			b.WriteByte(buf[0])
+			if buf[0] == '\n' {
+				return b.String(), nil
+			}
+		}
+		if err != nil {
+			return b.String(), err
+		}
 	}
 }
 

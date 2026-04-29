@@ -47,19 +47,20 @@ func TestFirecrackerCompileEnforcerMicroVMSpec(t *testing.T) {
 		t.Fatalf("image = %q, want %q", spec.Image, enforcerImage)
 	}
 	for key, want := range map[string]string{
-		"AGENT_NAME":                "alice",
-		"BUILD_ID":                  "build-1",
-		"GATEWAY_TOKEN":             "gateway-token",
-		"ENFORCER_PORT":             agentruntime.EnforcerProxyPort,
-		"CONSTRAINT_WS_PORT":        agentruntime.EnforcerConstraintPort,
-		"ENFORCER_BIND_ADDR":        "0.0.0.0",
-		"CONSTRAINT_WS_BIND_ADDR":   "0.0.0.0",
-		"GATEWAY_URL":               "http://127.0.0.1:8200",
-		"COMMS_URL":                 "http://127.0.0.1:8202",
-		"KNOWLEDGE_URL":             "http://127.0.0.1:8204",
-		"WEB_FETCH_URL":             "http://127.0.0.1:8206",
-		"EGRESS_PROXY":              "http://127.0.0.1:8312",
-		"AGENCY_VSOCK_HTTP_BRIDGES": "127.0.0.1:8200=2:8200,127.0.0.1:8202=2:8202,127.0.0.1:8204=2:8204,127.0.0.1:8206=2:8206,127.0.0.1:8312=2:8312",
+		"AGENT_NAME":                        "alice",
+		"BUILD_ID":                          "build-1",
+		"GATEWAY_TOKEN":                     "gateway-token",
+		"ENFORCER_PORT":                     agentruntime.EnforcerProxyPort,
+		"CONSTRAINT_WS_PORT":                agentruntime.EnforcerConstraintPort,
+		"ENFORCER_BIND_ADDR":                "0.0.0.0",
+		"CONSTRAINT_WS_BIND_ADDR":           "0.0.0.0",
+		"GATEWAY_URL":                       "http://127.0.0.1:8200",
+		"COMMS_URL":                         "http://127.0.0.1:8202",
+		"KNOWLEDGE_URL":                     "http://127.0.0.1:8204",
+		"WEB_FETCH_URL":                     "http://127.0.0.1:8206",
+		"EGRESS_PROXY":                      "http://127.0.0.1:8312",
+		"AGENCY_VSOCK_HTTP_BRIDGES":         "127.0.0.1:8200=2:8200,127.0.0.1:8202=2:8202,127.0.0.1:8204=2:8204,127.0.0.1:8206=2:8206,127.0.0.1:8312=2:8312",
+		"AGENCY_VSOCK_HTTP_GUEST_LISTENERS": "3128=127.0.0.1:3128,8081=127.0.0.1:8081",
 	} {
 		if got := spec.Env[key]; got != want {
 			t.Fatalf("env[%s] = %q, want %q", key, got, want)

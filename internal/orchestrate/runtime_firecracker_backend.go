@@ -81,12 +81,30 @@ func (b *firecrackerComponentRuntimeBackend) EnsureWorkspace(ctx context.Context
 	if err := b.EnsureEnforcer(ctx, spec, false); err != nil {
 		return err
 	}
+	if b.enforcementMode() == hostruntimebackend.FirecrackerEnforcementModeMicroVM {
+		if err := b.applyEnforcerMicroVMTargets(spec.RuntimeID, spec.Package.Env); err != nil {
+			return err
+		}
+	}
 	return b.backend.Ensure(ctx, spec)
 }
 
 func (b *firecrackerComponentRuntimeBackend) ReloadEnforcer(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
 	_ = ctx
 	return b.enforcerSupervisor().Signal(spec.RuntimeID, syscall.SIGHUP)
+}
+
+func (b *firecrackerComponentRuntimeBackend) applyEnforcerMicroVMTargets(runtimeID string, env map[string]string) error {
+	if b.backend.Vsock == nil {
+		return fmt.Errorf("firecracker enforcer microVM bridge is not running")
+	}
+	bridge := b.backend.Vsock.Bridge(firecrackerComponentRuntimeID(runtimeID, firecrackerComponentEnforcer))
+	if bridge == nil {
+		return fmt.Errorf("firecracker enforcer microVM bridge is not running")
+	}
+	env[hostruntimebackend.FirecrackerEnforcerProxyTargetEnv] = hostruntimebackend.FirecrackerGuestVsockTarget(bridge.UDSBase, 3128)
+	env[hostruntimebackend.FirecrackerEnforcerControlTargetEnv] = hostruntimebackend.FirecrackerGuestVsockTarget(bridge.UDSBase, 8081)
+	return nil
 }
 
 func (b *firecrackerComponentRuntimeBackend) Stop(ctx context.Context, runtimeID string) error {

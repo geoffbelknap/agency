@@ -99,6 +99,68 @@ func TestFirecrackerVsockTargetParsesNetworkPrefixes(t *testing.T) {
 	}
 }
 
+func TestFirecrackerGuestVsockTargetHandshake(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "vsock.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		line, _ := bufio.NewReader(conn).ReadString('\n')
+		if line != "CONNECT 8081\n" {
+			return
+		}
+		_, _ = conn.Write([]byte("OK 1073741824\n"))
+		line, _ = bufio.NewReader(conn).ReadString('\n')
+		_, _ = conn.Write([]byte("echo:" + line))
+	}()
+
+	conn, err := dialFirecrackerVsockTarget(context.Background(), FirecrackerGuestVsockTarget(socketPath, 8081))
+	if err != nil {
+		t.Fatalf("dialFirecrackerVsockTarget returned error: %v", err)
+	}
+	defer conn.Close()
+	if _, err := conn.Write([]byte("ping\n")); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	got, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil {
+		t.Fatalf("read target: %v", err)
+	}
+	if got != "echo:ping\n" {
+		t.Fatalf("guest vsock response = %q", got)
+	}
+}
+
+func TestFirecrackerGuestVsockTargetRejectsBadAck(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "vsock.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _ = bufio.NewReader(conn).ReadString('\n')
+		_, _ = conn.Write([]byte("ERR\n"))
+	}()
+
+	_, err = dialFirecrackerVsockTarget(context.Background(), FirecrackerGuestVsockTarget(socketPath, 8081))
+	if err == nil {
+		t.Fatal("expected bad ack to fail")
+	}
+}
+
 func TestFirecrackerVsockBridgeRejectsInvalidConfig(t *testing.T) {
 	factory := &FirecrackerVsockListenerFactory{StateDir: t.TempDir()}
 	if _, err := factory.Start(context.Background(), "", map[int]string{9999: "unix:///tmp/x"}); err == nil {
