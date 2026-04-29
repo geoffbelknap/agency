@@ -165,10 +165,14 @@ func (inf *Infra) hostCommsStatus(ctx context.Context) runtimehost.InfraComponen
 }
 
 func (inf *Infra) HostInfraStatuses(ctx context.Context) []runtimehost.InfraComponent {
-	if !inf.hostCommsEnabled() {
-		return nil
+	var statuses []runtimehost.InfraComponent
+	if inf.hostCommsEnabled() {
+		statuses = append(statuses, inf.hostCommsStatus(ctx))
 	}
-	return []runtimehost.InfraComponent{inf.hostCommsStatus(ctx)}
+	if inf.hostKnowledgeEnabled() {
+		statuses = append(statuses, inf.hostKnowledgeStatus(ctx))
+	}
+	return statuses
 }
 
 func (inf *Infra) hostCommsPIDPath() string {
