@@ -345,6 +345,21 @@ func TestFirecrackerEnforcerTargetsHostServices(t *testing.T) {
 	}
 }
 
+func TestFirecrackerEnforcerTargetsAcceptsGuestVsockTarget(t *testing.T) {
+	target := FirecrackerGuestVsockTarget("/tmp/fc-enforcer/vsock.sock", 8081)
+	targets, err := firecrackerEnforcerTargets(runtimecontract.RuntimeSpec{
+		Package: runtimecontract.RuntimePackageSpec{Env: map[string]string{
+			FirecrackerEnforcerControlTargetEnv: target,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("firecrackerEnforcerTargets returned error: %v", err)
+	}
+	if targets[8081] != target {
+		t.Fatalf("target = %q, want %q", targets[8081], target)
+	}
+}
+
 func TestFirecrackerEnforcerTargetsRejectsInvalidHostServicePort(t *testing.T) {
 	_, err := firecrackerEnforcerTargets(runtimecontract.RuntimeSpec{
 		Package: runtimecontract.RuntimePackageSpec{Env: map[string]string{

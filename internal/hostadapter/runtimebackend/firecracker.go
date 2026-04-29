@@ -398,6 +398,8 @@ func firecrackerEnforcerTarget(endpoint string) (string, error) {
 		return parsed.Host, nil
 	case "unix":
 		return "unix://" + parsed.Path, nil
+	case "firecracker-vsock":
+		return endpoint, nil
 	default:
 		return "", fmt.Errorf("firecracker backend: unsupported enforcer endpoint %q", endpoint)
 	}
