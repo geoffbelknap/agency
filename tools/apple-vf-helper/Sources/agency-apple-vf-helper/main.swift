@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 #if canImport(Virtualization)
 import Virtualization
@@ -110,6 +111,16 @@ func virtualizationAvailable() -> Bool {
     #endif
 }
 
+func hasVirtualizationEntitlement() -> Bool {
+    guard let task = SecTaskCreateFromSelf(nil) else {
+        return false
+    }
+    guard let value = SecTaskCopyValueForEntitlement(task, "com.apple.security.virtualization" as CFString, nil) else {
+        return false
+    }
+    return (value as? Bool) == true
+}
+
 func emptyRequest() -> HelperRequest {
     HelperRequest(
         requestID: nil,
@@ -136,12 +147,15 @@ func parseRequest(args: [String]) throws -> HelperRequest {
 func health(command: String, request: HelperRequest) -> Int32 {
     let supported = virtualizationAvailable()
     let arch = currentArch()
-    let ok = supported && (arch == "arm64" || arch == "arm64e")
+    let entitled = hasVirtualizationEntitlement()
+    let ok = supported && entitled && (arch == "arm64" || arch == "arm64e")
     let err: String?
     if ok {
         err = nil
     } else if !supported {
         err = "Apple Virtualization.framework does not report VM support on this host"
+    } else if !entitled {
+        err = "agency-apple-vf-helper is missing com.apple.security.virtualization entitlement"
     } else {
         err = "apple-vf-microvm requires Apple silicon; host architecture is \(arch)"
     }
