@@ -3,6 +3,7 @@ package runtimebackend
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
@@ -35,5 +36,29 @@ func TestAppleVFMicroVMBackendSkeleton(t *testing.T) {
 	}
 	if len(caps.SupportedTransportTypes) != 1 || caps.SupportedTransportTypes[0] != runtimecontract.TransportTypeVsockHTTP {
 		t.Fatalf("SupportedTransportTypes = %#v", caps.SupportedTransportTypes)
+	}
+}
+
+func TestParseAppleVFHelperHealth(t *testing.T) {
+	t.Parallel()
+
+	health, err := ParseAppleVFHelperHealth([]byte(`{"arch":"arm64","backend":"apple-vf-microvm","command":"health","darwin":"25.4.0","ok":true,"version":"0.1.0","virtualizationAvailable":true}`))
+	if err != nil {
+		t.Fatalf("ParseAppleVFHelperHealth() error = %v", err)
+	}
+	if !health.OK || health.Backend != BackendAppleVFMicroVM || health.Arch != "arm64" || !health.VirtualizationAvailable {
+		t.Fatalf("unexpected health: %#v", health)
+	}
+}
+
+func TestParseAppleVFHelperHealthFailure(t *testing.T) {
+	t.Parallel()
+
+	health, err := ParseAppleVFHelperHealth([]byte(`{"arch":"x86_64","backend":"apple-vf-microvm","command":"health","darwin":"25.4.0","ok":false,"version":"0.1.0","virtualizationAvailable":false,"error":"Apple Virtualization.framework does not report VM support on this host"}`))
+	if err != nil {
+		t.Fatalf("ParseAppleVFHelperHealth() error = %v", err)
+	}
+	if health.OK || !strings.Contains(health.Error, "Virtualization.framework") {
+		t.Fatalf("unexpected health failure: %#v", health)
 	}
 }
