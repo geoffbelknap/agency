@@ -68,7 +68,7 @@ func mcpConfiguredRuntimeBackend(d *mcpDeps) string {
 func mcpContainerInfraUnavailable(d *mcpDeps) (string, bool) {
 	backend := mcpConfiguredRuntimeBackend(d)
 	if !runtimehost.IsContainerBackend(backend) {
-		return fmt.Sprintf("Infrastructure container lifecycle is only available for container backends. Current backend: %s.", backend), true
+		return fmt.Sprintf("Legacy container infrastructure lifecycle is only available for transitional container backends. Current backend: %s.", backend), true
 	}
 	if d == nil || d.dc == nil {
 		return fmt.Sprintf("Infrastructure manager is unavailable: %s client is not initialized.", runtimehost.NormalizeContainerBackend(backend)), true

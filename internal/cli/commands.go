@@ -939,7 +939,7 @@ func statusCmd() *cobra.Command {
 					fmt.Fprintf(out, "  Web UI:  %s\n", infraResp.WebURL)
 				}
 				if infraResp.ContainerBackend == "unavailable" {
-					fmt.Fprintf(out, "  Container backend: %s\n", red.Render("unavailable"))
+					fmt.Fprintf(out, "  Legacy container backend: %s\n", red.Render("unavailable"))
 				}
 				if backendLine := formatBackendStatusLine(infraResp.Backend, infraResp.BackendMode, infraResp.BackendEndpoint); backendLine != "" {
 					fmt.Fprintf(out, "  Backend: %s\n", backendLine)
