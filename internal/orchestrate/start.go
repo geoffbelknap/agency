@@ -78,7 +78,7 @@ func (ss *StartSequence) Run(ctx context.Context, onPhase PhaseCallback) (*Start
 	}
 
 	// Phase 2: Enforcement
-	onPhase(2, "enforcement", "Starting enforcement containers")
+	onPhase(2, "enforcement", "Starting enforcement boundary")
 	if err = ss.phase2Enforcement(ctx); err != nil {
 		ss.failClosed(ctx)
 		return nil, fmt.Errorf("phase 2 (enforcement): %w", err)

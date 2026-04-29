@@ -10,7 +10,7 @@ describes the current `0.2.x` core Agency path.
 
 ## What You Need
 
-1. Docker installed and running.
+1. A supported runtime path for your platform. On Linux/WSL2 this is Firecracker with KVM and vsock access; on macOS Apple silicon this is the `apple-vf-microvm` path as it comes online.
 2. One LLM provider API key. Google Gemini is a good early-user choice because it has a free tier.
 3. About 20 minutes.
 
@@ -24,7 +24,7 @@ agency quickstart
 
 Quickstart will:
 
-1. Check that Docker is running.
+1. Check that the selected runtime backend and shared infrastructure are ready.
 2. Ask which LLM provider to use. For early core testing, choose Google Gemini unless you already have another provider key ready.
 3. Store your API key in Agency's encrypted credential store.
 4. Start the local infrastructure.
@@ -113,7 +113,7 @@ agency stop henry --immediate
 agency start henry
 ```
 
-If test runs leave temporary agents, containers, or networks behind, inspect the matched cleanup set first:
+If test runs leave temporary agents, runtime state, or legacy container/network artifacts behind, inspect the matched cleanup set first:
 
 ```bash
 ./scripts/dev/cleanup-live-test-runtimes.sh
