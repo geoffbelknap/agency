@@ -235,6 +235,36 @@ Both modes should be compared with the same benchmark and parity harness:
 - credential boundary clarity
 - operator debuggability
 
+The live comparison entrypoint is:
+
+```bash
+./scripts/e2e/firecracker-enforcer-mode-compare.sh
+```
+
+It runs `manage`, `recover`, and `cleanup` Web UI smokes for
+`host-process` and `microvm` modes using the same test implementation, then
+writes a report and JSONL metrics under
+`test-results/firecracker-enforcer-mode-compare/<run-id>/`.
+The report captures timing/resource evidence and security evidence:
+vsock-only workload transport, running external enforcer component, bridge
+health, body websocket health, absence of workload host-service target env
+exposure, and audit evidence for mediated DM activity. It also records
+whether LLM audit markers are visible through the current agent log API, but
+does not treat that projection as the canonical source of mediation evidence.
+
+Default selection should require:
+
+- both modes pass the full Web UI comparison harness
+- both modes satisfy the Firecracker ASK compliance checklist
+- security evidence is equivalent for both modes, except where `microvm`
+  intentionally provides stronger enforcer substrate isolation
+- no orphan process, VM, PID, UDS, config, or rootfs state remains after
+  cleanup
+- `microvm` is preferred if its reliability and operator experience are
+  acceptable, because it gives the enforcer a stronger substrate boundary
+- `host-process` remains the fallback only if `microvm` has unacceptable
+  startup, resource, recovery, or debuggability costs
+
 ## Implementation Sequence
 
 1. Add explicit Firecracker `enforcement_mode` parsing and status reporting.

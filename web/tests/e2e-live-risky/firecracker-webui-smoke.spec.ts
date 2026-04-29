@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -9,6 +9,8 @@ const SETUP_HEADING_PATTERN = /Welcome to Agency|Re-configure Agency|Preparing y
 const enabled = process.env.AGENCY_E2E_FIRECRACKER_WEBUI === '1';
 const agencyBin = process.env.AGENCY_BIN || 'agency';
 const execFileAsync = promisify(execFile);
+const metricsFile = process.env.AGENCY_E2E_FIRECRACKER_METRICS_FILE || '';
+const metricsMode = process.env.AGENCY_E2E_FIRECRACKER_ENFORCEMENT_MODE || '';
 
 test.describe.configure({ timeout: 240_000 });
 test.skip(!enabled, 'requires AGENCY_E2E_FIRECRACKER_WEBUI=1 and a Firecracker-capable live stack');
@@ -16,9 +18,26 @@ test.skip(!enabled, 'requires AGENCY_E2E_FIRECRACKER_WEBUI=1 and a Firecracker-c
 let cachedAuthHeaders: Record<string, string> | null = null;
 
 type RuntimeManifest = {
+  spec?: {
+    package?: {
+      env?: Record<string, string>;
+    };
+    transport?: {
+      enforcer?: {
+        type?: string;
+        endpoint?: string;
+      };
+    };
+  };
   backendStatus?: {
     details?: Record<string, string>;
   };
+};
+
+type RuntimeStatus = {
+  healthy?: boolean;
+  phase?: string;
+  details?: Record<string, string>;
 };
 
 async function authHeaders(page: Page): Promise<Record<string, string>> {
@@ -64,6 +83,16 @@ async function runAgency(args: string[]) {
   });
 }
 
+function writeMetric(data: Record<string, unknown>) {
+  if (!metricsFile) return;
+  mkdirSync(path.dirname(metricsFile), { recursive: true });
+  appendFileSync(metricsFile, `${JSON.stringify({
+    at: new Date().toISOString(),
+    mode: metricsMode,
+    ...data,
+  })}\n`);
+}
+
 async function waitForGateway(page: Page) {
   await expect.poll(async () => {
     try {
@@ -97,6 +126,24 @@ async function runtimeManifest(page: Page, name: string): Promise<RuntimeManifes
   return response.json() as Promise<RuntimeManifest>;
 }
 
+async function runtimeStatus(page: Page, name: string): Promise<RuntimeStatus> {
+  const response = await page.request.get(`/api/v1/agents/${encodeURIComponent(name)}/runtime/status`, {
+    headers: await authHeaders(page),
+  });
+  if (!response.ok()) {
+    throw new Error(`runtime status failed for ${name}: ${response.status()}`);
+  }
+  return response.json() as Promise<RuntimeStatus>;
+}
+
+async function agentLogs(page: Page, name: string) {
+  const response = await page.request.get(`/api/v1/agents/${encodeURIComponent(name)}/logs`, {
+    headers: await authHeaders(page),
+  });
+  if (!response.ok()) return [];
+  return response.json() as Promise<Array<Record<string, unknown>>>;
+}
+
 function processAlive(pid: number): boolean {
   if (!Number.isFinite(pid) || pid <= 0) return false;
   try {
@@ -111,6 +158,28 @@ function pidFromManifest(manifest: RuntimeManifest, key: string): number {
   return Number.parseInt(manifest.backendStatus?.details?.[key] ?? '', 10);
 }
 
+function rssKiB(pid: number): number | undefined {
+  if (!processAlive(pid)) return undefined;
+  try {
+    const status = readFileSync(`/proc/${pid}/status`, 'utf8');
+    const match = status.match(/^VmRSS:\s+(\d+)\s+kB$/m);
+    return match ? Number.parseInt(match[1], 10) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function diskBytes(targetPath: string): number | undefined {
+  if (!existsSync(targetPath)) return undefined;
+  const info = statSync(targetPath);
+  let total = (info.blocks ?? Math.ceil(info.size / 512)) * 512;
+  if (!info.isDirectory()) return total;
+  for (const entry of readdirSync(targetPath)) {
+    total += diskBytes(path.join(targetPath, entry)) ?? 0;
+  }
+  return total;
+}
+
 function stateDirFromManifest(manifest: RuntimeManifest): string {
   const logPath = manifest.backendStatus?.details?.log_path;
   if (!logPath) throw new Error('runtime manifest missing firecracker log_path');
@@ -118,6 +187,7 @@ function stateDirFromManifest(manifest: RuntimeManifest): string {
 }
 
 async function createAgentThroughUI(page: Page, name: string) {
+  const started = Date.now();
   await deleteAgent(page, name);
   await page.getByRole('button', { name: 'Create new agent' }).click();
   await expect(page.getByRole('heading', { name: 'Create Agent' })).toBeVisible();
@@ -125,9 +195,11 @@ async function createAgentThroughUI(page: Page, name: string) {
   await page.getByRole('button', { name: /^Create$/ }).click();
   await expect(page).toHaveURL(new RegExp(`/channels/dm-${name}$`), { timeout: 180_000 });
   await waitForDmReady(page, name);
+  return Date.now() - started;
 }
 
 async function sendDMAndWaitForReply(page: Page, name: string, prompt: string) {
+  const started = Date.now();
   await page.goto(`/channels/dm-${encodeURIComponent(name)}`);
   await settle(page);
   const before = await readMessages(page, `dm-${name}`);
@@ -140,6 +212,7 @@ async function sendDMAndWaitForReply(page: Page, name: string, prompt: string) {
     const messages = await readMessages(page, `dm-${name}`);
     return messages.filter((message) => message.author === name).slice(priorAgentReplies)[0]?.content ?? '';
   }, { timeout: 120_000, intervals: [2000, 5000, 10000] }).not.toBe('');
+  return Date.now() - started;
 }
 
 async function waitForDmReady(page: Page, name: string) {
@@ -156,6 +229,66 @@ async function waitForDmReady(page: Page, name: string) {
   }, { timeout: 120_000 }).toBe(true);
 }
 
+async function runtimeResourceMetrics(page: Page, name: string) {
+  const manifest = await runtimeManifest(page, name);
+  const stateDir = stateDirFromManifest(manifest);
+  const vmPID = pidFromManifest(manifest, 'pid');
+  const enforcerPID = pidFromManifest(manifest, 'enforcer_pid');
+  return {
+    workload_rss_kib: rssKiB(vmPID),
+    enforcer_rss_kib: rssKiB(enforcerPID),
+    workload_task_bytes: diskBytes(path.join(stateDir, 'tasks', name)),
+    enforcer_task_bytes: diskBytes(path.join(stateDir, 'tasks', `${name}-enforcer`)),
+  };
+}
+
+async function runtimeSecurityMetrics(page: Page, name: string) {
+  const [manifest, status, logs] = await Promise.all([
+    runtimeManifest(page, name),
+    runtimeStatus(page, name),
+    agentLogs(page, name),
+  ]);
+  const env = manifest.spec?.package?.env ?? {};
+  const envKeys = Object.keys(env);
+  const hostServiceTargetEnvCount = envKeys.filter((key) => key.startsWith('AGENCY_FIRECRACKER_HOST_SERVICE_TARGET_')).length;
+  const workloadHostOnlyEnvCount = envKeys.filter((key) => (
+    key.startsWith('AGENCY_FIRECRACKER_HOST_SERVICE_TARGET_') ||
+    key === 'AGENCY_FIRECRACKER_ROOTFS_OVERLAYS'
+  )).length;
+  const transportType = manifest.spec?.transport?.enforcer?.type ?? '';
+  const transportEndpoint = manifest.spec?.transport?.enforcer?.endpoint ?? '';
+  const details = status.details ?? {};
+  const logText = JSON.stringify(logs);
+  const mediationAudit = /MEDIATION_|mediation/i.test(logText);
+  const llmAudit = /LLM_|llm/i.test(logText);
+
+  expect(transportType).toBe('vsock_http');
+  expect(transportEndpoint).toMatch(/^vsock:\/\/2:\d+$/);
+  expect(status.healthy).toBe(true);
+  expect(details.enforcer_component_state).toBe('running');
+  expect(details.vsock_bridge_state).toBe('running');
+  expect(details.body_ws_connected).toBe('true');
+  expect(hostServiceTargetEnvCount).toBe(0);
+  expect(workloadHostOnlyEnvCount).toBe(0);
+  if (metricsMode) {
+    expect(details.enforcement_mode).toBe(metricsMode);
+    expect(details.enforcer_substrate).toBe(metricsMode);
+  }
+  return {
+    transport_type: transportType,
+    transport_endpoint: transportEndpoint,
+    enforcement_mode: details.enforcement_mode,
+    enforcer_substrate: details.enforcer_substrate,
+    enforcer_component_state: details.enforcer_component_state,
+    vsock_bridge_state: details.vsock_bridge_state,
+    body_ws_connected: details.body_ws_connected,
+    workload_host_service_target_env_count: hostServiceTargetEnvCount,
+    workload_host_only_env_count: workloadHostOnlyEnvCount,
+    mediation_audit_seen: mediationAudit,
+    llm_audit_seen: llmAudit,
+  };
+}
+
 test('Firecracker agent can be managed and messaged through the web UI', async ({ page }) => {
   const agentName = `fc-webui-${Date.now()}`;
   const prompt = `Web UI Firecracker smoke ${agentName}: acknowledge briefly.`;
@@ -165,7 +298,7 @@ test('Firecracker agent can be managed and messaged through the web UI', async (
     const initialized = await expectSetupOrInitialized(page);
     if (!initialized) return;
 
-    await createAgentThroughUI(page, agentName);
+    const createMs = await createAgentThroughUI(page, agentName);
 
     await page.goto(`/agents/${encodeURIComponent(agentName)}`);
     await settle(page);
@@ -173,7 +306,17 @@ test('Firecracker agent can be managed and messaged through the web UI', async (
     await expect(page.getByText('running').first()).toBeVisible();
     await page.getByRole('button', { name: 'Open DM' }).click();
     await expect(page).toHaveURL(new RegExp(`/channels/dm-${agentName}$`));
-    await sendDMAndWaitForReply(page, agentName, prompt);
+    const dmMs = await sendDMAndWaitForReply(page, agentName, prompt);
+    const securityMetrics = await runtimeSecurityMetrics(page, agentName);
+    writeMetric({
+      test: 'manage',
+      agent: agentName,
+      create_ms: createMs,
+      dm_ms: dmMs,
+      ...(await runtimeResourceMetrics(page, agentName)),
+      ...securityMetrics,
+    });
+    expect(securityMetrics.mediation_audit_seen).toBe(true);
   } finally {
     await deleteAgent(page, agentName);
   }
@@ -187,9 +330,10 @@ test('Firecracker runtime recovers after daemon restart through the web UI', asy
     const initialized = await expectSetupOrInitialized(page);
     if (!initialized) return;
 
-    await createAgentThroughUI(page, agentName);
-    await sendDMAndWaitForReply(page, agentName, `Firecracker recovery precheck ${agentName}: reply briefly.`);
+    const createMs = await createAgentThroughUI(page, agentName);
+    const preRestartDmMs = await sendDMAndWaitForReply(page, agentName, `Firecracker recovery precheck ${agentName}: reply briefly.`);
 
+    const restartStarted = Date.now();
     await runAgency(['serve', 'restart']);
     await waitForGateway(page);
 
@@ -208,11 +352,24 @@ test('Firecracker runtime recovers after daemon restart through the web UI', asy
         status.details?.body_ws_connected,
       ].join('|');
     }, { timeout: 120_000, intervals: [2000, 5000, 10000] }).toBe('running|running|running|running|true');
+    const restartRecoverMs = Date.now() - restartStarted;
 
     await page.goto(`/agents/${encodeURIComponent(agentName)}`);
     await settle(page);
     await expect(page.getByText('running').first()).toBeVisible();
-    await sendDMAndWaitForReply(page, agentName, `Firecracker recovery postcheck ${agentName}: reply briefly.`);
+    const postRestartDmMs = await sendDMAndWaitForReply(page, agentName, `Firecracker recovery postcheck ${agentName}: reply briefly.`);
+    const securityMetrics = await runtimeSecurityMetrics(page, agentName);
+    writeMetric({
+      test: 'recover',
+      agent: agentName,
+      create_ms: createMs,
+      pre_restart_dm_ms: preRestartDmMs,
+      restart_recover_ms: restartRecoverMs,
+      post_restart_dm_ms: postRestartDmMs,
+      ...(await runtimeResourceMetrics(page, agentName)),
+      ...securityMetrics,
+    });
+    expect(securityMetrics.mediation_audit_seen).toBe(true);
   } finally {
     await deleteAgent(page, agentName);
   }
@@ -226,7 +383,7 @@ test('Firecracker stop and delete clean up per-agent runtime artifacts', async (
     const initialized = await expectSetupOrInitialized(page);
     if (!initialized) return;
 
-    await createAgentThroughUI(page, agentName);
+    const createMs = await createAgentThroughUI(page, agentName);
     const manifest = await runtimeManifest(page, agentName);
     const vmPID = pidFromManifest(manifest, 'pid');
     const enforcerPID = pidFromManifest(manifest, 'enforcer_pid');
@@ -240,6 +397,7 @@ test('Firecracker stop and delete clean up per-agent runtime artifacts', async (
     expect(existsSync(runtimeDir)).toBe(true);
     expect(existsSync(taskDir)).toBe(true);
     expect(existsSync(pidFile)).toBe(true);
+    const securityMetrics = await runtimeSecurityMetrics(page, agentName);
 
     const stopResponse = await page.request.post(`/api/v1/agents/${encodeURIComponent(agentName)}/stop`, {
       headers: await authHeaders(page),
@@ -248,6 +406,7 @@ test('Firecracker stop and delete clean up per-agent runtime artifacts', async (
     });
     expect(stopResponse.ok()).toBe(true);
 
+    const cleanupStarted = Date.now();
     await expect.poll(() => processAlive(vmPID), { timeout: 30_000, intervals: [500, 1000, 2000] }).toBe(false);
     await expect.poll(() => processAlive(enforcerPID), { timeout: 30_000, intervals: [500, 1000, 2000] }).toBe(false);
     await expect.poll(() => existsSync(runtimeDir), { timeout: 30_000, intervals: [500, 1000, 2000] }).toBe(false);
@@ -260,6 +419,15 @@ test('Firecracker stop and delete clean up per-agent runtime artifacts', async (
       timeout: 10_000,
     });
     expect(showResponse.status()).toBe(404);
+    writeMetric({
+      test: 'cleanup',
+      agent: agentName,
+      create_ms: createMs,
+      ...securityMetrics,
+      cleanup_ms: Date.now() - cleanupStarted,
+      workload_rss_kib: rssKiB(vmPID),
+      enforcer_rss_kib: rssKiB(enforcerPID),
+    });
   } finally {
     await deleteAgent(page, agentName);
   }

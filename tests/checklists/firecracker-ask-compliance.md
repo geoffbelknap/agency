@@ -24,6 +24,14 @@ This checklist validates the Firecracker runtime path for the scoped 0.2.x core 
 - Live degraded restart recovery: `./scripts/e2e/firecracker-webui-smoke.sh recover`
 - Live stop/delete cleanup: `./scripts/e2e/firecracker-webui-smoke.sh cleanup`
 - Full live Web UI parity: `./scripts/e2e/firecracker-webui-smoke.sh all`
+- Enforcer mode comparison: `./scripts/e2e/firecracker-enforcer-mode-compare.sh`
+  - Captures timing/resource evidence and security evidence for both
+    `host-process` and `microvm` modes.
+  - Fails if workload transport is not `vsock_http`, the endpoint is not
+    `vsock://2:<port>`, enforcer/bridge/body health is missing, host-only
+    env targets are exposed in the workload manifest, or mediated DM audit
+    evidence is absent. It records whether LLM audit markers are visible in
+    the agent log API as secondary evidence.
 
 ## Current Evidence Map
 
