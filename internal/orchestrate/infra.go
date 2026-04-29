@@ -411,6 +411,15 @@ func (inf *Infra) TeardownWithProgress(ctx context.Context, onProgress ProgressF
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			if role == "web" && inf.hostWebEnabled() {
+				if err := inf.stopHostWeb(ctx); err != nil {
+					inf.log.Warn("teardown host web", "err", err)
+				}
+				if onProgress != nil {
+					onProgress(role, "Stopped "+role)
+				}
+				return
+			}
 			if role == "comms" && inf.hostCommsEnabled() {
 				if err := inf.stopHostComms(ctx); err != nil {
 					inf.log.Warn("teardown host comms", "err", err)
@@ -504,6 +513,8 @@ func (inf *Infra) RestartComponentWithProgress(ctx context.Context, component st
 		_ = inf.stopHostKnowledge(ctx)
 	} else if component == "egress" && inf.hostEgressEnabled() {
 		_ = inf.stopHostEgress(ctx)
+	} else if component == "web" && inf.hostWebEnabled() {
+		_ = inf.stopHostWeb(ctx)
 	} else {
 		name := inf.containerName(component)
 		_ = inf.stopAndRemove(ctx, name, stopTimeoutFor(component))
@@ -1452,6 +1463,10 @@ func (inf *Infra) ensureWebFetch(ctx context.Context) error {
 }
 
 func (inf *Infra) ensureWeb(ctx context.Context) error {
+	if inf.hostWebEnabled() {
+		_ = inf.stopAndRemove(ctx, inf.containerName("web"), stopTimeoutFor("web"))
+		return inf.ensureHostWeb(ctx)
+	}
 	// agency-web lives in the repo's top-level web/ directory, so it uses the
 	// main source tree as the resolver entrypoint instead of images/web/.
 	if err := imageops.Resolve(ctx, inf.cli, "web", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {

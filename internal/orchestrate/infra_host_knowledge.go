@@ -52,14 +52,9 @@ func (inf *Infra) ensureHostKnowledge(ctx context.Context) error {
 		return fmt.Errorf("host knowledge port %s is already serving without a managed host knowledge process; refresh gateway-proxy or stop the legacy knowledge bridge", inf.gatewayProxyPort("8204"))
 	}
 
-	sourceDir := strings.TrimSpace(inf.SourceDir)
-	if sourceDir == "" {
-		if wd, err := os.Getwd(); err == nil {
-			sourceDir = wd
-		}
-	}
-	if _, err := os.Stat(filepath.Join(sourceDir, "images", "knowledge", "server.py")); err != nil {
-		return fmt.Errorf("host knowledge source unavailable under %s: %w", sourceDir, err)
+	sourceDir, err := inf.hostInfraSourceDir(filepath.Join("images", "knowledge", "server.py"))
+	if err != nil {
+		return fmt.Errorf("host knowledge source unavailable: %w", err)
 	}
 
 	runDir := filepath.Join(inf.Home, "run")

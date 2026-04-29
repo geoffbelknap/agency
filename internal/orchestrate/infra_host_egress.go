@@ -51,17 +51,12 @@ func (inf *Infra) ensureHostEgress(ctx context.Context) error {
 		return fmt.Errorf("host egress port %s is already serving without a managed host egress process; stop the legacy egress bridge", inf.egressProxyPort())
 	}
 
-	sourceDir := strings.TrimSpace(inf.SourceDir)
-	if sourceDir == "" {
-		if wd, err := os.Getwd(); err == nil {
-			sourceDir = wd
-		}
+	sourceDir, err := inf.hostInfraSourceDir(filepath.Join("images", "egress", "addon.py"))
+	if err != nil {
+		return fmt.Errorf("host egress source unavailable: %w", err)
 	}
 	egressDir := filepath.Join(sourceDir, "images", "egress")
 	addonPath := filepath.Join(egressDir, "addon.py")
-	if _, err := os.Stat(addonPath); err != nil {
-		return fmt.Errorf("host egress source unavailable under %s: %w", sourceDir, err)
-	}
 	if err := inf.fetchHostEgressBlocklists(ctx, sourceDir, paths); err != nil {
 		inf.log.Warn("host egress blocklist fetch failed", "err", err)
 	}

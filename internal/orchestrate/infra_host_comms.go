@@ -69,14 +69,9 @@ func (inf *Infra) ensureHostComms(ctx context.Context) error {
 		return fmt.Errorf("host comms port %s is already serving without a managed host comms process; refresh gateway-proxy or stop the legacy comms bridge", inf.gatewayProxyPort("8202"))
 	}
 
-	sourceDir := strings.TrimSpace(inf.SourceDir)
-	if sourceDir == "" {
-		if wd, err := os.Getwd(); err == nil {
-			sourceDir = wd
-		}
-	}
-	if _, err := os.Stat(filepath.Join(sourceDir, "images", "comms", "server.py")); err != nil {
-		return fmt.Errorf("host comms source unavailable under %s: %w", sourceDir, err)
+	sourceDir, err := inf.hostInfraSourceDir(filepath.Join("images", "comms", "server.py"))
+	if err != nil {
+		return fmt.Errorf("host comms source unavailable: %w", err)
 	}
 
 	runDir := filepath.Join(inf.Home, "run")
@@ -189,6 +184,9 @@ func (inf *Infra) HostInfraStatuses(ctx context.Context) []runtimehost.InfraComp
 	}
 	if inf.hostEgressEnabled() {
 		statuses = append(statuses, inf.hostEgressStatus(ctx))
+	}
+	if inf.hostWebEnabled() {
+		statuses = append(statuses, inf.hostWebStatus(ctx))
 	}
 	return statuses
 }
