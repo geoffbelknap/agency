@@ -85,6 +85,9 @@ func (s *FirecrackerVMSupervisor) Start(ctx context.Context, spec runtimecontrac
 	if task := s.tasks[spec.RuntimeID]; task != nil && (task.state == FirecrackerVMStarting || task.state == FirecrackerVMRunning) {
 		return nil
 	}
+	if status, ok := s.persistedStatus(spec.RuntimeID); ok && status.State == FirecrackerVMRunning {
+		return nil
+	}
 	task := &firecrackerVMTask{
 		runtimeID:     spec.RuntimeID,
 		args:          append([]string(nil), args...),
@@ -135,6 +138,9 @@ func (s *FirecrackerVMSupervisor) Inspect(runtimeID string) (FirecrackerVMStatus
 	defer s.mu.Unlock()
 	task := s.taskLocked(runtimeID)
 	if task == nil {
+		if status, ok := s.persistedStatus(runtimeID); ok {
+			return status, nil
+		}
 		return FirecrackerVMStatus{}, fmt.Errorf("firecracker supervisor: runtime %q is not tracked", runtimeID)
 	}
 	return task.statusLocked(), nil
@@ -348,17 +354,55 @@ func (s *FirecrackerVMSupervisor) removePID(runtimeID string) error {
 	return nil
 }
 
-func (s *FirecrackerVMSupervisor) stopPersisted(ctx context.Context, runtimeID string) error {
-	data, err := os.ReadFile(s.pidPath(runtimeID))
+func (s *FirecrackerVMSupervisor) persistedStatus(runtimeID string) (FirecrackerVMStatus, bool) {
+	pid, startedAt, ok := s.readPersistedPID(runtimeID)
+	if !ok {
+		return FirecrackerVMStatus{}, false
+	}
+	if !s.pidLooksLikeFirecracker(pid) {
+		_ = s.removePID(runtimeID)
+		return FirecrackerVMStatus{}, false
+	}
+	now := time.Now().UTC()
+	return FirecrackerVMStatus{
+		RuntimeID: runtimeID,
+		State:     FirecrackerVMRunning,
+		PID:       pid,
+		ExitCode:  -1,
+		StartedAt: startedAt,
+		Duration:  now.Sub(startedAt),
+		LogPath:   s.logPath(runtimeID),
+	}, true
+}
+
+func (s *FirecrackerVMSupervisor) readPersistedPID(runtimeID string) (int, time.Time, bool) {
+	path := s.pidPath(runtimeID)
+	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return 0, time.Time{}, false
 		}
-		return fmt.Errorf("read firecracker pid: %w", err)
+		return 0, time.Time{}, false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, time.Time{}, false
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil || pid <= 0 {
 		_ = s.removePID(runtimeID)
+		return 0, time.Time{}, false
+	}
+	if !processExists(pid) {
+		_ = s.removePID(runtimeID)
+		return 0, time.Time{}, false
+	}
+	return pid, info.ModTime().UTC(), true
+}
+
+func (s *FirecrackerVMSupervisor) stopPersisted(ctx context.Context, runtimeID string) error {
+	pid, _, ok := s.readPersistedPID(runtimeID)
+	if !ok {
 		return nil
 	}
 	if !s.pidLooksLikeFirecracker(pid) {
@@ -385,6 +429,14 @@ func (s *FirecrackerVMSupervisor) stopPersisted(ctx context.Context, runtimeID s
 			}
 		}
 	}
+}
+
+func (s *FirecrackerVMSupervisor) logPath(runtimeID string) string {
+	dir := strings.TrimSpace(s.LogDir)
+	if dir == "" {
+		dir = filepath.Join(os.TempDir(), "agency-firecracker", "logs")
+	}
+	return filepath.Join(dir, runtimeID+".log")
 }
 
 func (s *FirecrackerVMSupervisor) pidLooksLikeFirecracker(pid int) bool {

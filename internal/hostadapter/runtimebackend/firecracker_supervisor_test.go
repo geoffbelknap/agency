@@ -73,6 +73,72 @@ func TestFirecrackerVMSupervisorStopCleansPersistedProcess(t *testing.T) {
 	}
 }
 
+func TestFirecrackerVMSupervisorInspectsPersistedProcess(t *testing.T) {
+	dir := t.TempDir()
+	cmd := exec.Command("/bin/sh", "-c", "sleep 30")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_ = cmd.Wait()
+	})
+
+	s := &FirecrackerVMSupervisor{
+		BinaryPath: "/bin/sh",
+		LogDir:     filepath.Join(dir, "logs"),
+		PIDDir:     filepath.Join(dir, "pids"),
+	}
+	if err := s.writePID("alice", cmd.Process.Pid); err != nil {
+		t.Fatalf("writePID returned error: %v", err)
+	}
+
+	restarted := &FirecrackerVMSupervisor{
+		BinaryPath: "/bin/sh",
+		LogDir:     s.LogDir,
+		PIDDir:     s.PIDDir,
+	}
+	status, err := restarted.Inspect("alice")
+	if err != nil {
+		t.Fatalf("Inspect returned error: %v", err)
+	}
+	if status.State != FirecrackerVMRunning || status.PID != cmd.Process.Pid {
+		t.Fatalf("status = %#v", status)
+	}
+	if status.LogPath != filepath.Join(s.LogDir, "alice.log") {
+		t.Fatalf("log path = %q", status.LogPath)
+	}
+}
+
+func TestFirecrackerVMSupervisorStartSkipsPersistedProcess(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "started")
+	cmd := exec.Command("/bin/sh", "-c", "sleep 30")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_ = cmd.Wait()
+	})
+
+	s := &FirecrackerVMSupervisor{
+		BinaryPath: "/bin/sh",
+		PIDDir:     filepath.Join(dir, "pids"),
+	}
+	if err := s.writePID("alice", cmd.Process.Pid); err != nil {
+		t.Fatalf("writePID returned error: %v", err)
+	}
+	if err := s.Start(context.Background(), runtimecontract.RuntimeSpec{RuntimeID: "alice"}, []string{"-c", "echo duplicate > " + marker}); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("duplicate process marker exists, err=%v", err)
+	}
+}
+
 func TestFirecrackerVMSupervisorRestartsOnFailure(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "attempts")
