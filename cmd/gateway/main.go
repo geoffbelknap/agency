@@ -989,7 +989,13 @@ func runSetup(provider, apiKey, notifyURL, backend string, backendCfg map[string
 		hasEmbeddings = true
 	}
 
-	capCfg, capErr := orchestrate.ProfileHost(hasEmbeddings)
+	capacityBackend, capacityBackendCfg := backend, backendCfg
+	if capacityBackend == "" {
+		cfg := config.Load()
+		capacityBackend = cfg.Hub.DeploymentBackend
+		capacityBackendCfg = cfg.Hub.DeploymentBackendConfig
+	}
+	capCfg, capErr := orchestrate.ProfileHostForRuntime(hasEmbeddings, capacityBackend, capacityBackendCfg)
 	if capErr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not profile host: %v\n", capErr)
 	}
@@ -1050,6 +1056,13 @@ func runSetup(provider, apiKey, notifyURL, backend string, backendCfg map[string
 				float64(capCfg.SystemReserveMB)/1024.0,
 				float64(capCfg.InfraOverheadMB)/1024.0)
 			fmt.Printf("  CPU: %d cores (2 reserved for system)\n", capCfg.HostCPUCores)
+			if capCfg.RuntimeBackend != "" {
+				if capCfg.EnforcementMode != "" {
+					fmt.Printf("  Runtime: %s (%s enforcer)\n", capCfg.RuntimeBackend, capCfg.EnforcementMode)
+				} else {
+					fmt.Printf("  Runtime: %s\n", capCfg.RuntimeBackend)
+				}
+			}
 			fmt.Printf("  Agent capacity: %d concurrent (%d MB each)\n",
 				capCfg.MaxAgents, capCfg.AgentSlotMB)
 			fmt.Printf("  Meeseeks: share the same pool (%d MB each)\n",

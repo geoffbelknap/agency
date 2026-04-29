@@ -115,3 +115,58 @@ network_pool_configured: true
 		t.Errorf("expected network_pool_configured=true, got %v", body["network_pool_configured"])
 	}
 }
+
+func TestCapacity_FirecrackerMicroVMRecomputesSlot(t *testing.T) {
+	tmp := t.TempDir()
+	capYAML := `host_memory_mb: 16384
+host_cpu_cores: 8
+system_reserve_mb: 3276
+infra_overhead_mb: 1264
+max_agents: 18
+max_concurrent_meesks: 18
+agent_slot_mb: 640
+meeseeks_slot_mb: 640
+network_pool_configured: false
+`
+	if err := os.WriteFile(filepath.Join(tmp, "capacity.yaml"), []byte(capYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := &handler{deps: Deps{
+		Config: &config.Config{
+			Home: tmp,
+			Hub: config.HubConfig{
+				DeploymentBackend: "firecracker",
+				DeploymentBackendConfig: map[string]string{
+					"enforcement_mode": "microvm",
+				},
+			},
+		},
+	}}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/infra/capacity", nil)
+	rec := httptest.NewRecorder()
+
+	h.infraCapacity(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got := body["runtime_backend"]; got != "firecracker" {
+		t.Fatalf("runtime_backend = %v", got)
+	}
+	if got := body["enforcement_mode"]; got != "microvm" {
+		t.Fatalf("enforcement_mode = %v", got)
+	}
+	if got := body["agent_slot_mb"]; got != float64(1024) {
+		t.Fatalf("agent_slot_mb = %v, want 1024", got)
+	}
+	if got := body["max_agents"]; got != float64(11) {
+		t.Fatalf("max_agents = %v, want 11", got)
+	}
+}

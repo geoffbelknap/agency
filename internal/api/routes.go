@@ -156,6 +156,7 @@ func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *runtimehost.Clie
 	// Infra routes on the socket (subset: status + internal LLM only)
 	apiinfra.RegisterRoutes(r, apiinfra.Deps{
 		Infra:         startup.Infra,
+		AgentManager:  startup.AgentManager,
 		Runtime:       startup.InfraRuntime,
 		BackendHealth: opts.BackendHealth,
 		CredStore:     startup.CredStore,
@@ -390,6 +391,7 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *runtimehost.Client, logge
 	// Infra, internal LLM, routing, providers, and setup routes (extracted module)
 	apiinfra.RegisterRoutes(r, apiinfra.Deps{
 		Infra:         startup.Infra,
+		AgentManager:  startup.AgentManager,
 		Runtime:       startup.InfraRuntime,
 		BackendHealth: opts.BackendHealth,
 		CredStore:     startup.CredStore,

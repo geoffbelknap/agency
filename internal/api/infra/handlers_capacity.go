@@ -31,10 +31,12 @@ func (h *handler) infraCapacity(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	backend, backendConfig := h.capacityRuntimeConfig()
+	cfg = orchestrate.ApplyRuntimeCapacityProfile(cfg, backend, backendConfig)
 
 	var runningAgents, runningMeeseeks int
 
-	if h.deps.Runtime != nil {
+	if runtimehost.IsContainerBackend(backend) && h.deps.Runtime != nil {
 		if raw := h.deps.Runtime.RawClient(); raw != nil {
 			ctx := r.Context()
 
@@ -52,6 +54,15 @@ func (h *handler) infraCapacity(w http.ResponseWriter, r *http.Request) {
 				runningMeeseeks = len(meeseeksContainers)
 			}
 		}
+	} else if h.deps.AgentManager != nil {
+		agents, err := h.deps.AgentManager.List(r.Context())
+		if err == nil {
+			for _, agent := range agents {
+				if agent.Status == "running" || agent.Status == "unhealthy" || agent.Status == "starting" {
+					runningAgents++
+				}
+			}
+		}
 	}
 
 	available := cfg.MaxAgents - runningAgents - runningMeeseeks
@@ -64,6 +75,8 @@ func (h *handler) infraCapacity(w http.ResponseWriter, r *http.Request) {
 		"host_cpu_cores":          cfg.HostCPUCores,
 		"system_reserve_mb":       cfg.SystemReserveMB,
 		"infra_overhead_mb":       cfg.InfraOverheadMB,
+		"runtime_backend":         cfg.RuntimeBackend,
+		"enforcement_mode":        cfg.EnforcementMode,
 		"max_agents":              cfg.MaxAgents,
 		"max_concurrent_meesks":   cfg.MaxConcurrentMeesks,
 		"agent_slot_mb":           cfg.AgentSlotMB,
@@ -73,4 +86,15 @@ func (h *handler) infraCapacity(w http.ResponseWriter, r *http.Request) {
 		"running_meeseeks":        runningMeeseeks,
 		"available_slots":         available,
 	})
+}
+
+func (h *handler) capacityRuntimeConfig() (string, map[string]string) {
+	if h.deps.Config == nil {
+		return runtimehost.BackendDocker, nil
+	}
+	backend := h.deps.Config.Hub.DeploymentBackend
+	if backend == "" {
+		backend = runtimehost.BackendDocker
+	}
+	return backend, h.deps.Config.Hub.DeploymentBackendConfig
 }

@@ -22,6 +22,7 @@ import (
 // Deps holds the dependencies required by the infra module.
 type Deps struct {
 	Infra         *orchestrate.Infra
+	AgentManager  *orchestrate.AgentManager
 	Runtime       *runtimehost.Client
 	BackendHealth backendhealth.Recorder // may be nil
 	CredStore     *credstore.Store

@@ -76,6 +76,13 @@ func configuredRuntimeBackend(cfg *config.Config) string {
 	return runtimehost.BackendDocker
 }
 
+func configuredRuntimeBackendConfig(cfg *config.Config) map[string]string {
+	if cfg == nil {
+		return nil
+	}
+	return cfg.Hub.DeploymentBackendConfig
+}
+
 func isBackendSpecificDoctorCheck(name, backend string) bool {
 	switch backend {
 	case runtimehost.BackendDocker, runtimehost.BackendPodman, runtimehost.BackendContainerd, runtimehost.BackendAppleContainer:
@@ -507,6 +514,7 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 			Detail: "Capacity config not found — run agency setup",
 		})
 	} else {
+		capCfg = orchestrate.ApplyRuntimeCapacityProfile(capCfg, configuredRuntimeBackend(h.deps.Config), configuredRuntimeBackendConfig(h.deps.Config))
 		agentCount := len(agents)
 		meeseeksCount := 0
 		if h.deps.Host != nil {
