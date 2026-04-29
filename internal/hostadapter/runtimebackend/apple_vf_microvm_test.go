@@ -19,6 +19,9 @@ func TestAppleVFMicroVMBackendSkeleton(t *testing.T) {
 	if backend.StateDir != filepath.Join(home, "runtime", "apple-vf-microvm") {
 		t.Fatalf("StateDir = %q", backend.StateDir)
 	}
+	if backend.KernelPath != filepath.Join(home, "runtime", "apple-vf-microvm", "artifacts", "Image") {
+		t.Fatalf("KernelPath = %q", backend.KernelPath)
+	}
 	if backend.Images == nil {
 		t.Fatal("Images = nil, want shared OCI rootfs image store")
 	}
@@ -43,6 +46,15 @@ func TestAppleVFMicroVMBackendSkeleton(t *testing.T) {
 	}
 	if len(caps.SupportedTransportTypes) != 1 || caps.SupportedTransportTypes[0] != runtimecontract.TransportTypeVsockHTTP {
 		t.Fatalf("SupportedTransportTypes = %#v", caps.SupportedTransportTypes)
+	}
+}
+
+func TestAppleVFMicroVMBackendPreservesConfiguredKernelPath(t *testing.T) {
+	backend := NewAppleVFMicroVMRuntimeBackend(t.TempDir(), map[string]string{
+		"kernel_path": "/custom/Image",
+	})
+	if backend.KernelPath != "/custom/Image" {
+		t.Fatalf("KernelPath = %q, want configured path", backend.KernelPath)
 	}
 }
 

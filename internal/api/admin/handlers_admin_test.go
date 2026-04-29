@@ -548,9 +548,10 @@ func TestAppleVFDoctorChecksReportHelperAndHostFailures(t *testing.T) {
 	appleVFGOOS = func() string { return "linux" }
 	appleVFGOARCH = func() string { return "amd64" }
 
+	home := t.TempDir()
 	report := doctorReport{AllPassed: true, Backend: hostruntimebackend.BackendAppleVFMicroVM}
 	appendAppleVFDoctorChecks(context.Background(), &report, &config.Config{
-		Home: t.TempDir(),
+		Home: home,
 		Hub:  config.HubConfig{DeploymentBackendConfig: map[string]string{}},
 	})
 
@@ -565,15 +566,60 @@ func TestAppleVFDoctorChecksReportHelperAndHostFailures(t *testing.T) {
 		{"apple_vf_architecture", "Apple silicon"},
 		{"apple_vf_helper_binary", "helper_binary"},
 		{"apple_vf_helper_health", "helper"},
-		{"apple_vf_kernel", "kernel_path"},
+		{"apple_vf_kernel", filepath.Join(home, "runtime", "apple-vf-microvm", "artifacts", "Image")},
 	} {
 		check, ok := findDoctorCheck(report.Checks, tt.name)
 		if !ok {
 			t.Fatalf("missing %s in %#v", tt.name, report.Checks)
 		}
-		if check.Status != "fail" || !strings.Contains(check.Fix, tt.want) {
+		if check.Status != "fail" || (!strings.Contains(check.Fix, tt.want) && !strings.Contains(check.Detail, tt.want)) {
 			t.Fatalf("%s check = %#v", tt.name, check)
 		}
+	}
+}
+
+func TestAppleVFDoctorChecksUseDefaultKernelArtifactPath(t *testing.T) {
+	restoreAppleVFDoctorHooks(t)
+	appleVFGOOS = func() string { return "darwin" }
+	appleVFGOARCH = func() string { return "arm64" }
+	appleVFHealthFunc = func(ctx context.Context, helperBinary string) (hostruntimebackend.AppleVFHelperHealth, error) {
+		return hostruntimebackend.AppleVFHelperHealth{
+			OK:                      true,
+			Backend:                 hostruntimebackend.BackendAppleVFMicroVM,
+			Version:                 "0.1.0",
+			Darwin:                  "25.4.0",
+			Arch:                    "arm64",
+			VirtualizationAvailable: true,
+		}, nil
+	}
+
+	home := t.TempDir()
+	helperPath := filepath.Join(home, "agency-apple-vf-helper")
+	kernelPath := filepath.Join(home, "runtime", "apple-vf-microvm", "artifacts", "Image")
+	if err := os.WriteFile(helperPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(kernelPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(kernelPath, []byte("kernel"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	report := doctorReport{AllPassed: true, Backend: hostruntimebackend.BackendAppleVFMicroVM}
+	appendAppleVFDoctorChecks(context.Background(), &report, &config.Config{
+		Home: home,
+		Hub: config.HubConfig{DeploymentBackendConfig: map[string]string{
+			"helper_binary": helperPath,
+		}},
+	})
+
+	check, ok := findDoctorCheck(report.Checks, "apple_vf_kernel")
+	if !ok {
+		t.Fatalf("missing kernel check: %#v", report.Checks)
+	}
+	if check.Status != "pass" || !strings.Contains(check.Detail, kernelPath) {
+		t.Fatalf("kernel check = %#v", check)
 	}
 }
 

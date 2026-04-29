@@ -16,6 +16,18 @@ const (
 	BackendAppleVFMicroVM = "apple-vf-microvm"
 )
 
+func DefaultAppleVFStateDir(home string) string {
+	home = strings.TrimSpace(home)
+	if home == "" {
+		return filepath.Join(os.TempDir(), "agency-apple-vf-microvm")
+	}
+	return filepath.Join(home, "runtime", "apple-vf-microvm")
+}
+
+func DefaultAppleVFKernelPath(home string) string {
+	return filepath.Join(DefaultAppleVFStateDir(home), "artifacts", "Image")
+}
+
 type AppleVFMicroVMRuntimeBackend struct {
 	HelperBinary    string
 	KernelPath      string
@@ -29,11 +41,11 @@ type AppleVFMicroVMRuntimeBackend struct {
 func NewAppleVFMicroVMRuntimeBackend(home string, cfg map[string]string) *AppleVFMicroVMRuntimeBackend {
 	stateDir := strings.TrimSpace(cfg["state_dir"])
 	if stateDir == "" {
-		if strings.TrimSpace(home) != "" {
-			stateDir = filepath.Join(home, "runtime", "apple-vf-microvm")
-		} else {
-			stateDir = filepath.Join(os.TempDir(), "agency-apple-vf-microvm")
-		}
+		stateDir = DefaultAppleVFStateDir(home)
+	}
+	kernelPath := strings.TrimSpace(cfg["kernel_path"])
+	if kernelPath == "" {
+		kernelPath = DefaultAppleVFKernelPath(home)
 	}
 	enforcementMode, err := parseFirecrackerEnforcementMode(cfg["enforcement_mode"])
 	if err != nil {
@@ -41,7 +53,7 @@ func NewAppleVFMicroVMRuntimeBackend(home string, cfg map[string]string) *AppleV
 	}
 	backend := &AppleVFMicroVMRuntimeBackend{
 		HelperBinary:    strings.TrimSpace(cfg["helper_binary"]),
-		KernelPath:      strings.TrimSpace(cfg["kernel_path"]),
+		KernelPath:      kernelPath,
 		StateDir:        stateDir,
 		MemoryMiB:       parseInt64Config(cfg["memory_mib"], defaultFirecrackerMemoryMiB),
 		CPUCount:        parseInt64Config(cfg["cpu_count"], 2),

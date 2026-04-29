@@ -162,8 +162,8 @@ hub:
   deployment_backend: apple-vf-microvm
   deployment_backend_config:
     helper_binary: /usr/local/bin/agency-apple-vf-helper
-    kernel_path: /var/lib/agency/apple-vf/vmlinux
-    state_dir: /var/lib/agency/apple-vf
+    kernel_path: $AGENCY_HOME/runtime/apple-vf-microvm/artifacts/Image
+    state_dir: $AGENCY_HOME/runtime/apple-vf-microvm
     enforcement_mode: host-process # host-process | microvm
     memory_mib: 512
     cpu_count: 2
@@ -175,6 +175,7 @@ Defaults while experimental:
 - `memory_mib=512`
 - `cpu_count=2`
 - `state_dir=$AGENCY_HOME/runtime/apple-vf-microvm`
+- `kernel_path=$AGENCY_HOME/runtime/apple-vf-microvm/artifacts/Image`
 
 The backend must remain opt-in and feature-gated until the readiness gates
 pass on macOS Apple silicon.
