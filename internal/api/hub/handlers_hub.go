@@ -171,7 +171,7 @@ func (h *handler) backendRequiresContainer(w http.ResponseWriter, operation stri
 	}
 	if !runtimehost.IsContainerBackend(backend) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error":   fmt.Sprintf("%s is only available for container backends (current: %s)", operation, backend),
+			"error":   fmt.Sprintf("%s is only available for transitional container backends (current: %s)", operation, backend),
 			"backend": backend,
 		})
 		return false
