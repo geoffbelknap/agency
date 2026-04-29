@@ -3488,8 +3488,12 @@ paths:
                     type: string
                   web_url:
                     type: string
+                  runtime_backend_state:
+                    type: string
+                    description: Backend availability state for operator display. `container_backend` is retained as a compatibility alias.
                   container_backend:
                     type: string
+                    description: Compatibility alias for runtime_backend_state.
                   backend:
                     type: string
                   backend_endpoint:

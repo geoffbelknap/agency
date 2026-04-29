@@ -43,6 +43,7 @@ func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 			"backend_endpoint":        runtimehost.ResolvedBackendEndpoint(backend, h.deps.Config.Hub.DeploymentBackendConfig),
 			"backend_mode":            runtimehost.ResolvedBackendMode(backend, h.deps.Config.Hub.DeploymentBackendConfig),
 			"infra_control_available": hostInfraAvailable,
+			"runtime_backend_state":   "not_applicable",
 			"container_backend":       "not_applicable",
 			"host_runtime": func() string {
 				if hostInfraAvailable {
@@ -89,6 +90,7 @@ func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 		"backend_endpoint":        runtimehost.ResolvedBackendEndpoint(backend, h.deps.Config.Hub.DeploymentBackendConfig),
 		"backend_mode":            runtimehost.ResolvedBackendMode(backend, h.deps.Config.Hub.DeploymentBackendConfig),
 		"infra_control_available": true,
+		"runtime_backend_state":   containerBackendState,
 		"container_backend":       containerBackendState,
 		"host_runtime": func() string {
 			return containerBackendState

@@ -51,6 +51,9 @@ func TestInfraStatus_NonDockerBackendReturnsBackendAwareStatus(t *testing.T) {
 	if got := body["container_backend"]; got != "not_applicable" {
 		t.Fatalf("container_backend = %v, want not_applicable", got)
 	}
+	if got := body["runtime_backend_state"]; got != "not_applicable" {
+		t.Fatalf("runtime_backend_state = %v, want not_applicable", got)
+	}
 	if got := body["infra_control_available"]; got != false {
 		t.Fatalf("infra_control_available = %v, want false", got)
 	}

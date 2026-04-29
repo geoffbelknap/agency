@@ -224,6 +224,7 @@ export interface RawInfraService {
 export interface RawInfraStatus {
   version?: string;
   build_id?: string;
+  runtime_backend_state?: string;
   container_backend?: string;
   backend?: string;
   backend_endpoint?: string;
