@@ -140,15 +140,15 @@ tool's contract changes silently without version bump.
 Alert operator if definitions have changed since last approval.
 
 ### Infrastructure Service Authentication
-**Priority:** Low (v2 for swarm)
+**Priority:** Low
 **Threat:** `Unauthenticated internal services` (ASK Threat Catalog)
 
-Comms, knowledge, and intake rely on Docker network isolation, not
-per-request auth. Acceptable for single-host but a defense-in-depth
-gap. If the mediation boundary is breached, everything inside is open.
+Comms, knowledge, and optional intake are shared host services in the
+microVM-first path. Workload microVMs should reach only their assigned
+external enforcer boundary, but adding service-to-service auth between host
+services is still useful defense in depth if a mediation boundary is breached.
 
-**Fix:** Add service-to-service auth tokens for mediation network calls.
-Only needed for multi-host (swarm) deployments.
+**Fix:** Add service-to-service auth tokens for mediated host service calls.
 
 ---
 

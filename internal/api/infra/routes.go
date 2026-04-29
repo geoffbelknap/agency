@@ -104,7 +104,7 @@ func (h *handler) containerBackendRequired(w http.ResponseWriter) bool {
 	}
 	if h.deps.BackendHealth != nil && !h.deps.BackendHealth.Available() {
 		writeJSON(w, 503, map[string]string{
-			"error": "Container backend is not available. Container operations are unavailable.",
+			"error": "Legacy container backend is not available. Container operations are unavailable.",
 		})
 		return false
 	}
