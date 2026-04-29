@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +28,7 @@ type FirecrackerImageStore struct {
 	Mke2fsPath        string
 	SizeMiB           int64
 	VsockBridgeBinary string
+	OverlayBaseDir    string
 
 	commands firecrackerImageCommands
 }
@@ -184,7 +186,7 @@ func (s *FirecrackerImageStore) buildRootFS(ctx context.Context, imageRef, outPa
 	if err := s.commandRunner().Export(ctx, s.podmanPath(), id, stageDir); err != nil {
 		return fmt.Errorf("export OCI image filesystem: %w", err)
 	}
-	if err := applyFirecrackerRootFSOverlays(stageDir, env); err != nil {
+	if err := applyFirecrackerRootFSOverlays(stageDir, env, s.overlayBaseDir()); err != nil {
 		return err
 	}
 	command, err := s.imageCommand(ctx, imageRef)
@@ -233,44 +235,41 @@ func firecrackerRootFSOverlaysFromEnv(env map[string]string) ([]FirecrackerRootF
 	return overlays, nil
 }
 
-func applyFirecrackerRootFSOverlays(stageDir string, env map[string]string) error {
+func applyFirecrackerRootFSOverlays(stageDir string, env map[string]string, overlayBaseDir string) error {
 	overlays, err := firecrackerRootFSOverlaysFromEnv(env)
 	if err != nil {
 		return err
 	}
 	for _, overlay := range overlays {
-		if err := applyFirecrackerRootFSOverlay(stageDir, overlay); err != nil {
+		if err := applyFirecrackerRootFSOverlay(stageDir, overlayBaseDir, overlay); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func applyFirecrackerRootFSOverlay(stageDir string, overlay FirecrackerRootFSOverlay) error {
-	hostPath := strings.TrimSpace(overlay.HostPath)
-	hostPath, err := cleanFirecrackerHostPath("firecracker rootfs overlay host path", hostPath)
+func applyFirecrackerRootFSOverlay(stageDir, overlayBaseDir string, overlay FirecrackerRootFSOverlay) error {
+	source, err := openFirecrackerOverlaySource(overlayBaseDir, overlay.HostPath)
 	if err != nil {
 		return err
 	}
-	if hostPath == "" {
-		return fmt.Errorf("firecracker rootfs overlay: host path is required")
-	}
+	defer source.Close()
 	guestPath := filepath.Clean(overlay.GuestPath)
 	if !filepath.IsAbs(guestPath) || guestPath == string(os.PathSeparator) {
 		return fmt.Errorf("firecracker rootfs overlay: guest path must be absolute")
 	}
-	info, err := os.Stat(hostPath)
+	info, err := source.Stat()
 	if err != nil {
-		return fmt.Errorf("stat firecracker rootfs overlay source %s: %w", hostPath, err)
+		return fmt.Errorf("stat firecracker rootfs overlay source %s: %w", source.Path(), err)
 	}
 	target, err := safeGuestPath(stageDir, guestPath)
 	if err != nil {
 		return err
 	}
 	if info.IsDir() {
-		return copyDir(hostPath, target)
+		return copyDirFromRoot(source.root, source.rel, target)
 	}
-	return copyFileToPath(hostPath, target, info.Mode().Perm())
+	return copyRootFileToPath(source.root, source.rel, target, info.Mode().Perm())
 }
 
 func safeGuestPath(stageDir, guestPath string) (string, error) {
@@ -281,8 +280,57 @@ func safeGuestPath(stageDir, guestPath string) (string, error) {
 	return pathsafety.Join(stageDir, strings.Split(rel, string(os.PathSeparator))...)
 }
 
-func copyDir(src, dst string) error {
-	return filepath.WalkDir(src, func(path string, entry os.DirEntry, err error) error {
+type firecrackerOverlaySource struct {
+	root *os.Root
+	rel  string
+	path string
+}
+
+func openFirecrackerOverlaySource(baseDir, raw string) (*firecrackerOverlaySource, error) {
+	baseDir = strings.TrimSpace(baseDir)
+	if baseDir == "" {
+		return nil, fmt.Errorf("firecracker rootfs overlay: base dir is required")
+	}
+	baseDir, err := filepath.Abs(filepath.Clean(baseDir))
+	if err != nil {
+		return nil, fmt.Errorf("firecracker rootfs overlay base dir: %w", err)
+	}
+	hostPath := strings.TrimSpace(raw)
+	hostPath, err = cleanFirecrackerHostPath("firecracker rootfs overlay host path", hostPath)
+	if err != nil {
+		return nil, err
+	}
+	if hostPath == "" {
+		return nil, fmt.Errorf("firecracker rootfs overlay: host path is required")
+	}
+	rel, err := filepath.Rel(baseDir, hostPath)
+	if err != nil {
+		return nil, fmt.Errorf("firecracker rootfs overlay path: %w", err)
+	}
+	if rel == "." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || rel == ".." || filepath.IsAbs(rel) {
+		return nil, fmt.Errorf("firecracker rootfs overlay host path must be under %s", baseDir)
+	}
+	root, err := os.OpenRoot(baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("open firecracker rootfs overlay base dir: %w", err)
+	}
+	return &firecrackerOverlaySource{root: root, rel: rel, path: hostPath}, nil
+}
+
+func (s *firecrackerOverlaySource) Close() error {
+	return s.root.Close()
+}
+
+func (s *firecrackerOverlaySource) Path() string {
+	return s.path
+}
+
+func (s *firecrackerOverlaySource) Stat() (os.FileInfo, error) {
+	return s.root.Stat(s.rel)
+}
+
+func copyDirFromRoot(root *os.Root, src, dst string) error {
+	return fs.WalkDir(root.FS(), src, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -299,7 +347,7 @@ func copyDir(src, dst string) error {
 			return os.MkdirAll(target, info.Mode().Perm())
 		}
 		if entry.Type()&os.ModeSymlink != 0 {
-			link, err := os.Readlink(path)
+			link, err := root.Readlink(path)
 			if err != nil {
 				return err
 			}
@@ -309,15 +357,15 @@ func copyDir(src, dst string) error {
 			_ = os.Remove(target)
 			return os.Symlink(link, target)
 		}
-		return copyFileToPath(path, target, info.Mode().Perm())
+		return copyRootFileToPath(root, path, target, info.Mode().Perm())
 	})
 }
 
-func copyFileToPath(src, dst string, mode os.FileMode) error {
+func copyRootFileToPath(root *os.Root, src, dst string, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	in, err := os.Open(src)
+	in, err := root.Open(src)
 	if err != nil {
 		return err
 	}
@@ -489,6 +537,13 @@ func (s *FirecrackerImageStore) stateDir() string {
 		return s.StateDir
 	}
 	return filepath.Join(os.TempDir(), "agency-firecracker")
+}
+
+func (s *FirecrackerImageStore) overlayBaseDir() string {
+	if strings.TrimSpace(s.OverlayBaseDir) != "" {
+		return s.OverlayBaseDir
+	}
+	return s.stateDir()
 }
 
 func (s *FirecrackerImageStore) podmanPath() string {

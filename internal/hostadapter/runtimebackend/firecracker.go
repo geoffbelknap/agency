@@ -72,6 +72,7 @@ func NewFirecrackerRuntimeBackend(home string, cfg map[string]string) *Firecrack
 		Mke2fsPath:        strings.TrimSpace(cfg["mke2fs_path"]),
 		SizeMiB:           parseInt64Config(cfg["rootfs_size_mib"], defaultFirecrackerRootFSMiB),
 		VsockBridgeBinary: strings.TrimSpace(cfg["vsock_bridge_binary_path"]),
+		OverlayBaseDir:    strings.TrimSpace(home),
 	}
 	backend.Tasks = &FirecrackerVMSupervisor{
 		BinaryPath:  binaryPath,
