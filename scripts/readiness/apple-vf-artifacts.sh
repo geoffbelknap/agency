@@ -12,11 +12,13 @@ BUILDROOT_TARBALL="$BUILD_DIR/downloads/buildroot-${BUILDROOT_VERSION}.tar.xz"
 BUILDROOT_SIGN="$BUILDROOT_TARBALL.sign"
 BUILDROOT_SRC="$BUILD_DIR/src/buildroot-${BUILDROOT_VERSION}"
 BUILDROOT_OUTPUT="$BUILD_DIR/output"
+BUILDROOT_GPG_HOME="$BUILD_DIR/gnupg"
+BUILDROOT_SIGNING_KEY_URL="${AGENCY_APPLE_VF_BUILDROOT_SIGNING_KEY_URL:-https://gitlab.com/-/snippets/4836881/raw/main/arnout@rnout.be.asc}"
 BR2_EXTERNAL_DIR="$ROOT_DIR/images/apple-vf/buildroot"
 
 usage() {
   cat <<EOF
-usage: scripts/readiness/apple-vf-artifacts.sh [--fetch-only] [--configure-only] [--skip-signature-check]
+usage: scripts/readiness/apple-vf-artifacts.sh [--fetch-only] [--configure-only] [--verify-existing] [--skip-signature-check]
 
 Build the bootstrap ARM64 Linux kernel artifact for apple-vf-microvm:
   $ARTIFACT_DIR/Image
@@ -30,6 +32,7 @@ Environment:
   AGENCY_APPLE_VF_BUILD_DIR            Buildroot workspace/cache
   AGENCY_APPLE_VF_BUILDROOT_VERSION    default: $BUILDROOT_VERSION
   AGENCY_APPLE_VF_BUILDROOT_URL        default: $BUILDROOT_URL
+  AGENCY_APPLE_VF_BUILDROOT_SIGNING_KEY_URL
   AGENCY_APPLE_VF_SKIP_SIGNATURE_CHECK  set 1 to skip Buildroot signature verification
 EOF
 }
@@ -45,8 +48,48 @@ require_cmd() {
   fi
 }
 
+verify_existing_artifact() {
+  local image="$ARTIFACT_DIR/Image"
+  if [[ ! -r "$image" ]]; then
+    echo "missing readable artifact: $image" >&2
+    exit 1
+  fi
+  require_cmd sha256sum
+  require_cmd file
+  printf 'kernel_path=%s\n' "$image"
+  printf 'sha256=%s\n' "$(sha256sum "$image" | awk '{print $1}')"
+  printf 'file=%s\n' "$(file -b "$image")"
+  printf 'size_bytes=%s\n' "$(wc -c <"$image" | tr -d '[:space:]')"
+}
+
+verify_buildroot_download() {
+  require_cmd gpg
+  require_cmd sha256sum
+  mkdir -p "$BUILDROOT_GPG_HOME"
+  chmod 700 "$BUILDROOT_GPG_HOME"
+  if ! GNUPGHOME="$BUILDROOT_GPG_HOME" gpg --list-keys 18C7DF2819C1733D822D599EA500D6EE9CB0E540 >/dev/null 2>&1; then
+    log "Importing Buildroot signing key"
+    curl -fL "$BUILDROOT_SIGNING_KEY_URL" | GNUPGHOME="$BUILDROOT_GPG_HOME" gpg --import
+  fi
+  log "Verifying Buildroot signed checksum"
+  GNUPGHOME="$BUILDROOT_GPG_HOME" gpg --verify "$BUILDROOT_SIGN"
+  local expected actual
+  expected="$(awk -v file="buildroot-${BUILDROOT_VERSION}.tar.xz" '$1 == "SHA256:" && $2 ~ /^[0-9a-f]+$/ && $3 == file { print $2 }' "$BUILDROOT_SIGN")"
+  if [[ -z "$expected" ]]; then
+    echo "could not find SHA256 for buildroot-${BUILDROOT_VERSION}.tar.xz in $BUILDROOT_SIGN" >&2
+    exit 1
+  fi
+  actual="$(sha256sum "$BUILDROOT_TARBALL" | awk '{print $1}')"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "Buildroot SHA256 mismatch: got $actual want $expected" >&2
+    exit 1
+  fi
+  log "Buildroot SHA256 verified: $actual"
+}
+
 fetch_only=0
 configure_only=0
+verify_existing=0
 skip_signature="${AGENCY_APPLE_VF_SKIP_SIGNATURE_CHECK:-0}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -56,6 +99,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --configure-only)
       configure_only=1
+      shift
+      ;;
+    --verify-existing)
+      verify_existing=1
       shift
       ;;
     --skip-signature-check)
@@ -74,6 +121,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ "$verify_existing" == "1" ]]; then
+  verify_existing_artifact
+  exit 0
+fi
+
 require_cmd curl
 require_cmd tar
 require_cmd make
@@ -87,13 +139,11 @@ if [[ ! -s "$BUILDROOT_TARBALL" ]]; then
 fi
 
 if [[ "$skip_signature" != "1" ]]; then
-  require_cmd gpg
   if [[ ! -s "$BUILDROOT_SIGN" ]]; then
     log "Downloading Buildroot signature"
     curl -fL "$BUILDROOT_SIGN_URL" -o "$BUILDROOT_SIGN"
   fi
-  log "Verifying Buildroot signature"
-  gpg --verify "$BUILDROOT_SIGN" "$BUILDROOT_TARBALL"
+  verify_buildroot_download
 else
   log "Skipping Buildroot signature verification by request"
 fi
@@ -128,5 +178,5 @@ fi
 cp "$kernel" "$ARTIFACT_DIR/Image"
 
 log "Kernel artifact ready:"
-printf 'kernel_path=%s\n' "$ARTIFACT_DIR/Image"
+verify_existing_artifact
 printf 'rootfs_path=<from Agency OCI image realization>\n'
