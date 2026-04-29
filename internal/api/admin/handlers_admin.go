@@ -558,7 +558,7 @@ func (h *handler) adminDestroy(w http.ResponseWriter, r *http.Request) {
 	backend := configuredRuntimeBackend(h.deps.Config)
 	if !runtimehost.IsContainerBackend(backend) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error":   fmt.Sprintf("admin destroy is only available for container backends (current: %s)", backend),
+			"error":   fmt.Sprintf("admin destroy is only available for transitional container backends (current: %s)", backend),
 			"backend": backend,
 		})
 		return
@@ -592,7 +592,7 @@ func (h *handler) adminPruneImages(w http.ResponseWriter, r *http.Request) {
 	backend := configuredRuntimeBackend(h.deps.Config)
 	if !runtimehost.IsContainerBackend(backend) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error":   fmt.Sprintf("image pruning is only available for container backends (current: %s)", backend),
+			"error":   fmt.Sprintf("legacy image pruning is only available for transitional container backends (current: %s)", backend),
 			"backend": backend,
 		})
 		return
@@ -616,7 +616,7 @@ func (h *handler) pruneDanglingImages(ctx context.Context) (pruned, skipped int)
 	}
 	if h.deps.Runtime == nil {
 		if h.deps.Logger != nil {
-			h.deps.Logger.Warn("prune images: container backend client unavailable")
+			h.deps.Logger.Warn("prune images: legacy container backend client unavailable")
 		}
 		return 0, 0
 	}

@@ -34,9 +34,10 @@ agent.
 Operators use the CLI, web UI, REST API, or MCP server. The Go gateway is the
 control plane and source of truth.
 
-Each agent runs inside its own isolated workspace. An enforcer sidecar mediates
-every LLM call, tool call, and service request. The agent never sees real API
-keys and never gets direct outbound internet access.
+Each agent runs inside its own isolated microVM workspace. An external
+per-agent enforcer boundary mediates every LLM call, tool call, and service
+request. The agent never sees real API keys and never gets direct outbound
+internet access.
 
 Inside the workspace, Agency implements the
 [ASK cognitive model](https://askframework.org/#cognitive):
@@ -71,15 +72,17 @@ Agency is built around them first.
 
 **You'll need:**
 
-- [Docker](https://docs.docker.com/get-docker/) installed
+- a supported microVM runtime path for your platform
+- an API key from at least one supported model provider
 
-> **Windows:** Install
-> [Docker Desktop](https://docs.docker.com/desktop/install/windows-install/)
-> with WSL integration enabled, then run Agency inside WSL2.
->
-> **WSL2 with Podman:** Use the Linux distro's rootless Podman packages and
-> user socket; Homebrew Podman inside WSL is missing pieces Agency needs. See
-> [docs/quickstart.md](docs/quickstart.md#podman-on-wsl2).
+On Linux and WSL2, Agency defaults to Firecracker and requires KVM plus vsock
+access for the operator account. On macOS Apple silicon, the strategic local
+development target is `apple-vf-microvm`; until that helper path is complete,
+macOS runtime work may require an explicitly selected experimental backend.
+
+Dockerfiles remain part of Agency as OCI image build recipes. Docker, Podman,
+containerd, and Apple Container runtime backends are transitional compatibility
+paths and require `--experimental-backend`.
 
 ### Install
 
@@ -209,15 +212,19 @@ bash ./scripts/readiness/runtime-contract-smoke.sh --agent <agent>
 ./scripts/e2e/e2e-live-disposable.sh --skip-build
 ```
 
-Apple Container backend work is currently experimental and opt-in. On macOS
-Apple silicon, adapter developers can run a manual smoke with:
+Firecracker is the Linux production runtime target. `apple-vf-microvm` is the
+strategic macOS local-development target. The legacy container backend smokes
+remain useful compatibility checks while those paths still exist, but they are
+not the default runtime architecture.
+
+Apple Container compatibility work is experimental and opt-in. On macOS Apple
+silicon, adapter developers can run a manual smoke with:
 
 ```bash
 ./scripts/readiness/apple-container-smoke.sh
 ```
 
-That path is not part of required CI or branch protection yet; Docker, Podman,
-and containerd remain the automated backend validation lanes.
+That path is not part of required CI or branch protection.
 
 See [tests/checklists/runtime-smoke.md](tests/checklists/runtime-smoke.md) and
 [tests/checklists/validation-checklist.md](tests/checklists/validation-checklist.md)
@@ -229,7 +236,7 @@ for the current operator validation flow.
 agency/
 ├── cmd/gateway/        # Go binary entry point
 ├── internal/           # Go packages: API, CLI, orchestrate, policy, runtime
-├── images/             # Container image sources
+├── images/             # OCI image filesystem recipes
 ├── presets/            # Agent preset YAML files
 ├── web/                # Web UI (REST client)
 ├── docs/               # User-facing docs (Mintlify) + operator runbooks
@@ -253,11 +260,9 @@ agency/
 Linux (`x86_64`, `arm64`) and macOS (Apple Silicon, Intel) natively. Windows
 via WSL2.
 
-Docker is the default quickstart container backend. Podman and containerd have
-automated readiness paths. Apple Container support is experimental,
-macOS-Apple-silicon-only, and should be treated as a manual adapter development
-surface until its lifecycle, event, network, cleanup, and doctor behavior
-reaches parity with the supported lanes.
+Linux and WSL2 default to Firecracker. macOS defaults to `apple-vf-microvm`.
+Docker, Podman, containerd, and Apple Container are transitional compatibility
+backends for migration and adapter validation, not the default product path.
 
 ## Contributing
 

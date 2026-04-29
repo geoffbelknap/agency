@@ -227,7 +227,8 @@ func (inf *Infra) hostEgressStatus(ctx context.Context) runtimehost.InfraCompone
 	pid, ok := inf.hostInfraPID("egress")
 	if ok && processAlive(pid) {
 		status.State = "running"
-		status.ContainerID = fmt.Sprintf("host:%d", pid)
+		status.ComponentID = fmt.Sprintf("host:%d", pid)
+		status.ContainerID = status.ComponentID
 		if inf.hostEgressHealthy(ctx) {
 			status.Health = "healthy"
 		}

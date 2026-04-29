@@ -215,6 +215,7 @@ export interface RawInfraService {
   name: string;
   state: string;
   health: string;
+  component_id?: string;
   container_id?: string;
   uptime?: string;
   build_id?: string;

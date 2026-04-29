@@ -64,7 +64,7 @@ export interface InfrastructureService {
   name: string;
   state: ServiceState;
   health: HealthStatus;
-  containerId: string;
+  componentId: string;
   uptime: string;
 }
 

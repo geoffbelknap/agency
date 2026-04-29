@@ -167,7 +167,7 @@ export function Infrastructure() {
         name: s.name,
         state: s.state || s.status || 'stopped',
         health: s.health === 'healthy' || s.health === 'unhealthy' ? s.health : 'idle',
-        containerId: s.container_id || '',
+        componentId: s.component_id || s.container_id || '',
         uptime: s.uptime || '',
       }));
       setServices(mapped);
@@ -377,8 +377,8 @@ export function Infrastructure() {
                   <span className="mono" style={{ color: 'var(--ink)' }}>{service.uptime || '...'}</span>
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--ink-mid)', display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 2 }}>
-                  <span>container</span>
-                  <span className="mono" style={{ color: 'var(--ink)', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{service.containerId || 'not assigned'}</span>
+                  <span>instance</span>
+                  <span className="mono" style={{ color: 'var(--ink)', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{service.componentId || 'not assigned'}</span>
                 </div>
                 <div style={{ marginTop: 12, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <DesignButton
