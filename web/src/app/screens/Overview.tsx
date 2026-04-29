@@ -117,7 +117,7 @@ export function Overview() {
         name: s.name,
         state: s.state || s.status || 'stopped',
         health: s.health === 'healthy' || s.health === 'unhealthy' ? s.health : 'idle',
-        containerId: s.container_id || '',
+        componentId: s.component_id || s.container_id || '',
         uptime: s.uptime || '',
       }));
       setInfrastructure(mapped);
