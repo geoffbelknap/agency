@@ -15,6 +15,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/hostadapter/imageops"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/orchestrate/containers"
+	"github.com/geoffbelknap/agency/internal/pkg/pathsafety"
 	"github.com/geoffbelknap/agency/internal/services"
 )
 
@@ -41,8 +42,11 @@ func NewEnforcer(agentName, home, version string, logger *slog.Logger, hmacKey [
 }
 
 func NewEnforcerWithClient(agentName, home, version string, logger *slog.Logger, hmacKey []byte, cli *runtimehost.RawClient) (*Enforcer, error) {
+	agentName, err := pathsafety.Segment("agent name", agentName)
+	if err != nil {
+		return nil, err
+	}
 	if cli == nil {
-		var err error
 		cli, err = runtimehost.NewRawClient()
 		if err != nil {
 			return nil, err
@@ -186,7 +190,10 @@ func (e *Enforcer) Unpause(ctx context.Context) {
 }
 
 func (e *Enforcer) readAPIKey() string {
-	keysFile := filepath.Join(e.Home, "agents", e.AgentName, "state", "enforcer-auth", "api_keys.yaml")
+	keysFile, err := pathsafety.Join(e.Home, "agents", e.AgentName, "state", "enforcer-auth", "api_keys.yaml")
+	if err != nil {
+		return ""
+	}
 	data, err := os.ReadFile(keysFile)
 	if err != nil {
 		return ""
@@ -218,9 +225,15 @@ func (e *Enforcer) ensureConfig(rotateKey bool) string {
 		_ = os.WriteFile(configFile, []byte(defaultEnforcerConfig), 0o644)
 	}
 
-	authDir := filepath.Join(e.Home, "agents", e.AgentName, "state", "enforcer-auth")
+	authDir, err := pathsafety.Join(e.Home, "agents", e.AgentName, "state", "enforcer-auth")
+	if err != nil {
+		return dir
+	}
 	_ = os.MkdirAll(authDir, 0o755)
-	keysFile := filepath.Join(authDir, "api_keys.yaml")
+	keysFile, err := pathsafety.Join(authDir, "api_keys.yaml")
+	if err != nil {
+		return dir
+	}
 
 	needNewKey := rotateKey || !fileExists(keysFile)
 	if !needNewKey {

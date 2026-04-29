@@ -25,6 +25,8 @@ extensions:
       # validateOutboundURL is a sanitizer for SSRF — validates URL scheme and host.
       - ["github.com/geoffbelknap/agency/internal/api", "", "validateOutboundURL", "", "RequestForgery", "manual"]
       - ["github.com/geoffbelknap/agency/internal/pkg/urlsafety", "", "Validate", "", "RequestForgery", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/pkg/pathsafety", "", "Segment", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/pkg/pathsafety", "", "Join", "", "PathInjection", "manual"]
       # The following helpers own explicit name/path boundaries. They either
       # validate path segments against separator/".." traversal before joining,
       # or operate only on gateway-owned instance/runtime roots. Keep these
@@ -55,6 +57,8 @@ extensions:
       - ["github.com/geoffbelknap/agency/internal/runtime", "Store", "manifestPath", "", "PathInjection", "manual"]
       - ["github.com/geoffbelknap/agency/internal/runtime", "Store", "nodeStatusPath", "", "PathInjection", "manual"]
       - ["github.com/geoffbelknap/agency/internal/runtime", "Store", "runtimeRoot", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend", "", "cleanFirecrackerHostPath", "", "PathInjection", "manual"]
+      - ["github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend", "", "safeGuestPath", "", "PathInjection", "manual"]
       - ["github.com/geoffbelknap/agency/internal/hub/deployments", "FilesystemStore", "Create", "", "PathInjection", "manual"]
       - ["github.com/geoffbelknap/agency/internal/hub/deployments", "FilesystemStore", "AppendAudit", "", "PathInjection", "manual"]
       - ["github.com/geoffbelknap/agency/internal/hub/deployments", "FilesystemStore", "Import", "", "PathInjection", "manual"]
