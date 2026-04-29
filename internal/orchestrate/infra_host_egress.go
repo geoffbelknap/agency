@@ -66,7 +66,6 @@ func (inf *Infra) ensureHostEgress(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("open host egress log: %w", err)
 	}
-	defer logFile.Close()
 
 	cmd := exec.Command(inf.hostEgressMitmdump(sourceDir),
 		"--listen-port", inf.egressProxyPort(),
@@ -80,9 +79,14 @@ func (inf *Infra) ensureHostEgress(ctx context.Context) error {
 	cmd.Env = append(os.Environ(), inf.hostEgressEnv(sourceDir, paths)...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
 		return fmt.Errorf("start host egress: %w", err)
 	}
 	pid := cmd.Process.Pid
+	if err := logFile.Close(); err != nil {
+		_ = syscall.Kill(-pid, syscall.SIGTERM)
+		return fmt.Errorf("close host egress log: %w", err)
+	}
 	if err := inf.writeHostInfraPID("egress", pid); err != nil {
 		_ = syscall.Kill(-pid, syscall.SIGTERM)
 		return fmt.Errorf("write host egress pid: %w", err)

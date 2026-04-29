@@ -65,7 +65,6 @@ func (inf *Infra) ensureHostWeb(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("open host web log: %w", err)
 	}
-	defer logFile.Close()
 
 	cmd := exec.Command(inf.hostWebVite(webDir), "preview", "--host", "127.0.0.1", "--port", inf.webPort())
 	cmd.Dir = webDir
@@ -77,9 +76,14 @@ func (inf *Infra) ensureHostWeb(ctx context.Context) error {
 	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
 		return fmt.Errorf("start host web: %w", err)
 	}
 	pid := cmd.Process.Pid
+	if err := logFile.Close(); err != nil {
+		_ = syscall.Kill(-pid, syscall.SIGTERM)
+		return fmt.Errorf("close host web log: %w", err)
+	}
 	if err := inf.writeHostInfraPID("web", pid); err != nil {
 		_ = syscall.Kill(-pid, syscall.SIGTERM)
 		return fmt.Errorf("write host web pid: %w", err)

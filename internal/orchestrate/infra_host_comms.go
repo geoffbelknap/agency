@@ -87,7 +87,6 @@ func (inf *Infra) ensureHostComms(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("open host comms log: %w", err)
 	}
-	defer logFile.Close()
 
 	cmd := exec.Command(inf.hostCommsPython(sourceDir), "-u", "-m", "images.comms.server",
 		"--port", inf.gatewayProxyPort("8202"),
@@ -105,9 +104,14 @@ func (inf *Infra) ensureHostComms(ctx context.Context) error {
 	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
 		return fmt.Errorf("start host comms: %w", err)
 	}
 	pid := cmd.Process.Pid
+	if err := logFile.Close(); err != nil {
+		_ = syscall.Kill(-pid, syscall.SIGTERM)
+		return fmt.Errorf("close host comms log: %w", err)
+	}
 	if err := inf.writeHostInfraPID("comms", pid); err != nil {
 		_ = syscall.Kill(-pid, syscall.SIGTERM)
 		return fmt.Errorf("write host comms pid: %w", err)

@@ -95,7 +95,7 @@ export function AgentStep({
         setPhase('starting');
         onUpdate(name, DEFAULT_PRESET);
         onNext();
-      } else if ((e.message || '').toLowerCase().includes('backend')) {
+      } else if (runtimeBackendError(e.message || '')) {
         setError('The selected runtime backend is not ready. Run agency admin doctor, fix the reported host checks, and try again.');
         setCreating(false);
       } else {
@@ -103,6 +103,11 @@ export function AgentStep({
         setCreating(false);
       }
     }
+  };
+
+  const runtimeBackendError = (message: string) => {
+    const normalized = message.toLowerCase();
+    return ['backend', 'docker', 'podman', 'containerd'].some((term) => normalized.includes(term));
   };
 
   const handleShuffle = () => {

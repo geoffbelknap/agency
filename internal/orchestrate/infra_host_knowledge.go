@@ -70,7 +70,6 @@ func (inf *Infra) ensureHostKnowledge(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("open host knowledge log: %w", err)
 	}
-	defer logFile.Close()
 
 	cmd := exec.Command(inf.hostKnowledgePython(sourceDir), "-u", "-m", "images.knowledge.server",
 		"--port", inf.gatewayProxyPort("8204"),
@@ -82,9 +81,14 @@ func (inf *Infra) ensureHostKnowledge(ctx context.Context) error {
 	cmd.Env = append(os.Environ(), inf.hostKnowledgeEnv(sourceDir, knowledgeDir)...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
 		return fmt.Errorf("start host knowledge: %w", err)
 	}
 	pid := cmd.Process.Pid
+	if err := logFile.Close(); err != nil {
+		_ = syscall.Kill(-pid, syscall.SIGTERM)
+		return fmt.Errorf("close host knowledge log: %w", err)
+	}
 	if err := inf.writeHostInfraPID("knowledge", pid); err != nil {
 		_ = syscall.Kill(-pid, syscall.SIGTERM)
 		return fmt.Errorf("write host knowledge pid: %w", err)
