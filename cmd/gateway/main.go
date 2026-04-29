@@ -1535,6 +1535,7 @@ func runServe(httpAddr string) error {
 				infra.GatewayAddr = cfg.GatewayAddr
 				infra.GatewayToken = cfg.Token
 				infra.EgressToken = cfg.EgressToken
+				infra.RuntimeBackendName = backendName
 				if err := infra.EnsureRunning(ctx); err != nil {
 					logger.Warn("auto-restore: infra up failed", "err", err)
 				} else {

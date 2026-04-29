@@ -85,6 +85,7 @@ func StartupWithInfraClient(cfg *config.Config, dc, infraDC *runtimehost.Client,
 		infra.GatewayAddr = cfg.GatewayAddr
 		infra.GatewayToken = cfg.Token
 		infra.EgressToken = cfg.EgressToken
+		infra.RuntimeBackendName = backendName
 	}
 
 	agents, err := orchestrate.NewAgentManager(cfg.Home, dc, logger)

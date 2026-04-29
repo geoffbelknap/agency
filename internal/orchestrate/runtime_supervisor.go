@@ -95,6 +95,7 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 					}
 					infra.SourceDir = rs.SourceDir
 					infra.BuildID = rs.BuildID
+					infra.RuntimeBackendName = backendName
 					return infra.EnsureAgentNetwork(ctx, fmt.Sprintf("%s-%s-internal", prefix, runtimeID))
 				},
 				EnsureEnforcerFn: func(ctx context.Context, spec runtimecontract.RuntimeSpec, rotateKey bool) error {

@@ -5,8 +5,11 @@
 set -e
 
 COMMS_HOST="${AGENCY_COMMS_HOST:-comms}"
+COMMS_PORT="${AGENCY_COMMS_PORT:-8080}"
 KNOWLEDGE_HOST="${AGENCY_KNOWLEDGE_HOST:-knowledge}"
+KNOWLEDGE_PORT="${AGENCY_KNOWLEDGE_PORT:-8080}"
 INTAKE_HOST="${AGENCY_INTAKE_HOST:-intake}"
+INTAKE_PORT="${AGENCY_INTAKE_PORT:-8080}"
 
 # Determine how to reach the gateway daemon.
 # On Linux: Unix socket works through bind mount (native filesystem).
@@ -48,10 +51,10 @@ echo "gateway-proxy: target=$GATEWAY_TARGET"
 socat TCP-LISTEN:8200,fork,reuseaddr "$GATEWAY_TARGET" &
 
 # Direction 2: gateway→services
-echo "gateway-proxy: service targets comms=${COMMS_HOST} knowledge=${KNOWLEDGE_HOST} intake=${INTAKE_HOST}"
-socat TCP-LISTEN:8202,fork,reuseaddr TCP:${COMMS_HOST}:8080 &
-socat TCP-LISTEN:8204,fork,reuseaddr TCP:${KNOWLEDGE_HOST}:8080 &
-socat TCP-LISTEN:8205,fork,reuseaddr TCP:${INTAKE_HOST}:8080 &
+echo "gateway-proxy: service targets comms=${COMMS_HOST}:${COMMS_PORT} knowledge=${KNOWLEDGE_HOST}:${KNOWLEDGE_PORT} intake=${INTAKE_HOST}:${INTAKE_PORT}"
+socat TCP-LISTEN:8202,fork,reuseaddr TCP:${COMMS_HOST}:${COMMS_PORT} &
+socat TCP-LISTEN:8204,fork,reuseaddr TCP:${KNOWLEDGE_HOST}:${KNOWLEDGE_PORT} &
+socat TCP-LISTEN:8205,fork,reuseaddr TCP:${INTAKE_HOST}:${INTAKE_PORT} &
 
 echo "gateway-proxy: all bridges started"
 wait -n

@@ -52,6 +52,9 @@ func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
 	}
+	if h.deps.Infra != nil {
+		status = mergeHostInfraStatuses(status, h.deps.Infra.HostInfraStatuses(r.Context()))
+	}
 	if h.deps.BackendHealth != nil {
 		h.deps.BackendHealth.RecordSuccess()
 	}
@@ -81,6 +84,23 @@ func (h *handler) infraStatus(w http.ResponseWriter, r *http.Request) {
 			return containerBackendState
 		}(),
 	})
+}
+
+func mergeHostInfraStatuses(status []runtimehost.InfraComponent, host []runtimehost.InfraComponent) []runtimehost.InfraComponent {
+	for _, hostStatus := range host {
+		replaced := false
+		for i := range status {
+			if status[i].Name == hostStatus.Name {
+				status[i] = hostStatus
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			status = append(status, hostStatus)
+		}
+	}
+	return status
 }
 
 // ── Infrastructure Up ────────────────────────────────────────────────────────

@@ -75,21 +75,22 @@ func mergeEnv(dst, src map[string]string) {
 
 // Infra manages shared infrastructure containers.
 type Infra struct {
-	Home         string
-	Instance     string
-	Version      string
-	SourceDir    string
-	BuildID      string
-	GatewayAddr  string // e.g. "127.0.0.1:8200"
-	GatewayToken string // full auth token from config.yaml
-	EgressToken  string // scoped token for egress credential resolution
-	Registry     *registry.Registry
-	Optimizer    *routing.RoutingOptimizer
-	Backend      *runtimehost.BackendHandle
-	Comms        comms.Client
-	cli          *runtimehost.RawClient
-	log          *slog.Logger
-	hmacKey      []byte
+	Home               string
+	Instance           string
+	Version            string
+	SourceDir          string
+	BuildID            string
+	GatewayAddr        string // e.g. "127.0.0.1:8200"
+	GatewayToken       string // full auth token from config.yaml
+	EgressToken        string // scoped token for egress credential resolution
+	RuntimeBackendName string
+	Registry           *registry.Registry
+	Optimizer          *routing.RoutingOptimizer
+	Backend            *runtimehost.BackendHandle
+	Comms              comms.Client
+	cli                *runtimehost.RawClient
+	log                *slog.Logger
+	hmacKey            []byte
 }
 
 // NewInfra creates a new infrastructure manager.
@@ -404,6 +405,15 @@ func (inf *Infra) TeardownWithProgress(ctx context.Context, onProgress ProgressF
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			if role == "comms" && inf.hostCommsEnabled() {
+				if err := inf.stopHostComms(ctx); err != nil {
+					inf.log.Warn("teardown host comms", "err", err)
+				}
+				if onProgress != nil {
+					onProgress(role, "Stopped "+role)
+				}
+				return
+			}
 			name := inf.containerName(role)
 			if err := inf.stopAndRemove(ctx, name, stopTimeoutFor(role)); err != nil {
 				inf.log.Warn("teardown", "container", name, "err", err)
@@ -462,8 +472,12 @@ func (inf *Infra) RestartComponentWithProgress(ctx context.Context, component st
 	if onProgress != nil {
 		onProgress(component, "Stopping "+component)
 	}
-	name := inf.containerName(component)
-	_ = inf.stopAndRemove(ctx, name, stopTimeoutFor(component))
+	if component == "comms" && inf.hostCommsEnabled() {
+		_ = inf.stopHostComms(ctx)
+	} else {
+		name := inf.containerName(component)
+		_ = inf.stopAndRemove(ctx, name, stopTimeoutFor(component))
+	}
 
 	if onProgress != nil {
 		onProgress(component, "Starting "+component)
@@ -844,15 +858,20 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	name := inf.containerName("gateway-proxy")
 	hostGatewayHosts := inf.hostGatewayHosts(ctx)
 	serviceHosts := inf.gatewayProxyServiceHosts(ctx)
+	servicePorts := inf.gatewayProxyServicePorts()
 	runDir := filepath.Join(inf.Home, "run")
 	if inf.isRunning(ctx, name) &&
 		inf.isCurrentBuild(ctx, name) &&
 		inf.isHealthyOrNoCheck(ctx, name) &&
+		inf.containerHostPortBindingMatches(ctx, name, "8202/tcp", inf.gatewayProxyPort("8202"), !inf.hostCommsEnabled()) &&
 		inf.hasContainerEnv(ctx, name, "AGENCY_HOST_GATEWAY_PORT", inf.gatewayPort()) &&
 		inf.hasContainerEnv(ctx, name, "AGENCY_HOST_GATEWAY_HOSTS", hostGatewayHosts) &&
 		inf.hasContainerEnv(ctx, name, "AGENCY_COMMS_HOST", serviceHosts["comms"]) &&
+		inf.hasContainerEnv(ctx, name, "AGENCY_COMMS_PORT", servicePorts["comms"]) &&
 		inf.hasContainerEnv(ctx, name, "AGENCY_KNOWLEDGE_HOST", serviceHosts["knowledge"]) &&
+		inf.hasContainerEnv(ctx, name, "AGENCY_KNOWLEDGE_PORT", servicePorts["knowledge"]) &&
 		inf.hasContainerEnv(ctx, name, "AGENCY_INTAKE_HOST", serviceHosts["intake"]) &&
+		inf.hasContainerEnv(ctx, name, "AGENCY_INTAKE_PORT", servicePorts["intake"]) &&
 		inf.hasContainerMount(ctx, name, runDir, "/run") {
 		return nil
 	}
@@ -870,9 +889,11 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 	// Reverse bridges: host gateway reaches services through published ports.
 	// Ports must publish to the host for VM-backed host backend compatibility.
 	hc.PortBindings = containerops.PortMap{
-		"8202/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8202")}},
 		"8204/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8204")}},
 		"8205/tcp": []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8205")}},
+	}
+	if !inf.hostCommsEnabled() {
+		hc.PortBindings["8202/tcp"] = []containerops.PortBinding{{HostIP: "127.0.0.1", HostPort: inf.gatewayProxyPort("8202")}}
 	}
 	// Mount the run directory so socat can reach the gateway Unix socket.
 	// Mount the directory (not the socket file) so new sockets from daemon
@@ -897,8 +918,11 @@ func (inf *Infra) ensureGatewayProxy(ctx context.Context) error {
 				"AGENCY_HOST_GATEWAY_PORT":  inf.gatewayPort(),
 				"AGENCY_HOST_GATEWAY_HOSTS": hostGatewayHosts,
 				"AGENCY_COMMS_HOST":         serviceHosts["comms"],
+				"AGENCY_COMMS_PORT":         servicePorts["comms"],
 				"AGENCY_KNOWLEDGE_HOST":     serviceHosts["knowledge"],
+				"AGENCY_KNOWLEDGE_PORT":     servicePorts["knowledge"],
 				"AGENCY_INTAKE_HOST":        serviceHosts["intake"],
+				"AGENCY_INTAKE_PORT":        servicePorts["intake"],
 			}),
 			ExposedPorts: containerops.PortSet{
 				"8202/tcp": struct{}{},
@@ -1052,6 +1076,10 @@ func (inf *Infra) ensureEgress(ctx context.Context) error {
 }
 
 func (inf *Infra) ensureComms(ctx context.Context) error {
+	if inf.hostCommsEnabled() {
+		_ = inf.stopAndRemove(ctx, inf.containerName("comms"), stopTimeoutFor("comms"))
+		return inf.ensureHostComms(ctx)
+	}
 	if err := imageops.Resolve(ctx, inf.cli, "comms", inf.Version, inf.SourceDir, inf.BuildID, inf.log); err != nil {
 		return fmt.Errorf("resolve comms image: %w", err)
 	}
@@ -1727,6 +1755,24 @@ func (inf *Infra) hasContainerMount(ctx context.Context, containerName, source, 
 	return false
 }
 
+func (inf *Infra) containerHostPortBindingMatches(ctx context.Context, containerName, containerPort, hostPort string, want bool) bool {
+	inspect, err := inf.cli.ContainerInspect(ctx, containerName)
+	if err != nil || inspect.HostConfig == nil {
+		return false
+	}
+	for port, bindings := range inspect.HostConfig.PortBindings {
+		if string(port) != containerPort {
+			continue
+		}
+		for _, binding := range bindings {
+			if binding.HostPort == hostPort {
+				return want
+			}
+		}
+	}
+	return !want
+}
+
 func (inf *Infra) stopAndRemove(ctx context.Context, name string, timeoutSecs int) error {
 	return containers.StopAndRemove(ctx, inf.cli, name, timeoutSecs)
 }
@@ -2058,6 +2104,18 @@ func (inf *Infra) hostGatewayHosts(ctx context.Context) string {
 }
 
 func (inf *Infra) gatewayProxyServiceHosts(ctx context.Context) map[string]string {
+	if inf.hostCommsEnabled() {
+		hosts := inf.hostGatewayHosts(ctx)
+		commsHost := "host.containers.internal"
+		if parts := strings.Split(hosts, ","); len(parts) > 0 && strings.TrimSpace(parts[0]) != "" {
+			commsHost = strings.TrimSpace(parts[0])
+		}
+		return map[string]string{
+			"comms":     commsHost,
+			"knowledge": "knowledge",
+			"intake":    "intake",
+		}
+	}
 	if runtimehost.NormalizeContainerBackend(inf.backendName()) == runtimehost.BackendAppleContainer {
 		return map[string]string{
 			"comms":     inf.serviceNetworkHost(ctx, "comms"),
@@ -2070,6 +2128,18 @@ func (inf *Infra) gatewayProxyServiceHosts(ctx context.Context) map[string]strin
 		"knowledge": "knowledge",
 		"intake":    "intake",
 	}
+}
+
+func (inf *Infra) gatewayProxyServicePorts() map[string]string {
+	ports := map[string]string{
+		"comms":     "8080",
+		"knowledge": "8080",
+		"intake":    "8080",
+	}
+	if inf.hostCommsEnabled() {
+		ports["comms"] = inf.gatewayProxyPort("8202")
+	}
+	return ports
 }
 
 func (inf *Infra) serviceNetworkHost(ctx context.Context, role string) string {
