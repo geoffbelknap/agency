@@ -3,7 +3,6 @@ package runtimebackend
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -15,6 +14,10 @@ type AppleVFHelperHealth struct {
 	Backend                 string `json:"backend"`
 	Command                 string `json:"command"`
 	Version                 string `json:"version"`
+	RequestID               string `json:"requestID,omitempty"`
+	RuntimeID               string `json:"runtimeID,omitempty"`
+	Role                    string `json:"role,omitempty"`
+	AgencyHomeHash          string `json:"agencyHomeHash,omitempty"`
 	Darwin                  string `json:"darwin"`
 	Arch                    string `json:"arch"`
 	VirtualizationAvailable bool   `json:"virtualizationAvailable"`
@@ -59,9 +62,22 @@ func AppleVFHelperHealthStatus(ctx context.Context, helperBinary string) (AppleV
 }
 
 func ParseAppleVFHelperHealth(data []byte) (AppleVFHelperHealth, error) {
-	var health AppleVFHelperHealth
-	if err := json.Unmarshal(bytes.TrimSpace(data), &health); err != nil {
+	resp, err := ParseAppleVFHelperResponse(data)
+	if err != nil {
 		return AppleVFHelperHealth{}, err
 	}
-	return health, nil
+	return AppleVFHelperHealth{
+		OK:                      resp.OK,
+		Backend:                 resp.Backend,
+		Command:                 string(resp.Command),
+		Version:                 resp.Version,
+		RequestID:               resp.RequestID,
+		RuntimeID:               resp.RuntimeID,
+		Role:                    string(resp.Role),
+		AgencyHomeHash:          resp.AgencyHomeHash,
+		Darwin:                  resp.Darwin,
+		Arch:                    resp.Arch,
+		VirtualizationAvailable: resp.VirtualizationAvailable,
+		Error:                   resp.Error,
+	}, nil
 }
