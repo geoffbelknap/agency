@@ -63,6 +63,7 @@ func run(ctx context.Context, specs []bridgeSpec, guestListeners []guestListener
 			closeListeners(listeners)
 			return fmt.Errorf("listen %s: %w", spec.Listen, err)
 		}
+		log.Printf("tcp bridge listening on %s -> vsock %d:%d", spec.Listen, spec.CID, spec.Port)
 		listeners = append(listeners, listener)
 		go accept(ctx, listener, spec)
 	}
@@ -72,6 +73,7 @@ func run(ctx context.Context, specs []bridgeSpec, guestListeners []guestListener
 			closeListeners(listeners)
 			return fmt.Errorf("listen vsock %d: %w", spec.Port, err)
 		}
+		log.Printf("vsock listener on port %d -> tcp %s", spec.Port, spec.Target)
 		go acceptVsock(ctx, fd, spec)
 	}
 	<-ctx.Done()
@@ -112,9 +114,11 @@ func accept(ctx context.Context, listener net.Listener, spec bridgeSpec) {
 			case <-ctx.Done():
 				return
 			default:
+				log.Printf("tcp bridge accept failed: %v", err)
 				continue
 			}
 		}
+		log.Printf("tcp bridge accepted local connection on %s", spec.Listen)
 		go handle(ctx, conn, spec)
 	}
 }
@@ -123,6 +127,7 @@ func handle(ctx context.Context, local net.Conn, spec bridgeSpec) {
 	defer local.Close()
 	remote, err := dialVsock(spec.CID, spec.Port)
 	if err != nil {
+		log.Printf("dial vsock %d:%d failed: %v", spec.CID, spec.Port, err)
 		return
 	}
 	defer remote.Close()
@@ -169,6 +174,7 @@ func acceptVsock(ctx context.Context, fd int, spec guestListenerSpec) {
 			case <-ctx.Done():
 				return
 			default:
+				log.Printf("vsock accept failed on port %d: %v", spec.Port, err)
 				continue
 			}
 		}
@@ -181,6 +187,7 @@ func handleVsockGuestConnection(ctx context.Context, fd int, target string) {
 	defer local.Close()
 	remote, err := (&net.Dialer{}).DialContext(ctx, "tcp", target)
 	if err != nil {
+		log.Printf("dial guest listener target %s failed: %v", target, err)
 		return
 	}
 	defer remote.Close()

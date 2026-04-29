@@ -1,9 +1,13 @@
 package runtimebackend
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -110,7 +114,14 @@ func (b *FirecrackerRuntimeBackend) Ensure(ctx context.Context, spec runtimecont
 		b.vsockFactory().Stop(spec.RuntimeID)
 		return err
 	}
-	if err := b.supervisor().Start(ctx, spec, []string{"--no-api", "--config-file", configPath}); err != nil {
+	apiSock := b.apiSocketPath(spec.RuntimeID)
+	_ = os.Remove(apiSock)
+	if err := b.supervisor().Start(ctx, spec, []string{"--api-sock", apiSock, "--config-file", configPath}); err != nil {
+		b.vsockFactory().Stop(spec.RuntimeID)
+		return err
+	}
+	if err := firecrackerStartInstance(ctx, apiSock); err != nil {
+		_ = b.supervisor().Stop(context.Background(), spec.RuntimeID)
 		b.vsockFactory().Stop(spec.RuntimeID)
 		return err
 	}
@@ -263,6 +274,61 @@ func (b *FirecrackerRuntimeBackend) cleanupRuntimeState(runtimeID string) error 
 		}
 	}
 	return nil
+}
+
+func (b *FirecrackerRuntimeBackend) apiSocketPath(runtimeID string) string {
+	return filepath.Join(b.StateDir, runtimeID, "firecracker-api.sock")
+}
+
+func firecrackerStartInstance(ctx context.Context, apiSock string) error {
+	if err := waitFirecrackerAPISocket(ctx, apiSock, 5*time.Second); err != nil {
+		return err
+	}
+	client := &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				_ = network
+				_ = addr
+				return (&net.Dialer{}).DialContext(ctx, "unix", apiSock)
+			},
+		},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, "http://firecracker/actions", bytes.NewReader([]byte(`{"action_type":"InstanceStart"}`)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("start firecracker instance: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNoContent {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	bodyText := strings.TrimSpace(string(body))
+	if resp.StatusCode == http.StatusBadRequest && strings.Contains(bodyText, "not supported after starting the microVM") {
+		return nil
+	}
+	return fmt.Errorf("start firecracker instance: HTTP %d: %s", resp.StatusCode, bodyText)
+}
+
+func waitFirecrackerAPISocket(ctx context.Context, apiSock string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		if _, err := os.Stat(apiSock); err == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("firecracker api socket %s was not created", apiSock)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
 }
 
 func firecrackerGuestEnv(env map[string]string) map[string]string {

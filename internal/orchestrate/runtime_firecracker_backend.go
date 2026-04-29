@@ -36,6 +36,9 @@ func (b *firecrackerComponentRuntimeBackend) Ensure(ctx context.Context, spec ru
 
 func (b *firecrackerComponentRuntimeBackend) EnsureEnforcer(ctx context.Context, spec runtimecontract.RuntimeSpec, rotateKey bool) error {
 	if b.enforcementMode() == hostruntimebackend.FirecrackerEnforcementModeMicroVM {
+		if !rotateKey && b.enforcerMicroVMRunning(ctx, spec.RuntimeID) {
+			return nil
+		}
 		enforcerSpec, err := b.compileEnforcerMicroVMSpec(ctx, spec, rotateKey)
 		if err != nil {
 			return err
@@ -69,6 +72,11 @@ func (b *firecrackerComponentRuntimeBackend) EnsureEnforcer(ctx context.Context,
 		return err
 	}
 	return b.enforcerSupervisor().HealthCheck(ctx, spec.RuntimeID, 30*time.Second)
+}
+
+func (b *firecrackerComponentRuntimeBackend) enforcerMicroVMRunning(ctx context.Context, runtimeID string) bool {
+	status, err := b.backend.Inspect(ctx, firecrackerComponentRuntimeID(runtimeID, firecrackerComponentEnforcer))
+	return err == nil && status.Healthy
 }
 
 func (b *firecrackerComponentRuntimeBackend) EnsureWorkspace(ctx context.Context, spec runtimecontract.RuntimeSpec) error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -125,9 +126,11 @@ func (b *FirecrackerVsockBridge) accept(ctx context.Context, listener net.Listen
 			case <-ctx.Done():
 				return
 			default:
+				log.Printf("firecracker vsock bridge accept failed for runtime %s: %v", b.RuntimeID, err)
 				continue
 			}
 		}
+		log.Printf("firecracker vsock bridge accepted runtime %s target %s", b.RuntimeID, target)
 		go proxyFirecrackerVsockConn(ctx, conn, target)
 	}
 }
@@ -151,6 +154,7 @@ func proxyFirecrackerVsockConn(ctx context.Context, guest net.Conn, target strin
 	defer guest.Close()
 	host, err := dialFirecrackerVsockTarget(ctx, target)
 	if err != nil {
+		log.Printf("firecracker vsock bridge dial target %s failed: %v", target, err)
 		return
 	}
 	defer host.Close()
