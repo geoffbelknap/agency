@@ -142,7 +142,7 @@ func (b *FirecrackerRuntimeBackend) Inspect(ctx context.Context, runtimeID strin
 	if err != nil {
 		return runtimecontract.BackendStatus{}, err
 	}
-	if status.State == FirecrackerVMRunning && b.vsockFactory().Bridge(runtimeID) == nil {
+	if status.State == FirecrackerVMRunning && firecrackerVsockBridgeState(b.vsockFactory().Bridge(runtimeID)) != "running" {
 		_, _ = b.vsockFactory().Restore(ctx, runtimeID)
 	}
 	out := runtimecontract.BackendStatus{

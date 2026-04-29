@@ -225,6 +225,11 @@ func TestFirecrackerVsockBridgeReplacesExistingBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 	firstPath := first.Paths[9999]
+	runtimeDir := filepath.Join(factory.StateDir, "alice")
+	keepFile := filepath.Join(runtimeDir, "firecracker.json")
+	if err := os.WriteFile(keepFile, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	second, err := factory.Start(context.Background(), "alice", map[int]string{10000: "unix://" + targetPath})
 	if err != nil {
 		t.Fatal(err)
@@ -234,6 +239,9 @@ func TestFirecrackerVsockBridgeReplacesExistingBridge(t *testing.T) {
 	}
 	if _, err := os.Stat(second.Paths[10000]); err != nil {
 		t.Fatalf("new socket missing: %v", err)
+	}
+	if _, err := os.Stat(keepFile); err != nil {
+		t.Fatalf("runtime file should survive bridge replacement: %v", err)
 	}
 	factory.Stop("alice")
 	time.Sleep(10 * time.Millisecond)

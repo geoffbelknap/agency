@@ -179,7 +179,7 @@ test('Firecracker agent can be managed and messaged through the web UI', async (
   }
 });
 
-test('Firecracker degraded runtime can be recovered through the web UI', async ({ page }) => {
+test('Firecracker runtime recovers after daemon restart through the web UI', async ({ page }) => {
   const agentName = `fc-recover-${Date.now()}`;
 
   try {
@@ -193,20 +193,21 @@ test('Firecracker degraded runtime can be recovered through the web UI', async (
     await runAgency(['serve', 'restart']);
     await waitForGateway(page);
 
-    await page.goto(`/agents/${encodeURIComponent(agentName)}`);
-    await settle(page);
-    await expect(page.getByText('degraded')).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/not tracked/)).toBeVisible();
-    await page.getByRole('button', { name: /^Restart$/ }).click();
-
     await expect.poll(async () => {
       const response = await page.request.get(`/api/v1/agents/${encodeURIComponent(agentName)}/runtime/status`, {
         headers: await authHeaders(page),
       });
       if (!response.ok()) return 'unavailable';
-      const status = await response.json() as { phase?: string; healthy?: boolean };
-      return status.healthy ? status.phase ?? 'healthy' : status.phase ?? 'unhealthy';
-    }, { timeout: 120_000, intervals: [2000, 5000, 10000] }).toBe('running');
+      const status = await response.json() as { details?: Record<string, string>; phase?: string; healthy?: boolean };
+      if (!status.healthy) return status.phase ?? 'unhealthy';
+      return [
+        status.phase,
+        status.details?.workload_vm_state,
+        status.details?.enforcer_component_state,
+        status.details?.vsock_bridge_state,
+        status.details?.body_ws_connected,
+      ].join('|');
+    }, { timeout: 120_000, intervals: [2000, 5000, 10000] }).toBe('running|running|running|running|true');
 
     await page.goto(`/agents/${encodeURIComponent(agentName)}`);
     await settle(page);

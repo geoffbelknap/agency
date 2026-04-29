@@ -50,7 +50,7 @@ func (f *FirecrackerVsockListenerFactory) Start(ctx context.Context, runtimeID s
 		f.bridges = make(map[string]*FirecrackerVsockBridge)
 	}
 	if existing := f.bridges[runtimeID]; existing != nil {
-		existing.stop()
+		existing.close()
 	}
 
 	bridgeCtx, cancel := context.WithCancel(context.Background())
@@ -73,19 +73,19 @@ func (f *FirecrackerVsockListenerFactory) Start(ctx context.Context, runtimeID s
 	}
 	for port, target := range targets {
 		if port <= 0 || port > 65535 {
-			bridge.stop()
+			bridge.close()
 			return nil, fmt.Errorf("firecracker vsock bridge: invalid port %d", port)
 		}
 		target = strings.TrimSpace(target)
 		if target == "" {
-			bridge.stop()
+			bridge.close()
 			return nil, fmt.Errorf("firecracker vsock bridge: target for port %d is empty", port)
 		}
 		path := bridge.UDSBase + "_" + strconv.Itoa(port)
 		_ = os.Remove(path)
 		listener, err := net.Listen("unix", path)
 		if err != nil {
-			bridge.stop()
+			bridge.close()
 			return nil, fmt.Errorf("listen firecracker vsock uds %s: %w", path, err)
 		}
 		bridge.listeners = append(bridge.listeners, listener)
@@ -149,7 +149,7 @@ func (b *FirecrackerVsockBridge) accept(ctx context.Context, listener net.Listen
 	}
 }
 
-func (b *FirecrackerVsockBridge) stop() {
+func (b *FirecrackerVsockBridge) close() {
 	if b.cancel != nil {
 		b.cancel()
 	}
@@ -159,6 +159,10 @@ func (b *FirecrackerVsockBridge) stop() {
 	for _, path := range b.Paths {
 		_ = os.Remove(path)
 	}
+}
+
+func (b *FirecrackerVsockBridge) stop() {
+	b.close()
 	if b.dir != "" {
 		_ = os.RemoveAll(b.dir)
 	}

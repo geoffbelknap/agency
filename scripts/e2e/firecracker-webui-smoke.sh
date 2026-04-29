@@ -44,7 +44,7 @@ case "$MODE" in
     PLAYWRIGHT_ARGS+=("-g" "Firecracker agent can be managed")
     ;;
   recover)
-    PLAYWRIGHT_ARGS+=("-g" "Firecracker degraded runtime can be recovered")
+    PLAYWRIGHT_ARGS+=("-g" "Firecracker runtime recovers after daemon restart")
     ;;
   cleanup)
     PLAYWRIGHT_ARGS+=("-g" "Firecracker stop and delete clean up")
