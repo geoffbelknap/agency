@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	agentruntime "github.com/geoffbelknap/agency/internal/hostadapter/agentruntime"
 	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
@@ -139,5 +140,53 @@ func TestFirecrackerMicroVMEnforcementModeUsesBackendRuntime(t *testing.T) {
 	err := backend.EnsureEnforcer(context.Background(), runtimecontract.RuntimeSpec{RuntimeID: "alice"}, false)
 	if err == nil || !strings.Contains(err.Error(), "kernel path is not configured") {
 		t.Fatalf("EnsureEnforcer error = %v, want backend validation error", err)
+	}
+}
+
+func TestFirecrackerComponentStopCleansBothEnforcerSubstrates(t *testing.T) {
+	stateDir := t.TempDir()
+	pidDir := filepath.Join(stateDir, "pids")
+	for _, runtimeID := range []string{"alice", "alice-enforcer"} {
+		if err := os.MkdirAll(filepath.Join(stateDir, runtimeID), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(stateDir, "tasks", runtimeID), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(pidDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(pidDir, runtimeID+".pid"), []byte("999999\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	backend := &firecrackerComponentRuntimeBackend{
+		backend: &hostruntimebackend.FirecrackerRuntimeBackend{
+			StateDir:        stateDir,
+			EnforcementMode: hostruntimebackend.FirecrackerEnforcementModeHostProcess,
+			Tasks: &hostruntimebackend.FirecrackerVMSupervisor{
+				LogDir: stateDir,
+				PIDDir: pidDir,
+			},
+			Vsock: &hostruntimebackend.FirecrackerVsockListenerFactory{StateDir: stateDir},
+		},
+		enforcers: &agentruntime.HostEnforcerSupervisor{StateDir: filepath.Join(stateDir, "host-enforcers")},
+	}
+
+	if err := backend.Stop(context.Background(), "alice"); err != nil {
+		t.Fatalf("Stop returned error: %v", err)
+	}
+
+	for _, path := range []string{
+		filepath.Join(stateDir, "alice"),
+		filepath.Join(stateDir, "tasks", "alice"),
+		filepath.Join(pidDir, "alice.pid"),
+		filepath.Join(stateDir, "alice-enforcer"),
+		filepath.Join(stateDir, "tasks", "alice-enforcer"),
+		filepath.Join(pidDir, "alice-enforcer.pid"),
+	} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("path %s exists after Stop, err=%v", path, err)
+		}
 	}
 }

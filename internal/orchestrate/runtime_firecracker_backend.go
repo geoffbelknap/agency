@@ -3,6 +3,7 @@ package orchestrate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -116,19 +117,17 @@ func (b *firecrackerComponentRuntimeBackend) applyEnforcerMicroVMTargets(runtime
 }
 
 func (b *firecrackerComponentRuntimeBackend) Stop(ctx context.Context, runtimeID string) error {
-	err := b.backend.Stop(ctx, runtimeID)
-	if b.enforcementMode() == hostruntimebackend.FirecrackerEnforcementModeMicroVM {
-		enforcerErr := b.backend.Stop(ctx, firecrackerComponentRuntimeID(runtimeID, firecrackerComponentEnforcer))
-		if err != nil {
-			return err
-		}
-		return enforcerErr
+	var errs []error
+	if err := b.backend.Stop(ctx, runtimeID); err != nil {
+		errs = append(errs, err)
 	}
-	enforcerErr := b.enforcerSupervisor().Stop(ctx, runtimeID)
-	if err != nil {
-		return err
+	if err := b.backend.Stop(ctx, firecrackerComponentRuntimeID(runtimeID, firecrackerComponentEnforcer)); err != nil {
+		errs = append(errs, err)
 	}
-	return enforcerErr
+	if err := b.enforcerSupervisor().Stop(ctx, runtimeID); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
 }
 
 func (b *firecrackerComponentRuntimeBackend) Inspect(ctx context.Context, runtimeID string) (runtimecontract.BackendStatus, error) {
