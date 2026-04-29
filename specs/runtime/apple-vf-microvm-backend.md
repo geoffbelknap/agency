@@ -351,6 +351,103 @@ The initial parity target is the same operator flow used for Firecracker:
 This validation is manual macOS Apple silicon coverage until a suitable hosted
 macOS virtualization environment exists.
 
+## Mac Codex Handoff
+
+Current repo state for a macOS Apple silicon implementation agent:
+
+- `apple-vf-microvm` is already the strategic default backend on macOS.
+- The backend is registered in `RuntimeSupervisor` when selected, even without
+  experimental surfaces.
+- `internal/hostadapter/runtimebackend/apple_vf_microvm.go` exists as a
+  capability-reporting skeleton with not-implemented lifecycle verbs.
+- Host infra (`egress`, `comms`, `knowledge`, `web`) runs as host services for
+  `apple-vf-microvm`, matching the Firecracker microVM model.
+- `agency admin doctor` currently has Firecracker microVM host-infra checks;
+  Apple VF doctor checks still need to be added.
+- `tools/apple-vf-helper` now contains the first Swift helper scaffold.
+  `health` validates Apple Virtualization.framework availability and Apple
+  silicon architecture. Lifecycle commands intentionally return structured
+  not-implemented responses.
+
+The Mac-side implementation agent should work in these commit-sized chunks:
+
+1. **Helper health and doctor hookup**
+   - Build `tools/apple-vf-helper` on macOS Apple silicon.
+   - Add `agency admin doctor` checks for `apple-vf-microvm`:
+     - GOOS/Darwin host is macOS
+     - architecture is Apple silicon
+     - helper binary exists and is executable
+     - helper `health` returns `ok=true`
+     - configured state directory is writable
+     - kernel path is configured and readable
+   - Add unit tests for JSON parsing and failure reporting.
+   - Manual validation:
+     - `scripts/readiness/apple-vf-helper-build.sh`
+     - `agency admin doctor`
+
+2. **Helper protocol types**
+   - Define request/response/event JSON structs in the Swift helper.
+   - Define matching Go-side helper client structs under
+     `internal/hostadapter/runtimebackend/`.
+   - Keep commands structured. Do not invoke shell strings.
+   - Required commands: `health`, `prepare`, `start`, `stop`, `kill`,
+     `inspect`, `delete`, `events`.
+   - Unit-test Go parsing without requiring macOS.
+
+3. **Minimal VM configuration smoke**
+   - Implement helper `prepare` for one workload VM config.
+   - Construct and validate `VZVirtualMachineConfiguration`.
+   - Do not boot yet.
+   - Validate kernel path and rootfs block-device path.
+   - Return normalized config/device diagnostics.
+
+4. **First boot/stop/delete**
+   - Implement helper `start`, `inspect`, `stop`, `kill`, and `delete` for a
+     minimal ARM64 Linux rootfs.
+   - Keep all state under `state_dir/<runtime-id>/`.
+   - Ensure bounded stop and force-kill cleanup.
+   - Emit lifecycle events in JSONL.
+
+5. **Go backend lifecycle wiring**
+   - Replace `Ensure`, `Stop`, `Inspect`, and `Validate` not-implemented
+     errors in `apple_vf_microvm.go` with calls to the helper client.
+   - Mirror Firecracker details fields where possible:
+     `workload_vm_state`, `enforcer_state`, `bridge_state`, `state_dir`,
+     `enforcement_mode`, `last_error`.
+   - Preserve backend-neutral handler/API contracts.
+
+6. **RootFS and init contract**
+   - Reuse the Firecracker OCI-to-rootfs direction, adapted for ARM64 macOS.
+   - First pass may accept a prebuilt rootfs path in backend config.
+   - Follow-up should realize OCI image to bootable rootfs and inject Agency
+     guest init.
+
+7. **Host-process enforcer + bridge**
+   - Start the per-agent host enforcer exactly as Firecracker host-process mode
+     does.
+   - Expose only the enforcer endpoint into the workload VM.
+   - Do not expose gateway, comms, knowledge, egress, provider APIs, tools, or
+     runtime control directly to the workload VM.
+
+8. **Web UI parity smoke**
+   - Add `scripts/e2e/apple-vf-microvm-webui-smoke.sh`.
+   - Add a Playwright operator flow mirroring Firecracker:
+     create, start, inspect, DM, restart recovery, reload, stop/delete,
+     cleanup assertions.
+   - Keep it manual macOS-only until hosted macOS virtualization is reliable.
+
+Suggested first command on the Mac:
+
+```bash
+scripts/readiness/apple-vf-helper-build.sh
+```
+
+If that passes, start chunk 1 by wiring helper health into
+`agency admin doctor` for `apple-vf-microvm`.
+
+Do not work on Apple Container for this track. It is compatibility code and
+must not shape `apple-vf-microvm`.
+
 ## Implementation Sequence
 
 1. **Spec and registry skeleton**
