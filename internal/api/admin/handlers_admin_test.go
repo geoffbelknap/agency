@@ -493,6 +493,126 @@ func TestFirecrackerDoctorChecksReportRemediationHints(t *testing.T) {
 	}
 }
 
+func TestAppleVFDoctorChecksPassWithHelperHealth(t *testing.T) {
+	restoreAppleVFDoctorHooks(t)
+	appleVFGOOS = func() string { return "darwin" }
+	appleVFGOARCH = func() string { return "arm64" }
+	appleVFHealthFunc = func(ctx context.Context, helperBinary string) (hostruntimebackend.AppleVFHelperHealth, error) {
+		return hostruntimebackend.AppleVFHelperHealth{
+			OK:                      true,
+			Backend:                 hostruntimebackend.BackendAppleVFMicroVM,
+			Version:                 "0.1.0",
+			Darwin:                  "25.4.0",
+			Arch:                    "arm64",
+			VirtualizationAvailable: true,
+		}, nil
+	}
+
+	home := t.TempDir()
+	helperPath := filepath.Join(home, "agency-apple-vf-helper")
+	kernelPath := filepath.Join(home, "vmlinux")
+	stateDir := filepath.Join(home, "state")
+	if err := os.WriteFile(helperPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(kernelPath, []byte("kernel"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	report := doctorReport{AllPassed: true, Backend: hostruntimebackend.BackendAppleVFMicroVM}
+	appendAppleVFDoctorChecks(context.Background(), &report, &config.Config{
+		Home: home,
+		Hub: config.HubConfig{DeploymentBackendConfig: map[string]string{
+			"helper_binary": helperPath,
+			"kernel_path":   kernelPath,
+			"state_dir":     stateDir,
+		}},
+	})
+
+	if !report.AllPassed {
+		t.Fatalf("expected all checks to pass: %#v", report.Checks)
+	}
+	for _, name := range []string{"apple_vf_host_os", "apple_vf_architecture", "apple_vf_helper_binary", "apple_vf_helper_health", "apple_vf_state_dir", "apple_vf_kernel"} {
+		check, ok := findDoctorCheck(report.Checks, name)
+		if !ok {
+			t.Fatalf("missing %s in %#v", name, report.Checks)
+		}
+		if check.Status != "pass" || check.Scope != "backend" || check.Backend != hostruntimebackend.BackendAppleVFMicroVM {
+			t.Fatalf("%s check = %#v", name, check)
+		}
+	}
+}
+
+func TestAppleVFDoctorChecksReportHelperAndHostFailures(t *testing.T) {
+	restoreAppleVFDoctorHooks(t)
+	appleVFGOOS = func() string { return "linux" }
+	appleVFGOARCH = func() string { return "amd64" }
+
+	report := doctorReport{AllPassed: true, Backend: hostruntimebackend.BackendAppleVFMicroVM}
+	appendAppleVFDoctorChecks(context.Background(), &report, &config.Config{
+		Home: t.TempDir(),
+		Hub:  config.HubConfig{DeploymentBackendConfig: map[string]string{}},
+	})
+
+	if report.AllPassed {
+		t.Fatal("expected all_passed=false")
+	}
+	for _, tt := range []struct {
+		name string
+		want string
+	}{
+		{"apple_vf_host_os", "macOS"},
+		{"apple_vf_architecture", "Apple silicon"},
+		{"apple_vf_helper_binary", "helper_binary"},
+		{"apple_vf_helper_health", "helper"},
+		{"apple_vf_kernel", "kernel_path"},
+	} {
+		check, ok := findDoctorCheck(report.Checks, tt.name)
+		if !ok {
+			t.Fatalf("missing %s in %#v", tt.name, report.Checks)
+		}
+		if check.Status != "fail" || !strings.Contains(check.Fix, tt.want) {
+			t.Fatalf("%s check = %#v", tt.name, check)
+		}
+	}
+}
+
+func TestAppleVFDoctorChecksReportHelperHealthFailure(t *testing.T) {
+	restoreAppleVFDoctorHooks(t)
+	appleVFGOOS = func() string { return "darwin" }
+	appleVFGOARCH = func() string { return "arm64" }
+	appleVFHealthFunc = func(ctx context.Context, helperBinary string) (hostruntimebackend.AppleVFHelperHealth, error) {
+		return hostruntimebackend.AppleVFHelperHealth{OK: false, Backend: hostruntimebackend.BackendAppleVFMicroVM}, fmt.Errorf("Virtualization.framework unavailable")
+	}
+
+	home := t.TempDir()
+	helperPath := filepath.Join(home, "agency-apple-vf-helper")
+	kernelPath := filepath.Join(home, "vmlinux")
+	if err := os.WriteFile(helperPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(kernelPath, []byte("kernel"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	report := doctorReport{AllPassed: true, Backend: hostruntimebackend.BackendAppleVFMicroVM}
+	appendAppleVFDoctorChecks(context.Background(), &report, &config.Config{
+		Home: home,
+		Hub: config.HubConfig{DeploymentBackendConfig: map[string]string{
+			"helper_binary": helperPath,
+			"kernel_path":   kernelPath,
+		}},
+	})
+
+	check, ok := findDoctorCheck(report.Checks, "apple_vf_helper_health")
+	if !ok {
+		t.Fatalf("missing helper health check: %#v", report.Checks)
+	}
+	if check.Status != "fail" || !strings.Contains(check.Detail, "Virtualization.framework unavailable") {
+		t.Fatalf("helper health check = %#v", check)
+	}
+}
+
 func TestAdminDoctorFirecrackerReportsHostInfraMetadata(t *testing.T) {
 	restoreFirecrackerDoctorHooks(t)
 	home := t.TempDir()
@@ -577,6 +697,22 @@ func restoreFirecrackerDoctorHooks(t *testing.T) {
 		firecrackerOpenReadWrite = origOpen
 		firecrackerStat = origStat
 		firecrackerLookPath = origLookPath
+	})
+}
+
+func restoreAppleVFDoctorHooks(t *testing.T) {
+	t.Helper()
+	origGOOS := appleVFGOOS
+	origGOARCH := appleVFGOARCH
+	origStat := appleVFStat
+	origLookPath := appleVFLookPath
+	origHealth := appleVFHealthFunc
+	t.Cleanup(func() {
+		appleVFGOOS = origGOOS
+		appleVFGOARCH = origGOARCH
+		appleVFStat = origStat
+		appleVFLookPath = origLookPath
+		appleVFHealthFunc = origHealth
 	})
 }
 

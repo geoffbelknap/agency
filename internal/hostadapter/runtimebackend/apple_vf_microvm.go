@@ -2,6 +2,8 @@ package runtimebackend
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,6 +23,7 @@ type AppleVFMicroVMRuntimeBackend struct {
 	MemoryMiB       int64
 	CPUCount        int64
 	EnforcementMode string
+	Images          *MicroVMImageStore
 }
 
 func NewAppleVFMicroVMRuntimeBackend(home string, cfg map[string]string) *AppleVFMicroVMRuntimeBackend {
@@ -36,7 +39,7 @@ func NewAppleVFMicroVMRuntimeBackend(home string, cfg map[string]string) *AppleV
 	if err != nil {
 		enforcementMode = FirecrackerEnforcementModeHostProcess
 	}
-	return &AppleVFMicroVMRuntimeBackend{
+	backend := &AppleVFMicroVMRuntimeBackend{
 		HelperBinary:    strings.TrimSpace(cfg["helper_binary"]),
 		KernelPath:      strings.TrimSpace(cfg["kernel_path"]),
 		StateDir:        stateDir,
@@ -44,6 +47,15 @@ func NewAppleVFMicroVMRuntimeBackend(home string, cfg map[string]string) *AppleV
 		CPUCount:        parseInt64Config(cfg["cpu_count"], 2),
 		EnforcementMode: enforcementMode,
 	}
+	backend.Images = &MicroVMImageStore{
+		StateDir:          stateDir,
+		PodmanPath:        strings.TrimSpace(cfg["podman_path"]),
+		Mke2fsPath:        strings.TrimSpace(cfg["mke2fs_path"]),
+		SizeMiB:           parseInt64Config(cfg["rootfs_size_mib"], defaultFirecrackerRootFSMiB),
+		VsockBridgeBinary: strings.TrimSpace(cfg["vsock_bridge_binary_path"]),
+		OverlayBaseDir:    strings.TrimSpace(home),
+	}
+	return backend
 }
 
 func (b *AppleVFMicroVMRuntimeBackend) Name() string {
@@ -85,4 +97,58 @@ func (b *AppleVFMicroVMRuntimeBackend) Capabilities(ctx context.Context) (runtim
 		RequiresAppleVirtualization: true,
 		SupportsSnapshots:           false,
 	}, nil
+}
+
+func (b *AppleVFMicroVMRuntimeBackend) PrepareRootFS(ctx context.Context, spec runtimecontract.RuntimeSpec) (MicroVMRootFS, error) {
+	return b.imageStore().PrepareTaskRootFS(ctx, spec)
+}
+
+func (b *AppleVFMicroVMRuntimeBackend) PrepareHelperRequest(spec runtimecontract.RuntimeSpec, rootfs MicroVMRootFS) AppleVFHelperRequest {
+	return AppleVFHelperRequest{
+		RequestID:      "prepare-" + strings.TrimSpace(spec.RuntimeID),
+		RuntimeID:      strings.TrimSpace(spec.RuntimeID),
+		Role:           AppleVFRoleWorkload,
+		Backend:        BackendAppleVFMicroVM,
+		AgencyHomeHash: appleVFAgencyHomeHash(b.StateDir),
+		Config: &AppleVFHelperVMConfig{
+			KernelPath:      strings.TrimSpace(b.KernelPath),
+			RootFSPath:      strings.TrimSpace(rootfs.Path),
+			StateDir:        filepath.Join(strings.TrimSpace(b.StateDir), "vms", strings.TrimSpace(spec.RuntimeID)),
+			MemoryMiB:       b.MemoryMiB,
+			CPUCount:        b.CPUCount,
+			EnforcementMode: b.EnforcementMode,
+		},
+	}
+}
+
+func (b *AppleVFMicroVMRuntimeBackend) PrepareWithHelper(ctx context.Context, spec runtimecontract.RuntimeSpec) (AppleVFHelperResponse, error) {
+	rootfs, err := b.PrepareRootFS(ctx, spec)
+	if err != nil {
+		return AppleVFHelperResponse{}, err
+	}
+	return AppleVFHelperPrepare(ctx, b.HelperBinary, b.PrepareHelperRequest(spec, rootfs))
+}
+
+func (b *AppleVFMicroVMRuntimeBackend) imageStore() *MicroVMImageStore {
+	if b.Images != nil {
+		return b.Images
+	}
+	stateDir := strings.TrimSpace(b.StateDir)
+	if stateDir == "" {
+		stateDir = filepath.Join(os.TempDir(), "agency-apple-vf-microvm")
+	}
+	b.Images = &MicroVMImageStore{
+		StateDir: stateDir,
+		SizeMiB:  defaultFirecrackerRootFSMiB,
+	}
+	return b.Images
+}
+
+func appleVFAgencyHomeHash(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])[:12]
 }

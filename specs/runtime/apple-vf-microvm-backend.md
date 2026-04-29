@@ -211,10 +211,31 @@ The helper does not read constraints, provider credentials, durable memory, or
 operator secrets. It receives only the per-runtime artifacts needed to create
 and supervise VMs.
 
-## Image And RootFS Strategy
+## Kernel And RootFS Strategy
 
-Agency's source image format remains OCI. `apple-vf-microvm` should reuse the
-same image realization direction as Firecracker:
+The bootstrap kernel source is an Agency-owned Buildroot artifact path:
+
+```text
+scripts/readiness/apple-vf-artifacts.sh
+images/apple-vf/buildroot/
+```
+
+The script builds a pinned ARM64 Linux kernel with Buildroot and places the
+developer smoke artifact under:
+
+```text
+$AGENCY_HOME/runtime/apple-vf-microvm/artifacts/Image
+```
+
+This is a bootstrap path for local validation, not a separate VM image model.
+The kernel should graduate into a signed Agency release artifact with the
+Buildroot version, Linux version, config hash, and source revision recorded.
+Buildroot must not become a parallel rootfs pipeline. Agency's source image
+format remains OCI, and Apple VF rootfs realization should share the
+Firecracker OCI-to-ext4 path where possible.
+
+`apple-vf-microvm` should reuse the same image realization direction as
+Firecracker:
 
 1. resolve the configured OCI image
 2. produce a bootable ARM64 Linux rootfs artifact

@@ -402,6 +402,10 @@ func (h *handler) adminDoctor(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, h.adminDoctorFirecracker(ctx))
 		return
 	}
+	if report.Backend == hostruntimebackend.BackendAppleVFMicroVM {
+		writeJSON(w, 200, h.adminDoctorAppleVF(ctx))
+		return
+	}
 	if !runtimehost.IsContainerBackend(report.Backend) {
 		writeJSON(w, 200, h.adminDoctorRuntimeContract(ctx))
 		return

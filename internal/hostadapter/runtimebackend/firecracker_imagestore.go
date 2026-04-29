@@ -41,6 +41,9 @@ type FirecrackerRootFS struct {
 	InitPath string
 }
 
+type MicroVMImageStore = FirecrackerImageStore
+type MicroVMRootFS = FirecrackerRootFS
+
 type FirecrackerRootFSOverlay struct {
 	HostPath  string `json:"hostPath"`
 	GuestPath string `json:"guestPath"`
