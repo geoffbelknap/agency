@@ -16,6 +16,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/hub"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
+	"github.com/geoffbelknap/agency/internal/pkg/pathsafety"
 )
 
 var deployNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
@@ -86,7 +87,10 @@ func (d *containerDeployer) dryRun(ctx context.Context, pack *orchestrate.PackDe
 	}
 	onStatus("Validating pack (dry run)...")
 	for _, agent := range pack.Team.Agents {
-		agentDir := filepath.Join(d.Home, "agents", agent.Name)
+		agentDir, err := pathsafety.Join(d.Home, "agents", agent.Name)
+		if err != nil {
+			return nil, err
+		}
 		if _, err := os.Stat(agentDir); err == nil {
 			return nil, fmt.Errorf("agent %q already exists", agent.Name)
 		}
@@ -147,7 +151,10 @@ func (d *containerDeployer) deploy(ctx context.Context, pack *orchestrate.PackDe
 	}
 
 	for _, agent := range pack.Team.Agents {
-		agentYAML := filepath.Join(d.Home, "agents", agent.Name, "agent.yaml")
+		agentYAML, err := pathsafety.Join(d.Home, "agents", agent.Name, "agent.yaml")
+		if err != nil {
+			return nil, err
+		}
 		if _, err := os.Stat(agentYAML); err == nil {
 			if d.Logger != nil {
 				d.Logger.Info("agent already exists, skipping", "agent", sanitizeLogValue(agent.Name))
@@ -155,7 +162,10 @@ func (d *containerDeployer) deploy(ctx context.Context, pack *orchestrate.PackDe
 			result.AgentsCreated = append(result.AgentsCreated, agent.Name)
 			continue
 		}
-		agentDir := filepath.Join(d.Home, "agents", agent.Name)
+		agentDir, err := pathsafety.Join(d.Home, "agents", agent.Name)
+		if err != nil {
+			return nil, err
+		}
 		if _, err := os.Stat(agentDir); err == nil {
 			_ = os.RemoveAll(agentDir)
 		}
@@ -166,14 +176,21 @@ func (d *containerDeployer) deploy(ctx context.Context, pack *orchestrate.PackDe
 		result.AgentsCreated = append(result.AgentsCreated, agent.Name)
 	}
 
-	teamDir := filepath.Join(d.Home, "teams", pack.Team.Name)
+	teamDir, err := pathsafety.Join(d.Home, "teams", pack.Team.Name)
+	if err != nil {
+		return nil, err
+	}
 	_ = os.MkdirAll(teamDir, 0o755)
 	memberNames := make([]string, 0, len(pack.Team.Agents))
 	for _, a := range pack.Team.Agents {
 		memberNames = append(memberNames, a.Name)
 	}
 	teamData, _ := yaml.Marshal(map[string]any{"name": pack.Team.Name, "members": memberNames})
-	_ = os.WriteFile(filepath.Join(teamDir, "team.yaml"), teamData, 0o644)
+	teamFile, err := pathsafety.Join(teamDir, "team.yaml")
+	if err != nil {
+		return nil, err
+	}
+	_ = os.WriteFile(teamFile, teamData, 0o644)
 
 	if len(pack.Team.Channels) > 0 {
 		onStatus("Creating channels...")
@@ -281,7 +298,10 @@ func (d *containerDeployer) teardown(ctx context.Context, packName string, delet
 	if !validDeploySegment(packName) {
 		return fmt.Errorf("invalid pack name %q", packName)
 	}
-	manifestPath := filepath.Join(d.Home, "packs", packName, "manifest.json")
+	manifestPath, err := pathsafety.Join(d.Home, "packs", packName, "manifest.json")
+	if err != nil {
+		return err
+	}
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return fmt.Errorf("pack %q not found (no manifest)", packName)
@@ -355,7 +375,9 @@ func (d *containerDeployer) teardown(ctx context.Context, packName string, delet
 			}
 		}
 		if teamName, _ := manifest["team_name"].(string); teamName != "" && deployNamePattern.MatchString(teamName) {
-			_ = os.RemoveAll(filepath.Join(d.Home, "teams", teamName))
+			if teamDir, err := pathsafety.Join(d.Home, "teams", teamName); err == nil {
+				_ = os.RemoveAll(teamDir)
+			}
 		}
 	}
 	return nil
@@ -365,7 +387,10 @@ func (d *containerDeployer) saveManifest(pack *orchestrate.PackDef, result *orch
 	if !validDeploySegment(pack.Name) {
 		return
 	}
-	packDir := filepath.Join(d.Home, "packs", pack.Name)
+	packDir, err := pathsafety.Join(d.Home, "packs", pack.Name)
+	if err != nil {
+		return
+	}
 	_ = os.MkdirAll(packDir, 0o755)
 	manifest := map[string]any{
 		"pack_name":     pack.Name,
@@ -377,7 +402,9 @@ func (d *containerDeployer) saveManifest(pack *orchestrate.PackDef, result *orch
 		"deployed_at":   time.Now().UTC().Format(time.RFC3339),
 	}
 	data, _ := json.MarshalIndent(manifest, "", "  ")
-	_ = os.WriteFile(filepath.Join(packDir, "manifest.json"), data, 0o644)
+	if manifestPath, err := pathsafety.Join(packDir, "manifest.json"); err == nil {
+		_ = os.WriteFile(manifestPath, data, 0o644)
+	}
 }
 
 func validateDeployPackNames(pack *orchestrate.PackDef) error {

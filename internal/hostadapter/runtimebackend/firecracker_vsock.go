@@ -244,7 +244,7 @@ func proxyFirecrackerVsockConn(ctx context.Context, guest net.Conn, target strin
 	defer guest.Close()
 	host, err := dialFirecrackerVsockTarget(ctx, target)
 	if err != nil {
-		log.Printf("firecracker vsock bridge dial target failed: %v", err)
+		log.Printf("firecracker vsock bridge dial target failed")
 		return
 	}
 	defer host.Close()
