@@ -121,3 +121,43 @@ func (w *Writer) WriteSystem(event string, detail map[string]interface{}) (err e
 	_, err = f.Write(data)
 	return err
 }
+
+// WriteEnforcerEvent appends an enforcer-originated audit event to the
+// host-visible per-agent enforcer log.
+func (w *Writer) WriteEnforcerEvent(agent string, entry map[string]interface{}) (err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	auditDir := filepath.Join(w.Home, "audit", agent, "enforcer")
+	if err := os.MkdirAll(auditDir, 0700); err != nil {
+		return fmt.Errorf("create enforcer audit dir: %w", err)
+	}
+	if _, ok := entry["agent"]; !ok {
+		entry["agent"] = agent
+	}
+	if _, ok := entry["ts"]; !ok {
+		entry["ts"] = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+
+	today := time.Now().UTC().Format("2006-01-02")
+	f, err := os.OpenFile(
+		filepath.Join(auditDir, "enforcer-"+today+".jsonl"),
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600,
+	)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	_, err = f.Write(data)
+	return err
+}

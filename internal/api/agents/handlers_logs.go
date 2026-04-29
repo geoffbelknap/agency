@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"os"
@@ -29,6 +30,28 @@ func (h *handler) agentLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	h.annotateLogResultArtifacts(name, events)
 	writeJSON(w, 200, events)
+}
+
+func (h *handler) ingestEnforcerAudit(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Audit == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "audit writer not available"})
+		return
+	}
+	name := chi.URLParam(r, "name")
+	var entry map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if agent, ok := entry["agent"].(string); ok && strings.TrimSpace(agent) != "" && agent != name {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "audit agent mismatch"})
+		return
+	}
+	if err := h.deps.Audit.WriteEnforcerEvent(name, entry); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
 
 func (h *handler) annotateLogResultArtifacts(agentName string, events []logs.Event) {

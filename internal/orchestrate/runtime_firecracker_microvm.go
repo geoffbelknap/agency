@@ -107,6 +107,9 @@ func firecrackerEnforcerMicroVMEnv(spec agentruntime.EnforcerLaunchSpec, hostSer
 	for key, value := range firecrackerGuestServiceURLs(hostServices) {
 		env[key] = value
 	}
+	if gatewayURL := env["GATEWAY_URL"]; gatewayURL != "" && spec.AgentName != "" {
+		env["ENFORCER_AUDIT_URL"] = strings.TrimRight(gatewayURL, "/") + "/api/v1/agents/" + url.PathEscape(spec.AgentName) + "/logs/enforcer"
+	}
 	for port, target := range hostServicePorts {
 		env[hostruntimebackend.FirecrackerHostServiceTargetEnv(port)] = "http://" + target
 	}

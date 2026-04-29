@@ -133,6 +133,7 @@ func RegisterRoutes(r chi.Router, d Deps) {
 	})
 
 	r.Get("/api/v1/agents/{name}/logs", h.agentLogs)
+	r.Post("/api/v1/agents/{name}/logs/enforcer", h.ingestEnforcerAudit)
 
 	if features.ExperimentalEnabled() {
 		// Meeseeks

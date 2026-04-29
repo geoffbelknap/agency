@@ -59,6 +59,7 @@ func TestFirecrackerCompileEnforcerMicroVMSpec(t *testing.T) {
 		"KNOWLEDGE_URL":                     "http://127.0.0.1:8204",
 		"WEB_FETCH_URL":                     "http://127.0.0.1:8206",
 		"EGRESS_PROXY":                      "http://127.0.0.1:8312",
+		"ENFORCER_AUDIT_URL":                "http://127.0.0.1:8200/api/v1/agents/alice/logs/enforcer",
 		"AGENCY_VSOCK_HTTP_BRIDGES":         "127.0.0.1:8200=2:8200,127.0.0.1:8202=2:8202,127.0.0.1:8204=2:8204,127.0.0.1:8206=2:8206,127.0.0.1:8312=2:8312",
 		"AGENCY_VSOCK_HTTP_GUEST_LISTENERS": "3128=127.0.0.1:3128,8081=127.0.0.1:8081",
 	} {

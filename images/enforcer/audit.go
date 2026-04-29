@@ -1,14 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -67,6 +70,9 @@ type AuditLogger struct {
 	agent       string
 	lifecycleID string
 	hmacKey     []byte
+	mirrorURL   string
+	mirrorToken string
+	httpClient  *http.Client
 
 	mu       sync.Mutex
 	file     *os.File
@@ -82,7 +88,12 @@ func NewAuditLogger(dir string, agent string) *AuditLogger {
 		agent: agent,
 		ch:    make(chan AuditEntry, 256),
 		done:  make(chan struct{}),
+		httpClient: &http.Client{
+			Timeout: 3 * time.Second,
+		},
 	}
+	al.mirrorURL = strings.TrimSpace(os.Getenv("ENFORCER_AUDIT_URL"))
+	al.mirrorToken = strings.TrimSpace(os.Getenv("GATEWAY_TOKEN"))
 	if keyHex := os.Getenv("ENFORCER_AUDIT_HMAC_KEY"); keyHex != "" {
 		key, err := hex.DecodeString(keyHex)
 		if err != nil {
@@ -207,6 +218,31 @@ func (al *AuditLogger) flush(entries []AuditEntry) {
 		if _, err := al.file.Write(data); err != nil {
 			slog.Warn("audit: write error", "error", err)
 		}
+		al.mirror(data)
 	}
 	al.file.Sync()
+}
+
+func (al *AuditLogger) mirror(data []byte) {
+	if al.mirrorURL == "" {
+		return
+	}
+	req, err := http.NewRequest(http.MethodPost, al.mirrorURL, bytes.NewReader(data))
+	if err != nil {
+		slog.Warn("audit: mirror request error", "error", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if al.mirrorToken != "" {
+		req.Header.Set("Authorization", "Bearer "+al.mirrorToken)
+	}
+	resp, err := al.httpClient.Do(req)
+	if err != nil {
+		slog.Warn("audit: mirror post error", "error", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		slog.Warn("audit: mirror rejected", "status", resp.StatusCode)
+	}
 }
