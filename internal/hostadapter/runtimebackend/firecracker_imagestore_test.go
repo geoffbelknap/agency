@@ -173,7 +173,7 @@ func TestApplyFirecrackerRootFSOverlays(t *testing.T) {
 		t.Fatal(err)
 	}
 	stageDir := filepath.Join(dir, "stage")
-	if err := applyFirecrackerRootFSOverlays(stageDir, map[string]string{FirecrackerRootFSOverlaysEnv: value}); err != nil {
+	if err := applyFirecrackerRootFSOverlays(stageDir, map[string]string{FirecrackerRootFSOverlaysEnv: value}, dir); err != nil {
 		t.Fatalf("applyFirecrackerRootFSOverlays returned error: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(stageDir, "agency", "enforcer", "config", "nested", "config.yaml"))
@@ -203,8 +203,26 @@ func TestApplyFirecrackerRootFSOverlaysRejectsRelativeGuestPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = applyFirecrackerRootFSOverlays(t.TempDir(), map[string]string{FirecrackerRootFSOverlaysEnv: value})
+	err = applyFirecrackerRootFSOverlays(t.TempDir(), map[string]string{FirecrackerRootFSOverlaysEnv: value}, filepath.Dir(src))
 	if err == nil || !strings.Contains(err.Error(), "guest path must be absolute") {
+		t.Fatalf("applyFirecrackerRootFSOverlays error = %v", err)
+	}
+}
+
+func TestApplyFirecrackerRootFSOverlaysRejectsHostPathOutsideBase(t *testing.T) {
+	base := t.TempDir()
+	src := filepath.Join(t.TempDir(), "src")
+	if err := os.WriteFile(src, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	value, err := FirecrackerRootFSOverlaysEnvValue([]FirecrackerRootFSOverlay{
+		{HostPath: src, GuestPath: "/agency/src"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = applyFirecrackerRootFSOverlays(t.TempDir(), map[string]string{FirecrackerRootFSOverlaysEnv: value}, base)
+	if err == nil || !strings.Contains(err.Error(), "host path must be under") {
 		t.Fatalf("applyFirecrackerRootFSOverlays error = %v", err)
 	}
 }
