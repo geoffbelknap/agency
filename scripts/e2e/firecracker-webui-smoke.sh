@@ -19,6 +19,7 @@ Modes:
   recover   Recover a degraded Firecracker runtime through the Web UI
   reload    Reload enforcer config and verify DM still works
   cleanup   Stop/delete and verify per-agent runtime artifacts are removed
+  operator  Run the manual-style operator create/inspect/DM/stop/delete flow
 
 Any extra arguments are passed through to Playwright.
 EOF
@@ -26,7 +27,7 @@ EOF
 
 if [ "$#" -gt 0 ]; then
   case "$1" in
-    all|manage|recover|reload|cleanup)
+    all|manage|recover|reload|cleanup|operator)
       MODE="$1"
       shift
       ;;
@@ -52,6 +53,9 @@ case "$MODE" in
     ;;
   cleanup)
     PLAYWRIGHT_ARGS+=("-g" "Firecracker stop and delete clean up")
+    ;;
+  operator)
+    SPEC="tests/e2e-live-risky/firecracker-operator-flow.spec.ts"
     ;;
   *)
     echo "Unknown mode: $MODE"
