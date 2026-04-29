@@ -3,6 +3,7 @@ package runtimebackend
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -166,6 +167,9 @@ func (b *FirecrackerVsockBridge) accept(ctx context.Context, listener net.Listen
 			case <-ctx.Done():
 				return
 			default:
+				if errors.Is(err, net.ErrClosed) {
+					return
+				}
 				log.Printf("firecracker vsock bridge accept failed: %v", err)
 				continue
 			}
