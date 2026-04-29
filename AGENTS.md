@@ -56,22 +56,28 @@ Primary source areas:
 - `cmd/gateway/` for the binary entrypoint
 - `internal/` for API, CLI, orchestration, policy, routing, and runtime logic
 - `web/` for the web UI
-- `images/` for runtime container images
+- `images/` for OCI runtime image definitions
 
 The Go gateway is the source of truth. The web app is a REST client only.
 
 ## Runtime Model
 
-- Per agent: `workspace` + `enforcer`
-- Shared core infra: `egress`, `comms`, `knowledge`, `web`
+Agency is microVM-first. Firecracker is the Linux production target and
+`apple-vf-microvm` is the strategic macOS local-development target. Docker,
+Podman, containerd, and `apple-container` are transitional compatibility
+paths, not strategic runtime architectures.
+
+- Per agent: workload microVM + external per-agent enforcer boundary
+- Shared core infra: host services for `egress`, `comms`, `knowledge`, `web`
 - Optional graph support: `embeddings` only when explicitly configured
 - Experimental services such as `intake`, `web-fetch`, and relay-adjacent work stay out of the default core path unless explicitly enabled
 
-Network rules that must remain true:
+Network and mediation rules that must remain true:
 
-- enforcers stay on the internal mediation plane only
-- enforcers must not attach to `agency-operator` or other external-facing networks
-- external access stays mediated through the egress path
+- workload VMs reach only their assigned external enforcer boundary
+- enforcers must not expose direct workload access to gateway, comms, knowledge, provider APIs, tools, or egress
+- external access stays mediated through the enforcer and egress path
+- container network topology is legacy scaffolding and must not shape new generic runtime contracts
 
 ## Current Contracts
 
@@ -101,18 +107,17 @@ promotion and lifecycle changes belong to the knowledge manager and operator
 review surfaces. Preference-affecting memory must require review even when the
 proposal is procedural.
 
-The runtime model is backend-neutral now. Treat runtime health and backend
-hygiene as distinct concerns:
+The runtime model is backend-neutral now and should be driven by microVM
+requirements. Treat runtime health and backend hygiene as distinct concerns:
 
 - runtime health: runtime manifest, runtime status, runtime validate, fail-closed startup/restart behavior
-- backend hygiene: Docker-specific image/network/log/pid checks when Docker is the selected backend
+- backend hygiene: backend-specific host checks, such as KVM/vsock for Firecracker or entitlements/helper health for Apple VF
 
-`apple-container` is an experimental, opt-in host adapter. Keep it out of
-default backend selection, required CI, branch protection, and release-blocking
-checks until lifecycle, event-stream/reconciliation, network attach, cleanup,
-and doctor semantics are complete. Use `scripts/readiness/apple-container-smoke.sh` only
-as a manual macOS Apple silicon validation path for adapter development
-evidence.
+`apple-container` is an experimental compatibility adapter, not the strategic
+macOS backend. Keep it out of default backend selection, required CI, branch
+protection, and release-blocking checks. `apple-vf-microvm` is the strategic
+macOS microVM backend; keep it experimental until helper, lifecycle, doctor,
+cleanup, and Web UI parity evidence exists.
 
 ## Feature Gating
 
@@ -139,9 +144,12 @@ others.
 - Keep volatile `BUILD_ID` / `SOURCE_HASH` labels at the end of Dockerfiles
 - Do not reintroduce broad repo-root build contexts unless they are actually required
 - `workspace-base` and `python-base` exist to stabilize heavy shared layers; use that pattern when appropriate
-- Container topology must keep the canonical network names visible in docs and code:
-  `agency-gateway` for the internal bridge, `agency-egress-int` for mediated internal
-  egress access, and `agency-egress-ext` for external egress connectivity.
+- OCI images remain the canonical runtime artifact format even as container
+  runtime execution is sunset.
+- Container topology names are legacy compatibility details. Do not use them
+  to define new backend-neutral runtime behavior.
+- While the legacy container paths exist, keep these names visible in docs and
+  code: `agency-gateway`, `agency-egress-int`, and `agency-egress-ext`.
 
 Build and test commands:
 
@@ -154,10 +162,14 @@ bash ./scripts/readiness/runtime-contract-smoke.sh --agent <agent>
 ./scripts/e2e/e2e-live-disposable.sh --skip-build
 ```
 
-For Apple Container adapter changes, additionally run
-`./scripts/readiness/apple-container-smoke.sh` manually on macOS Apple silicon when the
-local Apple `container` service is available. Do not add that smoke to required
-CI yet.
+For Apple Container compatibility changes, additionally run
+`./scripts/readiness/apple-container-smoke.sh` manually on macOS Apple silicon
+when the local Apple `container` service is available. Do not add that smoke to
+required CI.
+
+For `apple-vf-microvm` changes, validate manually on macOS Apple silicon once
+the helper path exists. Do not add Apple Virtualization.framework live smokes
+to required CI until hosted macOS virtualization is available and stable.
 
 Use the smallest sufficient validation for the change, but validate shipped
 behavior when the change affects runtime, API, or release behavior.
@@ -165,7 +177,7 @@ behavior when the change affects runtime, API, or release behavior.
 ## Operational Rules
 
 - Preserve fail-closed behavior during startup, enforcement, mediation, and teardown
-- Do not loosen credential, capability, network, or container boundaries casually
+- Do not loosen credential, capability, mediation, VM, process, socket, or legacy container boundaries casually
 - Hub-managed files must not be edited directly when a customization path exists elsewhere
 - Do not normalize experimental surfaces in docs, help text, or default UI copy
 - Keep release/install paths honest: README, Homebrew caveats, OpenAPI, MCP, and web UX should all describe the same default product

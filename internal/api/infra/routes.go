@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	goruntime "runtime"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -14,6 +15,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/events"
 	"github.com/geoffbelknap/agency/internal/features"
+	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
@@ -75,7 +77,10 @@ func (h *handler) configuredBackend() string {
 	if h.deps.Config != nil && strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend) != "" {
 		return strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend)
 	}
-	return runtimehost.BackendDocker
+	if goruntime.GOOS == "darwin" {
+		return hostruntimebackend.BackendAppleVFMicroVM
+	}
+	return hostruntimebackend.BackendFirecracker
 }
 
 // containerBackendRequired returns true when container-backed infra control is available.

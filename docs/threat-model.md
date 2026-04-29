@@ -3,14 +3,14 @@
 Last updated: 2026-04-01
 
 Agency is a security-focused AI agent platform that runs multiple LLM
-agents inside hardened containers and mediates every external interaction.
+agents inside isolated runtimes and mediates every external interaction.
 This document describes the threat model, trust boundaries, attack
 surfaces, and known limitations.
 
 ## Trust Boundaries
 
 ### 1. Agent boundary (untrusted)
-The workspace container (body runtime) and everything it produces —
+The workspace runtime and everything it produces —
 files, signals, messages, tool outputs — are attacker-controlled. LLM
 outputs, MCP tool results, connector data, and channel messages are all
 treated as untrusted input.
@@ -27,7 +27,7 @@ Real API keys live only in the encrypted credential store
 (`~/.agency/credentials/store.enc`, AES-256-GCM) and in the egress
 proxy's in-memory cache. The egress resolves credentials via the gateway
 Unix socket (`~/.agency/run/gateway.sock`). No credential file is
-mounted into any agent container. The enforcer holds scoped proxy
+mounted into any agent runtime. The enforcer holds scoped proxy
 authentication tokens only.
 
 ### 4. Operator boundary (trusted)
@@ -38,13 +38,13 @@ operator IS the trust anchor).
 
 ### 5. Infrastructure boundary
 Shared services (comms, knowledge, intake, web-fetch) are reachable only
-on the Docker mediation network. They generally rely on network isolation
-for access control, not per-request authentication.
+through the mediation plane. They generally rely on runtime and mediation
+isolation for access control, not per-request authentication.
 
 ### 6. Swarm boundary (if enabled)
 Manager/worker hosts communicate via signed manifests and SSH. Vault
 tokens and signing keys must remain confidential. Host compromise
-defeats all container isolation.
+defeats all runtime isolation.
 
 ## Assets Worth Protecting
 
@@ -54,23 +54,23 @@ defeats all container isolation.
 | Gateway auth token | `~/.agency/config.yaml` | File permissions (0600), used for REST API auth |
 | Audit logs | `~/.agency/audit/` | HMAC-signed entries, read-only mount to agents |
 | Policy + constraint state | `~/.agency/agents/*/constraints.yaml` | Read-only mount, fail-closed start sequence |
-| Agent workspaces | Docker volumes | Per-agent isolation, no cross-agent access |
+| Agent workspaces | Runtime-managed storage | Per-agent isolation, no cross-agent access |
 | Knowledge graph | `~/.agency/knowledge/data/` | SQLite, network-isolated service |
 | Channel messages | Comms service SQLite | Network-isolated, visible_channels ACL |
 | Credential store encryption key | `~/.agency/credentials/.key` | File permissions (0400), gateway-process-only |
 
 ## Attack Surfaces and Mitigations
 
-### Agent container escape
+### Agent runtime escape
 **Surface:** Code execution in workspace, built-in tools (file read/write/exec),
-attempts to break container isolation.
+attempts to break runtime isolation.
 
 **Mitigations:**
-- Read-only rootfs, CAP_DROP ALL, no-new-privileges, PID limits, memory limits
-- Dedicated internal network with no default route (workspace → enforcer only)
-- Custom seccomp profile (~100 allowed syscalls vs Docker's ~300 default)
+- Read-only rootfs where supported, PID limits, memory limits
+- Dedicated mediation path with no default route to shared services
+- MicroVM isolation on strategic Linux and macOS runtime paths
 - Path traversal enforcement in built-in tools
-- No real credentials in container environment
+- No real credentials in runtime environment
 
 **Severity if bypassed:** CRITICAL — breaks foundational trust boundary.
 
@@ -79,7 +79,7 @@ attempts to break container isolation.
 
 **Mitigations:**
 - Credentials encrypted at rest (AES-256-GCM)
-- No credential file mounts into agent or enforcer containers
+- No credential file mounts into agent runtimes or enforcers
 - Egress resolves via gateway Unix socket (not file mount)
 - Enforcer holds only scoped proxy auth tokens, never real keys
 - Credential store accessible only to gateway process
@@ -91,10 +91,10 @@ attempts to break container isolation.
 **Surface:** Direct internet access from workspace, bypassing enforcer/egress.
 
 **Mitigations:**
-- Workspace on agent-internal network (Docker internal=true, no routing)
+- Workspace has no direct route to external resources
 - Enforcer is sole gateway — all traffic proxied
 - Egress enforces domain allowlists, blocks raw IPs, rate limits
-- DNS resolution controlled by container network configuration
+- DNS resolution is mediated by the runtime backend and enforcer path
 
 **Severity if bypassed:** CRITICAL.
 
@@ -102,7 +102,7 @@ attempts to break container isolation.
 **Surface:** Internal HTTP APIs on mediation network. No per-request auth.
 
 **Mitigations:**
-- Separate Docker networks — workspace cannot reach mediation directly
+- Workspace cannot reach shared services directly
 - Platform-only operations require `X-Agency-Platform` headers
 - Knowledge queries filtered by `visible_channels` ACL
 - Enforcer mediates all workspace → service traffic via reverse proxy
@@ -179,15 +179,14 @@ platform compromise. This is inherent to the single-host architecture.
 The Vault backend (Phase 3) would move key material off the gateway.
 
 ### Infrastructure services lack authentication
-Comms, knowledge, and intake rely on Docker network isolation, not
-per-request auth. This is acceptable for single-host deployments but
-becomes a risk in multi-host (swarm) mode where network boundaries are
-more complex.
+Comms, knowledge, and intake rely on mediation isolation, not per-request
+auth. This is acceptable for single-host deployments but becomes a risk in
+multi-host mode where network boundaries are more complex.
 
-### Container escape defeats everything
-Docker container isolation is the foundation. A kernel exploit that
-escapes the container bypasses all platform security. Custom seccomp
-profiles reduce the attack surface but don't eliminate kernel bugs.
+### Runtime escape defeats everything
+Runtime isolation is the foundation. A kernel or hypervisor exploit that
+escapes the agent runtime bypasses platform security. MicroVM isolation reduces
+the shared attack surface but does not eliminate host-kernel or hypervisor bugs.
 
 ### Operator trust is absolute
 The operator can do anything — deploy agents, set policies, access

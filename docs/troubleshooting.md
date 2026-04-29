@@ -38,58 +38,35 @@ Common causes:
 - Missing required fields
 - Policy chain inconsistency (agent policy tries to expand what a higher level restricts)
 
-### Container backend not running
+### Runtime backend not ready
 
-Agency requires the selected container backend. Start the backend first, then retry:
-
-```bash
-# Docker on Linux
-sudo systemctl start docker
-
-# Docker on macOS / Windows
-# Open Docker Desktop
-
-# Podman
-podman info --format json
-```
-
-### Podman On WSL2 Rootless Setup
-
-If rootless Podman on WSL2 fails before Agency can start containers, first make
-sure the WSL distro packages and user socket are installed:
+Agency needs the selected runtime backend to pass its host checks before agents
+can start.
 
 ```bash
-sudo apt-get install -y podman uidmap slirp4netns fuse-overlayfs crun
-systemctl --user enable --now podman.socket
-curl --unix-socket "$XDG_RUNTIME_DIR/podman/podman.sock" http://d/v1.41/_ping
+agency admin doctor
+agency runtime status my-agent
 ```
 
-Expected output:
+On Linux, the strategic backend is Firecracker. Check KVM and vsock access:
 
-```text
-OK
+```bash
+test -r /dev/kvm && test -w /dev/kvm
+test -r /dev/vhost-vsock && test -w /dev/vhost-vsock
 ```
 
-Then set Agency to the rootless socket:
+If those fail, add the operator account to the `kvm` group or grant explicit
+device ACLs, then restart the Agency daemon.
 
-```yaml
-hub:
-  deployment_backend: podman
-  deployment_backend_config:
-    host: /run/user/1000/podman/podman.sock
-```
+On macOS Apple silicon, the strategic backend is `apple-vf-microvm`. Until that
+path is fully wired, local development may need an explicitly selected
+experimental backend.
 
-Replace `1000` with `id -u` if your user ID is different.
+### Transitional container backends
 
-If you see a rootless port collision such as:
-
-```text
-rootlessport listen tcp 127.0.0.1:8204: bind: address already in use
-```
-
-upgrade Agency and rerun `agency infra up`. On WSL2 rootless Podman, Agency
-publishes internal service access through the gateway proxy instead of
-publishing duplicate direct host ports for those same services.
+Docker, Podman, containerd, and Apple Container are transitional development
+backends. If you intentionally selected one, verify that backend directly and
+rerun setup with the experimental backend flag.
 
 ### Start Sequence Fails at a Specific Phase
 
@@ -98,11 +75,11 @@ The seven-phase start sequence is all-or-nothing. If it fails, check which phase
 | Phase | Common Issues |
 |-------|--------------|
 | **Verify** | Config file validation errors |
-| **Enforcement** | Container backend issues, port conflicts, infrastructure not running |
+| **Enforcement** | Runtime backend issues, port conflicts, infrastructure not running |
 | **Constraints** | Policy chain errors, missing policy templates |
-| **Workspace** | Image build failures, backend resource limits |
+| **Workspace** | Image realization failures, backend resource limits |
 | **Identity** | Missing or corrupted `identity.md` |
-| **Body** | Image pull failures, mount permission issues |
+| **Body** | OCI image or rootfs failures, mount permission issues |
 | **Session** | Rare — usually indicates an internal error |
 
 ## Agent Not Responding
@@ -156,12 +133,11 @@ This block is intentional. The right response is to adjust your approach, not wo
 ### Infrastructure Won't Start
 
 ```bash
-# Check the selected container backend
+# Check shared service health
 agency infra status
 
-# Optional backend-specific checks
-docker info
-podman info --format json
+# Check runtime host readiness
+agency admin doctor
 
 # Rebuild and retry
 agency infra rebuild
@@ -170,7 +146,7 @@ agency infra up
 
 ### "Connection refused" Errors
 
-Usually means infrastructure containers stopped unexpectedly:
+Usually means shared infrastructure services stopped unexpectedly:
 
 ```bash
 agency infra status       # Check which components are down
@@ -213,7 +189,7 @@ agency creds test GITHUB_TOKEN
 
 ### API Key Not Working
 
-Credentials are stored in the encrypted credential store (`~/.agency/credentials/store.enc`), not in agent containers. Check:
+Credentials are stored in the encrypted credential store (`~/.agency/credentials/store.enc`), not in the agent runtime. Check:
 
 ```bash
 # List configured credentials
@@ -266,7 +242,7 @@ If rate limiting is the issue:
 
 ### High Memory Usage
 
-Each agent container is limited (workspace: 512MB default, enforcer: 32MB). If you're running many agents:
+Each agent runtime has resource limits. If you're running many agents:
 
 ```bash
 agency list --active       # Check how many agents are running

@@ -12,7 +12,7 @@ Quick definitions for every term you'll encounter in Agency.
 
 ---
 
-**Agent** — An AI worker that runs inside an isolated container. Each agent has a name, a role (defined by its preset), a workspace where it does its work, and constraints that limit what it can do. Agents work autonomously on tasks you assign them.
+**Agent** — An AI worker that runs inside an isolated runtime. Each agent has a name, a role (defined by its preset), a workspace where it does its work, and constraints that limit what it can do. Agents work autonomously on tasks you assign them.
 
 **ASK framework** — The security framework Agency implements. 25 tenets that govern how AI agents are isolated, monitored, and controlled. [Full specification](https://github.com/geoffbelknap/ask).
 
@@ -24,15 +24,15 @@ Quick definitions for every term you'll encounter in Agency.
 
 **Connector** — An experimental link between an external system and Agency. Connectors bring work in from Slack, Jira, GitHub, or any API. Four types: webhook (real-time push), poll (periodic check), schedule (cron-triggered), and channel-watch (pattern matching on agent messages).
 
-**Constraints** — Rules that define what an agent can and can't do. Mounted read-only into the agent's container — the agent can't change its own rules.
+**Constraints** — Rules that define what an agent can and can't do. Delivered read-only into the agent runtime — the agent can't change its own rules.
 
-**Credential store** — Encrypted storage (`~/.agency/credentials/store.enc`) for all API keys and secrets. AES-256-GCM encrypted. Credentials are managed via `agency creds` commands and never enter agent containers — the egress proxy resolves them at request time via a Unix socket to the gateway.
+**Credential store** — Encrypted storage (`~/.agency/credentials/store.enc`) for all API keys and secrets. AES-256-GCM encrypted. Credentials are managed via `agency creds` commands and never enter agent runtimes — the egress proxy resolves them at request time via a Unix socket to the gateway.
 
 **Coordinator** — An experimental agent type that breaks complex tasks into sub-tasks and delegates them to other agents. Coordinators manage work but don't do implementation themselves.
 
 **Deploy** — Create everything defined in a pack (agents, teams, channels) with a single command: `agency deploy pack.yaml`. This is an experimental deployment path, not the default `0.2.x` core workflow.
 
-**Docker** — The container technology Agency uses to isolate agents. Each agent runs in its own container with controlled network access and no direct internet.
+**Docker** — A transitional container backend kept for migration and adapter validation work. Dockerfiles remain useful as OCI image build recipes, but Docker is not the strategic agent isolation model.
 
 **Egress proxy** — The only component that holds real API keys. Sits between agents and the internet, swapping scoped tokens for real credentials. Agents never see actual keys.
 
@@ -86,11 +86,11 @@ tracking are handled by the enforcer.
 
 **Revoke** — Remove an agent's access to an external service. Takes effect immediately, no restart needed.
 
-**Seven-phase start sequence** — The mandatory process Agency runs when starting an agent. Validates configuration, starts enforcement, computes constraints, prepares the workspace, loads identity, boots the container, and establishes the session. If any phase fails, everything is torn down.
+**Seven-phase start sequence** — The mandatory process Agency runs when starting an agent. Validates configuration, starts enforcement, computes constraints, prepares the workspace, loads identity, boots the runtime, and establishes the session. If any phase fails, everything is torn down.
 
 **Skill** — A package of procedural knowledge (following the agentskills.io standard) that gives an agent domain expertise. Described in the agent's system prompt and loaded on demand.
 
-**Swarm** — Experimental multi-host mode where agents run across multiple machines, coordinated through Docker Swarm. For scaling beyond a single machine.
+**Swarm** — Legacy experimental multi-host design based on Docker Swarm. It is not part of the default microVM-first runtime strategy.
 
 **Teardown** — Reverse a pack deployment: stop all agents, remove the team, clean up channels. Audit logs are preserved. This is part of the experimental pack workflow, not the default `0.2.x` core path.
 
@@ -99,6 +99,6 @@ tracking are handled by the enforcer.
 **Trust** — An experimental governance/admin surface for tracking agent trust
 levels and restrictions. It is not part of the default `0.2.x` first-user path.
 
-**Workspace** — The `/workspace` directory inside an agent's container where it does all its work. Files created here are accessible from the host at `~/.agency/agents/<name>/workspace-data/`.
+**Workspace** — The `/workspace` directory inside an agent runtime where it does all its work. Files created here are accessible from the host at `~/.agency/agents/<name>/workspace-data/`.
 
 **XPIA** — Cross-Prompt Injection Attack. A technique where malicious content in one AI response tries to manipulate subsequent AI behavior. Agency's enforcer scans for this on all LLM responses.

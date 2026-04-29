@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -88,11 +89,15 @@ func TestSplitDoctorChecksKeepsLegacyPrefixedBackendChecksGrouped(t *testing.T) 
 	}
 }
 
-func TestConfiguredRuntimeBackendDefaultsToDocker(t *testing.T) {
+func TestConfiguredRuntimeBackendDefaultsToStrategicBackend(t *testing.T) {
 	t.Parallel()
 
-	if got := configuredRuntimeBackend(nil); got != "docker" {
-		t.Fatalf("configuredRuntimeBackend(nil) = %q, want docker", got)
+	want := hostruntimebackend.BackendFirecracker
+	if runtime.GOOS == "darwin" {
+		want = hostruntimebackend.BackendAppleVFMicroVM
+	}
+	if got := configuredRuntimeBackend(nil); got != want {
+		t.Fatalf("configuredRuntimeBackend(nil) = %q, want %q", got, want)
 	}
 }
 

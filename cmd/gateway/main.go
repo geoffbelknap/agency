@@ -35,6 +35,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/daemon"
 	"github.com/geoffbelknap/agency/internal/events"
 	"github.com/geoffbelknap/agency/internal/hostadapter/containerops"
+	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	agencylog "github.com/geoffbelknap/agency/internal/logging"
 	"github.com/geoffbelknap/agency/internal/logs"
@@ -408,33 +409,33 @@ func serveCmd() *cobra.Command {
 
 func setupCmd() *cobra.Command {
 	var (
-		name          string
-		preset        string
-		provider      string
-		apiKey        string
-		notifyURL     string
-		backend       string
-		configurePool bool
-		noInfra       bool
-		noBrowser     bool
-		noDockerStart bool //nolint:unused // retained for backward-compat flag --no-docker-start
-		cliMode       bool
+		name                string
+		preset              string
+		provider            string
+		apiKey              string
+		notifyURL           string
+		backend             string
+		configurePool       bool
+		experimentalBackend bool
+		noInfra             bool
+		noBrowser           bool
+		noDockerStart       bool //nolint:unused // retained for backward-compat flag --no-docker-start
+		cliMode             bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Set up the Agency platform (config, daemon, infrastructure)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Select a container backend (podman/docker/apple-container/containerd) before
-			// anything writes config or starts a daemon. selectContainerBackend
-			// prints guidance and returns a non-nil error when no reachable
-			// backend is available — fail fast with actionable output.
+			// Select the runtime backend before anything writes config or starts
+			// a daemon. Strategic backends are selected automatically by host OS;
+			// transitional container backends require explicit opt-in.
 			var (
 				backendName string
 				backendCfg  map[string]string
 			)
 			if !noInfra {
-				b, cfg, err := selectContainerBackend(backend)
+				b, cfg, err := selectRuntimeBackend(backend, experimentalBackend)
 				if err != nil {
 					return err
 				}
@@ -513,7 +514,8 @@ func setupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", "", "LLM provider adapter name")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "LLM provider API key")
 	cmd.Flags().StringVar(&notifyURL, "notify-url", "", "Notification URL (ntfy or webhook) for operator alerts")
-	cmd.Flags().StringVar(&backend, "backend", "", "Container backend to use (docker, podman, apple-container, containerd); autodetects when unset. Also respected via AGENCY_CONTAINER_BACKEND.")
+	cmd.Flags().StringVar(&backend, "backend", "", "Runtime backend to use; defaults to firecracker on Linux/WSL and apple-vf-microvm on macOS. Also respected via AGENCY_RUNTIME_BACKEND. Docker, Podman, containerd, and apple-container require --experimental-backend.")
+	cmd.Flags().BoolVar(&experimentalBackend, "experimental-backend", false, "Allow transitional or non-default runtime backends")
 	cmd.Flags().BoolVar(&configurePool, "configure-network-pool", false, "Configure Docker default-address-pools before infrastructure startup (docker backend only)")
 	cmd.Flags().BoolVar(&noInfra, "no-infra", false, "Skip the container-backend check and infrastructure startup")
 	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Don't open the web UI in a browser (also respected via AGENCY_NO_BROWSER=1)")
@@ -670,24 +672,37 @@ func tryStartDockerDesktop(wsl bool) bool {
 	}
 }
 
-// selectContainerBackend probes the host for a reachable container backend
-// and returns its canonical name plus the socket config to persist in
-// config.yaml (hub.deployment_backend + hub.deployment_backend_config).
-//
-// Selection rules:
-//   - If override is non-empty (from --backend or AGENCY_CONTAINER_BACKEND),
-//     probe only that backend. A requested-but-unreachable backend is a
-//     hard error — the user asked for a specific one, don't silently fall
-//     back to something else.
-//   - Otherwise probe all KnownBackends; preference order is
-//     podman > docker > apple-container > containerd. The first reachable one wins.
-//   - If nothing reaches, print the platform-appropriate install hint and
-//     return an error so setup exits cleanly with actionable guidance.
-//
-// Prints a one-line summary to stderr explaining which backend was picked
-// and, when multiple are available, how to pick a different one.
-func selectContainerBackend(override string) (string, map[string]string, error) {
+func defaultRuntimeBackendForHost() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return hostruntimebackend.BackendAppleVFMicroVM
+	case "linux":
+		return hostruntimebackend.BackendFirecracker
+	default:
+		return hostruntimebackend.BackendFirecracker
+	}
+}
+
+func isStrategicRuntimeBackendForHost(backend string) bool {
+	return backend == defaultRuntimeBackendForHost()
+}
+
+func normalizeRuntimeBackendName(name string) string {
+	name = strings.TrimSpace(strings.ToLower(name))
+	if name == "" {
+		return defaultRuntimeBackendForHost()
+	}
+	if name == hostruntimebackend.BackendFirecracker || name == hostruntimebackend.BackendAppleVFMicroVM {
+		return name
+	}
+	return runtimehost.NormalizeContainerBackend(name)
+}
+
+func selectRuntimeBackend(override string, allowExperimental bool) (string, map[string]string, error) {
 	override = strings.TrimSpace(strings.ToLower(override))
+	if override == "" {
+		override = strings.TrimSpace(strings.ToLower(os.Getenv("AGENCY_RUNTIME_BACKEND")))
+	}
 	if override == "" {
 		override = strings.TrimSpace(strings.ToLower(os.Getenv("AGENCY_CONTAINER_BACKEND")))
 	}
@@ -703,6 +718,25 @@ func selectContainerBackend(override string) (string, map[string]string, error) 
 		}
 	}
 
+	if override == "" {
+		backend := defaultRuntimeBackendForHost()
+		fmt.Fprintf(os.Stderr, "Using %s runtime backend.\n", backend)
+		return backend, nil, nil
+	}
+	if override == hostruntimebackend.BackendFirecracker || override == hostruntimebackend.BackendAppleVFMicroVM {
+		if !isStrategicRuntimeBackendForHost(override) && !allowExperimental {
+			return "", nil, fmt.Errorf("runtime backend %q is not the default for this host; re-run with --experimental-backend to use it", override)
+		}
+		fmt.Fprintf(os.Stderr, "Using %s runtime backend.\n", override)
+		return override, mergeBackendSocketConfig(configuredCfg, nil), nil
+	}
+	if !allowExperimental {
+		return "", nil, fmt.Errorf("runtime backend %q is transitional; re-run with --experimental-backend to use it", override)
+	}
+	return selectContainerBackend(override, configuredCfg)
+}
+
+func selectContainerBackend(override string, configuredCfg map[string]string) (string, map[string]string, error) {
 	if override != "" {
 		var match *runtimehost.BackendProbe
 		for _, p := range runtimehost.KnownBackends() {
@@ -713,7 +747,7 @@ func selectContainerBackend(override string) (string, map[string]string, error) 
 			}
 		}
 		if match == nil {
-			return "", nil, fmt.Errorf("unknown container backend %q (known: docker, podman, apple-container, containerd)", override)
+			return "", nil, fmt.Errorf("unknown runtime backend %q", override)
 		}
 		d := runtimehost.ProbeBackend(*match)
 		if !d.Reachable {
@@ -777,7 +811,7 @@ func selectContainerBackend(override string) (string, map[string]string, error) 
 			chosen.Name(), strings.Join(others, ", "),
 		)
 		fmt.Fprintf(os.Stderr,
-			"Using %s (%s). To pick a different one, re-run with --backend %s or set AGENCY_CONTAINER_BACKEND.\n",
+			"Using %s (%s). To pick a different one, re-run with --backend %s --experimental-backend.\n",
 			chosen.Name(), backendModeDescription(chosen), others[0],
 		)
 		return chosen.Name(), withAppleContainerHelperConfig(chosen.Name(), chosen.Config), nil
@@ -1145,7 +1179,7 @@ func runServe(httpAddr string) error {
 		cfg.SourceDir = sourceDir
 	}
 	logger.Info("agency home", "path", cfg.Home)
-	backendName := runtimehost.NormalizeContainerBackend(cfg.Hub.DeploymentBackend)
+	backendName := normalizeRuntimeBackendName(cfg.Hub.DeploymentBackend)
 	backendEndpoint := runtimehost.ResolvedBackendEndpoint(backendName, cfg.Hub.DeploymentBackendConfig)
 	backendMode := runtimehost.ResolvedBackendMode(backendName, cfg.Hub.DeploymentBackendConfig)
 	if err := validateConfiguredBackend(cfg); err != nil {
@@ -1179,7 +1213,7 @@ func runServe(httpAddr string) error {
 	if runtimehost.IsContainerBackend(backendName) {
 		infraBackendName = backendName
 		infraDC = dc
-	} else if backendName == "firecracker" {
+	} else if backendName == hostruntimebackend.BackendFirecracker {
 		if detection, ok := runtimehost.PreferredReachable(runtimehost.ProbeAllBackends()); ok {
 			infraBackendName = detection.Name()
 			infraBackendConfig = detection.Config
@@ -1624,9 +1658,11 @@ func runServe(httpAddr string) error {
 }
 
 func validateConfiguredBackend(cfg *config.Config) error {
-	backendName := runtimehost.NormalizeContainerBackend(cfg.Hub.DeploymentBackend)
-	if err := runtimehost.ValidateBackendConfig(backendName, cfg.Hub.DeploymentBackendConfig); err != nil {
-		return fmt.Errorf("backend config: %w", err)
+	backendName := normalizeRuntimeBackendName(cfg.Hub.DeploymentBackend)
+	if runtimehost.IsContainerBackend(backendName) {
+		if err := runtimehost.ValidateBackendConfig(backendName, cfg.Hub.DeploymentBackendConfig); err != nil {
+			return fmt.Errorf("backend config: %w", err)
+		}
 	}
 	return nil
 }

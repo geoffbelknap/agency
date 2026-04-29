@@ -371,6 +371,7 @@ Apple silicon with Apple Container available:
 - `go test ./...`
 - `go build ./cmd/gateway`
 - `scripts/readiness/apple-container-smoke.sh`
+- `scripts/e2e/apple-container-webui-smoke.sh`
 - runtime contract smoke against an Apple-backed disposable agent
 - create/start/stop/restart/delete lifecycle validation
 - operator DM round trip
@@ -378,6 +379,24 @@ Apple silicon with Apple Container available:
 - helper restart reconciliation validation
 - cleanup drift validation for owned resources
 - `agency admin doctor` separates backend hygiene from runtime health
+
+The Web UI parity bar should mirror the Firecracker operator flow, adjusted
+for the Apple backend's transport and lifecycle details:
+
+1. start from a live Agency stack configured with `backend apple-container`
+2. create an agent through the Web UI
+3. verify runtime status reports `backend=apple-container`, healthy running
+   state, and an established enforcer transport
+4. open the agent DM and receive a mediated response
+5. stop the agent through the normal API/UI path
+6. delete the agent through the Web UI
+7. verify Apple-owned containers, helper state, networks, and transient
+   runtime artifacts for that agent are gone
+
+Because this path depends on Apple's macOS service and Virtualization.framework
+stack, it remains a manual macOS Apple silicon validation gate. Linux CI should
+continue to compile and unit-test Apple adapter code, but must not require the
+live Apple smoke.
 
 ## Implementation Slices
 
@@ -425,6 +444,15 @@ Apple silicon with Apple Container available:
 - verify lifecycle controls after restart
 - retain the known limitation that already-running wait tasks cannot be
   reattached without a durable helper supervisor or Apple platform support
+
+### Slice 4c: Web UI Operator Parity
+
+- add and keep passing a macOS-only Playwright operator flow for
+  create/inspect/DM/stop/delete
+- keep the test explicit-gated behind `AGENCY_E2E_APPLE_CONTAINER_WEBUI=1`
+- compare its behavior to the Firecracker operator flow before graduation
+- record remaining divergences as Apple backend limitations, not generic
+  runtime behavior
 
 ### Slice 5: Release Decision
 

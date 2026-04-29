@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -73,7 +74,10 @@ func configuredRuntimeBackend(cfg *config.Config) string {
 	if cfg != nil && strings.TrimSpace(cfg.Hub.DeploymentBackend) != "" {
 		return strings.TrimSpace(cfg.Hub.DeploymentBackend)
 	}
-	return runtimehost.BackendDocker
+	if goruntime.GOOS == "darwin" {
+		return hostruntimebackend.BackendAppleVFMicroVM
+	}
+	return hostruntimebackend.BackendFirecracker
 }
 
 func configuredRuntimeBackendConfig(cfg *config.Config) map[string]string {

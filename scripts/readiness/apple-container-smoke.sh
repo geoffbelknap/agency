@@ -279,6 +279,7 @@ fi
 set +e
 "$AGENCY_BIN" -H "$AGENCY_HOME_DIR" setup \
   --backend apple-container \
+  --experimental-backend \
   --provider "$SETUP_PROVIDER" \
   --api-key "$API_KEY" \
   --no-browser 2>&1 | tee "$SETUP_LOG"

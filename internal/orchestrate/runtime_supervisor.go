@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -23,7 +24,14 @@ import (
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
 )
 
-const defaultRuntimeBackend = runtimehost.BackendDocker
+func defaultRuntimeBackend() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return hostruntimebackend.BackendAppleVFMicroVM
+	default:
+		return hostruntimebackend.BackendFirecracker
+	}
+}
 
 type RuntimeSupervisor struct {
 	Home          string
@@ -133,7 +141,7 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 			}, nil
 		})
 	}
-	registerContainerBackend(defaultRuntimeBackend)
+	registerContainerBackend(runtimehost.BackendDocker)
 	registerContainerBackend(runtimehost.BackendPodman)
 	registerContainerBackend(runtimehost.BackendContainerd)
 	registerContainerBackend(runtimehost.BackendAppleContainer)
@@ -158,6 +166,11 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 			return firecrackerBackend, nil
 		})
 	}
+	if features.Enabled(features.AppleVFMicroVM) || rs.BackendName == hostruntimebackend.BackendAppleVFMicroVM {
+		rs.registry.Register(hostruntimebackend.BackendAppleVFMicroVM, func() (runtimecontract.Backend, error) {
+			return hostruntimebackend.NewAppleVFMicroVMRuntimeBackend(rs.Home, rs.BackendConfig), nil
+		})
+	}
 	rs.registry.Register(probeRuntimeBackendName, func() (runtimecontract.Backend, error) {
 		return &probeRuntimeBackend{home: rs.Home}, nil
 	})
@@ -167,7 +180,7 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 func normalizeRuntimeBackendName(name string) string {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return defaultRuntimeBackend
+		return defaultRuntimeBackend()
 	}
 	return name
 }
@@ -192,22 +205,24 @@ func (rs *RuntimeSupervisor) Compile(ctx context.Context, runtimeID string) (run
 	enforcerControlURL := "http://" + enforcerHost + ":8081"
 	enforcerEndpoint := endpoint
 	extraEnv := map[string]string{}
-	if backendName == hostruntimebackend.BackendFirecracker {
+	if backendName == hostruntimebackend.BackendFirecracker || backendName == hostruntimebackend.BackendAppleVFMicroVM {
 		proxyEndpoint, err := allocateLoopbackEndpoint()
 		if err != nil {
-			return runtimecontract.RuntimeSpec{}, fmt.Errorf("allocate firecracker enforcer proxy endpoint: %w", err)
+			return runtimecontract.RuntimeSpec{}, fmt.Errorf("allocate microvm enforcer proxy endpoint: %w", err)
 		}
 		controlEndpoint, err := allocateLoopbackEndpoint()
 		if err != nil {
-			return runtimecontract.RuntimeSpec{}, fmt.Errorf("allocate firecracker enforcer control endpoint: %w", err)
+			return runtimecontract.RuntimeSpec{}, fmt.Errorf("allocate microvm enforcer control endpoint: %w", err)
 		}
 		transportType = runtimecontract.TransportTypeVsockHTTP
 		enforcerHost = "127.0.0.1"
 		enforcerProxyURL = "http://" + enforcerHost + ":3128"
 		enforcerControlURL = "http://" + enforcerHost + ":8081"
 		enforcerEndpoint = "vsock://2:8081"
-		extraEnv[hostruntimebackend.FirecrackerEnforcerProxyTargetEnv] = proxyEndpoint
-		extraEnv[hostruntimebackend.FirecrackerEnforcerControlTargetEnv] = controlEndpoint
+		if backendName == hostruntimebackend.BackendFirecracker {
+			extraEnv[hostruntimebackend.FirecrackerEnforcerProxyTargetEnv] = proxyEndpoint
+			extraEnv[hostruntimebackend.FirecrackerEnforcerControlTargetEnv] = controlEndpoint
+		}
 	}
 	env := map[string]string{
 		"AGENCY_AGENT_NAME":                  agentID,

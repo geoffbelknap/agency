@@ -48,19 +48,13 @@ type InitOptions struct {
 	NotifyURL    string            // optional ntfy or webhook URL for operator alerts
 	GatewayAddr  string            // optional gateway listen address to persist
 
-	// DeploymentBackend is the container backend Agency should drive —
-	// "docker", "podman", "apple-container", or "containerd". When empty, any
-	// existing value in config.yaml is preserved; if no existing value is set,
-	// the backend stays unset and the gateway's legacy default (docker) applies.
-	// Callers performing fresh installs are expected to detect the available
-	// backend (see runtimehost.ProbeAllBackends) and set this explicitly so the
-	// config captures the chosen backend persistently.
+	// DeploymentBackend is the runtime backend Agency should drive. When empty,
+	// any existing value in config.yaml is preserved; if no existing value is
+	// set, the gateway chooses the platform default.
 	DeploymentBackend string
 
-	// DeploymentBackendConfig holds backend-specific wiring, typically the
-	// resolved socket path under key "host" (docker/podman) or
-	// "native_socket" (containerd). Persisted verbatim under
-	// hub.deployment_backend_config.
+	// DeploymentBackendConfig holds backend-specific wiring persisted verbatim
+	// under hub.deployment_backend_config.
 	DeploymentBackendConfig map[string]string
 }
 
@@ -195,7 +189,7 @@ func RunInit(opts InitOptions) ([]KeyEntry, error) {
 		return nil, fmt.Errorf("create directory %s: %w", auditDir, err)
 	}
 
-	// Pre-generate mitmproxy CA cert so it exists before any containers start.
+	// Pre-generate mitmproxy CA cert so it exists before runtime services start.
 	// Without this, the enforcer may boot before the egress proxy generates its
 	// cert, causing TLS handshake failures on the first LLM call (502).
 	egressCertsDir := filepath.Join(agencyHome, "infrastructure", "egress", "certs")
@@ -245,11 +239,10 @@ func RunInit(opts InitOptions) ([]KeyEntry, error) {
 		}
 	}
 
-	// Persist the selected container backend (and its socket config) when
-	// the caller supplied one — typically a fresh install after probing
-	// for docker/podman/containerd. Empty values preserve whatever the
-	// existing config.yaml already specifies, so re-running setup never
-	// downgrades an explicit choice.
+	// Persist the selected runtime backend and its backend-specific config when
+	// the caller supplied one. Empty values preserve whatever config.yaml
+	// already specifies, so re-running setup never downgrades an explicit
+	// choice.
 	if opts.DeploymentBackend != "" {
 		hubMap, ok := cfg["hub"].(map[string]interface{})
 		if !ok {

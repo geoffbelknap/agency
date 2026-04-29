@@ -113,12 +113,13 @@ const (
 )
 
 type BackendCapabilities struct {
-	SupportedTransportTypes []string  `yaml:"supportedTransportTypes,omitempty" json:"supportedTransportTypes,omitempty"`
-	SupportsRootless        bool      `yaml:"supportsRootless,omitempty" json:"supportsRootless,omitempty"`
-	SupportsComposeLike     bool      `yaml:"supportsComposeLike,omitempty" json:"supportsComposeLike,omitempty"`
-	Isolation               Isolation `yaml:"isolation,omitempty" json:"isolation,omitempty"`
-	RequiresKVM             bool      `yaml:"requiresKVM,omitempty" json:"requiresKVM,omitempty"`
-	SupportsSnapshots       bool      `yaml:"supportsSnapshots,omitempty" json:"supportsSnapshots,omitempty"`
+	SupportedTransportTypes     []string  `yaml:"supportedTransportTypes,omitempty" json:"supportedTransportTypes,omitempty"`
+	SupportsRootless            bool      `yaml:"supportsRootless,omitempty" json:"supportsRootless,omitempty"`
+	SupportsComposeLike         bool      `yaml:"supportsComposeLike,omitempty" json:"supportsComposeLike,omitempty"`
+	Isolation                   Isolation `yaml:"isolation,omitempty" json:"isolation,omitempty"`
+	RequiresKVM                 bool      `yaml:"requiresKVM,omitempty" json:"requiresKVM,omitempty"`
+	RequiresAppleVirtualization bool      `yaml:"requiresAppleVirtualization,omitempty" json:"requiresAppleVirtualization,omitempty"`
+	SupportsSnapshots           bool      `yaml:"supportsSnapshots,omitempty" json:"supportsSnapshots,omitempty"`
 }
 
 type Backend interface {

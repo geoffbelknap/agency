@@ -30,7 +30,7 @@ Some rules are **hard floors** — they cannot be overridden at any level of the
 |------------|--------------|
 | **Logging required** | Every action must be logged. No agent can disable audit logging. |
 | **Constraints read-only** | Agents cannot modify their own constraints. Ever. |
-| **LLM credentials isolated** | API keys never enter agent containers. |
+| **LLM credentials isolated** | API keys never enter agent runtimes. |
 | **Network mediation required** | All traffic routes through the egress proxy. No direct internet. |
 
 These are not configurable. They are structural properties of the platform.

@@ -7,12 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	goruntime "runtime"
 	"strings"
 	"time"
 
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
 	"github.com/geoffbelknap/agency/internal/features"
+	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/infratier"
 	"github.com/geoffbelknap/agency/internal/logs"
@@ -57,7 +59,10 @@ func mcpConfiguredRuntimeBackend(d *mcpDeps) string {
 	if d != nil && d.cfg != nil && strings.TrimSpace(d.cfg.Hub.DeploymentBackend) != "" {
 		return strings.TrimSpace(d.cfg.Hub.DeploymentBackend)
 	}
-	return runtimehost.BackendDocker
+	if goruntime.GOOS == "darwin" {
+		return hostruntimebackend.BackendAppleVFMicroVM
+	}
+	return hostruntimebackend.BackendFirecracker
 }
 
 func mcpContainerInfraUnavailable(d *mcpDeps) (string, bool) {
@@ -205,7 +210,7 @@ func registerInfraTools(reg *MCPToolRegistry) {
 
 	reg.Register(
 		"agency_setup",
-		"Bootstrap Agency on a fresh host. Creates ~/.agency, writes base config, and verifies the configured container backend. Run this before agency_infra_up and agent creation.",
+		"Bootstrap Agency on a fresh host. Creates ~/.agency, writes base config, and verifies the configured runtime backend. Run this before agency_infra_up and agent creation.",
 		map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

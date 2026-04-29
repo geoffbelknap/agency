@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/config"
 	agencyctx "github.com/geoffbelknap/agency/internal/context"
 	"github.com/geoffbelknap/agency/internal/credstore"
+	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/hub"
 	instancepkg "github.com/geoffbelknap/agency/internal/instances"
@@ -58,7 +60,11 @@ func Startup(cfg *config.Config, dc *runtimehost.Client, logger *slog.Logger) (*
 func StartupWithInfraClient(cfg *config.Config, dc, infraDC *runtimehost.Client, logger *slog.Logger) (*StartupResult, error) {
 	backendName := cfg.Hub.DeploymentBackend
 	if strings.TrimSpace(backendName) == "" {
-		backendName = runtimehost.BackendDocker
+		if goruntime.GOOS == "darwin" {
+			backendName = hostruntimebackend.BackendAppleVFMicroVM
+		} else {
+			backendName = hostruntimebackend.BackendFirecracker
+		}
 	}
 	if dc == nil && runtimehost.IsContainerBackend(backendName) {
 		return nil, fmt.Errorf("%s client is required", runtimehost.NormalizeContainerBackend(backendName))

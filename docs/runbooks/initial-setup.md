@@ -6,7 +6,7 @@ First-time deployment, new machine, or fresh environment after `agency admin des
 
 ## Prerequisites
 
-- Docker running (`docker info` succeeds)
+- Runtime host checks pass (`agency admin doctor`)
 - Go binary built or installed via Homebrew (`agency --version`)
 
 ## Steps
