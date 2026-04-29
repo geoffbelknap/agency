@@ -61,7 +61,8 @@ func (inf *Infra) ensureHostEgress(ctx context.Context) error {
 		inf.log.Warn("host egress blocklist fetch failed", "err", err)
 	}
 
-	logFile, err := os.OpenFile(filepath.Join(paths.logDir, "egress.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	logPath := filepath.Join(paths.logDir, "egress.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("open host egress log: %w", err)
 	}
@@ -85,6 +86,9 @@ func (inf *Infra) ensureHostEgress(ctx context.Context) error {
 	if err := inf.writeHostInfraPID("egress", pid); err != nil {
 		_ = syscall.Kill(-pid, syscall.SIGTERM)
 		return fmt.Errorf("write host egress pid: %w", err)
+	}
+	if err := inf.writeHostInfraMetadata("egress", pid, cmd.Args, logPath, "http://127.0.0.1:"+inf.egressProxyPort()+"/health"); err != nil {
+		inf.log.Warn("write host egress metadata", "err", err)
 	}
 	go func() {
 		if err := cmd.Wait(); err != nil && inf.log != nil {

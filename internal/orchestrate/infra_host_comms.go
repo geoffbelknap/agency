@@ -82,7 +82,8 @@ func (inf *Infra) ensureHostComms(ctx context.Context) error {
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return fmt.Errorf("prepare host comms log dir: %w", err)
 	}
-	logFile, err := os.OpenFile(filepath.Join(logDir, "comms.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	logPath := filepath.Join(logDir, "comms.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("open host comms log: %w", err)
 	}
@@ -110,6 +111,9 @@ func (inf *Infra) ensureHostComms(ctx context.Context) error {
 	if err := inf.writeHostInfraPID("comms", pid); err != nil {
 		_ = syscall.Kill(-pid, syscall.SIGTERM)
 		return fmt.Errorf("write host comms pid: %w", err)
+	}
+	if err := inf.writeHostInfraMetadata("comms", pid, cmd.Args, logPath, "http://127.0.0.1:"+inf.gatewayProxyPort("8202")+"/health"); err != nil {
+		inf.log.Warn("write host comms metadata", "err", err)
 	}
 	go func() {
 		if err := cmd.Wait(); err != nil && inf.log != nil {

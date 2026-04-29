@@ -65,7 +65,8 @@ func (inf *Infra) ensureHostKnowledge(ctx context.Context) error {
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return fmt.Errorf("prepare host knowledge log dir: %w", err)
 	}
-	logFile, err := os.OpenFile(filepath.Join(logDir, "knowledge.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	logPath := filepath.Join(logDir, "knowledge.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("open host knowledge log: %w", err)
 	}
@@ -87,6 +88,9 @@ func (inf *Infra) ensureHostKnowledge(ctx context.Context) error {
 	if err := inf.writeHostInfraPID("knowledge", pid); err != nil {
 		_ = syscall.Kill(-pid, syscall.SIGTERM)
 		return fmt.Errorf("write host knowledge pid: %w", err)
+	}
+	if err := inf.writeHostInfraMetadata("knowledge", pid, cmd.Args, logPath, "http://127.0.0.1:"+inf.gatewayProxyPort("8204")+"/health"); err != nil {
+		inf.log.Warn("write host knowledge metadata", "err", err)
 	}
 	go func() {
 		if err := cmd.Wait(); err != nil && inf.log != nil {

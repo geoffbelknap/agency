@@ -60,7 +60,8 @@ func (inf *Infra) ensureHostWeb(ctx context.Context) error {
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		return fmt.Errorf("prepare run dir: %w", err)
 	}
-	logFile, err := os.OpenFile(filepath.Join(logDir, "web.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	logPath := filepath.Join(logDir, "web.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("open host web log: %w", err)
 	}
@@ -82,6 +83,9 @@ func (inf *Infra) ensureHostWeb(ctx context.Context) error {
 	if err := inf.writeHostInfraPID("web", pid); err != nil {
 		_ = syscall.Kill(-pid, syscall.SIGTERM)
 		return fmt.Errorf("write host web pid: %w", err)
+	}
+	if err := inf.writeHostInfraMetadata("web", pid, cmd.Args, logPath, "http://127.0.0.1:"+inf.webPort()+"/health"); err != nil {
+		inf.log.Warn("write host web metadata", "err", err)
 	}
 	go func() {
 		if err := cmd.Wait(); err != nil && inf.log != nil {
