@@ -82,6 +82,40 @@ func TestFirecrackerVsockBridgeStopUnlinksSockets(t *testing.T) {
 	}
 }
 
+func TestFirecrackerVsockBridgeRestoresPersistedTargets(t *testing.T) {
+	targetPath := filepath.Join(t.TempDir(), "target.sock")
+	target, err := net.Listen("unix", targetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+
+	stateDir := t.TempDir()
+	firstFactory := &FirecrackerVsockListenerFactory{StateDir: stateDir}
+	first, err := firstFactory.Start(context.Background(), "alice", map[int]string{
+		9999: "unix://" + targetPath,
+	})
+	if err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	for _, listener := range first.listeners {
+		_ = listener.Close()
+	}
+
+	restoredFactory := &FirecrackerVsockListenerFactory{StateDir: stateDir}
+	restored, err := restoredFactory.Restore(context.Background(), "alice")
+	if err != nil {
+		t.Fatalf("Restore returned error: %v", err)
+	}
+	defer restoredFactory.Stop("alice")
+	if restored.Targets[9999] != "unix://"+targetPath {
+		t.Fatalf("restored targets = %#v", restored.Targets)
+	}
+	if _, err := os.Stat(restored.Paths[9999]); err != nil {
+		t.Fatalf("restored socket missing: %v", err)
+	}
+}
+
 func TestFirecrackerVsockTargetParsesNetworkPrefixes(t *testing.T) {
 	for _, tt := range []struct {
 		target  string

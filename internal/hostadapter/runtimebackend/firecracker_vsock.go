@@ -2,6 +2,7 @@ package runtimebackend
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +16,7 @@ import (
 )
 
 const firecrackerGuestVsockTargetPrefix = "firecracker-vsock://"
+const firecrackerVsockBridgeTargetsFile = "bridge-targets.json"
 
 type FirecrackerVsockListenerFactory struct {
 	StateDir string
@@ -56,6 +58,10 @@ func (f *FirecrackerVsockListenerFactory) Start(ctx context.Context, runtimeID s
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		cancel()
 		return nil, fmt.Errorf("create firecracker vsock dir: %w", err)
+	}
+	if err := writeFirecrackerVsockBridgeTargets(dir, targets); err != nil {
+		cancel()
+		return nil, err
 	}
 	bridge := &FirecrackerVsockBridge{
 		RuntimeID: runtimeID,
@@ -100,6 +106,14 @@ func (f *FirecrackerVsockListenerFactory) Stop(runtimeID string) {
 	}
 	bridge.stop()
 	delete(f.bridges, runtimeID)
+}
+
+func (f *FirecrackerVsockListenerFactory) Restore(ctx context.Context, runtimeID string) (*FirecrackerVsockBridge, error) {
+	targets, err := readFirecrackerVsockBridgeTargets(filepath.Join(f.stateDir(), strings.TrimSpace(runtimeID)))
+	if err != nil {
+		return nil, err
+	}
+	return f.Start(ctx, runtimeID, targets)
 }
 
 func (f *FirecrackerVsockListenerFactory) Bridge(runtimeID string) *FirecrackerVsockBridge {
@@ -148,6 +162,44 @@ func (b *FirecrackerVsockBridge) stop() {
 	if b.dir != "" {
 		_ = os.RemoveAll(b.dir)
 	}
+}
+
+func writeFirecrackerVsockBridgeTargets(dir string, targets map[int]string) error {
+	persisted := make(map[string]string, len(targets))
+	for port, target := range targets {
+		persisted[strconv.Itoa(port)] = target
+	}
+	data, err := json.MarshalIndent(persisted, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal firecracker vsock bridge targets: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, firecrackerVsockBridgeTargetsFile), append(data, '\n'), 0o644); err != nil {
+		return fmt.Errorf("write firecracker vsock bridge targets: %w", err)
+	}
+	return nil
+}
+
+func readFirecrackerVsockBridgeTargets(dir string) (map[int]string, error) {
+	data, err := os.ReadFile(filepath.Join(dir, firecrackerVsockBridgeTargetsFile))
+	if err != nil {
+		return nil, fmt.Errorf("read firecracker vsock bridge targets: %w", err)
+	}
+	var persisted map[string]string
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		return nil, fmt.Errorf("parse firecracker vsock bridge targets: %w", err)
+	}
+	targets := make(map[int]string, len(persisted))
+	for rawPort, target := range persisted {
+		port, err := strconv.Atoi(rawPort)
+		if err != nil || port <= 0 || port > 65535 {
+			return nil, fmt.Errorf("firecracker vsock bridge: invalid persisted port %q", rawPort)
+		}
+		targets[port] = target
+	}
+	if len(targets) == 0 {
+		return nil, fmt.Errorf("firecracker vsock bridge: no persisted targets configured")
+	}
+	return targets, nil
 }
 
 func proxyFirecrackerVsockConn(ctx context.Context, guest net.Conn, target string) {
