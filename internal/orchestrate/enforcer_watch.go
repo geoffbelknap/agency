@@ -3,7 +3,6 @@ package orchestrate
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"log/slog"
 
@@ -118,16 +117,4 @@ func (w *EnforcerWatcher) watch(ctx context.Context) {
 			}
 		}
 	}
-}
-
-// extractAgentName pulls the agent name from a container name like
-// "agency-henrybot900-enforcer" → "henrybot900".
-func extractAgentName(containerName, suffix string) string {
-	containerName = strings.TrimPrefix(containerName, "/")
-	if !strings.HasPrefix(containerName, prefix+"-") || !strings.HasSuffix(containerName, suffix) {
-		return ""
-	}
-	name := strings.TrimPrefix(containerName, prefix+"-")
-	name = strings.TrimSuffix(name, suffix)
-	return name
 }

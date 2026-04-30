@@ -96,14 +96,14 @@ func (w *WorkspaceWatcher) watch(ctx context.Context) {
 			case HostStateActionStopped:
 				exitCode := ev.ExitCode
 				reason := fmt.Sprintf("workspace exited (code %s) — body runtime crashed", exitCode)
-				w.logger.Warn("workspace container died",
+				w.logger.Warn("workspace runtime died",
 					"agent", ev.AgentName,
 					"exit_code", exitCode,
 				)
 				w.alert(ev.AgentName, reason)
 
 			case HostStateActionStarted:
-				w.logger.Info("workspace container auto-restarted",
+				w.logger.Info("workspace runtime auto-restarted",
 					"agent", ev.AgentName,
 				)
 				reason := "workspace auto-restarted by runtime backend — body runtime recovered"

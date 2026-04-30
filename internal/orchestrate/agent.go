@@ -397,7 +397,7 @@ func (am *AgentManager) Delete(ctx context.Context, name string) error {
 	}
 
 	// Stop runtime
-	am.StopContainers(ctx, name)
+	am.StopAgentRuntime(ctx, name)
 
 	// Archive audit logs (tenet 2: every action leaves a trace)
 	am.archiveAuditLogs(name)
@@ -429,9 +429,9 @@ func (am *AgentManager) JoinChannel(ctx context.Context, agentName, channel stri
 	am.Comms.CommsRequest(ctx, "POST", "/channels/"+channel+"/join", body)
 }
 
-// StopContainers stops and removes all containers for an agent.
+// StopAgentRuntime stops and removes the runtime for an agent.
 // Marks the agent as suppressed so watchers don't fire spurious alerts.
-func (am *AgentManager) StopContainers(ctx context.Context, name string) {
+func (am *AgentManager) StopAgentRuntime(ctx context.Context, name string) {
 	if am.StopSuppress != nil {
 		am.StopSuppress.Suppress(name)
 	}
@@ -439,7 +439,7 @@ func (am *AgentManager) StopContainers(ctx context.Context, name string) {
 		_ = am.Runtime.Stop(ctx, name)
 		return
 	}
-	am.stopAgentContainers(ctx, name)
+	am.stopBackendRuntime(ctx, name)
 }
 
 // -- Internal helpers --
@@ -800,7 +800,7 @@ func buildTeamIndex(home string) map[string]string {
 	return index
 }
 
-func (am *AgentManager) stopAgentContainers(ctx context.Context, name string) {
+func (am *AgentManager) stopBackendRuntime(ctx context.Context, name string) {
 	if am.Backend == nil {
 		return
 	}

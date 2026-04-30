@@ -35,7 +35,6 @@ type missionRuntimeStatus interface {
 type MissionHealthMonitor struct {
 	mm      *MissionManager
 	runtime missionRuntimeStatus
-	backend *runtimehost.BackendHandle
 	alert   MissionHealthAlertFunc
 	pause   func(name, reason string) error
 	logger  *slog.Logger
@@ -51,10 +50,13 @@ func NewMissionHealthMonitor(
 	pauseFn func(name, reason string) error,
 	logger *slog.Logger,
 ) (*MissionHealthMonitor, error) {
-	return NewMissionHealthMonitorWithRuntime(mm, nil, alertFn, pauseFn, logger, nil)
+	return NewMissionHealthMonitorWithRuntime(mm, nil, alertFn, pauseFn, logger)
 }
 
-// NewMissionHealthMonitorWithClient creates a health monitor using the provided backend client.
+// NewMissionHealthMonitorWithClient creates a health monitor.
+//
+// Deprecated: mission health is a runtime contract check. Backend clients are
+// ignored and do not satisfy core mission health.
 func NewMissionHealthMonitorWithClient(
 	mm *MissionManager,
 	alertFn MissionHealthAlertFunc,
@@ -62,19 +64,17 @@ func NewMissionHealthMonitorWithClient(
 	logger *slog.Logger,
 	dc *runtimehost.BackendHandle,
 ) (*MissionHealthMonitor, error) {
-	return NewMissionHealthMonitorWithRuntime(mm, nil, alertFn, pauseFn, logger, dc)
+	return NewMissionHealthMonitorWithRuntime(mm, nil, alertFn, pauseFn, logger)
 }
 
 // NewMissionHealthMonitorWithRuntime creates a health monitor using runtime
-// status as the primary execution-health contract. The backend client is a
-// compatibility fallback while host event shims are still being introduced.
+// status as the execution-health contract.
 func NewMissionHealthMonitorWithRuntime(
 	mm *MissionManager,
 	runtime missionRuntimeStatus,
 	alertFn MissionHealthAlertFunc,
 	pauseFn func(name, reason string) error,
 	logger *slog.Logger,
-	dc *runtimehost.BackendHandle,
 ) (*MissionHealthMonitor, error) {
 	if logger == nil {
 		logger = slog.Default()
@@ -82,7 +82,6 @@ func NewMissionHealthMonitorWithRuntime(
 	return &MissionHealthMonitor{
 		mm:      mm,
 		runtime: runtime,
-		backend: dc,
 		alert:   alertFn,
 		pause:   pauseFn,
 		logger:  logger,
@@ -92,8 +91,8 @@ func NewMissionHealthMonitorWithRuntime(
 // Start launches the background health-check goroutine.
 // The monitor runs until the returned context is cancelled.
 func (m *MissionHealthMonitor) Start(ctx context.Context) {
-	if m.runtime == nil && m.backend == nil {
-		m.logger.Info("mission health monitor disabled: runtime backend client unavailable")
+	if m.runtime == nil {
+		m.logger.Info("mission health monitor disabled: runtime status unavailable")
 		return
 	}
 	ctx, cancel := context.WithCancel(ctx)
@@ -128,21 +127,16 @@ func (m *MissionHealthMonitor) runChecks(ctx context.Context) {
 		return
 	}
 
-	running := map[string]string{}
-	if m.runtime == nil {
-		running = m.runningContainers(ctx)
-	}
-
 	for _, mission := range missions {
 		if mission.Status != "active" {
 			continue
 		}
-		m.checkMission(ctx, mission, running)
+		m.checkMission(ctx, mission)
 	}
 }
 
 // checkMission checks a single active mission.
-func (m *MissionHealthMonitor) checkMission(ctx context.Context, mission *models.Mission, running map[string]string) {
+func (m *MissionHealthMonitor) checkMission(ctx context.Context, mission *models.Mission) {
 	targets, err := missionHealthTargets(m.mm.Home, mission)
 	if err != nil {
 		m.logger.Warn("mission health alert: failed to resolve targets",
@@ -161,7 +155,7 @@ func (m *MissionHealthMonitor) checkMission(ctx context.Context, mission *models
 	var issues []string
 	healthyTarget := ""
 	for _, agentName := range targets {
-		healthy, issue := m.runtimeTargetHealthy(ctx, agentName, running)
+		healthy, issue := m.runtimeTargetHealthy(ctx, agentName)
 		if healthy {
 			healthyTarget = agentName
 			break
@@ -196,35 +190,27 @@ func (m *MissionHealthMonitor) checkMission(ctx context.Context, mission *models
 	}
 }
 
-func (m *MissionHealthMonitor) runtimeTargetHealthy(ctx context.Context, agentName string, running map[string]string) (bool, string) {
-	if m.runtime != nil {
-		status, err := m.runtime.Get(ctx, agentName)
-		if err != nil {
-			return false, "runtime_status_error=" + err.Error()
-		}
-		if err := m.runtime.Validate(ctx, agentName); err != nil {
-			return false, "runtime_validate_error=" + err.Error()
-		}
-		if status.Phase != runtimecontract.RuntimePhaseRunning {
-			return false, "phase=" + status.Phase
-		}
-		if !status.Healthy {
-			return false, "healthy=false"
-		}
-		if !status.Transport.EnforcerConnected {
-			return false, "enforcer_connected=false"
-		}
-		return true, "runtime=running"
+func (m *MissionHealthMonitor) runtimeTargetHealthy(ctx context.Context, agentName string) (bool, string) {
+	if m.runtime == nil {
+		return false, "runtime_status_unavailable"
 	}
-
-	wsContainer := fmt.Sprintf("%s-%s-workspace", prefix, agentName)
-	enfContainer := fmt.Sprintf("%s-%s-enforcer", prefix, agentName)
-	wsState := running[wsContainer]
-	enfState := running[enfContainer]
-	if wsState == "running" && enfState == "running" {
-		return true, "components=running"
+	status, err := m.runtime.Get(ctx, agentName)
+	if err != nil {
+		return false, "runtime_status_error=" + err.Error()
 	}
-	return false, fmt.Sprintf("workspace=%q,enforcer=%q", wsState, enfState)
+	if err := m.runtime.Validate(ctx, agentName); err != nil {
+		return false, "runtime_validate_error=" + err.Error()
+	}
+	if status.Phase != runtimecontract.RuntimePhaseRunning {
+		return false, "phase=" + status.Phase
+	}
+	if !status.Healthy {
+		return false, "healthy=false"
+	}
+	if !status.Transport.EnforcerConnected {
+		return false, "enforcer_connected=false"
+	}
+	return true, "runtime=running"
 }
 
 // triggerAlert fires the alert callback and auto-pauses the mission.
@@ -267,17 +253,6 @@ func (m *MissionHealthMonitor) checkCapabilities(mission *models.Mission) []stri
 	return missing
 }
 
-// runningContainers returns a map of runtime component name → state for all
-// Agency runtime components that are currently listed by the host backend.
-func (m *MissionHealthMonitor) runningContainers(ctx context.Context) map[string]string {
-	result, err := runtimehost.ListAgencyContainerStates(ctx, m.backend)
-	if err != nil {
-		m.logger.Warn("mission health: runtime component list failed", "error", err)
-		return map[string]string{}
-	}
-	return result
-}
-
 // HealthStatus describes the health of a single active mission.
 type HealthStatus struct {
 	MissionName  string   `json:"mission_name"`
@@ -304,11 +279,7 @@ func (m *MissionHealthMonitor) CheckHealth(ctx context.Context, missionName stri
 	}
 
 	agentName := mission.AssignedTo
-	running := map[string]string{}
-	if m.runtime == nil {
-		running = m.runningContainers(ctx)
-	}
-	agentRunning, _ := m.runtimeTargetHealthy(ctx, agentName, running)
+	agentRunning, _ := m.runtimeTargetHealthy(ctx, agentName)
 
 	var missingCaps []string
 	if mission.Requires != nil && len(mission.Requires.Capabilities) > 0 {

@@ -303,7 +303,7 @@ func registerAdminTools(reg *MCPToolRegistry) {
 			if d.agents != nil {
 				agents, _ := d.agents.List(ctx)
 				for _, a := range agents {
-					d.agents.StopContainers(ctx, a.Name)
+					d.agents.StopAgentRuntime(ctx, a.Name)
 					d.agents.Delete(ctx, a.Name)
 				}
 			}
