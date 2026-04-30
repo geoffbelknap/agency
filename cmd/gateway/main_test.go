@@ -6,8 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/geoffbelknap/agency/internal/backendhealth"
 	"github.com/geoffbelknap/agency/internal/config"
 	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
+	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 )
 
 func TestSelectRuntimeBackendDefaultsToStrategicBackend(t *testing.T) {
@@ -135,6 +137,20 @@ func TestWithAppleVFArtifactConfig(t *testing.T) {
 	}
 	if got := withAppleVFArtifactConfig(hostruntimebackend.BackendFirecracker, nil); got != nil {
 		t.Fatalf("firecracker cfg = %#v, want nil", got)
+	}
+}
+
+func TestRouteBackendHealthDropsTypedNilStatus(t *testing.T) {
+	var status *runtimehost.Status
+	if got := routeBackendHealth(status); got != nil {
+		t.Fatalf("routeBackendHealth(nil) = %#v, want nil", got)
+	}
+	var recorder backendhealth.Recorder = runtimehost.NewStatus(nil)
+	if recorder == nil {
+		t.Fatal("test setup: typed recorder unexpectedly nil")
+	}
+	if got := routeBackendHealth(runtimehost.NewStatus(nil)); got == nil {
+		t.Fatal("routeBackendHealth(non-nil) = nil")
 	}
 }
 

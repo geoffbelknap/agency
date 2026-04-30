@@ -30,6 +30,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/api"
 	"github.com/geoffbelknap/agency/internal/apiclient"
 	auditpkg "github.com/geoffbelknap/agency/internal/audit"
+	"github.com/geoffbelknap/agency/internal/backendhealth"
 	agencyCLI "github.com/geoffbelknap/agency/internal/cli"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/daemon"
@@ -872,6 +873,13 @@ func withAppleVFArtifactConfig(backend string, cfg map[string]string) map[string
 	return out
 }
 
+func routeBackendHealth(status *runtimehost.Status) backendhealth.Recorder {
+	if status == nil {
+		return nil
+	}
+	return status
+}
+
 // backendModeDescription returns a short human-readable descriptor for the
 // detection — "rootless"/"rootful" for podman/containerd, or "available"
 // as a fallback when no mode is exposed by the backend.
@@ -1539,7 +1547,7 @@ func runServe(httpAddr string) error {
 	if healthMgr != nil {
 		routeOpts.HealthMonitor = healthMgr
 	}
-	routeOpts.BackendHealth = backendHealthStatus
+	routeOpts.BackendHealth = routeBackendHealth(backendHealthStatus)
 	api.RegisterAll(r, cfg, dc, logger, startup, routeOpts)
 
 	// Wire auto-restore: when the container backend reconnects, automatically bring up infra.
