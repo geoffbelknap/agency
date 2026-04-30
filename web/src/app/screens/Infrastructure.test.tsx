@@ -223,13 +223,18 @@ describe('Infrastructure', () => {
     });
   });
 
-  it('renders service health rows without exposing log controls', async () => {
+  it('loads service logs from host-managed infrastructure services', async () => {
+    let requestedLogs = false;
     server.use(
       http.get(`${BASE}/infra/status`, () =>
         HttpResponse.json(wrapInfra([
           { name: 'comms', state: 'running', health: 'healthy', component_id: 'host:123', uptime: '2h' },
         ])),
       ),
+      http.get(`${BASE}/infra/services/comms/logs`, () => {
+        requestedLogs = true;
+        return HttpResponse.json({ component: 'comms', tail: 200, logs: 'comms host log line' });
+      }),
     );
 
     renderWithRouter(<Infrastructure />);
@@ -238,6 +243,10 @@ describe('Infrastructure', () => {
       expect(screen.getByText('comms')).toBeInTheDocument();
       expect(screen.getByRole('img', { name: 'healthy' })).toBeInTheDocument();
     });
-    expect(screen.queryByRole('button', { name: /^logs$/i })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /^logs$/i }));
+    await waitFor(() => {
+      expect(requestedLogs).toBe(true);
+      expect(screen.getByText('comms host log line')).toBeInTheDocument();
+    });
   });
 });
