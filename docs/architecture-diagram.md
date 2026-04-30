@@ -23,7 +23,7 @@
 |           |       GATEWAY (host process, :8200)     |           |
 |           |                                         |           |
 |           |   REST API    MCP Server    WS Hub      |           |
-|           |   Docker orchestration                  |           |
+|           |   MicroVM orchestration                 |           |
 +-----------|---------+-------------------------------|-----------+
             |         |                               |
             |         | WS relay + REST               |

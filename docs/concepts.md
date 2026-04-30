@@ -24,7 +24,7 @@ Agency Platform
     │
     ├── Shared Infrastructure (egress, comms, knowledge, web)
     │
-    └── Per-Agent Containers
+    └── Per-Agent microVMs
         ├── Agent A (engineer, working on code)
         ├── Agent B (analyst, reviewing data)
         └── Agent C (coordinator, delegating tasks)

@@ -63,9 +63,9 @@ The Go gateway is the source of truth. The web app is a REST client only.
 ## Runtime Model
 
 Agency is microVM-first. Firecracker is the Linux production target and
-`apple-vf-microvm` is the strategic macOS local-development target. Docker,
-Podman, containerd, and `apple-container` are transitional compatibility
-paths, not strategic runtime architectures.
+`apple-vf-microvm` is the supported macOS local-development target. Docker,
+Podman, containerd, and `apple-container` execution backends are legacy adapter
+history, not supported runtime architectures.
 
 - Per agent: workload microVM + external per-agent enforcer boundary
 - Shared core infra: host services for `egress`, `comms`, `knowledge`, `web`
@@ -113,10 +113,10 @@ requirements. Treat runtime health and backend hygiene as distinct concerns:
 - runtime health: runtime manifest, runtime status, runtime validate, fail-closed startup/restart behavior
 - backend hygiene: backend-specific host checks, such as KVM/vsock for Firecracker or entitlements/helper health for Apple VF
 
-`apple-container` is an experimental compatibility adapter, not the strategic
-macOS backend. Keep it out of default backend selection, required CI, branch
-protection, and release-blocking checks. `apple-vf-microvm` is the supported
-macOS microVM backend and the default macOS local-development runtime.
+`apple-container` is legacy adapter history, not the strategic macOS backend.
+Keep it out of default backend selection, required CI, branch protection, and
+release-blocking checks. `apple-vf-microvm` is the supported macOS microVM
+backend and the default macOS local-development runtime.
 
 ## Feature Gating
 
@@ -161,10 +161,8 @@ bash ./scripts/readiness/runtime-contract-smoke.sh --agent <agent>
 ./scripts/e2e/e2e-live-disposable.sh --skip-build
 ```
 
-For Apple Container compatibility changes, additionally run
-`./scripts/readiness/apple-container-smoke.sh` manually on macOS Apple silicon
-when the local Apple `container` service is available. Do not add that smoke to
-required CI.
+Legacy Apple Container compatibility checks are archived for historical adapter
+validation only. Do not add them to required CI.
 
 For `apple-vf-microvm` changes, validate manually on macOS Apple silicon once
 the helper path exists. Do not add Apple Virtualization.framework live smokes

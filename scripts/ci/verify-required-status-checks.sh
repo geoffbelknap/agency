@@ -9,9 +9,6 @@ expected_checks=(
   "python-unit-test"
   "python-knowledge-test"
   "web-test"
-  "docker-smoke"
-  "podman-smoke"
-  "containerd-smoke"
 )
 
 actual_checks="$(gh api "repos/${repo}/branches/${branch}/protection/required_status_checks" --jq '.checks[].context' | sort)"

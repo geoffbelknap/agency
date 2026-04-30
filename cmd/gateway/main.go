@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -35,7 +34,6 @@ import (
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/daemon"
 	"github.com/geoffbelknap/agency/internal/events"
-	"github.com/geoffbelknap/agency/internal/hostadapter/containerops"
 	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	agencylog "github.com/geoffbelknap/agency/internal/logging"
@@ -399,10 +397,7 @@ func serveCmd() *cobra.Command {
 
 	// Default to 127.0.0.1 for security (ASK Tenet 4: least privilege).
 	//
-	// Cross-platform container access (Linux Docker CE, macOS/Windows Docker Desktop)
-	// does not require binding the gateway to 0.0.0.0. Containers reach the gateway
-	// through the gateway-proxy service on the Docker mediation network (gateway:8200),
-	// while host-side clients continue to use localhost.
+	// Host-side clients and local microVM services continue to use localhost.
 	cmd.Flags().StringVar(&httpAddr, "http", "127.0.0.1:8200", "HTTP API listen address")
 
 	return cmd
@@ -410,18 +405,15 @@ func serveCmd() *cobra.Command {
 
 func setupCmd() *cobra.Command {
 	var (
-		name                string
-		preset              string
-		provider            string
-		apiKey              string
-		notifyURL           string
-		backend             string
-		configurePool       bool
-		experimentalBackend bool
-		noInfra             bool
-		noBrowser           bool
-		noDockerStart       bool //nolint:unused // retained for backward-compat flag --no-docker-start
-		cliMode             bool
+		name      string
+		preset    string
+		provider  string
+		apiKey    string
+		notifyURL string
+		backend   string
+		noInfra   bool
+		noBrowser bool
+		cliMode   bool
 	)
 
 	cmd := &cobra.Command{
@@ -429,14 +421,13 @@ func setupCmd() *cobra.Command {
 		Short: "Set up the Agency platform (config, daemon, infrastructure)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Select the runtime backend before anything writes config or starts
-			// a daemon. Strategic backends are selected automatically by host OS;
-			// transitional container backends require explicit opt-in.
+			// a daemon. MicroVM backends are selected automatically by host OS.
 			var (
 				backendName string
 				backendCfg  map[string]string
 			)
 			if !noInfra {
-				b, cfg, err := selectRuntimeBackend(backend, experimentalBackend)
+				b, cfg, err := selectRuntimeBackend(backend)
 				if err != nil {
 					return err
 				}
@@ -446,7 +437,7 @@ func setupCmd() *cobra.Command {
 			if cliMode {
 				// Quick setup: if --name or --preset flags are set, skip prompts
 				if name != "" || preset != "" {
-					return runSetup(provider, apiKey, notifyURL, backendName, backendCfg, noInfra, true, noBrowser, configurePool)
+					return runSetup(provider, apiKey, notifyURL, backendName, backendCfg, noInfra, true, noBrowser)
 				}
 
 				// Interactive: prompt for provider/key if not set via flags
@@ -501,12 +492,12 @@ func setupCmd() *cobra.Command {
 					}
 				}
 
-				return runSetup(provider, apiKey, notifyURL, backendName, backendCfg, noInfra, true, noBrowser, configurePool)
+				return runSetup(provider, apiKey, notifyURL, backendName, backendCfg, noInfra, true, noBrowser)
 			}
 
 			// Default: web-assisted setup — no prompts.
 			// Pass through --provider/--api-key if given (supports non-interactive use).
-			return runSetup(provider, apiKey, notifyURL, backendName, backendCfg, noInfra, false, noBrowser, configurePool)
+			return runSetup(provider, apiKey, notifyURL, backendName, backendCfg, noInfra, false, noBrowser)
 		},
 	}
 
@@ -515,12 +506,9 @@ func setupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", "", "LLM provider adapter name")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "LLM provider API key")
 	cmd.Flags().StringVar(&notifyURL, "notify-url", "", "Notification URL (ntfy or webhook) for operator alerts")
-	cmd.Flags().StringVar(&backend, "backend", "", "Runtime backend to use; defaults to firecracker on Linux/WSL and apple-vf-microvm on macOS. Also respected via AGENCY_RUNTIME_BACKEND. Docker, Podman, containerd, and apple-container require --experimental-backend.")
-	cmd.Flags().BoolVar(&experimentalBackend, "experimental-backend", false, "Allow transitional container runtime backends")
-	cmd.Flags().BoolVar(&configurePool, "configure-network-pool", false, "Configure Docker default-address-pools before infrastructure startup (docker backend only)")
+	cmd.Flags().StringVar(&backend, "backend", "", "MicroVM runtime backend to use; defaults to firecracker on Linux/WSL and apple-vf-microvm on macOS. Also respected via AGENCY_RUNTIME_BACKEND.")
 	cmd.Flags().BoolVar(&noInfra, "no-infra", false, "Skip runtime backend checks and infrastructure startup")
 	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Don't open the web UI in a browser (also respected via AGENCY_NO_BROWSER=1)")
-	cmd.Flags().BoolVar(&noDockerStart, "no-docker-start", false, "Don't try to start Docker Desktop automatically (docker backend only; also respected via AGENCY_NO_DOCKER_START=1)")
 	cmd.Flags().BoolVar(&cliMode, "cli", false, "Run full interactive setup in the terminal")
 
 	return cmd
@@ -656,23 +644,6 @@ func localWebURLForHost(host string) string {
 	return fmt.Sprintf("http://%s:8280", host)
 }
 
-func dockerAutoStartDisabled() bool {
-	return os.Getenv("AGENCY_NO_DOCKER_START") != ""
-}
-
-func tryStartDockerDesktop(wsl bool) bool {
-	switch {
-	case runtime.GOOS == "darwin":
-		return exec.Command("open", "-a", "Docker").Start() == nil
-	case runtime.GOOS == "windows":
-		return exec.Command("cmd", "/c", "start", "", "Docker Desktop").Start() == nil
-	case wsl:
-		return exec.Command("cmd.exe", "/c", "start", "", "Docker Desktop").Start() == nil
-	default:
-		return false
-	}
-}
-
 func defaultRuntimeBackendForHost() string {
 	switch runtime.GOOS {
 	case "darwin":
@@ -695,17 +666,14 @@ func normalizeRuntimeBackendName(name string) string {
 	return runtimehost.NormalizeContainerBackend(name)
 }
 
-func selectRuntimeBackend(override string, allowExperimental bool) (string, map[string]string, error) {
+func selectRuntimeBackend(override string) (string, map[string]string, error) {
 	override = strings.TrimSpace(strings.ToLower(override))
 	if override == "" {
 		override = strings.TrimSpace(strings.ToLower(os.Getenv("AGENCY_RUNTIME_BACKEND")))
 	}
-	if override == "" {
-		override = strings.TrimSpace(strings.ToLower(os.Getenv("AGENCY_CONTAINER_BACKEND")))
-	}
 	// Honor an existing choice persisted in config.yaml so re-running setup
-	// without a flag doesn't silently flip the backend when multiple are
-	// installed. Flag and env still win over the persisted value.
+	// without a flag doesn't silently flip between supported microVM backends.
+	// Flag and env still win over the persisted value.
 	var configuredCfg map[string]string
 	if override == "" {
 		cfg := config.Load()
@@ -724,114 +692,7 @@ func selectRuntimeBackend(override string, allowExperimental bool) (string, map[
 		fmt.Fprintf(os.Stderr, "Using %s runtime backend.\n", override)
 		return override, withAppleVFArtifactConfig(override, mergeBackendSocketConfig(configuredCfg, nil)), nil
 	}
-	if !allowExperimental {
-		return "", nil, fmt.Errorf("runtime backend %q is transitional; re-run with --experimental-backend to use it", override)
-	}
-	return selectContainerBackend(override, configuredCfg)
-}
-
-func selectContainerBackend(override string, configuredCfg map[string]string) (string, map[string]string, error) {
-	if override != "" {
-		var match *runtimehost.BackendProbe
-		for _, p := range runtimehost.KnownBackends() {
-			if p.Name == override {
-				pp := p
-				match = &pp
-				break
-			}
-		}
-		if match == nil {
-			return "", nil, fmt.Errorf("unknown runtime backend %q", override)
-		}
-		d := runtimehost.ProbeBackend(*match)
-		if !d.Reachable {
-			fmt.Fprintf(os.Stderr, "Requested backend %q is not reachable: %v\n", override, d.Err)
-			fmt.Fprintln(os.Stderr, "")
-			if !d.CLIFound {
-				fmt.Fprintln(os.Stderr, runtimehost.InstallHint())
-				fmt.Fprintln(os.Stderr, "")
-			}
-			fmt.Fprintln(os.Stderr, "Then re-run: agency setup")
-			return "", nil, fmt.Errorf("container backend %q not available", override)
-		}
-		fmt.Fprintf(os.Stderr, "Using %s backend (%s).\n", d.Name(), backendModeDescription(d))
-		return d.Name(), withAppleContainerHelperConfig(d.Name(), mergeBackendSocketConfig(configuredCfg, d.Config)), nil
-	}
-
-	detections := runtimehost.ProbeAllBackends()
-	reachable := runtimehost.SelectReachable(detections)
-
-	switch len(reachable) {
-	case 0:
-		// No backend present. Offer an install when we have a TTY and the
-		// user hasn't opted out of interactive prompts. If that produces a
-		// working backend, use it directly. Otherwise print the hint and
-		// exit so the caller can re-run after a manual install.
-		if interactiveInstallEnabled() {
-			if d := offerBackendInstall(); d != nil {
-				fmt.Fprintf(os.Stderr, "Using %s backend (%s).\n", d.Name(), backendModeDescription(*d))
-				return d.Name(), withAppleContainerHelperConfig(d.Name(), d.Config), nil
-			}
-		} else {
-			fmt.Fprintln(os.Stderr, "No container backend detected on this host.")
-			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, runtimehost.InstallHint())
-			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, "Then re-run: agency setup")
-		}
-		return "", nil, fmt.Errorf("no container backend available")
-	case 1:
-		d := reachable[0]
-		fmt.Fprintf(os.Stderr, "Using %s backend (%s).\n", d.Name(), backendModeDescription(d))
-		return d.Name(), withAppleContainerHelperConfig(d.Name(), d.Config), nil
-	default:
-		// With a TTY available, ask the user to pick. Default is podman
-		// (first in reachable — preference order comes from KnownBackends).
-		// Non-interactive callers get the default silently so MCP servers
-		// and scripted installs remain deterministic.
-		if interactiveInstallEnabled() {
-			if pick := promptPickBackend(reachable); pick != nil {
-				fmt.Fprintf(os.Stderr, "Using %s backend (%s).\n", pick.Name(), backendModeDescription(*pick))
-				return pick.Name(), pick.Config, nil
-			}
-		}
-		chosen := reachable[0]
-		others := make([]string, 0, len(reachable)-1)
-		for _, d := range reachable[1:] {
-			others = append(others, d.Name())
-		}
-		fmt.Fprintf(os.Stderr,
-			"Multiple container backends detected: %s, %s.\n",
-			chosen.Name(), strings.Join(others, ", "),
-		)
-		fmt.Fprintf(os.Stderr,
-			"Using %s (%s). To pick a different one, re-run with --backend %s --experimental-backend.\n",
-			chosen.Name(), backendModeDescription(chosen), others[0],
-		)
-		return chosen.Name(), withAppleContainerHelperConfig(chosen.Name(), chosen.Config), nil
-	}
-}
-
-func withAppleContainerHelperConfig(backend string, cfg map[string]string) map[string]string {
-	if runtimehost.NormalizeContainerBackend(backend) != runtimehost.BackendAppleContainer {
-		return cfg
-	}
-	helper := strings.TrimSpace(os.Getenv("AGENCY_APPLE_CONTAINER_HELPER_BIN"))
-	waitHelper := strings.TrimSpace(os.Getenv("AGENCY_APPLE_CONTAINER_WAIT_HELPER_BIN"))
-	if helper == "" && waitHelper == "" {
-		return cfg
-	}
-	out := make(map[string]string, len(cfg)+2)
-	for k, v := range cfg {
-		out[k] = v
-	}
-	if helper != "" {
-		out["helper_binary"] = helper
-	}
-	if waitHelper != "" {
-		out["wait_helper_binary"] = waitHelper
-	}
-	return out
+	return "", nil, fmt.Errorf("runtime backend %q is not supported; Agency supports firecracker on Linux/WSL and apple-vf-microvm on macOS", override)
 }
 
 func withAppleVFArtifactConfig(backend string, cfg map[string]string) map[string]string {
@@ -871,16 +732,6 @@ func routeBackendHealth(status *runtimehost.Status) backendhealth.Recorder {
 		return nil
 	}
 	return status
-}
-
-// backendModeDescription returns a short human-readable descriptor for the
-// detection — "rootless"/"rootful" for podman/containerd, or "available"
-// as a fallback when no mode is exposed by the backend.
-func backendModeDescription(d runtimehost.BackendDetection) string {
-	if d.Mode != "" {
-		return d.Mode
-	}
-	return "available"
 }
 
 // mergeBackendSocketConfig preserves any socket keys from an existing config
@@ -932,18 +783,9 @@ func persistPendingKeysToEnv(agencyHome string, keys []config.KeyEntry) error {
 	return envfile.Upsert(filepath.Join(agencyHome, ".env"), entries)
 }
 
-func runSetup(provider, apiKey, notifyURL, backend string, backendCfg map[string]string, noInfra, cliMode, noBrowser, configurePool bool) error {
+func runSetup(provider, apiKey, notifyURL, backend string, backendCfg map[string]string, noInfra, cliMode, noBrowser bool) error {
 	provider = normalizeProvider(provider)
 	gatewayAddr := ""
-	if runtimehost.NormalizeContainerBackend(backend) == runtimehost.BackendAppleContainer {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		addr, err := appleContainerGatewayListenAddr(ctx, backendCfg)
-		if err != nil {
-			return fmt.Errorf("prepare apple-container gateway address: %w", err)
-		}
-		gatewayAddr = addr
-	}
 	pendingKeys, err := config.RunInit(config.InitOptions{
 		Provider:                provider,
 		APIKey:                  apiKey,
@@ -1067,30 +909,6 @@ func runSetup(provider, apiKey, notifyURL, backend string, backendCfg map[string
 		fmt.Fprintf(os.Stderr, "Warning: could not profile host: %v\n", capErr)
 	}
 
-	if capErr == nil {
-		// The network pool tuning reads /etc/docker/daemon.json and is
-		// meaningful only for the docker engine. Podman and containerd
-		// manage their own network pools through different mechanisms,
-		// so skip the reconcile and its accompanying stdout lines on
-		// non-docker backends.
-		if runtimehost.NormalizeContainerBackend(backend) == runtimehost.BackendDocker {
-			fmt.Println()
-			poolConfigured, poolPath, err := reconcileDockerNetworkPool(configurePool)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: could not inspect Docker network pool: %v\n", err)
-			} else {
-				capCfg.NetworkPoolConfigured = poolConfigured
-				if poolConfigured {
-					fmt.Printf("Docker network pool configured (%s)\n", poolPath)
-				} else if poolPath != "" {
-					fmt.Printf("Docker network pool uses defaults (%s)\n", poolPath)
-				}
-			}
-		} else if configurePool {
-			fmt.Fprintf(os.Stderr, "Warning: --configure-network-pool is docker-specific; ignored on %s backend.\n", backend)
-		}
-	}
-
 	// Start infrastructure unless --no-infra was passed
 	if !noInfra {
 		fmt.Println()
@@ -1159,41 +977,6 @@ func runSetup(provider, apiKey, notifyURL, backend string, backendCfg map[string
 	return nil
 }
 
-func appleContainerGatewayListenAddr(ctx context.Context, backendCfg map[string]string) (string, error) {
-	cli, err := runtimehost.NewRawClientForBackend(runtimehost.BackendAppleContainer, backendCfg)
-	if err != nil {
-		return "", err
-	}
-	netName := runtimehost.GatewayNetName()
-	inspect, err := cli.NetworkInspect(ctx, netName, containerops.InspectOptions{})
-	if err != nil {
-		if !containerops.IsNetworkNotFound(err) {
-			return "", fmt.Errorf("inspect %s: %w", netName, err)
-		}
-		labels := map[string]string{
-			"agency.role":      "infra",
-			"agency.component": netName,
-			"agency.instance":  runtimehost.InfraInstanceName(),
-		}
-		if createErr := containerops.CreateMediationNetwork(ctx, cli, netName, labels); createErr != nil && !containerops.IsNetworkAlreadyExists(createErr) {
-			return "", fmt.Errorf("create %s: %w", netName, createErr)
-		}
-		inspect, err = cli.NetworkInspect(ctx, netName, containerops.InspectOptions{})
-		if err != nil {
-			return "", fmt.Errorf("verify %s: %w", netName, err)
-		}
-	}
-	for _, cfg := range inspect.IPAM.Config {
-		if gateway := strings.TrimSpace(cfg.Gateway); gateway != "" {
-			// Apple containers reach the host through the inspected gateway IP,
-			// but the host daemon must bind an address present on the host.
-			// Infra advertises the gateway IP separately via host aliases.
-			return "0.0.0.0:8200", nil
-		}
-	}
-	return "", fmt.Errorf("network %s has no gateway address", netName)
-}
-
 func runServe(httpAddr string) error {
 	cfg := config.Load()
 	if buildID == "" || buildID == "unknown" {
@@ -1213,8 +996,6 @@ func runServe(httpAddr string) error {
 	}
 	logger.Info("agency home", "path", cfg.Home)
 	backendName := normalizeRuntimeBackendName(cfg.Hub.DeploymentBackend)
-	backendEndpoint := runtimehost.ResolvedBackendEndpoint(backendName, cfg.Hub.DeploymentBackendConfig)
-	backendMode := runtimehost.ResolvedBackendMode(backendName, cfg.Hub.DeploymentBackendConfig)
 	if err := validateConfiguredBackend(cfg); err != nil {
 		return err
 	}
@@ -1234,57 +1015,10 @@ func runServe(httpAddr string) error {
 		}
 	}
 
-	// Runtime container backend client. When a container runtime backend is
-	// configured, an unreachable client is fatal downstream in api.Startup.
 	var dc *runtimehost.Client
-	if runtimehost.IsContainerBackend(backendName) {
-		dc = runtimehost.TryNewClientForBackend(backendName, cfg.Hub.DeploymentBackendConfig, logger)
-	}
-	infraBackendName := ""
-	infraBackendConfig := cfg.Hub.DeploymentBackendConfig
 	var infraDC *runtimehost.Client
-	if runtimehost.IsContainerBackend(backendName) {
-		infraBackendName = backendName
-		infraDC = dc
-	}
-	if dc != nil {
-		if backendMode != "" {
-			logger.Info("container backend connected", "backend", backendName, "endpoint", backendEndpoint, "mode", backendMode)
-		} else {
-			logger.Info("container backend connected", "backend", backendName, "endpoint", backendEndpoint)
-		}
-	} else if runtimehost.IsContainerBackend(backendName) {
-		if backendMode != "" {
-			logger.Warn("container backend unavailable", "backend", backendName, "endpoint", backendEndpoint, "mode", backendMode)
-		} else {
-			logger.Warn("container backend unavailable", "backend", backendName, "endpoint", backendEndpoint)
-		}
-	} else {
-		logger.Info("gateway starting without a container backend client", "backend", backendName)
-	}
-	if infraDC != nil && infraDC != dc {
-		infraEndpoint := runtimehost.ResolvedBackendEndpoint(infraBackendName, infraBackendConfig)
-		infraMode := runtimehost.ResolvedBackendMode(infraBackendName, infraBackendConfig)
-		if infraMode != "" {
-			logger.Info("infra container backend connected", "backend", infraBackendName, "endpoint", infraEndpoint, "mode", infraMode)
-		} else {
-			logger.Info("infra container backend connected", "backend", infraBackendName, "endpoint", infraEndpoint)
-		}
-	}
+	logger.Info("gateway starting with microVM runtime backend", "backend", backendName)
 	var backendHealthStatus *runtimehost.Status
-	if infraDC != nil {
-		backendHealthStatus = runtimehost.NewStatus(infraDC)
-	}
-
-	// Startup reconciliation — clean up orphaned containers/networks from
-	// previous gateway runs. Runs before the HTTP server starts; errors are
-	// logged but never fatal (reconcile is best-effort).
-	if dc != nil {
-		knownAgents := listAgentNames(cfg.Home)
-		reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		orchestrate.Reconcile(reconcileCtx, dc.RawClient(), knownAgents, logger)
-		reconcileCancel()
-	}
 
 	// WebSocket hub
 	wsHub := ws.NewHub(logger)
@@ -1543,38 +1277,6 @@ func runServe(httpAddr string) error {
 	routeOpts.BackendHealth = routeBackendHealth(backendHealthStatus)
 	api.RegisterAll(r, cfg, dc, logger, startup, routeOpts)
 
-	// Wire auto-restore: when the container backend reconnects, automatically bring up infra.
-	if cfg.AutoRestoreInfra && infraBackendName != "" && backendHealthStatus != nil {
-		backendHealthStatus.OnReconnect = func() {
-			logger.Info("container backend reconnected — auto-restoring infrastructure", "backend", infraBackendName)
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-				defer cancel()
-				newDC := runtimehost.TryNewClientForBackend(infraBackendName, infraBackendConfig, logger)
-				if newDC == nil {
-					logger.Warn("auto-restore: container backend reconnect detected but client creation failed", "backend", infraBackendName)
-					return
-				}
-				infra, err := orchestrate.NewInfra(cfg.Home, cfg.Version, newDC, logger, cfg.HMACKey)
-				if err != nil {
-					logger.Warn("auto-restore: failed to create infra manager", "err", err)
-					return
-				}
-				infra.SourceDir = cfg.SourceDir
-				infra.BuildID = cfg.BuildID
-				infra.GatewayAddr = cfg.GatewayAddr
-				infra.GatewayToken = cfg.Token
-				infra.EgressToken = cfg.EgressToken
-				infra.RuntimeBackendName = backendName
-				if err := infra.EnsureRunning(ctx); err != nil {
-					logger.Warn("auto-restore: infra up failed", "err", err)
-				} else {
-					logger.Info("auto-restore: infrastructure restored")
-				}
-			}()
-		}
-	}
-
 	httpServer := &http.Server{
 		Addr:         httpAddr,
 		Handler:      r,
@@ -1691,9 +1393,7 @@ func runServe(httpAddr string) error {
 func validateConfiguredBackend(cfg *config.Config) error {
 	backendName := normalizeRuntimeBackendName(cfg.Hub.DeploymentBackend)
 	if runtimehost.IsContainerBackend(backendName) {
-		if err := runtimehost.ValidateBackendConfig(backendName, cfg.Hub.DeploymentBackendConfig); err != nil {
-			return fmt.Errorf("backend config: %w", err)
-		}
+		return fmt.Errorf("runtime backend %q is legacy container execution and is no longer supported; use firecracker on Linux/WSL or apple-vf-microvm on macOS", backendName)
 	}
 	return nil
 }
@@ -1727,205 +1427,8 @@ func deriveLocalBuildID(paths ...string) string {
 	return ""
 }
 
-// listAgentNames returns the names of all agent directories under ~/.agency/agents/.
-// Used by startup reconciliation to identify which agents are still configured.
-func listAgentNames(home string) []string {
-	agentsDir := filepath.Join(home, "agents")
-	entries, err := os.ReadDir(agentsDir)
-	if err != nil {
-		return nil
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if e.IsDir() {
-			names = append(names, e.Name())
-		}
-	}
-	return names
-}
-
 // readPassword reads a line from stdin with echo disabled (masked input).
 func readPassword() ([]byte, error) {
 	fd := int(syscall.Stdin)
 	return term.ReadPassword(fd)
-}
-
-func dockerDaemonConfigPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	switch runtime.GOOS {
-	case "darwin", "windows":
-		return filepath.Join(home, ".docker", "daemon.json"), nil
-	case "linux":
-		if isWSL() {
-			return "", fmt.Errorf("Docker Desktop on WSL must be configured from Windows Docker Desktop settings")
-		}
-		return "/etc/docker/daemon.json", nil
-	default:
-		return "", fmt.Errorf("unsupported platform: %s", runtime.GOOS)
-	}
-}
-
-func dockerPoolConfigured(path string) (bool, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	var cfg map[string]interface{}
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return false, fmt.Errorf("parse %s: %w", path, err)
-	}
-	rawPools, ok := cfg["default-address-pools"]
-	if !ok {
-		return false, nil
-	}
-	pools, ok := rawPools.([]interface{})
-	if !ok {
-		return false, nil
-	}
-	for _, raw := range pools {
-		pool, ok := raw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if size, ok := jsonNumberToInt(pool["size"]); ok && size >= 24 {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-func jsonNumberToInt(v interface{}) (int, bool) {
-	switch n := v.(type) {
-	case float64:
-		return int(n), true
-	case int:
-		return n, true
-	case int64:
-		return int(n), true
-	case json.Number:
-		i, err := n.Int64()
-		return int(i), err == nil
-	case string:
-		i, err := strconv.Atoi(strings.TrimSpace(n))
-		return i, err == nil
-	default:
-		return 0, false
-	}
-}
-
-func writeDaemonConfig(path string, content []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err == nil {
-		if err := os.WriteFile(path, content, 0644); err == nil {
-			return nil
-		}
-	}
-
-	tmp, err := os.CreateTemp("", "agency-daemon-*.json")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	if _, err := tmp.Write(content); err != nil {
-		tmp.Close()
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	defer os.Remove(tmpPath)
-
-	dir := filepath.Dir(path)
-	if out, err := exec.Command("sudo", "mkdir", "-p", dir).CombinedOutput(); err != nil {
-		return fmt.Errorf("sudo mkdir %s: %w: %s", dir, err, strings.TrimSpace(string(out)))
-	}
-	if out, err := exec.Command("sudo", "install", "-m", "0644", tmpPath, path).CombinedOutput(); err != nil {
-		return fmt.Errorf("sudo install %s: %w: %s", path, err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-func configureDockerPool(path string) error {
-	var existing map[string]interface{}
-
-	data, err := os.ReadFile(path)
-	if err == nil {
-		if err := json.Unmarshal(data, &existing); err != nil {
-			return fmt.Errorf("cannot parse existing %s: %w", path, err)
-		}
-	} else if os.IsNotExist(err) {
-		existing = make(map[string]interface{})
-	} else {
-		return fmt.Errorf("cannot read existing %s: %w", path, err)
-	}
-
-	existing["default-address-pools"] = []map[string]interface{}{
-		{"base": "172.16.0.0/12", "size": 24},
-	}
-
-	out, err := json.MarshalIndent(existing, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return writeDaemonConfig(path, append(out, '\n'))
-}
-
-func restartDockerForNetworkPool() error {
-	switch runtime.GOOS {
-	case "darwin":
-		_ = exec.Command("osascript", "-e", `quit app "Docker"`).Run()
-		time.Sleep(2 * time.Second)
-		if !tryStartDockerDesktop(false) {
-			return fmt.Errorf("could not restart Docker Desktop automatically")
-		}
-		deadline := time.Now().Add(60 * time.Second)
-		for time.Now().Before(deadline) {
-			time.Sleep(2 * time.Second)
-			retry := exec.Command("docker", "info")
-			retry.Stdout = nil
-			retry.Stderr = nil
-			if retry.Run() == nil {
-				return nil
-			}
-		}
-		return fmt.Errorf("Docker Desktop did not become ready after restart")
-	case "linux":
-		if out, err := exec.Command("sudo", "systemctl", "restart", "docker").CombinedOutput(); err != nil {
-			return fmt.Errorf("restart docker: %w: %s", err, strings.TrimSpace(string(out)))
-		}
-		return nil
-	default:
-		return nil
-	}
-}
-
-func reconcileDockerNetworkPool(configure bool) (bool, string, error) {
-	path, err := dockerDaemonConfigPath()
-	if err != nil {
-		return false, "", err
-	}
-	configured, err := dockerPoolConfigured(path)
-	if err != nil {
-		return false, path, err
-	}
-	if configured || !configure {
-		return configured, path, nil
-	}
-
-	fmt.Println("Configuring Docker network pool for /24 subnets...")
-	if err := configureDockerPool(path); err != nil {
-		return false, path, err
-	}
-	if err := restartDockerForNetworkPool(); err != nil {
-		return false, path, err
-	}
-	return true, path, nil
 }

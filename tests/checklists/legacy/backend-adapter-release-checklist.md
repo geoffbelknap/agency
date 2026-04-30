@@ -1,8 +1,8 @@
 # Backend Adapter Release Checklist
 
-Use this runbook before declaring a new runtime/host adapter ready for regular
-use. It is the repeatable release-style gate for Docker, Podman, and future
-backend-neutral runtime adapters.
+Legacy record. This checklist was used for Docker, Podman, containerd, and
+Apple Container adapter validation before Agency moved to microVM-only runtime
+support. Do not use it as a primary release gate.
 
 ## Trigger
 

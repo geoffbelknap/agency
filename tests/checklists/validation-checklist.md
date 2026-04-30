@@ -40,11 +40,11 @@ Expected: all packages pass. Covers: route wiring, auth enforcement, config auto
 make verify-required-status-checks
 ```
 
-Expected: the required checks on `main` still include `go-test`,
-`python-unit-test`, `python-knowledge-test`, `web-test`, `docker-smoke`,
-`podman-smoke`, and `containerd-smoke`.
+Expected: the required checks on `main` include core Go, Python, web, and
+microVM release gates. Legacy container backend smokes must not be primary
+release blockers.
 
-### E2E test (Docker required)
+### E2E test
 
 ```bash
 go build -o agency ./cmd/gateway/
@@ -147,21 +147,6 @@ After running the lifecycle checks above, verify no errors occurred:
 - [ ] No errors: `tail -100 ~/.agency/gateway.log | grep -c ERRO` returns 0
 - [ ] No panics: `tail -100 ~/.agency/gateway.log | grep -c panic` returns 0
 - [ ] No container crashes: `tail -100 ~/.agency/gateway.log | grep "container died"` returns nothing
-
-**Infra container logs:**
-- [ ] No errors in knowledge: `<backend-cli> logs --since 1h agency-infra-knowledge 2>&1 | grep -ciE "^ERROR:|Traceback"` returns 0
-- [ ] No errors in egress: `<backend-cli> logs --since 1h agency-infra-egress 2>&1 | grep -ciE "^ERROR:|Traceback"` returns 0
-- [ ] No errors in comms: `<backend-cli> logs --since 1h agency-infra-comms 2>&1 | grep -ciE "^ERROR:|Traceback"` returns 0
-- [ ] No errors in intake: `<backend-cli> logs --since 1h agency-infra-intake 2>&1 | grep -ciE "^ERROR:|Traceback"` returns 0
-
-Use `docker` or `podman` for `<backend-cli>` based on the selected container backend.
-
-**Container backend state:**
-- [ ] No exited infra containers: `<backend-cli> ps -a --filter "label=agency.managed=true" --filter "status=exited"` shows only cleanup artifacts
-- [ ] No restarting containers: `<backend-cli> ps -a --filter "label=agency.managed=true" --filter "status=restarting"` is empty
-
-**Docker socket audit:**
-- [ ] If Docker is the selected backend, `agency admin doctor` passes the `docker_socket_audit` check (gateway runs `AuditDockerSocket()` at startup)
 
 **Platform health:**
 - [ ] `agency admin doctor` reports zero failures (no ✗ lines)

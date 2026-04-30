@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/geoffbelknap/agency/internal/features"
 	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
@@ -681,7 +680,7 @@ func TestRuntimeSupervisorProbeBackendRoundTrip(t *testing.T) {
 	}
 }
 
-func TestRuntimeSupervisorCompilePodmanBackend(t *testing.T) {
+func TestRuntimeSupervisorCompileRejectsContainerBackend(t *testing.T) {
 	home := t.TempDir()
 	agentDir := filepath.Join(home, "agents", "alice")
 	if err := os.MkdirAll(filepath.Join(agentDir, "state"), 0o755); err != nil {
@@ -692,12 +691,9 @@ func TestRuntimeSupervisorCompilePodmanBackend(t *testing.T) {
 	}
 
 	rs := NewRuntimeSupervisor(home, "0.1.0", "", "build-1", runtimehost.BackendPodman, nil, nil, nil, nil)
-	spec, err := rs.Compile(context.Background(), "alice")
-	if err != nil {
-		t.Fatalf("Compile returned error: %v", err)
-	}
-	if spec.Backend != runtimehost.BackendPodman {
-		t.Fatalf("backend = %q, want %q", spec.Backend, runtimehost.BackendPodman)
+	_, err := rs.Compile(context.Background(), "alice")
+	if err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("Compile error = %v, want unsupported backend", err)
 	}
 }
 
@@ -802,12 +798,8 @@ func TestRuntimeSupervisorAppleVFBackendSupportsComponentLifecycle(t *testing.T)
 func TestRuntimeSupervisorFirecrackerBackendRegistration(t *testing.T) {
 	t.Setenv("AGENCY_EXPERIMENTAL_SURFACES", "")
 	rs := NewRuntimeSupervisor(t.TempDir(), "0.1.0", "", "build-1", "", nil, nil, nil, nil)
-	if defaultRuntimeBackend() == hostruntimebackend.BackendFirecracker {
-		if _, err := rs.backend(hostruntimebackend.BackendFirecracker); err != nil {
-			t.Fatalf("default firecracker backend should be registered: %v", err)
-		}
-	} else if _, err := rs.backend(hostruntimebackend.BackendFirecracker); err == nil {
-		t.Fatal("firecracker backend should not be registered by default on this host")
+	if _, err := rs.backend(hostruntimebackend.BackendFirecracker); err != nil {
+		t.Fatalf("firecracker backend should be registered as a core microVM backend: %v", err)
 	}
 
 	rs = NewRuntimeSupervisor(t.TempDir(), "0.1.0", "", "build-1", hostruntimebackend.BackendFirecracker, nil, nil, nil, nil)
@@ -819,12 +811,11 @@ func TestRuntimeSupervisorFirecrackerBackendRegistration(t *testing.T) {
 		t.Fatalf("backend name = %q, want %q", backend.Name(), hostruntimebackend.BackendFirecracker)
 	}
 
-	t.Setenv("AGENCY_EXPERIMENTAL_SURFACES", "1")
 	rs = NewRuntimeSupervisor(t.TempDir(), "0.1.0", "", "build-1", hostruntimebackend.BackendFirecracker, nil, nil, nil, nil)
 	rs.BackendConfig = map[string]string{"enforcer_binary_path": "/usr/local/bin/enforcer"}
 	backend, err = rs.backend(hostruntimebackend.BackendFirecracker)
 	if err != nil {
-		t.Fatalf("firecracker backend should be registered when %s is enabled: %v", features.Firecracker, err)
+		t.Fatalf("firecracker backend should be registered when configured: %v", err)
 	}
 	if backend.Name() != hostruntimebackend.BackendFirecracker {
 		t.Fatalf("backend name = %q, want %q", backend.Name(), hostruntimebackend.BackendFirecracker)

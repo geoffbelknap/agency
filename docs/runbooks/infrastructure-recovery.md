@@ -22,11 +22,7 @@ agency admin doctor
 ```
 
 On Linux, Firecracker host checks should confirm KVM and vsock access. On
-macOS Apple silicon, the strategic runtime path is `apple-vf-microvm` once the
-Apple Virtualization backend is complete.
-
-If a transitional container backend was selected intentionally, verify that
-backend directly before retrying recovery.
+macOS Apple silicon, the supported runtime path is `apple-vf-microvm`.
 
 ### 3. Check for port conflicts
 
@@ -108,13 +104,9 @@ agency infra up
 agency admin doctor
 ```
 
-For legacy container backends, the startup sequence recreates the hub-and-spoke
-network topology: `agency-gateway` (internal bridge) as the hub connecting
-gateway-proxy, comms, knowledge, and intake; `agency-egress-int` (internal) for
-services needing egress access; `agency-egress-ext` (external) for egress proxy
-internet access; `agency-operator` (external) for web UI and relay; per-agent
-`agency-<name>-internal` networks for workspace<->enforcer. Internal networks
-enforce `Internal:true` (no external route).
+Legacy container network topology names such as `agency-gateway`,
+`agency-egress-int`, and `agency-egress-ext` may appear in historical logs, but
+they are no longer the supported runtime recovery path.
 
 ### Capacity limit reached
 
@@ -146,5 +138,4 @@ If infrastructure repeatedly fails to start:
 
 1. Check runtime host readiness (`agency admin doctor`)
 2. Check disk space (`df -h ~/.agency/`)
-3. If using a legacy container backend, check backend logs for the affected component
-4. Full reset: `agency admin destroy --yes && agency setup`
+3. Full reset: `agency admin destroy --yes && agency setup`

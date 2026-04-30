@@ -107,7 +107,7 @@ export function AgentStep({
 
   const runtimeBackendError = (message: string) => {
     const normalized = message.toLowerCase();
-    return ['backend', 'docker', 'podman', 'containerd'].some((term) => normalized.includes(term));
+    return ['backend', 'runtime', 'firecracker', 'apple-vf'].some((term) => normalized.includes(term));
   };
 
   const handleShuffle = () => {

@@ -32,7 +32,7 @@ Quick definitions for every term you'll encounter in Agency.
 
 **Deploy** — Create everything defined in a pack (agents, teams, channels) with a single command: `agency deploy pack.yaml`. This is an experimental deployment path, not the default `0.2.x` core workflow.
 
-**Docker** — A transitional container backend kept for migration and adapter validation work. Dockerfiles remain useful as OCI image build recipes, but Docker is not the strategic agent isolation model.
+**Docker** — A legacy container execution backend. Dockerfiles remain useful as OCI image build recipes, but Docker is not a supported Agency runtime backend.
 
 **Egress proxy** — The only component that holds real API keys. Sits between agents and the internet, swapping scoped tokens for real credentials. Agents never see actual keys.
 

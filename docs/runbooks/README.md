@@ -12,14 +12,9 @@ Status note:
 
 Use these as the default validation sequence after a change:
 
-- New runtime or host adapter:
-  [Backend Adapter Release Checklist](../../tests/checklists/backend-adapter-release-checklist.md)
-  -> [Runtime Smoke](../../tests/checklists/runtime-smoke.md)
+- New microVM runtime or host adapter:
+  [Runtime Smoke](../../tests/checklists/runtime-smoke.md)
   -> [Validation Checklist](../../tests/checklists/validation-checklist.md)
-  Docker shortcut: `make docker-readiness` for CI smoke
-  Podman shortcut: `make podman-readiness` for CI smoke, `make podman-readiness-full` for release validation, or manual GitHub dispatch of `Podman Readiness` with `full_e2e=true`
-  Containerd shortcut: `make containerd-readiness` for Linux rootless CI smoke, `make containerd-readiness-rootful` for the manual Linux rootful release gate
-  PR policy: `docker-smoke`, `podman-smoke`, and `containerd-smoke` run on PRs that touch backend-relevant paths and should remain required checks on `main`
 - Runtime, lifecycle, transport, or manifest changes:
   [Runtime Smoke](../../tests/checklists/runtime-smoke.md) -> [Validation Checklist](../../tests/checklists/validation-checklist.md) -> [Agent Recovery](agent-recovery.md)
 - Web, operator, DM, or comms changes:

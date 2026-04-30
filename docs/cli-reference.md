@@ -163,7 +163,7 @@ agency hub <nameOrID> config             # Show/set instance config
 agency infra up                          # Build + start shared infrastructure
 agency infra down                        # Stop shared infrastructure
 agency infra rebuild                     # Rebuild infrastructure images
-agency infra status                      # Container and image status
+agency infra status                      # Shared infrastructure status
 agency infra reload                      # Hot-reload configurations
 ```
 
