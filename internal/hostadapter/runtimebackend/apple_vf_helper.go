@@ -65,6 +65,26 @@ func AppleVFHelperPrepare(ctx context.Context, helperBinary string, req AppleVFH
 	return appleVFHelperRunJSON(ctx, helperBinary, AppleVFCommandPrepare, req)
 }
 
+func AppleVFHelperStart(ctx context.Context, helperBinary string, req AppleVFHelperRequest) (AppleVFHelperResponse, error) {
+	return appleVFHelperRunJSON(ctx, helperBinary, AppleVFCommandStart, req)
+}
+
+func AppleVFHelperInspect(ctx context.Context, helperBinary string, req AppleVFHelperRequest) (AppleVFHelperResponse, error) {
+	return appleVFHelperRunJSON(ctx, helperBinary, AppleVFCommandInspect, req)
+}
+
+func AppleVFHelperStop(ctx context.Context, helperBinary string, req AppleVFHelperRequest) (AppleVFHelperResponse, error) {
+	return appleVFHelperRunJSON(ctx, helperBinary, AppleVFCommandStop, req)
+}
+
+func AppleVFHelperKill(ctx context.Context, helperBinary string, req AppleVFHelperRequest) (AppleVFHelperResponse, error) {
+	return appleVFHelperRunJSON(ctx, helperBinary, AppleVFCommandKill, req)
+}
+
+func AppleVFHelperDelete(ctx context.Context, helperBinary string, req AppleVFHelperRequest) (AppleVFHelperResponse, error) {
+	return appleVFHelperRunJSON(ctx, helperBinary, AppleVFCommandDelete, req)
+}
+
 func appleVFHelperRunJSON(ctx context.Context, helperBinary string, command AppleVFHelperCommand, req AppleVFHelperRequest) (AppleVFHelperResponse, error) {
 	helperBinary = strings.TrimSpace(helperBinary)
 	if helperBinary == "" {
