@@ -147,7 +147,7 @@ and fail-closed fallback.
 ### Provider Abstraction
 
 ```python
-# images/knowledge/embedding.py
+# services/knowledge/embedding.py
 
 class EmbeddingProvider:
     """Abstract base for embedding providers."""
@@ -504,7 +504,7 @@ communicates_with:
 
 3. **Python `_validate_kind()` aliases** (`images/body/knowledge_tools.py`) — Add aliases: `app` → `software`, `package` → `software`, `library` → `software`, `config` → `config_item`, `setting` → `config_item`, `behavior` → `behavior_pattern`, `pattern` → `behavior_pattern`.
 
-4. **Synthesizer `_validate_kind()`** (`images/knowledge/synthesizer.py`) — Same alias additions for extraction validation.
+4. **Synthesizer `_validate_kind()`** (`services/knowledge/synthesizer.py`) — Same alias additions for extraction validation.
 
 5. **`KNOWLEDGE_EMBED_KINDS` default** (Feature 8) — `Software,ConfigItem,BehaviorPattern` already in the default list. Verify casing matches.
 

@@ -6,8 +6,8 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "knowledge"))
-from ingestion.base import ExtractionResult, BaseExtractor
-from ingestion.extractors.pdf import PdfExtractor
+from services.knowledge.ingestion.base import ExtractionResult, BaseExtractor
+from services.knowledge.ingestion.extractors.pdf import PdfExtractor
 
 
 # ---------------------------------------------------------------------------

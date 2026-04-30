@@ -2,8 +2,8 @@
 
 import json
 
-from images.knowledge.ingester import RuleIngester
-from images.knowledge.store import KnowledgeStore
+from services.knowledge.ingester import RuleIngester
+from services.knowledge.store import KnowledgeStore
 
 
 class TestMessageIngestion:

@@ -15,32 +15,19 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-try:
-    from ingestion.base import BaseExtractor, ExtractionResult
-    from ingestion.classifier import SourceClassifier
-    from ingestion.extractors.config import ConfigExtractor
-    from ingestion.extractors.code import CodeExtractor
-    from ingestion.extractors.html_extractor import HtmlExtractor
-    from ingestion.extractors.markdown import MarkdownExtractor
-    from ingestion.extractors.structured import StructuredExtractor
-    from ingestion.merge_buffer import MergeBuffer
-except ImportError:
-    from knowledge.ingestion.base import BaseExtractor, ExtractionResult
-    from knowledge.ingestion.classifier import SourceClassifier
-    from knowledge.ingestion.extractors.config import ConfigExtractor
-    from knowledge.ingestion.extractors.code import CodeExtractor
-    from knowledge.ingestion.extractors.html_extractor import HtmlExtractor
-    from knowledge.ingestion.extractors.markdown import MarkdownExtractor
-    from knowledge.ingestion.extractors.structured import StructuredExtractor
-    from knowledge.ingestion.merge_buffer import MergeBuffer
+from services.knowledge.ingestion.base import BaseExtractor, ExtractionResult
+from services.knowledge.ingestion.classifier import SourceClassifier
+from services.knowledge.ingestion.extractors.config import ConfigExtractor
+from services.knowledge.ingestion.extractors.code import CodeExtractor
+from services.knowledge.ingestion.extractors.html_extractor import HtmlExtractor
+from services.knowledge.ingestion.extractors.markdown import MarkdownExtractor
+from services.knowledge.ingestion.extractors.structured import StructuredExtractor
+from services.knowledge.ingestion.merge_buffer import MergeBuffer
 
 try:
-    from ingestion.extractors.pdf import PdfExtractor
+    from services.knowledge.ingestion.extractors.pdf import PdfExtractor
 except ImportError:
-    try:
-        from knowledge.ingestion.extractors.pdf import PdfExtractor
-    except ImportError:
-        PdfExtractor = None  # type: ignore[assignment, misc]
+    PdfExtractor = None  # type: ignore[assignment, misc]
 
 logger = logging.getLogger("agency.knowledge.ingestion.pipeline")
 

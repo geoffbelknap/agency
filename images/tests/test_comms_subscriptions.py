@@ -1,7 +1,7 @@
 """Tests for the subscription manager."""
 
 import pytest
-from images.comms.subscriptions import SubscriptionManager
+from services.comms.subscriptions import SubscriptionManager
 from images.models.subscriptions import InterestDeclaration
 
 

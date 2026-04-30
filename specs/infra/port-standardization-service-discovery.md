@@ -158,8 +158,8 @@ With the service map abstracting all port references, changing ports is a config
 
 | Service | Old Port | New Port | Files to Change |
 |---------|----------|----------|----------------|
-| Comms | `18091` | `8080` | `agency/images/comms/comms_server.py`, `infra.go` healthcheck |
-| Knowledge | `18092` | `8080` | `agency/images/knowledge/server.py`, `infra.go` healthcheck |
+| Comms | `18091` | `8080` | `agency/services/comms/comms_server.py`, `infra.go` healthcheck |
+| Knowledge | `18092` | `8080` | `agency/services/knowledge/server.py`, `infra.go` healthcheck |
 | Intake | `18095` | `8080` | `agency/images/intake/intake_server.py`, `infra.go` healthcheck |
 | Enforcer | `18080` | `3128` | `agency/images/enforcer/main.go`, `enforcer.go` healthcheck, Dockerfile EXPOSE |
 | Egress | `3128` | `3128` | (unchanged) |

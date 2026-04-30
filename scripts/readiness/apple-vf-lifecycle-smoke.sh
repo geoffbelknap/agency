@@ -269,7 +269,7 @@ start_comms() {
     python_bin="$(command -v python3)"
   fi
   mkdir -p "$SMOKE_HOME/infrastructure/comms/data/channels" "$SMOKE_HOME/infrastructure/comms/data/cursors"
-  PYTHONPATH="$ROOT" "$python_bin" "$ROOT/images/comms/server.py" \
+  PYTHONPATH="$ROOT" "$python_bin" "$ROOT/services/comms/server.py" \
     --port "$COMMS_PORT" \
     --data-dir "$SMOKE_HOME/infrastructure/comms/data" \
     --agents-dir "$SMOKE_HOME/agents" \

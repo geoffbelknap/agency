@@ -1,7 +1,7 @@
 """Tests for the comms matching engine."""
 
 import pytest
-from images.comms.matcher import Matcher
+from services.comms.matcher import Matcher
 from images.models.subscriptions import InterestDeclaration
 
 

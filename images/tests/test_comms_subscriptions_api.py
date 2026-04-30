@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from images.comms.server import create_app
+from services.comms.server import create_app
 
 pytestmark = pytest.mark.asyncio
 

@@ -16,10 +16,7 @@ from __future__ import annotations
 from html.parser import HTMLParser
 from typing import Optional
 
-try:
-    from ingestion.base import BaseExtractor, ExtractionResult
-except ImportError:
-    from knowledge.ingestion.base import BaseExtractor, ExtractionResult
+from services.knowledge.ingestion.base import BaseExtractor, ExtractionResult
 
 _PROSE_THRESHOLD = 200
 _HEADING_TAGS = frozenset(f"h{i}" for i in range(1, 7))

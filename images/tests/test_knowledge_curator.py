@@ -4,8 +4,8 @@ import asyncio
 
 import pytest
 
-from images.knowledge.store import KnowledgeStore
-from images.knowledge.curator import Curator
+from services.knowledge.store import KnowledgeStore
+from services.knowledge.curator import Curator
 
 
 class TestCurationSchema:
@@ -300,7 +300,7 @@ class TestHardDeleteCleanup:
 class TestCurationLoop:
     @pytest.mark.asyncio
     async def test_curation_loop_runs_one_cycle(self, tmp_path):
-        from images.knowledge.curator import CurationLoop
+        from services.knowledge.curator import CurationLoop
         store = KnowledgeStore(tmp_path)
         curator = Curator(store, mode="active")
         loop = CurationLoop(curator, interval_seconds=0.1)
@@ -318,7 +318,7 @@ class TestCurationLoop:
 
 class TestSourcePriority:
     def test_local_source_type_in_priority(self, tmp_path):
-        from images.knowledge.store import _SOURCE_PRIORITY
+        from services.knowledge.store import _SOURCE_PRIORITY
         assert "local" in _SOURCE_PRIORITY
         assert _SOURCE_PRIORITY["local"] == 1
         assert _SOURCE_PRIORITY["llm"] > _SOURCE_PRIORITY["local"]
@@ -341,8 +341,8 @@ class TestSourcePriority:
 class TestIngestionHooks:
     def test_ingester_calls_post_ingestion_check(self, tmp_path):
         store = KnowledgeStore(tmp_path)
-        from images.knowledge.ingester import RuleIngester
-        from images.knowledge.curator import Curator
+        from services.knowledge.ingester import RuleIngester
+        from services.knowledge.curator import Curator
         ingester = RuleIngester(store)
         curator = Curator(store, mode="active")
         ingester.curator = curator
@@ -354,8 +354,8 @@ class TestIngestionHooks:
 
     def test_synthesizer_calls_post_ingestion_check(self, tmp_path):
         store = KnowledgeStore(tmp_path)
-        from images.knowledge.synthesizer import LLMSynthesizer
-        from images.knowledge.curator import Curator
+        from services.knowledge.synthesizer import LLMSynthesizer
+        from services.knowledge.curator import Curator
         synth = LLMSynthesizer(store)
         curator = Curator(store, mode="active")
         synth.curator = curator

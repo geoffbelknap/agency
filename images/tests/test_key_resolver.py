@@ -1,5 +1,5 @@
 import pytest
-from images.egress.key_resolver import SocketKeyResolver
+from services.egress.key_resolver import SocketKeyResolver
 
 
 class TestSocketKeyResolver:

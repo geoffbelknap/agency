@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "knowledge"))
 
-from images.knowledge.store import KnowledgeStore
+from services.knowledge.store import KnowledgeStore
 
 try:
     import networkx
@@ -187,7 +187,7 @@ class TestGetHubs:
 # ---------------------------------------------------------------------------
 
 if _HAS_NETWORKX:
-    from graph_intelligence import CommunityDetector
+    from services.knowledge.graph_intelligence import CommunityDetector
 
 
 def _build_two_cluster_store(tmp_path):
@@ -299,7 +299,7 @@ class TestCommunityDetector:
 # ---------------------------------------------------------------------------
 
 if _HAS_NETWORKX:
-    from graph_intelligence import HubDetector
+    from services.knowledge.graph_intelligence import HubDetector
 
 
 @pytest.mark.skipif(not _HAS_NETWORKX, reason="networkx not installed")
@@ -419,7 +419,7 @@ class TestHubDetectorEmptyGraph:
 # ---------------------------------------------------------------------------
 
 if _HAS_NETWORKX:
-    from images.knowledge.curator import Curator
+    from services.knowledge.curator import Curator
 
 
 @pytest.mark.skipif(not _HAS_NETWORKX, reason="networkx not installed")

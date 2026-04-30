@@ -11,8 +11,8 @@ Covers:
 
 import pytest
 
-from images.knowledge.server import create_app
-from images.knowledge.store import KnowledgeStore, ORG_STRUCTURAL_KINDS
+from services.knowledge.server import create_app
+from services.knowledge.store import KnowledgeStore, ORG_STRUCTURAL_KINDS
 from .conftest import PlatformClient
 
 

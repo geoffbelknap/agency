@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from images.knowledge.server import publish_knowledge_update
-from images.knowledge.gateway_client import GatewayClient
+from services.knowledge.server import publish_knowledge_update
+from services.knowledge.gateway_client import GatewayClient
 from images.models.comms import Channel, ChannelType
 
 
@@ -32,7 +32,7 @@ class TestGatewayClient:
 
     def test_publishes_event_to_gateway(self):
         """GatewayClient posts to /api/v1/events/publish with correct payload."""
-        with patch("images.knowledge.gateway_client.httpx.Client") as mock_client_cls:
+        with patch("services.knowledge.gateway_client.httpx.Client") as mock_client_cls:
             mock_client = MagicMock()
             mock_resp = MagicMock()
             mock_resp.status_code = 200
@@ -59,7 +59,7 @@ class TestGatewayClient:
 
     def test_sends_auth_header(self):
         """GatewayClient includes Authorization header when token is set."""
-        with patch("images.knowledge.gateway_client.httpx.Client") as mock_client_cls:
+        with patch("services.knowledge.gateway_client.httpx.Client") as mock_client_cls:
             mock_client = MagicMock()
             mock_resp = MagicMock()
             mock_resp.status_code = 200
@@ -75,7 +75,7 @@ class TestGatewayClient:
 
     def test_does_not_raise_on_failure(self):
         """GatewayClient swallows exceptions and logs a warning."""
-        with patch("images.knowledge.gateway_client.httpx.Client") as mock_client_cls:
+        with patch("services.knowledge.gateway_client.httpx.Client") as mock_client_cls:
             mock_client = MagicMock()
             mock_client.post.side_effect = Exception("connection refused")
             mock_client_cls.return_value = mock_client

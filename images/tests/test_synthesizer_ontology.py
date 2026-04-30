@@ -8,8 +8,8 @@ from unittest.mock import patch, MagicMock
 import pytest
 import yaml
 
-from images.knowledge.store import KnowledgeStore
-from images.knowledge.synthesizer import LLMSynthesizer
+from services.knowledge.store import KnowledgeStore
+from services.knowledge.synthesizer import LLMSynthesizer
 
 
 SAMPLE_ONTOLOGY = {

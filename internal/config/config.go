@@ -170,14 +170,14 @@ func detectSourceDir() string {
 		candidates = append(candidates, filepath.Join(home, ".local", "share", "agency"))
 	}
 	for _, candidate := range candidates {
-		if info, err := os.Stat(filepath.Join(candidate, "images")); err == nil && info.IsDir() {
+		if runtimeAssetsAvailable(candidate) {
 			return candidate
 		}
 	}
 
 	// Walk up from the binary looking for a source checkout.
 	for i := 0; i < 6; i++ {
-		if info, err := os.Stat(filepath.Join(dir, "images")); err == nil && info.IsDir() {
+		if runtimeAssetsAvailable(dir) {
 			return dir
 		}
 		parent := filepath.Dir(dir)
@@ -187,6 +187,15 @@ func detectSourceDir() string {
 		dir = parent
 	}
 	return ""
+}
+
+func runtimeAssetsAvailable(dir string) bool {
+	for _, name := range []string{"services", "images"} {
+		if info, err := os.Stat(filepath.Join(dir, name)); err == nil && info.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 // ConfigPath returns the path to config.yaml.

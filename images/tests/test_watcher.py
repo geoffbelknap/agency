@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "knowledge"))
-from ingestion.watcher import FileWatcher, _WATCHDOG_AVAILABLE
+from services.knowledge.ingestion.watcher import FileWatcher, _WATCHDOG_AVAILABLE
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +120,7 @@ class TestPollOnce:
 class TestStartStop:
     def test_start_stop_without_watchdog(self, tmp_path, callback, monkeypatch):
         """start() should not raise even without watchdog."""
-        import ingestion.watcher as wmod
+        import services.knowledge.ingestion.watcher as wmod
 
         monkeypatch.setattr(wmod, "_WATCHDOG_AVAILABLE", False)
         w = FileWatcher(str(tmp_path), callback)

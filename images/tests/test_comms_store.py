@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from images.comms.store import MessageStore
+from services.comms.store import MessageStore
 from images.models.comms import ChannelType, Message
 
 

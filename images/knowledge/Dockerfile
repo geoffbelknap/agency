@@ -5,21 +5,17 @@ ARG SOURCE_HASH=unknown
 WORKDIR /app
 
 # Extra deps not in the shared base
-COPY requirements.txt /app/
+COPY services/knowledge/requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Shared logging infrastructure (auto-configures via sitecustomize.py)
-COPY --from=shared logging_config.py /app/logging_config.py
-COPY --from=shared _sitecustomize.py /app/sitecustomize.py
+COPY images/logging_config.py /app/logging_config.py
+COPY images/_sitecustomize.py /app/sitecustomize.py
 
-COPY *.py /app/
-COPY ingestion /app/ingestion
-RUN mkdir -p /app/images/knowledge \
-    && touch /app/images/__init__.py /app/images/knowledge/__init__.py \
-    && cp /app/*.py /app/images/knowledge/ \
-    && cp -R /app/ingestion /app/images/knowledge/ingestion
+COPY services/knowledge /app/services/knowledge
+RUN touch /app/services/__init__.py
 
 EXPOSE 8080
 LABEL agency.build.id=${BUILD_ID}
 LABEL agency.source.hash=${SOURCE_HASH}
-CMD ["python", "-u", "/app/server.py"]
+CMD ["python", "-u", "-m", "services.knowledge.server"]

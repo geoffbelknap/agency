@@ -57,7 +57,7 @@ alpha core:
   - `internal/hub` is large and operationally complex
   - `internal/events`, `internal/knowledge`, `internal/ws`, `internal/consent`,
     `internal/relayhooks`, and `internal/evaluation` all widen the surface
-  - image code is substantial in `images/knowledge`, `images/intake`,
+  - image code is substantial in `services/knowledge`, `images/intake`,
     `images/web-fetch`, and connector-facing paths
 
 The result is not just implementation risk. It is product dilution. A new user

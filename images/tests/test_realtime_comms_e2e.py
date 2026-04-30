@@ -9,7 +9,7 @@ import asyncio
 
 import pytest
 
-from images.comms.server import create_app
+from services.comms.server import create_app
 from images.models.comms import ChannelType
 
 pytestmark = pytest.mark.asyncio

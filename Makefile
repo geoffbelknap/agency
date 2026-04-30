@@ -42,10 +42,10 @@ EXPERIMENTAL_IMAGES = intake web-fetch
 ALL_IMAGES = $(CORE_IMAGES) $(EXPERIMENTAL_IMAGES)
 
 # Services whose Dockerfile still needs the repo root as build context.
-REPO_CONTEXT_IMAGES = intake
+REPO_CONTEXT_IMAGES = comms egress intake knowledge
 
 # Services that build from their own directory plus shared assets from images/.
-SHARED_CONTEXT_IMAGES = body comms knowledge egress
+SHARED_CONTEXT_IMAGES = body
 
 # Build and install the gateway binary + all OCI artifact images (including web UI)
 all: install images-all

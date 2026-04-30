@@ -10,8 +10,8 @@ Covers:
 
 import pytest
 
-from images.knowledge.server import create_app
-from images.knowledge.store import KnowledgeStore
+from services.knowledge.server import create_app
+from services.knowledge.store import KnowledgeStore
 from .conftest import PlatformClient
 
 

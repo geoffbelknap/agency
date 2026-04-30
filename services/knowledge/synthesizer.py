@@ -26,7 +26,7 @@ import httpx
 import yaml
 
 from typing import Optional
-from images.knowledge.store import KnowledgeStore
+from services.knowledge.store import KnowledgeStore
 
 logger = logging.getLogger("agency.knowledge.synthesizer")
 

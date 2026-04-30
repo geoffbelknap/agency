@@ -7,7 +7,7 @@ import pytest
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "knowledge"))
-from principal_registry import PrincipalRegistry
+from services.knowledge.principal_registry import PrincipalRegistry
 
 
 SAMPLE_SNAPSHOT = {

@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 
-from images.knowledge.store import KnowledgeStore
-from images.knowledge.synthesizer import LLMSynthesizer
+from services.knowledge.store import KnowledgeStore
+from services.knowledge.synthesizer import LLMSynthesizer
 
 
 class TestSynthesisPrompt:
@@ -97,7 +97,7 @@ class TestGatewayLLMFormat:
 class TestServerIntegration:
     def test_create_app_with_ingestion(self, tmp_path):
         """create_app creates synthesizer without enforcer_url."""
-        from images.knowledge.server import create_app
+        from services.knowledge.server import create_app
         app = create_app(data_dir=tmp_path, enable_ingestion=True)
         synth = app["synthesizer"]
         assert isinstance(synth, LLMSynthesizer)

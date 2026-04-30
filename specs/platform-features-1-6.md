@@ -299,7 +299,7 @@ Propagate the event envelope ID (`evt-*`) through the full activation chain so e
 1. **Gateway** (`internal/events/deliver_agent.go`):
    - Include `event_id` in message metadata: `metadata: {"event_id": event.ID}` in the POST to comms.
 
-2. **Comms** (`images/comms/server.py`):
+2. **Comms** (`services/comms/server.py`):
    - When writing session context for the body runtime, extract `event_id` from message metadata if present and include it in the context payload.
 
 3. **Body runtime** (`images/body/body.py`):

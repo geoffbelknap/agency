@@ -5,7 +5,7 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "knowledge"))
-from ingestion.base import ExtractionResult, BaseExtractor
+from services.knowledge.ingestion.base import ExtractionResult, BaseExtractor
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +224,7 @@ import sys
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "knowledge"))
-from ingestion.extractors.markdown import MarkdownExtractor
+from services.knowledge.ingestion.extractors.markdown import MarkdownExtractor
 
 
 class TestMarkdownExtractorCanHandle:
@@ -393,7 +393,7 @@ class TestMarkdownExtractorMetadata:
 # StructuredExtractor
 # ---------------------------------------------------------------------------
 
-from ingestion.extractors.structured import StructuredExtractor
+from services.knowledge.ingestion.extractors.structured import StructuredExtractor
 
 
 class TestStructuredExtractorCanHandle:
@@ -620,7 +620,7 @@ class TestStructuredExtractorResult:
 # ConfigExtractor
 # ---------------------------------------------------------------------------
 
-from ingestion.extractors.config import ConfigExtractor
+from services.knowledge.ingestion.extractors.config import ConfigExtractor
 
 
 class TestConfigExtractorCanHandle:

@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from images.knowledge.server import create_app, _run_schema_migrations
+from services.knowledge.server import create_app, _run_schema_migrations
 from .conftest import PlatformClient
 
 
@@ -273,7 +273,7 @@ class TestCurationEndpoints:
     async def test_stats_includes_curation(self, curator_client):
         c = await curator_client
         store = c.app["store"]
-        from images.knowledge.curator import Curator
+        from services.knowledge.curator import Curator
         curator = Curator(store, mode="active")
         store.add_node(label="test", kind="concept", summary="x")
         curator.compute_health_metrics()

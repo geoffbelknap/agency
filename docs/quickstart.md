@@ -34,6 +34,10 @@ filesystem creation. They also need Node/npm dependencies for the host-managed
 web UI. Packaged installs run the host dependency helper automatically. To
 verify or install them manually from a source checkout:
 
+Host-managed infra code is packaged as Agency services under `services/`.
+The `images/` tree remains for OCI/rootfs build inputs and legacy image
+wrappers; it is not the host service runtime contract.
+
 ```bash
 ./scripts/install/host-dependencies.sh --check
 ./scripts/install/host-dependencies.sh

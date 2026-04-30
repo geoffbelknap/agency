@@ -145,6 +145,9 @@ install_python_deps() {
 		echo "python3 is required to create $VENV_DIR" >&2
 		return 1
 	}
+	if [ -x "$VENV_PYTHON" ] && ! "$VENV_PYTHON" -c 'import sys' >/dev/null 2>&1; then
+		rm -rf "$VENV_DIR"
+	fi
 	if [ ! -x "$VENV_PYTHON" ]; then
 		"$py" -m venv "$VENV_DIR"
 	fi

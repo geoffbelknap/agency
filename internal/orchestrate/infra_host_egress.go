@@ -51,11 +51,11 @@ func (inf *Infra) ensureHostEgress(ctx context.Context) error {
 		return fmt.Errorf("host egress port %s is already serving without a managed host egress process; stop the legacy egress bridge", inf.egressProxyPort())
 	}
 
-	sourceDir, err := inf.hostInfraSourceDir(filepath.Join("images", "egress", "addon.py"))
+	sourceDir, err := inf.hostInfraSourceDir(filepath.Join("services", "egress", "addon.py"))
 	if err != nil {
 		return fmt.Errorf("host egress source unavailable: %w", err)
 	}
-	egressDir := filepath.Join(sourceDir, "images", "egress")
+	egressDir := filepath.Join(sourceDir, "services", "egress")
 	addonPath := filepath.Join(egressDir, "addon.py")
 	if err := inf.fetchHostEgressBlocklists(ctx, sourceDir, paths); err != nil {
 		inf.log.Warn("host egress blocklist fetch failed", "err", err)
@@ -175,12 +175,12 @@ func repairMitmproxyCertStore(certsDir string) error {
 }
 
 func (inf *Infra) fetchHostEgressBlocklists(ctx context.Context, sourceDir string, paths hostEgressPaths) error {
-	script := filepath.Join(sourceDir, "images", "egress", "fetch_blocklists.py")
+	script := filepath.Join(sourceDir, "services", "egress", "fetch_blocklists.py")
 	if _, err := os.Stat(script); err != nil {
 		return err
 	}
 	cmd := exec.CommandContext(ctx, inf.hostEgressPython(sourceDir), script, paths.policyPath, paths.blocklistsDir)
-	cmd.Dir = filepath.Join(sourceDir, "images", "egress")
+	cmd.Dir = filepath.Join(sourceDir, "services", "egress")
 	cmd.Env = os.Environ()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -195,7 +195,7 @@ func (inf *Infra) hostEgressEnv(sourceDir string, paths hostEgressPaths) []strin
 	for k, v := range cfg.ConfigVars {
 		env[k] = v
 	}
-	env["PYTHONPATH"] = filepath.Join(sourceDir, "images", "egress") + string(os.PathListSeparator) + sourceDir
+	env["PYTHONPATH"] = filepath.Join(sourceDir, "services", "egress") + string(os.PathListSeparator) + sourceDir
 	env["GATEWAY_URL"] = "http://" + inf.GatewayAddr
 	env["GATEWAY_TOKEN"] = inf.EgressToken
 	env["GATEWAY_SOCKET"] = filepath.Join(paths.runDir, "gateway-cred.sock")

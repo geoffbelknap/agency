@@ -30,6 +30,7 @@ archives:
       - LICENSE*
       - install.sh
       - images/**/*
+      - services/**/*
       - scripts/install/*
       - web/bin/*
       - web/dist/**/*
@@ -68,6 +69,7 @@ brews:
       - name: node
     extra_install: |
       pkgshare.install "images"
+      pkgshare.install "services"
       pkgshare.install "scripts"
       pkgshare.install "web"
     post_install: |

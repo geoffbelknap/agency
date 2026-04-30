@@ -489,7 +489,7 @@ func startComms(ctx context.Context, cfg smokeConfig, port string) (*exec.Cmd, e
 		}
 		python = found
 	}
-	cmd := exec.CommandContext(ctx, python, "images/comms/server.py", "--port", port, "--data-dir", filepath.Join(cfg.home, "comms-data"), "--agents-dir", filepath.Join(cfg.home, "agents"))
+	cmd := exec.CommandContext(ctx, python, "services/comms/server.py", "--port", port, "--data-dir", filepath.Join(cfg.home, "comms-data"), "--agents-dir", filepath.Join(cfg.home, "agents"))
 	cmd.Dir = cfg.repo
 	cmd.Env = append(os.Environ(), "PYTHONPATH=.")
 	cmd.Stdout = os.Stdout

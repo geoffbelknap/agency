@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import MagicMock
-from images.egress.swap_handlers import handle_api_key, handle_jwt_exchange
+from services.egress.swap_handlers import handle_api_key, handle_jwt_exchange
 
 
 class _FakeResolver:
@@ -84,7 +84,7 @@ class TestJWTExchangeHandler:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"jwt": "eyJtoken123"}
 
-        import images.egress.swap_handlers as sh
+        import services.egress.swap_handlers as sh
         monkeypatch.setattr(sh.requests, "post", MagicMock(return_value=mock_resp))
 
         handle_jwt_exchange(flow, config, resolver, _state_cache={})
@@ -109,7 +109,7 @@ class TestJWTExchangeHandler:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"jwt": "eyJtoken123"}
 
-        import images.egress.swap_handlers as sh
+        import services.egress.swap_handlers as sh
         mock_post = MagicMock(return_value=mock_resp)
         monkeypatch.setattr(sh.requests, "post", mock_post)
 

@@ -87,6 +87,10 @@ environment for host-managed egress:
 - `e2fsprogs` / `mke2fs` for microVM root filesystem creation
 - Node/npm dependencies for the host-managed web UI
 
+Host-managed infra code is packaged as Agency services under `services/`.
+The `images/` tree remains for OCI/rootfs build inputs and legacy image
+wrappers; it is not the host service runtime contract.
+
 Packaged installs run the host dependency helper automatically. To install or
 verify them yourself from a source checkout:
 

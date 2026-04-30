@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from images.knowledge.store import KnowledgeStore
+from services.knowledge.store import KnowledgeStore
 
 
 VALID_PROVENANCE = ("EXTRACTED", "INFERRED", "AMBIGUOUS")
@@ -101,7 +101,7 @@ class TestIngesterCreatesExtractedEdges:
     """RuleIngester should tag all edges with provenance=EXTRACTED."""
 
     def test_ingester_creates_extracted_edges(self, tmp_path):
-        from images.knowledge.ingester import RuleIngester
+        from services.knowledge.ingester import RuleIngester
 
         store = KnowledgeStore(tmp_path)
         ingester = RuleIngester(store)
@@ -123,7 +123,7 @@ class TestIngesterCreatesExtractedEdges:
             )
 
     def test_ingester_decision_edge_is_extracted(self, tmp_path):
-        from images.knowledge.ingester import RuleIngester
+        from services.knowledge.ingester import RuleIngester
 
         store = KnowledgeStore(tmp_path)
         ingester = RuleIngester(store)
@@ -142,7 +142,7 @@ class TestIngesterCreatesExtractedEdges:
         assert decided_edges[0]["provenance"] == "EXTRACTED"
 
     def test_ingester_blocker_edge_is_extracted(self, tmp_path):
-        from images.knowledge.ingester import RuleIngester
+        from services.knowledge.ingester import RuleIngester
 
         store = KnowledgeStore(tmp_path)
         ingester = RuleIngester(store)
@@ -161,7 +161,7 @@ class TestIngesterCreatesExtractedEdges:
         assert raised_edges[0]["provenance"] == "EXTRACTED"
 
     def test_ingester_trust_signal_edge_is_extracted(self, tmp_path):
-        from images.knowledge.ingester import RuleIngester
+        from services.knowledge.ingester import RuleIngester
 
         store = KnowledgeStore(tmp_path)
         ingester = RuleIngester(store)
@@ -271,7 +271,7 @@ class TestHealthMetricsBenchmarks:
     """compute_health_metrics() includes performance benchmark fields."""
 
     def test_health_metrics_include_benchmarks(self, tmp_path):
-        from images.knowledge.curator import Curator
+        from services.knowledge.curator import Curator
 
         store = KnowledgeStore(tmp_path)
         n1 = store.add_node(label="alpha", kind="concept", summary="first")
@@ -296,7 +296,7 @@ class TestHealthMetricsBenchmarks:
         assert metrics["scope_resolution_ms"] >= 0.0
 
     def test_health_metrics_benchmarks_empty_graph(self, tmp_path):
-        from images.knowledge.curator import Curator
+        from services.knowledge.curator import Curator
 
         store = KnowledgeStore(tmp_path)
         curator = Curator(store)

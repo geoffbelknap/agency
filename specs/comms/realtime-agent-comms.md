@@ -10,7 +10,7 @@ status: "Implemented (core WebSocket push, interest matching, interruption contr
 **Last updated:** 2026-04-01
 **Goal:** Replace polling-based agent communication with WebSocket push, add interest-based relevance filtering, and route knowledge graph updates through the same channel. Enable "Slack for agents" — real-time, bidirectional, with controlled interruption.
 
-**Implementation notes:** The WebSocket push layer is implemented. Comms server WebSocket endpoint and connection registry are in `images/comms/websocket.py`, with the matching engine in `images/comms/matcher.py` and subscription manager in `images/comms/subscriptions.py`. The body runtime WebSocket listener is in `images/body/ws_listener.py` — handles connection, reconnection with exponential backoff, and event queueing. The body runtime (`body.py`) integrates the WebSocket listener for event-driven task delivery and message push. The v2 semantic matching path (sqlite-vec) is not yet implemented. Swarm mode WebSocket forwarding is not yet implemented.
+**Implementation notes:** The WebSocket push layer is implemented. Comms server WebSocket endpoint and connection registry are in `services/comms/websocket.py`, with the matching engine in `services/comms/matcher.py` and subscription manager in `services/comms/subscriptions.py`. The body runtime WebSocket listener is in `images/body/ws_listener.py` — handles connection, reconnection with exponential backoff, and event queueing. The body runtime (`body.py`) integrates the WebSocket listener for event-driven task delivery and message push. The v2 semantic matching path (sqlite-vec) is not yet implemented. Swarm mode WebSocket forwarding is not yet implemented.
 
 ## Problem
 

@@ -115,7 +115,7 @@ Intake container          Egress proxy              Gateway cred socket    LimaC
 
 ### Implementation
 
-JWT exchange is handled by the unified swap handler dispatch in `images/egress/credential_swap.py`. The `CredentialSwapAddon` loads `credential-swaps.yaml` entries of type `jwt-exchange` and manages them via `_JWTSwapAuth` instances:
+JWT exchange is handled by the unified swap handler dispatch in `services/egress/credential_swap.py`. The `CredentialSwapAddon` loads `credential-swaps.yaml` entries of type `jwt-exchange` and manages them via `_JWTSwapAuth` instances:
 
 - On startup or SIGHUP: load `credential-swaps.yaml`, build swap registry
 - For `jwt-exchange` entries: create `_JWTSwapAuth` instance with `SocketKeyResolver` for credential resolution
@@ -168,8 +168,8 @@ No code changes needed — the generic config format covers it.
 
 | File | Change |
 |------|--------|
-| `images/egress/credential_swap.py` | `_JWTSwapAuth` class, `SocketKeyResolver` for credential resolution, unified handler dispatch from `credential-swaps.yaml` |
-| `images/egress/Dockerfile` | No change (PyJWT already available for GitHub App auth) |
+| `services/egress/credential_swap.py` | `_JWTSwapAuth` class, `SocketKeyResolver` for credential resolution, unified handler dispatch from `credential-swaps.yaml` |
+| `services/egress/Dockerfile` | No change (PyJWT already available for GitHub App auth) |
 
 ### Configuration
 

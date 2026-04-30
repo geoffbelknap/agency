@@ -5,19 +5,17 @@ ARG SOURCE_HASH=unknown
 WORKDIR /app
 
 # Shared logging infrastructure (auto-configures via sitecustomize.py)
-COPY --from=shared logging_config.py /app/logging_config.py
-COPY --from=shared _sitecustomize.py /app/sitecustomize.py
+COPY images/logging_config.py /app/logging_config.py
+COPY images/_sitecustomize.py /app/sitecustomize.py
 
-COPY *.py /app/
+COPY services/comms /app/services/comms
 RUN mkdir -p /app/images/models
-COPY --from=shared models/*.py /app/images/models/
-COPY --from=shared exceptions.py /app/images/exceptions.py
+COPY images/models/*.py /app/images/models/
+COPY images/exceptions.py /app/images/exceptions.py
 RUN touch /app/images/__init__.py /app/images/models/__init__.py \
-    && mkdir -p /app/images/comms \
-    && touch /app/images/comms/__init__.py \
-    && cp /app/*.py /app/images/comms/
+    && touch /app/services/__init__.py
 
 EXPOSE 8080
 LABEL agency.build.id=${BUILD_ID}
 LABEL agency.source.hash=${SOURCE_HASH}
-CMD ["python", "-u", "/app/server.py"]
+CMD ["python", "-u", "-m", "services.comms.server"]

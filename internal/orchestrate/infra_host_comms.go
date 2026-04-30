@@ -69,7 +69,7 @@ func (inf *Infra) ensureHostComms(ctx context.Context) error {
 		return fmt.Errorf("host comms port %s is already serving without a managed host comms process; refresh gateway-proxy or stop the legacy comms bridge", inf.gatewayProxyPort("8202"))
 	}
 
-	sourceDir, err := inf.hostInfraSourceDir(filepath.Join("images", "comms", "server.py"))
+	sourceDir, err := inf.hostInfraSourceDir(filepath.Join("services", "comms", "server.py"))
 	if err != nil {
 		return fmt.Errorf("host comms source unavailable: %w", err)
 	}
@@ -88,7 +88,7 @@ func (inf *Infra) ensureHostComms(ctx context.Context) error {
 		return fmt.Errorf("open host comms log: %w", err)
 	}
 
-	cmd := exec.Command(inf.hostCommsPython(sourceDir), "-u", "-m", "images.comms.server",
+	cmd := exec.Command(inf.hostCommsPython(sourceDir), "-u", "-m", "services.comms.server",
 		"--port", inf.gatewayProxyPort("8202"),
 		"--data-dir", commsData,
 		"--agents-dir", agentsDir,

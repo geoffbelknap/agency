@@ -1,0 +1,8 @@
+name: comms
+kind: python-http
+entrypoint: services.comms.server
+health: /health
+dependencies:
+  python:
+    - aiohttp
+    - httpx

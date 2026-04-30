@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from images.knowledge.store import KnowledgeStore
-from images.knowledge.curator import Curator
+from services.knowledge.store import KnowledgeStore
+from services.knowledge.curator import Curator
 
 
 class TestEmergenceScanKindCandidates:
