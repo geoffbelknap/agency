@@ -70,10 +70,7 @@ func (inf *Infra) ensureHostWeb(ctx context.Context) error {
 	cmd.Dir = webDir
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
-	cmd.Env = append(os.Environ(),
-		"AGENCY_HOME="+inf.Home,
-		"BUILD_ID="+inf.BuildID,
-	)
+	cmd.Env = inf.hostWebPreviewEnv()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
@@ -145,6 +142,14 @@ func (inf *Infra) hostWebVite(webDir string) string {
 		return local
 	}
 	return "vite"
+}
+
+func (inf *Infra) hostWebPreviewEnv() []string {
+	return append(os.Environ(),
+		"AGENCY_HOME="+inf.Home,
+		"BUILD_ID="+inf.BuildID,
+		"VITE_DISABLE_HTTPS=1",
+	)
 }
 
 func (inf *Infra) stopHostWeb(ctx context.Context) error {
