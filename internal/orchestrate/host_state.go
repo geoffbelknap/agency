@@ -3,7 +3,6 @@ package orchestrate
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 )
@@ -43,18 +42,20 @@ func (s *backendHostStateSource) Watch(ctx context.Context, actions ...string) (
 	if s == nil || s.backend == nil {
 		return nil, nil, fmt.Errorf("runtime backend client unavailable")
 	}
-	backendActions := make([]string, 0, len(actions))
+	runtimeActions := make([]string, 0, len(actions))
 	for _, action := range actions {
 		switch action {
-		case HostStateActionStopped, HostStateActionDegraded:
-			backendActions = append(backendActions, "die")
+		case HostStateActionStopped:
+			runtimeActions = append(runtimeActions, runtimehost.RuntimeActionStopped)
+		case HostStateActionDegraded:
+			runtimeActions = append(runtimeActions, runtimehost.RuntimeActionDegraded)
 		case HostStateActionStarted:
-			backendActions = append(backendActions, "start")
+			runtimeActions = append(runtimeActions, runtimehost.RuntimeActionStarted)
 		default:
-			backendActions = append(backendActions, action)
+			runtimeActions = append(runtimeActions, action)
 		}
 	}
-	rawEvents, rawErrs, err := runtimehost.WatchAgencyContainerEvents(ctx, s.backend, backendActions...)
+	rawEvents, rawErrs, err := runtimehost.WatchAgencyRuntimeEvents(ctx, s.backend, runtimeActions...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -86,32 +87,30 @@ func (s *backendHostStateSource) Watch(ctx context.Context, actions ...string) (
 	return events, errs, nil
 }
 
-func normalizeBackendHostStateEvent(ev runtimehost.ContainerEvent) (HostStateEvent, bool) {
-	component := ""
-	suffix := ""
-	switch {
-	case strings.HasSuffix(ev.Name, "-workspace"):
-		component = HostStateComponentWorkspace
-		suffix = "-workspace"
-	case strings.HasSuffix(ev.Name, "-enforcer"):
-		component = HostStateComponentEnforcer
-		suffix = "-enforcer"
-	default:
+func normalizeBackendHostStateEvent(ev runtimehost.RuntimeEvent) (HostStateEvent, bool) {
+	if ev.RuntimeID == "" {
 		return HostStateEvent{}, false
 	}
-	agentName := extractAgentName(ev.Name, suffix)
-	if agentName == "" {
+	component := ev.Component
+	switch ev.Component {
+	case runtimehost.RuntimeComponentWorkspace:
+		component = HostStateComponentWorkspace
+	case runtimehost.RuntimeComponentEnforcer:
+		component = HostStateComponentEnforcer
+	default:
 		return HostStateEvent{}, false
 	}
 	action := ev.Action
 	switch ev.Action {
-	case "die":
+	case runtimehost.RuntimeActionStopped:
 		action = HostStateActionStopped
-	case "start":
+	case runtimehost.RuntimeActionStarted:
 		action = HostStateActionStarted
+	case runtimehost.RuntimeActionDegraded:
+		action = HostStateActionDegraded
 	}
 	return HostStateEvent{
-		AgentName: agentName,
+		AgentName: ev.RuntimeID,
 		Component: component,
 		Action:    action,
 		ExitCode:  ev.ExitCode,

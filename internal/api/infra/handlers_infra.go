@@ -325,9 +325,6 @@ func (h *handler) infraReload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) infraLogs(w http.ResponseWriter, r *http.Request) {
-	if !h.containerBackendRequired(w) {
-		return
-	}
 	component := chi.URLParam(r, "component")
 	tail := 200
 	if raw := r.URL.Query().Get("tail"); raw != "" {
@@ -345,7 +342,11 @@ func (h *handler) infraLogs(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	out, err := h.deps.Runtime.InfraLogs(ctx, component, tail)
+	if h.deps.Infra == nil {
+		writeJSON(w, 500, map[string]string{"error": "infrastructure manager not initialized"})
+		return
+	}
+	out, err := h.deps.Infra.InfraLogs(ctx, component, tail)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return

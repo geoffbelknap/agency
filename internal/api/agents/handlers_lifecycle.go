@@ -542,9 +542,9 @@ func (h *handler) restartAgent(w http.ResponseWriter, r *http.Request) {
 	// Wire lifecycle_id into audit writer so all subsequent events carry it.
 	h.deps.Audit.SetLifecycleID(name, detail.LifecycleID)
 
-	// Stop existing containers and close old WS client
+	// Stop existing runtime and close old WS client
 	h.unregisterEnforcerWSClient(name)
-	h.deps.AgentManager.StopContainers(r.Context(), name)
+	h.deps.AgentManager.StopAgentRuntime(r.Context(), name)
 
 	// Start with key rotation — generates a fresh scoped key instead of
 	// reusing the old one (ASK tenet 4: least privilege)

@@ -524,9 +524,9 @@ func registerAgentTools(reg *MCPToolRegistry) {
 			// Wire lifecycle_id into audit writer so all subsequent events carry it.
 			d.audit.SetLifecycleID(name, detail.LifecycleID)
 
-			// Stop existing containers and close old WS client
+			// Stop existing runtime and close old WS client
 			d.unregisterEnforcerWSClient(name)
-			d.agents.StopContainers(context.Background(), name)
+			d.agents.StopAgentRuntime(context.Background(), name)
 
 			// Start with key rotation (ASK tenet 4: least privilege)
 			ss := &orchestrate.StartSequence{

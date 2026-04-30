@@ -1193,7 +1193,6 @@ func runServe(httpAddr string) error {
 				return missionMgr.Pause(name, reason)
 			},
 			logger,
-			dc,
 		)
 		if healthErr != nil {
 			logger.Warn("mission health monitor unavailable", "error", healthErr)

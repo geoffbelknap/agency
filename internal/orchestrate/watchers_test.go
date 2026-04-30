@@ -149,7 +149,6 @@ func TestMissionHealthMonitorUsesRuntimeStatusBeforeBackendListing(t *testing.T)
 			return nil
 		},
 		nil,
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("NewMissionHealthMonitorWithRuntime() error = %v", err)
@@ -160,7 +159,7 @@ func TestMissionHealthMonitorUsesRuntimeStatusBeforeBackendListing(t *testing.T)
 		Status:       "active",
 		AssignedTo:   "alice",
 		AssignedType: "agent",
-	}, map[string]string{})
+	})
 
 	if len(paused) != 0 {
 		t.Fatalf("healthy runtime should not pause mission: %#v", paused)
@@ -193,7 +192,6 @@ func TestMissionHealthMonitorPausesOnRuntimeValidationFailure(t *testing.T) {
 			return nil
 		},
 		nil,
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("NewMissionHealthMonitorWithRuntime() error = %v", err)
@@ -204,7 +202,7 @@ func TestMissionHealthMonitorPausesOnRuntimeValidationFailure(t *testing.T) {
 		Status:       "active",
 		AssignedTo:   "alice",
 		AssignedType: "agent",
-	}, map[string]string{})
+	})
 
 	if len(paused) != 1 {
 		t.Fatalf("runtime validation failure should pause once, got %#v", paused)

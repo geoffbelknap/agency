@@ -566,7 +566,7 @@ func (h *handler) adminDestroy(w http.ResponseWriter, r *http.Request) {
 	// Stop all agents
 	agents, _ := h.deps.AgentManager.List(r.Context())
 	for _, a := range agents {
-		h.deps.AgentManager.StopContainers(r.Context(), a.Name)
+		h.deps.AgentManager.StopAgentRuntime(r.Context(), a.Name)
 		h.deps.AgentManager.Delete(r.Context(), a.Name)
 	}
 

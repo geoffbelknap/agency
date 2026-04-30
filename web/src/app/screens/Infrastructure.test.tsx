@@ -221,4 +221,28 @@ describe('Infrastructure', () => {
       expect(screen.getByRole('button', { name: /reload config/i })).not.toBeDisabled();
     });
   });
+
+  it('loads service logs', async () => {
+    server.use(
+      http.get(`${BASE}/infra/status`, () =>
+        HttpResponse.json(wrapInfra([
+          { name: 'comms', state: 'running', health: 'healthy', component_id: 'host:123', uptime: '2h' },
+        ])),
+      ),
+      http.get(`${BASE}/infra/services/comms/logs`, () =>
+        HttpResponse.json({ component: 'comms', tail: 200, logs: 'host comms log line\n' }),
+      ),
+    );
+
+    renderWithRouter(<Infrastructure />);
+
+    await waitFor(() => {
+      expect(screen.getByText('comms')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('button', { name: /^logs$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('host comms log line')).toBeInTheDocument();
+    });
+  });
 });
