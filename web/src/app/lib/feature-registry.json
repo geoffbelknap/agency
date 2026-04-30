@@ -1,7 +1,7 @@
 [
   {
     "id": "apple_vf_microvm",
-    "tier": "experimental"
+    "tier": "core"
   },
   {
     "id": "authz",
@@ -25,7 +25,7 @@
   },
   {
     "id": "firecracker",
-    "tier": "experimental"
+    "tier": "core"
   },
   {
     "id": "graph_admin",

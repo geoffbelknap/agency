@@ -76,9 +76,8 @@ Agency is built around them first.
 - an API key from at least one supported model provider
 
 On Linux and WSL2, Agency defaults to Firecracker and requires KVM plus vsock
-access for the operator account. On macOS Apple silicon, the strategic local
-development target is `apple-vf-microvm`; until that helper path is complete,
-macOS runtime work may require an explicitly selected experimental backend.
+access for the operator account. On macOS Apple silicon, Agency defaults to
+`apple-vf-microvm` backed by Apple's Virtualization framework.
 
 Dockerfiles remain part of Agency as OCI image build recipes. Docker, Podman,
 containerd, and Apple Container runtime backends are transitional compatibility

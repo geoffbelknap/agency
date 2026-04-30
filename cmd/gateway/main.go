@@ -516,7 +516,7 @@ func setupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "LLM provider API key")
 	cmd.Flags().StringVar(&notifyURL, "notify-url", "", "Notification URL (ntfy or webhook) for operator alerts")
 	cmd.Flags().StringVar(&backend, "backend", "", "Runtime backend to use; defaults to firecracker on Linux/WSL and apple-vf-microvm on macOS. Also respected via AGENCY_RUNTIME_BACKEND. Docker, Podman, containerd, and apple-container require --experimental-backend.")
-	cmd.Flags().BoolVar(&experimentalBackend, "experimental-backend", false, "Allow transitional or non-default runtime backends")
+	cmd.Flags().BoolVar(&experimentalBackend, "experimental-backend", false, "Allow transitional container runtime backends")
 	cmd.Flags().BoolVar(&configurePool, "configure-network-pool", false, "Configure Docker default-address-pools before infrastructure startup (docker backend only)")
 	cmd.Flags().BoolVar(&noInfra, "no-infra", false, "Skip runtime backend checks and infrastructure startup")
 	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Don't open the web UI in a browser (also respected via AGENCY_NO_BROWSER=1)")
@@ -684,10 +684,6 @@ func defaultRuntimeBackendForHost() string {
 	}
 }
 
-func isStrategicRuntimeBackendForHost(backend string) bool {
-	return backend == defaultRuntimeBackendForHost()
-}
-
 func normalizeRuntimeBackendName(name string) string {
 	name = strings.TrimSpace(strings.ToLower(name))
 	if name == "" {
@@ -725,9 +721,6 @@ func selectRuntimeBackend(override string, allowExperimental bool) (string, map[
 		return backend, withAppleVFArtifactConfig(backend, nil), nil
 	}
 	if override == hostruntimebackend.BackendFirecracker || override == hostruntimebackend.BackendAppleVFMicroVM {
-		if !isStrategicRuntimeBackendForHost(override) && !allowExperimental {
-			return "", nil, fmt.Errorf("runtime backend %q is not the default for this host; re-run with --experimental-backend to use it", override)
-		}
 		fmt.Fprintf(os.Stderr, "Using %s runtime backend.\n", override)
 		return override, withAppleVFArtifactConfig(override, mergeBackendSocketConfig(configuredCfg, nil)), nil
 	}
