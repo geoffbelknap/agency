@@ -423,3 +423,25 @@ func TestParseAppleVFHelperHealthFailure(t *testing.T) {
 		t.Fatalf("unexpected health failure: %#v", health)
 	}
 }
+
+func TestAppleVFHelperHealthStatusDoesNotInheritAgencyHome(t *testing.T) {
+	t.Setenv("AGENCY_HOME", "/tmp/agency-home-that-breaks-helper-health")
+	helper := filepath.Join(t.TempDir(), "helper")
+	script := `#!/bin/sh
+if [ -n "${AGENCY_HOME:-}" ]; then
+  echo '{"arch":"arm64","backend":"apple-vf-microvm","command":"health","darwin":"25.4.0","error":"AGENCY_HOME leaked","ok":false,"version":"0.1.0","virtualizationAvailable":false}'
+  exit 1
+fi
+echo '{"arch":"arm64","backend":"apple-vf-microvm","command":"health","darwin":"25.4.0","ok":true,"version":"0.1.0","virtualizationAvailable":true}'
+`
+	if err := os.WriteFile(helper, []byte(script), 0o755); err != nil {
+		t.Fatalf("write helper: %v", err)
+	}
+	health, err := AppleVFHelperHealthStatus(context.Background(), helper)
+	if err != nil {
+		t.Fatalf("AppleVFHelperHealthStatus() error = %v", err)
+	}
+	if !health.OK || !health.VirtualizationAvailable {
+		t.Fatalf("unexpected health: %#v", health)
+	}
+}
