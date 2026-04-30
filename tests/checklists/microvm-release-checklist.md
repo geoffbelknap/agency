@@ -72,8 +72,16 @@ scripts/readiness/firecracker-kernel-artifacts.sh
 scripts/readiness/firecracker-artifacts.sh --verify-existing
 scripts/readiness/firecracker-kernel-artifacts.sh --verify-existing
 ./scripts/readiness/firecracker-microvm-smoke.sh
-bash ./scripts/readiness/runtime-contract-smoke.sh --agent <firecracker-agent>
 agency admin doctor
+```
+
+To run the external runtime contract smoke against the same disposable
+Firecracker agent, keep the smoke runtime alive and run the printed contract
+smoke command from another shell:
+
+```bash
+./scripts/readiness/firecracker-microvm-smoke.sh --keep-agent
+bash ./scripts/readiness/runtime-contract-smoke.sh --agent <printed-agent-name> --home <printed-agency-home> --skip-tests
 ```
 
 Default Firecracker artifact paths:
