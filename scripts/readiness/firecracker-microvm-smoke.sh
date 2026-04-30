@@ -257,7 +257,8 @@ else
 fi
 log "Using disposable Agency home: $SMOKE_HOME"
 
-GO_SMOKE="$(mktemp "$ROOT/firecracker-microvm-smoke-XXXXXX.go")"
+mkdir -p "$ROOT/build"
+GO_SMOKE="$(mktemp "$ROOT/build/firecracker-microvm-smoke-XXXXXX.go")"
 cat >"$GO_SMOKE" <<'GOEOF'
 package main
 
@@ -614,7 +615,7 @@ func printStatus(status any) {
 func printKeepAgentInstructions(cfg smokeConfig) {
 	fmt.Printf("agent_name=%s\n", cfg.agent)
 	fmt.Printf("agency_home=%s\n", cfg.home)
-	fmt.Println("contract_smoke_command=bash ./scripts/readiness/runtime-contract-smoke.sh --agent " + cfg.agent + " --home " + cfg.home + " --skip-tests")
+	fmt.Println("contract_smoke_command=bash ./scripts/readiness/runtime-contract-smoke.sh --agent " + cfg.agent + " --home " + cfg.home + " --start-gateway --skip-tests --skip-doctor")
 	fmt.Println("==> Keeping Firecracker runtime and dummy services running; press Ctrl-C when external contract smoke is complete")
 }
 
