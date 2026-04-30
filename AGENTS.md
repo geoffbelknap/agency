@@ -115,9 +115,8 @@ requirements. Treat runtime health and backend hygiene as distinct concerns:
 
 `apple-container` is an experimental compatibility adapter, not the strategic
 macOS backend. Keep it out of default backend selection, required CI, branch
-protection, and release-blocking checks. `apple-vf-microvm` is the strategic
-macOS microVM backend; keep it experimental until helper, lifecycle, doctor,
-cleanup, and Web UI parity evidence exists.
+protection, and release-blocking checks. `apple-vf-microvm` is the supported
+macOS microVM backend and the default macOS local-development runtime.
 
 ## Feature Gating
 

@@ -19,8 +19,15 @@ func TestExperimentalFeatureEnabledWithFlag(t *testing.T) {
 	if !Enabled(Missions) {
 		t.Fatal("missions should be enabled with experimental flag")
 	}
+}
+
+func TestMicroVMFeaturesEnabledByDefault(t *testing.T) {
+	t.Setenv("AGENCY_EXPERIMENTAL_SURFACES", "")
 	if !Enabled(Firecracker) {
-		t.Fatal("firecracker should be enabled with experimental flag")
+		t.Fatal("firecracker should be enabled by default")
+	}
+	if !Enabled(AppleVFMicroVM) {
+		t.Fatal("apple-vf-microvm should be enabled by default")
 	}
 }
 

@@ -45,16 +45,17 @@ func TestSelectRuntimeBackendRequiresExperimentalForTransitionalBackend(t *testi
 	}
 }
 
-func TestSelectRuntimeBackendRequiresExperimentalForNonDefaultStrategicBackend(t *testing.T) {
+func TestSelectRuntimeBackendAllowsExplicitMicroVMBackendsWithoutExperimentalFlag(t *testing.T) {
 	t.Setenv("AGENCY_RUNTIME_BACKEND", "")
 	t.Setenv("AGENCY_CONTAINER_BACKEND", "")
-	backend := hostruntimebackend.BackendAppleVFMicroVM
-	if runtime.GOOS == "darwin" {
-		backend = hostruntimebackend.BackendFirecracker
-	}
-	_, _, err := selectRuntimeBackend(backend, false)
-	if err == nil || !strings.Contains(err.Error(), "not the default") {
-		t.Fatalf("selectRuntimeBackend(%s) error = %v", backend, err)
+	for _, backend := range []string{hostruntimebackend.BackendFirecracker, hostruntimebackend.BackendAppleVFMicroVM} {
+		got, _, err := selectRuntimeBackend(backend, false)
+		if err != nil {
+			t.Fatalf("selectRuntimeBackend(%s) error = %v", backend, err)
+		}
+		if got != backend {
+			t.Fatalf("selectRuntimeBackend(%s) = %q, want %q", backend, got, backend)
+		}
 	}
 }
 
