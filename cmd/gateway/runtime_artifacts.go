@@ -29,6 +29,7 @@ func verifyAppleVFRuntimeArtifacts(cfg map[string]string) error {
 	requireExecutable(&missing, "mke2fs", cfg["mke2fs_path"], "install e2fsprogs with Homebrew or set AGENCY_MKE2FS/hub.deployment_backend_config.mke2fs_path")
 	requireExecutable(&missing, "Apple VF host enforcer", cfg["enforcer_binary_path"], "run make apple-vf-helpers or set AGENCY_APPLE_VF_ENFORCER_BIN/hub.deployment_backend_config.enforcer_binary_path")
 	requireExecutable(&missing, "Apple VF guest vsock bridge", cfg["vsock_bridge_binary_path"], "run make apple-vf-helpers or set AGENCY_APPLE_VF_VSOCK_BRIDGE_BIN/hub.deployment_backend_config.vsock_bridge_binary_path")
+	requireVersionedArtifactRef(&missing, "Apple VF rootfs OCI artifact", firstNonEmptyConfigValue(cfg, "rootfs_oci_ref", "body_oci_ref"), "set hub.deployment_backend_config.rootfs_oci_ref to a versioned OCI artifact reference")
 	return artifactError(hostruntimebackend.BackendAppleVFMicroVM, missing)
 }
 
@@ -78,6 +79,26 @@ func requireExecutable(missing *[]string, label, path, fix string) {
 	if info.Mode()&0111 == 0 {
 		*missing = append(*missing, fmt.Sprintf("%s: %s is not executable; run chmod +x %s or %s", label, resolved, resolved, fix))
 	}
+}
+
+func requireVersionedArtifactRef(missing *[]string, label, value, fix string) {
+	ref := strings.TrimSpace(value)
+	if ref == "" {
+		*missing = append(*missing, fmt.Sprintf("%s: value is not configured; %s", label, fix))
+		return
+	}
+	if strings.HasSuffix(ref, ":latest") {
+		*missing = append(*missing, fmt.Sprintf("%s: %s uses mutable :latest; %s", label, ref, fix))
+	}
+}
+
+func firstNonEmptyConfigValue(cfg map[string]string, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(cfg[key]); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func resolveArtifactPath(path string) (string, error) {

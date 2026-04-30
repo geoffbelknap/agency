@@ -9,6 +9,7 @@ ENFORCER_BIN="${AGENCY_APPLE_VF_ENFORCER_BIN:-/tmp/agency-enforcer-host}"
 VSOCK_BRIDGE_BIN="${AGENCY_APPLE_VF_VSOCK_BRIDGE_BIN:-/tmp/agency-vsock-http-bridge-linux-arm64}"
 AGENT_NAME="${AGENT_NAME:-apple-vf-smoke-$(date +%s)}"
 ROOTFS_SIZE_MIB="${AGENCY_APPLE_VF_ROOTFS_SIZE_MIB:-1024}"
+ROOTFS_OCI_REF="${AGENCY_APPLE_VF_ROOTFS_OCI_REF:-}"
 BUILD_HELPER=1
 KEEP_HOME=0
 SMOKE_HOME=""
@@ -35,6 +36,7 @@ Options:
   --mke2fs PATH           mke2fs path. Defaults to PATH lookup, then Homebrew e2fsprogs.
   --enforcer-bin PATH     Host-process enforcer output path.
   --vsock-bridge-bin PATH Linux ARM64 agency-vsock-http-bridge output path.
+  --rootfs-oci-ref REF    Versioned OCI artifact reference for the body rootfs source.
   --rootfs-size-mib N     Rootfs image size. Defaults to 1024.
   --skip-helper-build     Reuse --helper-bin instead of building/signing it.
   --keep-home             Keep the disposable Agency home after the run.
@@ -45,6 +47,7 @@ Environment:
   AGENCY_MKE2FS
   AGENCY_APPLE_VF_ENFORCER_BIN
   AGENCY_APPLE_VF_VSOCK_BRIDGE_BIN
+  AGENCY_APPLE_VF_ROOTFS_OCI_REF
   AGENCY_APPLE_VF_ROOTFS_SIZE_MIB
 EOF
 }
@@ -110,6 +113,11 @@ while [[ $# -gt 0 ]]; do
       ROOTFS_SIZE_MIB="$2"
       shift 2
       ;;
+    --rootfs-oci-ref)
+      [[ $# -ge 2 ]] || fail "--rootfs-oci-ref requires a value"
+      ROOTFS_OCI_REF="$2"
+      shift 2
+      ;;
     --skip-helper-build)
       BUILD_HELPER=0
       shift
@@ -147,6 +155,7 @@ fi
 
 [[ -r "$KERNEL_PATH" ]] || fail "Apple VF kernel Image is not readable at $KERNEL_PATH"
 [[ -x "$MKE2FS_PATH" ]] || fail "mke2fs is not executable at $MKE2FS_PATH"
+[[ -n "$ROOTFS_OCI_REF" ]] || fail "Apple VF rootfs OCI artifact is not configured; pass --rootfs-oci-ref or set AGENCY_APPLE_VF_ROOTFS_OCI_REF"
 
 cd "$ROOT"
 
@@ -212,6 +221,7 @@ func run() error {
 		mke2fs:        mustEnv("AGENCY_APPLE_VF_SMOKE_MKE2FS"),
 		enforcer:      mustEnv("AGENCY_APPLE_VF_SMOKE_ENFORCER"),
 		bridge:        mustEnv("AGENCY_APPLE_VF_SMOKE_BRIDGE"),
+		rootfsOCIRef:  mustEnv("AGENCY_APPLE_VF_SMOKE_ROOTFS_OCI_REF"),
 		rootfsSizeMiB: getenvDefault("AGENCY_APPLE_VF_SMOKE_ROOTFS_SIZE_MIB", "1024"),
 	}
 	if err := cfg.validate(); err != nil {
@@ -252,6 +262,7 @@ func run() error {
 		"enforcer_binary_path":     cfg.enforcer,
 		"vsock_bridge_binary_path": cfg.bridge,
 		"mke2fs_path":              cfg.mke2fs,
+		"rootfs_oci_ref":           cfg.rootfsOCIRef,
 		"rootfs_size_mib":          cfg.rootfsSizeMiB,
 	}
 	spec, err := rs.Compile(ctx, cfg.agent)
@@ -297,6 +308,7 @@ type smokeConfig struct {
 	mke2fs        string
 	enforcer      string
 	bridge        string
+	rootfsOCIRef  string
 	rootfsSizeMiB string
 }
 
@@ -488,6 +500,7 @@ env \
   AGENCY_APPLE_VF_SMOKE_MKE2FS="$MKE2FS_PATH" \
   AGENCY_APPLE_VF_SMOKE_ENFORCER="$ENFORCER_BIN" \
   AGENCY_APPLE_VF_SMOKE_BRIDGE="$VSOCK_BRIDGE_BIN" \
+  AGENCY_APPLE_VF_SMOKE_ROOTFS_OCI_REF="$ROOTFS_OCI_REF" \
   AGENCY_APPLE_VF_SMOKE_ROOTFS_SIZE_MIB="$ROOTFS_SIZE_MIB" \
   go run "$GO_SMOKE"
 

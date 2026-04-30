@@ -29,7 +29,7 @@ else
 CONTAINER_CMD ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null || command -v nerdctl 2>/dev/null)
 endif
 
-# Core images built by `make images` and published by release-images.yml.
+# Core OCI filesystem recipes built by `make images` for local artifact work.
 CORE_IMAGES = body enforcer comms knowledge egress workspace gateway-proxy
 
 # Experimental images. Built on demand via `make images-experimental` and not

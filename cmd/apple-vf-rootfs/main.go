@@ -27,7 +27,7 @@ func main() {
 	var osName string
 	var arch string
 	var env envFlags
-	flag.StringVar(&image, "image", "ghcr.io/geoffbelknap/agency-body:latest", "OCI image reference")
+	flag.StringVar(&image, "image", "", "versioned OCI image reference to realize as an ext4 rootfs")
 	flag.StringVar(&out, "out", "", "output ext4 rootfs path")
 	flag.StringVar(&stateDir, "state-dir", "", "builder state directory")
 	flag.StringVar(&overlayBaseDir, "overlay-base-dir", "", "base directory for safe rootfs overlays")
@@ -41,6 +41,14 @@ func main() {
 
 	if strings.TrimSpace(out) == "" {
 		fmt.Fprintln(os.Stderr, "--out is required")
+		os.Exit(2)
+	}
+	if strings.TrimSpace(image) == "" {
+		fmt.Fprintln(os.Stderr, "--image is required")
+		os.Exit(2)
+	}
+	if strings.HasSuffix(strings.TrimSpace(image), ":latest") {
+		fmt.Fprintln(os.Stderr, "--image must be a versioned OCI artifact reference, not a mutable :latest tag")
 		os.Exit(2)
 	}
 	builder := runtimebackend.MicroVMOCIRootFSBuilder{

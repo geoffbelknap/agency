@@ -23,17 +23,18 @@ func TestAppleVFMicroVMBackendSkeleton(t *testing.T) {
 	if backend.KernelPath != filepath.Join(home, "runtime", "apple-vf-microvm", "artifacts", "Image") {
 		t.Fatalf("KernelPath = %q", backend.KernelPath)
 	}
-	if backend.Images != nil {
-		t.Fatal("Images != nil, want no container-runtime image store by default")
-	}
 	if backend.RootFSBuilder == nil {
 		t.Fatal("RootFSBuilder = nil, want ORAS rootfs builder")
 	}
-	if backend.RootFSBuilder.StateDir != backend.StateDir {
-		t.Fatalf("rootfs builder state dir = %q, want %q", backend.RootFSBuilder.StateDir, backend.StateDir)
+	builder, ok := backend.RootFSBuilder.(*MicroVMOCIRootFSBuilder)
+	if !ok {
+		t.Fatalf("RootFSBuilder = %T, want *MicroVMOCIRootFSBuilder", backend.RootFSBuilder)
 	}
-	if backend.RootFSBuilder.Platform.OS != "linux" || backend.RootFSBuilder.Platform.Architecture != "arm64" {
-		t.Fatalf("rootfs builder platform = %#v, want linux/arm64", backend.RootFSBuilder.Platform)
+	if builder.StateDir != backend.StateDir {
+		t.Fatalf("rootfs builder state dir = %q, want %q", builder.StateDir, backend.StateDir)
+	}
+	if builder.Platform.OS != "linux" || builder.Platform.Architecture != "arm64" {
+		t.Fatalf("rootfs builder platform = %#v, want linux/arm64", builder.Platform)
 	}
 	caps, err := backend.Capabilities(context.Background())
 	if err != nil {
@@ -72,39 +73,39 @@ func TestAppleVFMicroVMBackendConfiguresORASRootFSBuilder(t *testing.T) {
 		"mke2fs_path":              "/usr/local/sbin/mke2fs",
 		"rootfs_size_mib":          "2048",
 		"vsock_bridge_binary_path": "/usr/local/bin/agency-vsock-http-bridge",
+		"rootfs_oci_ref":           "ghcr.io/example/agency-runtime-body:v1",
 	})
-	if backend.Images != nil {
-		t.Fatal("Images != nil, want no container-runtime image store by default")
+	builder, ok := backend.RootFSBuilder.(*MicroVMOCIRootFSBuilder)
+	if !ok {
+		t.Fatalf("RootFSBuilder = %T, want *MicroVMOCIRootFSBuilder", backend.RootFSBuilder)
 	}
-	if backend.RootFSBuilder.StateDir != filepath.Join(home, "apple-vf-state") {
-		t.Fatalf("rootfs builder state dir = %q", backend.RootFSBuilder.StateDir)
+	if builder.StateDir != filepath.Join(home, "apple-vf-state") {
+		t.Fatalf("rootfs builder state dir = %q", builder.StateDir)
 	}
-	if backend.RootFSBuilder.Mke2fsPath != "/usr/local/sbin/mke2fs" {
-		t.Fatalf("mke2fs path = %q", backend.RootFSBuilder.Mke2fsPath)
+	if builder.Mke2fsPath != "/usr/local/sbin/mke2fs" {
+		t.Fatalf("mke2fs path = %q", builder.Mke2fsPath)
 	}
-	if backend.RootFSBuilder.SizeMiB != 2048 {
-		t.Fatalf("rootfs size = %d", backend.RootFSBuilder.SizeMiB)
+	if builder.SizeMiB != 2048 {
+		t.Fatalf("rootfs size = %d", builder.SizeMiB)
 	}
-	if backend.RootFSBuilder.VsockBridgeBinary != "/usr/local/bin/agency-vsock-http-bridge" {
-		t.Fatalf("vsock bridge binary = %q", backend.RootFSBuilder.VsockBridgeBinary)
+	if builder.VsockBridgeBinary != "/usr/local/bin/agency-vsock-http-bridge" {
+		t.Fatalf("vsock bridge binary = %q", builder.VsockBridgeBinary)
 	}
-	if backend.RootFSBuilder.OverlayBaseDir != home {
-		t.Fatalf("overlay base dir = %q, want %q", backend.RootFSBuilder.OverlayBaseDir, home)
+	if builder.OverlayBaseDir != home {
+		t.Fatalf("overlay base dir = %q, want %q", builder.OverlayBaseDir, home)
+	}
+	if backend.BodyImageRef != "ghcr.io/example/agency-runtime-body:v1" {
+		t.Fatalf("body image ref = %q", backend.BodyImageRef)
 	}
 }
 
-func TestAppleVFMicroVMPrepareRootFSUsesOCIImageStore(t *testing.T) {
+func TestAppleVFMicroVMPrepareRootFSUsesOCIBuilder(t *testing.T) {
 	stateDir := t.TempDir()
-	commands := &fakeFirecrackerImageCommands{
-		outputs: map[string][]byte{
-			"podman image inspect --format {{.Digest}} agency-body:latest":                                      []byte("sha256:abc123\n"),
-			"podman image inspect --format {{json .Config.Entrypoint}}|{{json .Config.Cmd}} agency-body:latest": []byte("null|[\"/app/entrypoint.sh\"]\n"),
-			"podman create agency-body:latest":                                                                  []byte("source-id\n"),
-		},
-	}
+	builder := &fakeAppleVFRootFSBuilder{}
 	backend := &AppleVFMicroVMRuntimeBackend{
-		StateDir: stateDir,
-		Images:   &MicroVMImageStore{StateDir: stateDir, commands: commands},
+		StateDir:      stateDir,
+		BodyImageRef:  "ghcr.io/example/agency-runtime-body:v1",
+		RootFSBuilder: builder,
 	}
 	rootfs, err := backend.PrepareRootFS(context.Background(), runtimecontract.RuntimeSpec{
 		RuntimeID: "alice",
@@ -123,8 +124,8 @@ func TestAppleVFMicroVMPrepareRootFSUsesOCIImageStore(t *testing.T) {
 	if string(data) != "ext4" {
 		t.Fatalf("rootfs contents = %q", string(data))
 	}
-	if !commands.exported["source-id"] {
-		t.Fatal("expected image filesystem export")
+	if builder.imageRef != "ghcr.io/example/agency-runtime-body:v1" {
+		t.Fatalf("rootfs builder image ref = %q", builder.imageRef)
 	}
 }
 
@@ -179,22 +180,16 @@ func TestAppleVFMicroVMPrepareHelperRequest(t *testing.T) {
 
 func TestAppleVFMicroVMEnsureInspectStopUseHelper(t *testing.T) {
 	stateDir := t.TempDir()
-	commands := &fakeFirecrackerImageCommands{
-		outputs: map[string][]byte{
-			"podman image inspect --format {{.Digest}} agency-body:latest":                                      []byte("sha256:abc123\n"),
-			"podman image inspect --format {{json .Config.Entrypoint}}|{{json .Config.Cmd}} agency-body:latest": []byte("null|[\"/app/entrypoint.sh\"]\n"),
-			"podman create agency-body:latest":                                                                  []byte("source-id\n"),
-		},
-	}
 	logPath := filepath.Join(stateDir, "helper.log")
 	helper := writeAppleVFHelperScript(t, logPath)
 	backend := &AppleVFMicroVMRuntimeBackend{
-		HelperBinary: helper,
-		KernelPath:   "/artifacts/Image",
-		StateDir:     stateDir,
-		MemoryMiB:    512,
-		CPUCount:     2,
-		Images:       &MicroVMImageStore{StateDir: stateDir, commands: commands},
+		HelperBinary:  helper,
+		KernelPath:    "/artifacts/Image",
+		StateDir:      stateDir,
+		MemoryMiB:     512,
+		CPUCount:      2,
+		BodyImageRef:  "ghcr.io/example/agency-runtime-body:v1",
+		RootFSBuilder: &fakeAppleVFRootFSBuilder{},
 	}
 	spec := runtimecontract.RuntimeSpec{
 		RuntimeID: "alice",
@@ -267,22 +262,16 @@ func TestAppleVFMicroVMStopCleansTaskStateWhenHelperStateIsMissing(t *testing.T)
 
 func TestAppleVFMicroVMEnsureCleansUpAfterStartFailure(t *testing.T) {
 	stateDir := t.TempDir()
-	commands := &fakeFirecrackerImageCommands{
-		outputs: map[string][]byte{
-			"podman image inspect --format {{.Digest}} agency-body:latest":                                      []byte("sha256:abc123\n"),
-			"podman image inspect --format {{json .Config.Entrypoint}}|{{json .Config.Cmd}} agency-body:latest": []byte("null|[\"/app/entrypoint.sh\"]\n"),
-			"podman create agency-body:latest":                                                                  []byte("source-id\n"),
-		},
-	}
 	logPath := filepath.Join(stateDir, "helper.log")
 	helper := writeAppleVFStartFailureHelperScript(t, logPath)
 	backend := &AppleVFMicroVMRuntimeBackend{
-		HelperBinary: helper,
-		KernelPath:   "/artifacts/Image",
-		StateDir:     stateDir,
-		MemoryMiB:    512,
-		CPUCount:     2,
-		Images:       &MicroVMImageStore{StateDir: stateDir, commands: commands},
+		HelperBinary:  helper,
+		KernelPath:    "/artifacts/Image",
+		StateDir:      stateDir,
+		MemoryMiB:     512,
+		CPUCount:      2,
+		BodyImageRef:  "ghcr.io/example/agency-runtime-body:v1",
+		RootFSBuilder: &fakeAppleVFRootFSBuilder{},
 	}
 	spec := runtimecontract.RuntimeSpec{
 		RuntimeID: "alice",
@@ -315,12 +304,60 @@ func TestAppleVFMicroVMEnsureCleansUpAfterStartFailure(t *testing.T) {
 func TestAppleVFOCIImageRefMapsLegacyBodyTag(t *testing.T) {
 	t.Parallel()
 
-	if got := appleVFOCIImageRef("agency-body:latest"); got != defaultAppleVFBodyOCIRef {
-		t.Fatalf("appleVFOCIImageRef legacy tag = %q, want %q", got, defaultAppleVFBodyOCIRef)
+	backend := &AppleVFMicroVMRuntimeBackend{BodyImageRef: "ghcr.io/example/agency-runtime-body:v1"}
+	got, err := backend.appleVFOCIImageRef("agency-body:latest")
+	if err != nil {
+		t.Fatalf("appleVFOCIImageRef returned error: %v", err)
 	}
-	if got := appleVFOCIImageRef("ghcr.io/example/custom:tag"); got != "ghcr.io/example/custom:tag" {
+	if got != "ghcr.io/example/agency-runtime-body:v1" {
+		t.Fatalf("appleVFOCIImageRef legacy tag = %q", got)
+	}
+	got, err = backend.appleVFOCIImageRef("ghcr.io/example/custom:tag")
+	if err != nil {
+		t.Fatalf("appleVFOCIImageRef custom returned error: %v", err)
+	}
+	if got != "ghcr.io/example/custom:tag" {
 		t.Fatalf("appleVFOCIImageRef custom ref = %q", got)
 	}
+}
+
+func TestAppleVFOCIImageRefFailsClosedWithoutConfiguredArtifact(t *testing.T) {
+	t.Parallel()
+
+	backend := &AppleVFMicroVMRuntimeBackend{}
+	_, err := backend.appleVFOCIImageRef("agency-body:latest")
+	if err == nil || !strings.Contains(err.Error(), "rootfs_oci_ref") {
+		t.Fatalf("appleVFOCIImageRef error = %v, want rootfs_oci_ref guidance", err)
+	}
+}
+
+func TestAppleVFOCIImageRefRejectsLatestTag(t *testing.T) {
+	t.Parallel()
+
+	backend := &AppleVFMicroVMRuntimeBackend{BodyImageRef: "ghcr.io/example/agency-runtime-body:latest"}
+	_, err := backend.appleVFOCIImageRef("agency-body:latest")
+	if err == nil || !strings.Contains(err.Error(), "must not use mutable :latest") {
+		t.Fatalf("appleVFOCIImageRef error = %v, want latest rejection", err)
+	}
+}
+
+type fakeAppleVFRootFSBuilder struct {
+	imageRef string
+}
+
+func (b *fakeAppleVFRootFSBuilder) Build(_ context.Context, imageRef, outPath string, _ map[string]string) (MicroVMOCIRootFSResult, error) {
+	b.imageRef = imageRef
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		return MicroVMOCIRootFSResult{}, err
+	}
+	if err := os.WriteFile(outPath, []byte("ext4"), 0o644); err != nil {
+		return MicroVMOCIRootFSResult{}, err
+	}
+	return MicroVMOCIRootFSResult{
+		ImageRef:   imageRef,
+		RootFSPath: outPath,
+		InitPath:   "/sbin/agency-init",
+	}, nil
 }
 
 func writeAppleVFHelperScript(t *testing.T, logPath string) string {

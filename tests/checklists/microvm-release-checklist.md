@@ -94,8 +94,9 @@ $AGENCY_HOME/runtime/firecracker/artifacts/vmlinux
 The Firecracker binary must come from the pinned upstream Firecracker release
 artifact. The kernel must come from Agency's Linux build artifact pipeline as
 an uncompressed ELF `vmlinux`; do not use a random host distro kernel. The
-rootfs is derived from the `agency-body:latest` OCI artifact through the shared
-OCI-to-ext4 realization path used by the microVM backends.
+rootfs is derived from an explicit, versioned OCI artifact reference through
+the shared OCI-to-ext4 realization path used by the microVM backends. Mutable
+`:latest` runtime image tags are not release gates.
 
 `scripts/readiness/firecracker-artifacts.sh` fetches and verifies only the
 pinned upstream Firecracker binary. `scripts/readiness/firecracker-kernel-artifacts.sh`

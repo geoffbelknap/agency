@@ -54,6 +54,7 @@ func appendAppleVFDoctorChecks(ctx context.Context, report *doctorReport, cfg *c
 	add(appleVFExecutableCheck("apple_vf_mke2fs", appleVFConfiguredMke2fsPath(cfg), "Apple VF mke2fs is present at ", "install e2fsprogs with Homebrew or set hub.deployment_backend_config.mke2fs_path/AGENCY_MKE2FS"))
 	add(appleVFExecutableCheck("apple_vf_enforcer_binary", appleVFConfiguredPath(cfg, "enforcer_binary_path", "AGENCY_APPLE_VF_ENFORCER_BIN", ""), "Apple VF host enforcer binary is present at ", "build images/enforcer with 'go build -o /tmp/agency-enforcer-host ./images/enforcer' and set hub.deployment_backend_config.enforcer_binary_path/AGENCY_APPLE_VF_ENFORCER_BIN"))
 	add(appleVFExecutableCheck("apple_vf_vsock_bridge_binary", appleVFConfiguredPath(cfg, "vsock_bridge_binary_path", "AGENCY_APPLE_VF_VSOCK_BRIDGE_BIN", ""), "Apple VF guest vsock bridge binary is present at ", "build the Linux ARM64 guest bridge with 'GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/agency-vsock-http-bridge-linux-arm64 ./cmd/agency-vsock-http-bridge' and set hub.deployment_backend_config.vsock_bridge_binary_path/AGENCY_APPLE_VF_VSOCK_BRIDGE_BIN"))
+	add(appleVFRootFSOCIRefCheck(appleVFConfiguredRootFSOCIRef(cfg)))
 }
 
 func appleVFConfiguredPath(cfg *config.Config, key, envName, fallback string) string {
@@ -102,6 +103,27 @@ func appleVFConfiguredMke2fsPath(cfg *config.Config) string {
 		return homebrewMke2fs
 	}
 	return "mke2fs"
+}
+
+func appleVFConfiguredRootFSOCIRef(cfg *config.Config) string {
+	if cfg != nil {
+		for _, key := range []string{"rootfs_oci_ref", "body_oci_ref"} {
+			if value := strings.TrimSpace(cfg.Hub.DeploymentBackendConfig[key]); value != "" {
+				return value
+			}
+		}
+	}
+	return strings.TrimSpace(os.Getenv("AGENCY_APPLE_VF_ROOTFS_OCI_REF"))
+}
+
+func appleVFRootFSOCIRefCheck(ref string) doctorCheckResult {
+	if strings.TrimSpace(ref) == "" {
+		return appleVFBackendCheck("apple_vf_rootfs_oci_ref", agencysecurity.FindingFail, "Apple VF rootfs OCI artifact is not configured", "set hub.deployment_backend_config.rootfs_oci_ref or AGENCY_APPLE_VF_ROOTFS_OCI_REF to a versioned OCI artifact reference")
+	}
+	if strings.HasSuffix(strings.TrimSpace(ref), ":latest") {
+		return appleVFBackendCheck("apple_vf_rootfs_oci_ref", agencysecurity.FindingFail, "Apple VF rootfs OCI artifact must not use the mutable :latest tag: "+ref, "set hub.deployment_backend_config.rootfs_oci_ref to a versioned tag or digest")
+	}
+	return appleVFBackendCheck("apple_vf_rootfs_oci_ref", agencysecurity.FindingPass, "Apple VF rootfs OCI artifact is configured as "+ref, "")
 }
 
 func appleVFHostOSCheck() doctorCheckResult {

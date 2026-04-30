@@ -64,10 +64,12 @@ installs system packages such as Python, e2fsprogs, and Node, then installs the
 pinned mitmproxy, egress addon, and web UI dependencies into the installed
 Agency asset tree.
 
-Dockerfiles remain part of Agency because they define OCI image filesystems
+Dockerfiles remain part of Agency because they define OCI filesystem recipes
 that microVM backends can convert into bootable root filesystems. Docker,
 Podman, containerd, and Apple Container execution backends are legacy adapter
-history and are no longer selectable through setup or quickstart.
+history and are no longer selectable through setup or quickstart. MicroVM
+rootfs inputs must be explicit, versioned OCI artifact references; mutable
+`latest` runtime images are not release gates.
 
 ## Install
 
