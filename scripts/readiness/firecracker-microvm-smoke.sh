@@ -16,6 +16,7 @@ ROOTFS_SIZE_MIB="${AGENCY_FIRECRACKER_ROOTFS_SIZE_MIB:-1024}"
 OCI_CMD="${CONTAINER_CMD:-}"
 BUILD_BODY=1
 KEEP_HOME=0
+KEEP_AGENT=0
 SMOKE_HOME=""
 GO_SMOKE=""
 
@@ -30,7 +31,8 @@ Runs a disposable Linux/WSL Firecracker microVM smoke:
   4. builds host enforcer and guest vsock bridge helper binaries
   5. builds the agency-body OCI artifact and realizes it as an ext4 rootfs
   6. starts, validates, restarts, stops, and deletes a disposable runtime
-     without requiring real LLM provider credentials
+     without requiring real LLM provider credentials. With --keep-agent, the
+     runtime stays up for an external contract smoke.
 
 Options:
   --home PATH             Use a specific disposable Agency home.
@@ -47,6 +49,9 @@ Options:
   --rootfs-size-mib N     Rootfs image size. Defaults to 1024.
   --skip-body-build       Reuse existing agency-body:latest OCI artifact.
   --keep-home             Keep the disposable Agency home after the run.
+  --keep-agent            Keep the disposable Agency home and leave the
+                          Firecracker runtime running so contract smoke can
+                          attach from another shell.
 
 Environment:
   AGENCY_FIRECRACKER_VERSION      default: $FIRECRACKER_VERSION
@@ -142,6 +147,11 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --keep-home)
+      KEEP_HOME=1
+      shift
+      ;;
+    --keep-agent)
+      KEEP_AGENT=1
       KEEP_HOME=1
       shift
       ;;
@@ -261,8 +271,10 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
@@ -280,6 +292,7 @@ type smokeConfig struct {
 	bridge        string
 	oci           string
 	rootfsSizeMiB string
+	keepAgent     bool
 }
 
 type smokePorts struct {
@@ -302,6 +315,7 @@ func main() {
 	flag.StringVar(&cfg.bridge, "vsock-bridge-bin", "", "guest vsock bridge binary")
 	flag.StringVar(&cfg.oci, "container-cmd", "", "podman/docker-compatible OCI command")
 	flag.StringVar(&cfg.rootfsSizeMiB, "rootfs-size-mib", "1024", "rootfs size")
+	flag.BoolVar(&cfg.keepAgent, "keep-agent", false, "leave runtime running for external contract smoke")
 	flag.Parse()
 	if err := run(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -367,11 +381,13 @@ func run(cfg smokeConfig) error {
 	if err := rs.Reconcile(ctx, spec); err != nil {
 		return err
 	}
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		_ = rs.Stop(stopCtx, cfg.agent)
-	}()
+	if !cfg.keepAgent {
+		defer func() {
+			stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			_ = rs.Stop(stopCtx, cfg.agent)
+		}()
+	}
 
 	fmt.Println("==> Starting Firecracker workspace")
 	if err := rs.EnsureWorkspace(ctx, cfg.agent); err != nil {
@@ -401,6 +417,11 @@ func run(cfg smokeConfig) error {
 		return fmt.Errorf("validate restarted Firecracker runtime: %w", err)
 	}
 	printStatus(status)
+	if cfg.keepAgent {
+		printKeepAgentInstructions(cfg)
+		waitForContractSmoke(ctx)
+		return nil
+	}
 
 	fmt.Println("==> Stopping and deleting Firecracker workspace")
 	if err := rs.Stop(ctx, cfg.agent); err != nil {
@@ -590,6 +611,24 @@ func printStatus(status any) {
 	fmt.Println(string(data))
 }
 
+func printKeepAgentInstructions(cfg smokeConfig) {
+	fmt.Printf("agent_name=%s\n", cfg.agent)
+	fmt.Printf("agency_home=%s\n", cfg.home)
+	fmt.Println("contract_smoke_command=bash ./scripts/readiness/runtime-contract-smoke.sh --agent " + cfg.agent + " --home " + cfg.home + " --skip-tests")
+	fmt.Println("==> Keeping Firecracker runtime and dummy services running; press Ctrl-C when external contract smoke is complete")
+}
+
+func waitForContractSmoke(ctx context.Context) {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	select {
+	case <-signals:
+	case <-ctx.Done():
+		fmt.Println("==> Keep-agent hold timed out")
+	}
+}
+
 func copyFile(src, dst string, mode os.FileMode) error {
 	data, err := os.ReadFile(src)
 	if err != nil {
@@ -621,7 +660,8 @@ func stopProcess(cmd *exec.Cmd) {
 GOEOF
 
 log "Running Firecracker microVM smoke"
-go run "$GO_SMOKE" \
+go_args=(
+  "$GO_SMOKE"
   --repo "$ROOT" \
   --home "$SMOKE_HOME" \
   --agent "$AGENT_NAME" \
@@ -632,5 +672,10 @@ go run "$GO_SMOKE" \
   --vsock-bridge-bin "$VSOCK_BRIDGE_BIN" \
   --container-cmd "$OCI_CMD" \
   --rootfs-size-mib "$ROOTFS_SIZE_MIB"
+)
+if [[ "$KEEP_AGENT" == "1" ]]; then
+  go_args+=(--keep-agent)
+fi
+go run "${go_args[@]}"
 
 log "Firecracker microVM smoke passed"
