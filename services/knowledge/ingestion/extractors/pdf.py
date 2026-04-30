@@ -17,10 +17,7 @@ try:
 except ImportError:
     _PYMUPDF_AVAILABLE = False
 
-try:
-    from ingestion.base import BaseExtractor, ExtractionResult
-except ImportError:
-    from knowledge.ingestion.base import BaseExtractor, ExtractionResult
+from services.knowledge.ingestion.base import BaseExtractor, ExtractionResult
 
 
 class PdfExtractor(BaseExtractor):

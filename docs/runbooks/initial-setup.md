@@ -8,6 +8,33 @@ First-time deployment, new machine, or fresh environment after `agency admin des
 
 - Runtime host checks pass (`agency admin doctor`)
 - Go binary built or installed via Homebrew (`agency --version`)
+- Host dependencies installed:
+  - `.venv/bin/mitmdump` plus Agency's egress addon Python dependencies for host-managed egress
+  - `mke2fs` from e2fsprogs for microVM rootfs creation
+
+For source installs, run:
+
+```bash
+./scripts/install/host-dependencies.sh --check
+```
+
+If dependencies are missing, install them with:
+
+```bash
+./scripts/install/host-dependencies.sh
+```
+
+Runtime backend artifacts are verified by `agency setup` and `agency
+quickstart`. Source checkouts can prepare them before setup with:
+
+```bash
+make apple-vf-helpers
+./scripts/readiness/apple-vf-artifacts.sh
+
+make firecracker-helpers
+./scripts/readiness/firecracker-artifacts.sh
+./scripts/readiness/firecracker-kernel-artifacts.sh
+```
 
 ## Steps
 

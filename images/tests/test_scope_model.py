@@ -5,9 +5,9 @@ import json
 import pytest
 
 try:
-    from knowledge.scope import Scope
+    from services.knowledge.scope import Scope
 except ImportError:
-    from images.knowledge.scope import Scope
+    from services.knowledge.scope import Scope
 
 
 class TestScopeCreation:
@@ -182,7 +182,7 @@ class TestIsNarrowerThan:
 
 # --- Store integration tests for scope column ---
 
-from images.knowledge.store import KnowledgeStore
+from services.knowledge.store import KnowledgeStore
 
 
 class TestNodeHasScopeColumn:

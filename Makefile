@@ -1,4 +1,4 @@
-.PHONY: all build install deploy test clean firecracker-helpers images python-base workspace-base \
+.PHONY: all build install host-deps deploy test clean firecracker-helpers apple-vf-helpers images python-base workspace-base \
        body enforcer comms knowledge intake egress workspace web-fetch web relay \
        python-image-tests \
        provider-tools-readiness \
@@ -42,10 +42,10 @@ EXPERIMENTAL_IMAGES = intake web-fetch
 ALL_IMAGES = $(CORE_IMAGES) $(EXPERIMENTAL_IMAGES)
 
 # Services whose Dockerfile still needs the repo root as build context.
-REPO_CONTEXT_IMAGES = intake
+REPO_CONTEXT_IMAGES = comms egress intake knowledge
 
 # Services that build from their own directory plus shared assets from images/.
-SHARED_CONTEXT_IMAGES = body comms knowledge egress
+SHARED_CONTEXT_IMAGES = body
 
 # Build and install the gateway binary + all OCI artifact images (including web UI)
 all: install images-all
@@ -60,6 +60,12 @@ firecracker-helpers:
 	cd images/enforcer && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o ../../bin/enforcer .
 	CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o bin/agency-vsock-http-bridge ./cmd/agency-vsock-http-bridge
 
+apple-vf-helpers:
+	scripts/readiness/apple-vf-helper-build.sh
+	mkdir -p bin
+	cd images/enforcer && go build -ldflags="-s -w" -o ../../bin/agency-enforcer-host .
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o bin/agency-vsock-http-bridge-linux-arm64 ./cmd/agency-vsock-http-bridge
+
 # Install the gateway binary where `agency` currently lives.
 # Falls back to ~/.agency/bin/ for fresh installs.
 # Refuses to overwrite Homebrew-managed binaries (use FORCE=1 to override).
@@ -68,7 +74,14 @@ ifeq ($(AGENCY_BIN),)
   AGENCY_BIN := $(HOME)/.agency/bin/agency
 endif
 
-install: build
+host-deps:
+	@if [ "$(SKIP_HOST_DEPS)" = "1" ]; then \
+		echo "Skipping host dependency install because SKIP_HOST_DEPS=1"; \
+	else \
+		./scripts/install/host-dependencies.sh; \
+	fi
+
+install: host-deps build
 	@DEST="$(AGENCY_BIN)"; \
 	case "$$DEST" in \
 		*/homebrew/*|*/Homebrew/*|*/Cellar/*) \

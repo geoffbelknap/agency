@@ -258,10 +258,10 @@ A single-page static web app served from the knowledge container at `http://loca
 No build toolchain — just HTML/JS/CSS bundled into the knowledge container image.
 
 **Files:**
-- Create `agency/agency/images/knowledge/static/index.html`
-- Create `agency/agency/images/knowledge/static/app.js`
-- Create `agency/agency/images/knowledge/static/style.css`
-- Modify `agency/agency/images/knowledge/server.py` — add static file serving at `/ui/` path
+- Create `agency/agency/services/knowledge/static/index.html`
+- Create `agency/agency/services/knowledge/static/app.js`
+- Create `agency/agency/services/knowledge/static/style.css`
+- Modify `agency/agency/services/knowledge/server.py` — add static file serving at `/ui/` path
 
 #### 2C. Knowledge Digests to Slack
 
@@ -401,7 +401,7 @@ After Phase 1 implementation, test the full flow on each platform:
 | CLI entry point | `agency/agency/cli.py` |
 | Connector model | `agency_core/models/connector.py` |
 | Intake service | `agency/agency/images/intake/server.py` |
-| Comms WebSocket (push) | `agency/agency/images/comms/websocket.py` |
+| Comms WebSocket (push) | `agency/agency/services/comms/websocket.py` |
 | Agent WS listener | `agency/agency/images/body/ws_listener.py` |
 | Comms-to-Slack relay | `agency-hub/connectors/comms-to-slack/connector.yaml` |
 | Slack-ops connector | `agency-hub/connectors/slack-ops/connector.yaml` |

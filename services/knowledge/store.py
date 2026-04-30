@@ -19,9 +19,9 @@ from pathlib import Path
 from typing import Optional
 
 try:
-    from knowledge.scope import Scope
+    from services.knowledge.scope import Scope
 except ImportError:
-    from images.knowledge.scope import Scope
+    from services.knowledge.scope import Scope
 
 logger = logging.getLogger("agency.knowledge.store")
 
@@ -81,9 +81,9 @@ class KnowledgeStore:
         """Initialize embedding provider only when an embedding path is used."""
         if self._embedding_provider is None:
             try:
-                from knowledge.embedding import create_provider
+                from services.knowledge.embedding import create_provider
             except ImportError:
-                from images.knowledge.embedding import create_provider
+                from services.knowledge.embedding import create_provider
             self._embedding_provider = create_provider()
         if self._vec_available and not self._vec_table_initialized and self._embedding_provider.dimensions > 0:
             try:

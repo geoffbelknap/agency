@@ -73,11 +73,52 @@ Agency is built around them first.
 **You'll need:**
 
 - a supported microVM runtime path for your platform
+- host tools for the supported runtime path
 - an API key from at least one supported model provider
 
 On Linux and WSL2, Agency defaults to Firecracker and requires KVM plus vsock
 access for the operator account. On macOS Apple silicon, Agency defaults to
 `apple-vf-microvm` backed by Apple's Virtualization framework.
+
+The supported microVM path also needs host tools and a local Python
+environment for host-managed egress:
+
+- `.venv/bin/mitmdump` plus Agency's egress addon Python dependencies for host-managed egress mediation
+- `e2fsprogs` / `mke2fs` for microVM root filesystem creation
+- Node/npm dependencies for the host-managed web UI
+
+Host-managed infra code is packaged as Agency services under `services/`.
+The `images/` tree remains in the source repo for OCI/rootfs build inputs; it
+is not shipped in packaged installs and is not the host service runtime
+contract.
+
+`agency setup` and `agency quickstart` own runtime artifact readiness. They
+persist the selected microVM backend and fail closed before daemon startup if
+the helper, kernel, enforcer, guest transport, or rootfs tooling needed by that
+backend is missing. Source checkouts can prepare those artifacts with:
+
+```bash
+make apple-vf-helpers
+./scripts/readiness/apple-vf-artifacts.sh
+
+make firecracker-helpers
+./scripts/readiness/firecracker-artifacts.sh
+./scripts/readiness/firecracker-kernel-artifacts.sh
+```
+
+Packaged installs run the host dependency helper automatically. To install or
+verify them yourself from a source checkout:
+
+```bash
+./scripts/install/host-dependencies.sh --check
+./scripts/install/host-dependencies.sh
+```
+
+The script uses Homebrew on macOS/Linuxbrew when available, or common Linux
+package managers such as `apt-get`, `dnf`, `yum`, `pacman`, or `zypper`. It
+installs system packages such as Python, e2fsprogs, and Node, then installs the
+pinned mitmproxy, egress addon, and web UI dependencies into the installed
+Agency asset tree.
 
 Dockerfiles remain part of Agency as OCI image build recipes. Docker, Podman,
 containerd, and Apple Container execution backends are legacy paths and are no
@@ -85,17 +126,38 @@ longer selectable through setup or quickstart.
 
 ### Install
 
-**macOS / Linux (Homebrew):**
+**Recommended: macOS / Linux Homebrew**
 
 ```bash
-brew install geoffbelknap/tap/agency
+brew tap geoffbelknap/tap
+brew install agency
 ```
 
-**Linux / macOS / WSL2 (script):**
+**One-shot installer**
 
 ```bash
 curl -fsSL https://geoffbelknap.github.io/agency/install.sh | bash
 ```
+
+The one-shot installer downloads the release archive directly, installs the
+`agency` binary to `~/.local/bin`, installs runtime assets to
+`~/.local/share/agency`, and uses the host package manager only for runtime
+dependencies. Before installing, it reminds you that Homebrew is easier to
+audit and uninstall, then asks you to confirm that you want to continue with the
+script path.
+
+**Last resort: source install**
+
+```bash
+git clone https://github.com/geoffbelknap/agency.git
+cd agency
+make install
+```
+
+Source installs are useful for contributors or environments that cannot use
+Homebrew. `make install` installs required host dependencies using
+`scripts/install/host-dependencies.sh`; set `SKIP_HOST_DEPS=1` if your package
+manager or release packaging already provides those dependencies.
 
 ### First Run
 
@@ -203,6 +265,16 @@ make test
 go test ./...
 pytest images/tests/
 ```
+
+For local source installs, `make install` runs:
+
+```bash
+./scripts/install/host-dependencies.sh
+```
+
+Use `./scripts/install/host-dependencies.sh --check` to verify host dependency
+presence without installing packages. Use `--dry-run` to see which package
+manager and Python dependencies would be used.
 
 For runtime/lifecycle changes, the highest-signal validation path is:
 

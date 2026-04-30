@@ -14,7 +14,7 @@ import logging
 import re
 from dataclasses import dataclass
 
-from images.knowledge.store import KnowledgeStore
+from services.knowledge.store import KnowledgeStore
 
 logger = logging.getLogger("agency.knowledge.manager")
 

@@ -1,7 +1,7 @@
 import json
 
-from images.knowledge.manager import MemoryManager
-from images.knowledge.store import KnowledgeStore
+from services.knowledge.manager import MemoryManager
+from services.knowledge.store import KnowledgeStore
 
 
 def _proposal(store, *, memory_type="procedural", confidence="high", summary="Use SEC primary filings first."):

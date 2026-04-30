@@ -58,13 +58,13 @@ class _HealthFilterAccessLogger(AbstractAccessLogger):
         )
 
 from typing import Optional
-from images.knowledge.ingester import RuleIngester
-from images.knowledge.principal_registry import PrincipalRegistry
-from images.knowledge.classification import ClassificationConfig
-from images.knowledge.store import KnowledgeStore
-from images.knowledge.synthesizer import LLMSynthesizer
-from images.knowledge.manager import KnowledgeManager, MemoryManager
-from images.knowledge.gateway_client import GatewayClient
+from services.knowledge.ingester import RuleIngester
+from services.knowledge.principal_registry import PrincipalRegistry
+from services.knowledge.classification import ClassificationConfig
+from services.knowledge.store import KnowledgeStore
+from services.knowledge.synthesizer import LLMSynthesizer
+from services.knowledge.manager import KnowledgeManager, MemoryManager
+from services.knowledge.gateway_client import GatewayClient
 
 logger = logging.getLogger("agency.knowledge")
 
@@ -154,7 +154,7 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
     # Curator: create before ingester/synthesizer so they can use it
     curator_mode = os.environ.get("KNOWLEDGE_CURATOR_MODE", "auto")
     if curator_mode != "disabled":
-        from images.knowledge.curator import Curator, CurationLoop
+        from services.knowledge.curator import Curator, CurationLoop
         curator = Curator(store, mode=curator_mode)
         app["curator"] = curator
         app.on_startup.append(_start_curation_loop)
@@ -178,18 +178,12 @@ def create_app(data_dir: Optional[Path] = None, enable_ingestion: bool = False) 
 
     # Universal ingestion pipeline (optional — depends on ingestion extras)
     try:
-        from ingestion.pipeline import IngestionPipeline
+        from services.knowledge.ingestion.pipeline import IngestionPipeline
         synth = app.get("synthesizer")
         pipeline = IngestionPipeline(store=store, synthesizer=synth)
         app["pipeline"] = pipeline
     except ImportError:
-        try:
-            from images.knowledge.ingestion.pipeline import IngestionPipeline
-            synth = app.get("synthesizer")
-            pipeline = IngestionPipeline(store=store, synthesizer=synth)
-            app["pipeline"] = pipeline
-        except ImportError:
-            app["pipeline"] = None
+        app["pipeline"] = None
 
     # Run schema migrations on startup
     app.on_startup.append(_run_schema_migrations)
@@ -1350,7 +1344,7 @@ async def _start_curation_loop(app: web.Application) -> None:
     curator = app.get("curator")
     if curator:
         interval = int(os.environ.get("KNOWLEDGE_CURATOR_INTERVAL", "600"))
-        from images.knowledge.curator import CurationLoop
+        from services.knowledge.curator import CurationLoop
         loop = CurationLoop(curator, interval_seconds=interval)
         app["_curation_task"] = asyncio.ensure_future(loop.run())
 

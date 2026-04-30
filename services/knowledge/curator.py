@@ -17,7 +17,7 @@ from difflib import SequenceMatcher
 logger = logging.getLogger("agency.knowledge.curator")
 
 from typing import Optional, Union
-from images.knowledge.store import KnowledgeStore, STRUCTURAL_KINDS, _SOURCE_PRIORITY
+from services.knowledge.store import KnowledgeStore, STRUCTURAL_KINDS, _SOURCE_PRIORITY
 
 
 def _normalize_label(label: str) -> str:
@@ -625,7 +625,7 @@ class Curator:
         Returns:
             Dict with communities_found and nodes_assigned counts.
         """
-        from images.knowledge.graph_intelligence import CommunityDetector
+        from services.knowledge.graph_intelligence import CommunityDetector
 
         detector = CommunityDetector(self.store)
         t0 = time.monotonic()
@@ -646,7 +646,7 @@ class Curator:
         Returns:
             Dict with hubs_found and bridges_found counts.
         """
-        from images.knowledge.graph_intelligence import HubDetector
+        from services.knowledge.graph_intelligence import HubDetector
 
         detector = HubDetector(self.store)
         stats = detector.detect()

@@ -2,7 +2,7 @@
 
 import json
 
-from images.knowledge.store import KnowledgeStore
+from services.knowledge.store import KnowledgeStore
 
 
 class TestNodeCRUD:

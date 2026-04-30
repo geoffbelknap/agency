@@ -11,7 +11,8 @@ Get Agency running and your first agent working in under 10 minutes.
 You need:
 
 1. **A supported microVM runtime path** for your platform
-2. **An API key** from at least one supported model provider
+2. **Host tools** for egress mediation and microVM rootfs creation
+3. **An API key** from at least one supported model provider
 
 If you need a provider key first, see [Getting API Keys](/getting-api-keys).
 Google Gemini is the easiest no-credit-card starting point for many users.
@@ -27,6 +28,42 @@ test -r /dev/vhost-vsock && test -w /dev/vhost-vsock
 On macOS Apple silicon, the supported runtime path is `apple-vf-microvm`,
 backed by Apple's Virtualization framework.
 
+Both supported runtime paths need `mitmdump` with Agency's egress addon Python
+dependencies for host-managed egress and `mke2fs` from e2fsprogs for root
+filesystem creation. They also need Node/npm dependencies for the host-managed
+web UI. Packaged installs run the host dependency helper automatically. To
+verify or install them manually from a source checkout:
+
+Host-managed infra code is packaged as Agency services under `services/`.
+The `images/` tree remains in the source repo for OCI/rootfs build inputs; it
+is not shipped in packaged installs and is not the host service runtime
+contract.
+
+`agency setup` and `agency quickstart` check the selected microVM backend before
+starting the daemon. They fail closed if the backend helper, kernel, host
+enforcer, guest transport helper, or rootfs tooling is missing. From a source
+checkout, prepare those runtime artifacts with:
+
+```bash
+make apple-vf-helpers
+./scripts/readiness/apple-vf-artifacts.sh
+
+make firecracker-helpers
+./scripts/readiness/firecracker-artifacts.sh
+./scripts/readiness/firecracker-kernel-artifacts.sh
+```
+
+```bash
+./scripts/install/host-dependencies.sh --check
+./scripts/install/host-dependencies.sh
+```
+
+The script uses Homebrew on macOS/Linuxbrew when available, or common Linux
+package managers such as `apt-get`, `dnf`, `yum`, `pacman`, or `zypper`. It
+installs system packages such as Python, e2fsprogs, and Node, then installs the
+pinned mitmproxy, egress addon, and web UI dependencies into the installed
+Agency asset tree.
+
 Dockerfiles remain part of Agency because they define OCI image filesystems
 that microVM backends can convert into bootable root filesystems. Docker,
 Podman, containerd, and Apple Container execution backends are legacy adapter
@@ -34,26 +71,40 @@ history and are no longer selectable through setup or quickstart.
 
 ## Install
 
-**macOS / Linux (Homebrew or Linuxbrew):**
+**Recommended: macOS / Linux Homebrew**
 
 ```bash
-brew install geoffbelknap/tap/agency
+brew tap geoffbelknap/tap
+brew install agency
 ```
 
-**From source (any Linux or macOS with Go 1.24+):**
+**One-shot installer**
+
+```bash
+curl -fsSL https://geoffbelknap.github.io/agency/install.sh | bash
+```
+
+The one-shot installer downloads the release archive directly, installs the
+`agency` binary to `~/.local/bin`, installs runtime assets to
+`~/.local/share/agency`, and uses the host package manager only for runtime
+dependencies. Before installing, it reminds you that Homebrew is easier to
+audit and uninstall, then asks you to confirm that you want to continue with the
+script path.
+
+**Last resort: source install**
 
 ```bash
 git clone https://github.com/geoffbelknap/agency.git
 cd agency && make install
 ```
 
+`make install` installs the required host tools through
+`scripts/install/host-dependencies.sh`. Use `SKIP_HOST_DEPS=1 make install`
+only when those dependencies are already managed by your package or image
+build.
+
 **Windows:** install inside a WSL2 Ubuntu distro and follow the Linux path
 above. There is no native Windows installer.
-
-The hosted `install.sh` at `geoffbelknap.github.io/agency/install.sh`
-deliberately does not install anything; it prints the commands above and
-politely suggests you don't pipe scripts from the internet into your
-shell. See `install.sh` in this repo for the source.
 
 ## First Run
 

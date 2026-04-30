@@ -1,0 +1,9 @@
+name: knowledge
+kind: python-http
+entrypoint: services.knowledge.server
+health: /health
+dependencies:
+  python:
+    - aiohttp
+    - httpx
+    - pyyaml

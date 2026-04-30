@@ -203,12 +203,12 @@ type buildSpec struct {
 func sourceBuildSpec(name, sourceDir string) (buildSpec, error) {
 	// Services that still need the repo root as build context.
 	repoContextNames := map[string]bool{
-		"intake": true,
+		"comms": true, "egress": true, "intake": true, "knowledge": true,
 	}
 
 	// Services that build from a self-contained context plus shared image assets.
 	sharedContextNames := map[string]bool{
-		"body": true, "comms": true, "knowledge": true, "egress": true,
+		"body": true,
 	}
 
 	var spec buildSpec

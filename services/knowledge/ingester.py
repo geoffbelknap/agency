@@ -7,7 +7,7 @@ Runs inside the knowledge container.
 
 import logging
 from typing import Optional
-from images.knowledge.store import KnowledgeStore
+from services.knowledge.store import KnowledgeStore
 
 logger = logging.getLogger("agency.knowledge.ingester")
 

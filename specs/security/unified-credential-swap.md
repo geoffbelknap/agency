@@ -267,7 +267,7 @@ From ASK review:
 
 | Component | Change |
 |-----------|--------|
-| `images/egress/credential_swap.py` | SocketKeyResolver replaces FileKeyResolver. Typed handler dispatch. |
+| `services/egress/credential_swap.py` | SocketKeyResolver replaces FileKeyResolver. Typed handler dispatch. |
 | `agency-gateway/internal/credstore/` | Credential store package — Put/Get/Delete/List/Rotate, swap config generation |
 | `agency-gateway/internal/api/handlers_credentials.go` | REST API for credential CRUD, internal resolve endpoint |
 | `agency-gateway/internal/orchestrate/infra.go` | Mount `credential-swaps.yaml` + gateway socket into egress |

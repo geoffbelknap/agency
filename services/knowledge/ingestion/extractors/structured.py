@@ -12,10 +12,7 @@ import ipaddress
 import re
 from typing import Optional
 
-try:
-    from ingestion.base import BaseExtractor, ExtractionResult
-except ImportError:
-    from knowledge.ingestion.base import BaseExtractor, ExtractionResult
+from services.knowledge.ingestion.base import BaseExtractor, ExtractionResult
 
 # ---------------------------------------------------------------------------
 # Compiled patterns

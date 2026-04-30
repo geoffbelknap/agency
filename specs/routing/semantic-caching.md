@@ -11,12 +11,12 @@ There is no mechanism to recognize that an incoming task is functionally similar
 
 ## What Already Exists
 
-**Knowledge graph** (`images/knowledge/store.py`):
+**Knowledge graph** (`services/knowledge/store.py`):
 - SQLite + sqlite-vec + FTS5
 - Hybrid search: vector ANN + full-text with reciprocal rank fusion
 - Node deduplication by (label, kind) on ingest
 
-**Embedding infrastructure** (`images/knowledge/embedding.py`):
+**Embedding infrastructure** (`services/knowledge/embedding.py`):
 - 4 providers: Ollama (local, default), OpenAI, Voyage, NoOp
 - Configurable per deployment
 - Used for node embedding on ingest and query embedding on search

@@ -17,10 +17,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-try:
-    from ingestion.base import BaseExtractor, ExtractionResult
-except ImportError:
-    from knowledge.ingestion.base import BaseExtractor, ExtractionResult
+from services.knowledge.ingestion.base import BaseExtractor, ExtractionResult
 
 # ---------------------------------------------------------------------------
 # Code content types (mirrors SourceClassifier._CODE_TYPES)

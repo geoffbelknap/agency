@@ -7,7 +7,7 @@ mock_http = MagicMock()
 sys.modules.setdefault("mitmproxy", MagicMock())
 sys.modules.setdefault("mitmproxy.http", mock_http)
 
-from images.egress.credential_swap import CredentialSwapAddon
+from services.egress.credential_swap import CredentialSwapAddon
 
 
 def _make_flow(host: str, headers: dict = None) -> MagicMock:

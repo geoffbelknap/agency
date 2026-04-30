@@ -11,7 +11,7 @@ import (
 )
 
 func TestFirecrackerVsockBridgeForwardsToTarget(t *testing.T) {
-	targetPath := filepath.Join(t.TempDir(), "target.sock")
+	targetPath := shortSocketPath(t, "target.sock")
 	target, err := net.Listen("unix", targetPath)
 	if err != nil {
 		t.Fatal(err)
@@ -27,7 +27,7 @@ func TestFirecrackerVsockBridgeForwardsToTarget(t *testing.T) {
 		_, _ = conn.Write([]byte("echo:" + line))
 	}()
 
-	factory := &FirecrackerVsockListenerFactory{StateDir: t.TempDir()}
+	factory := &FirecrackerVsockListenerFactory{StateDir: shortSocketTempDir(t)}
 	bridge, err := factory.Start(context.Background(), "alice", map[int]string{
 		9999: "unix://" + targetPath,
 	})
@@ -54,14 +54,14 @@ func TestFirecrackerVsockBridgeForwardsToTarget(t *testing.T) {
 }
 
 func TestFirecrackerVsockBridgeStopUnlinksSockets(t *testing.T) {
-	targetPath := filepath.Join(t.TempDir(), "target.sock")
+	targetPath := shortSocketPath(t, "target.sock")
 	target, err := net.Listen("unix", targetPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer target.Close()
 
-	stateDir := t.TempDir()
+	stateDir := shortSocketTempDir(t)
 	factory := &FirecrackerVsockListenerFactory{StateDir: stateDir}
 	bridge, err := factory.Start(context.Background(), "alice", map[int]string{
 		9999: "unix://" + targetPath,
@@ -83,14 +83,14 @@ func TestFirecrackerVsockBridgeStopUnlinksSockets(t *testing.T) {
 }
 
 func TestFirecrackerVsockBridgeRestoresPersistedTargets(t *testing.T) {
-	targetPath := filepath.Join(t.TempDir(), "target.sock")
+	targetPath := shortSocketPath(t, "target.sock")
 	target, err := net.Listen("unix", targetPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer target.Close()
 
-	stateDir := t.TempDir()
+	stateDir := shortSocketTempDir(t)
 	firstFactory := &FirecrackerVsockListenerFactory{StateDir: stateDir}
 	first, err := firstFactory.Start(context.Background(), "alice", map[int]string{
 		9999: "unix://" + targetPath,
@@ -134,7 +134,7 @@ func TestFirecrackerVsockTargetParsesNetworkPrefixes(t *testing.T) {
 }
 
 func TestFirecrackerGuestVsockTargetHandshake(t *testing.T) {
-	socketPath := filepath.Join(t.TempDir(), "vsock.sock")
+	socketPath := shortSocketPath(t, "vsock.sock")
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatal(err)
@@ -173,7 +173,7 @@ func TestFirecrackerGuestVsockTargetHandshake(t *testing.T) {
 }
 
 func TestFirecrackerGuestVsockTargetRejectsBadAck(t *testing.T) {
-	socketPath := filepath.Join(t.TempDir(), "vsock.sock")
+	socketPath := shortSocketPath(t, "vsock.sock")
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatal(err)
@@ -212,14 +212,14 @@ func TestFirecrackerVsockBridgeRejectsInvalidConfig(t *testing.T) {
 }
 
 func TestFirecrackerVsockBridgeReplacesExistingBridge(t *testing.T) {
-	targetPath := filepath.Join(t.TempDir(), "target.sock")
+	targetPath := shortSocketPath(t, "target.sock")
 	target, err := net.Listen("unix", targetPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer target.Close()
 
-	factory := &FirecrackerVsockListenerFactory{StateDir: t.TempDir()}
+	factory := &FirecrackerVsockListenerFactory{StateDir: shortSocketTempDir(t)}
 	first, err := factory.Start(context.Background(), "alice", map[int]string{9999: "unix://" + targetPath})
 	if err != nil {
 		t.Fatal(err)

@@ -6,7 +6,7 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "knowledge"))
-from ingestion.extractors.code import CodeExtractor
+from services.knowledge.ingestion.extractors.code import CodeExtractor
 
 
 # ---------------------------------------------------------------------------

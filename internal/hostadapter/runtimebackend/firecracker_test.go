@@ -231,7 +231,7 @@ func TestFirecrackerRuntimeBackendInspectDegradesWhenBridgeMissing(t *testing.T)
 }
 
 func TestFirecrackerRuntimeBackendInspectRestoresPersistedBridge(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	supervisor := &FirecrackerVMSupervisor{
 		BinaryPath: "/bin/sh",
 		LogDir:     filepath.Join(dir, "logs"),
@@ -273,7 +273,7 @@ func TestFirecrackerRuntimeBackendInspectRestoresPersistedBridge(t *testing.T) {
 }
 
 func TestFirecrackerRuntimeBackendInspectDegradesWhenBridgeSocketMissing(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	supervisor := &FirecrackerVMSupervisor{
 		BinaryPath: "/bin/sh",
 		LogDir:     filepath.Join(dir, "logs"),
@@ -318,7 +318,7 @@ func TestFirecrackerRuntimeBackendInspectDegradesWhenBridgeSocketMissing(t *test
 }
 
 func TestFirecrackerRuntimeBackendInspectRestoresDegradedBridge(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortSocketTempDir(t)
 	supervisor := &FirecrackerVMSupervisor{
 		BinaryPath: "/bin/sh",
 		LogDir:     filepath.Join(dir, "logs"),

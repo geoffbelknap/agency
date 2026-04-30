@@ -6,8 +6,8 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from images.knowledge.classification import ClassificationConfig, DEFAULT_CONFIG
-from images.knowledge.store import KnowledgeStore
+from services.knowledge.classification import ClassificationConfig, DEFAULT_CONFIG
+from services.knowledge.store import KnowledgeStore
 
 
 class TestClassificationConfig:

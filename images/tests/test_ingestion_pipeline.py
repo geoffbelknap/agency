@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "knowledge"))
-from ingestion.pipeline import IngestionPipeline
+from services.knowledge.ingestion.pipeline import IngestionPipeline
 
 
 # ---------------------------------------------------------------------------

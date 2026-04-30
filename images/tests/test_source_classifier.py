@@ -1,6 +1,6 @@
 """Tests for SourceClassifier — content type detection for knowledge ingestion."""
 
-from images.knowledge.ingestion.classifier import SourceClassifier
+from services.knowledge.ingestion.classifier import SourceClassifier
 
 
 class TestClassifyByExtension:

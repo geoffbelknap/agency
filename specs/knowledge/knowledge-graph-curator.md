@@ -56,7 +56,7 @@ Each operation is an independent method on the `Curator` class. The loop catches
 ### Module Structure
 
 ```
-agency/images/knowledge/
+agency/services/knowledge/
 ├── curator.py          ← Curator class, CurationLoop, post_ingestion_check()
 ├── store.py            ← KnowledgeStore (existing, minor changes)
 ├── server.py           ← HTTP server (existing, new endpoints + loop lifecycle)

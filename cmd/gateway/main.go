@@ -686,13 +686,17 @@ func selectRuntimeBackend(override string) (string, map[string]string, error) {
 	if override == "" {
 		backend := defaultRuntimeBackendForHost()
 		fmt.Fprintf(os.Stderr, "Using %s runtime backend.\n", backend)
-		return backend, withAppleVFArtifactConfig(backend, nil), nil
+		return backend, withMicroVMArtifactConfig(backend, nil), nil
 	}
 	if override == hostruntimebackend.BackendFirecracker || override == hostruntimebackend.BackendAppleVFMicroVM {
 		fmt.Fprintf(os.Stderr, "Using %s runtime backend.\n", override)
-		return override, withAppleVFArtifactConfig(override, mergeBackendSocketConfig(configuredCfg, nil)), nil
+		return override, withMicroVMArtifactConfig(override, mergeBackendSocketConfig(configuredCfg, nil)), nil
 	}
 	return "", nil, fmt.Errorf("runtime backend %q is not supported; Agency supports firecracker on Linux/WSL and apple-vf-microvm on macOS", override)
+}
+
+func withMicroVMArtifactConfig(backend string, cfg map[string]string) map[string]string {
+	return withFirecrackerArtifactConfig(backend, withAppleVFArtifactConfig(backend, cfg))
 }
 
 func withAppleVFArtifactConfig(backend string, cfg map[string]string) map[string]string {
@@ -700,8 +704,13 @@ func withAppleVFArtifactConfig(backend string, cfg map[string]string) map[string
 		return cfg
 	}
 	home := config.Load().Home
+	sourceRoot := config.Load().SourceDir
 	defaults := map[string]string{
-		"kernel_path": hostruntimebackend.DefaultAppleVFKernelPath(home),
+		"kernel_path":              hostruntimebackend.DefaultAppleVFKernelPath(home),
+		"helper_binary":            filepath.Join(sourceRoot, "tools", "apple-vf-helper", ".build", "release", "agency-apple-vf-helper"),
+		"enforcer_binary_path":     filepath.Join(sourceRoot, "bin", "agency-enforcer-host"),
+		"vsock_bridge_binary_path": filepath.Join(sourceRoot, "bin", "agency-vsock-http-bridge-linux-arm64"),
+		"mke2fs_path":              defaultMke2fsPath(),
 	}
 	envPaths := map[string]string{
 		"kernel_path":              strings.TrimSpace(os.Getenv("AGENCY_APPLE_VF_KERNEL")),
@@ -725,6 +734,60 @@ func withAppleVFArtifactConfig(backend string, cfg map[string]string) map[string
 		}
 	}
 	return out
+}
+
+func withFirecrackerArtifactConfig(backend string, cfg map[string]string) map[string]string {
+	if backend != hostruntimebackend.BackendFirecracker {
+		return cfg
+	}
+	home := config.Load().Home
+	sourceRoot := config.Load().SourceDir
+	artifactDir := filepath.Join(home, "runtime", "firecracker", "artifacts")
+	defaultArch := runtime.GOARCH
+	switch defaultArch {
+	case "amd64":
+		defaultArch = "x86_64"
+	case "arm64":
+		defaultArch = "aarch64"
+	}
+	defaultVersion := "v1.12.1"
+	defaults := map[string]string{
+		"binary_path":              filepath.Join(artifactDir, defaultVersion, "firecracker-"+defaultVersion+"-"+defaultArch),
+		"kernel_path":              filepath.Join(artifactDir, "vmlinux"),
+		"enforcer_binary_path":     filepath.Join(sourceRoot, "bin", "enforcer"),
+		"vsock_bridge_binary_path": filepath.Join(sourceRoot, "bin", "agency-vsock-http-bridge"),
+		"mke2fs_path":              defaultMke2fsPath(),
+	}
+	envPaths := map[string]string{
+		"binary_path":              strings.TrimSpace(os.Getenv("AGENCY_FIRECRACKER_BIN")),
+		"kernel_path":              strings.TrimSpace(os.Getenv("AGENCY_FIRECRACKER_KERNEL")),
+		"enforcer_binary_path":     strings.TrimSpace(os.Getenv("AGENCY_FIRECRACKER_ENFORCER_BIN")),
+		"vsock_bridge_binary_path": strings.TrimSpace(os.Getenv("AGENCY_FIRECRACKER_VSOCK_BRIDGE_BIN")),
+		"mke2fs_path":              strings.TrimSpace(os.Getenv("AGENCY_MKE2FS")),
+	}
+	out := make(map[string]string, len(cfg)+len(defaults)+len(envPaths))
+	for k, v := range cfg {
+		out[k] = v
+	}
+	for key, value := range envPaths {
+		if strings.TrimSpace(out[key]) == "" && strings.TrimSpace(value) != "" {
+			out[key] = value
+		}
+	}
+	for key, value := range defaults {
+		if strings.TrimSpace(out[key]) == "" && strings.TrimSpace(value) != "" {
+			out[key] = value
+		}
+	}
+	return out
+}
+
+func defaultMke2fsPath() string {
+	const homebrewMke2fs = "/opt/homebrew/opt/e2fsprogs/sbin/mke2fs"
+	if info, err := os.Stat(homebrewMke2fs); err == nil && !info.IsDir() {
+		return homebrewMke2fs
+	}
+	return "mke2fs"
 }
 
 func routeBackendHealth(status *runtimehost.Status) backendhealth.Recorder {
@@ -786,6 +849,11 @@ func persistPendingKeysToEnv(agencyHome string, keys []config.KeyEntry) error {
 func runSetup(provider, apiKey, notifyURL, backend string, backendCfg map[string]string, noInfra, cliMode, noBrowser bool) error {
 	provider = normalizeProvider(provider)
 	gatewayAddr := ""
+	if !noInfra {
+		if err := verifyMicroVMRuntimeArtifacts(backend, backendCfg); err != nil {
+			return err
+		}
+	}
 	pendingKeys, err := config.RunInit(config.InitOptions{
 		Provider:                provider,
 		APIKey:                  apiKey,

@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import pytest_asyncio
 
-from images.comms.server import create_app, _try_buffer_drain
-from images.comms.store import MessageStore
+from services.comms.server import create_app, _try_buffer_drain
+from services.comms.store import MessageStore
 from images.models.comms import ChannelType
 
 

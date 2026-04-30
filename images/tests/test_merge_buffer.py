@@ -5,8 +5,8 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "knowledge"))
-from ingestion.base import ExtractionResult
-from ingestion.merge_buffer import MergeBuffer
+from services.knowledge.ingestion.base import ExtractionResult
+from services.knowledge.ingestion.merge_buffer import MergeBuffer
 
 
 # ---------------------------------------------------------------------------

@@ -2,8 +2,8 @@
 
 import pytest
 
-from images.comms.server import create_app
-from images.comms.websocket import ConnectionRegistry, setup_websocket
+from services.comms.server import create_app
+from services.comms.websocket import ConnectionRegistry, setup_websocket
 
 
 # ---------------------------------------------------------------------------

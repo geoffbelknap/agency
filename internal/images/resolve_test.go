@@ -242,7 +242,7 @@ func TestRepoContextMatchesMakefile(t *testing.T) {
 	}
 
 	goImages := map[string]bool{
-		"intake": true,
+		"comms": true, "egress": true, "intake": true, "knowledge": true,
 	}
 
 	for name := range makefileImages {

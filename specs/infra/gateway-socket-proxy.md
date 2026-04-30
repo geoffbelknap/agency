@@ -217,7 +217,7 @@ The segmentation spec will cover: network topology changes, enforcer multi-netwo
 | `internal/api/socket_routes.go` | Split socket router: proxy-safe router (gateway.sock) and credential router (gateway-cred.sock). Remove credential resolve from proxy-safe router. |
 | `internal/orchestrate/infra.go` | Add `ensureGatewayProxy()` in boot sequence. Remove ExtraHosts from egress, comms, knowledge, intake, web-fetch. Update egress socket mount to `gateway-cred.sock`. |
 | `internal/orchestrate/enforcer.go` | `GATEWAY_URL` → `http://gateway:8200`. Remove ExtraHosts. |
-| `images/egress/key_resolver.py` | Remove HTTP fallback to `host.docker.internal`. Keep socket resolver for credentials. Add HTTP path via `GATEWAY_URL` for non-sensitive calls. |
+| `services/egress/key_resolver.py` | Remove HTTP fallback to `host.docker.internal`. Keep socket resolver for credentials. Add HTTP path via `GATEWAY_URL` for non-sensitive calls. |
 
 ### Specs to Update
 

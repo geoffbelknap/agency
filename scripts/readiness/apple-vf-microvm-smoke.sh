@@ -349,7 +349,7 @@ func writeSmokeAgent(home, agent string) error {
 }
 
 func startComms(ctx context.Context, cfg smokeConfig, port string) (*exec.Cmd, error) {
-	cmd := exec.CommandContext(ctx, filepath.Join(cfg.repo, ".venv", "bin", "python"), "images/comms/server.py", "--port", port, "--data-dir", filepath.Join(cfg.home, "comms-data"), "--agents-dir", filepath.Join(cfg.home, "agents"))
+	cmd := exec.CommandContext(ctx, filepath.Join(cfg.repo, ".venv", "bin", "python"), "services/comms/server.py", "--port", port, "--data-dir", filepath.Join(cfg.home, "comms-data"), "--agents-dir", filepath.Join(cfg.home, "agents"))
 	cmd.Dir = cfg.repo
 	cmd.Env = append(os.Environ(), "PYTHONPATH=.")
 	cmd.Stdout = os.Stdout
