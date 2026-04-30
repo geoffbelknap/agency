@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router';
-import { RefreshCw, Activity, Play, Square, RotateCw } from 'lucide-react';
+import { RefreshCw, Activity, Play, Square, RotateCw, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { StatusIndicator } from '../components/StatusIndicator';
 import { InfrastructureService } from '../types';
@@ -12,6 +12,13 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog';
 import { Progress } from '../components/ui/progress';
 import {
   Table,
@@ -26,6 +33,11 @@ import { featureEnabled } from '../lib/features';
 import { socket } from '../lib/ws';
 
 type InfraAction = 'start' | 'stop' | 'restart';
+
+type InfraLogsState = {
+  service: string;
+  logs: string;
+} | null;
 
 function isRunningState(state: InfrastructureService['state']) {
   return state === 'running' || state === 'restarting';
@@ -90,6 +102,8 @@ export function Infrastructure() {
   const [globalAction, setGlobalAction] = useState<InfraAction | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [infraBuildId, setInfraBuildId] = useState('');
+  const [loadingLogs, setLoadingLogs] = useState<string | null>(null);
+  const [infraLogs, setInfraLogs] = useState<InfraLogsState>(null);
 
   const load = useCallback(async () => {
     setRefreshing(true);
@@ -144,6 +158,21 @@ export function Infrastructure() {
       console.error('handleRestart error:', err);
     } finally {
       setRestarting(null);
+    }
+  };
+
+  const handleViewLogs = async (serviceId: string) => {
+    setLoadingLogs(serviceId);
+    try {
+      const response = await api.infra.logs(serviceId, 200);
+      setInfraLogs({
+        service: response.component || serviceId,
+        logs: response.logs || 'No logs returned.',
+      });
+    } catch (err: any) {
+      toast.error(err.message || `Failed to load ${serviceId} logs`);
+    } finally {
+      setLoadingLogs(null);
     }
   };
 
@@ -379,25 +408,46 @@ export function Infrastructure() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => handleRestart(service.id)}
-                        disabled={restarting === service.id}
-                      >
-                        {restarting === service.id ? (
-                          <>
-                            <RotateCw data-icon="inline-start" className="animate-spin" />
-                            Restarting...
-                          </>
-                        ) : (
-                          <>
-                            <RotateCw data-icon="inline-start" />
-                            Restart
-                          </>
-                        )}
-                      </Button>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => handleRestart(service.id)}
+                          disabled={restarting === service.id}
+                        >
+                          {restarting === service.id ? (
+                            <>
+                              <RotateCw data-icon="inline-start" className="animate-spin" />
+                              Restarting...
+                            </>
+                          ) : (
+                            <>
+                              <RotateCw data-icon="inline-start" />
+                              Restart
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => handleViewLogs(service.id)}
+                          disabled={loadingLogs === service.id}
+                        >
+                          {loadingLogs === service.id ? (
+                            <>
+                              <RefreshCw data-icon="inline-start" className="animate-spin" />
+                              Loading...
+                            </>
+                          ) : (
+                            <>
+                              <FileText data-icon="inline-start" />
+                              Logs
+                            </>
+                          )}
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))
@@ -406,6 +456,20 @@ export function Infrastructure() {
           </Table>
         </CardContent>
       </Card>
+
+      <Dialog open={infraLogs !== null} onOpenChange={(open) => { if (!open) setInfraLogs(null); }}>
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{infraLogs?.service ?? 'Service'} logs</DialogTitle>
+            <DialogDescription>
+              Recent host-managed infrastructure service output.
+            </DialogDescription>
+          </DialogHeader>
+          <pre className="max-h-[60vh] overflow-auto rounded-md border border-border bg-muted p-3 text-xs text-foreground whitespace-pre-wrap">
+            {infraLogs?.logs}
+          </pre>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

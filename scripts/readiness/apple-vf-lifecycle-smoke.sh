@@ -13,6 +13,7 @@ ROOTFS_SIZE_MIB="${AGENCY_APPLE_VF_ROOTFS_SIZE_MIB:-1024}"
 ROOTFS_OCI_REF="${AGENCY_APPLE_VF_ROOTFS_OCI_REF:-}"
 BUILD_HELPER=1
 KEEP_HOME=0
+KEEP_AGENT=0
 SMOKE_HOME=""
 GATEWAY_PID=""
 COMMS_PID=""
@@ -48,6 +49,7 @@ Options:
   --rootfs-size-mib N     Rootfs image size. Defaults to 1024.
   --skip-helper-build     Reuse --helper-bin instead of building/signing it.
   --keep-home             Keep the disposable Agency home after the run.
+  --keep-agent            Keep the disposable Agency home and agent runtime after validation.
 
 Environment:
   AGENCY_BIN
@@ -76,7 +78,7 @@ api_url() {
 
 cleanup() {
   set +e
-  if [[ -n "$GATEWAY_PORT" && -n "$TOKEN" && -n "$AGENT_NAME" ]]; then
+  if [[ "$KEEP_AGENT" != "1" && -n "$GATEWAY_PORT" && -n "$TOKEN" && -n "$AGENT_NAME" ]]; then
     curl -fsS -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
       -X POST "$(api_url "/api/v1/agents/$AGENT_NAME/stop")" \
       -d '{"type":"immediate","reason":"apple-vf lifecycle smoke cleanup"}' >/dev/null 2>&1
@@ -161,6 +163,11 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --keep-home)
+      KEEP_HOME=1
+      shift
+      ;;
+    --keep-agent)
+      KEEP_AGENT=1
       KEEP_HOME=1
       shift
       ;;
@@ -498,9 +505,13 @@ api_json GET "/api/v1/agents/$AGENT_NAME/runtime/status" >"$STATUS_JSON"
 assert_runtime_healthy "$STATUS_JSON"
 api_json POST "/api/v1/agents/$AGENT_NAME/runtime/validate" '{}' >/dev/null
 
-log "Stopping and deleting disposable agent"
-api_json POST "/api/v1/agents/$AGENT_NAME/stop" '{"type":"immediate","reason":"apple-vf lifecycle smoke"}' >/dev/null
-api_json DELETE "/api/v1/agents/$AGENT_NAME" >/dev/null
+if [[ "$KEEP_AGENT" == "1" ]]; then
+  log "Keeping disposable agent runtime: $AGENT_NAME"
+else
+  log "Stopping and deleting disposable agent"
+  api_json POST "/api/v1/agents/$AGENT_NAME/stop" '{"type":"immediate","reason":"apple-vf lifecycle smoke"}' >/dev/null
+  api_json DELETE "/api/v1/agents/$AGENT_NAME" >/dev/null
+fi
 rm -f "$STATUS_JSON"
 
 log "Apple VF lifecycle smoke passed"
