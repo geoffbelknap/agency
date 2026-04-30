@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,36 @@ import (
 	"testing"
 	"time"
 )
+
+func TestTLSConfigFromSSLCertFileAppendsPEMRoots(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	certPath := filepath.Join(t.TempDir(), "ca.pem")
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	if err := os.WriteFile(certPath, certPEM, 0o644); err != nil {
+		t.Fatalf("write cert: %v", err)
+	}
+
+	t.Setenv("SSL_CERT_FILE", certPath)
+	cfg := tlsConfigFromSSL_CERT_FILE()
+	if cfg == nil || cfg.RootCAs == nil {
+		t.Fatal("expected TLS config with root CAs")
+	}
+
+	client := server.Client()
+	client.Transport = &http.Transport{TLSClientConfig: cfg}
+	resp, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("GET with SSL_CERT_FILE roots failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", resp.StatusCode)
+	}
+}
 
 func testRoutingConfig() *RoutingConfig {
 	return &RoutingConfig{

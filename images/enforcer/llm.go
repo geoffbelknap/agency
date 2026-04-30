@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -65,6 +68,9 @@ func NewLLMHandler(routing *RoutingConfig, egressProxy string, audit *AuditLogge
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: llmReadTimeout,
 	}
+	if tlsConfig := tlsConfigFromSSL_CERT_FILE(); tlsConfig != nil {
+		transport.TLSClientConfig = tlsConfig
+	}
 
 	return &LLMHandler{
 		routing:      routing,
@@ -74,6 +80,27 @@ func NewLLMHandler(routing *RoutingConfig, egressProxy string, audit *AuditLogge
 		toolTracker:  NewToolTracker(),
 		stepCounters: make(map[string]int),
 	}
+}
+
+func tlsConfigFromSSL_CERT_FILE() *tls.Config {
+	path := strings.TrimSpace(os.Getenv("SSL_CERT_FILE"))
+	if path == "" {
+		return nil
+	}
+	pem, err := os.ReadFile(path)
+	if err != nil {
+		slog.Warn("load SSL_CERT_FILE failed", "path", path, "error", err)
+		return nil
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(pem) {
+		slog.Warn("SSL_CERT_FILE did not contain any PEM certificates", "path", path)
+		return nil
+	}
+	return &tls.Config{RootCAs: pool}
 }
 
 // SetRouting replaces the routing config (used on SIGHUP reload).
