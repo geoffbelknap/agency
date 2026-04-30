@@ -72,6 +72,16 @@ func writeInfraBackendLine(w io.Writer, backend, mode, endpoint string) {
 	}
 }
 
+func runtimeBackendState(resp *apiclient.InfraStatusResponse) string {
+	if resp == nil {
+		return ""
+	}
+	if resp.RuntimeBackendState != "" {
+		return resp.RuntimeBackendState
+	}
+	return resp.ContainerBackend
+}
+
 // spinner displays an animated spinner with a status message on the current line.
 type spinner struct {
 	mu     sync.Mutex
@@ -938,7 +948,7 @@ func statusCmd() *cobra.Command {
 				if infraResp.WebURL != "" {
 					fmt.Fprintf(out, "  Web UI:  %s\n", infraResp.WebURL)
 				}
-				if infraResp.ContainerBackend == "unavailable" {
+				if runtimeBackendState(infraResp) == "unavailable" {
 					fmt.Fprintf(out, "  Legacy container backend: %s\n", red.Render("unavailable"))
 				}
 				if backendLine := formatBackendStatusLine(infraResp.Backend, infraResp.BackendMode, infraResp.BackendEndpoint); backendLine != "" {
@@ -954,7 +964,7 @@ func statusCmd() *cobra.Command {
 				gatewayBuild := infraResp.BuildID
 				for _, ic := range infraResp.Components {
 					icon := green.Render("●")
-					if infraResp.ContainerBackend == "unavailable" {
+					if runtimeBackendState(infraResp) == "unavailable" {
 						icon = dim.Render("?")
 					} else if ic["health"] != "healthy" && ic["state"] != "running" {
 						icon = red.Render("○")

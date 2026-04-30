@@ -145,7 +145,7 @@ func TestCoreInfraStatusSchemaIncludesOperatorBackendFields(t *testing.T) {
 		t.Fatal("core spec missing infra properties")
 	}
 
-	for _, key := range []string{"gateway_url", "web_url", "container_backend", "backend", "backend_endpoint", "backend_mode", "infra_control_available", "host_runtime", "components"} {
+	for _, key := range []string{"gateway_url", "web_url", "runtime_backend_state", "container_backend", "backend", "backend_endpoint", "backend_mode", "infra_control_available", "host_runtime", "components"} {
 		if _, ok := properties[key]; !ok {
 			t.Fatalf("core infra status schema missing %q", key)
 		}
