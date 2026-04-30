@@ -19,7 +19,11 @@ type fakeRuntimeBackend struct {
 	validateErr   error
 	capabilityErr error
 	inspectErr    error
+	ensureErr     error
+	workspaceErr  error
+	reloadErr     error
 	ensureCalls   int
+	reloadCalls   int
 	stopCalls     int
 	lastSpec      runtimecontract.RuntimeSpec
 	stopRuntimeID string
@@ -30,7 +34,7 @@ func (f *fakeRuntimeBackend) Name() string { return "fake" }
 func (f *fakeRuntimeBackend) Ensure(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
 	f.ensureCalls++
 	f.lastSpec = spec
-	return nil
+	return f.ensureErr
 }
 func (f *fakeRuntimeBackend) Stop(ctx context.Context, runtimeID string) error {
 	f.stopCalls++
@@ -61,7 +65,12 @@ func (f *fakeRuntimeBackend) EnsureEnforcer(ctx context.Context, spec runtimecon
 }
 func (f *fakeRuntimeBackend) EnsureWorkspace(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
 	f.lastSpec = spec
-	return nil
+	return f.workspaceErr
+}
+func (f *fakeRuntimeBackend) ReloadEnforcer(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
+	f.reloadCalls++
+	f.lastSpec = spec
+	return f.reloadErr
 }
 
 func TestRuntimeSupervisorCompileProducesBackendNeutralTransport(t *testing.T) {
@@ -238,6 +247,178 @@ func TestRuntimeSupervisorEnsureEnforcerPassesKeyRotation(t *testing.T) {
 	}
 	if fake.lastSpec.RuntimeID != "alice" {
 		t.Fatalf("runtime id = %q, want alice", fake.lastSpec.RuntimeID)
+	}
+}
+
+func TestRuntimeSupervisorEnsureWorkspaceRecordsFailureStatus(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, "agents", "alice")
+	stateDir := filepath.Join(agentDir, "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("uuid: ag_123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tokenFile := filepath.Join(stateDir, "token.yaml")
+	if err := os.WriteFile(tokenFile, []byte("- key: \"abc\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rs := NewRuntimeSupervisor(home, "0.1.0", "", "build-1", "fake", nil, nil, nil, nil)
+	fake := &fakeRuntimeBackend{workspaceErr: errors.New("rootfs build failed")}
+	rs.registry.Register("fake", func() (runtimecontract.Backend, error) { return fake, nil })
+	spec := runtimecontract.RuntimeSpec{
+		RuntimeID: "alice",
+		AgentID:   "ag_123",
+		Backend:   "fake",
+		Transport: runtimecontract.RuntimeTransportSpec{
+			Enforcer: runtimecontract.EnforcerTransportSpec{
+				Type:     runtimecontract.TransportTypeLoopbackHTTP,
+				Endpoint: "http://127.0.0.1:9999",
+				TokenRef: tokenFile,
+			},
+		},
+		Storage: runtimecontract.RuntimeStorageSpec{
+			ConfigPath: agentDir,
+			StatePath:  stateDir,
+		},
+	}
+	if err := rs.Reconcile(context.Background(), spec); err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+	err := rs.EnsureWorkspace(context.Background(), "alice")
+	if err == nil || !strings.Contains(err.Error(), "rootfs build failed") {
+		t.Fatalf("EnsureWorkspace error = %v", err)
+	}
+	manifest, err := rs.Manifest("alice")
+	if err != nil {
+		t.Fatalf("Manifest returned error: %v", err)
+	}
+	if manifest.Status.Phase != runtimecontract.RuntimePhaseFailed {
+		t.Fatalf("phase = %q, want failed", manifest.Status.Phase)
+	}
+	if manifest.Status.Details["failure_operation"] != "workspace" {
+		t.Fatalf("failure operation = %q", manifest.Status.Details["failure_operation"])
+	}
+	if manifest.Status.Details["last_error"] != "rootfs build failed" {
+		t.Fatalf("last error = %q", manifest.Status.Details["last_error"])
+	}
+}
+
+func TestRuntimeSupervisorStopPreservesFailureStatus(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, "agents", "alice")
+	stateDir := filepath.Join(agentDir, "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("uuid: ag_123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tokenFile := filepath.Join(stateDir, "token.yaml")
+	if err := os.WriteFile(tokenFile, []byte("- key: \"abc\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rs := NewRuntimeSupervisor(home, "0.1.0", "", "build-1", "fake", nil, nil, nil, nil)
+	fake := &fakeRuntimeBackend{}
+	rs.registry.Register("fake", func() (runtimecontract.Backend, error) { return fake, nil })
+	spec := runtimecontract.RuntimeSpec{
+		RuntimeID: "alice",
+		AgentID:   "ag_123",
+		Backend:   "fake",
+		Transport: runtimecontract.RuntimeTransportSpec{
+			Enforcer: runtimecontract.EnforcerTransportSpec{
+				Type:     runtimecontract.TransportTypeLoopbackHTTP,
+				Endpoint: "http://127.0.0.1:9999",
+				TokenRef: tokenFile,
+			},
+		},
+		Storage: runtimecontract.RuntimeStorageSpec{
+			ConfigPath: agentDir,
+			StatePath:  stateDir,
+		},
+	}
+	if err := rs.Reconcile(context.Background(), spec); err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+	if err := rs.recordFailureStatus(spec, "workspace", errors.New("body readiness failed")); err != nil {
+		t.Fatalf("recordFailureStatus returned error: %v", err)
+	}
+	if err := rs.Stop(context.Background(), "alice"); err != nil {
+		t.Fatalf("Stop returned error: %v", err)
+	}
+	manifest, err := rs.Manifest("alice")
+	if err != nil {
+		t.Fatalf("Manifest returned error: %v", err)
+	}
+	if manifest.Status.Phase != runtimecontract.RuntimePhaseStopped {
+		t.Fatalf("phase = %q, want stopped", manifest.Status.Phase)
+	}
+	if manifest.Status.Details["failure_operation"] != "workspace" || manifest.Status.Details["last_error"] != "body readiness failed" {
+		t.Fatalf("stopped details = %#v", manifest.Status.Details)
+	}
+	if manifest.Status.Transport.LastError != "body readiness failed" {
+		t.Fatalf("transport last error = %q", manifest.Status.Transport.LastError)
+	}
+}
+
+func TestRuntimeSupervisorReloadEnforcerRefreshesStatus(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, "agents", "alice")
+	stateDir := filepath.Join(agentDir, "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("uuid: ag_123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tokenFile := filepath.Join(stateDir, "token.yaml")
+	if err := os.WriteFile(tokenFile, []byte("- key: \"abc\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rs := NewRuntimeSupervisor(home, "0.1.0", "", "build-1", "fake", nil, nil, nil, nil)
+	fake := &fakeRuntimeBackend{
+		status: runtimecontract.BackendStatus{
+			RuntimeID: "alice",
+			Healthy:   true,
+			Phase:     runtimecontract.RuntimePhaseRunning,
+			Details: map[string]string{
+				"enforcer_state": "running",
+			},
+		},
+	}
+	rs.registry.Register("fake", func() (runtimecontract.Backend, error) { return fake, nil })
+	spec := runtimecontract.RuntimeSpec{
+		RuntimeID: "alice",
+		AgentID:   "ag_123",
+		Backend:   "fake",
+		Transport: runtimecontract.RuntimeTransportSpec{
+			Enforcer: runtimecontract.EnforcerTransportSpec{
+				Type:     runtimecontract.TransportTypeLoopbackHTTP,
+				Endpoint: "http://127.0.0.1:9999",
+				TokenRef: tokenFile,
+			},
+		},
+		Storage: runtimecontract.RuntimeStorageSpec{
+			ConfigPath: agentDir,
+			StatePath:  stateDir,
+		},
+	}
+	if err := rs.Reconcile(context.Background(), spec); err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+	if err := rs.ReloadEnforcer(context.Background(), "alice"); err != nil {
+		t.Fatalf("ReloadEnforcer returned error: %v", err)
+	}
+	if fake.reloadCalls != 1 {
+		t.Fatalf("reload calls = %d, want 1", fake.reloadCalls)
+	}
+	manifest, err := rs.Manifest("alice")
+	if err != nil {
+		t.Fatalf("Manifest returned error: %v", err)
+	}
+	if manifest.Status.Phase != runtimecontract.RuntimePhaseRunning || !manifest.Status.Transport.EnforcerConnected {
+		t.Fatalf("status after reload = %#v", manifest.Status)
 	}
 }
 

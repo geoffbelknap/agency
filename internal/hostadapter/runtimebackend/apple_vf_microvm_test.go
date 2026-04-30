@@ -222,11 +222,90 @@ func TestAppleVFMicroVMEnsureInspectStopUseHelper(t *testing.T) {
 	if err := backend.Stop(context.Background(), "alice"); err != nil {
 		t.Fatalf("Stop returned error: %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(stateDir, "tasks", "alice")); !os.IsNotExist(err) {
+		t.Fatalf("task state still exists after stop: %v", err)
+	}
 	log, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("read helper log: %v", err)
 	}
-	for _, want := range []string{"start --request-json", "inspect --request-json", "stop --request-json"} {
+	for _, want := range []string{"start --request-json", "inspect --request-json", "stop --request-json", "delete --request-json"} {
+		if !strings.Contains(string(log), want) {
+			t.Fatalf("helper log = %q, missing %q", string(log), want)
+		}
+	}
+}
+
+func TestAppleVFMicroVMStopCleansTaskStateWhenHelperStateIsMissing(t *testing.T) {
+	stateDir := t.TempDir()
+	taskDir := filepath.Join(stateDir, "tasks", "alice")
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(stateDir, "helper.log")
+	helper := writeAppleVFStopMissingHelperScript(t, logPath)
+	backend := &AppleVFMicroVMRuntimeBackend{
+		HelperBinary: helper,
+		StateDir:     stateDir,
+	}
+	if err := backend.Stop(context.Background(), "alice"); err != nil {
+		t.Fatalf("Stop returned error: %v", err)
+	}
+	if _, err := os.Stat(taskDir); !os.IsNotExist(err) {
+		t.Fatalf("task state still exists after stop: %v", err)
+	}
+	log, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read helper log: %v", err)
+	}
+	for _, want := range []string{"stop --request-json", "delete --request-json"} {
+		if !strings.Contains(string(log), want) {
+			t.Fatalf("helper log = %q, missing %q", string(log), want)
+		}
+	}
+}
+
+func TestAppleVFMicroVMEnsureCleansUpAfterStartFailure(t *testing.T) {
+	stateDir := t.TempDir()
+	commands := &fakeFirecrackerImageCommands{
+		outputs: map[string][]byte{
+			"podman image inspect --format {{.Digest}} agency-body:latest":                                      []byte("sha256:abc123\n"),
+			"podman image inspect --format {{json .Config.Entrypoint}}|{{json .Config.Cmd}} agency-body:latest": []byte("null|[\"/app/entrypoint.sh\"]\n"),
+			"podman create agency-body:latest":                                                                  []byte("source-id\n"),
+		},
+	}
+	logPath := filepath.Join(stateDir, "helper.log")
+	helper := writeAppleVFStartFailureHelperScript(t, logPath)
+	backend := &AppleVFMicroVMRuntimeBackend{
+		HelperBinary: helper,
+		KernelPath:   "/artifacts/Image",
+		StateDir:     stateDir,
+		MemoryMiB:    512,
+		CPUCount:     2,
+		Images:       &MicroVMImageStore{StateDir: stateDir, commands: commands},
+	}
+	spec := runtimecontract.RuntimeSpec{
+		RuntimeID: "alice",
+		Package: runtimecontract.RuntimePackageSpec{
+			Image: "agency-body:latest",
+			Env: map[string]string{
+				FirecrackerEnforcerProxyTargetEnv:   "http://127.0.0.1:19128",
+				FirecrackerEnforcerControlTargetEnv: "http://127.0.0.1:19081",
+			},
+		},
+	}
+	err := backend.Ensure(context.Background(), spec)
+	if err == nil || !strings.Contains(err.Error(), "VM failed to start") {
+		t.Fatalf("Ensure error = %v, want helper start failure", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "tasks", "alice")); !os.IsNotExist(err) {
+		t.Fatalf("task state still exists after start failure: %v", err)
+	}
+	log, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read helper log: %v", err)
+	}
+	for _, want := range []string{"start --request-json", "delete --request-json"} {
 		if !strings.Contains(string(log), want) {
 			t.Fatalf("helper log = %q, missing %q", string(log), want)
 		}
@@ -258,6 +337,57 @@ case "$1" in
     ;;
   stop)
     echo '{"arch":"arm64","backend":"apple-vf-microvm","command":"stop","darwin":"25.4.0","details":{"pid":"1234","stateDir":"/state/alice"},"ok":true,"requestID":"stop-alice","role":"workload","runtimeID":"alice","version":"0.1.0","virtualizationAvailable":true,"vmState":"stopped"}'
+    ;;
+  delete)
+    echo '{"arch":"arm64","backend":"apple-vf-microvm","command":"delete","darwin":"25.4.0","details":{"stateDir":"/state/alice"},"ok":true,"requestID":"runtime-alice","role":"workload","runtimeID":"alice","version":"0.1.0","virtualizationAvailable":true,"vmState":"deleted"}'
+    ;;
+  *)
+    echo '{"arch":"arm64","backend":"apple-vf-microvm","command":"health","darwin":"25.4.0","ok":true,"version":"0.1.0","virtualizationAvailable":true}'
+    ;;
+esac
+`, logPath)
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write helper script: %v", err)
+	}
+	return path
+}
+
+func writeAppleVFStopMissingHelperScript(t *testing.T, logPath string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "apple-vf-helper")
+	script := fmt.Sprintf(`#!/bin/sh
+echo "$@" >> %q
+case "$1" in
+  stop)
+    echo '{"arch":"arm64","backend":"apple-vf-microvm","command":"stop","darwin":"25.4.0","error":"open /state/alice/state.json: no such file or directory","ok":false,"requestID":"runtime-alice","role":"workload","runtimeID":"alice","version":"0.1.0","virtualizationAvailable":true,"vmState":"stop_failed"}'
+    exit 1
+    ;;
+  delete)
+    echo '{"arch":"arm64","backend":"apple-vf-microvm","command":"delete","darwin":"25.4.0","details":{"stateDir":"/state/alice"},"ok":true,"requestID":"runtime-alice","role":"workload","runtimeID":"alice","version":"0.1.0","virtualizationAvailable":true,"vmState":"deleted"}'
+    ;;
+  *)
+    echo '{"arch":"arm64","backend":"apple-vf-microvm","command":"health","darwin":"25.4.0","ok":true,"version":"0.1.0","virtualizationAvailable":true}'
+    ;;
+esac
+`, logPath)
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write helper script: %v", err)
+	}
+	return path
+}
+
+func writeAppleVFStartFailureHelperScript(t *testing.T, logPath string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "apple-vf-helper")
+	script := fmt.Sprintf(`#!/bin/sh
+echo "$@" >> %q
+case "$1" in
+  start)
+    echo '{"arch":"arm64","backend":"apple-vf-microvm","command":"start","darwin":"25.4.0","error":"VM failed to start","ok":false,"requestID":"start-alice","role":"workload","runtimeID":"alice","version":"0.1.0","virtualizationAvailable":true,"vmState":"start_failed"}'
+    exit 1
+    ;;
+  delete)
+    echo '{"arch":"arm64","backend":"apple-vf-microvm","command":"delete","darwin":"25.4.0","details":{"stateDir":"/state/alice"},"ok":true,"requestID":"runtime-alice","role":"workload","runtimeID":"alice","version":"0.1.0","virtualizationAvailable":true,"vmState":"deleted"}'
     ;;
   *)
     echo '{"arch":"arm64","backend":"apple-vf-microvm","command":"health","darwin":"25.4.0","ok":true,"version":"0.1.0","virtualizationAvailable":true}'

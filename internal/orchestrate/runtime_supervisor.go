@@ -340,6 +340,7 @@ func (rs *RuntimeSupervisor) Ensure(ctx context.Context, runtimeID string) error
 		return err
 	}
 	if err := backend.Ensure(ctx, spec); err != nil {
+		_ = rs.recordFailureStatus(spec, "ensure", err)
 		return err
 	}
 	return rs.refreshStatus(ctx, spec)
@@ -355,6 +356,7 @@ func (rs *RuntimeSupervisor) EnsureEnforcer(ctx context.Context, runtimeID strin
 		return err
 	}
 	if err := backend.EnsureEnforcer(ctx, spec, rotateKey); err != nil {
+		_ = rs.recordFailureStatus(spec, "enforcer", err)
 		return err
 	}
 	return rs.refreshStatus(ctx, spec)
@@ -370,6 +372,7 @@ func (rs *RuntimeSupervisor) EnsureWorkspace(ctx context.Context, runtimeID stri
 		return err
 	}
 	if err := backend.EnsureWorkspace(ctx, spec); err != nil {
+		_ = rs.recordFailureStatus(spec, "workspace", err)
 		return err
 	}
 	return rs.refreshStatus(ctx, spec)
@@ -388,7 +391,11 @@ func (rs *RuntimeSupervisor) ReloadEnforcer(ctx context.Context, runtimeID strin
 	if !ok {
 		return nil
 	}
-	return reloader.ReloadEnforcer(ctx, spec)
+	if err := reloader.ReloadEnforcer(ctx, spec); err != nil {
+		_ = rs.recordFailureStatus(spec, "enforcer_reload", err)
+		return err
+	}
+	return rs.refreshStatus(ctx, spec)
 }
 
 func (rs *RuntimeSupervisor) Restart(ctx context.Context, runtimeID string) error {
@@ -415,12 +422,14 @@ func (rs *RuntimeSupervisor) Stop(ctx context.Context, runtimeID string) error {
 		return err
 	}
 	if err := backend.Stop(ctx, runtimeID); err != nil {
+		_ = rs.recordFailureStatus(spec, "stop", err)
 		return err
 	}
 	manifest, _ := rs.loadManifest(runtimeID)
 	if manifest.Spec.RuntimeID == "" {
 		manifest.Spec = spec
 	}
+	details := stoppedRuntimeDetails(manifest.Status.Details)
 	manifest.Status = runtimecontract.RuntimeStatus{
 		RuntimeID:       runtimeID,
 		AgentID:         manifest.Spec.AgentID,
@@ -430,12 +439,66 @@ func (rs *RuntimeSupervisor) Stop(ctx context.Context, runtimeID string) error {
 		BackendEndpoint: runtimehost.ResolvedBackendEndpoint(spec.Backend, rs.BackendConfig),
 		BackendMode:     runtimehost.ResolvedBackendMode(spec.Backend, rs.BackendConfig),
 		Transport: runtimecontract.RuntimeTransportStatus{
-			Type:     manifest.Spec.Transport.Enforcer.Type,
-			Endpoint: manifest.Spec.Transport.Enforcer.Endpoint,
+			Type:      manifest.Spec.Transport.Enforcer.Type,
+			Endpoint:  manifest.Spec.Transport.Enforcer.Endpoint,
+			LastError: details["last_error"],
 		},
+		Details: details,
 	}
 	manifest.UpdatedAt = time.Now().UTC()
 	return rs.saveManifest(manifest)
+}
+
+func (rs *RuntimeSupervisor) recordFailureStatus(spec runtimecontract.RuntimeSpec, operation string, cause error) error {
+	if cause == nil {
+		return nil
+	}
+	manifest, _ := rs.loadManifest(spec.RuntimeID)
+	if manifest.Spec.RuntimeID == "" {
+		manifest.Spec = spec
+	}
+	if manifest.Spec.RuntimeID == "" {
+		return nil
+	}
+	details := copyRuntimeStatusDetails(manifest.Status.Details)
+	if details == nil {
+		details = map[string]string{}
+	}
+	details["last_error"] = cause.Error()
+	details["failure_operation"] = operation
+	manifest.Status = runtimecontract.RuntimeStatus{
+		RuntimeID:       spec.RuntimeID,
+		AgentID:         manifest.Spec.AgentID,
+		Phase:           runtimecontract.RuntimePhaseFailed,
+		Healthy:         false,
+		Backend:         spec.Backend,
+		BackendEndpoint: runtimehost.ResolvedBackendEndpoint(spec.Backend, rs.BackendConfig),
+		BackendMode:     runtimehost.ResolvedBackendMode(spec.Backend, rs.BackendConfig),
+		Transport: runtimecontract.RuntimeTransportStatus{
+			Type:      manifest.Spec.Transport.Enforcer.Type,
+			Endpoint:  manifest.Spec.Transport.Enforcer.Endpoint,
+			LastError: cause.Error(),
+		},
+		Details: details,
+	}
+	manifest.UpdatedAt = time.Now().UTC()
+	return rs.saveManifest(manifest)
+}
+
+func stoppedRuntimeDetails(previous map[string]string) map[string]string {
+	lastError := strings.TrimSpace(previous["last_error"])
+	failureOperation := strings.TrimSpace(previous["failure_operation"])
+	if lastError == "" && failureOperation == "" {
+		return nil
+	}
+	details := map[string]string{}
+	if lastError != "" {
+		details["last_error"] = lastError
+	}
+	if failureOperation != "" {
+		details["failure_operation"] = failureOperation
+	}
+	return details
 }
 
 func (rs *RuntimeSupervisor) Get(ctx context.Context, runtimeID string) (runtimecontract.RuntimeStatus, error) {
