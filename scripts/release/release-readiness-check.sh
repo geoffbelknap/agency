@@ -7,6 +7,10 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 MODE="published"
 TARGET_VERSION=""
 TARGET_TAG=""
+EXPECTED_RUNTIME_ARTIFACTS=(
+  agency-runtime-body
+  agency-runtime-enforcer
+)
 
 log() {
   printf '==> %s\n' "$*"
@@ -25,7 +29,7 @@ Usage:
 
 Modes:
   preflight   Validate local release wiring and build a stamped binary.
-  published   Validate an already-published release, Homebrew formula, and GHCR images.
+  published   Validate an already-published release, Homebrew formula, and GHCR runtime artifacts.
 
 Examples:
   ./scripts/release/release-readiness-check.sh preflight --version 0.2.0
@@ -155,12 +159,25 @@ PY
 check_required_files() {
   local files=(
     ".github/workflows/release.yaml"
+    ".github/workflows/release-runtime-artifacts.yml"
     ".goreleaser.yaml"
   )
   local file
   for file in "${files[@]}"; do
     [ -f "$ROOT_DIR/$file" ] || fail "Missing required release file: $file"
   done
+}
+
+check_runtime_artifact_manifest() {
+  local image_ref="$1"
+  local attempt
+  for attempt in 1 2 3; do
+    if go run ./cmd/runtime-oci-artifact --inspect-ref "$image_ref"; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
 }
 
 run_preflight() {
@@ -199,7 +216,7 @@ run_preflight() {
 run_published() {
   require_cmd gh
   require_cmd curl
-  require_cmd docker
+  require_cmd go
   require_cmd python3
   check_required_files
 
@@ -213,6 +230,20 @@ run_published() {
   check_release_assets "$TARGET_TAG"
   check_formula_for_tag "$TARGET_TAG"
   check_formula_sha_matches_release "$TARGET_TAG"
+
+  local artifact
+  local failures=0
+  for artifact in "${EXPECTED_RUNTIME_ARTIFACTS[@]}"; do
+    log "Checking ${artifact}:${TARGET_TAG}"
+    if ! check_runtime_artifact_manifest "ghcr.io/geoffbelknap/${artifact}:${TARGET_TAG}"; then
+      printf 'ERROR: Could not inspect runtime artifact manifest for ghcr.io/geoffbelknap/%s:%s\n' "$artifact" "$TARGET_TAG" >&2
+      failures=$((failures + 1))
+    fi
+  done
+
+  if [ "$failures" -ne 0 ]; then
+    fail "Published release check found ${failures} runtime artifact manifest failure(s)"
+  fi
 
   log "Published release check passed"
 }

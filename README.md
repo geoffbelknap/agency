@@ -124,7 +124,9 @@ Dockerfiles remain part of Agency as OCI filesystem recipes. Docker, Podman,
 containerd, and Apple Container execution backends are legacy paths and are no
 longer selectable through setup or quickstart. MicroVM rootfs inputs must be
 explicit, versioned OCI artifact references; Agency does not use mutable
-`latest` runtime images as a release gate.
+`latest` runtime images as a release gate. Release publishing emits the
+microVM runtime artifacts as `agency-runtime-body:vX.Y.Z` and
+`agency-runtime-enforcer:vX.Y.Z` in GHCR.
 
 ### Install
 

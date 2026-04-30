@@ -69,7 +69,9 @@ that microVM backends can convert into bootable root filesystems. Docker,
 Podman, containerd, and Apple Container execution backends are legacy adapter
 history and are no longer selectable through setup or quickstart. MicroVM
 rootfs inputs must be explicit, versioned OCI artifact references; mutable
-`latest` runtime images are not release gates.
+`latest` runtime images are not release gates. Release publishing emits the
+microVM runtime artifacts as `agency-runtime-body:vX.Y.Z` and
+`agency-runtime-enforcer:vX.Y.Z` in GHCR.
 
 ## Install
 

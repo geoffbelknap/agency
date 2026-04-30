@@ -257,7 +257,7 @@ Each feature area is classified as:
 
 - tagged release artifacts publish successfully
 - Homebrew install works for the supported release
-- GHCR images needed by the supported local stack are publicly pullable
+- GHCR microVM runtime artifacts are publicly pullable by versioned tag
 
 **Primary validation:**
 

@@ -141,8 +141,9 @@ workspace-base: require-container-cmd
 	@echo "Building agency-workspace-base with $(CONTAINER_CMD)..."
 	$(CONTAINER_CMD) build -f $(IMAGE_DIR)/workspace-base/Dockerfile -t agency-workspace-base:latest $(IMAGE_DIR)/workspace-base
 
-# Python service images depend on the shared base (egress excluded — uses mitmproxy)
-body comms knowledge intake: python-base
+# Python service images depend on the shared base (body is a self-contained
+# microVM runtime artifact; egress uses mitmproxy).
+comms knowledge intake: python-base
 workspace: workspace-base
 
 # Build core OCI artifact images. Experimental images (intake, web-fetch) build on

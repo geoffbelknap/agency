@@ -129,13 +129,14 @@ Validate on the supported runtime path:
   - `agency admin doctor`
   - one disposable Firecracker-backed agent start/status/validate/stop cycle
 
-### 6. GHCR image validation
+### 6. GHCR runtime artifact validation
 
 Validate after tag/release:
 
-- required images for the supported local stack are publicly pullable
-- `v0.2.x` and `latest` tags exist where expected
-- amd64 and arm64 manifests exist where required
+- `ghcr.io/geoffbelknap/agency-runtime-body:v0.2.x` is publicly pullable
+- `ghcr.io/geoffbelknap/agency-runtime-enforcer:v0.2.x` is publicly pullable
+- amd64 and arm64 manifests exist for both runtime artifacts
+- mutable `latest` tags are not required and must not be release gates
 - image metadata/build IDs are present and non-unknown
 
 ## Known Follow-Up Items That Should Not Block `0.2.x` Unless They Regress
@@ -158,7 +159,7 @@ blocking the first core release line.
    contract.
 4. Cut a release branch or release commit only if needed.
 5. Tag `v0.2.x`.
-6. Watch the GitHub release and image publish workflows.
+6. Watch the GitHub release and runtime artifact publish workflows.
 7. Validate one clean Homebrew install path.
 8. Validate one full core product smoke on the tagged build.
 9. Publish tester instructions centered on the core path only.
