@@ -27,6 +27,7 @@ type MicroVMOCIRootFSBuilder struct {
 	Mke2fsPath        string
 	SizeMiB           int64
 	VsockBridgeBinary string
+	OverlayBaseDir    string
 	Platform          ocispec.Platform
 }
 
@@ -114,7 +115,7 @@ func (b *MicroVMOCIRootFSBuilder) Build(ctx context.Context, imageRef, outPath s
 		}
 		layerDigests = append(layerDigests, layer.Digest.String())
 	}
-	if err := applyFirecrackerRootFSOverlays(stageDir, env, b.stateDir()); err != nil {
+	if err := applyFirecrackerRootFSOverlays(stageDir, env, b.overlayBaseDir()); err != nil {
 		return MicroVMOCIRootFSResult{}, err
 	}
 	command := append([]string{}, imageConfig.Config.Entrypoint...)
@@ -369,4 +370,11 @@ func (b *MicroVMOCIRootFSBuilder) platform() ocispec.Platform {
 		return b.Platform
 	}
 	return ocispec.Platform{OS: "linux", Architecture: "arm64"}
+}
+
+func (b *MicroVMOCIRootFSBuilder) overlayBaseDir() string {
+	if strings.TrimSpace(b.OverlayBaseDir) != "" {
+		return b.OverlayBaseDir
+	}
+	return b.stateDir()
 }

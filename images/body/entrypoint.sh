@@ -17,9 +17,10 @@ log_phase "Context files copied to workspace"
 # Wait for enforcer to be reachable before starting body runtime.
 # Uses python instead of curl since curl is not in python:3.12-slim.
 log_phase "Waiting for enforcer"
+export ENFORCER_HEALTH_URL="${AGENCY_ENFORCER_HEALTH_URL:-http://enforcer:3128/health}"
 ENFORCER_READY=0
 for i in $(seq 1 20); do
-  if python -c "import httpx; httpx.get('http://enforcer:3128/health', timeout=2).raise_for_status()" 2>/dev/null; then
+  if python -c "import os, httpx; httpx.get(os.environ['ENFORCER_HEALTH_URL'], timeout=2).raise_for_status()" 2>/dev/null; then
     ENFORCER_READY=1
     break
   fi

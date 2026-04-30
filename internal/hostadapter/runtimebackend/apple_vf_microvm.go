@@ -7,13 +7,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
+	"github.com/geoffbelknap/agency/internal/pkg/pathsafety"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 const (
-	BackendAppleVFMicroVM = "apple-vf-microvm"
+	BackendAppleVFMicroVM    = "apple-vf-microvm"
+	defaultAppleVFBodyOCIRef = "ghcr.io/geoffbelknap/agency-body:latest"
+	legacyAgencyBodyLocalTag = "agency-body:latest"
 )
 
 func DefaultAppleVFStateDir(home string) string {
@@ -36,6 +41,7 @@ type AppleVFMicroVMRuntimeBackend struct {
 	CPUCount        int64
 	EnforcementMode string
 	Images          *MicroVMImageStore
+	RootFSBuilder   *MicroVMOCIRootFSBuilder
 }
 
 func NewAppleVFMicroVMRuntimeBackend(home string, cfg map[string]string) *AppleVFMicroVMRuntimeBackend {
@@ -59,13 +65,13 @@ func NewAppleVFMicroVMRuntimeBackend(home string, cfg map[string]string) *AppleV
 		CPUCount:        parseInt64Config(cfg["cpu_count"], 2),
 		EnforcementMode: enforcementMode,
 	}
-	backend.Images = &MicroVMImageStore{
+	backend.RootFSBuilder = &MicroVMOCIRootFSBuilder{
 		StateDir:          stateDir,
-		PodmanPath:        strings.TrimSpace(cfg["podman_path"]),
 		Mke2fsPath:        strings.TrimSpace(cfg["mke2fs_path"]),
 		SizeMiB:           parseInt64Config(cfg["rootfs_size_mib"], defaultFirecrackerRootFSMiB),
 		VsockBridgeBinary: strings.TrimSpace(cfg["vsock_bridge_binary_path"]),
 		OverlayBaseDir:    strings.TrimSpace(home),
+		Platform:          ocispec.Platform{OS: "linux", Architecture: "arm64"},
 	}
 	return backend
 }
@@ -75,27 +81,53 @@ func (b *AppleVFMicroVMRuntimeBackend) Name() string {
 }
 
 func (b *AppleVFMicroVMRuntimeBackend) Ensure(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
-	_ = ctx
-	_ = spec
-	return fmt.Errorf("apple-vf-microvm backend: Ensure not implemented")
+	runtimeID, err := pathsafety.Segment("apple-vf runtime id", spec.RuntimeID)
+	if err != nil {
+		return fmt.Errorf("apple-vf-microvm backend: %w", err)
+	}
+	spec.RuntimeID = runtimeID
+	rootfs, err := b.PrepareRootFS(ctx, spec)
+	if err != nil {
+		return err
+	}
+	if _, err := AppleVFHelperStart(ctx, b.HelperBinary, b.PrepareHelperRequest(spec, rootfs)); err != nil {
+		return fmt.Errorf("apple-vf-microvm backend start %q: %w", spec.RuntimeID, err)
+	}
+	return nil
 }
 
 func (b *AppleVFMicroVMRuntimeBackend) Stop(ctx context.Context, runtimeID string) error {
-	_ = ctx
-	_ = runtimeID
-	return fmt.Errorf("apple-vf-microvm backend: Stop not implemented")
+	req, err := b.runtimeHelperRequest(runtimeID)
+	if err != nil {
+		return err
+	}
+	if _, err := AppleVFHelperStop(ctx, b.HelperBinary, req); err != nil {
+		return fmt.Errorf("apple-vf-microvm backend stop %q: %w", runtimeID, err)
+	}
+	return nil
 }
 
 func (b *AppleVFMicroVMRuntimeBackend) Inspect(ctx context.Context, runtimeID string) (runtimecontract.BackendStatus, error) {
-	_ = ctx
-	_ = runtimeID
-	return runtimecontract.BackendStatus{}, fmt.Errorf("apple-vf-microvm backend: Inspect not implemented")
+	req, err := b.runtimeHelperRequest(runtimeID)
+	if err != nil {
+		return runtimecontract.BackendStatus{}, err
+	}
+	resp, err := AppleVFHelperInspect(ctx, b.HelperBinary, req)
+	if err != nil {
+		return runtimecontract.BackendStatus{}, fmt.Errorf("apple-vf-microvm backend inspect %q: %w", runtimeID, err)
+	}
+	return appleVFBackendStatus(runtimeID, resp), nil
 }
 
 func (b *AppleVFMicroVMRuntimeBackend) Validate(ctx context.Context, runtimeID string) error {
-	_ = ctx
-	_ = runtimeID
-	return fmt.Errorf("apple-vf-microvm backend: Validate not implemented")
+	status, err := b.Inspect(ctx, runtimeID)
+	if err != nil {
+		return err
+	}
+	if !status.Healthy {
+		return fmt.Errorf("apple-vf-microvm runtime %q is not running: %s", runtimeID, status.Phase)
+	}
+	return nil
 }
 
 func (b *AppleVFMicroVMRuntimeBackend) Capabilities(ctx context.Context) (runtimecontract.BackendCapabilities, error) {
@@ -112,7 +144,43 @@ func (b *AppleVFMicroVMRuntimeBackend) Capabilities(ctx context.Context) (runtim
 }
 
 func (b *AppleVFMicroVMRuntimeBackend) PrepareRootFS(ctx context.Context, spec runtimecontract.RuntimeSpec) (MicroVMRootFS, error) {
-	return b.imageStore().PrepareTaskRootFS(ctx, spec)
+	if b.RootFSBuilder == nil {
+		return b.imageStore().PrepareTaskRootFS(ctx, spec)
+	}
+	runtimeID, err := pathsafety.Segment("apple-vf runtime id", spec.RuntimeID)
+	if err != nil {
+		return MicroVMRootFS{}, fmt.Errorf("apple-vf-microvm rootfs: %w", err)
+	}
+	taskDir, err := pathsafety.Join(b.stateDir(), "tasks", runtimeID)
+	if err != nil {
+		return MicroVMRootFS{}, err
+	}
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		return MicroVMRootFS{}, fmt.Errorf("create apple-vf task rootfs dir: %w", err)
+	}
+	taskPath, err := pathsafety.Join(taskDir, "rootfs.ext4")
+	if err != nil {
+		return MicroVMRootFS{}, err
+	}
+	imageRef := appleVFOCIImageRef(spec.Package.Image)
+	result, err := b.RootFSBuilder.Build(ctx, imageRef, taskPath, spec.Package.Env)
+	if err != nil {
+		return MicroVMRootFS{}, err
+	}
+	return MicroVMRootFS{
+		ImageRef: result.ImageRef,
+		Digest:   result.Manifest.Digest.String(),
+		Path:     result.RootFSPath,
+		InitPath: result.InitPath,
+	}, nil
+}
+
+func appleVFOCIImageRef(imageRef string) string {
+	imageRef = strings.TrimSpace(imageRef)
+	if imageRef == "" || imageRef == legacyAgencyBodyLocalTag {
+		return defaultAppleVFBodyOCIRef
+	}
+	return imageRef
 }
 
 func (b *AppleVFMicroVMRuntimeBackend) PrepareHelperRequest(spec runtimecontract.RuntimeSpec, rootfs MicroVMRootFS) AppleVFHelperRequest {
@@ -121,16 +189,86 @@ func (b *AppleVFMicroVMRuntimeBackend) PrepareHelperRequest(spec runtimecontract
 		RuntimeID:      strings.TrimSpace(spec.RuntimeID),
 		Role:           AppleVFRoleWorkload,
 		Backend:        BackendAppleVFMicroVM,
-		AgencyHomeHash: appleVFAgencyHomeHash(b.StateDir),
+		AgencyHomeHash: appleVFAgencyHomeHash(b.stateDir()),
 		Config: &AppleVFHelperVMConfig{
 			KernelPath:      strings.TrimSpace(b.KernelPath),
 			RootFSPath:      strings.TrimSpace(rootfs.Path),
-			StateDir:        filepath.Join(strings.TrimSpace(b.StateDir), "vms", strings.TrimSpace(spec.RuntimeID)),
+			StateDir:        filepath.Join(b.stateDir(), "vms", strings.TrimSpace(spec.RuntimeID)),
 			MemoryMiB:       b.MemoryMiB,
 			CPUCount:        b.CPUCount,
 			EnforcementMode: b.EnforcementMode,
+			VsockListeners:  appleVFVsockListeners(spec),
 		},
 	}
+}
+
+func (b *AppleVFMicroVMRuntimeBackend) runtimeHelperRequest(runtimeID string) (AppleVFHelperRequest, error) {
+	runtimeID, err := pathsafety.Segment("apple-vf runtime id", runtimeID)
+	if err != nil {
+		return AppleVFHelperRequest{}, fmt.Errorf("apple-vf-microvm backend: %w", err)
+	}
+	return AppleVFHelperRequest{
+		RequestID:      "runtime-" + runtimeID,
+		RuntimeID:      runtimeID,
+		Role:           AppleVFRoleWorkload,
+		Backend:        BackendAppleVFMicroVM,
+		AgencyHomeHash: appleVFAgencyHomeHash(b.stateDir()),
+		Config: &AppleVFHelperVMConfig{
+			StateDir: filepath.Join(b.stateDir(), "vms", runtimeID),
+		},
+	}, nil
+}
+
+func appleVFBackendStatus(runtimeID string, resp AppleVFHelperResponse) runtimecontract.BackendStatus {
+	details := map[string]string{
+		"vm_state":          resp.VMState,
+		"workload_vm_state": resp.VMState,
+		"enforcement_mode":  "",
+	}
+	for key, value := range resp.Details {
+		details[key] = value
+	}
+	out := runtimecontract.BackendStatus{
+		RuntimeID: runtimeID,
+		Details:   details,
+	}
+	switch resp.VMState {
+	case "running":
+		out.Phase = runtimecontract.RuntimePhaseRunning
+		out.Healthy = true
+	case "starting":
+		out.Phase = runtimecontract.RuntimePhaseStarting
+	case "stopped", "killed", "deleted":
+		out.Phase = runtimecontract.RuntimePhaseStopped
+	case "failed", "start_failed", "inspect_failed", "stop_failed", "kill_failed", "delete_failed":
+		out.Phase = runtimecontract.RuntimePhaseFailed
+	default:
+		out.Phase = runtimecontract.RuntimePhaseStopped
+	}
+	if resp.Error != "" {
+		details["last_error"] = resp.Error
+	}
+	return out
+}
+
+func appleVFVsockListeners(spec runtimecontract.RuntimeSpec) []AppleVFHelperVsockListener {
+	targets, err := firecrackerEnforcerTargets(spec)
+	if err != nil {
+		return nil
+	}
+	ports := make([]int, 0, len(targets))
+	for port := range targets {
+		ports = append(ports, port)
+	}
+	sort.Ints(ports)
+	listeners := make([]AppleVFHelperVsockListener, 0, len(ports))
+	for _, port := range ports {
+		listeners = append(listeners, AppleVFHelperVsockListener{
+			Port:   int64(port),
+			Target: targets[port],
+		})
+	}
+	return listeners
 }
 
 func (b *AppleVFMicroVMRuntimeBackend) PrepareWithHelper(ctx context.Context, spec runtimecontract.RuntimeSpec) (AppleVFHelperResponse, error) {
@@ -154,6 +292,14 @@ func (b *AppleVFMicroVMRuntimeBackend) imageStore() *MicroVMImageStore {
 		SizeMiB:  defaultFirecrackerRootFSMiB,
 	}
 	return b.Images
+}
+
+func (b *AppleVFMicroVMRuntimeBackend) stateDir() string {
+	stateDir := strings.TrimSpace(b.StateDir)
+	if stateDir != "" {
+		return stateDir
+	}
+	return filepath.Join(os.TempDir(), "agency-apple-vf-microvm")
 }
 
 func appleVFAgencyHomeHash(value string) string {

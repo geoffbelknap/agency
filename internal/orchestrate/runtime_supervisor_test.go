@@ -566,6 +566,58 @@ func TestRuntimeSupervisorCompileFirecrackerUsesVsockTransport(t *testing.T) {
 	}
 }
 
+func TestRuntimeSupervisorCompileAppleVFUsesVsockTransport(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, "agents", "alice")
+	if err := os.MkdirAll(filepath.Join(agentDir, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte("uuid: ag_123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rs := NewRuntimeSupervisor(home, "0.1.0", "", "build-1", hostruntimebackend.BackendAppleVFMicroVM, nil, nil, nil, nil)
+	spec, err := rs.Compile(context.Background(), "alice")
+	if err != nil {
+		t.Fatalf("Compile returned error: %v", err)
+	}
+	if spec.Backend != hostruntimebackend.BackendAppleVFMicroVM {
+		t.Fatalf("backend = %q, want %q", spec.Backend, hostruntimebackend.BackendAppleVFMicroVM)
+	}
+	if spec.Transport.Enforcer.Type != runtimecontract.TransportTypeVsockHTTP {
+		t.Fatalf("transport type = %q", spec.Transport.Enforcer.Type)
+	}
+	for key, want := range map[string]string{
+		"AGENCY_TRANSPORT_ENFORCER_TYPE":     runtimecontract.TransportTypeVsockHTTP,
+		"AGENCY_TRANSPORT_ENFORCER_ENDPOINT": "vsock://2:8081",
+		"AGENCY_ENFORCER_PROXY_URL":          "http://127.0.0.1:3128",
+		"AGENCY_ENFORCER_CONTROL_URL":        "http://127.0.0.1:8081",
+	} {
+		if got := spec.Package.Env[key]; got != want {
+			t.Fatalf("env[%s] = %q, want %q", key, got, want)
+		}
+	}
+	for _, key := range []string{
+		hostruntimebackend.FirecrackerEnforcerProxyTargetEnv,
+		hostruntimebackend.FirecrackerEnforcerControlTargetEnv,
+	} {
+		if got := spec.Package.Env[key]; !strings.HasPrefix(got, "http://127.0.0.1:") {
+			t.Fatalf("env[%s] = %q, want loopback URL", key, got)
+		}
+	}
+}
+
+func TestRuntimeSupervisorAppleVFBackendSupportsComponentLifecycle(t *testing.T) {
+	rs := NewRuntimeSupervisor(t.TempDir(), "0.1.0", "", "build-1", hostruntimebackend.BackendAppleVFMicroVM, nil, nil, nil, nil)
+	backend, err := rs.componentBackend(hostruntimebackend.BackendAppleVFMicroVM)
+	if err != nil {
+		t.Fatalf("componentBackend returned error: %v", err)
+	}
+	if backend.Name() != hostruntimebackend.BackendAppleVFMicroVM {
+		t.Fatalf("backend name = %q, want %q", backend.Name(), hostruntimebackend.BackendAppleVFMicroVM)
+	}
+}
+
 func TestRuntimeSupervisorFirecrackerBackendRegistration(t *testing.T) {
 	t.Setenv("AGENCY_EXPERIMENTAL_SURFACES", "")
 	rs := NewRuntimeSupervisor(t.TempDir(), "0.1.0", "", "build-1", "", nil, nil, nil, nil)

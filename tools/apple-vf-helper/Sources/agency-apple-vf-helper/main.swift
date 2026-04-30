@@ -3,7 +3,7 @@ import Security
 import Darwin
 
 #if canImport(Virtualization)
-import Virtualization
+@preconcurrency import Virtualization
 #endif
 
 enum HelperCommand: String, Codable {
@@ -31,6 +31,12 @@ struct VMConfig: Codable {
     let memoryMiB: Int?
     let cpuCount: Int?
     let enforcementMode: String?
+    let vsockListeners: [VsockListenerConfig]?
+}
+
+struct VsockListenerConfig: Codable {
+    let port: Int?
+    let target: String?
 }
 
 struct HelperRequest: Codable {
@@ -289,6 +295,15 @@ func baseDetails(request: HelperRequest) -> [String: String] {
         if let enforcementMode = config.enforcementMode {
             details["enforcementMode"] = enforcementMode
         }
+        if let listeners = config.vsockListeners, !listeners.isEmpty {
+            let rendered = listeners.compactMap { listener -> String? in
+                guard let port = listener.port, let target = listener.target else {
+                    return nil
+                }
+                return "\(port)=\(target)"
+            }
+            details["vsockListeners"] = rendered.joined(separator: ",")
+        }
     }
     return details
 }
@@ -368,7 +383,7 @@ func requireWritableDirectory(_ path: String, _ name: String) throws {
     }
 }
 
-func validatedConfig(request: HelperRequest, validateVM: Bool) throws -> (runtimeID: String, role: ComponentRole, kernelPath: String, rootfsPath: String, stateDir: String, memoryMiB: Int, cpuCount: Int) {
+func validatedConfig(request: HelperRequest, validateVM: Bool) throws -> (runtimeID: String, role: ComponentRole, kernelPath: String, rootfsPath: String, stateDir: String, memoryMiB: Int, cpuCount: Int, vsockListeners: [VsockListenerConfig]) {
         let runtimeID = try requireNonEmpty(request.runtimeID, "runtimeID")
         guard let role = request.role else {
             throw NSError(domain: "agency-apple-vf-helper", code: 64, userInfo: [NSLocalizedDescriptionKey: "role is required"])
@@ -390,17 +405,38 @@ func validatedConfig(request: HelperRequest, validateVM: Bool) throws -> (runtim
         guard cpuCount > 0 else {
             throw NSError(domain: "agency-apple-vf-helper", code: 64, userInfo: [NSLocalizedDescriptionKey: "cpuCount must be positive"])
         }
+        let vsockListeners = try validatedVsockListeners(config.vsockListeners ?? [])
         try requireReadableFile(kernelPath, "kernelPath")
         try requireReadableFile(rootfsPath, "rootfsPath")
         try requireWritableDirectory(stateDir, "stateDir")
 
         if validateVM {
-            try validateVirtualMachineConfiguration(kernelPath: kernelPath, rootfsPath: rootfsPath, memoryMiB: memoryMiB, cpuCount: cpuCount, serialLogPath: nil)
+            try validateVirtualMachineConfiguration(kernelPath: kernelPath, rootfsPath: rootfsPath, memoryMiB: memoryMiB, cpuCount: cpuCount, serialLogPath: nil, hasVsockDevice: !vsockListeners.isEmpty)
         }
-        return (runtimeID, role, kernelPath, rootfsPath, stateDir, memoryMiB, cpuCount)
+        return (runtimeID, role, kernelPath, rootfsPath, stateDir, memoryMiB, cpuCount, vsockListeners)
 }
 
-func validateVirtualMachineConfiguration(kernelPath: String, rootfsPath: String, memoryMiB: Int, cpuCount: Int, serialLogPath: String?) throws {
+func validatedVsockListeners(_ listeners: [VsockListenerConfig]) throws -> [VsockListenerConfig] {
+    var ports = Set<Int>()
+    var out: [VsockListenerConfig] = []
+    for listener in listeners {
+        guard let port = listener.port, port > 0 && port <= Int(UInt32.max) else {
+            throw NSError(domain: "agency-apple-vf-helper", code: 64, userInfo: [NSLocalizedDescriptionKey: "vsock listener port must be between 1 and \(UInt32.max)"])
+        }
+        guard ports.insert(port).inserted else {
+            throw NSError(domain: "agency-apple-vf-helper", code: 64, userInfo: [NSLocalizedDescriptionKey: "duplicate vsock listener port \(port)"])
+        }
+        let target = listener.target?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if target.isEmpty {
+            throw NSError(domain: "agency-apple-vf-helper", code: 64, userInfo: [NSLocalizedDescriptionKey: "vsock listener \(port) target is required"])
+        }
+        _ = try parseTCPHostPort(target)
+        out.append(VsockListenerConfig(port: port, target: target))
+    }
+    return out
+}
+
+func validateVirtualMachineConfiguration(kernelPath: String, rootfsPath: String, memoryMiB: Int, cpuCount: Int, serialLogPath: String?, hasVsockDevice: Bool) throws {
         #if canImport(Virtualization)
         guard virtualizationAvailable() else {
             throw NSError(domain: "agency-apple-vf-helper", code: 69, userInfo: [NSLocalizedDescriptionKey: "Apple Virtualization.framework does not report VM support on this host"])
@@ -424,6 +460,9 @@ func validateVirtualMachineConfiguration(kernelPath: String, rootfsPath: String,
                 serial.attachment = VZFileHandleSerialPortAttachment(fileHandleForReading: nil, fileHandleForWriting: serialHandle)
             }
             vmConfig.serialPorts = [serial]
+            if hasVsockDevice {
+                vmConfig.socketDevices = [VZVirtioSocketDeviceConfiguration()]
+            }
             try vmConfig.validate()
         } else {
             throw NSError(domain: "agency-apple-vf-helper", code: 69, userInfo: [NSLocalizedDescriptionKey: "apple-vf-microvm requires macOS 13 or newer"])
@@ -479,6 +518,131 @@ func updateStoredVMState(stateDir: String, vmState: String, error: String?) {
         // There is no safe stderr contract for background state updates.
     }
 }
+
+struct TCPHostPort {
+    let host: String
+    let port: UInt16
+}
+
+func parseTCPHostPort(_ raw: String) throws -> TCPHostPort {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    let parts = trimmed.split(separator: ":", omittingEmptySubsequences: false)
+    if parts.count != 2 || parts[0].isEmpty || parts[1].isEmpty {
+        throw NSError(domain: "agency-apple-vf-helper", code: 64, userInfo: [NSLocalizedDescriptionKey: "target must be host:port, got \(raw)"])
+    }
+    guard let parsed = UInt16(parts[1]) else {
+        throw NSError(domain: "agency-apple-vf-helper", code: 64, userInfo: [NSLocalizedDescriptionKey: "target port is invalid in \(raw)"])
+    }
+    return TCPHostPort(host: String(parts[0]), port: parsed)
+}
+
+#if canImport(Virtualization)
+@available(macOS 13.0, *)
+extension VZVirtioSocketConnection: @retroactive @unchecked Sendable {}
+
+@available(macOS 13.0, *)
+final class VsockTCPProxy: NSObject, VZVirtioSocketListenerDelegate, @unchecked Sendable {
+    private let targets: [UInt32: TCPHostPort]
+    private let lock = NSLock()
+    private var activeConnections: [VZVirtioSocketConnection] = []
+
+    init(listeners: [VsockListenerConfig]) throws {
+        var targets: [UInt32: TCPHostPort] = [:]
+        for listener in listeners {
+            guard let port = listener.port, let target = listener.target else {
+                continue
+            }
+            targets[UInt32(port)] = try parseTCPHostPort(target)
+        }
+        self.targets = targets
+    }
+
+    func listener(_ listener: VZVirtioSocketListener, shouldAcceptNewConnection connection: VZVirtioSocketConnection, from socketDevice: VZVirtioSocketDevice) -> Bool {
+        guard let target = targets[connection.destinationPort] else {
+            return false
+        }
+        let remoteFD = dialTCP(target)
+        if remoteFD < 0 {
+            return false
+        }
+        retain(connection)
+        let localFD = connection.fileDescriptor
+        Thread.detachNewThread {
+            copyFD(from: localFD, to: remoteFD)
+            Darwin.shutdown(remoteFD, SHUT_WR)
+            connection.close()
+        }
+        Thread.detachNewThread {
+            copyFD(from: remoteFD, to: localFD)
+            Darwin.shutdown(localFD, SHUT_WR)
+            Darwin.close(remoteFD)
+            connection.close()
+            self.release(connection)
+        }
+        return true
+    }
+
+    private func retain(_ connection: VZVirtioSocketConnection) {
+        lock.lock()
+        activeConnections.append(connection)
+        lock.unlock()
+    }
+
+    private func release(_ connection: VZVirtioSocketConnection) {
+        lock.lock()
+        activeConnections.removeAll { $0 === connection }
+        lock.unlock()
+    }
+}
+
+func dialTCP(_ target: TCPHostPort) -> Int32 {
+    let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+    if fd < 0 {
+        return -1
+    }
+    var addr = sockaddr_in()
+    addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_port = target.port.bigEndian
+    let host = target.host == "localhost" ? "127.0.0.1" : target.host
+    guard inet_pton(AF_INET, host, &addr.sin_addr) == 1 else {
+        Darwin.close(fd)
+        return -1
+    }
+    let result = withUnsafePointer(to: &addr) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+        }
+    }
+    if result != 0 {
+        Darwin.close(fd)
+        return -1
+    }
+    return fd
+}
+
+func copyFD(from source: Int32, to destination: Int32) {
+    var buffer = [UInt8](repeating: 0, count: 32 * 1024)
+    while true {
+        let readCount = buffer.withUnsafeMutableBytes {
+            Darwin.read(source, $0.baseAddress, $0.count)
+        }
+        if readCount <= 0 {
+            return
+        }
+        var written = 0
+        while written < readCount {
+            let result = buffer.withUnsafeBytes {
+                Darwin.write(destination, $0.baseAddress!.advanced(by: written), readCount - written)
+            }
+            if result <= 0 {
+                return
+            }
+            written += result
+        }
+    }
+}
+#endif
 
 func start(command: String, request: HelperRequest) -> Int32 {
     var details = baseDetails(request: request)
@@ -538,7 +702,7 @@ func runVM(command: String, request: HelperRequest) -> Int32 {
     }
 }
 
-func runVirtualMachine(config: (runtimeID: String, role: ComponentRole, kernelPath: String, rootfsPath: String, stateDir: String, memoryMiB: Int, cpuCount: Int), request: HelperRequest) throws {
+func runVirtualMachine(config: (runtimeID: String, role: ComponentRole, kernelPath: String, rootfsPath: String, stateDir: String, memoryMiB: Int, cpuCount: Int, vsockListeners: [VsockListenerConfig]), request: HelperRequest) throws {
     #if canImport(Virtualization)
     guard virtualizationAvailable() else {
         throw NSError(domain: "agency-apple-vf-helper", code: 69, userInfo: [NSLocalizedDescriptionKey: "Apple Virtualization.framework does not report VM support on this host"])
@@ -560,11 +724,30 @@ func runVirtualMachine(config: (runtimeID: String, role: ComponentRole, kernelPa
         try serialHandle.seekToEnd()
         serial.attachment = VZFileHandleSerialPortAttachment(fileHandleForReading: nil, fileHandleForWriting: serialHandle)
         vmConfig.serialPorts = [serial]
+        if !config.vsockListeners.isEmpty {
+            vmConfig.socketDevices = [VZVirtioSocketDeviceConfiguration()]
+        }
         try vmConfig.validate()
 
         let vm = VZVirtualMachine(configuration: vmConfig)
         let delegate = VMRunDelegate(stateDir: config.stateDir)
         vm.delegate = delegate
+        let vsockProxy = try VsockTCPProxy(listeners: config.vsockListeners)
+        var socketListeners: [VZVirtioSocketListener] = []
+        if !config.vsockListeners.isEmpty {
+            guard let socketDevice = vm.socketDevices.first as? VZVirtioSocketDevice else {
+                throw NSError(domain: "agency-apple-vf-helper", code: 69, userInfo: [NSLocalizedDescriptionKey: "configured virtio socket device is unavailable"])
+            }
+            for listenerConfig in config.vsockListeners {
+                guard let port = listenerConfig.port else {
+                    continue
+                }
+                let listener = VZVirtioSocketListener()
+                listener.delegate = vsockProxy
+                socketDevice.setSocketListener(listener, forPort: UInt32(port))
+                socketListeners.append(listener)
+            }
+        }
         let semaphore = DispatchSemaphore(value: 0)
         var startError: Error?
         vm.start { result in
@@ -583,7 +766,7 @@ func runVirtualMachine(config: (runtimeID: String, role: ComponentRole, kernelPa
         if let startError = startError {
             throw startError
         }
-        withExtendedLifetime(delegate) {
+        withExtendedLifetime((delegate, vsockProxy, socketListeners)) {
             CFRunLoopRun()
         }
         try? serialHandle.close()
