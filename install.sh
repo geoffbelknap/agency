@@ -152,13 +152,13 @@ render_message() {
     printf '  # Homebrew (macOS / Linux):\n'
     printf '  brew install geoffbelknap/tap/agency\n'
     printf '\n'
-    printf '  # From source:\n'
+    printf '  # From source (installs host dependencies with brew/apt/dnf/yum/pacman/zypper when needed):\n'
     printf '  git clone https://github.com/geoffbelknap/agency.git\n'
     printf '  cd agency && make install\n'
     printf '\n'
     printf 'Either path leaves you with an %sagency%s binary on PATH.\n' "$B" "$R"
-    printf 'Then run %sagency setup%s — it detects your container backend\n' "$B" "$R"
-    printf '(podman, docker, containerd) and configures itself.\n'
+    printf 'Then run %sagency quickstart%s — it selects firecracker on Linux/WSL\n' "$B" "$R"
+    printf 'and apple-vf-microvm on macOS Apple silicon.\n'
     printf '\n'
     printf 'Docs: https://github.com/geoffbelknap/agency\n'
     printf 'Cat:  klange/nyancat (NCSA), original art by prguitarman.\n'

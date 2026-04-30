@@ -73,11 +73,31 @@ Agency is built around them first.
 **You'll need:**
 
 - a supported microVM runtime path for your platform
+- host tools for the supported runtime path
 - an API key from at least one supported model provider
 
 On Linux and WSL2, Agency defaults to Firecracker and requires KVM plus vsock
 access for the operator account. On macOS Apple silicon, Agency defaults to
 `apple-vf-microvm` backed by Apple's Virtualization framework.
+
+The supported microVM path also needs host tools and a local Python
+environment for host-managed egress:
+
+- `.venv/bin/mitmdump` plus Agency's egress addon Python dependencies for host-managed egress mediation
+- `e2fsprogs` / `mke2fs` for microVM root filesystem creation
+
+Source installs run `scripts/install/host-dependencies.sh` automatically. To
+install or verify them yourself:
+
+```bash
+./scripts/install/host-dependencies.sh --check
+./scripts/install/host-dependencies.sh
+```
+
+The script uses Homebrew on macOS/Linuxbrew when available, or common Linux
+package managers such as `apt-get`, `dnf`, `yum`, `pacman`, or `zypper`. It
+installs system packages such as Python and e2fsprogs, then installs the pinned
+mitmproxy and egress addon dependencies into the repo `.venv`.
 
 Dockerfiles remain part of Agency as OCI image build recipes. Docker, Podman,
 containerd, and Apple Container execution backends are legacy paths and are no
@@ -96,6 +116,18 @@ brew install geoffbelknap/tap/agency
 ```bash
 curl -fsSL https://geoffbelknap.github.io/agency/install.sh | bash
 ```
+
+**From source:**
+
+```bash
+git clone https://github.com/geoffbelknap/agency.git
+cd agency
+make install
+```
+
+`make install` installs required host dependencies using
+`scripts/install/host-dependencies.sh`. Set `SKIP_HOST_DEPS=1` if your package
+manager or release packaging already provides those dependencies.
 
 ### First Run
 
@@ -203,6 +235,16 @@ make test
 go test ./...
 pytest images/tests/
 ```
+
+For local source installs, `make install` runs:
+
+```bash
+./scripts/install/host-dependencies.sh
+```
+
+Use `./scripts/install/host-dependencies.sh --check` to verify host dependency
+presence without installing packages. Use `--dry-run` to see which package
+manager and Python dependencies would be used.
 
 For runtime/lifecycle changes, the highest-signal validation path is:
 

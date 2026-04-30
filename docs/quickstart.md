@@ -11,7 +11,8 @@ Get Agency running and your first agent working in under 10 minutes.
 You need:
 
 1. **A supported microVM runtime path** for your platform
-2. **An API key** from at least one supported model provider
+2. **Host tools** for egress mediation and microVM rootfs creation
+3. **An API key** from at least one supported model provider
 
 If you need a provider key first, see [Getting API Keys](/getting-api-keys).
 Google Gemini is the easiest no-credit-card starting point for many users.
@@ -26,6 +27,21 @@ test -r /dev/vhost-vsock && test -w /dev/vhost-vsock
 
 On macOS Apple silicon, the supported runtime path is `apple-vf-microvm`,
 backed by Apple's Virtualization framework.
+
+Both supported runtime paths need `mitmdump` with Agency's egress addon Python
+dependencies for host-managed egress and `mke2fs` from e2fsprogs for root
+filesystem creation. Source installs run `scripts/install/host-dependencies.sh`
+automatically. To verify or install them manually from a source checkout:
+
+```bash
+./scripts/install/host-dependencies.sh --check
+./scripts/install/host-dependencies.sh
+```
+
+The script uses Homebrew on macOS/Linuxbrew when available, or common Linux
+package managers such as `apt-get`, `dnf`, `yum`, `pacman`, or `zypper`. It
+installs system packages such as Python and e2fsprogs, then installs the pinned
+mitmproxy and egress addon dependencies into the repo `.venv`.
 
 Dockerfiles remain part of Agency because they define OCI image filesystems
 that microVM backends can convert into bootable root filesystems. Docker,
@@ -46,6 +62,11 @@ brew install geoffbelknap/tap/agency
 git clone https://github.com/geoffbelknap/agency.git
 cd agency && make install
 ```
+
+`make install` installs the required host tools through
+`scripts/install/host-dependencies.sh`. Use `SKIP_HOST_DEPS=1 make install`
+only when those dependencies are already managed by your package or image
+build.
 
 **Windows:** install inside a WSL2 Ubuntu distro and follow the Linux path
 above. There is no native Windows installer.

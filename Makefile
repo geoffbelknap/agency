@@ -1,4 +1,4 @@
-.PHONY: all build install deploy test clean firecracker-helpers images python-base workspace-base \
+.PHONY: all build install host-deps deploy test clean firecracker-helpers images python-base workspace-base \
        body enforcer comms knowledge intake egress workspace web-fetch web relay \
        python-image-tests \
        provider-tools-readiness \
@@ -68,7 +68,14 @@ ifeq ($(AGENCY_BIN),)
   AGENCY_BIN := $(HOME)/.agency/bin/agency
 endif
 
-install: build
+host-deps:
+	@if [ "$(SKIP_HOST_DEPS)" = "1" ]; then \
+		echo "Skipping host dependency install because SKIP_HOST_DEPS=1"; \
+	else \
+		./scripts/install/host-dependencies.sh; \
+	fi
+
+install: host-deps build
 	@DEST="$(AGENCY_BIN)"; \
 	case "$$DEST" in \
 		*/homebrew/*|*/Homebrew/*|*/Cellar/*) \

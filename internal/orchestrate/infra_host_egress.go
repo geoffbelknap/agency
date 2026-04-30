@@ -140,6 +140,9 @@ func (inf *Infra) prepareHostEgressPaths() (hostEgressPaths, error) {
 			return paths, err
 		}
 	}
+	if err := repairMitmproxyCertStore(paths.certsDir); err != nil {
+		return paths, err
+	}
 	if entries, err := os.ReadDir(paths.certsDir); err == nil {
 		for _, e := range entries {
 			if !e.IsDir() {
@@ -148,6 +151,27 @@ func (inf *Infra) prepareHostEgressPaths() (hostEgressPaths, error) {
 		}
 	}
 	return paths, nil
+}
+
+func repairMitmproxyCertStore(certsDir string) error {
+	for _, name := range []string{
+		"mitmproxy-ca.pem",
+		"mitmproxy-ca-cert.pem",
+		"mitmproxy-ca-cert.cer",
+		"mitmproxy-ca-cert.p12",
+		"mitmproxy-dhparam.pem",
+	} {
+		path := filepath.Join(certsDir, name)
+		info, err := os.Stat(path)
+		if err == nil && info.IsDir() {
+			if err := os.RemoveAll(path); err != nil {
+				return fmt.Errorf("remove invalid mitmproxy cert directory %s: %w", path, err)
+			}
+		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("stat mitmproxy cert path %s: %w", path, err)
+		}
+	}
+	return nil
 }
 
 func (inf *Infra) fetchHostEgressBlocklists(ctx context.Context, sourceDir string, paths hostEgressPaths) error {
