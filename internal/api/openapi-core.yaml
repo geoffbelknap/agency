@@ -4,7 +4,7 @@ info:
     version: 0.1.0
     description: |-
         REST API for the Agency AI agent operating platform. Deploys agents in
-        enforced isolation containers with credential scoping, network mediation,
+        enforced microVM runtimes with credential scoping, network mediation,
         read-only constraints, and continuous audit.
 
         All endpoints except /health require API token authentication via the
@@ -175,7 +175,7 @@ paths:
                     $ref: "#/components/responses/NotFound"
         delete:
             operationId: deleteAgent
-            summary: Delete an agent and its containers
+            summary: Delete an agent and its runtime state
             tags: [Agents]
             parameters:
                 - $ref: "#/components/parameters/agentName"
@@ -885,7 +885,7 @@ paths:
                 compiled spec, projected runtime status, backend inspection details, and
                 backend capabilities. This is the operator-facing source of truth for
                 runtime state; callers should not reconstruct runtime state from raw
-                Docker conventions.
+                backend implementation details.
             tags: [Agents]
             parameters:
                 - $ref: "#/components/parameters/agentName"
@@ -1826,7 +1826,7 @@ paths:
             tags: [Comms]
             responses:
                 "200":
-                    description: Channel list (proxied from comms container)
+                    description: Channel list (proxied from comms service)
                     content:
                         application/json:
                             schema:
@@ -2224,8 +2224,8 @@ paths:
                 halt functional, operator override available.
 
                 The report is structured as runtime checks plus backend-specific
-                hygiene checks. For the Docker backend, Docker warnings should be read
-                as substrate hygiene, not as generic runtime contract failure.
+                hygiene checks. Firecracker and Apple VF warnings should be read as
+                substrate hygiene, not as generic runtime contract failure.
             tags: [Admin]
             x-agency-tier: core
             x-agency-stability: supported

@@ -624,9 +624,9 @@ func isWSL() bool {
 	return strings.Contains(s, "microsoft") || strings.Contains(s, "WSL")
 }
 
-// webHost derives the local web UI hostname. The web container publishes its
-// host port on loopback, even when the gateway daemon listens on a backend
-// bridge address for VM-backed runtimes.
+// webHost derives the local web UI hostname. The web UI serves on loopback,
+// even when the gateway daemon listens on a backend bridge address for
+// VM-backed runtimes.
 func webHost() string {
 	cfg := config.Load()
 	if host, _, err := net.SplitHostPort(cfg.GatewayAddr); err == nil && host != "" {
@@ -804,7 +804,7 @@ func runSetup(provider, apiKey, notifyURL, backend string, backendCfg map[string
 	fmt.Println()
 
 	// Persist API keys to ~/.agency/.env BEFORE starting the daemon. If the
-	// daemon fails to start (e.g. container backend unreachable mid-setup),
+	// daemon fails to start (for example backend readiness fails mid-setup),
 	// the keys survive in .env and the next setup/serve will migrate them
 	// into the credential store via the ReadExistingKeys path further down.
 	// Without this, a daemon startup failure silently drops the API key the
@@ -1297,12 +1297,12 @@ func runServe(httpAddr string) error {
 		}
 	}()
 
-	// Unix socket listener for container-to-gateway communication.
-	// Socket lives in ~/.agency/run/ so infra containers can mount the
-	// directory (not the file) and survive gateway restarts.
+	// Unix socket listener for host-service-to-gateway communication.
+	// Socket lives in ~/.agency/run/ so host services can bind the directory
+	// and survive gateway restarts.
 	sockDir := filepath.Join(cfg.Home, "run")
 	os.MkdirAll(sockDir, 0755)
-	// Proxy-safe socket — bridged to TCP by the gateway-proxy container.
+	// Proxy-safe socket — bridged to TCP by the gateway proxy service.
 	// Does NOT include credential resolution endpoints.
 	sockPath := filepath.Join(sockDir, "gateway.sock")
 	os.Remove(sockPath)                                // clean up stale socket
@@ -1311,9 +1311,9 @@ func runServe(httpAddr string) error {
 	if err != nil {
 		logger.Warn("could not create Unix socket", "err", err)
 	} else {
-		os.Chmod(sockPath, 0666) // world-readable — proxy container runs as nobody; access controlled by bind mount scope
-		// Restricted router: only the endpoints infra containers need.
-		// No BearerAuth — containers don't hold the operator token.
+		os.Chmod(sockPath, 0666) // world-readable; access controlled by bind mount scope
+		// Restricted router: only the endpoints host infra services need.
+		// No BearerAuth — services don't hold the operator token.
 		sockRouter := chi.NewRouter()
 		sockRouter.Use(chiMiddleware.Recoverer)
 		api.RegisterSocketRoutes(sockRouter, cfg, dc, logger, startup, routeOpts)
@@ -1336,7 +1336,7 @@ func runServe(httpAddr string) error {
 
 	// Credential-only socket — mounted exclusively by egress for credential
 	// resolution. Never bridged to TCP (ASK Tenet 7: credentials never
-	// traverse a Docker network).
+	// traverse a shared runtime network).
 	credSockPath := filepath.Join(sockDir, "gateway-cred.sock")
 	os.Remove(credSockPath)
 	credListener, err := net.Listen("unix", credSockPath)

@@ -66,14 +66,6 @@ agency infra status
 # Stop everything
 agency infra down
 
-# Legacy Docker cleanup, only when the Docker backend was explicitly selected
-docker ps -a --filter "label=agency.managed=true" -q | xargs -r docker rm -f
-docker network ls --filter "label=agency.managed=true" -q | xargs -r docker network rm
-
-# Legacy Podman cleanup, only when the Podman backend was explicitly selected
-podman ps -a --filter "label=agency.managed=true" -q | xargs -r podman rm -f
-podman network ls --filter "label=agency.managed=true" -q | xargs -r podman network rm
-
 # Restart
 agency infra up
 agency infra status

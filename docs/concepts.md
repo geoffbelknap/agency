@@ -12,7 +12,7 @@ This page explains the key ideas behind Agency. Understanding these concepts mak
 
 ## The Big Picture
 
-Agency is a platform where **you** (the operator) manage **agents** that do work. Each agent runs inside an isolated container — it has its own workspace, identity, and constraints. The platform enforces security boundaries between agents, and between agents and the outside world.
+Agency is a platform where **you** (the operator) manage **agents** that do work. Each agent runs inside an isolated microVM workspace — it has its own workspace, identity, and constraints. The platform enforces security boundaries between agents, and between agents and the outside world.
 
 ```
 You (operator)
@@ -34,7 +34,7 @@ Agents never talk to the internet directly. They never see API keys. They can't 
 
 ## Agents
 
-An **agent** is an autonomous AI worker running inside a hardened container. Each agent has:
+An **agent** is an autonomous AI worker running inside a hardened microVM runtime. Each agent has:
 
 - **A name** — lowercase alphanumeric, like `dev-assistant` or `security-checker`
 - **A preset** — determines what model tier, tools, and identity the agent gets

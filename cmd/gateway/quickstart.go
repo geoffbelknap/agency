@@ -568,7 +568,7 @@ func runQuickstart(opts quickstartOptions) error {
 	// If the daemon was already running, it may have started before RunInit
 	// created config.yaml (e.g., `make install` starts daemon, then quickstart
 	// runs RunInit). Restart so it picks up the new tokens and egress_token.
-	// Without this, the daemon runs with empty auth tokens and containers
+	// Without this, the daemon runs with empty auth tokens and services
 	// (especially egress) get empty GATEWAY_TOKEN — breaking credential swap.
 	if shouldRestartGatewayForQuickstart(gatewayRunning, configExistedBefore, pendingKeys) {
 		daemon.Stop()
@@ -784,7 +784,7 @@ func runQuickstart(opts quickstartOptions) error {
 
 	// Phase 5: Demo
 	if !opts.noDemo && runningAgent != "" {
-		// Start returns when containers are up, but the body runtime may need a
+		// Start returns when the runtime is up, but the body runtime may need a
 		// moment to subscribe to comms. Avoid sending the first task into that
 		// startup race.
 		time.Sleep(2 * time.Second)

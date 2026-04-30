@@ -34,13 +34,16 @@ agency log <agent-name>
 
 Look for: error signals, halt events, budget exhaustion, trajectory anomalies.
 
-### 3. Check container state
+### 3. Check runtime state
 
 ```bash
-docker ps -a --filter "name=agency-<agent-name>"
+agency runtime status <agent-name>
+agency runtime manifest <agent-name>
+agency runtime validate <agent-name>
 ```
 
-Look for: exited containers, restart loops, OOMKilled.
+Look for: unhealthy phases, failed readiness, backend identity, transport
+details, and missing mediation.
 
 ## Recovery Procedures
 
@@ -69,18 +72,20 @@ agency resume <agent-name>
 
 If resume fails with authority error — the halt was initiated by a higher-authority principal. Contact the operator who halted it.
 
-### Agent crashed (container exited)
+### Agent crashed
 
 ```bash
-# Check exit reason
-docker inspect agency-<agent-name>-workspace --format '{{.State.ExitCode}} {{.State.OOMKilled}}'
+# Check runtime status and validation failure detail
+agency runtime status <agent-name>
+agency runtime validate <agent-name>
 
 # Restart
 agency stop <agent-name>    # clean up state
 agency start <agent-name>   # fresh start
 ```
 
-If OOMKilled: the agent exceeded its memory limit. Check if the task requires more memory or if there's a memory leak in the tools being used.
+If the runtime reports an out-of-memory or resource failure, check whether the
+task needs a higher capacity profile or whether a tool leaked memory.
 
 After restart, confirm the runtime contract surfaces recover too:
 
@@ -97,7 +102,8 @@ agency stop <agent-name> --force
 
 # Check logs for the crash cause
 agency log <agent-name>
-docker logs agency-<agent-name>-workspace 2>&1 | tail -50
+agency runtime status <agent-name>
+agency runtime validate <agent-name>
 
 # Fix the underlying issue, then restart
 agency start <agent-name>
@@ -141,15 +147,16 @@ If `available_slots` is 0, the host is at capacity. Either stop unused agents or
 ### Enforcer not running
 
 ```bash
-# Check enforcer container
-docker ps -a --filter "name=agency-<agent-name>-enforcer"
+# Check mediation and runtime validation
+agency runtime status <agent-name>
+agency runtime validate <agent-name>
 
 # Enforcer crash = mediation broken = agent must be stopped (ASK Tenet 3)
 agency stop <agent-name>
 agency start <agent-name>   # restart recreates enforcer
 ```
 
-The workspace crash watcher detects enforcer crashes and emits operator alerts automatically.
+The runtime watcher detects mediation/runtime crashes and emits operator alerts automatically.
 
 If the enforcer starts but the agent remains degraded, validate the runtime
 contract directly:

@@ -301,8 +301,8 @@ agency graph stats
 
 If nodes/edges are 0 after ingestion:
 
-1. Check intake container logs: `docker logs agency-infra-knowledge 2>&1 | tail -20`
-2. Verify the knowledge container is healthy: `agency infra status`
+1. Check knowledge service status: `agency infra status`
+2. Check gateway logs for ingestion errors: `tail -50 ~/.agency/gateway.log`
 3. Check if the file type is supported (markdown, config, code, HTML, PDF, structured data)
 
 ### Ontology validation failures

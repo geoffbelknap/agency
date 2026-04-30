@@ -1,10 +1,10 @@
 ---
 title: "Agents"
-description: "An agent is an autonomous AI worker running inside an isolated container, covering the full lifecycle from creation and configuration to starting and stopping."
+description: "An agent is an autonomous AI worker running inside an isolated microVM runtime, covering the full lifecycle from creation and configuration to starting and stopping."
 ---
 
 
-An agent is an autonomous AI worker running inside an isolated container. This page covers the full agent lifecycle — creating, configuring, starting, sending tasks, monitoring, and stopping agents.
+An agent is an autonomous AI worker running inside an isolated microVM runtime. This page covers the full agent lifecycle — creating, configuring, starting, sending tasks, monitoring, and stopping agents.
 
 > Status: Core reference with a few experimental extensions called out inline.
 > The default `0.2.x` path is one operator working with one or a few agents
@@ -43,7 +43,7 @@ When you create an agent, Agency generates these files under `~/.agency/agents/m
 | `agent.yaml` | Agent manifest — name, type, preset, model tier |
 | `constraints.yaml` | Rules the agent must follow (mounted read-only) |
 | `identity.md` | Who the agent is and how it works |
-| `workspace.yaml` | Container specification |
+| `workspace.yaml` | Workspace/runtime specification |
 | `policy.yaml` | Agent-level policy |
 | `services.yaml` | Granted service credentials |
 
@@ -64,7 +64,7 @@ nano ~/.agency/agents/my-agent/identity.md
 
 The constraints file (`constraints.yaml`) defines what the agent is and isn't allowed to do. It includes hard limits (absolute rules), escalation triggers, and tool restrictions.
 
-Constraints are mounted **read-only** into the container — the agent cannot modify them.
+Constraints are mounted **read-only** into the runtime — the agent cannot modify them.
 
 ### Services
 
@@ -98,7 +98,7 @@ This triggers the **seven-phase start sequence**:
 3. **Constraints** — Computes effective policy, generates internal manifests
 4. **Workspace** — Verifies the workspace provides required tools
 5. **Identity** — Loads and verifies the identity document
-6. **Body** — Mounts skills read-only, starts the container, verifies isolation
+6. **Body** — Mounts skills read-only, starts the microVM runtime, verifies isolation
 7. **Session** — Constructs session context and records it in the audit log
 
 If any phase fails, everything created so far is torn down. This is **fail-closed** — no partial starts.
@@ -222,7 +222,7 @@ agency list --active                    # Only running agents
 ├── agent.yaml              # Manifest
 ├── constraints.yaml        # Read-only constraints
 ├── identity.md             # Identity seed
-├── workspace.yaml          # Container spec
+├── workspace.yaml          # Workspace/runtime spec
 ├── policy.yaml             # Agent policy
 ├── services.yaml           # Granted services
 ├── AGENTS.md               # Generated from constraints (read-only)

@@ -18,11 +18,11 @@ SOURCE_DIR := $(shell pwd)
 LDFLAGS  := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE) -X main.buildID=$(BUILD_ID) -X main.sourceDir=$(SOURCE_DIR)
 IMAGE_DIR = images
 
-# Container backend used to build images. Preference order matches the
-# gateway's runtime default: podman (rootless) first, then docker, then
-# nerdctl (containerd). Override with CONTAINER_CMD=<path> if you want to
-# pin a specific tool, or set AGENCY_CONTAINER_BUILDER=<name> to pick by
-# name (podman/docker/nerdctl).
+# OCI image builder used to build artifacts. Preference order follows local
+# tool availability: podman (rootless) first, then docker, then nerdctl
+# (containerd). Override with CONTAINER_CMD=<path> if you want to pin a
+# specific tool, or set AGENCY_CONTAINER_BUILDER=<name> to pick by name
+# (podman/docker/nerdctl).
 ifneq ($(AGENCY_CONTAINER_BUILDER),)
 CONTAINER_CMD := $(shell command -v $(AGENCY_CONTAINER_BUILDER) 2>/dev/null)
 else
@@ -37,7 +37,7 @@ CORE_IMAGES = body enforcer comms knowledge egress workspace gateway-proxy
 # locally.
 EXPERIMENTAL_IMAGES = intake web-fetch
 
-# Every buildable container image. Used to generate per-image targets so
+# Every buildable OCI artifact image. Used to generate per-image targets so
 # `make intake` / `make web-fetch` keep working.
 ALL_IMAGES = $(CORE_IMAGES) $(EXPERIMENTAL_IMAGES)
 
@@ -47,7 +47,7 @@ REPO_CONTEXT_IMAGES = intake
 # Services that build from their own directory plus shared assets from images/.
 SHARED_CONTEXT_IMAGES = body comms knowledge egress
 
-# Build and install the gateway binary + all container images (including web UI)
+# Build and install the gateway binary + all OCI artifact images (including web UI)
 all: install images-all
 	@echo "Gateway installed, images built. Run 'agency serve' to start."
 
@@ -132,14 +132,14 @@ workspace-base: require-container-cmd
 body comms knowledge intake: python-base
 workspace: workspace-base
 
-# Build core container images. Experimental images (intake, web-fetch) build on
+# Build core OCI artifact images. Experimental images (intake, web-fetch) build on
 # demand via `make images-experimental`.
 images: $(CORE_IMAGES)
 
 # Build experimental images (not published in releases).
 images-experimental: $(EXPERIMENTAL_IMAGES)
 
-# Build all container images including web UI and relay
+# Build all OCI artifact images including web UI and relay
 images-all: images web relay
 
 # Per-image targets. Shared-context images use their own directory plus

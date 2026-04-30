@@ -47,7 +47,7 @@ make install
 agency --version
 ```
 
-### 5. Rebuild container images
+### 5. Rebuild OCI image artifacts
 
 ```bash
 make images    # source build
@@ -78,7 +78,7 @@ agency status
 agency infra capacity
 ```
 
-The binary version and container image build IDs should match. Stale images auto-rebuild on next `agency start`, but `make images` or `agency infra rebuild` handles it proactively. Capacity config (`~/.agency/capacity.yaml`) survives upgrades — re-run `agency setup` only if host resources changed.
+The binary version and OCI artifact build IDs should match. Stale artifacts auto-rebuild on next `agency start`, but `make images` or `agency infra rebuild` handles it proactively. Capacity config (`~/.agency/capacity.yaml`) survives upgrades — re-run `agency setup` only if host resources changed.
 
 ### 9. Restart agents
 

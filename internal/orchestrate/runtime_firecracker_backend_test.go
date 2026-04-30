@@ -77,6 +77,9 @@ func TestFirecrackerComponentBodyReadinessDegradesStatus(t *testing.T) {
 func TestFirecrackerComponentStatusAddsEnforcerComponentDetails(t *testing.T) {
 	backend := &firecrackerComponentRuntimeBackend{
 		backend: &hostruntimebackend.FirecrackerRuntimeBackend{},
+		enforcers: &agentruntime.HostEnforcerSupervisor{
+			StateDir: t.TempDir(),
+		},
 	}
 	status := runtimecontract.BackendStatus{
 		RuntimeID: "alice",

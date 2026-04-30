@@ -148,21 +148,19 @@ agency infra reload
 
 Reloads configuration without restarting services. Use after changing egress rules, routing config, or other infrastructure settings.
 
-## Networks
+## Runtime Mediation
 
-Agency uses four network layers:
+Agency uses a microVM runtime boundary per agent. Firecracker is the supported
+Linux/WSL backend and `apple-vf-microvm` is the supported macOS Apple silicon
+backend.
 
-| Network | Connects | Purpose |
-|---------|----------|---------|
-| `agent-{name}-internal` | workspace ↔ enforcer | Per-agent isolation |
-| `agency-gateway` | gateway-proxy ↔ comms/knowledge/web/enforcers/egress plus optional services | Gateway mediation and service discovery (`gateway:8200`) |
-| `agency-egress-int` | enforcers/knowledge plus optional outbound services ↔ egress | Internal outbound mediation |
-| `agency-egress-ext` | egress ↔ internet | Outbound internet access |
+The runtime path must preserve these mediation properties:
 
-This topology ensures:
-- Agents can only reach their own enforcer
-- Agents cannot communicate except through channels (via comms service)
-- Only the egress proxy can reach the internet
+- workload microVMs can reach only their assigned external enforcer boundary
+- enforcers mediate provider, egress, comms, and knowledge access
+- shared host infrastructure stays outside the agent trust boundary
+- stale legacy container networks are deployment hygiene issues, not the
+  supported runtime topology
 
 ## Egress Configuration
 
