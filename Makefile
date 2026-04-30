@@ -1,7 +1,7 @@
 .PHONY: all build install deploy test clean firecracker-helpers images python-base workspace-base \
        body enforcer comms knowledge intake egress workspace web-fetch web relay \
        python-image-tests \
-       provider-tools-readiness docker-readiness podman-readiness podman-readiness-full containerd-readiness containerd-readiness-rootful \
+       provider-tools-readiness \
        verify-required-status-checks \
        web-test-unit web-test-e2e web-test-all \
        e2e-live-web e2e-live-web-safe e2e-live-web-risky \
@@ -101,21 +101,6 @@ python-image-tests:
 
 provider-tools-readiness:
 	@./scripts/readiness/provider-tools-readiness-check.sh
-
-docker-readiness:
-	@./scripts/readiness/docker-readiness-check.sh
-
-podman-readiness:
-	@./scripts/readiness/podman-readiness-check.sh
-
-podman-readiness-full:
-	@./scripts/readiness/podman-readiness-check.sh --full
-
-containerd-readiness:
-	@./scripts/readiness/containerd-rootless-readiness-check.sh
-
-containerd-readiness-rootful:
-	@./scripts/readiness/containerd-rootful-readiness-check.sh
 
 verify-required-status-checks:
 	@./scripts/ci/verify-required-status-checks.sh

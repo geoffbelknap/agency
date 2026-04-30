@@ -24,21 +24,13 @@ test -r /dev/kvm && test -w /dev/kvm
 test -r /dev/vhost-vsock && test -w /dev/vhost-vsock
 ```
 
-On macOS Apple silicon, the strategic runtime path is `apple-vf-microvm`,
-backed by Apple's Virtualization framework. That backend is still being wired
-up, so current macOS local development may need an explicitly selected
-experimental backend until the Apple VF path is complete.
+On macOS Apple silicon, the supported runtime path is `apple-vf-microvm`,
+backed by Apple's Virtualization framework.
 
 Dockerfiles remain part of Agency because they define OCI image filesystems
 that microVM backends can convert into bootable root filesystems. Docker,
-Podman, containerd, and Apple Container runtime backends are transitional
-development paths and require an explicit experimental backend selection.
-
-### Transitional Container Backends
-
-If you are developing the legacy container adapters, run setup with an explicit
-backend and the experimental backend flag. These paths are kept for migration
-and validation work; they are not the default runtime strategy.
+Podman, containerd, and Apple Container execution backends are legacy adapter
+history and are no longer selectable through setup or quickstart.
 
 ## Install
 

@@ -404,7 +404,7 @@ export function Infrastructure() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderBottom: '0.5px solid var(--ink-hairline)', background: 'var(--warm-2)' }}>
               <Terminal size={15} color="var(--ink-mid)" />
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="eyebrow" style={{ fontSize: 9 }}>Container logs</div>
+                <div className="eyebrow" style={{ fontSize: 9 }}>Runtime logs</div>
                 <div className="mono" style={{ fontSize: 13, color: 'var(--ink)' }}>{logComponent}</div>
               </div>
               <DesignButton variant="ghost" icon={<RefreshCw size={13} className={logLoading ? 'animate-spin' : ''} />} disabled={logLoading} onClick={() => loadLogs(logComponent)}>

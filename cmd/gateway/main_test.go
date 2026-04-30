@@ -1,7 +1,6 @@
 package main
 
 import (
-	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -15,8 +14,7 @@ import (
 func TestSelectRuntimeBackendDefaultsToStrategicBackend(t *testing.T) {
 	t.Setenv("AGENCY_HOME", t.TempDir())
 	t.Setenv("AGENCY_RUNTIME_BACKEND", "")
-	t.Setenv("AGENCY_CONTAINER_BACKEND", "")
-	backend, cfg, err := selectRuntimeBackend("", false)
+	backend, cfg, err := selectRuntimeBackend("")
 	if err != nil {
 		t.Fatalf("selectRuntimeBackend() error = %v", err)
 	}
@@ -36,20 +34,18 @@ func TestSelectRuntimeBackendDefaultsToStrategicBackend(t *testing.T) {
 	}
 }
 
-func TestSelectRuntimeBackendRequiresExperimentalForTransitionalBackend(t *testing.T) {
+func TestSelectRuntimeBackendRejectsContainerBackend(t *testing.T) {
 	t.Setenv("AGENCY_RUNTIME_BACKEND", "")
-	t.Setenv("AGENCY_CONTAINER_BACKEND", "")
-	_, _, err := selectRuntimeBackend("podman", false)
-	if err == nil || !strings.Contains(err.Error(), "transitional") {
+	_, _, err := selectRuntimeBackend("podman")
+	if err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("selectRuntimeBackend(podman) error = %v", err)
 	}
 }
 
 func TestSelectRuntimeBackendAllowsExplicitMicroVMBackendsWithoutExperimentalFlag(t *testing.T) {
 	t.Setenv("AGENCY_RUNTIME_BACKEND", "")
-	t.Setenv("AGENCY_CONTAINER_BACKEND", "")
 	for _, backend := range []string{hostruntimebackend.BackendFirecracker, hostruntimebackend.BackendAppleVFMicroVM} {
-		got, _, err := selectRuntimeBackend(backend, false)
+		got, _, err := selectRuntimeBackend(backend)
 		if err != nil {
 			t.Fatalf("selectRuntimeBackend(%s) error = %v", backend, err)
 		}
@@ -59,7 +55,7 @@ func TestSelectRuntimeBackendAllowsExplicitMicroVMBackendsWithoutExperimentalFla
 	}
 }
 
-func TestValidateConfiguredBackendRejectsGenericContainerdHostKey(t *testing.T) {
+func TestValidateConfiguredBackendRejectsContainerBackend(t *testing.T) {
 	err := validateConfiguredBackend(&config.Config{
 		Hub: config.HubConfig{
 			DeploymentBackend: "containerd",
@@ -68,25 +64,8 @@ func TestValidateConfiguredBackendRejectsGenericContainerdHostKey(t *testing.T) 
 			},
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "native containerd socket") {
+	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
 		t.Fatalf("validateConfiguredBackend() error = %v", err)
-	}
-}
-
-func TestWithAppleContainerHelperConfig(t *testing.T) {
-	t.Setenv("AGENCY_APPLE_CONTAINER_HELPER_BIN", "/tmp/agency-apple-container-helper")
-	t.Setenv("AGENCY_APPLE_CONTAINER_WAIT_HELPER_BIN", "/tmp/agency-apple-container-wait-helper")
-	got := withAppleContainerHelperConfig("apple-container", map[string]string{"binary": "/opt/homebrew/bin/container"})
-	want := map[string]string{
-		"binary":             "/opt/homebrew/bin/container",
-		"helper_binary":      "/tmp/agency-apple-container-helper",
-		"wait_helper_binary": "/tmp/agency-apple-container-wait-helper",
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("helper config = %#v, want %#v", got, want)
-	}
-	if got := withAppleContainerHelperConfig("docker", nil); got != nil {
-		t.Fatalf("docker config = %#v, want nil", got)
 	}
 }
 
@@ -155,13 +134,10 @@ func TestRouteBackendHealthDropsTypedNilStatus(t *testing.T) {
 	}
 }
 
-func TestValidateConfiguredBackendAcceptsNativeContainerdSocketKey(t *testing.T) {
+func TestValidateConfiguredBackendAcceptsMicroVMBackend(t *testing.T) {
 	if err := validateConfiguredBackend(&config.Config{
 		Hub: config.HubConfig{
-			DeploymentBackend: "containerd",
-			DeploymentBackendConfig: map[string]string{
-				"native_socket": "/run/user/1000/containerd/containerd.sock",
-			},
+			DeploymentBackend: hostruntimebackend.BackendFirecracker,
 		},
 	}); err != nil {
 		t.Fatalf("validateConfiguredBackend() error = %v", err)

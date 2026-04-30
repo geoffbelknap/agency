@@ -61,7 +61,7 @@ describe('AgentStep', () => {
     server.use(
       http.get(`${BASE}/agents`, () => HttpResponse.json([])),
       http.post(`${BASE}/agents`, () =>
-        HttpResponse.json({ error: 'Docker is not running' }, { status: 500 }),
+        HttpResponse.json({ error: 'Runtime backend is not ready' }, { status: 500 }),
       ),
     );
 

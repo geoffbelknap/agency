@@ -5,7 +5,8 @@ agent start, restart, status, and transport wiring.
 
 ## Preconditions
 
-- Docker Desktop is running and `docker info` succeeds.
+- A supported microVM runtime is configured: Firecracker on Linux/WSL or
+  `apple-vf-microvm` on macOS Apple silicon.
 - The gateway token is configured in `~/.agency/config.yaml`.
 - The gateway is reachable on `127.0.0.1:8200`.
 

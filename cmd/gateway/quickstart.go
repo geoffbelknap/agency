@@ -178,16 +178,14 @@ var agentChoices = []agentChoice{
 }
 
 type quickstartOptions struct {
-	provider            string
-	key                 string
-	preset              string
-	name                string
-	backend             string
-	experimentalBackend bool
-	noDemo              bool
-	noBrowser           bool
-	noDockerStart       bool //nolint:unused // retained for backward-compat flag --no-docker-start
-	verbose             bool
+	provider  string
+	key       string
+	preset    string
+	name      string
+	backend   string
+	noDemo    bool
+	noBrowser bool
+	verbose   bool
 }
 
 func quickstartCmd() *cobra.Command {
@@ -217,9 +215,7 @@ Run with --no-browser to print the Web UI URL without opening it.`,
 	cmd.Flags().StringVar(&opts.name, "name", "", "Name for the first agent")
 	cmd.Flags().BoolVar(&opts.noDemo, "no-demo", false, "Skip the demo task")
 	cmd.Flags().BoolVar(&opts.noBrowser, "no-browser", false, "Don't open the web UI in a browser (also respected via AGENCY_NO_BROWSER=1)")
-	cmd.Flags().StringVar(&opts.backend, "backend", "", "Runtime backend to use; defaults to firecracker on Linux/WSL and apple-vf-microvm on macOS. Also respected via AGENCY_RUNTIME_BACKEND. Docker, Podman, containerd, and apple-container require --experimental-backend.")
-	cmd.Flags().BoolVar(&opts.experimentalBackend, "experimental-backend", false, "Allow transitional container runtime backends")
-	cmd.Flags().BoolVar(&opts.noDockerStart, "no-docker-start", false, "Don't try to start Docker Desktop automatically (docker backend only; also respected via AGENCY_NO_DOCKER_START=1)")
+	cmd.Flags().StringVar(&opts.backend, "backend", "", "MicroVM runtime backend to use; defaults to firecracker on Linux/WSL and apple-vf-microvm on macOS. Also respected via AGENCY_RUNTIME_BACKEND.")
 	cmd.Flags().BoolVar(&opts.verbose, "verbose", false, "Show detailed output")
 
 	return cmd
@@ -434,7 +430,7 @@ func runQuickstart(opts quickstartOptions) error {
 	configExistedBefore := quickstartConfigExists()
 
 	// Phase 1: Environment — pick a runtime backend
-	backendName, backendCfg, err := selectRuntimeBackend(opts.backend, opts.experimentalBackend)
+	backendName, backendCfg, err := selectRuntimeBackend(opts.backend)
 	if err != nil {
 		fmt.Printf("  %s environment     %s\n", qsRed.Render("✗"), err)
 		fmt.Println()

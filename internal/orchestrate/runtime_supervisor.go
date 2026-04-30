@@ -80,72 +80,6 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 		CredStore:   credStore,
 		registry:    runtimebackend.NewRegistry(),
 	}
-	registerContainerBackend := func(backendName string) {
-		rs.registry.Register(backendName, func() (runtimecontract.Backend, error) {
-			return &hostruntimebackend.ContainerRuntimeBackend{
-				BackendName: backendName,
-				Backend:     rs.Backend,
-				EnsureAgentNetwork: func(ctx context.Context, runtimeID string) error {
-					if rs.Backend == nil {
-						return fmt.Errorf("%s is not available", backendName)
-					}
-					infra, err := NewInfra(rs.Home, rs.Version, rs.Backend, rs.Log, nil)
-					if err != nil {
-						return err
-					}
-					infra.SourceDir = rs.SourceDir
-					infra.BuildID = rs.BuildID
-					infra.RuntimeBackendName = backendName
-					return infra.EnsureAgentNetwork(ctx, fmt.Sprintf("%s-%s-internal", prefix, runtimeID))
-				},
-				EnsureEnforcerFn: func(ctx context.Context, spec runtimecontract.RuntimeSpec, rotateKey bool) error {
-					if rs.Backend == nil {
-						return fmt.Errorf("%s is not available", backendName)
-					}
-					sharedCli := rs.Backend.RawClient()
-					enf, err := NewEnforcerWithClient(spec.RuntimeID, rs.Home, rs.Version, rs.Log, nil, sharedCli)
-					if err != nil {
-						return err
-					}
-					enf.SourceDir = rs.SourceDir
-					enf.BuildID = rs.BuildID
-					enf.ConstraintHostPort = hostPortFromEndpoint(spec.Transport.Enforcer.Endpoint)
-					if rotateKey {
-						_, err = enf.StartWithKeyRotation(ctx)
-					} else {
-						_, err = enf.Start(ctx)
-					}
-					if err != nil {
-						return err
-					}
-					return enf.HealthCheck(ctx, 30*time.Second)
-				},
-				EnsureWorkspaceFn: func(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
-					if rs.Backend == nil {
-						return fmt.Errorf("%s is not available", backendName)
-					}
-					sharedCli := rs.Backend.RawClient()
-					ws, err := NewWorkspaceWithClient(spec.RuntimeID, rs.Home, rs.Version, rs.Log, sharedCli)
-					if err != nil {
-						return err
-					}
-					ws.Backend = backendName
-					ws.SourceDir = rs.SourceDir
-					ws.BuildID = rs.BuildID
-					return ws.Start(ctx, StartOptions{
-						ScopedKey:  readScopedAPIKey(spec.Transport.Enforcer.TokenRef),
-						Model:      spec.Package.Env["AGENCY_MODEL"],
-						AdminModel: spec.Package.Env["AGENCY_ADMIN_MODEL"],
-						Env:        spec.Package.Env,
-					})
-				},
-			}, nil
-		})
-	}
-	registerContainerBackend(runtimehost.BackendDocker)
-	registerContainerBackend(runtimehost.BackendPodman)
-	registerContainerBackend(runtimehost.BackendContainerd)
-	registerContainerBackend(runtimehost.BackendAppleContainer)
 	if features.Enabled(features.Firecracker) || rs.BackendName == hostruntimebackend.BackendFirecracker {
 		var firecrackerBackend *firecrackerComponentRuntimeBackend
 		rs.registry.Register(hostruntimebackend.BackendFirecracker, func() (runtimecontract.Backend, error) {
@@ -211,6 +145,9 @@ func (rs *RuntimeSupervisor) Compile(ctx context.Context, runtimeID string) (run
 		return runtimecontract.RuntimeSpec{}, fmt.Errorf("allocate loopback endpoint: %w", err)
 	}
 	backendName := normalizeRuntimeBackendName(rs.BackendName)
+	if runtimehost.IsContainerBackend(backendName) {
+		return runtimecontract.RuntimeSpec{}, fmt.Errorf("runtime backend %q is not supported", backendName)
+	}
 	transportType := runtimecontract.TransportTypeLoopbackHTTP
 	enforcerHost := rs.enforcerHost(agentID)
 	enforcerProxyURL := "http://" + enforcerHost + ":3128"
@@ -298,9 +235,6 @@ func (rs *RuntimeSupervisor) workspacePath(agentID string) string {
 }
 
 func (rs *RuntimeSupervisor) enforcerHost(agentID string) string {
-	if runtimehost.NormalizeContainerBackend(rs.BackendName) == runtimehost.BackendContainerd {
-		return fmt.Sprintf("%s-%s-enforcer", prefix, agentID)
-	}
 	return "enforcer"
 }
 

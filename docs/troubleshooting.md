@@ -58,15 +58,12 @@ test -r /dev/vhost-vsock && test -w /dev/vhost-vsock
 If those fail, add the operator account to the `kvm` group or grant explicit
 device ACLs, then restart the Agency daemon.
 
-On macOS Apple silicon, the strategic backend is `apple-vf-microvm`. Until that
-path is fully wired, local development may need an explicitly selected
-experimental backend.
+On macOS Apple silicon, the supported backend is `apple-vf-microvm`.
 
-### Transitional container backends
+### Legacy container backends
 
-Docker, Podman, containerd, and Apple Container are transitional development
-backends. If you intentionally selected one, verify that backend directly and
-rerun setup with the experimental backend flag.
+Docker, Podman, containerd, and Apple Container execution backends are legacy
+adapter history and are no longer selectable through setup or quickstart.
 
 ### Start Sequence Fails at a Specific Phase
 

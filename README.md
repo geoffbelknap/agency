@@ -80,8 +80,8 @@ access for the operator account. On macOS Apple silicon, Agency defaults to
 `apple-vf-microvm` backed by Apple's Virtualization framework.
 
 Dockerfiles remain part of Agency as OCI image build recipes. Docker, Podman,
-containerd, and Apple Container runtime backends are transitional compatibility
-paths and require `--experimental-backend`.
+containerd, and Apple Container execution backends are legacy paths and are no
+longer selectable through setup or quickstart.
 
 ### Install
 
@@ -212,16 +212,8 @@ bash ./scripts/readiness/runtime-contract-smoke.sh --agent <agent>
 ```
 
 Firecracker is the Linux production runtime target. `apple-vf-microvm` is the
-strategic macOS local-development target. The legacy container backend smokes
-remain useful compatibility checks while those paths still exist, but they are
-not the default runtime architecture.
-
-Apple Container compatibility work is experimental and opt-in. On macOS Apple
-silicon, adapter developers can run a manual smoke with:
-
-```bash
-./scripts/readiness/apple-container-smoke.sh
-```
+supported macOS local-development target. Legacy container backend smokes are
+archived for historical adapter validation only; they are not release gates.
 
 That path is not part of required CI or branch protection.
 
@@ -260,8 +252,8 @@ Linux (`x86_64`, `arm64`) and macOS (Apple Silicon, Intel) natively. Windows
 via WSL2.
 
 Linux and WSL2 default to Firecracker. macOS defaults to `apple-vf-microvm`.
-Docker, Podman, containerd, and Apple Container are transitional compatibility
-backends for migration and adapter validation, not the default product path.
+Docker, Podman, containerd, and Apple Container execution backends are legacy
+adapter history, not supported runtime selections.
 
 ## Contributing
 
