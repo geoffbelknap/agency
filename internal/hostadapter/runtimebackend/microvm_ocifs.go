@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -184,6 +185,11 @@ func fetchOCIBytes(ctx context.Context, repo *remote.Repository, desc ocispec.De
 }
 
 func extractOCILayer(stageDir, mediaType string, rc io.Reader) error {
+	root, err := os.OpenRoot(stageDir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 	var reader io.Reader = rc
 	if strings.Contains(mediaType, "gzip") || strings.HasSuffix(mediaType, ".gzip") || strings.HasSuffix(mediaType, "+gzip") {
 		gz, err := gzip.NewReader(rc)
@@ -202,51 +208,51 @@ func extractOCILayer(stageDir, mediaType string, rc io.Reader) error {
 		if err != nil {
 			return err
 		}
-		if err := applyOCITarEntry(stageDir, header, tr); err != nil {
+		if err := applyOCITarEntry(root, header, tr); err != nil {
 			return err
 		}
 	}
 }
 
-func applyOCITarEntry(stageDir string, header *tar.Header, reader io.Reader) error {
-	name := filepath.Clean(header.Name)
+func applyOCITarEntry(root *os.Root, header *tar.Header, reader io.Reader) error {
+	name, err := safeOCIGuestRel(header.Name, false)
+	if err != nil {
+		if errors.Is(err, errOCIRootPath) {
+			return nil
+		}
+		return err
+	}
 	if name == "." {
 		return nil
 	}
-	if name == string(os.PathSeparator) || strings.HasPrefix(name, ".."+string(os.PathSeparator)) || filepath.IsAbs(name) {
-		return fmt.Errorf("unsafe OCI layer path %q", header.Name)
-	}
-	base := filepath.Base(name)
-	dir := filepath.Dir(name)
+	base := path.Base(name)
+	dir := path.Dir(name)
 	if base == ".wh..wh..opq" {
-		targetDir, err := safeOCIGuestPath(stageDir, dir)
+		targetDir, err := safeOCIGuestRel(dir, true)
 		if err != nil {
 			return err
 		}
-		return removeDirectoryChildren(targetDir)
+		return removeDirectoryChildren(root, targetDir)
 	}
 	if strings.HasPrefix(base, ".wh.") {
-		target, err := safeOCIGuestPath(stageDir, filepath.Join(dir, strings.TrimPrefix(base, ".wh.")))
+		target, err := safeOCIGuestRel(path.Join(dir, strings.TrimPrefix(base, ".wh.")), false)
 		if err != nil {
 			return err
 		}
-		return os.RemoveAll(target)
-	}
-	target, err := safeOCIGuestPath(stageDir, name)
-	if err != nil {
-		return err
+		return root.RemoveAll(target)
 	}
 	mode := os.FileMode(header.Mode).Perm()
 	switch header.Typeflag {
 	case tar.TypeDir:
-		if err := os.MkdirAll(target, mode); err != nil {
+		if err := root.MkdirAll(name, mode); err != nil {
 			return err
 		}
 	case tar.TypeReg, tar.TypeRegA:
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		if err := root.MkdirAll(path.Dir(name), 0o755); err != nil {
 			return err
 		}
-		out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+		_ = root.RemoveAll(name)
+		out, err := root.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 		if err != nil {
 			return err
 		}
@@ -258,50 +264,79 @@ func applyOCITarEntry(stageDir string, header *tar.Header, reader io.Reader) err
 			return err
 		}
 	case tar.TypeSymlink:
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
-		}
-		_ = os.RemoveAll(target)
-		return os.Symlink(header.Linkname, target)
-	case tar.TypeLink:
-		linkTarget, err := safeOCIGuestPath(stageDir, filepath.Clean(header.Linkname))
+		linkTarget, err := safeOCISymlinkTarget(header.Linkname)
 		if err != nil {
 			return err
 		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		if err := root.MkdirAll(path.Dir(name), 0o755); err != nil {
 			return err
 		}
-		_ = os.RemoveAll(target)
-		if err := os.Link(linkTarget, target); err != nil {
+		_ = root.RemoveAll(name)
+		return root.Symlink(linkTarget, name)
+	case tar.TypeLink:
+		linkTarget, err := safeOCIGuestRel(header.Linkname, false)
+		if err != nil {
+			return err
+		}
+		if err := root.MkdirAll(path.Dir(name), 0o755); err != nil {
+			return err
+		}
+		_ = root.RemoveAll(name)
+		if err := root.Link(linkTarget, name); err != nil {
 			return err
 		}
 	default:
 		return nil
 	}
-	return os.Chmod(target, mode)
+	return root.Chmod(name, mode)
 }
 
-func safeOCIGuestPath(stageDir, guestPath string) (string, error) {
-	rel := filepath.Clean(strings.TrimPrefix(guestPath, string(os.PathSeparator)))
-	if rel == "." || rel == "" {
-		return "", fmt.Errorf("OCI layer path must be below root")
-	}
-	if filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+var errOCIRootPath = errors.New("OCI layer path is root")
+
+func safeOCIGuestRel(guestPath string, allowRoot bool) (string, error) {
+	if strings.ContainsRune(guestPath, 0) {
 		return "", fmt.Errorf("unsafe OCI layer path %q", guestPath)
 	}
-	return filepath.Join(stageDir, rel), nil
+	if path.IsAbs(guestPath) {
+		return "", fmt.Errorf("unsafe OCI layer path %q", guestPath)
+	}
+	rel := path.Clean(guestPath)
+	if rel == "." || rel == "" {
+		if allowRoot {
+			return ".", nil
+		}
+		return "", errOCIRootPath
+	}
+	if rel == ".." || strings.HasPrefix(rel, "../") {
+		return "", fmt.Errorf("unsafe OCI layer path %q", guestPath)
+	}
+	return rel, nil
 }
 
-func removeDirectoryChildren(path string) error {
-	entries, err := os.ReadDir(path)
+func safeOCISymlinkTarget(linkTarget string) (string, error) {
+	if linkTarget == "" || strings.ContainsRune(linkTarget, 0) {
+		return "", fmt.Errorf("unsafe OCI symlink target %q", linkTarget)
+	}
+	return linkTarget, nil
+}
+
+func removeDirectoryChildren(root *os.Root, dir string) error {
+	f, err := root.Open(dir)
 	if os.IsNotExist(err) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
+	entries, err := f.ReadDir(-1)
+	if closeErr := f.Close(); closeErr != nil && err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
 	for _, entry := range entries {
-		if err := os.RemoveAll(filepath.Join(path, entry.Name())); err != nil {
+		if err := root.RemoveAll(path.Join(dir, entry.Name())); err != nil {
 			return err
 		}
 	}
