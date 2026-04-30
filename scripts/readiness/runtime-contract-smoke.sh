@@ -58,6 +58,14 @@ gateway_token() {
   fi
 }
 
+refresh_auth_args() {
+  AUTH_TOKEN="$(gateway_token)"
+  AUTH_ARGS=()
+  if [[ -n "$AUTH_TOKEN" ]]; then
+    AUTH_ARGS=(-H "Authorization: Bearer ${AUTH_TOKEN}")
+  fi
+}
+
 free_gateway_addr() {
   python3 - <<'PY'
 import socket
@@ -152,11 +160,7 @@ done
 
 cd "$ROOT"
 
-AUTH_TOKEN="$(gateway_token)"
-AUTH_ARGS=()
-if [[ -n "$AUTH_TOKEN" ]]; then
-  AUTH_ARGS=(-H "Authorization: Bearer ${AUTH_TOKEN}")
-fi
+refresh_auth_args
 
 if [[ "$RUN_TESTS" -eq 1 ]]; then
   log "Running go test ./..."
@@ -168,6 +172,7 @@ go build -o "$BIN" ./cmd/gateway
 
 if [[ "$START_GATEWAY" -eq 1 ]]; then
   start_gateway
+  refresh_auth_args
 elif curl -fsS "${AUTH_ARGS[@]}" "$GATEWAY_URL/api/v1/health" >/tmp/runtime-smoke-health.json 2>/dev/null; then
   log "Gateway health endpoint is reachable"
 else
