@@ -25,6 +25,8 @@ microVM root filesystems.
       specs.
 - [ ] `agency admin doctor` reports Firecracker KVM/vsock/kernel/helper issues
       clearly on Linux/WSL.
+- [ ] Firecracker live smoke uses a pinned upstream Firecracker release binary
+      and an Agency Linux build artifact `vmlinux`, not the host distro kernel.
 - [ ] `agency admin doctor` reports Apple VF helper/kernel/rootfs tool issues
       clearly on macOS Apple silicon.
 - [ ] Runtime manifest, status, and validate endpoints work for a disposable
@@ -65,9 +67,32 @@ Apple VF live validation on macOS Apple silicon:
 Firecracker live validation on Linux/WSL:
 
 ```bash
+scripts/readiness/firecracker-artifacts.sh
+scripts/readiness/firecracker-kernel-artifacts.sh
+scripts/readiness/firecracker-artifacts.sh --verify-existing
+scripts/readiness/firecracker-kernel-artifacts.sh --verify-existing
+./scripts/readiness/firecracker-microvm-smoke.sh
 bash ./scripts/readiness/runtime-contract-smoke.sh --agent <firecracker-agent>
 agency admin doctor
 ```
+
+Default Firecracker artifact paths:
+
+```text
+$AGENCY_HOME/runtime/firecracker/artifacts/v1.12.1/firecracker-v1.12.1-x86_64
+$AGENCY_HOME/runtime/firecracker/artifacts/vmlinux
+```
+
+The Firecracker binary must come from the pinned upstream Firecracker release
+artifact. The kernel must come from Agency's Linux build artifact pipeline as
+an uncompressed ELF `vmlinux`; do not use a random host distro kernel. The
+rootfs is derived from the `agency-body:latest` OCI artifact through the shared
+OCI-to-ext4 realization path used by the microVM backends.
+
+`scripts/readiness/firecracker-artifacts.sh` fetches and verifies only the
+pinned upstream Firecracker binary. `scripts/readiness/firecracker-kernel-artifacts.sh`
+builds the Agency Firecracker `vmlinux` artifact through Buildroot. Neither
+script downloads a demo kernel or rootfs.
 
 ## Release Decision
 

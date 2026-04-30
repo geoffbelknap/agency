@@ -2,6 +2,7 @@ package runtimebackend
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -187,6 +188,11 @@ func (s *FirecrackerVMSupervisor) restartBackoff() time.Duration {
 }
 
 func (t *firecrackerVMTask) startLocked() error {
+	if err := removeStaleFirecrackerSockets(t.args); err != nil {
+		t.state = FirecrackerVMCrashed
+		t.lastError = err.Error()
+		return err
+	}
 	cmd := exec.Command(t.supervisor.binaryPath(), t.args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	logFile, logPath, err := t.supervisor.openLog(t.runtimeID)
@@ -475,4 +481,65 @@ func shouldRestartFirecrackerVM(policy string) bool {
 	default:
 		return false
 	}
+}
+
+func removeStaleFirecrackerSockets(args []string) error {
+	for i, arg := range args {
+		var path string
+		switch {
+		case arg == "--api-sock" && i+1 < len(args):
+			path = args[i+1]
+		case strings.HasPrefix(arg, "--api-sock="):
+			path = strings.TrimPrefix(arg, "--api-sock=")
+		}
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove stale firecracker api socket %s: %w", path, err)
+		}
+	}
+	configPath := firecrackerConfigFileArg(args)
+	if strings.TrimSpace(configPath) == "" {
+		return nil
+	}
+	udsPath, err := firecrackerVsockUDSPath(configPath)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(udsPath) == "" {
+		return nil
+	}
+	if err := os.Remove(udsPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove stale firecracker vsock socket %s: %w", udsPath, err)
+	}
+	return nil
+}
+
+func firecrackerConfigFileArg(args []string) string {
+	for i, arg := range args {
+		switch {
+		case arg == "--config-file" && i+1 < len(args):
+			return args[i+1]
+		case strings.HasPrefix(arg, "--config-file="):
+			return strings.TrimPrefix(arg, "--config-file=")
+		}
+	}
+	return ""
+}
+
+func firecrackerVsockUDSPath(configPath string) (string, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return "", fmt.Errorf("read firecracker config %s: %w", configPath, err)
+	}
+	var config struct {
+		Vsock struct {
+			UDSPath string `json:"uds_path"`
+		} `json:"vsock"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return "", fmt.Errorf("parse firecracker config %s: %w", configPath, err)
+	}
+	return config.Vsock.UDSPath, nil
 }
