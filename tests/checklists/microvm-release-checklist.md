@@ -81,7 +81,7 @@ smoke command from another shell:
 
 ```bash
 ./scripts/readiness/firecracker-microvm-smoke.sh --keep-agent
-bash ./scripts/readiness/runtime-contract-smoke.sh --agent <printed-agent-name> --home <printed-agency-home> --skip-tests
+bash ./scripts/readiness/runtime-contract-smoke.sh --agent <printed-agent-name> --home <printed-agency-home> --start-gateway --skip-tests --skip-doctor
 ```
 
 Default Firecracker artifact paths:
