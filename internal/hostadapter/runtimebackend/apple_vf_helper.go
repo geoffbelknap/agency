@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -32,6 +33,7 @@ func AppleVFHelperHealthStatus(ctx context.Context, helperBinary string) (AppleV
 		return AppleVFHelperHealth{}, fmt.Errorf("apple-vf helper binary path is not configured")
 	}
 	cmd := appleVFHelperCommandContext(ctx, helperBinary, "health")
+	cmd.Env = appleVFHelperHealthEnv()
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -59,6 +61,18 @@ func AppleVFHelperHealthStatus(ctx context.Context, helperBinary string) (AppleV
 		return health, fmt.Errorf("apple-vf helper reported backend %q, want %q", health.Backend, BackendAppleVFMicroVM)
 	}
 	return health, nil
+}
+
+func appleVFHelperHealthEnv() []string {
+	env := os.Environ()
+	out := env[:0]
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "AGENCY_HOME=") {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 func AppleVFHelperPrepare(ctx context.Context, helperBinary string, req AppleVFHelperRequest) (AppleVFHelperResponse, error) {

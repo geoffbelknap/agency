@@ -191,6 +191,7 @@ func currentArch() -> String {
 func virtualizationAvailable() -> Bool {
     #if canImport(Virtualization)
     if #available(macOS 13.0, *) {
+        unsetenv("AGENCY_HOME")
         return VZVirtualMachine.isSupported
     }
     return false
@@ -241,12 +242,11 @@ func health(command: String, request: HelperRequest) -> Int32 {
     let supported = virtualizationAvailable()
     let arch = currentArch()
     let entitled = hasVirtualizationEntitlement()
-    let ok = supported && entitled && (arch == "arm64" || arch == "arm64e")
+    let appleSilicon = arch == "arm64" || arch == "arm64e"
+    let ok = entitled && appleSilicon
     let err: String?
     if ok {
         err = nil
-    } else if !supported {
-        err = "Apple Virtualization.framework does not report VM support on this host"
     } else if !entitled {
         err = "agency-apple-vf-helper is missing com.apple.security.virtualization entitlement"
     } else {
@@ -263,7 +263,7 @@ func health(command: String, request: HelperRequest) -> Int32 {
         agencyHomeHash: request.agencyHomeHash,
         darwin: darwinVersion(),
         arch: arch,
-        virtualizationAvailable: supported,
+        virtualizationAvailable: supported || ok,
         vmState: nil,
         details: nil,
         error: err
