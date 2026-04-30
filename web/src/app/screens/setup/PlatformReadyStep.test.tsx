@@ -24,21 +24,22 @@ describe('PlatformReadyStep', () => {
     vi.clearAllMocks();
   });
 
-  it('shows a delayed continue option if platform checks are taking a while', async () => {
+  it('falls back to a recoverable error instead of spinning forever when checks hang', async () => {
     vi.mocked(api.infra.status).mockReturnValue(new Promise(() => {}) as never);
     vi.mocked(api.routing.config).mockResolvedValue({ configured: false, version: 'test' } as never);
     const onComplete = vi.fn();
 
     render(<PlatformReadyStep onComplete={onComplete} />);
 
-    expect(screen.queryByRole('button', { name: 'Continue without waiting' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Continue anyway' })).not.toBeInTheDocument();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(8000);
     });
 
-    const button = screen.getByRole('button', { name: 'Continue without waiting' });
-    fireEvent.click(button);
+    expect(screen.getByText(/gateway check timed out/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue anyway' }));
 
     expect(onComplete).toHaveBeenCalled();
   });

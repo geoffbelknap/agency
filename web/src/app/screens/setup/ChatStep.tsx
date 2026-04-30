@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Loader2, Send } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { api } from '../../lib/api';
 import { socket } from '../../lib/ws';
 import { Button } from '../../components/ui/button';
-import { AgencyMessage, AgencyMessageAvatar } from '../../components/chat/AgencyMessage';
-import { formatMessageTime } from '../../lib/time';
-import type { Message } from '../../types';
+import { ALLOWED_ELEMENTS, markdownComponents } from '../../components/chat/StructuredOutput';
 
 interface ChatMessage {
   id: string;
@@ -20,7 +20,6 @@ interface ChatStepProps {
   operatorName?: string;
   onFinish: (channelName?: string) => void;
   onBack: () => void;
-  initialAgentReady?: boolean;
   agentReadyPolls?: number;
   agentReadyPollDelayMs?: number;
 }
@@ -49,26 +48,11 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function indicatorMessage(agentName: string): Message {
-  return {
-    id: `setup-indicator-${agentName}`,
-    channelId: 'setup',
-    author: agentName,
-    displayAuthor: agentName,
-    isAgent: true,
-    isSystem: false,
-    timestamp: '',
-    content: '',
-    flag: null,
-  };
-}
-
 export function ChatStep({
   agentName,
   operatorName,
   onFinish,
   onBack,
-  initialAgentReady = false,
   agentReadyPolls = AGENT_READY_POLLS,
   agentReadyPollDelayMs = AGENT_READY_POLL_DELAY_MS,
 }: ChatStepProps) {
@@ -78,7 +62,7 @@ export function ChatStep({
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [agentTyping, setAgentTyping] = useState(false);
-  const [agentReady, setAgentReady] = useState(initialAgentReady);
+  const [agentReady, setAgentReady] = useState(false);
   const [agentReadyError, setAgentReadyError] = useState('');
   const [error, setError] = useState('');
   const [agentPollAttempt, setAgentPollAttempt] = useState(0);
@@ -87,7 +71,7 @@ export function ChatStep({
   const userScrolledUpRef = useRef(false);
   const lastAgentMsgCountRef = useRef(0);
   const sentInitialPromptRef = useRef(false);
-  const agentReadyRef = useRef(initialAgentReady);
+  const agentReadyRef = useRef(false);
 
   const markAgentReady = useCallback(() => {
     if (agentReadyRef.current) return;
@@ -117,10 +101,9 @@ export function ChatStep({
   useEffect(() => {
     if (!agentName) return;
     let cancelled = false;
-    agentReadyRef.current = initialAgentReady;
-    setAgentReady(initialAgentReady);
+    agentReadyRef.current = false;
+    setAgentReady(false);
     setAgentReadyError('');
-    if (initialAgentReady) return;
 
     const unsub = socket.on('agent_status', (event: any) => {
       if (event?.agent !== agentName) return;
@@ -150,7 +133,7 @@ export function ChatStep({
       cancelled = true;
       unsub();
     };
-  }, [agentName, agentPollAttempt, agentReadyPolls, agentReadyPollDelayMs, initialAgentReady, markAgentReady]);
+  }, [agentName, agentPollAttempt, agentReadyPolls, agentReadyPollDelayMs, markAgentReady]);
 
   // Find or create DM channel (can happen in parallel with agent polling)
   useEffect(() => {
@@ -197,7 +180,7 @@ export function ChatStep({
               id: `initial-${Date.now()}`,
               author: operatorName || 'operator',
               content: greeting,
-              timestamp: formatMessageTime(new Date().toISOString()),
+              timestamp: new Date().toISOString(),
               flags: {},
             }];
           });
@@ -230,7 +213,7 @@ export function ChatStep({
           id: m.id || m.timestamp,
           author: m.author || 'unknown',
           content: m.content || '',
-          timestamp: formatMessageTime(m.timestamp || ''),
+          timestamp: m.timestamp || '',
           flags: m.flags || {},
         }));
         const visible = mapped.filter(m => !m.flags.system);
@@ -269,7 +252,7 @@ export function ChatStep({
         id: `pending-${Date.now()}`,
         author: 'operator',
         content,
-        timestamp: formatMessageTime(new Date().toISOString()),
+        timestamp: new Date().toISOString(),
         flags: {},
       }]);
       userScrolledUpRef.current = false;
@@ -341,32 +324,48 @@ export function ChatStep({
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto p-4 flex flex-col justify-end min-h-0"
+          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-4"
         >
-          <div className="space-y-1">
+          <div className="min-h-full space-y-1">
             {messages.map((msg) => {
               const isMe = isOperatorMsg(msg.author);
               const displayAuthor = isMe ? (operatorName || 'operator') : msg.author;
-              const message: Message = {
-                id: msg.id,
-                channelId: channelName || 'setup',
-                author: msg.author,
-                displayAuthor,
-                isAgent: !isMe,
-                isSystem: false,
-                timestamp: msg.timestamp,
-                content: msg.content,
-                flag: null,
-              };
               return (
-                <AgencyMessage key={msg.id} message={message} agentStatus={message.isAgent ? 'running' : undefined} showReplyButton={false} />
+                <div key={msg.id} className="flex gap-3 py-1.5">
+                  <div className={`w-8 h-8 rounded flex items-center justify-center flex-shrink-0 ${
+                    isMe ? 'bg-border' : 'bg-primary'
+                  }`}>
+                    <span className="text-xs font-semibold text-white uppercase">
+                      {displayAuthor.charAt(0)}
+                    </span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <code className="text-sm font-medium text-foreground">{displayAuthor}</code>
+                      {!isMe && (
+                        <span className="text-xs bg-accent text-accent-foreground px-1.5 py-0.5 rounded">AGENT</span>
+                      )}
+                    </div>
+                    {isMe ? (
+                      <div className="text-sm text-foreground/80 whitespace-pre-wrap break-words">{msg.content}</div>
+                    ) : (
+                      <div className="text-sm text-foreground/80 prose prose-gray dark:prose-invert prose-sm max-w-none break-words prose-p:my-1">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents} allowedElements={ALLOWED_ELEMENTS} unwrapDisallowed>
+                          {msg.content}
+                        </ReactMarkdown>
+                      </div>
+                    )}
+                  </div>
+                </div>
               );
             })}
 
             {/* Agent starting indicator */}
             {!agentReady && !agentReadyError && (
               <div className="flex gap-3 py-1.5">
-                <AgencyMessageAvatar message={indicatorMessage(agentName)} />
+                <div className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0 bg-primary">
+                  <span className="text-xs font-semibold text-white uppercase">{agentName.charAt(0)}</span>
+                </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Loader2 className="w-3 h-3 animate-spin" />
                   Starting {agentName}...
@@ -397,7 +396,9 @@ export function ChatStep({
             {/* Typing indicator */}
             {agentReady && agentTyping && (
               <div className="flex gap-3 py-1.5">
-                <AgencyMessageAvatar message={indicatorMessage(agentName)} agentStatus="running" />
+                <div className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0 bg-primary">
+                  <span className="text-xs font-semibold text-white uppercase">{agentName.charAt(0)}</span>
+                </div>
                 <div className="flex items-center gap-2">
                   <code className="text-sm font-medium text-foreground">{agentName}</code>
                   <div className="flex items-center gap-0.5">

@@ -1,10 +1,10 @@
-import { useState } from 'react';
-import { Bot, Search } from 'lucide-react';
+import { useIsMobile } from '../../components/ui/use-mobile';
+import { featureEnabled } from '../../lib/features';
 
 interface AgentRow {
   name: string;
   status: string;
-  role?: string;
+  team: string;
   mission?: string;
   lastActive: string;
   budget?: { daily_used: number; daily_limit: number };
@@ -17,132 +17,175 @@ interface Props {
 }
 
 const STATUS_DOT_COLOR: Record<string, string> = {
-  running: 'var(--teal)',
-  stopped: 'var(--red)',
-  paused: 'var(--amber)',
-  halted: 'var(--amber)',
-  idle: 'var(--ink-faint)',
-  unhealthy: 'var(--red)',
+  running: 'bg-green-500',
+  stopped: 'bg-red-500',
+  paused: 'bg-amber-500',
+  halted: 'bg-amber-500',
+  idle: 'bg-gray-400',
 };
 
 function statusDotColor(status: string): string {
-  return STATUS_DOT_COLOR[status] ?? 'var(--ink-faint)';
+  return STATUS_DOT_COLOR[status] ?? 'bg-gray-400';
 }
 
 function budgetColor(used: number, limit: number): string {
-  if (!limit) return 'var(--ink-faint)';
-  const pct = used / limit;
-  if (pct >= 0.9) return 'var(--red)';
-  if (pct >= 0.75) return 'var(--amber)';
-  return 'var(--teal)';
+  const pct = limit > 0 ? used / limit : 0;
+  if (pct > 0.95) return 'bg-red-500';
+  if (pct > 0.8) return 'bg-amber-500';
+  return 'bg-primary';
 }
 
 function relativeTime(iso: string): string {
-  if (!iso) return 'just now';
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  const diff = Date.now() - date.getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
+  if (!iso) return '—';
+  const diff = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(diff)) return '—';
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 export function AgentList({ agents, selectedAgent, onSelect }: Props) {
-  const [query, setQuery] = useState('');
-  const filteredAgents = agents.filter((agent) => {
-    const q = query.trim().toLowerCase();
-    if (!q) return true;
-    return [agent.name, agent.status, agent.role, agent.mission]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(q));
-  });
+  const isMobile = useIsMobile();
+  const showTeams = featureEnabled('teams');
+  const showMissions = featureEnabled('missions');
 
-  return (
-    <div>
-      <div style={{ padding: '12px 20px', borderBottom: '0.5px solid var(--ink-hairline)', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <Search size={13} style={{ color: 'var(--ink-faint)' }} aria-hidden="true" />
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Filter agents..."
-          style={{ flex: 1, background: 'transparent', border: 0, outline: 0, fontFamily: 'var(--font-sans)', fontSize: 13, color: 'var(--ink)' }}
-        />
-        <span className="font-mono" style={{ fontSize: 10, color: 'var(--ink-faint)' }}>{filteredAgents.length}</span>
-      </div>
-
-      {filteredAgents.map((agent) => {
-        const selected = agent.name === selectedAgent;
-        const budgetPct = agent.budget && agent.budget.daily_limit > 0
-          ? Math.min(100, (agent.budget.daily_used / agent.budget.daily_limit) * 100)
-          : 0;
-        const role = agent.role || agent.mission || 'no mission';
+  return isMobile ? (
+    <div className="space-y-2">
+      {agents.map((agent) => {
+        const isSelected = agent.name === selectedAgent;
         return (
           <button
             key={agent.name}
             type="button"
             onClick={() => onSelect(agent.name)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              padding: '14px 20px',
-              width: '100%',
-              border: 0,
-              borderBottom: '0.5px solid var(--ink-hairline)',
-              background: selected ? 'var(--warm)' : 'transparent',
-              borderLeft: selected ? '2px solid var(--teal)' : '2px solid transparent',
-              cursor: 'pointer',
-              textAlign: 'left',
-              fontFamily: 'var(--font-sans)',
-            }}
+            className={`w-full rounded-xl border px-3 py-3 text-left transition-colors ${
+              isSelected
+                ? 'border-primary/40 bg-primary/5'
+                : 'border-border bg-background hover:bg-muted/40'
+            }`}
           >
-            <div style={{ position: 'relative', flexShrink: 0 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--warm-3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Bot size={16} style={{ color: 'var(--ink-mid)' }} aria-hidden="true" />
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate font-mono text-sm text-foreground">{agent.name}</div>
+                <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className={`inline-block h-2 w-2 rounded-full ${statusDotColor(agent.status)}`} />
+                  <span className="capitalize">{agent.status}</span>
+                  {showTeams && agent.team && (
+                    <>
+                      <span className="text-muted-foreground/60">•</span>
+                      <span>{agent.team}</span>
+                    </>
+                  )}
+                </div>
               </div>
-              <span
-                aria-hidden="true"
-                style={{
-                  position: 'absolute',
-                  bottom: -2,
-                  right: -2,
-                  width: 10,
-                  height: 10,
-                  borderRadius: '50%',
-                  background: statusDotColor(agent.status),
-                  border: '2px solid var(--warm-2)',
-                }}
-              />
+              <div className="shrink-0 text-right text-[11px] text-muted-foreground" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                {relativeTime(agent.lastActive)}
+              </div>
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                <span className="font-mono" style={{ fontSize: 13, color: 'var(--ink)' }}>{agent.name}</span>
-                <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-faint)', marginLeft: 'auto' }}>{relativeTime(agent.lastActive)}</span>
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <div className="min-w-0 text-xs text-muted-foreground">
+                {showMissions ? (
+                  <>
+                    <span className="text-muted-foreground/70">Mission:</span>{' '}
+                    <span className="truncate">{agent.mission ?? '—'}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-muted-foreground/70">Recent activity:</span>{' '}
+                    <span className="truncate">{relativeTime(agent.lastActive)}</span>
+                  </>
+                )}
               </div>
-              <div style={{ fontSize: 12, color: 'var(--ink-mid)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{role}</div>
-              <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ flex: 1, height: 3, background: 'var(--warm-3)', borderRadius: 2, overflow: 'hidden' }}>
+              {agent.budget ? (
+                <div className="h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-muted">
                   <div
                     data-budget-bar
-                    style={{ width: `${budgetPct}%`, height: '100%', background: agent.budget ? budgetColor(agent.budget.daily_used, agent.budget.daily_limit) : 'var(--ink-faint)' }}
+                    className={`h-full rounded-full ${budgetColor(agent.budget.daily_used, agent.budget.daily_limit)}`}
+                    style={{
+                      width: `${Math.min(100, (agent.budget.daily_used / agent.budget.daily_limit) * 100)}%`,
+                    }}
                   />
                 </div>
-                <span className="font-mono" style={{ fontSize: 9, color: 'var(--ink-faint)' }}>
-                  {agent.budget ? `$${agent.budget.daily_used.toFixed(2)}/$${agent.budget.daily_limit.toFixed(2)}` : '-'}
-                </span>
-              </div>
+              ) : (
+                <div className="text-xs text-muted-foreground">—</div>
+              )}
             </div>
           </button>
         );
       })}
-      {filteredAgents.length === 0 && (
-        <div style={{ padding: '32px 20px', textAlign: 'center', fontSize: 13, color: 'var(--ink-faint)' }}>
-          No agents match this filter.
-        </div>
-      )}
     </div>
+  ) : (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="border-b text-left text-muted-foreground">
+          <th className="pb-2 pr-3 font-medium">Name</th>
+          <th className="pb-2 pr-3 font-medium">Status</th>
+          {showTeams && <th className="pb-2 pr-4 font-medium">Team</th>}
+          {showMissions && <th className="pb-2 pr-4 font-medium">Mission</th>}
+          <th className="pb-2 pr-3 font-medium">Budget</th>
+          <th className="pb-2 font-medium">Last Active</th>
+        </tr>
+      </thead>
+      <tbody>
+        {agents.map((agent) => {
+          const isSelected = agent.name === selectedAgent;
+          const rowClass = [
+            'cursor-pointer transition-colors hover:bg-muted/50',
+            isSelected ? 'bg-primary/5' : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
+
+          return (
+            <tr
+              key={agent.name}
+              className={rowClass}
+              onClick={() => onSelect(agent.name)}
+              tabIndex={0}
+              role="button"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onSelect(agent.name);
+                }
+              }}
+            >
+              <td className="py-2 pr-3 align-top break-all font-mono">{agent.name}</td>
+              <td className="py-2 pr-3 align-top">
+                <span className="flex items-center gap-1.5">
+                  <span className={`inline-block h-2 w-2 rounded-full ${statusDotColor(agent.status)}`} />
+                  {agent.status}
+                </span>
+              </td>
+              {showTeams && <td className="py-2 pr-4">{agent.team || '—'}</td>}
+              {showMissions && <td className="py-2 pr-4">{agent.mission ?? '—'}</td>}
+              <td className="py-2 pr-3 align-top">
+                {agent.budget ? (
+                  <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
+                    <div
+                      data-budget-bar
+                      className={`h-full rounded-full ${budgetColor(agent.budget.daily_used, agent.budget.daily_limit)}`}
+                      style={{
+                        width: `${Math.min(100, (agent.budget.daily_used / agent.budget.daily_limit) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                ) : (
+                  '—'
+                )}
+              </td>
+              <td className="py-2 align-top" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                {relativeTime(agent.lastActive)}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }

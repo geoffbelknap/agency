@@ -87,7 +87,7 @@ export function StructuredOutput({ content, metadata: _metadata }: StructuredOut
   const parts = parseDetailsBlocks(content);
 
   return (
-    <div className="text-sm text-foreground/80 prose prose-gray dark:prose-invert prose-sm max-w-none break-words prose-p:my-1 prose-a:break-all">
+    <div className="text-sm text-foreground/80 prose prose-gray dark:prose-invert prose-sm max-w-none break-words prose-p:my-1">
       {parts.map((part, idx) => {
         if (part.type === 'details') {
           return (

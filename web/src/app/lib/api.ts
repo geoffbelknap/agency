@@ -39,6 +39,7 @@ ensureConfig();
 /** Expose token + config for other modules (e.g. WebSocket auth). */
 export { ensureConfig };
 export function getToken(): string { return TOKEN; }
+export function getApiBase(): string { return BASE; }
 /** Returns "relay" when accessed through the relay gateway, "local" otherwise. */
 export function getVia(): 'relay' | 'local' { return VIA; }
 /** Returns true when the relay session is authenticated. */

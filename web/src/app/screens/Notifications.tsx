@@ -3,6 +3,23 @@ import { Link } from 'react-router';
 import { toast } from 'sonner';
 import { api, RawNotification } from '../lib/api';
 import { Button } from '../components/ui/button';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card';
+import { Input } from '../components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../components/ui/table';
 import { AlertTriangle, Bell, Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
 
 export function Notifications() {
@@ -72,25 +89,25 @@ export function Notifications() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-border bg-card px-4 py-4 md:px-5">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div className="space-y-1">
-            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Notification routing</div>
-            <p className="text-sm text-muted-foreground">Operator notification destinations for ntfy topics and outbound alert delivery.</p>
-            <p className="text-xs text-muted-foreground">
+      <Card>
+        <CardHeader>
+          <CardTitle>Notification routing</CardTitle>
+          <CardDescription>
+            Operator notification destinations for ntfy topics and outbound alert delivery.
+          </CardDescription>
+          <CardDescription>
               Use notifications for operator alerts. Use webhooks when another system needs a signed inbound endpoint instead.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+          </CardDescription>
+          <CardAction className="flex gap-2">
+            <Button asChild variant="outline" size="sm">
               <Link to="/admin/webhooks">Open Webhooks</Link>
             </Button>
-            <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+            <Button asChild variant="outline" size="sm">
               <Link to="/admin/events">Review Events</Link>
             </Button>
-          </div>
-        </div>
-      </div>
+          </CardAction>
+        </CardHeader>
+      </Card>
 
       <div className="flex items-center justify-between">
         <div>
@@ -99,11 +116,11 @@ export function Notifications() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={load} disabled={loading}>
-            <RefreshCw className={`w-3 h-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={loading ? 'animate-spin' : ''} />
             Refresh
           </Button>
           <Button variant="outline" size="sm" onClick={() => setShowAdd(true)} disabled={showAdd} aria-label="Add destination">
-            <Plus className="w-3 h-3 mr-1" />
+            <Plus data-icon="inline-start" />
             Add
           </Button>
         </div>
@@ -117,25 +134,26 @@ export function Notifications() {
 
       {/* Add form */}
       {showAdd && (
-        <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
-          <div>
-            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">New destination</div>
-            <p className="mt-1 text-xs text-muted-foreground">Type is inferred from the URL and alert events default to the operator-safe set.</p>
-          </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>New destination</CardTitle>
+            <CardDescription>Type is inferred from the URL and alert events default to the operator-safe set.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
           <div className="flex flex-col sm:flex-row gap-2">
-            <input
+            <Input
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="name"
-              className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/70"
+              className="flex-1"
             />
-            <input
+            <Input
               type="text"
               value={newUrl}
               onChange={(e) => setNewUrl(e.target.value)}
               placeholder="url (e.g. https://ntfy.sh/my-topic)"
-              className="flex-[2] rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/70"
+              className="flex-[2]"
             />
           </div>
           <div className="flex gap-2">
@@ -146,10 +164,16 @@ export function Notifications() {
               Cancel
             </Button>
           </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
-      <div className="overflow-hidden rounded-2xl border border-border bg-card">
+      <Card>
+        <CardHeader>
+          <CardTitle>Destinations</CardTitle>
+          <CardDescription>Add, test, or remove outbound alert targets.</CardDescription>
+        </CardHeader>
+        <CardContent>
         {loading ? (
           <div className="text-muted-foreground text-center py-8 text-sm">Loading notification destinations...</div>
         ) : destinations.length === 0 ? (
@@ -163,38 +187,37 @@ export function Notifications() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[500px]">
-              <thead>
-                <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-[0.14em]">
-                  <th className="text-left p-3 font-medium">Name</th>
-                  <th className="text-left p-3 font-medium">Type</th>
-                  <th className="text-left p-3 font-medium">URL</th>
-                  <th className="text-left p-3 font-medium">Events</th>
-                  <th className="text-right p-3 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>URL</TableHead>
+                <TableHead>Events</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
                 {destinations.map((d) => (
-                  <tr key={d.name} className="border-b border-border hover:bg-secondary/50 transition-colors">
-                    <td className="p-3">
+                  <TableRow key={d.name}>
+                    <TableCell>
                       <div className="flex items-center gap-1.5">
                         <Bell className="w-3 h-3 text-muted-foreground" />
                         <code className="text-foreground">{d.name}</code>
                       </div>
-                    </td>
-                    <td className="p-3">
+                    </TableCell>
+                    <TableCell>
                       <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] text-muted-foreground">{d.type}</span>
-                    </td>
-                    <td className="p-3 text-xs text-muted-foreground font-mono truncate max-w-[200px]">{d.url}</td>
-                    <td className="p-3">
+                    </TableCell>
+                    <TableCell className="max-w-[200px] truncate font-mono text-xs text-muted-foreground">{d.url}</TableCell>
+                    <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {d.events?.map((evt) => (
                           <span key={evt} className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">{evt}</span>
                         ))}
                       </div>
-                    </td>
-                    <td className="p-3 text-right">
+                    </TableCell>
+                    <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         <Button
                           variant="ghost"
@@ -216,14 +239,14 @@ export function Notifications() {
                           <Trash2 className="w-3 h-3" />
                         </Button>
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+            </TableBody>
+          </Table>
         )}
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

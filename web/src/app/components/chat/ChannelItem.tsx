@@ -24,8 +24,8 @@ export function ChannelItem({ channel, active, onClick }: ChannelItemProps) {
         <Hash className="h-4 w-4" />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-2">
-          <span className={cn('truncate font-medium', channel.unreadCount > 0 && !active && 'text-foreground')}>
+        <div className="flex items-start justify-between gap-2">
+          <span className={cn('min-w-0 break-words font-medium', channel.unreadCount > 0 && !active && 'text-foreground')}>
             {channel.name}
           </span>
           <div className="flex shrink-0 gap-1">
@@ -42,7 +42,7 @@ export function ChannelItem({ channel, active, onClick }: ChannelItemProps) {
           </div>
         </div>
         {channel.topic && (
-          <span className="mt-0.5 block truncate text-xs text-muted-foreground">{channel.topic}</span>
+          <span className="mt-0.5 block break-words text-xs text-muted-foreground">{channel.topic}</span>
         )}
       </div>
     </button>

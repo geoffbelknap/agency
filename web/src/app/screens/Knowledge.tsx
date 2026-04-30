@@ -2,7 +2,7 @@ import { useState, useEffect, type ButtonHTMLAttributes, type CSSProperties, typ
 import { api } from '../lib/api';
 import { formatDateTimeShort } from '../lib/time';
 import { toast } from 'sonner';
-import { adminFeatureFlags } from '../lib/features';
+import { adminFeatureFlags, experimentalSurfacesEnabled } from '../lib/features';
 
 interface KnowledgeStats {
   node_count: number;
@@ -484,6 +484,7 @@ function TopologyRows({ label, items }: { label: string; items: TopologyItem[] }
 
 export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?: (label: string, kind: string) => void }) {
   const graphAdminEnabled = adminFeatureFlags.graphAdmin;
+  const showOntologyReview = experimentalSurfacesEnabled;
   const [stats, setStats] = useState<KnowledgeStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const [ontologyCandidates, setOntologyCandidates] = useState<OntologyCandidate[]>([]);
@@ -590,6 +591,12 @@ export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?
   };
 
   const loadOntologyReviewData = async () => {
+    if (!showOntologyReview) {
+      setOntologyCandidates([]);
+      setOntologyDecisions([]);
+      setOntologyLoading(false);
+      return;
+    }
     try {
       setOntologyLoading(true);
       const candidateData = await api.knowledge.ontologyCandidates().catch(() => null);
@@ -602,7 +609,14 @@ export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?
   };
 
   const reloadAll = async () => {
-    await Promise.all([loadStats(), loadOntologyReviewData(), loadPendingContributions(), loadMemoryProposals(), loadQuarantinedNodes(), loadTopology()]);
+    await Promise.all([
+      loadStats(),
+      showOntologyReview ? loadOntologyReviewData() : Promise.resolve(),
+      loadPendingContributions(),
+      loadMemoryProposals(),
+      loadQuarantinedNodes(),
+      loadTopology(),
+    ]);
   };
 
   useEffect(() => {
@@ -724,7 +738,7 @@ export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?
     { label: 'Review', value: memoryLoading ? '...' : memoryProposals.length.toLocaleString() },
     { label: 'Memory', value: memoryLoading ? '...' : approvedMemories.length.toLocaleString() },
     { label: 'Quarantined', value: quarantineLoading ? '...' : quarantinedNodes.length.toLocaleString() },
-    { label: 'Ontology', value: ontologyLoading ? '...' : (ontologyCandidates.length + ontologyDecisions.length).toLocaleString() },
+    ...(showOntologyReview ? [{ label: 'Ontology', value: ontologyLoading ? '...' : (ontologyCandidates.length + ontologyDecisions.length).toLocaleString() }] : []),
     { label: 'Topology', value: topologyLoading ? '...' : topologyCount.toLocaleString() },
   ];
 
@@ -816,7 +830,7 @@ export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?
           </Card>
         </div>
 
-        <div>
+        {showOntologyReview && <div>
           <SectionTitle title="Ontology Review" />
           <Card>
             <TableHeader widths={ONTOLOGY_WIDTHS} cols={['Concept', 'Status', 'Evidence', '']} />
@@ -843,7 +857,7 @@ export function Knowledge({ onSelectResult: _onSelectResult }: { onSelectResult?
               ]} />)}
             </>}
           </Card>
-        </div>
+        </div>}
       </div>
     </div>
   );

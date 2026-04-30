@@ -4,6 +4,15 @@ import { AlertTriangle, Plus, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Profile, ProfileType } from '../types';
 import { Button } from '../components/ui/button';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card';
+import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { api, type RawProfile } from '../lib/api';
 import { ProfileList } from './profiles/ProfileList';
 import { ProfileDetail } from './profiles/ProfileDetail';
@@ -90,31 +99,18 @@ export function Profiles() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
       <div className="shrink-0 p-4 md:px-8 md:pt-6 md:pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl md:text-2xl text-foreground">Profiles</h1>
-          <p className="text-sm text-muted-foreground mt-1">{profiles.length} profile{profiles.length !== 1 ? 's' : ''}</p>
-        </div>
+        <div className="text-sm text-muted-foreground">{profiles.length} profile{profiles.length !== 1 ? 's' : ''}</div>
         <div className="flex items-center gap-2">
-          {/* Type filter */}
-          <div className="flex items-center rounded-md border border-border overflow-hidden text-xs">
-            {filterButtons.map((f) => (
-              <button
-                key={f.value}
-                onClick={() => setFilter(f.value)}
-                className={`px-3 py-1.5 transition-colors ${
-                  filter === f.value
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-muted'
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
+          <Tabs value={filter} onValueChange={(value) => setFilter(value as FilterType)}>
+            <TabsList>
+              {filterButtons.map((f) => (
+                <TabsTrigger key={f.value} value={f.value}>{f.label}</TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
           <Button variant="ghost" size="sm" className="h-8 px-3" onClick={handleCreateNew}>
-            <Plus className="w-3.5 h-3.5 mr-1" aria-hidden="true" />
+            <Plus data-icon="inline-start" aria-hidden="true" />
             Create
           </Button>
           <Button
@@ -133,37 +129,43 @@ export function Profiles() {
       {/* Master-Detail split */}
       <div className="flex-1 min-h-0 flex flex-col">
         <div className="shrink-0 px-4 md:px-8 pb-4">
-          <div className="rounded-lg border border-border bg-card p-4">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div className="space-y-1">
-                <div className="text-sm font-medium text-foreground">Use profiles to separate operator identity from agent identity</div>
-                <p className="text-xs text-muted-foreground">
+          <Card>
+            <CardHeader>
+              <CardTitle>Use profiles to separate operator identity from agent identity</CardTitle>
+              <CardDescription>
                   Operator profiles are for people and their preferences. Agent profiles are for long-lived personas or system actors that need their own visible identity in channels and history.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+              </CardDescription>
+              <CardAction className="flex gap-2">
+                <Button asChild variant="outline" size="sm">
                   <Link to="/channels">Open Channels</Link>
                 </Button>
-                <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                <Button asChild variant="outline" size="sm">
                   <Link to="/agents">Open Agents</Link>
                 </Button>
-              </div>
-            </div>
-          </div>
+              </CardAction>
+            </CardHeader>
+          </Card>
         </div>
 
         {/* Profile List — top portion */}
-        <div className="shrink-0 max-h-[30vh] min-h-[120px] overflow-auto border-b border-border px-4 md:px-8">
-          {loading ? (
-            <div className="text-sm text-muted-foreground py-4">Loading profiles…</div>
-          ) : (
-            <ProfileList
-              profiles={profiles}
-              selectedId={selectedProfile?.id ?? null}
-              onSelect={handleSelect}
-            />
-          )}
+        <div className="shrink-0 px-4 pb-4 md:px-8">
+          <Card>
+            <CardHeader>
+              <CardTitle>Profile directory</CardTitle>
+              <CardDescription>Review operators and agent identities before opening the full detail panel.</CardDescription>
+            </CardHeader>
+            <CardContent className="max-h-[30vh] min-h-[120px] overflow-auto">
+              {loading ? (
+                <div className="text-sm text-muted-foreground py-4">Loading profiles…</div>
+              ) : (
+                <ProfileList
+                  profiles={profiles}
+                  selectedId={selectedProfile?.id ?? null}
+                  onSelect={handleSelect}
+                />
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         {/* Detail — bottom portion */}

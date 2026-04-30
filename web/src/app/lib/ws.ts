@@ -1,6 +1,17 @@
-import { ensureConfig, getToken } from './api';
+import { ensureConfig, getApiBase, getToken } from './api';
 
 type Handler = (event: any) => void;
+
+function wsOriginFromApiBase(base: string): string | null {
+  if (!base || base.startsWith('/')) return null;
+  try {
+    const url = new URL(base);
+    const proto = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${proto}//${url.host}`;
+  } catch {
+    return null;
+  }
+}
 
 async function resolveWsUrl(): Promise<string> {
   if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;
@@ -14,6 +25,14 @@ async function resolveWsUrl(): Promise<string> {
       }
     }
   } catch { /* not in dev mode */ }
+  const apiOrigin = wsOriginFromApiBase(getApiBase());
+  if (apiOrigin) {
+    return `${apiOrigin}/ws`;
+  }
+  if (location.port === '8280' && ['localhost', '127.0.0.1'].includes(location.hostname)) {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${proto}//${location.hostname}:8200/ws`;
+  }
   // Default: same-origin WebSocket (works with Vite proxy in dev)
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${proto}//${location.host}/ws`;
