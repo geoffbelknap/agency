@@ -126,18 +126,48 @@ run_firecracker() {
   else
     local out
     local pid=""
+    local pid_is_group=0
     local contract_cmd=""
     out="$(mktemp /tmp/agency-firecracker-keep-agent.XXXXXX.log)"
     cleanup_firecracker() {
-      if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
-        kill -INT "$pid" >/dev/null 2>&1 || true
-        wait "$pid" >/dev/null 2>&1 || true
+      [[ -n "$pid" ]] || return
+      kill -0 "$pid" >/dev/null 2>&1 || return
+
+      local target="$pid"
+      if [[ "$pid_is_group" == "1" ]]; then
+        target="-$pid"
       fi
+
+      kill -INT "$target" >/dev/null 2>&1 || true
+      for _ in $(seq 1 30); do
+        if ! kill -0 "$pid" >/dev/null 2>&1; then
+          wait "$pid" >/dev/null 2>&1 || true
+          return
+        fi
+        sleep 1
+      done
+
+      kill -TERM "$target" >/dev/null 2>&1 || true
+      for _ in $(seq 1 10); do
+        if ! kill -0 "$pid" >/dev/null 2>&1; then
+          wait "$pid" >/dev/null 2>&1 || true
+          return
+        fi
+        sleep 1
+      done
+
+      kill -KILL "$target" >/dev/null 2>&1 || true
+      wait "$pid" >/dev/null 2>&1 || true
     }
     trap cleanup_firecracker RETURN
 
     log "Running Firecracker lifecycle smoke with kept runtime for contract smoke"
-    "$ROOT/scripts/readiness/firecracker-microvm-smoke.sh" --keep-agent >"$out" 2>&1 &
+    if command -v setsid >/dev/null 2>&1; then
+      setsid "$ROOT/scripts/readiness/firecracker-microvm-smoke.sh" --keep-agent >"$out" 2>&1 &
+      pid_is_group=1
+    else
+      "$ROOT/scripts/readiness/firecracker-microvm-smoke.sh" --keep-agent >"$out" 2>&1 &
+    fi
     pid="$!"
 
     for _ in $(seq 1 180); do

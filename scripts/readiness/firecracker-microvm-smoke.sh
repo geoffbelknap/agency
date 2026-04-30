@@ -421,7 +421,6 @@ func run(cfg smokeConfig) error {
 	if cfg.keepAgent {
 		printKeepAgentInstructions(cfg)
 		waitForContractSmoke(ctx)
-		return nil
 	}
 
 	fmt.Println("==> Stopping and deleting Firecracker workspace")
