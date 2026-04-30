@@ -32,7 +32,7 @@ agency list --format text
 # For each running agent:
 # agency stop <agent-name>
 
-# Copy everything (rsync skips Docker-owned files that cp can't read)
+# Copy everything (rsync skips runtime-owned files that cp can't read)
 rsync -a \
   --exclude='run/' \
   --exclude='gateway.pid' \

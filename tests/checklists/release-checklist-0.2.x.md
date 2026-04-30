@@ -7,6 +7,7 @@ which carries the gate-level definitions.
 Related:
 
 - [Release Gates 0.2.x](release-gates-0.2.x.md)
+- [MicroVM Release Checklist](microvm-release-checklist.md)
 
 ## Goal
 
@@ -27,6 +28,8 @@ Ship an installable `0.2.x` release that early users can:
 It is the first intentionally scoped core Agency line:
 
 - governed single-agent runtime
+- microVM-only runtime execution: Firecracker on Linux/WSL and
+  `apple-vf-microvm` on macOS Apple silicon
 - event-driven execution
 - graph-backed context in a trimmed form
 - auditable provider-backed work
@@ -39,6 +42,7 @@ Before cutting a `v0.2.x` tag:
 - confirm `main` reflects the current core tiering and release-gate decisions
 - confirm no known blocker remains in:
   - setup path
+  - microVM backend readiness
   - agent create/start/show/stop
   - DM path
   - provider setup and execution
@@ -57,6 +61,8 @@ Validate before tag:
 
 - `go build ./cmd/gateway`
 - `./agency --version`
+- `./scripts/ci/verify-required-status-checks.sh`
+- complete [MicroVM Release Checklist](microvm-release-checklist.md)
 - `./scripts/release/release-readiness-check.sh preflight --version 0.2.x`
 
 Validate after tag:
@@ -79,6 +85,8 @@ Validate after tag/release:
   - configure one recommended provider
   - `agency -q infra up`
   - `agency admin doctor`
+  - confirm the selected backend is Firecracker on Linux/WSL or
+    `apple-vf-microvm` on macOS Apple silicon
 
 ### 3. Core product smoke
 
@@ -109,7 +117,19 @@ Validate after the local stack is up:
 - confirm `/api/v1/openapi-core.yaml` is served
 - confirm `/api/v1/mcp/tools` defaults to the core discovery view
 
-### 5. GHCR image validation
+### 5. MicroVM runtime smoke
+
+Validate on the supported runtime path:
+
+- `bash ./scripts/readiness/runtime-contract-smoke.sh --agent <agent-name>`
+- on macOS Apple silicon, when validating Apple VF changes:
+  - `./scripts/readiness/apple-vf-microvm-smoke.sh --skip-helper-build`
+  - `./scripts/readiness/apple-vf-lifecycle-smoke.sh --skip-helper-build`
+- on Linux/WSL, when validating Firecracker changes:
+  - `agency admin doctor`
+  - one disposable Firecracker-backed agent start/status/validate/stop cycle
+
+### 6. GHCR image validation
 
 Validate after tag/release:
 
@@ -133,14 +153,15 @@ blocking the first core release line.
 ## Recommended Release Sequence
 
 1. Re-run the core readiness scripts and focused live checks.
-2. Confirm docs, CLI help, web nav, OpenAPI, and MCP still agree on the core
+2. Complete the microVM release checklist.
+3. Confirm docs, CLI help, web nav, OpenAPI, and MCP still agree on the core
    contract.
-3. Cut a release branch or release commit only if needed.
-4. Tag `v0.2.x`.
-5. Watch the GitHub release and image publish workflows.
-6. Validate one clean Homebrew install path.
-7. Validate one full core product smoke on the tagged build.
-8. Publish tester instructions centered on the core path only.
+4. Cut a release branch or release commit only if needed.
+5. Tag `v0.2.x`.
+6. Watch the GitHub release and image publish workflows.
+7. Validate one clean Homebrew install path.
+8. Validate one full core product smoke on the tagged build.
+9. Publish tester instructions centered on the core path only.
 
 ## Suggested Tester Path
 

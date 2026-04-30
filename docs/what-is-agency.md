@@ -40,7 +40,7 @@ That is the current heart of the product.
 
 Every agent gets:
 
-- an isolated workspace container
+- an isolated workspace microVM
 - an enforcer sidecar that mediates requests
 - read-only operator-owned constraints
 - durable agent-owned identity

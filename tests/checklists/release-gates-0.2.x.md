@@ -38,6 +38,7 @@ Each feature area is classified as:
 | Feature | Gate Level | Why It Matters | Current Stance |
 |---------|------------|----------------|----------------|
 | Install and setup path | `Blocking` | If a tester cannot install the binary, configure one provider, and bring the stack up, the product is not shippable. | Core requirement for `0.2.x`. |
+| MicroVM runtime support | `Blocking` | The supported runtime architecture is Firecracker on Linux/WSL and `apple-vf-microvm` on macOS. Container execution backends are not release gates. | Required for every core release. |
 | Agent runtime core | `Blocking` | Create/start/show/stop must be reliable or the core story fails immediately. | Remains the strongest product surface. |
 | Dynamic agent reconfiguration | `Blocking` | Updating a running agent is part of the supported operator path, not a side demo. | Keep this in the mainline release bar. |
 | DM / comms core | `Blocking` | First-user success depends on sending work to an agent and receiving a reply. | Primary interaction model. |
@@ -78,7 +79,29 @@ Each feature area is classified as:
 - `scripts/release/release-readiness-check.sh preflight --version 0.2.x`
 - one clean install smoke through the tagged release path
 
-### 2. Agent Runtime Core
+### 2. MicroVM Runtime Support
+
+**Gate level:** `Blocking`
+
+**Pass means:**
+
+- Linux/WSL setup selects Firecracker by default
+- macOS Apple silicon setup selects `apple-vf-microvm` by default
+- `agency admin doctor` reports the exact missing backend pieces for the
+  selected microVM backend
+- runtime manifest/status/validate remain backend-neutral and microVM-first
+- Docker, Podman, containerd, and Apple Container execution backends are not
+  required status checks, setup choices, quickstart choices, or release gates
+
+**Primary validation:**
+
+- [MicroVM Release Checklist](microvm-release-checklist.md)
+- `scripts/readiness/runtime-contract-smoke.sh --agent <agent>`
+- `scripts/readiness/apple-vf-microvm-smoke.sh --skip-helper-build` on macOS
+  Apple silicon when validating Apple VF changes
+- Firecracker runtime smoke on Linux/WSL when validating Firecracker changes
+
+### 3. Agent Runtime Core
 
 **Gate level:** `Blocking`
 
@@ -94,7 +117,7 @@ Each feature area is classified as:
 - `scripts/readiness/alpha-readiness-check.sh`
 - focused Go tests in `internal/orchestrate/`
 
-### 3. Dynamic Agent Reconfiguration
+### 4. Dynamic Agent Reconfiguration
 
 **Gate level:** `Blocking`
 
@@ -109,7 +132,7 @@ Each feature area is classified as:
 - `scripts/readiness/fundamentals-readiness-check.sh`
 - `images/body/test_constraint_reload.py`
 
-### 4. DM / Comms Core
+### 5. DM / Comms Core
 
 **Gate level:** `Blocking`
 
@@ -126,7 +149,7 @@ Each feature area is classified as:
 - `images/tests/test_comms_e2e.py`
 - `images/tests/test_realtime_comms_e2e.py`
 
-### 5. Event-Driven Runtime Delivery
+### 6. Event-Driven Runtime Delivery
 
 **Gate level:** `Blocking`
 
@@ -141,7 +164,7 @@ Each feature area is classified as:
 - core event-routing Go tests in `internal/events/`, `internal/ws/`, and related API handlers
 - one live smoke showing DM or runtime state changes arriving through the evented path
 
-### 6. Provider Execution And Basic Routing
+### 7. Provider Execution And Basic Routing
 
 **Gate level:** `Blocking`
 
@@ -156,7 +179,7 @@ Each feature area is classified as:
 - routing/provider tests in `internal/models/`, `internal/policy/`, and `images/tests/test_routing.py`
 - one disposable agent completes a provider-backed task
 
-### 7. Budget, Usage, And Audit Linkage
+### 8. Budget, Usage, And Audit Linkage
 
 **Gate level:** `Blocking`
 
@@ -171,7 +194,7 @@ Each feature area is classified as:
 - `scripts/readiness/fundamentals-readiness-check.sh`
 - focused Go tests in `internal/budget/`, `internal/logs/`, and `internal/audit/`
 
-### 8. Graph Core
+### 9. Graph Core
 
 **Gate level:** `Blocking` for query/retrieval/stats  
 **Gate level:** `Soft-blocking` for write/update compounding path
@@ -195,7 +218,7 @@ Each feature area is classified as:
 - quarantine/release flows
 - curation and discovery analytics
 
-### 9. Core Web UI
+### 10. Core Web UI
 
 **Gate level:** `Blocking`
 
@@ -210,7 +233,7 @@ Each feature area is classified as:
 - current core Playwright/live web suites
 - focused web tests for layout, overview, setup, agents, and DM-critical flows
 
-### 10. Core API, OpenAPI, And MCP Contract
+### 11. Core API, OpenAPI, And MCP Contract
 
 **Gate level:** `Blocking`
 
@@ -226,7 +249,7 @@ Each feature area is classified as:
 - `go test ./internal/openapispec ./internal/api/...`
 - generated core spec sync test
 
-### 11. Release / Publish Path
+### 12. Release / Publish Path
 
 **Gate level:** `Blocking`
 
@@ -247,6 +270,7 @@ Treat these as the hard no-waiver set unless there is an explicit product
 decision otherwise:
 
 - install and setup path
+- microVM runtime support
 - agent runtime core
 - dynamic agent reconfiguration
 - DM/comms core

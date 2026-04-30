@@ -29,7 +29,7 @@
             |         | WS relay + REST               |
             v         v                               |
 +-----------|---------|-------------------------------|----------+
-|           |         |    MEDIATION NETWORK          |          |
+|           |         |    HOST MEDIATION SERVICES     |          |
 |           |         |                               |          |
 |   +-------+--+   +--+--------+   +----------+   +---+------+   |
 |   | INTAKE   |   | COMMS     |   |KNOWLEDGE |   | EGRESS   |   |
@@ -55,7 +55,7 @@
                          |             |              |
 +------------------------|-------------|--------------|----------+
 |                        |             |              |          |
-|        AGENT-INTERNAL NETWORK (per agent, isolated) |          |
+|        AGENT MICROVM BOUNDARY (per agent, isolated) |          |
 |                        |             |              |          |
 |   +--------------------+-------------+--------------+-----+    |
 |   |                    ENFORCER                           |    |

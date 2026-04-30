@@ -26,7 +26,7 @@ agency status
 If you are validating a patched local binary, use `./agency` consistently or
 stop the installed daemon before starting a disposable/local runtime.
 
-### Go test suite (no Docker required)
+### Go test suite (no live backend required)
 
 ```bash
 go test ./...
@@ -69,8 +69,8 @@ Covers:
 - first useful DM reply for a running agent
 - webhook, notifications, presets, missions, and team flows
 
-If Docker reports `all predefined address pools have been fully subnetted`,
-clean leaked disposable runtimes before retrying:
+If a live runtime smoke reports stale runtime state or exhausted backend
+resources, clean leaked disposable runtimes before retrying:
 
 ```bash
 AGENCY_BIN=./agency ./scripts/dev/cleanup-live-test-runtimes.sh --apply
@@ -83,11 +83,11 @@ Run through each section. Mark each item as you verify it.
 ### Infrastructure
 
 - [ ] `agency infra status` — all components healthy (including gateway-proxy)
-- [ ] `agency admin doctor` — all checks pass (including `host_capacity`, `network_pool`)
+- [ ] `agency admin doctor` — all checks pass, including host capacity and backend hygiene
 - [ ] `agency infra capacity` — shows available agent slots, correct host profiling
 - [ ] `curl -sf http://localhost:8200/api/v1/health` — returns OK
 - [ ] Gateway daemon running: `pgrep -af "agency.*serve"` shows a process
-- [ ] Hub network exists: `docker network inspect agency-gateway` — Internal:true
+- [ ] Runtime mediation path is healthy in `agency admin doctor`
 
 ### Auth
 
@@ -98,7 +98,7 @@ Run through each section. Mark each item as you verify it.
 ### Agent Lifecycle
 
 - [ ] `agency create validation-test` — agent directory created
-- [ ] `agency start validation-test` — agent starts, containers running
+- [ ] `agency start validation-test` — agent starts, runtime healthy
 - [ ] `agency show validation-test` — shows running state
 - [ ] `curl -sf -H "Authorization: Bearer $(grep '^token:' ~/.agency/config.yaml | awk '{print $2}')" http://localhost:8200/api/v1/agents/validation-test/runtime/status` — runtime status reports `phase=running`
 - [ ] `curl -sf -H "Authorization: Bearer $(grep '^token:' ~/.agency/config.yaml | awk '{print $2}')" http://localhost:8200/api/v1/agents/validation-test/runtime/manifest` — runtime manifest exists and includes backend + transport
@@ -136,7 +136,7 @@ Run through each section. Mark each item as you verify it.
 
 - [ ] `./agency --version` — shows expected local build when validating a patch
 - [ ] `agency --version` — matches the installed/operator binary you intend to use
-- [ ] `agency status` — no unintended version mismatches between binary and containers
+- [ ] `agency status` — no unintended version mismatches between the binary and runtime artifacts
 - [ ] `make verify-required-status-checks` — branch protection still enforces the expected smoke and test gates on `main`
 
 ### Error Verification
@@ -146,7 +146,7 @@ After running the lifecycle checks above, verify no errors occurred:
 **Gateway log:**
 - [ ] No errors: `tail -100 ~/.agency/gateway.log | grep -c ERRO` returns 0
 - [ ] No panics: `tail -100 ~/.agency/gateway.log | grep -c panic` returns 0
-- [ ] No container crashes: `tail -100 ~/.agency/gateway.log | grep "container died"` returns nothing
+- [ ] No runtime crashes: `tail -100 ~/.agency/gateway.log | grep "runtime died"` returns nothing
 
 **Platform health:**
 - [ ] `agency admin doctor` reports zero failures (no ✗ lines)

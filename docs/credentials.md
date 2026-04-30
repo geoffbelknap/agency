@@ -173,7 +173,7 @@ agent  →  enforcer  →  egress proxy  →  external API
 6. The egress proxy injects the real API key into the outbound request
 7. The agent never sees or handles the real credential
 
-The enforcer validates that the agent has the required scopes for each tool call (`CheckScope()`), but it never holds actual credentials. The Unix socket for credential resolution is only bind-mounted into the egress container.
+The enforcer validates that the agent has the required scopes for each tool call (`CheckScope()`), but it never holds actual credentials. The Unix socket for credential resolution is only exposed to the egress service.
 
 ## Doctor Scope Audit
 

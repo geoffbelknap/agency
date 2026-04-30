@@ -165,7 +165,7 @@ trust and review.
 - Agents have read-only mount to audit directory
 - `agency admin doctor` verifies audit guarantees
 
-**Known limitation:** HMAC key is in the enforcer container's environment.
+**Known limitation:** HMAC key is in the enforcer runtime environment.
 If the enforcer is compromised, the attacker can forge log entries.
 
 **Severity if exploited:** HIGH (forensic integrity).
@@ -292,7 +292,7 @@ vulnerable to alert fatigue at scale.
 ## Criticality Calibration
 
 **Critical:**
-- Agent container escape or host compromise
+- Agent microVM escape or host compromise
 - Credential exposure or credential swap bypass
 - Network mediation bypass (direct internet from workspace)
 - Swarm signing key or vault compromise

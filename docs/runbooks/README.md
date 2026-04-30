@@ -6,25 +6,30 @@ Status note:
 - runbooks without a qualifier apply to the supported core `0.2.x` path
 - some runbooks cover experimental or internal operator workflows and are marked explicitly on the page
 
-> Release engineering / validation checklists (Backend Adapter, Runtime Smoke, Validation Checklist, Release Gates, Release Checklist) live in [`tests/checklists/`](../../tests/checklists/).
+> Release engineering / validation checklists (MicroVM Release Checklist,
+> Runtime Smoke, Validation Checklist, Release Gates, Release Checklist) live
+> in [`tests/checklists/`](../../tests/checklists/). Legacy backend adapter
+> checklists are archived under `tests/checklists/legacy/`.
 
 ## Recommended Validation Paths
 
 Use these as the default validation sequence after a change:
 
 - New microVM runtime or host adapter:
-  [Runtime Smoke](../../tests/checklists/runtime-smoke.md)
+  [MicroVM Release Checklist](../../tests/checklists/microvm-release-checklist.md)
+  -> [Runtime Smoke](../../tests/checklists/runtime-smoke.md)
   -> [Validation Checklist](../../tests/checklists/validation-checklist.md)
 - Runtime, lifecycle, transport, or manifest changes:
   [Runtime Smoke](../../tests/checklists/runtime-smoke.md) -> [Validation Checklist](../../tests/checklists/validation-checklist.md) -> [Agent Recovery](agent-recovery.md)
 - Web, operator, DM, or comms changes:
   [Validation Checklist](../../tests/checklists/validation-checklist.md) with the disposable live web E2E section, then [Monitoring & Observability](monitoring-and-observability.md)
-- Infrastructure or Docker hygiene changes:
+- Infrastructure hygiene changes:
   [Initial Setup](initial-setup.md) or [Upgrade](upgrade.md), then [Validation Checklist](../../tests/checklists/validation-checklist.md), then [Infrastructure Recovery](infrastructure-recovery.md) if anything degrades
 - Mainline maintenance or repo-policy verification:
   [Validation Checklist](../../tests/checklists/validation-checklist.md), including `make verify-required-status-checks`
 - Cutting a `0.2.x` core release:
   [Release Gates 0.2.x](../../tests/checklists/release-gates-0.2.x.md) ->
+  [MicroVM Release Checklist](../../tests/checklists/microvm-release-checklist.md) ->
   [Release Checklist 0.2.x](../../tests/checklists/release-checklist-0.2.x.md) ->
   [Validation Checklist](../../tests/checklists/validation-checklist.md)
 
@@ -55,7 +60,7 @@ Use these as the default validation sequence after a change:
 
 | Runbook | When to Use |
 |---------|------------|
-| [Infrastructure Recovery](infrastructure-recovery.md) | Infra containers down, network issues, Docker problems |
+| [Infrastructure Recovery](infrastructure-recovery.md) | Infra services down, mediation issues, backend hygiene problems |
 | [Agent Recovery](agent-recovery.md) | Agent crashed, stuck, unresponsive, or corrupted |
 | [Credential Rotation](credential-rotation.md) | Scheduled rotation, compromised key, or expired credential |
 | [Security Incident Response](security-incident-response.md) | Suspected agent compromise, XPIA detection, anomalous behavior |

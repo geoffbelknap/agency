@@ -282,7 +282,8 @@ agency log <agent-name>
 Anthropic is the only provider requiring format translation. The enforcer handles OpenAI→Anthropic and back. If translation errors appear in enforcer logs:
 
 ```bash
-docker logs agency-<agent-name>-enforcer 2>&1 | tail -20
+agency log <agent-name>
+agency runtime validate <agent-name>
 ```
 
 ## Verification

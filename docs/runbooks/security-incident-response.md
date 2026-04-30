@@ -60,9 +60,9 @@ cp -r ~/.agency/agents/<agent-name>/workspace-data/ "$EVIDENCE_DIR/workspace/"
 # Identity state (check for poisoning)
 cp -r ~/.agency/agents/<agent-name>/identity/ "$EVIDENCE_DIR/identity/"
 
-# Container logs
-docker logs agency-<agent-name>-workspace > "$EVIDENCE_DIR/workspace.log" 2>&1
-docker logs agency-<agent-name>-enforcer > "$EVIDENCE_DIR/enforcer.log" 2>&1
+# Runtime status and manifest
+agency status <agent-name> > "$EVIDENCE_DIR/runtime-status.txt" 2>&1
+agency runtime manifest <agent-name> > "$EVIDENCE_DIR/runtime-manifest.json" 2>&1
 ```
 
 ### 2. Review audit trail
@@ -125,8 +125,8 @@ agency log <other-agent-name>    # repeat for each agent
 # Review knowledge graph for injected content
 agency graph stats
 
-# Verify no Docker socket mounts on containers (gateway checks this at startup)
-# If doctor reports docker_socket_audit failures, investigate immediately
+# Verify runtime mediation and backend hygiene
+# If doctor reports backend or mediation failures, investigate immediately
 ```
 
 ## Recovery

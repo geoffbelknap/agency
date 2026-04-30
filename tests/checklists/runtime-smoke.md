@@ -125,14 +125,16 @@ Expected outcome:
 
 ## Troubleshooting
 
-- If phase 2 fails, inspect the enforcer container health and logs first.
+- If phase 2 fails, inspect the host enforcer process and runtime manifest
+  first.
 - If runtime status is available but backend inspection is not, the persisted
   runtime manifest remains the source of truth until backend connectivity
   returns.
-- `agency admin doctor` environment findings such as dangling images or Docker
-  address-pool drift are deployment hygiene issues, not runtime-contract
-  correctness failures.
-- If disposable validation fails with `all predefined address pools have been fully subnetted`,
+- `agency admin doctor` backend findings such as missing KVM/vsock access on
+  Linux or missing Apple VF helper/kernel artifacts on macOS are backend
+  hygiene failures. Runtime-contract failures are manifest/status/validate
+  failures for the agent under test.
+- If disposable validation fails because stale runtimes are still present,
   clean leaked disposable runtimes and retry:
 
 ```bash

@@ -131,7 +131,7 @@ agency meeseeks list   # check for meeseeks with dead parents
 agency meeseeks kill <id>
 ```
 
-The gateway reconciler cleans up orphaned containers on startup, but manual cleanup may be needed between restarts.
+The gateway reconciler cleans up orphaned runtime state on startup, but manual cleanup may be needed between restarts.
 
 ## Semantic Cache
 
@@ -175,9 +175,9 @@ Or via cost_mode defaults:
 - `balanced`: cache enabled, default TTL
 - `thorough`: cache enabled, default TTL
 
-## Workspace Crash Watcher
+## Runtime Crash Watcher
 
-Background watcher detects workspace container crashes and emits operator alerts automatically. No configuration needed — always on.
+Background watcher detects workspace runtime crashes and emits operator alerts automatically. No configuration needed — always on.
 
 Check for crash events:
 
@@ -212,12 +212,16 @@ agency log <agent-name>   # look for rate limit events
 
 Rate-limited requests return HTTP 429 to the body runtime.
 
-## Docker Socket Audit
+## MicroVM Runtime Hygiene
 
-When the selected backend is Docker, gateway startup runs `AuditDockerSocket()` to scan all `agency.managed` containers for Docker socket mounts. Violations are logged as security errors. This is a Docker-backend hygiene check, not a generic runtime-contract check.
+`agency admin doctor` separates runtime health from backend hygiene. Runtime
+health is the manifest/status/validate contract for each agent. Backend hygiene
+is platform-specific host readiness such as Firecracker KVM/vsock access or
+Apple VF helper/kernel/rootfs artifact readiness.
 
 ```bash
-agency admin doctor   # includes docker socket audit when Docker is the selected backend
+agency admin doctor
+bash ./scripts/readiness/runtime-contract-smoke.sh --agent <agent-name>
 ```
 
 ## LLM Usage
