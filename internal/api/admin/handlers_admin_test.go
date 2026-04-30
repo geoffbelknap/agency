@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -511,9 +512,14 @@ func TestAppleVFDoctorChecksPassWithHelperHealth(t *testing.T) {
 	home := t.TempDir()
 	helperPath := filepath.Join(home, "agency-apple-vf-helper")
 	kernelPath := filepath.Join(home, "vmlinux")
+	mke2fsPath := filepath.Join(home, "mke2fs")
+	enforcerPath := filepath.Join(home, "agency-enforcer-host")
+	bridgePath := filepath.Join(home, "agency-vsock-http-bridge")
 	stateDir := filepath.Join(home, "state")
-	if err := os.WriteFile(helperPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
+	for _, path := range []string{helperPath, mke2fsPath, enforcerPath, bridgePath} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := os.WriteFile(kernelPath, []byte("kernel"), 0o644); err != nil {
 		t.Fatal(err)
@@ -523,16 +529,19 @@ func TestAppleVFDoctorChecksPassWithHelperHealth(t *testing.T) {
 	appendAppleVFDoctorChecks(context.Background(), &report, &config.Config{
 		Home: home,
 		Hub: config.HubConfig{DeploymentBackendConfig: map[string]string{
-			"helper_binary": helperPath,
-			"kernel_path":   kernelPath,
-			"state_dir":     stateDir,
+			"helper_binary":            helperPath,
+			"kernel_path":              kernelPath,
+			"state_dir":                stateDir,
+			"mke2fs_path":              mke2fsPath,
+			"enforcer_binary_path":     enforcerPath,
+			"vsock_bridge_binary_path": bridgePath,
 		}},
 	})
 
 	if !report.AllPassed {
 		t.Fatalf("expected all checks to pass: %#v", report.Checks)
 	}
-	for _, name := range []string{"apple_vf_host_os", "apple_vf_architecture", "apple_vf_helper_binary", "apple_vf_helper_health", "apple_vf_state_dir", "apple_vf_kernel"} {
+	for _, name := range []string{"apple_vf_host_os", "apple_vf_architecture", "apple_vf_helper_binary", "apple_vf_helper_health", "apple_vf_state_dir", "apple_vf_kernel", "apple_vf_mke2fs", "apple_vf_enforcer_binary", "apple_vf_vsock_bridge_binary"} {
 		check, ok := findDoctorCheck(report.Checks, name)
 		if !ok {
 			t.Fatalf("missing %s in %#v", name, report.Checks)
@@ -547,6 +556,15 @@ func TestAppleVFDoctorChecksReportHelperAndHostFailures(t *testing.T) {
 	restoreAppleVFDoctorHooks(t)
 	appleVFGOOS = func() string { return "linux" }
 	appleVFGOARCH = func() string { return "amd64" }
+	appleVFStat = func(path string) (os.FileInfo, error) {
+		if path == "/opt/homebrew/opt/e2fsprogs/sbin/mke2fs" {
+			return nil, os.ErrNotExist
+		}
+		return os.Stat(path)
+	}
+	appleVFLookPath = func(file string) (string, error) {
+		return "", exec.ErrNotFound
+	}
 
 	home := t.TempDir()
 	report := doctorReport{AllPassed: true, Backend: hostruntimebackend.BackendAppleVFMicroVM}
@@ -567,6 +585,9 @@ func TestAppleVFDoctorChecksReportHelperAndHostFailures(t *testing.T) {
 		{"apple_vf_helper_binary", "helper_binary"},
 		{"apple_vf_helper_health", "helper"},
 		{"apple_vf_kernel", filepath.Join(home, "runtime", "apple-vf-microvm", "artifacts", "Image")},
+		{"apple_vf_mke2fs", "e2fsprogs"},
+		{"apple_vf_enforcer_binary", "enforcer_binary_path"},
+		{"apple_vf_vsock_bridge_binary", "vsock_bridge_binary_path"},
 	} {
 		check, ok := findDoctorCheck(report.Checks, tt.name)
 		if !ok {

@@ -91,6 +91,10 @@ func TestWithAppleVFArtifactConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("AGENCY_HOME", home)
 	t.Setenv("AGENCY_APPLE_VF_KERNEL", "")
+	t.Setenv("AGENCY_APPLE_VF_HELPER_BIN", "")
+	t.Setenv("AGENCY_APPLE_VF_ENFORCER_BIN", "")
+	t.Setenv("AGENCY_APPLE_VF_VSOCK_BRIDGE_BIN", "")
+	t.Setenv("AGENCY_MKE2FS", "")
 	got := withAppleVFArtifactConfig(hostruntimebackend.BackendAppleVFMicroVM, nil)
 	want := hostruntimebackend.DefaultAppleVFKernelPath(home)
 	if got["kernel_path"] != want {
@@ -106,6 +110,28 @@ func TestWithAppleVFArtifactConfig(t *testing.T) {
 	got = withAppleVFArtifactConfig(hostruntimebackend.BackendAppleVFMicroVM, nil)
 	if got["kernel_path"] != "/env/Image" {
 		t.Fatalf("kernel path env = %q", got["kernel_path"])
+	}
+	t.Setenv("AGENCY_APPLE_VF_HELPER_BIN", "/env/helper")
+	t.Setenv("AGENCY_APPLE_VF_ENFORCER_BIN", "/env/enforcer")
+	t.Setenv("AGENCY_APPLE_VF_VSOCK_BRIDGE_BIN", "/env/bridge")
+	t.Setenv("AGENCY_MKE2FS", "/env/mke2fs")
+	got = withAppleVFArtifactConfig(hostruntimebackend.BackendAppleVFMicroVM, nil)
+	for key, want := range map[string]string{
+		"helper_binary":            "/env/helper",
+		"enforcer_binary_path":     "/env/enforcer",
+		"vsock_bridge_binary_path": "/env/bridge",
+		"mke2fs_path":              "/env/mke2fs",
+	} {
+		if got[key] != want {
+			t.Fatalf("%s = %q, want %q", key, got[key], want)
+		}
+	}
+	got = withAppleVFArtifactConfig(hostruntimebackend.BackendAppleVFMicroVM, map[string]string{
+		"helper_binary": "/custom/helper",
+		"mke2fs_path":   "/custom/mke2fs",
+	})
+	if got["helper_binary"] != "/custom/helper" || got["mke2fs_path"] != "/custom/mke2fs" {
+		t.Fatalf("configured Apple VF paths were not preserved: %#v", got)
 	}
 	if got := withAppleVFArtifactConfig(hostruntimebackend.BackendFirecracker, nil); got != nil {
 		t.Fatalf("firecracker cfg = %#v, want nil", got)
