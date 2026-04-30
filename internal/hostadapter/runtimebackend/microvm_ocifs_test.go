@@ -70,6 +70,29 @@ func TestExtractOCILayerCreatesSymlinkWithoutChmodTarget(t *testing.T) {
 	}
 }
 
+func TestExtractOCILayerRejectsPathTraversal(t *testing.T) {
+	stageDir := t.TempDir()
+
+	if err := extractOCILayer(stageDir, "application/vnd.oci.image.layer.v1.tar", tarLayer(t,
+		tarEntry{path: "../escape", body: "nope", mode: 0o644},
+	)); err == nil {
+		t.Fatal("extract traversal layer succeeded")
+	}
+}
+
+func TestExtractOCILayerDoesNotWriteThroughAbsoluteSymlink(t *testing.T) {
+	stageDir := t.TempDir()
+	outsideDir := t.TempDir()
+
+	if err := extractOCILayer(stageDir, "application/vnd.oci.image.layer.v1.tar", tarLayer(t,
+		tarEntry{path: "escape", typ: tar.TypeSymlink, link: outsideDir, mode: 0o777},
+		tarEntry{path: "escape/pwned", body: "nope", mode: 0o644},
+	)); err == nil {
+		t.Fatal("extract layer wrote through absolute symlink")
+	}
+	assertNotExists(t, filepath.Join(outsideDir, "pwned"))
+}
+
 type tarEntry struct {
 	path string
 	typ  byte
