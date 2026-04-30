@@ -844,19 +844,30 @@ func withAppleVFArtifactConfig(backend string, cfg map[string]string) map[string
 	if backend != hostruntimebackend.BackendAppleVFMicroVM {
 		return cfg
 	}
-	kernel := strings.TrimSpace(os.Getenv("AGENCY_APPLE_VF_KERNEL"))
-	if kernel == "" {
-		kernel = hostruntimebackend.DefaultAppleVFKernelPath(config.Load().Home)
+	home := config.Load().Home
+	defaults := map[string]string{
+		"kernel_path": hostruntimebackend.DefaultAppleVFKernelPath(home),
 	}
-	if strings.TrimSpace(kernel) == "" {
-		return cfg
+	envPaths := map[string]string{
+		"kernel_path":              strings.TrimSpace(os.Getenv("AGENCY_APPLE_VF_KERNEL")),
+		"helper_binary":            strings.TrimSpace(os.Getenv("AGENCY_APPLE_VF_HELPER_BIN")),
+		"enforcer_binary_path":     strings.TrimSpace(os.Getenv("AGENCY_APPLE_VF_ENFORCER_BIN")),
+		"vsock_bridge_binary_path": strings.TrimSpace(os.Getenv("AGENCY_APPLE_VF_VSOCK_BRIDGE_BIN")),
+		"mke2fs_path":              strings.TrimSpace(os.Getenv("AGENCY_MKE2FS")),
 	}
-	out := make(map[string]string, len(cfg)+1)
+	out := make(map[string]string, len(cfg)+len(defaults)+len(envPaths))
 	for k, v := range cfg {
 		out[k] = v
 	}
-	if strings.TrimSpace(out["kernel_path"]) == "" {
-		out["kernel_path"] = kernel
+	for key, value := range envPaths {
+		if strings.TrimSpace(out[key]) == "" && strings.TrimSpace(value) != "" {
+			out[key] = value
+		}
+	}
+	for key, value := range defaults {
+		if strings.TrimSpace(out[key]) == "" && strings.TrimSpace(value) != "" {
+			out[key] = value
+		}
 	}
 	return out
 }
