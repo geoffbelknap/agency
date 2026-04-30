@@ -31,7 +31,6 @@ const (
 const buildContextTransformVersion = "named-context-dir-slash-v2"
 
 var sourceImageDependencies = map[string][]string{
-	"body":      {"python-base"},
 	"comms":     {"python-base"},
 	"knowledge": {"python-base"},
 	"intake":    {"python-base"},

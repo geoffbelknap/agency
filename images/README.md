@@ -36,7 +36,7 @@ Tier matches `internal/features/registry.go`. Core is part of the default
 
 | Path | Purpose |
 |---|---|
-| [python-base/](python-base/) | Stable shared base layer for the Python services. Pre-installs heavy deps so per-service builds stay fast. Published as `ghcr.io/geoffbelknap/agency-python-base:latest`. |
+| [python-base/](python-base/) | Stable shared base layer for legacy shared Python service builds. The microVM body runtime artifact is self-contained and does not depend on a published `latest` base image. |
 | [workspace-base/](workspace-base/) | Stable shared base for the workspace image (system packages, seccomp profile). |
 
 The `Makefile` build matrix:
@@ -46,6 +46,15 @@ CORE_IMAGES         = body enforcer comms knowledge egress workspace gateway-pro
 EXPERIMENTAL_IMAGES = intake web-fetch
 ALL_IMAGES          = $(CORE_IMAGES) $(EXPERIMENTAL_IMAGES)
 ```
+
+Release publishing uses the repo-owned daemonless OCI publisher to produce only
+the supported microVM runtime OCI filesystem artifacts:
+
+- `ghcr.io/geoffbelknap/agency-runtime-body:vX.Y.Z`
+- `ghcr.io/geoffbelknap/agency-runtime-enforcer:vX.Y.Z`
+
+Mutable `latest` tags are intentionally not published or consumed by the
+microVM runtime path.
 
 `embeddings` is not in the build matrix — it pulls the upstream `ollama/ollama`
 image at runtime via `imageops.ResolveUpstream`. `python-base` and

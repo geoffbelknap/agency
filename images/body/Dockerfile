@@ -1,9 +1,15 @@
-ARG PYTHON_BASE_IMAGE=ghcr.io/geoffbelknap/agency-python-base:latest
+ARG PYTHON_BASE_IMAGE=python:3.13-slim@sha256:d168b8d9eb761f4d3fe305ebd04aeb7e7f2de0297cec5fb2f8f6403244621664
 FROM ${PYTHON_BASE_IMAGE}
 ARG BUILD_ID=unknown
 ARG SOURCE_HASH=unknown
 
 WORKDIR /app
+
+RUN pip install --no-cache-dir \
+    httpx==0.28.1 \
+    aiohttp==3.13.3 \
+    pyyaml==6.0.3 \
+    pydantic==2.12.5
 
 # Run as non-root user for defense in depth
 RUN useradd -m -s /bin/sh -u 61000 bodyuser && \
