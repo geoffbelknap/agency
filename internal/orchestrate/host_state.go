@@ -91,7 +91,7 @@ func normalizeBackendHostStateEvent(ev runtimehost.RuntimeEvent) (HostStateEvent
 	if ev.RuntimeID == "" {
 		return HostStateEvent{}, false
 	}
-	component := ev.Component
+	component := ""
 	switch ev.Component {
 	case runtimehost.RuntimeComponentWorkspace:
 		component = HostStateComponentWorkspace

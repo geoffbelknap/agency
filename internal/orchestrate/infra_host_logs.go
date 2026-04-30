@@ -11,6 +11,8 @@ import (
 	"github.com/geoffbelknap/agency/internal/infratier"
 )
 
+const maxInfraLogTail = 10000
+
 // InfraLogs returns recent logs for shared infrastructure services without
 // exposing the host/container implementation detail to callers.
 func (inf *Infra) InfraLogs(ctx context.Context, component string, tail int) (string, error) {
@@ -20,6 +22,9 @@ func (inf *Infra) InfraLogs(ctx context.Context, component string, tail int) (st
 	}
 	if tail <= 0 {
 		tail = 200
+	}
+	if tail > maxInfraLogTail {
+		tail = maxInfraLogTail
 	}
 	if inf.hostInfraLogsEnabled(component) {
 		return inf.hostInfraLogs(component, tail)
