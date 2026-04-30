@@ -20,17 +20,23 @@ func main() {
 	var image string
 	var out string
 	var stateDir string
+	var overlayBaseDir string
 	var mke2fs string
+	var vsockBridgeBinary string
 	var sizeMiB int64
 	var osName string
 	var arch string
+	var env envFlags
 	flag.StringVar(&image, "image", "ghcr.io/geoffbelknap/agency-body:latest", "OCI image reference")
 	flag.StringVar(&out, "out", "", "output ext4 rootfs path")
 	flag.StringVar(&stateDir, "state-dir", "", "builder state directory")
+	flag.StringVar(&overlayBaseDir, "overlay-base-dir", "", "base directory for safe rootfs overlays")
 	flag.StringVar(&mke2fs, "mke2fs", "mke2fs", "mke2fs binary path")
+	flag.StringVar(&vsockBridgeBinary, "vsock-bridge-binary", "", "Linux agency-vsock-http-bridge binary path to install in the rootfs")
 	flag.Int64Var(&sizeMiB, "size-mib", 1024, "rootfs image size in MiB")
 	flag.StringVar(&osName, "os", "linux", "target OS")
 	flag.StringVar(&arch, "arch", "arm64", "target architecture")
+	flag.Var(&env, "env", "guest environment KEY=VALUE; may be repeated")
 	flag.Parse()
 
 	if strings.TrimSpace(out) == "" {
@@ -38,12 +44,14 @@ func main() {
 		os.Exit(2)
 	}
 	builder := runtimebackend.MicroVMOCIRootFSBuilder{
-		StateDir:   stateDir,
-		Mke2fsPath: mke2fs,
-		SizeMiB:    sizeMiB,
-		Platform:   ocispec.Platform{OS: osName, Architecture: arch},
+		StateDir:          stateDir,
+		Mke2fsPath:        mke2fs,
+		SizeMiB:           sizeMiB,
+		Platform:          ocispec.Platform{OS: osName, Architecture: arch},
+		VsockBridgeBinary: vsockBridgeBinary,
+		OverlayBaseDir:    overlayBaseDir,
 	}
-	result, err := builder.Build(context.Background(), image, out, nil)
+	result, err := builder.Build(context.Background(), image, out, env.Map())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "build rootfs: %v\n", err)
 		os.Exit(1)
@@ -70,6 +78,39 @@ func main() {
 	fmt.Printf("init_path=%s\n", result.InitPath)
 	fmt.Printf("layer_count=%d\n", len(result.LayerDigests))
 	fmt.Printf("container_runtime_used=false\n")
+}
+
+type envFlags []string
+
+func (e *envFlags) String() string {
+	return strings.Join(*e, ",")
+}
+
+func (e *envFlags) Set(value string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("env value is empty")
+	}
+	if !strings.Contains(value, "=") {
+		return fmt.Errorf("env value %q must be KEY=VALUE", value)
+	}
+	*e = append(*e, value)
+	return nil
+}
+
+func (e envFlags) Map() map[string]string {
+	if len(e) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(e))
+	for _, item := range e {
+		key, value, _ := strings.Cut(item, "=")
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		out[key] = value
+	}
+	return out
 }
 
 func fileSHA256(path string) (string, error) {

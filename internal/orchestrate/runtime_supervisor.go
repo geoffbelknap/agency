@@ -169,7 +169,18 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 	}
 	if features.Enabled(features.AppleVFMicroVM) || rs.BackendName == hostruntimebackend.BackendAppleVFMicroVM {
 		rs.registry.Register(hostruntimebackend.BackendAppleVFMicroVM, func() (runtimecontract.Backend, error) {
-			return hostruntimebackend.NewAppleVFMicroVMRuntimeBackend(rs.Home, rs.BackendConfig), nil
+			backend := hostruntimebackend.NewAppleVFMicroVMRuntimeBackend(rs.Home, rs.BackendConfig)
+			return &appleVFComponentRuntimeBackend{
+				backend: backend,
+				enforcers: &agentruntime.HostEnforcerSupervisor{
+					BinaryPath: strings.TrimSpace(rs.BackendConfig["enforcer_binary_path"]),
+					StateDir:   filepath.Join(backend.StateDir, "host-enforcers"),
+				},
+				home:      rs.Home,
+				version:   rs.Version,
+				sourceDir: rs.SourceDir,
+				buildID:   rs.BuildID,
+			}, nil
 		})
 	}
 	rs.registry.Register(probeRuntimeBackendName, func() (runtimecontract.Backend, error) {
@@ -220,7 +231,7 @@ func (rs *RuntimeSupervisor) Compile(ctx context.Context, runtimeID string) (run
 		enforcerProxyURL = "http://" + enforcerHost + ":3128"
 		enforcerControlURL = "http://" + enforcerHost + ":8081"
 		enforcerEndpoint = "vsock://2:8081"
-		if backendName == hostruntimebackend.BackendFirecracker {
+		if backendName == hostruntimebackend.BackendFirecracker || backendName == hostruntimebackend.BackendAppleVFMicroVM {
 			extraEnv[hostruntimebackend.FirecrackerEnforcerProxyTargetEnv] = proxyEndpoint
 			extraEnv[hostruntimebackend.FirecrackerEnforcerControlTargetEnv] = controlEndpoint
 		}

@@ -21,6 +21,10 @@ func TestAppleVFHelperRequestJSONArg(t *testing.T) {
 			MemoryMiB:       512,
 			CPUCount:        2,
 			EnforcementMode: FirecrackerEnforcementModeHostProcess,
+			VsockListeners: []AppleVFHelperVsockListener{
+				{Port: 3128, Target: "127.0.0.1:19128"},
+				{Port: 8081, Target: "127.0.0.1:19081"},
+			},
 		},
 	}).JSONArg()
 	if err != nil {
@@ -33,6 +37,7 @@ func TestAppleVFHelperRequestJSONArg(t *testing.T) {
 		`"backend":"apple-vf-microvm"`,
 		`"kernelPath":"/kernels/vmlinux"`,
 		`"memoryMiB":512`,
+		`"vsockListeners":[{"port":3128,"target":"127.0.0.1:19128"},{"port":8081,"target":"127.0.0.1:19081"}]`,
 	} {
 		if !strings.Contains(arg, want) {
 			t.Fatalf("JSONArg() = %s, missing %s", arg, want)

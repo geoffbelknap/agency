@@ -26,13 +26,19 @@ const (
 	AppleVFRoleEnforcer AppleVFComponentRole = "enforcer"
 )
 
+type AppleVFHelperVsockListener struct {
+	Port   int64  `json:"port,omitempty"`
+	Target string `json:"target,omitempty"`
+}
+
 type AppleVFHelperVMConfig struct {
-	KernelPath      string `json:"kernelPath,omitempty"`
-	RootFSPath      string `json:"rootfsPath,omitempty"`
-	StateDir        string `json:"stateDir,omitempty"`
-	MemoryMiB       int64  `json:"memoryMiB,omitempty"`
-	CPUCount        int64  `json:"cpuCount,omitempty"`
-	EnforcementMode string `json:"enforcementMode,omitempty"`
+	KernelPath      string                       `json:"kernelPath,omitempty"`
+	RootFSPath      string                       `json:"rootfsPath,omitempty"`
+	StateDir        string                       `json:"stateDir,omitempty"`
+	MemoryMiB       int64                        `json:"memoryMiB,omitempty"`
+	CPUCount        int64                        `json:"cpuCount,omitempty"`
+	EnforcementMode string                       `json:"enforcementMode,omitempty"`
+	VsockListeners  []AppleVFHelperVsockListener `json:"vsockListeners,omitempty"`
 }
 
 type AppleVFHelperRequest struct {
