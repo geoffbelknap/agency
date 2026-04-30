@@ -535,13 +535,14 @@ func TestAppleVFDoctorChecksPassWithHelperHealth(t *testing.T) {
 			"mke2fs_path":              mke2fsPath,
 			"enforcer_binary_path":     enforcerPath,
 			"vsock_bridge_binary_path": bridgePath,
+			"rootfs_oci_ref":           "ghcr.io/example/agency-runtime-body:v1",
 		}},
 	})
 
 	if !report.AllPassed {
 		t.Fatalf("expected all checks to pass: %#v", report.Checks)
 	}
-	for _, name := range []string{"apple_vf_host_os", "apple_vf_architecture", "apple_vf_helper_binary", "apple_vf_helper_health", "apple_vf_state_dir", "apple_vf_kernel", "apple_vf_mke2fs", "apple_vf_enforcer_binary", "apple_vf_vsock_bridge_binary"} {
+	for _, name := range []string{"apple_vf_host_os", "apple_vf_architecture", "apple_vf_helper_binary", "apple_vf_helper_health", "apple_vf_state_dir", "apple_vf_kernel", "apple_vf_mke2fs", "apple_vf_enforcer_binary", "apple_vf_vsock_bridge_binary", "apple_vf_rootfs_oci_ref"} {
 		check, ok := findDoctorCheck(report.Checks, name)
 		if !ok {
 			t.Fatalf("missing %s in %#v", name, report.Checks)
@@ -588,6 +589,7 @@ func TestAppleVFDoctorChecksReportHelperAndHostFailures(t *testing.T) {
 		{"apple_vf_mke2fs", "e2fsprogs"},
 		{"apple_vf_enforcer_binary", "enforcer_binary_path"},
 		{"apple_vf_vsock_bridge_binary", "vsock_bridge_binary_path"},
+		{"apple_vf_rootfs_oci_ref", "rootfs_oci_ref"},
 	} {
 		check, ok := findDoctorCheck(report.Checks, tt.name)
 		if !ok {

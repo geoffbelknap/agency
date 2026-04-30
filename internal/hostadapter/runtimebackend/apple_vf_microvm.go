@@ -18,7 +18,6 @@ import (
 
 const (
 	BackendAppleVFMicroVM    = "apple-vf-microvm"
-	defaultAppleVFBodyOCIRef = "ghcr.io/geoffbelknap/agency-body:latest"
 	legacyAgencyBodyLocalTag = "agency-body:latest"
 )
 
@@ -41,8 +40,12 @@ type AppleVFMicroVMRuntimeBackend struct {
 	MemoryMiB       int64
 	CPUCount        int64
 	EnforcementMode string
-	Images          *MicroVMImageStore
-	RootFSBuilder   *MicroVMOCIRootFSBuilder
+	BodyImageRef    string
+	RootFSBuilder   appleVFRootFSBuilder
+}
+
+type appleVFRootFSBuilder interface {
+	Build(ctx context.Context, imageRef, outPath string, env map[string]string) (MicroVMOCIRootFSResult, error)
 }
 
 func NewAppleVFMicroVMRuntimeBackend(home string, cfg map[string]string) *AppleVFMicroVMRuntimeBackend {
@@ -65,6 +68,7 @@ func NewAppleVFMicroVMRuntimeBackend(home string, cfg map[string]string) *AppleV
 		MemoryMiB:       parseInt64Config(cfg["memory_mib"], defaultFirecrackerMemoryMiB),
 		CPUCount:        parseInt64Config(cfg["cpu_count"], 2),
 		EnforcementMode: enforcementMode,
+		BodyImageRef:    firstNonEmptyConfig(cfg, "rootfs_oci_ref", "body_oci_ref"),
 	}
 	backend.RootFSBuilder = &MicroVMOCIRootFSBuilder{
 		StateDir:          stateDir,
@@ -156,7 +160,7 @@ func (b *AppleVFMicroVMRuntimeBackend) Capabilities(ctx context.Context) (runtim
 
 func (b *AppleVFMicroVMRuntimeBackend) PrepareRootFS(ctx context.Context, spec runtimecontract.RuntimeSpec) (MicroVMRootFS, error) {
 	if b.RootFSBuilder == nil {
-		return b.imageStore().PrepareTaskRootFS(ctx, spec)
+		return MicroVMRootFS{}, fmt.Errorf("apple-vf-microvm rootfs builder is not configured")
 	}
 	runtimeID, err := pathsafety.Segment("apple-vf runtime id", spec.RuntimeID)
 	if err != nil {
@@ -173,7 +177,10 @@ func (b *AppleVFMicroVMRuntimeBackend) PrepareRootFS(ctx context.Context, spec r
 	if err != nil {
 		return MicroVMRootFS{}, err
 	}
-	imageRef := appleVFOCIImageRef(spec.Package.Image)
+	imageRef, err := b.appleVFOCIImageRef(spec.Package.Image)
+	if err != nil {
+		return MicroVMRootFS{}, err
+	}
 	result, err := b.RootFSBuilder.Build(ctx, imageRef, taskPath, spec.Package.Env)
 	if err != nil {
 		return MicroVMRootFS{}, err
@@ -186,12 +193,33 @@ func (b *AppleVFMicroVMRuntimeBackend) PrepareRootFS(ctx context.Context, spec r
 	}, nil
 }
 
-func appleVFOCIImageRef(imageRef string) string {
+func (b *AppleVFMicroVMRuntimeBackend) appleVFOCIImageRef(imageRef string) (string, error) {
 	imageRef = strings.TrimSpace(imageRef)
 	if imageRef == "" || imageRef == legacyAgencyBodyLocalTag {
-		return defaultAppleVFBodyOCIRef
+		configured := strings.TrimSpace(b.BodyImageRef)
+		if configured == "" {
+			return "", fmt.Errorf("apple-vf-microvm rootfs OCI artifact is not configured; set hub.deployment_backend_config.rootfs_oci_ref to a versioned OCI artifact reference")
+		}
+		return validateAppleVFOCIImageRef(configured)
 	}
-	return imageRef
+	return validateAppleVFOCIImageRef(imageRef)
+}
+
+func validateAppleVFOCIImageRef(imageRef string) (string, error) {
+	imageRef = strings.TrimSpace(imageRef)
+	if strings.HasSuffix(imageRef, ":latest") {
+		return "", fmt.Errorf("apple-vf-microvm rootfs OCI artifact must not use mutable :latest tag: %s", imageRef)
+	}
+	return imageRef, nil
+}
+
+func firstNonEmptyConfig(cfg map[string]string, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(cfg[key]); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (b *AppleVFMicroVMRuntimeBackend) PrepareHelperRequest(spec runtimecontract.RuntimeSpec, rootfs MicroVMRootFS) AppleVFHelperRequest {
@@ -325,21 +353,6 @@ func (b *AppleVFMicroVMRuntimeBackend) PrepareWithHelper(ctx context.Context, sp
 		return AppleVFHelperResponse{}, err
 	}
 	return AppleVFHelperPrepare(ctx, b.HelperBinary, b.PrepareHelperRequest(spec, rootfs))
-}
-
-func (b *AppleVFMicroVMRuntimeBackend) imageStore() *MicroVMImageStore {
-	if b.Images != nil {
-		return b.Images
-	}
-	stateDir := strings.TrimSpace(b.StateDir)
-	if stateDir == "" {
-		stateDir = filepath.Join(os.TempDir(), "agency-apple-vf-microvm")
-	}
-	b.Images = &MicroVMImageStore{
-		StateDir: stateDir,
-		SizeMiB:  defaultFirecrackerRootFSMiB,
-	}
-	return b.Images
 }
 
 func (b *AppleVFMicroVMRuntimeBackend) stateDir() string {

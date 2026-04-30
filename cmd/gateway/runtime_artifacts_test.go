@@ -22,11 +22,27 @@ func TestVerifyAppleVFRuntimeArtifactsFailsClosedWithGuidance(t *testing.T) {
 		"Apple VF kernel",
 		"Apple VF host enforcer",
 		"Apple VF guest vsock bridge",
+		"Apple VF rootfs OCI artifact",
 		"scripts/readiness/apple-vf-artifacts.sh",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error %q does not contain %q", err.Error(), want)
 		}
+	}
+}
+
+func TestVerifyAppleVFRuntimeArtifactsRejectsLatestRootFSRef(t *testing.T) {
+	dir := t.TempDir()
+	err := verifyMicroVMRuntimeArtifacts(hostruntimebackend.BackendAppleVFMicroVM, map[string]string{
+		"helper_binary":            executableFixture(t, dir, "helper"),
+		"kernel_path":              readableFixture(t, dir, "Image"),
+		"mke2fs_path":              executableFixture(t, dir, "mke2fs"),
+		"enforcer_binary_path":     executableFixture(t, dir, "enforcer"),
+		"vsock_bridge_binary_path": executableFixture(t, dir, "bridge"),
+		"rootfs_oci_ref":           "ghcr.io/example/agency-runtime-body:latest",
+	})
+	if err == nil || !strings.Contains(err.Error(), "uses mutable :latest") {
+		t.Fatalf("verifyMicroVMRuntimeArtifacts() error = %v, want latest rejection", err)
 	}
 }
 

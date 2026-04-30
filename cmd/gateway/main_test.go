@@ -77,6 +77,7 @@ func TestWithAppleVFArtifactConfig(t *testing.T) {
 	t.Setenv("AGENCY_APPLE_VF_HELPER_BIN", "")
 	t.Setenv("AGENCY_APPLE_VF_ENFORCER_BIN", "")
 	t.Setenv("AGENCY_APPLE_VF_VSOCK_BRIDGE_BIN", "")
+	t.Setenv("AGENCY_APPLE_VF_ROOTFS_OCI_REF", "")
 	t.Setenv("AGENCY_MKE2FS", "")
 	got := withAppleVFArtifactConfig(hostruntimebackend.BackendAppleVFMicroVM, nil)
 	want := hostruntimebackend.DefaultAppleVFKernelPath(home)
@@ -97,12 +98,14 @@ func TestWithAppleVFArtifactConfig(t *testing.T) {
 	t.Setenv("AGENCY_APPLE_VF_HELPER_BIN", "/env/helper")
 	t.Setenv("AGENCY_APPLE_VF_ENFORCER_BIN", "/env/enforcer")
 	t.Setenv("AGENCY_APPLE_VF_VSOCK_BRIDGE_BIN", "/env/bridge")
+	t.Setenv("AGENCY_APPLE_VF_ROOTFS_OCI_REF", "ghcr.io/example/agency-runtime-body:v1")
 	t.Setenv("AGENCY_MKE2FS", "/env/mke2fs")
 	got = withAppleVFArtifactConfig(hostruntimebackend.BackendAppleVFMicroVM, nil)
 	for key, want := range map[string]string{
 		"helper_binary":            "/env/helper",
 		"enforcer_binary_path":     "/env/enforcer",
 		"vsock_bridge_binary_path": "/env/bridge",
+		"rootfs_oci_ref":           "ghcr.io/example/agency-runtime-body:v1",
 		"mke2fs_path":              "/env/mke2fs",
 	} {
 		if got[key] != want {

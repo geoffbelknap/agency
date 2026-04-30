@@ -717,6 +717,7 @@ func withAppleVFArtifactConfig(backend string, cfg map[string]string) map[string
 		"helper_binary":            strings.TrimSpace(os.Getenv("AGENCY_APPLE_VF_HELPER_BIN")),
 		"enforcer_binary_path":     strings.TrimSpace(os.Getenv("AGENCY_APPLE_VF_ENFORCER_BIN")),
 		"vsock_bridge_binary_path": strings.TrimSpace(os.Getenv("AGENCY_APPLE_VF_VSOCK_BRIDGE_BIN")),
+		"rootfs_oci_ref":           strings.TrimSpace(os.Getenv("AGENCY_APPLE_VF_ROOTFS_OCI_REF")),
 		"mke2fs_path":              strings.TrimSpace(os.Getenv("AGENCY_MKE2FS")),
 	}
 	out := make(map[string]string, len(cfg)+len(defaults)+len(envPaths))

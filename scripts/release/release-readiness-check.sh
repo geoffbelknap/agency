@@ -8,17 +8,6 @@ MODE="published"
 TARGET_VERSION=""
 TARGET_TAG=""
 
-EXPECTED_IMAGES=(
-  agency-python-base
-  agency-comms
-  agency-knowledge
-  agency-body
-  agency-egress
-  agency-enforcer
-  agency-workspace
-  agency-web
-)
-
 log() {
   printf '==> %s\n' "$*"
 }
@@ -166,56 +155,12 @@ PY
 check_required_files() {
   local files=(
     ".github/workflows/release.yaml"
-    ".github/workflows/release-images.yml"
     ".goreleaser.yaml"
   )
   local file
   for file in "${files[@]}"; do
     [ -f "$ROOT_DIR/$file" ] || fail "Missing required release file: $file"
   done
-}
-
-check_image_manifest() {
-  local image_ref="$1"
-  local manifest_file
-  local err_file
-  local attempt
-  manifest_file="$(mktemp)"
-  err_file="$(mktemp)"
-
-  for attempt in 1 2 3; do
-    if docker manifest inspect "$image_ref" >"$manifest_file" 2>"$err_file"; then
-      break
-    fi
-    if [ "$attempt" -eq 3 ]; then
-      cat "$err_file" >&2
-      rm -f "$manifest_file" "$err_file"
-      return 1
-    fi
-    sleep 2
-  done
-
-  python3 - "$manifest_file" "$image_ref" <<'PY'
-import json
-import sys
-
-manifest_path, image_ref = sys.argv[1], sys.argv[2]
-with open(manifest_path, "r", encoding="utf-8") as fh:
-    data = json.load(fh)
-
-manifests = data.get("manifests") or []
-platforms = {
-    (m.get("platform") or {}).get("architecture")
-    for m in manifests
-    if (m.get("platform") or {}).get("os") == "linux"
-}
-missing = {"amd64", "arm64"} - platforms
-if missing:
-    print(f"missing {sorted(missing)} in {image_ref}", file=sys.stderr)
-    sys.exit(1)
-PY
-
-  rm -f "$manifest_file" "$err_file"
 }
 
 run_preflight() {
@@ -268,25 +213,6 @@ run_published() {
   check_release_assets "$TARGET_TAG"
   check_formula_for_tag "$TARGET_TAG"
   check_formula_sha_matches_release "$TARGET_TAG"
-
-  local image
-  local failures=0
-  for image in "${EXPECTED_IMAGES[@]}"; do
-    log "Checking ${image}:${TARGET_TAG}"
-    if ! check_image_manifest "ghcr.io/geoffbelknap/${image}:${TARGET_TAG}"; then
-      printf 'ERROR: Could not inspect image manifest for ghcr.io/geoffbelknap/%s:%s\n' "$image" "$TARGET_TAG" >&2
-      failures=$((failures + 1))
-    fi
-    log "Checking ${image}:latest"
-    if ! check_image_manifest "ghcr.io/geoffbelknap/${image}:latest"; then
-      printf 'ERROR: Could not inspect image manifest for ghcr.io/geoffbelknap/%s:latest\n' "$image" >&2
-      failures=$((failures + 1))
-    fi
-  done
-
-  if [ "$failures" -ne 0 ]; then
-    fail "Published release check found ${failures} image manifest failure(s)"
-  fi
 
   log "Published release check passed"
 }
