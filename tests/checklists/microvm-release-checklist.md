@@ -57,6 +57,16 @@ Runtime contract:
 bash ./scripts/readiness/runtime-contract-smoke.sh --agent <agent-name>
 ```
 
+Host-selected microVM smoke:
+
+```bash
+./scripts/readiness/microvm-smoke.sh --rootfs-oci-ref ghcr.io/geoffbelknap/agency-runtime-body:v0.2.x
+```
+
+The wrapper selects `apple-vf-microvm` on macOS Apple silicon and Firecracker
+on Linux/WSL. Use `--backend` to force a backend, `--skip-core` to skip the
+static/unit gates, and `--web` to include the backend Web UI smoke.
+
 Apple VF live validation on macOS Apple silicon:
 
 ```bash
