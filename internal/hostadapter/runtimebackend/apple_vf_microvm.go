@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -88,9 +89,12 @@ func (b *AppleVFMicroVMRuntimeBackend) Ensure(ctx context.Context, spec runtimec
 	spec.RuntimeID = runtimeID
 	rootfs, err := b.PrepareRootFS(ctx, spec)
 	if err != nil {
+		_ = b.cleanupRuntimeState(runtimeID)
 		return err
 	}
 	if _, err := AppleVFHelperStart(ctx, b.HelperBinary, b.PrepareHelperRequest(spec, rootfs)); err != nil {
+		_ = b.cleanupHelperState(ctx, runtimeID)
+		_ = b.cleanupRuntimeState(runtimeID)
 		return fmt.Errorf("apple-vf-microvm backend start %q: %w", spec.RuntimeID, err)
 	}
 	return nil
@@ -101,10 +105,17 @@ func (b *AppleVFMicroVMRuntimeBackend) Stop(ctx context.Context, runtimeID strin
 	if err != nil {
 		return err
 	}
-	if _, err := AppleVFHelperStop(ctx, b.HelperBinary, req); err != nil {
-		return fmt.Errorf("apple-vf-microvm backend stop %q: %w", runtimeID, err)
+	var errs []error
+	if _, err := AppleVFHelperStop(ctx, b.HelperBinary, req); err != nil && !appleVFHelperStateMissing(err) {
+		errs = append(errs, fmt.Errorf("apple-vf-microvm backend stop %q: %w", runtimeID, err))
 	}
-	return nil
+	if err := b.cleanupHelperState(ctx, runtimeID); err != nil {
+		errs = append(errs, err)
+	}
+	if err := b.cleanupRuntimeState(runtimeID); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
 }
 
 func (b *AppleVFMicroVMRuntimeBackend) Inspect(ctx context.Context, runtimeID string) (runtimecontract.BackendStatus, error) {
@@ -217,6 +228,43 @@ func (b *AppleVFMicroVMRuntimeBackend) runtimeHelperRequest(runtimeID string) (A
 			StateDir: filepath.Join(b.stateDir(), "vms", runtimeID),
 		},
 	}, nil
+}
+
+func (b *AppleVFMicroVMRuntimeBackend) cleanupHelperState(ctx context.Context, runtimeID string) error {
+	req, err := b.runtimeHelperRequest(runtimeID)
+	if err != nil {
+		return err
+	}
+	if _, err := AppleVFHelperDelete(ctx, b.HelperBinary, req); err != nil && !appleVFHelperStateMissing(err) {
+		return fmt.Errorf("apple-vf-microvm backend delete %q: %w", runtimeID, err)
+	}
+	return nil
+}
+
+func (b *AppleVFMicroVMRuntimeBackend) cleanupRuntimeState(runtimeID string) error {
+	runtimeID, err := pathsafety.Segment("apple-vf runtime id", runtimeID)
+	if err != nil {
+		return fmt.Errorf("apple-vf-microvm backend cleanup: %w", err)
+	}
+	taskDir, err := pathsafety.Join(b.stateDir(), "tasks", runtimeID)
+	if err != nil {
+		return err
+	}
+	if err := os.RemoveAll(taskDir); err != nil {
+		return fmt.Errorf("remove apple-vf task state: %w", err)
+	}
+	return nil
+}
+
+func appleVFHelperStateMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no such file") ||
+		strings.Contains(msg, "does not exist") ||
+		strings.Contains(msg, "couldn’t be opened") ||
+		strings.Contains(msg, "couldn't be opened")
 }
 
 func appleVFBackendStatus(runtimeID string, resp AppleVFHelperResponse) runtimecontract.BackendStatus {
