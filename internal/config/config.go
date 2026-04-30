@@ -169,6 +169,18 @@ func detectSourceDir() string {
 	if home, err := os.UserHomeDir(); err == nil {
 		candidates = append(candidates, filepath.Join(home, ".local", "share", "agency"))
 	}
+	if wd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, wd)
+		parent := wd
+		for i := 0; i < 6; i++ {
+			next := filepath.Dir(parent)
+			if next == parent {
+				break
+			}
+			candidates = append(candidates, next)
+			parent = next
+		}
+	}
 	for _, candidate := range candidates {
 		if runtimeAssetsAvailable(candidate) {
 			return candidate

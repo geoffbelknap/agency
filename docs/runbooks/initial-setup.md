@@ -24,6 +24,18 @@ If dependencies are missing, install them with:
 ./scripts/install/host-dependencies.sh
 ```
 
+Runtime backend artifacts are verified by `agency setup` and `agency
+quickstart`. Source checkouts can prepare them before setup with:
+
+```bash
+make apple-vf-helpers
+./scripts/readiness/apple-vf-artifacts.sh
+
+make firecracker-helpers
+./scripts/readiness/firecracker-artifacts.sh
+./scripts/readiness/firecracker-kernel-artifacts.sh
+```
+
 ## Steps
 
 ### 1. Run setup

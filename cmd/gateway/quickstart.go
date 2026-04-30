@@ -437,6 +437,12 @@ func runQuickstart(opts quickstartOptions) error {
 		fmt.Println("Run `agency quickstart` again after configuring the runtime backend.")
 		return err
 	}
+	if err := verifyMicroVMRuntimeArtifacts(backendName, backendCfg); err != nil {
+		fmt.Printf("  %s environment     %s\n", qsRed.Render("✗"), err)
+		fmt.Println()
+		fmt.Println("Run `agency quickstart` again after provisioning the runtime artifacts.")
+		return err
+	}
 	fmt.Printf("  %s environment     %s running\n", qsGreen.Render("✓"), backendName)
 
 	// Phase 2: Provider — detect or prompt for LLM provider and API key

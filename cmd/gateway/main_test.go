@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -29,8 +30,8 @@ func TestSelectRuntimeBackendDefaultsToStrategicBackend(t *testing.T) {
 		if cfg["kernel_path"] == "" {
 			t.Fatalf("cfg = %#v, want default apple-vf kernel path", cfg)
 		}
-	} else if cfg != nil {
-		t.Fatalf("cfg = %#v, want nil", cfg)
+	} else if cfg["binary_path"] == "" || cfg["kernel_path"] == "" {
+		t.Fatalf("cfg = %#v, want default firecracker artifact paths", cfg)
 	}
 }
 
@@ -117,6 +118,53 @@ func TestWithAppleVFArtifactConfig(t *testing.T) {
 	}
 	if got := withAppleVFArtifactConfig(hostruntimebackend.BackendFirecracker, nil); got != nil {
 		t.Fatalf("firecracker cfg = %#v, want nil", got)
+	}
+}
+
+func TestWithFirecrackerArtifactConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("AGENCY_HOME", home)
+	t.Setenv("AGENCY_FIRECRACKER_BIN", "")
+	t.Setenv("AGENCY_FIRECRACKER_KERNEL", "")
+	t.Setenv("AGENCY_FIRECRACKER_ENFORCER_BIN", "")
+	t.Setenv("AGENCY_FIRECRACKER_VSOCK_BRIDGE_BIN", "")
+	t.Setenv("AGENCY_MKE2FS", "")
+
+	got := withFirecrackerArtifactConfig(hostruntimebackend.BackendFirecracker, nil)
+	if got["binary_path"] == "" || !strings.Contains(got["binary_path"], "firecracker-v1.12.1-") {
+		t.Fatalf("binary path = %q, want pinned firecracker artifact path", got["binary_path"])
+	}
+	if got["kernel_path"] != filepath.Join(home, "runtime", "firecracker", "artifacts", "vmlinux") {
+		t.Fatalf("kernel path = %q", got["kernel_path"])
+	}
+	if got["mke2fs_path"] == "" {
+		t.Fatalf("mke2fs path was not defaulted: %#v", got)
+	}
+
+	got = withFirecrackerArtifactConfig(hostruntimebackend.BackendFirecracker, map[string]string{"binary_path": "/custom/firecracker"})
+	if got["binary_path"] != "/custom/firecracker" {
+		t.Fatalf("binary path override = %q", got["binary_path"])
+	}
+
+	t.Setenv("AGENCY_FIRECRACKER_BIN", "/env/firecracker")
+	t.Setenv("AGENCY_FIRECRACKER_KERNEL", "/env/vmlinux")
+	t.Setenv("AGENCY_FIRECRACKER_ENFORCER_BIN", "/env/enforcer")
+	t.Setenv("AGENCY_FIRECRACKER_VSOCK_BRIDGE_BIN", "/env/bridge")
+	t.Setenv("AGENCY_MKE2FS", "/env/mke2fs")
+	got = withFirecrackerArtifactConfig(hostruntimebackend.BackendFirecracker, nil)
+	for key, want := range map[string]string{
+		"binary_path":              "/env/firecracker",
+		"kernel_path":              "/env/vmlinux",
+		"enforcer_binary_path":     "/env/enforcer",
+		"vsock_bridge_binary_path": "/env/bridge",
+		"mke2fs_path":              "/env/mke2fs",
+	} {
+		if got[key] != want {
+			t.Fatalf("%s = %q, want %q", key, got[key], want)
+		}
+	}
+	if got := withFirecrackerArtifactConfig(hostruntimebackend.BackendAppleVFMicroVM, nil); got != nil {
+		t.Fatalf("apple-vf cfg = %#v, want nil", got)
 	}
 }
 

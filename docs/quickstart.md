@@ -39,6 +39,20 @@ The `images/` tree remains in the source repo for OCI/rootfs build inputs; it
 is not shipped in packaged installs and is not the host service runtime
 contract.
 
+`agency setup` and `agency quickstart` check the selected microVM backend before
+starting the daemon. They fail closed if the backend helper, kernel, host
+enforcer, guest transport helper, or rootfs tooling is missing. From a source
+checkout, prepare those runtime artifacts with:
+
+```bash
+make apple-vf-helpers
+./scripts/readiness/apple-vf-artifacts.sh
+
+make firecracker-helpers
+./scripts/readiness/firecracker-artifacts.sh
+./scripts/readiness/firecracker-kernel-artifacts.sh
+```
+
 ```bash
 ./scripts/install/host-dependencies.sh --check
 ./scripts/install/host-dependencies.sh
