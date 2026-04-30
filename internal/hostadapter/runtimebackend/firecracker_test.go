@@ -99,7 +99,7 @@ func TestFirecrackerRuntimeBackendWritesConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, want := range []string{`"kernel_image_path": "/var/lib/agency/vmlinux"`, `"path_on_host": "/tmp/rootfs.ext4"`, `"guest_cid": 3`, `"mem_size_mib": 512`} {
+	for _, want := range []string{`"kernel_image_path": "/var/lib/agency/vmlinux"`, `root=/dev/vda rw`, `"path_on_host": "/tmp/rootfs.ext4"`, `"guest_cid": 3`, `"mem_size_mib": 512`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("config missing %q:\n%s", want, text)
 		}

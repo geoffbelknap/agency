@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -21,7 +22,8 @@ import (
 )
 
 var (
-	firecrackerOpenReadWrite = func(path string) error {
+	firecrackerDefaultVersion = "v1.12.1"
+	firecrackerOpenReadWrite  = func(path string) error {
 		f, err := os.OpenFile(path, os.O_RDWR, 0)
 		if err != nil {
 			return err
@@ -51,12 +53,50 @@ func appendFirecrackerDoctorChecks(report *doctorReport, cfg *config.Config) {
 	add(firecrackerDeviceCheck("firecracker_kvm_device", "/dev/kvm", "KVM device is readable and writable", "run 'sudo usermod -aG kvm <user>' or 'sudo setfacl -m u:<user>:rw /dev/kvm'"))
 	add(firecrackerDeviceCheck("firecracker_vsock_device", "/dev/vhost-vsock", "vhost-vsock device is readable and writable", "run 'sudo modprobe vhost_vsock' and ensure /dev/vhost-vsock is readable and writable by the Agency user"))
 	add(firecrackerKVMModuleCheck())
-	add(firecrackerBinaryCheck(firecrackerConfiguredPath(cfg, "binary_path", "AGENCY_FIRECRACKER_BIN", "firecracker")))
-	add(firecrackerKernelCheck(firecrackerConfiguredPath(cfg, "kernel_path", "AGENCY_FIRECRACKER_KERNEL", "")))
+	add(firecrackerBinaryCheck(firecrackerConfiguredPath(cfg, "binary_path", "AGENCY_FIRECRACKER_BIN", firecrackerDefaultBinaryPath(cfg))))
+	add(firecrackerKernelCheck(firecrackerConfiguredPath(cfg, "kernel_path", "AGENCY_FIRECRACKER_KERNEL", firecrackerDefaultKernelPath(cfg))))
 	if firecrackerEnforcementMode(cfg) != hostruntimebackend.FirecrackerEnforcementModeMicroVM {
 		add(firecrackerExecutableCheck("firecracker_enforcer_binary", firecrackerConfiguredPath(cfg, "enforcer_binary_path", "AGENCY_FIRECRACKER_ENFORCER_BIN", ""), "Firecracker host enforcer binary is present at ", "set hub.deployment_backend_config.enforcer_binary_path or run 'make firecracker-helpers'"))
 	}
 	add(firecrackerExecutableCheck("firecracker_vsock_bridge_binary", firecrackerConfiguredPath(cfg, "vsock_bridge_binary_path", "AGENCY_FIRECRACKER_VSOCK_BRIDGE_BIN", ""), "Firecracker guest vsock bridge binary is present at ", "set hub.deployment_backend_config.vsock_bridge_binary_path or run 'make firecracker-helpers'"))
+}
+
+func firecrackerDefaultArtifactDir(cfg *config.Config) string {
+	home := ""
+	if cfg != nil {
+		home = strings.TrimSpace(cfg.Home)
+	}
+	if home == "" {
+		if envHome := strings.TrimSpace(os.Getenv("AGENCY_HOME")); envHome != "" {
+			home = envHome
+		}
+	}
+	if home == "" {
+		if userHome, err := os.UserHomeDir(); err == nil {
+			home = filepath.Join(userHome, ".agency")
+		}
+	}
+	return filepath.Join(home, "runtime", "firecracker", "artifacts")
+}
+
+func firecrackerDefaultArch() string {
+	switch runtime.GOARCH {
+	case "amd64":
+		return "x86_64"
+	case "arm64":
+		return "aarch64"
+	default:
+		return runtime.GOARCH
+	}
+}
+
+func firecrackerDefaultBinaryPath(cfg *config.Config) string {
+	name := "firecracker-" + firecrackerDefaultVersion + "-" + firecrackerDefaultArch()
+	return filepath.Join(firecrackerDefaultArtifactDir(cfg), firecrackerDefaultVersion, name)
+}
+
+func firecrackerDefaultKernelPath(cfg *config.Config) string {
+	return filepath.Join(firecrackerDefaultArtifactDir(cfg), "vmlinux")
 }
 
 func firecrackerConfiguredPath(cfg *config.Config, key, envName, fallback string) string {
@@ -86,7 +126,7 @@ func firecrackerKVMModuleCheck() doctorCheckResult {
 }
 
 func firecrackerBinaryCheck(path string) doctorCheckResult {
-	return firecrackerExecutableCheck("firecracker_binary", path, "Firecracker binary is present at ", "set hub.deployment_backend_config.binary_path or install firecracker on PATH")
+	return firecrackerExecutableCheck("firecracker_binary", path, "Firecracker binary is present at ", "set hub.deployment_backend_config.binary_path to the pinned upstream Firecracker release binary, for example $AGENCY_HOME/runtime/firecracker/artifacts/v1.12.1/firecracker-v1.12.1-x86_64")
 }
 
 func firecrackerExecutableCheck(name, path, passPrefix, missingFix string) doctorCheckResult {
@@ -116,21 +156,21 @@ func firecrackerExecutableCheck(name, path, passPrefix, missingFix string) docto
 
 func firecrackerKernelCheck(path string) doctorCheckResult {
 	if strings.TrimSpace(path) == "" {
-		return firecrackerBackendCheck("firecracker_kernel", agencysecurity.FindingFail, "Firecracker guest kernel path is not configured", "set hub.deployment_backend_config.kernel_path to a Firecracker-compatible vmlinux kernel")
+		return firecrackerBackendCheck("firecracker_kernel", agencysecurity.FindingFail, "Firecracker guest kernel path is not configured", "set hub.deployment_backend_config.kernel_path to the Agency Linux build artifact vmlinux, for example $AGENCY_HOME/runtime/firecracker/artifacts/vmlinux")
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return firecrackerBackendCheck("firecracker_kernel", agencysecurity.FindingFail, "Firecracker guest kernel is not readable at "+path+": "+err.Error(), "set hub.deployment_backend_config.kernel_path to a readable Firecracker-compatible vmlinux kernel")
+		return firecrackerBackendCheck("firecracker_kernel", agencysecurity.FindingFail, "Firecracker guest kernel is not readable at "+path+": "+err.Error(), "set hub.deployment_backend_config.kernel_path to a readable Agency Linux build artifact vmlinux")
 	}
 	defer f.Close()
 	var magic [4]byte
 	if _, err := io.ReadFull(f, magic[:]); err != nil {
-		return firecrackerBackendCheck("firecracker_kernel", agencysecurity.FindingFail, "Firecracker guest kernel could not be parsed: "+err.Error(), "set hub.deployment_backend_config.kernel_path to a Firecracker-compatible vmlinux kernel")
+		return firecrackerBackendCheck("firecracker_kernel", agencysecurity.FindingFail, "Firecracker guest kernel could not be parsed: "+err.Error(), "set hub.deployment_backend_config.kernel_path to the Agency Linux build artifact vmlinux")
 	}
 	if magic != [4]byte{0x7f, 'E', 'L', 'F'} {
-		return firecrackerBackendCheck("firecracker_kernel", agencysecurity.FindingFail, "Firecracker guest kernel is not an uncompressed ELF vmlinux image", "set hub.deployment_backend_config.kernel_path to a Firecracker-compatible vmlinux kernel")
+		return firecrackerBackendCheck("firecracker_kernel", agencysecurity.FindingFail, "Firecracker guest kernel is not an uncompressed ELF vmlinux image", "use the Agency Linux build artifact vmlinux, not a compressed host distro kernel image")
 	}
-	return firecrackerBackendCheck("firecracker_kernel", agencysecurity.FindingPass, "Firecracker guest kernel is readable and parseable", "")
+	return firecrackerBackendCheck("firecracker_kernel", agencysecurity.FindingPass, "Firecracker guest kernel vmlinux is readable and parseable", "")
 }
 
 func firecrackerBackendCheck(name string, status agencysecurity.FindingStatus, detail, fix string) doctorCheckResult {

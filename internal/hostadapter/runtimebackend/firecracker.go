@@ -387,7 +387,7 @@ func (b *FirecrackerRuntimeBackend) writeConfig(spec runtimecontract.RuntimeSpec
 	cfg := firecrackerConfig{
 		BootSource: firecrackerBootSource{
 			KernelImagePath: b.KernelPath,
-			BootArgs:        "console=ttyS0 reboot=k panic=1 pci=off init=" + firecrackerInitPath,
+			BootArgs:        "console=ttyS0 reboot=k panic=1 root=/dev/vda rw init=" + firecrackerInitPath,
 		},
 		Drives: []firecrackerDrive{{
 			DriveID:      "rootfs",

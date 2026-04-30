@@ -233,6 +233,59 @@ func TestFirecrackerVMSupervisorCapturesLogs(t *testing.T) {
 	}
 }
 
+func TestRemoveStaleFirecrackerSocketsRemovesAPISocketArg(t *testing.T) {
+	dir := t.TempDir()
+	socketPath := filepath.Join(dir, "firecracker-api.sock")
+	if err := os.WriteFile(socketPath, []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write stale socket marker: %v", err)
+	}
+	if err := removeStaleFirecrackerSockets([]string{"--api-sock", socketPath}); err != nil {
+		t.Fatalf("removeStaleFirecrackerSockets returned error: %v", err)
+	}
+	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+		t.Fatalf("expected stale api socket to be removed, err=%v", err)
+	}
+}
+
+func TestRemoveStaleFirecrackerSocketsRemovesAPISocketEqualsArg(t *testing.T) {
+	dir := t.TempDir()
+	socketPath := filepath.Join(dir, "firecracker-api.sock")
+	if err := os.WriteFile(socketPath, []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write stale socket marker: %v", err)
+	}
+	if err := removeStaleFirecrackerSockets([]string{"--api-sock=" + socketPath}); err != nil {
+		t.Fatalf("removeStaleFirecrackerSockets returned error: %v", err)
+	}
+	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+		t.Fatalf("expected stale api socket to be removed, err=%v", err)
+	}
+}
+
+func TestRemoveStaleFirecrackerSocketsRemovesVsockUDSPath(t *testing.T) {
+	dir := t.TempDir()
+	apiSocketPath := filepath.Join(dir, "firecracker-api.sock")
+	vsockPath := filepath.Join(dir, "vsock.sock")
+	configPath := filepath.Join(dir, "vm.json")
+	for _, path := range []string{apiSocketPath, vsockPath} {
+		if err := os.WriteFile(path, []byte("stale"), 0o644); err != nil {
+			t.Fatalf("write stale socket marker %s: %v", path, err)
+		}
+	}
+	config := fmt.Sprintf(`{"vsock":{"uds_path":%q}}`, vsockPath)
+	if err := os.WriteFile(configPath, []byte(config), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	args := []string{"--api-sock", apiSocketPath, "--config-file", configPath}
+	if err := removeStaleFirecrackerSockets(args); err != nil {
+		t.Fatalf("removeStaleFirecrackerSockets returned error: %v", err)
+	}
+	for _, path := range []string{apiSocketPath, vsockPath} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("expected stale socket %s to be removed, err=%v", path, err)
+		}
+	}
+}
+
 func waitForFirecrackerVM(t *testing.T, s *FirecrackerVMSupervisor, runtimeID string, ok func(FirecrackerVMStatus) bool) error {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
