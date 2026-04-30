@@ -1172,6 +1172,7 @@ class Body:
         self._http_client = httpx.Client(
             timeout=LLM_TIMEOUT,
             proxy=proxy_url,
+            trust_env=False,
         )
 
         # Load service tools (prefer enforcer API, fallback to file)
@@ -2825,9 +2826,7 @@ class Body:
             headers["X-Agency-Task-Id"] = self._current_task_id
         if getattr(self, "_event_id", None):
             headers["X-Agency-Event-Id"] = self._event_id
-        api_key = os.environ.get("AGENCY_LLM_API_KEY")
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+        headers.update(self._llm_auth_headers())
 
         for attempt in range(LLM_MAX_RETRIES):
             try:
@@ -2858,6 +2857,36 @@ class Body:
                     log.warning("LLM timeout, retrying (attempt %d)", attempt + 1)
                     continue
                 raise
+
+    def _llm_auth_headers(self) -> dict[str, str]:
+        api_key = self._llm_api_key()
+        if not api_key:
+            raise RuntimeError(
+                "LLM scoped credential is unavailable; refusing unauthenticated enforcer request"
+            )
+        return {"Authorization": f"Bearer {api_key}"}
+
+    def _llm_api_key(self) -> str:
+        api_key = os.environ.get("AGENCY_LLM_API_KEY", "").strip()
+        if api_key:
+            return api_key
+        keys_path = self.state_dir / "enforcer-auth" / "api_keys.yaml"
+        try:
+            data = yaml.safe_load(keys_path.read_text()) or []
+        except FileNotFoundError:
+            return ""
+        except Exception as exc:
+            log.warning("Scoped LLM key file could not be read: %s", exc)
+            return ""
+        if not isinstance(data, list):
+            return ""
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("key", "")).strip()
+            if key.startswith("agency-scoped-"):
+                return key
+        return ""
 
     def _stream_llm_response(self, url: str, payload: dict, headers: dict) -> dict:
         """Execute a streaming LLM request, printing tokens as they arrive.
@@ -3160,9 +3189,7 @@ class Body:
             headers = {}
             if getattr(self, "_event_id", None):
                 headers["X-Agency-Event-Id"] = self._event_id
-            api_key = os.environ.get("AGENCY_LLM_API_KEY")
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
+            headers.update(self._llm_auth_headers())
 
             resp = self._http_client.post(
                 url,
@@ -3208,9 +3235,7 @@ class Body:
             headers = {"X-Agency-Cost-Source": "memory_capture"}
             if getattr(self, "_event_id", None):
                 headers["X-Agency-Event-Id"] = self._event_id
-            api_key = os.environ.get("AGENCY_LLM_API_KEY")
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
+            headers.update(self._llm_auth_headers())
             resp = self._http_client.post(
                 url,
                 json={

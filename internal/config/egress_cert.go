@@ -30,9 +30,12 @@ func ensureEgressCACert(certsDir string) error {
 	combinedPath := filepath.Join(certsDir, "mitmproxy-ca.pem")
 	certOnlyPath := filepath.Join(certsDir, "mitmproxy-ca-cert.pem")
 
-	// Idempotent: skip if already generated (or mitmproxy generated it)
+	// Idempotent: skip if both files are already generated.
 	if _, err := os.Stat(combinedPath); err == nil {
-		return nil
+		if _, err := os.Stat(certOnlyPath); err == nil {
+			return nil
+		}
+		return writeCertOnlyFromCombined(combinedPath, certOnlyPath)
 	}
 
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -86,4 +89,30 @@ func ensureEgressCACert(certsDir string) error {
 	}
 
 	return nil
+}
+
+func writeCertOnlyFromCombined(combinedPath, certOnlyPath string) error {
+	data, err := os.ReadFile(combinedPath)
+	if err != nil {
+		return fmt.Errorf("read combined CA file: %w", err)
+	}
+	for len(data) > 0 {
+		var block *pem.Block
+		block, data = pem.Decode(data)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		certPEM := pem.EncodeToMemory(block)
+		if len(certPEM) == 0 {
+			return fmt.Errorf("encode CA cert file: empty certificate block")
+		}
+		if err := os.WriteFile(certOnlyPath, certPEM, 0644); err != nil {
+			return fmt.Errorf("write CA cert file: %w", err)
+		}
+		return nil
+	}
+	return fmt.Errorf("combined CA file does not contain a certificate block")
 }

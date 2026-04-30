@@ -89,6 +89,35 @@ func TestEnsureEgressCACert_Idempotent(t *testing.T) {
 	}
 }
 
+func TestEnsureEgressCACert_RepairsMissingCertOnlyFile(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := ensureEgressCACert(dir); err != nil {
+		t.Fatalf("first call failed: %v", err)
+	}
+
+	certOnlyPath := filepath.Join(dir, "mitmproxy-ca-cert.pem")
+	first, err := os.ReadFile(certOnlyPath)
+	if err != nil {
+		t.Fatalf("read cert: %v", err)
+	}
+	if err := os.Remove(certOnlyPath); err != nil {
+		t.Fatalf("remove cert-only file: %v", err)
+	}
+
+	if err := ensureEgressCACert(dir); err != nil {
+		t.Fatalf("repair call failed: %v", err)
+	}
+
+	repaired, err := os.ReadFile(certOnlyPath)
+	if err != nil {
+		t.Fatalf("read repaired cert: %v", err)
+	}
+	if string(repaired) != string(first) {
+		t.Fatal("repaired cert-only file does not match existing combined CA certificate")
+	}
+}
+
 func TestEnsureEgressCACert_FilePermissions(t *testing.T) {
 	dir := t.TempDir()
 
