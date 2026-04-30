@@ -29,8 +29,9 @@ archives:
       - README.md
       - LICENSE*
       - install.sh
-      - images/**/*
-      - services/**/*
+      - services/**/*.py
+      - services/**/*.yaml
+      - services/**/requirements.txt
       - scripts/install/*
       - web/bin/*
       - web/dist/**/*
@@ -68,7 +69,6 @@ brews:
       - name: e2fsprogs
       - name: node
     extra_install: |
-      pkgshare.install "images"
       pkgshare.install "services"
       pkgshare.install "scripts"
       pkgshare.install "web"

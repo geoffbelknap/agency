@@ -35,8 +35,9 @@ web UI. Packaged installs run the host dependency helper automatically. To
 verify or install them manually from a source checkout:
 
 Host-managed infra code is packaged as Agency services under `services/`.
-The `images/` tree remains for OCI/rootfs build inputs and legacy image
-wrappers; it is not the host service runtime contract.
+The `images/` tree remains in the source repo for OCI/rootfs build inputs; it
+is not shipped in packaged installs and is not the host service runtime
+contract.
 
 ```bash
 ./scripts/install/host-dependencies.sh --check

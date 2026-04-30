@@ -190,12 +190,8 @@ func detectSourceDir() string {
 }
 
 func runtimeAssetsAvailable(dir string) bool {
-	for _, name := range []string{"services", "images"} {
-		if info, err := os.Stat(filepath.Join(dir, name)); err == nil && info.IsDir() {
-			return true
-		}
-	}
-	return false
+	info, err := os.Stat(filepath.Join(dir, "services"))
+	return err == nil && info.IsDir()
 }
 
 // ConfigPath returns the path to config.yaml.

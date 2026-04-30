@@ -194,7 +194,6 @@ install_release() {
   run cp "$tmp/agency" "$BIN_DIR/agency"
   run chmod 0755 "$BIN_DIR/agency"
 
-  copy_asset_dir "$tmp/images" "$share/images"
   copy_asset_dir "$tmp/services" "$share/services"
   copy_asset_dir "$tmp/web" "$share/web"
   copy_asset_dir "$tmp/scripts" "$share/scripts"
