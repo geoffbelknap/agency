@@ -70,6 +70,21 @@ func TestParseAppleVFHelperPrepareResponse(t *testing.T) {
 	}
 }
 
+func TestParseAppleVFHelperStartResponse(t *testing.T) {
+	t.Parallel()
+
+	resp, err := ParseAppleVFHelperResponse([]byte(`{"agencyHomeHash":"home-sha","arch":"arm64","backend":"apple-vf-microvm","command":"start","darwin":"25.4.0","details":{"pid":"1234","serialLogPath":"/state/vms/alice/serial.log","statePath":"/state/vms/alice/state.json"},"ok":true,"requestID":"start-alice","role":"workload","runtimeID":"alice","version":"0.1.0","virtualizationAvailable":true,"vmState":"starting"}`))
+	if err != nil {
+		t.Fatalf("ParseAppleVFHelperResponse() error = %v", err)
+	}
+	if !resp.OK || resp.Command != AppleVFCommandStart || resp.VMState != "starting" {
+		t.Fatalf("unexpected start response: %#v", resp)
+	}
+	if resp.Details["pid"] != "1234" || resp.Details["serialLogPath"] == "" || resp.Details["statePath"] == "" {
+		t.Fatalf("unexpected start details: %#v", resp.Details)
+	}
+}
+
 func TestParseAppleVFHelperEvent(t *testing.T) {
 	t.Parallel()
 
