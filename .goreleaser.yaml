@@ -25,6 +25,21 @@ archives:
   - id: default
     formats: [tar.gz]
     name_template: "agency_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE*
+      - install.sh
+      - images/**/*
+      - scripts/install/*
+      - web/bin/*
+      - web/dist/**/*
+      - web/public/*
+      - web/src/**/*
+      - web/index.html
+      - web/package.json
+      - web/package-lock.json
+      - web/tsconfig.json
+      - web/vite.config.ts
 
 checksum:
   name_template: "checksums.txt"
@@ -47,10 +62,26 @@ brews:
     name: agency
     homepage: "https://github.com/geoffbelknap/agency"
     description: "Agency — An operating system for AI agents"
+    dependencies:
+      - name: python
+      - name: e2fsprogs
+      - name: node
+    extra_install: |
+      pkgshare.install "images"
+      pkgshare.install "scripts"
+      pkgshare.install "web"
+    post_install: |
+      ENV["AGENCY_PYTHON_VENV"] = "#{pkgshare}/.venv"
+      system "#{pkgshare}/scripts/install/host-dependencies.sh", "--skip-system-packages"
     caveats: |
       Start here:
 
         agency quickstart
+
+      Runtime dependencies:
+        - python: host-managed infra services and egress Python environment
+        - e2fsprogs: mke2fs for microVM root filesystem creation
+        - node: local web UI build/preview for host-managed web
 
       Quick start guide: https://github.com/geoffbelknap/agency#readme
     test: |

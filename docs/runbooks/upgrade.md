@@ -2,7 +2,7 @@
 
 ## Trigger
 
-New Agency version available. Applies to both Homebrew installs and source builds.
+New Agency version available. Applies to one-shot, Homebrew, and source installs.
 
 ## Prerequisites
 
@@ -31,10 +31,19 @@ agency status >> /tmp/agency-pre-upgrade.txt
 
 **Homebrew:**
 ```bash
+brew tap geoffbelknap/tap
 brew upgrade agency
 ```
 
-**Source build:**
+**One-shot installer:**
+```bash
+curl -fsSL https://geoffbelknap.github.io/agency/install.sh | bash
+```
+
+This upgrades the `agency` binary and installed runtime assets directly. It
+does not install Agency through Homebrew.
+
+**Source build fallback:**
 ```bash
 cd /path/to/agency
 git pull

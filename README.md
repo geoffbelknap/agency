@@ -85,9 +85,10 @@ environment for host-managed egress:
 
 - `.venv/bin/mitmdump` plus Agency's egress addon Python dependencies for host-managed egress mediation
 - `e2fsprogs` / `mke2fs` for microVM root filesystem creation
+- Node/npm dependencies for the host-managed web UI
 
-Source installs run `scripts/install/host-dependencies.sh` automatically. To
-install or verify them yourself:
+Packaged installs run the host dependency helper automatically. To install or
+verify them yourself from a source checkout:
 
 ```bash
 ./scripts/install/host-dependencies.sh --check
@@ -96,8 +97,9 @@ install or verify them yourself:
 
 The script uses Homebrew on macOS/Linuxbrew when available, or common Linux
 package managers such as `apt-get`, `dnf`, `yum`, `pacman`, or `zypper`. It
-installs system packages such as Python and e2fsprogs, then installs the pinned
-mitmproxy and egress addon dependencies into the repo `.venv`.
+installs system packages such as Python, e2fsprogs, and Node, then installs the
+pinned mitmproxy, egress addon, and web UI dependencies into the installed
+Agency asset tree.
 
 Dockerfiles remain part of Agency as OCI image build recipes. Docker, Podman,
 containerd, and Apple Container execution backends are legacy paths and are no
@@ -105,19 +107,27 @@ longer selectable through setup or quickstart.
 
 ### Install
 
-**macOS / Linux (Homebrew):**
+**Recommended: macOS / Linux Homebrew**
 
 ```bash
-brew install geoffbelknap/tap/agency
+brew tap geoffbelknap/tap
+brew install agency
 ```
 
-**Linux / macOS / WSL2 (script):**
+**One-shot installer**
 
 ```bash
 curl -fsSL https://geoffbelknap.github.io/agency/install.sh | bash
 ```
 
-**From source:**
+The one-shot installer downloads the release archive directly, installs the
+`agency` binary to `~/.local/bin`, installs runtime assets to
+`~/.local/share/agency`, and uses the host package manager only for runtime
+dependencies. Before installing, it reminds you that Homebrew is easier to
+audit and uninstall, then asks you to confirm that you want to continue with the
+script path.
+
+**Last resort: source install**
 
 ```bash
 git clone https://github.com/geoffbelknap/agency.git
@@ -125,8 +135,9 @@ cd agency
 make install
 ```
 
-`make install` installs required host dependencies using
-`scripts/install/host-dependencies.sh`. Set `SKIP_HOST_DEPS=1` if your package
+Source installs are useful for contributors or environments that cannot use
+Homebrew. `make install` installs required host dependencies using
+`scripts/install/host-dependencies.sh`; set `SKIP_HOST_DEPS=1` if your package
 manager or release packaging already provides those dependencies.
 
 ### First Run

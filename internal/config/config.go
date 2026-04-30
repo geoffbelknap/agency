@@ -146,9 +146,10 @@ func Load() *Config {
 	return cfg
 }
 
-// detectSourceDir attempts to find the repo root for dev-mode image builds.
-// Checks the binary's parent directories for an images/ subdirectory.
-// Returns empty string for release installs (no source tree).
+// detectSourceDir attempts to find runtime assets for dev and packaged installs.
+// It checks parent directories for a source tree and package share directories
+// such as ~/.local/share/agency or Homebrew's Cellar share/agency path.
+// Returns empty string when no runtime asset tree is available.
 func detectSourceDir() string {
 	// Find the binary location
 	exe, err := os.Executable()
@@ -160,8 +161,21 @@ func detectSourceDir() string {
 		return ""
 	}
 
-	// Walk up from the binary looking for images/
 	dir := filepath.Dir(exe)
+	candidates := []string{
+		dir,
+		filepath.Join(filepath.Dir(dir), "share", "agency"),
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates, filepath.Join(home, ".local", "share", "agency"))
+	}
+	for _, candidate := range candidates {
+		if info, err := os.Stat(filepath.Join(candidate, "images")); err == nil && info.IsDir() {
+			return candidate
+		}
+	}
+
+	// Walk up from the binary looking for a source checkout.
 	for i := 0; i < 6; i++ {
 		if info, err := os.Stat(filepath.Join(dir, "images")); err == nil && info.IsDir() {
 			return dir
