@@ -100,7 +100,7 @@ func TestFirecrackerComponentStatusAddsEnforcerComponentDetails(t *testing.T) {
 }
 
 func TestFirecrackerApplyEnforcerMicroVMTargets(t *testing.T) {
-	factory := &hostruntimebackend.FirecrackerVsockListenerFactory{StateDir: t.TempDir()}
+	factory := &hostruntimebackend.FirecrackerVsockListenerFactory{StateDir: shortSocketTempDir(t)}
 	bridge, err := factory.Start(context.Background(), "alice-enforcer", map[int]string{8200: "127.0.0.1:8200"})
 	if err != nil {
 		t.Fatalf("Start returned error: %v", err)
