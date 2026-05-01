@@ -2,6 +2,11 @@ version: 2
 
 project_name: agency
 
+before:
+  hooks:
+    - npm --prefix web --cache .cache/npm ci
+    - npm --prefix web run build
+
 builds:
   - id: agency
     main: ./cmd/gateway/
@@ -33,15 +38,9 @@ archives:
       - services/**/*.yaml
       - services/**/requirements.txt
       - scripts/install/*
-      - web/bin/*
-      - web/dist/**/*
-      - web/public/*
-      - web/src/**/*
-      - web/index.html
-      - web/package.json
-      - web/package-lock.json
-      - web/tsconfig.json
-      - web/vite.config.ts
+      - web/dist/index.html
+      - web/dist/favicon.svg
+      - web/dist/assets/*
 
 checksum:
   name_template: "checksums.txt"
@@ -67,7 +66,6 @@ brews:
     dependencies:
       - name: python
       - name: e2fsprogs
-      - name: node
     extra_install: |
       pkgshare.install "services"
       pkgshare.install "scripts"
@@ -83,7 +81,6 @@ brews:
       Runtime dependencies:
         - python: host-managed infra services and egress Python environment
         - e2fsprogs: mke2fs for microVM root filesystem creation
-        - node: local web UI build/preview for host-managed web
 
       Quick start guide: https://github.com/geoffbelknap/agency#readme
     test: |

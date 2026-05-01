@@ -323,6 +323,7 @@ func RegisterCommands(root *cobra.Command) {
 	// ── Integration ─────────────────────────────────────────────────────
 	root.AddCommand(mcpServerCmd())
 	root.AddCommand(runtimeAuthorityServeCmd())
+	root.AddCommand(hostWebServeCmd())
 }
 
 func packageCmd() *cobra.Command {
