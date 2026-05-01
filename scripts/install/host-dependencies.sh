@@ -9,6 +9,9 @@ VENV_PYTHON="$VENV_DIR/bin/python"
 VENV_MITMDUMP="$VENV_DIR/bin/mitmdump"
 WEB_DIR="$ROOT_DIR/web"
 WEB_VITE="$WEB_DIR/node_modules/.bin/vite"
+WEB_DIST="$WEB_DIR/dist/index.html"
+NPM_CACHE_DIR="${AGENCY_NPM_CACHE:-$ROOT_DIR/.cache/npm}"
+PIP_CACHE_DIR="${AGENCY_PIP_CACHE:-$VENV_DIR/.cache/pip}"
 PYTHON_DEPS=(
   "mitmproxy==12.2.1"
   "pyyaml==6.0.3"
@@ -24,7 +27,7 @@ Usage: scripts/install/host-dependencies.sh [--check|--dry-run|--skip-system-pac
 Installs host tools required by Agency's supported microVM runtime path:
   - mitmproxy/mitmdump plus addon Python packages for host-managed egress
   - e2fsprogs/mke2fs for microVM rootfs image creation
-  - Node/npm dependencies for host-managed web when web/package.json is present
+  - prebuilt host-managed web assets, or Node/npm only for source web builds
 
 Supported package managers:
   - macOS/Linux Homebrew: brew
@@ -60,14 +63,16 @@ missing_tools() {
 		missing+=("mke2fs")
 	fi
 	if [ -f "$WEB_DIR/package.json" ]; then
-		if ! have node; then
-			missing+=("node")
-		fi
-		if ! have npm; then
-			missing+=("npm")
-		fi
-		if [ ! -x "$WEB_VITE" ]; then
-			missing+=("web npm dependencies")
+		if [ ! -f "$WEB_DIST" ]; then
+			if ! have node; then
+				missing+=("node")
+			fi
+			if ! have npm; then
+				missing+=("npm")
+			fi
+			if [ ! -x "$WEB_VITE" ]; then
+				missing+=("web npm dependencies")
+			fi
 		fi
 	fi
   if [ "${#missing[@]}" -gt 0 ]; then
@@ -96,22 +101,46 @@ package_manager() {
   return 1
 }
 
+source_web_needs_node() {
+	[ -f "$WEB_DIR/package.json" ] && [ ! -f "$WEB_DIST" ]
+}
+
 packages_for() {
 	case "$1" in
 	brew)
-		echo "python e2fsprogs node"
+		packages="python e2fsprogs"
+		if source_web_needs_node; then
+			packages="$packages node"
+		fi
+		echo "$packages"
 		;;
 	apt-get)
-		echo "e2fsprogs python3 python3-venv python3-pip nodejs npm"
+		packages="e2fsprogs python3 python3-venv python3-pip"
+		if source_web_needs_node; then
+			packages="$packages nodejs npm"
+		fi
+		echo "$packages"
 		;;
 	dnf|yum)
-		echo "e2fsprogs python3 python3-pip nodejs npm"
+		packages="e2fsprogs python3 python3-pip"
+		if source_web_needs_node; then
+			packages="$packages nodejs npm"
+		fi
+		echo "$packages"
 		;;
 	pacman)
-		echo "e2fsprogs python python-pip nodejs npm"
+		packages="e2fsprogs python python-pip"
+		if source_web_needs_node; then
+			packages="$packages nodejs npm"
+		fi
+		echo "$packages"
 		;;
 	zypper)
-		echo "e2fsprogs python3 python3-pip nodejs npm"
+		packages="e2fsprogs python3 python3-pip"
+		if source_web_needs_node; then
+			packages="$packages nodejs npm"
+		fi
+		echo "$packages"
 		;;
     *)
       return 1
@@ -151,16 +180,19 @@ install_python_deps() {
 	if [ ! -x "$VENV_PYTHON" ]; then
 		"$py" -m venv "$VENV_DIR"
 	fi
-	"$VENV_PYTHON" -m pip install --upgrade pip
-	"$VENV_PYTHON" -m pip install "${PYTHON_DEPS[@]}"
+	mkdir -p "$PIP_CACHE_DIR"
+	PIP_CACHE_DIR="$PIP_CACHE_DIR" "$VENV_PYTHON" -m pip install --upgrade pip
+	PIP_CACHE_DIR="$PIP_CACHE_DIR" "$VENV_PYTHON" -m pip install "${PYTHON_DEPS[@]}"
 }
 
 web_deps_ready() {
+	[ -f "$WEB_DIST" ] && return 0
 	[ ! -f "$WEB_DIR/package.json" ] && return 0
 	[ -x "$WEB_VITE" ]
 }
 
 install_web_deps() {
+	[ -f "$WEB_DIST" ] && return 0
 	[ -f "$WEB_DIR/package.json" ] || return 0
 	if web_deps_ready; then
 		return 0
@@ -169,10 +201,11 @@ install_web_deps() {
 		echo "npm is required to install host web dependencies" >&2
 		return 1
 	fi
+	mkdir -p "$NPM_CACHE_DIR"
 	if [ -f "$WEB_DIR/package-lock.json" ]; then
-		npm --prefix "$WEB_DIR" ci
+		npm --prefix "$WEB_DIR" --cache "$NPM_CACHE_DIR" ci
 	else
-		npm --prefix "$WEB_DIR" install
+		npm --prefix "$WEB_DIR" --cache "$NPM_CACHE_DIR" install
 	fi
 }
 
@@ -263,7 +296,11 @@ case "$MODE" in
 			printf 'install with %s packages: %s\n' "$manager" "$packages" >&2
 		fi
 		printf 'then install Python dependencies into %s\n' "$VENV_DIR" >&2
-		printf 'and install web dependencies in %s\n' "$WEB_DIR" >&2
+		if [ -f "$WEB_DIST" ]; then
+			printf 'web assets are prebuilt at %s\n' "$WEB_DIST" >&2
+		else
+			printf 'and install web dependencies in %s\n' "$WEB_DIR" >&2
+		fi
 		exit 1
 		;;
 	dry-run)
@@ -274,7 +311,9 @@ case "$MODE" in
 		fi
 		printf 'python venv: %s\n' "$VENV_DIR"
 		printf 'python packages: %s\n' "${PYTHON_DEPS[*]}"
-		if [ -f "$WEB_DIR/package.json" ]; then
+		if [ -f "$WEB_DIST" ]; then
+			printf 'web assets: %s\n' "$WEB_DIST"
+		elif [ -f "$WEB_DIR/package.json" ]; then
 			printf 'web dependencies: %s\n' "$WEB_DIR"
 		fi
 		exit 0
@@ -287,8 +326,12 @@ if [ "$INSTALL_SYSTEM_PACKAGES" -eq 1 ]; then
 fi
 log "installing host egress Python dependencies into $VENV_DIR"
 install_python_deps
-log "installing host web dependencies in $WEB_DIR"
-install_web_deps
+if ! web_deps_ready; then
+	log "installing host web dependencies in $WEB_DIR"
+	install_web_deps
+elif [ -f "$WEB_DIST" ]; then
+	log "using prebuilt host web assets at $WEB_DIST"
+fi
 
 missing_after=()
 while IFS= read -r tool; do

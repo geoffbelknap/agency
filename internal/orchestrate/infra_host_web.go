@@ -52,6 +52,7 @@ func (inf *Infra) ensureHostWeb(ctx context.Context) error {
 	if err := inf.ensureHostWebBuild(ctx, webDir); err != nil {
 		return err
 	}
+	distDir := filepath.Join(webDir, "dist")
 	logDir := filepath.Join(inf.Home, "logs", "infra")
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return fmt.Errorf("prepare host web log dir: %w", err)
@@ -66,7 +67,7 @@ func (inf *Infra) ensureHostWeb(ctx context.Context) error {
 		return fmt.Errorf("open host web log: %w", err)
 	}
 
-	cmd := exec.Command(inf.hostWebVite(webDir), "preview", "--host", "127.0.0.1", "--port", inf.webPort())
+	cmd := exec.Command(inf.hostWebCommand(), "host-web-serve", "--dist-dir", distDir, "--host", "127.0.0.1", "--port", inf.webPort())
 	cmd.Dir = webDir
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -101,17 +102,23 @@ func (inf *Infra) ensureHostWeb(ctx context.Context) error {
 }
 
 func (inf *Infra) hostWebDir() (string, error) {
-	sourceDir, err := inf.hostInfraSourceDir(filepath.Join("web", "package.json"))
-	if err != nil {
-		return "", fmt.Errorf("host web source unavailable: %w", err)
+	sourceDir, err := inf.hostInfraSourceDir(filepath.Join("web", "dist", "index.html"))
+	if err == nil {
+		return filepath.Join(sourceDir, "web"), nil
 	}
-	webDir := filepath.Join(sourceDir, "web")
-	return webDir, nil
+	sourceDir, sourceErr := inf.hostInfraSourceDir(filepath.Join("web", "package.json"))
+	if sourceErr == nil {
+		return filepath.Join(sourceDir, "web"), nil
+	}
+	return "", fmt.Errorf("host web source unavailable: %w", err)
 }
 
 func (inf *Infra) ensureHostWebBuild(ctx context.Context, webDir string) error {
 	if _, err := os.Stat(filepath.Join(webDir, "dist", "index.html")); err == nil {
 		return nil
+	}
+	if _, err := os.Stat(filepath.Join(webDir, "package.json")); err != nil {
+		return fmt.Errorf("host web dist missing at %s and source package unavailable", filepath.Join(webDir, "dist", "index.html"))
 	}
 	cmd := exec.CommandContext(ctx, inf.hostWebNPM(), "run", "build")
 	cmd.Dir = webDir
@@ -133,15 +140,14 @@ func (inf *Infra) hostWebNPM() string {
 	return "npm"
 }
 
-func (inf *Infra) hostWebVite(webDir string) string {
-	if vite := strings.TrimSpace(os.Getenv("AGENCY_HOST_WEB_VITE")); vite != "" {
-		return vite
+func (inf *Infra) hostWebCommand() string {
+	if command := strings.TrimSpace(os.Getenv("AGENCY_HOST_WEB_COMMAND")); command != "" {
+		return command
 	}
-	local := filepath.Join(webDir, "node_modules", ".bin", "vite")
-	if info, err := os.Stat(local); err == nil && !info.IsDir() {
-		return local
+	if exe, err := os.Executable(); err == nil && strings.TrimSpace(exe) != "" {
+		return exe
 	}
-	return "vite"
+	return "agency"
 }
 
 func (inf *Infra) hostWebPreviewEnv() []string {
