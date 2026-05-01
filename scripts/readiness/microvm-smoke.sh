@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKEND="${AGENCY_RUNTIME_BACKEND:-auto}"
 ROOTFS_OCI_REF="${AGENCY_MICROVM_ROOTFS_OCI_REF:-}"
+ENFORCER_OCI_REF="${AGENCY_MICROVM_ENFORCER_OCI_REF:-}"
 RUN_CORE=1
 RUN_CONTRACT=1
 RUN_WEB=0
@@ -21,6 +22,11 @@ Options:
   --rootfs-oci-ref REF    Versioned body/rootfs OCI artifact reference.
                           Required for apple-vf-microvm release validation.
                           Used directly by firecracker when supplied.
+  --enforcer-oci-ref REF  Versioned enforcer OCI artifact reference.
+                          Supported for firecracker host-process enforcer
+                          validation. The current enforcer OCI artifact is
+                          Linux-only, so apple-vf-microvm still uses the
+                          local Darwin host enforcer binary.
   --skip-core             Skip git diff/status-check/go/web unit gates.
   --skip-contract         Skip the backend-neutral runtime contract smoke.
   --web                   Run the backend Web UI smoke after lifecycle checks.
@@ -29,6 +35,7 @@ Options:
 Environment:
   AGENCY_RUNTIME_BACKEND
   AGENCY_MICROVM_ROOTFS_OCI_REF
+  AGENCY_MICROVM_ENFORCER_OCI_REF
 EOF
 }
 
@@ -67,6 +74,7 @@ run_core_gates() {
 
 run_apple_vf() {
   [[ -n "$ROOTFS_OCI_REF" ]] || fail "--rootfs-oci-ref is required for apple-vf-microvm"
+  [[ -z "$ENFORCER_OCI_REF" ]] || fail "--enforcer-oci-ref is not supported for apple-vf-microvm because the published enforcer OCI artifact is Linux-only"
 
   local agent="apple-vf-contract-$(git -C "$ROOT" rev-parse --short HEAD)"
   local home="/tmp/agency-apple-vf-contract-$(git -C "$ROOT" rev-parse --short HEAD)"
@@ -126,6 +134,9 @@ run_firecracker() {
     if [[ -n "$ROOTFS_OCI_REF" ]]; then
       args+=(--rootfs-oci-ref "$ROOTFS_OCI_REF")
     fi
+    if [[ -n "$ENFORCER_OCI_REF" ]]; then
+      args+=(--enforcer-oci-ref "$ENFORCER_OCI_REF")
+    fi
     "$ROOT/scripts/readiness/firecracker-microvm-smoke.sh" "${args[@]}"
   else
     local out
@@ -170,6 +181,9 @@ run_firecracker() {
     if [[ -n "$ROOTFS_OCI_REF" ]]; then
       keep_args+=(--rootfs-oci-ref "$ROOTFS_OCI_REF")
     fi
+    if [[ -n "$ENFORCER_OCI_REF" ]]; then
+      keep_args+=(--enforcer-oci-ref "$ENFORCER_OCI_REF")
+    fi
     if command -v setsid >/dev/null 2>&1; then
       setsid "$ROOT/scripts/readiness/firecracker-microvm-smoke.sh" "${keep_args[@]}" >"$out" 2>&1 &
       pid_is_group=1
@@ -212,6 +226,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --rootfs-oci-ref)
       ROOTFS_OCI_REF="${2:-}"
+      shift 2
+      ;;
+    --enforcer-oci-ref)
+      ENFORCER_OCI_REF="${2:-}"
       shift 2
       ;;
     --skip-core)

@@ -10,6 +10,7 @@ FIRECRACKER_BIN="${AGENCY_FIRECRACKER_BIN:-$ARTIFACT_DIR/$FIRECRACKER_VERSION/fi
 KERNEL_PATH="${AGENCY_FIRECRACKER_KERNEL:-$ARTIFACT_DIR/vmlinux}"
 MKE2FS_PATH="${AGENCY_MKE2FS:-}"
 ENFORCER_BIN="${AGENCY_FIRECRACKER_ENFORCER_BIN:-/tmp/agency-firecracker-enforcer-host}"
+ENFORCER_OCI_REF="${AGENCY_FIRECRACKER_ENFORCER_OCI_REF:-}"
 VSOCK_BRIDGE_BIN="${AGENCY_FIRECRACKER_VSOCK_BRIDGE_BIN:-/tmp/agency-firecracker-vsock-http-bridge}"
 AGENT_NAME="${AGENT_NAME:-firecracker-smoke-$(date +%s)}"
 ROOTFS_SIZE_MIB="${AGENCY_FIRECRACKER_ROOTFS_SIZE_MIB:-1024}"
@@ -45,6 +46,9 @@ Options:
                            Default: $KERNEL_PATH
   --mke2fs PATH           mke2fs path. Defaults to PATH lookup.
   --enforcer-bin PATH     Host-process enforcer output path.
+  --enforcer-oci-ref REF  Versioned enforcer OCI artifact reference. When set,
+                          extracts /usr/local/bin/enforcer and uses it as the
+                          host-process enforcer binary.
   --vsock-bridge-bin PATH Linux agency-vsock-http-bridge output path.
   --rootfs-oci-ref REF    Versioned body/rootfs OCI artifact reference.
                           When set, the smoke realizes this artifact directly
@@ -64,6 +68,7 @@ Environment:
   AGENCY_FIRECRACKER_KERNEL
   AGENCY_MKE2FS
   AGENCY_FIRECRACKER_ENFORCER_BIN
+  AGENCY_FIRECRACKER_ENFORCER_OCI_REF
   AGENCY_FIRECRACKER_VSOCK_BRIDGE_BIN
   AGENCY_FIRECRACKER_ROOTFS_SIZE_MIB
   AGENCY_FIRECRACKER_ROOTFS_OCI_REF
@@ -130,6 +135,11 @@ while [[ $# -gt 0 ]]; do
     --enforcer-bin)
       [[ $# -ge 2 ]] || fail "--enforcer-bin requires a path"
       ENFORCER_BIN="$2"
+      shift 2
+      ;;
+    --enforcer-oci-ref)
+      [[ $# -ge 2 ]] || fail "--enforcer-oci-ref requires a ref"
+      ENFORCER_OCI_REF="$2"
       shift 2
       ;;
     --vsock-bridge-bin)
@@ -255,8 +265,16 @@ if [[ "$BUILD_BODY" == "1" ]]; then
   make body CONTAINER_CMD="$OCI_CMD"
 fi
 
-log "Building host-process enforcer"
-(cd "$ROOT/images/enforcer" && go build -o "$ENFORCER_BIN" .)
+if [[ -n "$ENFORCER_OCI_REF" ]]; then
+  log "Extracting host-process enforcer from OCI artifact"
+  go run ./cmd/runtime-oci-artifact \
+    --extract-ref "$ENFORCER_OCI_REF" \
+    --extract-path /usr/local/bin/enforcer \
+    --output "$ENFORCER_BIN"
+else
+  log "Building host-process enforcer"
+  (cd "$ROOT/images/enforcer" && go build -o "$ENFORCER_BIN" .)
+fi
 [[ -x "$ENFORCER_BIN" ]] || fail "host enforcer build did not produce $ENFORCER_BIN"
 
 log "Building Linux guest vsock bridge"

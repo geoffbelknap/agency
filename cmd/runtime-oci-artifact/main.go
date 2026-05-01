@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -47,6 +48,10 @@ type options struct {
 	enforcerARM64 string
 	caBundle      string
 	inspectRef    string
+	extractRef    string
+	extractPath   string
+	extractOutput string
+	platform      string
 }
 
 func main() {
@@ -62,19 +67,34 @@ func main() {
 	flag.StringVar(&opt.enforcerARM64, "enforcer-arm64", "", "linux/arm64 enforcer binary")
 	flag.StringVar(&opt.caBundle, "ca-bundle", "/etc/ssl/certs/ca-certificates.crt", "CA bundle to include in enforcer artifact")
 	flag.StringVar(&opt.inspectRef, "inspect-ref", "", "inspect a published runtime artifact ref and verify linux/amd64 plus linux/arm64")
+	flag.StringVar(&opt.extractRef, "extract-ref", "", "extract one file from a published runtime artifact ref")
+	flag.StringVar(&opt.extractPath, "extract-path", "/usr/local/bin/enforcer", "absolute artifact path to extract")
+	flag.StringVar(&opt.extractOutput, "output", "", "output path for --extract-ref")
+	flag.StringVar(&opt.platform, "platform", "linux/"+runtime.GOARCH, "target platform for inspect/extract, formatted as os/arch")
 	flag.Parse()
 
 	ctx := context.Background()
 	var err error
-	if opt.inspectRef != "" {
+	switch {
+	case opt.inspectRef != "":
 		err = inspectRuntimeArtifact(ctx, opt.inspectRef)
-	} else {
+	case opt.extractRef != "":
+		err = extractRuntimeArtifactFile(ctx, opt.extractRef, opt.extractPath, opt.extractOutput, opt.targetPlatform())
+	default:
 		err = run(ctx, opt)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func (o options) targetPlatform() ocispec.Platform {
+	parts := strings.SplitN(strings.TrimSpace(o.platform), "/", 2)
+	if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+		return ocispec.Platform{OS: parts[0], Architecture: parts[1]}
+	}
+	return ocispec.Platform{OS: "linux", Architecture: runtime.GOARCH}
 }
 
 func inspectRuntimeArtifact(ctx context.Context, ref string) error {
@@ -138,6 +158,112 @@ func inspectRuntimeArtifact(ctx context.Context, ref string) error {
 	}
 	fmt.Printf("%s platforms=linux/amd64,linux/arm64 digest=%s\n", ref, desc.Digest)
 	return nil
+}
+
+func extractRuntimeArtifactFile(ctx context.Context, ref, artifactPath, outputPath string, platform ocispec.Platform) error {
+	if strings.TrimSpace(outputPath) == "" {
+		return fmt.Errorf("--output is required with --extract-ref")
+	}
+	artifactPath = cleanArtifactPath(artifactPath)
+	if artifactPath == "" {
+		return fmt.Errorf("--extract-path is required")
+	}
+	repoRef, reference, err := splitRegistryReference(ref)
+	if err != nil {
+		return err
+	}
+	repo, err := newRepository(repoRef)
+	if err != nil {
+		return err
+	}
+	manifestDesc, manifestBytes, err := oras.FetchBytes(ctx, repo, reference, oras.FetchBytesOptions{
+		FetchOptions: oras.FetchOptions{ResolveOptions: oras.ResolveOptions{TargetPlatform: &platform}},
+	})
+	if err != nil {
+		return fmt.Errorf("fetch OCI artifact %s for %s/%s: %w", ref, platform.OS, platform.Architecture, err)
+	}
+	var manifest ocispec.Manifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		return fmt.Errorf("parse OCI manifest: %w", err)
+	}
+	for _, layer := range manifest.Layers {
+		rc, err := repo.Fetch(ctx, layer)
+		if err != nil {
+			return fmt.Errorf("fetch OCI layer %s: %w", layer.Digest, err)
+		}
+		found, mode, err := extractFileFromLayer(layer.MediaType, rc, artifactPath, outputPath)
+		closeErr := rc.Close()
+		if err != nil {
+			return fmt.Errorf("extract %s from layer %s: %w", artifactPath, layer.Digest, err)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("close OCI layer %s: %w", layer.Digest, closeErr)
+		}
+		if found {
+			if mode&0111 == 0 {
+				mode |= 0o755
+			}
+			if err := os.Chmod(outputPath, mode); err != nil {
+				return fmt.Errorf("chmod extracted file: %w", err)
+			}
+			fmt.Printf("%s extracted=%s platform=%s/%s manifest=%s\n", ref, outputPath, platform.OS, platform.Architecture, manifestDesc.Digest)
+			return nil
+		}
+	}
+	return fmt.Errorf("%s not found in %s for %s/%s", artifactPath, ref, platform.OS, platform.Architecture)
+}
+
+func cleanArtifactPath(raw string) string {
+	cleaned := filepath.ToSlash(filepath.Clean(strings.TrimSpace(raw)))
+	cleaned = strings.TrimPrefix(cleaned, "/")
+	if cleaned == "." {
+		return ""
+	}
+	return cleaned
+}
+
+func extractFileFromLayer(mediaType string, rc io.Reader, artifactPath, outputPath string) (bool, os.FileMode, error) {
+	artifactPath = cleanArtifactPath(artifactPath)
+	var reader io.Reader = rc
+	if strings.Contains(mediaType, "gzip") || strings.HasSuffix(mediaType, ".gzip") || strings.HasSuffix(mediaType, "+gzip") {
+		gz, err := gzip.NewReader(rc)
+		if err != nil {
+			return false, 0, err
+		}
+		defer gz.Close()
+		reader = gz
+	}
+	tr := tar.NewReader(reader)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			return false, 0, nil
+		}
+		if err != nil {
+			return false, 0, err
+		}
+		if cleanArtifactPath(header.Name) != artifactPath {
+			continue
+		}
+		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
+			return false, 0, fmt.Errorf("%s is not a regular file", artifactPath)
+		}
+		if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+			return false, 0, err
+		}
+		out, err := os.OpenFile(outputPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(header.Mode).Perm())
+		if err != nil {
+			return false, 0, err
+		}
+		if _, err := io.Copy(out, tr); err != nil {
+			_ = out.Close()
+			return false, 0, err
+		}
+		if err := out.Close(); err != nil {
+			return false, 0, err
+		}
+		return true, os.FileMode(header.Mode).Perm(), nil
+	}
 }
 
 func run(ctx context.Context, opt options) error {
