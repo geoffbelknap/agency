@@ -73,7 +73,7 @@ brews:
     conflicts:
       - agency-rc
     dependencies:
-      - name: python
+      - name: python@3.14
       - name: e2fsprogs
     extra_install: |
       pkgshare.install "bin"
@@ -82,7 +82,7 @@ brews:
       pkgshare.install "scripts"
       pkgshare.install "web"
     post_install: |
-      ENV["AGENCY_PYTHON_VENV"] = "#{pkgshare}/.venv"
+      ENV["AGENCY_PYTHON_VENV"] = "#{libexec}/venv"
       system "#{pkgshare}/scripts/install/host-dependencies.sh", "--skip-system-packages"
     caveats: |
       Start here:
@@ -90,7 +90,7 @@ brews:
         agency quickstart
 
       Runtime dependencies:
-        - python: host-managed infra services and egress Python environment
+        - python@3.14: host-managed infra services and egress Python environment
         - e2fsprogs: mke2fs for microVM root filesystem creation
 
       Linux and WSL Firecracker setup:

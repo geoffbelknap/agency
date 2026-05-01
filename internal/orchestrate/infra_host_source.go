@@ -46,3 +46,29 @@ func hostInfraSourceHas(dir string, required ...string) bool {
 	}
 	return true
 }
+
+func hostInfraVenvBin(sourceDir, name string) string {
+	for _, dir := range hostInfraVenvDirs(sourceDir) {
+		path := filepath.Join(dir, "bin", name)
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return path
+		}
+	}
+	return ""
+}
+
+func hostInfraVenvDirs(sourceDir string) []string {
+	sourceDir = filepath.Clean(sourceDir)
+	dirs := []string{filepath.Join(sourceDir, ".venv")}
+
+	// Homebrew formulae should keep application virtualenvs under libexec.
+	// Packaged assets live under <prefix>/share/agency[-rc], so derive the
+	// sibling <prefix>/libexec/venv path from the source directory.
+	parent := filepath.Dir(sourceDir)
+	if filepath.Base(parent) == "share" {
+		prefix := filepath.Dir(parent)
+		dirs = append(dirs, filepath.Join(prefix, "libexec", "venv"))
+	}
+
+	return dirs
+}
