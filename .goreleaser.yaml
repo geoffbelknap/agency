@@ -70,6 +70,8 @@ brews:
     skip_upload: "{{ .Prerelease }}"
     homepage: "https://github.com/geoffbelknap/agency"
     description: "Agency — An operating system for AI agents"
+    conflicts:
+      - agency-rc
     dependencies:
       - name: python
       - name: e2fsprogs
@@ -83,6 +85,52 @@ brews:
       ENV["AGENCY_PYTHON_VENV"] = "#{pkgshare}/.venv"
       system "#{pkgshare}/scripts/install/host-dependencies.sh", "--skip-system-packages"
     caveats: |
+      Start here:
+
+        agency quickstart
+
+      Runtime dependencies:
+        - python: host-managed infra services and egress Python environment
+        - e2fsprogs: mke2fs for microVM root filesystem creation
+
+      Linux and WSL Firecracker setup:
+        Before running quickstart, provision the pinned Firecracker binary and
+        Agency kernel artifact with the packaged readiness scripts:
+
+          #{pkgshare}/scripts/readiness/firecracker-artifacts.sh
+          #{pkgshare}/scripts/readiness/firecracker-kernel-artifacts.sh
+
+      Quick start guide: https://github.com/geoffbelknap/agency#readme
+    test: |
+      system "#{bin}/agency", "--version"
+  - ids:
+      - default
+    repository:
+      owner: geoffbelknap
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    name: agency-rc
+    skip_upload: "{{ if .Prerelease }}false{{ else }}true{{ end }}"
+    homepage: "https://github.com/geoffbelknap/agency"
+    description: "Agency — An operating system for AI agents (release candidate)"
+    conflicts:
+      - agency
+    dependencies:
+      - name: python
+      - name: e2fsprogs
+    extra_install: |
+      pkgshare.install "bin"
+      pkgshare.install "images"
+      pkgshare.install "services"
+      pkgshare.install "scripts"
+      pkgshare.install "web"
+    post_install: |
+      ENV["AGENCY_PYTHON_VENV"] = "#{pkgshare}/.venv"
+      system "#{pkgshare}/scripts/install/host-dependencies.sh", "--skip-system-packages"
+    caveats: |
+      This formula installs the Agency release-candidate channel.
+      It conflicts with the stable agency formula because both install `agency`.
+
       Start here:
 
         agency quickstart
