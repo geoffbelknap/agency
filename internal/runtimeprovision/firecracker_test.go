@@ -23,10 +23,10 @@ func TestProvisionFirecrackerDownloadsPinnedArtifacts(t *testing.T) {
 			_, _ = w.Write(tarball)
 		case "/firecracker/firecracker-v1.12.1-x86_64.tgz.sha256.txt":
 			fmt.Fprintf(w, "%x  firecracker-v1.12.1-x86_64.tgz\n", sha256.Sum256(tarball))
-		case "/kernel/agency-firecracker-vmlinux_x86_64":
+		case "/kernel/agency-kernel-6.12.22-firecracker-x86_64":
 			_, _ = w.Write(kernel)
-		case "/kernel/agency-firecracker-vmlinux_x86_64.sha256":
-			fmt.Fprintf(w, "%x  agency-firecracker-vmlinux_x86_64\n", sha256.Sum256(kernel))
+		case "/kernel/agency-kernel-6.12.22-firecracker-x86_64.sha256":
+			fmt.Fprintf(w, "%x  agency-kernel-6.12.22-firecracker-x86_64\n", sha256.Sum256(kernel))
 		default:
 			http.NotFound(w, r)
 		}
@@ -73,10 +73,10 @@ func TestProvisionFirecrackerRejectsKernelChecksumMismatch(t *testing.T) {
 			_, _ = w.Write(tarball)
 		case "/firecracker/firecracker-v1.12.1-x86_64.tgz.sha256.txt":
 			fmt.Fprintf(w, "%x  firecracker-v1.12.1-x86_64.tgz\n", sha256.Sum256(tarball))
-		case "/kernel/agency-firecracker-vmlinux_x86_64":
+		case "/kernel/agency-kernel-6.12.22-firecracker-x86_64":
 			_, _ = w.Write(kernel)
-		case "/kernel/agency-firecracker-vmlinux_x86_64.sha256":
-			_, _ = w.Write([]byte("0000000000000000000000000000000000000000000000000000000000000000  agency-firecracker-vmlinux_x86_64\n"))
+		case "/kernel/agency-kernel-6.12.22-firecracker-x86_64.sha256":
+			_, _ = w.Write([]byte("0000000000000000000000000000000000000000000000000000000000000000  agency-kernel-6.12.22-firecracker-x86_64\n"))
 		default:
 			http.NotFound(w, r)
 		}
@@ -92,6 +92,81 @@ func TestProvisionFirecrackerRejectsKernelChecksumMismatch(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("ProvisionFirecracker() error = nil, want checksum mismatch")
+	}
+}
+
+func TestProvisionFirecrackerDownloadsAarch64ImageKernel(t *testing.T) {
+	firecracker := []byte("#!/bin/sh\n")
+	kernel := bytes.Repeat([]byte{0x64}, 128)
+	tarball := firecrackerTarball(t, "firecracker-v1.12.1-aarch64", firecracker)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/firecracker/firecracker-v1.12.1-aarch64.tgz":
+			_, _ = w.Write(tarball)
+		case "/firecracker/firecracker-v1.12.1-aarch64.tgz.sha256.txt":
+			fmt.Fprintf(w, "%x  firecracker-v1.12.1-aarch64.tgz\n", sha256.Sum256(tarball))
+		case "/kernel/agency-kernel-6.12.22-firecracker-aarch64":
+			_, _ = w.Write(kernel)
+		case "/kernel/agency-kernel-6.12.22-firecracker-aarch64.sha256":
+			fmt.Fprintf(w, "%x  agency-kernel-6.12.22-firecracker-aarch64\n", sha256.Sum256(kernel))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	home := t.TempDir()
+	err := ProvisionFirecracker(t.Context(), FirecrackerOptions{
+		Home:                 home,
+		FirecrackerBaseURL:   server.URL + "/firecracker",
+		KernelReleaseBaseURL: server.URL + "/kernel",
+		Arch:                 "aarch64",
+	})
+	if err != nil {
+		t.Fatalf("ProvisionFirecracker() error = %v", err)
+	}
+
+	kernelPath := filepath.Join(home, "runtime", "firecracker", "artifacts", "Image")
+	got, err := os.ReadFile(kernelPath)
+	if err != nil {
+		t.Fatalf("read kernel: %v", err)
+	}
+	if !bytes.Equal(got, kernel) {
+		t.Fatalf("kernel bytes = %q, want %q", got, kernel)
+	}
+}
+
+func TestProvisionAppleVFKernelDownloadsPinnedImage(t *testing.T) {
+	kernel := bytes.Repeat([]byte{0x64}, 128)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/kernel/agency-kernel-6.12.22-apple-vf-arm64":
+			_, _ = w.Write(kernel)
+		case "/kernel/agency-kernel-6.12.22-apple-vf-arm64.sha256":
+			fmt.Fprintf(w, "%x  agency-kernel-6.12.22-apple-vf-arm64\n", sha256.Sum256(kernel))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	home := t.TempDir()
+	err := ProvisionAppleVFKernel(t.Context(), AppleVFOptions{
+		Home:                 home,
+		KernelReleaseBaseURL: server.URL + "/kernel",
+		Arch:                 "arm64",
+	})
+	if err != nil {
+		t.Fatalf("ProvisionAppleVFKernel() error = %v", err)
+	}
+
+	kernelPath := filepath.Join(home, "runtime", "apple-vf-microvm", "artifacts", "Image")
+	got, err := os.ReadFile(kernelPath)
+	if err != nil {
+		t.Fatalf("read kernel: %v", err)
+	}
+	if !bytes.Equal(got, kernel) {
+		t.Fatalf("kernel bytes = %q, want %q", got, kernel)
 	}
 }
 

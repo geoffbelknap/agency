@@ -1,0 +1,140 @@
+name: Kernel Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Kernel artifact release tag"
+        required: true
+        default: "agency-kernels-6.12.22-agency1"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runtime: firecracker
+            arch: x86_64
+            script: ./scripts/readiness/firecracker-kernel-artifacts.sh --arch x86_64
+            artifact_path: runtime/firecracker/artifacts/vmlinux
+            asset_name: agency-kernel-6.12.22-firecracker-x86_64
+            format: elf-vmlinux
+          - runtime: firecracker
+            arch: aarch64
+            script: ./scripts/readiness/firecracker-kernel-artifacts.sh --arch aarch64
+            artifact_path: runtime/firecracker/artifacts/Image
+            asset_name: agency-kernel-6.12.22-firecracker-aarch64
+            format: arm64-Image
+          - runtime: apple-vf
+            arch: arm64
+            script: ./scripts/readiness/apple-vf-artifacts.sh
+            artifact_path: runtime/apple-vf-microvm/artifacts/Image
+            asset_name: agency-kernel-6.12.22-apple-vf-arm64
+            format: arm64-Image
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Buildroot dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential cpio file flex gawk git gnupg libncurses-dev rsync unzip wget xz-utils
+
+      - name: Build kernel artifact
+        env:
+          AGENCY_HOME: ${{ runner.temp }}/agency-home
+        run: ${{ matrix.script }}
+
+      - name: Stage release assets
+        env:
+          AGENCY_HOME: ${{ runner.temp }}/agency-home
+          ASSET_NAME: ${{ matrix.asset_name }}
+          ARTIFACT_PATH: ${{ matrix.artifact_path }}
+          KERNEL_RUNTIME: ${{ matrix.runtime }}
+          KERNEL_ARCH: ${{ matrix.arch }}
+          KERNEL_FORMAT: ${{ matrix.format }}
+        run: |
+          mkdir -p dist/kernel-artifacts
+          cp "$AGENCY_HOME/$ARTIFACT_PATH" "dist/kernel-artifacts/$ASSET_NAME"
+          sha256sum "dist/kernel-artifacts/$ASSET_NAME" > "dist/kernel-artifacts/$ASSET_NAME.sha256"
+          python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+asset = os.environ["ASSET_NAME"]
+path = Path("dist/kernel-artifacts") / f"{asset}.json"
+path.write_text(json.dumps({
+    "asset": asset,
+    "runtime": os.environ["KERNEL_RUNTIME"],
+    "arch": os.environ["KERNEL_ARCH"],
+    "format": os.environ["KERNEL_FORMAT"],
+    "kernel_version": "6.12.22",
+}, indent=2) + "\n", encoding="utf-8")
+PY
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: dist/kernel-artifacts/*
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download kernel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/kernel-artifacts
+          merge-multiple: true
+
+      - name: Build manifest
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          python3 - <<'PY'
+import hashlib
+import json
+import os
+from pathlib import Path
+
+release_tag = os.environ["RELEASE_TAG"]
+assets = []
+for meta_path in sorted(Path("dist/kernel-artifacts").glob("*.json")):
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    artifact_path = meta_path.with_suffix("")
+    data = artifact_path.read_bytes()
+    meta["sha256"] = hashlib.sha256(data).hexdigest()
+    meta["size_bytes"] = len(data)
+    assets.append(meta)
+manifest = {
+    "release_tag": release_tag,
+    "kernel_version": "6.12.22",
+    "assets": assets,
+    "rootfs": "not included; realized from pinned Agency OCI runtime images",
+}
+Path(f"dist/kernel-artifacts/{release_tag}.manifest.json").write_text(
+    json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+PY
+
+      - name: Publish kernel artifact release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --target "$GITHUB_SHA" \
+              --title "$RELEASE_TAG" \
+              --notes "Pinned Agency guest kernel artifacts for Firecracker and Apple VF." \
+              --prerelease
+          fi
+          gh release upload "$RELEASE_TAG" dist/kernel-artifacts/* --clobber

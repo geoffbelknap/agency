@@ -19,7 +19,7 @@ func runtimeProvisionCmd() *cobra.Command {
 	var force bool
 	firecracker := &cobra.Command{
 		Use:   "firecracker",
-		Short: "Provision pinned Firecracker binary and Agency vmlinux artifacts",
+		Short: "Provision pinned Firecracker binary and Agency kernel artifacts",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, cfg, err := selectRuntimeBackend(hostruntimebackend.BackendFirecracker)
 			if err != nil {
@@ -48,5 +48,34 @@ func runtimeProvisionCmd() *cobra.Command {
 	}
 	firecracker.Flags().BoolVar(&force, "force", false, "Re-download pinned artifacts even if existing files are present")
 	cmd.AddCommand(firecracker)
+
+	appleVF := &cobra.Command{
+		Use:   "apple-vf",
+		Short: "Provision pinned Apple VF guest kernel artifact",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, cfg, err := selectRuntimeBackend(hostruntimebackend.BackendAppleVFMicroVM)
+			if err != nil {
+				return err
+			}
+			if err := runtimeprovision.ProvisionAppleVFKernel(cmd.Context(), runtimeprovision.AppleVFOptions{
+				Home:                 configHome(),
+				KernelPath:           cfg["kernel_path"],
+				KernelReleaseBaseURL: strings.TrimSpace(os.Getenv("AGENCY_APPLE_VF_KERNEL_RELEASE_BASE_URL")),
+				Force:                force,
+				Logf: func(format string, args ...any) {
+					fmt.Fprintf(cmd.OutOrStdout(), format+"\n", args...)
+				},
+			}); err != nil {
+				return err
+			}
+			if err := verifyAppleVFRuntimeArtifacts(cfg); err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "Apple VF runtime artifacts are ready.")
+			return nil
+		},
+	}
+	appleVF.Flags().BoolVar(&force, "force", false, "Re-download pinned artifacts even if existing files are present")
+	cmd.AddCommand(appleVF)
 	return cmd
 }

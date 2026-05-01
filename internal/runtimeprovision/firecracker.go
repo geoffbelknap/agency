@@ -21,7 +21,6 @@ import (
 
 const (
 	DefaultFirecrackerVersion = "v1.12.1"
-	KernelAssetPrefix         = "agency-firecracker-vmlinux"
 )
 
 type FirecrackerOptions struct {
@@ -41,8 +40,9 @@ func ProvisionFirecracker(ctx context.Context, opt FirecrackerOptions) error {
 	if arch == "" {
 		return fmt.Errorf("unsupported Firecracker architecture %q", firstNonEmpty(opt.Arch, runtime.GOARCH))
 	}
-	if arch != "x86_64" {
-		return fmt.Errorf("automatic Firecracker kernel provisioning currently supports x86_64 only; set AGENCY_FIRECRACKER_KERNEL to a verified Agency vmlinux for %s", arch)
+	kernelArtifact, err := FirecrackerKernelArtifact(arch)
+	if err != nil {
+		return err
 	}
 
 	home := strings.TrimSpace(opt.Home)
@@ -55,7 +55,7 @@ func ProvisionFirecracker(ctx context.Context, opt FirecrackerOptions) error {
 	}
 	artifactDir := filepath.Join(home, "runtime", "firecracker", "artifacts")
 	binaryPath := firstNonEmpty(opt.BinaryPath, filepath.Join(artifactDir, DefaultFirecrackerVersion, "firecracker-"+DefaultFirecrackerVersion+"-"+arch))
-	kernelPath := firstNonEmpty(opt.KernelPath, filepath.Join(artifactDir, "vmlinux"))
+	kernelPath := firstNonEmpty(opt.KernelPath, filepath.Join(artifactDir, kernelArtifact.FileName))
 
 	if !opt.Force {
 		if executable(binaryPath) && readable(kernelPath) {
@@ -90,7 +90,7 @@ func ProvisionFirecracker(ctx context.Context, opt FirecrackerOptions) error {
 		return nil
 	}
 	logf("Fetching Agency Firecracker kernel artifact")
-	if err := provisionFirecrackerKernel(ctx, client, opt.KernelReleaseBaseURL, opt.AgencyVersion, arch, kernelPath); err != nil {
+	if err := provisionFirecrackerKernel(ctx, client, opt.KernelReleaseBaseURL, kernelArtifact, kernelPath); err != nil {
 		return err
 	}
 	return nil
@@ -126,20 +126,15 @@ func provisionFirecrackerBinary(ctx context.Context, client *http.Client, baseUR
 	return writeExecutable(dest, bin)
 }
 
-func provisionFirecrackerKernel(ctx context.Context, client *http.Client, baseURL, agencyVersion, arch, dest string) error {
+func provisionFirecrackerKernel(ctx context.Context, client *http.Client, baseURL string, artifact KernelArtifact, dest string) error {
 	if baseURL == "" {
-		tag, err := releaseTag(agencyVersion)
-		if err != nil {
-			return err
-		}
-		baseURL = "https://github.com/geoffbelknap/agency/releases/download/" + tag
+		baseURL = artifact.ReleaseBaseURL
 	}
-	asset := KernelAssetPrefix + "_" + arch
-	kernel, err := download(ctx, client, strings.TrimRight(baseURL, "/")+"/"+asset)
+	kernel, err := download(ctx, client, strings.TrimRight(baseURL, "/")+"/"+artifact.AssetName)
 	if err != nil {
 		return err
 	}
-	shaFile, err := download(ctx, client, strings.TrimRight(baseURL, "/")+"/"+asset+".sha256")
+	shaFile, err := download(ctx, client, strings.TrimRight(baseURL, "/")+"/"+artifact.ChecksumName)
 	if err != nil {
 		return err
 	}
@@ -150,10 +145,29 @@ func provisionFirecrackerKernel(ctx context.Context, client *http.Client, baseUR
 	if err := verifySHA256(kernel, expected); err != nil {
 		return fmt.Errorf("verify Firecracker kernel checksum: %w", err)
 	}
-	if len(kernel) < 4 || string(kernel[:4]) != "\x7fELF" {
-		return errors.New("downloaded Firecracker kernel is not an uncompressed ELF vmlinux artifact")
+	if err := validateKernelArtifact(kernel, artifact); err != nil {
+		return err
 	}
 	return writeFile(dest, kernel, 0644)
+}
+
+func validateKernelArtifact(kernel []byte, artifact KernelArtifact) error {
+	if len(kernel) == 0 {
+		return errors.New("downloaded kernel artifact is empty")
+	}
+	switch artifact.Format {
+	case "elf-vmlinux":
+		if len(kernel) < 4 || string(kernel[:4]) != "\x7fELF" {
+			return errors.New("downloaded kernel is not an uncompressed ELF vmlinux artifact")
+		}
+	case "arm64-Image":
+		if len(kernel) < 64 {
+			return errors.New("downloaded ARM64 Image kernel artifact is unexpectedly small")
+		}
+	default:
+		return fmt.Errorf("unsupported kernel artifact format %q", artifact.Format)
+	}
+	return nil
 }
 
 func download(ctx context.Context, client *http.Client, url string) ([]byte, error) {

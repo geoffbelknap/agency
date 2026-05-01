@@ -43,6 +43,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/pkg/envfile"
 	"github.com/geoffbelknap/agency/internal/registry"
 	"github.com/geoffbelknap/agency/internal/routing"
+	"github.com/geoffbelknap/agency/internal/runtimeprovision"
 	"github.com/geoffbelknap/agency/internal/update"
 	"github.com/geoffbelknap/agency/internal/ws"
 )
@@ -755,9 +756,13 @@ func withFirecrackerArtifactConfig(backend string, cfg map[string]string) map[st
 		defaultArch = "aarch64"
 	}
 	defaultVersion := "v1.12.1"
+	defaultKernelPath, err := runtimeprovision.DefaultFirecrackerKernelPath(home, defaultArch)
+	if err != nil {
+		defaultKernelPath = filepath.Join(artifactDir, "vmlinux")
+	}
 	defaults := map[string]string{
 		"binary_path":              filepath.Join(artifactDir, defaultVersion, "firecracker-"+defaultVersion+"-"+defaultArch),
-		"kernel_path":              filepath.Join(artifactDir, "vmlinux"),
+		"kernel_path":              defaultKernelPath,
 		"enforcer_binary_path":     filepath.Join(sourceRoot, "bin", "enforcer"),
 		"vsock_bridge_binary_path": filepath.Join(sourceRoot, "bin", "agency-vsock-http-bridge"),
 		"mke2fs_path":              defaultMke2fsPath(),

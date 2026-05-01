@@ -1,0 +1,16 @@
+BR2_aarch64=y
+BR2_TOOLCHAIN_BUILDROOT_MUSL=y
+BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_6_12=y
+BR2_LINUX_KERNEL=y
+BR2_LINUX_KERNEL_CUSTOM_VERSION=y
+BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="6.12.22"
+BR2_LINUX_KERNEL_USE_CUSTOM_CONFIG=y
+BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_AGENCY_FIRECRACKER_PATH)/board/agency/firecracker/linux-aarch64.config"
+BR2_LINUX_KERNEL_IMAGE=y
+BR2_LINUX_KERNEL_NEEDS_HOST_LIBELF=y
+# Buildroot is used here only to produce a pinned aarch64 Linux Image for
+# Firecracker. Rootfs artifacts must come from Agency's OCI image realization
+# path, shared with Apple VF where possible.
+BR2_INIT_NONE=y
+BR2_PACKAGE_BUSYBOX=n
+BR2_TARGET_ROOTFS_TAR=n

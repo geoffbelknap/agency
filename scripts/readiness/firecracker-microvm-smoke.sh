@@ -4,10 +4,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FIRECRACKER_VERSION="${AGENCY_FIRECRACKER_VERSION:-v1.12.1}"
 FIRECRACKER_ARCH="$(uname -m)"
+case "$FIRECRACKER_ARCH" in
+  arm64) FIRECRACKER_ARCH="aarch64" ;;
+  amd64) FIRECRACKER_ARCH="x86_64" ;;
+esac
 AGENCY_HOME_DIR="${AGENCY_HOME:-$HOME/.agency}"
 ARTIFACT_DIR="${AGENCY_FIRECRACKER_ARTIFACT_DIR:-$AGENCY_HOME_DIR/runtime/firecracker/artifacts}"
 FIRECRACKER_BIN="${AGENCY_FIRECRACKER_BIN:-$ARTIFACT_DIR/$FIRECRACKER_VERSION/firecracker-$FIRECRACKER_VERSION-$FIRECRACKER_ARCH}"
-KERNEL_PATH="${AGENCY_FIRECRACKER_KERNEL:-$ARTIFACT_DIR/vmlinux}"
+if [[ "$FIRECRACKER_ARCH" == "aarch64" ]]; then
+  DEFAULT_KERNEL_PATH="$ARTIFACT_DIR/Image"
+else
+  DEFAULT_KERNEL_PATH="$ARTIFACT_DIR/vmlinux"
+fi
+KERNEL_PATH="${AGENCY_FIRECRACKER_KERNEL:-$DEFAULT_KERNEL_PATH}"
 MKE2FS_PATH="${AGENCY_MKE2FS:-}"
 ENFORCER_BIN="${AGENCY_FIRECRACKER_ENFORCER_BIN:-/tmp/agency-firecracker-enforcer-host}"
 ENFORCER_OCI_REF="${AGENCY_FIRECRACKER_ENFORCER_OCI_REF:-}"
@@ -29,7 +38,7 @@ Usage: ./scripts/readiness/firecracker-microvm-smoke.sh [options]
 Runs a disposable Linux/WSL Firecracker microVM smoke:
   1. verifies KVM/vhost-vsock host access
   2. verifies a pinned upstream Firecracker release binary
-  3. verifies an Agency-built Firecracker-compatible ELF vmlinux kernel
+  3. verifies an Agency-built Firecracker-compatible guest kernel
   4. builds host enforcer and guest vsock bridge helper binaries
   5. builds the agency-body OCI artifact and realizes it as an ext4 rootfs
   6. starts, validates, restarts, stops, and deletes a disposable runtime
@@ -42,7 +51,7 @@ Options:
   --firecracker-bin PATH  Pinned upstream Firecracker binary path.
                            Default: $FIRECRACKER_BIN
   --firecracker-version V Expected Firecracker version. Default: $FIRECRACKER_VERSION
-  --kernel PATH           Agency Linux build artifact vmlinux path.
+  --kernel PATH           Agency Linux build artifact path.
                            Default: $KERNEL_PATH
   --mke2fs PATH           mke2fs path. Defaults to PATH lookup.
   --enforcer-bin PATH     Host-process enforcer output path.
@@ -76,7 +85,7 @@ Environment:
 
 Firecracker artifacts are intentionally explicit:
   - firecracker binary: upstream release artifact pinned by version
-  - kernel: Agency Linux build artifact vmlinux, not a host distro kernel
+  - kernel: Agency Linux build artifact, not a host distro kernel
   - rootfs: versioned OCI artifact realized through the shared OCI-to-ext4 path
 EOF
 }
@@ -206,7 +215,10 @@ verify_firecracker_binary() {
 }
 
 verify_kernel() {
-  [[ -r "$KERNEL_PATH" ]] || fail "Firecracker vmlinux is not readable at $KERNEL_PATH"
+  [[ -r "$KERNEL_PATH" ]] || fail "Firecracker kernel is not readable at $KERNEL_PATH"
+  if [[ "$FIRECRACKER_ARCH" == "aarch64" ]]; then
+    return
+  fi
   python3 - "$KERNEL_PATH" <<'PY'
 import pathlib
 import sys
