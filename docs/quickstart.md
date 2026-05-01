@@ -60,9 +60,10 @@ make firecracker-helpers
 
 The script uses Homebrew on macOS/Linuxbrew when available, or common Linux
 package managers such as `apt-get`, `dnf`, `yum`, `pacman`, or `zypper`. It
-installs system packages such as Python, e2fsprogs, and Node, then installs the
-pinned mitmproxy, egress addon, and web UI dependencies into the installed
-Agency asset tree.
+installs system packages such as Python and e2fsprogs, then installs the
+pinned Python dependencies used by the bundled host-managed infrastructure
+services into the installed Agency asset tree. Packaged installs ship prebuilt
+web UI assets; Node/npm are only needed when building the web UI from source.
 
 Dockerfiles remain part of Agency because they define OCI filesystem recipes
 that microVM backends can convert into bootable root filesystems. Docker,

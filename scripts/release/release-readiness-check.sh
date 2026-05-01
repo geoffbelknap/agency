@@ -25,14 +25,18 @@ usage() {
   cat <<'EOF'
 Usage:
   ./scripts/release/release-readiness-check.sh preflight --version <semver>
+  ./scripts/release/release-readiness-check.sh package-smoke
   ./scripts/release/release-readiness-check.sh published [--tag vX.Y.Z]
 
 Modes:
   preflight   Validate local release wiring and build a stamped binary.
+  package-smoke
+              Build a snapshot release archive and validate packaged host infra deps.
   published   Validate an already-published release, Homebrew formula, and GHCR runtime artifacts.
 
 Examples:
   ./scripts/release/release-readiness-check.sh preflight --version 0.2.0
+  ./scripts/release/release-readiness-check.sh package-smoke
   ./scripts/release/release-readiness-check.sh published --tag v0.2.0
 EOF
 }
@@ -168,6 +172,66 @@ check_required_files() {
   done
 }
 
+host_os() {
+  case "$(uname -s)" in
+    Darwin) printf 'darwin' ;;
+    Linux) printf 'linux' ;;
+    *) fail "Unsupported package smoke OS: $(uname -s)" ;;
+  esac
+}
+
+host_arch() {
+  case "$(uname -m)" in
+    arm64|aarch64) printf 'arm64' ;;
+    x86_64|amd64) printf 'amd64' ;;
+    *) fail "Unsupported package smoke architecture: $(uname -m)" ;;
+  esac
+}
+
+run_package_smoke() {
+  require_cmd goreleaser
+  require_cmd npm
+  require_cmd python3
+  require_cmd tar
+  check_required_files
+
+  local os
+  local arch
+  local archive
+  local tmp
+
+  os="$(host_os)"
+  arch="$(host_arch)"
+
+  log "Building snapshot release archive for package smoke"
+  (cd "$ROOT_DIR" && goreleaser release --snapshot --clean --skip=publish)
+
+  archive="$(find "$ROOT_DIR/dist" -maxdepth 1 -type f -name "agency_*_${os}_${arch}.tar.gz" | sort | tail -n1)"
+  [ -n "$archive" ] || fail "Snapshot archive for ${os}/${arch} was not produced"
+
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/agency-package-smoke.XXXXXX")"
+  tar -xzf "$archive" -C "$tmp"
+
+  [ -x "$tmp/agency" ] || fail "Package archive missing executable agency binary"
+  [ -f "$tmp/web/dist/index.html" ] || fail "Package archive missing prebuilt web/dist/index.html"
+  [ ! -f "$tmp/web/package.json" ] || fail "Package archive contains web/package.json; packaged installs must not run npm"
+  [ -f "$tmp/services/comms/server.py" ] || fail "Package archive missing comms service"
+  [ -f "$tmp/services/knowledge/server.py" ] || fail "Package archive missing knowledge service"
+
+  log "Installing packaged host Python dependencies into a fresh venv"
+  AGENCY_PYTHON_VENV="$tmp/.venv" "$tmp/scripts/install/host-dependencies.sh" --skip-system-packages
+
+  log "Importing packaged host infrastructure services"
+  (cd "$tmp" && PYTHONPATH="$tmp" "$tmp/.venv/bin/python" - <<'PY'
+import services.comms.server
+import services.knowledge.server
+PY
+  )
+
+  rm -rf "$tmp"
+  log "Package smoke passed"
+}
+
 check_runtime_artifact_manifest() {
   local image_ref="$1"
   local attempt
@@ -209,6 +273,10 @@ run_preflight() {
     fail "Stamped binary did not report commit/build ID ${short_commit}"
   printf '%s\n' "$version_out" | grep -q "unknown" &&
     fail "Stamped binary still reports unknown metadata"
+
+  if [ "${AGENCY_RELEASE_SKIP_PACKAGE_SMOKE:-0}" != "1" ]; then
+    run_package_smoke
+  fi
 
   log "Preflight passed"
 }
@@ -282,6 +350,9 @@ main() {
       ;;
     published)
       run_published
+      ;;
+    package-smoke)
+      run_package_smoke
       ;;
     *)
       fail "Unknown mode: $MODE"

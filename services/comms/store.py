@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from typing import Optional
-from images.models.comms import Channel, ChannelState, ChannelType, Message, MessageFlags
+from services.comms.models import Channel, ChannelState, ChannelType, Message, MessageFlags
 
 log = logging.getLogger("agency.comms.store")
 

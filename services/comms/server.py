@@ -52,8 +52,7 @@ from services.comms.matcher import Matcher
 from services.comms.store import MessageStore
 from services.comms.subscriptions import SubscriptionManager
 from services.comms.websocket import fan_out_message, push_to_agent, setup_websocket
-from images.models.comms import ChannelState, ChannelType
-from images.models.subscriptions import InterestDeclaration
+from services.comms.models import ChannelState, ChannelType, InterestDeclaration
 
 logger = logging.getLogger("agency.comms")
 
@@ -941,7 +940,7 @@ async def handle_register_expertise(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({"error": "invalid JSON body"}, status=400)
 
-    from images.models.subscriptions import ExpertiseDeclaration
+    from services.comms.models import ExpertiseDeclaration
     try:
         declaration = ExpertiseDeclaration.model_validate(body)
     except Exception as e:
