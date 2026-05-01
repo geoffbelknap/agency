@@ -117,9 +117,9 @@ verify them yourself from a source checkout:
 The script uses Homebrew on macOS/Linuxbrew when available, or common Linux
 package managers such as `apt-get`, `dnf`, `yum`, `pacman`, or `zypper`. It
 installs system packages such as Python and e2fsprogs, then installs the
-pinned mitmproxy and egress addon dependencies into the installed Agency asset
-tree. Packaged installs ship prebuilt web UI assets; Node/npm are only needed
-when building the web UI from source.
+pinned Python dependencies used by the bundled host-managed infrastructure
+services into the installed Agency asset tree. Packaged installs ship prebuilt
+web UI assets; Node/npm are only needed when building the web UI from source.
 
 Dockerfiles remain part of Agency as OCI filesystem recipes. Docker, Podman,
 containerd, and Apple Container execution backends are legacy paths and are no

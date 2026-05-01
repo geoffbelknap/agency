@@ -13,11 +13,16 @@ WEB_DIST="$WEB_DIR/dist/index.html"
 NPM_CACHE_DIR="${AGENCY_NPM_CACHE:-$ROOT_DIR/.cache/npm}"
 PIP_CACHE_DIR="${AGENCY_PIP_CACHE:-$VENV_DIR/.cache/pip}"
 PYTHON_DEPS=(
+  "httpx==0.28.1"
+  "aiohttp==3.13.3"
+  "pydantic==2.12.5"
   "mitmproxy==12.2.1"
   "pyyaml==6.0.3"
   "PyJWT==2.12.1"
   "cryptography==46.0.6"
   "requests==2.32.3"
+  "sqlite-vec>=0.1.0"
+  "networkx>=3.0"
 )
 
 usage() {
@@ -25,7 +30,7 @@ usage() {
 Usage: scripts/install/host-dependencies.sh [--check|--dry-run|--skip-system-packages]
 
 Installs host tools required by Agency's supported microVM runtime path:
-  - mitmproxy/mitmdump plus addon Python packages for host-managed egress
+  - Python packages for bundled host-managed infrastructure services
   - e2fsprogs/mke2fs for microVM rootfs image creation
   - prebuilt host-managed web assets, or Node/npm only for source web builds
 
@@ -161,10 +166,15 @@ python_bin() {
 venv_ready() {
 	[ -x "$VENV_PYTHON" ] || return 1
 	[ -x "$VENV_MITMDUMP" ] || return 1
-	"$VENV_PYTHON" - <<'PY' >/dev/null 2>&1
+"$VENV_PYTHON" - <<'PY' >/dev/null 2>&1
+import aiohttp
 import cryptography
+import httpx
 import jwt
+import networkx
+import pydantic
 import requests
+import sqlite_vec
 import yaml
 PY
 }
@@ -287,7 +297,7 @@ case "$MODE" in
 			printf 'missing host tools: %s\n' "${missing[*]}" >&2
 		fi
 		if ! venv_ready; then
-			printf 'missing host egress Python environment: %s\n' "$VENV_DIR" >&2
+			printf 'missing host infrastructure Python environment: %s\n' "$VENV_DIR" >&2
 		fi
 		if ! web_deps_ready; then
 			printf 'missing host web npm dependencies: %s\n' "$WEB_DIR" >&2
@@ -324,7 +334,7 @@ if [ "$INSTALL_SYSTEM_PACKAGES" -eq 1 ]; then
 	log "installing host dependencies with $manager: $packages"
 	install_packages "$manager"
 fi
-log "installing host egress Python dependencies into $VENV_DIR"
+log "installing host infrastructure Python dependencies into $VENV_DIR"
 install_python_deps
 if ! web_deps_ready; then
 	log "installing host web dependencies in $WEB_DIR"

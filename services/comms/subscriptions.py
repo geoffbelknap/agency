@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from typing import Optional
-from images.models.subscriptions import ExpertiseDeclaration, ExpertiseTier, InterestDeclaration
+from services.comms.models import ExpertiseDeclaration, ExpertiseTier, InterestDeclaration
 
 logger = logging.getLogger("agency.comms.subscriptions")
 
