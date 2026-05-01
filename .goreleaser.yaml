@@ -67,6 +67,7 @@ brews:
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     name: agency
+    skip_upload: "{{ .Prerelease }}"
     homepage: "https://github.com/geoffbelknap/agency"
     description: "Agency — An operating system for AI agents"
     dependencies:
