@@ -7,6 +7,7 @@ HELPER_BIN="${AGENCY_APPLE_VF_HELPER_BIN:-$ROOT/tools/apple-vf-helper/.build/rel
 KERNEL_PATH="${AGENCY_APPLE_VF_KERNEL:-$HOME/.agency/runtime/apple-vf-microvm/artifacts/Image}"
 MKE2FS_PATH="${AGENCY_MKE2FS:-}"
 ENFORCER_BIN="${AGENCY_APPLE_VF_ENFORCER_BIN:-/tmp/agency-enforcer-host}"
+ENFORCER_OCI_REF="${AGENCY_APPLE_VF_ENFORCER_OCI_REF:-}"
 VSOCK_BRIDGE_BIN="${AGENCY_APPLE_VF_VSOCK_BRIDGE_BIN:-/tmp/agency-vsock-http-bridge-linux-arm64}"
 AGENT_NAME="${AGENT_NAME:-apple-vf-lifecycle-$(date +%s)}"
 ROOTFS_SIZE_MIB="${AGENCY_APPLE_VF_ROOTFS_SIZE_MIB:-1024}"
@@ -44,6 +45,9 @@ Options:
   --kernel PATH           Linux ARM64 kernel Image path.
   --mke2fs PATH           mke2fs path. Defaults to PATH lookup, then Homebrew e2fsprogs.
   --enforcer-bin PATH     Host-process enforcer output path.
+  --enforcer-oci-ref REF  Versioned enforcer OCI artifact reference. When set,
+                          extracts darwin/arm64 /usr/local/bin/enforcer and
+                          uses it as the host-process enforcer binary.
   --vsock-bridge-bin PATH Linux ARM64 agency-vsock-http-bridge output path.
   --rootfs-oci-ref REF    Versioned OCI artifact reference for the body rootfs source.
   --rootfs-size-mib N     Rootfs image size. Defaults to 1024.
@@ -57,6 +61,7 @@ Environment:
   AGENCY_APPLE_VF_KERNEL
   AGENCY_MKE2FS
   AGENCY_APPLE_VF_ENFORCER_BIN
+  AGENCY_APPLE_VF_ENFORCER_OCI_REF
   AGENCY_APPLE_VF_VSOCK_BRIDGE_BIN
   AGENCY_APPLE_VF_ROOTFS_OCI_REF
   AGENCY_APPLE_VF_ROOTFS_SIZE_MIB
@@ -141,6 +146,11 @@ while [[ $# -gt 0 ]]; do
     --enforcer-bin)
       [[ $# -ge 2 ]] || fail "--enforcer-bin requires a path"
       ENFORCER_BIN="$2"
+      shift 2
+      ;;
+    --enforcer-oci-ref)
+      [[ $# -ge 2 ]] || fail "--enforcer-oci-ref requires a ref"
+      ENFORCER_OCI_REF="$2"
       shift 2
       ;;
     --vsock-bridge-bin)
@@ -402,8 +412,17 @@ log "Building Agency gateway"
 go build -o "$AGENCY_BIN" ./cmd/gateway
 [[ -x "$AGENCY_BIN" ]] || fail "Agency build did not produce $AGENCY_BIN"
 
-log "Building host-process enforcer"
-(cd "$ROOT/images/enforcer" && go build -o "$ENFORCER_BIN" .)
+if [[ -n "$ENFORCER_OCI_REF" ]]; then
+  log "Extracting host-process enforcer from OCI artifact"
+  go run ./cmd/runtime-oci-artifact \
+    --extract-ref "$ENFORCER_OCI_REF" \
+    --extract-path /usr/local/bin/enforcer \
+    --output "$ENFORCER_BIN" \
+    --platform darwin/arm64
+else
+  log "Building host-process enforcer"
+  (cd "$ROOT/images/enforcer" && go build -o "$ENFORCER_BIN" .)
+fi
 [[ -x "$ENFORCER_BIN" ]] || fail "host enforcer build did not produce $ENFORCER_BIN"
 
 log "Building Linux ARM64 guest vsock bridge"

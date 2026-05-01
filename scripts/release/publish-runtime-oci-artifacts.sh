@@ -104,6 +104,8 @@ log "Building enforcer binaries"
   cd "$ROOT_DIR/images/enforcer"
   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o "$WORK_DIR/bin/enforcer-linux-amd64" .
   CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o "$WORK_DIR/bin/enforcer-linux-arm64" .
+  CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o "$WORK_DIR/bin/enforcer-darwin-amd64" .
+  CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o "$WORK_DIR/bin/enforcer-darwin-arm64" .
 )
 
 ca_bundle="/etc/ssl/certs/ca-certificates.crt"
@@ -128,4 +130,6 @@ go run ./cmd/runtime-oci-artifact \
   --build-id "$BUILD_ID" \
   --enforcer-amd64 "$WORK_DIR/bin/enforcer-linux-amd64" \
   --enforcer-arm64 "$WORK_DIR/bin/enforcer-linux-arm64" \
+  --enforcer-darwin-amd64 "$WORK_DIR/bin/enforcer-darwin-amd64" \
+  --enforcer-darwin-arm64 "$WORK_DIR/bin/enforcer-darwin-arm64" \
   --ca-bundle "$ca_bundle"
