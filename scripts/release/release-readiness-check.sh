@@ -165,6 +165,7 @@ check_required_files() {
     ".github/workflows/release.yaml"
     ".github/workflows/release-runtime-artifacts.yml"
     ".goreleaser.yaml"
+    ".goreleaser.rc.yaml"
   )
   local file
   for file in "${files[@]}"; do

@@ -66,12 +66,11 @@ brews:
       owner: geoffbelknap
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    name: agency
-    skip_upload: auto
+    name: agency-rc
     homepage: "https://github.com/geoffbelknap/agency"
-    description: "Agency — An operating system for AI agents"
+    description: "Agency — An operating system for AI agents (release candidate)"
     conflicts:
-      - agency-rc
+      - agency
     dependencies:
       - name: python
       - name: e2fsprogs
@@ -85,6 +84,9 @@ brews:
       ENV["AGENCY_PYTHON_VENV"] = "#{pkgshare}/.venv"
       system "#{pkgshare}/scripts/install/host-dependencies.sh", "--skip-system-packages"
     caveats: |
+      This formula installs the Agency release-candidate channel.
+      It conflicts with the stable agency formula because both install `agency`.
+
       Start here:
 
         agency quickstart
