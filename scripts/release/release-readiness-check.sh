@@ -94,6 +94,8 @@ expected = [
     f"agency_{version}_darwin_arm64.tar.gz",
     f"agency_{version}_linux_amd64.tar.gz",
     f"agency_{version}_linux_arm64.tar.gz",
+    "agency-firecracker-vmlinux_x86_64",
+    "agency-firecracker-vmlinux_x86_64.sha256",
     "checksums.txt",
 ]
 missing = [name for name in expected if name not in assets]

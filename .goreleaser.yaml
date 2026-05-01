@@ -94,11 +94,10 @@ brews:
         - e2fsprogs: mke2fs for microVM root filesystem creation
 
       Linux and WSL Firecracker setup:
-        Before running quickstart, provision the pinned Firecracker binary and
-        Agency kernel artifact with the packaged readiness scripts:
+        agency quickstart provisions the pinned Firecracker binary and Agency
+        vmlinux artifact when they are missing. To provision them explicitly:
 
-          #{pkgshare}/scripts/readiness/firecracker-artifacts.sh
-          #{pkgshare}/scripts/readiness/firecracker-kernel-artifacts.sh
+          agency runtime provision firecracker
 
       Quick start guide: https://github.com/geoffbelknap/agency#readme
     test: |

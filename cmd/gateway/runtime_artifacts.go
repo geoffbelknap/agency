@@ -1,14 +1,18 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/geoffbelknap/agency/internal/config"
 	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
+	"github.com/geoffbelknap/agency/internal/runtimeprovision"
 )
 
 func verifyMicroVMRuntimeArtifacts(backend string, cfg map[string]string) error {
@@ -20,6 +24,36 @@ func verifyMicroVMRuntimeArtifacts(backend string, cfg map[string]string) error 
 	default:
 		return nil
 	}
+}
+
+func ensureMicroVMRuntimeArtifacts(ctx context.Context, backend string, cfg map[string]string, logf func(string, ...any)) error {
+	err := verifyMicroVMRuntimeArtifacts(backend, cfg)
+	if err == nil {
+		return nil
+	}
+	if backend != hostruntimebackend.BackendFirecracker {
+		return err
+	}
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+	logf("Firecracker runtime artifacts are missing; provisioning pinned artifacts")
+	if provisionErr := runtimeprovision.ProvisionFirecracker(ctx, runtimeprovision.FirecrackerOptions{
+		AgencyVersion:        version,
+		Home:                 configHome(),
+		BinaryPath:           cfg["binary_path"],
+		KernelPath:           cfg["kernel_path"],
+		FirecrackerBaseURL:   strings.TrimSpace(os.Getenv("AGENCY_FIRECRACKER_RELEASE_BASE_URL")),
+		KernelReleaseBaseURL: strings.TrimSpace(os.Getenv("AGENCY_FIRECRACKER_KERNEL_RELEASE_BASE_URL")),
+		Logf:                 logf,
+	}); provisionErr != nil {
+		return fmt.Errorf("%w\nAutomatic Firecracker artifact provisioning failed: %v", err, provisionErr)
+	}
+	return verifyMicroVMRuntimeArtifacts(backend, cfg)
+}
+
+func configHome() string {
+	return config.Load().Home
 }
 
 func verifyAppleVFRuntimeArtifacts(cfg map[string]string) error {
@@ -36,7 +70,7 @@ func verifyAppleVFRuntimeArtifacts(cfg map[string]string) error {
 func verifyFirecrackerRuntimeArtifacts(cfg map[string]string) error {
 	var missing []string
 	requireExecutable(&missing, "Firecracker binary", cfg["binary_path"], "run scripts/readiness/firecracker-artifacts.sh or set AGENCY_FIRECRACKER_BIN/hub.deployment_backend_config.binary_path")
-	requireReadable(&missing, "Firecracker kernel", cfg["kernel_path"], "run scripts/readiness/firecracker-kernel-artifacts.sh or set AGENCY_FIRECRACKER_KERNEL/hub.deployment_backend_config.kernel_path")
+	requireELFKernel(&missing, "Firecracker kernel", cfg["kernel_path"], "run agency runtime provision firecracker or set AGENCY_FIRECRACKER_KERNEL/hub.deployment_backend_config.kernel_path to a verified Agency vmlinux")
 	requireExecutable(&missing, "mke2fs", cfg["mke2fs_path"], "install e2fsprogs or set AGENCY_MKE2FS/hub.deployment_backend_config.mke2fs_path")
 	if strings.TrimSpace(cfg["enforcement_mode"]) != hostruntimebackend.FirecrackerEnforcementModeMicroVM {
 		requireExecutable(&missing, "Firecracker host enforcer", cfg["enforcer_binary_path"], "run make firecracker-helpers or set AGENCY_FIRECRACKER_ENFORCER_BIN/hub.deployment_backend_config.enforcer_binary_path")
@@ -58,6 +92,37 @@ func requireReadable(missing *[]string, label, path, fix string) {
 	}
 	if info.IsDir() {
 		*missing = append(*missing, fmt.Sprintf("%s: %s is a directory; %s", label, resolved, fix))
+	}
+}
+
+func requireELFKernel(missing *[]string, label, path, fix string) {
+	resolved, err := resolveArtifactPath(path)
+	if err != nil {
+		*missing = append(*missing, fmt.Sprintf("%s: %v; %s", label, err, fix))
+		return
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		*missing = append(*missing, fmt.Sprintf("%s: %s is not readable: %v; %s", label, resolved, err, fix))
+		return
+	}
+	if info.IsDir() {
+		*missing = append(*missing, fmt.Sprintf("%s: %s is a directory; %s", label, resolved, fix))
+		return
+	}
+	f, err := os.Open(resolved)
+	if err != nil {
+		*missing = append(*missing, fmt.Sprintf("%s: %s is not readable: %v; %s", label, resolved, err, fix))
+		return
+	}
+	defer f.Close()
+	var magic [4]byte
+	if _, err := io.ReadFull(f, magic[:]); err != nil {
+		*missing = append(*missing, fmt.Sprintf("%s: %s could not be read as an uncompressed ELF vmlinux: %v; %s", label, resolved, err, fix))
+		return
+	}
+	if string(magic[:]) != "\x7fELF" {
+		*missing = append(*missing, fmt.Sprintf("%s: %s is not an uncompressed ELF vmlinux artifact; %s", label, resolved, fix))
 	}
 }
 

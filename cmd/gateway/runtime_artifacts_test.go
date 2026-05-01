@@ -50,7 +50,7 @@ func TestVerifyFirecrackerRuntimeArtifactsPassesWithConfiguredArtifacts(t *testi
 	dir := t.TempDir()
 	cfg := map[string]string{
 		"binary_path":              executableFixture(t, dir, "firecracker"),
-		"kernel_path":              readableFixture(t, dir, "vmlinux"),
+		"kernel_path":              kernelFixture(t, dir, "vmlinux"),
 		"mke2fs_path":              executableFixture(t, dir, "mke2fs"),
 		"enforcer_binary_path":     executableFixture(t, dir, "enforcer"),
 		"vsock_bridge_binary_path": executableFixture(t, dir, "bridge"),
@@ -73,6 +73,15 @@ func readableFixture(t *testing.T, dir, name string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, []byte("fixture"), 0644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	return path
+}
+
+func kernelFixture(t *testing.T, dir, name string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, append([]byte("\x7fELF"), []byte("fixture")...), 0644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
 	return path
