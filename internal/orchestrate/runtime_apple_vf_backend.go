@@ -55,7 +55,11 @@ func (b *appleVFComponentRuntimeBackend) EnsureEnforcer(ctx context.Context, spe
 	if err := b.enforcerSupervisor().Start(ctx, launchSpec, appleVFHostServiceURLs()); err != nil {
 		return err
 	}
-	return b.enforcerSupervisor().HealthCheck(ctx, spec.RuntimeID, 30*time.Second)
+	if err := b.enforcerSupervisor().HealthCheck(ctx, spec.RuntimeID, 30*time.Second); err != nil {
+		_ = b.enforcerSupervisor().Stop(context.Background(), spec.RuntimeID)
+		return err
+	}
+	return nil
 }
 
 func (b *appleVFComponentRuntimeBackend) EnsureWorkspace(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
@@ -68,7 +72,11 @@ func (b *appleVFComponentRuntimeBackend) EnsureWorkspace(ctx context.Context, sp
 	if err := b.EnsureEnforcer(ctx, spec, false); err != nil {
 		return err
 	}
-	return b.backend.Ensure(ctx, spec)
+	if err := b.backend.Ensure(ctx, spec); err != nil {
+		_ = b.enforcerSupervisor().Stop(context.Background(), spec.RuntimeID)
+		return err
+	}
+	return nil
 }
 
 func (b *appleVFComponentRuntimeBackend) ReloadEnforcer(ctx context.Context, spec runtimecontract.RuntimeSpec) error {

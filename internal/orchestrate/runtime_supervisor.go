@@ -102,9 +102,13 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 		})
 	}
 	if features.Enabled(features.AppleVFMicroVM) || rs.BackendName == hostruntimebackend.BackendAppleVFMicroVM {
+		var appleVFBackend *appleVFComponentRuntimeBackend
 		rs.registry.Register(hostruntimebackend.BackendAppleVFMicroVM, func() (runtimecontract.Backend, error) {
+			if appleVFBackend != nil {
+				return appleVFBackend, nil
+			}
 			backend := hostruntimebackend.NewAppleVFMicroVMRuntimeBackend(rs.Home, rs.BackendConfig)
-			return &appleVFComponentRuntimeBackend{
+			appleVFBackend = &appleVFComponentRuntimeBackend{
 				backend: backend,
 				enforcers: &agentruntime.HostEnforcerSupervisor{
 					BinaryPath: strings.TrimSpace(rs.BackendConfig["enforcer_binary_path"]),
@@ -114,7 +118,8 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 				version:   rs.Version,
 				sourceDir: rs.SourceDir,
 				buildID:   rs.BuildID,
-			}, nil
+			}
+			return appleVFBackend, nil
 		})
 	}
 	rs.registry.Register(probeRuntimeBackendName, func() (runtimecontract.Backend, error) {
