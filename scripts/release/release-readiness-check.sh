@@ -11,6 +11,12 @@ EXPECTED_RUNTIME_ARTIFACTS=(
   agency-runtime-body
   agency-runtime-enforcer
 )
+KERNEL_RELEASE_TAG="agency-kernels-6.12.22-agency1"
+EXPECTED_KERNEL_ARTIFACTS=(
+  agency-kernel-6.12.22-firecracker-x86_64
+  agency-kernel-6.12.22-firecracker-aarch64
+  agency-kernel-6.12.22-apple-vf-arm64
+)
 
 log() {
   printf '==> %s\n' "$*"
@@ -89,29 +95,23 @@ check_release_assets() {
   local release_json
   local release_file
   local checksum_file
-  local kernel_checksum_file
   release_json="$(gh release view "$tag" --json assets)"
   release_file="$(mktemp)"
   checksum_file="$(mktemp)"
-  kernel_checksum_file="$(mktemp)"
   printf '%s' "$release_json" >"$release_file"
   curl -fsSL "https://github.com/geoffbelknap/agency/releases/download/${tag}/checksums.txt" >"$checksum_file"
-  curl -fsSL "https://github.com/geoffbelknap/agency/releases/download/${tag}/agency-firecracker-vmlinux_x86_64.sha256" >"$kernel_checksum_file"
 
-  python3 - "$version" "$release_file" "$checksum_file" "$kernel_checksum_file" <<'PY'
+  python3 - "$version" "$release_file" "$checksum_file" <<'PY'
 import json
 import sys
 
 version = sys.argv[1]
 release_file = sys.argv[2]
 checksum_file = sys.argv[3]
-kernel_checksum_file = sys.argv[4]
 with open(release_file, "r", encoding="utf-8") as fh:
     data = json.load(fh)
 with open(checksum_file, "r", encoding="utf-8") as fh:
     checksums = fh.read()
-with open(kernel_checksum_file, "r", encoding="utf-8") as fh:
-    kernel_checksum = fh.read()
 assets = {asset["name"]: asset for asset in data.get("assets", [])}
 archive_assets = [
     f"agency_{version}_darwin_amd64.tar.gz",
@@ -121,8 +121,6 @@ archive_assets = [
 ]
 expected = [
     *archive_assets,
-    "agency-firecracker-vmlinux_x86_64",
-    "agency-firecracker-vmlinux_x86_64.sha256",
     "checksums.txt",
 ]
 missing = [name for name in expected if name not in assets]
@@ -133,11 +131,44 @@ for name in archive_assets:
     if name not in checksums:
         print(f"checksums.txt missing checksum entry for {name}", file=sys.stderr)
         sys.exit(1)
-if "agency-firecracker-vmlinux_x86_64" not in kernel_checksum:
-    print("kernel checksum file missing vmlinux entry", file=sys.stderr)
+PY
+  rm -f "$release_file" "$checksum_file"
+}
+
+check_kernel_release_assets() {
+  local kernel_json
+  local kernel_file
+  local asset
+  local checksum_file
+  gh release view "$KERNEL_RELEASE_TAG" >/dev/null ||
+    fail "GitHub kernel artifact release ${KERNEL_RELEASE_TAG} does not exist"
+  kernel_json="$(gh release view "$KERNEL_RELEASE_TAG" --json assets)"
+  kernel_file="$(mktemp)"
+  printf '%s' "$kernel_json" >"$kernel_file"
+  python3 - "$kernel_file" "$KERNEL_RELEASE_TAG" "${EXPECTED_KERNEL_ARTIFACTS[@]}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as fh:
+    data = json.load(fh)
+assets = {asset["name"] for asset in data.get("assets", [])}
+missing = []
+for name in sys.argv[3:]:
+    missing.extend(candidate for candidate in (name, name + ".sha256") if candidate not in assets)
+manifest = sys.argv[2] + ".manifest.json"
+if manifest not in assets:
+    missing.append(manifest)
+if missing:
+    print(f"missing kernel release assets: {missing}", file=sys.stderr)
     sys.exit(1)
 PY
-  rm -f "$release_file" "$checksum_file" "$kernel_checksum_file"
+  for asset in "${EXPECTED_KERNEL_ARTIFACTS[@]}"; do
+    checksum_file="$(mktemp)"
+    curl -fsSL "https://github.com/geoffbelknap/agency/releases/download/${KERNEL_RELEASE_TAG}/${asset}.sha256" >"$checksum_file"
+    grep -q "$asset" "$checksum_file" || fail "kernel checksum sidecar missing asset name for ${asset}"
+    rm -f "$checksum_file"
+  done
+  rm -f "$kernel_file"
 }
 
 check_formula_sha_matches_release() {
@@ -198,6 +229,7 @@ PY
 check_required_files() {
   local files=(
     ".github/workflows/release.yaml"
+    ".github/workflows/release-kernel-artifacts.yml"
     ".github/workflows/release-runtime-artifacts.yml"
     ".goreleaser.yaml"
     ".goreleaser.rc.yaml"
@@ -259,6 +291,8 @@ run_package_smoke() {
   [ -f "$tmp/scripts/readiness/firecracker-artifacts.sh" ] || fail "Package archive missing Firecracker binary provisioning script"
   [ -f "$tmp/scripts/readiness/firecracker-kernel-artifacts.sh" ] || fail "Package archive missing Firecracker kernel provisioning script"
   [ -f "$tmp/images/firecracker/buildroot/configs/agency_firecracker_x86_64_defconfig" ] || fail "Package archive missing Firecracker Buildroot config"
+  [ -f "$tmp/images/firecracker/buildroot/configs/agency_firecracker_aarch64_defconfig" ] || fail "Package archive missing Firecracker aarch64 Buildroot config"
+  [ -f "$tmp/images/firecracker/buildroot/board/agency/firecracker/linux-aarch64.config" ] || fail "Package archive missing Firecracker aarch64 Linux config"
 
   log "Installing packaged host Python dependencies into a fresh venv"
   AGENCY_PYTHON_VENV="$tmp/.venv" "$tmp/scripts/install/host-dependencies.sh" --skip-system-packages
@@ -346,6 +380,7 @@ run_published() {
   log "Checking published release ${TARGET_TAG}"
   check_release_exists "$TARGET_TAG"
   check_release_assets "$TARGET_TAG"
+  check_kernel_release_assets
   check_formula_for_tag "$TARGET_TAG"
   check_formula_sha_matches_release "$TARGET_TAG"
 

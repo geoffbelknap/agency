@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/geoffbelknap/agency/internal/config"
@@ -30,6 +31,21 @@ func ensureMicroVMRuntimeArtifacts(ctx context.Context, backend string, cfg map[
 	err := verifyMicroVMRuntimeArtifacts(backend, cfg)
 	if err == nil {
 		return nil
+	}
+	if backend == hostruntimebackend.BackendAppleVFMicroVM {
+		if logf == nil {
+			logf = func(string, ...any) {}
+		}
+		logf("Apple VF runtime artifacts are missing; provisioning pinned guest kernel artifact")
+		if provisionErr := runtimeprovision.ProvisionAppleVFKernel(ctx, runtimeprovision.AppleVFOptions{
+			Home:                 configHome(),
+			KernelPath:           cfg["kernel_path"],
+			KernelReleaseBaseURL: strings.TrimSpace(os.Getenv("AGENCY_APPLE_VF_KERNEL_RELEASE_BASE_URL")),
+			Logf:                 logf,
+		}); provisionErr != nil {
+			return fmt.Errorf("%w\nAutomatic Apple VF kernel provisioning failed: %v", err, provisionErr)
+		}
+		return verifyMicroVMRuntimeArtifacts(backend, cfg)
 	}
 	if backend != hostruntimebackend.BackendFirecracker {
 		return err
@@ -70,7 +86,11 @@ func verifyAppleVFRuntimeArtifacts(cfg map[string]string) error {
 func verifyFirecrackerRuntimeArtifacts(cfg map[string]string) error {
 	var missing []string
 	requireExecutable(&missing, "Firecracker binary", cfg["binary_path"], "run scripts/readiness/firecracker-artifacts.sh or set AGENCY_FIRECRACKER_BIN/hub.deployment_backend_config.binary_path")
-	requireELFKernel(&missing, "Firecracker kernel", cfg["kernel_path"], "run agency runtime provision firecracker or set AGENCY_FIRECRACKER_KERNEL/hub.deployment_backend_config.kernel_path to a verified Agency vmlinux")
+	if runtime.GOARCH == "arm64" {
+		requireReadable(&missing, "Firecracker kernel", cfg["kernel_path"], "run agency runtime provision firecracker or set AGENCY_FIRECRACKER_KERNEL/hub.deployment_backend_config.kernel_path to a verified Agency arm64 Image")
+	} else {
+		requireELFKernel(&missing, "Firecracker kernel", cfg["kernel_path"], "run agency runtime provision firecracker or set AGENCY_FIRECRACKER_KERNEL/hub.deployment_backend_config.kernel_path to a verified Agency vmlinux")
+	}
 	requireExecutable(&missing, "mke2fs", cfg["mke2fs_path"], "install e2fsprogs or set AGENCY_MKE2FS/hub.deployment_backend_config.mke2fs_path")
 	if strings.TrimSpace(cfg["enforcement_mode"]) != hostruntimebackend.FirecrackerEnforcementModeMicroVM {
 		requireExecutable(&missing, "Firecracker host enforcer", cfg["enforcer_binary_path"], "run make firecracker-helpers or set AGENCY_FIRECRACKER_ENFORCER_BIN/hub.deployment_backend_config.enforcer_binary_path")

@@ -95,7 +95,7 @@ brews:
 
       Linux and WSL Firecracker setup:
         agency quickstart provisions the pinned Firecracker binary and Agency
-        vmlinux artifact when they are missing. To provision them explicitly:
+        guest kernel artifact when they are missing. To provision them explicitly:
 
           agency runtime provision firecracker
 

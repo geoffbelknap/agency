@@ -11,27 +11,55 @@ BUILDROOT_SIGN_URL="$BUILDROOT_URL.sign"
 BUILDROOT_TARBALL="$BUILD_DIR/downloads/buildroot-${BUILDROOT_VERSION}.tar.xz"
 BUILDROOT_SIGN="$BUILDROOT_TARBALL.sign"
 BUILDROOT_SRC="$BUILD_DIR/src/buildroot-${BUILDROOT_VERSION}"
-BUILDROOT_OUTPUT="$BUILD_DIR/output"
+BUILDROOT_OUTPUT_BASE="$BUILD_DIR/output"
 BUILDROOT_GPG_HOME="$BUILD_DIR/gnupg"
 BUILDROOT_SIGNING_KEY_URL="${AGENCY_FIRECRACKER_BUILDROOT_SIGNING_KEY_URL:-https://gitlab.com/-/snippets/4836881/raw/main/arnout@rnout.be.asc}"
 BR2_EXTERNAL_DIR="$ROOT_DIR/images/firecracker/buildroot"
-KERNEL_ARTIFACT="$ARTIFACT_DIR/vmlinux"
 LINUX_VERSION="6.12.22"
+TARGET_ARCH="${AGENCY_FIRECRACKER_KERNEL_ARCH:-$(uname -m)}"
+
+normalize_arch() {
+  case "$1" in
+    x86_64|amd64) printf 'x86_64' ;;
+    aarch64|arm64) printf 'aarch64' ;;
+    *) return 1 ;;
+  esac
+}
+
+TARGET_ARCH="$(normalize_arch "$TARGET_ARCH")" || {
+  echo "unsupported Firecracker kernel architecture: ${AGENCY_FIRECRACKER_KERNEL_ARCH:-$(uname -m)}" >&2
+  exit 1
+}
+case "$TARGET_ARCH" in
+  x86_64)
+    KERNEL_FILE="vmlinux"
+    KERNEL_FORMAT="elf-vmlinux"
+    BUILDROOT_DEFCONFIG="agency_firecracker_x86_64_defconfig"
+    ;;
+  aarch64)
+    KERNEL_FILE="Image"
+    KERNEL_FORMAT="arm64-Image"
+    BUILDROOT_DEFCONFIG="agency_firecracker_aarch64_defconfig"
+    ;;
+esac
+KERNEL_ARTIFACT="$ARTIFACT_DIR/$KERNEL_FILE"
+BUILDROOT_OUTPUT="$BUILDROOT_OUTPUT_BASE-$TARGET_ARCH"
 
 usage() {
   cat <<EOF
-Usage: scripts/readiness/firecracker-kernel-artifacts.sh [--fetch-only] [--configure-only] [--verify-existing] [--skip-signature-check]
+Usage: scripts/readiness/firecracker-kernel-artifacts.sh [--arch x86_64|aarch64] [--fetch-only] [--configure-only] [--verify-existing] [--skip-signature-check]
 
-Build the x86_64 Linux kernel artifact for Firecracker:
+Build the pinned Linux kernel artifact for Firecracker:
   $KERNEL_ARTIFACT
 
-This script intentionally builds only the uncompressed ELF vmlinux kernel.
+This script intentionally builds only the Firecracker guest kernel artifact.
 Firecracker rootfs artifacts must come from Agency's OCI-to-ext4 realization
 path, shared with Apple VF where possible.
 
 Environment:
   AGENCY_HOME                                  default: $HOME/.agency
   AGENCY_FIRECRACKER_ARTIFACT_DIR              output artifact directory
+  AGENCY_FIRECRACKER_KERNEL_ARCH               x86_64 or aarch64
   AGENCY_FIRECRACKER_KERNEL_BUILD_DIR          Buildroot workspace/cache
   AGENCY_FIRECRACKER_BUILDROOT_VERSION         default: $BUILDROOT_VERSION
   AGENCY_FIRECRACKER_BUILDROOT_URL             default: $BUILDROOT_URL
@@ -58,7 +86,7 @@ verify_existing_artifact() {
   fi
   require_cmd sha256sum
   require_cmd file
-  if ! python3 - "$KERNEL_ARTIFACT" <<'PY'
+  if [[ "$KERNEL_FORMAT" == "elf-vmlinux" ]] && ! python3 - "$KERNEL_ARTIFACT" <<'PY'
 import pathlib
 import sys
 
@@ -71,6 +99,8 @@ PY
     exit 1
   fi
   printf 'kernel_path=%s\n' "$KERNEL_ARTIFACT"
+  printf 'kernel_arch=%s\n' "$TARGET_ARCH"
+  printf 'kernel_format=%s\n' "$KERNEL_FORMAT"
   printf 'sha256=%s\n' "$(sha256sum "$KERNEL_ARTIFACT" | awk '{print $1}')"
   printf 'file=%s\n' "$(file -b "$KERNEL_ARTIFACT")"
   printf 'size_bytes=%s\n' "$(wc -c <"$KERNEL_ARTIFACT" | tr -d '[:space:]')"
@@ -123,6 +153,27 @@ while [[ $# -gt 0 ]]; do
       skip_signature=1
       shift
       ;;
+    --arch)
+      TARGET_ARCH="$(normalize_arch "${2:-}")" || {
+        echo "unsupported Firecracker kernel architecture: ${2:-}" >&2
+        exit 64
+      }
+      case "$TARGET_ARCH" in
+        x86_64)
+          KERNEL_FILE="vmlinux"
+          KERNEL_FORMAT="elf-vmlinux"
+          BUILDROOT_DEFCONFIG="agency_firecracker_x86_64_defconfig"
+          ;;
+        aarch64)
+          KERNEL_FILE="Image"
+          KERNEL_FORMAT="arm64-Image"
+          BUILDROOT_DEFCONFIG="agency_firecracker_aarch64_defconfig"
+          ;;
+      esac
+      KERNEL_ARTIFACT="$ARTIFACT_DIR/$KERNEL_FILE"
+      BUILDROOT_OUTPUT="$BUILDROOT_OUTPUT_BASE-$TARGET_ARCH"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -142,10 +193,6 @@ fi
 
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "Firecracker kernel artifacts currently build on Linux" >&2
-  exit 1
-fi
-if [[ "$(uname -m)" != "x86_64" ]]; then
-  echo "Firecracker kernel artifact script currently targets x86_64" >&2
   exit 1
 fi
 
@@ -183,28 +230,32 @@ if [[ ! -d "$BUILDROOT_SRC" ]]; then
 fi
 
 log "Configuring Buildroot external tree"
-make -C "$BUILDROOT_SRC" O="$BUILDROOT_OUTPUT" BR2_EXTERNAL="$BR2_EXTERNAL_DIR" agency_firecracker_x86_64_defconfig
+make -C "$BUILDROOT_SRC" O="$BUILDROOT_OUTPUT" BR2_EXTERNAL="$BR2_EXTERNAL_DIR" "$BUILDROOT_DEFCONFIG"
 
 if [[ "$configure_only" == "1" ]]; then
   log "Configure complete"
   exit 0
 fi
 
-log "Building Firecracker x86_64 vmlinux"
+log "Building Firecracker $TARGET_ARCH $KERNEL_FILE"
 make -C "$BUILDROOT_SRC" O="$BUILDROOT_OUTPUT"
 
 kernel=""
-for candidate in \
-  "$BUILDROOT_OUTPUT/images/vmlinux" \
-  "$BUILDROOT_OUTPUT/build/linux-$LINUX_VERSION/vmlinux" \
-  "$BUILDROOT_OUTPUT/build/linux-custom/vmlinux"; do
-  if [[ -s "$candidate" ]]; then
-    kernel="$candidate"
-    break
-  fi
-done
+if [[ "$KERNEL_FILE" == "vmlinux" ]]; then
+  for candidate in \
+    "$BUILDROOT_OUTPUT/images/vmlinux" \
+    "$BUILDROOT_OUTPUT/build/linux-$LINUX_VERSION/vmlinux" \
+    "$BUILDROOT_OUTPUT/build/linux-custom/vmlinux"; do
+    if [[ -s "$candidate" ]]; then
+      kernel="$candidate"
+      break
+    fi
+  done
+else
+  kernel="$BUILDROOT_OUTPUT/images/Image"
+fi
 if [[ -z "$kernel" ]]; then
-  echo "Buildroot did not produce an uncompressed vmlinux artifact" >&2
+  echo "Buildroot did not produce $KERNEL_FILE artifact" >&2
   exit 1
 fi
 

@@ -18,6 +18,7 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/config"
 	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
+	"github.com/geoffbelknap/agency/internal/runtimeprovision"
 	agencysecurity "github.com/geoffbelknap/agency/internal/security"
 )
 
@@ -96,7 +97,11 @@ func firecrackerDefaultBinaryPath(cfg *config.Config) string {
 }
 
 func firecrackerDefaultKernelPath(cfg *config.Config) string {
-	return filepath.Join(firecrackerDefaultArtifactDir(cfg), "vmlinux")
+	artifact, err := runtimeprovision.FirecrackerKernelArtifact(firecrackerDefaultArch())
+	if err != nil {
+		return filepath.Join(firecrackerDefaultArtifactDir(cfg), "vmlinux")
+	}
+	return filepath.Join(firecrackerDefaultArtifactDir(cfg), artifact.FileName)
 }
 
 func firecrackerConfiguredPath(cfg *config.Config, key, envName, fallback string) string {
@@ -156,16 +161,19 @@ func firecrackerExecutableCheck(name, path, passPrefix, missingFix string) docto
 
 func firecrackerKernelCheck(path string) doctorCheckResult {
 	if strings.TrimSpace(path) == "" {
-		return firecrackerBackendCheck("firecracker_kernel", agencysecurity.FindingFail, "Firecracker guest kernel path is not configured", "set hub.deployment_backend_config.kernel_path to the Agency Linux build artifact vmlinux, for example $AGENCY_HOME/runtime/firecracker/artifacts/vmlinux")
+		return firecrackerBackendCheck("firecracker_kernel", agencysecurity.FindingFail, "Firecracker guest kernel path is not configured", "run 'agency runtime provision firecracker' or set hub.deployment_backend_config.kernel_path")
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return firecrackerBackendCheck("firecracker_kernel", agencysecurity.FindingFail, "Firecracker guest kernel is not readable at "+path+": "+err.Error(), "set hub.deployment_backend_config.kernel_path to a readable Agency Linux build artifact vmlinux")
+		return firecrackerBackendCheck("firecracker_kernel", agencysecurity.FindingFail, "Firecracker guest kernel is not readable at "+path+": "+err.Error(), "run 'agency runtime provision firecracker' or set hub.deployment_backend_config.kernel_path to a readable Agency kernel artifact")
 	}
 	defer f.Close()
+	if runtime.GOARCH == "arm64" {
+		return firecrackerBackendCheck("firecracker_kernel", agencysecurity.FindingPass, "Firecracker guest kernel Image is readable", "")
+	}
 	var magic [4]byte
 	if _, err := io.ReadFull(f, magic[:]); err != nil {
-		return firecrackerBackendCheck("firecracker_kernel", agencysecurity.FindingFail, "Firecracker guest kernel could not be parsed: "+err.Error(), "set hub.deployment_backend_config.kernel_path to the Agency Linux build artifact vmlinux")
+		return firecrackerBackendCheck("firecracker_kernel", agencysecurity.FindingFail, "Firecracker guest kernel could not be parsed: "+err.Error(), "run 'agency runtime provision firecracker' or set hub.deployment_backend_config.kernel_path to the Agency Linux build artifact vmlinux")
 	}
 	if magic != [4]byte{0x7f, 'E', 'L', 'F'} {
 		return firecrackerBackendCheck("firecracker_kernel", agencysecurity.FindingFail, "Firecracker guest kernel is not an uncompressed ELF vmlinux image", "use the Agency Linux build artifact vmlinux, not a compressed host distro kernel image")
