@@ -1,6 +1,6 @@
 name: Kernel Artifacts
 
-on:
+"on":
   workflow_dispatch:
     inputs:
       release_tag:
