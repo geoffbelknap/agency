@@ -215,16 +215,25 @@ run_package_smoke() {
   [ -x "$tmp/agency" ] || fail "Package archive missing executable agency binary"
   [ -f "$tmp/web/dist/index.html" ] || fail "Package archive missing prebuilt web/dist/index.html"
   [ ! -f "$tmp/web/package.json" ] || fail "Package archive contains web/package.json; packaged installs must not run npm"
+  [ -f "$tmp/services/logging_config.py" ] || fail "Package archive missing host service logging helper"
   [ -f "$tmp/services/comms/server.py" ] || fail "Package archive missing comms service"
   [ -f "$tmp/services/knowledge/server.py" ] || fail "Package archive missing knowledge service"
 
   log "Installing packaged host Python dependencies into a fresh venv"
   AGENCY_PYTHON_VENV="$tmp/.venv" "$tmp/scripts/install/host-dependencies.sh" --skip-system-packages
 
-  log "Importing packaged host infrastructure services"
+  log "Instantiating packaged host infrastructure services"
   (cd "$tmp" && PYTHONPATH="$tmp" "$tmp/.venv/bin/python" - <<'PY'
-import services.comms.server
-import services.knowledge.server
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from services.comms.server import create_app as create_comms_app
+from services.knowledge.server import create_app as create_knowledge_app
+
+with TemporaryDirectory() as root:
+    base = Path(root)
+    create_comms_app(data_dir=base / "comms", agents_dir=base / "agents")
+    create_knowledge_app(data_dir=base / "knowledge", enable_ingestion=False)
 PY
   )
 
