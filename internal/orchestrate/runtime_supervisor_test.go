@@ -786,12 +786,27 @@ func TestRuntimeSupervisorCompileAppleVFUsesVsockTransport(t *testing.T) {
 
 func TestRuntimeSupervisorAppleVFBackendSupportsComponentLifecycle(t *testing.T) {
 	rs := NewRuntimeSupervisor(t.TempDir(), "0.1.0", "", "build-1", hostruntimebackend.BackendAppleVFMicroVM, nil, nil, nil, nil)
+	rs.BackendConfig = map[string]string{"enforcer_binary_path": "/usr/local/bin/enforcer"}
 	backend, err := rs.componentBackend(hostruntimebackend.BackendAppleVFMicroVM)
 	if err != nil {
 		t.Fatalf("componentBackend returned error: %v", err)
 	}
 	if backend.Name() != hostruntimebackend.BackendAppleVFMicroVM {
 		t.Fatalf("backend name = %q, want %q", backend.Name(), hostruntimebackend.BackendAppleVFMicroVM)
+	}
+	component, ok := backend.(*appleVFComponentRuntimeBackend)
+	if !ok {
+		t.Fatalf("backend type = %T, want apple-vf component backend", backend)
+	}
+	if component.enforcers.BinaryPath != "/usr/local/bin/enforcer" {
+		t.Fatalf("enforcer binary path = %q", component.enforcers.BinaryPath)
+	}
+	backendAgain, err := rs.componentBackend(hostruntimebackend.BackendAppleVFMicroVM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if backendAgain != backend {
+		t.Fatal("apple-vf backend instance should be stable inside a runtime supervisor")
 	}
 }
 
