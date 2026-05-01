@@ -6,7 +6,7 @@ on:
       release_tag:
         description: "Kernel artifact release tag"
         required: true
-        default: "agency-kernels-6.12.22-agency1"
+        default: "agency-kernels-6.12.22-r1"
 
 permissions:
   contents: write

@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	KernelReleaseTag     = "agency-kernels-6.12.22-agency1"
+	KernelReleaseTag     = "agency-kernels-6.12.22-r1"
 	KernelReleaseBaseURL = "https://github.com/geoffbelknap/agency/releases/download/" + KernelReleaseTag
 	KernelVersion        = "6.12.22"
 )
