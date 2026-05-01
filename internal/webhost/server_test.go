@@ -36,12 +36,17 @@ func TestHandlerServesHealthConfigAndSPAFallback(t *testing.T) {
 	assertBody(t, server.URL+"/health", "ok")
 	assertBody(t, server.URL+"/setup", "<html>agency</html>")
 	assertBody(t, server.URL+"/assets/app.js", "console.log('agency')")
+	assertCacheControl(t, server.URL+"/", "no-store")
+	assertCacheControl(t, server.URL+"/setup", "no-store")
 
 	resp, err := http.Get(server.URL + "/__agency/config")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
+	if got := resp.Header.Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("__agency/config Cache-Control = %q, want no-store", got)
+	}
 	var cfg map[string]string
 	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
 		t.Fatal(err)
@@ -107,5 +112,17 @@ func assertBody(t *testing.T, url, want string) {
 	}
 	if string(body) != want {
 		t.Fatalf("GET %s body = %q, want %q", url, string(body), want)
+	}
+}
+
+func assertCacheControl(t *testing.T, url, want string) {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if got := resp.Header.Get("Cache-Control"); got != want {
+		t.Fatalf("GET %s Cache-Control = %q, want %q", url, got, want)
 	}
 }

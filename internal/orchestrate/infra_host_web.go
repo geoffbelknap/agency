@@ -229,7 +229,7 @@ func (inf *Infra) waitHostWebHealthy(ctx context.Context, pid int, timeout time.
 }
 
 func (inf *Infra) hostWebHealthy(ctx context.Context) bool {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:"+inf.webPort()+"/health", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:"+inf.webPort()+"/", nil)
 	if err != nil {
 		return false
 	}
