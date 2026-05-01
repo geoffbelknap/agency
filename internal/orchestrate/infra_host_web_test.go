@@ -2,6 +2,9 @@ package orchestrate
 
 import (
 	"context"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +22,45 @@ func TestHostWebPreviewEnvDisablesHTTPS(t *testing.T) {
 	}
 	if !envContains(env, "VITE_DISABLE_HTTPS=1") {
 		t.Fatalf("host web preview env missing VITE_DISABLE_HTTPS=1: %#v", env)
+	}
+}
+
+func TestHostWebHealthyRequiresSPAEntrypoint(t *testing.T) {
+	tests := []struct {
+		name       string
+		rootStatus int
+		want       bool
+	}{
+		{name: "root not found", rootStatus: http.StatusNotFound, want: false},
+		{name: "root ok", rootStatus: http.StatusOK, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/health":
+					w.WriteHeader(http.StatusOK)
+				case "/":
+					w.WriteHeader(tt.rootStatus)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+
+			_, port, err := net.SplitHostPort(server.Listener.Addr().String())
+			if err != nil {
+				t.Fatalf("split server address: %v", err)
+			}
+			t.Setenv("AGENCY_WEB_PORT", port)
+
+			inf := &Infra{Home: t.TempDir()}
+			got := inf.hostWebHealthy(context.Background())
+			if got != tt.want {
+				t.Fatalf("hostWebHealthy() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

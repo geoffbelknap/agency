@@ -69,6 +69,7 @@ func Handler(opts Options) (http.Handler, error) {
 	})
 	mux.HandleFunc("/__agency/config", func(w http.ResponseWriter, _ *http.Request) {
 		token, _ := state.read()
+		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"token": token, "gateway": ""})
 	})
@@ -158,6 +159,7 @@ func staticHandler(distDir string) http.Handler {
 }
 
 func serveIndex(w http.ResponseWriter, r *http.Request, distDir string) {
+	w.Header().Set("Cache-Control", "no-store")
 	http.ServeFile(w, r, filepath.Join(distDir, "index.html"))
 }
 
