@@ -181,8 +181,7 @@ func (inf *Infra) hostKnowledgePython(sourceDir string) string {
 	if python := strings.TrimSpace(os.Getenv("AGENCY_HOST_KNOWLEDGE_PYTHON")); python != "" {
 		return python
 	}
-	venvPython := filepath.Join(sourceDir, ".venv", "bin", "python")
-	if info, err := os.Stat(venvPython); err == nil && !info.IsDir() {
+	if venvPython := hostInfraVenvBin(sourceDir, "python"); venvPython != "" {
 		return venvPython
 	}
 	return "python3"

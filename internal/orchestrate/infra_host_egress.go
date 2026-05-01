@@ -267,8 +267,7 @@ func (inf *Infra) hostEgressPython(sourceDir string) string {
 	if python := strings.TrimSpace(os.Getenv("AGENCY_HOST_EGRESS_PYTHON")); python != "" {
 		return python
 	}
-	venvPython := filepath.Join(sourceDir, ".venv", "bin", "python")
-	if info, err := os.Stat(venvPython); err == nil && !info.IsDir() {
+	if venvPython := hostInfraVenvBin(sourceDir, "python"); venvPython != "" {
 		return venvPython
 	}
 	return "python3"
@@ -278,8 +277,7 @@ func (inf *Infra) hostEgressMitmdump(sourceDir string) string {
 	if mitmdump := strings.TrimSpace(os.Getenv("AGENCY_HOST_EGRESS_MITMDUMP")); mitmdump != "" {
 		return mitmdump
 	}
-	venvMitmdump := filepath.Join(sourceDir, ".venv", "bin", "mitmdump")
-	if info, err := os.Stat(venvMitmdump); err == nil && !info.IsDir() {
+	if venvMitmdump := hostInfraVenvBin(sourceDir, "mitmdump"); venvMitmdump != "" {
 		return venvMitmdump
 	}
 	return "mitmdump"
