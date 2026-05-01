@@ -6,6 +6,7 @@ before:
   hooks:
     - npm --prefix web --cache .cache/npm ci
     - npm --prefix web run build
+    - make firecracker-helpers
 
 builds:
   - id: agency
@@ -38,7 +39,11 @@ archives:
       - services/**/*.py
       - services/**/*.yaml
       - services/**/requirements.txt
+      - bin/enforcer
+      - bin/agency-vsock-http-bridge
       - scripts/install/*
+      - scripts/readiness/*
+      - images/firecracker/buildroot/**/*
       - web/dist/index.html
       - web/dist/favicon.svg
       - web/dist/assets/*
@@ -68,6 +73,8 @@ brews:
       - name: python
       - name: e2fsprogs
     extra_install: |
+      pkgshare.install "bin"
+      pkgshare.install "images"
       pkgshare.install "services"
       pkgshare.install "scripts"
       pkgshare.install "web"
@@ -82,6 +89,13 @@ brews:
       Runtime dependencies:
         - python: host-managed infra services and egress Python environment
         - e2fsprogs: mke2fs for microVM root filesystem creation
+
+      Linux and WSL Firecracker setup:
+        Before running quickstart, provision the pinned Firecracker binary and
+        Agency kernel artifact with the packaged readiness scripts:
+
+          #{pkgshare}/scripts/readiness/firecracker-artifacts.sh
+          #{pkgshare}/scripts/readiness/firecracker-kernel-artifacts.sh
 
       Quick start guide: https://github.com/geoffbelknap/agency#readme
     test: |

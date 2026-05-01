@@ -218,6 +218,11 @@ run_package_smoke() {
   [ -f "$tmp/services/logging_config.py" ] || fail "Package archive missing host service logging helper"
   [ -f "$tmp/services/comms/server.py" ] || fail "Package archive missing comms service"
   [ -f "$tmp/services/knowledge/server.py" ] || fail "Package archive missing knowledge service"
+  [ -x "$tmp/bin/enforcer" ] || fail "Package archive missing executable Firecracker enforcer helper"
+  [ -x "$tmp/bin/agency-vsock-http-bridge" ] || fail "Package archive missing executable Firecracker vsock HTTP bridge"
+  [ -f "$tmp/scripts/readiness/firecracker-artifacts.sh" ] || fail "Package archive missing Firecracker binary provisioning script"
+  [ -f "$tmp/scripts/readiness/firecracker-kernel-artifacts.sh" ] || fail "Package archive missing Firecracker kernel provisioning script"
+  [ -f "$tmp/images/firecracker/buildroot/configs/agency_firecracker_x86_64_defconfig" ] || fail "Package archive missing Firecracker Buildroot config"
 
   log "Installing packaged host Python dependencies into a fresh venv"
   AGENCY_PYTHON_VENV="$tmp/.venv" "$tmp/scripts/install/host-dependencies.sh" --skip-system-packages
