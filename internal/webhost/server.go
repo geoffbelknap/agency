@@ -8,6 +8,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -137,31 +138,22 @@ func (c *runtimeConfig) proxy(websocket bool) http.Handler {
 }
 
 func staticHandler(distDir string) http.Handler {
+	files := http.FileServer(http.Dir(distDir))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		rel := strings.TrimPrefix(r.URL.Path, "/")
-		if rel == "" {
+		clean := path.Clean("/" + strings.TrimPrefix(r.URL.Path, "/"))
+		if clean == "/" {
 			serveIndex(w, r, distDir)
-			return
-		}
-		clean := filepath.Clean(rel)
-		if clean == "." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) || clean == ".." {
-			http.NotFound(w, r)
-			return
-		}
-		path := filepath.Join(distDir, clean)
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			http.ServeFile(w, r, path)
 			return
 		}
 		if filepath.Ext(clean) == "" {
 			serveIndex(w, r, distDir)
 			return
 		}
-		http.NotFound(w, r)
+		files.ServeHTTP(w, r)
 	})
 }
 
