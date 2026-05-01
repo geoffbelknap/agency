@@ -23,10 +23,8 @@ Options:
                           Required for apple-vf-microvm release validation.
                           Used directly by firecracker when supplied.
   --enforcer-oci-ref REF  Versioned enforcer OCI artifact reference.
-                          Supported for firecracker host-process enforcer
-                          validation. The current enforcer OCI artifact is
-                          Linux-only, so apple-vf-microvm still uses the
-                          local Darwin host enforcer binary.
+                          Extracts the host-process enforcer for the selected
+                          backend platform when supplied.
   --skip-core             Skip git diff/status-check/go/web unit gates.
   --skip-contract         Skip the backend-neutral runtime contract smoke.
   --web                   Run the backend Web UI smoke after lifecycle checks.
@@ -74,7 +72,6 @@ run_core_gates() {
 
 run_apple_vf() {
   [[ -n "$ROOTFS_OCI_REF" ]] || fail "--rootfs-oci-ref is required for apple-vf-microvm"
-  [[ -z "$ENFORCER_OCI_REF" ]] || fail "--enforcer-oci-ref is not supported for apple-vf-microvm because the published enforcer OCI artifact is Linux-only"
 
   local agent="apple-vf-contract-$(git -C "$ROOT" rev-parse --short HEAD)"
   local home="/tmp/agency-apple-vf-contract-$(git -C "$ROOT" rev-parse --short HEAD)"
@@ -95,15 +92,25 @@ run_apple_vf() {
   "$ROOT/agency" admin doctor
 
   log "Running Apple VF lifecycle smoke"
-  "$ROOT/scripts/readiness/apple-vf-lifecycle-smoke.sh" --rootfs-oci-ref "$ROOTFS_OCI_REF"
+  local args=(--rootfs-oci-ref "$ROOTFS_OCI_REF")
+  if [[ -n "$ENFORCER_OCI_REF" ]]; then
+    args+=(--enforcer-oci-ref "$ENFORCER_OCI_REF")
+  fi
+  "$ROOT/scripts/readiness/apple-vf-lifecycle-smoke.sh" "${args[@]}"
 
   if [[ "$RUN_CONTRACT" == "1" ]]; then
     log "Running Apple VF lifecycle smoke with kept runtime for contract smoke"
-    "$ROOT/scripts/readiness/apple-vf-lifecycle-smoke.sh" \
-      --home "$home" \
-      --agent "$agent" \
-      --rootfs-oci-ref "$ROOTFS_OCI_REF" \
+    local keep_args=(
+      --home "$home"
+      --agent "$agent"
+      --rootfs-oci-ref "$ROOTFS_OCI_REF"
       --keep-agent
+    )
+    if [[ -n "$ENFORCER_OCI_REF" ]]; then
+      keep_args+=(--enforcer-oci-ref "$ENFORCER_OCI_REF")
+    fi
+    "$ROOT/scripts/readiness/apple-vf-lifecycle-smoke.sh" \
+      "${keep_args[@]}"
 
     log "Running backend-neutral runtime contract smoke"
     "$ROOT/scripts/readiness/runtime-contract-smoke.sh" \

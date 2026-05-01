@@ -37,21 +37,23 @@ const (
 )
 
 type options struct {
-	artifact      string
-	repoRef       string
-	version       string
-	sourceRoot    string
-	buildID       string
-	depsAMD64     string
-	depsARM64     string
-	enforcerAMD64 string
-	enforcerARM64 string
-	caBundle      string
-	inspectRef    string
-	extractRef    string
-	extractPath   string
-	extractOutput string
-	platform      string
+	artifact            string
+	repoRef             string
+	version             string
+	sourceRoot          string
+	buildID             string
+	depsAMD64           string
+	depsARM64           string
+	enforcerAMD64       string
+	enforcerARM64       string
+	enforcerDarwinAMD64 string
+	enforcerDarwinARM64 string
+	caBundle            string
+	inspectRef          string
+	extractRef          string
+	extractPath         string
+	extractOutput       string
+	platform            string
 }
 
 func main() {
@@ -65,8 +67,10 @@ func main() {
 	flag.StringVar(&opt.depsARM64, "body-deps-arm64", "", "body Python dependency root for linux/arm64")
 	flag.StringVar(&opt.enforcerAMD64, "enforcer-amd64", "", "linux/amd64 enforcer binary")
 	flag.StringVar(&opt.enforcerARM64, "enforcer-arm64", "", "linux/arm64 enforcer binary")
+	flag.StringVar(&opt.enforcerDarwinAMD64, "enforcer-darwin-amd64", "", "darwin/amd64 enforcer binary")
+	flag.StringVar(&opt.enforcerDarwinARM64, "enforcer-darwin-arm64", "", "darwin/arm64 enforcer binary")
 	flag.StringVar(&opt.caBundle, "ca-bundle", "/etc/ssl/certs/ca-certificates.crt", "CA bundle to include in enforcer artifact")
-	flag.StringVar(&opt.inspectRef, "inspect-ref", "", "inspect a published runtime artifact ref and verify linux/amd64 plus linux/arm64")
+	flag.StringVar(&opt.inspectRef, "inspect-ref", "", "inspect a published runtime artifact ref and verify required platforms")
 	flag.StringVar(&opt.extractRef, "extract-ref", "", "extract one file from a published runtime artifact ref")
 	flag.StringVar(&opt.extractPath, "extract-path", "/usr/local/bin/enforcer", "absolute artifact path to extract")
 	flag.StringVar(&opt.extractOutput, "output", "", "output path for --extract-ref")
@@ -126,8 +130,8 @@ func inspectRuntimeArtifact(ctx context.Context, ref string) error {
 			return err
 		}
 		for _, manifest := range index.Manifests {
-			if manifest.Platform != nil && manifest.Platform.OS == "linux" {
-				platforms[manifest.Platform.Architecture] = true
+			if manifest.Platform != nil {
+				platforms[manifest.Platform.OS+"/"+manifest.Platform.Architecture] = true
 			}
 		}
 	} else {
@@ -143,20 +147,29 @@ func inspectRuntimeArtifact(ctx context.Context, ref string) error {
 		if err := json.Unmarshal(configBytes, &config); err != nil {
 			return err
 		}
-		if config.OS == "linux" {
-			platforms[config.Architecture] = true
+		if config.OS != "" && config.Architecture != "" {
+			platforms[config.OS+"/"+config.Architecture] = true
 		}
 	}
+	required := []string{"linux/amd64", "linux/arm64"}
+	if strings.Contains(ref, "runtime-enforcer") {
+		required = append(required, "darwin/amd64", "darwin/arm64")
+	}
 	var missing []string
-	for _, arch := range []string{"amd64", "arm64"} {
-		if !platforms[arch] {
-			missing = append(missing, "linux/"+arch)
+	for _, platform := range required {
+		if !platforms[platform] {
+			missing = append(missing, platform)
 		}
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("%s missing platforms: %s", ref, strings.Join(missing, ", "))
 	}
-	fmt.Printf("%s platforms=linux/amd64,linux/arm64 digest=%s\n", ref, desc.Digest)
+	var found []string
+	for platform := range platforms {
+		found = append(found, platform)
+	}
+	sort.Strings(found)
+	fmt.Printf("%s platforms=%s digest=%s\n", ref, strings.Join(found, ","), desc.Digest)
 	return nil
 }
 
@@ -279,10 +292,7 @@ func run(ctx context.Context, opt options) error {
 	}
 
 	var manifests []ocispec.Descriptor
-	for _, platform := range []ocispec.Platform{
-		{OS: "linux", Architecture: "amd64"},
-		{OS: "linux", Architecture: "arm64"},
-	} {
+	for _, platform := range publishPlatforms(opt.artifact) {
 		desc, err := publishPlatform(ctx, target, opt, platform)
 		if err != nil {
 			return err
@@ -307,6 +317,23 @@ func run(ctx context.Context, opt options) error {
 	}
 	fmt.Printf("%s:%s@%s\n", opt.repoRef, tag, indexDesc.Digest)
 	return nil
+}
+
+func publishPlatforms(artifact string) []ocispec.Platform {
+	switch artifact {
+	case "enforcer":
+		return []ocispec.Platform{
+			{OS: "linux", Architecture: "amd64"},
+			{OS: "linux", Architecture: "arm64"},
+			{OS: "darwin", Architecture: "amd64"},
+			{OS: "darwin", Architecture: "arm64"},
+		}
+	default:
+		return []ocispec.Platform{
+			{OS: "linux", Architecture: "amd64"},
+			{OS: "linux", Architecture: "arm64"},
+		}
+	}
 }
 
 func publishPlatform(ctx context.Context, target *remote.Repository, opt options, platform ocispec.Platform) (ocispec.Descriptor, error) {
@@ -474,9 +501,16 @@ func bodyLayer(opt options, platform ocispec.Platform) (layerBlob, error) {
 }
 
 func enforcerLayer(opt options, platform ocispec.Platform) (layerBlob, error) {
-	bin := opt.enforcerAMD64
-	if platform.Architecture == "arm64" {
+	bin := ""
+	switch platform.OS + "/" + platform.Architecture {
+	case "linux/amd64":
+		bin = opt.enforcerAMD64
+	case "linux/arm64":
 		bin = opt.enforcerARM64
+	case "darwin/amd64":
+		bin = opt.enforcerDarwinAMD64
+	case "darwin/arm64":
+		bin = opt.enforcerDarwinARM64
 	}
 	if strings.TrimSpace(bin) == "" {
 		return layerBlob{}, fmt.Errorf("missing enforcer binary for %s/%s", platform.OS, platform.Architecture)
