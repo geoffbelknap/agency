@@ -764,6 +764,7 @@ func withFirecrackerArtifactConfig(backend string, cfg map[string]string) map[st
 		"kernel_path":              strings.TrimSpace(os.Getenv("AGENCY_FIRECRACKER_KERNEL")),
 		"enforcer_binary_path":     strings.TrimSpace(os.Getenv("AGENCY_FIRECRACKER_ENFORCER_BIN")),
 		"vsock_bridge_binary_path": strings.TrimSpace(os.Getenv("AGENCY_FIRECRACKER_VSOCK_BRIDGE_BIN")),
+		"rootfs_oci_ref":           strings.TrimSpace(os.Getenv("AGENCY_FIRECRACKER_ROOTFS_OCI_REF")),
 		"mke2fs_path":              strings.TrimSpace(os.Getenv("AGENCY_MKE2FS")),
 	}
 	out := make(map[string]string, len(cfg)+len(defaults)+len(envPaths))

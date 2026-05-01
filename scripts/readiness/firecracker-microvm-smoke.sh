@@ -13,6 +13,7 @@ ENFORCER_BIN="${AGENCY_FIRECRACKER_ENFORCER_BIN:-/tmp/agency-firecracker-enforce
 VSOCK_BRIDGE_BIN="${AGENCY_FIRECRACKER_VSOCK_BRIDGE_BIN:-/tmp/agency-firecracker-vsock-http-bridge}"
 AGENT_NAME="${AGENT_NAME:-firecracker-smoke-$(date +%s)}"
 ROOTFS_SIZE_MIB="${AGENCY_FIRECRACKER_ROOTFS_SIZE_MIB:-1024}"
+ROOTFS_OCI_REF="${AGENCY_FIRECRACKER_ROOTFS_OCI_REF:-}"
 OCI_CMD="${CONTAINER_CMD:-}"
 BUILD_BODY=1
 KEEP_HOME=0
@@ -45,6 +46,9 @@ Options:
   --mke2fs PATH           mke2fs path. Defaults to PATH lookup.
   --enforcer-bin PATH     Host-process enforcer output path.
   --vsock-bridge-bin PATH Linux agency-vsock-http-bridge output path.
+  --rootfs-oci-ref REF    Versioned body/rootfs OCI artifact reference.
+                          When set, the smoke realizes this artifact directly
+                          and does not require Docker or Podman.
   --container-cmd PATH    Podman- or Docker-compatible OCI image command.
   --rootfs-size-mib N     Rootfs image size. Defaults to 1024.
   --skip-body-build       Reuse existing agency-body:latest OCI artifact.
@@ -62,12 +66,13 @@ Environment:
   AGENCY_FIRECRACKER_ENFORCER_BIN
   AGENCY_FIRECRACKER_VSOCK_BRIDGE_BIN
   AGENCY_FIRECRACKER_ROOTFS_SIZE_MIB
+  AGENCY_FIRECRACKER_ROOTFS_OCI_REF
   CONTAINER_CMD
 
 Firecracker artifacts are intentionally explicit:
   - firecracker binary: upstream release artifact pinned by version
   - kernel: Agency Linux build artifact vmlinux, not a host distro kernel
-  - rootfs: agency-body OCI artifact realized through the shared OCI-to-ext4 path
+  - rootfs: versioned OCI artifact realized through the shared OCI-to-ext4 path
 EOF
 }
 
@@ -130,6 +135,12 @@ while [[ $# -gt 0 ]]; do
     --vsock-bridge-bin)
       [[ $# -ge 2 ]] || fail "--vsock-bridge-bin requires a path"
       VSOCK_BRIDGE_BIN="$2"
+      shift 2
+      ;;
+    --rootfs-oci-ref)
+      [[ $# -ge 2 ]] || fail "--rootfs-oci-ref requires a ref"
+      ROOTFS_OCI_REF="$2"
+      BUILD_BODY=0
       shift 2
       ;;
     --container-cmd)
@@ -221,7 +232,7 @@ if [[ -z "$MKE2FS_PATH" ]]; then
 fi
 [[ -x "$MKE2FS_PATH" ]] || fail "mke2fs is not executable at $MKE2FS_PATH"
 
-if [[ -z "$OCI_CMD" ]]; then
+if [[ -z "$OCI_CMD" && -z "$ROOTFS_OCI_REF" ]]; then
   if command -v podman >/dev/null 2>&1; then
     OCI_CMD="$(command -v podman)"
   elif command -v docker >/dev/null 2>&1; then
@@ -230,7 +241,9 @@ if [[ -z "$OCI_CMD" ]]; then
     fail "podman or docker is required to build/export the OCI body artifact"
   fi
 fi
-[[ -x "$OCI_CMD" ]] || fail "container command is not executable at $OCI_CMD"
+if [[ -n "$OCI_CMD" ]]; then
+  [[ -x "$OCI_CMD" ]] || fail "container command is not executable at $OCI_CMD"
+fi
 
 verify_firecracker_binary
 verify_kernel
@@ -292,6 +305,7 @@ type smokeConfig struct {
 	enforcer      string
 	bridge        string
 	oci           string
+	rootfsOCIRef  string
 	rootfsSizeMiB string
 	keepAgent     bool
 }
@@ -315,6 +329,7 @@ func main() {
 	flag.StringVar(&cfg.enforcer, "enforcer-bin", "", "host enforcer binary")
 	flag.StringVar(&cfg.bridge, "vsock-bridge-bin", "", "guest vsock bridge binary")
 	flag.StringVar(&cfg.oci, "container-cmd", "", "podman/docker-compatible OCI command")
+	flag.StringVar(&cfg.rootfsOCIRef, "rootfs-oci-ref", "", "versioned body/rootfs OCI artifact reference")
 	flag.StringVar(&cfg.rootfsSizeMiB, "rootfs-size-mib", "1024", "rootfs size")
 	flag.BoolVar(&cfg.keepAgent, "keep-agent", false, "leave runtime running for external contract smoke")
 	flag.Parse()
@@ -366,6 +381,9 @@ func run(cfg smokeConfig) error {
 		"mke2fs_path":              cfg.mke2fs,
 		"podman_path":              cfg.oci,
 		"rootfs_size_mib":          cfg.rootfsSizeMiB,
+	}
+	if strings.TrimSpace(cfg.rootfsOCIRef) != "" {
+		rs.BackendConfig["rootfs_oci_ref"] = strings.TrimSpace(cfg.rootfsOCIRef)
 	}
 	spec, err := rs.Compile(ctx, cfg.agent)
 	if err != nil {
@@ -437,18 +455,26 @@ func (c smokeConfig) validate() error {
 	for name, value := range map[string]string{
 		"repo": c.repo, "home": c.home, "agent": c.agent, "firecracker": c.firecracker,
 		"kernel": c.kernel, "mke2fs": c.mke2fs, "enforcer": c.enforcer,
-		"bridge": c.bridge, "container-cmd": c.oci,
+		"bridge": c.bridge,
 	} {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("%s is required", name)
 		}
 	}
+	if strings.TrimSpace(c.rootfsOCIRef) == "" && strings.TrimSpace(c.oci) == "" {
+		return fmt.Errorf("container-cmd is required when rootfs-oci-ref is not set")
+	}
 	for name, path := range map[string]string{
 		"firecracker": c.firecracker, "kernel": c.kernel, "mke2fs": c.mke2fs,
-		"enforcer": c.enforcer, "bridge": c.bridge, "container-cmd": c.oci,
+		"enforcer": c.enforcer, "bridge": c.bridge,
 	} {
 		if _, err := os.Stat(path); err != nil {
 			return fmt.Errorf("%s path %s: %w", name, path, err)
+		}
+	}
+	if strings.TrimSpace(c.oci) != "" {
+		if _, err := os.Stat(c.oci); err != nil {
+			return fmt.Errorf("container-cmd path %s: %w", c.oci, err)
 		}
 	}
 	return nil
@@ -670,9 +696,14 @@ go_args=(
   --mke2fs "$MKE2FS_PATH" \
   --enforcer-bin "$ENFORCER_BIN" \
   --vsock-bridge-bin "$VSOCK_BRIDGE_BIN" \
-  --container-cmd "$OCI_CMD" \
   --rootfs-size-mib "$ROOTFS_SIZE_MIB"
 )
+if [[ -n "$OCI_CMD" ]]; then
+  go_args+=(--container-cmd "$OCI_CMD")
+fi
+if [[ -n "$ROOTFS_OCI_REF" ]]; then
+  go_args+=(--rootfs-oci-ref "$ROOTFS_OCI_REF")
+fi
 if [[ "$KEEP_AGENT" == "1" ]]; then
   go_args+=(--keep-agent)
 fi

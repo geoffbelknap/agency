@@ -88,6 +88,42 @@ func TestFirecrackerImageStorePullsWhenInspectMisses(t *testing.T) {
 	}
 }
 
+func TestFirecrackerImageStoreRootFSOCIRefSelection(t *testing.T) {
+	store := &FirecrackerImageStore{RootFSOCIRef: "ghcr.io/example/agency-runtime-body:v1"}
+	ref, ok, err := store.rootFSOCIImageRef("agency-body:latest")
+	if err != nil {
+		t.Fatalf("rootFSOCIImageRef returned error: %v", err)
+	}
+	if !ok || ref != "ghcr.io/example/agency-runtime-body:v1" {
+		t.Fatalf("rootFSOCIImageRef = %q, %v", ref, ok)
+	}
+
+	store.RootFSOCIRef = ""
+	ref, ok, err = store.rootFSOCIImageRef("ghcr.io/example/agency-runtime-body@sha256:abc123")
+	if err != nil {
+		t.Fatalf("digest rootFSOCIImageRef returned error: %v", err)
+	}
+	if !ok || ref != "ghcr.io/example/agency-runtime-body@sha256:abc123" {
+		t.Fatalf("digest rootFSOCIImageRef = %q, %v", ref, ok)
+	}
+
+	ref, ok, err = store.rootFSOCIImageRef("agency-body:latest")
+	if err != nil {
+		t.Fatalf("legacy rootFSOCIImageRef returned error: %v", err)
+	}
+	if ok || ref != "" {
+		t.Fatalf("legacy rootFSOCIImageRef = %q, %v; want no OCI path", ref, ok)
+	}
+}
+
+func TestFirecrackerImageStoreRejectsMutableOCIRef(t *testing.T) {
+	store := &FirecrackerImageStore{RootFSOCIRef: "ghcr.io/example/agency-runtime-body:latest"}
+	_, _, err := store.rootFSOCIImageRef("agency-body:latest")
+	if err == nil || !strings.Contains(err.Error(), "must not use mutable :latest") {
+		t.Fatalf("rootFSOCIImageRef error = %v", err)
+	}
+}
+
 func TestFirecrackerImageStorePrepareTaskRootFSCopiesBase(t *testing.T) {
 	stateDir := t.TempDir()
 	commands := &fakeFirecrackerImageCommands{
