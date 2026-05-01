@@ -1,0 +1,97 @@
+name: Apple VF Helpers
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Apple VF helper release tag"
+        required: true
+        default: "agency-apple-vf-helpers-0.1.0-r1"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          cache-dependency-path: go.sum
+
+      - name: Build Apple VF helper assets
+        id: build
+        run: ./scripts/release/build-apple-vf-helper-assets.sh
+
+      - name: Build manifest
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          ASSET_NAME: ${{ steps.build.outputs.asset_name }}
+          HELPER_VERSION: ${{ steps.build.outputs.helper_version }}
+          SHA256: ${{ steps.build.outputs.sha256 }}
+        run: |
+          python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+asset = Path("dist/apple-vf-helpers") / os.environ["ASSET_NAME"]
+manifest = {
+    "release_tag": os.environ["RELEASE_TAG"],
+    "helper_version": os.environ["HELPER_VERSION"],
+    "assets": [
+        {
+            "asset": os.environ["ASSET_NAME"],
+            "runtime": "apple-vf",
+            "os": "darwin",
+            "arch": "arm64",
+            "sha256": os.environ["SHA256"],
+            "size_bytes": asset.stat().st_size,
+            "contents": [
+                "bin/agency-apple-vf-helper",
+                "bin/agency-enforcer-host",
+                "bin/agency-vsock-http-bridge-linux-arm64",
+            ],
+        }
+    ],
+}
+Path(f"dist/apple-vf-helpers/{os.environ['RELEASE_TAG']}.manifest.json").write_text(
+    json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+PY
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apple-vf-helpers
+          path: dist/apple-vf-helpers/*
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download Apple VF helper assets
+        uses: actions/download-artifact@v4
+        with:
+          name: apple-vf-helpers
+          path: dist/apple-vf-helpers
+
+      - name: Publish Apple VF helper release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --target "$GITHUB_SHA" \
+              --title "$RELEASE_TAG" \
+              --notes "Pinned Agency Apple VF helper bundle for macOS Apple silicon." \
+              --prerelease
+          fi
+          gh release upload "$RELEASE_TAG" dist/apple-vf-helpers/* --clobber

@@ -711,7 +711,7 @@ func withAppleVFArtifactConfig(backend string, cfg map[string]string) map[string
 	sourceRoot := config.Load().SourceDir
 	defaults := map[string]string{
 		"kernel_path":              hostruntimebackend.DefaultAppleVFKernelPath(home),
-		"helper_binary":            filepath.Join(sourceRoot, "tools", "apple-vf-helper", ".build", "release", "agency-apple-vf-helper"),
+		"helper_binary":            filepath.Join(sourceRoot, "bin", "agency-apple-vf-helper"),
 		"enforcer_binary_path":     filepath.Join(sourceRoot, "bin", "agency-enforcer-host"),
 		"vsock_bridge_binary_path": filepath.Join(sourceRoot, "bin", "agency-vsock-http-bridge-linux-arm64"),
 		"mke2fs_path":              defaultMke2fsPath(),
