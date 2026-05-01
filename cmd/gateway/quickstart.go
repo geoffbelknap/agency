@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -437,10 +438,12 @@ func runQuickstart(opts quickstartOptions) error {
 		fmt.Println("Run `agency quickstart` again after configuring the runtime backend.")
 		return err
 	}
-	if err := verifyMicroVMRuntimeArtifacts(backendName, backendCfg); err != nil {
+	if err := ensureMicroVMRuntimeArtifacts(context.Background(), backendName, backendCfg, func(format string, args ...any) {
+		fmt.Printf("  %s environment     %s\n", qsCyan.Render("•"), fmt.Sprintf(format, args...))
+	}); err != nil {
 		fmt.Printf("  %s environment     %s\n", qsRed.Render("✗"), err)
 		fmt.Println()
-		fmt.Println("Run `agency quickstart` again after provisioning the runtime artifacts.")
+		fmt.Println("Run `agency runtime provision firecracker` after fixing the reported issue, then run `agency quickstart` again.")
 		return err
 	}
 	fmt.Printf("  %s environment     %s running\n", qsGreen.Render("✓"), backendName)

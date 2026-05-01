@@ -165,6 +165,7 @@ func detectSourceDir() string {
 	candidates := []string{
 		dir,
 		filepath.Join(filepath.Dir(dir), "share", "agency"),
+		filepath.Join(filepath.Dir(dir), "share", "agency-rc"),
 	}
 	if home, err := os.UserHomeDir(); err == nil {
 		candidates = append(candidates, filepath.Join(home, ".local", "share", "agency"))

@@ -334,6 +334,9 @@ func main() {
 
 	// RegisterCommands sets up groups — must be called first
 	agencyCLI.RegisterCommands(root)
+	if runtimeCmd, _, err := root.Find([]string{"runtime"}); err == nil && runtimeCmd != nil {
+		runtimeCmd.AddCommand(runtimeProvisionCmd())
+	}
 
 	// Platform commands go in their own group
 	root.AddGroup(&cobra.Group{ID: "platform", Title: "Platform:"})
@@ -852,7 +855,9 @@ func runSetup(provider, apiKey, notifyURL, backend string, backendCfg map[string
 	provider = normalizeProvider(provider)
 	gatewayAddr := ""
 	if !noInfra {
-		if err := verifyMicroVMRuntimeArtifacts(backend, backendCfg); err != nil {
+		if err := ensureMicroVMRuntimeArtifacts(context.Background(), backend, backendCfg, func(format string, args ...any) {
+			fmt.Printf(format+"\n", args...)
+		}); err != nil {
 			return err
 		}
 	}

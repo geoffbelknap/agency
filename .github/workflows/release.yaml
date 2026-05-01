@@ -46,3 +46,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      - name: Publish Firecracker kernel artifact
+        if: runner.os == 'Linux'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential cpio file flex gawk git gnupg libncurses-dev rsync unzip wget xz-utils
+          ./scripts/readiness/firecracker-kernel-artifacts.sh
+          mkdir -p dist/firecracker-kernel
+          cp "$HOME/.agency/runtime/firecracker/artifacts/vmlinux" dist/firecracker-kernel/agency-firecracker-vmlinux_x86_64
+          sha256sum dist/firecracker-kernel/agency-firecracker-vmlinux_x86_64 > dist/firecracker-kernel/agency-firecracker-vmlinux_x86_64.sha256
+          gh release upload "$GITHUB_REF_NAME" \
+            dist/firecracker-kernel/agency-firecracker-vmlinux_x86_64 \
+            dist/firecracker-kernel/agency-firecracker-vmlinux_x86_64.sha256 \
+            --clobber
