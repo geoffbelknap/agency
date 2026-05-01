@@ -17,6 +17,9 @@ EXPECTED_KERNEL_ARTIFACTS=(
   agency-kernel-6.12.22-firecracker-aarch64
   agency-kernel-6.12.22-apple-vf-arm64
 )
+APPLE_VF_HELPER_VERSION="0.1.0"
+APPLE_VF_HELPER_RELEASE_TAG="agency-apple-vf-helpers-${APPLE_VF_HELPER_VERSION}-r1"
+APPLE_VF_HELPER_ASSET="agency-apple-vf-helpers-${APPLE_VF_HELPER_VERSION}-darwin-arm64.tar.gz"
 
 log() {
   printf '==> %s\n' "$*"
@@ -135,6 +138,35 @@ PY
   rm -f "$release_file" "$checksum_file"
 }
 
+check_apple_vf_helper_release_assets() {
+  local helper_json
+  local helper_file
+  local checksum_file
+  gh release view "$APPLE_VF_HELPER_RELEASE_TAG" >/dev/null ||
+    fail "GitHub Apple VF helper release ${APPLE_VF_HELPER_RELEASE_TAG} does not exist"
+  helper_json="$(gh release view "$APPLE_VF_HELPER_RELEASE_TAG" --json assets)"
+  helper_file="$(mktemp)"
+  printf '%s' "$helper_json" >"$helper_file"
+  python3 - "$helper_file" "$APPLE_VF_HELPER_RELEASE_TAG" "$APPLE_VF_HELPER_ASSET" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as fh:
+    data = json.load(fh)
+assets = {asset["name"] for asset in data.get("assets", [])}
+expected = [sys.argv[3], sys.argv[3] + ".sha256", sys.argv[2] + ".manifest.json"]
+missing = [name for name in expected if name not in assets]
+if missing:
+    print(f"missing Apple VF helper release assets: {missing}", file=sys.stderr)
+    sys.exit(1)
+PY
+  checksum_file="$(mktemp)"
+  curl -fsSL "https://github.com/geoffbelknap/agency/releases/download/${APPLE_VF_HELPER_RELEASE_TAG}/${APPLE_VF_HELPER_ASSET}.sha256" >"$checksum_file"
+  grep -q "$APPLE_VF_HELPER_ASSET" "$checksum_file" ||
+    fail "Apple VF helper checksum sidecar missing asset name"
+  rm -f "$helper_file" "$checksum_file"
+}
+
 check_kernel_release_assets() {
   local kernel_json
   local kernel_file
@@ -181,19 +213,26 @@ check_formula_sha_matches_release() {
 
   formula_content="$(curl -fsSL "$(formula_download_url "$tag")")"
   checksum_content="$(curl -fsSL "https://github.com/geoffbelknap/agency/releases/download/${tag}/checksums.txt")"
+  helper_checksum_content="$(curl -fsSL "https://github.com/geoffbelknap/agency/releases/download/${APPLE_VF_HELPER_RELEASE_TAG}/${APPLE_VF_HELPER_ASSET}.sha256")"
   checksum_file="$(mktemp)"
+  helper_checksum_file="$(mktemp)"
   formula_file="$(mktemp)"
   printf '%s' "$checksum_content" >"$checksum_file"
+  printf '%s' "$helper_checksum_content" >"$helper_checksum_file"
   printf '%s' "$formula_content" >"$formula_file"
 
-  python3 - "$version" "$checksum_file" "$formula_file" <<'PY'
+  python3 - "$version" "$checksum_file" "$helper_checksum_file" "$formula_file" "$APPLE_VF_HELPER_ASSET" <<'PY'
 import sys
 
 version = sys.argv[1]
 checksum_file = sys.argv[2]
-formula_file = sys.argv[3]
+helper_checksum_file = sys.argv[3]
+formula_file = sys.argv[4]
+helper_name = sys.argv[5]
 with open(checksum_file, "r", encoding="utf-8") as fh:
     checksums = fh.read().splitlines()
+with open(helper_checksum_file, "r", encoding="utf-8") as fh:
+    helper_checksum = fh.read().splitlines()
 with open(formula_file, "r", encoding="utf-8") as fh:
     formula = fh.read()
 
@@ -222,17 +261,35 @@ for name, sha in expected_pairs.items():
     if sha not in formula:
         print(f"formula missing checksum {sha} for {name}", file=sys.stderr)
         sys.exit(1)
+helper_sha = ""
+for line in helper_checksum:
+    fields = line.split()
+    if len(fields) >= 2 and fields[-1] == helper_name:
+        helper_sha = fields[0]
+        break
+if len(helper_sha) != 64:
+    print(f"missing helper checksum entry for {helper_name}", file=sys.stderr)
+    sys.exit(1)
+if helper_name not in formula:
+    print(f"formula missing URL for {helper_name}", file=sys.stderr)
+    sys.exit(1)
+if helper_sha not in formula:
+    print(f"formula missing checksum {helper_sha} for {helper_name}", file=sys.stderr)
+    sys.exit(1)
 PY
-  rm -f "$checksum_file" "$formula_file"
+  rm -f "$checksum_file" "$helper_checksum_file" "$formula_file"
 }
 
 check_required_files() {
   local files=(
     ".github/workflows/release.yaml"
+    ".github/workflows/release-apple-vf-helpers.yml"
     ".github/workflows/release-kernel-artifacts.yml"
     ".github/workflows/release-runtime-artifacts.yml"
     ".goreleaser.yaml"
     ".goreleaser.rc.yaml"
+    "scripts/release/build-apple-vf-helper-assets.sh"
+    "scripts/release/verify-apple-vf-helper-assets.sh"
   )
   local file
   for file in "${files[@]}"; do
@@ -272,7 +329,7 @@ run_package_smoke() {
   arch="$(host_arch)"
 
   log "Building snapshot release archive for package smoke"
-  (cd "$ROOT_DIR" && goreleaser release --snapshot --clean --skip=publish)
+  (cd "$ROOT_DIR" && AGENCY_APPLE_VF_HELPERS_DARWIN_ARM64_SHA256=0000000000000000000000000000000000000000000000000000000000000000 goreleaser release --snapshot --clean --skip=publish)
 
   archive="$(find "$ROOT_DIR/dist" -maxdepth 1 -type f -name "agency_*_${os}_${arch}.tar.gz" | sort | tail -n1)"
   [ -n "$archive" ] || fail "Snapshot archive for ${os}/${arch} was not produced"
@@ -381,6 +438,7 @@ run_published() {
   check_release_exists "$TARGET_TAG"
   check_release_assets "$TARGET_TAG"
   check_kernel_release_assets
+  check_apple_vf_helper_release_assets
   check_formula_for_tag "$TARGET_TAG"
   check_formula_sha_matches_release "$TARGET_TAG"
 

@@ -84,6 +84,16 @@ func TestWithAppleVFArtifactConfig(t *testing.T) {
 	if got["kernel_path"] != want {
 		t.Fatalf("kernel path = %q, want %q", got["kernel_path"], want)
 	}
+	sourceRoot := config.Load().SourceDir
+	for key, want := range map[string]string{
+		"helper_binary":            filepath.Join(sourceRoot, "bin", "agency-apple-vf-helper"),
+		"enforcer_binary_path":     filepath.Join(sourceRoot, "bin", "agency-enforcer-host"),
+		"vsock_bridge_binary_path": filepath.Join(sourceRoot, "bin", "agency-vsock-http-bridge-linux-arm64"),
+	} {
+		if got[key] != want {
+			t.Fatalf("%s = %q, want %q", key, got[key], want)
+		}
+	}
 
 	got = withAppleVFArtifactConfig(hostruntimebackend.BackendAppleVFMicroVM, map[string]string{"kernel_path": "/custom/Image"})
 	if got["kernel_path"] != "/custom/Image" {

@@ -63,6 +63,7 @@ firecracker-helpers:
 apple-vf-helpers:
 	scripts/readiness/apple-vf-helper-build.sh
 	mkdir -p bin
+	cp tools/apple-vf-helper/.build/release/agency-apple-vf-helper bin/agency-apple-vf-helper
 	cd images/enforcer && go build -ldflags="-s -w" -o ../../bin/agency-enforcer-host .
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o bin/agency-vsock-http-bridge-linux-arm64 ./cmd/agency-vsock-http-bridge
 

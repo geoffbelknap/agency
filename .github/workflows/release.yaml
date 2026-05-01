@@ -43,6 +43,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./scripts/release/verify-kernel-artifacts.sh
 
+      - name: Verify pinned Apple VF helper artifacts
+        id: apple-vf-helpers
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/release/verify-apple-vf-helper-assets.sh
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
@@ -51,3 +57,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ steps.app-token.outputs.token }}
+          AGENCY_APPLE_VF_HELPERS_DARWIN_ARM64_SHA256: ${{ steps.apple-vf-helpers.outputs.sha256 }}

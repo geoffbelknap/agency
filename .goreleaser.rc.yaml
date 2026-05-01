@@ -74,8 +74,22 @@ brews:
     dependencies:
       - name: python@3.14
       - name: e2fsprogs
+    custom_block: |
+      on_macos do
+        on_arm do
+          resource "agency-apple-vf-helpers" do
+            url "https://github.com/geoffbelknap/agency/releases/download/agency-apple-vf-helpers-0.1.0-r1/agency-apple-vf-helpers-0.1.0-darwin-arm64.tar.gz"
+            sha256 "{{ .Env.AGENCY_APPLE_VF_HELPERS_DARWIN_ARM64_SHA256 }}"
+          end
+        end
+      end
     extra_install: |
       pkgshare.install "bin"
+      if OS.mac? && Hardware::CPU.arm?
+        resource("agency-apple-vf-helpers").stage do
+          (pkgshare/"bin").install Dir["bin/*"]
+        end
+      end
       pkgshare.install "images"
       pkgshare.install "services"
       pkgshare.install "scripts"
@@ -94,6 +108,10 @@ brews:
       Runtime dependencies:
         - python@3.14: host-managed infra services and egress Python environment
         - e2fsprogs: mke2fs for microVM root filesystem creation
+
+      macOS Apple silicon Apple VF setup:
+        agency quickstart uses the packaged signed Apple VF helper bundle and
+        provisions the pinned Agency guest kernel when it is missing.
 
       Linux and WSL Firecracker setup:
         agency quickstart provisions the pinned Firecracker binary and Agency
