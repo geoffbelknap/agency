@@ -11,7 +11,7 @@ EXPECTED_RUNTIME_ARTIFACTS=(
   agency-runtime-body
   agency-runtime-enforcer
 )
-KERNEL_RELEASE_TAG="agency-kernels-6.12.22-agency1"
+KERNEL_RELEASE_TAG="agency-kernels-6.12.22-r1"
 EXPECTED_KERNEL_ARTIFACTS=(
   agency-kernel-6.12.22-firecracker-x86_64
   agency-kernel-6.12.22-firecracker-aarch64

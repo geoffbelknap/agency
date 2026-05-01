@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KERNEL_RELEASE_TAG="${AGENCY_KERNEL_RELEASE_TAG:-agency-kernels-6.12.22-agency1}"
+KERNEL_RELEASE_TAG="${AGENCY_KERNEL_RELEASE_TAG:-agency-kernels-6.12.22-r1}"
 EXPECTED=(
   agency-kernel-6.12.22-firecracker-x86_64
   agency-kernel-6.12.22-firecracker-aarch64
