@@ -88,9 +88,9 @@ async def _log_shutdown(app: web.Application) -> None:
 
 def create_app(data_dir: Optional[Path] = None, agents_dir: Optional[Path] = None) -> web.Application:
     try:
-        from logging_config import correlation_middleware
+        from services.logging_config import correlation_middleware
     except ImportError:
-        from images.logging_config import correlation_middleware
+        from logging_config import correlation_middleware
     app = web.Application(middlewares=[correlation_middleware()])
     resolved_data_dir = data_dir or Path("/app/data")
     app["store"] = MessageStore(resolved_data_dir)
@@ -1130,7 +1130,7 @@ def main():
     # Configure explicitly; sitecustomize is best-effort and is not guaranteed
     # to load from the app directory in every Python/container invocation.
     try:
-        from logging_config import setup_logging
+        from services.logging_config import setup_logging
         setup_logging(os.environ.get("AGENCY_COMPONENT", "comms"))
     except ImportError:
         logging.basicConfig(level=logging.INFO, format="[comms] %(message)s", force=True)
