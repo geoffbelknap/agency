@@ -40,6 +40,7 @@ func TestNewFirecrackerRuntimeBackendUsesConfig(t *testing.T) {
 		"stop_timeout":             "250ms",
 		"enforcement_mode":         FirecrackerEnforcementModeMicroVM,
 		"vsock_bridge_binary_path": "/usr/local/bin/agency-vsock-http-bridge",
+		"rootfs_oci_ref":           "ghcr.io/example/agency-runtime-body:v1",
 	})
 	if backend.BinaryPath != "/usr/local/bin/firecracker" {
 		t.Fatalf("binary path = %q", backend.BinaryPath)
@@ -58,6 +59,12 @@ func TestNewFirecrackerRuntimeBackendUsesConfig(t *testing.T) {
 	}
 	if backend.Images.VsockBridgeBinary != "/usr/local/bin/agency-vsock-http-bridge" {
 		t.Fatalf("vsock bridge binary = %q", backend.Images.VsockBridgeBinary)
+	}
+	if backend.Images.RootFSOCIRef != "ghcr.io/example/agency-runtime-body:v1" {
+		t.Fatalf("rootfs OCI ref = %q", backend.Images.RootFSOCIRef)
+	}
+	if backend.Images.Platform.OS != "linux" || backend.Images.Platform.Architecture == "" {
+		t.Fatalf("platform = %#v", backend.Images.Platform)
 	}
 	if backend.Tasks.StopTimeout.String() != "250ms" {
 		t.Fatalf("stop timeout = %s", backend.Tasks.StopTimeout)

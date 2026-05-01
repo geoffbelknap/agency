@@ -15,6 +15,7 @@ import (
 
 	"github.com/geoffbelknap/agency/internal/pkg/pathsafety"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 const (
@@ -29,6 +30,8 @@ type FirecrackerImageStore struct {
 	SizeMiB           int64
 	VsockBridgeBinary string
 	OverlayBaseDir    string
+	RootFSOCIRef      string
+	Platform          ocispec.Platform
 
 	commands firecrackerImageCommands
 }
@@ -74,6 +77,11 @@ func (s *FirecrackerImageStore) PrepareTaskRootFS(ctx context.Context, spec runt
 	if err != nil {
 		return FirecrackerRootFS{}, err
 	}
+	if imageRef, ok, err := s.rootFSOCIImageRef(spec.Package.Image); err != nil {
+		return FirecrackerRootFS{}, err
+	} else if ok {
+		return s.prepareTaskRootFSFromOCI(ctx, imageRef, taskPath, spec.Package.Env)
+	}
 	if len(spec.Package.Env) > 0 {
 		digest, err := s.resolveImageDigest(ctx, spec.Package.Image)
 		if err != nil {
@@ -93,6 +101,52 @@ func (s *FirecrackerImageStore) PrepareTaskRootFS(ctx context.Context, spec runt
 	}
 	rootfs.Path = taskPath
 	return rootfs, nil
+}
+
+func (s *FirecrackerImageStore) prepareTaskRootFSFromOCI(ctx context.Context, imageRef, taskPath string, env map[string]string) (FirecrackerRootFS, error) {
+	builder := &MicroVMOCIRootFSBuilder{
+		StateDir:          s.stateDir(),
+		Mke2fsPath:        s.mke2fsPath(),
+		SizeMiB:           s.sizeMiB(),
+		VsockBridgeBinary: s.VsockBridgeBinary,
+		OverlayBaseDir:    s.overlayBaseDir(),
+		Platform:          s.platform(),
+	}
+	result, err := builder.Build(ctx, imageRef, taskPath, env)
+	if err != nil {
+		return FirecrackerRootFS{}, fmt.Errorf("firecracker OCI rootfs: %w", err)
+	}
+	return FirecrackerRootFS{
+		ImageRef: result.ImageRef,
+		Digest:   result.Manifest.Digest.String(),
+		Path:     result.RootFSPath,
+		InitPath: result.InitPath,
+	}, nil
+}
+
+func (s *FirecrackerImageStore) rootFSOCIImageRef(imageRef string) (string, bool, error) {
+	configured := strings.TrimSpace(s.RootFSOCIRef)
+	if configured != "" {
+		ref, err := validateFirecrackerOCIImageRef(configured)
+		return ref, true, err
+	}
+	imageRef = strings.TrimSpace(imageRef)
+	if strings.Contains(imageRef, "@sha256:") {
+		ref, err := validateFirecrackerOCIImageRef(imageRef)
+		return ref, true, err
+	}
+	return "", false, nil
+}
+
+func validateFirecrackerOCIImageRef(imageRef string) (string, error) {
+	imageRef = strings.TrimSpace(imageRef)
+	if imageRef == "" {
+		return "", fmt.Errorf("firecracker rootfs OCI artifact is not configured")
+	}
+	if strings.HasSuffix(imageRef, ":latest") {
+		return "", fmt.Errorf("firecracker rootfs OCI artifact must not use mutable :latest tag: %s", imageRef)
+	}
+	return imageRef, nil
 }
 
 func (s *FirecrackerImageStore) Realize(ctx context.Context, imageRef string) (FirecrackerRootFS, error) {
@@ -547,6 +601,13 @@ func (s *FirecrackerImageStore) overlayBaseDir() string {
 		return s.OverlayBaseDir
 	}
 	return s.stateDir()
+}
+
+func (s *FirecrackerImageStore) platform() ocispec.Platform {
+	if s.Platform.OS != "" && s.Platform.Architecture != "" {
+		return s.Platform
+	}
+	return ocispec.Platform{OS: "linux", Architecture: "amd64"}
 }
 
 func (s *FirecrackerImageStore) podmanPath() string {

@@ -19,8 +19,8 @@ Runs the supported microVM readiness path for the current host:
 Options:
   --backend auto|apple-vf-microvm|firecracker
   --rootfs-oci-ref REF    Versioned body/rootfs OCI artifact reference.
-                          Required for apple-vf-microvm. Firecracker currently
-                          uses its backend smoke's local OCI rootfs path.
+                          Required for apple-vf-microvm release validation.
+                          Used directly by firecracker when supplied.
   --skip-core             Skip git diff/status-check/go/web unit gates.
   --skip-contract         Skip the backend-neutral runtime contract smoke.
   --web                   Run the backend Web UI smoke after lifecycle checks.
@@ -122,7 +122,11 @@ run_firecracker() {
 
   if [[ "$RUN_CONTRACT" != "1" ]]; then
     log "Running Firecracker lifecycle smoke"
-    "$ROOT/scripts/readiness/firecracker-microvm-smoke.sh"
+    local args=()
+    if [[ -n "$ROOTFS_OCI_REF" ]]; then
+      args+=(--rootfs-oci-ref "$ROOTFS_OCI_REF")
+    fi
+    "$ROOT/scripts/readiness/firecracker-microvm-smoke.sh" "${args[@]}"
   else
     local out
     local pid=""
@@ -162,11 +166,15 @@ run_firecracker() {
     trap cleanup_firecracker RETURN
 
     log "Running Firecracker lifecycle smoke with kept runtime for contract smoke"
+    local keep_args=(--keep-agent)
+    if [[ -n "$ROOTFS_OCI_REF" ]]; then
+      keep_args+=(--rootfs-oci-ref "$ROOTFS_OCI_REF")
+    fi
     if command -v setsid >/dev/null 2>&1; then
-      setsid "$ROOT/scripts/readiness/firecracker-microvm-smoke.sh" --keep-agent >"$out" 2>&1 &
+      setsid "$ROOT/scripts/readiness/firecracker-microvm-smoke.sh" "${keep_args[@]}" >"$out" 2>&1 &
       pid_is_group=1
     else
-      "$ROOT/scripts/readiness/firecracker-microvm-smoke.sh" --keep-agent >"$out" 2>&1 &
+      "$ROOT/scripts/readiness/firecracker-microvm-smoke.sh" "${keep_args[@]}" >"$out" 2>&1 &
     fi
     pid="$!"
 

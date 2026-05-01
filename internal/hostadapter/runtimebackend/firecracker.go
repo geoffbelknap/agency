@@ -11,12 +11,14 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/geoffbelknap/agency/internal/pkg/pathsafety"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 const (
@@ -73,6 +75,8 @@ func NewFirecrackerRuntimeBackend(home string, cfg map[string]string) *Firecrack
 		SizeMiB:           parseInt64Config(cfg["rootfs_size_mib"], defaultFirecrackerRootFSMiB),
 		VsockBridgeBinary: strings.TrimSpace(cfg["vsock_bridge_binary_path"]),
 		OverlayBaseDir:    strings.TrimSpace(home),
+		RootFSOCIRef:      firstNonEmptyConfig(cfg, "rootfs_oci_ref", "body_oci_ref"),
+		Platform:          ocispec.Platform{OS: "linux", Architecture: firecrackerOCIArch()},
 	}
 	backend.Tasks = &FirecrackerVMSupervisor{
 		BinaryPath:  binaryPath,
@@ -82,6 +86,15 @@ func NewFirecrackerRuntimeBackend(home string, cfg map[string]string) *Firecrack
 	}
 	backend.Vsock = &FirecrackerVsockListenerFactory{StateDir: stateDir}
 	return backend
+}
+
+func firecrackerOCIArch() string {
+	switch runtime.GOARCH {
+	case "amd64", "arm64":
+		return runtime.GOARCH
+	default:
+		return runtime.GOARCH
+	}
 }
 
 func (b *FirecrackerRuntimeBackend) Name() string {
