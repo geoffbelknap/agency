@@ -82,7 +82,7 @@ jobs:
           PY
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.asset_name }}
           path: dist/kernel-artifacts/*
@@ -95,7 +95,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download kernel artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist/kernel-artifacts
           merge-multiple: true
