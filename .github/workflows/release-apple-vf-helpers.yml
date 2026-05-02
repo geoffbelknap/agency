@@ -1,6 +1,6 @@
 name: Apple VF Helpers
 
-on:
+"on":
   push:
     tags:
       - "agency-apple-vf-helpers-*"
@@ -33,41 +33,42 @@ jobs:
 
       - name: Build manifest
         env:
-          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
           ASSET_NAME: ${{ steps.build.outputs.asset_name }}
           HELPER_VERSION: ${{ steps.build.outputs.helper_version }}
           SHA256: ${{ steps.build.outputs.sha256 }}
         run: |
           python3 - <<'PY'
-import json
-import os
-from pathlib import Path
+          import json
+          import os
+          from pathlib import Path
 
-asset = Path("dist/apple-vf-helpers") / os.environ["ASSET_NAME"]
-manifest = {
-    "release_tag": os.environ["RELEASE_TAG"],
-    "helper_version": os.environ["HELPER_VERSION"],
-    "assets": [
-        {
-            "asset": os.environ["ASSET_NAME"],
-            "runtime": "apple-vf",
-            "os": "darwin",
-            "arch": "arm64",
-            "sha256": os.environ["SHA256"],
-            "size_bytes": asset.stat().st_size,
-            "contents": [
-                "bin/agency-apple-vf-helper",
-                "bin/agency-enforcer-host",
-                "bin/agency-vsock-http-bridge-linux-arm64",
-            ],
-        }
-    ],
-}
-Path(f"dist/apple-vf-helpers/{os.environ['RELEASE_TAG']}.manifest.json").write_text(
-    json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-    encoding="utf-8",
-)
-PY
+          asset = Path("dist/apple-vf-helpers") / os.environ["ASSET_NAME"]
+          release_tag = os.environ.get("RELEASE_TAG") or os.environ["GITHUB_REF_NAME"]
+          manifest = {
+              "release_tag": release_tag,
+              "helper_version": os.environ["HELPER_VERSION"],
+              "assets": [
+                  {
+                      "asset": os.environ["ASSET_NAME"],
+                      "runtime": "apple-vf",
+                      "os": "darwin",
+                      "arch": "arm64",
+                      "sha256": os.environ["SHA256"],
+                      "size_bytes": asset.stat().st_size,
+                      "contents": [
+                          "bin/agency-apple-vf-helper",
+                          "bin/agency-enforcer-host",
+                          "bin/agency-vsock-http-bridge-linux-arm64",
+                      ],
+                  }
+              ],
+          }
+          Path(f"dist/apple-vf-helpers/{release_tag}.manifest.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -88,13 +89,18 @@ PY
       - name: Publish Apple VF helper release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" \
+          release_tag="${RELEASE_TAG:-${GITHUB_REF_NAME:-}}"
+          if [ -z "$release_tag" ]; then
+            echo "release tag was not provided and could not be derived from ref" >&2
+            exit 1
+          fi
+          if ! gh release view "$release_tag" >/dev/null 2>&1; then
+            gh release create "$release_tag" \
               --target "$GITHUB_SHA" \
-              --title "$RELEASE_TAG" \
+              --title "$release_tag" \
               --notes "Pinned Agency Apple VF helper bundle for macOS Apple silicon." \
               --prerelease
           fi
-          gh release upload "$RELEASE_TAG" dist/apple-vf-helpers/* --clobber
+          gh release upload "$release_tag" dist/apple-vf-helpers/* --clobber
