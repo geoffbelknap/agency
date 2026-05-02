@@ -473,17 +473,23 @@ func TestFirecrackerDoctorChecksReportRemediationHints(t *testing.T) {
 	if report.AllPassed {
 		t.Fatal("expected all_passed=false")
 	}
-	for _, tt := range []struct {
+	wantChecks := []struct {
 		name string
 		want string
 	}{
 		{"firecracker_kvm_device", "setfacl"},
 		{"firecracker_kvm_module", "modprobe kvm"},
 		{"firecracker_binary", "chmod +x"},
-		{"firecracker_kernel", "vmlinux"},
 		{"firecracker_enforcer_binary", "chmod +x"},
 		{"firecracker_vsock_bridge_binary", "make firecracker-helpers"},
-	} {
+	}
+	if runtime.GOARCH != "arm64" {
+		wantChecks = append(wantChecks, struct {
+			name string
+			want string
+		}{"firecracker_kernel", "vmlinux"})
+	}
+	for _, tt := range wantChecks {
 		check, ok := findDoctorCheck(report.Checks, tt.name)
 		if !ok {
 			t.Fatalf("missing %s in %#v", tt.name, report.Checks)

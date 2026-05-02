@@ -10,6 +10,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/config"
 	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
+	"github.com/geoffbelknap/agency/internal/runtimeprovision"
 )
 
 func TestSelectRuntimeBackendDefaultsToStrategicBackend(t *testing.T) {
@@ -45,7 +46,7 @@ func TestSelectRuntimeBackendRejectsContainerBackend(t *testing.T) {
 
 func TestSelectRuntimeBackendAllowsExplicitMicroVMBackendsWithoutExperimentalFlag(t *testing.T) {
 	t.Setenv("AGENCY_RUNTIME_BACKEND", "")
-	for _, backend := range []string{hostruntimebackend.BackendFirecracker, hostruntimebackend.BackendAppleVFMicroVM} {
+	for _, backend := range []string{hostruntimebackend.BackendFirecracker, hostruntimebackend.BackendAppleVFMicroVM, hostruntimebackend.BackendMicroagent} {
 		got, _, err := selectRuntimeBackend(backend)
 		if err != nil {
 			t.Fatalf("selectRuntimeBackend(%s) error = %v", backend, err)
@@ -53,6 +54,61 @@ func TestSelectRuntimeBackendAllowsExplicitMicroVMBackendsWithoutExperimentalFla
 		if got != backend {
 			t.Fatalf("selectRuntimeBackend(%s) = %q, want %q", backend, got, backend)
 		}
+	}
+}
+
+func TestWithMicroagentArtifactConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("AGENCY_HOME", home)
+	t.Setenv("AGENCY_MICROAGENT_BIN", "")
+	t.Setenv("AGENCY_MICROAGENT_STATE_DIR", "")
+	t.Setenv("AGENCY_MICROAGENT_ENTRYPOINT", "")
+	t.Setenv("AGENCY_MICROAGENT_ENFORCER_BIN", "")
+	t.Setenv("AGENCY_MICROAGENT_ROOTFS_OCI_REF", "")
+	t.Setenv("AGENCY_MKE2FS", "")
+
+	got := withMicroagentArtifactConfig(hostruntimebackend.BackendMicroagent, nil)
+	if got["binary_path"] != "microagent" {
+		t.Fatalf("binary path = %q, want microagent", got["binary_path"])
+	}
+	if got["state_dir"] != filepath.Join(home, "runtime", "microagent") {
+		t.Fatalf("state dir = %q", got["state_dir"])
+	}
+	if got["entrypoint"] != "/app/entrypoint.sh" {
+		t.Fatalf("entrypoint = %q", got["entrypoint"])
+	}
+	if got["enforcer_binary_path"] == "" {
+		t.Fatalf("enforcer binary path was not defaulted: %#v", got)
+	}
+
+	t.Setenv("AGENCY_MICROAGENT_BIN", "/env/microagent")
+	t.Setenv("AGENCY_MICROAGENT_STATE_DIR", "/env/state")
+	t.Setenv("AGENCY_MICROAGENT_ENTRYPOINT", "/env/entrypoint")
+	t.Setenv("AGENCY_MICROAGENT_ENFORCER_BIN", "/env/enforcer")
+	t.Setenv("AGENCY_MICROAGENT_ROOTFS_OCI_REF", "ghcr.io/example/agency-body:v1")
+	t.Setenv("AGENCY_MKE2FS", "/env/mke2fs")
+	got = withMicroagentArtifactConfig(hostruntimebackend.BackendMicroagent, nil)
+	for key, want := range map[string]string{
+		"binary_path":          "/env/microagent",
+		"state_dir":            "/env/state",
+		"entrypoint":           "/env/entrypoint",
+		"enforcer_binary_path": "/env/enforcer",
+		"rootfs_oci_ref":       "ghcr.io/example/agency-body:v1",
+		"mke2fs_path":          "/env/mke2fs",
+	} {
+		if got[key] != want {
+			t.Fatalf("%s = %q, want %q", key, got[key], want)
+		}
+	}
+	got = withMicroagentArtifactConfig(hostruntimebackend.BackendMicroagent, map[string]string{
+		"binary_path": "/custom/microagent",
+		"state_dir":   "/custom/state",
+	})
+	if got["binary_path"] != "/custom/microagent" || got["state_dir"] != "/custom/state" {
+		t.Fatalf("configured microagent paths were not preserved: %#v", got)
+	}
+	if got := withMicroagentArtifactConfig(hostruntimebackend.BackendAppleVFMicroVM, nil); got != nil {
+		t.Fatalf("apple-vf cfg = %#v, want nil", got)
 	}
 }
 
@@ -147,7 +203,18 @@ func TestWithFirecrackerArtifactConfig(t *testing.T) {
 	if got["binary_path"] == "" || !strings.Contains(got["binary_path"], "firecracker-v1.12.1-") {
 		t.Fatalf("binary path = %q, want pinned firecracker artifact path", got["binary_path"])
 	}
-	if got["kernel_path"] != filepath.Join(home, "runtime", "firecracker", "artifacts", "vmlinux") {
+	defaultArch := runtime.GOARCH
+	switch defaultArch {
+	case "amd64":
+		defaultArch = "x86_64"
+	case "arm64":
+		defaultArch = "aarch64"
+	}
+	wantKernelPath, err := runtimeprovision.DefaultFirecrackerKernelPath(home, defaultArch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["kernel_path"] != wantKernelPath {
 		t.Fatalf("kernel path = %q", got["kernel_path"])
 	}
 	if got["mke2fs_path"] == "" {
