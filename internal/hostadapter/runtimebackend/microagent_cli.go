@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -72,12 +73,16 @@ func (b *MicroagentCLIRuntimeBackend) Ensure(ctx context.Context, spec runtimeco
 	if _, err := b.run(ctx, args...); err != nil {
 		return err
 	}
-	if _, err := b.run(ctx, "start",
+	startArgs := []string{"start",
 		spec.RuntimeID,
 		"--state-dir", b.StateDir,
 		"--memory", strconv.FormatInt(b.MemoryMiB, 10),
 		"--cpus", strconv.FormatInt(b.CPUCount, 10),
-	); err != nil {
+	}
+	for _, mapping := range microagentEnforcerVsockMappings(spec.Package.Env) {
+		startArgs = append(startArgs, "--vsock", mapping)
+	}
+	if _, err := b.run(ctx, startArgs...); err != nil {
 		return err
 	}
 	return nil
@@ -109,6 +114,27 @@ func microagentHostOnlyEnv(key string) bool {
 	default:
 		return strings.HasPrefix(key, FirecrackerHostServiceTargetEnvBase)
 	}
+}
+
+func microagentEnforcerVsockMappings(env map[string]string) []string {
+	proxyTarget := microagentTargetHostPort(env[FirecrackerEnforcerProxyTargetEnv])
+	controlTarget := microagentTargetHostPort(env[FirecrackerEnforcerControlTargetEnv])
+	var mappings []string
+	if proxyTarget != "" {
+		mappings = append(mappings, "3128="+proxyTarget)
+	}
+	if controlTarget != "" {
+		mappings = append(mappings, "8081="+controlTarget)
+	}
+	return mappings
+}
+
+func microagentTargetHostPort(endpoint string) string {
+	parsed, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil || parsed.Host == "" {
+		return ""
+	}
+	return parsed.Host
 }
 
 func (b *MicroagentCLIRuntimeBackend) Stop(ctx context.Context, runtimeID string) error {
