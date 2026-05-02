@@ -319,6 +319,8 @@ run_package_smoke() {
   require_cmd python3
   require_cmd tar
   check_required_files
+  ! grep -q 'agency runtime provision firecracker' "$ROOT_DIR/.goreleaser.yaml" ||
+    fail "Homebrew caveats should not present manual Firecracker provisioning as install flow"
 
   local os
   local arch

@@ -4,12 +4,12 @@ description: "Agency is a governed AI agent platform focused on secure runtime, 
 ---
 
 
-Agency is a platform for running governed AI agents that do real work with
-strong security boundaries, complete auditability, and a usable direct-message
-workflow.
+Agency runs governed AI agents in isolated runtimes, with mediated access to
+tools and services, audit trails you can inspect, and a direct-message workflow
+that feels like the normal way to use the product.
 
-This guide is organized around the current core product, not every possible
-platform surface in the repo.
+This guide follows the current core product path. The repo contains broader
+platform work, but you do not need it to get started.
 
 ## Start Here
 
@@ -43,7 +43,7 @@ platform surface in the repo.
 ## Not Core To Start With
 
 Some broader platform areas exist in the repo and docs, but they are not the
-mainline onboarding path right now:
+main onboarding path right now:
 
 - teams and coordinator-heavy workflows
 - packs and hub lifecycle
@@ -51,8 +51,5 @@ mainline onboarding path right now:
 - graph governance and ontology operations
 - advanced routing optimization surfaces
 
-Those can still be useful, but they should not be mistaken for the core Agency
-product today.
-
-They remain documented under the **Experimental Surfaces** section of the docs
-navigation so work can continue without diluting the default product path.
+They can still be useful. They are documented under **Experimental Surfaces** so
+that work can continue without making the default path harder to understand.

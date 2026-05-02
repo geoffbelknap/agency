@@ -4,11 +4,12 @@ description: "Agency is a governed AI agent platform for running real agents wit
 ---
 
 
-Agency is a platform for running AI agents that can do real work without being
-trusted with your host environment, your network, or your credentials.
+Agency runs AI agents in a governed local runtime. Agents can work with files,
+tools, and providers without being trusted with your host environment, your
+network, or your credentials.
 
-The point of Agency is not just to spin up an agent. The point is to give that
-agent a governed runtime around it.
+The interesting part is not that Agency can start an agent. The interesting
+part is what surrounds that agent: isolation, mediation, audit, and recovery.
 
 ## What Problem It Solves
 
@@ -21,7 +22,7 @@ less convincing when the agent needs to:
 - be observable and interruptible
 - leave an audit trail an operator can trust
 
-Agency is built around those requirements first.
+Agency starts from those requirements.
 
 ## The Core Agency Experience
 
@@ -34,7 +35,7 @@ The core workflow is intentionally narrow:
 5. Inspect logs, usage, budget, and status when needed.
 6. Let it reuse graph-backed context from prior work so it improves over time.
 
-That is the current heart of the product.
+That is the center of the product today.
 
 ## How It Works
 
@@ -53,16 +54,15 @@ The agent does not get:
 - write access to its own constraints
 - control over its own audit trail
 
-This is the difference between "an agent we hope behaves" and "an agent running
-inside structural boundaries."
+That is the difference between hoping an agent behaves and running it inside
+boundaries it cannot rewrite.
 
 ## Why The Graph Matters
 
 Agency includes a durable knowledge graph because agents should get better over
 time.
 
-The important story is not that Agency has every possible graph feature. The
-important story is that:
+The graph is not there for novelty. It is there because:
 
 - useful knowledge survives across sessions
 - agents can retrieve relevant prior context
@@ -75,7 +75,7 @@ is not the center of the product right now.
 
 Agency is designed to be event-driven.
 
-That means the platform can wake agents based on:
+That means the platform can wake agents from:
 
 - direct messages
 - platform state changes
@@ -123,9 +123,9 @@ That is the product path Agency should feel best at first.
 
 ## Who It Is For
 
-Agency is for people who want AI agents doing real work, but need stronger
-operational guarantees than a normal chatbot or lightly wrapped coding agent
-tool can provide.
+Agency is for people who want agents to do useful work, but need more
+operational control than a normal chatbot or lightly wrapped coding agent can
+provide.
 
 That includes:
 
@@ -139,13 +139,13 @@ That includes:
 Agency has broader platform work in the repo, but the mainline story right now
 is not:
 
-- giant connector breadth
-- a giant coordination platform
+- broad connector coverage
+- a large coordination platform
 - a marketplace-first ecosystem
 - graph governance as a standalone product
 
-Those may matter later. The believable core today is governed agents with real
-runtime boundaries, durable context, and auditable work.
+Those may matter later. The useful core today is governed agents with runtime
+boundaries, durable context, and work you can inspect afterward.
 
 ## What's Next
 

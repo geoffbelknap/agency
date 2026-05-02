@@ -68,7 +68,7 @@ attempts to break runtime isolation.
 **Mitigations:**
 - Read-only rootfs where supported, PID limits, memory limits
 - Dedicated mediation path with no default route to shared services
-- MicroVM isolation on strategic Linux and macOS runtime paths
+- MicroVM isolation on supported Linux and macOS runtime paths
 - Path traversal enforcement in built-in tools
 - No real credentials in runtime environment
 

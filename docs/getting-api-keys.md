@@ -4,9 +4,10 @@ description: "How to get API keys from each supported LLM provider, including fr
 ---
 
 
-Agency agents need an API key from at least one LLM provider. This guide walks through getting a key from each supported provider, including free-tier options where available.
+Agency needs an API key from at least one LLM provider. This guide covers the
+supported providers and notes which ones have useful free-tier options.
 
-You only need **one** key to get started. You can add more providers later.
+You only need **one** key to start. You can add more providers later.
 
 ## Quick Comparison
 
@@ -43,7 +44,8 @@ agency setup    # will prompt for key if not in environment
 
 ## Google (Gemini) — Free Tier Available
 
-Google AI Studio offers a free tier with generous rate limits — a great way to try Agency at zero cost.
+Google AI Studio has a generous free tier, which makes it the easiest way to try
+Agency without adding a payment method.
 
 **Free tier:** 15 requests/minute, 1M tokens/day, 1500 requests/day. No credit card required.
 
@@ -100,7 +102,8 @@ agency setup
 
 ## Using Multiple Providers
 
-Agency's [model routing](/model-routing) automatically picks the best available model for each agent's tier. Adding multiple provider keys gives you:
+Agency's [model routing](/model-routing) picks an available model for each
+agent's tier. Adding multiple provider keys gives you:
 
 - **Cost optimization** — route standard-tier agents to cheaper providers
 - **Redundancy** — if one provider has an outage, agents continue on another
@@ -124,7 +127,8 @@ After setup, verify your key works:
 agency admin doctor
 ```
 
-The doctor check includes an LLM connectivity test. If it passes, your key is working.
+The doctor check includes an LLM connectivity test. If it passes, Agency can use
+the key.
 
 ## Cost Control
 

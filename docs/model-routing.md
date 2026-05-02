@@ -4,11 +4,15 @@ description: "How Agency routes LLM calls to the right model for each agent to b
 ---
 
 
-Agency agents make a lot of LLM calls. A team of 10 agents running for a day can easily consume millions of tokens. Choosing the right model for each agent type is the single biggest cost lever — often 10-50x difference for identical output quality.
+Agency agents can make a lot of LLM calls. A few long-running agents can burn
+through millions of tokens in a day. Choosing the right model tier is usually
+the biggest cost lever.
 
 ## The Problem
 
-Not every agent needs a frontier model. A function agent scanning messages for PII violations produces the same results on a $0.10/MTok model as on a $5.00/MTok model. But an engineer agent debugging a novel concurrency issue genuinely needs frontier reasoning.
+Not every agent needs a frontier model. A function agent scanning routine
+messages for PII may do well on a cheap classifier. An engineer debugging a
+novel concurrency issue probably needs frontier reasoning.
 
 ## Five Tiers
 
@@ -68,7 +72,9 @@ Lower preference number = tried first. The platform picks the first model whose 
 
 ## Why Caching Changes Everything
 
-Agents are multi-turn by nature — 10-50 tool-use turns per task is typical. Every turn resends the system prompt, tool definitions, and conversation history. With prompt caching, most of that input is free on subsequent turns.
+Agents are multi-turn by nature. A serious task can take 10-50 tool-use turns.
+Every turn resends the system prompt, tool definitions, and conversation
+history. With prompt caching, much of that input gets cheaper on later turns.
 
 ### The Math
 
@@ -80,7 +86,9 @@ For a 20-turn agent session:
 | **OpenAI GPT-4.1** | $2.00 | ~$1.29/turn avg | No write premium, but ~50% cache hit rate |
 | **Google Gemini 3 Flash** | $0.50 | ~$0.29/turn avg | Implicit caching, best-effort, lowest base price |
 
-Key insight: **Anthropic is actually cheaper than OpenAI for multi-turn** despite the higher sticker price, because its deterministic cache hits (90% off, guaranteed) beat OpenAI's best-effort caching (~50% hit rate).
+Practical takeaway: **Anthropic can be cheaper than OpenAI for multi-turn
+agents** despite the higher sticker price, because deterministic cache reads can
+beat best-effort cache hits.
 
 The default provider preferences account for this.
 

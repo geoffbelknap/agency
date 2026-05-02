@@ -4,7 +4,9 @@ description: "Agency runs shared infrastructure that all agents use. This page c
 ---
 
 
-Agency runs shared infrastructure that all agents use. This page covers what each component does, how to manage it, and how to troubleshoot problems.
+Agency runs shared infrastructure for agents: egress, messaging, knowledge,
+per-agent enforcers, and the web UI. This page explains what each component
+does and how to manage the local stack.
 
 > Status: Mixed reference. The default `0.2.x` core stack is egress, comms,
 > knowledge, per-agent enforcers, and the web UI. `web-fetch`, `intake`, and
@@ -21,7 +23,12 @@ The egress proxy is the only component that holds real API keys. It sits between
 - **Domain filtering** — Controls which external domains agents can reach
 - **Audit logging** — Records all outbound requests
 
-Built on mitmproxy. Credentials are resolved from the gateway's encrypted credential store via a dedicated Unix socket (`~/.agency/run/gateway-cred.sock`). The `SocketKeyResolver` handles credential lookups at request time, so real API keys never touch the agent runtime or traverse an agent-accessible network. See [Credentials](credentials.md) for the operator guide.
+The egress proxy is built on mitmproxy. Credentials are resolved from the
+gateway's encrypted credential store through a dedicated Unix socket
+(`~/.agency/run/gateway-cred.sock`). The `SocketKeyResolver` handles credential
+lookups at request time, so real API keys never touch the agent runtime or cross
+an agent-accessible network. See [Credentials](credentials.md) for the operator
+guide.
 
 ### Web-Fetch Service
 
@@ -48,7 +55,7 @@ Runs as an aiohttp server. The host-side gateway reaches it through the local ga
 
 ### Knowledge Service
 
-Organizational knowledge that compounds over time:
+Durable knowledge that becomes more useful over time:
 
 - **SQLite graph** — Nodes and edges with FTS5 search
 - **Rule-based ingestion** — Important channel messages captured in real-time
@@ -116,7 +123,8 @@ infrastructure isn't running.
 agency infra down
 ```
 
-Stops all shared infrastructure. Running agents will lose access to comms and egress services.
+Stops all shared infrastructure. Running agents lose access to comms and egress
+until the stack comes back.
 
 ### Rebuild
 

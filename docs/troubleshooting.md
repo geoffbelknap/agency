@@ -1,10 +1,11 @@
 ---
 title: "Troubleshooting"
-description: "Common issues and how to resolve them."
+description: "Common Agency setup, runtime, credential, and infrastructure problems, with the fastest checks to run first."
 ---
 
 
-Common issues and how to resolve them.
+Start with the checks below when setup, agents, credentials, or infrastructure
+do not behave as expected.
 
 ## First Step: Run Doctor
 
@@ -12,7 +13,8 @@ Common issues and how to resolve them.
 agency admin doctor
 ```
 
-This checks all security guarantees and reports any issues. It's the fastest way to identify problems.
+This checks runtime readiness, mediation, credentials, audit, and service
+health. It is usually the fastest way to find the real problem.
 
 ## Agent Won't Start
 
@@ -48,7 +50,7 @@ agency admin doctor
 agency runtime status my-agent
 ```
 
-On Linux, the strategic backend is Firecracker. Check KVM and vsock access:
+On Linux, the supported backend is Firecracker. Check KVM and vsock access:
 
 ```bash
 test -r /dev/kvm && test -w /dev/kvm
@@ -115,7 +117,8 @@ When Agency blocks an operation, the error includes the ASK tenet number and exp
 Error: ASK Tenet 3 violation — No unmediated path from agent to external resource.
 ```
 
-This block is intentional. The right response is to adjust your approach, not work around it. Common scenarios:
+This block is intentional. Change the approach instead of bypassing the safety
+check. Common scenarios:
 
 | Tenet | Meaning | Resolution |
 |-------|---------|------------|

@@ -109,13 +109,11 @@ brews:
 
       macOS Apple silicon Apple VF setup:
         agency quickstart uses the packaged signed Apple VF helper bundle and
-        provisions the pinned Agency guest kernel when it is missing.
+        provisions the guest kernel when it is missing.
 
       Linux and WSL Firecracker setup:
-        agency quickstart provisions the pinned Firecracker binary and Agency
-        guest kernel artifact when they are missing. To provision them explicitly:
-
-          agency runtime provision firecracker
+        agency quickstart provisions required Firecracker runtime components
+        when they are missing.
 
       Quick start guide: https://github.com/geoffbelknap/agency#readme
     test: |

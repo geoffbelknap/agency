@@ -4,7 +4,10 @@ description: "Agency's structural security model enforces isolation, mediation, 
 ---
 
 
-Agency's security model is structural — it's not something agents opt into, it's something they can't opt out of. This page explains what's enforced, how it works, and what operators need to know.
+Agency's security model is structural. The platform enforces isolation,
+mediation, and audit outside the agent boundary, so agents do not get to opt out
+of them. This page explains what is enforced, how it works, and what operators
+need to know.
 
 ## Security Guarantees
 
@@ -64,7 +67,8 @@ All LLM requests pass through the enforcer for cross-prompt injection attack (XP
 
 ## The ASK Framework
 
-Agency implements the [ASK framework](https://github.com/geoffbelknap/ask) — 24 tenets for governing AI agents. Six core principles:
+Agency implements the [ASK framework](https://github.com/geoffbelknap/ask) for
+governing AI agents. Six core principles:
 
 1. **Constraints are external and inviolable.** Enforcement runs outside the agent boundary.
 2. **Every action leaves a trace.** Logs are written by mediation, not agents.
@@ -73,15 +77,16 @@ Agency implements the [ASK framework](https://github.com/geoffbelknap/ask) — 2
 5. **Governance is operator-owned and read-only.** Agents can't modify their own rules.
 6. **Each enforcement layer has its own isolation boundary.** Layers don't collapse.
 
-When Agency blocks an operation, it reports the tenet number and explanation. These blocks are intentional and correct — the right response is to adjust your approach, not work around the block.
+When Agency blocks an operation, it reports the tenet number and explanation.
+Treat those blocks as safety signals. Change the approach instead of trying to
+work around the mediation layer.
 
 ## Runtime Isolation
 
-Each agent runs inside an isolated runtime boundary. The strategic Linux path
-uses one Firecracker microVM per agent workload; the strategic macOS path is
-`apple-vf-microvm` backed by Apple's Virtualization framework. The enforcer
-stays outside the agent boundary so enforcement, mediation, and audit remain
-external to the agent.
+Each agent runs inside an isolated runtime boundary. Linux uses one Firecracker
+microVM per agent workload. macOS Apple silicon uses `apple-vf-microvm`, backed
+by Apple's Virtualization framework. The enforcer stays outside the agent
+boundary so enforcement, mediation, and audit remain external to the agent.
 
 ```
 Per-Agent Runtime:

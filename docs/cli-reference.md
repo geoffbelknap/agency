@@ -4,7 +4,8 @@ description: "Complete command reference for the agency CLI, with agent operatio
 ---
 
 
-Complete command reference for the `agency` CLI. Agent operations are top-level, and related operations are grouped into subcommands.
+Command reference for the `agency` CLI. Common agent operations are top-level;
+related operations live under subcommands.
 
 > Status: Mixed reference. The supported `0.2.x` core CLI path centers on
 > `quickstart`, agent lifecycle, DM workflow, comms, credentials, policy,
@@ -224,10 +225,11 @@ Most commands support these options:
 
 ## MCP Server
 
-Agency also exposes all operations as MCP tools (85 tools) for AI assistants:
+Agency also exposes its operations as MCP tools for AI assistants:
 
 ```bash
 agency mcp-server                        # Start MCP server (stdio, Go native)
 ```
 
-Once installed, an AI assistant can operate Agency through natural conversation using the same operations listed above.
+Once installed, an AI assistant can operate Agency through the same API-backed
+operations listed above.

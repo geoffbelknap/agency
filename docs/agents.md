@@ -4,7 +4,9 @@ description: "An agent is an autonomous AI worker running inside an isolated mic
 ---
 
 
-An agent is an autonomous AI worker running inside an isolated microVM runtime. This page covers the full agent lifecycle — creating, configuring, starting, sending tasks, monitoring, and stopping agents.
+An agent is an AI worker running inside an isolated microVM runtime. This page
+covers the normal lifecycle: create it, configure it, start it, send work,
+inspect what happened, and stop it.
 
 > Status: Core reference with a few experimental extensions called out inline.
 > The default `0.2.x` path is one operator working with one or a few agents
@@ -117,9 +119,14 @@ For detached execution (returns immediately):
 agency send my-agent --detach "Run a security scan of the codebase"
 ```
 
-Agents prioritize quality over speed. When a request is ambiguous, the agent will ask clarifying questions rather than guess. When research would improve the answer — web search, knowledge queries, reading files — the agent does it first. When the agent learns facts about people (location, role, preferences), it saves them to the knowledge graph for future sessions.
+Agents should prioritize quality over speed. When a request is ambiguous, the
+agent can ask clarifying questions instead of guessing. When research would
+improve the answer, it can search, query knowledge, or read files first. Useful
+facts about people, such as location, role, or preferences, can be saved to the
+knowledge graph for future sessions.
 
-Conversations continue naturally across multiple messages. There are no turn limits — cost is controlled by USD budgets, not message counts.
+Conversations continue across messages. Cost is controlled by USD budgets, not
+message counts.
 
 ## Monitoring
 
