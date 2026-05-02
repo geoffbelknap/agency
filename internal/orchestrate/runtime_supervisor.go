@@ -122,6 +122,15 @@ func NewRuntimeSupervisor(home, version, sourceDir, buildID, backendName string,
 			return appleVFBackend, nil
 		})
 	}
+	if rs.BackendName == hostruntimebackend.BackendMicroagent {
+		var microagentBackend *microagentComponentRuntimeBackend
+		rs.registry.Register(hostruntimebackend.BackendMicroagent, func() (runtimecontract.Backend, error) {
+			if microagentBackend == nil {
+				microagentBackend = newMicroagentComponentRuntimeBackend(rs.Home, rs.Version, rs.SourceDir, rs.BuildID, rs.BackendConfig)
+			}
+			return microagentBackend, nil
+		})
+	}
 	rs.registry.Register(probeRuntimeBackendName, func() (runtimecontract.Backend, error) {
 		return &probeRuntimeBackend{home: rs.Home}, nil
 	})
@@ -134,6 +143,15 @@ func normalizeRuntimeBackendName(name string) string {
 		return defaultRuntimeBackend()
 	}
 	return name
+}
+
+func isMicroVMRuntimeBackend(name string) bool {
+	switch normalizeRuntimeBackendName(name) {
+	case hostruntimebackend.BackendFirecracker, hostruntimebackend.BackendAppleVFMicroVM, hostruntimebackend.BackendMicroagent:
+		return true
+	default:
+		return false
+	}
 }
 
 func (rs *RuntimeSupervisor) Compile(ctx context.Context, runtimeID string) (runtimecontract.RuntimeSpec, error) {
@@ -159,7 +177,7 @@ func (rs *RuntimeSupervisor) Compile(ctx context.Context, runtimeID string) (run
 	enforcerControlURL := "http://" + enforcerHost + ":8081"
 	enforcerEndpoint := endpoint
 	extraEnv := map[string]string{}
-	if backendName == hostruntimebackend.BackendFirecracker || backendName == hostruntimebackend.BackendAppleVFMicroVM {
+	if isMicroVMRuntimeBackend(backendName) {
 		proxyEndpoint, err := allocateLoopbackEndpoint()
 		if err != nil {
 			return runtimecontract.RuntimeSpec{}, fmt.Errorf("allocate microvm enforcer proxy endpoint: %w", err)
@@ -173,10 +191,8 @@ func (rs *RuntimeSupervisor) Compile(ctx context.Context, runtimeID string) (run
 		enforcerProxyURL = "http://" + enforcerHost + ":3128"
 		enforcerControlURL = "http://" + enforcerHost + ":8081"
 		enforcerEndpoint = "vsock://2:8081"
-		if backendName == hostruntimebackend.BackendFirecracker || backendName == hostruntimebackend.BackendAppleVFMicroVM {
-			extraEnv[hostruntimebackend.FirecrackerEnforcerProxyTargetEnv] = proxyEndpoint
-			extraEnv[hostruntimebackend.FirecrackerEnforcerControlTargetEnv] = controlEndpoint
-		}
+		extraEnv[hostruntimebackend.FirecrackerEnforcerProxyTargetEnv] = proxyEndpoint
+		extraEnv[hostruntimebackend.FirecrackerEnforcerControlTargetEnv] = controlEndpoint
 	}
 	env := map[string]string{
 		"AGENCY_AGENT_NAME":                  agentID,

@@ -664,7 +664,7 @@ func normalizeRuntimeBackendName(name string) string {
 	if name == "" {
 		return defaultRuntimeBackendForHost()
 	}
-	if name == hostruntimebackend.BackendFirecracker || name == hostruntimebackend.BackendAppleVFMicroVM {
+	if name == hostruntimebackend.BackendFirecracker || name == hostruntimebackend.BackendAppleVFMicroVM || name == hostruntimebackend.BackendMicroagent {
 		return name
 	}
 	return runtimehost.NormalizeContainerBackend(name)
@@ -692,15 +692,53 @@ func selectRuntimeBackend(override string) (string, map[string]string, error) {
 		fmt.Fprintf(os.Stderr, "Using %s runtime backend.\n", backend)
 		return backend, withMicroVMArtifactConfig(backend, nil), nil
 	}
-	if override == hostruntimebackend.BackendFirecracker || override == hostruntimebackend.BackendAppleVFMicroVM {
+	if override == hostruntimebackend.BackendFirecracker || override == hostruntimebackend.BackendAppleVFMicroVM || override == hostruntimebackend.BackendMicroagent {
 		fmt.Fprintf(os.Stderr, "Using %s runtime backend.\n", override)
 		return override, withMicroVMArtifactConfig(override, mergeBackendSocketConfig(configuredCfg, nil)), nil
 	}
-	return "", nil, fmt.Errorf("runtime backend %q is not supported; Agency supports firecracker on Linux/WSL and apple-vf-microvm on macOS", override)
+	return "", nil, fmt.Errorf("runtime backend %q is not supported; Agency supports firecracker on Linux/WSL, apple-vf-microvm on macOS, and microagent as an opt-in adapter", override)
 }
 
 func withMicroVMArtifactConfig(backend string, cfg map[string]string) map[string]string {
-	return withFirecrackerArtifactConfig(backend, withAppleVFArtifactConfig(backend, cfg))
+	return withMicroagentArtifactConfig(backend, withFirecrackerArtifactConfig(backend, withAppleVFArtifactConfig(backend, cfg)))
+}
+
+func withMicroagentArtifactConfig(backend string, cfg map[string]string) map[string]string {
+	if backend != hostruntimebackend.BackendMicroagent {
+		return cfg
+	}
+	home := config.Load().Home
+	sourceRoot := config.Load().SourceDir
+	defaults := map[string]string{
+		"binary_path":          "microagent",
+		"state_dir":            filepath.Join(home, "runtime", "microagent"),
+		"entrypoint":           "/app/entrypoint.sh",
+		"enforcer_binary_path": filepath.Join(sourceRoot, "bin", "agency-enforcer-host"),
+		"mke2fs_path":          defaultMke2fsPath(),
+	}
+	envPaths := map[string]string{
+		"binary_path":          strings.TrimSpace(os.Getenv("AGENCY_MICROAGENT_BIN")),
+		"state_dir":            strings.TrimSpace(os.Getenv("AGENCY_MICROAGENT_STATE_DIR")),
+		"entrypoint":           strings.TrimSpace(os.Getenv("AGENCY_MICROAGENT_ENTRYPOINT")),
+		"enforcer_binary_path": strings.TrimSpace(os.Getenv("AGENCY_MICROAGENT_ENFORCER_BIN")),
+		"rootfs_oci_ref":       strings.TrimSpace(os.Getenv("AGENCY_MICROAGENT_ROOTFS_OCI_REF")),
+		"mke2fs_path":          strings.TrimSpace(os.Getenv("AGENCY_MKE2FS")),
+	}
+	out := make(map[string]string, len(cfg)+len(defaults)+len(envPaths))
+	for k, v := range cfg {
+		out[k] = v
+	}
+	for key, value := range envPaths {
+		if strings.TrimSpace(out[key]) == "" && strings.TrimSpace(value) != "" {
+			out[key] = value
+		}
+	}
+	for key, value := range defaults {
+		if strings.TrimSpace(out[key]) == "" && strings.TrimSpace(value) != "" {
+			out[key] = value
+		}
+	}
+	return out
 }
 
 func withAppleVFArtifactConfig(backend string, cfg map[string]string) map[string]string {
@@ -1472,7 +1510,7 @@ func runServe(httpAddr string) error {
 func validateConfiguredBackend(cfg *config.Config) error {
 	backendName := normalizeRuntimeBackendName(cfg.Hub.DeploymentBackend)
 	if runtimehost.IsContainerBackend(backendName) {
-		return fmt.Errorf("runtime backend %q is legacy container execution and is no longer supported; use firecracker on Linux/WSL or apple-vf-microvm on macOS", backendName)
+		return fmt.Errorf("runtime backend %q is legacy container execution and is no longer supported; use firecracker on Linux/WSL, apple-vf-microvm on macOS, or microagent as an opt-in adapter", backendName)
 	}
 	return nil
 }
