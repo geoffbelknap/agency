@@ -1,6 +1,6 @@
 name: Apple VF Helpers
 
-on:
+"on":
   workflow_dispatch:
     inputs:
       release_tag:
