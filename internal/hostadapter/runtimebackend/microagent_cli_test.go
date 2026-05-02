@@ -38,10 +38,21 @@ func TestMicroagentCLIEnsureCreatesAndStartsWorkspace(t *testing.T) {
 	}
 	want := [][]string{
 		{"microagent-test", "create", "--name", "alice", "--image", "ghcr.io/example/body:v1", "--state-dir", "/tmp/agency/runtime/microagent", "--memory", "1024", "--cpus", "4", "--entrypoint", "/app/entrypoint.sh", "--env", "AGENCY_AGENT_NAME=alice"},
-		{"microagent-test", "start", "alice", "--state-dir", "/tmp/agency/runtime/microagent", "--memory", "1024", "--cpus", "4"},
+		{"microagent-test", "start", "alice", "--state-dir", "/tmp/agency/runtime/microagent", "--memory", "1024", "--cpus", "4", "--vsock", "3128=127.0.0.1:19000", "--vsock", "8081=127.0.0.1:19001"},
 	}
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("calls = %#v, want %#v", calls, want)
+	}
+}
+
+func TestMicroagentEnforcerVsockMappings(t *testing.T) {
+	got := microagentEnforcerVsockMappings(map[string]string{
+		FirecrackerEnforcerProxyTargetEnv:   "http://127.0.0.1:19000",
+		FirecrackerEnforcerControlTargetEnv: "http://localhost:19001",
+	})
+	want := []string{"3128=127.0.0.1:19000", "8081=localhost:19001"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mappings = %#v, want %#v", got, want)
 	}
 }
 
