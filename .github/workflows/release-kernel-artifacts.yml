@@ -1,6 +1,9 @@
 name: Kernel Artifacts
 
-"on":
+on:
+  push:
+    tags:
+      - "agency-kernels-*"
   workflow_dispatch:
     inputs:
       release_tag:
@@ -96,7 +99,7 @@ PY
 
       - name: Build manifest
         env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           python3 - <<'PY'
 import hashlib
@@ -128,7 +131,7 @@ PY
       - name: Publish kernel artifact release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" \
