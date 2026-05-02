@@ -4,7 +4,10 @@ description: "Centralized credential management for API keys, service tokens, an
 ---
 
 
-Agency uses a centralized encrypted credential store to manage all API keys and secrets. Real credentials never enter agent runtimes — the egress proxy resolves them at the network boundary via a socket connection to the gateway. The agent only ever sees a scoped proxy token.
+Agency stores API keys and service secrets in an encrypted credential store.
+Real credentials never enter agent runtimes. The egress proxy resolves them at
+the network boundary through a socket connection to the gateway, while the agent
+only sees a scoped proxy token.
 
 ## Quick Start
 
@@ -21,7 +24,9 @@ Verify it works:
 agency creds test ANTHROPIC_API_KEY
 ```
 
-That's it. The credential is encrypted at rest, available to all agents (platform scope), and will be injected into outbound API calls by the egress proxy.
+That is enough for the first provider key. The credential is encrypted at rest,
+available to all agents through platform scope, and injected into outbound API
+calls by the egress proxy.
 
 ## Provider Credentials
 
@@ -110,7 +115,8 @@ agency creds show ANTHROPIC_API_KEY
 agency creds show ANTHROPIC_API_KEY --show-value
 ```
 
-Every `--show-value` call is recorded in the audit trail — there is no silent way to read a credential.
+Every `--show-value` call is recorded in the audit trail. There is no silent
+credential read path.
 
 ## Rotation and Testing
 

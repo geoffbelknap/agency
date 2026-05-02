@@ -4,7 +4,7 @@ description: "Get Agency running, create your first governed agent, and use the 
 ---
 
 
-Get Agency running and your first agent working in under 10 minutes.
+Install Agency, start the local stack, and send your first agent a task.
 
 ## Before You Start
 
@@ -17,8 +17,8 @@ You need:
 If you need a provider key first, see [Getting API Keys](/getting-api-keys).
 Google Gemini is the easiest no-credit-card starting point for many users.
 
-On Linux, Agency's strategic runtime path is Firecracker. The host needs KVM
-and vsock available to the operator account:
+On Linux, Agency uses Firecracker. The host needs KVM and vsock available to
+the operator account:
 
 ```bash
 test -r /dev/kvm && test -w /dev/kvm
@@ -29,10 +29,10 @@ On macOS Apple silicon, the supported runtime path is `apple-vf-microvm`,
 backed by Apple's Virtualization framework.
 
 Both supported runtime paths need `mitmdump` with Agency's egress addon Python
-dependencies for host-managed egress and `mke2fs` from e2fsprogs for root
-filesystem creation. They also need Node/npm dependencies for the host-managed
-web UI. Packaged installs run the host dependency helper automatically. To
-verify or install them manually from a source checkout:
+dependencies for host-managed egress, plus `mke2fs` from e2fsprogs for root
+filesystem creation. Packaged installs run the host dependency helper
+automatically. From a source checkout, you can verify or install those
+dependencies yourself:
 
 Host-managed infra code is packaged as Agency services under `services/`.
 The `images/` tree remains in the source repo for OCI/rootfs build inputs; it
@@ -40,8 +40,8 @@ is not shipped in packaged installs and is not the host service runtime
 contract.
 
 `agency setup` and `agency quickstart` check the selected microVM backend before
-starting the daemon. They fail closed if the backend helper, kernel, host
-enforcer, guest transport helper, or rootfs tooling is missing. From a source
+starting the daemon. They fail closed if a required helper, kernel, host
+enforcer, guest transport helper, or rootfs tool is missing. From a source
 checkout, prepare those runtime artifacts with:
 
 ```bash
@@ -60,10 +60,10 @@ make firecracker-helpers
 
 The script uses Homebrew on macOS/Linuxbrew when available, or common Linux
 package managers such as `apt-get`, `dnf`, `yum`, `pacman`, or `zypper`. It
-installs system packages such as Python and e2fsprogs, then installs the
-pinned Python dependencies used by the bundled host-managed infrastructure
-services into the installed Agency asset tree. Packaged installs ship prebuilt
-web UI assets; Node/npm are only needed when building the web UI from source.
+installs system packages such as Python and e2fsprogs, then installs the Python
+dependencies used by the bundled host-managed infrastructure services into the
+installed Agency asset tree. Packaged installs ship prebuilt web UI assets;
+Node/npm are only needed when building the web UI from source.
 
 Dockerfiles remain part of Agency because they define OCI filesystem recipes
 that microVM backends can convert into bootable root filesystems. Docker,
@@ -163,7 +163,7 @@ flow before the agent becomes available.
 
 ## Talk To The Agent
 
-The main product workflow is a direct-message conversation.
+The default workflow is a direct-message conversation.
 
 ### Web UI
 
@@ -184,7 +184,7 @@ agency log henry
 
 Agency also supports shared channels and graph-backed context.
 
-For the current core product, think of them this way:
+For the core product, think of them this way:
 
 - **channels** help agents and operators share message history
 - **graph context** helps useful knowledge survive and be retrieved later
@@ -221,7 +221,7 @@ agency admin doctor
 agency log henry
 ```
 
-Those three commands are the fastest way to confirm:
+Those three commands usually tell you:
 
 - the stack is up
 - the security guarantees are holding

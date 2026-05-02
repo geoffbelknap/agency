@@ -4,18 +4,19 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8.svg)](https://go.dev)
 
-Governed AI agents with real isolation, mediated execution, durable memory, and
-complete auditability.
+Governed AI agents with isolated runtimes, mediated execution, durable memory,
+and audit trails you can inspect.
 
 Agency is the reference implementation of [ASK](https://askframework.org), the
 open framework for agent security.
 
 ## What Agency Is
 
-Agency is a platform for running one or a few AI agents that can do real work
-without being trusted with your machine, your network, or your credentials.
+Agency runs one or a few AI agents in a runtime you can actually govern. Agents
+can work with files, tools, and model providers without being handed your host,
+your network, or your credentials.
 
-The core product is intentionally simple:
+The core path is intentionally small:
 
 - create an agent
 - start it in an isolated workspace
@@ -24,8 +25,8 @@ The core product is intentionally simple:
 - keep a durable audit trail and visible budget/usage records
 - let it build graph-backed context that improves future work
 
-This is not "just another chat UI." The point is the governed runtime around the
-agent.
+The chat is not the product by itself. The product is the runtime around the
+agent: isolation, mediation, recovery, and audit.
 
 ## How It Works
 
@@ -46,13 +47,12 @@ Inside the workspace, Agency implements the
 - `Identity` is agent-owned and durable
 - `Session` is ephemeral per run
 
-The system is event-driven. Agents are woken by direct messages, platform
-events, and other routed events rather than broad polling loops being the main
-product model.
+Agency is event-driven. Direct messages, platform events, and routed events wake
+agents when there is work to do; broad polling loops are not the default model.
 
-Agency also keeps a durable knowledge graph. The important part of that story is
-not "graph features for their own sake," but that agents can retrieve useful
-context from previous work and get smarter and faster over time.
+Agency also keeps a durable knowledge graph. The graph is there so agents can
+recover useful context from prior work and spend less time rediscovering the
+same facts.
 
 ## Why It Exists
 
@@ -65,7 +65,8 @@ Most AI agent demos skip the hard parts:
 - fail-closed behavior
 - operator recovery
 
-Those are exactly the parts that matter once an agent is doing real work.
+Those are the parts that start to matter as soon as an agent can affect real
+systems.
 Agency is built around them first.
 
 ## Quick Start
@@ -80,10 +81,9 @@ On Linux and WSL2, Agency defaults to Firecracker and requires KVM plus vsock
 access for the operator account. On macOS Apple silicon, Agency defaults to
 `apple-vf-microvm` backed by Apple's Virtualization framework.
 
-The supported microVM path also needs host tools and a local Python
-environment for host-managed egress:
+The supported microVM path also needs a few host tools:
 
-- `.venv/bin/mitmdump` plus Agency's egress addon Python dependencies for host-managed egress mediation
+- `mitmdump` plus Agency's egress addon Python dependencies for host-managed egress mediation
 - `e2fsprogs` / `mke2fs` for microVM root filesystem creation
 - Node/npm dependencies for the host-managed web UI
 
@@ -92,10 +92,10 @@ The `images/` tree remains in the source repo for OCI/rootfs build inputs; it
 is not shipped in packaged installs and is not the host service runtime
 contract.
 
-`agency setup` and `agency quickstart` own runtime artifact readiness. They
-persist the selected microVM backend and fail closed before daemon startup if
-the helper, kernel, enforcer, guest transport, or rootfs tooling needed by that
-backend is missing. Source checkouts can prepare those artifacts with:
+`agency setup` and `agency quickstart` check runtime readiness. They persist
+the selected microVM backend and fail closed before daemon startup if a required
+helper, kernel, enforcer, guest transport, or rootfs tool is missing. Source
+checkouts can prepare those artifacts with:
 
 ```bash
 make apple-vf-helpers
@@ -116,10 +116,10 @@ verify them yourself from a source checkout:
 
 The script uses Homebrew on macOS/Linuxbrew when available, or common Linux
 package managers such as `apt-get`, `dnf`, `yum`, `pacman`, or `zypper`. It
-installs system packages such as Python and e2fsprogs, then installs the
-pinned Python dependencies used by the bundled host-managed infrastructure
-services into the installed Agency asset tree. Packaged installs ship prebuilt
-web UI assets; Node/npm are only needed when building the web UI from source.
+installs system packages such as Python and e2fsprogs, then installs the Python
+dependencies used by the bundled host-managed infrastructure services into the
+installed Agency asset tree. Packaged installs ship prebuilt web UI assets;
+Node/npm are only needed when building the web UI from source.
 
 Dockerfiles remain part of Agency as OCI filesystem recipes. Docker, Podman,
 containerd, and Apple Container execution backends are legacy paths and are no
@@ -245,7 +245,7 @@ Run `agency <command> --help` for details.
 
 ## What Is In Scope Today
 
-Agency's credible near-term core is:
+Agency's near-term core is:
 
 - governed single-agent or small-agent workflows
 - direct messages and simple channels
