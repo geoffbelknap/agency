@@ -1,6 +1,6 @@
 name: Kernel Artifacts
 
-on:
+"on":
   push:
     tags:
       - "agency-kernels-*"
@@ -66,20 +66,20 @@ jobs:
           cp "$AGENCY_HOME/$ARTIFACT_PATH" "dist/kernel-artifacts/$ASSET_NAME"
           sha256sum "dist/kernel-artifacts/$ASSET_NAME" > "dist/kernel-artifacts/$ASSET_NAME.sha256"
           python3 - <<'PY'
-import json
-import os
-from pathlib import Path
+          import json
+          import os
+          from pathlib import Path
 
-asset = os.environ["ASSET_NAME"]
-path = Path("dist/kernel-artifacts") / f"{asset}.json"
-path.write_text(json.dumps({
-    "asset": asset,
-    "runtime": os.environ["KERNEL_RUNTIME"],
-    "arch": os.environ["KERNEL_ARCH"],
-    "format": os.environ["KERNEL_FORMAT"],
-    "kernel_version": "6.12.22",
-}, indent=2) + "\n", encoding="utf-8")
-PY
+          asset = os.environ["ASSET_NAME"]
+          path = Path("dist/kernel-artifacts") / f"{asset}.json"
+          path.write_text(json.dumps({
+              "asset": asset,
+              "runtime": os.environ["KERNEL_RUNTIME"],
+              "arch": os.environ["KERNEL_ARCH"],
+              "format": os.environ["KERNEL_FORMAT"],
+              "kernel_version": "6.12.22",
+          }, indent=2) + "\n", encoding="utf-8")
+          PY
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -99,45 +99,50 @@ PY
 
       - name: Build manifest
         env:
-          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           python3 - <<'PY'
-import hashlib
-import json
-import os
-from pathlib import Path
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
 
-release_tag = os.environ["RELEASE_TAG"]
-assets = []
-for meta_path in sorted(Path("dist/kernel-artifacts").glob("*.json")):
-    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    artifact_path = meta_path.with_suffix("")
-    data = artifact_path.read_bytes()
-    meta["sha256"] = hashlib.sha256(data).hexdigest()
-    meta["size_bytes"] = len(data)
-    assets.append(meta)
-manifest = {
-    "release_tag": release_tag,
-    "kernel_version": "6.12.22",
-    "assets": assets,
-    "rootfs": "not included; realized from pinned Agency OCI runtime images",
-}
-Path(f"dist/kernel-artifacts/{release_tag}.manifest.json").write_text(
-    json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-    encoding="utf-8",
-)
-PY
+          release_tag = os.environ.get("RELEASE_TAG") or os.environ["GITHUB_REF_NAME"]
+          assets = []
+          for meta_path in sorted(Path("dist/kernel-artifacts").glob("*.json")):
+              meta = json.loads(meta_path.read_text(encoding="utf-8"))
+              artifact_path = meta_path.with_suffix("")
+              data = artifact_path.read_bytes()
+              meta["sha256"] = hashlib.sha256(data).hexdigest()
+              meta["size_bytes"] = len(data)
+              assets.append(meta)
+          manifest = {
+              "release_tag": release_tag,
+              "kernel_version": "6.12.22",
+              "assets": assets,
+              "rootfs": "not included; realized from pinned Agency OCI runtime images",
+          }
+          Path(f"dist/kernel-artifacts/{release_tag}.manifest.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
 
       - name: Publish kernel artifact release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" \
+          release_tag="${RELEASE_TAG:-${GITHUB_REF_NAME:-}}"
+          if [ -z "$release_tag" ]; then
+            echo "release tag was not provided and could not be derived from ref" >&2
+            exit 1
+          fi
+          if ! gh release view "$release_tag" >/dev/null 2>&1; then
+            gh release create "$release_tag" \
               --target "$GITHUB_SHA" \
-              --title "$RELEASE_TAG" \
+              --title "$release_tag" \
               --notes "Pinned Agency guest kernel artifacts for Firecracker and Apple VF." \
               --prerelease
           fi
-          gh release upload "$RELEASE_TAG" dist/kernel-artifacts/* --clobber
+          gh release upload "$release_tag" dist/kernel-artifacts/* --clobber
