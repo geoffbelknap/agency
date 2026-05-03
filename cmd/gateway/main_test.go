@@ -20,19 +20,12 @@ func TestSelectRuntimeBackendDefaultsToStrategicBackend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("selectRuntimeBackend() error = %v", err)
 	}
-	want := hostruntimebackend.BackendFirecracker
-	if runtime.GOOS == "darwin" {
-		want = hostruntimebackend.BackendAppleVFMicroVM
-	}
+	want := hostruntimebackend.BackendMicroagent
 	if backend != want {
 		t.Fatalf("backend = %q, want %q", backend, want)
 	}
-	if want == hostruntimebackend.BackendAppleVFMicroVM {
-		if cfg["kernel_path"] == "" {
-			t.Fatalf("cfg = %#v, want default apple-vf kernel path", cfg)
-		}
-	} else if cfg["binary_path"] == "" || cfg["kernel_path"] == "" {
-		t.Fatalf("cfg = %#v, want default firecracker artifact paths", cfg)
+	if cfg["binary_path"] != "microagent" || cfg["state_dir"] == "" {
+		t.Fatalf("cfg = %#v, want default microagent artifact paths", cfg)
 	}
 }
 
@@ -44,15 +37,15 @@ func TestSelectRuntimeBackendRejectsContainerBackend(t *testing.T) {
 	}
 }
 
-func TestSelectRuntimeBackendAllowsExplicitMicroVMBackendsWithoutExperimentalFlag(t *testing.T) {
+func TestSelectRuntimeBackendNormalizesLegacyMicroVMBackendsToMicroagent(t *testing.T) {
 	t.Setenv("AGENCY_RUNTIME_BACKEND", "")
-	for _, backend := range []string{hostruntimebackend.BackendFirecracker, hostruntimebackend.BackendAppleVFMicroVM, hostruntimebackend.BackendMicroagent} {
+	for _, backend := range []string{hostruntimebackend.BackendFirecracker, hostruntimebackend.BackendAppleVFMicroVM, hostruntimebackend.BackendMicroagent, "auto"} {
 		got, _, err := selectRuntimeBackend(backend)
 		if err != nil {
 			t.Fatalf("selectRuntimeBackend(%s) error = %v", backend, err)
 		}
-		if got != backend {
-			t.Fatalf("selectRuntimeBackend(%s) = %q, want %q", backend, got, backend)
+		if got != hostruntimebackend.BackendMicroagent {
+			t.Fatalf("selectRuntimeBackend(%s) = %q, want microagent", backend, got)
 		}
 	}
 }

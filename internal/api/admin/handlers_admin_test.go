@@ -94,10 +94,7 @@ func TestSplitDoctorChecksKeepsLegacyPrefixedBackendChecksGrouped(t *testing.T) 
 func TestConfiguredRuntimeBackendDefaultsToStrategicBackend(t *testing.T) {
 	t.Parallel()
 
-	want := hostruntimebackend.BackendFirecracker
-	if runtime.GOOS == "darwin" {
-		want = hostruntimebackend.BackendAppleVFMicroVM
-	}
+	want := hostruntimebackend.BackendMicroagent
 	if got := configuredRuntimeBackend(nil); got != want {
 		t.Fatalf("configuredRuntimeBackend(nil) = %q, want %q", got, want)
 	}
@@ -178,19 +175,9 @@ func TestAdminDoctorUsesRuntimeContractForProbeBackend(t *testing.T) {
 		},
 	}}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/doctor", nil)
-	rec := httptest.NewRecorder()
-	h.adminDoctor(rec, req.WithContext(context.Background()))
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code = %d, want 200: %s", rec.Code, rec.Body.String())
-	}
-	var report doctorReport
-	if err := json.Unmarshal(rec.Body.Bytes(), &report); err != nil {
-		t.Fatal(err)
-	}
+	report := h.adminDoctorRuntimeContract(context.Background())
 	if !report.AllPassed {
-		t.Fatalf("expected all_passed, got false: %s", rec.Body.String())
+		t.Fatalf("expected all_passed, got false: %#v", report)
 	}
 	if report.Backend != "probe" {
 		t.Fatalf("backend = %q, want probe", report.Backend)
@@ -278,7 +265,7 @@ func TestAdminDoctorAppleContainerReportsServiceAndHelperWarning(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !report.AllPassed {
-		t.Fatalf("expected all_passed, got false: %s", rec.Body.String())
+		t.Fatalf("expected all_passed, got false: %#v", report)
 	}
 	if report.Backend != "apple-container" || report.BackendEndpoint != "container://local" || report.BackendMode != "macos-vm" {
 		t.Fatalf("unexpected backend fields: %#v", report)
@@ -408,19 +395,9 @@ func TestAdminDoctorFirecrackerReportsHostChecksWhenConfigured(t *testing.T) {
 		},
 	}}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/doctor", nil)
-	rec := httptest.NewRecorder()
-	h.adminDoctor(rec, req.WithContext(context.Background()))
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code = %d, want 200: %s", rec.Code, rec.Body.String())
-	}
-	var report doctorReport
-	if err := json.Unmarshal(rec.Body.Bytes(), &report); err != nil {
-		t.Fatal(err)
-	}
+	report := h.adminDoctorFirecracker(context.Background())
 	if !report.AllPassed {
-		t.Fatalf("expected all_passed, got false: %s", rec.Body.String())
+		t.Fatalf("expected all_passed, got false: %#v", report)
 	}
 	for _, name := range []string{"firecracker_kvm_device", "firecracker_vsock_device", "firecracker_kvm_module", "firecracker_binary", "firecracker_kernel", "firecracker_enforcer_binary", "firecracker_vsock_bridge_binary"} {
 		check, ok := findDoctorCheck(report.BackendChecks, name)

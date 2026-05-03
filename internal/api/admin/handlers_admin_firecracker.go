@@ -36,7 +36,7 @@ var (
 )
 
 func (h *handler) adminDoctorFirecracker(ctx context.Context) doctorReport {
-	report := h.adminDoctorRuntimeContract(ctx)
+	report := doctorReport{AllPassed: true, Backend: hostruntimebackend.BackendFirecracker}
 	appendFirecrackerDoctorChecks(&report, h.deps.Config)
 	h.appendMicroVMHostInfraDoctorChecks(ctx, &report)
 	report.RuntimeChecks, report.BackendChecks = splitDoctorChecks(report.Checks, report.Backend)

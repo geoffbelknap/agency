@@ -510,7 +510,7 @@ func setupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", "", "LLM provider adapter name")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "LLM provider API key")
 	cmd.Flags().StringVar(&notifyURL, "notify-url", "", "Notification URL (ntfy or webhook) for operator alerts")
-	cmd.Flags().StringVar(&backend, "backend", "", "MicroVM runtime backend to use; defaults to firecracker on Linux/WSL and apple-vf-microvm on macOS. Also respected via AGENCY_RUNTIME_BACKEND.")
+	cmd.Flags().StringVar(&backend, "backend", "", "MicroVM runtime backend to use; defaults to microagent. Also respected via AGENCY_RUNTIME_BACKEND.")
 	cmd.Flags().BoolVar(&noInfra, "no-infra", false, "Skip runtime backend checks and infrastructure startup")
 	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Don't open the web UI in a browser (also respected via AGENCY_NO_BROWSER=1)")
 	cmd.Flags().BoolVar(&cliMode, "cli", false, "Run full interactive setup in the terminal")
@@ -649,14 +649,7 @@ func localWebURLForHost(host string) string {
 }
 
 func defaultRuntimeBackendForHost() string {
-	switch runtime.GOOS {
-	case "darwin":
-		return hostruntimebackend.BackendAppleVFMicroVM
-	case "linux":
-		return hostruntimebackend.BackendFirecracker
-	default:
-		return hostruntimebackend.BackendFirecracker
-	}
+	return hostruntimebackend.BackendMicroagent
 }
 
 func normalizeRuntimeBackendName(name string) string {
@@ -664,7 +657,10 @@ func normalizeRuntimeBackendName(name string) string {
 	if name == "" {
 		return defaultRuntimeBackendForHost()
 	}
-	if name == hostruntimebackend.BackendFirecracker || name == hostruntimebackend.BackendAppleVFMicroVM || name == hostruntimebackend.BackendMicroagent {
+	if name == "auto" || name == hostruntimebackend.BackendFirecracker || name == hostruntimebackend.BackendAppleVFMicroVM {
+		return hostruntimebackend.BackendMicroagent
+	}
+	if name == hostruntimebackend.BackendMicroagent {
 		return name
 	}
 	return runtimehost.NormalizeContainerBackend(name)
@@ -692,11 +688,12 @@ func selectRuntimeBackend(override string) (string, map[string]string, error) {
 		fmt.Fprintf(os.Stderr, "Using %s runtime backend.\n", backend)
 		return backend, withMicroVMArtifactConfig(backend, nil), nil
 	}
-	if override == hostruntimebackend.BackendFirecracker || override == hostruntimebackend.BackendAppleVFMicroVM || override == hostruntimebackend.BackendMicroagent {
+	override = normalizeRuntimeBackendName(override)
+	if override == hostruntimebackend.BackendMicroagent {
 		fmt.Fprintf(os.Stderr, "Using %s runtime backend.\n", override)
 		return override, withMicroVMArtifactConfig(override, mergeBackendSocketConfig(configuredCfg, nil)), nil
 	}
-	return "", nil, fmt.Errorf("runtime backend %q is not supported; Agency supports firecracker on Linux/WSL, apple-vf-microvm on macOS, and microagent as an opt-in adapter", override)
+	return "", nil, fmt.Errorf("runtime backend %q is not supported; Agency uses microagent for microVM workspaces", override)
 }
 
 func withMicroVMArtifactConfig(backend string, cfg map[string]string) map[string]string {
@@ -714,6 +711,7 @@ func withMicroagentArtifactConfig(backend string, cfg map[string]string) map[str
 		"state_dir":            filepath.Join(home, "runtime", "microagent"),
 		"entrypoint":           "/app/entrypoint.sh",
 		"enforcer_binary_path": filepath.Join(sourceRoot, "bin", "agency-enforcer-host"),
+		"rootfs_oci_ref":       defaultMicroagentRootFSOCIRef(),
 		"mke2fs_path":          defaultMke2fsPath(),
 	}
 	envPaths := map[string]string{
@@ -777,6 +775,17 @@ func withAppleVFArtifactConfig(backend string, cfg map[string]string) map[string
 		}
 	}
 	return out
+}
+
+func defaultMicroagentRootFSOCIRef() string {
+	v := strings.TrimSpace(version)
+	if v == "" || v == "dev" {
+		return ""
+	}
+	if !strings.HasPrefix(v, "v") {
+		v = "v" + v
+	}
+	return "ghcr.io/geoffbelknap/agency-runtime-body:" + v
 }
 
 func withFirecrackerArtifactConfig(backend string, cfg map[string]string) map[string]string {
@@ -1510,7 +1519,7 @@ func runServe(httpAddr string) error {
 func validateConfiguredBackend(cfg *config.Config) error {
 	backendName := normalizeRuntimeBackendName(cfg.Hub.DeploymentBackend)
 	if runtimehost.IsContainerBackend(backendName) {
-		return fmt.Errorf("runtime backend %q is legacy container execution and is no longer supported; use firecracker on Linux/WSL, apple-vf-microvm on macOS, or microagent as an opt-in adapter", backendName)
+		return fmt.Errorf("runtime backend %q is legacy container execution and is no longer supported; Agency uses microagent for microVM workspaces", backendName)
 	}
 	return nil
 }
