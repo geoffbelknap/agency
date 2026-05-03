@@ -44,6 +44,8 @@ test('setup wizard can advance past platform readiness into providers', async ({
           description: 'Provider A models',
           category: 'cloud',
           installed: true,
+          quickstart_selectable: true,
+          quickstart_order: 1,
           credential_name: 'provider-a-api-key',
           credential_label: 'API key',
           api_key_url: 'https://console.provider-a.example.com/settings/keys',
@@ -56,7 +58,7 @@ test('setup wizard can advance past platform readiness into providers', async ({
   await page.goto('/setup');
   await expect(page.getByRole('heading', { name: 'Prepare the workspace' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Connect providers' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'LLM Providers' })).toBeVisible();
+  await expect(page.getByText('Cloud providers')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Provider A' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
 });

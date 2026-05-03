@@ -21,8 +21,8 @@ test.describe('Admin tabs', () => {
       { path: '/admin/policy', locator: page.getByRole('button', { name: 'Validate policy' }) },
       { path: '/admin/doctor', locator: page.getByRole('button', { name: 'Run Doctor' }) },
       { path: '/admin/usage', locator: page.getByText('Usage & cost') },
-      { path: '/admin/audit', locator: page.locator('main').getByText('LLM_DIRECT', { exact: true }).first() },
-      { path: '/admin/setup', locator: page.getByRole('button', { name: 'Open Setup Wizard' }) },
+      { path: '/admin/audit', locator: page.locator('main').getByText('llm.call', { exact: true }).first() },
+      { path: '/admin/setup', locator: page.getByRole('link', { name: 'Re-run setup wizard' }) },
       { path: '/admin/danger', locator: page.getByRole('button', { name: 'Destroy All' }) },
     ];
 
