@@ -535,14 +535,11 @@ func (ss *StartSequence) directChannelActive(ctx context.Context, channelName st
 // for a new agent. Returns nil when capacity is available or not configured.
 func (ss *StartSequence) checkCapacity(ctx context.Context) error {
 	capPath := filepath.Join(ss.Home, "capacity.yaml")
-	cfg, err := LoadCapacity(capPath)
+	backendName, backendConfig := ss.capacityRuntimeConfig()
+	cfg, err := LoadOrProfileCapacity(capPath, false, backendName, backendConfig)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("capacity config not found — run agency setup to profile host resources")
-		}
 		return fmt.Errorf("load capacity config: %w", err)
 	}
-	backendName, backendConfig := ss.capacityRuntimeConfig()
 	cfg = ApplyRuntimeCapacityProfile(cfg, backendName, backendConfig)
 
 	var agentCount, meeseeksCount int

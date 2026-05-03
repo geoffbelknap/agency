@@ -424,6 +424,11 @@ func (h *handler) startAgent(w http.ResponseWriter, r *http.Request) {
 	// Wire lifecycle_id into audit writer so all subsequent events carry it.
 	h.deps.Audit.SetLifecycleID(name, detail.LifecycleID)
 
+	if err := h.ensureInfraForStart(r.Context(), name); err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+
 	ss := &orchestrate.StartSequence{
 		AgentName:   name,
 		Home:        h.deps.Config.Home,
@@ -547,6 +552,11 @@ func (h *handler) restartAgent(w http.ResponseWriter, r *http.Request) {
 	h.unregisterEnforcerWSClient(name)
 	h.deps.AgentManager.StopAgentRuntime(r.Context(), name)
 
+	if err := h.ensureInfraForStart(r.Context(), name); err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+
 	// Start with key rotation — generates a fresh scoped key instead of
 	// reusing the old one (ASK tenet 4: least privilege)
 	ss := &orchestrate.StartSequence{
@@ -588,6 +598,26 @@ func (h *handler) restartAgent(w http.ResponseWriter, r *http.Request) {
 		"build_id":    h.deps.Config.BuildID,
 	})
 	writeJSON(w, 200, result)
+}
+
+func (h *handler) ensureInfraForStart(ctx context.Context, agentName string) error {
+	if h.deps.Infra == nil {
+		return nil
+	}
+	if err := h.deps.Infra.EnsureRunning(ctx); err != nil {
+		if h.deps.Audit != nil {
+			buildID := ""
+			if h.deps.Config != nil {
+				buildID = h.deps.Config.BuildID
+			}
+			h.deps.Audit.Write(agentName, "agent_start_infra_failed", map[string]interface{}{
+				"error":    err.Error(),
+				"build_id": buildID,
+			})
+		}
+		return fmt.Errorf("start infrastructure: %w", err)
+	}
+	return nil
 }
 
 func (h *handler) haltAgent(w http.ResponseWriter, r *http.Request) {
