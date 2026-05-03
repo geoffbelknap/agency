@@ -39,7 +39,7 @@ Each feature area is classified as:
 | Feature | Gate Level | Why It Matters | Current Stance |
 |---------|------------|----------------|----------------|
 | Install and setup path | `Blocking` | If a tester cannot install the binary, configure one provider, and bring the stack up, the product is not shippable. | Core requirement for `0.2.x`. |
-| MicroVM runtime support | `Blocking` | The supported release path is Agency on microagent. Microagent uses Firecracker on Linux/WSL and Apple's Virtualization framework on macOS. Container execution backends are not release gates. | Required for every core release. |
+| MicroVM runtime support | `Blocking` | The supported release path is Agency on the `microagent` backend. Runner-specific Apple VF and Firecracker parity belongs in `microagent-kit`. Container execution backends are not release gates. | Required for every core release. |
 | Agent runtime core | `Blocking` | Create/start/show/stop must be reliable or the core story fails immediately. | Remains the strongest product surface. |
 | Dynamic agent reconfiguration | `Blocking` | Updating a running agent is part of the supported operator path, not a side demo. | Keep this in the mainline release bar. |
 | DM / comms core | `Blocking` | First-user success depends on sending work to an agent and receiving a reply. | Primary interaction model. |
@@ -86,10 +86,10 @@ Each feature area is classified as:
 
 **Pass means:**
 
-- Linux/WSL release readiness selects microagent by default
-- macOS Apple silicon release readiness selects microagent by default
+- Linux/WSL release readiness selects `microagent` by default
+- macOS Apple silicon release readiness selects `microagent` by default
 - `agency admin doctor` reports the exact missing backend pieces for the
-  selected microVM backend
+  `microagent` backend
 - runtime manifest/status/validate remain backend-neutral and microVM-first
 - Docker, Podman, containerd, and Apple Container execution backends are not
   required status checks, setup choices, quickstart choices, or release gates
@@ -99,8 +99,7 @@ Each feature area is classified as:
 - [MicroVM Release Checklist](microvm-release-checklist.md)
 - `scripts/readiness/microvm-smoke.sh --backend microagent --rootfs-oci-ref ghcr.io/geoffbelknap/agency-runtime-body:v0.2.x --enforcer-oci-ref ghcr.io/geoffbelknap/agency-runtime-enforcer:v0.2.x`
 - `scripts/readiness/full-surface-smoke.sh --backend microagent --rootfs-oci-ref ghcr.io/geoffbelknap/agency-runtime-body:v0.2.x --enforcer-oci-ref ghcr.io/geoffbelknap/agency-runtime-enforcer:v0.2.x --include-risky-web`
-- Apple VF runtime smoke on macOS Apple silicon when validating Apple VF changes
-- Firecracker runtime smoke on Linux/WSL when validating Firecracker changes
+- Apple VF and Firecracker runner matrix validation in `microagent-kit`
 
 ### 3. Agent Runtime Core
 

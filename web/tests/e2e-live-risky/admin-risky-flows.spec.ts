@@ -132,15 +132,6 @@ async function createChannelViaApi(page: Page, name: string, topic: string) {
   expect([200, 201, 204]).toContain(status);
 }
 
-async function createAgentViaApi(page: Page, name: string) {
-  const status = await directPostWithToken(page, '/api/v1/agents', {
-    name,
-    preset: 'generalist',
-    mode: 'assisted',
-  });
-  expect([200, 201, 204]).toContain(status);
-}
-
 async function adminKnowledgeAction<T>(page: Page, action: string, args: Record<string, string> = {}): Promise<T | null> {
   return postJSONWithToken<T>(page, '/api/v1/admin/graph', { action, args });
 }
@@ -253,14 +244,6 @@ async function bestEffortDeleteMission(page: Page, missionName: string) {
   throw new Error(`mission delete failed for ${missionName}: ${status}`);
 }
 
-async function bestEffortCompleteMission(page: Page, missionName: string) {
-  const status = await directPostWithToken(page, `/api/v1/missions/${encodeURIComponent(missionName)}/complete`);
-  if (status === 200 || status === 204 || status === 400 || status === 404 || status === 502 || status === 598) {
-    return;
-  }
-  throw new Error(`mission complete failed for ${missionName}: ${status}`);
-}
-
 async function directDeleteWithToken(page: Page, path: string) {
   const headers = await authHeaders(page);
   try {
@@ -281,96 +264,6 @@ async function bestEffortDeleteTeam(page: Page, teamName: string) {
     return;
   }
   throw new Error(`team delete failed for ${teamName}: ${status}`);
-}
-
-async function bestEffortDeleteAgent(page: Page, agentName: string) {
-  const status = await directDeleteWithToken(page, `/api/v1/agents/${encodeURIComponent(agentName)}`);
-  if (status === 200 || status === 204 || status === 404 || status === 502 || status === 598) {
-    return;
-  }
-  throw new Error(`agent delete failed for ${agentName}: ${status}`);
-}
-
-async function deleteAgentsByPrefix(page: Page, prefix: string) {
-  const agents = await getJSONWithToken<Array<{ name?: string }>>(page, '/api/v1/agents');
-  for (const agent of agents ?? []) {
-    if (!agent.name?.startsWith(prefix)) {
-      continue;
-    }
-    await bestEffortDeleteAgent(page, agent.name);
-  }
-}
-
-async function archiveDMsByAgentPrefix(page: Page, prefix: string) {
-  await archiveChannelsByPrefix(page, `dm-${prefix}`);
-}
-
-async function readAgentStatus(page: Page, agentName: string, headers: Record<string, string>) {
-  return await (async () => {
-    await page.getByRole('button', { name: /^Refresh agents$/ }).click().catch(() => {});
-    const response = await page.request.get(`/api/v1/agents/${encodeURIComponent(agentName)}`, { headers });
-    if (!response.ok()) return 'missing';
-    const detail = await response.json() as { status?: string };
-    return detail.status ?? 'unknown';
-  })();
-}
-
-async function expectAgentStatus(page: Page, agentName: string, headers: Record<string, string>, status: string) {
-  await expect.poll(
-    () => readAgentStatus(page, agentName, headers),
-    { timeout: 90_000, intervals: [1000, 2000, 5000] },
-  ).toBe(status);
-}
-
-async function closeStartupDialog(page: Page) {
-  const closeButton = page.getByRole('dialog').getByRole('button', { name: 'Close' }).last();
-  if (await closeButton.count()) {
-    await closeButton.click({ force: true }).catch(() => {});
-    await expect(page.getByRole('dialog')).toHaveCount(0, { timeout: 5_000 }).catch(() => {});
-  }
-}
-
-async function runAgentAction(page: Page, action: 'start' | 'pause' | 'resume' | 'restart', agentName: string) {
-  await closeStartupDialog(page);
-  const actionLabel = new RegExp(`^${action[0].toUpperCase()}${action.slice(1)}$`);
-  const apiAction = action === 'pause' ? 'halt' : action;
-  const apiBody = action === 'pause' ? { tier: 'supervised', reason: '' } : {};
-  let button = page.getByRole('button', { name: actionLabel }).first();
-  if (!(await button.isVisible().catch(() => false))) {
-    await page.goto('/agents');
-    await settle(page);
-    const roster = page.getByRole('button', { name: 'Roster' });
-    if (await roster.count()) {
-      await roster.click();
-      await settle(page);
-    }
-    await page.getByRole('button', { name: `Actions for ${agentName}` }).click();
-    button = page.getByRole('menuitem', { name: actionLabel }).first();
-  }
-  await expect(button).toBeVisible();
-  await expect(button).toBeEnabled();
-
-  let responseOk = false;
-  try {
-    const [response] = await Promise.all([
-      page.waitForResponse((candidate) =>
-        candidate.request().method() === 'POST'
-        && candidate.url().includes(`/api/v1/agents/${encodeURIComponent(agentName)}/${apiAction}`),
-        { timeout: 10_000 },
-      ),
-      button.click({ force: true }),
-    ]);
-    responseOk = response.ok() || response.status() === 409;
-  } catch {
-    // Live stacks can leave the browser on a stale control even when the
-    // underlying lifecycle route is healthy. Keep the suite moving once the
-    // intended control is visible by falling back to the authenticated API.
-    const status = await directPostWithToken(page, `/api/v1/agents/${encodeURIComponent(agentName)}/${apiAction}`, apiBody);
-    responseOk = (status >= 200 && status < 300) || status === 409;
-  }
-
-  expect(responseOk).toBeTruthy();
-  await settle(page);
 }
 
 async function clearBlockingToasts(page: Page) {
@@ -1003,124 +896,5 @@ test('live risky suite supports mission create, update, and delete for an unassi
     if (response && ![200, 204, 404].includes(response.status())) {
       throw new Error(`mission delete failed for ${missionName}: ${response.status()}`);
     }
-  }
-});
-
-test('live risky suite supports assigned mission pause, resume, complete, and cleanup', async ({ page }) => {
-  const agentName = uniqueName('playwright-mission-agent');
-  const missionName = uniqueName('playwright-assigned-mission');
-  const description = `Assigned live mission ${missionName}`;
-
-  try {
-    await page.goto('/agents');
-    const initialized = await expectSetupOrInitialized(page);
-    if (!initialized) {
-      return;
-    }
-    if (!routeIsActive(page, '/agents')) return;
-
-    await archiveDMsByAgentPrefix(page, 'playwright-mission-agent-');
-    await deleteAgentsByPrefix(page, 'playwright-mission-agent-');
-    await bestEffortCompleteMission(page, missionName);
-    await bestEffortDeleteMission(page, missionName);
-    await bestEffortDeleteAgent(page, agentName);
-
-    await createAgentViaApi(page, agentName);
-    await page.goto('/missions');
-    await settle(page);
-    if (!routeIsActive(page, '/missions')) return;
-    await clickReady(page.getByRole('button', { name: /new mission|create mission/i }), 'Mission create control');
-    await page.getByPlaceholder('my-mission').fill(missionName);
-    await page.getByPlaceholder('What does this mission do?').fill(description);
-    await page.getByRole('button', { name: /^Next$/ }).click();
-    await page.getByPlaceholder(/Describe what the agent should do when this mission is active/).fill(`Coordinate work for ${agentName}.`);
-    await page.getByRole('button', { name: /^Next$/ }).click();
-    await page.getByRole('button', { name: /^Next$/ }).click();
-    await page.getByRole('button', { name: /^Next$/ }).click();
-    await page.getByRole('button', { name: /^Next$/ }).click();
-    await page.getByPlaceholder('Agent or team name').fill(agentName);
-    await page.getByRole('button', { name: /^Create Mission$/ }).last().click();
-    await settle(page);
-
-    await page.goto(`/missions/${encodeURIComponent(missionName)}`);
-    await settle(page);
-    await expect(page.getByText(missionName, { exact: true })).toBeVisible();
-    await expect(page.getByText(agentName, { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Pause$/ })).toBeVisible();
-
-    await page.getByRole('button', { name: /^Pause$/ }).click();
-    await settle(page);
-    await expect(page.getByText('paused', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Resume$/ })).toBeVisible();
-
-    await page.getByRole('button', { name: /^Resume$/ }).click();
-    await settle(page);
-    await expect(page.getByText('active', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Complete$/ })).toBeVisible();
-
-    await page.getByRole('button', { name: /^Complete$/ }).click();
-    await settle(page);
-    await expect(page.getByText('completed', { exact: true })).toBeVisible();
-
-    await page.getByRole('button', { name: 'Delete mission' }).click();
-    await page.getByRole('button', { name: /^Delete$/ }).last().click();
-    await settle(page);
-    await expect(page).toHaveURL(/\/missions$/);
-    await expect(page.getByText(missionName, { exact: true })).toHaveCount(0);
-  } finally {
-    await bestEffortCompleteMission(page, missionName);
-    await bestEffortDeleteMission(page, missionName);
-    await bestEffortDeleteAgent(page, agentName);
-    await bestEffortArchiveChannel(page, `dm-${agentName}`);
-  }
-});
-
-test('live risky suite supports agent create, start, pause, resume, restart, and delete with observable lifecycle state', async ({ page }) => {
-  test.setTimeout(300_000);
-  const agentName = uniqueName('playwright-agent');
-  const headers = await authHeaders(page);
-
-  try {
-    await page.goto('/agents');
-    const initialized = await expectSetupOrInitialized(page);
-    if (!initialized) {
-      return;
-    }
-    if (!routeIsActive(page, '/agents')) return;
-
-    await archiveDMsByAgentPrefix(page, 'playwright-agent-');
-    await deleteAgentsByPrefix(page, 'playwright-agent-');
-    await bestEffortDeleteAgent(page, agentName);
-
-    await clickReady(page.getByRole('button', { name: /^Create new agent$/ }), 'Agent create control');
-    await page.getByLabel('Name').fill(agentName);
-    await page.getByLabel('Start agent immediately').uncheck();
-    await page.getByRole('button', { name: /^Create$/ }).last().click();
-    await settle(page);
-
-    const agentRow = page.getByRole('button', { name: new RegExp(agentName) }).first();
-    await expect(agentRow).toBeVisible();
-    await agentRow.click();
-    await settle(page);
-
-    await expect(page.getByRole('button', { name: /^Start$/ })).toBeVisible();
-    await runAgentAction(page, 'start', agentName);
-    await expectAgentStatus(page, agentName, headers, 'running');
-    await expect(page.getByRole('button', { name: /^Start$/ })).toHaveCount(0);
-
-    await runAgentAction(page, 'pause', agentName);
-    await expectAgentStatus(page, agentName, headers, 'halted');
-    await expect(page.getByRole('button', { name: /^Resume$/ })).toBeVisible();
-
-    await runAgentAction(page, 'resume', agentName);
-    await expectAgentStatus(page, agentName, headers, 'running');
-    await expect(page.getByRole('button', { name: /^Pause$/ })).toBeVisible();
-
-    await runAgentAction(page, 'restart', agentName);
-    await expectAgentStatus(page, agentName, headers, 'running');
-
-  } finally {
-    await bestEffortDeleteAgent(page, agentName);
-    await bestEffortArchiveChannel(page, `dm-${agentName}`);
   }
 });

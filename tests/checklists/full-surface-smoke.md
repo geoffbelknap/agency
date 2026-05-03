@@ -27,7 +27,7 @@ the commit being tested.
 |---------|----------|
 | CLI | Command registration and help for supported read, create, start, stop, restart, send, grant/revoke, comms, infra, admin, context, policy, runtime, authz, cap, team, mission, event, webhook, notify, audit, creds, registry, package, instance, hub, deployment, intake, graph, and server commands. |
 | MCP | Go tests for MCP registry, discovery, call handling, tier filtering, auth, and registered tool behavior. |
-| Runtime | `microvm-smoke.sh` on the selected backend, with the versioned body/rootfs and enforcer OCI artifacts. |
+| Runtime | `microvm-smoke.sh` on the `microagent` backend, with the versioned body/rootfs and enforcer OCI artifacts. |
 | Web UI | Live disposable Web UI smoke with destructive feature tests filtered out. `--include-risky-web` adds risky flows while keeping the same filter. |
 
 ## Pass Criteria
@@ -35,8 +35,7 @@ the commit being tested.
 - Static checks pass: `git diff --check`, `go test ./...`, and Web unit tests.
 - CLI help resolves for every listed command.
 - MCP discovery/call tests pass.
-- The selected microVM backend completes the lifecycle and runtime-contract
-  smoke.
+- The `microagent` backend completes the lifecycle and runtime-contract smoke.
 - Web UI route and operator-flow tests pass in a disposable home, with only
   destroy/wipe feature assertions excluded.
 
@@ -46,7 +45,7 @@ Classify the failure before fixing it:
 
 - CLI registration/help mismatch
 - MCP registry, auth, or tiering mismatch
-- runtime backend/artifact failure
+- microagent runtime/artifact failure
 - Web UI route, API contract, or live-flow failure
 - test harness cleanup failure
 

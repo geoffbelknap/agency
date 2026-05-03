@@ -25,7 +25,7 @@ Runs the pre-RC surface smoke for Agency:
   - live Web UI smoke, excluding only destroy/wipe feature tests
 
 Options:
-  --backend auto|microagent|apple-vf-microvm|firecracker
+  --backend auto|microagent
   --rootfs-oci-ref REF
   --enforcer-oci-ref REF
   --include-risky-web  Include live-risky Web UI tests, still filtering
@@ -365,7 +365,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$BACKEND" in
-  auto|microagent|apple-vf-microvm|firecracker)
+  auto|microagent)
     ;;
   *)
     fail "unsupported backend: $BACKEND"

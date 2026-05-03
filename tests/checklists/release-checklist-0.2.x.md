@@ -29,8 +29,7 @@ Ship an installable `0.2.x` release that early users can:
 It is the first intentionally scoped core Agency line:
 
 - governed single-agent runtime
-- microVM-only runtime execution: Firecracker on Linux/WSL and
-  `apple-vf-microvm` on macOS Apple silicon
+- microVM-only runtime execution through the `microagent` backend
 - event-driven execution
 - graph-backed context in a trimmed form
 - auditable provider-backed work
@@ -87,8 +86,7 @@ Validate after tag/release:
   - configure one recommended provider
   - `agency -q infra up`
   - `agency admin doctor`
-  - confirm the selected backend is Firecracker on Linux/WSL or
-    `apple-vf-microvm` on macOS Apple silicon
+  - confirm the selected backend is `microagent`
 
 ### 3. Core product smoke
 
@@ -126,13 +124,9 @@ Validate after the local stack is up:
 
 Validate on the supported runtime path:
 
-- `./scripts/readiness/microvm-smoke.sh --backend microagent --rootfs-oci-ref ghcr.io/geoffbelknap/agency-runtime-body:v0.2.x --enforcer-oci-ref ghcr.io/geoffbelknap/agency-runtime-enforcer:v0.2.x`
-- on macOS Apple silicon, when validating Apple VF changes:
-  - `./scripts/readiness/apple-vf-microvm-smoke.sh --skip-helper-build`
-  - `./scripts/readiness/apple-vf-lifecycle-smoke.sh --skip-helper-build`
-- on Linux/WSL, when validating Firecracker changes:
-  - `agency admin doctor`
-  - one disposable Firecracker-backed agent start/status/validate/stop cycle
+- `./scripts/readiness/microvm-smoke.sh --backend microagent --rootfs-oci-ref ghcr.io/geoffbelknap/agency-runtime-body:v0.2.x --enforcer-oci-ref ghcr.io/geoffbelknap/agency-runtime-enforcer:v0.2.x --web`
+- Apple VF and Firecracker runner parity belongs in `microagent-kit`; Agency
+  validates only the `microagent` backend contract.
 
 ### 6. GHCR runtime artifact validation
 
