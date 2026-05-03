@@ -27,7 +27,8 @@ builds:
       - -X main.date={{.Date}}
       - -X main.buildID={{.ShortCommit}}
   - id: agency-enforcer-host
-    main: ./images/enforcer/
+    dir: ./images/enforcer
+    main: .
     binary: agency-enforcer-host
     env:
       - CGO_ENABLED=0
