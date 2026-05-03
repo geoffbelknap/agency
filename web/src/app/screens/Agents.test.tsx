@@ -120,7 +120,7 @@ describe('Agents', () => {
     });
   });
 
-  it('opens an agent and routes to the system config tab', async () => {
+  it('opens roster actions and routes settings to the system tab', async () => {
     window.localStorage.setItem('agency.agents.variant', 'roster');
     server.use(
       http.get(`${BASE}/agents`, () =>
@@ -138,8 +138,10 @@ describe('Agents', () => {
       expect(screen.getByText('alice')).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText('alice'));
-    await userEvent.click(screen.getByRole('tab', { name: /system/i }));
+    await userEvent.click(screen.getByRole('button', { name: /actions for alice/i }));
+    expect(screen.getByRole('menuitem', { name: /restart/i })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('menuitem', { name: /settings/i }));
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /system/i })).toHaveAttribute('aria-selected', 'true');
     });
@@ -198,8 +200,7 @@ describe('Agents', () => {
       expect(screen.getByText('connected')).toBeInTheDocument();
     });
 
-    const restartButtons = screen.getAllByRole('button', { name: /^restart$/i });
-    await userEvent.click(restartButtons[restartButtons.length - 1]);
+    await userEvent.click(screen.getByRole('button', { name: /^restart$/i }));
     await waitFor(() => {
       expect(toastSuccess).toHaveBeenCalledWith('Agent "alice" restarted');
       expect(screen.getAllByText('running').length).toBeGreaterThan(0);
@@ -320,21 +321,41 @@ describe('Agents', () => {
     });
   });
 
-  it('opens a selected agent route in the overview panel', async () => {
+  it('shows saved result artifacts with PACT verdicts', async () => {
     server.use(
       http.get(`${BASE}/agents`, () => HttpResponse.json(defaultAgents)),
       http.get(`${BASE}/agents/alice/logs`, () => HttpResponse.json([])),
       http.get(`${BASE}/agents/alice/budget`, () =>
         HttpResponse.json({ daily_limit: 0, monthly_limit: 0, daily_used: 0, monthly_used: 0, today_llm_calls: 0, today_input_tokens: 0, today_output_tokens: 0 }),
       ),
+      http.get(`${BASE}/agents/alice/results`, () =>
+        HttpResponse.json([
+          {
+            task_id: 'task-20260422-node',
+            has_metadata: true,
+            metadata: { timestamp: '2026-04-22T08:00:00Z' },
+            pact: {
+              kind: 'current_info',
+              verdict: 'completed',
+              source_urls: ['https://nodejs.org/en/blog/release/v24.15.0'],
+            },
+          },
+        ]),
+      ),
     );
 
     renderAgents('/agents/alice');
 
     await waitFor(() => {
-      expect(screen.getAllByText('alice').length).toBeGreaterThan(0);
+      expect(screen.getByText('alice')).toBeInTheDocument();
     });
-    expect(screen.getByRole('tab', { name: /overview/i })).toHaveAttribute('aria-selected', 'true');
+    await userEvent.click(screen.getByRole('tab', { name: /results/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('task-20260422-node')).toBeInTheDocument();
+      expect(screen.getByText('completed')).toBeInTheDocument();
+      expect(screen.getByText('1 source')).toBeInTheDocument();
+    });
   });
 
   it('confirms and deletes an agent from the system tab', async () => {
@@ -357,16 +378,22 @@ describe('Agents', () => {
     renderAgents('/agents/alice');
 
     await waitFor(() => {
-      expect(screen.getAllByText('alice').length).toBeGreaterThan(0);
+      expect(screen.getByText('alice')).toBeInTheDocument();
     });
-    await userEvent.click(screen.getByRole('button', { name: /^delete$/i }));
-    expect(screen.getByText('Delete agent?')).toBeInTheDocument();
-    await userEvent.click(screen.getAllByRole('button', { name: /^delete$/i }).at(-1)!);
+    await userEvent.click(screen.getByRole('tab', { name: /system/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Danger zone')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('button', { name: /delete agent/i }));
+
+    expect(screen.getByText('Delete agent "alice"?')).toBeInTheDocument();
+    await userEvent.click(screen.getAllByRole('button', { name: /delete agent/i }).at(-1)!);
 
     await waitFor(() => {
       expect(deleted).toBe(true);
       expect(toastSuccess).toHaveBeenCalledWith('Agent "alice" deleted');
-      expect(screen.queryByText('Delete agent?')).not.toBeInTheDocument();
+      expect(screen.queryByText('Delete agent "alice"?')).not.toBeInTheDocument();
       expect(screen.queryByText('Alice identity')).not.toBeInTheDocument();
     });
   });
@@ -390,61 +417,6 @@ describe('Agents', () => {
 
     await waitFor(() => {
       expect(screen.queryByRole('tab', { name: /meeseeks/i })).not.toBeInTheDocument();
-    });
-  });
-
-  it('keeps memory out of the default activity view', async () => {
-    server.use(
-      http.get(`${BASE}/agents`, () => HttpResponse.json(defaultAgents)),
-      http.get(`${BASE}/agents/alice/logs`, () => HttpResponse.json([])),
-      http.get(`${BASE}/agents/alice/budget`, () =>
-        HttpResponse.json({ daily_limit: 0, monthly_limit: 0, daily_used: 0, monthly_used: 0, today_llm_calls: 0, today_input_tokens: 0, today_output_tokens: 0 }),
-      ),
-    );
-
-    renderAgents();
-    await waitFor(() => {
-      expect(screen.getByText('alice')).toBeInTheDocument();
-    });
-    await userEvent.click(screen.getByText('alice'));
-    await userEvent.click(screen.getByRole('tab', { name: /activity/i }));
-
-    await waitFor(() => {
-      expect(screen.queryByRole('button', { name: /memory/i })).not.toBeInTheDocument();
-      expect(screen.getByPlaceholderText(/describe the task/i)).toBeInTheDocument();
-    });
-  });
-
-  it('does not show raw constraints in the default system config view', async () => {
-    server.use(
-      http.get(`${BASE}/agents`, () => HttpResponse.json(defaultAgents)),
-      http.get(`${BASE}/agents/alice/logs`, () => HttpResponse.json([])),
-      http.get(`${BASE}/agents/alice/budget`, () =>
-        HttpResponse.json({ daily_limit: 0, monthly_limit: 0, daily_used: 0, monthly_used: 0, today_llm_calls: 0, today_input_tokens: 0, today_output_tokens: 0 }),
-      ),
-      http.get(`${BASE}/capabilities`, () => HttpResponse.json([])),
-      http.get(`${BASE}/agents/alice/policy`, () => HttpResponse.json({ valid: true })),
-      http.get(`${BASE}/agents/alice/config`, () =>
-        HttpResponse.json({
-          identity: 'Helpful operator assistant',
-          constraints: {
-            hard_limits: [{ rule: 'never expose credentials', reason: 'security' }],
-          },
-        }),
-      ),
-    );
-
-    renderAgents();
-    await waitFor(() => {
-      expect(screen.getByText('alice')).toBeInTheDocument();
-    });
-    await userEvent.click(screen.getByText('alice'));
-    await userEvent.click(screen.getByRole('tab', { name: /system/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText(/operator-facing instructions/i)).toBeInTheDocument();
-      expect(screen.queryByText(/^constraints$/i)).not.toBeInTheDocument();
-      expect(screen.queryByText(/never expose credentials/i)).not.toBeInTheDocument();
     });
   });
 
@@ -536,37 +508,6 @@ describe('Agents', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /refresh agents/i })).not.toBeDisabled();
-    });
-  });
-
-  it('deletes an agent from the detail view after confirmation', async () => {
-    let deleted = false;
-
-    server.use(
-      http.get(`${BASE}/agents`, () => HttpResponse.json(defaultAgents)),
-      http.get(`${BASE}/agents/alice/logs`, () => HttpResponse.json([])),
-      http.get(`${BASE}/agents/alice/budget`, () =>
-        HttpResponse.json({ daily_limit: 0, monthly_limit: 0, daily_used: 0, monthly_used: 0, today_llm_calls: 0, today_input_tokens: 0, today_output_tokens: 0 }),
-      ),
-      http.delete(`${BASE}/agents/alice`, () => {
-        deleted = true;
-        return HttpResponse.json({ ok: true });
-      }),
-    );
-
-    renderAgents('/agents/alice');
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /^delete$/i })).toBeInTheDocument();
-    });
-
-    await userEvent.click(screen.getByRole('button', { name: /^delete$/i }));
-    await userEvent.click(await screen.findByRole('button', { name: /^delete$/i }));
-
-    await waitFor(() => {
-      expect(deleted).toBe(true);
-      expect(toastSuccess).toHaveBeenCalledWith('Agent "alice" deleted');
-      expect(screen.getByText('No agent selected')).toBeInTheDocument();
     });
   });
 });

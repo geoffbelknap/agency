@@ -8,6 +8,7 @@ Related:
 
 - [Release Gates 0.2.x](release-gates-0.2.x.md)
 - [MicroVM Release Checklist](microvm-release-checklist.md)
+- [Full Surface Smoke](full-surface-smoke.md)
 
 ## Goal
 
@@ -28,8 +29,7 @@ Ship an installable `0.2.x` release that early users can:
 It is the first intentionally scoped core Agency line:
 
 - governed single-agent runtime
-- microVM-only runtime execution: Firecracker on Linux/WSL and
-  `apple-vf-microvm` on macOS Apple silicon
+- microVM-only runtime execution through the `microagent` backend
 - event-driven execution
 - graph-backed context in a trimmed form
 - auditable provider-backed work
@@ -63,6 +63,7 @@ Validate before tag:
 - `./agency --version`
 - `./scripts/ci/verify-required-status-checks.sh`
 - complete [MicroVM Release Checklist](microvm-release-checklist.md)
+- complete [Full Surface Smoke](full-surface-smoke.md), excluding destroy/wipe
 - `./scripts/release/release-readiness-check.sh preflight --version 0.2.x`
 
 Validate after tag:
@@ -85,8 +86,7 @@ Validate after tag/release:
   - configure one recommended provider
   - `agency -q infra up`
   - `agency admin doctor`
-  - confirm the selected backend is Firecracker on Linux/WSL or
-    `apple-vf-microvm` on macOS Apple silicon
+  - confirm the selected backend is `microagent`
 
 ### 3. Core product smoke
 
@@ -106,6 +106,8 @@ Run on the tagged release path:
 
 Validate after the local stack is up:
 
+- run the full surface smoke:
+  - `./scripts/readiness/full-surface-smoke.sh --backend microagent --rootfs-oci-ref ghcr.io/geoffbelknap/agency-runtime-body:v0.2.x --enforcer-oci-ref ghcr.io/geoffbelknap/agency-runtime-enforcer:v0.2.x --include-risky-web`
 - open web UI
 - confirm:
   - Setup
@@ -116,18 +118,15 @@ Validate after the local stack is up:
 - confirm experimental nav remains hidden by default
 - confirm `/api/v1/openapi-core.yaml` is served
 - confirm `/api/v1/mcp/tools` defaults to the core discovery view
+- do not validate destroy/wipe as release features in this smoke pass
 
 ### 5. MicroVM runtime smoke
 
 Validate on the supported runtime path:
 
-- `./scripts/readiness/microvm-smoke.sh --backend microagent --rootfs-oci-ref ghcr.io/geoffbelknap/agency-runtime-body:v0.2.x --enforcer-oci-ref ghcr.io/geoffbelknap/agency-runtime-enforcer:v0.2.x`
-- on macOS Apple silicon, when validating Apple VF changes:
-  - `./scripts/readiness/apple-vf-microvm-smoke.sh --skip-helper-build`
-  - `./scripts/readiness/apple-vf-lifecycle-smoke.sh --skip-helper-build`
-- on Linux/WSL, when validating Firecracker changes:
-  - `agency admin doctor`
-  - one disposable Firecracker-backed agent start/status/validate/stop cycle
+- `./scripts/readiness/microvm-smoke.sh --backend microagent --rootfs-oci-ref ghcr.io/geoffbelknap/agency-runtime-body:v0.2.x --enforcer-oci-ref ghcr.io/geoffbelknap/agency-runtime-enforcer:v0.2.x --web`
+- Apple VF and Firecracker runner parity belongs in `microagent-kit`; Agency
+  validates only the `microagent` backend contract.
 
 ### 6. GHCR runtime artifact validation
 
@@ -155,8 +154,8 @@ blocking the first core release line.
 
 1. Re-run the core readiness scripts and focused live checks.
 2. Complete the microVM release checklist.
-3. Confirm docs, CLI help, web nav, OpenAPI, and MCP still agree on the core
-   contract.
+3. Run the full surface smoke and confirm docs, CLI help, web nav, OpenAPI,
+   and MCP still agree on the core contract.
 4. Cut a release branch or release commit only if needed.
 5. Tag `v0.2.x`.
 6. Watch the GitHub release and runtime artifact publish workflows.

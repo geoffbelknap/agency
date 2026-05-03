@@ -20,11 +20,14 @@ const (
 	Teams            = "teams"
 	Profiles         = "profiles"
 	Hub              = "hub"
+	Connectors       = "connectors"
 	Intake           = "intake"
 	Events           = "events"
 	Webhooks         = "webhooks"
 	Notifications    = "notifications"
 	Meeseeks         = "meeseeks"
+	Ontology         = "ontology"
+	Packs            = "packs"
 	Packages         = "packages"
 	Instances        = "instances"
 	Authz            = "authz"
@@ -51,11 +54,14 @@ var registry = map[string]Feature{
 	Teams:            {ID: Teams, Tier: TierExperimental},
 	Profiles:         {ID: Profiles, Tier: TierExperimental},
 	Hub:              {ID: Hub, Tier: TierExperimental},
+	Connectors:       {ID: Connectors, Tier: TierExperimental},
 	Intake:           {ID: Intake, Tier: TierExperimental},
 	Events:           {ID: Events, Tier: TierExperimental},
 	Webhooks:         {ID: Webhooks, Tier: TierExperimental},
 	Notifications:    {ID: Notifications, Tier: TierExperimental},
 	Meeseeks:         {ID: Meeseeks, Tier: TierExperimental},
+	Ontology:         {ID: Ontology, Tier: TierExperimental},
+	Packs:            {ID: Packs, Tier: TierExperimental},
 	Packages:         {ID: Packages, Tier: TierExperimental},
 	Instances:        {ID: Instances, Tier: TierExperimental},
 	Authz:            {ID: Authz, Tier: TierExperimental},

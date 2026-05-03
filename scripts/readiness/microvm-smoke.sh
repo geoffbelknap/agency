@@ -14,18 +14,15 @@ usage() {
 Usage: ./scripts/readiness/microvm-smoke.sh [options]
 
 Runs the supported microVM readiness path for the current host:
-  - default: microagent
-  - explicit fallback: apple-vf-microvm on macOS Apple silicon
-  - explicit fallback: firecracker on Linux/WSL
+  - Agency validates the microagent backend contract.
+  - microagent owns host runner coverage such as Apple VF and Firecracker.
 
 Options:
-  --backend auto|apple-vf-microvm|firecracker|microagent
+  --backend auto|microagent
   --rootfs-oci-ref REF    Versioned body/rootfs OCI artifact reference.
-                          Required for microagent and apple-vf-microvm release
-                          validation. Used directly by firecracker when supplied.
+                          Required for microagent release validation.
   --enforcer-oci-ref REF  Versioned enforcer OCI artifact reference.
-                          Extracts the host-process enforcer for the selected
-                          backend platform when supplied.
+                          Extracts the host-process enforcer when supplied.
   --skip-core             Skip git diff/status-check/go/web unit gates.
   --skip-contract         Skip the backend-neutral runtime contract smoke.
   --web                   Run the backend Web UI smoke after lifecycle checks.
@@ -71,161 +68,6 @@ run_core_gates() {
   (cd "$ROOT/web" && npm test -- Infrastructure.test.tsx)
 }
 
-run_apple_vf() {
-  [[ -n "$ROOTFS_OCI_REF" ]] || fail "--rootfs-oci-ref is required for apple-vf-microvm"
-
-  local agent="apple-vf-contract-$(git -C "$ROOT" rev-parse --short HEAD)"
-  local home="/tmp/agency-apple-vf-contract-$(git -C "$ROOT" rev-parse --short HEAD)"
-
-  cleanup_apple_vf() {
-    if [[ -d "$home" && -x /tmp/agency-apple-vf-lifecycle ]]; then
-      env AGENCY_HOME="$home" /tmp/agency-apple-vf-lifecycle stop "$agent" >/dev/null 2>&1 || true
-      env AGENCY_HOME="$home" /tmp/agency-apple-vf-lifecycle delete "$agent" >/dev/null 2>&1 || true
-      env AGENCY_HOME="$home" /tmp/agency-apple-vf-lifecycle serve stop >/dev/null 2>&1 || true
-    fi
-  }
-  trap cleanup_apple_vf RETURN
-
-  log "Verifying Apple VF artifacts"
-  "$ROOT/scripts/readiness/apple-vf-artifacts.sh" --verify-existing
-
-  log "Running Apple VF doctor"
-  "$ROOT/agency" admin doctor
-
-  log "Running Apple VF lifecycle smoke"
-  local args=(--rootfs-oci-ref "$ROOTFS_OCI_REF")
-  if [[ -n "$ENFORCER_OCI_REF" ]]; then
-    args+=(--enforcer-oci-ref "$ENFORCER_OCI_REF")
-  fi
-  "$ROOT/scripts/readiness/apple-vf-lifecycle-smoke.sh" "${args[@]}"
-
-  if [[ "$RUN_CONTRACT" == "1" ]]; then
-    log "Running Apple VF lifecycle smoke with kept runtime for contract smoke"
-    local keep_args=(
-      --home "$home"
-      --agent "$agent"
-      --rootfs-oci-ref "$ROOTFS_OCI_REF"
-      --keep-agent
-    )
-    if [[ -n "$ENFORCER_OCI_REF" ]]; then
-      keep_args+=(--enforcer-oci-ref "$ENFORCER_OCI_REF")
-    fi
-    "$ROOT/scripts/readiness/apple-vf-lifecycle-smoke.sh" \
-      "${keep_args[@]}"
-
-    log "Running backend-neutral runtime contract smoke"
-    "$ROOT/scripts/readiness/runtime-contract-smoke.sh" \
-      --agent "$agent" \
-      --home "$home" \
-      --start-gateway \
-      --skip-tests
-    cleanup_apple_vf
-  fi
-
-  if [[ "$RUN_WEB" == "1" ]]; then
-    log "Running Apple VF Web UI smoke"
-    "$ROOT/scripts/e2e/apple-vf-webui-smoke.sh"
-  fi
-}
-
-run_firecracker() {
-  log "Verifying Firecracker artifacts"
-  "$ROOT/scripts/readiness/firecracker-artifacts.sh" --verify-existing
-  "$ROOT/scripts/readiness/firecracker-kernel-artifacts.sh" --verify-existing
-
-  log "Running Firecracker doctor"
-  "$ROOT/agency" admin doctor
-
-  if [[ "$RUN_CONTRACT" != "1" ]]; then
-    log "Running Firecracker lifecycle smoke"
-    local args=()
-    if [[ -n "$ROOTFS_OCI_REF" ]]; then
-      args+=(--rootfs-oci-ref "$ROOTFS_OCI_REF")
-    fi
-    if [[ -n "$ENFORCER_OCI_REF" ]]; then
-      args+=(--enforcer-oci-ref "$ENFORCER_OCI_REF")
-    fi
-    "$ROOT/scripts/readiness/firecracker-microvm-smoke.sh" "${args[@]}"
-  else
-    local out
-    local pid=""
-    local pid_is_group=0
-    local contract_cmd=""
-    out="$(mktemp /tmp/agency-firecracker-keep-agent.XXXXXX.log)"
-    cleanup_firecracker() {
-      [[ -n "$pid" ]] || return
-      kill -0 "$pid" >/dev/null 2>&1 || return
-
-      local target="$pid"
-      if [[ "$pid_is_group" == "1" ]]; then
-        target="-$pid"
-      fi
-
-      kill -INT "$target" >/dev/null 2>&1 || true
-      for _ in $(seq 1 30); do
-        if ! kill -0 "$pid" >/dev/null 2>&1; then
-          wait "$pid" >/dev/null 2>&1 || true
-          return
-        fi
-        sleep 1
-      done
-
-      kill -TERM "$target" >/dev/null 2>&1 || true
-      for _ in $(seq 1 10); do
-        if ! kill -0 "$pid" >/dev/null 2>&1; then
-          wait "$pid" >/dev/null 2>&1 || true
-          return
-        fi
-        sleep 1
-      done
-
-      kill -KILL "$target" >/dev/null 2>&1 || true
-      wait "$pid" >/dev/null 2>&1 || true
-    }
-    trap cleanup_firecracker RETURN
-
-    log "Running Firecracker lifecycle smoke with kept runtime for contract smoke"
-    local keep_args=(--keep-agent)
-    if [[ -n "$ROOTFS_OCI_REF" ]]; then
-      keep_args+=(--rootfs-oci-ref "$ROOTFS_OCI_REF")
-    fi
-    if [[ -n "$ENFORCER_OCI_REF" ]]; then
-      keep_args+=(--enforcer-oci-ref "$ENFORCER_OCI_REF")
-    fi
-    if command -v setsid >/dev/null 2>&1; then
-      setsid "$ROOT/scripts/readiness/firecracker-microvm-smoke.sh" "${keep_args[@]}" >"$out" 2>&1 &
-      pid_is_group=1
-    else
-      "$ROOT/scripts/readiness/firecracker-microvm-smoke.sh" "${keep_args[@]}" >"$out" 2>&1 &
-    fi
-    pid="$!"
-
-    for _ in $(seq 1 180); do
-      if ! kill -0 "$pid" >/dev/null 2>&1; then
-        cat "$out" >&2 || true
-        fail "Firecracker keep-agent smoke exited before printing contract command"
-      fi
-      contract_cmd="$(awk -F= '/^contract_smoke_command=/ {print $2; exit}' "$out")"
-      [[ -n "$contract_cmd" ]] && break
-      sleep 1
-    done
-    [[ -n "$contract_cmd" ]] || {
-      cat "$out" >&2 || true
-      fail "Firecracker keep-agent smoke did not print contract command"
-    }
-
-    log "Running backend-neutral runtime contract smoke"
-    (cd "$ROOT" && bash -lc "$contract_cmd")
-    cleanup_firecracker
-    cat "$out"
-  fi
-
-  if [[ "$RUN_WEB" == "1" ]]; then
-    log "Running Firecracker Web UI smoke"
-    "$ROOT/scripts/e2e/firecracker-webui-smoke.sh" all
-  fi
-}
-
 run_microagent() {
   [[ -n "$ROOTFS_OCI_REF" ]] || fail "--rootfs-oci-ref is required for microagent"
 
@@ -243,7 +85,21 @@ run_microagent() {
   "$ROOT/scripts/readiness/microagent-lifecycle-smoke.sh" "${args[@]}"
 
   if [[ "$RUN_WEB" == "1" ]]; then
-    fail "microagent Web UI smoke is not wired yet"
+    log "Running microagent Web UI smoke"
+    local web_args=(
+      --risky
+      --backend microagent
+      --rootfs-oci-ref "$ROOTFS_OCI_REF"
+      --mock-llm
+      --skip-build
+      --
+      --grep "microagent backend"
+      --grep-invert "(destroy|Destroy|wipe|Wipe)"
+    )
+    if [[ -n "$ENFORCER_OCI_REF" ]]; then
+      web_args=(--enforcer-oci-ref "$ENFORCER_OCI_REF" "${web_args[@]}")
+    fi
+    "$ROOT/scripts/e2e/e2e-live-disposable.sh" "${web_args[@]}"
   fi
 }
 
@@ -291,7 +147,7 @@ case "$BACKEND" in
   auto)
     BACKEND="$(detect_backend)"
     ;;
-  apple-vf-microvm|firecracker|microagent)
+  microagent)
     ;;
   *)
     fail "unsupported backend: $BACKEND"
@@ -304,16 +160,6 @@ if [[ "$RUN_CORE" == "1" ]]; then
   run_core_gates
 fi
 
-case "$BACKEND" in
-  apple-vf-microvm)
-    run_apple_vf
-    ;;
-  firecracker)
-    run_firecracker
-    ;;
-  microagent)
-    run_microagent
-    ;;
-esac
+run_microagent
 
 log "microVM smoke passed for $BACKEND"

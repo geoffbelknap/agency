@@ -235,27 +235,13 @@ Both modes should be compared with the same benchmark and parity harness:
 - credential boundary clarity
 - operator debuggability
 
-The live comparison entrypoint is:
+The runner-specific comparison belongs in `microagent-kit`. Agency should
+validate the `microagent` backend contract instead of carrying Firecracker
+Web UI parity scripts directly.
 
-```bash
-./scripts/e2e/firecracker-enforcer-mode-compare.sh
-```
+Default selection should require runner-level evidence from `microagent-kit`:
 
-It runs `manage`, `recover`, `reload`, and `cleanup` Web UI smokes for
-`host-process` and `microvm` modes using the same test implementation, then
-writes a report and JSONL metrics under
-`test-results/firecracker-enforcer-mode-compare/<run-id>/`.
-The report captures timing/resource evidence and security evidence:
-vsock-only workload transport, running external enforcer component, bridge
-health, body websocket health, absence of workload host-service target env
-exposure, and audit evidence for mediated DM activity. It also records
-whether LLM audit markers are visible through the current agent log API, but
-does not treat that projection as the canonical source of mediation evidence.
-
-Default selection should require:
-
-- both modes pass the full Web UI comparison harness
-- both modes satisfy the Firecracker ASK compliance checklist
+- both modes pass equivalent lifecycle, DM, restart, reload, and cleanup checks
 - security evidence is equivalent for both modes, except where `microvm`
   intentionally provides stronger enforcer substrate isolation
 - no orphan process, VM, PID, UDS, config, or rootfs state remains after

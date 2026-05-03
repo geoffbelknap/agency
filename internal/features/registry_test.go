@@ -45,6 +45,14 @@ func TestCommandVisibilityFollowsRegistry(t *testing.T) {
 	}
 }
 
+func TestSkippedRiskyWebSurfacesAreExperimental(t *testing.T) {
+	for _, id := range []string{Connectors, Hub, Notifications, Ontology, Packs} {
+		if got := TierOf(id); got != TierExperimental {
+			t.Fatalf("%s tier = %s, want experimental", id, got)
+		}
+	}
+}
+
 func TestWebManifestJSONIsInSync(t *testing.T) {
 	root := repoRoot(t)
 	got, err := WebManifestJSON()

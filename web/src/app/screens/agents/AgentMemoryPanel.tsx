@@ -39,7 +39,7 @@ function ProceduresView({ agentName }: { agentName: string }) {
     const params: { outcome?: string } = {};
     if (outcomeFilter !== 'all') params.outcome = outcomeFilter;
     api.agents.procedures(agentName, params)
-      .then(r => setProcedures(Array.isArray(r?.procedures) ? r.procedures : []))
+      .then(r => setProcedures(r.procedures))
       .catch(() => setProcedures([]))
       .finally(() => setLoading(false));
   }, [agentName, outcomeFilter]);
@@ -92,21 +92,21 @@ function ProceduresView({ agentName }: { agentName: string }) {
                   <div className="text-xs font-medium text-muted-foreground mb-1">Approach</div>
                   <div className="text-sm">{p.approach}</div>
                 </div>
-                {(p.tools_used || []).length > 0 && (
+                {p.tools_used.length > 0 && (
                   <div>
                     <div className="text-xs font-medium text-muted-foreground mb-1">Tools used</div>
                     <div className="flex flex-wrap gap-1">
-                      {(p.tools_used || []).map(t => (
+                      {p.tools_used.map(t => (
                         <Badge key={t} variant="secondary" className="text-xs">{t}</Badge>
                       ))}
                     </div>
                   </div>
                 )}
-                {(p.lessons || []).length > 0 && (
+                {p.lessons.length > 0 && (
                   <div>
                     <div className="text-xs font-medium text-muted-foreground mb-1">Lessons</div>
                     <ul className="list-disc list-inside text-sm space-y-0.5">
-                      {(p.lessons || []).map((l, i) => <li key={i}>{l}</li>)}
+                      {p.lessons.map((l, i) => <li key={i}>{l}</li>)}
                     </ul>
                   </div>
                 )}
@@ -129,7 +129,7 @@ function EpisodesView({ agentName }: { agentName: string }) {
   useEffect(() => {
     setLoading(true);
     api.agents.episodes(agentName)
-      .then(r => setEpisodes(Array.isArray(r?.episodes) ? r.episodes : []))
+      .then(r => setEpisodes(r.episodes))
       .catch(() => setEpisodes([]))
       .finally(() => setLoading(false));
   }, [agentName]);
@@ -148,10 +148,7 @@ function EpisodesView({ agentName }: { agentName: string }) {
 
       {!loading && episodes.map(ep => {
         const isOpen = expanded === ep.task_id;
-        const notableEvents = ep.notable_events || [];
-        const entities = ep.entities_mentioned || [];
-        const tags = ep.tags || [];
-        const firstEvent = notableEvents[0];
+        const firstEvent = ep.notable_events[0];
         return (
           <div key={ep.task_id} className="border rounded-md overflow-hidden">
             <button
@@ -175,11 +172,11 @@ function EpisodesView({ agentName }: { agentName: string }) {
 
             {isOpen && (
               <div className="px-3 pb-3 pt-1 flex flex-col gap-2 border-t bg-muted/20">
-                {notableEvents.length > 0 && (
+                {ep.notable_events.length > 0 && (
                   <div>
                     <div className="text-xs font-medium text-muted-foreground mb-1">Notable events</div>
                     <div className="flex flex-col gap-1">
-                      {notableEvents.map((ev, i) => (
+                      {ep.notable_events.map((ev, i) => (
                         <div
                           key={i}
                           className="text-xs px-2 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400"
@@ -190,19 +187,19 @@ function EpisodesView({ agentName }: { agentName: string }) {
                     </div>
                   </div>
                 )}
-                {entities.length > 0 && (
+                {ep.entities_mentioned.length > 0 && (
                   <div>
                     <div className="text-xs font-medium text-muted-foreground mb-1">Entities</div>
                     <div className="flex flex-wrap gap-1">
-                      {entities.map((ent, i) => (
+                      {ep.entities_mentioned.map((ent, i) => (
                         <Badge key={i} variant="outline" className="text-xs">{ent.type}: {ent.name}</Badge>
                       ))}
                     </div>
                   </div>
                 )}
-                {tags.length > 0 && (
+                {ep.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1">
-                    {tags.map(tag => (
+                    {ep.tags.map(tag => (
                       <Badge key={tag} variant="secondary" className="text-xs">#{tag}</Badge>
                     ))}
                   </div>
@@ -275,11 +272,11 @@ function TrajectoryView({ agentName }: { agentName: string }) {
             </div>
           </div>
 
-          {Object.keys(state.detectors || {}).length > 0 && (
+          {Object.keys(state.detectors).length > 0 && (
             <div>
               <div className="text-xs font-medium text-muted-foreground mb-2">Detectors</div>
               <div className="flex flex-col gap-1">
-                {Object.entries(state.detectors || {}).map(([name, det]) => (
+                {Object.entries(state.detectors).map(([name, det]) => (
                   <div key={name} className="flex items-center gap-2 text-xs border rounded px-2 py-1">
                     <CheckCircle2 className={`w-3 h-3 ${det.status === 'active' ? 'text-green-400' : 'text-muted-foreground'}`} />
                     <span className="font-mono text-muted-foreground">{name} — {det.status}</span>
@@ -289,13 +286,13 @@ function TrajectoryView({ agentName }: { agentName: string }) {
             </div>
           )}
 
-          {(state.active_anomalies || []).length > 0 && (
+          {state.active_anomalies.length > 0 && (
             <div>
               <div className="text-xs font-medium text-muted-foreground mb-2">
-                Active anomalies ({(state.active_anomalies || []).length})
+                Active anomalies ({state.active_anomalies.length})
               </div>
               <div className="flex flex-col gap-2">
-                {(state.active_anomalies || []).map((a, i) => (
+                {state.active_anomalies.map((a, i) => (
                   <div key={i} className={`flex items-start gap-2 border rounded p-2 text-xs ${severityStyles[a.severity]}`}>
                     {severityIcon(a.severity)}
                     <div className="flex flex-col gap-0.5 flex-1">
@@ -311,7 +308,7 @@ function TrajectoryView({ agentName }: { agentName: string }) {
             </div>
           )}
 
-          {(state.active_anomalies || []).length === 0 && (
+          {state.active_anomalies.length === 0 && (
             <div className="text-xs text-muted-foreground flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-green-400" />
               No active anomalies

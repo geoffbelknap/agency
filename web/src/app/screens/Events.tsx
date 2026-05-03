@@ -3,15 +3,6 @@ import { Link } from 'react-router';
 import { api, RawEvent } from '../lib/api';
 import { Button } from '../components/ui/button';
 import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '../components/ui/card';
-import { Input } from '../components/ui/input';
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -170,12 +161,13 @@ export function Events() {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Event filters</CardTitle>
-          <CardDescription>Scope the operational feed by source, event type, or runtime owner.</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-1 flex-wrap items-center gap-2 lg:justify-end">
+      <div className="rounded-2xl border border-border bg-card px-4 py-4 md:px-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-1">
+            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Event filters</div>
+            <p className="text-sm text-muted-foreground">Scope the operational feed by source, event type, or runtime owner.</p>
+          </div>
+          <div className="flex flex-1 flex-wrap items-center gap-2 lg:justify-end">
             <Select value={sourceTypeFilter} onValueChange={setSourceTypeFilter}>
               <SelectTrigger className="h-8 w-[140px] text-xs">
                 <SelectValue placeholder="All sources" />
@@ -200,12 +192,12 @@ export function Events() {
               </SelectContent>
             </Select>
 
-            <Input
+            <input
               type="text"
               value={eventTypeFilter}
               onChange={(e) => setEventTypeFilter(e.target.value)}
               placeholder="Filter by event type..."
-              className="h-8 min-w-0 flex-1 text-xs sm:min-w-[200px]"
+              className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-1 text-xs text-foreground placeholder:text-muted-foreground/70 sm:min-w-[200px]"
             />
 
             <Button
@@ -218,8 +210,9 @@ export function Events() {
               <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
-        </CardContent>
-      </Card>
+          </div>
+        </div>
+      </div>
 
       {error && (
         <div className="text-sm text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded px-3 py-2">
@@ -228,20 +221,22 @@ export function Events() {
       )}
 
       {!loading && !error && attentionEvents.length > 0 && (
-        <Card className="border-amber-900/40 bg-amber-950/20">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm text-amber-300">
+        <div className="rounded-2xl border border-amber-900/40 bg-amber-950/20 p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-sm font-medium text-amber-300">
                 <AlertTriangle className="h-4 w-4" />
                 {attentionEvents.length} recent event{attentionEvents.length !== 1 ? 's' : ''} need attention
-            </CardTitle>
-            <CardDescription>
+              </div>
+              <p className="text-xs text-muted-foreground">
                 {errorCount > 0 && `${errorCount} error${errorCount !== 1 ? 's' : ''}`}
                 {errorCount > 0 && warningCount > 0 && ' · '}
                 {warningCount > 0 && `${warningCount} warning${warningCount !== 1 ? 's' : ''}`}
                 {' · '}
                 Review the recent feed and jump straight to the most relevant recovery surface.
-            </CardDescription>
-            <CardAction className="flex flex-wrap gap-2">
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
               {primaryAttentionAction && (
                 <Button asChild variant="outline" size="sm" className="h-8 text-xs">
                   <Link to={primaryAttentionAction.href}>{primaryAttentionAction.label}</Link>
@@ -250,24 +245,25 @@ export function Events() {
               <Button asChild variant="outline" size="sm" className="h-8 text-xs">
                 <Link to="/admin/doctor">Open Doctor</Link>
               </Button>
-            </CardAction>
-          </CardHeader>
-        </Card>
+            </div>
+          </div>
+        </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Event feed</CardTitle>
-          <CardDescription>Recent runtime, connector, channel, and webhook activity with expandable payload detail.</CardDescription>
-          <CardAction>
+      <div className="overflow-hidden rounded-2xl border border-border bg-card">
+        <div className="border-b border-border px-4 py-3">
+          <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h3 className="text-sm font-medium text-foreground">Event feed</h3>
+              <p className="text-xs text-muted-foreground">Recent runtime, connector, channel, and webhook activity with expandable payload detail.</p>
+            </div>
             {!loading && !error && (
               <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                 {filteredEvents.length} item{filteredEvents.length !== 1 ? 's' : ''}
               </div>
             )}
-          </CardAction>
-        </CardHeader>
-        <CardContent className="p-0">
+          </div>
+        </div>
         {loading ? (
           <div className="text-muted-foreground text-center py-8 text-sm">Loading events...</div>
         ) : filteredEvents.length === 0 ? (
@@ -357,10 +353,9 @@ export function Events() {
             })}
           </div>
         )}
-        </CardContent>
-      </Card>
+      </div>
 
-      <Card>
+      <div className="rounded-2xl border border-border bg-card">
         <button
           className="flex w-full items-center gap-2 p-4 text-left transition-colors hover:bg-secondary/50"
           onClick={() => setSubsOpen((prev) => !prev)}
@@ -376,7 +371,7 @@ export function Events() {
           </div>
         </button>
         {subsOpen && (
-          <CardContent className="border-t border-border p-4">
+          <div className="border-t border-border p-4">
             {subsLoading ? (
               <div className="text-sm text-muted-foreground text-center py-4">Loading subscriptions...</div>
             ) : subscriptions.length === 0 ? (
@@ -384,9 +379,9 @@ export function Events() {
             ) : (
               <JsonView data={subscriptions} defaultExpanded />
             )}
-          </CardContent>
+          </div>
         )}
-      </Card>
+      </div>
     </div>
   );
 }

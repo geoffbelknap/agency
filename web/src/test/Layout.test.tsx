@@ -42,6 +42,7 @@ async function renderLayoutAt(path: string) {
   );
 
   const label = path.startsWith('/channels') ? 'Channel page' : 'Overview page';
+  // Layout renders a loading placeholder until async setup check completes
   const el = await screen.findByText(label);
   return el.parentElement;
 }
@@ -65,5 +66,24 @@ describe('Layout scrolling behavior', () => {
     expect(outletContainer).toBeTruthy();
     expect(outletContainer).toHaveClass('overflow-auto');
     expect(outletContainer).not.toHaveClass('overflow-hidden');
+  });
+
+  it('renders infrastructure footer from reported components', async () => {
+    mockInfraStatus.value = {
+      build_id: 'build-123',
+      components: [
+        { name: 'gateway', state: 'running', health: 'healthy' },
+        { name: 'knowledge', state: 'running', health: 'starting' },
+        { name: 'comms', state: 'exited', health: 'unhealthy' },
+      ],
+    };
+
+    await renderLayoutAt('/');
+
+    expect(screen.getByText('gateway')).toBeInTheDocument();
+    expect(screen.getByText('knowledge')).toBeInTheDocument();
+    expect(screen.getByText('comms')).toBeInTheDocument();
+    expect(screen.queryByText('postgres')).not.toBeInTheDocument();
+    expect(screen.getByText('build-123 build')).toBeInTheDocument();
   });
 });

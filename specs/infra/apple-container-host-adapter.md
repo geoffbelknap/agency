@@ -371,7 +371,6 @@ Apple silicon with Apple Container available:
 - `go test ./...`
 - `go build ./cmd/gateway`
 - `scripts/readiness/apple-container-smoke.sh`
-- `scripts/e2e/apple-container-webui-smoke.sh`
 - runtime contract smoke against an Apple-backed disposable agent
 - create/start/stop/restart/delete lifecycle validation
 - operator DM round trip
@@ -380,18 +379,13 @@ Apple silicon with Apple Container available:
 - cleanup drift validation for owned resources
 - `agency admin doctor` separates backend hygiene from runtime health
 
-The Web UI parity bar should mirror the Firecracker operator flow, adjusted
-for the Apple backend's transport and lifecycle details:
+Agency Web UI parity should be validated through the supported `microagent`
+backend contract. Runner-specific Apple backend UI parity belongs outside
+Agency's release gate.
 
-1. start from a live Agency stack configured with `backend apple-container`
-2. create an agent through the Web UI
-3. verify runtime status reports `backend=apple-container`, healthy running
-   state, and an established enforcer transport
-4. open the agent DM and receive a mediated response
-5. stop the agent through the normal API/UI path
-6. delete the agent through the Web UI
-7. verify Apple-owned containers, helper state, networks, and transient
-   runtime artifacts for that agent are gone
+If this experimental backend is revisited, validate it below the `microagent`
+boundary or in the owning runner project. Agency should not expose a separate
+Apple Container Web UI contract.
 
 Because this path depends on Apple's macOS service and Virtualization.framework
 stack, it remains a manual macOS Apple silicon validation gate. Linux CI should

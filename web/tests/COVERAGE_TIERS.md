@@ -101,9 +101,8 @@ The disposable runner clones the current Agency home, assigns an isolated infra 
 - Risky live notification test-send to a contained local sink
 - Risky live hub install / remove for an eligible local catalog component
 - Risky live mission create / update / delete for an unassigned mission
-- Risky live assigned mission pause / resume / complete / delete with cleanup
-- Risky live agent create / start / pause / resume / restart / delete with observable lifecycle state
-- Opt-in risky Firecracker web UI create / start / DM send / agent reply with cleanup
+- Risky live `microagent` backend agent create / start / DM send / reply / pause / resume / restart with cleanup
+- Risky live `microagent` backend assigned mission pause / resume / complete with cleanup
 - Risky live connector install / deactivate / reactivate with cleanup
 - Risky disposable live connector setup / configure / activate with cleanup
 - Risky live pack deploy / teardown for an installed pack
@@ -119,7 +118,7 @@ The disposable runner clones the current Agency home, assigns an isolated infra 
 - Infrastructure lifecycle actions
 - Setup wizard side effects
 - Danger Zone execution
-- Firecracker web UI execution unless `AGENCY_E2E_FIRECRACKER_WEBUI=1` is set
+- Apple VF and Firecracker runner parity; that belongs in `microagent-kit`
 
 ## Danger Guardrails
 

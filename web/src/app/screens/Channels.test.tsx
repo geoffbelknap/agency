@@ -203,7 +203,7 @@ describe('Channels', () => {
       expect(screen.getByText('Previous message')).toBeInTheDocument();
     });
 
-    const input = screen.getByPlaceholderText(/message dm-jarvis/i);
+    const input = screen.getByPlaceholderText(/message jarvis/i);
     await userEvent.type(input, 'Stay visible{Enter}');
 
     await waitFor(() => {

@@ -3,13 +3,6 @@ import { Link, useNavigate } from 'react-router';
 import { AlertTriangle, Plus, RefreshCw, Workflow } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '../components/ui/card';
 import { api, type RawMission, type MissionHealthResponse } from '../lib/api';
 import { socket } from '../lib/ws';
 import { MissionWizard } from './MissionWizard';
@@ -87,17 +80,21 @@ export function MissionList() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 py-4 md:px-6">
-        <div className="text-sm text-muted-foreground">
-          {missions.length} mission{missions.length !== 1 ? 's' : ''}
-          {breakdown ? ` — ${breakdown}` : ''}
+      {/* Header */}
+      <div className="flex items-center justify-between border-b px-4 md:px-8 py-4">
+        <div>
+          <h1 className="text-xl">Missions</h1>
+          <p className="text-sm text-muted-foreground">
+            {missions.length} mission{missions.length !== 1 ? 's' : ''}
+            {breakdown ? ` — ${breakdown}` : ''}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={load} disabled={refreshing}>
-            <RefreshCw className={refreshing ? 'animate-spin' : ''} />
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
           </Button>
           <Button size="sm" onClick={() => setWizardOpen(true)}>
-            <Plus data-icon="inline-start" />
+            <Plus className="h-4 w-4 mr-1" />
             New Mission
           </Button>
         </div>
@@ -106,49 +103,48 @@ export function MissionList() {
       {/* Content */}
       <div className="flex-1 overflow-auto p-4 md:p-8">
         {attentionMissions.length > 0 && (
-          <Card className="mb-4 border-amber-900/50 bg-amber-950/20">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-sm text-amber-300">
+          <div className="mb-4 rounded-lg border border-amber-900/50 bg-amber-950/20 p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-sm font-medium text-amber-300">
                   <AlertTriangle className="h-4 w-4" />
                   {attentionMissions.length} mission{attentionMissions.length !== 1 ? 's' : ''} need attention
-              </CardTitle>
-              <CardDescription>
+                </div>
+                <p className="text-xs text-muted-foreground">
                   {unhealthyMissions.length > 0 && `${unhealthyMissions.length} unhealthy`}
                   {unhealthyMissions.length > 0 && degradedMissions.length > 0 && ' · '}
                   {degradedMissions.length > 0 && `${degradedMissions.length} degraded`}
                   {' · '}
                   Review mission health details, then use Doctor or Infrastructure if the issue is platform-wide.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-wrap gap-2">
-              <Button asChild variant="outline" size="sm">
-                <Link to="/admin/doctor">Open Doctor</Link>
-              </Button>
-              <Button asChild variant="outline" size="sm">
-                <Link to="/admin/infrastructure">Open Infrastructure</Link>
-              </Button>
-            </CardContent>
-          </Card>
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                  <Link to="/admin/doctor">Open Doctor</Link>
+                </Button>
+                <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                  <Link to="/admin/infrastructure">Open Infrastructure</Link>
+                </Button>
+              </div>
+            </div>
+          </div>
         )}
         {missions.length === 0 ? (
-          <Card className="min-h-[18rem] items-center justify-center text-center">
-            <CardContent className="flex flex-col items-center justify-center gap-4 py-12 text-muted-foreground">
-              <p>No missions yet. Create one to get started.</p>
-              <Button size="sm" onClick={() => setWizardOpen(true)}>
-                <Plus data-icon="inline-start" />
-                Create Mission
-              </Button>
-            </CardContent>
-          </Card>
+          <div className="flex flex-col items-center justify-center h-64 text-muted-foreground gap-4">
+            <p>No missions yet. Create one to get started.</p>
+            <Button size="sm" onClick={() => setWizardOpen(true)}>
+              <Plus className="h-4 w-4 mr-1" />
+              Create Mission
+            </Button>
+          </div>
         ) : (
           <div className="grid gap-3">
             {missions.map((mission) => (
-              <Card
+              <div
                 key={mission.name}
-                className="cursor-pointer gap-4 border-border/80 py-4 hover:border-primary/50"
+                className="bg-card border border-border rounded-lg p-4 hover:border-primary/50 cursor-pointer transition-colors"
                 onClick={() => navigate('/missions/' + mission.name)}
               >
-                <CardContent className="px-4">
                 {/* Top row */}
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
@@ -205,8 +201,7 @@ export function MissionList() {
                     </span>
                   )}
                 </div>
-                </CardContent>
-              </Card>
+              </div>
             ))}
           </div>
         )}

@@ -10,7 +10,6 @@ vi.mock('../lib/features', () => ({
   adminFeatureFlags: {
     graphAdmin: true,
   },
-  experimentalSurfacesEnabled: true,
 }));
 
 const BASE = 'http://localhost:8200/api/v1';

@@ -12,6 +12,10 @@
     "tier": "internal"
   },
   {
+    "id": "connectors",
+    "tier": "experimental"
+  },
+  {
     "id": "department_admin",
     "tier": "experimental"
   },
@@ -56,7 +60,15 @@
     "tier": "experimental"
   },
   {
+    "id": "ontology",
+    "tier": "experimental"
+  },
+  {
     "id": "packages",
+    "tier": "experimental"
+  },
+  {
+    "id": "packs",
     "tier": "experimental"
   },
   {

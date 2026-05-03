@@ -189,6 +189,21 @@ async function waitForAgentStatus(page: Page, name: string, status: string, time
   }).toBe(status);
 }
 
+async function waitForAgentStatusNot(page: Page, name: string, status: string, timeout = 30_000) {
+  const headers = await authHeaders(page);
+  await expect.poll(async () => {
+    const response = await page.request.get(`/api/v1/agents/${encodeURIComponent(name)}`, { headers });
+    if (!response.ok()) {
+      return false;
+    }
+    const agent = await response.json() as { status?: string };
+    return agent.status !== status;
+  }, {
+    timeout,
+    message: `expected ${name} status to leave ${status}`,
+  }).toBe(true);
+}
+
 async function cleanupMission(page: Page, name: string) {
   const headers = {
     ...(await authHeaders(page)),
@@ -251,6 +266,18 @@ async function expectAgentReply(page: Page, agentName: string, expectedText: str
     has: page.getByText(agentName, { exact: true }),
   }).filter({ hasText: expectedText }).first();
   await expect(reply).toBeVisible({ timeout });
+}
+
+function agentHeadingPattern(agentName: string) {
+  const [first, ...rest] = agentName.split('');
+  const escapedFirst = first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escapedRest = rest.join('').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^${escapedFirst}\\u200b?${escapedRest}$`);
+}
+
+async function expectAgentDetailVisible(page: Page, agentName: string) {
+  await expect(page.getByRole('heading', { name: agentHeadingPattern(agentName) })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open DM' })).toBeVisible();
 }
 
 async function clearBlockingToasts(page: Page) {
@@ -410,27 +437,36 @@ test('live stack supports custom preset create, edit, and delete flow', async ({
     await page.getByRole('button', { name: /^Save$/ }).click();
     await settle(page);
 
-    await expect(page.getByRole('heading', { name: presetName })).toBeVisible();
-    await expect(page.getByText(/Live preset created by Playwright · standard · user/)).toBeVisible();
+    let presetCard = page.getByRole('article', { name: `Preset ${presetName}` });
+    await expect(presetCard).toBeVisible();
+    await expect(presetCard).toContainText('Live preset created by Playwright');
+    await expect(presetCard).toContainText('standard');
+    await expect(presetCard).toContainText('custom');
 
-    await page.getByRole('button', { name: 'Edit' }).click();
+    await presetCard.getByRole('button', { name: 'Edit', exact: true }).click();
     await page.locator('input').nth(1).fill(updatedDescription);
     await page.getByPlaceholder('One-line purpose statement').fill(updatedPurpose);
     await page.getByPlaceholder('Agent personality prompt...').fill(updatedBody);
     await page.getByRole('button', { name: /^Save$/ }).click();
     await settle(page);
 
-    await expect(page.getByText(new RegExp(`${updatedDescription} · standard · user`))).toBeVisible();
-    await expect(page.getByText(updatedPurpose)).toBeVisible();
-    await expect(page.getByText(updatedBody)).toBeVisible();
+    presetCard = page.getByRole('article', { name: `Preset ${presetName}` });
+    await expect(presetCard).toBeVisible();
+    await expect(presetCard).toContainText(updatedDescription);
+    await presetCard.getByRole('button', { name: 'Edit', exact: true }).click();
+    await expect(page.getByPlaceholder('One-line purpose statement')).toHaveValue(updatedPurpose);
+    await expect(page.getByPlaceholder('Agent personality prompt...')).toHaveValue(updatedBody);
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await settle(page);
 
     await clearBlockingToasts(page);
-    await page.locator('button:has(svg.lucide-trash2)').first().click({ force: true });
-    await page.getByRole('button', { name: 'Delete' }).click();
+    presetCard = page.getByRole('article', { name: `Preset ${presetName}` });
+    await presetCard.getByRole('button', { name: 'Delete', exact: true }).click();
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
     await settle(page);
 
     await expect(page.getByRole('button', { name: presetName })).toHaveCount(0);
-    await expect(page.getByRole('heading', { name: presetName })).toHaveCount(0);
+    await expect(page.getByText(presetName, { exact: true })).toHaveCount(0);
   } finally {
     await bestEffortDelete(page, `/api/v1/hub/presets/${encodeURIComponent(presetName)}`);
   }
@@ -457,8 +493,7 @@ test('live stack supports agent create flow from the agents screen', async ({ pa
 
     await page.goto(`/agents/${encodeURIComponent(agentName)}`);
     await settle(page);
-    await expect(page.getByRole('code').filter({ hasText: agentName })).toBeVisible();
-    await expect(page.getByText(/Mode: assisted|Mode: autonomous/).first()).toBeVisible();
+    await expectAgentDetailVisible(page, agentName);
   } finally {
     await deleteAgentAndWait(page, agentName);
   }
@@ -509,7 +544,7 @@ test('live stack supports agent pause, resume, and restart lifecycle flow', asyn
 
     await page.goto(`/agents/${encodeURIComponent(agentName)}`);
     await settle(page);
-    await expect(page.getByRole('code').filter({ hasText: agentName })).toBeVisible();
+    await expectAgentDetailVisible(page, agentName);
 
     await page.getByRole('button', { name: /^Pause$/ }).click();
     await waitForAgentStatus(page, agentName, 'halted');
@@ -519,11 +554,21 @@ test('live stack supports agent pause, resume, and restart lifecycle flow', asyn
     await page.getByRole('button', { name: /^Resume$/ }).click();
     await waitForAgentStatus(page, agentName, 'running');
     await settle(page);
-    await expect(page.getByRole('button', { name: /^Restart$/ })).toBeVisible();
 
-    await page.getByRole('button', { name: /^Restart$/ }).click();
-    await waitForAgentStatus(page, agentName, 'running');
-    await waitForAgentDmReady(page, agentName);
+    await page.goto('/agents');
+    await settle(page);
+    await page.getByRole('button', { name: 'Roster' }).click();
+    await settle(page);
+    await page.getByRole('button', { name: `Actions for ${agentName}` }).click();
+    await page.getByRole('menuitem', { name: /^Restart$/ }).click();
+    await waitForAgentStatusNot(page, agentName, 'running');
+    await waitForAgentStatus(page, agentName, 'running', 120_000);
+    await waitForAgentDmReady(page, agentName, 120_000);
+    await page.goto('/agents');
+    await settle(page);
+    await page.getByRole('button', { name: 'Split view' }).click();
+    await settle(page);
+    await page.getByRole('button', { name: new RegExp(`^${agentName}\\b`) }).click();
     await settle(page);
     await expect(page.getByRole('button', { name: /^Pause$/ })).toBeVisible();
   } finally {
