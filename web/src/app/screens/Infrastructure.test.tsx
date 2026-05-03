@@ -38,7 +38,7 @@ describe('Infrastructure', () => {
     await waitFor(() => {
       expect(screen.getByText('gateway')).toBeInTheDocument();
       expect(screen.getByText('redis')).toBeInTheDocument();
-      expect(screen.getByText('2 / 2 healthy')).toBeInTheDocument();
+      expect(screen.getByText('2 / 2 services healthy')).toBeInTheDocument();
     });
   });
 
@@ -70,10 +70,9 @@ describe('Infrastructure', () => {
     await waitFor(() => {
       expect(screen.getByText('Host capacity')).toBeInTheDocument();
       expect(screen.getByText('3 / 8')).toBeInTheDocument();
-      expect(screen.getByText('5 available')).toBeInTheDocument();
-      expect(screen.getByText('4.0 GB each')).toBeInTheDocument();
+      expect(screen.getByText('3 slots used / 5 available / 4.0 GB per agent / firecracker/microvm')).toBeInTheDocument();
       expect(screen.queryByText(/network pool/i)).not.toBeInTheDocument();
-      expect(screen.getByText('10 CPU cores')).toBeInTheDocument();
+      expect(screen.getByText('10 cores')).toBeInTheDocument();
     });
   });
 
@@ -209,44 +208,41 @@ describe('Infrastructure', () => {
       expect(screen.getByText('gateway')).toBeInTheDocument();
     });
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /refresh infrastructure/i })).not.toBeDisabled();
+      expect(screen.getByRole('button', { name: /reload config/i })).not.toBeDisabled();
     });
     const countBefore = fetchCount;
-    await userEvent.click(screen.getByRole('button', { name: /refresh infrastructure/i }));
+    await userEvent.click(screen.getByRole('button', { name: /reload config/i }));
     await waitFor(() => {
       expect(fetchCount).toBeGreaterThan(countBefore);
-      expect(screen.getByRole('button', { name: /refreshing infrastructure/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /reload config/i })).toBeDisabled();
     });
     releaseRefreshes.forEach((release) => release());
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /refresh infrastructure/i })).not.toBeDisabled();
+      expect(screen.getByRole('button', { name: /reload config/i })).not.toBeDisabled();
     });
   });
 
-  it('loads service logs from host-managed infrastructure services', async () => {
-    let requestedLogs = false;
+  it('loads service logs', async () => {
     server.use(
       http.get(`${BASE}/infra/status`, () =>
         HttpResponse.json(wrapInfra([
           { name: 'comms', state: 'running', health: 'healthy', component_id: 'host:123', uptime: '2h' },
         ])),
       ),
-      http.get(`${BASE}/infra/services/comms/logs`, () => {
-        requestedLogs = true;
-        return HttpResponse.json({ component: 'comms', tail: 200, logs: 'comms host log line' });
-      }),
+      http.get(`${BASE}/infra/services/comms/logs`, () =>
+        HttpResponse.json({ component: 'comms', tail: 200, logs: 'host comms log line\n' }),
+      ),
     );
 
     renderWithRouter(<Infrastructure />);
 
     await waitFor(() => {
       expect(screen.getByText('comms')).toBeInTheDocument();
-      expect(screen.getByRole('img', { name: 'healthy' })).toBeInTheDocument();
     });
     await userEvent.click(screen.getByRole('button', { name: /^logs$/i }));
+
     await waitFor(() => {
-      expect(requestedLogs).toBe(true);
-      expect(screen.getByText('comms host log line')).toBeInTheDocument();
+      expect(screen.getByText('host comms log line')).toBeInTheDocument();
     });
   });
 });

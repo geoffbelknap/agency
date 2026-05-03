@@ -1,7 +1,5 @@
-import { useState, type ReactNode } from 'react';
-import { Hash, Menu, Users } from 'lucide-react';
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
+import type { ReactNode } from 'react';
+import { AtSign, Bot, Hash, Menu, MoreHorizontal } from 'lucide-react';
 import { MessageList } from './MessageList';
 import { ComposeBar } from './ComposeBar';
 import { TypingIndicator } from './TypingIndicator';
@@ -30,88 +28,81 @@ interface MessageAreaProps {
   onAgentClick?: (agentName: string) => void;
 }
 
+function isDm(channel: Channel): boolean {
+  const type = (channel as Channel & { type?: string }).type;
+  return type === 'dm' || channel.name.startsWith('dm-');
+}
+
+function displayName(channel: Channel): string {
+  return isDm(channel) && channel.name.startsWith('dm-') ? channel.name.slice(3) : channel.name;
+}
+
+function subtitle(channel: Channel): string {
+  if (channel.topic) return channel.topic;
+  if (channel.members.length > 0) {
+    return `${channel.members.length} member${channel.members.length === 1 ? '' : 's'}`;
+  }
+  return isDm(channel) ? 'direct message' : 'workspace channel';
+}
+
 export function MessageArea({ channel, messages, loading, onSend, typingAgents, processingAgents, agentStatuses, agentActivity, onReply, onEdit, onDelete, onReact, onUnreact, scrollToMessageId, headerActions, onOpenSidebar, hasMore, onLoadMore, loadingMore, onAgentClick }: MessageAreaProps) {
-  const [membersOpen, setMembersOpen] = useState(false);
-  const memberCount = channel.members.length;
+  const Icon = isDm(channel) ? AtSign : Hash;
+  const channelStatus = isDm(channel) ? agentStatuses?.[displayName(channel)] : undefined;
 
   return (
-    <div className="flex-1 flex min-h-0 min-w-0 flex-col">
-      <div className="border-b border-border px-4 py-4 md:px-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="mb-2 flex min-w-0 items-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              <span>Channels</span>
-              <span className="h-1 w-1 rounded-full bg-border-mid" />
-              <span className="truncate">{channel.type === 'dm' || channel.name.startsWith('dm-') ? 'Direct conversation' : 'Shared space'}</span>
-            </div>
-            <div className="flex min-w-0 items-center gap-2">
-              {onOpenSidebar && (
-                <Button
-                  variant="ghost"
-                size="icon"
-                onClick={onOpenSidebar}
-                aria-label="Open sidebar"
-                className="h-8 w-8 text-muted-foreground hover:text-accent-foreground hover:bg-accent shrink-0"
-                >
-                  <Menu className="w-5 h-5" />
-                </Button>
-              )}
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-secondary text-muted-foreground">
-                <Hash className="h-4 w-4" />
-              </div>
-              <div className="min-w-0">
-                <h2 className="truncate text-lg font-semibold text-foreground">{channel.name}</h2>
-              </div>
-            </div>
-            {channel.topic && (
-              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">{channel.topic}</p>
+    <main className="flex min-h-0 min-w-0 flex-1 flex-col" style={{ background: 'var(--warm)' }}>
+      <header
+        className="flex shrink-0 items-center justify-between gap-5"
+        style={{ padding: '16px 28px', borderBottom: '0.5px solid var(--ink-hairline)', background: 'var(--warm)' }}
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          {onOpenSidebar && (
+            <button
+              type="button"
+              onClick={onOpenSidebar}
+              aria-label="Open sidebar"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full lg:hidden"
+              style={{ border: '0.5px solid var(--ink-hairline)', background: 'var(--warm-2)', color: 'var(--ink-muted)' }}
+            >
+              <Menu size={18} strokeWidth={1.8} />
+            </button>
+          )}
+          <div
+            className="relative flex h-9 w-9 shrink-0 items-center justify-center"
+            style={{ borderRadius: 8, background: 'var(--warm-3)', color: 'var(--ink-mid)' }}
+          >
+            {isDm(channel) ? <Bot size={16} strokeWidth={1.7} /> : <Icon size={16} strokeWidth={1.7} />}
+            {isDm(channel) && (
+              <span
+                aria-label={channelStatus === 'running' ? 'Running' : undefined}
+                className="absolute rounded-full"
+                style={{ right: -1, bottom: -1, width: 10, height: 10, background: channelStatus === 'running' ? 'var(--teal)' : 'var(--ink-faint)', border: '2px solid var(--warm)' }}
+              />
             )}
           </div>
-          <div className="flex shrink-0 items-start gap-2">
-            <Badge variant="outline" className="hidden rounded-full md:inline-flex">
-              {channel.members.length} member{channel.members.length === 1 ? '' : 's'}
-            </Badge>
-            {memberCount > 0 && (
-              <div className="relative">
-                <button
-                  className="flex items-center gap-2 rounded-2xl border border-border bg-card px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                  onClick={() => setMembersOpen((v) => !v)}
-                >
-                  <Users className="h-3.5 w-3.5" />
-                  <span>{memberCount} member{memberCount === 1 ? '' : 's'}</span>
-                </button>
-                {membersOpen && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setMembersOpen(false)} />
-                    <div className="absolute right-0 top-full z-50 mt-2 min-w-[220px] max-w-[280px] rounded-2xl border border-border bg-card p-3 shadow-xl">
-                      <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                        Members ({memberCount})
-                      </div>
-                      <div className="max-h-[240px] space-y-1.5 overflow-auto">
-                        {channel.members.map((member) => (
-                          <div key={member} className="flex items-center gap-2">
-                            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-xl bg-primary/12 text-[10px] font-semibold text-primary">
-                              {member.charAt(0).toUpperCase()}
-                            </div>
-                            <span className="truncate text-xs text-foreground">{member}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-            {headerActions && (
-              <div className="rounded-2xl border border-border bg-card p-1">
-                {headerActions}
-              </div>
-            )}
+          <div className="min-w-0">
+            <h2 className="mono truncate" style={{ fontSize: 14, color: 'var(--ink)' }}>
+              {displayName(channel)}
+            </h2>
+            <p className="mt-1 truncate" style={{ fontSize: 11, color: 'var(--ink-mid)' }}>
+              {subtitle(channel)}
+              {channelStatus ? ` · ${channelStatus}` : ''}
+            </p>
           </div>
         </div>
-      </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {headerActions}
+          <button
+            type="button"
+            aria-label="More channel actions"
+            className="flex h-8 w-8 items-center justify-center rounded-md"
+            style={{ border: 0, background: 'transparent', color: 'var(--ink-mid)' }}
+          >
+            <MoreHorizontal size={16} strokeWidth={1.8} />
+          </button>
+        </div>
+      </header>
 
-      {/* Messages */}
       <MessageList
         messages={messages}
         loading={loading}
@@ -135,7 +126,7 @@ export function MessageArea({ channel, messages, loading, onSend, typingAgents, 
         activity={agentActivity}
       />
 
-      <ComposeBar onSend={onSend} channelName={channel.name} />
-    </div>
+      <ComposeBar onSend={onSend} channelName={displayName(channel)} />
+    </main>
   );
 }

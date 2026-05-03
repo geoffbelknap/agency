@@ -14,20 +14,6 @@ export function PlatformReadyStep({ onComplete }: PlatformReadyStepProps) {
   const [showSlowHint, setShowSlowHint] = useState(false);
   const [allowContinue, setAllowContinue] = useState(false);
 
-  const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
-    let timer: number | undefined;
-    try {
-      return await Promise.race([
-        promise,
-        new Promise<T>((_, reject) => {
-          timer = window.setTimeout(() => reject(new Error(`${label} timed out`)), ms);
-        }),
-      ]);
-    } finally {
-      if (timer) window.clearTimeout(timer);
-    }
-  };
-
   const runChecks = async () => {
     setStatus('checking');
     setError('');
@@ -35,14 +21,13 @@ export function PlatformReadyStep({ onComplete }: PlatformReadyStepProps) {
     setAllowContinue(false);
     try {
       setPhase('gateway');
-      await withTimeout(api.infra.status(), 6000, 'Gateway check');
+      await api.infra.status();
       setPhase('platform');
-      await withTimeout(api.routing.config(), 4000, 'Platform check').catch(() => ({ configured: false }));
+      await api.routing.config().catch(() => ({ configured: false }));
       setStatus('done');
       window.setTimeout(onComplete, 600);
     } catch (e: any) {
       setStatus('error');
-      setAllowContinue(true);
       setError(e.message || 'Failed to verify local platform state');
     }
   };

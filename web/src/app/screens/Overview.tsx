@@ -1,46 +1,28 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router';
-import {
-  ArrowRight,
-  Bot,
-  Brain,
-  CheckCircle2,
-  KeyRound,
-  MessageSquare,
-  Play,
-  RotateCw,
-  ShieldCheck,
-  Square,
-} from 'lucide-react';
-import { toast } from 'sonner';
+import { AlertTriangle, ArrowRight, Play, RotateCw, Send, Sparkles, Square } from 'lucide-react';
 import { StatusIndicator } from '../components/StatusIndicator';
-import { Badge } from '../components/ui/badge';
+import { Agent, InfrastructureService, AuditEvent, Provider } from '../types';
 import { Button } from '../components/ui/button';
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '../components/ui/card';
-import { Progress } from '../components/ui/progress';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../components/ui/table';
+import { toast } from 'sonner';
 import { api } from '../lib/api';
-import { contractModules, contractSurfaces, surfaceIsVisible, type ContractSurface } from '../lib/contract-surface';
-import { experimentalSurfacesEnabled } from '../lib/features';
-import { formatTime } from '../lib/time';
 import { socket } from '../lib/ws';
-import { Agent, AuditEvent, InfrastructureService, Provider } from '../types';
+import { formatTime } from '../lib/time';
+import { featureEnabled } from '../lib/features';
 
 type InfraAction = 'start' | 'stop' | 'restart';
+
+type DecisionItem = {
+  id: string;
+  tone: 'amber' | 'red' | 'teal';
+  title: string;
+  meta: string;
+  context: string;
+  primaryLabel: string;
+  primaryHref?: string;
+  secondaryLabel?: string;
+  secondaryHref?: string;
+};
 
 function isRunningState(state: InfrastructureService['state']) {
   return state === 'running' || state === 'restarting';
@@ -83,20 +65,35 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function surfaceBadgeVariant(surface: ContractSurface) {
-  if (surface.tier === 'core') return 'secondary' as const;
-  if (surface.tier === 'experimental') return 'outline' as const;
-  return 'destructive' as const;
+function Panel({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <section className={`rounded-2xl border border-border bg-card ${className}`}>{children}</section>;
 }
 
-const readinessIcons = {
-  runtime: CheckCircle2,
-  fleet: Bot,
-  comms: MessageSquare,
-  context: Brain,
-  control: ShieldCheck,
-  credentials: KeyRound,
-};
+function SectionHeading({ eyebrow, title, meta }: { eyebrow: string; title: string; meta?: string }) {
+  return (
+    <div className="mb-4 flex items-center justify-between gap-3">
+      <div>
+        <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{eyebrow}</div>
+        <div className="mt-1 text-sm text-foreground">{title}</div>
+      </div>
+      {meta && <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">{meta}</div>}
+    </div>
+  );
+}
+
+function DecisionTone({ tone }: { tone: DecisionItem['tone'] }) {
+  const styles = {
+    amber: 'bg-amber-500/20 text-amber-700 dark:text-amber-400',
+    red: 'bg-red-500/20 text-red-700 dark:text-red-400',
+    teal: 'bg-primary/15 text-primary',
+  } as const;
+
+  return (
+    <span className={`inline-flex h-7 w-7 items-center justify-center rounded-lg ${styles[tone]}`}>
+      <AlertTriangle className="h-4 w-4" />
+    </span>
+  );
+}
 
 export function Overview() {
   const navigate = useNavigate();
@@ -108,7 +105,9 @@ export function Overview() {
   const [infraBuildId, setInfraBuildId] = useState('');
   const [providers, setProviders] = useState<Provider[]>([]);
   const [routingConfigured, setRoutingConfigured] = useState<boolean | null>(null);
-  const [capabilityCount, setCapabilityCount] = useState<number | null>(null);
+  const [dispatchText, setDispatchText] = useState('');
+  const [dispatchAgent, setDispatchAgent] = useState('');
+  const showTeams = featureEnabled('teams');
 
   const loadInfrastructure = useCallback(async () => {
     try {
@@ -118,7 +117,7 @@ export function Overview() {
         name: s.name,
         state: s.state || s.status || 'stopped',
         health: s.health === 'healthy' || s.health === 'unhealthy' ? s.health : 'idle',
-        containerId: s.container_id || '',
+        componentId: s.component_id || s.container_id || '',
         uptime: s.uptime || '',
       }));
       setInfrastructure(mapped);
@@ -135,7 +134,6 @@ export function Overview() {
     const infraPromise = loadInfrastructure();
     const providerPromise = api.providers.list().catch(() => [] as Provider[]);
     const routingPromise = api.routing.config().catch(() => ({ configured: false }));
-    const capabilitiesPromise = api.capabilities.list().catch(() => []);
 
     agentPromise.then((agentData) => {
       const safeAgentData = agentData ?? [];
@@ -165,7 +163,7 @@ export function Overview() {
         ),
       ).then((logResults) => {
         const allEvents: AuditEvent[] = logResults
-          .flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+          .flatMap((r) => r.status === 'fulfilled' ? r.value : [])
           .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
           .slice(0, 20);
         setAuditEvents(allEvents);
@@ -178,7 +176,6 @@ export function Overview() {
     infraPromise.catch(() => {});
     providerPromise.then((providerData) => setProviders(providerData ?? []));
     routingPromise.then((config) => setRoutingConfigured(Boolean(config.configured)));
-    capabilitiesPromise.then((capabilities) => setCapabilityCount(capabilities.length));
   }, [loadInfrastructure]);
 
   useEffect(() => {
@@ -187,12 +184,7 @@ export function Overview() {
     const unsubInfra = socket.on('infra_status', load);
     const unsubDeploy = socket.on('deploy_progress', load);
     const unsubPhase = socket.on('phase', load);
-    return () => {
-      unsubAgent();
-      unsubInfra();
-      unsubDeploy();
-      unsubPhase();
-    };
+    return () => { unsubAgent(); unsubInfra(); unsubDeploy(); unsubPhase(); };
   }, [load]);
 
   const waitForInfraState = useCallback(async (target: InfraAction) => {
@@ -212,47 +204,18 @@ export function Overview() {
   const primaryAction: InfraAction = hasRunningServices ? 'restart' : 'start';
   const hasAgents = agents.length > 0;
   const readyProviders = providers.filter((provider) => provider.credential_configured);
-  const runningServices = infrastructure.filter((service) => isRunningState(service.state)).length;
+  const readyProviderNames = readyProviders.map((provider) => provider.display_name || provider.name);
+  const activeAgents = agents.filter((agent) => agent.status === 'running').length;
+  const unhealthyAgents = agents.filter((agent) => agent.status === 'unhealthy').length;
+  const pausedAgents = agents.filter((agent) => agent.status === 'paused' || agent.status === 'halted').length;
   const healthyServices = infrastructure.filter((service) => service.health === 'healthy').length;
-  const healthyServicePercent = infrastructure.length > 0 ? Math.round((healthyServices / infrastructure.length) * 100) : 0;
-  const providerCoveragePercent = providers.length > 0 ? Math.round((readyProviders.length / providers.length) * 100) : 0;
-  const visibleSurfaces = useMemo(() => contractSurfaces.filter(surfaceIsVisible), []);
-  const gatedSurfaces = useMemo(() => contractSurfaces.filter((surface) => !surfaceIsVisible(surface)), []);
+  const runningAgents = agents.filter((agent) => agent.status === 'running');
 
-  const readiness = [
-    {
-      id: 'runtime',
-      label: 'Runtime',
-      value: infrastructure.length > 0 ? `${runningServices}/${infrastructure.length}` : '0',
-      detail: `${healthyServicePercent}% healthy mediation services`,
-      progress: healthyServicePercent,
-      state: hasRunningServices ? 'ready' : 'review',
-    },
-    {
-      id: 'fleet',
-      label: 'Fleet',
-      value: String(agents.length),
-      detail: hasAgents ? 'Agents available for operator work' : 'No agents created yet',
-      progress: hasAgents ? 100 : 0,
-      state: hasAgents ? 'ready' : 'review',
-    },
-    {
-      id: 'credentials',
-      label: 'Providers',
-      value: `${readyProviders.length}/${providers.length || 0}`,
-      detail: `${providerCoveragePercent}% credential coverage`,
-      progress: providerCoveragePercent,
-      state: readyProviders.length > 0 ? 'ready' : 'review',
-    },
-    {
-      id: 'control',
-      label: 'Controls',
-      value: capabilityCount === null ? '...' : String(capabilityCount),
-      detail: routingConfigured ? 'Routing and capability contracts visible' : 'Routing configuration needs review',
-      progress: routingConfigured ? 100 : 35,
-      state: routingConfigured ? 'ready' : 'review',
-    },
-  ];
+  useEffect(() => {
+    if (!dispatchAgent && runningAgents.length > 0) {
+      setDispatchAgent(runningAgents[0].name);
+    }
+  }, [runningAgents, dispatchAgent]);
 
   const handleInfraAction = async (action: InfraAction) => {
     setInfraAction(action);
@@ -279,411 +242,361 @@ export function Overview() {
     }
   };
 
+  const handleDispatch = () => {
+    if (!dispatchAgent || !dispatchText.trim()) return;
+    navigate(`/agents/${dispatchAgent}`);
+  };
+
+  const heroSummary = !hasRunningServices
+    ? 'Infrastructure is offline. Bring up the gateway and supporting services before validating the operator flow.'
+    : !hasAgents
+      ? 'Platform services are available, but the fleet is empty. Seed an agent to test direct-message and mission flows.'
+      : `Your agents wrapped up ${auditEvents.length} recent events. ${unhealthyAgents > 0 ? `${unhealthyAgents} agent${unhealthyAgents === 1 ? ' is' : 's are'} unhealthy.` : 'Everything else is humming.'}`;
+
+  const decisions = useMemo<DecisionItem[]>(() => {
+    const items: DecisionItem[] = [];
+
+    const overBudgetAgent = runningAgents[0];
+    if (overBudgetAgent) {
+      items.push({
+        id: `agent-${overBudgetAgent.name}`,
+        tone: 'amber',
+        title: `${overBudgetAgent.name} needs direction`,
+        meta: `${overBudgetAgent.mode} · ${overBudgetAgent.enforcerState || 'enforcer status unknown'}`,
+        context: overBudgetAgent.mission || 'No mission assigned yet.',
+        primaryLabel: 'Open agent',
+        primaryHref: `/agents/${overBudgetAgent.name}`,
+        secondaryLabel: 'Open channels',
+        secondaryHref: '/channels',
+      });
+    }
+
+    if (unhealthyAgents > 0) {
+      items.push({
+        id: 'unhealthy',
+        tone: 'red',
+        title: `${unhealthyAgents} unhealthy agent${unhealthyAgents === 1 ? '' : 's'} need attention`,
+        meta: 'health regression detected',
+        context: 'Review the affected agent detail and recent event feed before restarting the runtime.',
+        primaryLabel: 'Review fleet',
+        primaryHref: '/agents',
+        secondaryLabel: 'Open admin',
+        secondaryHref: '/admin/doctor',
+      });
+    }
+
+    if (!routingConfigured || readyProviders.length === 0) {
+      items.push({
+        id: 'providers',
+        tone: 'amber',
+        title: 'Provider setup is incomplete',
+        meta: routingConfigured ? 'routing ready, providers missing' : 'routing needs review',
+        context: 'Add at least one validated provider so the first agent can complete useful work.',
+        primaryLabel: 'Open provider setup',
+        primaryHref: '/setup',
+        secondaryLabel: 'Review usage',
+        secondaryHref: '/admin/usage',
+      });
+    }
+
+    if (items.length === 0) {
+      items.push({
+        id: 'healthy',
+        tone: 'teal',
+        title: 'No immediate interventions required',
+        meta: `${activeAgents} running agents · ${healthyServices} healthy services`,
+        context: 'Open channels, dispatch a new task, or inspect knowledge context for the next operator decision.',
+        primaryLabel: 'Open channels',
+        primaryHref: '/channels',
+        secondaryLabel: 'Open knowledge',
+        secondaryHref: '/knowledge',
+      });
+    }
+
+    return items.slice(0, 3);
+  }, [activeAgents, healthyServices, readyProviders.length, routingConfigured, runningAgents, unhealthyAgents]);
+
+  const recentTimeline = auditEvents.slice(0, 8);
+
   return (
-    <div className="min-h-full bg-[linear-gradient(180deg,hsl(var(--background)),hsl(var(--muted)/0.28))]">
-      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 md:px-6">
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-foreground">Contract-first control plane</div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            OpenAPI surfaces plus feature-registry gates, with ASK control boundaries visible.
+    <div className="min-h-full bg-background">
+      <div className="border-b border-border bg-background px-4 py-8 md:px-8 md:py-10">
+        <div className="mx-auto max-w-7xl">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-4xl">
+              <div className="mb-3 text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Today</div>
+              <h1 className="text-4xl leading-none md:text-6xl">
+                Good evening, <span className="text-primary">Operator.</span>
+              </h1>
+              <p className="mt-4 max-w-3xl text-base leading-8 text-muted-foreground md:text-lg">
+                {heroSummary}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleInfraAction(primaryAction)}
+                disabled={infraAction !== null}
+              >
+                {hasRunningServices ? <RotateCw className="mr-1 h-3 w-3" /> : <Play className="mr-1 h-3 w-3" />}
+                {infraAction === 'start' ? 'Starting...' : infraAction === 'restart' ? 'Restarting...' : hasRunningServices ? 'Restart Infra' : 'Start Infra'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleInfraAction('stop')}
+                disabled={infraAction !== null || !hasRunningServices}
+              >
+                <Square className="mr-1 h-3 w-3" />
+                {infraAction === 'stop' ? 'Stopping...' : 'Stop Infra'}
+              </Button>
+            </div>
           </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handleInfraAction(primaryAction)}
-            disabled={infraAction !== null}
-          >
-            {hasRunningServices ? <RotateCw data-icon="inline-start" /> : <Play data-icon="inline-start" />}
-            {infraAction === 'start' ? 'Starting...' : infraAction === 'restart' ? 'Restarting...' : hasRunningServices ? 'Restart Infra' : 'Start Infra'}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handleInfraAction('stop')}
-            disabled={infraAction !== null || !hasRunningServices}
-          >
-            <Square data-icon="inline-start" />
-            {infraAction === 'stop' ? 'Stopping...' : 'Stop Infra'}
-          </Button>
+
+          <div className="mt-8 rounded-2xl border border-border bg-card p-4 md:p-5">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-2 text-xs text-foreground">
+                  <Sparkles className="h-3.5 w-3.5 text-primary" />
+                  Dispatch
+                </div>
+                <select
+                  value={dispatchAgent}
+                  onChange={(e) => setDispatchAgent(e.target.value)}
+                  aria-label="Dispatch target"
+                  className="rounded-full border border-border bg-background px-3 py-2 text-sm text-foreground outline-none"
+                >
+                  {runningAgents.length > 0 ? runningAgents.map((agent) => (
+                    <option key={agent.name} value={agent.name}>{`Agent: ${agent.name}`}</option>
+                  )) : <option value="">No running agents</option>}
+                </select>
+                <input
+                  value={dispatchText}
+                  onChange={(e) => setDispatchText(e.target.value)}
+                  placeholder={dispatchAgent ? `Dispatch ${dispatchAgent} to...` : 'Start infrastructure to dispatch work'}
+                  className="min-w-0 flex-1 rounded-full border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+                />
+              </div>
+              <Button size="sm" onClick={handleDispatch} disabled={!dispatchAgent || !dispatchText.trim()}>
+                <Send className="mr-1 h-3.5 w-3.5" />
+                Dispatch
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-8 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <Panel className="p-4">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Running agents</div>
+              <div className="mt-3 flex items-end gap-3">
+                <div className="text-3xl text-foreground">{activeAgents}</div>
+                <div className="pb-1 text-xs text-muted-foreground">of {agents.length || 0} total</div>
+              </div>
+            </Panel>
+            <Panel className="p-4">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Infrastructure</div>
+              <div className="mt-3 flex items-end gap-3">
+                <div className="text-3xl text-foreground">{healthyServices}</div>
+                <div className="pb-1 text-xs text-muted-foreground">healthy services</div>
+              </div>
+            </Panel>
+            <Panel className="p-4">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Provider coverage</div>
+              <div className="mt-3 flex items-end gap-3">
+                <div className="text-3xl text-foreground">{readyProviders.length}</div>
+                <div className="pb-1 text-xs text-muted-foreground">configured providers</div>
+              </div>
+            </Panel>
+            <Panel className="p-4">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Build</div>
+              <div className="mt-3 text-lg text-foreground">{infraBuildId || 'unknown'}</div>
+              <div className="mt-1 text-xs text-muted-foreground">{routingConfigured ? 'Router configured' : 'Needs review'}</div>
+            </Panel>
+          </div>
         </div>
       </div>
 
-      <div className="space-y-4 p-4 md:p-6">
-        <div className="grid gap-4 xl:grid-cols-4">
-          {readiness.map((item) => {
-            const Icon = readinessIcons[item.id as keyof typeof readinessIcons] ?? CheckCircle2;
-            return (
-              <Card key={item.id} className="gap-4 overflow-hidden py-5">
-                <CardHeader className="px-5">
-                  <CardAction>
-                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                      <Icon className="h-4 w-4" />
-                    </div>
-                  </CardAction>
-                  <CardDescription>{item.label}</CardDescription>
-                  <CardTitle className="text-2xl">{item.value}</CardTitle>
-                </CardHeader>
-                <CardContent className="px-5">
-                  <div className="mb-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                    <span>{item.detail}</span>
-                    <Badge variant={item.state === 'ready' ? 'secondary' : 'outline'} className="rounded-full">
-                      {item.state}
-                    </Badge>
-                  </div>
-                  <Progress value={item.progress} />
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.95fr)]">
-          <Card className="overflow-hidden">
-            <CardHeader className="border-b border-border bg-muted/20">
-              <CardAction>
-                <Badge variant="outline" className="rounded-full">
-                  {visibleSurfaces.length} visible
-                </Badge>
-              </CardAction>
-              <CardTitle>OpenAPI Surface Map</CardTitle>
-              <CardDescription>
-                Core routes are visible by default. Experimental and internal features stay explicit so trust and capability boundaries remain recoverable.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="divide-y divide-border">
-                {contractModules.map((module) => {
-                  const moduleSurfaces = module.surfaces;
-                  return (
-                    <div key={module.id} className="grid gap-0 md:grid-cols-[220px_minmax(0,1fr)]">
-                      <div className="border-b border-border bg-muted/20 p-4 md:border-b-0 md:border-r">
-                        <div className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                          {module.eyebrow}
-                        </div>
-                        <div className="mt-1 text-lg font-medium">{module.label}</div>
-                        <p className="mt-2 text-xs leading-5 text-muted-foreground">{module.summary}</p>
-                      </div>
-                      <div className="grid gap-3 p-4 lg:grid-cols-2">
-                        {moduleSurfaces.map((surface) => {
-                          const visible = surfaceIsVisible(surface);
-                          return (
-                            <Link
-                              key={surface.id}
-                              to={visible ? surface.route : '/overview'}
-                              className="rounded-2xl border border-border bg-background p-4 transition-colors hover:bg-muted/35"
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <div className="font-medium">{surface.label}</div>
-                                  <div className="mt-1 font-mono text-[11px] text-muted-foreground">{surface.tag}</div>
-                                </div>
-                                <Badge variant={visible ? surfaceBadgeVariant(surface) : 'outline'} className="rounded-full">
-                                  {visible ? surface.tier : 'gated'}
-                                </Badge>
-                              </div>
-                              <p className="mt-3 line-clamp-2 text-sm leading-6 text-muted-foreground">
-                                {surface.summary}
-                              </p>
-                              <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                                <span>{surface.endpoints.length} contract endpoints</span>
-                                {visible ? <ArrowRight className="h-3.5 w-3.5" /> : null}
-                              </div>
-                            </Link>
-                          );
-                        })}
+      <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 md:px-8 lg:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)] lg:py-8">
+        <div className="space-y-6">
+          <Panel className="p-4 md:p-5">
+            <SectionHeading eyebrow="Needs your decision" title="Decision inbox" meta={`${decisions.length} open`} />
+            <div className="space-y-3">
+              {decisions.map((decision) => (
+                <div key={decision.id} className="rounded-xl border border-border bg-background p-4">
+                  <div className="flex items-start gap-3">
+                    <DecisionTone tone={decision.tone} />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-foreground">{decision.title}</div>
+                      <div className="mt-1 text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{decision.meta}</div>
+                      <div className="mt-2 text-sm leading-6 text-muted-foreground">{decision.context}</div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {decision.primaryHref ? (
+                          <Button asChild size="sm"><Link to={decision.primaryHref}>{decision.primaryLabel}</Link></Button>
+                        ) : (
+                          <Button size="sm">{decision.primaryLabel}</Button>
+                        )}
+                        {decision.secondaryLabel && decision.secondaryHref && (
+                          <Button asChild variant="outline" size="sm"><Link to={decision.secondaryHref}>{decision.secondaryLabel}</Link></Button>
+                        )}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="space-y-4">
-            <Card className="overflow-hidden">
-              <CardHeader>
-                <CardTitle>Suggested next steps</CardTitle>
-                <CardDescription>
-                  {!hasRunningServices
-                    ? 'Start infrastructure first so the gateway, comms, and mediation plane are available.'
-                    : !hasAgents
-                      ? 'Infrastructure is up. Create your first agent, then open its DM through the backend contract.'
-                      : 'Your platform is running. Open a DM, inspect recent activity, or review system state based on the next operator task.'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-wrap gap-2">
-                {!hasRunningServices ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleInfraAction('start')}
-                    disabled={infraAction !== null}
-                  >
-                    <Play data-icon="inline-start" />
-                    {infraAction === 'start' ? 'Starting infra...' : 'Start infrastructure'}
-                  </Button>
-                ) : !hasAgents ? (
-                  <>
-                    <Button asChild variant="outline" size="sm">
-                      <Link to="/agents">Create first agent</Link>
-                    </Button>
-                    <Button asChild variant="outline" size="sm">
-                      <Link to="/setup">Review providers</Link>
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Button asChild variant="outline" size="sm">
-                      <Link to="/channels">Open channels</Link>
-                    </Button>
-                    <Button asChild variant="outline" size="sm">
-                      <Link to="/knowledge">Open knowledge</Link>
-                    </Button>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardAction>
-                  <Badge variant="secondary" className="rounded-full">
-                    First run
-                  </Badge>
-                </CardAction>
-                <CardTitle>First Agent Path</CardTitle>
-                <CardDescription>
-                  Give operators a predictable path: create an agent, open its DM, and verify a simple task or status request end to end.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-wrap gap-2">
-                <Button asChild size="sm">
-                  <Link to="/agents">Open agent fleet</Link>
-                </Button>
-                <Button asChild variant="outline" size="sm">
-                  <Link to="/channels">Open channels</Link>
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardAction>
-                  <Badge variant={routingConfigured ? 'secondary' : 'outline'} className="rounded-full">
-                    {routingConfigured ? 'Routing ready' : 'Needs review'}
-                  </Badge>
-                </CardAction>
-                <CardTitle>Provider Coverage</CardTitle>
-                <CardDescription>
-                  {readyProviders.length > 0
-                    ? `${readyProviders.length} provider${readyProviders.length === 1 ? '' : 's'} configured for agent tasks and fallback routing.`
-                    : 'No configured providers detected in the web UI yet.'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-wrap gap-2">
-                {readyProviders.length > 0 ? (
-                  readyProviders.map((provider) => (
-                    <Badge key={provider.name} variant="outline">
-                      {provider.display_name || provider.name}
-                    </Badge>
-                  ))
-                ) : (
-                  <Badge variant="outline">No providers configured</Badge>
-                )}
-                <Button asChild variant="outline" size="sm">
-                  <Link to="/setup">Open provider setup</Link>
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardAction>
-                  <Badge variant={experimentalSurfacesEnabled ? 'secondary' : 'outline'} className="rounded-full">
-                    {experimentalSurfacesEnabled ? 'Visible' : 'Gated'}
-                  </Badge>
-                </CardAction>
-                <CardTitle>Feature Registry</CardTitle>
-                <CardDescription>
-                  Experimental surfaces are routed only when enabled. Gated surfaces stay visible here as product inventory, not active affordances.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {gatedSurfaces.length === 0 ? (
-                  <div className="rounded-2xl border border-border bg-muted/25 p-4 text-sm text-muted-foreground">
-                    All registered UI surfaces are currently visible.
                   </div>
-                ) : (
-                  gatedSurfaces.slice(0, 6).map((surface) => (
-                    <div key={surface.id} className="flex items-start justify-between gap-3 rounded-2xl border border-border bg-muted/20 p-3">
-                      <div>
-                        <div className="text-sm font-medium">{surface.label}</div>
-                        <div className="mt-1 text-xs text-muted-foreground">{surface.summary}</div>
-                      </div>
-                      <Badge variant="outline" className="rounded-full">
-                        {surface.tier}
-                      </Badge>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>ASK Control Boundary</CardTitle>
-                <CardDescription>
-                  The UI should expose controls; enforcement remains in the gateway, policy, egress, and enforcer planes.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-3 text-sm">
-                {[
-                  'Mediation: agent DMs use POST /agents/{name}/dm instead of reconstructing channel state.',
-                  'Least privilege: capability grants remain explicit under Admin.',
-                  'Auditability: agent logs and admin summaries stay surfaced as first-class contracts.',
-                  'Isolation: egress and enforcer status are treated as control-plane state, not UI-only hints.',
-                ].map((item) => (
-                  <div key={item} className="flex gap-3 rounded-2xl border border-border bg-background p-3 text-muted-foreground">
-                    <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" />
-                    <span>{item}</span>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-          <Card>
-            <CardHeader>
-              <CardAction>
-                {infraBuildId ? <Badge variant="outline">Build: {infraBuildId}</Badge> : null}
-              </CardAction>
-              <CardTitle>Infrastructure Services</CardTitle>
-              <CardDescription>
-                Current mediation plane status across gateway, comms, and supporting services.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {infrastructure.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-border bg-muted/20 p-8 text-center text-sm text-muted-foreground">
-                  No infrastructure services detected
                 </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Service</TableHead>
-                      <TableHead>State</TableHead>
-                      <TableHead>Health</TableHead>
-                      <TableHead>Uptime</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {infrastructure.map((service) => (
-                      <TableRow key={service.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <StatusIndicator status={visualStatus(service, infraAction)} size="sm" />
-                            <code>{service.name}</code>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="capitalize">
-                            {formatStateLabel(service, infraAction)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="capitalize">{service.health}</TableCell>
-                        <TableCell>{service.uptime || '-'}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
+              ))}
+            </div>
+          </Panel>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent Activity</CardTitle>
-              <CardDescription>Latest agent-side logs surfaced through gateway audit contracts.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="max-h-[480px] space-y-2 overflow-auto pr-1">
-                {auditEvents.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-border bg-muted/20 p-4 text-center text-sm text-muted-foreground">
-                    No recent activity
-                  </div>
-                ) : auditEvents.map((event) => (
-                  <div key={event.id} className="rounded-2xl border border-border bg-background p-3">
-                    <div className="mb-1 flex items-center justify-between gap-3">
-                      <Badge variant="outline">{event.type}</Badge>
-                      <span className="text-xs text-muted-foreground">{formatTime(event.timestamp)}</span>
-                    </div>
-                    <div className="text-sm text-foreground">{event.message}</div>
-                    {event.agent ? (
-                      <div className="mt-2 text-xs text-muted-foreground">Agent: {event.agent}</div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Agents</CardTitle>
-            <CardDescription>
-              Fleet status, mode, and enforcement state for currently discovered agents.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+          <Panel className="p-4 md:p-5">
+            <SectionHeading eyebrow={`Agents (${agents.length})`} title="Agents in flight" meta={pausedAgents > 0 ? `${pausedAgents} paused or halted` : undefined} />
             {loading ? (
-              <div className="py-8 text-center text-sm text-muted-foreground">Loading...</div>
+              <div className="py-8 text-sm text-muted-foreground">Loading...</div>
             ) : agents.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-border bg-muted/20 p-8 text-center text-sm text-muted-foreground">
-                No agents running. Create your first agent from the fleet view to start the operator flow.
+              <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+                No agents running. Create your first agent from the fleet view to start the tester flow.
               </div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Agent</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Mode</TableHead>
-                    <TableHead>Preset</TableHead>
-                    <TableHead>Enforcer</TableHead>
-                    <TableHead>Team</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {agents.map((agent) => (
-                    <TableRow
-                      key={agent.id}
-                      className="cursor-pointer"
-                      onClick={() => navigate(`/agents/${agent.name}`)}
-                    >
-                      <TableCell className="font-mono">{agent.name}</TableCell>
-                      <TableCell>
+              <div className="grid gap-3 xl:grid-cols-2">
+                {agents.map((agent) => (
+                  <button
+                    key={agent.id}
+                    type="button"
+                    onClick={() => navigate(`/agents/${agent.name}`)}
+                    className="rounded-xl border border-border bg-background p-4 text-left transition-colors hover:border-primary/40 hover:bg-accent/20"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary text-xs font-semibold uppercase text-foreground">
+                        {agent.name.charAt(0)}
+                      </div>
+                      <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
+                          <code className="text-sm text-foreground">{agent.name}</code>
                           <StatusIndicator status={agent.status} size="sm" />
-                          <span className="capitalize">{agent.status}</span>
+                          <span className="ml-auto text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{agent.mode}</span>
                         </div>
-                      </TableCell>
-                      <TableCell className="capitalize">{agent.mode}</TableCell>
-                      <TableCell>{agent.preset || agent.type || 'agent'}</TableCell>
-                      <TableCell>{agent.enforcerState || 'unknown'}</TableCell>
-                      <TableCell>{agent.team || '-'}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                        <div className="mt-1 text-xs text-muted-foreground">{agent.preset || agent.type} · {agent.role || 'agent'}</div>
+                        <div className="mt-3 text-sm leading-6 text-foreground/85">
+                          {agent.mission || 'Idle — no mission assigned yet.'}
+                        </div>
+                        <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+                          <span>{agent.enforcerState || 'unknown enforcer'}</span>
+                          {showTeams && agent.team ? <span>{agent.team}</span> : <span>{agent.status}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
             )}
-          </CardContent>
-        </Card>
+          </Panel>
+
+          <Panel className="p-4 md:p-5">
+            <SectionHeading eyebrow="Since last visit" title="Recent Activity" meta={`${auditEvents.length} items`} />
+            <div className="space-y-2">
+              {recentTimeline.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">No recent activity</div>
+              ) : recentTimeline.map((event) => (
+                <div key={event.id} className="rounded-xl border border-border bg-background px-4 py-3">
+                  <div className="flex items-start gap-3">
+                    <div className="w-14 flex-shrink-0 pt-0.5 text-[10px] text-muted-foreground">{formatTime(event.timestamp)}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">{event.type}</div>
+                      <div className="mt-1 text-sm leading-6 text-foreground/85">{event.message}</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Panel>
+        </div>
+
+        <div className="space-y-6">
+          <Panel className="p-4 md:p-5">
+            <SectionHeading eyebrow="Suggested next steps" title="Operator guidance" />
+            <p className="text-sm leading-6 text-muted-foreground">
+              {!hasRunningServices
+                ? 'Start infrastructure first so the web UI, comms, and gateway services are available.'
+                : !hasAgents
+                  ? 'Create your first agent, then open its DM to verify the core operator flow.'
+                  : 'Open a DM, inspect recent activity, or review graph context depending on the next operator task.'}
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {!hasRunningServices ? (
+                <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => handleInfraAction('start')} disabled={infraAction !== null}>
+                  <Play className="mr-1 h-3 w-3" />
+                  {infraAction === 'start' ? 'Starting infra...' : 'Start infrastructure'}
+                </Button>
+              ) : !hasAgents ? (
+                <>
+                  <Button asChild variant="outline" size="sm" className="h-8 text-xs"><Link to="/agents">Create first agent</Link></Button>
+                  <Button asChild variant="outline" size="sm" className="h-8 text-xs"><Link to="/setup">Review providers</Link></Button>
+                </>
+              ) : (
+                <>
+                  <Button asChild variant="outline" size="sm" className="h-8 text-xs"><Link to="/channels">Open channels</Link></Button>
+                  <Button asChild variant="outline" size="sm" className="h-8 text-xs"><Link to="/knowledge">Open knowledge</Link></Button>
+                </>
+              )}
+            </div>
+          </Panel>
+
+          <Panel className="p-4 md:p-5">
+            <SectionHeading eyebrow="Provider Coverage" title="Setup posture" meta={routingConfigured ? 'Routing ready' : 'Needs review'} />
+            <p className="text-sm leading-6 text-muted-foreground">
+              {readyProviders.length > 0
+                ? `${readyProviders.length} provider${readyProviders.length === 1 ? '' : 's'} configured for agent research and fallback routing.`
+                : 'No configured providers detected in the web UI yet.'}
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {readyProviderNames.length > 0 ? readyProviderNames.map((providerName) => (
+                <span key={providerName} className="rounded-full border border-border bg-background px-2.5 py-1 text-[11px] text-foreground/80">
+                  {providerName}
+                </span>
+              )) : (
+                <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[11px] text-muted-foreground">No providers configured</span>
+              )}
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button asChild variant="outline" size="sm" className="h-8 text-xs"><Link to="/setup">Open provider setup</Link></Button>
+              <Button asChild variant="outline" size="sm" className="h-8 text-xs"><Link to="/admin/usage">Review usage</Link></Button>
+            </div>
+          </Panel>
+
+          <Panel className="p-4 md:p-5">
+            <SectionHeading eyebrow="Infrastructure" title="Live runtime surface" meta={infraBuildId ? `Build: ${infraBuildId}` : undefined} />
+            <div className="space-y-2">
+              {infrastructure.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">No infrastructure services detected</div>
+              ) : infrastructure.map((service) => (
+                <div key={service.id} className="rounded-xl border border-border bg-background px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <StatusIndicator status={visualStatus(service, infraAction)} size="sm" />
+                    <code className="text-xs text-foreground">{service.name}</code>
+                    <span className="ml-auto text-[10px] uppercase tracking-[0.14em] text-muted-foreground">{formatStateLabel(service, infraAction)}</span>
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">{service.uptime || 'No uptime reported'}</div>
+                </div>
+              ))}
+            </div>
+          </Panel>
+
+          <Panel className="p-4 md:p-5">
+            <SectionHeading eyebrow="Ambient strip" title="Pulse" />
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-xl border border-border bg-background px-4 py-3">
+                <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Events</div>
+                <div className="mt-2 text-lg text-foreground">{auditEvents.length}</div>
+              </div>
+              <div className="rounded-xl border border-border bg-background px-4 py-3">
+                <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Providers</div>
+                <div className="mt-2 text-lg text-foreground">{readyProviders.length}</div>
+              </div>
+              <div className="rounded-xl border border-border bg-background px-4 py-3">
+                <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Healthy services</div>
+                <div className="mt-2 text-lg text-foreground">{healthyServices}</div>
+              </div>
+            </div>
+          </Panel>
+        </div>
       </div>
     </div>
   );

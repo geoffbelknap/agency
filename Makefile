@@ -2,6 +2,7 @@
        body enforcer comms knowledge intake egress workspace web-fetch web relay \
        python-image-tests \
        provider-tools-readiness \
+       full-surface-smoke \
        verify-required-status-checks \
        web-test-unit web-test-e2e web-test-all \
        e2e-live-web e2e-live-web-safe e2e-live-web-risky \
@@ -119,6 +120,9 @@ python-image-tests:
 
 provider-tools-readiness:
 	@./scripts/readiness/provider-tools-readiness-check.sh
+
+full-surface-smoke:
+	@./scripts/readiness/full-surface-smoke.sh
 
 verify-required-status-checks:
 	@./scripts/ci/verify-required-status-checks.sh

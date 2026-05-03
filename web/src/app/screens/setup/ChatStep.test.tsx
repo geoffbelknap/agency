@@ -42,17 +42,17 @@ describe('ChatStep', () => {
     const onFinish = vi.fn();
 
     server.use(
-      http.get(`${BASE}/agents/bob`, () => HttpResponse.json({ name: 'bob', status: 'running' })),
-      http.get(`${BASE}/comms/channels`, () => HttpResponse.json([{ name: 'dm-bob', type: 'dm' }])),
-      http.get(`${BASE}/comms/channels/dm-bob/messages`, () => HttpResponse.json([])),
-      http.post(`${BASE}/agents/bob/dm`, () => HttpResponse.json({ status: 'ready', channel: 'dm-bob' })),
-      http.post(`${BASE}/comms/channels/dm-bob/messages`, () => HttpResponse.json({ ok: true })),
+      http.get(`${BASE}/agents/henry`, () => HttpResponse.json({ name: 'henry', status: 'running' })),
+      http.get(`${BASE}/comms/channels`, () => HttpResponse.json([{ name: 'dm-henry', type: 'dm' }])),
+      http.get(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json([])),
+      http.post(`${BASE}/agents/henry/dm`, () => HttpResponse.json({ status: 'ready', channel: 'dm-henry' })),
+      http.post(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json({ ok: true })),
     );
 
     render(
       <ChatStep
-        agentName="bob"
-        operatorName="Alice"
+        agentName="henry"
+        operatorName="Geoff"
         onFinish={onFinish}
         onBack={() => {}}
       />,
@@ -68,7 +68,7 @@ describe('ChatStep', () => {
     );
 
     await userEvent.click(screen.getByRole('button', { name: 'Finish Setup' }));
-    expect(onFinish).toHaveBeenCalledWith('dm-bob');
+    expect(onFinish).toHaveBeenCalledWith('dm-henry');
   });
 
   it('retries the initial setup prompt after a transient send failure', async () => {
@@ -76,11 +76,11 @@ describe('ChatStep', () => {
     let postAttempts = 0;
 
     server.use(
-      http.get(`${BASE}/agents/bob`, () => HttpResponse.json({ name: 'bob', status: 'running' })),
-      http.get(`${BASE}/comms/channels`, () => HttpResponse.json([{ name: 'dm-bob', type: 'dm' }])),
-      http.get(`${BASE}/comms/channels/dm-bob/messages`, () => HttpResponse.json(messages)),
-      http.post(`${BASE}/agents/bob/dm`, () => HttpResponse.json({ status: 'ready', channel: 'dm-bob' })),
-      http.post(`${BASE}/comms/channels/dm-bob/messages`, async ({ request }) => {
+      http.get(`${BASE}/agents/henry`, () => HttpResponse.json({ name: 'henry', status: 'running' })),
+      http.get(`${BASE}/comms/channels`, () => HttpResponse.json([{ name: 'dm-henry', type: 'dm' }])),
+      http.get(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json(messages)),
+      http.post(`${BASE}/agents/henry/dm`, () => HttpResponse.json({ status: 'ready', channel: 'dm-henry' })),
+      http.post(`${BASE}/comms/channels/dm-henry/messages`, async ({ request }) => {
         postAttempts += 1;
         if (postAttempts === 1) {
           return HttpResponse.json({ error: 'comms warming up' }, { status: 502 });
@@ -99,8 +99,8 @@ describe('ChatStep', () => {
 
     render(
       <ChatStep
-        agentName="bob"
-        operatorName="Alice"
+        agentName="henry"
+        operatorName="Geoff"
         onFinish={() => {}}
         onBack={() => {}}
       />,
@@ -109,18 +109,18 @@ describe('ChatStep', () => {
     await waitFor(() => {
       expect(postAttempts).toBe(2);
     }, { timeout: 5_000 });
-    expect(await screen.findByText(/Hey bob, I just set up Agency/)).toBeInTheDocument();
+    expect(await screen.findByText(/Hey henry, I just set up Agency/)).toBeInTheDocument();
   });
 
   it('does not mark chat ready when agent startup polling times out', async () => {
     let initialPromptSent = false;
 
     server.use(
-      http.get(`${BASE}/agents/bob`, () => HttpResponse.json({ name: 'bob', status: 'stopped' })),
-      http.get(`${BASE}/comms/channels`, () => HttpResponse.json([{ name: 'dm-bob', type: 'dm' }])),
-      http.get(`${BASE}/comms/channels/dm-bob/messages`, () => HttpResponse.json([])),
-      http.post(`${BASE}/agents/bob/dm`, () => HttpResponse.json({ status: 'ready', channel: 'dm-bob' })),
-      http.post(`${BASE}/comms/channels/dm-bob/messages`, () => {
+      http.get(`${BASE}/agents/henry`, () => HttpResponse.json({ name: 'henry', status: 'stopped' })),
+      http.get(`${BASE}/comms/channels`, () => HttpResponse.json([{ name: 'dm-henry', type: 'dm' }])),
+      http.get(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json([])),
+      http.post(`${BASE}/agents/henry/dm`, () => HttpResponse.json({ status: 'ready', channel: 'dm-henry' })),
+      http.post(`${BASE}/comms/channels/dm-henry/messages`, () => {
         initialPromptSent = true;
         return HttpResponse.json({ ok: true });
       }),
@@ -128,8 +128,8 @@ describe('ChatStep', () => {
 
     render(
       <ChatStep
-        agentName="bob"
-        operatorName="Alice"
+        agentName="henry"
+        operatorName="Geoff"
         onFinish={() => {}}
         onBack={() => {}}
         agentReadyPolls={2}
@@ -137,21 +137,20 @@ describe('ChatStep', () => {
       />,
     );
 
-    expect(await screen.findByText(/Starting bob/)).toBeInTheDocument();
+    expect(await screen.findByText(/Starting henry/)).toBeInTheDocument();
     expect(await screen.findByText('Agent is not ready yet')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Check Again' })).toBeInTheDocument();
     expect(initialPromptSent).toBe(false);
   });
 
-  it('sends the initial prompt when the agent is already running', async () => {
+  it('trusts setup startup completion instead of polling stale agent status', async () => {
     let initialPromptSent = false;
 
     server.use(
-      http.get(`${BASE}/agents/bob`, () => HttpResponse.json({ name: 'bob', status: 'running' })),
-      http.get(`${BASE}/comms/channels`, () => HttpResponse.json([{ name: 'dm-bob', type: 'dm' }])),
-      http.get(`${BASE}/comms/channels/dm-bob/messages`, () => HttpResponse.json([])),
-      http.post(`${BASE}/agents/bob/dm`, () => HttpResponse.json({ status: 'ready', channel: 'dm-bob' })),
-      http.post(`${BASE}/comms/channels/dm-bob/messages`, () => {
+      http.get(`${BASE}/agents/henry`, () => HttpResponse.json({ name: 'henry', status: 'stopped' })),
+      http.get(`${BASE}/comms/channels`, () => HttpResponse.json([{ name: 'dm-henry', type: 'dm' }])),
+      http.get(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json([])),
+      http.post(`${BASE}/comms/channels/dm-henry/messages`, () => {
         initialPromptSent = true;
         return HttpResponse.json({ ok: true });
       }),
@@ -159,10 +158,11 @@ describe('ChatStep', () => {
 
     render(
       <ChatStep
-        agentName="bob"
-        operatorName="Alice"
+        agentName="henry"
+        operatorName="Geoff"
         onFinish={() => {}}
         onBack={() => {}}
+        initialAgentReady
       />,
     );
 
@@ -174,8 +174,8 @@ describe('ChatStep', () => {
 
   it('uses the production chat avatar treatment for setup messages', async () => {
     server.use(
-      http.get(`${BASE}/comms/channels`, () => HttpResponse.json([{ name: 'dm-bob', type: 'dm' }])),
-      http.get(`${BASE}/comms/channels/dm-bob/messages`, () => HttpResponse.json([
+      http.get(`${BASE}/comms/channels`, () => HttpResponse.json([{ name: 'dm-henry', type: 'dm' }])),
+      http.get(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json([
         {
           id: 'm1',
           author: 'operator',
@@ -185,19 +185,19 @@ describe('ChatStep', () => {
         },
         {
           id: 'm2',
-          author: 'bob',
+          author: 'henry',
           content: 'Ready.',
           timestamp: new Date().toISOString(),
           flags: {},
         },
       ])),
-      http.post(`${BASE}/comms/channels/dm-bob/messages`, () => HttpResponse.json({ ok: true })),
+      http.post(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json({ ok: true })),
     );
 
     render(
       <ChatStep
-        agentName="bob"
-        operatorName="Alice"
+        agentName="henry"
+        operatorName="Geoff"
         onFinish={() => {}}
         onBack={() => {}}
         initialAgentReady
@@ -205,24 +205,24 @@ describe('ChatStep', () => {
     );
 
     expect(await screen.findByText('Ready.')).toBeInTheDocument();
-    expect(screen.getByText('Alice')).toBeInTheDocument();
-    expect(screen.getByText('bob')).toBeInTheDocument();
-    expect(screen.getByText('AGENT')).toBeInTheDocument();
+    expect(screen.getAllByLabelText('Avatar for Geoff').length).toBeGreaterThan(0);
+    expect(screen.getByLabelText('View agent: henry')).toBeInTheDocument();
+    expect(screen.queryByText('AGENT')).not.toBeInTheDocument();
   });
 
   it('marks the setup chat ready from an agent_status event', async () => {
     server.use(
-      http.get(`${BASE}/agents/bob`, () => HttpResponse.json({ name: 'bob', status: 'stopped' })),
+      http.get(`${BASE}/agents/henry`, () => HttpResponse.json({ name: 'henry', status: 'stopped' })),
       http.get(`${BASE}/comms/channels`, () => HttpResponse.json([])),
-      http.post(`${BASE}/agents/bob/dm`, () => HttpResponse.json({ status: 'ready', channel: 'dm-bob' })),
-      http.get(`${BASE}/comms/channels/dm-bob/messages`, () => HttpResponse.json([])),
-      http.post(`${BASE}/comms/channels/dm-bob/messages`, () => HttpResponse.json({ ok: true })),
+      http.post(`${BASE}/agents/henry/dm`, () => HttpResponse.json({ status: 'ready', channel: 'dm-henry' })),
+      http.get(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json([])),
+      http.post(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json({ ok: true })),
     );
 
     render(
       <ChatStep
-        agentName="bob"
-        operatorName="Alice"
+        agentName="henry"
+        operatorName="Geoff"
         onFinish={() => {}}
         onBack={() => {}}
         agentReadyPolls={100}
@@ -230,8 +230,8 @@ describe('ChatStep', () => {
       />,
     );
 
-    expect(await screen.findByText(/Starting bob/)).toBeInTheDocument();
-    emitSocket('agent_status', { agent: 'bob', status: 'running' });
+    expect(await screen.findByText(/Starting henry/)).toBeInTheDocument();
+    emitSocket('agent_status', { agent: 'henry', status: 'running' });
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText(/what can you help me with/i)).toBeEnabled();
@@ -242,20 +242,20 @@ describe('ChatStep', () => {
     let ensured = false;
 
     server.use(
-      http.get(`${BASE}/agents/bob`, () => HttpResponse.json({ name: 'bob', status: 'running' })),
+      http.get(`${BASE}/agents/henry`, () => HttpResponse.json({ name: 'henry', status: 'running' })),
       http.get(`${BASE}/comms/channels`, () => HttpResponse.json([])),
-      http.post(`${BASE}/agents/bob/dm`, () => {
+      http.post(`${BASE}/agents/henry/dm`, () => {
         ensured = true;
-        return HttpResponse.json({ status: 'ready', channel: 'dm-bob' });
+        return HttpResponse.json({ status: 'ready', channel: 'dm-henry' });
       }),
-      http.get(`${BASE}/comms/channels/dm-bob/messages`, () => HttpResponse.json([])),
-      http.post(`${BASE}/comms/channels/dm-bob/messages`, () => HttpResponse.json({ ok: true })),
+      http.get(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json([])),
+      http.post(`${BASE}/comms/channels/dm-henry/messages`, () => HttpResponse.json({ ok: true })),
     );
 
     render(
       <ChatStep
-        agentName="bob"
-        operatorName="Alice"
+        agentName="henry"
+        operatorName="Geoff"
         onFinish={() => {}}
         onBack={() => {}}
       />,

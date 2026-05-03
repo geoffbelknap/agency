@@ -7,6 +7,7 @@ which carries the procedural validation steps.
 Related:
 
 - [Release Checklist 0.2.x](release-checklist-0.2.x.md)
+- [Full Surface Smoke](full-surface-smoke.md)
 - [Core Pruning Rationale](../../specs/core-pruning-rationale.md)
 - [Core Feature Maturity Matrix](../../specs/core-feature-maturity-matrix.md)
 - Tier classifications: `internal/features/registry.go`
@@ -97,6 +98,7 @@ Each feature area is classified as:
 
 - [MicroVM Release Checklist](microvm-release-checklist.md)
 - `scripts/readiness/microvm-smoke.sh --backend microagent --rootfs-oci-ref ghcr.io/geoffbelknap/agency-runtime-body:v0.2.x --enforcer-oci-ref ghcr.io/geoffbelknap/agency-runtime-enforcer:v0.2.x`
+- `scripts/readiness/full-surface-smoke.sh --backend microagent --rootfs-oci-ref ghcr.io/geoffbelknap/agency-runtime-body:v0.2.x --enforcer-oci-ref ghcr.io/geoffbelknap/agency-runtime-enforcer:v0.2.x --include-risky-web`
 - Apple VF runtime smoke on macOS Apple silicon when validating Apple VF changes
 - Firecracker runtime smoke on Linux/WSL when validating Firecracker changes
 
@@ -115,6 +117,8 @@ Each feature area is classified as:
 
 - `scripts/readiness/alpha-readiness-check.sh`
 - focused Go tests in `internal/orchestrate/`
+- `scripts/readiness/full-surface-smoke.sh`, with only destroy/wipe tests
+  filtered out
 
 ### 4. Dynamic Agent Reconfiguration
 

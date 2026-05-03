@@ -8,6 +8,7 @@ Related:
 
 - [Release Gates 0.2.x](release-gates-0.2.x.md)
 - [MicroVM Release Checklist](microvm-release-checklist.md)
+- [Full Surface Smoke](full-surface-smoke.md)
 
 ## Goal
 
@@ -63,6 +64,7 @@ Validate before tag:
 - `./agency --version`
 - `./scripts/ci/verify-required-status-checks.sh`
 - complete [MicroVM Release Checklist](microvm-release-checklist.md)
+- complete [Full Surface Smoke](full-surface-smoke.md), excluding destroy/wipe
 - `./scripts/release/release-readiness-check.sh preflight --version 0.2.x`
 
 Validate after tag:
@@ -106,6 +108,8 @@ Run on the tagged release path:
 
 Validate after the local stack is up:
 
+- run the full surface smoke:
+  - `./scripts/readiness/full-surface-smoke.sh --backend microagent --rootfs-oci-ref ghcr.io/geoffbelknap/agency-runtime-body:v0.2.x --enforcer-oci-ref ghcr.io/geoffbelknap/agency-runtime-enforcer:v0.2.x --include-risky-web`
 - open web UI
 - confirm:
   - Setup
@@ -116,6 +120,7 @@ Validate after the local stack is up:
 - confirm experimental nav remains hidden by default
 - confirm `/api/v1/openapi-core.yaml` is served
 - confirm `/api/v1/mcp/tools` defaults to the core discovery view
+- do not validate destroy/wipe as release features in this smoke pass
 
 ### 5. MicroVM runtime smoke
 
@@ -155,8 +160,8 @@ blocking the first core release line.
 
 1. Re-run the core readiness scripts and focused live checks.
 2. Complete the microVM release checklist.
-3. Confirm docs, CLI help, web nav, OpenAPI, and MCP still agree on the core
-   contract.
+3. Run the full surface smoke and confirm docs, CLI help, web nav, OpenAPI,
+   and MCP still agree on the core contract.
 4. Cut a release branch or release commit only if needed.
 5. Tag `v0.2.x`.
 6. Watch the GitHub release and runtime artifact publish workflows.
