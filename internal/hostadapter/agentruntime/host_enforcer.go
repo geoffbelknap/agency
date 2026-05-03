@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -42,6 +44,7 @@ type HostEnforcerStatus struct {
 	StartedAt time.Time
 	StoppedAt time.Time
 	LastError string
+	LogPath   string
 }
 
 type hostEnforcerProcess struct {
@@ -53,6 +56,8 @@ type hostEnforcerProcess struct {
 	startedAt time.Time
 	stoppedAt time.Time
 	lastError string
+	logPath   string
+	logFile   *os.File
 	cleanStop bool
 	done      chan struct{}
 }
@@ -60,6 +65,7 @@ type hostEnforcerProcess struct {
 type persistedHostEnforcerProcess struct {
 	Spec      EnforcerLaunchSpec `json:"spec"`
 	PID       int                `json:"pid"`
+	LogPath   string             `json:"log_path,omitempty"`
 	StartedAt time.Time          `json:"started_at"`
 }
 
@@ -92,12 +98,23 @@ func (s *HostEnforcerSupervisor) Start(ctx context.Context, spec EnforcerLaunchS
 	if binary == "" {
 		binary = "enforcer"
 	}
+	logPath := s.logPath(spec.AgentName)
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		return fmt.Errorf("create host enforcer log dir: %w", err)
+	}
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return fmt.Errorf("open host enforcer log %s: %w", logPath, err)
+	}
 	env := spec.HostProcessEnv(serviceURLs)
 	cmd := exec.Command(binary)
 	cmd.Env = processEnv(env)
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
 		return fmt.Errorf("start host enforcer %s: %w", spec.AgentName, err)
 	}
 	proc := &hostEnforcerProcess{
@@ -107,6 +124,8 @@ func (s *HostEnforcerSupervisor) Start(ctx context.Context, spec EnforcerLaunchS
 		pid:       cmd.Process.Pid,
 		exitCode:  -1,
 		startedAt: time.Now(),
+		logPath:   logPath,
+		logFile:   logFile,
 		done:      make(chan struct{}),
 	}
 
@@ -118,6 +137,7 @@ func (s *HostEnforcerSupervisor) Start(ctx context.Context, spec EnforcerLaunchS
 		s.mu.Unlock()
 		_ = killProcessGroup(cmd.Process.Pid, syscall.SIGKILL)
 		_, _ = cmd.Process.Wait()
+		_ = logFile.Close()
 		return fmt.Errorf("host enforcer %s already running", spec.AgentName)
 	}
 	s.processes[spec.AgentName] = proc
@@ -126,6 +146,7 @@ func (s *HostEnforcerSupervisor) Start(ctx context.Context, spec EnforcerLaunchS
 	if err := s.persist(proc); err != nil {
 		_ = killProcessGroup(cmd.Process.Pid, syscall.SIGKILL)
 		_, _ = cmd.Process.Wait()
+		_ = logFile.Close()
 		s.mu.Lock()
 		if current := s.processes[spec.AgentName]; current == proc {
 			delete(s.processes, spec.AgentName)
@@ -243,9 +264,9 @@ func (s *HostEnforcerSupervisor) HealthCheck(ctx context.Context, agentName stri
 		}
 	}
 	if lastErr != nil {
-		return fmt.Errorf("host enforcer %s not healthy: %w", agentName, lastErr)
+		return fmt.Errorf("host enforcer %s not healthy%s: %w", agentName, s.logFailureHint(proc), lastErr)
 	}
-	return fmt.Errorf("host enforcer %s not healthy", agentName)
+	return fmt.Errorf("host enforcer %s not healthy%s", agentName, s.logFailureHint(proc))
 }
 
 func (s *HostEnforcerSupervisor) process(agentName string) (*hostEnforcerProcess, bool) {
@@ -270,6 +291,9 @@ func (s *HostEnforcerSupervisor) process(agentName string) (*hostEnforcerProcess
 func (s *HostEnforcerSupervisor) wait(agentName string, proc *hostEnforcerProcess) {
 	err := proc.cmd.Wait()
 	status := proc.cmd.ProcessState
+	if proc.logFile != nil {
+		_ = proc.logFile.Close()
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -301,6 +325,7 @@ func (p *hostEnforcerProcess) status() HostEnforcerStatus {
 		StartedAt: p.startedAt,
 		StoppedAt: p.stoppedAt,
 		LastError: p.lastError,
+		LogPath:   p.logPath,
 	}
 }
 
@@ -350,6 +375,7 @@ func (s *HostEnforcerSupervisor) persist(proc *hostEnforcerProcess) error {
 	state := persistedHostEnforcerProcess{
 		Spec:      proc.spec,
 		PID:       proc.pid,
+		LogPath:   proc.logPath,
 		StartedAt: proc.startedAt,
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
@@ -383,7 +409,11 @@ func (s *HostEnforcerSupervisor) restoreLocked(agentName string) (*hostEnforcerP
 		pid:       state.PID,
 		exitCode:  -1,
 		startedAt: state.StartedAt,
+		logPath:   state.LogPath,
 		done:      make(chan struct{}),
+	}
+	if proc.logPath == "" {
+		proc.logPath = s.logPath(agentName)
 	}
 	if !processAlive(proc.pid) {
 		proc.state = HostEnforcerStateCrashed
@@ -422,11 +452,57 @@ func (s *HostEnforcerSupervisor) statePath(agentName string) string {
 	return path
 }
 
+func (s *HostEnforcerSupervisor) logPath(agentName string) string {
+	path, err := pathsafety.Join(filepath.Join(s.stateDir(), "logs"), agentName+".log")
+	if err != nil {
+		return filepath.Join(s.stateDir(), "logs", "invalid.log")
+	}
+	return path
+}
+
 func (s *HostEnforcerSupervisor) stateDir() string {
 	if s.StateDir != "" {
 		return s.StateDir
 	}
 	return filepath.Join(os.TempDir(), "agency-host-enforcers")
+}
+
+func (s *HostEnforcerSupervisor) logFailureHint(proc *hostEnforcerProcess) string {
+	if proc == nil || proc.logPath == "" {
+		return ""
+	}
+	tail := strings.TrimSpace(readLogTail(proc.logPath, 4096))
+	if tail == "" {
+		return " (log " + proc.logPath + " is empty)"
+	}
+	return " (log " + proc.logPath + ": " + tail + ")"
+}
+
+func readLogTail(path string, maxBytes int64) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return ""
+	}
+	offset := info.Size() - maxBytes
+	if offset < 0 {
+		offset = 0
+	}
+	if _, err := file.Seek(offset, io.SeekStart); err != nil {
+		return ""
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 func processAlive(pid int) bool {

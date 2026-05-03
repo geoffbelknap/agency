@@ -63,6 +63,9 @@ func TestHostEnforcerSupervisorStartStop(t *testing.T) {
 	if status.State != HostEnforcerStateRunning || status.PID <= 0 {
 		t.Fatalf("unexpected running status: %#v", status)
 	}
+	if status.LogPath == "" {
+		t.Fatal("expected host enforcer log path")
+	}
 	if _, err := os.Stat(filepath.Join(dir, "state", "alice.json")); err != nil {
 		t.Fatalf("host enforcer state was not persisted: %v", err)
 	}
@@ -136,6 +139,43 @@ func TestHostEnforcerSupervisorMarksUnexpectedExitCrashed(t *testing.T) {
 	}
 	if status.LastError == "" {
 		t.Fatal("expected last error for crashed enforcer")
+	}
+	if status.LogPath == "" {
+		t.Fatal("expected log path for crashed enforcer")
+	}
+}
+
+func TestHostEnforcerSupervisorHealthCheckIncludesLogTail(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "enforcer-test")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho startup failed for test >&2\ntrap 'exit 0' TERM\nwhile true; do sleep 1; done\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	supervisor := &HostEnforcerSupervisor{
+		BinaryPath:  script,
+		StateDir:    filepath.Join(dir, "state"),
+		StopTimeout: time.Second,
+	}
+	spec := EnforcerLaunchSpec{
+		AgentName:          "alice",
+		ProxyHostPort:      "19128",
+		ConstraintHostPort: "19081",
+	}
+	if err := supervisor.Start(context.Background(), spec, nil); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = supervisor.Stop(context.Background(), "alice")
+	})
+	err := supervisor.HealthCheck(context.Background(), "alice", 100*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected health check to fail")
+	}
+	if !strings.Contains(err.Error(), "startup failed for test") {
+		t.Fatalf("health check error missing log tail: %v", err)
+	}
+	if !strings.Contains(err.Error(), filepath.Join(dir, "state", "logs", "alice.log")) {
+		t.Fatalf("health check error missing log path: %v", err)
 	}
 }
 

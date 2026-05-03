@@ -12,12 +12,14 @@ import (
 func TestMicroagentCLIEnsureCreatesAndStartsWorkspace(t *testing.T) {
 	var calls [][]string
 	backend := NewMicroagentCLIRuntimeBackend("/tmp/agency", map[string]string{
-		"binary_path":    "microagent-test",
-		"state_dir":      "/tmp/agency/runtime/microagent",
-		"entrypoint":     "/app/entrypoint.sh",
-		"rootfs_oci_ref": "ghcr.io/example/body:v1",
-		"memory_mib":     "1024",
-		"cpu_count":      "4",
+		"binary_path":     "microagent-test",
+		"state_dir":       "/tmp/agency/runtime/microagent",
+		"entrypoint":      "/app/entrypoint.sh",
+		"rootfs_oci_ref":  "ghcr.io/example/body:v1",
+		"mke2fs_path":     "/opt/e2fsprogs/mke2fs",
+		"rootfs_size_mib": "1536",
+		"memory_mib":      "1024",
+		"cpu_count":       "4",
 	})
 	backend.RunCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		_ = ctx
@@ -39,7 +41,7 @@ func TestMicroagentCLIEnsureCreatesAndStartsWorkspace(t *testing.T) {
 		t.Fatalf("Ensure: %v", err)
 	}
 	want := [][]string{
-		{"microagent-test", "create", "--name", "alice", "--image", "ghcr.io/example/body:v1", "--state-dir", "/tmp/agency/runtime/microagent", "--memory", "1024", "--cpus", "4", "--entrypoint", "/app/entrypoint.sh", "--env", "AGENCY_AGENT_NAME=alice"},
+		{"microagent-test", "create", "--name", "alice", "--image", "ghcr.io/example/body:v1", "--state-dir", "/tmp/agency/runtime/microagent", "--memory", "1024", "--cpus", "4", "--entrypoint", "/app/entrypoint.sh", "--mke2fs", "/opt/e2fsprogs/mke2fs", "--size-mib", "1536", "--env", "AGENCY_AGENT_NAME=alice", "--env", "MICROAGENT_VSOCK_TCP_LISTENERS=3128=3128,8081=8081"},
 		{"microagent-test", "start", "alice", "--state-dir", "/tmp/agency/runtime/microagent", "--memory", "1024", "--cpus", "4", "--vsock", "3128=127.0.0.1:19000", "--vsock", "8081=127.0.0.1:19001"},
 	}
 	if !reflect.DeepEqual(calls, want) {
@@ -104,6 +106,9 @@ func TestMicroagentCLIEnsureUsesDirectVersionedImage(t *testing.T) {
 	if len(createArgs) < len(wantPrefix) || !reflect.DeepEqual(createArgs[:len(wantPrefix)], wantPrefix) {
 		t.Fatalf("create args = %#v", createArgs)
 	}
+	if !containsSequence(createArgs, "--entrypoint", "/app/entrypoint.sh") {
+		t.Fatalf("create args missing default entrypoint: %#v", createArgs)
+	}
 }
 
 func TestMicroagentGuestEnvDropsHostOnlyMediationValues(t *testing.T) {
@@ -115,6 +120,29 @@ func TestMicroagentGuestEnvDropsHostOnlyMediationValues(t *testing.T) {
 		FirecrackerRootFSOverlaysEnv:                  "/tmp/overlay",
 	})
 	want := []string{"AGENCY_AGENT_NAME=alice"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("guest env = %#v, want %#v", got, want)
+	}
+}
+
+func TestMicroagentGuestEnvWithVsockBridgeAddsDefaultListeners(t *testing.T) {
+	got := microagentGuestEnvWithVsockBridge(map[string]string{
+		"AGENCY_AGENT_NAME": "alice",
+	}, []string{"3128=127.0.0.1:19000", "8081=127.0.0.1:19001"})
+	want := []string{
+		"AGENCY_AGENT_NAME=alice",
+		"MICROAGENT_VSOCK_TCP_LISTENERS=3128=3128,8081=8081",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("guest env = %#v, want %#v", got, want)
+	}
+}
+
+func TestMicroagentGuestEnvWithVsockBridgeKeepsExplicitListeners(t *testing.T) {
+	got := microagentGuestEnvWithVsockBridge(map[string]string{
+		microagentTCPVsockListenersEnv: "9000=9000",
+	}, []string{"3128=127.0.0.1:19000"})
+	want := []string{"MICROAGENT_VSOCK_TCP_LISTENERS=9000=9000"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("guest env = %#v, want %#v", got, want)
 	}
@@ -167,4 +195,16 @@ func TestMicroagentCLIStopStopsAndDeletesWorkspace(t *testing.T) {
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("calls = %#v, want %#v", calls, want)
 	}
+}
+
+func containsSequence(values []string, want ...string) bool {
+	if len(want) == 0 || len(values) < len(want) {
+		return false
+	}
+	for i := 0; i <= len(values)-len(want); i++ {
+		if reflect.DeepEqual(values[i:i+len(want)], want) {
+			return true
+		}
+	}
+	return false
 }
