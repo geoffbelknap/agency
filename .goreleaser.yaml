@@ -91,7 +91,7 @@ brews:
       - name: python@3.14
       - name: e2fsprogs
     extra_install: |
-      (pkgshare/"bin").install "agency-enforcer-host"
+      (pkgshare/"bin").install_symlink bin/"agency-enforcer-host"
       pkgshare.install "bin"
       pkgshare.install "images"
       pkgshare.install "services"
