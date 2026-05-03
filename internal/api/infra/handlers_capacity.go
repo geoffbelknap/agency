@@ -25,14 +25,14 @@ func meeseeksCapacityFilters() runtimehost.FilterArgs {
 
 func (h *handler) infraCapacity(w http.ResponseWriter, r *http.Request) {
 	capPath := filepath.Join(h.deps.Config.Home, "capacity.yaml")
-	cfg, err := orchestrate.LoadCapacity(capPath)
+	backend, backendConfig := h.capacityRuntimeConfig()
+	cfg, err := orchestrate.LoadOrProfileCapacity(capPath, false, backend, backendConfig)
 	if err != nil {
 		writeJSON(w, 503, map[string]string{
 			"error": "capacity config not available: " + err.Error(),
 		})
 		return
 	}
-	backend, backendConfig := h.capacityRuntimeConfig()
 	cfg = orchestrate.ApplyRuntimeCapacityProfile(cfg, backend, backendConfig)
 
 	var runningAgents, runningMeeseeks int
