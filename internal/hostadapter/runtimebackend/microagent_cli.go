@@ -17,17 +17,21 @@ import (
 )
 
 const BackendMicroagent = "microagent"
+const microagentTCPVsockListenersEnv = "MICROAGENT_VSOCK_TCP_LISTENERS"
+const defaultMicroagentBodyEntrypoint = "/app/entrypoint.sh"
 
 type MicroagentCommandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
 type MicroagentCLIRuntimeBackend struct {
-	BinaryPath   string
-	StateDir     string
-	Entrypoint   string
-	BodyImageRef string
-	MemoryMiB    int64
-	CPUCount     int64
-	RunCommand   MicroagentCommandRunner
+	BinaryPath    string
+	StateDir      string
+	Entrypoint    string
+	BodyImageRef  string
+	Mke2fsPath    string
+	RootFSSizeMiB int64
+	MemoryMiB     int64
+	CPUCount      int64
+	RunCommand    MicroagentCommandRunner
 }
 
 func NewMicroagentCLIRuntimeBackend(home string, cfg map[string]string) *MicroagentCLIRuntimeBackend {
@@ -39,14 +43,20 @@ func NewMicroagentCLIRuntimeBackend(home string, cfg map[string]string) *Microag
 	if binaryPath == "" {
 		binaryPath = "microagent"
 	}
+	entrypoint := firstNonEmptyConfig(cfg, "entrypoint", "body_entrypoint")
+	if entrypoint == "" {
+		entrypoint = defaultMicroagentBodyEntrypoint
+	}
 	return &MicroagentCLIRuntimeBackend{
-		BinaryPath:   binaryPath,
-		StateDir:     stateDir,
-		Entrypoint:   firstNonEmptyConfig(cfg, "entrypoint", "body_entrypoint"),
-		BodyImageRef: firstNonEmptyConfig(cfg, "rootfs_oci_ref", "body_oci_ref"),
-		MemoryMiB:    parseInt64Config(cfg["memory_mib"], defaultFirecrackerMemoryMiB),
-		CPUCount:     parseInt64Config(cfg["cpu_count"], 2),
-		RunCommand:   runMicroagentCommand,
+		BinaryPath:    binaryPath,
+		StateDir:      stateDir,
+		Entrypoint:    entrypoint,
+		BodyImageRef:  firstNonEmptyConfig(cfg, "rootfs_oci_ref", "body_oci_ref"),
+		Mke2fsPath:    strings.TrimSpace(cfg["mke2fs_path"]),
+		RootFSSizeMiB: parseInt64Config(cfg["rootfs_size_mib"], 0),
+		MemoryMiB:     parseInt64Config(cfg["memory_mib"], defaultFirecrackerMemoryMiB),
+		CPUCount:      parseInt64Config(cfg["cpu_count"], 2),
+		RunCommand:    runMicroagentCommand,
 	}
 }
 
@@ -69,7 +79,14 @@ func (b *MicroagentCLIRuntimeBackend) Ensure(ctx context.Context, spec runtimeco
 	if entrypoint := strings.TrimSpace(b.Entrypoint); entrypoint != "" {
 		args = append(args, "--entrypoint", entrypoint)
 	}
-	for _, entry := range microagentGuestEnv(spec.Package.Env) {
+	if mke2fs := strings.TrimSpace(b.Mke2fsPath); mke2fs != "" {
+		args = append(args, "--mke2fs", mke2fs)
+	}
+	if b.RootFSSizeMiB > 0 {
+		args = append(args, "--size-mib", strconv.FormatInt(b.RootFSSizeMiB, 10))
+	}
+	vsockMappings := microagentEnforcerVsockMappings(spec.Package.Env)
+	for _, entry := range microagentGuestEnvWithVsockBridge(spec.Package.Env, vsockMappings) {
 		args = append(args, "--env", entry)
 	}
 	if _, err := b.run(ctx, args...); err != nil {
@@ -81,7 +98,7 @@ func (b *MicroagentCLIRuntimeBackend) Ensure(ctx context.Context, spec runtimeco
 		"--memory", strconv.FormatInt(b.MemoryMiB, 10),
 		"--cpus", strconv.FormatInt(b.CPUCount, 10),
 	}
-	for _, mapping := range microagentEnforcerVsockMappings(spec.Package.Env) {
+	for _, mapping := range vsockMappings {
 		startArgs = append(startArgs, "--vsock", mapping)
 	}
 	if _, err := b.run(ctx, startArgs...); err != nil {
@@ -119,6 +136,26 @@ func microagentGuestEnv(env map[string]string) []string {
 		out = append(out, key+"="+env[key])
 	}
 	return out
+}
+
+func microagentGuestEnvWithVsockBridge(env map[string]string, mappings []string) []string {
+	out := microagentGuestEnv(env)
+	if strings.TrimSpace(env[microagentTCPVsockListenersEnv]) != "" || len(mappings) == 0 {
+		return out
+	}
+	bridges := make([]string, 0, len(mappings))
+	for _, mapping := range mappings {
+		port, _, ok := strings.Cut(mapping, "=")
+		port = strings.TrimSpace(port)
+		if !ok || port == "" {
+			continue
+		}
+		bridges = append(bridges, port+"="+port)
+	}
+	if len(bridges) == 0 {
+		return out
+	}
+	return append(out, microagentTCPVsockListenersEnv+"="+strings.Join(bridges, ","))
 }
 
 func microagentHostOnlyEnv(key string) bool {

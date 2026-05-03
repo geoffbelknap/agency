@@ -60,6 +60,50 @@ func TestVerifyFirecrackerRuntimeArtifactsPassesWithConfiguredArtifacts(t *testi
 	}
 }
 
+func TestVerifyMicroagentRuntimeArtifactsFailsClosedWithGuidance(t *testing.T) {
+	err := verifyMicroVMRuntimeArtifacts(hostruntimebackend.BackendMicroagent, map[string]string{})
+	if err == nil {
+		t.Fatal("verifyMicroVMRuntimeArtifacts() error = nil, want fail-closed error")
+	}
+	for _, want := range []string{
+		"microagent runtime artifacts are not ready",
+		"microagent binary",
+		"microagent host enforcer",
+		"microagent rootfs OCI artifact",
+		"AGENCY_MICROAGENT_BIN",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q does not contain %q", err.Error(), want)
+		}
+	}
+}
+
+func TestVerifyMicroagentRuntimeArtifactsRejectsLatestRootFSRef(t *testing.T) {
+	dir := t.TempDir()
+	err := verifyMicroVMRuntimeArtifacts(hostruntimebackend.BackendMicroagent, map[string]string{
+		"binary_path":          executableFixture(t, dir, "microagent"),
+		"mke2fs_path":          executableFixture(t, dir, "mke2fs"),
+		"enforcer_binary_path": executableFixture(t, dir, "enforcer"),
+		"rootfs_oci_ref":       "ghcr.io/example/agency-runtime-body:latest",
+	})
+	if err == nil || !strings.Contains(err.Error(), "uses mutable :latest") {
+		t.Fatalf("verifyMicroVMRuntimeArtifacts() error = %v, want latest rejection", err)
+	}
+}
+
+func TestVerifyMicroagentRuntimeArtifactsPassesWithConfiguredArtifacts(t *testing.T) {
+	dir := t.TempDir()
+	cfg := map[string]string{
+		"binary_path":          executableFixture(t, dir, "microagent"),
+		"mke2fs_path":          executableFixture(t, dir, "mke2fs"),
+		"enforcer_binary_path": executableFixture(t, dir, "enforcer"),
+		"rootfs_oci_ref":       "ghcr.io/example/agency-runtime-body:v1",
+	}
+	if err := verifyMicroVMRuntimeArtifacts(hostruntimebackend.BackendMicroagent, cfg); err != nil {
+		t.Fatalf("verifyMicroVMRuntimeArtifacts() error = %v", err)
+	}
+}
+
 func executableFixture(t *testing.T, dir, name string) string {
 	t.Helper()
 	path := readableFixture(t, dir, name)

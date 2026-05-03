@@ -22,6 +22,8 @@ func verifyMicroVMRuntimeArtifacts(backend string, cfg map[string]string) error 
 		return verifyAppleVFRuntimeArtifacts(cfg)
 	case hostruntimebackend.BackendFirecracker:
 		return verifyFirecrackerRuntimeArtifacts(cfg)
+	case hostruntimebackend.BackendMicroagent:
+		return verifyMicroagentRuntimeArtifacts(cfg)
 	default:
 		return nil
 	}
@@ -97,6 +99,15 @@ func verifyFirecrackerRuntimeArtifacts(cfg map[string]string) error {
 	}
 	requireExecutable(&missing, "Firecracker guest vsock bridge", cfg["vsock_bridge_binary_path"], "run make firecracker-helpers or set AGENCY_FIRECRACKER_VSOCK_BRIDGE_BIN/hub.deployment_backend_config.vsock_bridge_binary_path")
 	return artifactError(hostruntimebackend.BackendFirecracker, missing)
+}
+
+func verifyMicroagentRuntimeArtifacts(cfg map[string]string) error {
+	var missing []string
+	requireExecutable(&missing, "microagent binary", cfg["binary_path"], "install microagent-kit with Homebrew or set AGENCY_MICROAGENT_BIN/hub.deployment_backend_config.binary_path")
+	requireExecutable(&missing, "mke2fs", cfg["mke2fs_path"], "install e2fsprogs with Homebrew or set AGENCY_MKE2FS/hub.deployment_backend_config.mke2fs_path")
+	requireExecutable(&missing, "microagent host enforcer", cfg["enforcer_binary_path"], "run make host-enforcer or set AGENCY_MICROAGENT_ENFORCER_BIN/hub.deployment_backend_config.enforcer_binary_path")
+	requireVersionedArtifactRef(&missing, "microagent rootfs OCI artifact", firstNonEmptyConfigValue(cfg, "rootfs_oci_ref", "body_oci_ref"), "set hub.deployment_backend_config.rootfs_oci_ref to a versioned OCI artifact reference")
+	return artifactError(hostruntimebackend.BackendMicroagent, missing)
 }
 
 func requireReadable(missing *[]string, label, path, fix string) {

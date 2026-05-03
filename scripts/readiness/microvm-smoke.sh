@@ -16,9 +16,10 @@ Usage: ./scripts/readiness/microvm-smoke.sh [options]
 Runs the supported microVM readiness path for the current host:
   - macOS Apple silicon: apple-vf-microvm
   - Linux/WSL: firecracker
+  - explicit opt-in: microagent
 
 Options:
-  --backend auto|apple-vf-microvm|firecracker
+  --backend auto|apple-vf-microvm|firecracker|microagent
   --rootfs-oci-ref REF    Versioned body/rootfs OCI artifact reference.
                           Required for apple-vf-microvm release validation.
                           Used directly by firecracker when supplied.
@@ -225,6 +226,28 @@ run_firecracker() {
   fi
 }
 
+run_microagent() {
+  [[ -n "$ROOTFS_OCI_REF" ]] || fail "--rootfs-oci-ref is required for microagent"
+
+  log "Running microagent doctor"
+  microagent doctor
+
+  log "Running microagent lifecycle smoke"
+  local args=(--rootfs-oci-ref "$ROOTFS_OCI_REF")
+  if [[ -n "$ENFORCER_OCI_REF" ]]; then
+    args+=(--enforcer-oci-ref "$ENFORCER_OCI_REF")
+  fi
+  "$ROOT/scripts/readiness/microagent-lifecycle-smoke.sh" "${args[@]}"
+
+  if [[ "$RUN_CONTRACT" == "1" ]]; then
+    log "microagent lifecycle smoke includes runtime validation; backend-neutral contract smoke is not wired yet"
+  fi
+
+  if [[ "$RUN_WEB" == "1" ]]; then
+    fail "microagent Web UI smoke is not wired yet"
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --backend)
@@ -269,7 +292,7 @@ case "$BACKEND" in
   auto)
     BACKEND="$(detect_backend)"
     ;;
-  apple-vf-microvm|firecracker)
+  apple-vf-microvm|firecracker|microagent)
     ;;
   *)
     fail "unsupported backend: $BACKEND"
@@ -288,6 +311,9 @@ case "$BACKEND" in
     ;;
   firecracker)
     run_firecracker
+    ;;
+  microagent)
+    run_microagent
     ;;
 esac
 

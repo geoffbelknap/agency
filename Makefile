@@ -1,4 +1,4 @@
-.PHONY: all build install host-deps deploy test clean firecracker-helpers apple-vf-helpers images python-base workspace-base \
+.PHONY: all build install host-deps deploy test clean host-enforcer firecracker-helpers apple-vf-helpers images python-base workspace-base \
        body enforcer comms knowledge intake egress workspace web-fetch web relay \
        python-image-tests \
        provider-tools-readiness \
@@ -59,6 +59,10 @@ firecracker-helpers:
 	mkdir -p bin
 	cd images/enforcer && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o ../../bin/enforcer .
 	CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o bin/agency-vsock-http-bridge ./cmd/agency-vsock-http-bridge
+
+host-enforcer:
+	mkdir -p bin
+	cd images/enforcer && go build -ldflags="-s -w" -o ../../bin/agency-enforcer-host .
 
 apple-vf-helpers:
 	scripts/readiness/apple-vf-helper-build.sh
