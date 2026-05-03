@@ -101,19 +101,9 @@ brews:
       ENV["AGENCY_PYTHON_VENV"] = "#{libexec}/venv"
       system "#{pkgshare}/scripts/install/host-dependencies.sh", "--skip-system-packages"
     caveats: |
-      Start here:
+      Start Agency with:
 
         agency quickstart
-
-      Runtime dependencies:
-        - microagent-kit: microVM workspace runtime
-        - python@3.14: host-managed infra services and egress Python environment
-        - e2fsprogs: mke2fs for microVM root filesystem creation
-
-      Microagent uses Apple's Virtualization framework on macOS Apple silicon
-      and Firecracker on Linux/WSL.
-
-      Quick start guide: https://github.com/geoffbelknap/agency#readme
     test: |
       system "#{bin}/agency", "--version"
 
