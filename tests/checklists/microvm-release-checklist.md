@@ -1,8 +1,9 @@
 # MicroVM Release Checklist
 
 Use this checklist before treating a release as microVM-ready. This is the
-runtime gate for the supported path: Firecracker on Linux/WSL and
-`apple-vf-microvm` on macOS Apple silicon.
+runtime gate for the supported path: Agency on microagent. Microagent uses
+Firecracker on Linux/WSL and Apple's Virtualization framework on macOS Apple
+silicon.
 
 ## Scope
 
@@ -17,16 +18,15 @@ microVM root filesystems.
 
 - [ ] `agency setup --help` and `agency quickstart --help` mention only
       supported microVM backend selection.
-- [ ] Linux/WSL default backend is Firecracker.
-- [ ] macOS Apple silicon default backend is `apple-vf-microvm`.
+- [ ] Linux/WSL release readiness defaults to microagent.
+- [ ] macOS Apple silicon release readiness defaults to microagent.
 - [ ] Container execution backend names are rejected by setup, quickstart, and
       configured gateway startup.
 - [ ] Runtime supervisor rejects container execution backends for new runtime
       specs.
 - [ ] `agency admin doctor` reports Firecracker KVM/vsock/kernel/helper issues
       clearly on Linux/WSL.
-- [ ] Firecracker live smoke uses a pinned upstream Firecracker release binary
-      and an Agency Linux build artifact `vmlinux`, not the host distro kernel.
+- [ ] Microagent live smoke uses versioned body and enforcer OCI artifacts.
 - [ ] `agency admin doctor` reports Apple VF helper/kernel/rootfs tool issues
       clearly on macOS Apple silicon.
 - [ ] Runtime manifest, status, and validate endpoints work for a disposable
@@ -51,30 +51,33 @@ go run ./cmd/gateway setup --help
 go run ./cmd/gateway quickstart --help
 ```
 
-Runtime contract:
+Microagent release smoke:
+
+```bash
+./scripts/readiness/microvm-smoke.sh \
+  --backend microagent \
+  --rootfs-oci-ref ghcr.io/geoffbelknap/agency-runtime-body:v0.2.x \
+  --enforcer-oci-ref ghcr.io/geoffbelknap/agency-runtime-enforcer:v0.2.x
+```
+
+The wrapper defaults to microagent on supported hosts. Use `--backend` only
+when you are intentionally validating a direct backend adapter, `--skip-core`
+to skip static/unit gates, and `--web` to include the backend Web UI smoke.
+
+Backend-neutral runtime contract smoke:
 
 ```bash
 bash ./scripts/readiness/runtime-contract-smoke.sh --agent <agent-name>
 ```
 
-Host-selected microVM smoke:
-
-```bash
-./scripts/readiness/microvm-smoke.sh --rootfs-oci-ref ghcr.io/geoffbelknap/agency-runtime-body:v0.2.x
-```
-
-The wrapper selects `apple-vf-microvm` on macOS Apple silicon and Firecracker
-on Linux/WSL. Use `--backend` to force a backend, `--skip-core` to skip the
-static/unit gates, and `--web` to include the backend Web UI smoke.
-
-Apple VF live validation on macOS Apple silicon:
+Direct Apple VF adapter validation on macOS Apple silicon:
 
 ```bash
 ./scripts/readiness/apple-vf-microvm-smoke.sh --skip-helper-build
 ./scripts/readiness/apple-vf-lifecycle-smoke.sh --skip-helper-build
 ```
 
-Firecracker live validation on Linux/WSL:
+Direct Firecracker adapter validation on Linux/WSL:
 
 ```bash
 scripts/readiness/firecracker-artifacts.sh
@@ -85,7 +88,7 @@ scripts/readiness/firecracker-kernel-artifacts.sh --verify-existing
 agency admin doctor
 ```
 
-To run the external runtime contract smoke against the same disposable
+To run the external runtime contract smoke against the same disposable direct
 Firecracker agent, keep the smoke runtime alive and run the printed contract
 smoke command from another shell:
 
@@ -94,20 +97,20 @@ smoke command from another shell:
 bash ./scripts/readiness/runtime-contract-smoke.sh --agent <printed-agent-name> --home <printed-agency-home> --start-gateway --skip-tests --skip-doctor
 ```
 
-Default Firecracker artifact paths:
+Default direct Firecracker artifact paths:
 
 ```text
 $AGENCY_HOME/runtime/firecracker/artifacts/v1.12.1/firecracker-v1.12.1-x86_64
 $AGENCY_HOME/runtime/firecracker/artifacts/vmlinux
 ```
 
-The Firecracker binary must come from the pinned upstream Firecracker release
-artifact. The kernel must come from Agency's Linux build artifact pipeline as
-an uncompressed ELF `vmlinux`; do not use a random host distro kernel. The
-rootfs is derived from an explicit, versioned OCI artifact reference such as
-`ghcr.io/geoffbelknap/agency-runtime-body:v0.2.x` through the shared
-OCI-to-ext4 realization path used by the microVM backends. The enforcer
-runtime artifact is published separately as
+For direct Firecracker adapter validation, the Firecracker binary must come
+from the pinned upstream Firecracker release artifact. The kernel must come
+from Agency's Linux build artifact pipeline as an uncompressed ELF `vmlinux`;
+do not use a random host distro kernel. For the release path, the rootfs is
+derived from an explicit, versioned OCI artifact reference such as
+`ghcr.io/geoffbelknap/agency-runtime-body:v0.2.x` through microagent. The
+enforcer runtime artifact is published separately as
 `ghcr.io/geoffbelknap/agency-runtime-enforcer:v0.2.x`. Mutable `:latest`
 runtime image tags are not release gates.
 

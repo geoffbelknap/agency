@@ -121,7 +121,7 @@ Validate after the local stack is up:
 
 Validate on the supported runtime path:
 
-- `bash ./scripts/readiness/runtime-contract-smoke.sh --agent <agent-name>`
+- `./scripts/readiness/microvm-smoke.sh --backend microagent --rootfs-oci-ref ghcr.io/geoffbelknap/agency-runtime-body:v0.2.x --enforcer-oci-ref ghcr.io/geoffbelknap/agency-runtime-enforcer:v0.2.x`
 - on macOS Apple silicon, when validating Apple VF changes:
   - `./scripts/readiness/apple-vf-microvm-smoke.sh --skip-helper-build`
   - `./scripts/readiness/apple-vf-lifecycle-smoke.sh --skip-helper-build`

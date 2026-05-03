@@ -60,7 +60,7 @@ test -r /dev/vhost-vsock && test -w /dev/vhost-vsock
 If those fail, add the operator account to the `kvm` group or grant explicit
 device ACLs, then restart the Agency daemon.
 
-On macOS Apple silicon, the supported backend is `apple-vf-microvm`.
+On macOS Apple silicon, microagent uses Apple's Virtualization framework.
 
 ### Legacy container backends
 

@@ -158,9 +158,9 @@ Reloads configuration without restarting services. Use after changing egress rul
 
 ## Runtime Mediation
 
-Agency uses a microVM runtime boundary per agent. Firecracker is the supported
-Linux/WSL backend and `apple-vf-microvm` is the supported macOS Apple silicon
-backend.
+Agency uses a microVM runtime boundary per agent. The supported release path is
+Agency on microagent. Microagent uses Firecracker on Linux/WSL and Apple's
+Virtualization framework on macOS Apple silicon.
 
 The runtime path must preserve these mediation properties:
 

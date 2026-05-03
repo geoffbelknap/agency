@@ -25,15 +25,14 @@ If dependencies are missing, install them with:
 ```
 
 Runtime backend artifacts are verified by `agency setup` and `agency
-quickstart`. Source checkouts can prepare them before setup with:
+quickstart`. Source checkouts should validate the supported microagent path
+with versioned runtime OCI artifacts:
 
 ```bash
-make apple-vf-helpers
-./scripts/readiness/apple-vf-artifacts.sh
-
-make firecracker-helpers
-./scripts/readiness/firecracker-artifacts.sh
-./scripts/readiness/firecracker-kernel-artifacts.sh
+./scripts/readiness/microvm-smoke.sh \
+  --backend microagent \
+  --rootfs-oci-ref ghcr.io/geoffbelknap/agency-runtime-body:vX.Y.Z \
+  --enforcer-oci-ref ghcr.io/geoffbelknap/agency-runtime-enforcer:vX.Y.Z
 ```
 
 ## Steps

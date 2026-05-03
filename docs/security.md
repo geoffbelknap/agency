@@ -83,10 +83,10 @@ work around the mediation layer.
 
 ## Runtime Isolation
 
-Each agent runs inside an isolated runtime boundary. Linux uses one Firecracker
-microVM per agent workload. macOS Apple silicon uses `apple-vf-microvm`, backed
-by Apple's Virtualization framework. The enforcer stays outside the agent
-boundary so enforcement, mediation, and audit remain external to the agent.
+Each agent runs inside an isolated runtime boundary. Agency uses microagent for
+the release path: Firecracker on Linux/WSL and Apple's Virtualization framework
+on macOS Apple silicon. The enforcer stays outside the agent boundary so
+enforcement, mediation, and audit remain external to the agent.
 
 ```
 Per-Agent Runtime:
