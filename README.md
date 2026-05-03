@@ -77,10 +77,9 @@ Agency is built around them first.
 - host tools for the supported runtime path
 - an API key from at least one supported model provider
 
-Use `microagent` for release and readiness validation. On Linux and WSL2,
-microagent uses Firecracker and requires KVM plus vsock access for the operator
-account. On macOS Apple silicon, microagent uses Apple's Virtualization
-framework.
+Agency uses `microagent` for agent workspaces. On Linux and WSL2, microagent
+uses Firecracker and requires KVM plus vsock access for the operator account.
+On macOS Apple silicon, microagent uses Apple's Virtualization framework.
 
 The supported microVM path also needs a few host tools:
 
@@ -93,11 +92,10 @@ The `images/` tree remains in the source repo for OCI/rootfs build inputs; it
 is not shipped in packaged installs and is not the host service runtime
 contract.
 
-`agency setup` and `agency quickstart` check runtime readiness. They persist
-the selected microVM backend and fail closed before daemon startup if a required
-helper, kernel, enforcer, guest transport, or rootfs tool is missing. Source
-checkouts should validate the supported path with versioned runtime OCI
-artifacts:
+`agency setup` and `agency quickstart` check runtime readiness. They persist the
+microagent backend and fail closed before daemon startup if a required helper,
+kernel, enforcer, guest transport, or rootfs tool is missing. Source checkouts
+should validate the supported path with versioned runtime OCI artifacts:
 
 ```bash
 ./scripts/readiness/microvm-smoke.sh \
@@ -291,10 +289,9 @@ For runtime/lifecycle changes, the highest-signal validation path is:
 ./scripts/e2e/e2e-live-disposable.sh --skip-build
 ```
 
-Direct Firecracker and `apple-vf-microvm` smokes are backend-adapter fallback
-checks. The release path is Agency on microagent. Legacy container backend
-smokes are archived for historical adapter validation only; they are not
-release gates.
+Direct Firecracker and `apple-vf-microvm` smokes are old adapter checks. The
+release path is Agency on microagent. Legacy container backend smokes are kept
+only for historical adapter validation; they are not release gates.
 
 That path is not part of required CI or branch protection.
 
@@ -332,10 +329,9 @@ agency/
 Linux (`x86_64`, `arm64`) and macOS (Apple Silicon, Intel) natively. Windows
 via WSL2.
 
-Release and readiness validation defaults to microagent. Direct Firecracker and
-`apple-vf-microvm` remain backend-adapter fallback paths.
-Docker, Podman, containerd, and Apple Container execution backends are legacy
-adapter history, not supported runtime selections.
+Release and readiness validation uses microagent. Direct Firecracker,
+`apple-vf-microvm`, Docker, Podman, containerd, and Apple Container execution
+backends are old adapter paths, not supported runtime selections.
 
 ## Contributing
 

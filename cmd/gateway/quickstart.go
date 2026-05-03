@@ -216,7 +216,7 @@ Run with --no-browser to print the Web UI URL without opening it.`,
 	cmd.Flags().StringVar(&opts.name, "name", "", "Name for the first agent")
 	cmd.Flags().BoolVar(&opts.noDemo, "no-demo", false, "Skip the demo task")
 	cmd.Flags().BoolVar(&opts.noBrowser, "no-browser", false, "Don't open the web UI in a browser (also respected via AGENCY_NO_BROWSER=1)")
-	cmd.Flags().StringVar(&opts.backend, "backend", "", "MicroVM runtime backend to use; defaults to firecracker on Linux/WSL and apple-vf-microvm on macOS. Also respected via AGENCY_RUNTIME_BACKEND.")
+	cmd.Flags().StringVar(&opts.backend, "backend", "", "MicroVM runtime backend to use; defaults to microagent. Also respected via AGENCY_RUNTIME_BACKEND.")
 	cmd.Flags().BoolVar(&opts.verbose, "verbose", false, "Show detailed output")
 
 	return cmd
@@ -443,7 +443,7 @@ func runQuickstart(opts quickstartOptions) error {
 	}); err != nil {
 		fmt.Printf("  %s environment     %s\n", qsRed.Render("✗"), err)
 		fmt.Println()
-		fmt.Println("Run `agency runtime provision firecracker` after fixing the reported issue, then run `agency quickstart` again.")
+		fmt.Println("Run `microagent doctor` after fixing the reported issue, then run `agency quickstart` again.")
 		return err
 	}
 	fmt.Printf("  %s environment     %s running\n", qsGreen.Render("✓"), backendName)

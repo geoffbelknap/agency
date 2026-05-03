@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
-	goruntime "runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -72,12 +72,13 @@ func backendConnectionDetails(cfg *config.Config) (string, string) {
 
 func configuredRuntimeBackend(cfg *config.Config) string {
 	if cfg != nil && strings.TrimSpace(cfg.Hub.DeploymentBackend) != "" {
-		return strings.TrimSpace(cfg.Hub.DeploymentBackend)
+		backend := strings.TrimSpace(cfg.Hub.DeploymentBackend)
+		if backend == hostruntimebackend.BackendAppleVFMicroVM || backend == hostruntimebackend.BackendFirecracker || backend == "auto" {
+			return hostruntimebackend.BackendMicroagent
+		}
+		return backend
 	}
-	if goruntime.GOOS == "darwin" {
-		return hostruntimebackend.BackendAppleVFMicroVM
-	}
-	return hostruntimebackend.BackendFirecracker
+	return hostruntimebackend.BackendMicroagent
 }
 
 func configuredRuntimeBackendConfig(cfg *config.Config) map[string]string {
@@ -307,6 +308,13 @@ func (h *handler) adminDoctorRuntimeContract(ctx context.Context) doctorReport {
 		Status: "pass",
 		Detail: fmt.Sprintf("Runtime backend %q is available", report.Backend),
 	})
+	if report.Backend == hostruntimebackend.BackendMicroagent {
+		check := microagentDoctorCheck(ctx, h.deps.Config)
+		if check.Status != agencysecurity.FindingPass {
+			report.AllPassed = false
+		}
+		report.Checks = append(report.Checks, check)
+	}
 
 	home := ""
 	if h.deps.Config != nil {
@@ -389,6 +397,57 @@ func (h *handler) adminDoctorRuntimeContract(ctx context.Context) doctorReport {
 	}
 	report.RuntimeChecks, report.BackendChecks = splitDoctorChecks(report.Checks, report.Backend)
 	return report
+}
+
+func microagentDoctorCheck(ctx context.Context, cfg *config.Config) doctorCheckResult {
+	binary := "microagent"
+	if cfg != nil {
+		if value := strings.TrimSpace(cfg.Hub.DeploymentBackendConfig["binary_path"]); value != "" {
+			binary = value
+		}
+	}
+	out, err := exec.CommandContext(ctx, binary, "doctor").CombinedOutput()
+	if err != nil {
+		return doctorCheckResult{
+			Name: "microagent_doctor", Scope: "backend", Backend: hostruntimebackend.BackendMicroagent, Status: "fail",
+			Detail: strings.TrimSpace(string(out)),
+			Fix:    "install microagent-kit or run microagent doctor for host-level VM diagnostics",
+		}
+	}
+	var body struct {
+		OK      bool   `json:"ok"`
+		Backend string `json:"backend"`
+		Kernel  struct {
+			Status string `json:"status"`
+			Path   string `json:"path"`
+		} `json:"kernel"`
+	}
+	if err := json.Unmarshal(out, &body); err != nil {
+		return doctorCheckResult{
+			Name: "microagent_doctor", Scope: "backend", Backend: hostruntimebackend.BackendMicroagent, Status: "fail",
+			Detail: "microagent doctor returned unparseable output: " + err.Error(),
+			Fix:    "upgrade microagent-kit and run microagent doctor directly",
+		}
+	}
+	if !body.OK {
+		return doctorCheckResult{
+			Name: "microagent_doctor", Scope: "backend", Backend: hostruntimebackend.BackendMicroagent, Status: "fail",
+			Detail: strings.TrimSpace(string(out)),
+			Fix:    "run microagent doctor and fix the reported host issue",
+		}
+	}
+	kernel := strings.TrimSpace(body.Kernel.Status)
+	if kernel == "" {
+		kernel = "unknown"
+	}
+	detail := fmt.Sprintf("microagent doctor passed: backend=%s kernel=%s", body.Backend, kernel)
+	if path := strings.TrimSpace(body.Kernel.Path); path != "" {
+		detail += " path=" + path
+	}
+	return doctorCheckResult{
+		Name: "microagent_doctor", Scope: "backend", Backend: hostruntimebackend.BackendMicroagent, Status: "pass",
+		Detail: detail,
+	}
 }
 
 // ── Admin ───────────────────────────────────────────────────────────────────
