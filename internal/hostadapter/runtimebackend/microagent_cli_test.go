@@ -3,6 +3,7 @@ package runtimebackend
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
@@ -11,11 +12,12 @@ import (
 func TestMicroagentCLIEnsureCreatesAndStartsWorkspace(t *testing.T) {
 	var calls [][]string
 	backend := NewMicroagentCLIRuntimeBackend("/tmp/agency", map[string]string{
-		"binary_path": "microagent-test",
-		"state_dir":   "/tmp/agency/runtime/microagent",
-		"entrypoint":  "/app/entrypoint.sh",
-		"memory_mib":  "1024",
-		"cpu_count":   "4",
+		"binary_path":    "microagent-test",
+		"state_dir":      "/tmp/agency/runtime/microagent",
+		"entrypoint":     "/app/entrypoint.sh",
+		"rootfs_oci_ref": "ghcr.io/example/body:v1",
+		"memory_mib":     "1024",
+		"cpu_count":      "4",
 	})
 	backend.RunCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		_ = ctx
@@ -25,7 +27,7 @@ func TestMicroagentCLIEnsureCreatesAndStartsWorkspace(t *testing.T) {
 	err := backend.Ensure(context.Background(), runtimecontract.RuntimeSpec{
 		RuntimeID: "alice",
 		Package: runtimecontract.RuntimePackageSpec{
-			Image: "ghcr.io/example/body:v1",
+			Image: "agency-body:latest",
 			Env: map[string]string{
 				"AGENCY_AGENT_NAME":                 "alice",
 				FirecrackerEnforcerProxyTargetEnv:   "http://127.0.0.1:19000",
@@ -42,6 +44,79 @@ func TestMicroagentCLIEnsureCreatesAndStartsWorkspace(t *testing.T) {
 	}
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("calls = %#v, want %#v", calls, want)
+	}
+}
+
+func TestMicroagentCLIEnsureRequiresConfiguredBodyImageForLegacyLocalTag(t *testing.T) {
+	backend := NewMicroagentCLIRuntimeBackend("/tmp/agency", map[string]string{})
+	backend.RunCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		t.Fatal("microagent should not be called without a resolvable OCI image")
+		return nil, nil
+	}
+	err := backend.Ensure(context.Background(), runtimecontract.RuntimeSpec{
+		RuntimeID: "alice",
+		Package:   runtimecontract.RuntimePackageSpec{Image: "agency-body:latest"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "rootfs OCI artifact is not configured") {
+		t.Fatalf("Ensure error = %v", err)
+	}
+}
+
+func TestMicroagentCLIEnsureRejectsMutableConfiguredBodyImage(t *testing.T) {
+	backend := NewMicroagentCLIRuntimeBackend("/tmp/agency", map[string]string{
+		"rootfs_oci_ref": "ghcr.io/example/agency-body:latest",
+	})
+	backend.RunCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		t.Fatal("microagent should not be called with a mutable OCI ref")
+		return nil, nil
+	}
+	err := backend.Ensure(context.Background(), runtimecontract.RuntimeSpec{
+		RuntimeID: "alice",
+		Package:   runtimecontract.RuntimePackageSpec{Image: "agency-body:latest"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "must not use mutable :latest tag") {
+		t.Fatalf("Ensure error = %v", err)
+	}
+}
+
+func TestMicroagentCLIEnsureUsesDirectVersionedImage(t *testing.T) {
+	var createArgs []string
+	backend := NewMicroagentCLIRuntimeBackend("/tmp/agency", map[string]string{
+		"binary_path": "microagent-test",
+	})
+	backend.RunCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		_ = ctx
+		if len(args) > 0 && args[0] == "create" {
+			createArgs = append([]string{name}, args...)
+		}
+		return []byte(`{"ok":true}`), nil
+	}
+	err := backend.Ensure(context.Background(), runtimecontract.RuntimeSpec{
+		RuntimeID: "alice",
+		Package: runtimecontract.RuntimePackageSpec{
+			Image: "ghcr.io/example/agency-body:v1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	wantPrefix := []string{"microagent-test", "create", "--name", "alice", "--image", "ghcr.io/example/agency-body:v1"}
+	if len(createArgs) < len(wantPrefix) || !reflect.DeepEqual(createArgs[:len(wantPrefix)], wantPrefix) {
+		t.Fatalf("create args = %#v", createArgs)
+	}
+}
+
+func TestMicroagentGuestEnvDropsHostOnlyMediationValues(t *testing.T) {
+	got := microagentGuestEnv(map[string]string{
+		"AGENCY_AGENT_NAME":                           "alice",
+		FirecrackerEnforcerProxyTargetEnv:             "http://127.0.0.1:19000",
+		FirecrackerEnforcerControlTargetEnv:           "http://127.0.0.1:19001",
+		FirecrackerHostServiceTargetEnvBase + "COMMS": "http://127.0.0.1:18080",
+		FirecrackerRootFSOverlaysEnv:                  "/tmp/overlay",
+	})
+	want := []string{"AGENCY_AGENT_NAME=alice"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("guest env = %#v, want %#v", got, want)
 	}
 }
 

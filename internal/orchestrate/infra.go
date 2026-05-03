@@ -378,10 +378,12 @@ func (inf *Infra) EnsureRunningWithProgress(ctx context.Context, onProgress Prog
 		return fmt.Errorf("system channels: %w", err)
 	}
 
-	// Audit: verify no managed container has Docker socket access
-	if violations := inf.AuditDockerSocket(ctx); len(violations) > 0 {
-		inf.log.Error("Docker socket audit FAILED — containers with /var/run/docker.sock mounted",
-			"containers", violations)
+	if inf.needsContainerInfra() {
+		// Audit: verify no managed container has Docker socket access.
+		if violations := inf.AuditDockerSocket(ctx); len(violations) > 0 {
+			inf.log.Error("Docker socket audit FAILED — containers with /var/run/docker.sock mounted",
+				"containers", violations)
+		}
 	}
 
 	return nil

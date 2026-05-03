@@ -21,12 +21,13 @@ const BackendMicroagent = "microagent"
 type MicroagentCommandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
 type MicroagentCLIRuntimeBackend struct {
-	BinaryPath string
-	StateDir   string
-	Entrypoint string
-	MemoryMiB  int64
-	CPUCount   int64
-	RunCommand MicroagentCommandRunner
+	BinaryPath   string
+	StateDir     string
+	Entrypoint   string
+	BodyImageRef string
+	MemoryMiB    int64
+	CPUCount     int64
+	RunCommand   MicroagentCommandRunner
 }
 
 func NewMicroagentCLIRuntimeBackend(home string, cfg map[string]string) *MicroagentCLIRuntimeBackend {
@@ -39,12 +40,13 @@ func NewMicroagentCLIRuntimeBackend(home string, cfg map[string]string) *Microag
 		binaryPath = "microagent"
 	}
 	return &MicroagentCLIRuntimeBackend{
-		BinaryPath: binaryPath,
-		StateDir:   stateDir,
-		Entrypoint: firstNonEmptyConfig(cfg, "entrypoint", "body_entrypoint"),
-		MemoryMiB:  parseInt64Config(cfg["memory_mib"], defaultFirecrackerMemoryMiB),
-		CPUCount:   parseInt64Config(cfg["cpu_count"], 2),
-		RunCommand: runMicroagentCommand,
+		BinaryPath:   binaryPath,
+		StateDir:     stateDir,
+		Entrypoint:   firstNonEmptyConfig(cfg, "entrypoint", "body_entrypoint"),
+		BodyImageRef: firstNonEmptyConfig(cfg, "rootfs_oci_ref", "body_oci_ref"),
+		MemoryMiB:    parseInt64Config(cfg["memory_mib"], defaultFirecrackerMemoryMiB),
+		CPUCount:     parseInt64Config(cfg["cpu_count"], 2),
+		RunCommand:   runMicroagentCommand,
 	}
 }
 
@@ -53,9 +55,9 @@ func (b *MicroagentCLIRuntimeBackend) Name() string {
 }
 
 func (b *MicroagentCLIRuntimeBackend) Ensure(ctx context.Context, spec runtimecontract.RuntimeSpec) error {
-	image := strings.TrimSpace(spec.Package.Image)
-	if image == "" {
-		return fmt.Errorf("microagent backend: runtime image is not configured")
+	image, err := b.microagentOCIImageRef(spec.Package.Image)
+	if err != nil {
+		return err
 	}
 	args := []string{"create",
 		"--name", spec.RuntimeID,
@@ -86,6 +88,18 @@ func (b *MicroagentCLIRuntimeBackend) Ensure(ctx context.Context, spec runtimeco
 		return err
 	}
 	return nil
+}
+
+func (b *MicroagentCLIRuntimeBackend) microagentOCIImageRef(imageRef string) (string, error) {
+	imageRef = strings.TrimSpace(imageRef)
+	if imageRef == "" || imageRef == legacyAgencyBodyLocalTag {
+		configured := strings.TrimSpace(b.BodyImageRef)
+		if configured == "" {
+			return "", fmt.Errorf("microagent backend: rootfs OCI artifact is not configured; set hub.deployment_backend_config.rootfs_oci_ref to a versioned OCI artifact reference")
+		}
+		return validateMicroVMOCIImageRef("microagent", configured)
+	}
+	return validateMicroVMOCIImageRef("microagent", imageRef)
 }
 
 func microagentGuestEnv(env map[string]string) []string {
