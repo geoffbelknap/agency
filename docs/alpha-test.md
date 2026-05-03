@@ -10,7 +10,7 @@ describes the current `0.2.x` core Agency path.
 
 ## What You Need
 
-1. A supported runtime path for your platform. On Linux/WSL2 this is Firecracker with KVM and vsock access; on macOS Apple silicon this is `apple-vf-microvm`.
+1. A supported microagent runtime path for your platform. On Linux/WSL2 this needs KVM and vsock access; on macOS Apple silicon this needs Apple's Virtualization framework.
 2. One LLM provider API key. Google Gemini is a good early-user choice because it has a free tier.
 3. About 20 minutes.
 

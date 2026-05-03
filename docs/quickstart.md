@@ -17,18 +17,18 @@ You need:
 If you need a provider key first, see [Getting API Keys](/getting-api-keys).
 Google Gemini is the easiest no-credit-card starting point for many users.
 
-On Linux, Agency uses Firecracker. The host needs KVM and vsock available to
-the operator account:
+Use `microagent` for release and readiness validation. On Linux and WSL2,
+microagent uses Firecracker, so the host needs KVM and vsock available to the
+operator account:
 
 ```bash
 test -r /dev/kvm && test -w /dev/kvm
 test -r /dev/vhost-vsock && test -w /dev/vhost-vsock
 ```
 
-On macOS Apple silicon, the supported runtime path is `apple-vf-microvm`,
-backed by Apple's Virtualization framework.
+On macOS Apple silicon, microagent uses Apple's Virtualization framework.
 
-Both supported runtime paths need `mitmdump` with Agency's egress addon Python
+The runtime path also needs `mitmdump` with Agency's egress addon Python
 dependencies for host-managed egress, plus `mke2fs` from e2fsprogs for root
 filesystem creation. Packaged installs run the host dependency helper
 automatically. From a source checkout, you can verify or install those
@@ -42,15 +42,13 @@ contract.
 `agency setup` and `agency quickstart` check the selected microVM backend before
 starting the daemon. They fail closed if a required helper, kernel, host
 enforcer, guest transport helper, or rootfs tool is missing. From a source
-checkout, prepare those runtime artifacts with:
+checkout, validate the supported path with versioned runtime OCI artifacts:
 
 ```bash
-make apple-vf-helpers
-./scripts/readiness/apple-vf-artifacts.sh
-
-make firecracker-helpers
-./scripts/readiness/firecracker-artifacts.sh
-./scripts/readiness/firecracker-kernel-artifacts.sh
+./scripts/readiness/microvm-smoke.sh \
+  --backend microagent \
+  --rootfs-oci-ref ghcr.io/geoffbelknap/agency-runtime-body:vX.Y.Z \
+  --enforcer-oci-ref ghcr.io/geoffbelknap/agency-runtime-enforcer:vX.Y.Z
 ```
 
 ```bash

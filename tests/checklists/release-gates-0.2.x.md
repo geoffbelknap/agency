@@ -38,7 +38,7 @@ Each feature area is classified as:
 | Feature | Gate Level | Why It Matters | Current Stance |
 |---------|------------|----------------|----------------|
 | Install and setup path | `Blocking` | If a tester cannot install the binary, configure one provider, and bring the stack up, the product is not shippable. | Core requirement for `0.2.x`. |
-| MicroVM runtime support | `Blocking` | The supported runtime architecture is Firecracker on Linux/WSL and `apple-vf-microvm` on macOS. Container execution backends are not release gates. | Required for every core release. |
+| MicroVM runtime support | `Blocking` | The supported release path is Agency on microagent. Microagent uses Firecracker on Linux/WSL and Apple's Virtualization framework on macOS. Container execution backends are not release gates. | Required for every core release. |
 | Agent runtime core | `Blocking` | Create/start/show/stop must be reliable or the core story fails immediately. | Remains the strongest product surface. |
 | Dynamic agent reconfiguration | `Blocking` | Updating a running agent is part of the supported operator path, not a side demo. | Keep this in the mainline release bar. |
 | DM / comms core | `Blocking` | First-user success depends on sending work to an agent and receiving a reply. | Primary interaction model. |
@@ -85,8 +85,8 @@ Each feature area is classified as:
 
 **Pass means:**
 
-- Linux/WSL setup selects Firecracker by default
-- macOS Apple silicon setup selects `apple-vf-microvm` by default
+- Linux/WSL release readiness selects microagent by default
+- macOS Apple silicon release readiness selects microagent by default
 - `agency admin doctor` reports the exact missing backend pieces for the
   selected microVM backend
 - runtime manifest/status/validate remain backend-neutral and microVM-first
@@ -96,9 +96,8 @@ Each feature area is classified as:
 **Primary validation:**
 
 - [MicroVM Release Checklist](microvm-release-checklist.md)
-- `scripts/readiness/runtime-contract-smoke.sh --agent <agent>`
-- `scripts/readiness/apple-vf-microvm-smoke.sh --skip-helper-build` on macOS
-  Apple silicon when validating Apple VF changes
+- `scripts/readiness/microvm-smoke.sh --backend microagent --rootfs-oci-ref ghcr.io/geoffbelknap/agency-runtime-body:v0.2.x --enforcer-oci-ref ghcr.io/geoffbelknap/agency-runtime-enforcer:v0.2.x`
+- Apple VF runtime smoke on macOS Apple silicon when validating Apple VF changes
 - Firecracker runtime smoke on Linux/WSL when validating Firecracker changes
 
 ### 3. Agent Runtime Core

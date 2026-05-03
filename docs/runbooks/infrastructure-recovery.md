@@ -21,8 +21,8 @@ agency infra status
 agency admin doctor
 ```
 
-On Linux, Firecracker host checks should confirm KVM and vsock access. On
-macOS Apple silicon, the supported runtime path is `apple-vf-microvm`.
+On Linux, microagent host checks should confirm KVM and vsock access. On macOS
+Apple silicon, microagent uses Apple's Virtualization framework.
 
 ### 3. Check for port conflicts
 

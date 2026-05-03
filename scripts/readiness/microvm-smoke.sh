@@ -14,15 +14,15 @@ usage() {
 Usage: ./scripts/readiness/microvm-smoke.sh [options]
 
 Runs the supported microVM readiness path for the current host:
-  - macOS Apple silicon: apple-vf-microvm
-  - Linux/WSL: firecracker
-  - explicit opt-in: microagent
+  - default: microagent
+  - explicit fallback: apple-vf-microvm on macOS Apple silicon
+  - explicit fallback: firecracker on Linux/WSL
 
 Options:
   --backend auto|apple-vf-microvm|firecracker|microagent
   --rootfs-oci-ref REF    Versioned body/rootfs OCI artifact reference.
-                          Required for apple-vf-microvm release validation.
-                          Used directly by firecracker when supplied.
+                          Required for microagent and apple-vf-microvm release
+                          validation. Used directly by firecracker when supplied.
   --enforcer-oci-ref REF  Versioned enforcer OCI artifact reference.
                           Extracts the host-process enforcer for the selected
                           backend platform when supplied.
@@ -50,11 +50,11 @@ fail() {
 detect_backend() {
   case "$(uname -s)" in
     Darwin)
-      [[ "$(uname -m)" == "arm64" ]] || fail "apple-vf-microvm requires macOS arm64"
-      printf 'apple-vf-microvm\n'
+      [[ "$(uname -m)" == "arm64" ]] || fail "microagent readiness requires macOS arm64"
+      printf 'microagent\n'
       ;;
     Linux)
-      printf 'firecracker\n'
+      printf 'microagent\n'
       ;;
     *)
       fail "unsupported host OS for microVM smoke: $(uname -s)"

@@ -5,8 +5,9 @@ agent start, restart, status, and transport wiring.
 
 ## Preconditions
 
-- A supported microVM runtime is configured: Firecracker on Linux/WSL or
-  `apple-vf-microvm` on macOS Apple silicon.
+- A supported microVM runtime is configured. The default release path is
+  microagent, using Firecracker on Linux/WSL and Apple's Virtualization
+  framework on macOS Apple silicon.
 - The gateway token is configured in `~/.agency/config.yaml`.
 - The gateway is reachable on `127.0.0.1:8200`.
 
@@ -28,7 +29,10 @@ If the installed daemon is on a different build, either:
 Run the packaged smoke path:
 
 ```bash
-bash ./scripts/readiness/runtime-contract-smoke.sh --agent <agent-name>
+./scripts/readiness/microvm-smoke.sh \
+  --backend microagent \
+  --rootfs-oci-ref ghcr.io/geoffbelknap/agency-runtime-body:vX.Y.Z \
+  --enforcer-oci-ref ghcr.io/geoffbelknap/agency-runtime-enforcer:vX.Y.Z
 ```
 
 What it covers:
@@ -36,6 +40,7 @@ What it covers:
 - `go test ./...`
 - gateway binary build
 - gateway health probe
+- microagent lifecycle start, restart, stop, and delete
 - `GET /api/v1/agents/{name}/runtime/manifest`
 - `GET /api/v1/agents/{name}/runtime/status`
 - `POST /api/v1/agents/{name}/runtime/validate`
