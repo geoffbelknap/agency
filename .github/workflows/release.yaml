@@ -38,6 +38,11 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
       - name: Verify pinned kernel artifacts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -52,6 +57,9 @@ jobs:
       - name: Build Homebrew Python wheelhouses
         id: homebrew-python-wheelhouses
         run: ./scripts/release/build-homebrew-python-wheelhouses.sh
+
+      - name: Audit Homebrew Python dependencies
+        run: ./scripts/release/audit-homebrew-python-deps.sh
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
