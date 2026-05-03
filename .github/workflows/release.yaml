@@ -49,6 +49,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./scripts/release/verify-apple-vf-helper-assets.sh
 
+      - name: Build Homebrew Python wheelhouses
+        id: homebrew-python-wheelhouses
+        run: ./scripts/release/build-homebrew-python-wheelhouses.sh
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
@@ -58,3 +62,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ steps.app-token.outputs.token }}
           AGENCY_APPLE_VF_HELPERS_DARWIN_ARM64_SHA256: ${{ steps.apple-vf-helpers.outputs.sha256 }}
+          AGENCY_PYTHON_WHEELHOUSE_DARWIN_ARM64_SHA256: ${{ steps.homebrew-python-wheelhouses.outputs.AGENCY_PYTHON_WHEELHOUSE_DARWIN_ARM64_SHA256 }}
+          AGENCY_PYTHON_WHEELHOUSE_DARWIN_AMD64_SHA256: ${{ steps.homebrew-python-wheelhouses.outputs.AGENCY_PYTHON_WHEELHOUSE_DARWIN_AMD64_SHA256 }}
+          AGENCY_PYTHON_WHEELHOUSE_LINUX_AMD64_SHA256: ${{ steps.homebrew-python-wheelhouses.outputs.AGENCY_PYTHON_WHEELHOUSE_LINUX_AMD64_SHA256 }}
+          AGENCY_PYTHON_WHEELHOUSE_LINUX_ARM64_SHA256: ${{ steps.homebrew-python-wheelhouses.outputs.AGENCY_PYTHON_WHEELHOUSE_LINUX_ARM64_SHA256 }}
