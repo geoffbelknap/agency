@@ -237,11 +237,10 @@ run_microagent() {
   if [[ -n "$ENFORCER_OCI_REF" ]]; then
     args+=(--enforcer-oci-ref "$ENFORCER_OCI_REF")
   fi
-  "$ROOT/scripts/readiness/microagent-lifecycle-smoke.sh" "${args[@]}"
-
   if [[ "$RUN_CONTRACT" == "1" ]]; then
-    log "microagent lifecycle smoke includes runtime validation; backend-neutral contract smoke is not wired yet"
+    args+=(--contract-smoke)
   fi
+  "$ROOT/scripts/readiness/microagent-lifecycle-smoke.sh" "${args[@]}"
 
   if [[ "$RUN_WEB" == "1" ]]; then
     fail "microagent Web UI smoke is not wired yet"

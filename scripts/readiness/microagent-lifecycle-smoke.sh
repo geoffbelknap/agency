@@ -12,6 +12,7 @@ ROOTFS_SIZE_MIB="${AGENCY_MICROAGENT_ROOTFS_SIZE_MIB:-1024}"
 ROOTFS_OCI_REF="${AGENCY_MICROAGENT_ROOTFS_OCI_REF:-}"
 KEEP_HOME=0
 KEEP_AGENT=0
+RUN_CONTRACT_SMOKE=0
 SMOKE_HOME=""
 GATEWAY_PID=""
 COMMS_PID=""
@@ -46,6 +47,8 @@ Options:
                           uses it as the host-process enforcer binary.
   --rootfs-oci-ref REF    Versioned OCI artifact reference for the body rootfs source.
   --rootfs-size-mib N     Rootfs image size. Defaults to 1024.
+  --contract-smoke        Run the backend-neutral runtime contract smoke while
+                          the disposable gateway and host services are alive.
   --keep-home             Keep the disposable Agency home after the run.
   --keep-agent            Keep the disposable Agency home and agent runtime after validation.
 
@@ -149,6 +152,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || fail "--rootfs-oci-ref requires a value"
       ROOTFS_OCI_REF="$2"
       shift 2
+      ;;
+    --contract-smoke)
+      RUN_CONTRACT_SMOKE=1
+      shift
       ;;
     --keep-home)
       KEEP_HOME=1
@@ -491,6 +498,16 @@ api_json POST "/api/v1/agents/$AGENT_NAME/restart" '{}' >/dev/null
 api_json GET "/api/v1/agents/$AGENT_NAME/runtime/status" >"$STATUS_JSON"
 assert_runtime_healthy "$STATUS_JSON"
 api_json POST "/api/v1/agents/$AGENT_NAME/runtime/validate" '{}' >/dev/null
+
+if [[ "$RUN_CONTRACT_SMOKE" == "1" ]]; then
+  log "Running backend-neutral runtime contract smoke"
+  "$ROOT/scripts/readiness/runtime-contract-smoke.sh" \
+    --agent "$AGENT_NAME" \
+    --home "$SMOKE_HOME" \
+    --gateway-addr "127.0.0.1:$GATEWAY_PORT" \
+    --skip-tests \
+    --skip-doctor
+fi
 
 if [[ "$KEEP_AGENT" == "1" ]]; then
   log "Keeping disposable agent runtime: $AGENT_NAME"
