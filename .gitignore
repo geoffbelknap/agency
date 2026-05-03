@@ -64,6 +64,7 @@ credential-swaps.local.yaml
 
 # Local result artifacts
 benchmark_results_*.json
+/.release/
 /test-results/
 /web/test-results/
 /results/
