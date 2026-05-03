@@ -34,6 +34,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/events"
 	"github.com/geoffbelknap/agency/internal/features"
 	"github.com/geoffbelknap/agency/internal/hostadapter"
+	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 	"github.com/geoffbelknap/agency/internal/knowledge"
 	"github.com/geoffbelknap/agency/internal/logs"
@@ -215,7 +216,7 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *runtimehost.Client, logge
 	experimental := features.ExperimentalEnabled()
 	var host hostadapter.Adapter
 	if dc != nil {
-		host = hostadapter.NewAdapter(cfg.Hub.DeploymentBackend, dc, logger)
+		host = hostadapter.NewAdapter(hostruntimebackend.NormalizeRuntimeBackend(cfg.Hub.DeploymentBackend), dc, logger)
 	}
 	d := &mcpDeps{
 		cfg: cfg, dc: dc, log: logger,

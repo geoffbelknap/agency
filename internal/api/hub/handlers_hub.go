@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	goruntime "runtime"
 	"strings"
 	"time"
 
@@ -147,7 +146,7 @@ func (h *handler) signalInfraComponent(component string) {
 	}
 	backend := defaultRuntimeBackend()
 	if h.deps.Config != nil && strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend) != "" {
-		backend = strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend)
+		backend = hostruntimebackend.NormalizeRuntimeBackend(h.deps.Config.Hub.DeploymentBackend)
 	}
 	if !runtimehost.IsContainerBackend(backend) {
 		if h.deps.Logger != nil {
@@ -167,7 +166,7 @@ func (h *handler) signalInfraComponent(component string) {
 func (h *handler) backendRequiresContainer(w http.ResponseWriter, operation string) bool {
 	backend := defaultRuntimeBackend()
 	if h.deps.Config != nil && strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend) != "" {
-		backend = strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend)
+		backend = hostruntimebackend.NormalizeRuntimeBackend(h.deps.Config.Hub.DeploymentBackend)
 	}
 	if !runtimehost.IsContainerBackend(backend) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
@@ -186,10 +185,7 @@ func (h *handler) backendRequiresContainer(w http.ResponseWriter, operation stri
 }
 
 func defaultRuntimeBackend() string {
-	if goruntime.GOOS == "darwin" {
-		return hostruntimebackend.BackendAppleVFMicroVM
-	}
-	return hostruntimebackend.BackendFirecracker
+	return hostruntimebackend.DefaultRuntimeBackend()
 }
 
 func (h *handler) ensureDependencyInstalled(mgr *hubpkg.Manager, parentName string, dep hubpkg.DependencyRef) {

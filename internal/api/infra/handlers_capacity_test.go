@@ -157,16 +157,13 @@ network_pool_configured: false
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if got := body["runtime_backend"]; got != "firecracker" {
+	if got := body["runtime_backend"]; got != "microagent" {
 		t.Fatalf("runtime_backend = %v", got)
 	}
-	if got := body["enforcement_mode"]; got != "microvm" {
-		t.Fatalf("enforcement_mode = %v", got)
+	if got := body["agent_slot_mb"]; got != float64(640) {
+		t.Fatalf("agent_slot_mb = %v, want 640", got)
 	}
-	if got := body["agent_slot_mb"]; got != float64(1024) {
-		t.Fatalf("agent_slot_mb = %v, want 1024", got)
-	}
-	if got := body["max_agents"]; got != float64(11) {
-		t.Fatalf("max_agents = %v, want 11", got)
+	if got := body["max_agents"]; got != float64(18) {
+		t.Fatalf("max_agents = %v, want 18", got)
 	}
 }

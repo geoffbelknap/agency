@@ -15,6 +15,7 @@ import (
 
 	apimissions "github.com/geoffbelknap/agency/internal/api/missions"
 	"github.com/geoffbelknap/agency/internal/events"
+	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/models"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
@@ -429,7 +430,7 @@ func (h *handler) startAgent(w http.ResponseWriter, r *http.Request) {
 		Version:     h.deps.Config.Version,
 		SourceDir:   h.deps.Config.SourceDir,
 		BuildID:     h.deps.Config.BuildID,
-		BackendName: h.deps.Config.Hub.DeploymentBackend,
+		BackendName: hostruntimebackend.NormalizeRuntimeBackend(h.deps.Config.Hub.DeploymentBackend),
 		Backend:     h.deps.RuntimeHost,
 		Comms:       h.deps.Comms,
 		Log:         h.deps.Logger,
@@ -554,7 +555,7 @@ func (h *handler) restartAgent(w http.ResponseWriter, r *http.Request) {
 		Version:     h.deps.Config.Version,
 		SourceDir:   h.deps.Config.SourceDir,
 		BuildID:     h.deps.Config.BuildID,
-		BackendName: h.deps.Config.Hub.DeploymentBackend,
+		BackendName: hostruntimebackend.NormalizeRuntimeBackend(h.deps.Config.Hub.DeploymentBackend),
 		Backend:     h.deps.RuntimeHost,
 		Comms:       h.deps.Comms,
 		Log:         h.deps.Logger,

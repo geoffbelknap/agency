@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	goruntime "runtime"
-	"strings"
 
 	"log/slog"
 
@@ -58,14 +56,7 @@ func Startup(cfg *config.Config, dc *runtimehost.Client, logger *slog.Logger) (*
 }
 
 func StartupWithInfraClient(cfg *config.Config, dc, infraDC *runtimehost.Client, logger *slog.Logger) (*StartupResult, error) {
-	backendName := cfg.Hub.DeploymentBackend
-	if strings.TrimSpace(backendName) == "" {
-		if goruntime.GOOS == "darwin" {
-			backendName = hostruntimebackend.BackendAppleVFMicroVM
-		} else {
-			backendName = hostruntimebackend.BackendFirecracker
-		}
-	}
+	backendName := hostruntimebackend.NormalizeRuntimeBackend(cfg.Hub.DeploymentBackend)
 	if dc == nil && runtimehost.IsContainerBackend(backendName) {
 		return nil, fmt.Errorf("%s client is required", runtimehost.NormalizeContainerBackend(backendName))
 	}

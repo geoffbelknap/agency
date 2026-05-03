@@ -90,7 +90,7 @@ func TestRuntimeSupervisorCompileProducesBackendNeutralTransport(t *testing.T) {
 		t.Fatalf("backend = %q, want %q", spec.Backend, defaultRuntimeBackend())
 	}
 	wantTransport := runtimecontract.TransportTypeLoopbackHTTP
-	if defaultRuntimeBackend() == hostruntimebackend.BackendFirecracker || defaultRuntimeBackend() == hostruntimebackend.BackendAppleVFMicroVM {
+	if defaultRuntimeBackend() == hostruntimebackend.BackendFirecracker || defaultRuntimeBackend() == hostruntimebackend.BackendAppleVFMicroVM || defaultRuntimeBackend() == hostruntimebackend.BackendMicroagent {
 		wantTransport = runtimecontract.TransportTypeVsockHTTP
 	}
 	if spec.Transport.Enforcer.Type != wantTransport {
