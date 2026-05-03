@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
 )
 
@@ -24,12 +23,10 @@ func (inf *Infra) hostWebEnabled() bool {
 	case "0", "false", "no", "off":
 		return false
 	}
-	switch strings.TrimSpace(inf.RuntimeBackendName) {
-	case hostruntimebackend.BackendFirecracker, hostruntimebackend.BackendAppleVFMicroVM:
+	if hostServiceRuntimeBackend(inf.RuntimeBackendName) {
 		return true
-	default:
-		return false
 	}
+	return false
 }
 
 func (inf *Infra) ensureHostWeb(ctx context.Context) error {

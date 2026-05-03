@@ -113,7 +113,7 @@ func (h *handler) containerBackendRequired(w http.ResponseWriter) bool {
 
 func (h *handler) hostInfraLifecycleAvailable(backend string) bool {
 	switch strings.TrimSpace(backend) {
-	case hostruntimebackend.BackendFirecracker, hostruntimebackend.BackendAppleVFMicroVM:
+	case hostruntimebackend.BackendFirecracker, hostruntimebackend.BackendAppleVFMicroVM, hostruntimebackend.BackendMicroagent:
 		return true
 	default:
 		return false

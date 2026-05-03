@@ -206,9 +206,13 @@ func (b *AppleVFMicroVMRuntimeBackend) appleVFOCIImageRef(imageRef string) (stri
 }
 
 func validateAppleVFOCIImageRef(imageRef string) (string, error) {
+	return validateMicroVMOCIImageRef("apple-vf-microvm", imageRef)
+}
+
+func validateMicroVMOCIImageRef(backend, imageRef string) (string, error) {
 	imageRef = strings.TrimSpace(imageRef)
 	if strings.HasSuffix(imageRef, ":latest") {
-		return "", fmt.Errorf("apple-vf-microvm rootfs OCI artifact must not use mutable :latest tag: %s", imageRef)
+		return "", fmt.Errorf("%s rootfs OCI artifact must not use mutable :latest tag: %s", backend, imageRef)
 	}
 	return imageRef, nil
 }

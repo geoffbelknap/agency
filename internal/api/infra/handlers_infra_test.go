@@ -91,7 +91,7 @@ func TestInfraUp_NonDockerBackendReturnsBackendSpecificUnavailable(t *testing.T)
 }
 
 func TestInfraLogs_MicroVMBackendsReadHostInfraLog(t *testing.T) {
-	for _, backend := range []string{"firecracker", "apple-vf-microvm"} {
+	for _, backend := range []string{"firecracker", "apple-vf-microvm", "microagent"} {
 		t.Run(backend, func(t *testing.T) {
 			testInfraLogsMicroVMBackendReadsHostInfraLog(t, backend)
 		})
