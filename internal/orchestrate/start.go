@@ -18,6 +18,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/comms"
 	"github.com/geoffbelknap/agency/internal/config"
 	"github.com/geoffbelknap/agency/internal/credstore"
+	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/models"
 	runtimecontract "github.com/geoffbelknap/agency/internal/runtime/contract"
@@ -593,7 +594,7 @@ func (ss *StartSequence) loadCapacityHubConfig() (string, map[string]string) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return "", nil
 	}
-	return cfg.Hub.DeploymentBackend, cfg.Hub.DeploymentBackendConfig
+	return hostruntimebackend.NormalizeRuntimeBackend(cfg.Hub.DeploymentBackend), cfg.Hub.DeploymentBackendConfig
 }
 
 func (ss *StartSequence) countRunningRuntimeAgents(ctx context.Context) int {

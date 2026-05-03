@@ -72,13 +72,9 @@ func backendConnectionDetails(cfg *config.Config) (string, string) {
 
 func configuredRuntimeBackend(cfg *config.Config) string {
 	if cfg != nil && strings.TrimSpace(cfg.Hub.DeploymentBackend) != "" {
-		backend := strings.TrimSpace(cfg.Hub.DeploymentBackend)
-		if backend == hostruntimebackend.BackendAppleVFMicroVM || backend == hostruntimebackend.BackendFirecracker || backend == "auto" {
-			return hostruntimebackend.BackendMicroagent
-		}
-		return backend
+		return hostruntimebackend.NormalizeRuntimeBackend(cfg.Hub.DeploymentBackend)
 	}
-	return hostruntimebackend.BackendMicroagent
+	return hostruntimebackend.DefaultRuntimeBackend()
 }
 
 func configuredRuntimeBackendConfig(cfg *config.Config) map[string]string {

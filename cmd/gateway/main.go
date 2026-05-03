@@ -649,21 +649,11 @@ func localWebURLForHost(host string) string {
 }
 
 func defaultRuntimeBackendForHost() string {
-	return hostruntimebackend.BackendMicroagent
+	return hostruntimebackend.DefaultRuntimeBackend()
 }
 
 func normalizeRuntimeBackendName(name string) string {
-	name = strings.TrimSpace(strings.ToLower(name))
-	if name == "" {
-		return defaultRuntimeBackendForHost()
-	}
-	if name == "auto" || name == hostruntimebackend.BackendFirecracker || name == hostruntimebackend.BackendAppleVFMicroVM {
-		return hostruntimebackend.BackendMicroagent
-	}
-	if name == hostruntimebackend.BackendMicroagent {
-		return name
-	}
-	return runtimehost.NormalizeContainerBackend(name)
+	return hostruntimebackend.NormalizeRuntimeBackend(name)
 }
 
 func selectRuntimeBackend(override string) (string, map[string]string, error) {
@@ -1028,7 +1018,7 @@ func runSetup(provider, apiKey, notifyURL, backend string, backendCfg map[string
 	capacityBackend, capacityBackendCfg := backend, backendCfg
 	if capacityBackend == "" {
 		cfg := config.Load()
-		capacityBackend = cfg.Hub.DeploymentBackend
+		capacityBackend = normalizeRuntimeBackendName(cfg.Hub.DeploymentBackend)
 		capacityBackendCfg = cfg.Hub.DeploymentBackendConfig
 	}
 	capCfg, capErr := orchestrate.ProfileHostForRuntime(hasEmbeddings, capacityBackend, capacityBackendCfg)

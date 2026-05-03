@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -25,12 +24,7 @@ import (
 )
 
 func defaultRuntimeBackend() string {
-	switch runtime.GOOS {
-	case "darwin":
-		return hostruntimebackend.BackendAppleVFMicroVM
-	default:
-		return hostruntimebackend.BackendFirecracker
-	}
+	return hostruntimebackend.DefaultRuntimeBackend()
 }
 
 type RuntimeSupervisor struct {

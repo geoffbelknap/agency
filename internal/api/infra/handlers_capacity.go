@@ -3,7 +3,6 @@ package infra
 import (
 	"net/http"
 	"path/filepath"
-	goruntime "runtime"
 
 	hostruntimebackend "github.com/geoffbelknap/agency/internal/hostadapter/runtimebackend"
 	"github.com/geoffbelknap/agency/internal/hostadapter/runtimehost"
@@ -94,16 +93,10 @@ func (h *handler) capacityRuntimeConfig() (string, map[string]string) {
 	if h.deps.Config == nil {
 		return defaultCapacityRuntimeBackend(), nil
 	}
-	backend := h.deps.Config.Hub.DeploymentBackend
-	if backend == "" {
-		backend = defaultCapacityRuntimeBackend()
-	}
+	backend := hostruntimebackend.NormalizeRuntimeBackend(h.deps.Config.Hub.DeploymentBackend)
 	return backend, h.deps.Config.Hub.DeploymentBackendConfig
 }
 
 func defaultCapacityRuntimeBackend() string {
-	if goruntime.GOOS == "darwin" {
-		return hostruntimebackend.BackendAppleVFMicroVM
-	}
-	return hostruntimebackend.BackendFirecracker
+	return hostruntimebackend.DefaultRuntimeBackend()
 }

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	goruntime "runtime"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -75,12 +74,9 @@ func RegisterRoutes(r chi.Router, d Deps) {
 
 func (h *handler) configuredBackend() string {
 	if h.deps.Config != nil && strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend) != "" {
-		return strings.TrimSpace(h.deps.Config.Hub.DeploymentBackend)
+		return hostruntimebackend.NormalizeRuntimeBackend(h.deps.Config.Hub.DeploymentBackend)
 	}
-	if goruntime.GOOS == "darwin" {
-		return hostruntimebackend.BackendAppleVFMicroVM
-	}
-	return hostruntimebackend.BackendFirecracker
+	return hostruntimebackend.DefaultRuntimeBackend()
 }
 
 // containerBackendRequired returns true when container-backed infra control is available.
@@ -112,8 +108,8 @@ func (h *handler) containerBackendRequired(w http.ResponseWriter) bool {
 }
 
 func (h *handler) hostInfraLifecycleAvailable(backend string) bool {
-	switch strings.TrimSpace(backend) {
-	case hostruntimebackend.BackendFirecracker, hostruntimebackend.BackendAppleVFMicroVM, hostruntimebackend.BackendMicroagent:
+	switch hostruntimebackend.NormalizeRuntimeBackend(backend) {
+	case hostruntimebackend.BackendMicroagent:
 		return true
 	default:
 		return false

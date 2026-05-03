@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	goruntime "runtime"
 	"strings"
 	"time"
 
@@ -57,12 +56,9 @@ func registerMCPTools(reg *MCPToolRegistry) {
 
 func mcpConfiguredRuntimeBackend(d *mcpDeps) string {
 	if d != nil && d.cfg != nil && strings.TrimSpace(d.cfg.Hub.DeploymentBackend) != "" {
-		return strings.TrimSpace(d.cfg.Hub.DeploymentBackend)
+		return hostruntimebackend.NormalizeRuntimeBackend(d.cfg.Hub.DeploymentBackend)
 	}
-	if goruntime.GOOS == "darwin" {
-		return hostruntimebackend.BackendAppleVFMicroVM
-	}
-	return hostruntimebackend.BackendFirecracker
+	return hostruntimebackend.DefaultRuntimeBackend()
 }
 
 func mcpContainerInfraUnavailable(d *mcpDeps) (string, bool) {
