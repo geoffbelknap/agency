@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -193,8 +194,9 @@ func quickstartCmd() *cobra.Command {
 	opts := quickstartOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "quickstart",
-		Short: "Set up Agency from scratch in one command",
+		Use:           "quickstart",
+		Short:         "Set up Agency from scratch in one command",
+		SilenceErrors: true,
 		Long: `Quickstart walks you through standing up Agency end-to-end:
 
   1. Checks your runtime environment
@@ -401,6 +403,28 @@ func shouldRestartGatewayForQuickstart(gatewayRunning, configExistedBefore bool,
 	return gatewayRunning && (!configExistedBefore || len(pendingKeys) > 0)
 }
 
+func quickstartRuntimeNotReadyMessage() string {
+	switch runtime.GOOS {
+	case "linux":
+		return "Agency cannot start the Linux microVM runtime yet."
+	case "darwin":
+		return "Agency cannot start the macOS microVM runtime yet."
+	default:
+		return "Agency cannot start the microVM runtime yet."
+	}
+}
+
+func quickstartRuntimeErrorDetails(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	if idx := strings.IndexByte(msg, '\n'); idx >= 0 {
+		return strings.TrimRight(msg[idx+1:], "\n")
+	}
+	return ""
+}
+
 func isHubInstallAlreadyExists(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "already exists")
 }
@@ -441,7 +465,10 @@ func runQuickstart(opts quickstartOptions) error {
 	if err := ensureMicroVMRuntimeArtifacts(context.Background(), backendName, backendCfg, func(format string, args ...any) {
 		fmt.Printf("  %s environment     %s\n", qsCyan.Render("•"), fmt.Sprintf(format, args...))
 	}); err != nil {
-		fmt.Printf("  %s environment     %s\n", qsRed.Render("✗"), err)
+		fmt.Printf("  %s environment     %s\n", qsRed.Render("✗"), quickstartRuntimeNotReadyMessage())
+		if details := quickstartRuntimeErrorDetails(err); details != "" {
+			fmt.Println(details)
+		}
 		fmt.Println()
 		fmt.Println("Run `microagent doctor` after fixing the reported issue, then run `agency quickstart` again.")
 		return err

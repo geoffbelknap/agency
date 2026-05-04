@@ -54,11 +54,19 @@ On Linux, the supported backend is Firecracker. Check KVM and vsock access:
 
 ```bash
 test -r /dev/kvm && test -w /dev/kvm
-test -r /dev/vhost-vsock && test -w /dev/vhost-vsock
+microagent doctor
 ```
 
-If those fail, add the operator account to the `kvm` group or grant explicit
-device ACLs, then restart the Agency daemon.
+If `/dev/kvm` is owned by `root:kvm` and the access test fails, add the
+operator account to the `kvm` group:
+
+```bash
+sudo usermod -aG kvm $USER
+```
+
+Then start a new login session and restart the Agency daemon. On WSL2, run
+`wsl.exe --shutdown` from Windows, reopen the distro, then run
+`id && microagent doctor && agency admin doctor`.
 
 On macOS Apple silicon, microagent uses Apple's Virtualization framework.
 
