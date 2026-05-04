@@ -127,6 +127,13 @@ TOOL_ANNOUNCEMENT_PATTERNS = (
     ),
 )
 DATE_REQUEST_RE = re.compile(r"\b(date|dated|filed|released|release date|as of|as-of)\b", re.IGNORECASE)
+PLAIN_TODAY_DATE_RE = re.compile(
+    r"^\s*(?:what(?:'s| is)|tell me|give me)\s+"
+    r"(?:(?:today(?:'s)?|the current)\s+)?date\b"
+    r"(?:[?.!])?"
+    r"(?:\s+reply\b.*)?\s*$",
+    re.IGNORECASE,
+)
 ABSOLUTE_DATE_RE = re.compile(
     r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
     r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|"
@@ -1790,6 +1797,12 @@ class PactEvaluator:
                 "operator_blocked",
                 requires_action=True,
                 reason="explicit blocker or missing-operator-input signal",
+            )
+        if PLAIN_TODAY_DATE_RE.search(text):
+            return self.build_contract(
+                "chat",
+                requires_action=False,
+                reason="plain platform-date question",
             )
         if CURRENT_INFO_RE.search(text):
             extra_answer_requirements = []
