@@ -28,11 +28,17 @@ ROOT_PACKAGES = {
     # Egress proxy runtime.
     "mitmproxy": "egress proxy addon host",
     "mitmproxy-macos": "mitmproxy macOS support package",
+    "mitmproxy-linux": "mitmproxy Linux support package",
 
     # Enabled optional capabilities.
     "networkx": "knowledge graph analysis when available",
     "pyjwt": "GitHub App credential swap handler when configured",
     "sqlite-vec": "knowledge vector search when available",
+}
+
+PLATFORM_ROOT_PACKAGES = {
+    "darwin": {"mitmproxy-macos"},
+    "linux": {"mitmproxy-linux"},
 }
 
 KNOWN_OPTIONAL_IMPORTS = {
@@ -125,11 +131,19 @@ def main() -> int:
         type=Path,
         help="Python service source root to scan for known optional imports",
     )
+    parser.add_argument(
+        "--target-os",
+        choices=sorted(PLATFORM_ROOT_PACKAGES),
+        help="target OS for platform-specific runtime roots",
+    )
     args = parser.parse_args()
 
     requirements = load_requirements(args.requirements)
     installed = installed_distributions()
     roots = set(ROOT_PACKAGES)
+    roots -= set().union(*PLATFORM_ROOT_PACKAGES.values())
+    if args.target_os:
+        roots |= PLATFORM_ROOT_PACKAGES[args.target_os]
 
     missing_installed = sorted(requirements - set(installed))
     missing_roots = sorted(roots - set(installed))
