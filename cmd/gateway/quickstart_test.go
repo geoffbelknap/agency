@@ -162,6 +162,21 @@ func TestQuickstartRestartDecision(t *testing.T) {
 	}
 }
 
+func TestQuickstartRuntimeErrorDetails(t *testing.T) {
+	err := assertErr("microagent runtime artifacts are not ready\n  - KVM device access: fix it")
+	got := quickstartRuntimeErrorDetails(err)
+	want := "  - KVM device access: fix it"
+	if got != want {
+		t.Fatalf("quickstartRuntimeErrorDetails() = %q, want %q", got, want)
+	}
+}
+
+func TestQuickstartRuntimeErrorDetailsWithoutDetails(t *testing.T) {
+	if got := quickstartRuntimeErrorDetails(assertErr("runtime artifacts are not ready")); got != "" {
+		t.Fatalf("quickstartRuntimeErrorDetails() = %q, want empty", got)
+	}
+}
+
 func TestHubInstallAlreadyExists(t *testing.T) {
 	if !isHubInstallAlreadyExists(assertErr("create instance: instance with name \"gemini\" already exists (id=9ac2cbab)")) {
 		t.Fatal("already exists hub install error should be treated as idempotent success")
