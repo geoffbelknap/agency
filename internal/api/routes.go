@@ -152,6 +152,7 @@ func RegisterSocketRoutes(r chi.Router, cfg *config.Config, dc *runtimehost.Clie
 		Signal:          signalSenderFor(dc),
 		Runtime:         runtimeExecClientFor(dc),
 		RuntimeHost:     dc,
+		Infra:           startup.Infra,
 	})
 
 	// Infra routes on the socket (subset: status + internal LLM only)
@@ -293,6 +294,7 @@ func RegisterAll(r chi.Router, cfg *config.Config, dc *runtimehost.Client, logge
 		Signal:          signalSenderFor(dc),
 		Runtime:         runtimeExecClientFor(dc),
 		RuntimeHost:     dc,
+		Infra:           startup.Infra,
 	})
 
 	// MCP tools

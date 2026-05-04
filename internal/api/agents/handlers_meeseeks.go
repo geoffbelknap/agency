@@ -87,9 +87,9 @@ func (h *handler) spawnMeeseeks(w http.ResponseWriter, r *http.Request) {
 
 	// Capacity pre-flight: reject early if no resource slots available.
 	capPath := filepath.Join(h.deps.Config.Home, "capacity.yaml")
-	capCfg, capErr := orchestrate.LoadCapacity(capPath)
+	capCfg, capErr := orchestrate.LoadOrProfileCapacity(capPath, false, h.deps.Config.Hub.DeploymentBackend, h.deps.Config.Hub.DeploymentBackendConfig)
 	if capErr != nil {
-		writeJSON(w, 503, map[string]string{"error": "capacity config not found — run agency setup to profile host resources"})
+		writeJSON(w, 503, map[string]string{"error": "capacity config not available: " + capErr.Error()})
 		return
 	}
 	agentCount, meeseeksCount := h.countRunningSlots(r.Context())

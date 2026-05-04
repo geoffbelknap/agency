@@ -114,6 +114,18 @@ func TestDefaultModelTier(t *testing.T) {
 	}
 }
 
+func TestCheckCapacityProfilesMissingConfig(t *testing.T) {
+	home := t.TempDir()
+	ss := &StartSequence{Home: home}
+
+	if err := ss.checkCapacity(context.Background()); err != nil {
+		t.Fatalf("checkCapacity returned error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "capacity.yaml")); err != nil {
+		t.Fatalf("expected capacity.yaml to be created: %v", err)
+	}
+}
+
 func TestPhase3ConstraintsFailsWhenNoCredentialedModelResolves(t *testing.T) {
 	home := t.TempDir()
 	agentName := "alpha"

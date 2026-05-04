@@ -40,15 +40,18 @@ func TestCapacity_MissingFile(t *testing.T) {
 
 	h.infraCapacity(rec, req)
 
-	if rec.Code != 503 {
-		t.Fatalf("expected 503, got %d", rec.Code)
+	if rec.Code != 200 {
+		t.Fatalf("expected 200, got %d", rec.Code)
 	}
-	var body map[string]string
+	var body map[string]interface{}
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if body["error"] == "" {
-		t.Error("expected non-empty error field")
+	if body["max_agents"].(float64) <= 0 {
+		t.Fatalf("expected profiled max_agents > 0, got %v", body["max_agents"])
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "capacity.yaml")); err != nil {
+		t.Fatalf("expected capacity.yaml to be created: %v", err)
 	}
 }
 

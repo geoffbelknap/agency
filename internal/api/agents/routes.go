@@ -68,6 +68,9 @@ type Deps struct {
 	// RuntimeHost is required for StartSequence backend orchestration.
 	// It is used only by start/restart handlers.
 	RuntimeHost *runtimehost.Client
+	// Infra is used by start/restart to make direct CLI starts work without a
+	// separate `agency infra up` step.
+	Infra *orchestrate.Infra
 }
 
 type handler struct {

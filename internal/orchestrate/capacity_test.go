@@ -1,6 +1,7 @@
 package orchestrate
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -98,6 +99,22 @@ func TestLoadCapacity_Missing(t *testing.T) {
 	_, err := LoadCapacity(filepath.Join(t.TempDir(), "nonexistent.yaml"))
 	if err == nil {
 		t.Fatal("expected error for missing file")
+	}
+}
+
+func TestLoadOrProfileCapacity_MissingCreatesFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested", "capacity.yaml")
+
+	cfg, err := LoadOrProfileCapacity(path, false, "microagent", nil)
+	if err != nil {
+		t.Fatalf("LoadOrProfileCapacity returned error: %v", err)
+	}
+	if cfg.MaxAgents <= 0 {
+		t.Fatalf("MaxAgents = %d, want > 0", cfg.MaxAgents)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected capacity file to be written: %v", err)
 	}
 }
 
