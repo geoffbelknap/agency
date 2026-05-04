@@ -227,6 +227,46 @@ func TestTranslateRequestToolCalls(t *testing.T) {
 	}
 }
 
+func TestTranslateRequestDropsOpenAIOnlyMessageFields(t *testing.T) {
+	openai := map[string]interface{}{
+		"model": "claude-sonnet-4-20250514",
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": "What is today's date?", "name": "operator"},
+			map[string]interface{}{
+				"role":        "assistant",
+				"content":     "I need to answer the operator.",
+				"stop_reason": "end_turn",
+			},
+			map[string]interface{}{"role": "user", "content": "Reply in the DM."},
+		},
+	}
+	body, _ := json.Marshal(openai)
+	result, err := translateToAnthropic(body, true)
+	if err != nil {
+		t.Fatalf("translation failed: %v", err)
+	}
+	var req map[string]interface{}
+	if err := json.Unmarshal(result, &req); err != nil {
+		t.Fatalf("decode translated request: %v", err)
+	}
+	msgs := req["messages"].([]interface{})
+	if len(msgs) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(msgs))
+	}
+	for i, raw := range msgs {
+		msg := raw.(map[string]interface{})
+		if _, ok := msg["stop_reason"]; ok {
+			t.Fatalf("message %d leaked stop_reason: %#v", i, msg)
+		}
+		if _, ok := msg["name"]; ok {
+			t.Fatalf("message %d leaked name: %#v", i, msg)
+		}
+		if _, ok := msg["content"]; !ok {
+			t.Fatalf("message %d missing content: %#v", i, msg)
+		}
+	}
+}
+
 func TestTranslateResponseBasic(t *testing.T) {
 	anthropic := `{
 		"id": "msg_123",
