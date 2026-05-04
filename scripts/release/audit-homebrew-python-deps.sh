@@ -25,6 +25,7 @@ detect_target() {
 }
 
 TARGET="${TARGET:-$(detect_target)}"
+TARGET_OS="${TARGET%%-*}"
 WHEELHOUSE_DIR="${WHEELHOUSE_DIR:-$ROOT_DIR/.release/homebrew-python-wheelhouses/$TARGET}"
 REQ_FILE="${REQ_FILE:-$ROOT_DIR/.release/homebrew-python-wheelhouses/requirements-$TARGET.txt}"
 
@@ -42,4 +43,5 @@ python3 -m venv "$VENV_DIR"
 "$VENV_DIR/bin/python" -m pip check
 "$VENV_DIR/bin/python" "$ROOT_DIR/scripts/release/audit-homebrew-python-deps.py" \
   --requirements "$REQ_FILE" \
-  --source-root "$ROOT_DIR/services"
+  --source-root "$ROOT_DIR/services" \
+  --target-os "$TARGET_OS"

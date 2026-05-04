@@ -31,8 +31,26 @@ build_wheelhouse() {
       }
       next
     }
+    /^mitmproxy-linux==/ {
+      if (target_os == "linux") {
+        sub(/[[:space:]]*;.*/, "")
+        print
+      }
+      next
+    }
     { print }
   ' "$REQ_FILE" > "$target_req"
+
+  case "$os" in
+    darwin)
+      grep -q '^mitmproxy-macos==' "$target_req"
+      ! grep -q '^mitmproxy-linux==' "$target_req"
+      ;;
+    linux)
+      grep -q '^mitmproxy-linux==' "$target_req"
+      ! grep -q '^mitmproxy-macos==' "$target_req"
+      ;;
+  esac
 
   IFS=',' read -r -a platform_args_raw <<< "$platforms"
   for platform in "${platform_args_raw[@]}"; do

@@ -58,8 +58,8 @@ jobs:
         id: homebrew-python-wheelhouses
         run: ./scripts/release/build-homebrew-python-wheelhouses.sh
 
-      - name: Audit Homebrew Python dependencies
-        run: ./scripts/release/audit-homebrew-python-deps.sh
+      - name: Audit Homebrew Python wheelhouses
+        run: ./scripts/release/audit-homebrew-python-wheelhouses.sh
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
