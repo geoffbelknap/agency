@@ -268,13 +268,9 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
     def add(name: str, passed: bool, points: int, detail: str) -> None:
         checks.append(Check(name=name, passed=passed, points=points if passed else 0, detail=detail))
 
-    add("progress_phase", diagnosis.phase not in {
-        "task_not_delivered",
-        "task_skipped",
-        "task_delivered_runtime_not_ready",
-        "task_delivered_no_observable_loop",
-        "loop_error",
-        "loop_started_no_terminal",
+    add("progress_phase", diagnosis.phase in {
+        "terminal_outcome_observed",
+        "agent_response_observed",
     }, 20, f"{diagnosis.phase}: {diagnosis.detail}")
 
     expected_contract = expect.get("contract")
@@ -339,11 +335,11 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
         add("forbidden_text", not found, 10, f"found {found}" if found else "no forbidden text found")
 
     forbidden_response_text = [str(v).lower() for v in listify(expect.get("forbidden_response_text"))]
-    if forbidden_response_text:
+    if forbidden_response_text and response is not None:
         found = [v for v in forbidden_response_text if v in response_text]
         add("forbidden_response_text", not found, 10, f"found {found}" if found else "no forbidden response text found")
 
-    if response is not None or expect.get("answer_quality") is True:
+    if response is not None:
         response_words = response_text.split()
         concise = bool(response_text.strip()) and len(response_words) <= int(expect.get("max_response_words") or 120)
         add("concise_answer", concise, 10, f"word_count={len(response_words)}")
@@ -361,6 +357,9 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
         unsupported_tool_claim = tool_claim and not TOOL_EVIDENCE_RE.search(corpus)
         detail = "no tool-use claim" if not tool_claim else "tool claim has trace evidence"
         add("no_unsupported_tool_claim", not unsupported_tool_claim, 15, detail if not unsupported_tool_claim else "tool claim without trace evidence")
+    elif expect.get("answer_quality") is True:
+        add("concise_answer", False, 10, "no response observed")
+        add("direct_answer", False, 10, "no response observed")
 
     max_turns = expect.get("max_turns")
     if isinstance(max_turns, int):
@@ -386,14 +385,17 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
     if total_possible == 0:
         return 0, checks
     score = round(sum(c.points for c in checks) * 100 / total_possible)
-    if isinstance(trace.get("live"), dict) and diagnosis.phase in {
-        "task_not_delivered",
-        "task_skipped",
-        "task_delivered_runtime_not_ready",
-        "task_delivered_no_observable_loop",
-        "loop_error",
-        "loop_started_no_terminal",
-    }:
+    if isinstance(trace.get("live"), dict) and (
+        latest_agent_response(trace, agent_prefix) is None
+        or diagnosis.phase in {
+            "task_not_delivered",
+            "task_skipped",
+            "task_delivered_runtime_not_ready",
+            "task_delivered_no_observable_loop",
+            "loop_error",
+            "loop_started_no_terminal",
+        }
+    ):
         score = 0
     return score, checks
 
