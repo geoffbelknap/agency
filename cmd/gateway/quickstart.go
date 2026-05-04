@@ -193,8 +193,9 @@ func quickstartCmd() *cobra.Command {
 	opts := quickstartOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "quickstart",
-		Short: "Set up Agency from scratch in one command",
+		Use:           "quickstart",
+		Short:         "Set up Agency from scratch in one command",
+		SilenceErrors: true,
 		Long: `Quickstart walks you through standing up Agency end-to-end:
 
   1. Checks your runtime environment
