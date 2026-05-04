@@ -432,6 +432,13 @@ func microagentDoctorCheck(ctx context.Context, cfg *config.Config) doctorCheckR
 			Fix:    "run microagent doctor and fix the reported host issue",
 		}
 	}
+	if err := hostruntimebackend.CheckLinuxKVMAccess(); err != nil {
+		return doctorCheckResult{
+			Name: "microagent_kvm_access", Scope: "backend", Backend: hostruntimebackend.BackendMicroagent, Status: "fail",
+			Detail: err.Error(),
+			Fix:    hostruntimebackend.LinuxKVMAccessFix(),
+		}
+	}
 	kernel := strings.TrimSpace(body.Kernel.Status)
 	if kernel == "" {
 		kernel = "unknown"

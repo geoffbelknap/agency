@@ -59,6 +59,47 @@ sudo_cmd() {
   fi
 }
 
+is_linux() {
+	[ "$(uname -s 2>/dev/null || true)" = "Linux" ]
+}
+
+is_wsl() {
+	is_linux || return 1
+	if [ -r /proc/version ]; then
+		grep -qiE 'microsoft|wsl' /proc/version
+	else
+		return 1
+	fi
+}
+
+print_kvm_access_advisory() {
+	is_linux || return 0
+	if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+		return 0
+	fi
+
+	printf '\n[host-deps] Agency runtime notice: the current user cannot open /dev/kvm read/write.\n' >&2
+	printf '[host-deps] microagent uses Firecracker on Linux/WSL, so agents will not start until KVM access is fixed.\n' >&2
+	if [ ! -e /dev/kvm ]; then
+		printf '[host-deps] /dev/kvm is not present. Enable virtualization/KVM for this host, then rerun agency admin doctor.\n' >&2
+	else
+		owner="$(stat -c '%U:%G %a' /dev/kvm 2>/dev/null || ls -l /dev/kvm 2>/dev/null || true)"
+		[ -n "$owner" ] && printf '[host-deps] Current /dev/kvm permissions: %s\n' "$owner" >&2
+		user_name="${SUDO_USER:-${USER:-$(id -un 2>/dev/null || true)}}"
+		if getent group kvm >/dev/null 2>&1 && [ -n "$user_name" ]; then
+			printf '[host-deps] Run: sudo usermod -aG kvm %s\n' "$user_name" >&2
+		else
+			printf '[host-deps] Add the operator account to the group that owns /dev/kvm, or grant an explicit device ACL.\n' >&2
+		fi
+	fi
+	if is_wsl; then
+		printf '[host-deps] Then run from Windows: wsl.exe --shutdown\n' >&2
+		printf '[host-deps] Reopen the distro and verify with: id && microagent doctor && agency admin doctor\n\n' >&2
+	else
+		printf '[host-deps] Then start a new login session and verify with: id && microagent doctor && agency admin doctor\n\n' >&2
+	fi
+}
+
 missing_tools() {
 	missing=()
 	if [ ! -x "$VENV_MITMDUMP" ]; then
@@ -278,6 +319,7 @@ done
 read_missing_tools
 if [ "${#missing[@]}" -eq 0 ] && venv_ready && web_deps_ready; then
 	log "host dependencies are present"
+	print_kvm_access_advisory
 	exit 0
 fi
 
@@ -311,6 +353,7 @@ case "$MODE" in
 		else
 			printf 'and install web dependencies in %s\n' "$WEB_DIR" >&2
 		fi
+		print_kvm_access_advisory
 		exit 1
 		;;
 	dry-run)
@@ -326,6 +369,7 @@ case "$MODE" in
 		elif [ -f "$WEB_DIR/package.json" ]; then
 			printf 'web dependencies: %s\n' "$WEB_DIR"
 		fi
+		print_kvm_access_advisory
 		exit 0
 		;;
 esac
@@ -352,3 +396,4 @@ if [ "${#missing_after[@]}" -gt 0 ] || ! venv_ready || ! web_deps_ready; then
 	exit 1
 fi
 log "host dependencies are present"
+print_kvm_access_advisory

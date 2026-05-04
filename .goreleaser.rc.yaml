@@ -26,6 +26,20 @@ builds:
       - -X main.commit={{.Commit}}
       - -X main.date={{.Date}}
       - -X main.buildID={{.ShortCommit}}
+  - id: agency-enforcer-host
+    dir: ./images/enforcer
+    main: .
+    binary: agency-enforcer-host
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
 
 archives:
   - id: default
@@ -72,54 +86,79 @@ brews:
     conflicts:
       - agency
     dependencies:
+      - name: geoffbelknap/tap/microagent-kit
       - name: python@3.14
       - name: e2fsprogs
     custom_block: |
-      on_macos do
-        on_arm do
-          resource "agency-apple-vf-helpers" do
-            url "https://github.com/geoffbelknap/agency/releases/download/agency-apple-vf-helpers-0.1.0-r1/agency-apple-vf-helpers-0.1.0-darwin-arm64.tar.gz"
-            sha256 "{{ .Env.AGENCY_APPLE_VF_HELPERS_DARWIN_ARM64_SHA256 }}"
+      include Language::Python::Virtualenv
+      preserve_rpath
+      skip_clean "libexec/venv"
+
+      resource "python-wheelhouse-darwin-arm64" do
+        on_macos do
+          if Hardware::CPU.arm?
+            url "https://github.com/geoffbelknap/agency/releases/download/v{{ .Version }}/agency-python-wheelhouse-darwin-arm64.tar.gz"
+            sha256 "{{ .Env.AGENCY_PYTHON_WHEELHOUSE_DARWIN_ARM64_SHA256 }}"
+          end
+        end
+      end
+
+      resource "python-wheelhouse-darwin-amd64" do
+        on_macos do
+          if Hardware::CPU.intel?
+            url "https://github.com/geoffbelknap/agency/releases/download/v{{ .Version }}/agency-python-wheelhouse-darwin-amd64.tar.gz"
+            sha256 "{{ .Env.AGENCY_PYTHON_WHEELHOUSE_DARWIN_AMD64_SHA256 }}"
+          end
+        end
+      end
+
+      resource "python-wheelhouse-linux-amd64" do
+        on_linux do
+          if Hardware::CPU.intel? && Hardware::CPU.is_64_bit?
+            url "https://github.com/geoffbelknap/agency/releases/download/v{{ .Version }}/agency-python-wheelhouse-linux-amd64.tar.gz"
+            sha256 "{{ .Env.AGENCY_PYTHON_WHEELHOUSE_LINUX_AMD64_SHA256 }}"
+          end
+        end
+      end
+
+      resource "python-wheelhouse-linux-arm64" do
+        on_linux do
+          if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
+            url "https://github.com/geoffbelknap/agency/releases/download/v{{ .Version }}/agency-python-wheelhouse-linux-arm64.tar.gz"
+            sha256 "{{ .Env.AGENCY_PYTHON_WHEELHOUSE_LINUX_ARM64_SHA256 }}"
           end
         end
       end
     extra_install: |
-      pkgshare.install "bin"
-      if OS.mac? && Hardware::CPU.arm?
-        resource("agency-apple-vf-helpers").stage do
-          (pkgshare/"bin").install Dir["bin/*"]
-        end
+      venv = virtualenv_create(libexec/"venv", "python3.14")
+      resources.find(&:url).stage do
+        venv.pip_install Pathname.glob("*.whl")
       end
+      (pkgshare/"bin").install_symlink bin/"agency-enforcer-host"
+      pkgshare.install "bin"
       pkgshare.install "images"
       pkgshare.install "services"
       pkgshare.install "scripts"
       pkgshare.install "web"
-    post_install: |
-      ENV["AGENCY_PYTHON_VENV"] = "#{libexec}/venv"
-      system "#{pkgshare}/scripts/install/host-dependencies.sh", "--skip-system-packages"
     caveats: |
       This formula installs the Agency release-candidate channel.
       It conflicts with the stable agency formula because both install `agency`.
 
-      Start here:
+      Start Agency with:
 
         agency quickstart
 
-      Runtime dependencies:
-        - python@3.14: host-managed infra services and egress Python environment
-        - e2fsprogs: mke2fs for microVM root filesystem creation
+      On Linux and WSL2, Agency uses microagent with Firecracker. `agency
+      quickstart` and `agency admin doctor` check whether the current user can
+      open /dev/kvm read/write. If either command reports KVM access failure,
+      run:
 
-      macOS Apple silicon Apple VF setup:
-        agency quickstart uses the packaged signed Apple VF helper bundle and
-        provisions the pinned Agency guest kernel when it is missing.
+        sudo usermod -aG kvm $USER
 
-      Linux and WSL Firecracker setup:
-        agency quickstart provisions the pinned Firecracker binary and Agency
-        guest kernel artifact when they are missing. To provision them explicitly:
+      On regular Linux, log out and back in so the new group membership is
+      applied. On WSL2 only, run this from Windows, then reopen the distro:
 
-          agency runtime provision firecracker
-
-      Quick start guide: https://github.com/geoffbelknap/agency#readme
+        wsl.exe --shutdown
     test: |
       system "#{bin}/agency", "--version"
 
@@ -127,5 +166,7 @@ release:
   github:
     owner: geoffbelknap
     name: agency
+  extra_files:
+    - glob: .release/homebrew-python-wheelhouses/agency-python-wheelhouse-*.tar.gz
   prerelease: auto
   name_template: "Agency v{{.Version}}"
