@@ -19,6 +19,7 @@ import (
 	"github.com/geoffbelknap/agency/internal/logs"
 	"github.com/geoffbelknap/agency/internal/orchestrate"
 	"github.com/geoffbelknap/agency/internal/profiles"
+	"github.com/geoffbelknap/agency/internal/runtimeconfig"
 )
 
 // StartupResult holds the initialized components from a successful Startup call.
@@ -129,7 +130,11 @@ func StartupWithInfraClient(cfg *config.Config, dc, infraDC *runtimehost.Client,
 		logger,
 		cs,
 	)
-	runtimeSupervisor.BackendConfig = cfg.Hub.DeploymentBackendConfig
+	runtimeSupervisor.BackendConfig = runtimeconfig.WithMicroVMArtifactConfig(backendName, cfg.Hub.DeploymentBackendConfig, runtimeconfig.ArtifactOptions{
+		Home:      cfg.Home,
+		SourceDir: cfg.SourceDir,
+		Version:   cfg.Version,
+	})
 	agents.Version = cfg.Version
 	agents.SourceDir = cfg.SourceDir
 	agents.BuildID = cfg.BuildID
