@@ -96,13 +96,22 @@ func translateMessage(msg map[string]interface{}) map[string]interface{} {
 	case "tool":
 		return translateToolMessage(msg)
 	default:
-		// user and other roles pass through
-		out := make(map[string]interface{})
-		for k, v := range msg {
-			out[k] = v
-		}
-		return out
+		return translatePlainMessage(msg, "user")
 	}
+}
+
+func translatePlainMessage(msg map[string]interface{}, fallbackRole string) map[string]interface{} {
+	role, _ := msg["role"].(string)
+	if role == "" {
+		role = fallbackRole
+	}
+	out := map[string]interface{}{"role": role}
+	if content, ok := msg["content"]; ok {
+		out["content"] = content
+	} else {
+		out["content"] = ""
+	}
+	return out
 }
 
 // translateAssistantMessage converts an assistant message. If it has tool_calls,
@@ -110,12 +119,7 @@ func translateMessage(msg map[string]interface{}) map[string]interface{} {
 func translateAssistantMessage(msg map[string]interface{}) map[string]interface{} {
 	toolCalls, hasToolCalls := msg["tool_calls"].([]interface{})
 	if !hasToolCalls {
-		// Plain assistant message, pass through
-		out := make(map[string]interface{})
-		for k, v := range msg {
-			out[k] = v
-		}
-		return out
+		return translatePlainMessage(msg, "assistant")
 	}
 
 	// Convert tool_calls to content array with tool_use blocks
