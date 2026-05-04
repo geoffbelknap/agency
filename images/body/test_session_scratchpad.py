@@ -17,6 +17,7 @@ def test_session_scratchpad_resolves_follow_up_against_recent_request():
 
     assert scratchpad.follow_up is True
     assert scratchpad.previous_user_request == "PLTR's more recent SEC filing"
+    assert "[SESSION_CONTEXT]" in section
     assert "active_entities: PLTR, SEC" in section
     assert "most_recent_user_request: PLTR's more recent SEC filing" in section
     assert "temporary session state" in section

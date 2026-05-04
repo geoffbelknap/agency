@@ -76,13 +76,13 @@ def test_chat_routes_to_trivial_direct_without_planner_or_approval():
     assert strategy.notes == ("reason:chat",)
 
 
-def test_grounded_chat_routes_to_tool_loop_without_planner_or_approval():
+def test_grounded_chat_routes_to_trivial_direct_without_planner_or_approval():
     strategy, _, _, _ = _strategy_for("chat", "Investigate this repository")
 
-    assert strategy.execution_mode == ExecutionMode.tool_loop
+    assert strategy.execution_mode == ExecutionMode.trivial_direct
     assert strategy.needs_planner is False
     assert strategy.needs_approval is False
-    assert strategy.notes == ("reason:grounded_informal_ask",)
+    assert strategy.notes == ("reason:chat",)
 
 
 def test_social_chat_still_routes_to_trivial_direct():
@@ -159,15 +159,15 @@ def test_grounded_operator_blocked_keeps_trivial_direct_route():
     assert strategy.notes == ("reason:operator_blocked",)
 
 
-def test_hank_replay_grounded_chat_routes_to_tool_loop():
+def test_hank_replay_chat_contract_routes_to_trivial_direct():
     content = "I want to see if you can help me out by investigating this github repository..."
     strategy, objective, _, _ = _strategy_for("chat", content)
 
     assert objective.generation_mode == "grounded"
-    assert strategy.execution_mode == ExecutionMode.tool_loop
+    assert strategy.execution_mode == ExecutionMode.trivial_direct
     assert strategy.needs_planner is False
     assert strategy.needs_approval is False
-    assert strategy.notes == ("reason:grounded_informal_ask",)
+    assert strategy.notes == ("reason:chat",)
 
 
 def test_current_info_at_medium_risk_routes_to_tool_loop():
@@ -299,7 +299,7 @@ def test_execution_state_attach_mission_rebuilds_objective_and_strategy():
     assert state.strategy.execution_mode == ExecutionMode.trivial_direct
 
 
-def test_execution_state_from_task_routes_hank_replay_to_tool_loop():
+def test_execution_state_from_task_routes_hank_replay_chat_contract_to_trivial_direct():
     content = "I want to see if you can help me out by investigating this github repository..."
     contract = _contract("chat", allowed_terminal_states=["completed"])
     state = ExecutionState.from_task(_task_with_contract(content, contract), agent="scout")
@@ -307,6 +307,6 @@ def test_execution_state_from_task_routes_hank_replay_to_tool_loop():
     assert state.objective is not None
     assert state.objective.generation_mode == "grounded"
     assert state.strategy is not None
-    assert state.strategy.execution_mode == ExecutionMode.tool_loop
+    assert state.strategy.execution_mode == ExecutionMode.trivial_direct
     assert state.strategy.needs_planner is False
-    assert state.strategy.notes == ("reason:grounded_informal_ask",)
+    assert state.strategy.notes == ("reason:chat",)

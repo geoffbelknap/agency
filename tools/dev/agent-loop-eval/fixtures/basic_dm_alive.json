@@ -1,0 +1,46 @@
+{
+  "id": "basic_dm_alive",
+  "description": "A casual direct DM should get a short coworker-style reply without exposing runtime machinery.",
+  "agent": {
+    "name_prefix": "loop-eval-alive",
+    "preset": "researcher"
+  },
+  "task": "you alive?",
+  "expect": {
+    "answer_quality": true,
+    "contract": "chat",
+    "route": "trivial_direct",
+    "verdict": "completed",
+    "max_turns": 1,
+    "max_agent_messages": 1,
+    "max_response_words": 20,
+    "required_response_text": ["here"],
+    "forbidden_response_text": ["PACT", "work contract", "execution mode", "scratchpad", "complete_task"]
+  },
+  "replay_trace": {
+    "messages": [
+      {
+        "author": "operator",
+        "content": "you alive?"
+      },
+      {
+        "author": "loop-eval-alive",
+        "content": "Yep, I'm here."
+      }
+    ],
+    "audit": [
+      {
+        "event": "agent_loop_terminal_outcome",
+        "kind": "chat",
+        "verdict": "completed",
+        "route": "trivial_direct",
+        "turn": 1
+      }
+    ],
+    "pact_run": {
+      "kind": "chat",
+      "route": "trivial_direct",
+      "verdict": "completed"
+    }
+  }
+}

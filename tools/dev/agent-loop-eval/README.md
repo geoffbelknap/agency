@@ -50,8 +50,19 @@ The runner currently scores:
 - required evidence strings
 - required strings in the visible agent response
 - forbidden text and forbidden verdict reasons
+- answer quality checks: concise, direct, no internal machinery, no fake tool
+  transcripts, and no unsupported tool-use claims
 - max agent message count
 - max turn count when the trace exposes turn data
+
+Core replay/live fixture IDs for the DM operating-model lane:
+
+- `basic_dm_alive`
+- `status_what_are_you_working_on`
+- `plain_current_date`
+- `current_info_with_source`
+- `mission_agent_casual_dm`
+- `tool_honesty_no_fake_transcript`
 
 Replay fixtures may set `expect.expected_failure: true` with an expected
 `diagnosis` to validate that the harness classifies a known-bad trace. Those

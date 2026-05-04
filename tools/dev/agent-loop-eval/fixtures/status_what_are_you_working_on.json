@@ -1,0 +1,46 @@
+{
+  "id": "status_what_are_you_working_on",
+  "description": "A status DM should answer plainly and may mention active mission context without becoming mission workflow.",
+  "agent": {
+    "name_prefix": "loop-eval-status",
+    "preset": "researcher"
+  },
+  "task": "what are you working on?",
+  "expect": {
+    "answer_quality": true,
+    "contract": "chat",
+    "route": "trivial_direct",
+    "verdict": "completed",
+    "max_turns": 1,
+    "max_agent_messages": 1,
+    "max_response_words": 30,
+    "required_response_text": ["mission"],
+    "forbidden_response_text": ["PACT", "work contract", "execution mode", "scratchpad", "complete_task"]
+  },
+  "replay_trace": {
+    "messages": [
+      {
+        "author": "operator",
+        "content": "what are you working on?"
+      },
+      {
+        "author": "loop-eval-status",
+        "content": "I'm assigned to the release-readiness mission right now."
+      }
+    ],
+    "audit": [
+      {
+        "event": "agent_loop_terminal_outcome",
+        "kind": "chat",
+        "verdict": "completed",
+        "route": "trivial_direct",
+        "turn": 1
+      }
+    ],
+    "pact_run": {
+      "kind": "chat",
+      "route": "trivial_direct",
+      "verdict": "completed"
+    }
+  }
+}

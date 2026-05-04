@@ -185,11 +185,11 @@ def test_build_direct_idle_prompt_includes_scratchpad_and_graph_memory():
         "_operator",
         "Whatever one is most recent",
         recent_context="Recent conversation in this channel:\n_operator: PLTR SEC filing",
-        session_scratchpad="[SESSION_SCRATCHPAD]\nactive_entities: PLTR, SEC\n[/SESSION_SCRATCHPAD]",
+        session_scratchpad="[SESSION_CONTEXT]\nactive_entities: PLTR, SEC\n[/SESSION_CONTEXT]",
         graph_memory_context="[KNOWLEDGE_GRAPH_CONTEXT]\n## Relevant Long-Term Memory\n[/KNOWLEDGE_GRAPH_CONTEXT]",
     )
 
-    assert "[SESSION_SCRATCHPAD]" in prompt
+    assert "[SESSION_CONTEXT]" in prompt
     assert "active_entities: PLTR, SEC" in prompt
     assert "Relevant Long-Term Memory" in prompt
 

@@ -294,6 +294,7 @@ def test_pact_activation_for_storage_keeps_activation_audit_fields():
             "channel": "dm-test",
             "author": "operator",
             "mission_active": False,
+            "interaction_type": "work_request",
             "ignored": "value",
         }
     })
@@ -305,6 +306,7 @@ def test_pact_activation_for_storage_keeps_activation_audit_fields():
         "channel": "dm-test",
         "author": "operator",
         "mission_active": False,
+        "interaction_type": "work_request",
     }
 
 

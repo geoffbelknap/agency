@@ -56,6 +56,7 @@ def test_activation_context_from_message_normalizes_fields():
         "channel": "dm:test",
         "author": "operator",
         "mission_active": True,
+        "interaction_type": "",
     }
 
 
@@ -225,8 +226,13 @@ def test_pact_evaluator_classifies_typed_activation_contexts():
         channel="dm:test",
         author="operator",
     ))
+    mission_chat = evaluator.classify_activation(ActivationContext(
+        content="you alive?",
+        match_type="direct",
+        mission_active=True,
+    ))
     mission_task = evaluator.classify_activation(ActivationContext(
-        content="please review the mission status",
+        content="please check the mission status",
         match_type="direct",
         mission_active=True,
     ))
@@ -236,6 +242,7 @@ def test_pact_evaluator_classifies_typed_activation_contexts():
     ))
 
     assert current_info.kind == "current_info"
+    assert mission_chat.kind == "chat"
     assert mission_task.kind == "mission_task"
     assert coordination.kind == "coordination"
 
@@ -346,8 +353,10 @@ def test_classifies_latest_request_as_current_info():
         "ambiguous_category_clarified",
     ]
     prompt = contract_prompt(contract)
-    assert "[WORK_CONTRACT]" in prompt
-    assert "[ANSWER_CONTRACT]" in prompt
+    assert "# Session Requirements" in prompt
+    assert "Evidence needed: current_source_or_blocker" in prompt
+    assert "work contract" not in prompt.lower()
+    assert "# Current Info Answer Rules" in prompt
     assert "official or primary source URL" in prompt
     assert "checked/as-of date" in prompt
 

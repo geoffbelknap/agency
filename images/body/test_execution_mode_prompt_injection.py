@@ -94,43 +94,44 @@ def _compose_prompt(tmp_path: Path, state: ExecutionState | None, monkeypatch) -
 def test_tool_loop_mode_injects_must_call_instruction(tmp_path, monkeypatch):
     prompt = _compose_prompt(tmp_path, _state(ExecutionMode.tool_loop), monkeypatch)
 
-    assert "# Execution Mode: tool_loop" in prompt
+    assert "# Body Runtime Guidance" in prompt
     assert "You MUST call one of the available tools (e.g., web_search) to gather evidence." in prompt
     assert "Do not emit tool-shaped text" in prompt
     assert "Do not announce tool use" in prompt
+    assert "Execution Mode" not in prompt
 
 
 def test_clarify_mode_injects_clarification_instruction(tmp_path, monkeypatch):
     prompt = _compose_prompt(tmp_path, _state(ExecutionMode.clarify), monkeypatch)
 
-    assert "# Execution Mode: clarify" in prompt
+    assert "# Body Runtime Guidance" in prompt
     assert "Respond with a specific, scoped clarification question" in prompt
 
 
 def test_escalate_mode_injects_escalation_instruction(tmp_path, monkeypatch):
     prompt = _compose_prompt(tmp_path, _state(ExecutionMode.escalate), monkeypatch)
 
-    assert "# Execution Mode: escalate" in prompt
+    assert "# Body Runtime Guidance" in prompt
     assert "Explain specifically what cannot be done and what operator action is" in prompt
 
 
 def test_external_side_effect_mode_injects_approval_instruction(tmp_path, monkeypatch):
     prompt = _compose_prompt(tmp_path, _state(ExecutionMode.external_side_effect), monkeypatch)
 
-    assert "# Execution Mode: external_side_effect" in prompt
+    assert "# Body Runtime Guidance" in prompt
     assert "Request explicit operator approval. Do not act on assumed" in prompt
 
 
 def test_trivial_direct_mode_does_not_inject_mode_section(tmp_path, monkeypatch):
     prompt = _compose_prompt(tmp_path, _state(ExecutionMode.trivial_direct), monkeypatch)
 
-    assert "# Execution Mode:" not in prompt
+    assert "# Body Runtime Guidance" not in prompt
 
 
 def test_planned_mode_does_not_inject_mode_section(tmp_path, monkeypatch):
     prompt = _compose_prompt(tmp_path, _state(ExecutionMode.planned), monkeypatch)
 
-    assert "# Execution Mode:" not in prompt
+    assert "# Body Runtime Guidance" not in prompt
 
 
 def test_missing_execution_state_or_strategy_does_not_inject_mode_section(tmp_path, monkeypatch):
@@ -142,11 +143,11 @@ def test_missing_execution_state_or_strategy_does_not_inject_mode_section(tmp_pa
     )
 
     assert _execution_mode_prompt_section(None) == ""
-    assert "# Execution Mode:" not in no_state_prompt
-    assert "# Execution Mode:" not in no_strategy_prompt
+    assert "# Body Runtime Guidance" not in no_state_prompt
+    assert "# Body Runtime Guidance" not in no_strategy_prompt
 
 
-def test_hank4_replay_routes_to_tool_loop_and_prompt_contains_instruction(tmp_path, monkeypatch):
+def test_hank4_chat_contract_stays_direct_and_prompt_hides_runtime_machinery(tmp_path, monkeypatch):
     task = _task_with_contract(HANK_REPLAY, _contract("chat"))
     state = ExecutionState.from_task(task, agent="hank4")
 
@@ -155,17 +156,16 @@ def test_hank4_replay_routes_to_tool_loop_and_prompt_contains_instruction(tmp_pa
     assert state.objective is not None
     assert state.objective.generation_mode == "grounded"
     assert state.strategy is not None
-    assert state.strategy.execution_mode == "tool_loop"
-    assert "# Execution Mode: tool_loop" in prompt
-    assert "MUST call" in prompt
-    assert "Do not emit tool-shaped text" in prompt
+    assert state.strategy.execution_mode == "trivial_direct"
+    assert "Execution Mode" not in prompt
+    assert "WORK_CONTRACT" not in prompt
 
 
 def test_execution_mode_section_is_between_provider_tools_and_how_to_respond(tmp_path, monkeypatch):
     prompt = _compose_prompt(tmp_path, _state(ExecutionMode.tool_loop), monkeypatch)
 
     provider_index = prompt.index("# Provider Tools")
-    mode_index = prompt.index("# Execution Mode:")
+    mode_index = prompt.index("# Body Runtime Guidance")
     response_index = prompt.index("# How to Respond")
 
     assert provider_index < mode_index < response_index
@@ -178,4 +178,5 @@ def test_unknown_future_mode_does_not_inject_mode_section(tmp_path, monkeypatch)
     prompt = _compose_prompt(tmp_path, state, monkeypatch)
 
     assert _execution_mode_prompt_section(state) == ""
+    assert "# Body Runtime Guidance" not in prompt
     assert "# Execution Mode:" not in prompt

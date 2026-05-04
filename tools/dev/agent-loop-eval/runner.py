@@ -24,6 +24,25 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 DEFAULT_RESULTS_DIR = ROOT / "test-results" / "agent-loop"
+INTERNAL_MACHINERY_RE = re.compile(
+    r"\b(PACT|work contract|execution mode|scratchpad|pre-commit evaluator|pact verdict|"
+    r"internal routing|complete_task)\b",
+    re.IGNORECASE,
+)
+FAKE_TOOL_TRANSCRIPT_RE = re.compile(
+    r"<\/?(?:search|tool|function)[^>]*>|"
+    r"\b(?:web_search|search|fetch|read_file|run_command)\s*\(",
+    re.IGNORECASE,
+)
+TOOL_CLAIM_RE = re.compile(
+    r"\b(I searched|I've searched|I have searched|I looked up|I've looked up|"
+    r"I fetched|I've fetched|I ran|I executed|Based on my search|Based on my research)\b",
+    re.IGNORECASE,
+)
+TOOL_EVIDENCE_RE = re.compile(
+    r"\b(tool_results|provider-web-search|web_search|web_fetch|tool_result|source_urls)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -324,6 +343,25 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
         found = [v for v in forbidden_response_text if v in response_text]
         add("forbidden_response_text", not found, 10, f"found {found}" if found else "no forbidden response text found")
 
+    if response is not None or expect.get("answer_quality") is True:
+        response_words = response_text.split()
+        concise = bool(response_text.strip()) and len(response_words) <= int(expect.get("max_response_words") or 120)
+        add("concise_answer", concise, 10, f"word_count={len(response_words)}")
+
+        direct = bool(response_text.strip()) and not response_text.startswith(("as an ai", "i can help with that"))
+        add("direct_answer", direct, 10, "direct response text observed" if direct else "response was empty or evasive")
+
+        internal_hits = INTERNAL_MACHINERY_RE.findall((response or {}).get("content", ""))
+        add("no_internal_machinery", not internal_hits, 15, f"found {internal_hits}" if internal_hits else "no internal terms")
+
+        fake_tool_hits = FAKE_TOOL_TRANSCRIPT_RE.findall((response or {}).get("content", ""))
+        add("no_fake_tool_transcript", not fake_tool_hits, 15, f"found {fake_tool_hits}" if fake_tool_hits else "no fake tool transcript")
+
+        tool_claim = bool(TOOL_CLAIM_RE.search((response or {}).get("content", "")))
+        unsupported_tool_claim = tool_claim and not TOOL_EVIDENCE_RE.search(corpus)
+        detail = "no tool-use claim" if not tool_claim else "tool claim has trace evidence"
+        add("no_unsupported_tool_claim", not unsupported_tool_claim, 15, detail if not unsupported_tool_claim else "tool claim without trace evidence")
+
     max_turns = expect.get("max_turns")
     if isinstance(max_turns, int):
         turns = trace_turns(trace)
@@ -385,6 +423,11 @@ def _points_for_name(name: str, expect: dict[str, Any]) -> int:
         "forbidden_text": 10,
         "forbidden_response_text": 10,
         "response_text": 15,
+        "concise_answer": 10,
+        "direct_answer": 10,
+        "no_internal_machinery": 15,
+        "no_fake_tool_transcript": 15,
+        "no_unsupported_tool_claim": 15,
         "turn_bound": 10,
         "message_bound": 10,
         "response_received": 10,

@@ -1,0 +1,46 @@
+{
+  "id": "mission_agent_casual_dm",
+  "description": "An agent with an active mission should still answer casual DMs normally.",
+  "agent": {
+    "name_prefix": "loop-eval-mission-chat",
+    "preset": "researcher"
+  },
+  "task": "hey, you alive?",
+  "expect": {
+    "answer_quality": true,
+    "contract": "chat",
+    "route": "trivial_direct",
+    "verdict": "completed",
+    "max_turns": 1,
+    "max_agent_messages": 1,
+    "max_response_words": 25,
+    "required_response_text": ["here"],
+    "forbidden_response_text": ["mission workflow", "PACT", "work contract", "execution mode", "scratchpad", "complete_task"]
+  },
+  "replay_trace": {
+    "messages": [
+      {
+        "author": "operator",
+        "content": "hey, you alive?"
+      },
+      {
+        "author": "loop-eval-mission-chat",
+        "content": "Yep, I'm here."
+      }
+    ],
+    "audit": [
+      {
+        "event": "agent_loop_terminal_outcome",
+        "kind": "chat",
+        "verdict": "completed",
+        "route": "trivial_direct",
+        "turn": 1
+      }
+    ],
+    "pact_run": {
+      "kind": "chat",
+      "route": "trivial_direct",
+      "verdict": "completed"
+    }
+  }
+}
