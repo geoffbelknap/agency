@@ -1889,6 +1889,12 @@ class Body:
         if mode_section:
             parts.append(mode_section)
 
+        parts.append(
+            "# Runtime Context\n\n"
+            f"- Current UTC date: {datetime.now(timezone.utc).strftime('%Y-%m-%d')}.\n"
+            "- Use the runtime date for plain date questions. Use tools for external current facts."
+        )
+
         if not parts:
             return "You are an AI agent. Follow your operator's instructions."
 

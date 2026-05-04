@@ -49,6 +49,8 @@ def test_false_positive_regression_guards_do_not_route_to_current_info():
         "think about this",
         "Consider the options",
         "Can you help me understand TCP handshakes?",
+        "What is today's date? Reply in one sentence.",
+        "What is the current date?",
     ]
 
     for content in cases:
