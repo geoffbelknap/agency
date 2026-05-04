@@ -15,6 +15,7 @@ type hostInfraMetadata struct {
 	Service   string   `json:"service"`
 	PID       int      `json:"pid"`
 	PIDFile   string   `json:"pid_file"`
+	BuildID   string   `json:"build_id,omitempty"`
 	Command   []string `json:"command"`
 	LogFile   string   `json:"log_file,omitempty"`
 	HealthURL string   `json:"health_url,omitempty"`
@@ -43,6 +44,7 @@ func (inf *Infra) writeHostInfraMetadata(component string, pid int, command []st
 		Service:   "agency-infra-" + component,
 		PID:       pid,
 		PIDFile:   inf.hostInfraPIDPath(component),
+		BuildID:   inf.BuildID,
 		Command:   append([]string(nil), command...),
 		LogFile:   logFile,
 		HealthURL: healthURL,
@@ -77,6 +79,25 @@ func (inf *Infra) hostInfraPID(component string) (int, bool) {
 		return 0, false
 	}
 	return pid, true
+}
+
+func (inf *Infra) hostInfraCurrentBuild(component string) bool {
+	if strings.TrimSpace(inf.BuildID) == "" {
+		return true
+	}
+	return strings.TrimSpace(inf.hostInfraBuildID(component)) == strings.TrimSpace(inf.BuildID)
+}
+
+func (inf *Infra) hostInfraBuildID(component string) string {
+	data, err := os.ReadFile(inf.hostInfraMetadataPath(component))
+	if err != nil {
+		return ""
+	}
+	var meta hostInfraMetadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(meta.BuildID)
 }
 
 func (inf *Infra) removeHostInfraPID(component string) {
