@@ -45,7 +45,7 @@ pydantic==2.12.5
 pydantic-core==2.41.5
 PyJWT==2.12.1
 pylsqpack==0.3.24
-pyOpenSSL==26.0.0
+pyOpenSSL==25.3.0
 pyparsing==3.2.5
 pyperclip==1.11.0
 PyYAML==6.0.3
