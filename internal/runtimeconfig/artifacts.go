@@ -40,7 +40,7 @@ func WithMicroagentArtifactConfig(backend string, cfg map[string]string, opts Ar
 		"rootfs_oci_ref":       strings.TrimSpace(os.Getenv("AGENCY_MICROAGENT_ROOTFS_OCI_REF")),
 		"mke2fs_path":          strings.TrimSpace(os.Getenv("AGENCY_MKE2FS")),
 	}
-	return applyDefaults(cfg, defaults, envPaths)
+	return refreshMicroagentManagedDefaults(applyDefaults(cfg, defaults, envPaths), defaults, envPaths)
 }
 
 func WithAppleVFArtifactConfig(backend string, cfg map[string]string, opts ArtifactOptions) map[string]string {
@@ -116,6 +116,37 @@ func applyDefaults(cfg, defaults, envPaths map[string]string) map[string]string 
 		}
 	}
 	return out
+}
+
+func refreshMicroagentManagedDefaults(cfg, defaults, envPaths map[string]string) map[string]string {
+	if strings.TrimSpace(envPaths["rootfs_oci_ref"]) == "" && isManagedAgencyRootFSRef(cfg["rootfs_oci_ref"]) {
+		if value := strings.TrimSpace(defaults["rootfs_oci_ref"]); value != "" {
+			cfg["rootfs_oci_ref"] = value
+		}
+	}
+	if strings.TrimSpace(envPaths["enforcer_binary_path"]) == "" && isStaleHomebrewEnforcerPath(cfg["enforcer_binary_path"]) {
+		if value := strings.TrimSpace(defaults["enforcer_binary_path"]); value != "" {
+			cfg["enforcer_binary_path"] = value
+		}
+	}
+	return cfg
+}
+
+func isManagedAgencyRootFSRef(value string) bool {
+	return strings.HasPrefix(strings.TrimSpace(value), "ghcr.io/geoffbelknap/agency-runtime-body:")
+}
+
+func isStaleHomebrewEnforcerPath(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || filepath.Base(value) != "agency-enforcer-host" {
+		return false
+	}
+	if _, err := os.Stat(value); err == nil {
+		return false
+	}
+	clean := filepath.ToSlash(filepath.Clean(value))
+	return strings.Contains(clean, "/Cellar/agency/") &&
+		strings.HasSuffix(clean, "/share/agency/bin/agency-enforcer-host")
 }
 
 func defaultMicroagentRootFSOCIRef(version string) string {
