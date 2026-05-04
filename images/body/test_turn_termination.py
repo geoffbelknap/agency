@@ -1,6 +1,7 @@
 import json
 
 from body import Body, TURN_CAP_DEFAULT, _turn_cap_for_task
+from comms_tools import _send_message
 from pact_engine import ExecutionState
 
 
@@ -152,6 +153,34 @@ def test_model_terminal_direct_message_posts_to_channel(tmp_path):
     assert [data["verdict"] for kind, data in signals if kind == "pact_verdict"] == ["completed"]
 
 
+def test_model_terminal_direct_message_retries_fake_function_call_transcript(tmp_path):
+    fake_transcript = (
+        "<function_calls>\n"
+        "<invoke name=\"send_message\">\n"
+        "<parameter name=\"channel\">dm-agent</parameter>\n"
+        "<parameter name=\"message\">Yes, I'm active.</parameter>\n"
+        "</invoke>\n"
+        "</function_calls>\n"
+        "<function_result>Message sent successfully</function_result>"
+    )
+    body, signals, _send_messages = _body(
+        tmp_path,
+        [
+            _response(content=fake_transcript, stop_reason="end_turn"),
+            _response(content="Yes, I'm active.", stop_reason="end_turn"),
+        ],
+    )
+    posted: list[str] = []
+    body._post_channel_message = lambda _task, content: posted.append(content) or True
+
+    task = _task()
+    task["source"] = "channel:dm-agent"
+    body._conversation_loop(task)
+
+    assert posted == ["Yes, I'm active."]
+    assert [data["verdict"] for kind, data in signals if kind == "pact_verdict"] == ["completed"]
+
+
 def test_model_terminal_direct_message_detects_metadata_channel(tmp_path):
     body, signals, _send_messages = _body(tmp_path, [_response(content="Done.", stop_reason="end_turn")])
     posted: list[tuple[str, str]] = []
@@ -274,6 +303,25 @@ def test_contract_send_message_sanitizes_provider_cites_before_tool_call(tmp_pat
             "Checked date: 2026-04-26"
         )
     ]
+
+
+def test_comms_send_message_rejects_fake_function_call_transcript():
+    result = _send_message(
+        "http://127.0.0.1:9",
+        "agent",
+        {
+            "channel": "dm-agent",
+            "content": (
+                "<function_calls><invoke name=\"send_message\">"
+                "<parameter name=\"message\">hello</parameter>"
+                "</invoke></function_calls>"
+            ),
+        },
+    )
+
+    parsed = json.loads(result)
+    assert "error" in parsed
+    assert "simulated tool markup" in parsed["error"]
 
 
 def test_dual_paths_coexist(tmp_path):
