@@ -31,9 +31,9 @@ func CheckLinuxKVMAccess() error {
 }
 
 func LinuxKVMAccessFix() string {
-	base := "enable KVM for this Linux host and make the operator user a member of the kvm group"
+	base := "run `sudo usermod -aG kvm $USER`"
 	if linuxIsWSL() {
-		return base + ", then run wsl.exe --shutdown from Windows and reopen the distro"
+		return base + ", then run `wsl.exe --shutdown` from Windows and reopen the distro"
 	}
 	return base + ", then start a new login session"
 }

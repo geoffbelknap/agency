@@ -81,6 +81,26 @@ Agency uses `microagent` for agent workspaces. On Linux and WSL2, microagent
 uses Firecracker and requires KVM plus vsock access for the operator account.
 On macOS Apple silicon, microagent uses Apple's Virtualization framework.
 
+On Linux and WSL2, check KVM access before first run:
+
+```bash
+test -r /dev/kvm && test -w /dev/kvm
+```
+
+If `/dev/kvm` is owned by `root:kvm` and that command fails, add your user to
+the `kvm` group:
+
+```bash
+sudo usermod -aG kvm $USER
+```
+
+On regular Linux, log out and back in. On WSL2, run this from Windows and then
+reopen the distro:
+
+```powershell
+wsl.exe --shutdown
+```
+
 The supported microVM path also needs a few host tools:
 
 - `mitmdump` plus Agency's egress addon Python dependencies for host-managed egress mediation
