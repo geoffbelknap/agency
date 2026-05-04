@@ -1,6 +1,6 @@
-"""Session-scoped conversation scratchpad helpers.
+"""Session-scoped conversation context helpers.
 
-The scratchpad is derived working state for the current channel session. It is
+The context is derived working state for the current channel session. It is
 not durable memory and does not write to the knowledge graph.
 """
 
@@ -32,7 +32,7 @@ class SessionScratchpad:
 
     def to_prompt_section(self) -> str:
         lines = [
-            "[SESSION_SCRATCHPAD]",
+            "[SESSION_CONTEXT]",
             f"scope: channel={self.channel} participant={self.participant}",
             f"latest_message: {self.latest_message}",
         ]
@@ -49,10 +49,10 @@ class SessionScratchpad:
                 "the recent transcript before asking for clarification."
             )
         lines.append(
-            "durability: this scratchpad is temporary session state; do not treat it "
+            "durability: this context is temporary session state; do not treat it "
             "as long-term memory unless a mediated memory-capture step records it."
         )
-        lines.append("[/SESSION_SCRATCHPAD]")
+        lines.append("[/SESSION_CONTEXT]")
         return "\n".join(lines)
 
 

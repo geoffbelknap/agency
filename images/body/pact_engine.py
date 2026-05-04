@@ -23,8 +23,7 @@ CURRENT_INFO_ANSWER_REQUIREMENTS = (
     "ambiguous_category_clarified",
 )
 CURRENT_INFO_ANSWER_CONTRACT = (
-    "\n[ANSWER_CONTRACT]\n"
-    "current_info_rules:\n"
+    "\n\n# Current Info Answer Rules\n\n"
     "- Give the direct answer first.\n"
     "- Include an official or primary source URL when available.\n"
     "- Make sure each source URL directly supports the claimed version, date, status, or fact.\n"
@@ -33,7 +32,6 @@ CURRENT_INFO_ANSWER_CONTRACT = (
     "- If the user's wording is ambiguous, separate the relevant categories instead of collapsing them.\n"
     "- If only secondary sources are available, mark the answer unverified.\n"
     "- Avoid saying \"search results\" unless you name and link the source.\n"
-    "[/ANSWER_CONTRACT]"
 )
 
 CURRENT_INFO_RE = re.compile(
@@ -66,6 +64,11 @@ CODE_CHANGE_RE = re.compile(
 ACTION_RE = re.compile(
     r"\b(find|look up|lookup|search|check|verify|debug|fix|create|write|read|"
     r"restart|start|stop|run|test|build|deploy|summarize|analyze)\b",
+    re.IGNORECASE,
+)
+MISSION_EVENT_SOURCE_RE = re.compile(r"\b(connector|schedule|webhook|mission_event|mission-trigger)\b", re.IGNORECASE)
+GOVERNANCE_RE = re.compile(
+    r"\b(halt|pause|resume|approve|approval|deny|escalate|constraint|authority|governance|policy)\b",
     re.IGNORECASE,
 )
 FILE_ARTIFACT_RE = re.compile(
@@ -287,6 +290,7 @@ class ActivationContext:
     channel: str = ""
     author: str = ""
     mission_active: bool = False
+    interaction_type: str = ""
 
     @classmethod
     def from_message(
@@ -298,6 +302,7 @@ class ActivationContext:
         source: str = "",
         channel: str = "",
         author: str = "",
+        interaction_type: str = "",
     ) -> "ActivationContext":
         return cls(
             content=str(content or ""),
@@ -306,6 +311,7 @@ class ActivationContext:
             channel=str(channel or ""),
             author=str(author or ""),
             mission_active=bool(mission_active),
+            interaction_type=str(interaction_type or ""),
         )
 
     def to_dict(self) -> dict:
@@ -316,6 +322,7 @@ class ActivationContext:
             "channel": self.channel,
             "author": self.author,
             "mission_active": self.mission_active,
+            "interaction_type": self.interaction_type,
         }
 
 
@@ -357,6 +364,16 @@ class ExecutionMode(StrEnum):
     escalate = "escalate"
     external_side_effect = "external_side_effect"
     delegated = "delegated"
+
+
+class InteractionType(StrEnum):
+    """Trusted runtime classification for the incoming interaction."""
+
+    direct_chat = "direct_chat"
+    work_request = "work_request"
+    mission_event = "mission_event"
+    coordination = "coordination"
+    governance = "governance"
 
 
 @dataclass(slots=True)
@@ -415,13 +432,6 @@ def build_strategy(
             needs_planner=True,
             needs_approval=True,
             notes=("reason:external_side_effect",),
-        )
-    if contract.kind == "chat" and objective is not None and objective.generation_mode == "grounded":
-        return Strategy(
-            execution_mode=ExecutionMode.tool_loop,
-            needs_planner=False,
-            needs_approval=False,
-            notes=("reason:grounded_informal_ask",),
         )
     if contract.kind == "chat":
         return Strategy(
@@ -972,6 +982,7 @@ class ExecutionState:
             source=str(activation.get("source") or ""),
             channel=str(activation.get("channel") or ""),
             author=str(activation.get("author") or ""),
+            interaction_type=str(activation.get("interaction_type") or ""),
         ) if isinstance(activation, dict) else None
         contract = _work_contract_from_dict(metadata.get("work_contract")) if isinstance(metadata, dict) else None
         objective_task = dict(task)
@@ -1784,13 +1795,52 @@ class PactEvaluator:
             summary=definition.summary,
         )
 
+    def classify_interaction(self, activation: ActivationContext) -> InteractionType:
+        text = str(activation.content or "").strip()
+        source = str(activation.source or "")
+        match_type = str(activation.match_type or "direct")
+
+        if MISSION_EVENT_SOURCE_RE.search(source) or match_type == "mission_event":
+            return InteractionType.mission_event
+        if match_type != "direct":
+            return InteractionType.coordination
+        if PLAIN_TODAY_DATE_RE.search(text):
+            return InteractionType.direct_chat
+        if OPERATOR_BLOCKED_RE.search(text):
+            return InteractionType.work_request
+        if GOVERNANCE_RE.search(text):
+            return InteractionType.governance
+        if (
+            CURRENT_INFO_RE.search(text)
+            or CODE_CHANGE_RE.search(text)
+            or FILE_ARTIFACT_RE.search(text)
+            or ACTION_RE.search(text)
+        ):
+            return InteractionType.work_request
+        return InteractionType.direct_chat
+
     def classify_activation(self, activation: ActivationContext) -> WorkContract:
         text = str(activation.content or "").strip()
-        if activation.mission_active:
+        interaction_type = str(activation.interaction_type or self.classify_interaction(activation).value)
+        if interaction_type == InteractionType.coordination.value:
+            return self.build_contract("coordination", requires_action=False, reason="non-direct channel signal")
+        if interaction_type == InteractionType.governance.value:
+            return self.build_contract(
+                "external_side_effect",
+                requires_action=True,
+                reason="governance or authority event",
+            )
+        if interaction_type == InteractionType.mission_event.value:
             return self.build_contract(
                 "mission_task",
                 requires_action=True,
-                reason="active mission direct message",
+                reason="mission event trigger",
+            )
+        if activation.mission_active and interaction_type == InteractionType.work_request.value:
+            return self.build_contract(
+                "mission_task",
+                requires_action=True,
+                reason="active mission work request",
             )
         if OPERATOR_BLOCKED_RE.search(text):
             return self.build_contract(
@@ -1832,8 +1882,6 @@ class PactEvaluator:
                 requires_action=True,
                 reason="action verb detected",
             )
-        if activation.match_type != "direct":
-            return self.build_contract("coordination", requires_action=False, reason="non-direct channel signal")
         return self.build_contract("chat", requires_action=False, reason="no action requirement detected")
 
     def classify_work(self, content: str, match_type: str = "direct", mission_active: bool = False) -> WorkContract:
@@ -1851,22 +1899,21 @@ class PactEvaluator:
         evidence = ", ".join(contract.required_evidence) or "task evidence"
         answer_requirements = ", ".join(contract.answer_requirements)
         answer_requirement_line = (
-            f"answer_requirements: {answer_requirements}\n" if answer_requirements else ""
+            f"Answer details: {answer_requirements}\n" if answer_requirements else ""
         )
         definition = self.contract_definition(contract.kind)
         return (
-            "\n\n[WORK_CONTRACT]\n"
-            f"kind: {contract.kind}\n"
-            f"summary: {contract.summary or definition.summary}\n"
-            f"required_evidence: {evidence}\n"
+            "\n\n# Session Requirements\n\n"
+            f"Interaction: {contract.kind}\n"
+            f"Goal: {contract.summary or definition.summary}\n"
+            f"Evidence needed: {evidence}\n"
             f"{answer_requirement_line}"
-            f"allowed_terminal_states: {', '.join(contract.allowed_terminal_states)}\n"
-            "rules:\n"
-            "- Treat this as work, not casual chat.\n"
-            "- Use mediated tools or observed context when the task requires action or current facts.\n"
+            f"Allowed outcomes: {', '.join(contract.allowed_terminal_states)}\n"
+            "Rules:\n"
+            "- Treat this as a work request.\n"
+            "- Use real tools or observed context when action, files, system state, or current facts matter.\n"
             "- Do not claim evidence you do not have.\n"
             "- If required evidence cannot be obtained, report a specific blocker instead of guessing.\n"
-            "[/WORK_CONTRACT]"
             f"{definition.answer_contract}"
         )
 
@@ -2017,6 +2064,10 @@ def classify_work(content: str, match_type: str = "direct", mission_active: bool
 
 def classify_activation(activation: ActivationContext) -> WorkContract:
     return DEFAULT_EVALUATOR.classify_activation(activation)
+
+
+def classify_interaction(activation: ActivationContext) -> InteractionType:
+    return DEFAULT_EVALUATOR.classify_interaction(activation)
 
 
 def contract_prompt(contract: WorkContract) -> str:

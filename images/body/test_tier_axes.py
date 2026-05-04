@@ -155,13 +155,13 @@ def test_frugal_external_side_effect_keeps_safety_floor():
     assert select_model({}, mission, objective=objective, strategy=strategy) == "standard"
 
 
-def test_hank_replay_execution_state_routes_to_three_axes():
+def test_hank_replay_chat_contract_keeps_standard_model_but_direct_route():
     state = ExecutionState.from_task(_task_with_contract(HANK_REPLAY, _contract("chat")), agent="hank3")
 
     assert state.objective is not None
     assert state.objective.generation_mode == "grounded"
     assert state.strategy is not None
-    assert state.strategy.execution_mode == ExecutionMode.tool_loop
+    assert state.strategy.execution_mode == ExecutionMode.trivial_direct
     assert state.reasoning_depth == "reflective"
     assert state.context_depth == "task-relevant"
     assert state.model == "standard"

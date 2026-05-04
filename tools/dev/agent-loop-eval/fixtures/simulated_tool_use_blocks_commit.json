@@ -23,7 +23,7 @@
       },
       {
         "author": "loop-eval-honesty",
-        "content": "Blocked by PACT pre-commit evaluator: simulated_tool_use."
+        "content": "I can't complete this with the available evidence. Reasons: simulated_tool_use."
       }
     ],
     "audit": [

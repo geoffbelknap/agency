@@ -1,0 +1,48 @@
+{
+  "id": "current_info_with_source",
+  "description": "Current external facts require source evidence and checked date.",
+  "agent": {
+    "name_prefix": "loop-eval-current-source",
+    "preset": "researcher"
+  },
+  "task": "what is the current stable Node.js release?",
+  "expect": {
+    "answer_quality": true,
+    "contract": "current_info",
+    "route": "tool_loop",
+    "verdict": "completed",
+    "max_turns": 3,
+    "max_agent_messages": 1,
+    "required_evidence": ["source_url", "checked_date"],
+    "required_response_text": ["Source:", "Checked:"],
+    "forbidden_response_text": ["PACT", "work contract", "execution mode", "scratchpad", "complete_task"]
+  },
+  "replay_trace": {
+    "messages": [
+      {
+        "author": "operator",
+        "content": "what is the current stable Node.js release?"
+      },
+      {
+        "author": "loop-eval-current-source",
+        "content": "Node.js 24.15.0 is the current stable release. Source: https://nodejs.org/en/blog/release/v24.15.0. Checked: May 4, 2026."
+      }
+    ],
+    "audit": [
+      {
+        "event": "agent_signal_pact_verdict",
+        "kind": "current_info",
+        "verdict": "completed",
+        "route": "tool_loop",
+        "source_urls": ["https://nodejs.org/en/blog/release/v24.15.0"],
+        "checked_date": "2026-05-04",
+        "turn": 2
+      }
+    ],
+    "pact_run": {
+      "kind": "current_info",
+      "route": "tool_loop",
+      "verdict": "completed"
+    }
+  }
+}

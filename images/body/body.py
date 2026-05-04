@@ -54,6 +54,7 @@ from work_contract import (
     ActivationContext,
     EvidenceLedger,
     ExecutionState,
+    InteractionType,
     Retryability,
     SideEffectClass,
     ToolObservation,
@@ -61,6 +62,7 @@ from work_contract import (
     ToolStatus,
     WorkContract,
     classify_activation,
+    classify_interaction,
     contract_prompt,
     evaluate_pre_commit,
     extract_urls,
@@ -96,10 +98,9 @@ def _turn_cap_for_task(mission: dict | None) -> int:
 
 _MODE_PROMPT_SECTIONS = {
     "tool_loop": (
-        "# Execution Mode: tool_loop\n\n"
-        "The runtime has routed this turn to tool_loop mode because the\n"
-        "operator's request requires external information that only tools can\n"
-        "produce. Before responding with any factual claim:\n\n"
+        "# Body Runtime Guidance\n\n"
+        "This request requires evidence that only real tools or observed runtime\n"
+        "context can produce. Before responding with any factual claim:\n\n"
         "1. You MUST call one of the available tools (e.g., web_search) to gather evidence.\n"
         "2. Use the tool's real output to inform your response.\n\n"
         "Do not emit tool-shaped text such as <search>...</search> or\n"
@@ -109,9 +110,8 @@ _MODE_PROMPT_SECTIONS = {
         "do not guess."
     ),
     "clarify": (
-        "# Execution Mode: clarify\n\n"
-        "The runtime has routed this turn to clarification mode because the\n"
-        "request contains a load-bearing ambiguity (missing target, unknown\n"
+        "# Body Runtime Guidance\n\n"
+        "The request contains a load-bearing ambiguity (missing target, unknown\n"
         "authority scope, or similar) that must be resolved before the work can\n"
         "proceed safely.\n\n"
         "Respond with a specific, scoped clarification question addressed to\n"
@@ -119,19 +119,17 @@ _MODE_PROMPT_SECTIONS = {
         "guess or speculate to fill the ambiguity."
     ),
     "escalate": (
-        "# Execution Mode: escalate\n\n"
-        "The runtime has routed this turn to escalation mode because the request\n"
-        "exceeds current authority: an untrusted principal, escalated risk, or\n"
-        "out-of-scope ask.\n\n"
+        "# Body Runtime Guidance\n\n"
+        "The request exceeds current authority: an untrusted principal, escalated\n"
+        "risk, or out-of-scope ask.\n\n"
         "Explain specifically what cannot be done and what operator action is\n"
         "needed to unblock (additional capabilities, authority verification,\n"
         "or principal review). Do not attempt to perform the requested work."
     ),
     "external_side_effect": (
-        "# Execution Mode: external_side_effect\n\n"
-        "The runtime has routed this turn to external_side_effect mode because\n"
-        "the request will mutate external state (write to a service, call an\n"
-        "API, change records).\n\n"
+        "# Body Runtime Guidance\n\n"
+        "The request will mutate external state (write to a service, call an API,\n"
+        "change records).\n\n"
         "Before performing any side-effecting operation:\n\n"
         "1. Verify principal authority is in scope for this action.\n"
         "2. Request explicit operator approval. Do not act on assumed\n"
@@ -311,6 +309,16 @@ def _execution_mode_prompt_section(state: ExecutionState | None) -> str:
     return _MODE_PROMPT_SECTIONS[mode]
 
 
+def _is_direct_chat_state(state: ExecutionState | None) -> bool:
+    if state is None or state.activation is None or state.contract is None:
+        return False
+    return (
+        state.activation.interaction_type == InteractionType.direct_chat.value
+        and state.contract.kind == "chat"
+        and not state.contract.requires_action
+    )
+
+
 def _read_current_task(context_file: Path | None) -> dict | None:
     if context_file is None:
         return None
@@ -446,6 +454,7 @@ def _pact_activation_for_storage(metadata: dict | None) -> dict | None:
         "channel": str(activation.get("channel") or ""),
         "author": str(activation.get("author") or ""),
         "mission_active": bool(activation.get("mission_active")),
+        "interaction_type": str(activation.get("interaction_type") or ""),
     }
 
 
@@ -1472,24 +1481,26 @@ class Body:
         log.info("idle response | channel=%s author=%s match=%s keywords=%s",
                  channel, author, match_type, matched_kws)
 
-        # Determine if this is a mission-related task before constructing the
-        # prompt.  Mission agents receiving DMs/mentions need a work-oriented
-        # prompt, not the conversational one — otherwise the LLM sends a quick
-        # reply and calls complete_task without executing the mission workflow.
-        is_mission_task = (
-            match_type == "direct"
-            and self._active_mission
-            and self._active_mission.get("status") == "active"
-        )
         activation_context = ActivationContext.from_message(
             summary,
             match_type=match_type,
-            mission_active=bool(is_mission_task),
+            mission_active=bool(self._active_mission and self._active_mission.get("status") == "active"),
             source=f"idle_{match_type}",
             channel=channel,
             author=author,
         )
+        interaction_type = classify_interaction(activation_context)
+        activation_context = ActivationContext.from_message(
+            summary,
+            match_type=match_type,
+            mission_active=activation_context.mission_active,
+            source=f"idle_{match_type}",
+            channel=channel,
+            author=author,
+            interaction_type=interaction_type.value,
+        )
         work_contract = classify_activation(activation_context)
+        is_mission_task = work_contract.kind == "mission_task"
 
         recent_messages = []
 
@@ -1540,6 +1551,17 @@ class Body:
                     max_retrieved=5,
                 ),
             )
+            if (
+                self._active_mission
+                and self._active_mission.get("status") == "active"
+                and interaction_type == InteractionType.direct_chat
+            ):
+                prompt += (
+                    f"\n\nActive mission context: You are assigned to "
+                    f"\"{self._active_mission.get('name', 'the current mission')}\". "
+                    "Mention it only if it helps answer the DM. Do not turn this casual "
+                    "message into mission workflow unless the operator asks for mission work."
+                )
             prompt += contract_prompt(work_contract)
         else:
             # Interest match — agent's expertise is relevant
@@ -1747,6 +1769,7 @@ class Body:
         if self._active_mission and self._active_mission.get("status") == "active":
             mission = self._active_mission
             mission_section = f"## Current Mission: {mission['name']} (id: {mission.get('id', 'unknown')[:8]})\n\n{mission.get('instructions', '')}"
+            direct_chat = _is_direct_chat_state(state)
 
             # Health indicators
             health = mission.get("health", {})
@@ -1760,15 +1783,22 @@ class Body:
             parts.append(mission_section)
 
             # Behavioral framing
-            parts.append(
-                f'You are assigned to mission "{mission["name"]}". This is your sole responsibility. '
-                "If you receive requests unrelated to this mission, politely decline and suggest "
-                "the requester find a more appropriate agent. Only respond to direct operator "
-                "instructions that override your mission."
-            )
+            if direct_chat:
+                parts.append(
+                    f'You are assigned to mission "{mission["name"]}". For this direct chat, '
+                    "answer normally and mention the mission only when it is relevant. Do not "
+                    "turn casual DMs into mission work unless the operator asks for mission work."
+                )
+            else:
+                parts.append(
+                    f'You are assigned to mission "{mission["name"]}". This is your sole responsibility. '
+                    "If you receive requests unrelated to this mission, politely decline and suggest "
+                    "the requester find a more appropriate agent. Only respond to direct operator "
+                    "instructions that override your mission."
+                )
 
             # Team mission framing
-            if mission.get("assigned_type") == "team":
+            if not direct_chat and mission.get("assigned_type") == "team":
                 team_name = mission.get("assigned_to", "")
                 if self._is_coordinator:
                     parts.append(
@@ -1899,43 +1929,54 @@ class Body:
         if not parts:
             return "You are an AI agent. Follow your operator's instructions."
 
-        # Task completion expectations
-        parts.append(
-            "# How to Respond\n\n"
-            "**Quality over speed.** A thoughtful answer is better than a fast generic one.\n\n"
-            "- If a request is ambiguous, ask a clarifying question before guessing.\n"
-            "- If research (web search, knowledge query) would improve your answer, do it.\n"
-            "- When someone asks for latest, current, recent, or time-sensitive information, "
-            "use an available search or fetch tool before answering. If no current-information "
-            "tool is available, say that directly instead of answering from stale memory.\n"
-            "- Do not claim you used a tool, searched the web, read a file, or checked a system "
-            "unless you actually made the corresponding tool call.\n"
-            "- Do not write simulated tool markup like <search>...</search>, pseudo tool calls, "
-            "or placeholders. If a needed tool is unavailable or fails, say that plainly and "
-            "explain what would unblock the request.\n"
-            "- If you learn facts about a person (name, location, preferences, role, team), "
-            "save them with contribute_knowledge so all agents benefit.\n"
-            "- Do not pad responses with filler or disclaimers. Be direct and substantive.\n\n"
-            "# Operating Loop\n\n"
-            "For every non-trivial task:\n"
-            "1. Clarify the objective and constraints.\n"
-            "2. Inspect available context before answering: memory, recent messages, files, "
-            "or web/tool results when relevant.\n"
-            "3. Choose the smallest sufficient plan.\n"
-            "4. Use tools when freshness, external facts, files, or system state matter.\n"
-            "5. Validate the result before finalizing. For current facts, cite or name the "
-            "source. For code, run the smallest relevant test.\n"
-            "6. If blocked by missing tools, missing access, ambiguity, or risk, say exactly "
-            "what is blocked and what would unblock it.\n"
-            "7. Complete with a concise result.\n\n"
-            "# Task Completion\n\n"
-            "When you receive a task, execute every action it requires — do not stop "
-            "at analysis or planning.\n\n"
-            "Call **complete_task(summary=...)** when the task is done or the conversation "
-            "reaches a natural conclusion. The platform requires this explicit signal.\n\n"
-            "If someone follows up or asks a new question, continue the conversation — "
-            "do not rush to complete after a single exchange."
-        )
+        if _is_direct_chat_state(state):
+            parts.append(
+                "# Session\n\n"
+                "- Reply like a capable coworker: brief, concrete, and natural.\n"
+                "- Answer the latest direct message in one turn when possible.\n"
+                "- Use the runtime date for plain date questions. Use real tools for external current facts.\n"
+                "- Do not claim you used a tool, searched the web, read a file, or checked a system unless that really happened.\n"
+                "- Do not expose internal routing, evaluation, session-context, or audit machinery.\n"
+                "- Return only the message text the operator should see."
+            )
+        else:
+            # Task completion expectations
+            parts.append(
+                "# How to Respond\n\n"
+                "**Quality over speed.** A thoughtful answer is better than a fast generic one.\n\n"
+                "- If a request is ambiguous, ask a clarifying question before guessing.\n"
+                "- If research (web search, knowledge query) would improve your answer, do it.\n"
+                "- When someone asks for latest, current, recent, or time-sensitive information, "
+                "use an available search or fetch tool before answering. If no current-information "
+                "tool is available, say that directly instead of answering from stale memory.\n"
+                "- Do not claim you used a tool, searched the web, read a file, or checked a system "
+                "unless you actually made the corresponding tool call.\n"
+                "- Do not write simulated tool markup like <search>...</search>, pseudo tool calls, "
+                "or placeholders. If a needed tool is unavailable or fails, say that plainly and "
+                "explain what would unblock the request.\n"
+                "- If you learn facts about a person (name, location, preferences, role, team), "
+                "save them with contribute_knowledge so all agents benefit.\n"
+                "- Do not pad responses with filler or disclaimers. Be direct and substantive.\n\n"
+                "# Operating Loop\n\n"
+                "For every non-trivial task:\n"
+                "1. Clarify the objective and constraints.\n"
+                "2. Inspect available context before answering: memory, recent messages, files, "
+                "or web/tool results when relevant.\n"
+                "3. Choose the smallest sufficient plan.\n"
+                "4. Use tools when freshness, external facts, files, or system state matter.\n"
+                "5. Validate the result before finalizing. For current facts, cite or name the "
+                "source. For code, run the smallest relevant test.\n"
+                "6. If blocked by missing tools, missing access, ambiguity, or risk, say exactly "
+                "what is blocked and what would unblock it.\n"
+                "7. Complete with a concise result.\n\n"
+                "# Task Completion\n\n"
+                "When you receive a task, execute every action it requires — do not stop "
+                "at analysis or planning.\n\n"
+                "Call **complete_task(summary=...)** when the task is done or the conversation "
+                "reaches a natural conclusion. The platform requires this explicit signal.\n\n"
+                "If someone follows up or asks a new question, continue the conversation — "
+                "do not rush to complete after a single exchange."
+            )
 
         return "\n\n---\n\n".join(parts)
 
@@ -2644,7 +2685,7 @@ class Body:
                         self._emit_pact_verdict(task_id, completion_verdict)
                         messages.append({
                             "role": "user",
-                            "content": "[Platform work contract] " + pre_commit_verdict.contract_verdict.get("message", "Required evidence is missing."),
+                            "content": "[Platform evidence check] " + pre_commit_verdict.contract_verdict.get("message", "Required evidence is missing."),
                         })
                         log.info("Work contract completion gate injected for task %s: %s", task_id, completion_verdict.get("missing_evidence"))
                         continue
@@ -2663,7 +2704,7 @@ class Body:
                     reasons = ", ".join(completion_verdict.get("reasons") or []) or "pre_commit_blocked"
                     missing = completion_verdict.get("missing_evidence") or []
                     lines = [
-                        "Blocked by PACT pre-commit evaluator.",
+                        "I can't complete this with the available evidence.",
                         f"Reasons: {reasons}.",
                     ]
                     if missing:
@@ -3659,7 +3700,7 @@ class Body:
             self._work_contract_retry_sent = True
             self._emit_pact_verdict(task_id, completion_verdict)
             return json.dumps({
-                "error": "completion blocked by work contract",
+                "error": "completion blocked by evidence check",
                 "missing_evidence": completion_verdict.get("missing_evidence", []),
                 "message": pre_commit_verdict.contract_verdict.get("message", "Required evidence is missing."),
             })
@@ -3671,7 +3712,7 @@ class Body:
             reasons = ", ".join(completion_verdict.get("reasons") or []) or "pre_commit_blocked"
             missing = completion_verdict.get("missing_evidence") or []
             lines = [
-                "Blocked by PACT pre-commit evaluator.",
+                "I can't complete this with the available evidence.",
                 f"Reasons: {reasons}.",
             ]
             if missing:
@@ -3749,7 +3790,7 @@ class Body:
                 self._emit_pact_verdict(task_id, completion_verdict)
                 messages.append({
                     "role": "user",
-                    "content": "[Platform work contract] " + pre_commit_verdict.contract_verdict.get("message", "Required evidence is missing."),
+                    "content": "[Platform evidence check] " + pre_commit_verdict.contract_verdict.get("message", "Required evidence is missing."),
                 })
                 log.info("Work contract completion gate injected for task %s: %s", task_id, completion_verdict.get("missing_evidence"))
                 return False
@@ -3769,7 +3810,7 @@ class Body:
             reasons = ", ".join(completion_verdict.get("reasons") or []) or "pre_commit_blocked"
             missing = completion_verdict.get("missing_evidence") or []
             lines = [
-                "Blocked by PACT pre-commit evaluator.",
+                "I can't complete this with the available evidence.",
                 f"Reasons: {reasons}.",
             ]
             if missing:
@@ -3864,7 +3905,7 @@ class Body:
         if pre_commit_verdict.committable and completion_verdict.get("verdict") == "completed":
             return None
         return json.dumps({
-            "error": "send_message blocked by work contract",
+            "error": "send_message blocked by evidence check",
             "missing_evidence": completion_verdict.get("missing_evidence", []),
             "message": pre_commit_verdict.contract_verdict.get("message", "Required evidence is missing."),
         })
