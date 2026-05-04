@@ -12,6 +12,7 @@ import httpx
 _http = httpx.Client(timeout=10)
 _SIMULATED_TOOL_TAG_RE = re.compile(
     r"(</?(search|web[_\.-]?search|browse|fetch|tool|tools?|read_file|write_file)\b|"
+    r"</?(function_calls?|function_result|invoke|parameter)\b|"
     r"^\s*(search|web[_\.-]?search|browse|fetch|read_file|write_file)\s*\()",
     re.IGNORECASE | re.MULTILINE,
 )
