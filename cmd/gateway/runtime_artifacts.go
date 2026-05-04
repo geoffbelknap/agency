@@ -113,7 +113,8 @@ func verifyMicroagentRuntimeArtifacts(cfg map[string]string) error {
 
 func requireLinuxKVMAccess(missing *[]string) {
 	if err := hostruntimebackend.CheckLinuxKVMAccess(); err != nil {
-		*missing = append(*missing, fmt.Sprintf("KVM device access: %v; %s", err, hostruntimebackend.LinuxKVMAccessFix()))
+		fix := strings.ReplaceAll(hostruntimebackend.LinuxKVMAccessFix(), "\n", "\n    ")
+		*missing = append(*missing, fmt.Sprintf("KVM device access: %v\n    %s", err, fix))
 	}
 }
 
