@@ -92,6 +92,7 @@ brews:
       - name: e2fsprogs
     custom_block: |
       include Language::Python::Virtualenv
+      skip_clean "libexec/venv"
 
       resource "python-wheelhouse-darwin-arm64" do
         on_macos do

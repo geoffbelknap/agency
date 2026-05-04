@@ -41,5 +41,6 @@ formula="$(find dist -path '*/agency.rb' -type f | head -n1)"
 grep -q 'resource "python-wheelhouse-darwin-arm64"' "$formula"
 grep -q 'resource "python-wheelhouse-linux-amd64"' "$formula"
 grep -q 'virtualenv_create' "$formula"
+grep -q 'skip_clean "libexec/venv"' "$formula"
 
 echo "Homebrew release preflight passed."
