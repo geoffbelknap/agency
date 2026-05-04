@@ -53,7 +53,7 @@ func (inf *Infra) ensureHostComms(ctx context.Context) error {
 		return fmt.Errorf("prepare agents dir: %w", err)
 	}
 	if pid, ok := inf.hostInfraPID("comms"); ok {
-		if processAlive(pid) && inf.hostCommsHealthy(ctx) {
+		if processAlive(pid) && inf.hostInfraCurrentBuild("comms") && inf.hostCommsHealthy(ctx) {
 			return inf.ensureSystemChannels(ctx)
 		}
 		if err := inf.stopHostComms(ctx); err != nil {
@@ -174,7 +174,7 @@ func (inf *Infra) hostCommsStatus(ctx context.Context) runtimehost.InfraComponen
 	} else if ok {
 		status.State = "stopped"
 	}
-	status.BuildID = inf.BuildID
+	status.BuildID = inf.hostInfraBuildID("comms")
 	return status
 }
 

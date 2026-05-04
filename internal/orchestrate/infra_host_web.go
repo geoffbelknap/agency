@@ -31,7 +31,7 @@ func (inf *Infra) hostWebEnabled() bool {
 
 func (inf *Infra) ensureHostWeb(ctx context.Context) error {
 	if pid, ok := inf.hostInfraPID("web"); ok {
-		if processAlive(pid) && inf.hostWebHealthy(ctx) {
+		if processAlive(pid) && inf.hostInfraCurrentBuild("web") && inf.hostWebHealthy(ctx) {
 			return nil
 		}
 		if err := inf.stopHostWeb(ctx); err != nil {
@@ -203,7 +203,7 @@ func (inf *Infra) hostWebStatus(ctx context.Context) runtimehost.InfraComponent 
 	} else if ok {
 		status.State = "stopped"
 	}
-	status.BuildID = inf.BuildID
+	status.BuildID = inf.hostInfraBuildID("web")
 	return status
 }
 

@@ -98,6 +98,43 @@ func TestHostInfraLogsReadsTailFromMetadataLogFile(t *testing.T) {
 	}
 }
 
+func TestHostInfraMetadataRecordsBuildID(t *testing.T) {
+	inf := &Infra{Home: t.TempDir(), BuildID: "build-1"}
+	if err := os.MkdirAll(filepath.Join(inf.Home, "run"), 0o755); err != nil {
+		t.Fatalf("mkdir run dir: %v", err)
+	}
+	if err := inf.writeHostInfraMetadata("egress", 123, []string{"egress"}, "/tmp/egress.log", "http://127.0.0.1:8312/health"); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+
+	if got := inf.hostInfraBuildID("egress"); got != "build-1" {
+		t.Fatalf("hostInfraBuildID() = %q, want build-1", got)
+	}
+	if !inf.hostInfraCurrentBuild("egress") {
+		t.Fatalf("hostInfraCurrentBuild() = false, want true")
+	}
+}
+
+func TestHostInfraCurrentBuildRejectsMissingOrStaleMetadata(t *testing.T) {
+	inf := &Infra{Home: t.TempDir(), BuildID: "build-2"}
+	if err := os.MkdirAll(filepath.Join(inf.Home, "run"), 0o755); err != nil {
+		t.Fatalf("mkdir run dir: %v", err)
+	}
+
+	if inf.hostInfraCurrentBuild("egress") {
+		t.Fatalf("hostInfraCurrentBuild() = true with missing metadata, want false")
+	}
+	inf.BuildID = "build-1"
+	if err := inf.writeHostInfraMetadata("egress", 123, []string{"egress"}, "/tmp/egress.log", "http://127.0.0.1:8312/health"); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+	inf.BuildID = "build-2"
+
+	if inf.hostInfraCurrentBuild("egress") {
+		t.Fatalf("hostInfraCurrentBuild() = true with stale metadata, want false")
+	}
+}
+
 func TestHostInfraLogsRejectsUnknownComponent(t *testing.T) {
 	inf := &Infra{Home: t.TempDir()}
 	_, err := inf.InfraLogs(context.Background(), "../comms", 10)

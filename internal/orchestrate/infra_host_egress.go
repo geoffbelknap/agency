@@ -37,7 +37,7 @@ func (inf *Infra) ensureHostEgress(ctx context.Context) error {
 		return err
 	}
 	if pid, ok := inf.hostInfraPID("egress"); ok {
-		if processAlive(pid) && inf.hostEgressHealthy(ctx) {
+		if processAlive(pid) && inf.hostInfraCurrentBuild("egress") && inf.hostEgressHealthy(ctx) {
 			return nil
 		}
 		if err := inf.stopHostEgress(ctx); err != nil {
@@ -256,7 +256,7 @@ func (inf *Infra) hostEgressStatus(ctx context.Context) runtimehost.InfraCompone
 	} else if ok {
 		status.State = "stopped"
 	}
-	status.BuildID = inf.BuildID
+	status.BuildID = inf.hostInfraBuildID("egress")
 	return status
 }
 

@@ -38,7 +38,7 @@ func (inf *Infra) ensureHostKnowledge(ctx context.Context) error {
 		return fmt.Errorf("prepare knowledge registry snapshot: %w", err)
 	}
 	if pid, ok := inf.hostInfraPID("knowledge"); ok {
-		if processAlive(pid) && inf.hostKnowledgeHealthy(ctx) {
+		if processAlive(pid) && inf.hostInfraCurrentBuild("knowledge") && inf.hostKnowledgeHealthy(ctx) {
 			return nil
 		}
 		if err := inf.stopHostKnowledge(ctx); err != nil {
@@ -170,7 +170,7 @@ func (inf *Infra) hostKnowledgeStatus(ctx context.Context) runtimehost.InfraComp
 	} else if ok {
 		status.State = "stopped"
 	}
-	status.BuildID = inf.BuildID
+	status.BuildID = inf.hostInfraBuildID("knowledge")
 	return status
 }
 
