@@ -107,7 +107,14 @@ func verifyMicroagentRuntimeArtifacts(cfg map[string]string) error {
 	requireExecutable(&missing, "mke2fs", cfg["mke2fs_path"], "install e2fsprogs with Homebrew or set AGENCY_MKE2FS/hub.deployment_backend_config.mke2fs_path")
 	requireExecutable(&missing, "microagent host enforcer", cfg["enforcer_binary_path"], "run make host-enforcer or set AGENCY_MICROAGENT_ENFORCER_BIN/hub.deployment_backend_config.enforcer_binary_path")
 	requireVersionedArtifactRef(&missing, "microagent rootfs OCI artifact", firstNonEmptyConfigValue(cfg, "rootfs_oci_ref", "body_oci_ref"), "set hub.deployment_backend_config.rootfs_oci_ref to a versioned OCI artifact reference")
+	requireLinuxKVMAccess(&missing)
 	return artifactError(hostruntimebackend.BackendMicroagent, missing)
+}
+
+func requireLinuxKVMAccess(missing *[]string) {
+	if err := hostruntimebackend.CheckLinuxKVMAccess(); err != nil {
+		*missing = append(*missing, fmt.Sprintf("KVM device access: %v; %s", err, hostruntimebackend.LinuxKVMAccessFix()))
+	}
 }
 
 func requireReadable(missing *[]string, label, path, fix string) {

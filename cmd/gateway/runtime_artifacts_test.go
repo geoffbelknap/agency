@@ -80,6 +80,7 @@ func TestVerifyMicroagentRuntimeArtifactsFailsClosedWithGuidance(t *testing.T) {
 
 func TestVerifyMicroagentRuntimeArtifactsRejectsLatestRootFSRef(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("AGENCY_SKIP_KVM_ACCESS_CHECK", "1")
 	err := verifyMicroVMRuntimeArtifacts(hostruntimebackend.BackendMicroagent, map[string]string{
 		"binary_path":          executableFixture(t, dir, "microagent"),
 		"mke2fs_path":          executableFixture(t, dir, "mke2fs"),
@@ -93,6 +94,7 @@ func TestVerifyMicroagentRuntimeArtifactsRejectsLatestRootFSRef(t *testing.T) {
 
 func TestVerifyMicroagentRuntimeArtifactsPassesWithConfiguredArtifacts(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("AGENCY_SKIP_KVM_ACCESS_CHECK", "1")
 	cfg := map[string]string{
 		"binary_path":          executableFixture(t, dir, "microagent"),
 		"mke2fs_path":          executableFixture(t, dir, "mke2fs"),

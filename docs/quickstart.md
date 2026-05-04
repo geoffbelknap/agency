@@ -23,7 +23,19 @@ operator account:
 
 ```bash
 test -r /dev/kvm && test -w /dev/kvm
-test -r /dev/vhost-vsock && test -w /dev/vhost-vsock
+microagent doctor
+```
+
+If `/dev/kvm` is owned by `root:kvm` and the access test fails, add the
+operator account to the `kvm` group. On WSL2, shut the distro down from
+Windows afterward so the new group membership is applied:
+
+```bash
+sudo usermod -aG kvm $USER
+```
+
+```powershell
+wsl.exe --shutdown
 ```
 
 On macOS Apple silicon, microagent uses Apple's Virtualization framework.
