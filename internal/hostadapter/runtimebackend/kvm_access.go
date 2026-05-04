@@ -25,17 +25,17 @@ func CheckLinuxKVMAccess() error {
 		return fmt.Errorf("%s is not present", linuxKVMDevice)
 	}
 	if os.IsPermission(err) {
-		return fmt.Errorf("%s is not readable and writable by the current user: %w", linuxKVMDevice, err)
+		return fmt.Errorf("%s is not readable and writable by the current user", linuxKVMDevice)
 	}
 	return fmt.Errorf("%s cannot be opened read/write: %w", linuxKVMDevice, err)
 }
 
 func LinuxKVMAccessFix() string {
-	base := "run `sudo usermod -aG kvm $USER`"
+	base := "Make user a member of the kvm group:\n  sudo usermod -aG kvm $USER"
 	if linuxIsWSL() {
-		return base + ", then run `wsl.exe --shutdown` from Windows and reopen the distro"
+		return base + "\nThen run wsl.exe --shutdown from Windows"
 	}
-	return base + ", then start a new login session"
+	return base + "\nThen start a new login session"
 }
 
 func linuxIsWSL() bool {
