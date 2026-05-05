@@ -14,7 +14,7 @@
     "max_turns": 1,
     "max_agent_messages": 1,
     "max_response_words": 20,
-    "required_response_text": ["May 4, 2026"],
+    "required_current_date": true,
     "forbidden_response_text": ["I searched", "PACT", "work contract", "execution mode", "scratchpad", "complete_task"]
   },
   "replay_trace": {

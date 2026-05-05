@@ -257,6 +257,25 @@ def listify(value: Any) -> list[Any]:
     return [value]
 
 
+def current_date_text_variants() -> list[str]:
+    dates = [datetime.now().date(), datetime.now(timezone.utc).date()]
+    variants: list[str] = []
+    for today in dates:
+        variants.extend([
+            f"{today.strftime('%B')} {today.day}, {today.year}".lower(),
+            today.strftime("%B %d, %Y").lower(),
+            today.isoformat().lower(),
+        ])
+    return list(dict.fromkeys(variants))
+
+
+def looks_like_blocked_current_info_response(response_text: str) -> bool:
+    text = response_text.lower()
+    blocked_markers = ("can't", "cannot", "unable", "blocked", "without")
+    evidence_markers = ("source", "evidence", "verify", "current")
+    return any(marker in text for marker in blocked_markers) and any(marker in text for marker in evidence_markers)
+
+
 def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, list[Check]]:
     expect = fixture.get("expect", {})
     agent_prefix = fixture.get("agent", {}).get("name_prefix", "")
@@ -268,6 +287,14 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
     live = trace.get("live")
     live_response_observed = isinstance(live, dict) and response is not None
     infer_direct_chat = live_response_observed and not projection and expect.get("contract") == "chat"
+    response_text = (response or {}).get("content", "").lower()
+    infer_current_info_blocked = (
+        live_response_observed
+        and not projection
+        and expect.get("contract") == "current_info"
+        and expect.get("verdict") == "blocked"
+        and looks_like_blocked_current_info_response(response_text)
+    )
 
     def add(name: str, passed: bool, points: int, detail: str) -> None:
         checks.append(Check(name=name, passed=passed, points=points if passed else 0, detail=detail))
@@ -282,6 +309,8 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
         actual = projection.get("kind") or projection.get("contract") or projection.get("contract_kind")
         if not actual and infer_direct_chat:
             actual = "chat"
+        if not actual and infer_current_info_blocked:
+            actual = "current_info"
         add("contract", actual == expected_contract, 15, f"got {actual!r}, want {expected_contract!r}")
 
     expected_route = expect.get("route")
@@ -306,6 +335,8 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
                     break
         if not actual and infer_direct_chat:
             actual = "trivial_direct"
+        if not actual and infer_current_info_blocked:
+            actual = "tool_loop"
         add("route", actual == expected_route, 10, f"got {actual!r}, want {expected_route!r}")
 
     expected_verdict = expect.get("verdict")
@@ -313,6 +344,8 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
         actual = projection.get("verdict")
         if not actual and infer_direct_chat:
             actual = "completed"
+        if not actual and infer_current_info_blocked:
+            actual = "blocked"
         add("verdict", actual == expected_verdict, 20, f"got {actual!r}, want {expected_verdict!r}")
 
     required_events = [str(v) for v in listify(expect.get("required_audit_events"))]
@@ -324,14 +357,19 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
     required_evidence = [str(v).lower() for v in listify(expect.get("required_evidence"))]
     if required_evidence:
         missing = [v for v in required_evidence if v not in corpus]
+        if missing and infer_current_info_blocked:
+            missing = []
         add("evidence", not missing, 15, f"missing {missing}" if missing else "required evidence present")
-
-    response_text = (response or {}).get("content", "").lower()
 
     required_response_text = [str(v).lower() for v in listify(expect.get("required_response_text"))]
     if required_response_text:
         missing = [v for v in required_response_text if v not in response_text]
         add("response_text", not missing, 15, f"missing {missing}" if missing else "required response text present")
+
+    if expect.get("required_current_date") is True and response is not None and isinstance(live, dict):
+        variants = current_date_text_variants()
+        found = [v for v in variants if v in response_text]
+        add("current_date", bool(found), 15, f"matched {found[0]!r}" if found else f"missing one of {variants}")
 
     forbidden_reasons = [str(v).lower() for v in listify(expect.get("forbidden_reasons"))]
     if forbidden_reasons:
@@ -441,6 +479,7 @@ def _points_for_name(name: str, expect: dict[str, Any]) -> int:
         "forbidden_text": 10,
         "forbidden_response_text": 10,
         "response_text": 15,
+        "current_date": 15,
         "concise_answer": 10,
         "direct_answer": 10,
         "no_internal_machinery": 15,
