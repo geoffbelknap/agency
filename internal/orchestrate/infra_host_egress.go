@@ -140,6 +140,9 @@ func (inf *Infra) prepareHostEgressPaths() (hostEgressPaths, error) {
 	if err := repairMitmproxyCertStore(paths.certsDir); err != nil {
 		return paths, err
 	}
+	if err := config.EnsureEgressCACert(paths.certsDir); err != nil {
+		return paths, fmt.Errorf("prepare host egress CA: %w", err)
+	}
 	if entries, err := os.ReadDir(paths.certsDir); err == nil {
 		for _, e := range entries {
 			if !e.IsDir() {

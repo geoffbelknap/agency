@@ -26,6 +26,10 @@ import (
 //
 // If the combined file (mitmproxy-ca.pem) already exists, this is a no-op.
 // mitmproxy will use pre-existing certs rather than regenerating.
+func EnsureEgressCACert(certsDir string) error {
+	return ensureEgressCACert(certsDir)
+}
+
 func ensureEgressCACert(certsDir string) error {
 	combinedPath := filepath.Join(certsDir, "mitmproxy-ca.pem")
 	certOnlyPath := filepath.Join(certsDir, "mitmproxy-ca-cert.pem")
