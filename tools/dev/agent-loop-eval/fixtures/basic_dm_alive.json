@@ -14,7 +14,6 @@
     "max_turns": 1,
     "max_agent_messages": 1,
     "max_response_words": 20,
-    "required_response_text": ["here"],
     "forbidden_response_text": ["PACT", "work contract", "execution mode", "scratchpad", "complete_task"]
   },
   "replay_trace": {

@@ -37,7 +37,7 @@ Options:
   --fixture ID             Fixture to run. May be repeated. Default: basic_dm_alive.
   --agency-bin PATH        Agency binary to use. Default: repo ./agency.
   --source-home PATH       Source Agency home for credentials/routing. Default: ~/.agency.
-  --home-dir PATH          Disposable Agency home. Default: /private/tmp/agency-loop-eval-home-<version>-<fixture>-live.
+  --home-dir PATH          Disposable Agency home. Default: short per-fixture path under /private/tmp.
   --image-prefix PREFIX    OCI image prefix for --version refs. Default: ghcr.io/geoffbelknap.
   --response-timeout SEC   Live eval response timeout. Default: 120.
   --start-timeout SEC      Agent start timeout. Default: 180.
@@ -245,9 +245,10 @@ run_fixture() {
 }
 
 failures=0
+fixture_index=0
 for fixture in "${FIXTURES[@]}"; do
-  safe_fixture="$(printf '%s' "$fixture" | tr -c 'A-Za-z0-9._-' '-')"
-  fixture_home="${HOME_DIR:-/private/tmp/agency-loop-eval-home-${safe_id}-${safe_fixture}-live}"
+  fixture_index=$((fixture_index + 1))
+  fixture_home="${HOME_DIR:-/private/tmp/agl-${safe_id}-${fixture_index}}"
   if [[ ${#FIXTURES[@]} -gt 1 ]]; then
     printf '\n==> live fixture: %s\n' "$fixture"
   fi
