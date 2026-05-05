@@ -36,6 +36,18 @@ Equivalent repo helper:
 scripts/dev/agent-loop-live-gate.sh --version 0.3.19-dev-7a7fa33
 ```
 
+Additional direct-message fixtures can be run as a small suite:
+
+```bash
+scripts/dev/agent-loop-live-gate.sh \
+  --version 0.3.19-dev-7a7fa33 \
+  --fixture basic_dm_alive \
+  --fixture status_what_are_you_working_on \
+  --fixture plain_current_date \
+  --fixture mission_agent_casual_dm \
+  --fixture tool_honesty_no_fake_transcript
+```
+
 Result:
 
 ```text

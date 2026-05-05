@@ -37,6 +37,18 @@ Codex sandbox:
 scripts/dev/agent-loop-live-gate.sh --version 0.3.19-dev-7a7fa33
 ```
 
+Run a small live DM suite by repeating `--fixture`:
+
+```bash
+scripts/dev/agent-loop-live-gate.sh \
+  --version 0.3.19-dev-7a7fa33 \
+  --fixture basic_dm_alive \
+  --fixture status_what_are_you_working_on \
+  --fixture plain_current_date \
+  --fixture mission_agent_casual_dm \
+  --fixture tool_honesty_no_fake_transcript
+```
+
 The helper creates a disposable Agency home, starts host services on isolated
 ports, copies local routing and credential-swap config into the disposable
 home, extracts the darwin/arm64 host enforcer from the published OCI artifact,
