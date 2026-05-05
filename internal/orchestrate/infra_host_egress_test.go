@@ -9,6 +9,7 @@ import (
 func TestPrepareHostEgressPathsRepairsCertFileDirectories(t *testing.T) {
 	home := t.TempDir()
 	certPath := filepath.Join(home, "infrastructure", "egress", "certs", "mitmproxy-ca-cert.pem")
+	combinedPath := filepath.Join(home, "infrastructure", "egress", "certs", "mitmproxy-ca.pem")
 	if err := os.MkdirAll(certPath, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -22,8 +23,36 @@ func TestPrepareHostEgressPathsRepairsCertFileDirectories(t *testing.T) {
 	if paths.certsDir != filepath.Dir(certPath) {
 		t.Fatalf("certs dir = %q, want %q", paths.certsDir, filepath.Dir(certPath))
 	}
-	if _, err := os.Stat(certPath); !os.IsNotExist(err) {
-		t.Fatalf("invalid cert directory still exists: %v", err)
+	if info, err := os.Stat(certPath); err != nil || info.IsDir() {
+		t.Fatalf("cert file was not repaired: info=%v err=%v", info, err)
+	}
+	if info, err := os.Stat(combinedPath); err != nil || info.IsDir() {
+		t.Fatalf("combined cert file was not generated: info=%v err=%v", info, err)
+	}
+}
+
+func TestPrepareHostEgressPathsGeneratesMitmproxyCA(t *testing.T) {
+	home := t.TempDir()
+	certsDir := filepath.Join(home, "infrastructure", "egress", "certs")
+
+	inf := &Infra{Home: home}
+	paths, err := inf.prepareHostEgressPaths()
+	if err != nil {
+		t.Fatalf("prepareHostEgressPaths returned error: %v", err)
+	}
+
+	if paths.certsDir != certsDir {
+		t.Fatalf("certs dir = %q, want %q", paths.certsDir, certsDir)
+	}
+	for _, name := range []string{"mitmproxy-ca.pem", "mitmproxy-ca-cert.pem"} {
+		path := filepath.Join(certsDir, name)
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("%s not generated: %v", name, err)
+		}
+		if info.IsDir() || info.Size() == 0 {
+			t.Fatalf("%s invalid: info=%v", name, info)
+		}
 	}
 }
 

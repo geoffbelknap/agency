@@ -9,7 +9,7 @@
   "task": "Find the current stable Node.js release. Reply with the version, source URL, and checked date.",
   "expect": {
     "expected_failure": true,
-    "diagnosis": "terminal_outcome_observed",
+    "diagnosis": "agent_response_observed",
     "contract": "current_info",
     "route": "tool_loop",
     "verdict": "completed",

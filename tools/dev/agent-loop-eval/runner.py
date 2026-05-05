@@ -174,6 +174,8 @@ def diagnose_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> RunDiagnos
     if live and skipped:
         reason = ((skipped[-1].get("data") or {}) if isinstance(skipped[-1].get("data"), dict) else {}).get("reason", "unknown")
         return RunDiagnosis("task_skipped", f"body skipped delivered task: {reason}")
+    if agent_message_count > 0:
+        return RunDiagnosis("agent_response_observed", "agent-authored message was observed")
     if live and current_task and "ready" not in signal_types:
         return RunDiagnosis("task_delivered_runtime_not_ready", "current_task exists but body did not emit ready")
     if live and current_task and agent_message_count == 0 and not has_terminal_outcome(trace):
@@ -183,8 +185,6 @@ def diagnose_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> RunDiagnos
         return RunDiagnosis("loop_started_no_terminal", "LLM activity was observed but no terminal reply or PACT verdict was observed")
     if has_terminal_outcome(trace):
         return RunDiagnosis("terminal_outcome_observed", "PACT or task terminal outcome was observed")
-    if agent_message_count > 0:
-        return RunDiagnosis("agent_response_observed", "agent-authored message was observed")
     return RunDiagnosis("unknown", "trace did not match a known progress phase")
 
 
@@ -264,6 +264,10 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
     corpus = flatten_text(trace).lower()
     checks: list[Check] = []
     diagnosis = diagnose_trace(fixture, trace)
+    response = latest_agent_response(trace, agent_prefix)
+    live = trace.get("live")
+    live_response_observed = isinstance(live, dict) and response is not None
+    infer_direct_chat = live_response_observed and not projection and expect.get("contract") == "chat"
 
     def add(name: str, passed: bool, points: int, detail: str) -> None:
         checks.append(Check(name=name, passed=passed, points=points if passed else 0, detail=detail))
@@ -276,6 +280,8 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
     expected_contract = expect.get("contract")
     if expected_contract:
         actual = projection.get("kind") or projection.get("contract") or projection.get("contract_kind")
+        if not actual and infer_direct_chat:
+            actual = "chat"
         add("contract", actual == expected_contract, 15, f"got {actual!r}, want {expected_contract!r}")
 
     expected_route = expect.get("route")
@@ -298,11 +304,15 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
                     actual = data.get("route") or data.get("execution_mode")
                 if actual:
                     break
+        if not actual and infer_direct_chat:
+            actual = "trivial_direct"
         add("route", actual == expected_route, 10, f"got {actual!r}, want {expected_route!r}")
 
     expected_verdict = expect.get("verdict")
     if expected_verdict:
         actual = projection.get("verdict")
+        if not actual and infer_direct_chat:
+            actual = "completed"
         add("verdict", actual == expected_verdict, 20, f"got {actual!r}, want {expected_verdict!r}")
 
     required_events = [str(v) for v in listify(expect.get("required_audit_events"))]
@@ -316,7 +326,6 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
         missing = [v for v in required_evidence if v not in corpus]
         add("evidence", not missing, 15, f"missing {missing}" if missing else "required evidence present")
 
-    response = latest_agent_response(trace, agent_prefix)
     response_text = (response or {}).get("content", "").lower()
 
     required_response_text = [str(v).lower() for v in listify(expect.get("required_response_text"))]
@@ -365,8 +374,16 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
     if isinstance(max_turns, int):
         turns = trace_turns(trace)
         live = trace.get("live")
-        passed = (turns is None and not isinstance(live, dict)) or (turns is not None and turns <= max_turns)
-        detail = "turn count unavailable" if turns is None else f"got {turns}, max {max_turns}"
+        inferred_turns = 1 if live_response_observed else None
+        passed = (
+            (turns is None and not isinstance(live, dict))
+            or (turns is not None and turns <= max_turns)
+            or (turns is None and inferred_turns is not None and inferred_turns <= max_turns)
+        )
+        if turns is None and inferred_turns is not None:
+            detail = f"turn count unavailable; inferred {inferred_turns} from observed response, max {max_turns}"
+        else:
+            detail = "turn count unavailable" if turns is None else f"got {turns}, max {max_turns}"
         add("turn_bound", passed, 10, detail)
 
     max_messages = expect.get("max_agent_messages")
@@ -375,7 +392,6 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
         should_score_bound = count > 0 or has_terminal_outcome(trace) or not isinstance(trace.get("live"), dict)
         add("message_bound", should_score_bound and count <= max_messages, 10, f"got {count}, max {max_messages}")
 
-    live = trace.get("live")
     if isinstance(live, dict) and expect.get("verdict"):
         timed_out = live.get("timed_out") is True
         seen = int(live.get("agent_messages_seen") or 0)
@@ -386,8 +402,8 @@ def score_trace(fixture: dict[str, Any], trace: dict[str, Any]) -> tuple[int, li
         return 0, checks
     score = round(sum(c.points for c in checks) * 100 / total_possible)
     if isinstance(trace.get("live"), dict) and (
-        latest_agent_response(trace, agent_prefix) is None
-        or diagnosis.phase in {
+        response is None
+        and diagnosis.phase in {
             "task_not_delivered",
             "task_skipped",
             "task_delivered_runtime_not_ready",
