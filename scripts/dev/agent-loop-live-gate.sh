@@ -6,7 +6,7 @@ AGENCY_BIN="$ROOT/agency"
 VERSION=""
 BODY_REF=""
 ENFORCER_REF=""
-FIXTURE="basic_dm_alive"
+FIXTURES=()
 SOURCE_HOME="$HOME/.agency"
 HOME_DIR=""
 HOST_ENFORCER=""
@@ -26,7 +26,7 @@ Usage:
   scripts/dev/agent-loop-live-gate.sh --version VERSION [options]
   scripts/dev/agent-loop-live-gate.sh --body-ref REF --enforcer-ref REF [options]
 
-Runs one live agent-loop eval fixture against a disposable Agency home using
+Runs live agent-loop eval fixtures against disposable Agency homes using
 published runtime OCI artifacts. Run this from a normal terminal on macOS; do
 not run Apple Virtualization live work from the Codex sandbox.
 
@@ -34,7 +34,7 @@ Options:
   --version VERSION        Runtime artifact version, for example 0.3.19-dev-7a7fa33.
   --body-ref REF           Full body OCI ref. Overrides --version body ref.
   --enforcer-ref REF       Full enforcer OCI ref. Overrides --version enforcer ref.
-  --fixture ID             Fixture to run. Default: basic_dm_alive.
+  --fixture ID             Fixture to run. May be repeated. Default: basic_dm_alive.
   --agency-bin PATH        Agency binary to use. Default: repo ./agency.
   --source-home PATH       Source Agency home for credentials/routing. Default: ~/.agency.
   --home-dir PATH          Disposable Agency home. Default: /private/tmp/agency-loop-eval-home-<version>-<fixture>-live.
@@ -69,7 +69,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --fixture)
       [[ $# -ge 2 ]] || die "--fixture requires a value"
-      FIXTURE="$2"
+      FIXTURES+=("$2")
       shift 2
       ;;
     --agency-bin)
@@ -125,10 +125,12 @@ fi
 [[ -f "$SOURCE_HOME/infrastructure/routing.yaml" ]] || die "missing source routing file: $SOURCE_HOME/infrastructure/routing.yaml"
 command -v openssl >/dev/null || die "openssl is required"
 
+if [[ ${#FIXTURES[@]} -eq 0 ]]; then
+  FIXTURES=("basic_dm_alive")
+fi
+
 safe_id="${VERSION:-$(basename "$BODY_REF")}"
 safe_id="$(printf '%s' "$safe_id" | tr -c 'A-Za-z0-9._-' '-')"
-safe_fixture="$(printf '%s' "$FIXTURE" | tr -c 'A-Za-z0-9._-' '-')"
-HOME_DIR="${HOME_DIR:-/private/tmp/agency-loop-eval-home-${safe_id}-${safe_fixture}-live}"
 HOST_ENFORCER="${HOST_ENFORCER:-/private/tmp/agency-enforcer-host-${safe_id}}"
 
 cleanup() {
@@ -153,25 +155,29 @@ if [[ ! -x "$HOST_ENFORCER" ]]; then
   chmod +x "$HOST_ENFORCER"
 fi
 
-rm -rf "$HOME_DIR"
-mkdir -p "$HOME_DIR/credentials" "$HOME_DIR/infrastructure" "$HOME_DIR/infrastructure/egress/certs"
+prepare_home() {
+  local fixture="$1"
+  local fixture_home="$2"
 
-openssl req \
-  -x509 \
-  -newkey rsa:2048 \
-  -nodes \
-  -keyout "$HOME_DIR/infrastructure/egress/certs/mitmproxy-ca-key.pem" \
-  -out "$HOME_DIR/infrastructure/egress/certs/mitmproxy-ca-cert.pem" \
-  -days 3650 \
-  -subj "/CN=mitmproxy/O=mitmproxy" >/tmp/agency-live-gate-openssl.log 2>&1
-cat \
-  "$HOME_DIR/infrastructure/egress/certs/mitmproxy-ca-key.pem" \
-  "$HOME_DIR/infrastructure/egress/certs/mitmproxy-ca-cert.pem" \
-  >"$HOME_DIR/infrastructure/egress/certs/mitmproxy-ca.pem"
-chmod 600 "$HOME_DIR/infrastructure/egress/certs/mitmproxy-ca.pem"
-chmod 644 "$HOME_DIR/infrastructure/egress/certs/mitmproxy-ca-cert.pem"
+  rm -rf "$fixture_home"
+  mkdir -p "$fixture_home/credentials" "$fixture_home/infrastructure" "$fixture_home/infrastructure/egress/certs"
 
-cat >"$HOME_DIR/config.yaml" <<EOF
+  openssl req \
+    -x509 \
+    -newkey rsa:2048 \
+    -nodes \
+    -keyout "$fixture_home/infrastructure/egress/certs/mitmproxy-ca-key.pem" \
+    -out "$fixture_home/infrastructure/egress/certs/mitmproxy-ca-cert.pem" \
+    -days 3650 \
+    -subj "/CN=mitmproxy/O=mitmproxy" >/tmp/agency-live-gate-openssl.log 2>&1
+  cat \
+    "$fixture_home/infrastructure/egress/certs/mitmproxy-ca-key.pem" \
+    "$fixture_home/infrastructure/egress/certs/mitmproxy-ca-cert.pem" \
+    >"$fixture_home/infrastructure/egress/certs/mitmproxy-ca.pem"
+  chmod 600 "$fixture_home/infrastructure/egress/certs/mitmproxy-ca.pem"
+  chmod 644 "$fixture_home/infrastructure/egress/certs/mitmproxy-ca-cert.pem"
+
+  cat >"$fixture_home/config.yaml" <<EOF
 gateway_addr: 127.0.0.1:${PORT}
 token: agency-loop-eval-token
 llm_provider: anthropic
@@ -183,10 +189,10 @@ hub:
     entrypoint: /app/entrypoint.sh
     mke2fs_path: /opt/homebrew/opt/e2fsprogs/sbin/mke2fs
     rootfs_oci_ref: ${BODY_REF}
-    state_dir: ${HOME_DIR}/runtime/microagent
+    state_dir: ${fixture_home}/runtime/microagent
 EOF
 
-cat >"$HOME_DIR/capacity.yaml" <<'EOF'
+  cat >"$fixture_home/capacity.yaml" <<'EOF'
 host_memory_mb: 8192
 host_cpu_cores: 4
 system_reserve_mb: 2048
@@ -198,35 +204,59 @@ meeseeks_slot_mb: 640
 network_pool_configured: false
 EOF
 
-cp "$SOURCE_HOME/credentials/.key" "$SOURCE_HOME/credentials/store.enc" "$HOME_DIR/credentials/"
-cp "$SOURCE_HOME/infrastructure/routing.yaml" "$HOME_DIR/infrastructure/routing.yaml"
-if [[ -f "$SOURCE_HOME/infrastructure/credential-swaps.yaml" ]]; then
-  cp "$SOURCE_HOME/infrastructure/credential-swaps.yaml" "$HOME_DIR/infrastructure/credential-swaps.yaml"
-fi
-if [[ -f "$SOURCE_HOME/infrastructure/credential-swaps.local.yaml" ]]; then
-  cp "$SOURCE_HOME/infrastructure/credential-swaps.local.yaml" "$HOME_DIR/infrastructure/credential-swaps.local.yaml"
-fi
-
-cleanup
-
-export AGENCY_HOME="$HOME_DIR"
-export AGENCY_GATEWAY_PROXY_PORT="$COMMS_PORT"
-export AGENCY_GATEWAY_PROXY_KNOWLEDGE_PORT="$KNOWLEDGE_PORT"
-export AGENCY_WEB_FETCH_PORT="$WEB_FETCH_PORT"
-export AGENCY_WEB_PORT="$WEB_PORT"
-export AGENCY_EGRESS_PROXY_PORT="$EGRESS_PORT"
-"$AGENCY_BIN" serve >/tmp/agency-live-gate-daemon.log 2>&1 &
-
-for _ in $(seq 1 40); do
-  if "$AGENCY_BIN" serve status >/tmp/agency-live-gate-status.log 2>&1; then
-    break
+  cp "$SOURCE_HOME/credentials/.key" "$SOURCE_HOME/credentials/store.enc" "$fixture_home/credentials/"
+  cp "$SOURCE_HOME/infrastructure/routing.yaml" "$fixture_home/infrastructure/routing.yaml"
+  if [[ -f "$SOURCE_HOME/infrastructure/credential-swaps.yaml" ]]; then
+    cp "$SOURCE_HOME/infrastructure/credential-swaps.yaml" "$fixture_home/infrastructure/credential-swaps.yaml"
   fi
-  sleep 0.25
+  if [[ -f "$SOURCE_HOME/infrastructure/credential-swaps.local.yaml" ]]; then
+    cp "$SOURCE_HOME/infrastructure/credential-swaps.local.yaml" "$fixture_home/infrastructure/credential-swaps.local.yaml"
+  fi
+}
+
+run_fixture() {
+  local fixture="$1"
+  local fixture_home="$2"
+
+  prepare_home "$fixture" "$fixture_home"
+  cleanup
+
+  export AGENCY_HOME="$fixture_home"
+  export AGENCY_GATEWAY_PROXY_PORT="$COMMS_PORT"
+  export AGENCY_GATEWAY_PROXY_KNOWLEDGE_PORT="$KNOWLEDGE_PORT"
+  export AGENCY_WEB_FETCH_PORT="$WEB_FETCH_PORT"
+  export AGENCY_WEB_PORT="$WEB_PORT"
+  export AGENCY_EGRESS_PROXY_PORT="$EGRESS_PORT"
+  "$AGENCY_BIN" serve >/tmp/agency-live-gate-daemon.log 2>&1 &
+
+  for _ in $(seq 1 40); do
+    if "$AGENCY_BIN" serve status >/tmp/agency-live-gate-status.log 2>&1; then
+      break
+    fi
+    sleep 0.25
+  done
+
+  "$ROOT/scripts/dev/dev-agent-loop-eval.sh" \
+    --mode live \
+    --fixture "$fixture" \
+    --agency-bin "$AGENCY_BIN" \
+    --response-timeout "$RESPONSE_TIMEOUT" \
+    --start-timeout "$START_TIMEOUT"
+}
+
+failures=0
+for fixture in "${FIXTURES[@]}"; do
+  safe_fixture="$(printf '%s' "$fixture" | tr -c 'A-Za-z0-9._-' '-')"
+  fixture_home="${HOME_DIR:-/private/tmp/agency-loop-eval-home-${safe_id}-${safe_fixture}-live}"
+  if [[ ${#FIXTURES[@]} -gt 1 ]]; then
+    printf '\n==> live fixture: %s\n' "$fixture"
+  fi
+  if ! run_fixture "$fixture" "$fixture_home"; then
+    failures=$((failures + 1))
+  fi
+  cleanup
 done
 
-"$ROOT/scripts/dev/dev-agent-loop-eval.sh" \
-  --mode live \
-  --fixture "$FIXTURE" \
-  --agency-bin "$AGENCY_BIN" \
-  --response-timeout "$RESPONSE_TIMEOUT" \
-  --start-timeout "$START_TIMEOUT"
+if [[ $failures -gt 0 ]]; then
+  die "$failures live fixture(s) failed"
+fi
