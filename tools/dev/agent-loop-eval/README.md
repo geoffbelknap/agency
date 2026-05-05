@@ -29,6 +29,19 @@ Agency home and infra:
 ./scripts/dev/dev-agent-loop-eval.sh --mode live --fixture current_info_terminates_after_retry
 ```
 
+For artifact-based microagent validation on macOS, run the live gate helper
+from a normal terminal so Apple Virtualization work does not run inside the
+Codex sandbox:
+
+```bash
+scripts/dev/agent-loop-live-gate.sh --version 0.3.19-dev-7a7fa33
+```
+
+The helper creates a disposable Agency home, starts host services on isolated
+ports, copies local routing and credential-swap config into the disposable
+home, extracts the darwin/arm64 host enforcer from the published OCI artifact,
+and then runs one live fixture through this harness.
+
 Use `--keep-agent` to preserve the disposable agent for debugging.
 
 The terminal report is intentionally evidence-first: it prints the task,
